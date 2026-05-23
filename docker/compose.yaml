@@ -1,0 +1,159 @@
+name: sparkclaw
+
+services:
+  gateway:
+    profiles: ["minimal", "dev", "eval", "compat", "models-local"]
+    build:
+      context: ..
+      dockerfile: docker/images/gateway.Dockerfile
+    env_file:
+      - env/sparkclaw.example.env
+    environment:
+      SPARKCLAW_BIND: 0.0.0.0
+      SPARKCLAW_BROWSER_READ_ALLOW_HOSTS: ${SPARKCLAW_BROWSER_READ_ALLOW_HOSTS:-}
+      SPARKCLAW_ARTIFACT_BACKEND: ${SPARKCLAW_ARTIFACT_BACKEND:-filesystem}
+      SPARKCLAW_ARTIFACT_DIR: ${SPARKCLAW_ARTIFACT_DIR:-/var/lib/sparkclaw/artifacts}
+      SPARKCLAW_ARTIFACT_BUCKET: ${SPARKCLAW_ARTIFACT_BUCKET:-sparkclaw}
+      SPARKCLAW_S3_ENDPOINT: ${SPARKCLAW_S3_ENDPOINT:-http://minio:9000}
+      SPARKCLAW_S3_REGION: ${SPARKCLAW_S3_REGION:-us-east-1}
+      SPARKCLAW_S3_ACCESS_KEY: ${SPARKCLAW_S3_ACCESS_KEY:-sparkclaw}
+      SPARKCLAW_S3_SECRET_KEY: ${SPARKCLAW_S3_SECRET_KEY:-sparkclaw-local}
+      SPARKCLAW_EMAIL_ADAPTER_BACKEND: ${SPARKCLAW_EMAIL_ADAPTER_BACKEND:-file}
+      SPARKCLAW_EMAIL_ADAPTER_URL: ${SPARKCLAW_EMAIL_ADAPTER_URL:-}
+      SPARKCLAW_CALENDAR_ADAPTER_BACKEND: ${SPARKCLAW_CALENDAR_ADAPTER_BACKEND:-file}
+      SPARKCLAW_CALENDAR_ADAPTER_URL: ${SPARKCLAW_CALENDAR_ADAPTER_URL:-}
+      SPARKCLAW_STATE_BACKEND: ${SPARKCLAW_STATE_BACKEND:-file}
+      SPARKCLAW_STATE_DSN: ${SPARKCLAW_STATE_DSN:-postgres://sparkclaw:sparkclaw@postgres:5432/sparkclaw?sslmode=disable}
+      SPARKCLAW_SANDBOX_BACKEND: ${SPARKCLAW_SANDBOX_BACKEND:-http}
+      SPARKCLAW_SANDBOX_RUNNER_URL: ${SPARKCLAW_SANDBOX_RUNNER_URL:-http://sandbox-runner:18889}
+      SPARKCLAW_EMBEDDING_BASE_URL: ${SPARKCLAW_EMBEDDING_BASE_URL:-http://sparkclaw-embedding:8003/v1}
+      SPARKCLAW_EMBEDDING_MODEL: ${SPARKCLAW_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      SPARKCLAW_RERANKER_BASE_URL: ${SPARKCLAW_RERANKER_BASE_URL:-http://sparkclaw-reranker:8004/v1}
+      SPARKCLAW_RERANKER_MODEL: ${SPARKCLAW_RERANKER_MODEL:-Qwen/Qwen3-Reranker-0.6B}
+    ports:
+      - "127.0.0.1:18789:18789"
+    volumes:
+      - ../configs:/app/configs:ro
+      - ../data/workspaces:/var/lib/sparkclaw/workspaces
+      - ../data/traces:/var/lib/sparkclaw/traces
+      - ../data/artifacts:/var/lib/sparkclaw/artifacts
+      - ../data/memory:/var/lib/sparkclaw/memory
+      - ../data/logs:/var/log/sparkclaw
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18789/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - sparkclaw_internal
+
+  sandbox-runner:
+    profiles: ["minimal", "dev", "eval", "models-local"]
+    build:
+      context: ..
+      dockerfile: docker/images/sandbox-runner.Dockerfile
+    environment:
+      SPARKCLAW_SANDBOX_RUNNER_ADDR: 0.0.0.0:18889
+      SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT: ${SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT:-${PWD}/data/workspaces}
+      SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT: /var/lib/sparkclaw/workspaces
+    ports:
+      - "127.0.0.1:18889:18889"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../data/workspaces:/var/lib/sparkclaw/workspaces
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18889/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - sparkclaw_internal
+
+  webchat:
+    profiles: ["minimal", "dev", "eval", "compat", "models-local"]
+    build:
+      context: ..
+      dockerfile: docker/images/webchat.Dockerfile
+    ports:
+      - "127.0.0.1:18790:18790"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - sparkclaw_internal
+
+  postgres:
+    profiles: ["models-local", "eval"]
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: sparkclaw
+      POSTGRES_PASSWORD: sparkclaw
+      POSTGRES_DB: sparkclaw
+    volumes:
+      - sparkclaw_pg:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sparkclaw -d sparkclaw"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sparkclaw_internal
+
+  minio:
+    profiles: ["models-local", "eval"]
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: sparkclaw
+      MINIO_ROOT_PASSWORD: sparkclaw-local
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - sparkclaw_minio:/data
+    networks:
+      - sparkclaw_internal
+
+  minio-init:
+    profiles: ["models-local", "eval"]
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      - minio
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until mc alias set sparkclaw http://minio:9000 sparkclaw sparkclaw-local >/dev/null 2>&1; do sleep 1; done
+        mc mb --ignore-existing sparkclaw/${SPARKCLAW_ARTIFACT_BUCKET:-sparkclaw}
+    networks:
+      - sparkclaw_internal
+
+  evaluator:
+    profiles: ["eval"]
+    build:
+      context: ..
+      dockerfile: docker/images/evaluator.Dockerfile
+    environment:
+      SPARKCLAW_EVALUATOR_GATEWAY_URL: http://gateway:18789
+      SPARKCLAW_EVALUATOR_PROFILE: api-smoke
+      SPARKCLAW_EVALUATOR_OUTPUT: /reports/evaluator-report.json
+      SPARKCLAW_EVALUATOR_CONFIG: /app/configs/eval.profiles.json
+    volumes:
+      - ../configs:/app/configs:ro
+      - ../data/eval:/reports
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - sparkclaw_internal
+
+networks:
+  sparkclaw_internal:
+    driver: bridge
+
+volumes:
+  sparkclaw_pg:
+  sparkclaw_minio:

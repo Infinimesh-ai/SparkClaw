@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sparkclaw.local/schemas/approval.schema.json",
+  "title": "SparkClaw Approval",
+  "type": "object",
+  "required": ["id", "session_id", "run_id", "tool_call_id", "tool", "risk", "status", "summary", "reason", "arguments", "created_at"],
+  "properties": {
+    "id": { "type": "string" },
+    "session_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "tool_call_id": { "type": "string" },
+    "tool": { "type": "string" },
+    "risk": { "enum": ["read", "draft", "reversible", "dangerous"] },
+    "status": { "enum": ["pending", "approved", "rejected", "modified"] },
+    "summary": { "type": "string" },
+    "reason": { "type": "string" },
+    "resources": { "type": "array", "items": { "type": "string" } },
+    "arguments": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "resolved_at": { "type": "string", "format": "date-time" },
+    "resolution_note": { "type": "string" }
+  },
+  "additionalProperties": false
+}

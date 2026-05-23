@@ -1,0 +1,401 @@
+export type RiskLevel = "read" | "draft" | "reversible" | "dangerous";
+
+export type Session = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Message = {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  run_id?: string;
+};
+
+export type RunFeedback = {
+  id: string;
+  session_id: string;
+  run_id: string;
+  message_id?: string;
+  rating: "up" | "down" | "corrected";
+  note?: string;
+  correction?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ToolCall = {
+  id: string;
+  session_id: string;
+  run_id: string;
+  tool: string;
+  risk: RiskLevel;
+  status: string;
+  arguments: Record<string, unknown>;
+  result?: unknown;
+  error?: string;
+  approval_id?: string;
+  observation_ref?: string;
+  observation_summary?: string;
+  started_at: string;
+  completed_at?: string;
+};
+
+export type Approval = {
+  id: string;
+  session_id: string;
+  run_id: string;
+  tool_call_id: string;
+  tool: string;
+  risk: RiskLevel;
+  status: string;
+  summary: string;
+  reason: string;
+  resources: string[];
+  arguments: Record<string, unknown>;
+  created_at: string;
+  resolved_at?: string;
+  resolution_note?: string;
+};
+
+export type MemoryCandidate = {
+  id: string;
+  session_id: string;
+  run_id: string;
+  kind: string;
+  content: string;
+  sensitivity: string;
+  status: string;
+  reason: string;
+  created_at: string;
+  resolved_at?: string;
+};
+
+export type Memory = {
+  id: string;
+  kind: string;
+  content: string;
+  source_run_id: string;
+  created_at: string;
+};
+
+export type AgentResult = {
+  run: {
+    id: string;
+    session_id: string;
+    state: string;
+    model_lane: string;
+    risk: RiskLevel;
+    started_at: string;
+    completed_at?: string;
+    summary?: string;
+  };
+  message: Message;
+  tool_calls: ToolCall[];
+  approvals: Approval[];
+};
+
+export type ApprovalResolution = {
+  approval: Approval;
+  tool_call?: ToolCall | null;
+};
+
+export type ReadyStatus = {
+  ok: boolean;
+  workspace_root: string;
+  trace_dir: string;
+  state_backend: string;
+  state_path: string;
+  state_dsn?: string;
+  auth_required?: boolean;
+  rate_limit?: {
+    enabled: boolean;
+    requests_per_minute: number;
+    burst: number;
+  };
+  model_mode: string;
+  gateway_binding: string;
+};
+
+export type OwnerProfile = {
+  id: string;
+  display_name: string;
+  email?: string;
+  preferences?: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Client = {
+  id: string;
+  name: string;
+  created_at: string;
+  last_seen_at?: string;
+  revoked_at?: string;
+};
+
+export type PublicModelProfile = {
+  name: string;
+  base_url: string;
+  model: string;
+  context_tokens: number;
+  mtp: boolean;
+};
+
+export type PublicConfig = {
+  gateway: {
+    bind: string;
+    port: number;
+    pairing_required: boolean;
+    remote_access: string;
+    api_token?: string;
+    rate_limit: {
+      enabled: boolean;
+      requests_per_minute: number;
+      burst: number;
+    };
+  };
+  model: {
+    mock: boolean;
+    fast: PublicModelProfile;
+    deep: PublicModelProfile;
+    embedding: PublicModelProfile;
+    reranker: PublicModelProfile;
+    guard: PublicModelProfile;
+  };
+  workspaces: {
+    default_root: string;
+    allowlist: string[];
+  };
+  security: {
+    external_content_untrusted: boolean;
+    approval_required_for_dangerous_tools: boolean;
+    sandbox_required_for_mutating_tools: boolean;
+    dangerous_tools_require_deep_verification: boolean;
+    denied_tools: string[];
+    approval_required_tools: string[];
+    tool_policy_path: string;
+    browser_read_allow_hosts: string[];
+  };
+  sandbox: {
+    enabled: boolean;
+    backend: string;
+    runner_url: string;
+    image: string;
+    network: string;
+    workspace_access: string;
+    host_access: string;
+  };
+  storage: {
+    trace_dir: string;
+    log_dir: string;
+    artifact_backend: string;
+    artifact_dir: string;
+    artifact_bucket: string;
+    s3_endpoint: string;
+    s3_region: string;
+    s3_access_key: string;
+    s3_secret_key: string;
+  };
+  state: {
+    backend: string;
+    path: string;
+    dsn: string;
+    encrypt_at_rest: boolean;
+    encryption_key: string;
+    encryption_key_file: string;
+  };
+  adapters: {
+    email: { backend: string; base_url: string; token: string };
+    calendar: { backend: string; base_url: string; token: string };
+  };
+  memory: {
+    enabled: boolean;
+    write_policy: string;
+    allow_sensitive_memory: boolean;
+    retention_days: number;
+    redact_patterns: string[];
+  };
+  skills: {
+    dirs: string[];
+  };
+  runtime: {
+    observation_summary_max_bytes: number;
+  };
+  tool_policy: {
+    policy_path: string;
+    external_content_untrusted: boolean;
+    approval_required_for_dangerous_tools: boolean;
+    sandbox_required_for_mutating_tools: boolean;
+    dangerous_tools_deep_verification: boolean;
+    definition_count: number;
+    risk_counts: Record<string, number>;
+    definition_approval_required_tools: string[];
+    configured_approval_required_tools: string[];
+    denied_tools: string[];
+    browser_read_allow_hosts: string[];
+  };
+};
+
+export type EvalCase = {
+  name: string;
+  status: string;
+  message: string;
+  duration_ms: number;
+};
+
+export type EvalRun = {
+  id: string;
+  profile: string;
+  status: string;
+  summary: string;
+  cases: EvalCase[];
+  failure_archives?: Array<{
+    case_name: string;
+    uri: string;
+    path?: string;
+    key?: string;
+    backend: string;
+    content_type: string;
+    bytes: number;
+  }>;
+  started_at: string;
+  completed_at?: string;
+};
+
+export type ArtifactObject = {
+  id: string;
+  kind: string;
+  run_id?: string;
+  eval_id?: string;
+  session_id?: string;
+  backend: string;
+  bucket?: string;
+  key: string;
+  uri: string;
+  path?: string;
+  content_type: string;
+  bytes: number;
+  created_at: string;
+};
+
+export type EpisodeSummary = {
+  id: string;
+  session_id: string;
+  run_id: string;
+  goal: string;
+  outcome: string;
+  risk: RiskLevel;
+  model_lane: string;
+  tools: string[];
+  approvals: string[];
+  failures?: string[];
+  repair_performed: boolean;
+  summary: string;
+  created_at: string;
+};
+
+export type MemoryExport = {
+  generated_at: string;
+  owner_profile: OwnerProfile;
+  memories: Memory[];
+  memory_candidates: MemoryCandidate[];
+  episodes: EpisodeSummary[];
+  counts: {
+    memories: number;
+    memory_candidates: number;
+    pending_candidates: number;
+    episodes: number;
+  };
+};
+
+export type MemoryExportArchive = {
+  export: MemoryExport;
+  artifact: ArtifactObject;
+};
+
+export type ModelCall = {
+  id: string;
+  session_id?: string;
+  run_id?: string;
+  lane: string;
+  profile: string;
+  model: string;
+  operation: string;
+  mock: boolean;
+  fallback?: boolean;
+  status: string;
+  prompt_tokens: number;
+  response_tokens: number;
+  total_tokens: number;
+  latency_ms: number;
+  error?: string;
+  started_at: string;
+  completed_at?: string;
+};
+
+export type AuditEvent = {
+  id: string;
+  time: string;
+  type: string;
+  session_id?: string;
+  run_id?: string;
+  actor: string;
+  summary: string;
+  fields?: Record<string, unknown>;
+};
+
+export type RunTrace = {
+  run: AgentResult["run"];
+  model: {
+    lane: string;
+    profile: string;
+    model: string;
+    content: string;
+    mock: boolean;
+    fallback?: boolean;
+    error_note?: string;
+  };
+  model_calls?: ModelCall[];
+  messages: Message[];
+  tool_calls: ToolCall[];
+  approvals: Approval[];
+  feedback?: RunFeedback[];
+  audit: AuditEvent[];
+  episode?: EpisodeSummary;
+};
+
+export type TraceMetadata = {
+  run_id: string;
+  session_id: string;
+  state: string;
+  risk: RiskLevel;
+  model_lane: string;
+  summary?: string;
+  started_at: string;
+  completed_at?: string;
+  message_count: number;
+  tool_call_count: number;
+  approval_count: number;
+  model_call_count: number;
+  artifact_uri?: string;
+  artifact_path?: string;
+};
+
+export type Skill = {
+  name: string;
+  description: string;
+  risk_level: string;
+  input_schema?: Record<string, unknown>;
+  dependencies: string[];
+  eval_cases: string[];
+  allowed_tools: string[];
+  denied_tools: string[];
+  keywords: string[];
+  path: string;
+  body_preview: string;
+};

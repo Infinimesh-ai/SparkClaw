@@ -1,0 +1,8 @@
+{
+  "allowed": true,
+  "requires_approval": true,
+  "requires_sandbox": true,
+  "requires_deep": true,
+  "reason": "approval required by risk policy",
+  "resources": ["command:ls -la"]
+}

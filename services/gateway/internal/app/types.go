@@ -1,0 +1,359 @@
+package app
+
+import "time"
+
+type RiskLevel string
+
+const (
+	RiskRead       RiskLevel = "read"
+	RiskDraft      RiskLevel = "draft"
+	RiskReversible RiskLevel = "reversible"
+	RiskDangerous  RiskLevel = "dangerous"
+)
+
+type ToolDefinition struct {
+	Name             string         `json:"name"`
+	Description      string         `json:"description"`
+	InputSchema      map[string]any `json:"input_schema"`
+	OutputSchema     map[string]any `json:"output_schema,omitempty"`
+	Risk             RiskLevel      `json:"risk"`
+	RequiresApproval bool           `json:"requires_approval"`
+	Idempotent       bool           `json:"idempotent"`
+	TimeoutMS        int            `json:"timeout_ms"`
+	Sandbox          string         `json:"sandbox"`
+	Audit            string         `json:"audit"`
+}
+
+type ToolCall struct {
+	ID                 string         `json:"id"`
+	SessionID          string         `json:"session_id"`
+	RunID              string         `json:"run_id"`
+	Tool               string         `json:"tool"`
+	Risk               RiskLevel      `json:"risk"`
+	Status             string         `json:"status"`
+	Arguments          map[string]any `json:"arguments"`
+	Result             any            `json:"result,omitempty"`
+	Error              string         `json:"error,omitempty"`
+	ApprovalID         string         `json:"approval_id,omitempty"`
+	StartedAt          time.Time      `json:"started_at"`
+	CompletedAt        *time.Time     `json:"completed_at,omitempty"`
+	ObservationRef     string         `json:"observation_ref,omitempty"`
+	ObservationSummary string         `json:"observation_summary,omitempty"`
+}
+
+type Approval struct {
+	ID             string         `json:"id"`
+	SessionID      string         `json:"session_id"`
+	RunID          string         `json:"run_id"`
+	ToolCallID     string         `json:"tool_call_id"`
+	Tool           string         `json:"tool"`
+	Risk           RiskLevel      `json:"risk"`
+	Status         string         `json:"status"`
+	Summary        string         `json:"summary"`
+	Reason         string         `json:"reason"`
+	Resources      []string       `json:"resources"`
+	Arguments      map[string]any `json:"arguments"`
+	CreatedAt      time.Time      `json:"created_at"`
+	ResolvedAt     *time.Time     `json:"resolved_at,omitempty"`
+	ResolutionNote string         `json:"resolution_note,omitempty"`
+}
+
+type Memory struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	Content   string    `json:"content"`
+	SourceID  string    `json:"source_run_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type MemoryCandidate struct {
+	ID          string     `json:"id"`
+	SessionID   string     `json:"session_id"`
+	RunID       string     `json:"run_id"`
+	Kind        string     `json:"kind"`
+	Content     string     `json:"content"`
+	Sensitivity string     `json:"sensitivity"`
+	Status      string     `json:"status"`
+	Reason      string     `json:"reason"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
+}
+
+type MemoryExport struct {
+	GeneratedAt      time.Time          `json:"generated_at"`
+	OwnerProfile     OwnerProfile       `json:"owner_profile"`
+	Memories         []Memory           `json:"memories"`
+	MemoryCandidates []MemoryCandidate  `json:"memory_candidates"`
+	Episodes         []EpisodeSummary   `json:"episodes"`
+	Counts           MemoryExportCounts `json:"counts"`
+}
+
+type MemoryExportCounts struct {
+	Memories          int `json:"memories"`
+	MemoryCandidates  int `json:"memory_candidates"`
+	PendingCandidates int `json:"pending_candidates"`
+	Episodes          int `json:"episodes"`
+}
+
+type Message struct {
+	ID        string    `json:"id"`
+	SessionID string    `json:"session_id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+	RunID     string    `json:"run_id,omitempty"`
+}
+
+type RunFeedback struct {
+	ID         string    `json:"id"`
+	SessionID  string    `json:"session_id"`
+	RunID      string    `json:"run_id"`
+	MessageID  string    `json:"message_id,omitempty"`
+	Rating     string    `json:"rating"`
+	Note       string    `json:"note,omitempty"`
+	Correction string    `json:"correction,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type Session struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Client struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	TokenHash  string     `json:"-"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+}
+
+type PairingCode struct {
+	ID        string     `json:"id"`
+	CodeHash  string     `json:"-"`
+	Status    string     `json:"status"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	ClaimedAt *time.Time `json:"claimed_at,omitempty"`
+	ClientID  string     `json:"client_id,omitempty"`
+}
+
+const DefaultOwnerID = "owner"
+
+type OwnerProfile struct {
+	ID          string            `json:"id"`
+	DisplayName string            `json:"display_name"`
+	Email       string            `json:"email,omitempty"`
+	Preferences map[string]string `json:"preferences,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+}
+
+func DefaultOwnerProfile() OwnerProfile {
+	now := time.Now().UTC()
+	return OwnerProfile{
+		ID:          DefaultOwnerID,
+		DisplayName: "Owner",
+		Preferences: map[string]string{},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+}
+
+type VerifierDecision struct {
+	Verdict                  string    `json:"verdict"`
+	RiskLevel                string    `json:"risk_level"`
+	Lane                     string    `json:"lane"`
+	Reason                   string    `json:"reason"`
+	RequiredUserConfirmation bool      `json:"required_user_confirmation"`
+	SafeNextAction           string    `json:"safe_next_action"`
+	CreatedAt                time.Time `json:"created_at"`
+}
+
+type AgentRun struct {
+	ID          string     `json:"id"`
+	SessionID   string     `json:"session_id"`
+	State       string     `json:"state"`
+	ModelLane   string     `json:"model_lane"`
+	Risk        RiskLevel  `json:"risk"`
+	StartedAt   time.Time  `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Summary     string     `json:"summary,omitempty"`
+}
+
+type ModelCall struct {
+	ID             string     `json:"id"`
+	SessionID      string     `json:"session_id,omitempty"`
+	RunID          string     `json:"run_id,omitempty"`
+	Lane           string     `json:"lane"`
+	Profile        string     `json:"profile"`
+	Model          string     `json:"model"`
+	Operation      string     `json:"operation"`
+	Mock           bool       `json:"mock"`
+	Fallback       bool       `json:"fallback,omitempty"`
+	Status         string     `json:"status"`
+	PromptTokens   int        `json:"prompt_tokens"`
+	ResponseTokens int        `json:"response_tokens"`
+	TotalTokens    int        `json:"total_tokens"`
+	LatencyMS      int64      `json:"latency_ms"`
+	Error          string     `json:"error,omitempty"`
+	StartedAt      time.Time  `json:"started_at"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+}
+
+type AuditEvent struct {
+	ID        string         `json:"id"`
+	Time      time.Time      `json:"time"`
+	Type      string         `json:"type"`
+	SessionID string         `json:"session_id,omitempty"`
+	RunID     string         `json:"run_id,omitempty"`
+	Actor     string         `json:"actor"`
+	Summary   string         `json:"summary"`
+	Fields    map[string]any `json:"fields,omitempty"`
+}
+
+type Event struct {
+	ID        string    `json:"id"`
+	Time      time.Time `json:"time"`
+	Type      string    `json:"type"`
+	SessionID string    `json:"session_id,omitempty"`
+	RunID     string    `json:"run_id,omitempty"`
+	Payload   any       `json:"payload"`
+}
+
+type EvalRun struct {
+	ID              string         `json:"id"`
+	Profile         string         `json:"profile"`
+	Status          string         `json:"status"`
+	Summary         string         `json:"summary"`
+	Cases           []EvalCase     `json:"cases"`
+	FailureArchives []EvalArtifact `json:"failure_archives,omitempty"`
+	StartedAt       time.Time      `json:"started_at"`
+	CompletedAt     *time.Time     `json:"completed_at,omitempty"`
+}
+
+type EvalCase struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Message    string `json:"message"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+type EvalArtifact struct {
+	CaseName    string `json:"case_name"`
+	URI         string `json:"uri"`
+	Path        string `json:"path,omitempty"`
+	Key         string `json:"key,omitempty"`
+	Backend     string `json:"backend"`
+	ContentType string `json:"content_type"`
+	Bytes       int    `json:"bytes"`
+}
+
+type ArtifactObject struct {
+	ID          string    `json:"id"`
+	Kind        string    `json:"kind"`
+	RunID       string    `json:"run_id,omitempty"`
+	EvalID      string    `json:"eval_id,omitempty"`
+	SessionID   string    `json:"session_id,omitempty"`
+	Backend     string    `json:"backend"`
+	Bucket      string    `json:"bucket,omitempty"`
+	Key         string    `json:"key"`
+	URI         string    `json:"uri"`
+	Path        string    `json:"path,omitempty"`
+	ContentType string    `json:"content_type"`
+	Bytes       int       `json:"bytes"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type Document struct {
+	ID          string    `json:"id"`
+	Source      string    `json:"source"`
+	Root        string    `json:"root"`
+	Path        string    `json:"path"`
+	RelPath     string    `json:"rel_path"`
+	ObjectKey   string    `json:"object_key,omitempty"`
+	ContentHash string    `json:"content_hash"`
+	Bytes       int       `json:"bytes"`
+	IndexedAt   time.Time `json:"indexed_at"`
+}
+
+type DocumentChunk struct {
+	ID             string    `json:"id"`
+	DocumentID     string    `json:"document_id"`
+	Source         string    `json:"source"`
+	Root           string    `json:"root"`
+	Path           string    `json:"path"`
+	RelPath        string    `json:"rel_path"`
+	StartLine      int       `json:"start_line"`
+	EndLine        int       `json:"end_line"`
+	Text           string    `json:"text"`
+	Terms          []string  `json:"terms"`
+	ContentHash    string    `json:"content_hash"`
+	Embedding      []float32 `json:"embedding,omitempty"`
+	EmbeddingModel string    `json:"embedding_model,omitempty"`
+	IndexedAt      time.Time `json:"indexed_at"`
+}
+
+type DocumentChunkHit struct {
+	Path           string   `json:"path"`
+	RelPath        string   `json:"rel_path"`
+	StartLine      int      `json:"start_line"`
+	EndLine        int      `json:"end_line"`
+	Citation       string   `json:"citation"`
+	Score          float64  `json:"score"`
+	KeywordScore   int      `json:"keyword_score"`
+	VectorScore    float64  `json:"vector_score,omitempty"`
+	RerankScore    float64  `json:"rerank_score,omitempty"`
+	RerankerModel  string   `json:"reranker_model,omitempty"`
+	Snippet        string   `json:"snippet"`
+	Terms          []string `json:"terms"`
+	EmbeddingModel string   `json:"embedding_model,omitempty"`
+	Backend        string   `json:"backend"`
+}
+
+type DocumentIndexSummary struct {
+	Backend        string    `json:"backend"`
+	Root           string    `json:"root"`
+	Documents      int       `json:"documents"`
+	Chunks         int       `json:"chunks"`
+	VectorEnabled  bool      `json:"vector_enabled"`
+	EmbeddingModel string    `json:"embedding_model,omitempty"`
+	IndexedAt      time.Time `json:"indexed_at"`
+}
+
+type TraceMetadata struct {
+	RunID          string     `json:"run_id"`
+	SessionID      string     `json:"session_id"`
+	State          string     `json:"state"`
+	Risk           RiskLevel  `json:"risk"`
+	ModelLane      string     `json:"model_lane"`
+	Summary        string     `json:"summary,omitempty"`
+	StartedAt      time.Time  `json:"started_at"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	MessageCount   int        `json:"message_count"`
+	ToolCallCount  int        `json:"tool_call_count"`
+	ApprovalCount  int        `json:"approval_count"`
+	ModelCallCount int        `json:"model_call_count"`
+	ArtifactURI    string     `json:"artifact_uri,omitempty"`
+	ArtifactPath   string     `json:"artifact_path,omitempty"`
+}
+
+type EpisodeSummary struct {
+	ID              string    `json:"id"`
+	SessionID       string    `json:"session_id"`
+	RunID           string    `json:"run_id"`
+	Goal            string    `json:"goal"`
+	Outcome         string    `json:"outcome"`
+	Risk            RiskLevel `json:"risk"`
+	ModelLane       string    `json:"model_lane"`
+	Tools           []string  `json:"tools"`
+	Approvals       []string  `json:"approvals"`
+	Failures        []string  `json:"failures,omitempty"`
+	RepairPerformed bool      `json:"repair_performed"`
+	Summary         string    `json:"summary"`
+	CreatedAt       time.Time `json:"created_at"`
+}

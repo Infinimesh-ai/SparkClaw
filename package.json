@@ -1,0 +1,21 @@
+{
+  "name": "sparkclaw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reliable local agent runtime for DGX Spark.",
+  "workspaces": [
+    "apps/webchat"
+  ],
+  "scripts": {
+    "dev:webchat": "npm --workspace @sparkclaw/webchat run dev",
+    "build:webchat": "npm --workspace @sparkclaw/webchat run build",
+    "test:gateway": "go test ./services/gateway/...",
+    "doctor": "bash scripts/doctor.sh",
+    "eval": "bash scripts/run-eval.sh",
+    "build": "npm run build:webchat && npm run test:gateway"
+  },
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "profiles": {
+    "mock": {
+      "description": "No GPU development profile. The gateway returns deterministic mock model responses.",
+      "mock": true
+    },
+    "external-model": {
+      "description": "Use OpenAI-compatible fast, deep, embedding, reranker and guard endpoints configured through environment variables.",
+      "mock": false,
+      "fast_base_url_env": "SPARKCLAW_FAST_BASE_URL",
+      "deep_base_url_env": "SPARKCLAW_DEEP_BASE_URL",
+      "embedding_base_url_env": "SPARKCLAW_EMBEDDING_BASE_URL",
+      "embedding_model_env": "SPARKCLAW_EMBEDDING_MODEL",
+      "reranker_base_url_env": "SPARKCLAW_RERANKER_BASE_URL",
+      "reranker_model_env": "SPARKCLAW_RERANKER_MODEL",
+      "guard_base_url_env": "SPARKCLAW_GUARD_BASE_URL",
+      "guard_model_env": "SPARKCLAW_GUARD_MODEL"
+    },
+    "dgx-spark-local": {
+      "description": "DGX Spark dual-lane local model profile for vLLM or SGLang.",
+      "fast": "Qwen/Qwen3.6-35B-A3B-FP8",
+      "deep": "Qwen/Qwen3.6-27B-FP8",
+      "embedding": "Qwen/Qwen3-Embedding-0.6B",
+      "reranker": "Qwen/Qwen3-Reranker-0.6B",
+      "guard": "Qwen/Qwen3Guard-0.6B",
+      "context_tokens": 131072,
+      "serialized_active_generation": true
+    }
+  }
+}

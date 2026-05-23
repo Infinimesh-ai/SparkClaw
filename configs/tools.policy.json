@@ -1,0 +1,37 @@
+{
+  "risk_levels": {
+    "read": {
+      "auto_allowed": true,
+      "examples": ["files.search", "files.read", "memory.search", "knowledge.search", "browser.read", "email.search", "email.read_thread", "calendar.read"]
+    },
+    "draft": {
+      "auto_allowed": true,
+      "examples": ["files.write_draft", "memory.write_candidate", "knowledge.index_workspace", "email.draft_reply", "calendar.propose_event"]
+    },
+    "reversible": {
+      "auto_allowed": false,
+      "approval_required": true,
+      "examples": ["code.apply_patch"]
+    },
+    "dangerous": {
+      "auto_allowed": false,
+      "approval_required": true,
+      "examples": ["shell.exec_sandboxed", "email.send", "browser.submit_form"]
+    }
+  },
+  "deny": [
+    "host_shell.exec",
+    "email.send.auto",
+    "file.delete.permanent",
+    "browser.submit_form.auto"
+  ],
+  "approval_required": [
+    "email.send",
+    "calendar.create",
+    "file.delete",
+    "shell.exec_sandboxed",
+    "browser.submit_form",
+    "memory.write_sensitive",
+    "code.apply_patch"
+  ]
+}

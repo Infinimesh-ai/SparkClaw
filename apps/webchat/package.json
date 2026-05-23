@@ -1,0 +1,23 @@
+{
+  "name": "@sparkclaw/webchat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 18790",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 18790"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "vite": "^8.0.14",
+    "typescript": "^6.0.3",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "lucide-react": "^0.555.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3"
+  }
+}

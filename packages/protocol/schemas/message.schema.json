@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sparkclaw.local/schemas/message.schema.json",
+  "title": "SparkClaw Message",
+  "type": "object",
+  "required": ["id", "session_id", "role", "content", "created_at"],
+  "properties": {
+    "id": { "type": "string" },
+    "session_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "role": { "enum": ["user", "assistant", "system", "tool"] },
+    "content": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

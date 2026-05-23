@@ -1,0 +1,12 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "backend": "local-docker",
+    "runner_url": "",
+    "image": "alpine:3.22",
+    "mode": "all_mutating_tools",
+    "network": "none_by_default",
+    "workspace_access": "rw",
+    "host_access": "forbidden"
+  }
+}

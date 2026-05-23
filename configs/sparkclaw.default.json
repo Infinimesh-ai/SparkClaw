@@ -1,0 +1,120 @@
+{
+  "gateway": {
+    "bind": "127.0.0.1",
+    "port": 18789,
+    "pairing_required": false,
+    "remote_access": "disabled",
+    "rate_limit": {
+      "enabled": true,
+      "requests_per_minute": 600,
+      "burst": 120
+    }
+  },
+  "model": {
+    "mock": true,
+    "fast": {
+      "name": "sparkclaw-fast",
+      "base_url": "http://127.0.0.1:8001/v1",
+      "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+      "context_tokens": 131072,
+      "mtp": true
+    },
+    "deep": {
+      "name": "sparkclaw-deep",
+      "base_url": "http://127.0.0.1:8002/v1",
+      "model": "Qwen/Qwen3.6-27B-FP8",
+      "context_tokens": 131072,
+      "mtp": true
+    },
+    "embedding": {
+      "name": "sparkclaw-embedding",
+      "base_url": "http://127.0.0.1:8003/v1",
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "context_tokens": 32768,
+      "mtp": false
+    },
+    "reranker": {
+      "name": "sparkclaw-reranker",
+      "base_url": "http://127.0.0.1:8004/v1",
+      "model": "Qwen/Qwen3-Reranker-0.6B",
+      "context_tokens": 32768,
+      "mtp": false
+    },
+    "guard": {
+      "name": "sparkclaw-guard",
+      "base_url": "http://127.0.0.1:8005/v1",
+      "model": "Qwen/Qwen3Guard-0.6B",
+      "context_tokens": 32768,
+      "mtp": false
+    }
+  },
+  "memory": {
+    "enabled": true,
+    "write_policy": "candidate_then_confirm",
+    "allow_sensitive_memory": false,
+    "retention_days": 180,
+    "redact_patterns": ["api_key", "password", "token", "ssh_key"]
+  },
+  "security": {
+    "external_content_untrusted": true,
+    "approval_required_for_dangerous_tools": true,
+    "sandbox_required_for_mutating_tools": true,
+    "dangerous_tools_require_deep_verification": true,
+    "browser_read_allow_hosts": [],
+    "denied_tools": [
+      "host_shell.exec",
+      "email.send.auto",
+      "file.delete.permanent",
+      "browser.submit_form.auto"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "backend": "local-docker",
+    "runner_url": "",
+    "image": "alpine:3.22",
+    "network": "none",
+    "workspace_access": "rw",
+    "host_access": "forbidden"
+  },
+  "adapters": {
+    "email": {
+      "backend": "file",
+      "base_url": ""
+    },
+    "calendar": {
+      "backend": "file",
+      "base_url": ""
+    }
+  },
+  "workspaces": {
+    "default_root": "./data/workspaces",
+    "allowlist": ["./data/workspaces"]
+  },
+  "storage": {
+    "trace_dir": "./data/traces",
+    "log_dir": "./data/logs",
+    "artifact_backend": "filesystem",
+    "artifact_dir": "./data/artifacts",
+    "artifact_bucket": "sparkclaw",
+    "s3_endpoint": "",
+    "s3_region": "us-east-1"
+  },
+  "state": {
+    "backend": "file",
+    "path": "./data/memory/gateway-state.json",
+    "encrypt_at_rest": false,
+    "encryption_key": "",
+    "encryption_key_file": ""
+  },
+  "skills": {
+    "dirs": ["./skills", "./data/skills"]
+  },
+  "runtime": {
+    "observation_summary_max_bytes": 1200
+  },
+  "logging": {
+    "level": "info",
+    "redact_patterns": ["api_key", "password", "token", "ssh_key"]
+  }
+}

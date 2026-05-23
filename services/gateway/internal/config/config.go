@@ -1,0 +1,554 @@
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+type Config struct {
+	Gateway    GatewayConfig   `json:"gateway"`
+	Model      ModelConfig     `json:"model"`
+	Security   SecurityConfig  `json:"security"`
+	Sandbox    SandboxConfig   `json:"sandbox"`
+	Adapters   AdapterConfig   `json:"adapters"`
+	Memory     MemoryConfig    `json:"memory"`
+	Workspaces WorkspaceConfig `json:"workspaces"`
+	Storage    StorageConfig   `json:"storage"`
+	State      StateConfig     `json:"state"`
+	Skills     SkillsConfig    `json:"skills"`
+	Runtime    RuntimeConfig   `json:"runtime"`
+	Logging    LoggingConfig   `json:"logging"`
+}
+
+type GatewayConfig struct {
+	Bind            string          `json:"bind"`
+	Port            int             `json:"port"`
+	PairingRequired bool            `json:"pairing_required"`
+	RemoteAccess    string          `json:"remote_access"`
+	APIToken        string          `json:"api_token,omitempty"`
+	RateLimit       RateLimitConfig `json:"rate_limit"`
+}
+
+type RateLimitConfig struct {
+	Enabled           bool `json:"enabled"`
+	RequestsPerMinute int  `json:"requests_per_minute"`
+	Burst             int  `json:"burst"`
+}
+
+type ModelConfig struct {
+	Fast      ModelProfile `json:"fast"`
+	Deep      ModelProfile `json:"deep"`
+	Embedding ModelProfile `json:"embedding"`
+	Reranker  ModelProfile `json:"reranker"`
+	Guard     ModelProfile `json:"guard"`
+	Mock      bool         `json:"mock"`
+}
+
+type ModelProfile struct {
+	Name          string `json:"name"`
+	BaseURL       string `json:"base_url"`
+	Model         string `json:"model"`
+	ContextTokens int    `json:"context_tokens"`
+	MTP           bool   `json:"mtp"`
+}
+
+type SecurityConfig struct {
+	ExternalContentUntrusted              bool     `json:"external_content_untrusted"`
+	ApprovalRequiredForDangerousTools     bool     `json:"approval_required_for_dangerous_tools"`
+	SandboxRequiredForMutatingTools       bool     `json:"sandbox_required_for_mutating_tools"`
+	DangerousToolsRequireDeepVerification bool     `json:"dangerous_tools_require_deep_verification"`
+	DeniedTools                           []string `json:"denied_tools"`
+	ApprovalRequiredTools                 []string `json:"approval_required_tools"`
+	ToolPolicyPath                        string   `json:"tool_policy_path"`
+	BrowserReadAllowHosts                 []string `json:"browser_read_allow_hosts"`
+}
+
+type MemoryConfig struct {
+	Enabled              bool     `json:"enabled"`
+	WritePolicy          string   `json:"write_policy"`
+	AllowSensitiveMemory bool     `json:"allow_sensitive_memory"`
+	RetentionDays        int      `json:"retention_days"`
+	RedactPatterns       []string `json:"redact_patterns"`
+}
+
+type SandboxConfig struct {
+	Enabled         bool   `json:"enabled"`
+	Backend         string `json:"backend"`
+	RunnerURL       string `json:"runner_url"`
+	Image           string `json:"image"`
+	Network         string `json:"network"`
+	WorkspaceAccess string `json:"workspace_access"`
+	HostAccess      string `json:"host_access"`
+}
+
+type AdapterConfig struct {
+	Email    ServiceAdapterConfig `json:"email"`
+	Calendar ServiceAdapterConfig `json:"calendar"`
+}
+
+type ServiceAdapterConfig struct {
+	Backend string `json:"backend"`
+	BaseURL string `json:"base_url"`
+	Token   string `json:"token,omitempty"`
+}
+
+func (c ServiceAdapterConfig) IsHTTP() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Backend)) {
+	case "http", "remote", "service":
+		return true
+	default:
+		return false
+	}
+}
+
+type WorkspaceConfig struct {
+	DefaultRoot string   `json:"default_root"`
+	Allowlist   []string `json:"allowlist"`
+}
+
+type StorageConfig struct {
+	TraceDir        string `json:"trace_dir"`
+	LogDir          string `json:"log_dir"`
+	ArtifactBackend string `json:"artifact_backend"`
+	ArtifactDir     string `json:"artifact_dir"`
+	ArtifactBucket  string `json:"artifact_bucket"`
+	S3Endpoint      string `json:"s3_endpoint"`
+	S3Region        string `json:"s3_region"`
+	S3AccessKey     string `json:"s3_access_key,omitempty"`
+	S3SecretKey     string `json:"s3_secret_key,omitempty"`
+}
+
+type StateConfig struct {
+	Backend           string `json:"backend"`
+	Path              string `json:"path"`
+	DSN               string `json:"dsn"`
+	EncryptAtRest     bool   `json:"encrypt_at_rest"`
+	EncryptionKey     string `json:"encryption_key,omitempty"`
+	EncryptionKeyFile string `json:"encryption_key_file,omitempty"`
+}
+
+type SkillsConfig struct {
+	Dirs []string `json:"dirs"`
+}
+
+type RuntimeConfig struct {
+	ObservationSummaryMaxBytes int `json:"observation_summary_max_bytes"`
+}
+
+type LoggingConfig struct {
+	Level          string   `json:"level"`
+	RedactPatterns []string `json:"redact_patterns"`
+}
+
+type toolPolicyFile struct {
+	Deny             []string `json:"deny"`
+	ApprovalRequired []string `json:"approval_required"`
+}
+
+func Load(path string) (Config, error) {
+	cfg := Default()
+	if path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return Config{}, err
+		}
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return Config{}, err
+		}
+	}
+	applyEnv(&cfg)
+	if err := applyToolPolicyFile(&cfg); err != nil {
+		return Config{}, err
+	}
+	if cfg.Gateway.Bind == "" {
+		return Config{}, errors.New("gateway.bind is required")
+	}
+	if cfg.Gateway.Port <= 0 {
+		return Config{}, errors.New("gateway.port must be positive")
+	}
+	if cfg.Workspaces.DefaultRoot == "" {
+		cfg.Workspaces.DefaultRoot = "./data/workspaces"
+	}
+	root, err := filepath.Abs(cfg.Workspaces.DefaultRoot)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Workspaces.DefaultRoot = root
+	if len(cfg.Workspaces.Allowlist) == 0 {
+		cfg.Workspaces.Allowlist = []string{root}
+	}
+	for i, p := range cfg.Workspaces.Allowlist {
+		abs, err := filepath.Abs(p)
+		if err == nil {
+			cfg.Workspaces.Allowlist[i] = abs
+		}
+	}
+	return cfg, nil
+}
+
+func Default() Config {
+	return Config{
+		Gateway: GatewayConfig{
+			Bind:            "127.0.0.1",
+			Port:            18789,
+			PairingRequired: false,
+			RemoteAccess:    "disabled",
+			RateLimit: RateLimitConfig{
+				Enabled:           true,
+				RequestsPerMinute: 600,
+				Burst:             120,
+			},
+		},
+		Model: ModelConfig{
+			Mock: true,
+			Fast: ModelProfile{
+				Name:          "sparkclaw-fast",
+				BaseURL:       "http://127.0.0.1:8001/v1",
+				Model:         "Qwen/Qwen3.6-35B-A3B-FP8",
+				ContextTokens: 131072,
+				MTP:           true,
+			},
+			Deep: ModelProfile{
+				Name:          "sparkclaw-deep",
+				BaseURL:       "http://127.0.0.1:8002/v1",
+				Model:         "Qwen/Qwen3.6-27B-FP8",
+				ContextTokens: 131072,
+				MTP:           true,
+			},
+			Embedding: ModelProfile{
+				Name:          "sparkclaw-embedding",
+				BaseURL:       "http://127.0.0.1:8003/v1",
+				Model:         "Qwen/Qwen3-Embedding-0.6B",
+				ContextTokens: 32768,
+			},
+			Reranker: ModelProfile{
+				Name:          "sparkclaw-reranker",
+				BaseURL:       "http://127.0.0.1:8004/v1",
+				Model:         "Qwen/Qwen3-Reranker-0.6B",
+				ContextTokens: 32768,
+			},
+			Guard: ModelProfile{
+				Name:          "sparkclaw-guard",
+				BaseURL:       "http://127.0.0.1:8005/v1",
+				Model:         "Qwen/Qwen3Guard-0.6B",
+				ContextTokens: 32768,
+			},
+		},
+		Security: SecurityConfig{
+			ExternalContentUntrusted:              true,
+			ApprovalRequiredForDangerousTools:     true,
+			SandboxRequiredForMutatingTools:       true,
+			DangerousToolsRequireDeepVerification: true,
+			DeniedTools: []string{
+				"host_shell.exec",
+				"email.send.auto",
+				"file.delete.permanent",
+				"browser.submit_form.auto",
+			},
+			ApprovalRequiredTools: []string{},
+			ToolPolicyPath:        "./configs/tools.policy.json",
+			BrowserReadAllowHosts: []string{},
+		},
+		Sandbox: SandboxConfig{
+			Enabled:         true,
+			Backend:         "local-docker",
+			RunnerURL:       "",
+			Image:           "alpine:3.22",
+			Network:         "none",
+			WorkspaceAccess: "rw",
+			HostAccess:      "forbidden",
+		},
+		Adapters: AdapterConfig{
+			Email: ServiceAdapterConfig{
+				Backend: "file",
+			},
+			Calendar: ServiceAdapterConfig{
+				Backend: "file",
+			},
+		},
+		Memory: MemoryConfig{
+			Enabled:              true,
+			WritePolicy:          "candidate_then_confirm",
+			AllowSensitiveMemory: false,
+			RetentionDays:        180,
+			RedactPatterns:       []string{"api_key", "password", "token", "ssh_key"},
+		},
+		Workspaces: WorkspaceConfig{
+			DefaultRoot: "./data/workspaces",
+			Allowlist:   []string{"./data/workspaces"},
+		},
+		Storage: StorageConfig{
+			TraceDir:        "./data/traces",
+			LogDir:          "./data/logs",
+			ArtifactBackend: "filesystem",
+			ArtifactDir:     "./data/artifacts",
+			ArtifactBucket:  "sparkclaw",
+			S3Endpoint:      "",
+			S3Region:        "us-east-1",
+		},
+		State: StateConfig{
+			Backend:           "file",
+			Path:              "./data/memory/gateway-state.json",
+			DSN:               "",
+			EncryptAtRest:     false,
+			EncryptionKey:     "",
+			EncryptionKeyFile: "",
+		},
+		Skills: SkillsConfig{
+			Dirs: []string{"./skills", "./data/skills"},
+		},
+		Runtime: RuntimeConfig{
+			ObservationSummaryMaxBytes: 1200,
+		},
+		Logging: LoggingConfig{
+			Level:          "info",
+			RedactPatterns: []string{"api_key", "password", "token", "ssh_key"},
+		},
+	}
+}
+
+func applyEnv(cfg *Config) {
+	if v := os.Getenv("SPARKCLAW_BIND"); v != "" {
+		cfg.Gateway.Bind = v
+	}
+	if v := os.Getenv("SPARKCLAW_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			cfg.Gateway.Port = port
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_API_TOKEN"); v != "" {
+		cfg.Gateway.APIToken = v
+	}
+	if v := os.Getenv("SPARKCLAW_PAIRING_REQUIRED"); v != "" {
+		cfg.Gateway.PairingRequired = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_RATE_LIMIT_ENABLED"); v != "" {
+		cfg.Gateway.RateLimit.Enabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_RATE_LIMIT_PER_MINUTE"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil {
+			cfg.Gateway.RateLimit.RequestsPerMinute = limit
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_RATE_LIMIT_BURST"); v != "" {
+		if burst, err := strconv.Atoi(v); err == nil {
+			cfg.Gateway.RateLimit.Burst = burst
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_WORKSPACE_ROOT"); v != "" {
+		cfg.Workspaces.DefaultRoot = v
+		cfg.Workspaces.Allowlist = []string{v}
+	}
+	if v := os.Getenv("SPARKCLAW_TRACE_DIR"); v != "" {
+		cfg.Storage.TraceDir = v
+	}
+	if v := os.Getenv("SPARKCLAW_ARTIFACT_BACKEND"); v != "" {
+		cfg.Storage.ArtifactBackend = v
+	}
+	if v := os.Getenv("SPARKCLAW_ARTIFACT_DIR"); v != "" {
+		cfg.Storage.ArtifactDir = v
+	}
+	if v := os.Getenv("SPARKCLAW_ARTIFACT_BUCKET"); v != "" {
+		cfg.Storage.ArtifactBucket = v
+	}
+	if v := os.Getenv("SPARKCLAW_S3_ENDPOINT"); v != "" {
+		cfg.Storage.S3Endpoint = v
+	}
+	if v := os.Getenv("SPARKCLAW_S3_REGION"); v != "" {
+		cfg.Storage.S3Region = v
+	}
+	if v := os.Getenv("SPARKCLAW_S3_ACCESS_KEY"); v != "" {
+		cfg.Storage.S3AccessKey = v
+	}
+	if v := os.Getenv("SPARKCLAW_S3_SECRET_KEY"); v != "" {
+		cfg.Storage.S3SecretKey = v
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_BACKEND"); v != "" {
+		cfg.State.Backend = v
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_PATH"); v != "" {
+		cfg.State.Path = v
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_DSN"); v != "" {
+		cfg.State.DSN = v
+	}
+	if v := os.Getenv("SPARKCLAW_POSTGRES_DSN"); v != "" {
+		cfg.State.DSN = v
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPT_AT_REST"); v != "" {
+		cfg.State.EncryptAtRest = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPTION_KEY"); v != "" {
+		cfg.State.EncryptionKey = v
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE"); v != "" {
+		cfg.State.EncryptionKeyFile = v
+	}
+	if v := os.Getenv("SPARKCLAW_MODEL_MODE"); v == "external" {
+		cfg.Model.Mock = false
+	}
+	if v := os.Getenv("SPARKCLAW_FAST_BASE_URL"); v != "" {
+		cfg.Model.Fast.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_DEEP_BASE_URL"); v != "" {
+		cfg.Model.Deep.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_EMBEDDING_BASE_URL"); v != "" {
+		cfg.Model.Embedding.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_EMBEDDING_MODEL"); v != "" {
+		cfg.Model.Embedding.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_RERANKER_BASE_URL"); v != "" {
+		cfg.Model.Reranker.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_RERANKER_MODEL"); v != "" {
+		cfg.Model.Reranker.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_GUARD_BASE_URL"); v != "" {
+		cfg.Model.Guard.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_GUARD_MODEL"); v != "" {
+		cfg.Model.Guard.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_READ_ALLOW_HOSTS"); v != "" {
+		cfg.Security.BrowserReadAllowHosts = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_MEMORY_RETENTION_DAYS"); v != "" {
+		if days, err := strconv.Atoi(v); err == nil {
+			cfg.Memory.RetentionDays = days
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TOOLS_POLICY_PATH"); v != "" {
+		cfg.Security.ToolPolicyPath = v
+	}
+	if v := os.Getenv("SPARKCLAW_EMAIL_ADAPTER_BACKEND"); v != "" {
+		cfg.Adapters.Email.Backend = v
+	}
+	if v := os.Getenv("SPARKCLAW_EMAIL_ADAPTER_URL"); v != "" {
+		cfg.Adapters.Email.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_EMAIL_ADAPTER_TOKEN"); v != "" {
+		cfg.Adapters.Email.Token = v
+	}
+	if v := os.Getenv("SPARKCLAW_CALENDAR_ADAPTER_BACKEND"); v != "" {
+		cfg.Adapters.Calendar.Backend = v
+	}
+	if v := os.Getenv("SPARKCLAW_CALENDAR_ADAPTER_URL"); v != "" {
+		cfg.Adapters.Calendar.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_CALENDAR_ADAPTER_TOKEN"); v != "" {
+		cfg.Adapters.Calendar.Token = v
+	}
+	if v := os.Getenv("SPARKCLAW_SANDBOX_BACKEND"); v != "" {
+		cfg.Sandbox.Backend = v
+	}
+	if v := os.Getenv("SPARKCLAW_SANDBOX_RUNNER_URL"); v != "" {
+		cfg.Sandbox.RunnerURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_SANDBOX_IMAGE"); v != "" {
+		cfg.Sandbox.Image = v
+	}
+	if v := os.Getenv("SPARKCLAW_SANDBOX_NETWORK"); v != "" {
+		cfg.Sandbox.Network = v
+	}
+	if v := os.Getenv("SPARKCLAW_SKILLS_DIRS"); v != "" {
+		cfg.Skills.Dirs = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_OBSERVATION_SUMMARY_MAX_BYTES"); v != "" {
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Runtime.ObservationSummaryMaxBytes = maxBytes
+		}
+	}
+	if cfg.State.Path != "" {
+		if abs, err := filepath.Abs(cfg.State.Path); err == nil {
+			cfg.State.Path = abs
+		}
+	}
+	if cfg.State.EncryptionKeyFile != "" {
+		if abs, err := filepath.Abs(cfg.State.EncryptionKeyFile); err == nil {
+			cfg.State.EncryptionKeyFile = abs
+		}
+	}
+	if cfg.Storage.ArtifactDir != "" {
+		if abs, err := filepath.Abs(cfg.Storage.ArtifactDir); err == nil {
+			cfg.Storage.ArtifactDir = abs
+		}
+	}
+	for i, p := range cfg.Skills.Dirs {
+		if abs, err := filepath.Abs(p); err == nil {
+			cfg.Skills.Dirs[i] = abs
+		}
+	}
+}
+
+func applyToolPolicyFile(cfg *Config) error {
+	path := strings.TrimSpace(cfg.Security.ToolPolicyPath)
+	if path == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	var policy toolPolicyFile
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		return err
+	}
+	cfg.Security.DeniedTools = appendUnique(cfg.Security.DeniedTools, policy.Deny...)
+	cfg.Security.ApprovalRequiredTools = appendUnique(cfg.Security.ApprovalRequiredTools, policy.ApprovalRequired...)
+	if abs, err := filepath.Abs(path); err == nil {
+		cfg.Security.ToolPolicyPath = abs
+	}
+	return nil
+}
+
+func appendUnique(base []string, values ...string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, value := range base {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	out := []string{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func parseBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on", "required":
+		return true
+	default:
+		return false
+	}
+}

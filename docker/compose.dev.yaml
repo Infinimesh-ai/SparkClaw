@@ -1,0 +1,57 @@
+name: sparkclaw-dev
+
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/images/gateway.Dockerfile
+    env_file:
+      - env/sparkclaw.example.env
+    environment:
+      SPARKCLAW_BIND: 0.0.0.0
+      SPARKCLAW_MODEL_MODE: mock
+    ports:
+      - "127.0.0.1:18789:18789"
+    volumes:
+      - ../configs:/app/configs:ro
+      - ../data/workspaces:/var/lib/sparkclaw/workspaces
+      - ../data/traces:/var/lib/sparkclaw/traces
+      - ../data/artifacts:/var/lib/sparkclaw/artifacts
+      - ../data/memory:/var/lib/sparkclaw/memory
+    networks:
+      - sparkclaw_internal
+
+  sandbox-runner:
+    build:
+      context: ..
+      dockerfile: docker/images/sandbox-runner.Dockerfile
+    environment:
+      SPARKCLAW_SANDBOX_RUNNER_ADDR: 0.0.0.0:18889
+      SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT: ${SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT:-${PWD}/data/workspaces}
+      SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT: /var/lib/sparkclaw/workspaces
+    ports:
+      - "127.0.0.1:18889:18889"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../data/workspaces:/var/lib/sparkclaw/workspaces
+    networks:
+      - sparkclaw_internal
+
+  webchat:
+    image: node:24-alpine
+    working_dir: /workspace
+    command: sh -c "npm install && npm --workspace @sparkclaw/webchat run dev -- --host 0.0.0.0"
+    environment:
+      VITE_SPARKCLAW_API_BASE: http://127.0.0.1:18789
+    ports:
+      - "127.0.0.1:18790:18790"
+    volumes:
+      - ..:/workspace
+    depends_on:
+      - gateway
+    networks:
+      - sparkclaw_internal
+
+networks:
+  sparkclaw_internal:
+    driver: bridge

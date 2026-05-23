@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sparkclaw.local/schemas/tool-definition.schema.json",
+  "title": "SparkClaw Tool Definition",
+  "type": "object",
+  "required": ["name", "description", "input_schema", "risk", "requires_approval", "idempotent", "timeout_ms", "sandbox", "audit"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+    "description": { "type": "string" },
+    "input_schema": { "type": "object" },
+    "output_schema": { "type": "object" },
+    "risk": { "enum": ["read", "draft", "reversible", "dangerous"] },
+    "requires_approval": { "type": "boolean" },
+    "idempotent": { "type": "boolean" },
+    "timeout_ms": { "type": "integer", "minimum": 1 },
+    "sandbox": { "enum": ["required", "optional", "forbidden"] },
+    "audit": { "enum": ["always", "on_error", "none"] }
+  },
+  "additionalProperties": false
+}

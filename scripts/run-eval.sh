@@ -141,6 +141,14 @@ policy_read_status="$(curl -sS -o "$TMP_DIR/policy-read-approval.json" -w '%{htt
 policy_write_status="$(curl -sS -o "$TMP_DIR/policy-write-denied.json" -w '%{http_code}' -X POST "$GATEWAY_URL/api/tools/files.write_draft/invoke" \
   -H 'Content-Type: application/json' \
   -d "{\"session_id\":\"$SESSION_ID\",\"args\":{\"path\":\"policy-denied.md\",\"content\":\"denied\"}}")"
+policy_agent_read_status="$(curl -sS -o "$TMP_DIR/policy-agent-read-approval.json" -w '%{http_code}' -X POST "$GATEWAY_URL/api/sessions/$SESSION_ID/messages" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Read missing-before-restore.txt"}')"
+if [[ "$policy_agent_read_status" != "201" ]]; then
+  echo "agent policy read expected HTTP 201, got $policy_agent_read_status"
+  cat "$TMP_DIR/policy-agent-read-approval.json"
+  exit 1
+fi
 python3 - "$TMP_DIR/original-tools.policy.json" "$TMP_DIR/policy-restore-body.json" <<'PY'
 import json
 import sys
@@ -254,6 +262,7 @@ eval_profiles = json.loads(pathlib.Path("configs/eval.profiles.json").read_text(
 policy_updated = load("policy-updated.json")
 policy_read = load("policy-read-approval.json")
 policy_write = load("policy-write-denied.json")
+policy_agent_read = load("policy-agent-read-approval.json")
 policy_restored = load("policy-restored.json")
 files_read = load("files-read.json")
 draft = load("files-write-draft.json")
@@ -330,6 +339,10 @@ require("files.write_draft" in policy_updated["denied_tools"], "tool policy edit
 require("files.read" in policy_updated["configured_approval_required_tools"], "tool policy editor did not add approval-required tool")
 require(policy_read["tool_call"]["status"] == "approval_pending", "updated policy did not require files.read approval")
 require(policy_write.get("error") == "tool is denied by policy", "updated policy did not deny files.write_draft")
+require(any(
+    call.get("tool") == "files.read" and call.get("status") == "approval_pending"
+    for call in policy_agent_read.get("tool_calls", [])
+), "updated policy did not refresh agent runtime policy for files.read")
 require("files.write_draft" not in policy_restored["denied_tools"], "tool policy restore did not remove temporary deny")
 
 require(status("invoke-files_read") == "200", "files.read invoke did not return HTTP 200")

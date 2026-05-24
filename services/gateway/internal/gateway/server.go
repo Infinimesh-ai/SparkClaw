@@ -338,6 +338,7 @@ func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cfg.Security.DeniedTools = deny
 	s.cfg.Security.ApprovalRequiredTools = approvalRequired
+	s.runtime = s.runtime.WithPolicy(policy.New(s.cfg))
 	s.store.AddAudit(app.AuditEvent{
 		Actor:   "owner",
 		Type:    "tool_policy.updated",

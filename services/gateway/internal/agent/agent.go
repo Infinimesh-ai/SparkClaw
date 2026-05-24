@@ -49,6 +49,11 @@ func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
 	return r
 }
 
+func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
+	r.policy = policyEngine
+	return r
+}
+
 func (r Runtime) HandleMessage(ctx context.Context, sessionID, content string) (Result, error) {
 	userMessage := r.store.AddMessage(app.Message{
 		SessionID: sessionID,

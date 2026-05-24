@@ -1606,6 +1606,15 @@ func TestToolPolicyEditorPersistsAndUpdatesRuntimePolicy(t *testing.T) {
 	if writeResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("files.write_draft should be denied after policy update, got %d", writeResp.StatusCode)
 	}
+	agentReadResult := sendTestMessageResult(t, ts.URL, sessionID, "Read missing.txt")
+	toolCalls, ok := agentReadResult["tool_calls"].([]any)
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("agent read result missing tool call: %#v", agentReadResult)
+	}
+	agentReadCall := toolCalls[0].(map[string]any)
+	if agentReadCall["tool"] != "files.read" || agentReadCall["status"] != "approval_pending" {
+		t.Fatalf("agent files.read should require approval after policy update: %#v", agentReadCall)
+	}
 
 	futureToolsResp, err := http.Post(ts.URL+"/api/tool-policy", "application/json", bytes.NewBufferString(`{"deny":["future.tool"],"approval_required":["future.approval"]}`))
 	if err != nil {

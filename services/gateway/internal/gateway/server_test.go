@@ -1499,9 +1499,12 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 			APIToken string `json:"api_token"`
 		} `json:"gateway"`
 		Model struct {
-			Fast struct {
+			HTTPTimeoutSeconds int  `json:"http_timeout_seconds"`
+			DisableThinking    bool `json:"disable_thinking"`
+			Fast               struct {
 				Name          string `json:"name"`
 				ContextTokens int    `json:"context_tokens"`
+				MaxTokens     int    `json:"max_tokens"`
 			} `json:"fast"`
 		} `json:"model"`
 		State struct {
@@ -1524,7 +1527,7 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	if decoded.Gateway.APIToken != "" {
 		t.Fatal("api token was exposed in /api/config")
 	}
-	if decoded.Model.Fast.Name == "" || decoded.Model.Fast.ContextTokens == 0 {
+	if decoded.Model.Fast.Name == "" || decoded.Model.Fast.ContextTokens == 0 || decoded.Model.Fast.MaxTokens == 0 || decoded.Model.HTTPTimeoutSeconds == 0 {
 		t.Fatalf("model profile summary missing: %#v", decoded.Model.Fast)
 	}
 	if decoded.State.DSN != "" {

@@ -1,11 +1,28 @@
 name: sparkclaw
 
+x-vllm-common: &vllm-common
+  profiles: ["models-local"]
+  image: ${SPARKCLAW_VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly}
+  ipc: host
+  shm_size: ${SPARKCLAW_VLLM_SHM_SIZE:-16gb}
+  gpus: all
+  environment:
+    HF_HOME: /models/huggingface
+    HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
+    HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
+    VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
+  volumes:
+    - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
+  networks:
+    - sparkclaw_internal
+
 services:
   gateway:
     profiles: ["minimal", "dev", "eval", "compat", "models-local"]
     build:
       context: ..
       dockerfile: docker/images/gateway.Dockerfile
+    user: "${SPARKCLAW_CONTAINER_UID:-1000}:${SPARKCLAW_CONTAINER_GID:-1000}"
     env_file:
       - env/sparkclaw.example.env
     environment:
@@ -26,12 +43,27 @@ services:
       SPARKCLAW_STATE_DSN: ${SPARKCLAW_STATE_DSN:-postgres://sparkclaw:sparkclaw@postgres:5432/sparkclaw?sslmode=disable}
       SPARKCLAW_SANDBOX_BACKEND: ${SPARKCLAW_SANDBOX_BACKEND:-http}
       SPARKCLAW_SANDBOX_RUNNER_URL: ${SPARKCLAW_SANDBOX_RUNNER_URL:-http://sandbox-runner:18889}
+      SPARKCLAW_MODEL_MODE: ${SPARKCLAW_MODEL_MODE:-mock}
+      SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS: ${SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS:-300}
+      SPARKCLAW_MODEL_DISABLE_THINKING: ${SPARKCLAW_MODEL_DISABLE_THINKING:-true}
+      SPARKCLAW_FAST_BASE_URL: ${SPARKCLAW_FAST_BASE_URL:-http://sparkclaw-fast:8001/v1}
+      SPARKCLAW_FAST_MODEL: ${SPARKCLAW_FAST_MODEL:-sparkclaw-fast}
+      SPARKCLAW_FAST_SERVED_NAME: ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
+      SPARKCLAW_FAST_MAX_TOKENS: ${SPARKCLAW_FAST_MAX_TOKENS:-1024}
+      SPARKCLAW_DEEP_BASE_URL: ${SPARKCLAW_DEEP_BASE_URL:-http://sparkclaw-deep:8002/v1}
+      SPARKCLAW_DEEP_MODEL: ${SPARKCLAW_DEEP_MODEL:-sparkclaw-deep}
+      SPARKCLAW_DEEP_SERVED_NAME: ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
+      SPARKCLAW_DEEP_MAX_TOKENS: ${SPARKCLAW_DEEP_MAX_TOKENS:-2048}
       SPARKCLAW_EMBEDDING_BASE_URL: ${SPARKCLAW_EMBEDDING_BASE_URL:-http://sparkclaw-embedding:8003/v1}
-      SPARKCLAW_EMBEDDING_MODEL: ${SPARKCLAW_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      SPARKCLAW_EMBEDDING_MODEL: ${SPARKCLAW_EMBEDDING_MODEL:-sparkclaw-embedding}
       SPARKCLAW_RERANKER_BASE_URL: ${SPARKCLAW_RERANKER_BASE_URL:-http://sparkclaw-reranker:8004/v1}
-      SPARKCLAW_RERANKER_MODEL: ${SPARKCLAW_RERANKER_MODEL:-Qwen/Qwen3-Reranker-0.6B}
+      SPARKCLAW_RERANKER_MODEL: ${SPARKCLAW_RERANKER_MODEL:-sparkclaw-reranker}
+      SPARKCLAW_GUARD_BASE_URL: ${SPARKCLAW_GUARD_BASE_URL:-http://sparkclaw-guard:8005/v1}
+      SPARKCLAW_GUARD_MODEL: ${SPARKCLAW_GUARD_MODEL:-Qwen/Qwen3Guard-0.6B}
     ports:
       - "127.0.0.1:18789:18789"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../configs:/app/configs:ro
       - ../data/workspaces:/var/lib/sparkclaw/workspaces
@@ -39,6 +71,7 @@ services:
       - ../data/artifacts:/var/lib/sparkclaw/artifacts
       - ../data/memory:/var/lib/sparkclaw/memory
       - ../data/logs:/var/log/sparkclaw
+      - ../skills:/app/skills:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18789/healthz"]
       interval: 10s
@@ -82,16 +115,129 @@ services:
     networks:
       - sparkclaw_internal
 
+  sparkclaw-fast:
+    <<: *vllm-common
+    command:
+      - ${SPARKCLAW_FAST_MODEL_ID:-Qwen/Qwen3.6-35B-A3B-FP8}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+      - --served-model-name
+      - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
+      - --tensor-parallel-size
+      - ${SPARKCLAW_FAST_TENSOR_PARALLEL_SIZE:-1}
+      - --max-model-len
+      - ${SPARKCLAW_FAST_MAX_MODEL_LEN:-131072}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION:-0.82}
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --speculative-config
+      - ${SPARKCLAW_FAST_SPECULATIVE_CONFIG:-{"method":"qwen3_next_mtp","num_speculative_tokens":2}}
+      - --language-model-only
+    ports:
+      - "127.0.0.1:8001:8001"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+
+  sparkclaw-deep:
+    <<: *vllm-common
+    command:
+      - ${SPARKCLAW_DEEP_MODEL_ID:-Qwen/Qwen3.6-27B-FP8}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8002"
+      - --served-model-name
+      - ${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}
+      - --tensor-parallel-size
+      - ${SPARKCLAW_DEEP_TENSOR_PARALLEL_SIZE:-1}
+      - --max-model-len
+      - ${SPARKCLAW_DEEP_MAX_MODEL_LEN:-131072}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION:-0.82}
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --speculative-config
+      - ${SPARKCLAW_DEEP_SPECULATIVE_CONFIG:-{"method":"qwen3_next_mtp","num_speculative_tokens":2}}
+      - --language-model-only
+    ports:
+      - "127.0.0.1:8002:8002"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+
+  sparkclaw-embedding:
+    <<: *vllm-common
+    command:
+      - ${SPARKCLAW_EMBEDDING_MODEL_ID:-Qwen/Qwen3-Embedding-0.6B}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8003"
+      - --served-model-name
+      - ${SPARKCLAW_EMBEDDING_SERVED_NAME:-sparkclaw-embedding}
+      - --max-model-len
+      - ${SPARKCLAW_EMBEDDING_MAX_MODEL_LEN:-32768}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.12}
+    ports:
+      - "127.0.0.1:8003:8003"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+
+  sparkclaw-reranker:
+    <<: *vllm-common
+    command:
+      - ${SPARKCLAW_RERANKER_MODEL_ID:-Qwen/Qwen3-Reranker-0.6B}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8004"
+      - --served-model-name
+      - ${SPARKCLAW_RERANKER_SERVED_NAME:-sparkclaw-reranker}
+      - --runner
+      - ${SPARKCLAW_RERANKER_RUNNER:-auto}
+      - --convert
+      - ${SPARKCLAW_RERANKER_CONVERT:-auto}
+      - --max-model-len
+      - ${SPARKCLAW_RERANKER_MAX_MODEL_LEN:-2048}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_RERANKER_GPU_MEMORY_UTILIZATION:-0.12}
+    ports:
+      - "127.0.0.1:8004:8004"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+
   postgres:
     profiles: ["models-local", "eval"]
-    image: pgvector/pgvector:pg17
+    build:
+      context: ..
+      dockerfile: docker/images/postgres.Dockerfile
     environment:
       POSTGRES_USER: sparkclaw
       POSTGRES_PASSWORD: sparkclaw
       POSTGRES_DB: sparkclaw
     volumes:
       - sparkclaw_pg:/var/lib/postgresql/data
-      - ../migrations:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:15432:5432"
     healthcheck:

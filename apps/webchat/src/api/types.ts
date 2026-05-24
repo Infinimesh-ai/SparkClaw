@@ -144,6 +144,7 @@ export type PublicModelProfile = {
   model: string;
   context_tokens: number;
   mtp: boolean;
+  max_tokens?: number;
 };
 
 export type PublicConfig = {
@@ -161,6 +162,8 @@ export type PublicConfig = {
   };
   model: {
     mock: boolean;
+    http_timeout_seconds?: number;
+    disable_thinking?: boolean;
     fast: PublicModelProfile;
     deep: PublicModelProfile;
     embedding: PublicModelProfile;

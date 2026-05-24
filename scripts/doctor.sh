@@ -7,6 +7,11 @@ cd "$ROOT"
 echo "SparkClaw doctor"
 echo "root=$ROOT"
 
+DOCKER_BIN="${DOCKER_BIN:-docker}"
+if ! "$DOCKER_BIN" ps >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n "$DOCKER_BIN" ps >/dev/null 2>&1; then
+  DOCKER_BIN="sudo -n $DOCKER_BIN"
+fi
+
 check() {
   local name="$1"
   shift
@@ -19,11 +24,16 @@ check() {
   fi
 }
 
-check "go" go version
 check "node" node --version
 check "npm" npm --version
-check "docker" docker --version
-check "docker compose" docker compose version
+check "docker" bash -lc "$DOCKER_BIN --version"
+check "docker compose" bash -lc "$DOCKER_BIN compose version"
+if go version >/tmp/sparkclaw-doctor.out 2>&1; then
+  echo "ok  go"
+else
+  echo "warn go not found on host; checking Docker Go builder"
+  check "go builder" bash -lc "$DOCKER_BIN run --rm golang:1.25-alpine go version"
+fi
 
 for dir in data/workspaces data/traces data/artifacts data/logs data/memory data/eval configs docker; do
   if [[ ! -d "$dir" ]]; then

@@ -1,5 +1,7 @@
 # SparkClaw Tool Schema
 
+> Language: English | [简体中文](../../zh-cn/packages/tool-schema/README.md)
+
 Tool definitions must declare:
 
 - name and description

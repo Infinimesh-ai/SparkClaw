@@ -40,12 +40,14 @@ type RateLimitConfig struct {
 }
 
 type ModelConfig struct {
-	Fast      ModelProfile `json:"fast"`
-	Deep      ModelProfile `json:"deep"`
-	Embedding ModelProfile `json:"embedding"`
-	Reranker  ModelProfile `json:"reranker"`
-	Guard     ModelProfile `json:"guard"`
-	Mock      bool         `json:"mock"`
+	Fast               ModelProfile `json:"fast"`
+	Deep               ModelProfile `json:"deep"`
+	Embedding          ModelProfile `json:"embedding"`
+	Reranker           ModelProfile `json:"reranker"`
+	Guard              ModelProfile `json:"guard"`
+	Mock               bool         `json:"mock"`
+	HTTPTimeoutSeconds int          `json:"http_timeout_seconds"`
+	DisableThinking    bool         `json:"disable_thinking"`
 }
 
 type ModelProfile struct {
@@ -54,6 +56,7 @@ type ModelProfile struct {
 	Model         string `json:"model"`
 	ContextTokens int    `json:"context_tokens"`
 	MTP           bool   `json:"mtp"`
+	MaxTokens     int    `json:"max_tokens"`
 }
 
 type SecurityConfig struct {
@@ -204,13 +207,16 @@ func Default() Config {
 			},
 		},
 		Model: ModelConfig{
-			Mock: true,
+			Mock:               true,
+			HTTPTimeoutSeconds: 300,
+			DisableThinking:    false,
 			Fast: ModelProfile{
 				Name:          "sparkclaw-fast",
 				BaseURL:       "http://127.0.0.1:8001/v1",
 				Model:         "Qwen/Qwen3.6-35B-A3B-FP8",
 				ContextTokens: 131072,
 				MTP:           true,
+				MaxTokens:     1024,
 			},
 			Deep: ModelProfile{
 				Name:          "sparkclaw-deep",
@@ -218,6 +224,7 @@ func Default() Config {
 				Model:         "Qwen/Qwen3.6-27B-FP8",
 				ContextTokens: 131072,
 				MTP:           true,
+				MaxTokens:     2048,
 			},
 			Embedding: ModelProfile{
 				Name:          "sparkclaw-embedding",
@@ -229,7 +236,7 @@ func Default() Config {
 				Name:          "sparkclaw-reranker",
 				BaseURL:       "http://127.0.0.1:8004/v1",
 				Model:         "Qwen/Qwen3-Reranker-0.6B",
-				ContextTokens: 32768,
+				ContextTokens: 2048,
 			},
 			Guard: ModelProfile{
 				Name:          "sparkclaw-guard",
@@ -388,14 +395,54 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE"); v != "" {
 		cfg.State.EncryptionKeyFile = v
 	}
-	if v := os.Getenv("SPARKCLAW_MODEL_MODE"); v == "external" {
-		cfg.Model.Mock = false
+	if v := os.Getenv("SPARKCLAW_MODEL_MODE"); v != "" {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "external", "external-model", "real", "local", "dgx-spark-local":
+			cfg.Model.Mock = false
+		case "mock":
+			cfg.Model.Mock = true
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Model.HTTPTimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_MODEL_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Model.HTTPTimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_MODEL_DISABLE_THINKING"); v != "" {
+		cfg.Model.DisableThinking = parseBool(v)
 	}
 	if v := os.Getenv("SPARKCLAW_FAST_BASE_URL"); v != "" {
 		cfg.Model.Fast.BaseURL = v
 	}
+	if v := os.Getenv("SPARKCLAW_FAST_MODEL"); v != "" {
+		cfg.Model.Fast.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_FAST_SERVED_NAME"); v != "" {
+		cfg.Model.Fast.Name = v
+	}
+	if v := os.Getenv("SPARKCLAW_FAST_MAX_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Fast.MaxTokens = tokens
+		}
+	}
 	if v := os.Getenv("SPARKCLAW_DEEP_BASE_URL"); v != "" {
 		cfg.Model.Deep.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_DEEP_MODEL"); v != "" {
+		cfg.Model.Deep.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_DEEP_SERVED_NAME"); v != "" {
+		cfg.Model.Deep.Name = v
+	}
+	if v := os.Getenv("SPARKCLAW_DEEP_MAX_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Deep.MaxTokens = tokens
+		}
 	}
 	if v := os.Getenv("SPARKCLAW_EMBEDDING_BASE_URL"); v != "" {
 		cfg.Model.Embedding.BaseURL = v

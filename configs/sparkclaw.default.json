@@ -12,19 +12,23 @@
   },
   "model": {
     "mock": true,
+    "http_timeout_seconds": 300,
+    "disable_thinking": false,
     "fast": {
       "name": "sparkclaw-fast",
       "base_url": "http://127.0.0.1:8001/v1",
       "model": "Qwen/Qwen3.6-35B-A3B-FP8",
       "context_tokens": 131072,
-      "mtp": true
+      "mtp": true,
+      "max_tokens": 1024
     },
     "deep": {
       "name": "sparkclaw-deep",
       "base_url": "http://127.0.0.1:8002/v1",
       "model": "Qwen/Qwen3.6-27B-FP8",
       "context_tokens": 131072,
-      "mtp": true
+      "mtp": true,
+      "max_tokens": 2048
     },
     "embedding": {
       "name": "sparkclaw-embedding",
@@ -37,7 +41,7 @@
       "name": "sparkclaw-reranker",
       "base_url": "http://127.0.0.1:8004/v1",
       "model": "Qwen/Qwen3-Reranker-0.6B",
-      "context_tokens": 32768,
+      "context_tokens": 2048,
       "mtp": false
     },
     "guard": {

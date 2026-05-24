@@ -3,6 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "description": "Reliable local agent runtime for DGX Spark.",
+  "license": "Apache-2.0",
+  "author": "SparkClaw contributors",
+  "homepage": "https://github.com/Chiiz0/SparkClaw#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Chiiz0/SparkClaw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Chiiz0/SparkClaw/issues"
+  },
+  "keywords": [
+    "agent",
+    "local-first",
+    "dgx-spark",
+    "llm",
+    "workflow",
+    "tool-calling"
+  ],
   "workspaces": [
     "apps/webchat"
   ],

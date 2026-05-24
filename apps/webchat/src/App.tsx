@@ -1690,7 +1690,8 @@ function RiskPill({ risk }: { risk: string }) {
 
 function profileLabel(profile: PublicConfig["model"]["fast"]) {
   const model = profile.model || profile.name;
-  return `${profile.name} · ${model} · ${profile.context_tokens.toLocaleString()} ctx${profile.mtp ? " · MTP" : ""}`;
+  const maxTokens = profile.max_tokens ? ` · ${profile.max_tokens.toLocaleString()} max` : "";
+  return `${profile.name} · ${model} · ${profile.context_tokens.toLocaleString()} ctx${maxTokens}${profile.mtp ? " · MTP" : ""}`;
 }
 
 function adapterLabel(adapter: { backend: string; base_url: string; token: string }) {

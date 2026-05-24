@@ -1,5 +1,7 @@
 # SparkClaw Protocol
 
+> Language: English | [简体中文](../../zh-cn/packages/protocol/README.md)
+
 Shared API contract notes for SparkClaw services.
 
 The current MVP implements these contracts directly in the Go Gateway. This package records stable message shapes so `webchat`, future split services and SDKs can converge on the same vocabulary.

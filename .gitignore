@@ -6,9 +6,16 @@ build/
 coverage/
 *.tsbuildinfo
 *.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
 .env
 .env.*
 !.env.example
+!.env.sample
 *.pem
 *.key
 data/logs/*
@@ -16,6 +23,7 @@ data/traces/*
 data/artifacts/*
 data/memory/*
 data/eval/*
+data/models/*
 data/workspaces/.sparkclaw/
 services/gateway/internal/agent/data/artifacts/*
 !data/logs/.gitkeep
@@ -23,4 +31,5 @@ services/gateway/internal/agent/data/artifacts/*
 !data/artifacts/.gitkeep
 !data/memory/.gitkeep
 !data/eval/.gitkeep
+!data/models/.gitkeep
 !data/workspaces/.gitkeep

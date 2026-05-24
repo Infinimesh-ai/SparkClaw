@@ -714,6 +714,47 @@ func (s *Server) invokeTool(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errors.New(decision.Reason))
 		return
 	}
+	if name == "notify.ask_approval" {
+		summary, _ := input.Args["summary"].(string)
+		reason, _ := input.Args["reason"].(string)
+		if reason == "" {
+			reason = "Manual confirmation requested."
+		}
+		s.store.SaveRun(app.AgentRun{
+			ID:        runID,
+			SessionID: input.SessionID,
+			State:     "approval_pending",
+			Risk:      def.Risk,
+			StartedAt: now,
+			Summary:   summary,
+		})
+		approval := app.Approval{
+			ID:         app.NewID("ap"),
+			SessionID:  input.SessionID,
+			RunID:      runID,
+			ToolCallID: call.ID,
+			Tool:       name,
+			Risk:       def.Risk,
+			Status:     "pending",
+			Summary:    summary,
+			Reason:     reason,
+			Resources:  []string{},
+			Arguments:  input.Args,
+			CreatedAt:  time.Now().UTC(),
+		}
+		call.Status = "approval_pending"
+		call.ApprovalID = approval.ID
+		s.store.SaveToolCall(call)
+		s.store.SaveApproval(approval)
+		result := map[string]any{
+			"status":      "approval_requested",
+			"approval_id": approval.ID,
+			"tool_call":   call.ID,
+		}
+		s.refreshTrace(r.Context(), runID)
+		writeJSON(w, http.StatusOK, map[string]any{"tool_call": call, "result": result})
+		return
+	}
 	if decision.RequiresApproval {
 		s.store.SaveRun(app.AgentRun{
 			ID:        runID,
@@ -1559,12 +1600,14 @@ func publicGatewayConfig(cfg config.GatewayConfig) config.GatewayConfig {
 
 func publicModelConfig(cfg config.ModelConfig) map[string]any {
 	return map[string]any{
-		"mock":      cfg.Mock,
-		"fast":      publicModelProfile(cfg.Fast),
-		"deep":      publicModelProfile(cfg.Deep),
-		"embedding": publicModelProfile(cfg.Embedding),
-		"reranker":  publicModelProfile(cfg.Reranker),
-		"guard":     publicModelProfile(cfg.Guard),
+		"mock":                 cfg.Mock,
+		"http_timeout_seconds": cfg.HTTPTimeoutSeconds,
+		"disable_thinking":     cfg.DisableThinking,
+		"fast":                 publicModelProfile(cfg.Fast),
+		"deep":                 publicModelProfile(cfg.Deep),
+		"embedding":            publicModelProfile(cfg.Embedding),
+		"reranker":             publicModelProfile(cfg.Reranker),
+		"guard":                publicModelProfile(cfg.Guard),
 	}
 }
 
@@ -1575,6 +1618,7 @@ func publicModelProfile(profile config.ModelProfile) map[string]any {
 		"model":          profile.Model,
 		"context_tokens": profile.ContextTokens,
 		"mtp":            profile.MTP,
+		"max_tokens":     profile.MaxTokens,
 	}
 }
 

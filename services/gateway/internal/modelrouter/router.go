@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -92,9 +93,13 @@ type tokenUsage struct {
 }
 
 func New(cfg config.Config) Router {
+	timeout := time.Duration(cfg.Model.HTTPTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 300 * time.Second
+	}
 	return Router{
 		cfg:    cfg,
-		client: &http.Client{Timeout: 60 * time.Second},
+		client: &http.Client{Timeout: timeout},
 	}
 }
 
@@ -296,7 +301,20 @@ func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) 
 	}
 	result, usage, err := r.guard(ctx, profile, content)
 	if err != nil {
-		return GuardResult{}, err
+		result := mockGuard(content)
+		result.Lane = "guard"
+		result.Profile = profile.Name
+		result.Model = modelID(profile)
+		result.Mock = true
+		result.PromptTokens = estimateTokens(content)
+		result.ResponseTokens = estimateTokens(result.Verdict + " " + result.Reason + " " + strings.Join(result.Categories, " "))
+		result.TotalTokens = result.PromptTokens + result.ResponseTokens
+		if strings.TrimSpace(result.Reason) == "" {
+			result.Reason = "External guard unavailable; used local heuristic fallback."
+		} else {
+			result.Reason = result.Reason + " External guard unavailable; used local heuristic fallback."
+		}
+		return result, nil
 	}
 	result.Lane = "guard"
 	result.Profile = profile.Name
@@ -321,6 +339,12 @@ func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile
 		},
 		"temperature": 0.2,
 	}
+	if r.cfg.Model.DisableThinking {
+		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+	}
+	if profile.MaxTokens > 0 {
+		body["max_tokens"] = profile.MaxTokens
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return "", tokenUsage{}, err
@@ -344,8 +368,10 @@ func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile
 	var decoded struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   *string `json:"content"`
+				Reasoning string  `json:"reasoning"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -359,7 +385,16 @@ func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile
 	if len(decoded.Choices) == 0 {
 		return "", tokenUsage{}, errors.New("model response had no choices")
 	}
-	content := decoded.Choices[0].Message.Content
+	content := ""
+	if decoded.Choices[0].Message.Content != nil {
+		content = strings.TrimSpace(*decoded.Choices[0].Message.Content)
+	}
+	if content == "" && strings.TrimSpace(decoded.Choices[0].Message.Reasoning) != "" {
+		return "", tokenUsage{}, fmt.Errorf("model response contained reasoning but no assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+	}
+	if content == "" {
+		return "", tokenUsage{}, fmt.Errorf("model response had empty assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+	}
 	usage := tokenUsage{
 		PromptTokens:   decoded.Usage.PromptTokens,
 		ResponseTokens: decoded.Usage.CompletionTokens,
@@ -406,6 +441,9 @@ func (r Router) rerank(ctx context.Context, profile config.ModelProfile, query s
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusNotFound {
+			return r.generativeScoreRerank(ctx, profile, query, documents, topN)
+		}
 		return nil, tokenUsage{}, fmt.Errorf("reranker received HTTP %d", resp.StatusCode)
 	}
 	var decoded struct {
@@ -456,6 +494,83 @@ func (r Router) rerank(ctx context.Context, profile config.ModelProfile, query s
 	}
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens
+	}
+	return results, usage, nil
+}
+
+func (r Router) generativeScoreRerank(ctx context.Context, profile config.ModelProfile, query string, documents []string, topN int) ([]RerankScored, tokenUsage, error) {
+	endpoint := strings.TrimSuffix(strings.TrimRight(profile.BaseURL, "/"), "/v1") + "/generative_scoring"
+	items := make([]string, 0, len(documents))
+	for _, document := range documents {
+		items = append(items, "Document: "+document+"\nAnswer:")
+	}
+	body := map[string]any{
+		"model":           modelID(profile),
+		"query":           "Is this document relevant to the query? Answer Yes or No.\nQuery: " + query,
+		"items":           items,
+		"label_token_ids": []int{7414, 2308},
+		"apply_softmax":   true,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, tokenUsage{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return nil, tokenUsage{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, tokenUsage{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, tokenUsage{}, fmt.Errorf("reranker generative scoring received HTTP %d", resp.StatusCode)
+	}
+	var decoded struct {
+		Data []struct {
+			Index int     `json:"index"`
+			Score float64 `json:"score"`
+		} `json:"data"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return nil, tokenUsage{}, err
+	}
+	results := make([]RerankScored, 0, len(decoded.Data))
+	for _, item := range decoded.Data {
+		if item.Index < 0 || item.Index >= len(documents) {
+			continue
+		}
+		results = append(results, RerankScored{Index: item.Index, Score: item.Score})
+	}
+	if len(results) == 0 {
+		return nil, tokenUsage{}, errors.New("reranker generative scoring response had no usable scores")
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+	if topN > 0 && topN < len(results) {
+		results = results[:topN]
+	}
+	usage := tokenUsage{
+		PromptTokens:   decoded.Usage.PromptTokens,
+		ResponseTokens: decoded.Usage.CompletionTokens,
+		TotalTokens:    decoded.Usage.TotalTokens,
+	}
+	if usage.PromptTokens == 0 {
+		usage.PromptTokens = estimateTokens(query) + estimateTokenList(documents)
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
 	}
 	return results, usage, nil
 }

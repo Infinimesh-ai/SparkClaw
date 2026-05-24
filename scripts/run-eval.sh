@@ -5,9 +5,22 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
+SPARKCLAW_EXPECT_REAL_MODELS="${SPARKCLAW_EXPECT_REAL_MODELS:-}"
+if [[ -z "$SPARKCLAW_EXPECT_REAL_MODELS" ]]; then
+  case "${SPARKCLAW_MODEL_MODE:-mock}" in
+    external|external-model|real|local|dgx-spark-local) SPARKCLAW_EXPECT_REAL_MODELS=1 ;;
+    *) SPARKCLAW_EXPECT_REAL_MODELS=0 ;;
+  esac
+fi
 BROWSER_FIXTURE_PORT="${BROWSER_FIXTURE_PORT:-18791}"
 LOCAL_BROWSER_FIXTURE_URL="http://127.0.0.1:$BROWSER_FIXTURE_PORT"
 BROWSER_FIXTURE_URL="${BROWSER_FIXTURE_URL:-$LOCAL_BROWSER_FIXTURE_URL}"
+BROWSER_FIXTURE_BIND="${BROWSER_FIXTURE_BIND:-}"
+if [[ -z "$BROWSER_FIXTURE_BIND" && "$BROWSER_FIXTURE_URL" == http://host.docker.internal:* ]]; then
+  BROWSER_FIXTURE_BIND="0.0.0.0"
+elif [[ -z "$BROWSER_FIXTURE_BIND" ]]; then
+  BROWSER_FIXTURE_BIND="127.0.0.1"
+fi
 TMP_DIR="${TMPDIR:-/tmp}/sparkclaw-eval-$$"
 mkdir -p "$TMP_DIR"
 cleanup() {
@@ -21,6 +34,7 @@ cleanup() {
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
+trap 'status=$?; echo "run-eval failed at line $LINENO: $BASH_COMMAND" >&2; exit "$status"' ERR
 
 GOLDEN_CASE_COUNT="$(python3 - "$ROOT/eval/golden/files.yaml" <<'PY'
 import pathlib
@@ -37,13 +51,15 @@ fi
 echo "SparkClaw golden eval"
 echo "gateway=$GATEWAY_URL"
 echo "browser_fixture=$BROWSER_FIXTURE_URL"
+echo "browser_fixture_bind=$BROWSER_FIXTURE_BIND"
 echo "golden_cases=$GOLDEN_CASE_COUNT"
+echo "expect_real_models=$SPARKCLAW_EXPECT_REAL_MODELS"
 
 rm -f data/workspaces/eval_patch_target.txt data/workspaces/go.mod data/workspaces/golden-read-target.txt data/workspaces/golden-search-target.txt data/workspaces/golden-cross-a.txt data/workspaces/golden-cross-b.txt data/workspaces/golden-draft.md data/workspaces/golden-delete-target.txt
 rm -rf data/workspaces/.sparkclaw data/workspaces/knowledge
 
 python3 -m http.server "$BROWSER_FIXTURE_PORT" \
-  --bind 127.0.0.1 \
+  --bind "$BROWSER_FIXTURE_BIND" \
   --directory "$ROOT/eval/fixtures/browser" \
   > "$TMP_DIR/browser-fixture.log" 2>&1 &
 FIXTURE_PID="$!"
@@ -115,6 +131,27 @@ import sys
 print(json.loads(open(sys.argv[1]).read())["tool_policy"]["policy_path"])
 PY
 )"
+POLICY_FILE="$(python3 - "$POLICY_FILE" "$ROOT" <<'PY'
+import pathlib
+import sys
+
+path = sys.argv[1]
+root = pathlib.Path(sys.argv[2])
+prefixes = {
+    "/app/configs/": root / "configs",
+    "/var/lib/sparkclaw/memory/": root / "data" / "memory",
+}
+for prefix, local_root in prefixes.items():
+    if path.startswith(prefix):
+        path = str(local_root / path[len(prefix):])
+        break
+print(path)
+PY
+)"
+if [[ ! -f "$POLICY_FILE" ]]; then
+  mkdir -p "$(dirname "$POLICY_FILE")"
+  cp "$ROOT/configs/tools.policy.json" "$POLICY_FILE"
+fi
 cp "$POLICY_FILE" "$TMP_DIR/original-tools.policy.json"
 python3 - "$TMP_DIR/config.json" "$TMP_DIR/policy-update-body.json" <<'PY'
 import json
@@ -233,6 +270,7 @@ fi
 
 python3 - "$TMP_DIR" <<'PY'
 import json
+import os
 import pathlib
 import sys
 
@@ -247,6 +285,21 @@ def status(name):
 def require(condition, message):
     if not condition:
         raise SystemExit(message)
+
+def local_path(value):
+    path = str(value or "")
+    root = pathlib.Path.cwd()
+    mappings = {
+        "/app/configs/": root / "configs",
+        "/var/lib/sparkclaw/workspaces/": root / "data" / "workspaces",
+        "/var/lib/sparkclaw/artifacts/": root / "data" / "artifacts",
+        "/var/lib/sparkclaw/traces/": root / "data" / "traces",
+        "/var/lib/sparkclaw/memory/": root / "data" / "memory",
+    }
+    for prefix, local_root in mappings.items():
+        if path.startswith(prefix):
+            return local_root / path[len(prefix):]
+    return pathlib.Path(path)
 
 chat_fast = load("chat-fast.json")
 chat_deep = load("chat-deep.json")
@@ -277,8 +330,13 @@ email_send = load("email-send-manual.json")
 calendar_create = load("calendar-create-manual.json")
 notify = load("notify-approval.json")
 
-require(chat_fast["model"]["lane"] == "fast" and chat_fast["model"]["mock"] is True, "direct /chat fast lane did not respond in mock fast mode")
-require(chat_deep["model"]["lane"] == "deep" and chat_deep["model"]["mock"] is True, "direct /chat deep lane did not respond in mock deep mode")
+expect_real_models = os.environ.get("SPARKCLAW_EXPECT_REAL_MODELS") == "1"
+require(chat_fast["model"]["lane"] == "fast", "direct /chat fast lane did not route to fast lane")
+require(chat_deep["model"]["lane"] == "deep", "direct /chat deep lane did not route to deep lane")
+require(bool(chat_fast["model"]["mock"]) is (not expect_real_models), "direct /chat fast mock/real mode mismatch")
+require(bool(chat_deep["model"]["mock"]) is (not expect_real_models), "direct /chat deep mock/real mode mismatch")
+require(chat_fast.get("message", "").strip(), "direct /chat fast returned an empty message")
+require(chat_deep.get("message", "").strip(), "direct /chat deep returned an empty message")
 require("unknown chat profile" in chat_unknown.get("error", ""), "direct /chat did not reject unsupported profile")
 require(config["gateway"].get("api_token", "") == "", "/api/config exposed api token")
 require(config["gateway"]["rate_limit"]["enabled"] is True, "/api/config missing enabled gateway rate limit")
@@ -352,7 +410,7 @@ require(files_read["tool_call"].get("observation_summary") and "Observation byte
 require(len(files_read["tool_call"]["observation_summary"]) <= config["runtime"]["observation_summary_max_bytes"], "files.read observation summary exceeded configured limit")
 require(status("invoke-files_write_draft") == "200", "files.write_draft invoke did not return HTTP 200")
 require(draft["result"]["status"] == "draft_written", "files.write_draft did not write a draft")
-require(pathlib.Path(draft["result"]["path"]).read_text() == "Golden draft content from eval.", "draft file content mismatch")
+require(local_path(draft["result"]["path"]).read_text() == "Golden draft content from eval.", "draft file content mismatch")
 require(status("invoke-file_delete") == "202", "file.delete manual invoke did not queue approval")
 require(file_delete["tool_call"]["status"] == "approval_pending", "file.delete manual invoke did not hold for approval")
 require(pathlib.Path("data/workspaces/golden-delete-target.txt").exists(), "file.delete moved target before approval")
@@ -448,6 +506,21 @@ def require(condition, message):
     if not condition:
         raise SystemExit(message)
 
+def local_path(value):
+    path = str(value or "")
+    root = pathlib.Path.cwd()
+    mappings = {
+        "/app/configs/": root / "configs",
+        "/var/lib/sparkclaw/workspaces/": root / "data" / "workspaces",
+        "/var/lib/sparkclaw/artifacts/": root / "data" / "artifacts",
+        "/var/lib/sparkclaw/traces/": root / "data" / "traces",
+        "/var/lib/sparkclaw/memory/": root / "data" / "memory",
+    }
+    for prefix, local_root in mappings.items():
+        if path.startswith(prefix):
+            return local_root / path[len(prefix):]
+    return pathlib.Path(path)
+
 modified = load("email-modified.json")
 email_approved = load("email-approved.json")
 file_delete_approved = load("file-delete-approved.json")
@@ -462,8 +535,8 @@ require(file_delete_approved["tool_call"]["status"] == "completed_after_approval
 delete_result = file_delete_approved["tool_call"]["result"]
 require(delete_result["status"] == "moved_to_trash", "approved file delete did not move to trash")
 require(not pathlib.Path("data/workspaces/golden-delete-target.txt").exists(), "file delete target still exists after approval")
-require(pathlib.Path(delete_result["trash_path"]).read_text() == "SparkClaw golden delete target.\n", "file delete trash content mismatch")
-require(pathlib.Path(delete_result["manifest_path"]).exists(), "file delete manifest missing")
+require(local_path(delete_result["trash_path"]).read_text() == "SparkClaw golden delete target.\n", "file delete trash content mismatch")
+require(local_path(delete_result["manifest_path"]).exists(), "file delete manifest missing")
 require(memory_sensitive_approved["tool_call"]["status"] == "completed_after_approval", "approved sensitive memory did not execute")
 sensitive_result = memory_sensitive_approved["tool_call"]["result"]
 require(sensitive_result["sensitivity"] == "sensitive", "approved sensitive memory result missing sensitivity")
@@ -478,9 +551,17 @@ PY
 
 send_prompt() {
   local prompt="$1"
-  curl -fsS -X POST "$GATEWAY_URL/api/sessions/$SESSION_ID/messages" \
+  local output="$TMP_DIR/send-prompt.json"
+  local status
+  status="$(curl -sS -o "$output" -w '%{http_code}' -X POST "$GATEWAY_URL/api/sessions/$SESSION_ID/messages" \
     -H 'Content-Type: application/json' \
-    -d "{\"content\":$(printf '%s' "$prompt" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" >/dev/null
+    -d "{\"content\":$(printf '%s' "$prompt" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}")"
+  if [[ "$status" != "201" ]]; then
+    echo "send_prompt expected HTTP 201, got $status"
+    echo "prompt=$prompt"
+    cat "$output"
+    exit 1
+  fi
 }
 
 send_prompt "Search for SparkClaw in the workspace"
@@ -620,6 +701,21 @@ def require(condition, message):
     if not condition:
         raise SystemExit(message)
 
+def local_path(value):
+    path = str(value or "")
+    root = pathlib.Path.cwd()
+    mappings = {
+        "/app/configs/": root / "configs",
+        "/var/lib/sparkclaw/workspaces/": root / "data" / "workspaces",
+        "/var/lib/sparkclaw/artifacts/": root / "data" / "artifacts",
+        "/var/lib/sparkclaw/traces/": root / "data" / "traces",
+        "/var/lib/sparkclaw/memory/": root / "data" / "memory",
+    }
+    for prefix, local_root in mappings.items():
+        if path.startswith(prefix):
+            return local_root / path[len(prefix):]
+    return pathlib.Path(path)
+
 require(any(call["tool"] == "files.search" and call["risk"] == "read" for call in calls), "files.search read tool did not run")
 file_read_calls = [call for call in calls if call["tool"] == "files.read"]
 require(any(call["status"] == "completed" for call in file_read_calls), "agent files.read did not complete")
@@ -702,8 +798,8 @@ require(not trace_before_approval["run"].get("completed_at"), "approval-pending 
 require(patch_resolution["tool_call"]["status"] == "completed_after_approval", "approved patch was not executed")
 require(any(call["tool"] == "code.apply_patch" and call["status"] == "completed_after_approval" for call in calls_after), "patch tool call status did not update")
 patch_result = patch_resolution["tool_call"].get("result", {})
-require(pathlib.Path(patch_result.get("manifest_path", "")).exists(), "patch rollback manifest missing")
-rollback_path = pathlib.Path(patch_result.get("rollback_patch_path", ""))
+require(local_path(patch_result.get("manifest_path", "")).exists(), "patch rollback manifest missing")
+rollback_path = local_path(patch_result.get("rollback_patch_path", ""))
 require(rollback_path.exists() and "-bravo" in rollback_path.read_text() and "+beta" in rollback_path.read_text(), "patch rollback patch missing inverse diff")
 require(pathlib.Path("data/workspaces/eval_patch_target.txt").read_text() == "alpha\nbravo\ngamma", "patch target content did not change")
 drafts = list(pathlib.Path("data/workspaces/.sparkclaw/drafts").glob("*"))
@@ -992,6 +1088,21 @@ def require(condition, message):
     if not condition:
         raise SystemExit(message)
 
+def local_path(value):
+    path = str(value or "")
+    root = pathlib.Path.cwd()
+    mappings = {
+        "/app/configs/": root / "configs",
+        "/var/lib/sparkclaw/workspaces/": root / "data" / "workspaces",
+        "/var/lib/sparkclaw/artifacts/": root / "data" / "artifacts",
+        "/var/lib/sparkclaw/traces/": root / "data" / "traces",
+        "/var/lib/sparkclaw/memory/": root / "data" / "memory",
+    }
+    for prefix, local_root in mappings.items():
+        if path.startswith(prefix):
+            return local_root / path[len(prefix):]
+    return pathlib.Path(path)
+
 trace = load("trace.json")
 traces = load("traces.json")
 run_feedback = load("run-feedback.json")
@@ -1041,7 +1152,7 @@ require(all("old-retention-marker" not in memory.get("content", "") for memory i
 require(memory_export["export"]["owner_profile"]["id"] == "owner", "memory export missing owner profile")
 require(any(memory["id"] == updated["id"] and memory["content"] == updated["content"] for memory in memory_export["export"]["memories"]), "memory export missing edited memory")
 require(memory_export["artifact"]["kind"] == "memory_export" and memory_export["artifact"]["uri"], "memory export artifact metadata incomplete")
-require(pathlib.Path(memory_export["artifact"]["path"]).exists(), "memory export artifact file missing")
+require(local_path(memory_export["artifact"]["path"]).exists(), "memory export artifact file missing")
 require(deleted["id"] == updated["id"], "memory editor delete returned wrong memory")
 require(len(deleted_memories["memories"]) == 0, "deleted memory was still searchable")
 chaos_cases = {case["name"]: case["status"] for case in chaos["cases"]}
@@ -1058,7 +1169,7 @@ archives = failed_eval.get("failure_archives") or []
 require(archives, "failed eval did not return failure archives")
 archive = archives[0]
 require(archive.get("uri") and archive.get("path") and archive.get("case_name"), "failure archive metadata incomplete")
-archive_path = pathlib.Path(archive["path"])
+archive_path = local_path(archive["path"])
 require(archive_path.exists(), "failure archive file missing")
 archive_body = archive_path.read_text()
 require(failed_eval["id"] in archive_body and archive["case_name"] in archive_body, "failure archive file missing eval context")

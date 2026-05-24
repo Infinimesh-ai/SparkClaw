@@ -94,6 +94,46 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_MODEL_MODE", "external-model")
+	t.Setenv("SPARKCLAW_FAST_BASE_URL", "http://fast.example.test/v1")
+	t.Setenv("SPARKCLAW_FAST_MODEL", "sparkclaw-fast")
+	t.Setenv("SPARKCLAW_FAST_SERVED_NAME", "fast-lane")
+	t.Setenv("SPARKCLAW_FAST_MAX_TOKENS", "333")
+	t.Setenv("SPARKCLAW_DEEP_BASE_URL", "http://deep.example.test/v1")
+	t.Setenv("SPARKCLAW_DEEP_MODEL", "sparkclaw-deep")
+	t.Setenv("SPARKCLAW_DEEP_SERVED_NAME", "deep-lane")
+	t.Setenv("SPARKCLAW_DEEP_MAX_TOKENS", "444")
+	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
+	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model.Mock {
+		t.Fatal("external-model mode should disable mock routing")
+	}
+	if cfg.Model.Fast.BaseURL != "http://fast.example.test/v1" || cfg.Model.Fast.Model != "sparkclaw-fast" || cfg.Model.Fast.Name != "fast-lane" {
+		t.Fatalf("fast model env did not apply: %#v", cfg.Model.Fast)
+	}
+	if cfg.Model.Fast.MaxTokens != 333 {
+		t.Fatalf("fast max tokens env did not apply: %#v", cfg.Model.Fast)
+	}
+	if cfg.Model.Deep.BaseURL != "http://deep.example.test/v1" || cfg.Model.Deep.Model != "sparkclaw-deep" || cfg.Model.Deep.Name != "deep-lane" {
+		t.Fatalf("deep model env did not apply: %#v", cfg.Model.Deep)
+	}
+	if cfg.Model.Deep.MaxTokens != 444 {
+		t.Fatalf("deep max tokens env did not apply: %#v", cfg.Model.Deep)
+	}
+	if cfg.Model.HTTPTimeoutSeconds != 555 {
+		t.Fatalf("model HTTP timeout env did not apply: %#v", cfg.Model)
+	}
+	if !cfg.Model.DisableThinking {
+		t.Fatalf("model disable thinking env did not apply: %#v", cfg.Model)
+	}
+}
+
 func TestLoadAppliesStateEncryptionEnvironment(t *testing.T) {
 	root := t.TempDir()
 	keyFile := filepath.Join(root, "state.key")

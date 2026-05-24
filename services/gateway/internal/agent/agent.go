@@ -70,6 +70,7 @@ func (r Runtime) HandleMessage(ctx context.Context, sessionID, content string) (
 		Risk:      classifyRisk(content),
 		StartedAt: time.Now().UTC(),
 	}
+	r.store.SaveRun(run)
 	task := modelrouter.Task{
 		Message:       content,
 		Risk:          run.Risk,

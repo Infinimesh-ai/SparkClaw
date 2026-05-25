@@ -4,7 +4,7 @@
 
 **Reliable local agent runtime for DGX Spark.**
 
-SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals.
+SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape is a full single-machine dual-lane stack: a responsive `fast` MoE lane, a dense `deep` lane for harder or higher-risk work, and resident embedding/reranker endpoints for retrieval workflows.
 
 The project is past the initial planning stage. This README is the entry point; the detailed current-state docs are:
 
@@ -20,18 +20,21 @@ The project is past the initial planning stage. This README is the entry point; 
 Implemented and validated:
 
 - Go Gateway API with health, readiness, direct chat, sessions, messages, events, tools, approvals, memories, traces, artifacts, eval reports, feedback, client pairing, token auth and rate limiting.
-- Agent Runtime with guard review, fast/deep routing, bounded repair, schema repair, grounded final answers and trace snapshots.
+- Agent Runtime with guard review, Gateway-controlled fast/deep routing, bounded repair, schema repair, grounded final answers and trace snapshots.
+- Single-machine `dual-light-v1` model profile for NVIDIA GB10: `fast` and `deep` chat lanes plus embedding and reranker resident together, with explicit context, KV cache and sequence caps.
 - ToolHub with JSON-schema-validated tools for files, memory, knowledge/RAG, browser read, email, calendar, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application, email send, calendar create and sensitive memory writes.
 - File, browser, email and calendar observations are treated as untrusted data and are summarized before being used for answers.
 - File-backed state for local runs, PostgreSQL/pgvector for durable sessions, tool calls, approvals, evals and document chunks, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
-- DGX Spark validation on NVIDIA GB10 with Postgres/pgvector, MinIO, sandbox-runner, vLLM fast/deep/embedding/reranker endpoints and 58-case golden eval coverage.
+- DGX Spark validation on NVIDIA GB10 with Postgres/pgvector, MinIO, sandbox-runner, vLLM fast/deep/embedding/reranker endpoints and 58-case real-model golden eval coverage.
 
 Known operating boundary:
 
-- On the validated GB10 machine, 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
+- On the validated GB10 machine, full 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
+- The accepted single-machine dual-lane profile is `dual-light-v1`: fast runs at 32K context with 8G KV cache, deep runs at 64K context with 12G KV cache, both with MTP off. Deep is intentionally slower because it is a dense model; the acceptance standard is task stability and overall product experience, not deep-lane throughput alone.
+- Gateway, not the `fast` model, decides which chat lane to call. It routes code, terminal, dangerous, repair or explicitly deep/review requests to `deep`; routine bounded work goes to `fast`, with deep fallback only if a fast call fails.
 - Skill packages under `skills/` are runtime workflow descriptions and will keep evolving; they are intentionally not the source of truth for product documentation.
 
 ## Quick Start
@@ -115,13 +118,23 @@ The npm workspace root is intentionally marked `private` to prevent accidental p
 
 ## DGX Spark Models
 
-The model-serving entrypoints are:
+For the current full local-model path, start the accepted single-machine profile first:
+
+```bash
+scripts/serve_models_compose.sh dual-light
+scripts/restart_runtime_compose.sh
+```
+
+`dual-light` starts all resident product model services: `fast`, `deep`, embedding and reranker. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat in `external/postgres` mode and fails if Gateway is not ready.
+
+Other serving entrypoints are available for targeted tests and controls:
 
 ```bash
 scripts/serve_fast.sh
 scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
-scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh deep
+scripts/serve_models_compose.sh dual-light-chat
 scripts/serve_models_compose.sh embedding,reranker
 ```
 
@@ -134,15 +147,9 @@ Default served lanes:
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 | reranker | `sparkclaw-reranker` | 8004 | `Qwen/Qwen3-Reranker-0.6B` |
 
-After endpoints are live, run:
+The accepted single-machine profile is intentionally conservative: `fast` is the responsive MoE lane, `deep` is the dense stability/quality lane, MTP is off, and auxiliary models use small explicit KV budgets so the full product stack fits. `dual-light-chat` is only for chat-lane controls without auxiliary endpoints.
 
-```bash
-scripts/restart_runtime_compose.sh
-```
-
-This restart entrypoint loads `docker/env/sparkclaw.external-postgres.env` after `.env`, rebuilds Gateway and WebChat, and fails if the recreated Gateway is not still running in `external/postgres` mode.
-
-Benchmark evidence and operating notes live in [benchmarks/model_baseline.md](benchmarks/model_baseline.md).
+Loading strategy lives in [docs/model-loading.md](docs/model-loading.md). Benchmark evidence, endpoint snapshots and operating notes live in [benchmarks/model_baseline.md](benchmarks/model_baseline.md).
 
 ## Repository Layout
 

@@ -4,7 +4,7 @@
 
 **面向 DGX Spark 的可靠本地 Agent Runtime。**
 
-SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。
+SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态已经是完整的单机双 lane 栈：响应快的 `fast` MoE lane、用于更难或更高风险工作的稠密 `deep` lane，以及为 retrieval workflow 常驻的 embedding/reranker 端点。
 
 项目已经过了早期规划阶段。本 README 是入口，当前有效的详细文档是：
 
@@ -20,18 +20,21 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 已实现并验证：
 
 - Go Gateway API：健康检查、ready 检查、direct chat、sessions、messages、events、tools、approvals、memories、traces、artifacts、eval reports、feedback、client pairing、token auth 和 rate limiting。
-- Agent Runtime：guard review、fast/deep routing、有界 repair、schema repair、grounded final answer 和 trace snapshot。
+- Agent Runtime：guard review、由 Gateway 控制的 fast/deep routing、有界 repair、schema repair、grounded final answer 和 trace snapshot。
+- 单机 `dual-light-v1` 模型 profile 已在 NVIDIA GB10 上验证：`fast` 与 `deep` chat lanes 加上 embedding/reranker 可以同时常驻，并使用显式 context、KV cache 和 sequence caps。
 - ToolHub：为文件、memory、knowledge/RAG、browser read、email、calendar、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
 - approval-first policy：file deletion、shell execution、patch application、email send、calendar create 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
 - file、browser、email、calendar observation 都被当作 untrusted data，并在进入回答前被摘要。
 - 本地 file-backed state，PostgreSQL/pgvector 持久化 sessions、tool calls、approvals、evals、document chunks，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
-- DGX Spark NVIDIA GB10 验证：Postgres/pgvector、MinIO、sandbox-runner、vLLM fast/deep/embedding/reranker endpoints，以及 58-case golden eval。
+- DGX Spark NVIDIA GB10 验证：Postgres/pgvector、MinIO、sandbox-runner、vLLM fast/deep/embedding/reranker endpoints，以及 58-case real-model golden eval。
 
 已知运行边界：
 
-- 在已验证的 GB10 机器上，128K context 且启用 MTP 时，fast 和 deep chat lanes 应视为不能同时常驻，除非降低 context、MTP 或 GPU memory utilization 后重新测量。
+- 在已验证的 GB10 机器上，full 128K context 且启用 MTP 时，fast 和 deep chat lanes 应视为不能同时常驻，除非降低 context、MTP 或 GPU memory utilization 后重新测量。
+- 当前接受的单机双 lane profile 是 `dual-light-v1`：fast 使用 32K context + 8G KV cache，deep 使用 64K context + 12G KV cache，二者都关闭 MTP。Deep 是稠密模型，慢是预期内；验收标准是任务稳定性和产品综合体验，而不是单独追求 deep throughput。
+- 决定调用哪个 chat lane 的是 Gateway，不是 `fast` 模型本身。代码、terminal、危险、repair 或显式 deep/review 请求会走 `deep`；常规有边界任务走 `fast`。只有 fast 调用失败时，才会把 deep 作为 fallback。
 - `skills/` 下的 skill package 是运行时 workflow 描述，后续会持续升级；它们不是项目文档的事实来源。
 
 ## 快速开始
@@ -115,13 +118,23 @@ npm workspace root 保持 `private`，用于避免误发布 package。仓库本�
 
 ## DGX Spark 模型
 
-模型服务入口：
+当前完整本地模型路径先启动已接受的单机 profile：
+
+```bash
+scripts/serve_models_compose.sh dual-light
+scripts/restart_runtime_compose.sh
+```
+
+`dual-light` 会启动完整产品模型常驻服务：`fast`、`deep`、embedding 和 reranker。`scripts/restart_runtime_compose.sh` 随后以 `external/postgres` mode 重启 Gateway/WebChat，如果 Gateway 未 ready 会失败退出。
+
+其他服务入口用于定向测试和对照实验：
 
 ```bash
 scripts/serve_fast.sh
 scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
-scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh deep
+scripts/serve_models_compose.sh dual-light-chat
 scripts/serve_models_compose.sh embedding,reranker
 ```
 
@@ -134,18 +147,9 @@ scripts/serve_models_compose.sh embedding,reranker
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 | reranker | `sparkclaw-reranker` | 8004 | `Qwen/Qwen3-Reranker-0.6B` |
 
-端点 ready 后运行：
+已接受的单机 profile 是保守取舍：`fast` 是响应快的 MoE lane，`deep` 是稠密的稳定性/质量 lane，MTP 关闭，辅助模型使用小的显式 KV budget 以保证完整产品栈能放下。`dual-light-chat` 只用于不带辅助端点的 chat-lane 对照实验。
 
-```bash
-SPARKCLAW_MODEL_MODE=external \
-SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=300 \
-SPARKCLAW_MODEL_DISABLE_THINKING=true \
-SPARKCLAW_FAST_MODEL=sparkclaw-fast \
-SPARKCLAW_DEEP_MODEL=sparkclaw-deep \
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d --build --force-recreate gateway webchat
-```
-
-benchmark 证据和运行说明见 [benchmarks/model_baseline.md](benchmarks/model_baseline.md)。
+加载策略见 [docs/model-loading.md](docs/model-loading.md)。Benchmark 证据、endpoint 快照和运行说明见 [benchmarks/model_baseline.md](benchmarks/model_baseline.md)。
 
 ## 仓库结构
 

@@ -1,5 +1,7 @@
 # SparkClaw Web 前端功能需求与后端融合清单
 
+> 语言： [English](../../docs/frontend-requirements.md) | 简体中文
+
 > 面向专职前端团队的交接文档。Gateway 是执行、策略、审批状态、Trace 和持久化的事实来源。当前 TypeScript 契约见 `apps/webchat/src/api/client.ts` 与 `apps/webchat/src/api/types.ts`；后端路由定义见 `services/gateway/internal/gateway/server.go`。
 
 ## 1. 产品目标

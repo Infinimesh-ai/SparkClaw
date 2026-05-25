@@ -1,5 +1,7 @@
 # SparkClaw Web Frontend Functional Requirements
 
+> Language: English | [简体中文](../zh-cn/docs/frontend-requirements.md)
+
 > Handoff document for a dedicated frontend team. The Gateway remains the source of truth for execution, policy, approval state, traces and persistence. Current typed contracts live in `apps/webchat/src/api/client.ts` and `apps/webchat/src/api/types.ts`; backend route definitions live in `services/gateway/internal/gateway/server.go`.
 
 ## 1. Product Goal

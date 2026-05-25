@@ -18,6 +18,8 @@ Compose vLLM services:
 ```bash
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
+scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh dual-light-chat
 scripts/serve_models_compose.sh embedding,reranker
 ```
 
@@ -31,6 +33,12 @@ Defaults:
 | reranker | Qwen/Qwen3-Reranker-0.6B | sparkclaw-reranker | 8004 | 2048 | off |
 
 Set `SPARKCLAW_FAST_*`, `SPARKCLAW_DEEP_*`, `SPARKCLAW_EMBEDDING_*` or `SPARKCLAW_RERANKER_*` environment variables to adjust checkpoint, served name, port, tensor parallel size, context length, speculative decoding, GPU memory utilization or vLLM image. Use `*_MODEL_ID` for the Hugging Face checkpoint and `*_MODEL` for the OpenAI-compatible served model name that Gateway sends.
+
+Experimental single-machine dual residency:
+
+| Profile | Fast | Deep | MTP | Notes |
+|---|---|---|---|---|
+| `dual-light-v1` | 32K context, 8G KV, 4 seqs, 768 max tokens | 64K context, 12G KV, 2 seqs, 1536 max tokens | off | Single-user full product profile. Embedding uses 8K/2G KV/1 seq; reranker uses 2K/1G KV/1 seq. |
 
 ## Checks
 
@@ -78,12 +86,23 @@ python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.
 | 2026-05-24 | NVIDIA GB10 | Reranker endpoint | Passed | `Qwen/Qwen3-Reranker-0.6B` ran with `--runner auto --convert auto --max-model-len 2048`; `/generative_scoring` returned relevance scores. Gateway and benchmark code fall back from `/rerank` 404 to `/generative_scoring`. |
 | 2026-05-24 | NVIDIA GB10 | Real-model golden eval | Passed | Dockerized Gateway ran in `SPARKCLAW_MODEL_MODE=external` with `SPARKCLAW_EXPECT_REAL_MODELS=1`; output included `ok golden tasks passed tool_calls=38 approvals=8 memory_candidates=1` and `ok extended golden checks passed golden_cases=58`. |
 | 2026-05-24 | NVIDIA GB10 | Full-context fast+deep residency | Limited | Deep 128K/MTP residency left 12.08 GiB free; fast requested 12.16 GiB even at reduced settings. Operate one chat lane at 128K/MTP at a time, route both profiles to the loaded lane, or reduce context/MTP and re-measure. |
+| 2026-05-25 | NVIDIA GB10 | Light dual-residency v1 | Passed | `dual-light-v1` kept fast and deep healthy together with embedding and reranker resident. Fast used 32K context, 8G KV and 4 seqs; deep used 64K context, 12G KV and 2 seqs; MTP off. |
+| 2026-05-25 | NVIDIA GB10 | `dual-light-v1` golden eval | Passed | External Gateway with fast/deep/embedding/reranker resident passed real-model golden eval: `ok golden tasks passed tool_calls=38 approvals=8 memory_candidates=1`; `ok extended golden checks passed golden_cases=58`. |
 
 Evidence files in this working tree:
 
 - `data/eval/model-benchmark-report.json`: latest fast-lane chat benchmark JSON.
 - `data/eval/embedding-reranker-check.json`: embedding and reranker endpoint check JSON.
 - This markdown file: deep-lane benchmark rows and consolidated hardware notes.
+- `data/eval/model-benchmark-dual-light-v1.json`: first light dual-residency chat benchmark.
+- `data/eval/aux-check-dual-light-v1.json`: auxiliary embedding/reranker check for the light dual-residency run.
+- `data/eval/model-loading-dual-light-v1.json`: endpoint, GPU process and benchmark snapshot for the accepted `dual-light-v1` test.
+- `data/eval/model-benchmark-dual-light-v1-chat-only.json`: chat-only control with embedding and reranker stopped.
+- `data/eval/aux-check-dual-light-v1-small-aux-warm.json`: warm auxiliary endpoint check after explicit small KV caps.
+- `data/eval/model-loading-dual-light-v1-small-aux.json`: full product residency snapshot after auxiliary caps.
+- `data/eval/model-loading-dual-light-v1-golden-passed.json`: full product residency snapshot after the real-model golden eval passed.
+- `data/eval/model-loading-dual-light-v1-full-entry.json`: snapshot after the `dual-light` startup shortcut was corrected to include all four model services.
+- `data/eval/aux-check-dual-light-v1-full-entry-warm2.json`: warm auxiliary endpoint check after the corrected full-product startup path.
 
 ## DGX Spark Run 2026-05-24T14:21:59.638694+00:00
 
@@ -117,3 +136,38 @@ Evidence files in this working tree:
 - `SPARKCLAW_MODEL_DISABLE_THINKING=true` is required for Qwen3 chat-completions runs that need concise assistant content rather than reasoning-only output.
 - For the real golden run, both fast and deep profiles were routed to the loaded live chat endpoint with lower generation caps (`SPARKCLAW_FAST_MAX_TOKENS=256`, `SPARKCLAW_DEEP_MAX_TOKENS=384`) to keep the 58-case eval stable.
 - At 128K context with MTP enabled, fast and deep chat services should be treated as mutually exclusive on this GB10 configuration unless context, MTP or GPU memory utilization is reduced and validated again.
+- `fast` is the responsive MoE lane; `deep` is the dense stability/quality lane. The measured `deep` throughput around 7.3 tok/s is expected for this compromise and should not be optimized in isolation from task quality, eval pass rate and overall product feel.
+- Stopping embedding and reranker did not materially change `dual-light-v1` chat throughput, so auxiliary residency is acceptable when retrieval workflows need it.
+- When both chat lanes are resident, the auxiliary models must not use broad default context/memory settings. Embedding 32K failed after chat residency because available KV cache was too small; embedding 8K with 2G explicit KV and one sequence restored the full stack. First auxiliary request after restart can be slow, but warmed embedding/reranker checks were 28.5 ms and 24.7 ms.
+- The current single-user acceptance criterion is integrated task behavior: `dual-light-v1` is accepted because the external Gateway passed the 58-case real-model golden eval with both chat lanes and auxiliary models resident.
+- `scripts/serve_models_compose.sh dual-light` now starts the full product profile: fast, deep, embedding and reranker. Use `dual-light-chat` only for chat-only controls.
+
+## DGX Spark Run 2026-05-25T07:15:25.627592+00:00
+
+Profile: `dual-light-v1`
+
+| Date | Hardware | Lane | Scenario | Runs | TTFT p50 ms | TTFT p95 ms | Total p50 ms | Total p95 ms | Tokens/s p50 | Notes |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| 2026-05-25 | DGX Spark | deep | chat | 2 | 9770.6 | 19240.7 | 16268.1 | 25489.8 | 7.38 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | deep | coding | 2 | 302.0 | 303.4 | 36045.6 | 41436.7 | 7.28 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | deep | email_triage | 2 | 310.8 | 312.5 | 13068.7 | 14112.4 | 7.33 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | deep | summary | 2 | 309.5 | 309.7 | 7547.1 | 7621.3 | 7.39 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | chat | 2 | 9747.9 | 19391.2 | 10227.8 | 19871.5 | 50.01 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | coding | 2 | 317.6 | 514.6 | 6867.4 | 7079.1 | 48.09 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | email_triage | 2 | 125.2 | 125.4 | 4767.1 | 5012.3 | 48.15 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | summary | 2 | 482.7 | 835.4 | 1587.3 | 1938.3 | 48.89 | real endpoint benchmark |
+
+## DGX Spark Run 2026-05-25T07:22:00.080057+00:00
+
+Profile: `dual-light-v1-chat-only`
+
+| Date | Hardware | Lane | Scenario | Runs | TTFT p50 ms | TTFT p95 ms | Total p50 ms | Total p95 ms | Tokens/s p50 | Notes |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| 2026-05-25 | DGX Spark | deep | chat | 2 | 377.1 | 454.6 | 4038.3 | 4603.7 | 7.51 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | deep | coding | 2 | 304.7 | 306.6 | 59829.2 | 63060.4 | 7.27 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | deep | email_triage | 2 | 360.6 | 409.8 | 11252.4 | 13097.0 | 7.35 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | deep | summary | 2 | 308.1 | 309.5 | 7481.5 | 7488.7 | 7.39 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | chat | 2 | 292.8 | 467.5 | 771.2 | 944.7 | 50.16 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | coding | 2 | 120.6 | 120.8 | 6679.2 | 7367.4 | 48.12 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | email_triage | 2 | 128.9 | 129.2 | 4356.0 | 4590.6 | 48.27 | real endpoint benchmark |
+| 2026-05-25 | DGX Spark | fast | summary | 2 | 130.8 | 132.0 | 1255.5 | 1278.5 | 48.9 | real endpoint benchmark |

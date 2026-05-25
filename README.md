@@ -11,6 +11,7 @@ The project is past the initial planning stage. This README is the entry point; 
 - [Architecture](docs/architecture.md): product boundary, runtime loop, service boundaries, tools, data and safety model.
 - [Deployment](docs/deployment.md): local, Docker Compose and DGX Spark model-serving instructions.
 - [Development](docs/development.md): repository layout, verification matrix, extension workflow and current completion status.
+- [Model loading plan](docs/model-loading.md): single-machine, light dual-residency and two-DGX-Spark loading strategy.
 - [Model baseline](benchmarks/model_baseline.md): DGX Spark endpoint evidence, latency numbers and operating limits.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [Support](SUPPORT.md), [Changelog](CHANGELOG.md) and [License](LICENSE): open-source project process and terms.
 
@@ -120,6 +121,7 @@ The model-serving entrypoints are:
 scripts/serve_fast.sh
 scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
+scripts/serve_models_compose.sh dual-light
 scripts/serve_models_compose.sh embedding,reranker
 ```
 
@@ -135,13 +137,10 @@ Default served lanes:
 After endpoints are live, run:
 
 ```bash
-SPARKCLAW_MODEL_MODE=external \
-SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=300 \
-SPARKCLAW_MODEL_DISABLE_THINKING=true \
-SPARKCLAW_FAST_MODEL=sparkclaw-fast \
-SPARKCLAW_DEEP_MODEL=sparkclaw-deep \
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d --build --force-recreate gateway webchat
+scripts/restart_runtime_compose.sh
 ```
+
+This restart entrypoint loads `docker/env/sparkclaw.external-postgres.env` after `.env`, rebuilds Gateway and WebChat, and fails if the recreated Gateway is not still running in `external/postgres` mode.
 
 Benchmark evidence and operating notes live in [benchmarks/model_baseline.md](benchmarks/model_baseline.md).
 

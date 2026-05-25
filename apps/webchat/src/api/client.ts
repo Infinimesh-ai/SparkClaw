@@ -87,8 +87,12 @@ export const api = {
       body: JSON.stringify({ pairing_id: pairingId, code, client_name: clientName })
     }),
   sessions: () => request<{ sessions: Session[] }>("/api/sessions"),
-  createSession: (title = "SparkClaw Session") =>
+  createSession: (title = "") =>
     request<Session>("/api/sessions", { method: "POST", body: JSON.stringify({ title }) }),
+  updateSession: (sessionId: string, title: string) =>
+    request<Session>(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  deleteSession: (sessionId: string) =>
+    request<Session>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
   messages: (sessionId: string) => request<{ messages: Message[] }>(`/api/sessions/${sessionId}/messages`),
   sendMessage: (sessionId: string, content: string) =>
     request<AgentResult>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ content }) }),

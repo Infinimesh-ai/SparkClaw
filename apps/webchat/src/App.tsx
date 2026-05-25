@@ -1,33 +1,36 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  Bot,
+  CalendarDays,
   Check,
   Clock3,
-  CalendarDays,
+  Copy,
   Database,
+  Download,
   FileSearch,
   Gauge,
   Globe2,
-  Mail,
   Inbox,
-  Download,
-  UserRound,
+  KeyRound,
+  Languages,
   Library,
   ListChecks,
+  Mail,
   MemoryStick,
-  MessageSquarePlus,
-  Settings,
+  Pencil,
+  Plus,
   RefreshCw,
+  Save,
   ScrollText,
   Send,
+  Settings,
   ShieldAlert,
+  Terminal,
   ThumbsDown,
   ThumbsUp,
   Trash2,
-  KeyRound,
-  Sparkles,
-  Pencil,
-  Terminal,
+  UserRound,
   X
 } from "lucide-react";
 import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
@@ -48,22 +51,549 @@ import type {
   RunTrace,
   Session,
   Skill,
-  TraceMetadata,
-  ToolCall
+  ToolCall,
+  TraceMetadata
 } from "./api/types";
 
-type PanelTab = "approvals" | "memory" | "status" | "settings" | "trace";
+type Language = "en" | "zh";
+type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings";
 
-const starterPrompts = [
-  "Search for SparkClaw in the workspace",
-  "Read https://example.com with browser.read",
-  "Search email for deployment",
-  "Read calendar for today",
-  "Remember that SparkClaw prefers approval-first workflows",
-  "Run shell command `ls -la` in the sandbox"
-];
+const LANGUAGE_STORAGE_KEY = "sparkclaw.language";
+
+const dictionaries = {
+  en: {
+    app: {
+      name: "SparkClaw",
+      tagline: "Local agent runtime",
+      titleFallback: "Agent Workbench",
+      sessionTitle: "Local Agent Workbench"
+    },
+    common: {
+      accepted: "accepted",
+      approve: "Approve",
+      approved: "approved",
+      cancel: "Cancel",
+      delete: "Delete",
+      disabled: "disabled",
+      edit: "Edit",
+      enabled: "enabled",
+      export: "Export",
+      failed: "failed",
+      gatewayUnavailable: "Gateway unavailable.",
+      loading: "Loading.",
+      noToken: "no token",
+      none: "none",
+      notSet: "not set",
+      pair: "Pair",
+      pairing: "Pairing",
+      pending: "pending",
+      refresh: "Refresh",
+      reject: "Reject",
+      rejected: "rejected",
+      resolved: "resolved",
+      revoked: "revoked",
+      run: "Run",
+      running: "Running",
+      save: "Save",
+      saveToken: "Save token",
+      tokenConfigured: "token configured",
+      unknown: "unknown",
+      yes: "yes",
+      no: "no"
+    },
+    nav: {
+      newSession: "New Session",
+      renameSession: "Rename session",
+      saveSessionName: "Save session name",
+      deleteSession: "Delete session",
+      confirmDeleteSession: "Delete this session?",
+      language: "Language",
+      sessions: "Sessions",
+      gateway: "Gateway",
+      mode: "Mode",
+      approvals: "Approvals",
+      memories: "Memories",
+      ready: "Ready",
+      offline: "Offline"
+    },
+    topbar: {
+      connecting: "Connecting to Gateway",
+      modelMode: "model mode",
+      workspace: "Workspace"
+    },
+    tabs: {
+      timeline: "Timeline",
+      approvals: "Approvals",
+      memory: "Memory",
+      trace: "Trace",
+      status: "Status",
+      settings: "Settings"
+    },
+    chat: {
+      emptyTitle: "Ready for bounded local work.",
+      placeholder: "Ask SparkClaw to inspect files, use tools, or prepare a guarded change...",
+      send: "Send message",
+      you: "You",
+      assistant: "SparkClaw",
+      correction: "Correction",
+      helpful: "Mark helpful",
+      unhelpful: "Mark not helpful",
+      saveCorrection: "Save correction"
+    },
+    starters: [
+      "Search for SparkClaw in the workspace",
+      "Read https://example.com with browser.read",
+      "Search email for deployment",
+      "Read calendar for today",
+      "Remember that SparkClaw prefers approval-first workflows",
+      "Run shell command `ls -la` in the sandbox"
+    ],
+    auth: {
+      gatewayToken: "Gateway token",
+      unauthorized: "Token authentication failed"
+    },
+    errors: {
+      connect: "Failed to connect to SparkClaw Gateway",
+      createSession: "Could not create session",
+      renameSession: "Could not rename session",
+      deleteSession: "Could not delete session",
+      message: "Message failed",
+      approval: "Approval update failed",
+      approvalEdit: "Approval edit failed",
+      memory: "Memory update failed",
+      memoryEdit: "Memory edit failed",
+      memoryDelete: "Memory delete failed",
+      feedback: "Feedback save failed",
+      memoryExport: "Memory export failed",
+      clientRevoke: "Client revoke failed",
+      policyUpdate: "Tool policy update failed",
+      ownerUpdate: "Owner profile update failed",
+      trace: "Trace unavailable",
+      pairing: "Pairing failed",
+      eval: "Eval failed"
+    },
+    timeline: {
+      title: "Tool Timeline",
+      empty: "No tool calls yet.",
+      openTrace: "Open run trace",
+      approval: "Approval"
+    },
+    approval: {
+      title: "Approval Inbox",
+      empty: "No approvals.",
+      editArguments: "Edit arguments",
+      invalidJson: "Invalid JSON"
+    },
+    memory: {
+      title: "Memory Review",
+      emptyCandidates: "No memory candidates.",
+      accepted: "Accepted",
+      pending: "Pending",
+      acceptMemory: "Accept memory",
+      rejectMemory: "Reject memory",
+      archiveExport: "Archive memory export",
+      saveMemory: "Save memory",
+      cancelEdit: "Cancel edit",
+      editMemory: "Edit memory",
+      deleteMemory: "Delete memory",
+      kind: "Memory kind",
+      content: "Memory content"
+    },
+    trace: {
+      title: "Trace",
+      empty: "No trace selected.",
+      loading: "Loading trace.",
+      modelNote: "Model Note",
+      lane: "Lane",
+      model: "Model",
+      calls: "Calls",
+      tokens: "Tokens",
+      latency: "Latency",
+      risk: "Risk",
+      tools: "Tools",
+      approvals: "Approvals",
+      feedback: "Feedback",
+      audit: "Audit"
+    },
+    status: {
+      runtime: "Runtime",
+      gateway: "Gateway",
+      model: "Model",
+      rateLimit: "Rate Limit",
+      workspace: "Workspace",
+      trace: "Trace",
+      state: "State",
+      dsn: "DSN",
+      modelCalls: "Model Calls",
+      noModelCalls: "No model calls in this session.",
+      audit: "Audit",
+      noAudit: "No audit events in this session.",
+      artifacts: "Artifacts",
+      noArtifacts: "No artifacts archived.",
+      episodes: "Episodes",
+      noEpisodes: "No episodes yet.",
+      smokeEval: "Smoke Eval",
+      noEval: "No eval run in this view.",
+      skills: "Skills",
+      noSkills: "No skills registered."
+    },
+    settings: {
+      title: "Settings",
+      unavailable: "Configuration unavailable.",
+      ownerProfile: "Owner Profile",
+      name: "Name",
+      email: "Email",
+      preferences: "Preferences",
+      editOwner: "Edit owner profile",
+      saveOwner: "Save owner profile",
+      cancelOwner: "Cancel owner edit",
+      ownerUnavailable: "Owner unavailable.",
+      preferenceFormat: "Preferences use key=value lines",
+      preferenceKey: "Preference keys are required",
+      toolPolicy: "Tool Policy",
+      file: "File",
+      external: "External",
+      dangerous: "Dangerous",
+      verifier: "Verifier",
+      sandbox: "Sandbox",
+      untrusted: "untrusted",
+      trusted: "trusted",
+      approvalRequired: "approval required",
+      notForced: "not forced",
+      deepCheck: "deep check",
+      standard: "standard",
+      mutationsRequireSandbox: "mutations require sandbox",
+      pairedClients: "Paired Clients",
+      noClients: "No paired clients.",
+      revokeClient: "Revoke client",
+      seen: "seen",
+      notSeen: "not seen",
+      definitionApprovalTools: "Definition Approval Tools",
+      configApprovalAdditions: "Config Approval Additions",
+      deniedTools: "Denied Tools",
+      saveToolPolicy: "Save tool policy",
+      cancelPolicy: "Cancel policy edit",
+      editPolicy: "Edit tool policy",
+      approval: "Approval",
+      deny: "Deny",
+      modelProfiles: "Model Profiles",
+      mode: "Mode",
+      fast: "Fast",
+      deep: "Deep",
+      embed: "Embed",
+      rerank: "Rerank",
+      guard: "Guard",
+      runtimeBoundaries: "Runtime Boundaries",
+      remote: "Remote",
+      artifacts: "Artifacts",
+      adapters: "Adapters",
+      memory: "Memory",
+      skills: "Skills",
+      localFiles: "local files",
+      noAutoPrune: "no auto prune",
+      encrypted: "encrypted",
+      mock: "mock",
+      externalModel: "external"
+    },
+    risk: {
+      read: "read",
+      draft: "draft",
+      reversible: "reversible",
+      dangerous: "dangerous"
+    },
+    state: {
+      approved: "approved",
+      accepted: "accepted",
+      completed: "completed",
+      failed: "failed",
+      pending: "pending",
+      rejected: "rejected",
+      running: "running",
+      passed: "passed"
+    },
+    units: {
+      bytes: "bytes",
+      tools: "tools",
+      tokens: "tokens",
+      deps: "deps",
+      evals: "evals",
+      schema: "schema",
+      ctx: "ctx",
+      max: "max",
+      avg: "avg",
+      retentionDays: "d retention"
+    }
+  },
+  zh: {
+    app: {
+      name: "SparkClaw",
+      tagline: "本地 Agent Runtime",
+      titleFallback: "Agent 工作台",
+      sessionTitle: "本地 Agent 工作台"
+    },
+    common: {
+      accepted: "已接受",
+      approve: "批准",
+      approved: "已批准",
+      cancel: "取消",
+      delete: "删除",
+      disabled: "已关闭",
+      edit: "编辑",
+      enabled: "已开启",
+      export: "导出",
+      failed: "失败",
+      gatewayUnavailable: "Gateway 不可用。",
+      loading: "加载中。",
+      noToken: "未配置 token",
+      none: "无",
+      notSet: "未设置",
+      pair: "配对",
+      pairing: "配对中",
+      pending: "待处理",
+      refresh: "刷新",
+      reject: "拒绝",
+      rejected: "已拒绝",
+      resolved: "已处理",
+      revoked: "已撤销",
+      run: "运行",
+      running: "运行中",
+      save: "保存",
+      saveToken: "保存 token",
+      tokenConfigured: "已配置 token",
+      unknown: "未知",
+      yes: "是",
+      no: "否"
+    },
+    nav: {
+      newSession: "新会话",
+      renameSession: "重命名会话",
+      saveSessionName: "保存会话名称",
+      deleteSession: "删除会话",
+      confirmDeleteSession: "确定删除这个会话吗？",
+      language: "语言",
+      sessions: "会话",
+      gateway: "Gateway",
+      mode: "模式",
+      approvals: "审批",
+      memories: "记忆",
+      ready: "就绪",
+      offline: "离线"
+    },
+    topbar: {
+      connecting: "正在连接 Gateway",
+      modelMode: "模型模式",
+      workspace: "工作区"
+    },
+    tabs: {
+      timeline: "时间线",
+      approvals: "审批",
+      memory: "记忆",
+      trace: "Trace",
+      status: "状态",
+      settings: "设置"
+    },
+    chat: {
+      emptyTitle: "已准备好执行有边界的本地任务。",
+      placeholder: "让 SparkClaw 检查文件、调用工具，或准备需要保护的变更...",
+      send: "发送消息",
+      you: "你",
+      assistant: "SparkClaw",
+      correction: "修正内容",
+      helpful: "标记有用",
+      unhelpful: "标记无用",
+      saveCorrection: "保存修正"
+    },
+    starters: [
+      "在工作区搜索 SparkClaw",
+      "使用 browser.read 读取 https://example.com",
+      "搜索和部署相关的邮件",
+      "读取今天的日历安排",
+      "记住 SparkClaw 偏好审批优先的工作流",
+      "在沙箱中运行 `ls -la`"
+    ],
+    auth: {
+      gatewayToken: "Gateway token",
+      unauthorized: "Token 认证失败"
+    },
+    errors: {
+      connect: "无法连接 SparkClaw Gateway",
+      createSession: "无法创建会话",
+      renameSession: "无法重命名会话",
+      deleteSession: "无法删除会话",
+      message: "消息发送失败",
+      approval: "审批更新失败",
+      approvalEdit: "审批参数修改失败",
+      memory: "记忆更新失败",
+      memoryEdit: "记忆编辑失败",
+      memoryDelete: "记忆删除失败",
+      feedback: "反馈保存失败",
+      memoryExport: "记忆导出失败",
+      clientRevoke: "客户端撤销失败",
+      policyUpdate: "工具策略更新失败",
+      ownerUpdate: "Owner 资料更新失败",
+      trace: "Trace 不可用",
+      pairing: "配对失败",
+      eval: "Eval 失败"
+    },
+    timeline: {
+      title: "工具时间线",
+      empty: "还没有工具调用。",
+      openTrace: "打开运行 Trace",
+      approval: "审批"
+    },
+    approval: {
+      title: "审批收件箱",
+      empty: "没有审批。",
+      editArguments: "编辑参数",
+      invalidJson: "JSON 无效"
+    },
+    memory: {
+      title: "记忆审查",
+      emptyCandidates: "没有待确认记忆。",
+      accepted: "已接受",
+      pending: "待处理",
+      acceptMemory: "接受记忆",
+      rejectMemory: "拒绝记忆",
+      archiveExport: "归档记忆导出",
+      saveMemory: "保存记忆",
+      cancelEdit: "取消编辑",
+      editMemory: "编辑记忆",
+      deleteMemory: "删除记忆",
+      kind: "记忆类型",
+      content: "记忆内容"
+    },
+    trace: {
+      title: "Trace",
+      empty: "尚未选择 Trace。",
+      loading: "正在加载 Trace。",
+      modelNote: "模型备注",
+      lane: "通道",
+      model: "模型",
+      calls: "调用",
+      tokens: "Token",
+      latency: "延迟",
+      risk: "风险",
+      tools: "工具",
+      approvals: "审批",
+      feedback: "反馈",
+      audit: "审计"
+    },
+    status: {
+      runtime: "运行时",
+      gateway: "Gateway",
+      model: "模型",
+      rateLimit: "速率限制",
+      workspace: "工作区",
+      trace: "Trace",
+      state: "状态",
+      dsn: "DSN",
+      modelCalls: "模型调用",
+      noModelCalls: "此会话还没有模型调用。",
+      audit: "审计",
+      noAudit: "此会话还没有审计事件。",
+      artifacts: "产物",
+      noArtifacts: "还没有归档产物。",
+      episodes: "Episodes",
+      noEpisodes: "还没有 episode。",
+      smokeEval: "Smoke Eval",
+      noEval: "当前视图没有 eval run。",
+      skills: "Skills",
+      noSkills: "没有注册技能。"
+    },
+    settings: {
+      title: "设置",
+      unavailable: "配置不可用。",
+      ownerProfile: "Owner 资料",
+      name: "名称",
+      email: "邮箱",
+      preferences: "偏好",
+      editOwner: "编辑 Owner 资料",
+      saveOwner: "保存 Owner 资料",
+      cancelOwner: "取消 Owner 编辑",
+      ownerUnavailable: "Owner 不可用。",
+      preferenceFormat: "偏好使用 key=value 格式",
+      preferenceKey: "偏好 key 不能为空",
+      toolPolicy: "工具策略",
+      file: "文件",
+      external: "外部内容",
+      dangerous: "危险工具",
+      verifier: "验证器",
+      sandbox: "沙箱",
+      untrusted: "不可信",
+      trusted: "可信",
+      approvalRequired: "需要审批",
+      notForced: "未强制",
+      deepCheck: "深度检查",
+      standard: "标准",
+      mutationsRequireSandbox: "变更需要沙箱",
+      pairedClients: "已配对客户端",
+      noClients: "没有已配对客户端。",
+      revokeClient: "撤销客户端",
+      seen: "最后活跃",
+      notSeen: "未活跃",
+      definitionApprovalTools: "定义中需审批工具",
+      configApprovalAdditions: "配置新增审批工具",
+      deniedTools: "拒绝工具",
+      saveToolPolicy: "保存工具策略",
+      cancelPolicy: "取消策略编辑",
+      editPolicy: "编辑工具策略",
+      approval: "审批",
+      deny: "拒绝",
+      modelProfiles: "模型配置",
+      mode: "模式",
+      fast: "Fast",
+      deep: "Deep",
+      embed: "Embed",
+      rerank: "Rerank",
+      guard: "Guard",
+      runtimeBoundaries: "运行边界",
+      remote: "远程",
+      artifacts: "产物",
+      adapters: "适配器",
+      memory: "记忆",
+      skills: "技能",
+      localFiles: "本地文件",
+      noAutoPrune: "不自动清理",
+      encrypted: "已加密",
+      mock: "mock",
+      externalModel: "external"
+    },
+    risk: {
+      read: "读取",
+      draft: "草稿",
+      reversible: "可逆",
+      dangerous: "危险"
+    },
+    state: {
+      approved: "已批准",
+      accepted: "已接受",
+      completed: "已完成",
+      failed: "失败",
+      pending: "待处理",
+      rejected: "已拒绝",
+      running: "运行中",
+      passed: "通过"
+    },
+    units: {
+      bytes: "字节",
+      tools: "个工具",
+      tokens: "tokens",
+      deps: "依赖",
+      evals: "eval",
+      schema: "schema",
+      ctx: "上下文",
+      max: "最大",
+      avg: "平均",
+      retentionDays: "天保留"
+    }
+  }
+};
+
+type Copy = (typeof dictionaries)["en"];
 
 export function App() {
+  const [language, setLanguage] = useState<Language>(() => initialLanguage());
+  const text = dictionaries[language];
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -90,22 +620,31 @@ export function App() {
   const [pairing, setPairing] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<PanelTab>("approvals");
+  const [tab, setTab] = useState<PanelTab>("timeline");
+  const [editingSession, setEditingSession] = useState("");
+  const [sessionTitleDraft, setSessionTitleDraft] = useState("");
+  const [sessionActionId, setSessionActionId] = useState("");
+
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+  }, [language]);
 
   const refreshGlobal = useCallback(async () => {
-    const [readyStatus, configStatus, owner, clientList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces] = await Promise.all([
-      api.ready(),
-      api.config(),
-      api.owner(),
-      api.clients(),
-      api.approvals(),
-      api.memoryCandidates(),
-      api.memories(),
-      api.skills(),
-      api.evalRuns(),
-      api.artifacts(),
-      api.traces()
-    ]);
+    const [readyStatus, configStatus, owner, clientList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces] =
+      await Promise.all([
+        api.ready(),
+        api.config(),
+        api.owner(),
+        api.clients(),
+        api.approvals(),
+        api.memoryCandidates(),
+        api.memories(),
+        api.skills(),
+        api.evalRuns(),
+        api.artifacts(),
+        api.traces()
+      ]);
     setReady(readyStatus);
     setRuntimeConfig(configStatus);
     setOwnerProfile(owner);
@@ -144,13 +683,13 @@ export function App() {
         if (cancelled) return;
         let next = sessionList.sessions[0];
         if (!next) {
-          next = await api.createSession("Local Agent Workbench");
+          next = await api.createSession();
         }
         setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
         setActiveSession(next.id);
         await refreshSession(next.id);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to connect to SparkClaw Gateway");
+        setError(err instanceof Error ? err.message : dictionaries[initialLanguage()].errors.connect);
       }
     }
     void boot();
@@ -200,11 +739,13 @@ export function App() {
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
   const active = sessions.find((session) => session.id === activeSession);
+  const languageLabel = language === "zh" ? "中" : "EN";
+  const nextLanguage = language === "zh" ? "en" : "zh";
 
   async function createSession() {
     try {
       setError("");
-      const session = await api.createSession("Local Agent Workbench");
+      const session = await api.createSession();
       setSessions((current) => [session, ...current]);
       setActiveSession(session.id);
       setMessages([]);
@@ -212,8 +753,9 @@ export function App() {
       setModelCalls([]);
       setAuditEvents([]);
       setEpisodes([]);
+      setTab("timeline");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create session");
+      setError(err instanceof Error ? err.message : text.errors.createSession);
     }
   }
 
@@ -224,15 +766,70 @@ export function App() {
       setError("");
       setInput("");
       await api.sendMessage(activeSession, content.trim());
-      await Promise.all([refreshSession(activeSession), refreshGlobal()]);
+      const [sessionList] = await Promise.all([api.sessions(), refreshSession(activeSession), refreshGlobal()]);
+      setSessions(sessionList.sessions ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Message failed");
+      setError(err instanceof Error ? err.message : text.errors.message);
     } finally {
       setBusy(false);
     }
   }
 
   function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    void send();
+  }
+
+  function startRenameSession(session: Session) {
+    setEditingSession(session.id);
+    setSessionTitleDraft(session.title);
+  }
+
+  function cancelRenameSession() {
+    setEditingSession("");
+    setSessionTitleDraft("");
+  }
+
+  async function renameSession(id: string) {
+    const title = sessionTitleDraft.trim();
+    if (!title || sessionActionId) return;
+    try {
+      setSessionActionId(id);
+      setError("");
+      const updated = await api.updateSession(id, title);
+      setSessions((current) => current.map((session) => (session.id === id ? updated : session)));
+      cancelRenameSession();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.renameSession);
+    } finally {
+      setSessionActionId("");
+    }
+  }
+
+  async function deleteSession(id: string) {
+    if (sessionActionId || !window.confirm(text.nav.confirmDeleteSession)) return;
+    try {
+      setSessionActionId(id);
+      setError("");
+      await api.deleteSession(id);
+      const sessionList = await api.sessions();
+      let next = id === activeSession ? sessionList.sessions[0] : sessionList.sessions.find((session) => session.id === activeSession);
+      if (!next) next = await api.createSession();
+      setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
+      setActiveSession(next.id);
+      cancelRenameSession();
+      setTraceRun(null);
+      setTab("timeline");
+      await Promise.all([refreshSession(next.id), refreshGlobal()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.deleteSession);
+    } finally {
+      setSessionActionId("");
+    }
+  }
+
+  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     void send();
   }
@@ -244,7 +841,7 @@ export function App() {
       else await api.reject(id);
       await Promise.all([refreshGlobal(), refreshSession(activeSession)]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approval update failed");
+      setError(err instanceof Error ? err.message : text.errors.approval);
     }
   }
 
@@ -254,7 +851,7 @@ export function App() {
       await api.modifyApproval(id, args);
       await Promise.all([refreshGlobal(), refreshSession(activeSession)]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approval edit failed");
+      setError(err instanceof Error ? err.message : text.errors.approvalEdit);
     }
   }
 
@@ -265,7 +862,7 @@ export function App() {
       else await api.rejectMemory(id);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Memory update failed");
+      setError(err instanceof Error ? err.message : text.errors.memory);
     }
   }
 
@@ -275,7 +872,7 @@ export function App() {
       await api.updateMemory(id, kind, content);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Memory edit failed");
+      setError(err instanceof Error ? err.message : text.errors.memoryEdit);
       throw err;
     }
   }
@@ -286,7 +883,7 @@ export function App() {
       await api.deleteMemory(id);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Memory delete failed");
+      setError(err instanceof Error ? err.message : text.errors.memoryDelete);
       throw err;
     }
   }
@@ -301,7 +898,7 @@ export function App() {
         await openTrace(message.run_id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Feedback save failed");
+      setError(err instanceof Error ? err.message : text.errors.feedback);
       throw err;
     }
   }
@@ -312,7 +909,7 @@ export function App() {
       await api.archiveMemoryExport();
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Memory export failed");
+      setError(err instanceof Error ? err.message : text.errors.memoryExport);
       throw err;
     }
   }
@@ -323,7 +920,7 @@ export function App() {
       await api.revokeClient(id);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Client revoke failed");
+      setError(err instanceof Error ? err.message : text.errors.clientRevoke);
       throw err;
     }
   }
@@ -334,7 +931,7 @@ export function App() {
       await api.updateToolPolicy(deny, approvalRequired);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Tool policy update failed");
+      setError(err instanceof Error ? err.message : text.errors.policyUpdate);
       throw err;
     }
   }
@@ -346,7 +943,7 @@ export function App() {
       setOwnerProfile(updated);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Owner profile update failed");
+      setError(err instanceof Error ? err.message : text.errors.ownerUpdate);
       throw err;
     }
   }
@@ -360,7 +957,7 @@ export function App() {
       setTraceRun(trace);
       setTraceList(traces.traces ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Trace unavailable");
+      setError(err instanceof Error ? err.message : text.errors.trace);
     } finally {
       setTraceLoading(false);
     }
@@ -375,7 +972,7 @@ export function App() {
       saveAPIToken(claimed.token);
       await bootstrappedRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Pairing failed");
+      setError(err instanceof Error ? err.message : text.errors.pairing);
     } finally {
       setPairing(false);
     }
@@ -392,61 +989,128 @@ export function App() {
       setTokenInput("");
     } catch (err) {
       clearAPIToken();
-      setError(err instanceof Error ? err.message : "Token authentication failed");
+      setError(err instanceof Error ? err.message : text.auth.unauthorized);
     }
   }
 
   async function bootstrappedRefresh() {
     const [sessionList] = await Promise.all([api.sessions(), refreshGlobal()]);
     let next = sessionList.sessions[0];
-    if (!next) next = await api.createSession("Local Agent Workbench");
+    if (!next) next = await api.createSession();
     setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
     setActiveSession(next.id);
     await refreshSession(next.id);
   }
 
   return (
-    <main className="shell">
+    <main className={`shell ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
+      <div className="connectionBar" aria-hidden="true" />
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brandMark">
-            <Sparkles size={18} />
+        <div className="brandRow">
+          <div className="brand">
+            <div className="brandMark">
+              <Terminal size={18} />
+            </div>
+            <div>
+              <strong>{text.app.name}</strong>
+              <span>{text.app.tagline}</span>
+            </div>
           </div>
+          <button className="iconButton subtle" onClick={() => setLanguage(nextLanguage)} title={text.nav.language}>
+            <Languages size={17} />
+            <span>{languageLabel}</span>
+          </button>
+        </div>
+
+        <div className="navStatus">
+          <div className={`statusDot ${ready?.ok ? "ready" : "offline"}`} />
           <div>
-            <strong>SparkClaw</strong>
-            <span>Local agent runtime</span>
+            <strong>{ready?.ok ? text.nav.ready : text.nav.offline}</strong>
+            <span>{ready ? ready.model_mode : text.topbar.connecting}</span>
           </div>
         </div>
-        <button className="primaryButton" onClick={() => void createSession()} title="New session">
-          <MessageSquarePlus size={17} />
-          New Session
+
+        <button className="primaryButton" onClick={() => void createSession()} title={text.nav.newSession}>
+          <Plus size={17} />
+          <span>{text.nav.newSession}</span>
         </button>
-        <div className="sessionList">
+
+        <dl className="navMetrics">
+          <dt>{text.nav.sessions}</dt>
+          <dd>{sessions.length}</dd>
+          <dt>{text.nav.approvals}</dt>
+          <dd>{pendingApprovals.length}</dd>
+          <dt>{text.nav.memories}</dt>
+          <dd>{pendingCandidates.length}</dd>
+        </dl>
+
+        <div className="sessionList" aria-label={text.nav.sessions}>
           {sessions.map((session) => (
-            <button
-              className={`sessionItem ${session.id === activeSession ? "active" : ""}`}
-              key={session.id}
-              onClick={() => {
-                setActiveSession(session.id);
-                void refreshSession(session.id);
-              }}
-            >
-              <span>{session.title}</span>
-              <small>{shortId(session.id)}</small>
-            </button>
+            <div className={`sessionItem ${session.id === activeSession ? "active" : ""}`} key={session.id}>
+              {editingSession === session.id ? (
+                <form
+                  className="sessionRenameForm"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void renameSession(session.id);
+                  }}
+                >
+                  <input
+                    aria-label={text.nav.renameSession}
+                    value={sessionTitleDraft}
+                    onChange={(event) => setSessionTitleDraft(event.target.value)}
+                    disabled={sessionActionId === session.id}
+                  />
+                  <button className="miniIconButton" disabled={!sessionTitleDraft.trim() || sessionActionId === session.id} title={text.nav.saveSessionName}>
+                    <Save size={13} />
+                  </button>
+                  <button className="miniIconButton" type="button" onClick={cancelRenameSession} disabled={sessionActionId === session.id} title={text.common.cancel}>
+                    <X size={13} />
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <button
+                    className="sessionSelect"
+                    onClick={() => {
+                      setActiveSession(session.id);
+                      setTab("timeline");
+                      void refreshSession(session.id);
+                    }}
+                  >
+                    <span>{session.title}</span>
+                    <small>{shortId(session.id)}</small>
+                  </button>
+                  <div className="sessionActions">
+                    <button className="miniIconButton" onClick={() => startRenameSession(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
+                      <Pencil size={13} />
+                    </button>
+                    <button className="miniIconButton dangerIcon" onClick={() => void deleteSession(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           ))}
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className={`workspace ${error ? "hasError" : ""}`}>
         <header className="topbar">
           <div>
-            <h1>{active?.title ?? "Agent Workbench"}</h1>
-            <p>{ready ? `${ready.model_mode} model mode · ${ready.workspace_root}` : "Connecting to Gateway"}</p>
+            <h1>{active?.title ?? text.app.titleFallback}</h1>
+            <p>{ready ? `${ready.model_mode} ${text.topbar.modelMode} · ${ready.workspace_root}` : text.topbar.connecting}</p>
           </div>
-          <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), refreshSession(activeSession)])} title="Refresh">
-            <RefreshCw size={18} />
-          </button>
+          <div className="topbarActions">
+            <span className="statusChip">
+              <Bot size={14} />
+              {ready?.ok ? text.nav.ready : text.nav.offline}
+            </span>
+            <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), refreshSession(activeSession)])} title={text.common.refresh}>
+              <RefreshCw size={18} />
+            </button>
+          </div>
         </header>
 
         {error && (
@@ -456,44 +1120,47 @@ export function App() {
               <div className="authActions">
                 <form className="tokenForm" onSubmit={(event) => void submitToken(event)}>
                   <input
-                    aria-label="Gateway token"
+                    aria-label={text.auth.gatewayToken}
                     value={tokenInput}
                     onChange={(event) => setTokenInput(event.target.value)}
-                    placeholder="Gateway token"
+                    placeholder={text.auth.gatewayToken}
                     type="password"
                   />
-                  <button type="submit" disabled={!tokenInput.trim()} title="Save token">
+                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken}>
                     <KeyRound size={15} />
                   </button>
                 </form>
-                <button onClick={() => void pairClient()} disabled={pairing}>
-                  {pairing ? "Pairing" : "Pair"}
+                <button className="dangerButton" onClick={() => void pairClient()} disabled={pairing}>
+                  <KeyRound size={15} />
+                  <span>{pairing ? text.common.pairing : text.common.pair}</span>
                 </button>
               </div>
             ) : null}
           </div>
         )}
 
-        <div className="contentGrid">
-          <section className="chatColumn">
-            <div className="messageList">
-              {messages.length === 0 ? (
-                <div className="emptyState">
-                  <Activity size={24} />
-                  <span>Ready for bounded local work.</span>
-                </div>
-              ) : (
-                messages.map((message) => (
-                  <MessageBubble
-                    key={message.id}
-                    message={message}
-                    onFeedback={(rating, correction) => saveFeedback(message, rating, correction)}
-                  />
-                ))
-              )}
-            </div>
+        <section className="chatColumn">
+          <div className="messageList">
+            {messages.length === 0 ? (
+              <div className="emptyState">
+                <Activity size={25} />
+                <span>{text.chat.emptyTitle}</span>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  text={text}
+                  language={language}
+                  onFeedback={(rating, correction) => saveFeedback(message, rating, correction)}
+                />
+              ))
+            )}
+          </div>
+          <div className="composerDock">
             <div className="starterRow">
-              {starterPrompts.map((prompt) => (
+              {text.starters.map((prompt) => (
                 <button key={prompt} onClick={() => void send(prompt)} disabled={busy}>
                   {prompt}
                 </button>
@@ -503,113 +1170,121 @@ export function App() {
               <textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="Ask SparkClaw to search files, propose memory, or stage risky work..."
+                onKeyDown={onComposerKeyDown}
+                placeholder={text.chat.placeholder}
                 disabled={busy}
               />
-              <button className="sendButton" disabled={busy || !input.trim()} title="Send">
+              <button className="sendButton" disabled={busy || !input.trim()} title={text.chat.send}>
                 <Send size={18} />
               </button>
             </form>
-          </section>
-
-          <section className="timelineColumn">
-            <div className="sectionHeader">
-              <FileSearch size={17} />
-              <h2>Tool Timeline</h2>
-            </div>
-            <div className="timeline">
-              {toolCalls.length === 0 ? (
-                <span className="muted">No tool calls yet.</span>
-              ) : (
-                toolCalls.map((call) => <ToolCallItem key={call.id} call={call} onTrace={(runId) => void openTrace(runId)} />)
-              )}
-            </div>
-          </section>
-
-          <aside className="controlColumn">
-            <div className="tabs">
-              <button className={tab === "approvals" ? "selected" : ""} onClick={() => setTab("approvals")}>
-                <ShieldAlert size={16} />
-                {pendingApprovals.length}
-              </button>
-              <button className={tab === "memory" ? "selected" : ""} onClick={() => setTab("memory")}>
-                <MemoryStick size={16} />
-                {pendingCandidates.length}
-              </button>
-              <button className={tab === "status" ? "selected" : ""} onClick={() => setTab("status")}>
-                <Gauge size={16} />
-                Status
-              </button>
-              <button className={tab === "settings" ? "selected" : ""} onClick={() => setTab("settings")}>
-                <Settings size={16} />
-                Policy
-              </button>
-              <button className={tab === "trace" ? "selected" : ""} onClick={() => setTab("trace")}>
-                <ScrollText size={16} />
-                Trace
-              </button>
-            </div>
-            {tab === "approvals" && (
-              <ApprovalPanel
-                approvals={approvals}
-                onResolve={(id, accepted) => void resolveApproval(id, accepted)}
-                onModify={(id, args) => void modifyApproval(id, args)}
-              />
-            )}
-            {tab === "memory" && (
-              <MemoryPanel
-                candidates={candidates}
-                memories={memories}
-                onResolve={(id, accepted) => void resolveMemory(id, accepted)}
-                onUpdate={(id, kind, content) => updateMemory(id, kind, content)}
-                onDelete={(id) => deleteMemory(id)}
-                onExport={() => archiveMemoryExport()}
-              />
-            )}
-            {tab === "status" && <StatusPanel ready={ready} modelCalls={modelCalls} auditEvents={auditEvents} />}
-            {tab === "status" && <ArtifactPanel artifacts={artifacts} />}
-            {tab === "status" && <EpisodePanel episodes={episodes} />}
-            {tab === "status" && (
-              <EvalPanel
-                evalRun={evalRun}
-                evalRuns={evalRuns}
-                onRun={async () => {
-                  setError("");
-                  const result = await api.runEval("smoke");
-                  setEvalRun(result);
-                  setEvalRuns([result, ...evalRuns.filter((run) => run.id !== result.id)]);
-                }}
-                onSelect={async (id) => {
-                  setError("");
-                  setEvalRun(await api.evalRun(id));
-                }}
-                onError={(message) => setError(message)}
-              />
-            )}
-            {tab === "settings" && (
-              <SettingsPanel
-                runtimeConfig={runtimeConfig}
-                ownerProfile={ownerProfile}
-                clients={clients}
-                onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
-                onRevokeClient={(id) => revokeClient(id)}
-                onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
-              />
-            )}
-            {tab === "trace" && <TracePanel trace={traceRun} traces={traceList} loading={traceLoading} onOpen={(runId) => void openTrace(runId)} />}
-            {tab === "status" && <SkillsPanel skills={skills} />}
-          </aside>
-        </div>
+          </div>
+        </section>
       </section>
+
+      <aside className="inspectorColumn">
+        <div className="inspectorTitle">INSPECTOR</div>
+        <div className="tabs">
+          <button className={tab === "timeline" ? "selected" : ""} onClick={() => setTab("timeline")} title={text.tabs.timeline}>
+            <FileSearch size={16} />
+            <span>{text.tabs.timeline}</span>
+          </button>
+          <button className={tab === "approvals" ? "selected" : ""} onClick={() => setTab("approvals")} title={text.tabs.approvals}>
+            <ShieldAlert size={16} />
+            <span>{pendingApprovals.length}</span>
+          </button>
+          <button className={tab === "memory" ? "selected" : ""} onClick={() => setTab("memory")} title={text.tabs.memory}>
+            <MemoryStick size={16} />
+            <span>{pendingCandidates.length}</span>
+          </button>
+          <button className={tab === "trace" ? "selected" : ""} onClick={() => setTab("trace")} title={text.tabs.trace}>
+            <ScrollText size={16} />
+            <span>{text.tabs.trace}</span>
+          </button>
+          <button className={tab === "status" ? "selected" : ""} onClick={() => setTab("status")} title={text.tabs.status}>
+            <Gauge size={16} />
+            <span>{text.tabs.status}</span>
+          </button>
+          <button className={tab === "settings" ? "selected" : ""} onClick={() => setTab("settings")} title={text.tabs.settings}>
+            <Settings size={16} />
+            <span>{text.tabs.settings}</span>
+          </button>
+        </div>
+
+        {tab === "timeline" && <ToolTimelinePanel calls={toolCalls} text={text} onTrace={(runId) => void openTrace(runId)} />}
+        {tab === "approvals" && (
+          <ApprovalPanel
+            approvals={approvals}
+            text={text}
+            onResolve={(id, accepted) => void resolveApproval(id, accepted)}
+            onModify={(id, args) => void modifyApproval(id, args)}
+          />
+        )}
+        {tab === "memory" && (
+          <MemoryPanel
+            candidates={candidates}
+            memories={memories}
+            text={text}
+            onResolve={(id, accepted) => void resolveMemory(id, accepted)}
+            onUpdate={(id, kind, content) => updateMemory(id, kind, content)}
+            onDelete={(id) => deleteMemory(id)}
+            onExport={() => archiveMemoryExport()}
+          />
+        )}
+        {tab === "trace" && (
+          <TracePanel trace={traceRun} traces={traceList} loading={traceLoading} text={text} language={language} onOpen={(runId) => void openTrace(runId)} />
+        )}
+        {tab === "status" && (
+          <StatusStack
+            ready={ready}
+            modelCalls={modelCalls}
+            auditEvents={auditEvents}
+            artifacts={artifacts}
+            episodes={episodes}
+            evalRun={evalRun}
+            evalRuns={evalRuns}
+            skills={skills}
+            text={text}
+            language={language}
+            onRunEval={async () => {
+              setError("");
+              const result = await api.runEval("smoke");
+              setEvalRun(result);
+              setEvalRuns([result, ...evalRuns.filter((run) => run.id !== result.id)]);
+            }}
+            onSelectEval={async (id) => {
+              setError("");
+              setEvalRun(await api.evalRun(id));
+            }}
+            onError={(message) => setError(message)}
+          />
+        )}
+        {tab === "settings" && (
+          <SettingsPanel
+            runtimeConfig={runtimeConfig}
+            ownerProfile={ownerProfile}
+            clients={clients}
+            text={text}
+            language={language}
+            onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
+            onRevokeClient={(id) => revokeClient(id)}
+            onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
+          />
+        )}
+      </aside>
     </main>
   );
 }
 
 function MessageBubble({
   message,
+  text,
+  language,
   onFeedback
 }: {
   message: Message;
+  text: Copy;
+  language: Language;
   onFeedback: (rating: "up" | "down" | "corrected", correction?: string) => Promise<void>;
 }) {
   const [correction, setCorrection] = useState("");
@@ -631,26 +1306,26 @@ function MessageBubble({
   return (
     <article className={`message ${message.role}`}>
       <div className="messageMeta">
-        <span>{message.role === "user" ? "You" : "SparkClaw"}</span>
-        <time>{formatTime(message.created_at)}</time>
+        <span>{message.role === "user" ? text.chat.you : text.chat.assistant}</span>
+        <time>{formatTime(message.created_at, language)}</time>
       </div>
       <p>{message.content}</p>
       {message.role === "assistant" && message.run_id && (
         <div className="feedbackBar">
-          <button onClick={() => void submit("up")} disabled={saving} title="Mark helpful">
+          <button onClick={() => void submit("up")} disabled={saving} title={text.chat.helpful}>
             <ThumbsUp size={14} />
           </button>
-          <button onClick={() => void submit("down")} disabled={saving} title="Mark not helpful">
+          <button onClick={() => void submit("down")} disabled={saving} title={text.chat.unhelpful}>
             <ThumbsDown size={14} />
           </button>
           <input
-            aria-label="Correction"
+            aria-label={text.chat.correction}
             value={correction}
             onChange={(event) => setCorrection(event.target.value)}
             disabled={saving}
-            placeholder="Correction"
+            placeholder={text.chat.correction}
           />
-          <button onClick={() => void submit("corrected")} disabled={saving || !correction.trim()} title="Save correction">
+          <button onClick={() => void submit("corrected")} disabled={saving || !correction.trim()} title={text.chat.saveCorrection}>
             <Check size={14} />
           </button>
         </div>
@@ -659,7 +1334,20 @@ function MessageBubble({
   );
 }
 
-function ToolCallItem({ call, onTrace }: { call: ToolCall; onTrace: (runId: string) => void }) {
+function ToolTimelinePanel({ calls, text, onTrace }: { calls: ToolCall[]; text: Copy; onTrace: (runId: string) => void }) {
+  return (
+    <div className="panelStack">
+      <SectionHeader icon={<FileSearch size={17} />} title={text.timeline.title} />
+      {calls.length === 0 ? (
+        <span className="muted">{text.timeline.empty}</span>
+      ) : (
+        calls.map((call) => <ToolCallItem key={call.id} call={call} text={text} onTrace={onTrace} />)
+      )}
+    </div>
+  );
+}
+
+function ToolCallItem({ call, text, onTrace }: { call: ToolCall; text: Copy; onTrace: (runId: string) => void }) {
   const Icon = call.tool.includes("shell")
     ? Terminal
     : call.tool.includes("memory")
@@ -674,24 +1362,25 @@ function ToolCallItem({ call, onTrace }: { call: ToolCall; onTrace: (runId: stri
               ? CalendarDays
               : FileSearch;
   return (
-    <article className={`toolCall ${call.risk}`}>
+    <article className={`toolCall ${call.risk} ${cssToken(call.status)}`}>
       <div className="toolIcon">
         <Icon size={16} />
       </div>
-      <div>
+      <div className="toolBody">
         <div className="toolTitle">
           <strong title={call.tool}>{call.tool}</strong>
           <span className="toolBadges">
-            <button className="miniIconButton" onClick={() => onTrace(call.run_id)} title="Open run trace">
+            <button className="miniIconButton" onClick={() => onTrace(call.run_id)} title={text.timeline.openTrace}>
               <ScrollText size={14} />
             </button>
-            <RiskPill risk={call.risk} />
+            <RiskPill risk={call.risk} text={text} />
           </span>
         </div>
-        <span className="statusLine">{call.status}</span>
+        <span className="statusLine">{formatState(call.status, text)}</span>
         {call.observation_summary && <small>{call.observation_summary}</small>}
         {call.error && <p className="compactError">{call.error}</p>}
-        {call.approval_id && <small>Approval {shortId(call.approval_id)}</small>}
+        {call.approval_id && <small>{text.timeline.approval} {shortId(call.approval_id)}</small>}
+        {Object.keys(stripSystemArgs(call.arguments)).length > 0 && <JsonBlock value={stripSystemArgs(call.arguments)} />}
       </div>
     </article>
   );
@@ -701,19 +1390,20 @@ function TracePanel({
   trace,
   traces,
   loading,
+  text,
+  language,
   onOpen
 }: {
   trace: RunTrace | null;
   traces: TraceMetadata[];
   loading: boolean;
+  text: Copy;
+  language: Language;
   onOpen: (runId: string) => void;
 }) {
   return (
     <div className="panelStack">
-      <div className="sectionHeader">
-        <ScrollText size={17} />
-        <h2>Trace</h2>
-      </div>
+      <SectionHeader icon={<ScrollText size={17} />} title={text.trace.title} />
       {traces.length > 0 && (
         <div className="traceHistory">
           {traces.slice(0, 6).map((item) => (
@@ -724,49 +1414,49 @@ function TracePanel({
               title={item.artifact_uri || item.run_id}
             >
               <ScrollText size={14} />
-              <span>{item.state}</span>
-              <strong>{item.tool_call_count} tools</strong>
+              <span>{formatState(item.state, text)}</span>
+              <strong>{item.tool_call_count} {text.units.tools}</strong>
               <small>{shortId(item.run_id)}</small>
             </button>
           ))}
         </div>
       )}
       {loading ? (
-        <span className="muted">Loading trace.</span>
+        <span className="muted">{text.trace.loading}</span>
       ) : !trace ? (
-        <span className="muted">No trace selected.</span>
+        <span className="muted">{text.trace.empty}</span>
       ) : (
         <>
           <article className="traceSummary">
             <div className="approvalTop">
-              <strong>{trace.run.state}</strong>
+              <strong>{formatState(trace.run.state, text)}</strong>
               <span className="pill">{shortId(trace.run.id)}</span>
             </div>
             <dl className="statusGrid compact">
-              <dt>Lane</dt>
+              <dt>{text.trace.lane}</dt>
               <dd>{trace.model.lane}</dd>
-              <dt>Model</dt>
+              <dt>{text.trace.model}</dt>
               <dd>{trace.model.model}</dd>
-              <dt>Calls</dt>
+              <dt>{text.trace.calls}</dt>
               <dd>{trace.model_calls?.length ?? 0}</dd>
-              <dt>Tokens</dt>
+              <dt>{text.trace.tokens}</dt>
               <dd>{(trace.model_calls ?? []).reduce((sum, call) => sum + call.total_tokens, 0)}</dd>
-              <dt>Latency</dt>
-              <dd>{formatLatency(trace.model_calls)}</dd>
-              <dt>Risk</dt>
-              <dd>{trace.run.risk}</dd>
-              <dt>Tools</dt>
+              <dt>{text.trace.latency}</dt>
+              <dd>{formatLatency(trace.model_calls, text)}</dd>
+              <dt>{text.trace.risk}</dt>
+              <dd>{formatRisk(trace.run.risk, text)}</dd>
+              <dt>{text.trace.tools}</dt>
               <dd>{trace.tool_calls.length}</dd>
-              <dt>Approvals</dt>
+              <dt>{text.trace.approvals}</dt>
               <dd>{trace.approvals.length}</dd>
-              <dt>Feedback</dt>
+              <dt>{text.trace.feedback}</dt>
               <dd>{trace.feedback?.length ?? 0}</dd>
-              <dt>Audit</dt>
+              <dt>{text.trace.audit}</dt>
               <dd>{trace.audit.length}</dd>
             </dl>
           </article>
           <article className="traceSummary">
-            <strong>Model Note</strong>
+            <strong>{text.trace.modelNote}</strong>
             <p>{trace.model.content}</p>
           </article>
           {trace.model_calls && trace.model_calls.length > 0 && (
@@ -774,14 +1464,14 @@ function TracePanel({
               {trace.model_calls.map((call) => (
                 <article className="traceRow" key={call.id}>
                   <span>{call.operation} · {call.lane}</span>
-                  <small>{call.status} · {call.total_tokens} tokens · {call.latency_ms} ms</small>
+                  <small>
+                    {formatState(call.status, text)} · {call.total_tokens} {text.units.tokens} · {call.latency_ms} ms
+                  </small>
                 </article>
               ))}
             </div>
           )}
-          {trace.episode && (
-            <EpisodeCard episode={trace.episode} compact />
-          )}
+          {trace.episode && <EpisodeCard episode={trace.episode} compact text={text} />}
           {trace.feedback && trace.feedback.length > 0 && (
             <div className="traceList">
               {trace.feedback.map((feedback) => (
@@ -796,101 +1486,25 @@ function TracePanel({
             {trace.tool_calls.map((call) => (
               <article className="traceRow" key={call.id}>
                 <span>{call.tool}</span>
-                <small>{call.observation_summary || call.status}</small>
+                <small>{call.observation_summary || formatState(call.status, text)}</small>
               </article>
             ))}
           </div>
+          <span className="muted">{formatTime(trace.run.started_at, language)}</span>
         </>
       )}
     </div>
   );
 }
 
-function EpisodePanel({ episodes }: { episodes: EpisodeSummary[] }) {
-  return (
-    <div className="panelStack">
-      <div className="sectionHeader">
-        <ScrollText size={17} />
-        <h2>Episodes</h2>
-      </div>
-      {episodes.length === 0 ? (
-        <span className="muted">No episodes yet.</span>
-      ) : (
-        episodes.slice(0, 5).map((episode) => <EpisodeCard key={episode.id} episode={episode} />)
-      )}
-    </div>
-  );
-}
-
-function ArtifactPanel({ artifacts }: { artifacts: ArtifactObject[] }) {
-  return (
-    <div className="panelStack">
-      <div className="sectionHeader">
-        <Database size={17} />
-        <h2>Artifacts</h2>
-      </div>
-      {artifacts.length === 0 ? (
-        <span className="muted">No artifacts archived.</span>
-      ) : (
-        <div className="artifactList">
-          {artifacts.slice(0, 5).map((artifact) => (
-            <article className="artifactItem" key={artifact.id} title={artifact.path || artifact.uri}>
-              <div className="approvalTop">
-                <strong>{artifact.kind}</strong>
-                <span className="pill">{artifact.backend}</span>
-              </div>
-              <span>{artifact.uri}</span>
-              <small>{artifact.bytes} bytes · {artifact.content_type}</small>
-            </article>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function EpisodeCard({ episode, compact = false }: { episode: EpisodeSummary; compact?: boolean }) {
-  return (
-    <article className={`episodeItem ${compact ? "compactEpisode" : ""}`}>
-      <div className="approvalTop">
-        <strong>{episode.outcome}</strong>
-        <span className="pill">{shortId(episode.run_id)}</span>
-      </div>
-      <p>{episode.summary}</p>
-      <dl className="statusGrid compact">
-        <dt>Lane</dt>
-        <dd>{episode.model_lane}</dd>
-        <dt>Risk</dt>
-        <dd>{episode.risk}</dd>
-        <dt>Repair</dt>
-        <dd>{episode.repair_performed ? "yes" : "no"}</dd>
-      </dl>
-      {episode.tools.length > 0 && (
-        <div className="evalCases">
-          {episode.tools.slice(0, compact ? 4 : 8).map((tool) => (
-            <span key={tool}>{tool}</span>
-          ))}
-        </div>
-      )}
-      {episode.failures && episode.failures.length > 0 && (
-        <div className="evalCases">
-          {episode.failures.slice(0, 3).map((failure) => (
-            <span className="failed" key={failure}>
-              {failure}
-            </span>
-          ))}
-        </div>
-      )}
-    </article>
-  );
-}
-
 function ApprovalPanel({
   approvals,
+  text,
   onResolve,
   onModify
 }: {
   approvals: Approval[];
+  text: Copy;
   onResolve: (id: string, accepted: boolean) => void;
   onModify: (id: string, args: Record<string, unknown>) => void;
 }) {
@@ -911,27 +1525,31 @@ function ApprovalPanel({
       setEditing("");
       setParseError("");
     } catch {
-      setParseError("Invalid JSON");
+      setParseError(text.approval.invalidJson);
     }
   }
 
   return (
     <div className="panelStack">
-      <div className="sectionHeader">
-        <Inbox size={17} />
-        <h2>Approval Inbox</h2>
-      </div>
+      <SectionHeader icon={<Inbox size={17} />} title={text.approval.title} />
       {approvals.length === 0 ? (
-        <span className="muted">No approvals.</span>
+        <span className="muted">{text.approval.empty}</span>
       ) : (
         approvals.map((approval) => (
-          <article className="approvalItem" key={approval.id}>
+          <article className={`approvalItem ${approval.risk}`} key={approval.id}>
             <div className="approvalTop">
               <strong>{approval.summary}</strong>
-              <RiskPill risk={approval.risk} />
+              <RiskPill risk={approval.risk} text={text} />
             </div>
             <p>{approval.reason}</p>
-            <code>{JSON.stringify(approval.arguments)}</code>
+            {approval.resources.length > 0 && (
+              <div className="evalCases">
+                {approval.resources.map((resource) => (
+                  <span key={resource}>{resource}</span>
+                ))}
+              </div>
+            )}
+            <JsonBlock value={stripSystemArgs(approval.arguments)} />
             {approval.status === "pending" ? (
               <>
                 {editing === approval.id && (
@@ -941,19 +1559,19 @@ function ApprovalPanel({
                   </div>
                 )}
                 <div className="buttonRow">
-                  <button className="approve" onClick={() => onResolve(approval.id, true)} title="Approve">
+                  <button className="approve" onClick={() => onResolve(approval.id, true)} title={text.common.approve}>
                     <Check size={16} />
                   </button>
-                  <button className="edit" onClick={() => (editing === approval.id ? saveEdit(approval.id) : startEdit(approval))} title="Edit arguments">
+                  <button className="edit" onClick={() => (editing === approval.id ? saveEdit(approval.id) : startEdit(approval))} title={text.approval.editArguments}>
                     <Pencil size={15} />
                   </button>
-                  <button className="reject" onClick={() => onResolve(approval.id, false)} title="Reject">
+                  <button className="reject" onClick={() => onResolve(approval.id, false)} title={text.common.reject}>
                     <X size={16} />
                   </button>
                 </div>
               </>
             ) : (
-              <span className="resolved">{approval.status}</span>
+              <span className="resolved">{formatState(approval.status, text)}</span>
             )}
           </article>
         ))
@@ -962,13 +1580,10 @@ function ApprovalPanel({
   );
 }
 
-function stripSystemArgs(args: Record<string, unknown>) {
-  return Object.fromEntries(Object.entries(args).filter(([key]) => !key.startsWith("_")));
-}
-
 function MemoryPanel({
   candidates,
   memories,
+  text,
   onResolve,
   onUpdate,
   onDelete,
@@ -976,6 +1591,7 @@ function MemoryPanel({
 }: {
   candidates: MemoryCandidate[];
   memories: Memory[];
+  text: Copy;
   onResolve: (id: string, accepted: boolean) => void;
   onUpdate: (id: string, kind: string, content: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -1039,12 +1655,9 @@ function MemoryPanel({
 
   return (
     <div className="panelStack">
-      <div className="sectionHeader">
-        <MemoryStick size={17} />
-        <h2>Memory Review</h2>
-      </div>
+      <SectionHeader icon={<MemoryStick size={17} />} title={text.memory.title} />
       {candidates.length === 0 ? (
-        <span className="muted">No memory candidates.</span>
+        <span className="muted">{text.memory.emptyCandidates}</span>
       ) : (
         candidates.map((candidate) => (
           <article className="approvalItem" key={candidate.id}>
@@ -1055,30 +1668,30 @@ function MemoryPanel({
             <p>{candidate.content}</p>
             {candidate.status === "pending" ? (
               <div className="buttonRow">
-                <button className="approve" onClick={() => onResolve(candidate.id, true)} title="Accept memory">
+                <button className="approve" onClick={() => onResolve(candidate.id, true)} title={text.memory.acceptMemory}>
                   <Check size={16} />
                 </button>
-                <button className="reject" onClick={() => onResolve(candidate.id, false)} title="Reject memory">
+                <button className="reject" onClick={() => onResolve(candidate.id, false)} title={text.memory.rejectMemory}>
                   <X size={16} />
                 </button>
               </div>
             ) : (
-              <span className="resolved">{candidate.status}</span>
+              <span className="resolved">{formatState(candidate.status, text)}</span>
             )}
           </article>
         ))
       )}
       <div className="sectionHeader smallHeader">
         <Database size={15} />
-        <h2>Accepted</h2>
-        <button className="miniIconButton headerAction" onClick={() => void archiveExport()} disabled={exporting} title="Archive memory export">
+        <h2>{text.memory.accepted}</h2>
+        <button className="miniIconButton headerAction" onClick={() => void archiveExport()} disabled={exporting} title={text.memory.archiveExport}>
           <Download size={14} />
         </button>
       </div>
       <dl className="statusGrid compact memoryCounts">
-        <dt>Accepted</dt>
+        <dt>{text.memory.accepted}</dt>
         <dd>{memories.length}</dd>
-        <dt>Pending</dt>
+        <dt>{text.memory.pending}</dt>
         <dd>{candidates.filter((candidate) => candidate.status === "pending").length}</dd>
       </dl>
       {memories.map((memory) => (
@@ -1086,13 +1699,13 @@ function MemoryPanel({
           {editingId === memory.id ? (
             <div className="memoryEdit">
               <input
-                aria-label="Memory kind"
+                aria-label={text.memory.kind}
                 value={editKind}
                 onChange={(event) => setEditKind(event.target.value)}
                 disabled={savingId === memory.id}
               />
               <textarea
-                aria-label="Memory content"
+                aria-label={text.memory.content}
                 value={editContent}
                 onChange={(event) => setEditContent(event.target.value)}
                 disabled={savingId === memory.id}
@@ -1102,11 +1715,11 @@ function MemoryPanel({
                   className="approve"
                   onClick={() => void saveEdit(memory)}
                   disabled={!editKind.trim() || !editContent.trim() || savingId === memory.id}
-                  title="Save memory"
+                  title={text.memory.saveMemory}
                 >
                   <Check size={16} />
                 </button>
-                <button className="edit" onClick={cancelEdit} disabled={savingId === memory.id} title="Cancel edit">
+                <button className="edit" onClick={cancelEdit} disabled={savingId === memory.id} title={text.memory.cancelEdit}>
                   <X size={16} />
                 </button>
               </div>
@@ -1116,10 +1729,10 @@ function MemoryPanel({
               <div className="approvalTop">
                 <strong>{memory.kind}</strong>
                 <div className="buttonRow compactButtons">
-                  <button className="edit" onClick={() => startEdit(memory)} disabled={savingId === memory.id} title="Edit memory">
+                  <button className="edit" onClick={() => startEdit(memory)} disabled={savingId === memory.id} title={text.memory.editMemory}>
                     <Pencil size={15} />
                   </button>
-                  <button className="reject" onClick={() => void removeMemory(memory)} disabled={savingId === memory.id} title="Delete memory">
+                  <button className="reject" onClick={() => void removeMemory(memory)} disabled={savingId === memory.id} title={text.memory.deleteMemory}>
                     <Trash2 size={15} />
                   </button>
                 </div>
@@ -1133,51 +1746,80 @@ function MemoryPanel({
   );
 }
 
-function StatusPanel({
+function StatusStack({
   ready,
   modelCalls,
-  auditEvents
+  auditEvents,
+  artifacts,
+  episodes,
+  evalRun,
+  evalRuns,
+  skills,
+  text,
+  language,
+  onRunEval,
+  onSelectEval,
+  onError
 }: {
   ready: ReadyStatus | null;
   modelCalls: ModelCall[];
   auditEvents: AuditEvent[];
+  artifacts: ArtifactObject[];
+  episodes: EpisodeSummary[];
+  evalRun: EvalRun | null;
+  evalRuns: EvalRun[];
+  skills: Skill[];
+  text: Copy;
+  language: Language;
+  onRunEval: () => Promise<void>;
+  onSelectEval: (id: string) => Promise<void>;
+  onError: (message: string) => void;
 }) {
+  return (
+    <div className="panelStack">
+      <StatusPanel ready={ready} modelCalls={modelCalls} auditEvents={auditEvents} text={text} />
+      <ArtifactPanel artifacts={artifacts} text={text} />
+      <EpisodePanel episodes={episodes} text={text} />
+      <EvalPanel evalRun={evalRun} evalRuns={evalRuns} text={text} language={language} onRun={onRunEval} onSelect={onSelectEval} onError={onError} />
+      <SkillsPanel skills={skills} text={text} />
+    </div>
+  );
+}
+
+function StatusPanel({ ready, modelCalls, auditEvents, text }: { ready: ReadyStatus | null; modelCalls: ModelCall[]; auditEvents: AuditEvent[]; text: Copy }) {
   const recentModelCalls = modelCalls.slice(-6).reverse();
   const recentAuditEvents = auditEvents.slice(-6).reverse();
   return (
-    <div className="panelStack">
-      <div className="sectionHeader">
-        <Clock3 size={17} />
-        <h2>Runtime</h2>
-      </div>
+    <div className="panelStack nestedPanel">
+      <SectionHeader icon={<Clock3 size={17} />} title={text.status.runtime} />
       {!ready ? (
-        <span className="muted">Gateway unavailable.</span>
+        <span className="muted">{text.common.gatewayUnavailable}</span>
       ) : (
         <dl className="statusGrid">
-          <dt>Gateway</dt>
+          <dt>{text.status.gateway}</dt>
           <dd>{ready.gateway_binding}</dd>
-          <dt>Model</dt>
+          <dt>{text.status.model}</dt>
           <dd>{ready.model_mode}</dd>
-          <dt>Rate Limit</dt>
-          <dd>{rateLimitLabel(ready.rate_limit)}</dd>
-          <dt>Workspace</dt>
+          <dt>{text.status.rateLimit}</dt>
+          <dd>{rateLimitLabel(ready.rate_limit, text)}</dd>
+          <dt>{text.status.workspace}</dt>
           <dd>{ready.workspace_root}</dd>
-          <dt>Trace</dt>
+          <dt>{text.status.trace}</dt>
           <dd>{ready.trace_dir}</dd>
-          <dt>State</dt>
+          <dt>{text.status.state}</dt>
           <dd>{ready.state_backend} · {ready.state_path}</dd>
           {ready.state_dsn && (
             <>
-              <dt>DSN</dt>
+              <dt>{text.status.dsn}</dt>
               <dd>{ready.state_dsn}</dd>
             </>
           )}
         </dl>
       )}
       <div className="diagnosticList">
-        <strong>Model Calls</strong>
+        <strong>{text.status.modelCalls}</strong>
         {recentModelCalls.length === 0 ? (
-          <span className="muted">No model calls in this session.</span>
+          <span className="muted">{text.status.noModelCalls}</span>
         ) : (
           recentModelCalls.map((call) => (
             <article className="diagnosticRow" key={call.id}>
@@ -1185,15 +1827,17 @@ function StatusPanel({
                 <span>{call.operation} · {call.lane}</span>
                 <small>{call.profile || call.model}</small>
               </div>
-              <small>{call.status} · {call.total_tokens} tokens · {call.latency_ms} ms</small>
+              <small>
+                {formatState(call.status, text)} · {call.total_tokens} {text.units.tokens} · {call.latency_ms} ms
+              </small>
             </article>
           ))
         )}
       </div>
       <div className="diagnosticList">
-        <strong>Audit</strong>
+        <strong>{text.status.audit}</strong>
         {recentAuditEvents.length === 0 ? (
-          <span className="muted">No audit events in this session.</span>
+          <span className="muted">{text.status.noAudit}</span>
         ) : (
           recentAuditEvents.map((event) => (
             <article className="diagnosticRow" key={event.id}>
@@ -1210,10 +1854,213 @@ function StatusPanel({
   );
 }
 
+function ArtifactPanel({ artifacts, text }: { artifacts: ArtifactObject[]; text: Copy }) {
+  return (
+    <div className="panelStack nestedPanel">
+      <SectionHeader icon={<Database size={17} />} title={text.status.artifacts} />
+      {artifacts.length === 0 ? (
+        <span className="muted">{text.status.noArtifacts}</span>
+      ) : (
+        <div className="artifactList">
+          {artifacts.slice(0, 5).map((artifact) => (
+            <article className="artifactItem" key={artifact.id} title={artifact.path || artifact.uri}>
+              <div className="approvalTop">
+                <strong>{artifact.kind}</strong>
+                <span className="pill">{artifact.backend}</span>
+              </div>
+              <span>{artifact.uri}</span>
+              <small>{artifact.bytes} {text.units.bytes} · {artifact.content_type}</small>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EpisodePanel({ episodes, text }: { episodes: EpisodeSummary[]; text: Copy }) {
+  return (
+    <div className="panelStack nestedPanel">
+      <SectionHeader icon={<ScrollText size={17} />} title={text.status.episodes} />
+      {episodes.length === 0 ? (
+        <span className="muted">{text.status.noEpisodes}</span>
+      ) : (
+        episodes.slice(0, 5).map((episode) => <EpisodeCard key={episode.id} episode={episode} text={text} />)
+      )}
+    </div>
+  );
+}
+
+function EpisodeCard({ episode, text, compact = false }: { episode: EpisodeSummary; text: Copy; compact?: boolean }) {
+  return (
+    <article className={`episodeItem ${compact ? "compactEpisode" : ""}`}>
+      <div className="approvalTop">
+        <strong>{episode.outcome}</strong>
+        <span className="pill">{shortId(episode.run_id)}</span>
+      </div>
+      <p>{episode.summary}</p>
+      <dl className="statusGrid compact">
+        <dt>{text.trace.lane}</dt>
+        <dd>{episode.model_lane}</dd>
+        <dt>{text.trace.risk}</dt>
+        <dd>{formatRisk(episode.risk, text)}</dd>
+        <dt>Repair</dt>
+        <dd>{episode.repair_performed ? text.common.yes : text.common.no}</dd>
+      </dl>
+      {episode.tools.length > 0 && (
+        <div className="evalCases">
+          {episode.tools.slice(0, compact ? 4 : 8).map((tool) => (
+            <span key={tool}>{tool}</span>
+          ))}
+        </div>
+      )}
+      {episode.failures && episode.failures.length > 0 && (
+        <div className="evalCases">
+          {episode.failures.slice(0, 3).map((failure) => (
+            <span className="failed" key={failure}>
+              {failure}
+            </span>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function EvalPanel({
+  evalRun,
+  evalRuns,
+  text,
+  language,
+  onRun,
+  onSelect,
+  onError
+}: {
+  evalRun: EvalRun | null;
+  evalRuns: EvalRun[];
+  text: Copy;
+  language: Language;
+  onRun: () => Promise<void>;
+  onSelect: (id: string) => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [loadingId, setLoadingId] = useState("");
+  async function run() {
+    try {
+      setRunning(true);
+      await onRun();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : text.errors.eval);
+    } finally {
+      setRunning(false);
+    }
+  }
+  async function select(id: string) {
+    try {
+      setLoadingId(id);
+      await onSelect(id);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : text.errors.eval);
+    } finally {
+      setLoadingId("");
+    }
+  }
+  return (
+    <div className="panelStack nestedPanel evalPanel">
+      <SectionHeader icon={<ListChecks size={17} />} title={text.status.smokeEval} />
+      <button className="secondaryButton" onClick={() => void run()} disabled={running} title={text.status.smokeEval}>
+        <ListChecks size={16} />
+        <span>{running ? text.common.running : text.common.run}</span>
+      </button>
+      {!evalRun ? (
+        <span className="muted">{text.status.noEval}</span>
+      ) : (
+        <article className={`evalResult ${evalRun.status}`}>
+          <div className="approvalTop">
+            <strong>{formatState(evalRun.status, text)}</strong>
+            <span className="pill">{shortId(evalRun.id)}</span>
+          </div>
+          <p>{evalRun.summary}</p>
+          <div className="evalCases">
+            {evalRun.cases.map((item) => (
+              <span key={item.name} className={item.status}>
+                {item.name}
+              </span>
+            ))}
+          </div>
+          {evalRun.failure_archives && evalRun.failure_archives.length > 0 && (
+            <div className="archiveList">
+              {evalRun.failure_archives.map((archive) => (
+                <span key={`${archive.case_name}-${archive.uri}`} title={archive.path || archive.uri}>
+                  {archive.case_name}: {archive.uri}
+                </span>
+              ))}
+            </div>
+          )}
+        </article>
+      )}
+      {evalRuns.length > 0 && (
+        <div className="evalHistory">
+          {evalRuns.slice(0, 5).map((runItem) => (
+            <button
+              key={runItem.id}
+              className={evalRun?.id === runItem.id ? "selected" : ""}
+              onClick={() => void select(runItem.id)}
+              disabled={loadingId === runItem.id}
+              title={`${runItem.profile} ${shortId(runItem.id)}`}
+            >
+              <Clock3 size={14} />
+              <span>{runItem.profile}</span>
+              <strong className={runItem.status}>{formatState(runItem.status, text)}</strong>
+              <small>{formatTime(runItem.started_at, language)}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillsPanel({ skills, text }: { skills: Skill[]; text: Copy }) {
+  return (
+    <div className="panelStack nestedPanel">
+      <SectionHeader icon={<Library size={17} />} title={text.status.skills} />
+      {skills.length === 0 ? (
+        <span className="muted">{text.status.noSkills}</span>
+      ) : (
+        skills.map((skill) => (
+          <article className="skillItem" key={skill.name}>
+            <div className="approvalTop">
+              <strong>{skill.name}</strong>
+              <span className="pill">{skill.risk_level}</span>
+            </div>
+            <p>{skill.description}</p>
+            <div className="evalCases">
+              {skill.allowed_tools.slice(0, 4).map((tool) => (
+                <span key={tool}>{tool}</span>
+              ))}
+            </div>
+            {(skill.dependencies.length > 0 || skill.eval_cases.length > 0) && (
+              <div className="skillMeta">
+                {skill.dependencies.length > 0 && <small>{skill.dependencies.length} {text.units.deps}</small>}
+                {skill.eval_cases.length > 0 && <small>{skill.eval_cases.length} {text.units.evals}</small>}
+                {skill.input_schema && <small>{text.units.schema}</small>}
+              </div>
+            )}
+          </article>
+        ))
+      )}
+    </div>
+  );
+}
+
 function SettingsPanel({
   runtimeConfig,
   ownerProfile,
   clients,
+  text,
+  language,
   onUpdateOwner,
   onRevokeClient,
   onUpdatePolicy
@@ -1221,6 +2068,8 @@ function SettingsPanel({
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
+  text: Copy;
+  language: Language;
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
   onRevokeClient: (id: string) => Promise<void>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
@@ -1240,11 +2089,8 @@ function SettingsPanel({
   if (!runtimeConfig) {
     return (
       <div className="panelStack">
-        <div className="sectionHeader">
-          <Settings size={17} />
-          <h2>Settings</h2>
-        </div>
-        <span className="muted">Configuration unavailable.</span>
+        <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
+        <span className="muted">{text.settings.unavailable}</span>
       </div>
     );
   }
@@ -1273,10 +2119,10 @@ function SettingsPanel({
     setSavingOwner(true);
     setOwnerError("");
     try {
-      await onUpdateOwner(ownerName, ownerEmail, parsePreferences(ownerPrefsText));
+      await onUpdateOwner(ownerName, ownerEmail, parsePreferences(ownerPrefsText, text));
       cancelOwnerEdit();
     } catch (err) {
-      setOwnerError(err instanceof Error ? err.message : "Owner profile update failed");
+      setOwnerError(err instanceof Error ? err.message : text.errors.ownerUpdate);
     } finally {
       setSavingOwner(false);
     }
@@ -1321,28 +2167,25 @@ function SettingsPanel({
 
   return (
     <div className="panelStack">
-      <div className="sectionHeader">
-        <Settings size={17} />
-        <h2>Settings</h2>
-      </div>
+      <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
       <article className="settingsBlock">
         <div className="approvalTop">
           <span className="settingsTitle">
             <UserRound size={15} />
-            <strong>Owner Profile</strong>
+            <strong>{text.settings.ownerProfile}</strong>
           </span>
           <div className="buttonRow compactButtons">
             {editingOwner ? (
               <>
-                <button className="approve" onClick={() => void saveOwnerEdit()} disabled={savingOwner} title="Save owner profile">
+                <button className="approve" onClick={() => void saveOwnerEdit()} disabled={savingOwner} title={text.settings.saveOwner}>
                   <Check size={15} />
                 </button>
-                <button className="edit" onClick={cancelOwnerEdit} disabled={savingOwner} title="Cancel owner edit">
+                <button className="edit" onClick={cancelOwnerEdit} disabled={savingOwner} title={text.settings.cancelOwner}>
                   <X size={15} />
                 </button>
               </>
             ) : (
-              <button className="edit" onClick={startOwnerEdit} title="Edit owner profile">
+              <button className="edit" onClick={startOwnerEdit} title={text.settings.editOwner}>
                 <Pencil size={15} />
               </button>
             )}
@@ -1351,15 +2194,15 @@ function SettingsPanel({
         {editingOwner ? (
           <div className="ownerEditor">
             <label>
-              <span>Name</span>
+              <span>{text.settings.name}</span>
               <input value={ownerName} onChange={(event) => setOwnerName(event.target.value)} disabled={savingOwner} />
             </label>
             <label>
-              <span>Email</span>
+              <span>{text.settings.email}</span>
               <input value={ownerEmail} onChange={(event) => setOwnerEmail(event.target.value)} disabled={savingOwner} />
             </label>
             <label>
-              <span>Preferences</span>
+              <span>{text.settings.preferences}</span>
               <textarea value={ownerPrefsText} onChange={(event) => setOwnerPrefsText(event.target.value)} disabled={savingOwner} />
             </label>
             {ownerError && <span className="compactError">{ownerError}</span>}
@@ -1367,62 +2210,68 @@ function SettingsPanel({
         ) : ownerProfile ? (
           <>
             <dl className="statusGrid compact">
-              <dt>Name</dt>
+              <dt>{text.settings.name}</dt>
               <dd>{ownerProfile.display_name}</dd>
-              <dt>Email</dt>
-              <dd>{ownerProfile.email || "not set"}</dd>
+              <dt>{text.settings.email}</dt>
+              <dd>{ownerProfile.email || text.common.notSet}</dd>
             </dl>
             <div className="evalCases">
               {Object.entries(preferences).map(([key, value]) => (
                 <span key={key}>{key}:{value}</span>
               ))}
-              {Object.keys(preferences).length === 0 && <span>none</span>}
+              {Object.keys(preferences).length === 0 && <span>{text.common.none}</span>}
             </div>
           </>
         ) : (
-          <span className="muted">Owner unavailable.</span>
+          <span className="muted">{text.settings.ownerUnavailable}</span>
         )}
       </article>
       <article className="settingsBlock">
         <div className="approvalTop">
-          <strong>Tool Policy</strong>
-          <span className="pill">{policy.definition_count} tools</span>
+          <strong>{text.settings.toolPolicy}</strong>
+          <span className="pill">{policy.definition_count} {text.trace.tools}</span>
         </div>
         <dl className="statusGrid compact">
-          <dt>File</dt>
+          <dt>{text.settings.file}</dt>
           <dd>{policy.policy_path}</dd>
-          <dt>External</dt>
-          <dd>{policy.external_content_untrusted ? "untrusted" : "trusted"}</dd>
-          <dt>Dangerous</dt>
-          <dd>{policy.approval_required_for_dangerous_tools ? "approval required" : "not forced"}</dd>
-          <dt>Verifier</dt>
-          <dd>{policy.dangerous_tools_deep_verification ? "deep check" : "standard"}</dd>
-          <dt>Sandbox</dt>
-          <dd>{policy.sandbox_required_for_mutating_tools ? "mutations require sandbox" : "not forced"}</dd>
+          <dt>{text.settings.external}</dt>
+          <dd>{policy.external_content_untrusted ? text.settings.untrusted : text.settings.trusted}</dd>
+          <dt>{text.settings.dangerous}</dt>
+          <dd>{policy.approval_required_for_dangerous_tools ? text.settings.approvalRequired : text.settings.notForced}</dd>
+          <dt>{text.settings.verifier}</dt>
+          <dd>{policy.dangerous_tools_deep_verification ? text.settings.deepCheck : text.settings.standard}</dd>
+          <dt>{text.settings.sandbox}</dt>
+          <dd>{policy.sandbox_required_for_mutating_tools ? text.settings.mutationsRequireSandbox : text.settings.notForced}</dd>
         </dl>
         <div className="evalCases">
           {riskCounts.map(([risk, count]) => (
-            <span key={risk}>{risk}:{count}</span>
+            <span key={risk}>{formatRisk(risk, text)}:{count}</span>
           ))}
         </div>
       </article>
       <article className="settingsBlock">
         <div className="approvalTop">
-          <strong>Paired Clients</strong>
+          <strong>{text.settings.pairedClients}</strong>
           <span className="pill">{clients.length}</span>
         </div>
         {clients.length === 0 ? (
-          <span className="muted">No paired clients.</span>
+          <span className="muted">{text.settings.noClients}</span>
         ) : (
           <div className="clientList">
             {clients.map((client) => (
               <div className="clientItem" key={client.id}>
                 <div>
                   <strong>{client.name}</strong>
-                  <small>{client.revoked_at ? "revoked" : client.last_seen_at ? `seen ${formatTime(client.last_seen_at)}` : "not seen"}</small>
+                  <small>
+                    {client.revoked_at
+                      ? text.common.revoked
+                      : client.last_seen_at
+                        ? `${text.settings.seen} ${formatTime(client.last_seen_at, language)}`
+                        : text.settings.notSeen}
+                  </small>
                 </div>
                 {!client.revoked_at && (
-                  <button className="reject" onClick={() => void revokeClient(client.id)} disabled={revokingClient === client.id} title="Revoke client">
+                  <button className="reject" onClick={() => void revokeClient(client.id)} disabled={revokingClient === client.id} title={text.settings.revokeClient}>
                     <Trash2 size={14} />
                   </button>
                 )}
@@ -1432,20 +2281,20 @@ function SettingsPanel({
         )}
       </article>
       <article className="settingsBlock">
-        <strong>Definition Approval Tools</strong>
+        <strong>{text.settings.definitionApprovalTools}</strong>
         <div className="evalCases">
           {policy.definition_approval_required_tools.map((tool) => (
             <span key={tool}>{tool}</span>
           ))}
-          {policy.definition_approval_required_tools.length === 0 && <span>none</span>}
+          {policy.definition_approval_required_tools.length === 0 && <span>{text.common.none}</span>}
         </div>
       </article>
       <article className="settingsBlock">
-        <strong>Config Approval Additions</strong>
+        <strong>{text.settings.configApprovalAdditions}</strong>
         {editingPolicy ? (
           <div className="policyEditor">
             <label>
-              <span>Approval</span>
+              <span>{text.settings.approval}</span>
               <textarea value={approvalText} onChange={(event) => setApprovalText(event.target.value)} disabled={savingPolicy} />
             </label>
           </div>
@@ -1454,25 +2303,25 @@ function SettingsPanel({
             {policy.configured_approval_required_tools.map((tool) => (
               <span key={`configured-${tool}`}>{tool}</span>
             ))}
-            {policy.configured_approval_required_tools.length === 0 && <span>none</span>}
+            {policy.configured_approval_required_tools.length === 0 && <span>{text.common.none}</span>}
           </div>
         )}
       </article>
       <article className="settingsBlock">
         <div className="approvalTop">
-          <strong>Denied Tools</strong>
+          <strong>{text.settings.deniedTools}</strong>
           <div className="buttonRow compactButtons">
             {editingPolicy ? (
               <>
-                <button className="approve" onClick={() => void savePolicyEdit()} disabled={savingPolicy} title="Save tool policy">
+                <button className="approve" onClick={() => void savePolicyEdit()} disabled={savingPolicy} title={text.settings.saveToolPolicy}>
                   <Check size={15} />
                 </button>
-                <button className="edit" onClick={cancelPolicyEdit} disabled={savingPolicy} title="Cancel policy edit">
+                <button className="edit" onClick={cancelPolicyEdit} disabled={savingPolicy} title={text.settings.cancelPolicy}>
                   <X size={15} />
                 </button>
               </>
             ) : (
-              <button className="edit" onClick={startPolicyEdit} title="Edit tool policy">
+              <button className="edit" onClick={startPolicyEdit} title={text.settings.editPolicy}>
                 <Pencil size={15} />
               </button>
             )}
@@ -1481,7 +2330,7 @@ function SettingsPanel({
         {editingPolicy ? (
           <div className="policyEditor">
             <label>
-              <span>Deny</span>
+              <span>{text.settings.deny}</span>
               <textarea value={denyText} onChange={(event) => setDenyText(event.target.value)} disabled={savingPolicy} />
             </label>
           </div>
@@ -1490,63 +2339,63 @@ function SettingsPanel({
             {policy.denied_tools.map((tool) => (
               <span className="failed" key={tool}>{tool}</span>
             ))}
-            {policy.denied_tools.length === 0 && <span>none</span>}
+            {policy.denied_tools.length === 0 && <span>{text.common.none}</span>}
           </div>
         )}
       </article>
       <article className="settingsBlock">
-        <strong>Model Profiles</strong>
+        <strong>{text.settings.modelProfiles}</strong>
         <dl className="statusGrid compact">
-          <dt>Mode</dt>
-          <dd>{runtimeConfig.model.mock ? "mock" : "external"}</dd>
-          <dt>Fast</dt>
-          <dd>{profileLabel(runtimeConfig.model.fast)}</dd>
-          <dt>Deep</dt>
-          <dd>{profileLabel(runtimeConfig.model.deep)}</dd>
-          <dt>Embed</dt>
-          <dd>{profileLabel(runtimeConfig.model.embedding)}</dd>
-          <dt>Rerank</dt>
-          <dd>{profileLabel(runtimeConfig.model.reranker)}</dd>
-          <dt>Guard</dt>
-          <dd>{profileLabel(runtimeConfig.model.guard)}</dd>
+          <dt>{text.settings.mode}</dt>
+          <dd>{runtimeConfig.model.mock ? text.settings.mock : text.settings.externalModel}</dd>
+          <dt>{text.settings.fast}</dt>
+          <dd>{profileLabel(runtimeConfig.model.fast, text)}</dd>
+          <dt>{text.settings.deep}</dt>
+          <dd>{profileLabel(runtimeConfig.model.deep, text)}</dd>
+          <dt>{text.settings.embed}</dt>
+          <dd>{profileLabel(runtimeConfig.model.embedding, text)}</dd>
+          <dt>{text.settings.rerank}</dt>
+          <dd>{profileLabel(runtimeConfig.model.reranker, text)}</dd>
+          <dt>{text.settings.guard}</dt>
+          <dd>{profileLabel(runtimeConfig.model.guard, text)}</dd>
         </dl>
       </article>
       <article className="settingsBlock">
-        <strong>Runtime Boundaries</strong>
+        <strong>{text.settings.runtimeBoundaries}</strong>
         <dl className="statusGrid compact">
-          <dt>Gateway</dt>
+          <dt>{text.status.gateway}</dt>
           <dd>{runtimeConfig.gateway.bind}:{runtimeConfig.gateway.port}</dd>
-          <dt>Remote</dt>
+          <dt>{text.settings.remote}</dt>
           <dd>{runtimeConfig.gateway.remote_access}</dd>
-          <dt>Rate Limit</dt>
-          <dd>{rateLimitLabel(runtimeConfig.gateway.rate_limit)}</dd>
-          <dt>Workspace</dt>
+          <dt>{text.status.rateLimit}</dt>
+          <dd>{rateLimitLabel(runtimeConfig.gateway.rate_limit, text)}</dd>
+          <dt>{text.status.workspace}</dt>
           <dd>{runtimeConfig.workspaces.default_root}</dd>
-          <dt>Sandbox</dt>
-          <dd>{runtimeConfig.sandbox.enabled ? `${runtimeConfig.sandbox.backend} · ${runtimeConfig.sandbox.network}` : "disabled"}</dd>
-          <dt>State</dt>
+          <dt>{text.settings.sandbox}</dt>
+          <dd>{runtimeConfig.sandbox.enabled ? `${runtimeConfig.sandbox.backend} · ${runtimeConfig.sandbox.network}` : text.common.disabled}</dd>
+          <dt>{text.status.state}</dt>
           <dd>
             {runtimeConfig.state.backend} · {runtimeConfig.state.path || runtimeConfig.state.dsn}
-            {runtimeConfig.state.encrypt_at_rest ? " · encrypted" : ""}
+            {runtimeConfig.state.encrypt_at_rest ? ` · ${text.settings.encrypted}` : ""}
           </dd>
-          <dt>Artifacts</dt>
+          <dt>{text.settings.artifacts}</dt>
           <dd>{runtimeConfig.storage.artifact_backend} · {runtimeConfig.storage.artifact_dir || runtimeConfig.storage.artifact_bucket}</dd>
         </dl>
       </article>
       <article className="settingsBlock">
-        <strong>Adapters</strong>
+        <strong>{text.settings.adapters}</strong>
         <dl className="statusGrid compact">
-          <dt>Email</dt>
-          <dd>{adapterLabel(runtimeConfig.adapters.email)}</dd>
+          <dt>{text.settings.email}</dt>
+          <dd>{adapterLabel(runtimeConfig.adapters.email, text)}</dd>
           <dt>Calendar</dt>
-          <dd>{adapterLabel(runtimeConfig.adapters.calendar)}</dd>
-          <dt>Memory</dt>
+          <dd>{adapterLabel(runtimeConfig.adapters.calendar, text)}</dd>
+          <dt>{text.settings.memory}</dt>
           <dd>
             {runtimeConfig.memory.enabled
-              ? `${runtimeConfig.memory.write_policy} · ${retentionLabel(runtimeConfig.memory.retention_days)}`
-              : "disabled"}
+              ? `${runtimeConfig.memory.write_policy} · ${retentionLabel(runtimeConfig.memory.retention_days, text)}`
+              : text.common.disabled}
           </dd>
-          <dt>Skills</dt>
+          <dt>{text.settings.skills}</dt>
           <dd>{runtimeConfig.skills.dirs.join(", ")}</dd>
         </dl>
       </article>
@@ -1554,160 +2403,64 @@ function SettingsPanel({
   );
 }
 
-function EvalPanel({
-  evalRun,
-  evalRuns,
-  onRun,
-  onSelect,
-  onError
-}: {
-  evalRun: EvalRun | null;
-  evalRuns: EvalRun[];
-  onRun: () => Promise<void>;
-  onSelect: (id: string) => Promise<void>;
-  onError: (message: string) => void;
-}) {
-  const [running, setRunning] = useState(false);
-  const [loadingId, setLoadingId] = useState("");
-  async function run() {
-    try {
-      setRunning(true);
-      await onRun();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Eval failed");
-    } finally {
-      setRunning(false);
-    }
-  }
-  async function select(id: string) {
-    try {
-      setLoadingId(id);
-      await onSelect(id);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Eval failed");
-    } finally {
-      setLoadingId("");
-    }
+function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
+  return (
+    <div className="sectionHeader">
+      {icon}
+      <h2>{title}</h2>
+    </div>
+  );
+}
+
+function JsonBlock({ value }: { value: unknown }) {
+  const raw = JSON.stringify(value, null, 2);
+  async function copy() {
+    await navigator.clipboard?.writeText(raw).catch(() => undefined);
   }
   return (
-    <div className="panelStack evalPanel">
-      <div className="sectionHeader">
-        <ListChecks size={17} />
-        <h2>Smoke Eval</h2>
-      </div>
-      <button className="secondaryButton" onClick={() => void run()} disabled={running} title="Run smoke eval">
-        <ListChecks size={16} />
-        {running ? "Running" : "Run"}
+    <div className="jsonBlock">
+      <button className="miniIconButton jsonCopy" onClick={() => void copy()} title="Copy JSON">
+        <Copy size={13} />
       </button>
-      {!evalRun ? (
-        <span className="muted">No eval run in this view.</span>
-      ) : (
-        <article className={`evalResult ${evalRun.status}`}>
-          <div className="approvalTop">
-            <strong>{evalRun.status}</strong>
-            <span className="pill">{shortId(evalRun.id)}</span>
-          </div>
-          <p>{evalRun.summary}</p>
-          <div className="evalCases">
-            {evalRun.cases.map((item) => (
-              <span key={item.name} className={item.status}>
-                {item.name}
-              </span>
-            ))}
-          </div>
-          {evalRun.failure_archives && evalRun.failure_archives.length > 0 && (
-            <div className="archiveList">
-              {evalRun.failure_archives.map((archive) => (
-                <span key={`${archive.case_name}-${archive.uri}`} title={archive.path || archive.uri}>
-                  {archive.case_name}: {archive.uri}
-                </span>
-              ))}
-            </div>
-          )}
-        </article>
-      )}
-      {evalRuns.length > 0 && (
-        <div className="evalHistory">
-          {evalRuns.slice(0, 5).map((run) => (
-            <button
-              key={run.id}
-              className={evalRun?.id === run.id ? "selected" : ""}
-              onClick={() => void select(run.id)}
-              disabled={loadingId === run.id}
-              title={`Open ${run.profile} eval ${shortId(run.id)}`}
-            >
-              <Clock3 size={14} />
-              <span>{run.profile}</span>
-              <strong className={run.status}>{run.status}</strong>
-              <small>{shortId(run.id)}</small>
-            </button>
-          ))}
-        </div>
-      )}
+      <pre>{raw}</pre>
     </div>
   );
 }
 
-function SkillsPanel({ skills }: { skills: Skill[] }) {
-  return (
-    <div className="panelStack">
-      <div className="sectionHeader">
-        <Library size={17} />
-        <h2>Skills</h2>
-      </div>
-      {skills.length === 0 ? (
-        <span className="muted">No skills registered.</span>
-      ) : (
-        skills.map((skill) => (
-          <article className="skillItem" key={skill.name}>
-            <div className="approvalTop">
-              <strong>{skill.name}</strong>
-              <span className="pill">{skill.risk_level}</span>
-            </div>
-            <p>{skill.description}</p>
-            <div className="evalCases">
-              {skill.allowed_tools.slice(0, 4).map((tool) => (
-                <span key={tool}>{tool}</span>
-              ))}
-            </div>
-            {(skill.dependencies.length > 0 || skill.eval_cases.length > 0) && (
-              <div className="skillMeta">
-                {skill.dependencies.length > 0 && <small>{skill.dependencies.length} deps</small>}
-                {skill.eval_cases.length > 0 && <small>{skill.eval_cases.length} evals</small>}
-                {skill.input_schema && <small>schema</small>}
-              </div>
-            )}
-          </article>
-        ))
-      )}
-    </div>
-  );
+function RiskPill({ risk, text }: { risk: string; text: Copy }) {
+  return <span className={`riskPill ${risk}`}>{formatRisk(risk, text)}</span>;
 }
 
-function RiskPill({ risk }: { risk: string }) {
-  return <span className={`riskPill ${risk}`}>{risk}</span>;
+function initialLanguage(): Language {
+  const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  if (stored === "en" || stored === "zh") return stored;
+  return window.navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
 }
 
-function profileLabel(profile: PublicConfig["model"]["fast"]) {
+function stripSystemArgs(args: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(args).filter(([key]) => !key.startsWith("_")));
+}
+
+function profileLabel(profile: PublicConfig["model"]["fast"], text: Copy) {
   const model = profile.model || profile.name;
-  const maxTokens = profile.max_tokens ? ` · ${profile.max_tokens.toLocaleString()} max` : "";
-  return `${profile.name} · ${model} · ${profile.context_tokens.toLocaleString()} ctx${maxTokens}${profile.mtp ? " · MTP" : ""}`;
+  const maxTokens = profile.max_tokens ? ` · ${profile.max_tokens.toLocaleString()} ${text.units.max}` : "";
+  return `${profile.name} · ${model} · ${profile.context_tokens.toLocaleString()} ${text.units.ctx}${maxTokens}${profile.mtp ? " · MTP" : ""}`;
 }
 
-function adapterLabel(adapter: { backend: string; base_url: string; token: string }) {
-  const target = adapter.base_url || "local files";
-  const token = adapter.token ? "token configured" : "no token";
+function adapterLabel(adapter: { backend: string; base_url: string; token: string }, text: Copy) {
+  const target = adapter.base_url || text.settings.localFiles;
+  const token = adapter.token ? text.common.tokenConfigured : text.common.noToken;
   return `${adapter.backend} · ${target} · ${token}`;
 }
 
-function rateLimitLabel(limit?: { enabled: boolean; requests_per_minute: number; burst: number }) {
-  if (!limit?.enabled) return "disabled";
+function rateLimitLabel(limit: { enabled: boolean; requests_per_minute: number; burst: number } | undefined, text: Copy) {
+  if (!limit?.enabled) return text.common.disabled;
   return `${limit.requests_per_minute}/min · burst ${limit.burst}`;
 }
 
-function retentionLabel(days: number) {
-  if (!days || days <= 0) return "no auto prune";
-  return `${days}d retention`;
+function retentionLabel(days: number, text: Copy) {
+  if (!days || days <= 0) return text.settings.noAutoPrune;
+  return `${days}${text.units.retentionDays}`;
 }
 
 function parseToolList(value: string) {
@@ -1729,35 +2482,47 @@ function formatPreferences(preferences: Record<string, string>) {
     .join("\n");
 }
 
-function parsePreferences(value: string) {
+function parsePreferences(value: string, text: Copy) {
   const preferences: Record<string, string> = {};
   for (const line of value.split(/\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const separator = trimmed.indexOf("=");
     if (separator === -1) {
-      throw new Error("Preferences use key=value lines");
+      throw new Error(text.settings.preferenceFormat);
     }
     const key = trimmed.slice(0, separator).trim();
     const itemValue = trimmed.slice(separator + 1).trim();
     if (!key) {
-      throw new Error("Preference keys are required");
+      throw new Error(text.settings.preferenceKey);
     }
     preferences[key] = itemValue;
   }
   return preferences;
 }
 
+function formatRisk(risk: string, text: Copy) {
+  return text.risk[risk as keyof Copy["risk"]] ?? risk;
+}
+
+function formatState(state: string, text: Copy) {
+  return text.state[state as keyof Copy["state"]] ?? state;
+}
+
 function shortId(id: string) {
   return id.slice(0, 10);
 }
 
-function formatLatency(calls?: ModelCall[]) {
-  if (!calls || calls.length === 0) return "0 ms";
-  const total = calls.reduce((sum, call) => sum + call.latency_ms, 0);
-  return `${Math.round(total / calls.length)} ms avg`;
+function cssToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
 }
 
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+function formatLatency(calls: ModelCall[] | undefined, text: Copy) {
+  if (!calls || calls.length === 0) return "0 ms";
+  const total = calls.reduce((sum, call) => sum + call.latency_ms, 0);
+  return `${Math.round(total / calls.length)} ms ${text.units.avg}`;
+}
+
+function formatTime(value: string, language: Language) {
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }

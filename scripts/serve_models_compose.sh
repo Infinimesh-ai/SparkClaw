@@ -5,8 +5,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 LANES="${1:-fast}"
+MODEL_PROFILE="${SPARKCLAW_MODEL_LOADING_PROFILE:-}"
 if [[ "$LANES" == "all" ]]; then
   LANES="fast,deep,embedding,reranker"
+elif [[ "$LANES" == "dual-light" || "$LANES" == "light-dual" ]]; then
+  LANES="fast,deep,embedding,reranker"
+  MODEL_PROFILE="dual-light"
+elif [[ "$LANES" == "dual-light-chat" || "$LANES" == "light-dual-chat" ]]; then
+  LANES="fast,deep"
+  MODEL_PROFILE="dual-light"
 fi
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
@@ -32,7 +39,7 @@ for lane in "${requested[@]}"; do
 done
 
 if [[ "${#services[@]}" -eq 0 ]]; then
-  echo "usage: $0 fast|deep|embedding|reranker|all|lane,lane" >&2
+  echo "usage: $0 fast|deep|embedding|reranker|all|dual-light|dual-light-chat|lane,lane" >&2
   exit 1
 fi
 
@@ -41,6 +48,12 @@ compose_args=(compose)
 if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
 fi
-compose_args+=(-f docker/compose.yaml --profile models-local up -d "${services[@]}")
+if [[ "$MODEL_PROFILE" == "dual-light" ]]; then
+  compose_args+=(--env-file docker/env/sparkclaw.dual-light.env)
+  compose_args+=(-f docker/compose.yaml -f docker/compose.dual-light.yaml)
+else
+  compose_args+=(-f docker/compose.yaml)
+fi
+compose_args+=(--profile models-local up -d "${services[@]}")
 
 exec $DOCKER_BIN "${compose_args[@]}"

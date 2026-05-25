@@ -25,6 +25,48 @@
       "guard": "Qwen/Qwen3Guard-0.6B",
       "context_tokens": 131072,
       "serialized_active_generation": true
+    },
+    "dgx-spark-dual-light-v1": {
+      "description": "Accepted single GB10 single-user dual-residency profile: both chat lanes and auxiliary endpoints warm, MTP off, explicit KV cache caps.",
+      "fast": {
+        "model": "Qwen/Qwen3.6-35B-A3B-FP8",
+        "served_name": "sparkclaw-fast",
+        "context_tokens": 32768,
+        "kv_cache_memory_bytes": "8G",
+        "gpu_memory_utilization": 0.42,
+        "max_num_seqs": 4,
+        "max_tokens": 768,
+        "mtp": false
+      },
+      "deep": {
+        "model": "Qwen/Qwen3.6-27B-FP8",
+        "served_name": "sparkclaw-deep",
+        "context_tokens": 65536,
+        "kv_cache_memory_bytes": "12G",
+        "gpu_memory_utilization": 0.44,
+        "max_num_seqs": 2,
+        "max_tokens": 1536,
+        "mtp": false
+      },
+      "embedding": {
+        "model": "Qwen/Qwen3-Embedding-0.6B",
+        "served_name": "sparkclaw-embedding",
+        "context_tokens": 8192,
+        "kv_cache_memory_bytes": "2G",
+        "gpu_memory_utilization": 0.06,
+        "max_num_seqs": 1
+      },
+      "reranker": {
+        "model": "Qwen/Qwen3-Reranker-0.6B",
+        "served_name": "sparkclaw-reranker",
+        "context_tokens": 2048,
+        "kv_cache_memory_bytes": "1G",
+        "gpu_memory_utilization": 0.06,
+        "max_num_seqs": 1
+      },
+      "compose_override": "docker/compose.dual-light.yaml",
+      "env_file": "docker/env/sparkclaw.dual-light.env",
+      "serialized_active_generation": true
     }
   }
 }

@@ -10,6 +10,8 @@ type Store interface {
 	CreateSession(title string) app.Session
 	ListSessions() []app.Session
 	GetSession(id string) (app.Session, bool)
+	UpdateSessionTitle(id, title string) (app.Session, error)
+	DeleteSession(id string) (app.Session, error)
 	SaveClient(client app.Client)
 	GetClient(id string) (app.Client, bool)
 	ListClients() []app.Client

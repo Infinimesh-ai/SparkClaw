@@ -208,6 +208,8 @@ Compose vLLM services：
 ```bash
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
+scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh dual-light-chat
 scripts/serve_models_compose.sh embedding,reranker
 scripts/serve_models_compose.sh all
 ```
@@ -233,10 +235,10 @@ curl -fsS http://127.0.0.1:8004/v1/models
 重要环境变量：
 
 - `SPARKCLAW_VLLM_IMAGE`
-- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
-- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
-- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`
-- `SPARKCLAW_RERANKER_MODEL_ID`, `SPARKCLAW_RERANKER_MODEL`
+- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
+- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
+- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
+- `SPARKCLAW_RERANKER_MODEL_ID`, `SPARKCLAW_RERANKER_MODEL`, `SPARKCLAW_RERANKER_MAX_MODEL_LEN`, `SPARKCLAW_RERANKER_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_RERANKER_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_RERANKER_MAX_NUM_SEQS`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` 或 `HUGGING_FACE_HUB_TOKEN`
@@ -250,6 +252,17 @@ curl -fsS http://127.0.0.1:8004/v1/models
 - `Qwen/Qwen3.6-27B-FP8`、`Qwen/Qwen3.6-35B-A3B-FP8`、`Qwen/Qwen3-Embedding-0.6B` 和 `Qwen/Qwen3-Reranker-0.6B` 已验证。
 - reranker 在 `/rerank` 不可用时使用 vLLM generative scoring。
 - full-context fast+deep dual residency 在两个 chat lanes 都为 128K context 且启用 MTP 时未能同时容纳。可一次运行一个 128K/MTP chat lane，把两个 Gateway profiles 都路由到已加载 lane，或降低 context/MTP 后重新测量。
+
+轻量双常驻实验：
+
+```bash
+scripts/serve_models_compose.sh dual-light
+python3 scripts/record_model_loading.py --profile dual-light-v1
+```
+
+`dual-light` 快捷方式会应用 `docker/env/sparkclaw.dual-light.env` 和 `docker/compose.dual-light.yaml`：fast 32K + 8G KV cache，deep 64K + 12G KV cache，embedding 8K + 2G KV cache，reranker 2K + 1G KV cache，关闭 MTP，并降低并发序列数。运行 external mode Gateway 前先启动这个完整 profile。在 2026-05-25 real-model golden eval 通过后，它是当前接受的单用户完整产品 profile。
+
+只有在刻意测量不带辅助端点的 chat lanes 时才使用 `dual-light-chat`。
 
 运行 repeatable endpoint benchmark：
 

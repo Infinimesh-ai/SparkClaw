@@ -32,6 +32,10 @@ def chat_max_tokens(lane):
     return int(env(f"SPARKCLAW_{lane.upper()}_MAX_TOKENS", "512"))
 
 
+def lane_setting(lane, suffix):
+    return env(f"SPARKCLAW_{lane.upper()}_{suffix}", "")
+
+
 def disable_thinking():
     value = env("SPARKCLAW_MODEL_DISABLE_THINKING", "true").lower()
     return value in {"1", "true", "yes", "on"}
@@ -276,8 +280,11 @@ def summarize(results):
 def append_markdown(path, report):
     date = report["started_at"][:10]
     hardware = report["hardware"].replace("|", "/")
+    profile = report.get("profile", "").replace("|", "/")
     with open(path, "a", encoding="utf-8") as f:
         f.write("\n## DGX Spark Run " + report["started_at"] + "\n\n")
+        if profile:
+            f.write("Profile: `" + profile + "`\n\n")
         f.write("| Date | Hardware | Lane | Scenario | Runs | TTFT p50 ms | TTFT p95 ms | Total p50 ms | Total p95 ms | Tokens/s p50 | Notes |\n")
         f.write("|---|---|---|---|---:|---:|---:|---:|---:|---:|---|\n")
         for row in report["summary"]:
@@ -293,6 +300,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=int(env("SPARKCLAW_BENCH_TIMEOUT", "180")))
     parser.add_argument("--output", default=env("SPARKCLAW_BENCH_OUTPUT", "data/eval/model-benchmark-report.json"))
     parser.add_argument("--append-markdown", default="")
+    parser.add_argument("--skip-aux-checks", action="store_true")
     args = parser.parse_args()
 
     lanes = [x.strip() for x in args.lanes.split(",") if x.strip()]
@@ -322,9 +330,25 @@ def main():
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "hardware": env("SPARKCLAW_HARDWARE_LABEL", "DGX Spark"),
+        "profile": env("SPARKCLAW_BENCH_PROFILE", ""),
         "lanes": lanes,
         "scenarios": scenarios,
         "repeats": args.repeats,
+        "lane_config": {
+            lane: {
+                "base_url": endpoints.get(lane, ("", ""))[0],
+                "model": endpoints.get(lane, ("", ""))[1],
+                "model_id": lane_setting(lane, "MODEL_ID"),
+                "max_model_len": lane_setting(lane, "MAX_MODEL_LEN"),
+                "gpu_memory_utilization": lane_setting(lane, "GPU_MEMORY_UTILIZATION"),
+                "kv_cache_memory_bytes": lane_setting(lane, "KV_CACHE_MEMORY_BYTES"),
+                "max_num_seqs": lane_setting(lane, "MAX_NUM_SEQS"),
+                "max_tokens": lane_setting(lane, "MAX_TOKENS"),
+                "speculative_tokens": lane_setting(lane, "SPECULATIVE_TOKENS"),
+                "speculative_config": lane_setting(lane, "SPECULATIVE_CONFIG"),
+            }
+            for lane in lanes
+        },
         "summary": summarize(results),
         "results": results,
         "endpoint_checks": {
@@ -333,16 +357,20 @@ def main():
         },
         "errors": errors,
     }
-    try:
-        embedding_model = env("SPARKCLAW_EMBEDDING_SERVED_NAME", env("SPARKCLAW_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B"))
-        report["endpoint_checks"]["embedding"] = check_embedding(env("SPARKCLAW_EMBEDDING_BASE_URL", "http://127.0.0.1:8003/v1"), embedding_model, args.timeout)
-    except Exception as err:
-        report["endpoint_checks"]["embedding"] = {"status": "failed", "error": str(err)}
-    try:
-        reranker_model = env("SPARKCLAW_RERANKER_SERVED_NAME", env("SPARKCLAW_RERANKER_MODEL", "Qwen/Qwen3-Reranker-0.6B"))
-        report["endpoint_checks"]["reranker"] = check_reranker(env("SPARKCLAW_RERANKER_BASE_URL", "http://127.0.0.1:8004/v1"), reranker_model, args.timeout)
-    except Exception as err:
-        report["endpoint_checks"]["reranker"] = {"status": "failed", "error": str(err)}
+    if args.skip_aux_checks:
+        report["endpoint_checks"]["embedding"] = {"status": "skipped", "reason": "auxiliary endpoint checks disabled"}
+        report["endpoint_checks"]["reranker"] = {"status": "skipped", "reason": "auxiliary endpoint checks disabled"}
+    else:
+        try:
+            embedding_model = env("SPARKCLAW_EMBEDDING_MODEL", env("SPARKCLAW_EMBEDDING_SERVED_NAME", "sparkclaw-embedding"))
+            report["endpoint_checks"]["embedding"] = check_embedding(env("SPARKCLAW_EMBEDDING_BASE_URL", "http://127.0.0.1:8003/v1"), embedding_model, args.timeout)
+        except Exception as err:
+            report["endpoint_checks"]["embedding"] = {"status": "failed", "error": str(err)}
+        try:
+            reranker_model = env("SPARKCLAW_RERANKER_MODEL", env("SPARKCLAW_RERANKER_SERVED_NAME", "sparkclaw-reranker"))
+            report["endpoint_checks"]["reranker"] = check_reranker(env("SPARKCLAW_RERANKER_BASE_URL", "http://127.0.0.1:8004/v1"), reranker_model, args.timeout)
+        except Exception as err:
+            report["endpoint_checks"]["reranker"] = {"status": "failed", "error": str(err)}
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:

@@ -183,16 +183,10 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 For model-backed operation, recreate Gateway in external mode after the selected endpoints are healthy:
 
 ```bash
-sudo -n env \
-  SPARKCLAW_MODEL_MODE=external \
-  SPARKCLAW_STATE_BACKEND=postgres \
-  SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=300 \
-  SPARKCLAW_MODEL_DISABLE_THINKING=true \
-  SPARKCLAW_FAST_MODEL=sparkclaw-fast \
-  SPARKCLAW_DEEP_MODEL=sparkclaw-deep \
-  SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
-  docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d --build --force-recreate gateway webchat
+scripts/restart_runtime_compose.sh
 ```
+
+Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for model-backed runs. It loads `docker/env/sparkclaw.external-postgres.env` after `.env`, so Compose cannot fall back to the `mock/file` defaults from `docker/env/sparkclaw.example.env`. It also checks `/readyz` after restart and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`.
 
 ## DGX Spark Model Services
 
@@ -208,6 +202,8 @@ Compose vLLM services:
 ```bash
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
+scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh dual-light-chat
 scripts/serve_models_compose.sh embedding,reranker
 scripts/serve_models_compose.sh all
 ```
@@ -233,10 +229,10 @@ curl -fsS http://127.0.0.1:8004/v1/models
 Important environment variables:
 
 - `SPARKCLAW_VLLM_IMAGE`
-- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
-- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
-- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`
-- `SPARKCLAW_RERANKER_MODEL_ID`, `SPARKCLAW_RERANKER_MODEL`
+- `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
+- `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
+- `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
+- `SPARKCLAW_RERANKER_MODEL_ID`, `SPARKCLAW_RERANKER_MODEL`, `SPARKCLAW_RERANKER_MAX_MODEL_LEN`, `SPARKCLAW_RERANKER_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_RERANKER_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_RERANKER_MAX_NUM_SEQS`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`
@@ -250,6 +246,17 @@ Validated DGX Spark notes from 2026-05-24:
 - `Qwen/Qwen3.6-27B-FP8`, `Qwen/Qwen3.6-35B-A3B-FP8`, `Qwen/Qwen3-Embedding-0.6B` and `Qwen/Qwen3-Reranker-0.6B` were validated.
 - The reranker uses vLLM generative scoring when `/rerank` is unavailable.
 - Full-context fast+deep dual residency did not fit with both chat lanes at 128K context and MTP enabled. Operate one 128K/MTP chat lane at a time, route both Gateway profiles to the loaded lane for evals, or reduce context/MTP and re-measure.
+
+Light dual-residency experiment:
+
+```bash
+scripts/serve_models_compose.sh dual-light
+python3 scripts/record_model_loading.py --profile dual-light-v1
+```
+
+The `dual-light` shortcut applies `docker/env/sparkclaw.dual-light.env` and `docker/compose.dual-light.yaml`: fast 32K with 8G KV cache, deep 64K with 12G KV cache, embedding 8K with 2G KV cache, reranker 2K with 1G KV cache, no MTP, and low sequence concurrency. Start this full profile before running Gateway in external mode. This is the current accepted single-user full product profile after the 2026-05-25 real-model golden eval passed.
+
+Use `dual-light-chat` only when intentionally measuring chat lanes without auxiliary endpoints.
 
 Run the repeatable endpoint benchmark:
 

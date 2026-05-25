@@ -93,6 +93,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
 	s.mux.HandleFunc("POST /api/sessions", s.createSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
+	s.mux.HandleFunc("PATCH /api/sessions/{id}", s.updateSession)
+	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}/messages", s.listMessages)
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.postMessage)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
@@ -499,6 +501,39 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.store.GetSession(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Title string `json:"title"`
+	}
+	if err := readJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	session, err := s.store.UpdateSessionTitle(r.PathValue("id"), input.Title)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
+	session, err := s.store.DeleteSession(r.PathValue("id"))
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, session)

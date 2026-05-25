@@ -100,6 +100,22 @@ func (s *FileStore) GetSession(id string) (app.Session, bool) {
 	return s.inner.GetSession(id)
 }
 
+func (s *FileStore) UpdateSessionTitle(id, title string) (app.Session, error) {
+	out, err := s.inner.UpdateSessionTitle(id, title)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
+}
+
+func (s *FileStore) DeleteSession(id string) (app.Session, error) {
+	out, err := s.inner.DeleteSession(id)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
+}
+
 func (s *FileStore) SaveClient(client app.Client) {
 	s.inner.SaveClient(client)
 	s.persist()

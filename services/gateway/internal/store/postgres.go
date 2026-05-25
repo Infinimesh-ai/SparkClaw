@@ -371,6 +371,70 @@ func (s *PostgresStore) GetSession(id string) (app.Session, bool) {
 	return session, err == nil
 }
 
+func (s *PostgresStore) UpdateSessionTitle(id, title string) (app.Session, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return app.Session{}, errors.New("session title is required")
+	}
+	now := time.Now().UTC()
+	ctx := context.Background()
+	row := s.db.QueryRow(ctx, `
+		UPDATE sessions
+		SET title = $2, updated_at = $3
+		WHERE id = $1
+		RETURNING id, title, created_at, updated_at
+	`, id, title, now)
+	session, err := scanSession(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return app.Session{}, errors.New("session not found")
+		}
+		return app.Session{}, err
+	}
+	s.appendAudit(ctx, "session.updated", id, "", "owner", "Session renamed", map[string]any{"title": title})
+	s.appendEvent(ctx, "session.updated", id, "", session)
+	return session, nil
+}
+
+func (s *PostgresStore) DeleteSession(id string) (app.Session, error) {
+	session, ok := s.GetSession(id)
+	if !ok {
+		return app.Session{}, errors.New("session not found")
+	}
+	ctx := context.Background()
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return app.Session{}, err
+	}
+	defer tx.Rollback(ctx)
+	deleteStatements := []string{
+		`DELETE FROM run_feedback WHERE session_id = $1`,
+		`DELETE FROM approvals WHERE session_id = $1`,
+		`DELETE FROM memory_candidates WHERE session_id = $1`,
+		`DELETE FROM memories WHERE source_run_id IN (SELECT id FROM agent_runs WHERE session_id = $1)`,
+		`DELETE FROM episode_summaries WHERE session_id = $1`,
+		`DELETE FROM artifact_objects WHERE session_id = $1`,
+		`DELETE FROM tool_calls WHERE session_id = $1`,
+		`DELETE FROM model_calls WHERE session_id = $1`,
+		`DELETE FROM messages WHERE session_id = $1`,
+		`DELETE FROM agent_runs WHERE session_id = $1`,
+		`DELETE FROM audit_events WHERE session_id = $1`,
+		`DELETE FROM events WHERE session_id = $1`,
+		`DELETE FROM sessions WHERE id = $1`,
+	}
+	for _, statement := range deleteStatements {
+		if _, err := tx.Exec(ctx, statement, id); err != nil {
+			return app.Session{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.Session{}, err
+	}
+	s.appendAudit(ctx, "session.deleted", "", "", "owner", "Session deleted", map[string]any{"session_id": id, "title": session.Title})
+	s.appendEvent(ctx, "session.deleted", "", "", session)
+	return session, nil
+}
+
 func (s *PostgresStore) SaveClient(client app.Client) {
 	if client.ID == "" {
 		client.ID = app.NewID("client")

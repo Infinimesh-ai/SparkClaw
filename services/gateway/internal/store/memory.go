@@ -133,6 +133,104 @@ func (s *MemoryStore) GetSession(id string) (app.Session, bool) {
 	return session, ok
 }
 
+func (s *MemoryStore) UpdateSessionTitle(id, title string) (app.Session, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return app.Session{}, errors.New("session title is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[id]
+	if !ok {
+		return app.Session{}, errors.New("session not found")
+	}
+	session.Title = title
+	session.UpdatedAt = time.Now().UTC()
+	s.sessions[id] = session
+	s.appendAuditLocked("session.updated", id, "", "owner", "Session renamed", map[string]any{"title": title})
+	s.appendEventLocked("session.updated", id, "", session)
+	return session, nil
+}
+
+func (s *MemoryStore) DeleteSession(id string) (app.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[id]
+	if !ok {
+		return app.Session{}, errors.New("session not found")
+	}
+	runIDs := map[string]bool{}
+	for runID, run := range s.runs {
+		if run.SessionID == id {
+			runIDs[runID] = true
+		}
+	}
+	delete(s.sessions, id)
+	delete(s.messages, id)
+	for runID := range runIDs {
+		delete(s.runFeedback, runID)
+		delete(s.runs, runID)
+	}
+	for feedbackRunID, feedback := range s.runFeedback {
+		filtered := feedback[:0]
+		for _, item := range feedback {
+			if item.SessionID != id {
+				filtered = append(filtered, item)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(s.runFeedback, feedbackRunID)
+		} else {
+			s.runFeedback[feedbackRunID] = filtered
+		}
+	}
+	for memoryID, memory := range s.memories {
+		if runIDs[memory.SourceID] {
+			delete(s.memories, memoryID)
+		}
+	}
+	for runID, run := range s.runs {
+		if run.SessionID == id {
+			delete(s.runs, runID)
+		}
+	}
+	for callID, call := range s.modelCalls {
+		if call.SessionID == id {
+			delete(s.modelCalls, callID)
+		}
+	}
+	for callID, call := range s.toolCalls {
+		if call.SessionID == id {
+			delete(s.toolCalls, callID)
+		}
+	}
+	for approvalID, approval := range s.approvals {
+		if approval.SessionID == id {
+			delete(s.approvals, approvalID)
+		}
+	}
+	for candidateID, candidate := range s.memoryCandidates {
+		if candidate.SessionID == id {
+			delete(s.memoryCandidates, candidateID)
+		}
+	}
+	for objectID, object := range s.artifactObjects {
+		if object.SessionID == id {
+			delete(s.artifactObjects, objectID)
+		}
+	}
+	for episodeID, summary := range s.episodeSummaries {
+		if summary.SessionID == id {
+			delete(s.episodeSummaries, episodeID)
+		}
+	}
+	s.auditEvents = filterAuditEvents(s.auditEvents, id)
+	s.events = filterEvents(s.events, id)
+	s.appendAuditLocked("session.deleted", "", "", "owner", "Session deleted", map[string]any{"session_id": id, "title": session.Title})
+	s.appendEventLocked("session.deleted", "", "", session)
+	return session, nil
+}
+
 func (s *MemoryStore) SaveClient(client app.Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -846,6 +944,26 @@ func cloneMap[T any](in map[string]T) map[string]T {
 	out := map[string]T{}
 	for key, value := range in {
 		out[key] = value
+	}
+	return out
+}
+
+func filterAuditEvents(events []app.AuditEvent, sessionID string) []app.AuditEvent {
+	out := events[:0]
+	for _, event := range events {
+		if event.SessionID != sessionID {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func filterEvents(events []app.Event, sessionID string) []app.Event {
+	out := events[:0]
+	for _, event := range events {
+		if event.SessionID != sessionID {
+			out = append(out, event)
+		}
 	}
 	return out
 }

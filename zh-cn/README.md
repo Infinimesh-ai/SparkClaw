@@ -11,6 +11,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - [架构](docs/architecture.md)：产品边界、运行循环、服务边界、工具、数据和安全模型。
 - [部署](docs/deployment.md)：本地、Docker Compose 和 DGX Spark 模型服务部署。
 - [开发](docs/development.md)：仓库结构、验证矩阵、扩展流程和当前完成状态。
+- [模型加载方案](docs/model-loading.md)：单机、轻量双常驻和双 DGX Spark 加载策略。
 - [模型基线](benchmarks/model_baseline.md)：DGX Spark 端点证据、延迟数据和运行限制。
 - [Contributing](../CONTRIBUTING.md)、[Security](../SECURITY.md)、[Support](../SUPPORT.md)、[Changelog](../CHANGELOG.md) 和 [License](../LICENSE)：开源项目流程和条款。
 
@@ -120,6 +121,7 @@ npm workspace root 保持 `private`，用于避免误发布 package。仓库本�
 scripts/serve_fast.sh
 scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
+scripts/serve_models_compose.sh dual-light
 scripts/serve_models_compose.sh embedding,reranker
 ```
 

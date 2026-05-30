@@ -59,5 +59,5 @@ type Store interface {
 
 type DocumentStore interface {
 	ReplaceDocumentChunks(root string, documents []app.Document, chunks []app.DocumentChunk) (app.DocumentIndexSummary, error)
-	SearchDocumentChunks(query string, embedding []float32, maxResults int) ([]app.DocumentChunkHit, error)
+	SearchDocumentChunks(query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error)
 }

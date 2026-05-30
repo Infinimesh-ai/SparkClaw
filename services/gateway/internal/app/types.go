@@ -295,6 +295,7 @@ type DocumentChunk struct {
 	ContentHash    string    `json:"content_hash"`
 	Embedding      []float32 `json:"embedding,omitempty"`
 	EmbeddingModel string    `json:"embedding_model,omitempty"`
+	EmbeddingDim   int       `json:"embedding_dim,omitempty"`
 	IndexedAt      time.Time `json:"indexed_at"`
 }
 
@@ -312,6 +313,7 @@ type DocumentChunkHit struct {
 	Snippet        string   `json:"snippet"`
 	Terms          []string `json:"terms"`
 	EmbeddingModel string   `json:"embedding_model,omitempty"`
+	EmbeddingDim   int      `json:"embedding_dim,omitempty"`
 	Backend        string   `json:"backend"`
 }
 
@@ -322,6 +324,7 @@ type DocumentIndexSummary struct {
 	Chunks         int       `json:"chunks"`
 	VectorEnabled  bool      `json:"vector_enabled"`
 	EmbeddingModel string    `json:"embedding_model,omitempty"`
+	EmbeddingDim   int       `json:"embedding_dim,omitempty"`
 	IndexedAt      time.Time `json:"indexed_at"`
 }
 

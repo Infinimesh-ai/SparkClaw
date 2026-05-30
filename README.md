@@ -25,10 +25,10 @@ Implemented and validated:
 - ToolHub with JSON-schema-validated tools for files, memory, knowledge/RAG, browser read, email, calendar, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application, email send, calendar create and sensitive memory writes.
 - File, browser, email and calendar observations are treated as untrusted data and are summarized before being used for answers.
-- File-backed state for local runs, PostgreSQL/pgvector for durable sessions, tool calls, approvals, evals and document chunks, and filesystem or S3-compatible artifact storage.
+- File-backed state for local runs, PostgreSQL 18/pgvector for durable sessions, tool calls, approvals, evals and document chunks, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
-- DGX Spark validation on NVIDIA GB10 with Postgres/pgvector, MinIO, sandbox-runner, vLLM fast/deep/embedding/reranker endpoints and 58-case real-model golden eval coverage.
+- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner, vLLM fast/deep/embedding/reranker endpoints and 58-case real-model golden eval coverage.
 
 Known operating boundary:
 

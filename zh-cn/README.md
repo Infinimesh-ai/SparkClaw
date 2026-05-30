@@ -25,10 +25,10 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - ToolHub：为文件、memory、knowledge/RAG、browser read、email、calendar、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
 - approval-first policy：file deletion、shell execution、patch application、email send、calendar create 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
 - file、browser、email、calendar observation 都被当作 untrusted data，并在进入回答前被摘要。
-- 本地 file-backed state，PostgreSQL/pgvector 持久化 sessions、tool calls、approvals、evals、document chunks，以及 filesystem 或 S3-compatible artifact storage。
+- 本地 file-backed state，PostgreSQL 18/pgvector 持久化 sessions、tool calls、approvals、evals、document chunks，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
-- DGX Spark NVIDIA GB10 验证：Postgres/pgvector、MinIO、sandbox-runner、vLLM fast/deep/embedding/reranker endpoints，以及 58-case real-model golden eval。
+- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner、vLLM fast/deep/embedding/reranker endpoints，以及 58-case real-model golden eval。
 
 已知运行边界：
 

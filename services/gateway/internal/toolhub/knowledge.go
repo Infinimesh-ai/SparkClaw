@@ -254,7 +254,7 @@ func (h *ToolHub) knowledgeSearch(ctx context.Context, args map[string]any, sess
 		} else if err != nil {
 			embeddingErr = err.Error()
 		}
-		if hits, err := documentStore.SearchDocumentChunks(query, embedding, 50); err == nil && len(hits) > 0 {
+		if hits, err := documentStore.SearchDocumentChunks(query, embedding, embeddingModel, 50); err == nil && len(hits) > 0 {
 			candidateCount := len(hits)
 			hits, rerankerModel, rerankerErr := h.rerankDocumentHits(ctx, query, hits, maxResults, sessionID, runID)
 			evidenceContext, contextCompression := compressEvidenceContext(documentEvidenceItems(hits), contextMaxBytes)

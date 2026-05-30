@@ -160,7 +160,7 @@ Trace JSON 写入前会按配置的 logging 和 memory redact patterns 做脱敏
 
 长期 memory 使用 candidate-then-confirm。`api_key`、`password`、`token`、`ssh_key` 等敏感模式会在普通 candidate path 被拒绝，除非显式允许 sensitive memory；approved sensitive memory 使用 `memory.write_sensitive`。
 
-Workspace knowledge indexing 会构建本地 keyword index；启用 PostgreSQL 时还会持久化 documents 和 chunks。可用时使用 pgvector；否则 SparkClaw 保留 JSON vectors，并在 Gateway 中做 hybrid scoring。`knowledge.search` 暴露 original query、rewritten query、candidate counts、reranked results、citations 和 byte-bounded evidence context，以支持 grounded answers。
+Workspace knowledge indexing 会构建本地 keyword index；启用 PostgreSQL 时还会持久化 documents 和 chunks。可用时使用 pgvector，并记录 embedding model/dimension metadata，为默认 embedding lane 建 1024 维 HNSW cosine index；否则 SparkClaw 保留 JSON vectors，并在 Gateway 中做 hybrid scoring。`knowledge.search` 暴露 original query、rewritten query、candidate counts、reranked results、citations 和 byte-bounded evidence context，以支持 grounded answers。
 
 ## Browser、Email 和 Calendar 信任边界
 

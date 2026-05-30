@@ -160,7 +160,7 @@ The portable schema notes under `packages/` document stable names for future ser
 
 Long-term memory follows candidate-then-confirm. Sensitive patterns such as `api_key`, `password`, `token` or `ssh_key` are rejected on the normal candidate path unless sensitive memory is explicitly enabled; approved sensitive memory uses `memory.write_sensitive`.
 
-Workspace knowledge indexing builds a local keyword index and, when PostgreSQL is enabled, persists documents and chunks. pgvector is used when available; otherwise SparkClaw keeps JSON vectors and performs hybrid scoring in Gateway. `knowledge.search` exposes original query, rewritten query, candidate counts, reranked results, citations and byte-bounded evidence context for grounded answers.
+Workspace knowledge indexing builds a local keyword index and, when PostgreSQL is enabled, persists documents and chunks. pgvector is used when available, with embedding model/dimension metadata and a 1024-dimensional HNSW cosine index for the default embedding lane; otherwise SparkClaw keeps JSON vectors and performs hybrid scoring in Gateway. `knowledge.search` exposes original query, rewritten query, candidate counts, reranked results, citations and byte-bounded evidence context for grounded answers.
 
 ## Browser, Email And Calendar Trust Boundary
 

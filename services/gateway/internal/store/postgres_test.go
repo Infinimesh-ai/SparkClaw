@@ -270,7 +270,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if summary.Documents != 1 || summary.Chunks != 1 || !summary.VectorEnabled {
 		t.Fatalf("unexpected document index summary: %#v", summary)
 	}
-	hits, err := st.SearchDocumentChunks("approval policy", []float32{1, 0, 0}, 5)
+	hits, err := st.SearchDocumentChunks("approval policy", []float32{1, 0, 0}, "mock-embedding", 5)
 	if err != nil {
 		t.Fatal(err)
 	}

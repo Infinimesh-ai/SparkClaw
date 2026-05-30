@@ -28,7 +28,7 @@ cp docker/env/sparkclaw.example.env .env
 | `dev` | 开发运行形态。 |
 | `eval` | Gateway 加 evaluator 和 data services。 |
 | `compat` | Gateway 连接外部 OpenAI-compatible endpoints。 |
-| `models-local` | Postgres/pgvector、MinIO、sandbox-runner、Gateway、WebChat 和可选 vLLM lanes。 |
+| `models-local` | PostgreSQL 18/pgvector、MinIO、sandbox-runner、Gateway、WebChat 和可选 vLLM lanes。 |
 
 所有 host ports 默认绑定 localhost。Containers 通过私有 `sparkclaw_internal` network 通信。
 
@@ -107,7 +107,7 @@ SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?ss
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
-Gateway 启动时会应用核心 schema。如果使用没有 pgvector 的普通 Postgres，embedding 也会以 JSON 形式存储，hybrid scoring 在 Gateway 内执行。
+Gateway 启动时会应用核心 schema。项目标准 data service image 是 PostgreSQL 18 with pgvector。如果 pgvector 可用，document chunks 会使用按 model/dimension 过滤的 vector search，并为默认 embedding lane 建 1024 维 HNSW cosine index。如果使用没有 pgvector 的普通 Postgres，embedding 也会以 JSON 形式存储，hybrid scoring 在 Gateway 内执行。
 
 ## Artifact Storage
 
@@ -343,5 +343,5 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 | Golden eval browser step fails | Docker eval 启动 Gateway 时设置 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal`；host eval 使用 `127.0.0.1`。 |
 | Model returns reasoning but no answer | 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。 |
 | Reranker `/rerank` returns 404 | 使用已有 generative-scoring fallback 和 served name `sparkclaw-reranker`。 |
-| Postgres vector extension unavailable | SparkClaw fallback 到 JSON vectors 和 hybrid scoring。 |
+| Postgres vector extension unavailable | SparkClaw fallback 到 JSON vectors 和 Gateway-side hybrid scoring。 |
 | 128K fast+deep does not fit | 一次运行一个 chat lane，或降低 context/MTP 后重新 benchmark。 |

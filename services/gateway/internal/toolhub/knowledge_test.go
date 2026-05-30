@@ -272,11 +272,12 @@ func (s *fakeDocumentStore) ReplaceDocumentChunks(root string, documents []app.D
 		Chunks:         len(chunks),
 		VectorEnabled:  len(chunks) > 0 && len(chunks[0].Embedding) > 0,
 		EmbeddingModel: chunks[0].EmbeddingModel,
+		EmbeddingDim:   len(chunks[0].Embedding),
 		IndexedAt:      documents[0].IndexedAt,
 	}, nil
 }
 
-func (s *fakeDocumentStore) SearchDocumentChunks(query string, embedding []float32, maxResults int) ([]app.DocumentChunkHit, error) {
+func (s *fakeDocumentStore) SearchDocumentChunks(query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error) {
 	if len(s.chunks) == 0 {
 		return nil, nil
 	}
@@ -292,6 +293,7 @@ func (s *fakeDocumentStore) SearchDocumentChunks(query string, embedding []float
 		Snippet:        chunk.Text,
 		Terms:          []string{"pgvector"},
 		EmbeddingModel: chunk.EmbeddingModel,
+		EmbeddingDim:   len(chunk.Embedding),
 		Backend:        "fake_document_store",
 	}}, nil
 }

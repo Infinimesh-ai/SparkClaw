@@ -28,7 +28,7 @@ Set `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN` inside `.env`. The token is passed on
 | `dev` | Development-oriented runtime. |
 | `eval` | Gateway plus evaluator and data services. |
 | `compat` | Gateway connected to externally managed OpenAI-compatible endpoints. |
-| `models-local` | Postgres/pgvector, MinIO, sandbox-runner, Gateway, WebChat and optional vLLM lanes. |
+| `models-local` | PostgreSQL 18/pgvector, MinIO, sandbox-runner, Gateway, WebChat and optional vLLM lanes. |
 
 All host ports bind to localhost by default. Containers communicate over the private `sparkclaw_internal` network.
 
@@ -107,7 +107,7 @@ SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?ss
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
-Gateway applies the core schema at startup. If a plain Postgres instance is used without pgvector, embeddings are also stored in JSON form and hybrid scoring runs in Gateway.
+Gateway applies the core schema at startup. The project-standard data service image is PostgreSQL 18 with pgvector. If pgvector is available, document chunks use model/dimension-filtered vector search and a 1024-dimensional HNSW cosine index for the default embedding lane. If a plain Postgres instance is used without pgvector, embeddings are also stored in JSON form and hybrid scoring runs in Gateway.
 
 ## Artifact Storage
 
@@ -337,5 +337,5 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 | Golden eval browser step fails | Start Gateway with `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal` for Docker eval or `127.0.0.1` for host eval. |
 | Model returns reasoning but no answer | Set `SPARKCLAW_MODEL_DISABLE_THINKING=true`. |
 | Reranker `/rerank` returns 404 | Use the existing generative-scoring fallback and served name `sparkclaw-reranker`. |
-| Postgres vector extension unavailable | SparkClaw falls back to JSON vectors and hybrid scoring. |
+| Postgres vector extension unavailable | SparkClaw falls back to JSON vectors and Gateway-side hybrid scoring. |
 | 128K fast+deep does not fit | Run one chat lane at a time or lower context/MTP and re-benchmark. |

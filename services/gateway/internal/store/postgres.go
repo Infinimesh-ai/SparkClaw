@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 type PostgresStore struct {
@@ -263,8 +263,16 @@ CREATE TABLE IF NOT EXISTS document_chunks (
   content_hash TEXT NOT NULL,
   embedding_json JSONB,
   embedding_model TEXT,
+  embedding_dim INTEGER NOT NULL DEFAULT 0,
   indexed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS embedding_dim INTEGER NOT NULL DEFAULT 0;
+
+UPDATE document_chunks
+SET embedding_dim = jsonb_array_length(embedding_json)
+WHERE embedding_dim = 0
+  AND jsonb_typeof(embedding_json) = 'array';
 
 CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_run_feedback_run_updated ON run_feedback(run_id, updated_at DESC);
@@ -281,6 +289,7 @@ CREATE INDEX IF NOT EXISTS idx_artifact_objects_run ON artifact_objects(run_id);
 CREATE INDEX IF NOT EXISTS idx_episode_summaries_session_created ON episode_summaries(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_documents_source_root_rel ON documents(source, root, rel_path);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_source_root ON document_chunks(source, root);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_model_dim ON document_chunks(embedding_model, embedding_dim);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_terms ON document_chunks USING GIN (terms);
 `
 
@@ -300,6 +309,18 @@ BEGIN
 EXCEPTION
   WHEN undefined_object THEN
     RAISE NOTICE 'pgvector type is unavailable; using document_chunks.embedding_json fallback only';
+END
+$$;
+
+DO $$
+BEGIN
+  CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_hnsw_1024
+    ON document_chunks
+    USING hnsw ((embedding::vector(1024)) vector_cosine_ops)
+    WHERE embedding IS NOT NULL AND vector_dims(embedding) = 1024;
+EXCEPTION
+  WHEN undefined_object OR undefined_column THEN
+    RAISE NOTICE 'pgvector HNSW index unavailable; vector search will use exact scan or JSON fallback';
 END
 $$;
 `
@@ -1440,14 +1461,15 @@ func (s *PostgresStore) ReplaceDocumentChunks(root string, documents []app.Docum
 		if chunk.IndexedAt.IsZero() {
 			chunk.IndexedAt = now
 		}
+		chunk.EmbeddingDim = len(chunk.Embedding)
 		if vectorColumn && len(chunk.Embedding) > 0 {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO document_chunks (
 					id, document_id, source, root, path, rel_path, start_line, end_line, text,
-					terms, content_hash, embedding_json, embedding, embedding_model, indexed_at
+					terms, content_hash, embedding_json, embedding, embedding_model, embedding_dim, indexed_at
 				)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::vector, nullif($14, ''), $15)
-			`, chunk.ID, chunk.DocumentID, chunk.Source, chunk.Root, chunk.Path, chunk.RelPath, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.Terms, chunk.ContentHash, optionalJSON(chunk.Embedding), vectorLiteral(chunk.Embedding), chunk.EmbeddingModel, chunk.IndexedAt); err != nil {
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::vector, nullif($14, ''), $15, $16)
+			`, chunk.ID, chunk.DocumentID, chunk.Source, chunk.Root, chunk.Path, chunk.RelPath, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.Terms, chunk.ContentHash, optionalJSON(chunk.Embedding), vectorLiteral(chunk.Embedding), chunk.EmbeddingModel, chunk.EmbeddingDim, chunk.IndexedAt); err != nil {
 				return app.DocumentIndexSummary{}, err
 			}
 			continue
@@ -1455,10 +1477,10 @@ func (s *PostgresStore) ReplaceDocumentChunks(root string, documents []app.Docum
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO document_chunks (
 				id, document_id, source, root, path, rel_path, start_line, end_line, text,
-				terms, content_hash, embedding_json, embedding_model, indexed_at
+				terms, content_hash, embedding_json, embedding_model, embedding_dim, indexed_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), $14)
-		`, chunk.ID, chunk.DocumentID, chunk.Source, chunk.Root, chunk.Path, chunk.RelPath, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.Terms, chunk.ContentHash, optionalJSON(chunk.Embedding), chunk.EmbeddingModel, chunk.IndexedAt); err != nil {
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), $14, $15)
+		`, chunk.ID, chunk.DocumentID, chunk.Source, chunk.Root, chunk.Path, chunk.RelPath, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.Terms, chunk.ContentHash, optionalJSON(chunk.Embedding), chunk.EmbeddingModel, chunk.EmbeddingDim, chunk.IndexedAt); err != nil {
 			return app.DocumentIndexSummary{}, err
 		}
 	}
@@ -1466,11 +1488,13 @@ func (s *PostgresStore) ReplaceDocumentChunks(root string, documents []app.Docum
 		return app.DocumentIndexSummary{}, err
 	}
 	embeddingModel := ""
+	embeddingDim := 0
 	vectorEnabled := false
 	for _, chunk := range chunks {
 		if len(chunk.Embedding) > 0 {
 			vectorEnabled = true
 			embeddingModel = chunk.EmbeddingModel
+			embeddingDim = len(chunk.Embedding)
 			break
 		}
 	}
@@ -1480,6 +1504,7 @@ func (s *PostgresStore) ReplaceDocumentChunks(root string, documents []app.Docum
 		"chunks":          len(chunks),
 		"vector_enabled":  vectorEnabled,
 		"embedding_model": embeddingModel,
+		"embedding_dim":   embeddingDim,
 	})
 	s.appendEvent(ctx, "documents.indexed", "", "", map[string]any{
 		"root":            root,
@@ -1487,6 +1512,7 @@ func (s *PostgresStore) ReplaceDocumentChunks(root string, documents []app.Docum
 		"chunks":          len(chunks),
 		"vector_enabled":  vectorEnabled,
 		"embedding_model": embeddingModel,
+		"embedding_dim":   embeddingDim,
 	})
 	backend := "postgres"
 	if vectorEnabled && vectorColumn {
@@ -1499,22 +1525,23 @@ func (s *PostgresStore) ReplaceDocumentChunks(root string, documents []app.Docum
 		Chunks:         len(chunks),
 		VectorEnabled:  vectorEnabled,
 		EmbeddingModel: embeddingModel,
+		EmbeddingDim:   embeddingDim,
 		IndexedAt:      now,
 	}, nil
 }
 
-func (s *PostgresStore) SearchDocumentChunks(query string, embedding []float32, maxResults int) ([]app.DocumentChunkHit, error) {
+func (s *PostgresStore) SearchDocumentChunks(query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error) {
 	if maxResults <= 0 || maxResults > 50 {
 		maxResults = 8
 	}
 	ctx := context.Background()
-	if len(embedding) > 0 && s.hasVectorColumn(ctx) {
-		hits, err := s.searchDocumentChunksWithVector(ctx, query, embedding, maxResults)
+	if len(embedding) > 0 && s.hasVectorColumn(ctx) && len(embedding) == 1024 {
+		hits, err := s.searchDocumentChunksWithVector(ctx, query, embedding, embeddingModel, maxResults)
 		if err == nil {
 			return hits, nil
 		}
 	}
-	return s.searchDocumentChunksGeneric(ctx, query, embedding, maxResults)
+	return s.searchDocumentChunksGeneric(ctx, query, embedding, embeddingModel, maxResults)
 }
 
 type dbDocumentChunk struct {
@@ -1527,27 +1554,37 @@ type dbDocumentChunk struct {
 	Terms          []string
 	Embedding      []float32
 	EmbeddingModel string
+	EmbeddingDim   int
 	VectorScore    float64
 	Backend        string
 }
 
-func (s *PostgresStore) searchDocumentChunksWithVector(ctx context.Context, query string, embedding []float32, maxResults int) ([]app.DocumentChunkHit, error) {
+func (s *PostgresStore) searchDocumentChunksWithVector(ctx context.Context, query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error) {
 	limit := maxResults * 8
 	if limit < 50 {
 		limit = 50
 	}
-	rows, err := s.db.Query(ctx, `
-		SELECT id, path, rel_path, start_line, end_line, text, terms, embedding_json,
-			coalesce(embedding_model, ''), 1 - (embedding <=> $1::vector) AS vector_score
-		FROM document_chunks
-		WHERE embedding IS NOT NULL
-		ORDER BY embedding <=> $1::vector
-		LIMIT $2
-	`, vectorLiteral(embedding), limit)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rollbackTx(ctx, tx)
+	_, _ = tx.Exec(ctx, "SET LOCAL hnsw.ef_search = 100")
+	rows, err := tx.Query(ctx, `
+		SELECT id, path, rel_path, start_line, end_line, text, terms, embedding_json,
+			coalesce(embedding_model, ''), embedding_dim,
+			1 - (embedding::vector(1024) <=> $1::vector(1024)) AS vector_score
+		FROM document_chunks
+		WHERE embedding IS NOT NULL
+			AND embedding_dim = 1024
+			AND vector_dims(embedding) = 1024
+			AND ($2 = '' OR embedding_model = $2)
+		ORDER BY embedding::vector(1024) <=> $1::vector(1024)
+		LIMIT $3
+	`, vectorLiteral(embedding), strings.TrimSpace(embeddingModel), limit)
+	if err != nil {
+		return nil, err
+	}
 	candidates := map[string]dbDocumentChunk{}
 	for rows.Next() {
 		chunk, err := scanDBDocumentChunk(rows, "postgres_pgvector")
@@ -1555,7 +1592,11 @@ func (s *PostgresStore) searchDocumentChunksWithVector(ctx context.Context, quer
 			candidates[chunk.ID] = chunk
 		}
 	}
-	for _, chunk := range s.keywordDocumentCandidates(ctx, query, limit) {
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, chunk := range s.keywordDocumentCandidates(ctx, query, embeddingModel, len(embedding), limit) {
 		if existing, ok := candidates[chunk.ID]; ok {
 			if existing.VectorScore != 0 {
 				chunk.VectorScore = existing.VectorScore
@@ -1566,18 +1607,21 @@ func (s *PostgresStore) searchDocumentChunksWithVector(ctx context.Context, quer
 	return rankDocumentChunks(query, embedding, mapValues(candidates), maxResults), nil
 }
 
-func (s *PostgresStore) searchDocumentChunksGeneric(ctx context.Context, query string, embedding []float32, maxResults int) ([]app.DocumentChunkHit, error) {
+func (s *PostgresStore) searchDocumentChunksGeneric(ctx context.Context, query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error) {
 	limit := maxResults * 20
 	if limit < 200 {
 		limit = 200
 	}
+	embeddingDim := len(embedding)
 	rows, err := s.db.Query(ctx, `
 		SELECT id, path, rel_path, start_line, end_line, text, terms, embedding_json,
-			coalesce(embedding_model, ''), 0::double precision AS vector_score
+			coalesce(embedding_model, ''), embedding_dim, 0::double precision AS vector_score
 		FROM document_chunks
+		WHERE ($1 = '' OR coalesce(embedding_model, '') IN ($1, ''))
+			AND ($2 = 0 OR embedding_dim = $2 OR embedding_dim = 0)
 		ORDER BY indexed_at DESC
-		LIMIT $1
-	`, limit)
+		LIMIT $3
+	`, strings.TrimSpace(embeddingModel), embeddingDim, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1592,21 +1636,25 @@ func (s *PostgresStore) searchDocumentChunksGeneric(ctx context.Context, query s
 	return rankDocumentChunks(query, embedding, candidates, maxResults), nil
 }
 
-func (s *PostgresStore) keywordDocumentCandidates(ctx context.Context, query string, limit int) []dbDocumentChunk {
+func (s *PostgresStore) keywordDocumentCandidates(ctx context.Context, query, embeddingModel string, embeddingDim, limit int) []dbDocumentChunk {
 	queryTerms := documentTerms(query)
 	if len(queryTerms) == 0 {
 		return nil
 	}
 	rows, err := s.db.Query(ctx, `
 		SELECT id, path, rel_path, start_line, end_line, text, terms, embedding_json,
-			coalesce(embedding_model, ''), 0::double precision AS vector_score
+			coalesce(embedding_model, ''), embedding_dim, 0::double precision AS vector_score
 		FROM document_chunks
-		WHERE terms && $1
-			OR lower(text) LIKE '%' || lower($2) || '%'
-			OR lower(rel_path) LIKE '%' || lower($2) || '%'
+		WHERE ($3 = '' OR coalesce(embedding_model, '') IN ($3, ''))
+			AND ($4 = 0 OR embedding_dim = $4 OR embedding_dim = 0)
+			AND (
+				terms && $1
+				OR lower(text) LIKE '%' || lower($2) || '%'
+				OR lower(rel_path) LIKE '%' || lower($2) || '%'
+			)
 		ORDER BY indexed_at DESC
-		LIMIT $3
-	`, queryTerms, query, limit)
+		LIMIT $5
+	`, queryTerms, query, strings.TrimSpace(embeddingModel), embeddingDim, limit)
 	if err != nil {
 		return nil
 	}
@@ -1627,8 +1675,8 @@ func rankDocumentChunks(query string, embedding []float32, chunks []dbDocumentCh
 	for _, chunk := range chunks {
 		keywordScore := scoreDocumentChunk(queryTerms, chunk)
 		vectorScore := chunk.VectorScore
-		if vectorScore == 0 && len(embedding) > 0 && len(chunk.Embedding) > 0 {
-			vectorScore = cosine(embedding, chunk.Embedding)
+		if vectorScore == 0 {
+			vectorScore = searchableVectorScore(embedding, chunk)
 		}
 		score := float64(keywordScore) + vectorScore*6
 		if score <= 0 {
@@ -1646,6 +1694,7 @@ func rankDocumentChunks(query string, embedding []float32, chunks []dbDocumentCh
 			Snippet:        documentSnippet(chunk.Text, queryTerms),
 			Terms:          intersectDocumentTerms(queryTerms, chunk.Terms),
 			EmbeddingModel: chunk.EmbeddingModel,
+			EmbeddingDim:   chunk.EmbeddingDim,
 			Backend:        chunk.Backend,
 		})
 	}
@@ -1667,15 +1716,28 @@ func rankDocumentChunks(query string, embedding []float32, chunks []dbDocumentCh
 func scanDBDocumentChunk(row scanner, backend string) (dbDocumentChunk, error) {
 	var chunk dbDocumentChunk
 	var embeddingJSON []byte
-	err := row.Scan(&chunk.ID, &chunk.Path, &chunk.RelPath, &chunk.StartLine, &chunk.EndLine, &chunk.Text, &chunk.Terms, &embeddingJSON, &chunk.EmbeddingModel, &chunk.VectorScore)
+	err := row.Scan(&chunk.ID, &chunk.Path, &chunk.RelPath, &chunk.StartLine, &chunk.EndLine, &chunk.Text, &chunk.Terms, &embeddingJSON, &chunk.EmbeddingModel, &chunk.EmbeddingDim, &chunk.VectorScore)
 	if err != nil {
 		return dbDocumentChunk{}, err
 	}
 	if len(embeddingJSON) > 0 {
 		_ = json.Unmarshal(embeddingJSON, &chunk.Embedding)
 	}
+	if chunk.EmbeddingDim == 0 {
+		chunk.EmbeddingDim = len(chunk.Embedding)
+	}
 	chunk.Backend = backend
 	return chunk, nil
+}
+
+func searchableVectorScore(queryEmbedding []float32, chunk dbDocumentChunk) float64 {
+	if len(queryEmbedding) == 0 || len(chunk.Embedding) == 0 {
+		return 0
+	}
+	if chunk.EmbeddingDim != 0 && chunk.EmbeddingDim != len(queryEmbedding) {
+		return 0
+	}
+	return cosine(queryEmbedding, chunk.Embedding)
 }
 
 func (s *PostgresStore) hasVectorColumn(ctx context.Context) bool {

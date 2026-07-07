@@ -1,0 +1,8 @@
+{
+  "name": "sparkclaw-document-runtime",
+  "private": true,
+  "description": "Node dependencies for the gateway document tool adapters (installed into .tools/document-node by scripts/setup-document-tools.sh).",
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  }
+}

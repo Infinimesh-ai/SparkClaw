@@ -36,6 +36,8 @@ type MemoryStore struct {
 	evalRuns             map[string]app.EvalRun
 	artifactObjects      map[string]app.ArtifactObject
 	episodeSummaries     map[string]app.EpisodeSummary
+	documents            map[string]app.Document
+	documentChunks       map[string]app.DocumentChunk
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -64,6 +66,8 @@ func NewMemoryStore() *MemoryStore {
 		evalRuns:             map[string]app.EvalRun{},
 		artifactObjects:      map[string]app.ArtifactObject{},
 		episodeSummaries:     map[string]app.EpisodeSummary{},
+		documents:            map[string]app.Document{},
+		documentChunks:       map[string]app.DocumentChunk{},
 	}
 }
 
@@ -95,6 +99,8 @@ func (s *MemoryStore) snapshot() Snapshot {
 		EvalRuns:             cloneMap(s.evalRuns),
 		ArtifactObjects:      cloneMap(s.artifactObjects),
 		EpisodeSummaries:     cloneMap(s.episodeSummaries),
+		Documents:            cloneMap(s.documents),
+		DocumentChunks:       cloneMap(s.documentChunks),
 	}
 }
 
@@ -125,6 +131,8 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.evalRuns = ensureMap(snapshot.EvalRuns)
 	s.artifactObjects = ensureMap(snapshot.ArtifactObjects)
 	s.episodeSummaries = ensureMap(snapshot.EpisodeSummaries)
+	s.documents = ensureMap(snapshot.Documents)
+	s.documentChunks = ensureMap(snapshot.DocumentChunks)
 	s.hideLinkedWeixinSessionsLocked()
 }
 

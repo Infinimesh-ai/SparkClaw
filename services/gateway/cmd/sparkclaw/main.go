@@ -46,6 +46,7 @@ func main() {
 	}
 	artifactStore := artifact.NewStore(cfg.Storage)
 	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
+	defer tools.Close()
 	policyEngine := policy.New(cfg)
 	models := modelrouter.New(cfg)
 	traces := trace.NewWriterFromConfig(cfg)

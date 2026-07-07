@@ -48,6 +48,7 @@ type Server struct {
 	runtime   agent.Runtime
 	traces    *trace.Writer
 	artifacts artifact.Store
+	policies  policy.Engine
 	bindings  binding.Router
 	mux       *http.ServeMux
 	started   time.Time
@@ -59,8 +60,11 @@ func New(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agen
 }
 
 func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer) *Server {
-	artifacts := artifact.NewStore(cfg.Storage)
-	tools.WithArtifactStore(artifacts)
+	artifacts := tools.ArtifactStore()
+	if artifacts == nil {
+		artifacts = artifact.NewStore(cfg.Storage)
+		tools.WithArtifactStore(artifacts)
+	}
 	s := &Server{
 		cfg:       cfg,
 		store:     st,
@@ -68,6 +72,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		runtime:   runtime,
 		traces:    traces,
 		artifacts: artifacts,
+		policies:  policy.New(cfg),
 		bindings:  binding.NewRouter(cfg),
 		mux:       http.NewServeMux(),
 		started:   time.Now().UTC(),
@@ -410,7 +415,8 @@ func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cfg.Security.DeniedTools = deny
 	s.cfg.Security.ApprovalRequiredTools = approvalRequired
-	s.runtime = s.runtime.WithPolicy(policy.New(s.cfg))
+	s.policies = policy.New(s.cfg)
+	s.runtime = s.runtime.WithPolicy(s.policies)
 	s.store.AddAudit(app.AuditEvent{
 		Actor:   "owner",
 		Type:    "tool_policy.updated",
@@ -1045,7 +1051,7 @@ func (s *Server) invokeTool(w http.ResponseWriter, r *http.Request) {
 		Arguments: input.Args,
 		StartedAt: now,
 	}
-	decision := policy.New(s.cfg).Decide(def, input.Args)
+	decision := s.policies.Decide(def, input.Args)
 	if !decision.Allowed {
 		done := time.Now().UTC()
 		s.store.SaveRun(app.AgentRun{
@@ -1255,7 +1261,7 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		decision := policy.New(s.cfg).Decide(def, args)
+		decision := s.policies.Decide(def, args)
 		if !decision.Allowed {
 			writeError(w, http.StatusForbidden, errors.New(decision.Reason))
 			return

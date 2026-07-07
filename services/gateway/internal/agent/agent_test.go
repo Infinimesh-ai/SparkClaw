@@ -2424,6 +2424,8 @@ func (fakeBrowserAutomationAdapter) Health(ctx context.Context) (browserautomati
 	}, nil
 }
 
+func (fakeBrowserAutomationAdapter) Close() error { return nil }
+
 func (fakeBrowserAutomationAdapter) Call(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
 	switch tool {
 	case "browser.screenshot":

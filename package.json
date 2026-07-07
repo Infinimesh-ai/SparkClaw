@@ -29,6 +29,7 @@
     "build:webchat": "npm --workspace @sparkclaw/webchat run build",
     "test:gateway": "go test ./services/gateway/...",
     "doctor": "bash scripts/doctor.sh",
+    "setup:document-tools": "bash scripts/setup-document-tools.sh",
     "eval": "bash scripts/run-eval.sh",
     "build": "npm run build:webchat && npm run test:gateway"
   },

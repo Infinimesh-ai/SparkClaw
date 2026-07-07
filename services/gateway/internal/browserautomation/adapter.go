@@ -17,6 +17,9 @@ const mcpProtocolVersion = "2025-06-18"
 type Adapter interface {
 	Call(ctx context.Context, tool string, args map[string]any) (Result, error)
 	Health(ctx context.Context) (Result, error)
+	// Close terminates any subprocess the adapter spawned. It must be safe to
+	// call multiple times and when no session was ever started.
+	Close() error
 }
 
 type Result struct {
@@ -41,6 +44,15 @@ type ChromeDevToolsAdapter struct {
 
 func NewAdapter(cfg config.Config) Adapter {
 	return &ChromeDevToolsAdapter{cfg: cfg}
+}
+
+// Close shuts down the MCP subprocess (and the Chrome instance it manages) so
+// gateway shutdown does not orphan them.
+func (a *ChromeDevToolsAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.resetSessionLocked()
+	return nil
 }
 
 func (a *ChromeDevToolsAdapter) Health(ctx context.Context) (Result, error) {

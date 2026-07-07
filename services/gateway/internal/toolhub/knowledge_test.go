@@ -47,7 +47,12 @@ func TestKnowledgeIndexAndSearch(t *testing.T) {
 	if searchOut["original_query"] != "approval workflows" || searchOut["rewritten_query"] != "approval workflows" {
 		t.Fatalf("expected query metadata in search output: %#v", searchOut)
 	}
-	results := searchOut["results"].([]knowledgeHit)
+	// The memory store implements store.DocumentStore, so search takes the
+	// same hybrid document-store path as the postgres backend.
+	if searchOut["backend"] != "document_store" {
+		t.Fatalf("expected document_store backend, got %#v", searchOut["backend"])
+	}
+	results := searchOut["results"].([]app.DocumentChunkHit)
 	if results[0].RelPath != "notes.md" || results[0].StartLine <= 0 {
 		t.Fatalf("unexpected search result: %#v", results[0])
 	}
@@ -138,7 +143,7 @@ func TestKnowledgeSearchReranksJSONIndex(t *testing.T) {
 	if searchOut["reranker_model"] != "test-reranker" {
 		t.Fatalf("reranker metadata missing: %#v", searchOut)
 	}
-	results := searchOut["results"].([]knowledgeHit)
+	results := searchOut["results"].([]app.DocumentChunkHit)
 	if len(results) != 1 || results[0].RelPath != "bravo.md" || results[0].RerankScore == 0 {
 		t.Fatalf("expected reranked top hit from bravo.md: %#v", results)
 	}

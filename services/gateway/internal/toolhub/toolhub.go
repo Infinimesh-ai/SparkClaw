@@ -61,18 +61,31 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		browser:   browserautomation.NewAdapter(cfg),
 	}
 	for _, def := range defaultDefinitions() {
-		if def.Name == "web.search" && !cfg.Tools.Web.Search.Enabled {
-			continue
+		reg, ok := toolRegistry[def.Name]
+		if !ok {
+			// A definition without an executor is a programming error; fail
+			// loudly at startup instead of at first invocation.
+			panic(fmt.Sprintf("toolhub: definition %q has no entry in toolRegistry", def.Name))
 		}
-		if isReminderTool(def.Name) && !cfg.Tools.Reminders.Enabled {
-			continue
-		}
-		if isBrowserAutomationTool(def.Name) && !cfg.Tools.BrowserAutomation.Enabled {
+		if reg.enabled != nil && !reg.enabled(cfg) {
 			continue
 		}
 		h.defs[def.Name] = def
 	}
 	return h
+}
+
+// Close releases resources held by tool adapters (currently the browser
+// automation subprocess). Safe to call multiple times.
+func (h *ToolHub) Close() error {
+	if h.browser != nil {
+		return h.browser.Close()
+	}
+	return nil
+}
+
+func (h *ToolHub) ArtifactStore() artifact.Store {
+	return h.artifacts
 }
 
 func (h *ToolHub) WithArtifactStore(artifacts artifact.Store) *ToolHub {
@@ -158,100 +171,11 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 		return Result{}, err
 	}
 	h = h.forSession(sessionID)
-	var result Result
-	var err error
-	switch name {
-	case "files.search":
-		result, err = h.filesSearch(ctx, args)
-	case "files.read":
-		result, err = h.filesRead(ctx, args)
-	case "images.inspect":
-		result, err = h.imageInspect(ctx, args)
-	case "media.render_weather_card":
-		result, err = h.renderWeatherCard(ctx, args, sessionID, runID)
-	case "files.write_draft":
-		result, err = h.filesWriteDraft(ctx, args)
-	case "file.delete":
-		result, err = h.fileDelete(ctx, args)
-	case "office.replace_text":
-		result, err = h.officeReplaceText(ctx, args)
-	case "docx.replace_paragraph":
-		result, err = h.docxStructureEdit(ctx, "replace_paragraph", args)
-	case "docx.insert_paragraph":
-		result, err = h.docxStructureEdit(ctx, "insert_paragraph", args)
-	case "docx.delete_paragraph":
-		result, err = h.docxStructureEdit(ctx, "delete_paragraph", args)
-	case "docx.set_text_style":
-		result, err = h.docxStructureEdit(ctx, "set_text_style", args)
-	case "pptx.add_slide":
-		result, err = h.pptxSlideEdit(ctx, "add_slide", args)
-	case "pptx.duplicate_slide":
-		result, err = h.pptxSlideEdit(ctx, "duplicate_slide", args)
-	case "pptx.delete_slide":
-		result, err = h.pptxSlideEdit(ctx, "delete_slide", args)
-	case "xlsx.update_cell":
-		result, err = h.xlsxStructureEdit(ctx, "update_cell", args)
-	case "xlsx.insert_row":
-		result, err = h.xlsxStructureEdit(ctx, "insert_row", args)
-	case "xlsx.delete_row":
-		result, err = h.xlsxStructureEdit(ctx, "delete_row", args)
-	case "xlsx.update_row":
-		result, err = h.xlsxStructureEdit(ctx, "update_row", args)
-	case "xlsx.append_row":
-		result, err = h.xlsxStructureEdit(ctx, "append_row", args)
-	case "pdf.extract_text":
-		result, err = h.pdfExtractText(ctx, args)
-	case "pdf.transform":
-		result, err = h.pdfTransform(ctx, args)
-	case "memory.search":
-		result, err = h.memorySearch(args, sessionID)
-	case "memory.write_candidate", "memory.propose":
-		result, err = h.memoryWriteCandidate(args, sessionID, runID)
-	case "memory.write_sensitive":
-		result, err = h.memoryWriteSensitive(args, sessionID, runID)
-	case "knowledge.index_workspace":
-		result, err = h.knowledgeIndexWorkspace(ctx, args, sessionID, runID)
-	case "knowledge.search":
-		result, err = h.knowledgeSearch(ctx, args, sessionID, runID)
-	case "browser.read":
-		result, err = h.browserRead(ctx, args, sessionID, runID)
-	case "web.search":
-		result, err = h.webSearchTool(ctx, args)
-	case "browser.status":
-		result, err = h.browserAutomationHealth(ctx)
-	case "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.type", "browser.select":
-		result, err = h.browserAutomationTool(ctx, name, args)
-	case "email.search":
-		result, err = h.emailSearch(ctx, args)
-	case "email.read_thread":
-		result, err = h.emailReadThread(ctx, args)
-	case "email.draft_reply":
-		result, err = h.emailDraftReply(ctx, args)
-	case "email.send":
-		result, err = h.emailSend(ctx, args)
-	case "calendar.read":
-		result, err = h.calendarRead(ctx, args)
-	case "calendar.propose_event":
-		result, err = h.calendarProposeEvent(ctx, args)
-	case "calendar.create":
-		result, err = h.calendarCreate(ctx, args)
-	case "reminders.create":
-		result, err = h.remindersCreate(args, sessionID, runID)
-	case "reminders.list":
-		result, err = h.remindersList(args, sessionID)
-	case "reminders.update":
-		result, err = h.remindersUpdate(args, sessionID)
-	case "reminders.cancel":
-		result, err = h.remindersCancel(args, sessionID)
-	case "code.apply_patch":
-		result, err = h.codeApplyPatch(ctx, args)
-	case "shell.exec_sandboxed":
-		result, err = h.shellExecSandboxed(ctx, args)
-	case "notify.ask_approval":
-		result, err = h.notifyAskApproval(args, sessionID, runID)
-	default:
+	reg, ok := toolRegistry[name]
+	if !ok {
 		return Result{}, fmt.Errorf("tool %q has no executor in MVP", name)
 	}
+	result, err := reg.run(h, ctx, name, args, sessionID, runID)
 	if err != nil {
 		return result, err
 	}
@@ -259,24 +183,6 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 		return Result{}, err
 	}
 	return result, nil
-}
-
-func isReminderTool(name string) bool {
-	switch name {
-	case "reminders.create", "reminders.list", "reminders.update", "reminders.cancel":
-		return true
-	default:
-		return false
-	}
-}
-
-func isBrowserAutomationTool(name string) bool {
-	switch name {
-	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.type", "browser.select":
-		return true
-	default:
-		return false
-	}
 }
 
 func defaultDefinitions() []app.ToolDefinition {

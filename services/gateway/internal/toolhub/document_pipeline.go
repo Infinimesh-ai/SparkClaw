@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 func attachSmallDocumentPipeline(document map[string]any, relPath, format, content string, truncated bool, maxBytes int) {
@@ -28,8 +30,8 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 		strategyReason = "document content exceeded max_bytes; full answer requires a larger read budget or future range strategy"
 	}
 	strategy := map[string]any{
-		"strategy":     "small_direct",
-		"context_mode": "full_text",
+		"strategy":     string(app.DocumentStrategySmallDirect),
+		"context_mode": string(app.DocumentContextFullText),
 		"reason":       strategyReason,
 		"limits": map[string]any{
 			"max_input_tokens": tokenEstimate,
@@ -39,7 +41,7 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 	}
 	index := map[string]any{
 		"document_id":  relPath,
-		"index_status": "skipped",
+		"index_status": string(app.DocumentIndexSkipped),
 		"indexes": map[string]any{
 			"vector_index_id":  "",
 			"keyword_index_id": "",
@@ -48,7 +50,7 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 		"reason": "small_direct uses full_text context without retrieval index",
 	}
 	context := map[string]any{
-		"mode":           "full_text",
+		"mode":           string(app.DocumentContextFullText),
 		"items":          smallDocumentContextItems(relPath, format, content),
 		"citations":      smallDocumentCitations(document),
 		"token_estimate": tokenEstimate,
@@ -56,7 +58,7 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 	}
 	telemetry := map[string]any{
 		"document_id":    relPath,
-		"strategy":       "small_direct",
+		"strategy":       string(app.DocumentStrategySmallDirect),
 		"file_type":      format,
 		"page_count":     profile["page_count"],
 		"token_estimate": tokenEstimate,
@@ -132,9 +134,9 @@ func complexityForTokenEstimate(tokens int) string {
 
 func pipelineStatusForTruncation(truncated bool) string {
 	if truncated {
-		return "partial"
+		return string(app.DocumentProcessingPartial)
 	}
-	return "succeeded"
+	return string(app.DocumentProcessingSucceeded)
 }
 
 func smallDocumentContextItems(relPath, format, content string) []map[string]any {

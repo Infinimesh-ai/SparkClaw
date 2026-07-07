@@ -1300,7 +1300,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	var call *app.ToolCall
 	resumed := false
 	if status == "approved" {
-		executed, err := s.executeApprovedToolCall(r, approval)
+		executed, err := s.runtime.ExecuteApprovedToolCall(r.Context(), approval)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -1324,7 +1324,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		}
 	}
 	if !resumed {
-		s.completeRunIfApprovalsResolved(approval.RunID)
+		s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 	}
 	s.refreshTrace(r.Context(), approval.RunID)
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
@@ -1351,77 +1351,6 @@ func mergeApprovalArgs(current, patch map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
-}
-
-func (s *Server) executeApprovedToolCall(r *http.Request, approval app.Approval) (app.ToolCall, error) {
-	call, ok := s.store.GetToolCall(approval.ToolCallID)
-	if !ok {
-		return app.ToolCall{}, errors.New("approved tool call not found")
-	}
-	if call.Status != "approval_pending" {
-		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
-	}
-	if call.Tool == "notify.ask_approval" {
-		now := time.Now().UTC()
-		call.Status = "completed_after_approval"
-		call.CompletedAt = &now
-		call.Result = map[string]any{"status": "approval_confirmed"}
-		call.Error = ""
-		call.ObservationSummary = agent.CompressObservation(call.Tool, call.Result, s.cfg.Runtime.ObservationSummaryMaxBytes)
-		call.ObservationRef = store.ArchiveToolObservation(r.Context(), s.store, s.artifacts, call, call.Result)
-		s.store.SaveToolCall(call)
-		return call, nil
-	}
-	def, ok := s.tools.Definition(call.Tool)
-	if !ok {
-		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
-	}
-	timeout := time.Duration(def.TimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), timeout)
-	defer cancel()
-	call.Status = "running_after_approval"
-	s.store.SaveToolCall(call)
-	result, err := s.tools.Execute(ctx, call.Tool, call.Arguments, call.SessionID, call.RunID)
-	now := time.Now().UTC()
-	call.CompletedAt = &now
-	if err != nil {
-		call.Status = "failed_after_approval"
-		call.Error = err.Error()
-		if result.Output != nil {
-			call.Result = result.Output
-		}
-		s.store.SaveToolCall(call)
-		return call, nil
-	}
-	call.Status = "completed_after_approval"
-	call.Result = result.Output
-	call.Error = ""
-	call.ObservationSummary = agent.CompressObservation(call.Tool, result.Output, s.cfg.Runtime.ObservationSummaryMaxBytes)
-	call.ObservationRef = store.ArchiveToolObservation(ctx, s.store, s.artifacts, call, result.Output)
-	s.store.SaveToolCall(call)
-	return call, nil
-}
-
-func (s *Server) completeRunIfApprovalsResolved(runID string) {
-	if runID == "" {
-		return
-	}
-	run, ok := s.store.GetRun(runID)
-	if !ok || run.State != "approval_pending" {
-		return
-	}
-	for _, approval := range s.store.ListApprovals("pending") {
-		if approval.RunID == runID {
-			return
-		}
-	}
-	now := time.Now().UTC()
-	run.State = "completed"
-	run.CompletedAt = &now
-	s.store.SaveRun(run)
 }
 
 func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {

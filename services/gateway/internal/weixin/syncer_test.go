@@ -1,6 +1,7 @@
 package weixin
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -180,7 +183,9 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
 
-	NewSyncer(st).WithDispatcher(dispatcher).Tick(t.Context())
+	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer.Tick(t.Context())
+	syncer.Wait()
 
 	if len(typingStatuses) != 2 || typingStatuses[0] != 1 || typingStatuses[1] != 2 {
 		t.Fatalf("typing should start then cancel, got %#v", typingStatuses)
@@ -297,7 +302,9 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
 
-	NewSyncer(st).WithDispatcher(dispatcher).Tick(t.Context())
+	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer.Tick(t.Context())
+	syncer.Wait()
 
 	if strings.Join(sentRecipients, ",") != "wx-user-a,wx-user-b" {
 		t.Fatalf("expected replies to separate weixin users, got %#v", sentRecipients)
@@ -449,7 +456,9 @@ func TestSyncerDispatchesSingleMediaMarkdownAsImage(t *testing.T) {
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"])
 
-	NewSyncer(st).WithDispatcher(dispatcher).Tick(t.Context())
+	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	syncer.Tick(t.Context())
+	syncer.Wait()
 
 	if !sawUpload {
 		t.Fatal("expected generated weather card to be uploaded as image")
@@ -469,4 +478,330 @@ func tinyWeixinSyncerPNG(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
+	var mu sync.Mutex
+	var polledCursors []string
+	var sendAttempts int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/getupdates":
+			var payload struct {
+				GetUpdatesBuf string `json:"get_updates_buf"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			mu.Lock()
+			polledCursors = append(polledCursors, payload.GetUpdatesBuf)
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{
+				"ret": 0,
+				"get_updates_buf": "cursor-2",
+				"msgs": [
+					{
+						"msg_id": "provider-msg-1",
+						"from_user_id": "wx-user-1",
+						"context_token": "ctx-1",
+						"create_time": 1782800000,
+						"item_list": [
+							{"type": 1, "text_item": {"text": "你好\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"回复\"}"}}
+						]
+					}
+				]
+			}`))
+		case "/ilink/bot/getconfig":
+			_, _ = w.Write([]byte(`{"ret":0,"typing_ticket":"typing-ticket-1"}`))
+		case "/ilink/bot/sendtyping":
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		case "/ilink/bot/sendmessage":
+			mu.Lock()
+			sendAttempts++
+			failing := sendAttempts == 1
+			mu.Unlock()
+			if failing {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = t.TempDir()
+	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:  true,
+		Provider: "openclaw-weixin-qr",
+		BaseURL:  ts.URL,
+	}
+	st := store.NewMemoryStore()
+	st.SaveCredentialSecret(app.CredentialSecret{
+		Ref:   "provider:openclaw-weixin-qr:bind_1",
+		Kind:  "openclaw-weixin-bot-token",
+		Value: "bot-secret",
+	})
+	st.SaveNotificationBinding(app.NotificationBinding{
+		ID:                "bind_1",
+		OwnerID:           app.DefaultOwnerID,
+		Channel:           "weixin",
+		Provider:          "openclaw-weixin-qr",
+		Status:            "active",
+		ExternalUserID:    "wx-user-1",
+		CredentialRef:     "provider:openclaw-weixin-qr:bind_1",
+		BaseURL:           ts.URL,
+		ProviderCursor:    "cursor-1",
+		DefaultForChannel: true,
+		CreatedAt:         time.Now().UTC(),
+		UpdatedAt:         time.Now().UTC(),
+	})
+	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+
+	syncer.Tick(t.Context())
+	syncer.Wait()
+
+	binding, _ := st.GetNotificationBinding("bind_1")
+	if binding.ProviderCursor != "cursor-1" {
+		t.Fatalf("cursor should not advance past failed dispatch, got %q", binding.ProviderCursor)
+	}
+	mu.Lock()
+	attemptsAfterFirstTick := sendAttempts
+	mu.Unlock()
+	if attemptsAfterFirstTick != 1 {
+		t.Fatalf("expected one send attempt on first tick, got %d", attemptsAfterFirstTick)
+	}
+
+	syncer.Tick(t.Context())
+	syncer.Wait()
+
+	binding, _ = st.GetNotificationBinding("bind_1")
+	if binding.ProviderCursor != "cursor-2" {
+		t.Fatalf("cursor should advance once dispatch succeeds, got %q", binding.ProviderCursor)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if sendAttempts != 1 {
+		t.Fatalf("already-processed message should not rerun the agent, got %d send attempts", sendAttempts)
+	}
+	if strings.Join(polledCursors, ",") != "cursor-1,cursor-1" {
+		t.Fatalf("second poll should reuse the unadvanced cursor: %#v", polledCursors)
+	}
+}
+
+func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
+	var bSentOnce sync.Once
+	bSent := make(chan struct{})
+	var aObservedB atomic.Bool
+
+	newProviderServer := func(user string, onSend func()) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/ilink/bot/getupdates":
+				_, _ = w.Write([]byte(`{
+					"ret": 0,
+					"get_updates_buf": "cursor-2",
+					"msgs": [
+						{
+							"msg_id": "provider-msg-` + user + `",
+							"from_user_id": "` + user + `",
+							"context_token": "ctx-` + user + `",
+							"create_time": 1782800000,
+							"item_list": [
+								{"type": 1, "text_item": {"text": "你好\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"回复\"}"}}
+							]
+						}
+					]
+				}`))
+			case "/ilink/bot/getconfig":
+				_, _ = w.Write([]byte(`{"ret":0,"typing_ticket":"typing-ticket-1"}`))
+			case "/ilink/bot/sendtyping":
+				_, _ = w.Write([]byte(`{"ret":0}`))
+			case "/ilink/bot/sendmessage":
+				onSend()
+				_, _ = w.Write([]byte(`{"ret":0}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+	}
+	serverA := newProviderServer("wx-user-a", func() {
+		select {
+		case <-bSent:
+			aObservedB.Store(true)
+		case <-time.After(10 * time.Second):
+		}
+	})
+	defer serverA.Close()
+	serverB := newProviderServer("wx-user-b", func() {
+		bSentOnce.Do(func() { close(bSent) })
+	})
+	defer serverB.Close()
+
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = t.TempDir()
+	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:  true,
+		Provider: "openclaw-weixin-qr",
+	}
+	st := store.NewMemoryStore()
+	for id, baseURL := range map[string]string{"bind_a": serverA.URL, "bind_b": serverB.URL} {
+		st.SaveCredentialSecret(app.CredentialSecret{
+			Ref:   "provider:openclaw-weixin-qr:" + id,
+			Kind:  "openclaw-weixin-bot-token",
+			Value: "bot-secret",
+		})
+		st.SaveNotificationBinding(app.NotificationBinding{
+			ID:            id,
+			OwnerID:       app.DefaultOwnerID,
+			Channel:       "weixin",
+			Provider:      "openclaw-weixin-qr",
+			Status:        "active",
+			CredentialRef: "provider:openclaw-weixin-qr:" + id,
+			BaseURL:       baseURL,
+			CreatedAt:     time.Now().UTC(),
+			UpdatedAt:     time.Now().UTC(),
+		})
+	}
+	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+
+	syncer.Tick(t.Context())
+	syncer.Wait()
+
+	if !aObservedB.Load() {
+		t.Fatal("binding B's dispatch should complete while binding A's dispatch is still running")
+	}
+	if _, ok := st.FindWeixinChatSession("bind_a", "wx-user-a"); !ok {
+		t.Fatal("binding A chat session missing")
+	}
+	if _, ok := st.FindWeixinChatSession("bind_b", "wx-user-b"); !ok {
+		t.Fatal("binding B chat session missing")
+	}
+}
+
+func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
+	var mu sync.Mutex
+	var sentTexts []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/getconfig":
+			_, _ = w.Write([]byte(`{"ret":0,"typing_ticket":"typing-ticket-1"}`))
+		case "/ilink/bot/sendtyping":
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		case "/ilink/bot/sendmessage":
+			var payload struct {
+				Msg struct {
+					ItemList []struct {
+						TextItem struct {
+							Text string `json:"text"`
+						} `json:"text_item"`
+					} `json:"item_list"`
+				} `json:"msg"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			mu.Lock()
+			if len(payload.Msg.ItemList) > 0 {
+				sentTexts = append(sentTexts, payload.Msg.ItemList[0].TextItem.Text)
+			}
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = t.TempDir()
+	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:  true,
+		Provider: "openclaw-weixin-qr",
+		BaseURL:  ts.URL,
+	}
+	st := store.NewMemoryStore()
+	st.SaveCredentialSecret(app.CredentialSecret{
+		Ref:   "provider:openclaw-weixin-qr:bind_1",
+		Kind:  "openclaw-weixin-bot-token",
+		Value: "bot-secret",
+	})
+	binding := app.NotificationBinding{
+		ID:            "bind_1",
+		Channel:       "weixin",
+		Provider:      "openclaw-weixin-qr",
+		Status:        "active",
+		CredentialRef: "provider:openclaw-weixin-qr:bind_1",
+		BaseURL:       ts.URL,
+	}
+	st.SaveNotificationBinding(binding)
+	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+
+	inbound := InboundMessage{
+		Binding:      binding,
+		FromUserID:   "wx-user-1",
+		ContextToken: "ctx-1",
+		Text:         "你好\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"重试成功\"}",
+		ExternalID:   "provider-msg-retry",
+	}
+	chatSession := dispatcher.ensureChatSession(inbound)
+	failed := st.SaveWeixinChatMessage(app.WeixinChatMessage{
+		ChatSessionID:     chatSession.ID,
+		BindingID:         binding.ID,
+		Direction:         "inbound",
+		Role:              "user",
+		ExternalMessageID: "provider-msg-retry",
+		Content:           "你好",
+		Status:            "failed",
+		Error:             "model unavailable",
+	})
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
+		t.Fatal(err)
+	}
+
+	retried, ok := st.FindWeixinChatMessageByExternalID(chatSession.ID, "provider-msg-retry")
+	if !ok {
+		t.Fatal("inbound message missing after retry")
+	}
+	if retried.ID != failed.ID {
+		t.Fatalf("retry should reuse the failed message record, got %q vs %q", retried.ID, failed.ID)
+	}
+	if retried.Status != "processed" {
+		t.Fatalf("retried message should be processed, got %q", retried.Status)
+	}
+	inboundCount := 0
+	for _, message := range st.ListWeixinChatMessages(chatSession.ID, 20) {
+		if message.Direction == "inbound" {
+			inboundCount++
+		}
+	}
+	if inboundCount != 1 {
+		t.Fatalf("retry should not duplicate inbound chat history, got %d inbound messages", inboundCount)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sentTexts) != 1 || !strings.Contains(sentTexts[0], "重试成功") {
+		t.Fatalf("expected one retry reply, got %#v", sentTexts)
+	}
+
+	runsBefore := len(st.ListRuns(chatSession.LinkedSessionID))
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
+		t.Fatal(err)
+	}
+	if runsAfter := len(st.ListRuns(chatSession.LinkedSessionID)); runsAfter != runsBefore {
+		t.Fatalf("processed message must not run the agent again: before=%d after=%d", runsBefore, runsAfter)
+	}
 }

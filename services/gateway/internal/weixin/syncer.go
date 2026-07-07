@@ -10,11 +10,21 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+)
+
+const (
+	// defaultDispatchWorkers bounds how many bindings can run agent turns at
+	// the same time; messages within one binding are always handled in order.
+	defaultDispatchWorkers = 4
+	// maxDispatchAttempts is how many polls a failing inbound message is
+	// retried for before the cursor is advanced past it.
+	maxDispatchAttempts = 3
 )
 
 type Syncer struct {
@@ -23,6 +33,13 @@ type Syncer struct {
 	client     *http.Client
 	cfg        config.Config
 	media      *MediaAdapter
+
+	slots chan struct{}
+	wg    sync.WaitGroup
+
+	mu       sync.Mutex
+	busy     map[string]bool
+	attempts map[string]int
 }
 
 type updateTextItem struct {
@@ -38,8 +55,11 @@ type updateItem struct {
 
 func NewSyncer(st store.Store) *Syncer {
 	return &Syncer{
-		store:  st,
-		client: &http.Client{Timeout: 40 * time.Second},
+		store:    st,
+		client:   &http.Client{Timeout: 40 * time.Second},
+		slots:    make(chan struct{}, defaultDispatchWorkers),
+		busy:     map[string]bool{},
+		attempts: map[string]int{},
 	}
 }
 
@@ -59,6 +79,12 @@ func (s *Syncer) Tick(ctx context.Context) {
 		if !strings.Contains(strings.ToLower(binding.Provider), "openclaw-weixin") {
 			continue
 		}
+		// While a binding's previous batch is still being dispatched its
+		// cursor has not advanced, so polling again would only requeue the
+		// same messages.
+		if s.isBusy(binding.ID) {
+			continue
+		}
 		if err := s.syncBinding(ctx, binding); err != nil {
 			binding.LastError = err.Error()
 			binding.UpdatedAt = time.Now().UTC()
@@ -66,6 +92,34 @@ func (s *Syncer) Tick(ctx context.Context) {
 			slog.Warn("weixin context sync failed", "binding_id", binding.ID, "error", err)
 		}
 	}
+}
+
+// Wait blocks until every in-flight dispatch batch has finished.
+func (s *Syncer) Wait() {
+	s.wg.Wait()
+}
+
+func (s *Syncer) isBusy(bindingID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.busy[bindingID]
+}
+
+// inboundEnvelope is one provider message queued for dispatch.
+type inboundEnvelope struct {
+	FromUserID   string
+	ContextToken string
+	ExternalID   string
+	Items        []updateItem
+	CreatedAt    time.Time
+}
+
+// inboundBatch is the dispatchable result of one getupdates poll for a
+// binding. Cursor is only persisted once every message dispatched.
+type inboundBatch struct {
+	Binding app.NotificationBinding
+	Cursor  string
+	Msgs    []inboundEnvelope
 }
 
 func (s *Syncer) syncBinding(ctx context.Context, binding app.NotificationBinding) error {
@@ -132,55 +186,143 @@ func (s *Syncer) syncBinding(ctx context.Context, binding app.NotificationBindin
 		return fmt.Errorf("%s", message)
 	}
 	changed := false
-	if strings.TrimSpace(decoded.GetUpdatesBuf) != "" && decoded.GetUpdatesBuf != binding.ProviderCursor {
-		binding.ProviderCursor = decoded.GetUpdatesBuf
-		changed = true
-	}
+	envelopes := []inboundEnvelope{}
 	for _, msg := range decoded.Msgs {
 		contextToken := strings.TrimSpace(msg.ContextToken)
 		if contextToken == "" {
 			continue
 		}
-		from := strings.TrimSpace(msg.FromUserID)
 		if binding.ContextToken != contextToken {
 			binding.ContextToken = contextToken
 			binding.LastError = ""
 			changed = true
 		}
 		if s.dispatcher != nil {
-			text := extractInboundText(msg.ItemList)
-			externalID := firstNonEmpty(msg.ID, msg.MsgID, msg.ClientID)
-			chatSession := s.dispatcher.ensureChatSession(InboundMessage{
-				Binding:        binding,
-				FromUserID:     from,
-				ContextToken:   contextToken,
-				ExternalID:     externalID,
-				ProviderCursor: decoded.GetUpdatesBuf,
-				CreatedAt:      unixTime(msg.CreateTime),
+			envelopes = append(envelopes, inboundEnvelope{
+				FromUserID:   strings.TrimSpace(msg.FromUserID),
+				ContextToken: contextToken,
+				ExternalID:   firstNonEmpty(msg.ID, msg.MsgID, msg.ClientID),
+				Items:        msg.ItemList,
+				CreatedAt:    unixTime(msg.CreateTime),
 			})
-			attachments := s.downloadInboundAttachments(ctx, binding, msg.ItemList, chatSession.LinkedSessionID, externalID)
-			if text != "" || len(attachments) > 0 {
-				if err := s.dispatcher.HandleInbound(ctx, InboundMessage{
-					Binding:        binding,
-					FromUserID:     from,
-					ContextToken:   contextToken,
-					Text:           text,
-					Attachments:    attachments,
-					ExternalID:     externalID,
-					ProviderCursor: decoded.GetUpdatesBuf,
-					CreatedAt:      unixTime(msg.CreateTime),
-				}); err != nil {
-					slog.Warn("weixin inbound dispatch failed", "binding_id", binding.ID, "error", err)
-				}
-			}
 		}
+	}
+	if len(envelopes) == 0 {
+		// Nothing to dispatch: safe to advance the cursor right away.
+		if strings.TrimSpace(decoded.GetUpdatesBuf) != "" && decoded.GetUpdatesBuf != binding.ProviderCursor {
+			binding.ProviderCursor = decoded.GetUpdatesBuf
+			changed = true
+		}
+		if changed {
+			binding.UpdatedAt = time.Now().UTC()
+			s.store.SaveNotificationBinding(binding)
+			slog.Info("weixin context synced", "binding_id", binding.ID, "has_context_token", binding.ContextToken != "")
+		}
+		return nil
 	}
 	if changed {
 		binding.UpdatedAt = time.Now().UTC()
-		s.store.SaveNotificationBinding(binding)
+		binding = s.store.SaveNotificationBinding(binding)
 		slog.Info("weixin context synced", "binding_id", binding.ID, "has_context_token", binding.ContextToken != "")
 	}
+	s.enqueueBatch(ctx, inboundBatch{Binding: binding, Cursor: decoded.GetUpdatesBuf, Msgs: envelopes})
 	return nil
+}
+
+// enqueueBatch hands a binding's inbound messages to the bounded dispatch
+// pool. One batch per binding runs at a time (Tick skips busy bindings), so
+// message order within a binding is preserved while distinct bindings are
+// handled in parallel.
+func (s *Syncer) enqueueBatch(ctx context.Context, batch inboundBatch) {
+	s.mu.Lock()
+	if s.busy[batch.Binding.ID] {
+		s.mu.Unlock()
+		return
+	}
+	s.busy[batch.Binding.ID] = true
+	s.mu.Unlock()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer func() {
+			s.mu.Lock()
+			delete(s.busy, batch.Binding.ID)
+			s.mu.Unlock()
+		}()
+		select {
+		case s.slots <- struct{}{}:
+			defer func() { <-s.slots }()
+		case <-ctx.Done():
+			return
+		}
+		s.processBatch(ctx, batch)
+	}()
+}
+
+func (s *Syncer) processBatch(ctx context.Context, batch inboundBatch) {
+	binding := batch.Binding
+	for _, msg := range batch.Msgs {
+		if ctx.Err() != nil {
+			return
+		}
+		inbound := InboundMessage{
+			Binding:        binding,
+			FromUserID:     msg.FromUserID,
+			ContextToken:   msg.ContextToken,
+			ExternalID:     msg.ExternalID,
+			ProviderCursor: batch.Cursor,
+			CreatedAt:      msg.CreatedAt,
+		}
+		chatSession := s.dispatcher.ensureChatSession(inbound)
+		attemptKey := binding.ID + "\x00" + msg.ExternalID
+		inbound.Text = extractInboundText(msg.Items)
+		inbound.Attachments = s.downloadInboundAttachments(ctx, binding, msg.Items, chatSession.LinkedSessionID, msg.ExternalID)
+		if inbound.Text == "" && len(inbound.Attachments) == 0 {
+			s.clearAttempts(attemptKey)
+			continue
+		}
+		if err := s.dispatcher.HandleInbound(ctx, inbound); err != nil {
+			attempts := s.recordAttempt(attemptKey)
+			if attempts < maxDispatchAttempts {
+				// Keep the old cursor so the provider redelivers this
+				// message (and everything after it) on the next poll.
+				slog.Warn("weixin inbound dispatch failed; will retry",
+					"binding_id", binding.ID, "external_id", msg.ExternalID, "attempts", attempts, "error", err)
+				return
+			}
+			slog.Warn("weixin inbound dropped after repeated dispatch failures",
+				"binding_id", binding.ID, "external_id", msg.ExternalID, "attempts", attempts, "error", err)
+		}
+		s.clearAttempts(attemptKey)
+	}
+	s.advanceCursor(binding.ID, batch.Cursor)
+}
+
+func (s *Syncer) advanceCursor(bindingID, cursor string) {
+	if strings.TrimSpace(cursor) == "" {
+		return
+	}
+	// Reload so we don't clobber concurrent updates to the binding record.
+	binding, ok := s.store.GetNotificationBinding(bindingID)
+	if !ok || binding.ProviderCursor == cursor {
+		return
+	}
+	binding.ProviderCursor = cursor
+	binding.UpdatedAt = time.Now().UTC()
+	s.store.SaveNotificationBinding(binding)
+}
+
+func (s *Syncer) recordAttempt(key string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.attempts[key]++
+	return s.attempts[key]
+}
+
+func (s *Syncer) clearAttempts(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.attempts, key)
 }
 
 func (s *Syncer) downloadInboundAttachments(ctx context.Context, binding app.NotificationBinding, items []updateItem, sessionID, nameSeed string) []app.MessageAttachment {

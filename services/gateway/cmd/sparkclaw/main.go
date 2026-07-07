@@ -57,7 +57,7 @@ func main() {
 	if cfg.Tools.Reminders.Enabled && !cfg.Tools.Reminders.Disabled {
 		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notification.NewRouter(cfg, st)))
 	}
-	startWeixinContextSyncer(serverCtx, weixin.NewSyncer(st).WithConfig(cfg).WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg, tools)))
+	startWeixinContextSyncer(serverCtx, weixin.NewSyncer(st).WithConfig(cfg).WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg)))
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),

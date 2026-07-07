@@ -422,12 +422,13 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		Summary:   "Create calendar event",
 		CreatedAt: created,
 	})
-	server := &Server{store: st}
+	cfg := config.Default()
+	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 
 	if _, err := st.ResolveApproval("ap_one", "approved", "ok"); err != nil {
 		t.Fatal(err)
 	}
-	server.completeRunIfApprovalsResolved(run.ID)
+	runtime.CompleteRunIfApprovalsResolved(run.ID)
 	pendingRun, ok := st.GetRun(run.ID)
 	if !ok {
 		t.Fatalf("run %q missing", run.ID)
@@ -438,7 +439,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	if _, err := st.ResolveApproval("ap_two", "rejected", "no"); err != nil {
 		t.Fatal(err)
 	}
-	server.completeRunIfApprovalsResolved(run.ID)
+	runtime.CompleteRunIfApprovalsResolved(run.ID)
 	completedRun, ok := st.GetRun(run.ID)
 	if !ok {
 		t.Fatalf("run %q missing after approvals", run.ID)

@@ -17,16 +17,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 type Dispatcher struct {
-	store                      store.Store
-	runtime                    agent.Runtime
-	tools                      *toolhub.ToolHub
-	cfg                        config.NotificationChannelConfig
-	workspaceBaseRoot          string
-	observationSummaryMaxBytes int
+	store             store.Store
+	runtime           agent.Runtime
+	cfg               config.NotificationChannelConfig
+	workspaceBaseRoot string
 }
 
 type InboundMessage struct {
@@ -44,18 +41,12 @@ func NewDispatcher(st store.Store, runtime agent.Runtime, cfg config.Notificatio
 	return &Dispatcher{store: st, runtime: runtime, cfg: cfg}
 }
 
-func NewDispatcherWithConfig(st store.Store, runtime agent.Runtime, cfg config.Config, tools ...*toolhub.ToolHub) *Dispatcher {
-	var hub *toolhub.ToolHub
-	if len(tools) > 0 {
-		hub = tools[0]
-	}
+func NewDispatcherWithConfig(st store.Store, runtime agent.Runtime, cfg config.Config) *Dispatcher {
 	return &Dispatcher{
-		store:                      st,
-		runtime:                    runtime,
-		tools:                      hub,
-		cfg:                        cfg.Tools.Notifications.Channels["weixin"],
-		workspaceBaseRoot:          strings.TrimSpace(cfg.Workspaces.DefaultRoot),
-		observationSummaryMaxBytes: cfg.Runtime.ObservationSummaryMaxBytes,
+		store:             st,
+		runtime:           runtime,
+		cfg:               cfg.Tools.Notifications.Channels["weixin"],
+		workspaceBaseRoot: strings.TrimSpace(cfg.Workspaces.DefaultRoot),
 	}
 }
 
@@ -69,8 +60,15 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if externalID == "" {
 		externalID = stableInboundID(inbound)
 	}
-	if _, ok := d.store.FindWeixinChatMessageByExternalID(chatSession.ID, externalID); ok {
-		return nil
+	// A message whose previous dispatch failed may be delivered again by the
+	// provider (the cursor is only advanced after successful dispatch); reuse
+	// its record so the retry does not duplicate the chat history.
+	retryID := ""
+	if existing, ok := d.store.FindWeixinChatMessageByExternalID(chatSession.ID, externalID); ok {
+		if existing.Status != "failed" {
+			return nil
+		}
+		retryID = existing.ID
 	}
 	receivedAt := inbound.CreatedAt
 	if receivedAt.IsZero() {
@@ -87,6 +85,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if text == "" && len(inbound.Attachments) > 0 {
 		inboundContent := pendingAttachmentContext(inbound.Attachments)
 		inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+			ID:                retryID,
 			ChatSessionID:     chatSession.ID,
 			BindingID:         inbound.Binding.ID,
 			Direction:         "inbound",
@@ -126,6 +125,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		return sendErr
 	}
 	inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
 		Direction:         "inbound",
@@ -334,7 +334,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		if err != nil {
 			return true, err
 		}
-		if _, err := d.executeApprovedToolCall(ctx, resolved); err != nil {
+		if _, err := d.runtime.ExecuteApprovedToolCall(ctx, resolved); err != nil {
 			return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, "确认失败："+err.Error(), approval.RunID, "failed")
 		}
 		if result, resumed, err := d.runtime.ResumeRunAfterApproval(ctx, approval.SessionID, approval.RunID); err != nil {
@@ -346,7 +346,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 			}
 			return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, result.Run.ID, "")
 		}
-		d.completeRunIfApprovalsResolved(approval.RunID)
+		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 		if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
 			if answer := weixinApprovedToolAnswer(call); answer != "" {
 				return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, approval.RunID, "")
@@ -365,7 +365,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		call.CompletedAt = &now
 		d.store.SaveToolCall(call)
 	}
-	d.completeRunIfApprovalsResolved(resolved.RunID)
+	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
 	answer := "已取消，本次需要确认的操作没有执行。"
 	return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, resolved.RunID, "")
 }
@@ -431,85 +431,6 @@ func parseApprovalReply(text string) (bool, bool) {
 	default:
 		return false, false
 	}
-}
-
-func (d *Dispatcher) executeApprovedToolCall(ctx context.Context, approval app.Approval) (app.ToolCall, error) {
-	call, ok := d.store.GetToolCall(approval.ToolCallID)
-	if !ok {
-		return app.ToolCall{}, fmt.Errorf("approved tool call not found")
-	}
-	if call.Status != "approval_pending" {
-		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
-	}
-	if call.Tool == "notify.ask_approval" {
-		now := time.Now().UTC()
-		call.Status = "completed_after_approval"
-		call.CompletedAt = &now
-		call.Result = map[string]any{"status": "approval_confirmed"}
-		call.Error = ""
-		call.ObservationSummary = agent.CompressObservation(call.Tool, call.Result, d.observationLimit())
-		d.store.SaveToolCall(call)
-		return call, nil
-	}
-	if d.tools == nil {
-		return app.ToolCall{}, fmt.Errorf("vx approval execution is not configured")
-	}
-	def, ok := d.tools.Definition(call.Tool)
-	if !ok {
-		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
-	}
-	timeout := time.Duration(def.TimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	call.Status = "running_after_approval"
-	d.store.SaveToolCall(call)
-	result, err := d.tools.Execute(execCtx, call.Tool, call.Arguments, call.SessionID, call.RunID)
-	now := time.Now().UTC()
-	call.CompletedAt = &now
-	if err != nil {
-		call.Status = "failed_after_approval"
-		call.Error = err.Error()
-		if result.Output != nil {
-			call.Result = result.Output
-		}
-		d.store.SaveToolCall(call)
-		return call, nil
-	}
-	call.Status = "completed_after_approval"
-	call.Result = result.Output
-	call.Error = ""
-	call.ObservationSummary = agent.CompressObservation(call.Tool, result.Output, d.observationLimit())
-	d.store.SaveToolCall(call)
-	return call, nil
-}
-
-func (d *Dispatcher) completeRunIfApprovalsResolved(runID string) {
-	if runID == "" {
-		return
-	}
-	run, ok := d.store.GetRun(runID)
-	if !ok || run.State != "approval_pending" {
-		return
-	}
-	for _, approval := range d.store.ListApprovals("pending") {
-		if approval.RunID == runID {
-			return
-		}
-	}
-	now := time.Now().UTC()
-	run.State = "completed"
-	run.CompletedAt = &now
-	d.store.SaveRun(run)
-}
-
-func (d *Dispatcher) observationLimit() int {
-	if d.observationSummaryMaxBytes > 0 {
-		return d.observationSummaryMaxBytes
-	}
-	return 1200
 }
 
 func attachmentClarificationPrompt(attachments []app.MessageAttachment) string {

@@ -1,0 +1,12 @@
+{
+  "archived_at": "2026-07-07T07:32:19.068311Z",
+  "output": {
+    "status": "approval_confirmed"
+  },
+  "run_id": "run_8c9bfd26dce62f14",
+  "session_id": "s_8b956d8ffe7c6e74",
+  "status": "completed_after_approval",
+  "summary": "notify.ask_approval Observation bytes=31. notify.ask_approval completed. status=\"approval_confirmed\"",
+  "tool": "notify.ask_approval",
+  "tool_call_id": "tc_5668232862cedbe6"
+}

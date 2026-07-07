@@ -286,7 +286,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	cfg.Model.Mock = true
 	hub := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg, hub)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
 	dispatcher.cfg = config.NotificationChannelConfig{Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: ts.URL, Token: "bot-token"}
 	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
 		Binding:      app.NotificationBinding{ID: chatSession.BindingID, ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL},
@@ -349,7 +349,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	cfg.Model.Mock = true
 	hub := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg, hub)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
 	dispatcher.cfg = config.NotificationChannelConfig{Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: ts.URL, Token: "bot-token"}
 	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
 		Binding:      app.NotificationBinding{ID: chatSession.BindingID, ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL},

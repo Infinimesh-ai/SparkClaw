@@ -46,6 +46,7 @@ type Store interface {
 	SaveReminder(reminder app.Reminder) app.Reminder
 	GetReminder(id string) (app.Reminder, bool)
 	ListReminders(filter app.ReminderFilter) []app.Reminder
+	ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder
 	SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery
 	ListReminderDeliveries(reminderID string) []app.ReminderDelivery
 	SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding

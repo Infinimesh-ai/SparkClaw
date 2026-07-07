@@ -1351,6 +1351,32 @@ func (s *PostgresStore) ListReminders(filter app.ReminderFilter) []app.Reminder 
 	return collectRows(rows, scanReminder)
 }
 
+func (s *PostgresStore) ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(context.Background(), `
+		UPDATE reminders
+		SET status = 'sending', updated_at = $1
+		WHERE id IN (
+			SELECT id FROM reminders
+			WHERE (status = 'pending' AND due_time <= $1)
+				OR (status = 'sending' AND updated_at <= $2)
+			ORDER BY due_time ASC
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
+			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+	`, now.UTC(), staleBefore.UTC(), limit)
+	if err != nil {
+		return []app.Reminder{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanReminder)
+}
+
 func (s *PostgresStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
 	now := time.Now().UTC()
 	if delivery.ID == "" {

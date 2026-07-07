@@ -148,6 +148,279 @@ func TestSchedulerUsesReminderSpecificWeixinRecipient(t *testing.T) {
 	}
 }
 
+func TestSchedulerReschedulesRecurringReminder(t *testing.T) {
+	cfg := config.Default()
+	st := store.NewMemoryStore()
+	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	reminder := st.SaveReminder(app.Reminder{
+		Text:        "喝水",
+		TextSummary: "喝水",
+		DueTime:     due,
+		Timezone:    "UTC",
+		Channel:     "web",
+		Recurrence:  "daily",
+		Status:      "pending",
+		CreatedAt:   due.Add(-time.Hour),
+		UpdatedAt:   due.Add(-time.Hour),
+	})
+	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	now := due.Add(time.Minute)
+	scheduler.now = func() time.Time { return now }
+
+	deliveries := scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Status != "sent" {
+		t.Fatalf("expected one sent delivery, got %#v", deliveries)
+	}
+	updated, ok := st.GetReminder(reminder.ID)
+	if !ok {
+		t.Fatal("reminder missing")
+	}
+	if updated.Status != "pending" {
+		t.Fatalf("recurring reminder should be re-armed as pending, got %q", updated.Status)
+	}
+	wantNext := due.Add(24 * time.Hour)
+	if !updated.DueTime.Equal(wantNext) {
+		t.Fatalf("expected next due time %v, got %v", wantNext, updated.DueTime)
+	}
+	if updated.DeliveryAttempt != 0 {
+		t.Fatalf("expected delivery attempt reset, got %d", updated.DeliveryAttempt)
+	}
+	if updated.SentAt == nil {
+		t.Fatal("expected sent_at to record the last successful send")
+	}
+
+	if again := scheduler.Tick(t.Context()); len(again) != 0 {
+		t.Fatalf("reminder not yet due should not fire, got %#v", again)
+	}
+
+	now = wantNext.Add(time.Minute)
+	deliveries = scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Status != "sent" {
+		t.Fatalf("expected the next occurrence to fire, got %#v", deliveries)
+	}
+	updated, _ = st.GetReminder(reminder.ID)
+	if !updated.DueTime.Equal(due.Add(48 * time.Hour)) {
+		t.Fatalf("expected due time to advance to %v, got %v", due.Add(48*time.Hour), updated.DueTime)
+	}
+}
+
+func TestSchedulerKeepsRetryableFailurePending(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	cfg := config.Default()
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:  true,
+		Provider: "openclaw-weixin-compatible",
+		BaseURL:  ts.URL,
+		Token:    "bot-token",
+	}
+	st := store.NewMemoryStore()
+	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	reminder := st.SaveReminder(app.Reminder{
+		Text:             "喝水",
+		TextSummary:      "喝水",
+		DueTime:          due,
+		Timezone:         "Asia/Shanghai",
+		Channel:          "weixin",
+		Recipient:        "wx-user-a",
+		RecipientBinding: "ctx-a",
+		Status:           "pending",
+		CreatedAt:        due.Add(-time.Hour),
+		UpdatedAt:        due.Add(-time.Hour),
+	})
+	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	now := due.Add(time.Minute)
+	scheduler.now = func() time.Time { return now }
+
+	deliveries := scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Status != "failed" || deliveries[0].RetryState != "retryable" {
+		t.Fatalf("expected one retryable failure, got %#v", deliveries)
+	}
+	updated, ok := st.GetReminder(reminder.ID)
+	if !ok {
+		t.Fatal("reminder missing")
+	}
+	if updated.Status != "pending" {
+		t.Fatalf("retryable failure should stay pending, got %q", updated.Status)
+	}
+	if updated.LastError == "" {
+		t.Fatal("expected last error to be recorded")
+	}
+	wantRetry := now.Add(time.Minute)
+	if !updated.DueTime.Equal(wantRetry) {
+		t.Fatalf("expected backoff due time %v, got %v", wantRetry, updated.DueTime)
+	}
+
+	if again := scheduler.Tick(t.Context()); len(again) != 0 {
+		t.Fatalf("reminder in backoff should not fire, got %#v", again)
+	}
+
+	now = wantRetry.Add(time.Second)
+	deliveries = scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Attempt != 2 {
+		t.Fatalf("expected second attempt after backoff, got %#v", deliveries)
+	}
+	updated, _ = st.GetReminder(reminder.ID)
+	if updated.Status != "pending" {
+		t.Fatalf("second retryable failure should stay pending, got %q", updated.Status)
+	}
+	if !updated.DueTime.Equal(now.Add(2 * time.Minute)) {
+		t.Fatalf("expected doubled backoff %v, got %v", now.Add(2*time.Minute), updated.DueTime)
+	}
+}
+
+func TestSchedulerBlockedFailureIsTerminal(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:  false,
+		Provider: "openclaw-weixin-compatible",
+	}
+	st := store.NewMemoryStore()
+	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	reminder := st.SaveReminder(app.Reminder{
+		Text:        "带伞",
+		TextSummary: "带伞",
+		DueTime:     due,
+		Timezone:    "Asia/Shanghai",
+		Channel:     "weixin",
+		Status:      "pending",
+		CreatedAt:   due.Add(-time.Hour),
+		UpdatedAt:   due.Add(-time.Hour),
+	})
+	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	now := due.Add(time.Minute)
+	scheduler.now = func() time.Time { return now }
+
+	deliveries := scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].RetryState != "blocked" {
+		t.Fatalf("expected one blocked failure, got %#v", deliveries)
+	}
+	updated, _ := st.GetReminder(reminder.ID)
+	if updated.Status != "failed" {
+		t.Fatalf("blocked failure should be terminal, got %q", updated.Status)
+	}
+
+	now = now.Add(time.Hour)
+	if again := scheduler.Tick(t.Context()); len(again) != 0 {
+		t.Fatalf("terminally failed reminder must not be retried, got %#v", again)
+	}
+}
+
+func TestSchedulerMarksReminderSendingDuringDelivery(t *testing.T) {
+	st := store.NewMemoryStore()
+	var reminderID string
+	var statusDuringSend string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if current, ok := st.GetReminder(reminderID); ok {
+			statusDuringSend = current.Status
+		}
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer ts.Close()
+
+	cfg := config.Default()
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:  true,
+		Provider: "openclaw-weixin-compatible",
+		BaseURL:  ts.URL,
+		Token:    "bot-token",
+	}
+	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	reminder := st.SaveReminder(app.Reminder{
+		Text:             "喝水",
+		TextSummary:      "喝水",
+		DueTime:          due,
+		Timezone:         "Asia/Shanghai",
+		Channel:          "weixin",
+		Recipient:        "wx-user-a",
+		RecipientBinding: "ctx-a",
+		Status:           "pending",
+		CreatedAt:        due.Add(-time.Hour),
+		UpdatedAt:        due.Add(-time.Hour),
+	})
+	reminderID = reminder.ID
+	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler.now = func() time.Time { return due.Add(time.Minute) }
+
+	deliveries := scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Status != "sent" {
+		t.Fatalf("expected one sent delivery, got %#v", deliveries)
+	}
+	if statusDuringSend != "sending" {
+		t.Fatalf("reminder should be claimed as sending during the network call, got %q", statusDuringSend)
+	}
+	claimed := st.ClaimDueReminders(due.Add(time.Minute), due.Add(-time.Hour), 10)
+	if len(claimed) != 0 {
+		t.Fatalf("sent reminder must not be claimable again, got %#v", claimed)
+	}
+}
+
+func TestSchedulerReclaimsStaleSendingReminder(t *testing.T) {
+	cfg := config.Default()
+	st := store.NewMemoryStore()
+	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	reminder := st.SaveReminder(app.Reminder{
+		Text:        "喝水",
+		TextSummary: "喝水",
+		DueTime:     due,
+		Timezone:    "Asia/Shanghai",
+		Channel:     "web",
+		Status:      "sending",
+		CreatedAt:   due.Add(-time.Hour),
+		UpdatedAt:   due.Add(-10 * time.Minute),
+	})
+	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler.now = func() time.Time { return due.Add(time.Minute) }
+
+	deliveries := scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Status != "sent" {
+		t.Fatalf("expected stale sending reminder to be reclaimed and delivered, got %#v", deliveries)
+	}
+	updated, _ := st.GetReminder(reminder.ID)
+	if updated.Status != "sent" {
+		t.Fatalf("expected reminder marked sent, got %q", updated.Status)
+	}
+}
+
+func TestNextOccurrence(t *testing.T) {
+	base := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name       string
+		recurrence string
+		timezone   string
+		now        time.Time
+		want       time.Time
+		ok         bool
+	}{
+		{"daily", "daily", "UTC", base.Add(time.Minute), base.Add(24 * time.Hour), true},
+		{"daily chinese", "每天", "UTC", base.Add(time.Minute), base.Add(24 * time.Hour), true},
+		{"weekly", "weekly", "UTC", base.Add(time.Minute), base.Add(7 * 24 * time.Hour), true},
+		{"every 2 hours", "every 2 hours", "UTC", base.Add(time.Minute), base.Add(2 * time.Hour), true},
+		{"duration", "45m", "UTC", base.Add(time.Minute), base.Add(45 * time.Minute), true},
+		{"skips missed occurrences", "daily", "UTC", base.Add(3*24*time.Hour + time.Minute), base.Add(4 * 24 * time.Hour), true},
+		{"monthly", "monthly", "UTC", base.Add(time.Minute), time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC), true},
+		{"unknown", "sometimes", "UTC", base.Add(time.Minute), time.Time{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := nextOccurrence(app.Reminder{
+				DueTime:    base,
+				Timezone:   tc.timezone,
+				Recurrence: tc.recurrence,
+			}, tc.now)
+			if ok != tc.ok {
+				t.Fatalf("expected ok=%v, got %v", tc.ok, ok)
+			}
+			if ok && !got.Equal(tc.want) {
+				t.Fatalf("expected next occurrence %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestSchedulerDoesNotFallbackToDefaultWeixinBinding(t *testing.T) {
 	var sendMessageCalls int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -835,6 +835,45 @@ func (s *MemoryStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
 	return out
 }
 
+// ClaimDueReminders atomically flips due pending reminders to "sending" and
+// returns them, so overlapping ticks cannot deliver the same reminder twice.
+// Reminders left in "sending" since before staleBefore (a crashed or hung
+// delivery) are reclaimed.
+func (s *MemoryStore) ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now = now.UTC()
+	claimed := []app.Reminder{}
+	for _, reminder := range s.reminders {
+		switch reminder.Status {
+		case "pending":
+			if reminder.DueTime.After(now) {
+				continue
+			}
+		case "sending":
+			if reminder.UpdatedAt.After(staleBefore.UTC()) {
+				continue
+			}
+		default:
+			continue
+		}
+		claimed = append(claimed, reminder)
+	}
+	slices.SortFunc(claimed, func(a, b app.Reminder) int {
+		return a.DueTime.Compare(b.DueTime)
+	})
+	if limit > 0 && len(claimed) > limit {
+		claimed = claimed[:limit]
+	}
+	for i, reminder := range claimed {
+		reminder.Status = "sending"
+		reminder.UpdatedAt = now
+		s.reminders[reminder.ID] = reminder
+		claimed[i] = reminder
+	}
+	return claimed
+}
+
 func (s *MemoryStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -19,10 +19,15 @@ jobs:
           import re
 
           root = Path(".")
-          ignored = {".git", "node_modules", "data"}
+          ignored = {".git", "node_modules", "data", ".agents", ".claude"}
+          # Agent instruction files managed by the Team Skills mount; they are
+          # tool-facing config, not project documentation, so no zh-cn mirror.
+          agent_files = {Path("AGENTS.md"), Path("CLAUDE.md")}
           base = []
           for path in root.rglob("*.md"):
               if any(part in ignored for part in path.parts):
+                  continue
+              if path in agent_files:
                   continue
               if path.parts and path.parts[0] == "zh-cn":
                   continue
@@ -55,6 +60,8 @@ jobs:
           link_pattern = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
           for path in sorted(root.rglob("*.md")):
               if any(part in ignored for part in path.parts):
+                  continue
+              if path in agent_files:
                   continue
               for raw in link_pattern.findall(path.read_text(encoding="utf-8")):
                   target = raw.split("#", 1)[0].strip()

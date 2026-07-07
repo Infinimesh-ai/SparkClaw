@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/refactor-playbook.md)
 
-This is the standard instruction document handed to an Agent (e.g. Claude Code) when kicking off a periodic architecture refactoring task. When starting a task, state the review scope (e.g. "the last N commits" or "package X") and attach this document; everything else follows this playbook without restating it.
+This is the standard instruction document handed to an Agent (e.g. Claude Code) when kicking off a periodic architecture refactoring task. The repo mounts the Team-Skills `sparkclaw-sop` skill (auto-injected at session start, routing here), so starting a task only requires stating the review scope (e.g. "the last N commits" or "package X"); everything else follows this playbook without restating it.
 
 ---
 
@@ -59,6 +59,7 @@ Large independent items (concurrency model changes, functional bug fixes, giant-
 - After merges complete and tests are green: remove merged worktrees and branches.
 - Committing is autonomous; **before pushing `origin main`, list the full commit set in the report** (unless the task instruction explicitly pre-authorizes pushing).
 - Unfinished high-value items: file them as background task suggestions (spawn_task); each task prompt must be self-contained (file paths, problem description, acceptance criteria) without depending on the current session's context.
+- **Lessons write-back**: capture this pass's new failure patterns as lessons appended under `Team-Skills/projects/SparkClaw/sparkclaw-sop/lessons/` (one file per lesson, append-only, `status: pending`); promotion to guardrails happens at the next consolidation. This document stays lean — do not pile experience into it directly.
 
 ## Report format
 

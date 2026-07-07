@@ -2,7 +2,7 @@
 
 > 语言： [English](../../docs/refactor-playbook.md) | 简体中文
 
-本文档是下达周期性架构重构任务时交给 Agent（如 Claude Code）的标准指令。发起任务时说明审查范围（如"最近 N 个 commit"或"某个包"），并附上这份文档；其余按本文执行，不必逐条重复。
+本文档是下达周期性架构重构任务时交给 Agent（如 Claude Code）的标准指令。仓库已挂载 Team-Skills 的 `sparkclaw-sop` skill（会话启动时自动注入，含指向本文的路由），因此发起任务只需说明审查范围（如"最近 N 个 commit"或"某个包"）；其余按本文执行，不必逐条重复。
 
 ---
 
@@ -59,6 +59,8 @@
 - 合并完成且测试全绿后：删除已合并的 worktree 与分支。
 - 提交可自主进行；**推送 `origin main` 前在汇报中列出完整 commit 清单**（除非任务指令已明确授权直接推送）。
 - 没做完的高价值项：用后台任务建议（spawn_task）挂出，每个任务的 prompt 必须自包含（含文件路径、问题描述、验收标准），不依赖当前会话上下文。
+- **经验回写**：本轮新踩的坑写成 lesson 追加到
+  `Team-Skills/projects/SparkClaw/sparkclaw-sop/lessons/`（一坑一文件、只增不改、`status: pending`），下轮 consolidation 时再决定是否升级为 guardrail。本文档保持精简，不直接堆经验。
 
 ## 汇报格式
 

@@ -124,7 +124,7 @@ func NewRouter(cfg config.Config, stores ...store.Store) Router {
 	}
 	for name, channel := range cfg.Tools.Notifications.Channels {
 		name = strings.ToLower(strings.TrimSpace(name))
-		if name == "" || !channel.Enabled || channel.Disabled {
+		if name == "" || !channel.Enabled {
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(channel.Provider)) {

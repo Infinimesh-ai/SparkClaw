@@ -54,7 +54,7 @@ func main() {
 	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces)
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
-	if cfg.Tools.Reminders.Enabled && !cfg.Tools.Reminders.Disabled {
+	if cfg.Tools.Reminders.Enabled {
 		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notification.NewRouter(cfg, st)))
 	}
 	startWeixinContextSyncer(serverCtx, weixin.NewSyncer(st).WithConfig(cfg).WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg)))

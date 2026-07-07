@@ -97,20 +97,17 @@ type WebToolsConfig struct {
 type WebSearchToolConfig struct {
 	Enabled  bool   `json:"enabled"`
 	Provider string `json:"provider"`
-	Disabled bool   `json:"disabled,omitempty"`
 }
 
 type BrowserAutomationToolConfig struct {
 	Enabled  bool   `json:"enabled"`
 	Provider string `json:"provider"`
 	Profile  string `json:"profile"`
-	Disabled bool   `json:"disabled,omitempty"`
 }
 
 type RemindersToolConfig struct {
 	Enabled        bool   `json:"enabled"`
 	DefaultChannel string `json:"defaultChannel"`
-	Disabled       bool   `json:"disabled,omitempty"`
 }
 
 type NotificationsToolConfig struct {
@@ -124,7 +121,6 @@ type NotificationChannelConfig struct {
 	CDNBaseURL string `json:"cdnBaseUrl,omitempty"`
 	Token      string `json:"token,omitempty"`
 	Recipient  string `json:"recipient,omitempty"`
-	Disabled   bool   `json:"disabled,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -272,7 +268,30 @@ func Load(path string) (Config, error) {
 			cfg.Workspaces.Allowlist[i] = abs
 		}
 	}
+	normalizeRuntimeLimits(&cfg.Runtime)
 	return cfg, nil
+}
+
+// normalizeRuntimeLimits backfills non-positive ReAct budgets with the
+// defaults so a partial runtime section in JSON cannot silently disable the
+// loop's stop conditions.
+func normalizeRuntimeLimits(rt *RuntimeConfig) {
+	defaults := Default().Runtime
+	if rt.ReactMaxDurationSeconds <= 0 {
+		rt.ReactMaxDurationSeconds = defaults.ReactMaxDurationSeconds
+	}
+	if rt.ReactMaxToolCalls <= 0 {
+		rt.ReactMaxToolCalls = defaults.ReactMaxToolCalls
+	}
+	if rt.ReactMaxObservationBytes <= 0 {
+		rt.ReactMaxObservationBytes = defaults.ReactMaxObservationBytes
+	}
+	if rt.ReactMaxNoProgressActions <= 0 {
+		rt.ReactMaxNoProgressActions = defaults.ReactMaxNoProgressActions
+	}
+	if rt.ReactMaxRepeatedToolCalls <= 0 {
+		rt.ReactMaxRepeatedToolCalls = defaults.ReactMaxRepeatedToolCalls
+	}
 }
 
 func Default() Config {
@@ -611,14 +630,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_WEB_SEARCH_ENABLED"); v != "" {
 		cfg.Tools.Web.Search.Enabled = parseBool(v)
-		cfg.Tools.Web.Search.Disabled = !cfg.Tools.Web.Search.Enabled
 	}
 	if v := os.Getenv("SPARKCLAW_WEB_SEARCH_PROVIDER"); v != "" {
 		cfg.Tools.Web.Search.Provider = v
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED"); v != "" {
 		cfg.Tools.BrowserAutomation.Enabled = parseBool(v)
-		cfg.Tools.BrowserAutomation.Disabled = !cfg.Tools.BrowserAutomation.Enabled
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_PROVIDER"); v != "" {
 		cfg.Tools.BrowserAutomation.Provider = v
@@ -645,7 +662,6 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_ENABLED"); v != "" {
 		cfg.Tools.Reminders.Enabled = parseBool(v)
-		cfg.Tools.Reminders.Disabled = !cfg.Tools.Reminders.Enabled
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_DEFAULT_CHANNEL"); v != "" {
 		cfg.Tools.Reminders.DefaultChannel = v
@@ -654,7 +670,6 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED"); v != "" {
 		ch := cfg.Tools.Notifications.Channels["weixin"]
 		ch.Enabled = parseBool(v)
-		ch.Disabled = !ch.Enabled
 		cfg.Tools.Notifications.Channels["weixin"] = ch
 	}
 	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_PROVIDER"); v != "" {

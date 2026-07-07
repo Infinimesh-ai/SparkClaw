@@ -12,6 +12,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 type StartRequest struct {
@@ -101,7 +102,7 @@ func (a *ManualWeixinAdapter) Start(ctx context.Context, binding app.Notificatio
 		binding.ID = app.NewID("bind")
 	}
 	if binding.Provider == "" {
-		binding.Provider = providerName(a.cfg.Provider)
+		binding.Provider = weixinproto.ProviderName(a.cfg.Provider)
 	}
 	if binding.Channel == "" {
 		binding.Channel = a.channel
@@ -142,14 +143,6 @@ func (a *ManualWeixinAdapter) Cancel(ctx context.Context, binding app.Notificati
 	return nil
 }
 
-func providerName(provider string) string {
-	provider = strings.TrimSpace(provider)
-	if provider == "" {
-		return "openclaw-weixin-compatible"
-	}
-	return provider
-}
-
 func normalizeScopes(scopes []string) []string {
 	out := []string{}
 	seen := map[string]bool{}
@@ -184,7 +177,7 @@ func NewWeixinQRAdapter(channel string, cfg config.NotificationChannelConfig) *W
 func (a *WeixinQRAdapter) Start(ctx context.Context, binding app.NotificationBinding) (app.NotificationBinding, error) {
 	endpoint := strings.TrimSpace(a.cfg.BaseURL)
 	if endpoint == "" {
-		endpoint = "https://ilinkai.weixin.qq.com"
+		endpoint = weixinproto.DefaultBaseURL
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(endpoint, "/")+"/ilink/bot/get_bot_qrcode?bot_type=3", nil)
 	if err != nil {
@@ -223,7 +216,7 @@ func (a *WeixinQRAdapter) Start(ctx context.Context, binding app.NotificationBin
 		binding.ID = app.NewID("bind")
 	}
 	binding.Channel = valueOr(binding.Channel, a.channel)
-	binding.Provider = providerName(a.cfg.Provider)
+	binding.Provider = weixinproto.ProviderName(a.cfg.Provider)
 	binding.Status = "waiting_scan"
 	binding.QRCodeURL = strings.TrimSpace(decoded.Data.QRCodeURL)
 	if binding.QRCodeURL == "" {
@@ -254,7 +247,7 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 	}
 	endpoint := strings.TrimSpace(a.cfg.BaseURL)
 	if endpoint == "" {
-		endpoint = "https://ilinkai.weixin.qq.com"
+		endpoint = weixinproto.DefaultBaseURL
 	}
 	pollURL := strings.TrimRight(endpoint, "/") + "/ilink/bot/get_qrcode_status?qrcode=" + url.QueryEscape(session)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)

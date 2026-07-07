@@ -22,10 +22,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 const (
-	defaultWeixinCDNBaseURL = "https://novac2c.cdn.weixin.qq.com/c2c"
+	defaultWeixinCDNBaseURL = weixinproto.DefaultCDNBaseURL
 	maxWeixinImageBytes     = 12 << 20
 	maxWeixinFileBytes      = 50 << 20
 )
@@ -87,7 +88,7 @@ func (a *MediaAdapter) DownloadInboundImage(ctx context.Context, binding app.Not
 		if err != nil {
 			return app.MessageAttachment{}, err
 		}
-		content, err = decryptAESECBPKCS7(raw, key)
+		content, err = weixinproto.DecryptAESECBPKCS7(raw, key)
 		if err != nil {
 			return app.MessageAttachment{}, err
 		}
@@ -165,7 +166,7 @@ func (a *MediaAdapter) DownloadInboundFile(ctx context.Context, binding app.Noti
 		if err != nil {
 			return app.MessageAttachment{}, err
 		}
-		content, err = decryptAESECBPKCS7(raw, key)
+		content, err = weixinproto.DecryptAESECBPKCS7(raw, key)
 		if err != nil {
 			return app.MessageAttachment{}, err
 		}
@@ -387,60 +388,6 @@ func parseWeixinAESKey(value string) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("weixin media aes_key decoded to %d bytes, expected 16 raw bytes or 32 hex chars", len(decoded))
-}
-
-func decryptAESECBPKCS7(ciphertextBytes, key []byte) ([]byte, error) {
-	if len(ciphertextBytes) == 0 || len(ciphertextBytes)%aes.BlockSize != 0 {
-		return nil, fmt.Errorf("AES-ECB ciphertext length must be a positive multiple of %d", aes.BlockSize)
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, len(ciphertextBytes))
-	for start := 0; start < len(ciphertextBytes); start += aes.BlockSize {
-		block.Decrypt(out[start:start+aes.BlockSize], ciphertextBytes[start:start+aes.BlockSize])
-	}
-	return unpadPKCS7(out, aes.BlockSize)
-}
-
-func encryptAESECBPKCS7(plaintext, key []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	padded := padPKCS7(plaintext, aes.BlockSize)
-	out := make([]byte, len(padded))
-	for start := 0; start < len(padded); start += aes.BlockSize {
-		block.Encrypt(out[start:start+aes.BlockSize], padded[start:start+aes.BlockSize])
-	}
-	return out, nil
-}
-
-func padPKCS7(in []byte, blockSize int) []byte {
-	pad := blockSize - len(in)%blockSize
-	out := make([]byte, len(in)+pad)
-	copy(out, in)
-	for i := len(in); i < len(out); i++ {
-		out[i] = byte(pad)
-	}
-	return out
-}
-
-func unpadPKCS7(in []byte, blockSize int) ([]byte, error) {
-	if len(in) == 0 || len(in)%blockSize != 0 {
-		return nil, errors.New("invalid PKCS7 padded data length")
-	}
-	pad := int(in[len(in)-1])
-	if pad == 0 || pad > blockSize || pad > len(in) {
-		return nil, errors.New("invalid PKCS7 padding")
-	}
-	for _, b := range in[len(in)-pad:] {
-		if int(b) != pad {
-			return nil, errors.New("invalid PKCS7 padding bytes")
-		}
-	}
-	return in[:len(in)-pad], nil
 }
 
 func randomAESKey() ([]byte, error) {

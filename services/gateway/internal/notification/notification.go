@@ -21,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 type Notification struct {
@@ -245,7 +246,7 @@ func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Re
 			}},
 		},
 		"base_info": map[string]any{
-			"channel_version": "2.4.6",
+			"channel_version": weixinproto.ChannelVersion,
 			"bot_agent":       "SparkClaw",
 		},
 	}
@@ -262,12 +263,7 @@ func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Re
 	if err != nil {
 		return a.failed(notification, err.Error(), "blocked")
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("AuthorizationType", "ilink_bot_token")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("iLink-App-Id", "bot")
-	req.Header.Set("iLink-App-ClientVersion", "132102")
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
+	weixinproto.SetHeaders(req, token)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return a.failed(notification, err.Error(), "retryable")
@@ -291,7 +287,7 @@ func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Re
 	return Result{
 		DeliveryID:     app.NewID("rdel"),
 		Channel:        a.channel,
-		Provider:       providerName(a.cfg.Provider),
+		Provider:       weixinproto.ProviderName(a.cfg.Provider),
 		Recipient:      redactRecipient(recipient),
 		Status:         "sent",
 		ProviderStatus: "sent",
@@ -376,7 +372,7 @@ func (a *WeixinAdapter) SendImage(ctx context.Context, notification Notification
 	return Result{
 		DeliveryID:     app.NewID("rdel"),
 		Channel:        a.channel,
-		Provider:       providerName(a.cfg.Provider),
+		Provider:       weixinproto.ProviderName(a.cfg.Provider),
 		Recipient:      redactRecipient(recipient),
 		Status:         "sent",
 		ProviderStatus: "sent",
@@ -465,7 +461,7 @@ func (a *WeixinAdapter) SendFile(ctx context.Context, notification Notification)
 	return Result{
 		DeliveryID:     app.NewID("rdel"),
 		Channel:        a.channel,
-		Provider:       providerName(a.cfg.Provider),
+		Provider:       weixinproto.ProviderName(a.cfg.Provider),
 		Recipient:      redactRecipient(recipient),
 		Status:         "sent",
 		ProviderStatus: "sent",
@@ -486,7 +482,7 @@ func (a *WeixinAdapter) sendWeixinMessageItem(ctx context.Context, baseURL, toke
 			"item_list":     []map[string]any{item},
 		},
 		"base_info": map[string]any{
-			"channel_version": "2.4.6",
+			"channel_version": weixinproto.ChannelVersion,
 			"bot_agent":       "SparkClaw",
 		},
 	}
@@ -501,7 +497,7 @@ func (a *WeixinAdapter) sendWeixinMessageItem(ctx context.Context, baseURL, toke
 	if err != nil {
 		return err
 	}
-	setWeixinHeaders(req, token)
+	weixinproto.SetHeaders(req, token)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return err
@@ -562,7 +558,7 @@ func (a *WeixinAdapter) SendTyping(ctx context.Context, notification Notificatio
 		"typing_ticket": ticket,
 		"status":        int(status),
 		"base_info": map[string]any{
-			"channel_version": "2.4.6",
+			"channel_version": weixinproto.ChannelVersion,
 			"bot_agent":       "SparkClaw",
 		},
 	}
@@ -574,12 +570,7 @@ func (a *WeixinAdapter) SendTyping(ctx context.Context, notification Notificatio
 	if err != nil {
 		return a.failed(notification, err.Error(), "blocked")
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("AuthorizationType", "ilink_bot_token")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("iLink-App-Id", "bot")
-	req.Header.Set("iLink-App-ClientVersion", "132102")
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
+	weixinproto.SetHeaders(req, token)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return a.failed(notification, err.Error(), "retryable")
@@ -603,7 +594,7 @@ func (a *WeixinAdapter) SendTyping(ctx context.Context, notification Notificatio
 	return Result{
 		DeliveryID:     app.NewID("wxtyping"),
 		Channel:        a.channel,
-		Provider:       providerName(a.cfg.Provider),
+		Provider:       weixinproto.ProviderName(a.cfg.Provider),
 		Recipient:      redactRecipient(recipient),
 		Status:         "sent",
 		ProviderStatus: resp.Status,
@@ -617,7 +608,7 @@ func (a *WeixinAdapter) getTypingTicket(ctx context.Context, baseURL, token, rec
 		"ilink_user_id": recipient,
 		"context_token": contextToken,
 		"base_info": map[string]any{
-			"channel_version": "2.4.6",
+			"channel_version": weixinproto.ChannelVersion,
 			"bot_agent":       "SparkClaw",
 		},
 	}
@@ -629,12 +620,7 @@ func (a *WeixinAdapter) getTypingTicket(ctx context.Context, baseURL, token, rec
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("AuthorizationType", "ilink_bot_token")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("iLink-App-Id", "bot")
-	req.Header.Set("iLink-App-ClientVersion", "132102")
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
+	weixinproto.SetHeaders(req, token)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return "", err
@@ -682,7 +668,7 @@ func (a *WeixinAdapter) uploadMediaToCDN(ctx context.Context, baseURL, token, re
 	if _, err := rand.Read(key); err != nil {
 		return uploadedWeixinImage{}, err
 	}
-	ciphertext, err := encryptWeixinAESECBPKCS7(plaintext, key)
+	ciphertext, err := weixinproto.EncryptAESECBPKCS7(plaintext, key)
 	if err != nil {
 		return uploadedWeixinImage{}, err
 	}
@@ -702,7 +688,7 @@ func (a *WeixinAdapter) uploadMediaToCDN(ctx context.Context, baseURL, token, re
 		"no_need_thumb": true,
 		"aeskey":        hex.EncodeToString(key),
 		"base_info": map[string]any{
-			"channel_version": "2.4.6",
+			"channel_version": weixinproto.ChannelVersion,
 			"bot_agent":       "SparkClaw",
 		},
 	}
@@ -714,7 +700,7 @@ func (a *WeixinAdapter) uploadMediaToCDN(ctx context.Context, baseURL, token, re
 	if err != nil {
 		return uploadedWeixinImage{}, err
 	}
-	setWeixinHeaders(req, token)
+	weixinproto.SetHeaders(req, token)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return uploadedWeixinImage{}, err
@@ -790,15 +776,6 @@ func filepathBase(path string) string {
 	return path
 }
 
-func setWeixinHeaders(req *http.Request, token string) {
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("AuthorizationType", "ilink_bot_token")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("iLink-App-Id", "bot")
-	req.Header.Set("iLink-App-ClientVersion", "132102")
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
-}
-
 func supportedWeixinOutboundImageType(contentType string) bool {
 	switch strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) {
 	case "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp":
@@ -808,42 +785,7 @@ func supportedWeixinOutboundImageType(contentType string) bool {
 	}
 }
 
-func encryptWeixinAESECBPKCS7(plaintext, key []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	padded := padWeixinPKCS7(plaintext, aes.BlockSize)
-	out := make([]byte, len(padded))
-	for start := 0; start < len(padded); start += aes.BlockSize {
-		block.Encrypt(out[start:start+aes.BlockSize], padded[start:start+aes.BlockSize])
-	}
-	return out, nil
-}
-
-func padWeixinPKCS7(in []byte, blockSize int) []byte {
-	pad := blockSize - len(in)%blockSize
-	out := make([]byte, len(in)+pad)
-	copy(out, in)
-	for i := len(in); i < len(out); i++ {
-		out[i] = byte(pad)
-	}
-	return out
-}
-
-const defaultWeixinNotificationCDNBaseURL = "https://novac2c.cdn.weixin.qq.com/c2c"
-
-func randomWechatUIN() string {
-	var raw [4]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return base64.StdEncoding.EncodeToString([]byte("0"))
-	}
-	value := int(raw[0])<<24 | int(raw[1])<<16 | int(raw[2])<<8 | int(raw[3])
-	if value < 0 {
-		value = -value
-	}
-	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", value)))
-}
+const defaultWeixinNotificationCDNBaseURL = weixinproto.DefaultCDNBaseURL
 
 func (a *WeixinAdapter) failed(notification Notification, message, retryState string) (Result, error) {
 	err := errors.New(message)
@@ -851,21 +793,13 @@ func (a *WeixinAdapter) failed(notification Notification, message, retryState st
 	return Result{
 		DeliveryID:     app.NewID("rdel"),
 		Channel:        a.channel,
-		Provider:       providerName(a.cfg.Provider),
+		Provider:       weixinproto.ProviderName(a.cfg.Provider),
 		Recipient:      redactRecipient(recipient),
 		Status:         "failed",
 		ProviderStatus: "failed",
 		Error:          message,
 		RetryState:     retryState,
 	}, err
-}
-
-func providerName(provider string) string {
-	provider = strings.TrimSpace(provider)
-	if provider == "" {
-		return "openclaw-weixin-compatible"
-	}
-	return provider
 }
 
 func redactRecipient(recipient string) string {

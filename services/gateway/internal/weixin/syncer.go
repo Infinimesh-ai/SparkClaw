@@ -3,8 +3,6 @@ package weixin
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -16,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 const (
@@ -134,7 +133,7 @@ func (s *Syncer) syncBinding(ctx context.Context, binding app.NotificationBindin
 	payload := map[string]any{
 		"get_updates_buf": binding.ProviderCursor,
 		"base_info": map[string]any{
-			"channel_version": "2.4.6",
+			"channel_version": weixinproto.ChannelVersion,
 			"bot_agent":       "SparkClaw",
 		},
 	}
@@ -146,12 +145,7 @@ func (s *Syncer) syncBinding(ctx context.Context, binding app.NotificationBindin
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("AuthorizationType", "ilink_bot_token")
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(secret.Value))
-	req.Header.Set("iLink-App-Id", "bot")
-	req.Header.Set("iLink-App-ClientVersion", "132102")
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
+	weixinproto.SetHeaders(req, secret.Value)
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
@@ -391,16 +385,4 @@ func unixTime(value int64) time.Time {
 		return time.UnixMilli(value).UTC()
 	}
 	return time.Unix(value, 0).UTC()
-}
-
-func randomWechatUIN() string {
-	var raw [4]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return base64.StdEncoding.EncodeToString([]byte("0"))
-	}
-	value := int(raw[0])<<24 | int(raw[1])<<16 | int(raw[2])<<8 | int(raw[3])
-	if value < 0 {
-		value = -value
-	}
-	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", value)))
 }

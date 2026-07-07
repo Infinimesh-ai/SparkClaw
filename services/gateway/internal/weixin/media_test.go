@@ -19,12 +19,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 func TestMediaAdapterDownloadsInboundImageAsAttachment(t *testing.T) {
 	png := tinyPNG(t)
 	key := []byte("0123456789abcdef")
-	encrypted, err := encryptAESECBPKCS7(png, key)
+	encrypted, err := weixinproto.EncryptAESECBPKCS7(png, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +449,7 @@ func TestWeixinApprovalPromptUsesChineseUserFacingDetails(t *testing.T) {
 func TestMediaAdapterDownloadsInboundFileAsUploadAttachment(t *testing.T) {
 	content := []byte("hello from weixin document")
 	key := []byte("0123456789abcdef")
-	encrypted, err := encryptAESECBPKCS7(content, key)
+	encrypted, err := weixinproto.EncryptAESECBPKCS7(content, key)
 	if err != nil {
 		t.Fatal(err)
 	}

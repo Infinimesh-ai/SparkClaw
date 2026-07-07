@@ -58,6 +58,121 @@ type Approval struct {
 	ResolutionNote string         `json:"resolution_note,omitempty"`
 }
 
+type Reminder struct {
+	ID               string     `json:"id"`
+	SessionID        string     `json:"session_id,omitempty"`
+	RunID            string     `json:"run_id,omitempty"`
+	Text             string     `json:"text"`
+	TextSummary      string     `json:"text_summary"`
+	DueTime          time.Time  `json:"due_time"`
+	Timezone         string     `json:"timezone"`
+	Channel          string     `json:"channel"`
+	Recipient        string     `json:"recipient"`
+	RecipientBinding string     `json:"recipient_binding,omitempty"`
+	BindingID        string     `json:"binding_id,omitempty"`
+	CredentialRef    string     `json:"credential_ref,omitempty"`
+	BaseURL          string     `json:"base_url,omitempty"`
+	Recurrence       string     `json:"recurrence,omitempty"`
+	DedupeKey        string     `json:"dedupe_key,omitempty"`
+	Status           string     `json:"status"`
+	LastDeliveryID   string     `json:"last_delivery_id,omitempty"`
+	LastError        string     `json:"last_error,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	SentAt           *time.Time `json:"sent_at,omitempty"`
+	CanceledAt       *time.Time `json:"canceled_at,omitempty"`
+	DeliveryAttempt  int        `json:"delivery_attempt"`
+}
+
+type ReminderFilter struct {
+	Status string
+	From   *time.Time
+	To     *time.Time
+	Limit  int
+}
+
+type ReminderDelivery struct {
+	ID             string    `json:"id"`
+	ReminderID     string    `json:"reminder_id"`
+	Channel        string    `json:"channel"`
+	Provider       string    `json:"provider"`
+	Recipient      string    `json:"recipient"`
+	Status         string    `json:"status"`
+	ProviderStatus string    `json:"provider_status,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	RetryState     string    `json:"retry_state,omitempty"`
+	Attempt        int       `json:"attempt"`
+	SentAt         time.Time `json:"sent_at,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type NotificationBinding struct {
+	ID                string     `json:"id"`
+	OwnerID           string     `json:"owner_id"`
+	Channel           string     `json:"channel"`
+	Provider          string     `json:"provider"`
+	Status            string     `json:"status"`
+	DisplayName       string     `json:"display_name,omitempty"`
+	ExternalUserID    string     `json:"external_user_id,omitempty"`
+	AccountID         string     `json:"account_id,omitempty"`
+	CredentialRef     string     `json:"credential_ref,omitempty"`
+	BaseURL           string     `json:"base_url,omitempty"`
+	ProviderSessionID string     `json:"provider_session_id,omitempty"`
+	ProviderState     string     `json:"provider_state,omitempty"`
+	ContextToken      string     `json:"context_token,omitempty"`
+	ProviderCursor    string     `json:"provider_cursor,omitempty"`
+	QRCodeURL         string     `json:"qr_code_url,omitempty"`
+	QRCodeImage       string     `json:"qr_code_image,omitempty"`
+	DefaultForChannel bool       `json:"default_for_channel"`
+	Scopes            []string   `json:"scopes,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
+	LastError         string     `json:"last_error,omitempty"`
+}
+
+type WeixinChatSession struct {
+	ID               string    `json:"id"`
+	OwnerID          string    `json:"owner_id,omitempty"`
+	WorkspaceRoot    string    `json:"workspace_root,omitempty"`
+	BindingID        string    `json:"binding_id"`
+	Channel          string    `json:"channel"`
+	Provider         string    `json:"provider"`
+	ExternalUserID   string    `json:"external_user_id,omitempty"`
+	DisplayName      string    `json:"display_name,omitempty"`
+	LinkedSessionID  string    `json:"linked_session_id,omitempty"`
+	Status           string    `json:"status"`
+	ProviderCursor   string    `json:"provider_cursor,omitempty"`
+	LastContextToken string    `json:"last_context_token,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type WeixinChatMessage struct {
+	ID                string    `json:"id"`
+	ChatSessionID     string    `json:"chat_session_id"`
+	BindingID         string    `json:"binding_id"`
+	Direction         string    `json:"direction"`
+	Role              string    `json:"role"`
+	ExternalMessageID string    `json:"external_message_id,omitempty"`
+	Content           string    `json:"content"`
+	ContextToken      string    `json:"context_token,omitempty"`
+	LinkedRunID       string    `json:"linked_run_id,omitempty"`
+	Status            string    `json:"status"`
+	Error             string    `json:"error,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type CredentialSecret struct {
+	Ref       string    `json:"ref"`
+	Kind      string    `json:"kind"`
+	Value     string    `json:"value"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Memory struct {
 	ID        string    `json:"id"`
 	Kind      string    `json:"kind"`
@@ -96,12 +211,28 @@ type MemoryExportCounts struct {
 }
 
 type Message struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"session_id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
-	RunID     string    `json:"run_id,omitempty"`
+	ID          string              `json:"id"`
+	SessionID   string              `json:"session_id"`
+	Role        string              `json:"role"`
+	Content     string              `json:"content"`
+	CreatedAt   time.Time           `json:"created_at"`
+	RunID       string              `json:"run_id,omitempty"`
+	Attachments []MessageAttachment `json:"attachments,omitempty"`
+}
+
+type MessageAttachment struct {
+	ArtifactID  string `json:"artifact_id,omitempty"`
+	Name        string `json:"name"`
+	RelPath     string `json:"rel_path"`
+	URI         string `json:"uri,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	Bytes       int    `json:"bytes,omitempty"`
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Caption     string `json:"caption,omitempty"`
+	Summary     string `json:"understanding_summary,omitempty"`
 }
 
 type RunFeedback struct {
@@ -117,10 +248,14 @@ type RunFeedback struct {
 }
 
 type Session struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	OwnerID       string    `json:"owner_id,omitempty"`
+	WorkspaceRoot string    `json:"workspace_root,omitempty"`
+	Title         string    `json:"title"`
+	Source        string    `json:"source,omitempty"`
+	Hidden        bool      `json:"hidden,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Client struct {
@@ -145,18 +280,24 @@ type PairingCode struct {
 const DefaultOwnerID = "owner"
 
 type OwnerProfile struct {
-	ID          string            `json:"id"`
-	DisplayName string            `json:"display_name"`
-	Email       string            `json:"email,omitempty"`
-	Preferences map[string]string `json:"preferences,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	ID               string            `json:"id"`
+	Source           string            `json:"source,omitempty"`
+	ExternalRef      string            `json:"external_ref,omitempty"`
+	WorkspaceRoot    string            `json:"workspace_root,omitempty"`
+	DefaultChannel   string            `json:"default_channel,omitempty"`
+	DefaultBindingID string            `json:"default_binding_id,omitempty"`
+	DisplayName      string            `json:"display_name"`
+	Email            string            `json:"email,omitempty"`
+	Preferences      map[string]string `json:"preferences,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
 }
 
 func DefaultOwnerProfile() OwnerProfile {
 	now := time.Now().UTC()
 	return OwnerProfile{
 		ID:          DefaultOwnerID,
+		Source:      "web",
 		DisplayName: "Owner",
 		Preferences: map[string]string{},
 		CreatedAt:   now,

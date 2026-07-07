@@ -1,8 +1,16 @@
 package toolhub
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/base64"
+	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,6 +83,329 @@ func TestValidateInputSupportsJSONDecodedSchemaForms(t *testing.T) {
 	if err := validateInput(def, map[string]any{"mode": "fast", "count": float64(2), "extra": true}); err == nil || !strings.Contains(err.Error(), "arguments.extra is not allowed") {
 		t.Fatalf("expected additionalProperties validation error, got %v", err)
 	}
+}
+
+func TestImagesInspectUsesMockMultimodalModel(t *testing.T) {
+	root := t.TempDir()
+	raw, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sample.png"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "images.inspect", map[string]any{
+		"path":     "sample.png",
+		"question": "这张图片是什么？",
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, ok := result.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected output type %T", result.Output)
+	}
+	if output["status"] != "completed" || output["content_type"] != "image/png" || output["mock"] != true {
+		t.Fatalf("unexpected image inspection output: %#v", output)
+	}
+	if output["width"] != 1 || output["height"] != 1 {
+		t.Fatalf("expected 1x1 dimensions, got %#v x %#v", output["width"], output["height"])
+	}
+	summary, _ := output["summary"].(string)
+	if !strings.Contains(summary, "Mock image inspection") {
+		t.Fatalf("missing mock image summary: %#v", output["summary"])
+	}
+}
+
+func TestRenderWeatherCardCreatesMediaPNG(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "media.render_weather_card", map[string]any{
+		"location": "杭州",
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, ok := result.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected output type %T", result.Output)
+	}
+	mediaPath, _ := output["media_path"].(string)
+	if !strings.HasPrefix(mediaPath, "media/") || !strings.HasSuffix(mediaPath, ".png") {
+		t.Fatalf("unexpected media path: %#v", output)
+	}
+	if output["content_type"] != "image/png" || output["width"] != weatherCardWidth || output["height"] != weatherCardHeight {
+		t.Fatalf("unexpected weather card metadata: %#v", output)
+	}
+	if _, err := os.Stat(filepath.Join(root, mediaPath)); err != nil {
+		t.Fatalf("weather card was not written: %v", err)
+	}
+}
+
+func TestRenderWeatherCardRejectsLegacyWeatherInputs(t *testing.T) {
+	hub := New(config.Default(), store.NewMemoryStore())
+	for _, field := range []string{"raw_json", "raw_json_ref", "snapshot_ref"} {
+		err := hub.Validate("media.render_weather_card", map[string]any{
+			"location": "杭州",
+			field:      `{"current_condition":[{"temp_C":"30"}]}`,
+		})
+		if err == nil {
+			t.Fatalf("expected legacy weather input %q to be rejected", field)
+		}
+	}
+}
+
+func TestSplitTemperatureDisplayDropsCelsiusLetter(t *testing.T) {
+	cases := []string{
+		"30°C",
+		"30°c",
+		"30° C",
+		"30 ℃",
+		"30 C",
+		"30c",
+		"30 摄氏度",
+		"30 celsius",
+	}
+	for _, input := range cases {
+		number, unit := splitTemperatureDisplay(input)
+		if number != "30" || unit != "°" {
+			t.Fatalf("splitTemperatureDisplay(%q) = %q, %q; want 30, °", input, number, unit)
+		}
+	}
+}
+
+func TestWeatherForecastSlotsUseHoursOnly(t *testing.T) {
+	slots := weatherForecastSlots(weatherCardData{
+		Temperature: "35°C",
+		Condition:   "Partly cloudy",
+		UpdatedAt:   "2026-07-03 16:30",
+		Hourly: []weatherForecastHour{
+			{Time: "1700", Temp: "35°C", Condition: "Partly cloudy"},
+			{Time: "1800", Temp: "32°C", Condition: "Cloudy"},
+			{Time: "1900", Temp: "30°C", Condition: "Sunny"},
+		},
+		Forecast: []weatherForecastDay{
+			{Date: "2026-07-04", MaxTemp: "36°C", Condition: "Rain"},
+		},
+	}, "partly")
+	labels := []string{}
+	for _, slot := range slots {
+		labels = append(labels, slot.Label)
+	}
+	joined := strings.Join(labels, ",")
+	if strings.Contains(joined, "明日") || strings.Contains(joined, "后天") {
+		t.Fatalf("hourly slots must not include daily labels: %v", labels)
+	}
+	for _, want := range []string{"现在", "17时", "18时", "19时"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing hourly label %q in %v", want, labels)
+		}
+	}
+}
+
+func TestWeatherForecastSlotsFilterPastHours(t *testing.T) {
+	slots := weatherForecastSlots(weatherCardData{
+		Temperature: "35°C",
+		Condition:   "Partly cloudy",
+		UpdatedAt:   "2026-07-03 17:04",
+		Hourly: []weatherForecastHour{
+			{Time: "1700", Temp: "35°C", Condition: "Partly cloudy"},
+			{Time: "1800", Temp: "32°C", Condition: "Cloudy"},
+			{Time: "1900", Temp: "30°C", Condition: "Sunny"},
+		},
+	}, "partly")
+	labels := []string{}
+	for _, slot := range slots {
+		labels = append(labels, slot.Label)
+	}
+	joined := strings.Join(labels, ",")
+	if strings.Contains(joined, "17时") {
+		t.Fatalf("past hourly label should be filtered using updated_at: %v", labels)
+	}
+	for _, want := range []string{"现在", "18时", "19时"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing hourly label %q in %v", want, labels)
+		}
+	}
+}
+
+func TestOpenMeteoHourlyFromDataUsesFutureHours(t *testing.T) {
+	hours, ok := openMeteoHourlyFromData(map[string]any{
+		"current": map[string]any{"time": "2026-07-03T18:00"},
+		"hourly": map[string]any{
+			"time":           []any{"2026-07-03T18:00", "2026-07-03T19:00", "2026-07-03T20:00"},
+			"temperature_2m": []any{28.4, 27.9, 27.5},
+			"weather_code":   []any{3.0, 3.0, 61.0},
+		},
+	})
+	if !ok {
+		t.Fatal("expected Open-Meteo hourly forecast")
+	}
+	if len(hours) != 2 {
+		t.Fatalf("expected future hours only, got %#v", hours)
+	}
+	if hours[0].Time != "19:00" || hours[0].Temp != "28°C" || hours[0].Condition != "多云" {
+		t.Fatalf("unexpected first future hour: %#v", hours[0])
+	}
+	if hours[1].Time != "20:00" || hours[1].Condition != "有雨" {
+		t.Fatalf("unexpected second future hour: %#v", hours[1])
+	}
+}
+
+func TestWeatherTempRangeHidesConflictingRange(t *testing.T) {
+	low, high := weatherTempRange(weatherCardData{
+		Temperature: "35°C",
+		Forecast: []weatherForecastDay{
+			{MinTemp: "24°C", MaxTemp: "31°C"},
+		},
+	})
+	if low != "" || high != "" {
+		t.Fatalf("conflicting range should be hidden, got %q/%q", low, high)
+	}
+
+	low, high = weatherTempRange(weatherCardData{
+		Temperature: "28°C",
+		Forecast: []weatherForecastDay{
+			{MinTemp: "24°C", MaxTemp: "35°C"},
+		},
+	})
+	if low != "24°" || high != "35°" {
+		t.Fatalf("valid range should render, got %q/%q", low, high)
+	}
+}
+
+func TestWeatherReferenceMinuteUsesBeijingTime(t *testing.T) {
+	minute, ok := weatherReferenceMinute("2026-07-03T09:04:00Z")
+	if !ok {
+		t.Fatal("expected RFC3339 updated_at to parse")
+	}
+	if minute != 17*60+4 {
+		t.Fatalf("weatherReferenceMinute RFC3339 = %d; want Beijing 17:04", minute)
+	}
+
+	if got := displayUpdateTime("2026-07-03T09:04:00Z"); got != "17:04" {
+		t.Fatalf("displayUpdateTime RFC3339 = %q; want Beijing 17:04", got)
+	}
+}
+
+func TestToolHubUsesSessionWorkspaceRoot(t *testing.T) {
+	globalRoot := t.TempDir()
+	userA := filepath.Join(globalRoot, "users", "a")
+	userB := filepath.Join(globalRoot, "users", "b")
+	if err := os.MkdirAll(userA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(userB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userA, "note.txt"), []byte("alpha workspace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userB, "note.txt"), []byte("beta workspace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = globalRoot
+	cfg.Workspaces.Allowlist = []string{globalRoot}
+	st := store.NewMemoryStore()
+	sessionA := st.CreateSessionWithScope("A", "owner-a", userA, "weixin", true)
+	sessionB := st.CreateSessionWithScope("B", "owner-b", userB, "weixin", true)
+	hub := New(cfg, st)
+
+	read := func(sessionID string) string {
+		t.Helper()
+		result, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": "note.txt"}, sessionID, "run")
+		if err != nil {
+			t.Fatal(err)
+		}
+		output, _ := result.Output.(map[string]any)
+		content, _ := output["content"].(string)
+		return content
+	}
+	if got := read(sessionA.ID); !strings.Contains(got, "alpha workspace") {
+		t.Fatalf("session A read wrong workspace content: %q", got)
+	}
+	if got := read(sessionB.ID); !strings.Contains(got, "beta workspace") {
+		t.Fatalf("session B read wrong workspace content: %q", got)
+	}
+}
+
+func TestImagesInspectResizesLargeImagesBeforeModelCall(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "large.jpg")
+	if err := writeTestJPEG(path, 1200, 3600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "images.inspect", map[string]any{
+		"path":     "large.jpg",
+		"question": "这张图片是什么？",
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, ok := result.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected output type %T", result.Output)
+	}
+	if output["resized"] != true {
+		t.Fatalf("expected large image to be resized: %#v", output)
+	}
+	if output["width"] != 1200 || output["height"] != 3600 {
+		t.Fatalf("expected original dimensions to be preserved, got %#v x %#v", output["width"], output["height"])
+	}
+	if output["model_width"] != 800 || output["model_height"] != 2400 {
+		t.Fatalf("expected model dimensions to fit 2400 long edge, got %#v x %#v", output["model_width"], output["model_height"])
+	}
+	if output["model_content_type"] != "image/jpeg" {
+		t.Fatalf("expected resized model input to be jpeg, got %#v", output["model_content_type"])
+	}
+	if output["fallback_policy"] != "" {
+		t.Fatalf("normal resize should not be marked as fallback: %#v", output["fallback_policy"])
+	}
+}
+
+func TestPrepareImageForModelMarksOriginalSendFallback(t *testing.T) {
+	prepared, err := prepareImageForModel([]byte("not actually a png"), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.FallbackPolicy != "image.inspect_dimension_decode_failed_original_sent" {
+		t.Fatalf("expected visible fallback policy, got %#v", prepared)
+	}
+	if !strings.Contains(prepared.ResizeNote, "sent original bytes") {
+		t.Fatalf("expected resize note to explain fallback: %#v", prepared.ResizeNote)
+	}
+}
+
+func writeTestJPEG(path string, width, height int) error {
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x % 255), G: uint8(y % 255), B: 180, A: 255})
+		}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return jpeg.Encode(file, img, &jpeg.Options{Quality: 85})
 }
 
 func TestValidateInputAllowsVerifierMetadataForApprovalArguments(t *testing.T) {
@@ -160,5 +491,1055 @@ func TestExecuteValidatesFilesReadOutput(t *testing.T) {
 	out := result.Output.(map[string]any)
 	if out["content"] != "stable output contract" {
 		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
+func TestFilesReadReturnsFullTextUntilMaxBytes(t *testing.T) {
+	root := t.TempDir()
+	lines := make([]string, 520)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%03d", i+1)
+	}
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	first, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": "large.txt"}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstOut := first.Output.(map[string]any)
+	firstContent := firstOut["content"].(string)
+	if firstOut["truncated"] != false || !strings.Contains(firstContent, "line-001") || !strings.Contains(firstContent, "line-520") {
+		t.Fatalf("expected full small text read, got %#v", firstOut)
+	}
+	textDocument := firstOut["document"].(map[string]any)
+	if textDocument["schema_version"] != "document_read_v1" || textDocument["format"] != "text" {
+		t.Fatalf("text read should use unified document envelope: %#v", textDocument)
+	}
+	textStrategy := textDocument["strategy"].(map[string]any)
+	if textStrategy["mode"] != "full" || textStrategy["complete"] != true {
+		t.Fatalf("text read should report full strategy: %#v", textStrategy)
+	}
+	textPipeline := textDocument["pipeline"].(map[string]any)
+	textPipelineStrategy := textPipeline["strategy"].(map[string]any)
+	if textPipeline["status"] != "succeeded" || textPipelineStrategy["strategy"] != "small_direct" || textPipelineStrategy["context_mode"] != "full_text" {
+		t.Fatalf("text read should enter the small-document pipeline: %#v", textPipeline)
+	}
+	textIndex := textPipeline["index"].(map[string]any)
+	if textIndex["index_status"] != "skipped" {
+		t.Fatalf("small text read should skip retrieval index: %#v", textIndex)
+	}
+	limited, err := hub.Execute(context.Background(), "files.read", map[string]any{
+		"path":      "large.txt",
+		"max_bytes": 80,
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limitedOut := limited.Output.(map[string]any)
+	if limitedOut["truncated"] != true || len([]byte(limitedOut["content"].(string))) > 80 {
+		t.Fatalf("expected max_bytes truncation only, got %#v", limitedOut)
+	}
+	limitedStrategy := limitedOut["document"].(map[string]any)["strategy"].(map[string]any)
+	if limitedStrategy["mode"] != "byte_limited" || limitedStrategy["complete"] != false {
+		t.Fatalf("limited text read should report byte-limited strategy: %#v", limitedStrategy)
+	}
+	limitedPipeline := limitedOut["document"].(map[string]any)["pipeline"].(map[string]any)
+	if limitedPipeline["status"] != "partial" {
+		t.Fatalf("limited text read should mark pipeline partial: %#v", limitedPipeline)
+	}
+}
+
+func TestFilesReadReturnsFullDocxWithLocations(t *testing.T) {
+	root := t.TempDir()
+	lines := make([]string, 12)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("docx-line-%03d", i+1)
+	}
+	writeDocxFixture(t, root, "large.docx", strings.Join(lines, "\n"))
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	first, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": "large.docx"}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstOut := first.Output.(map[string]any)
+	firstContent := firstOut["content"].(string)
+	if firstOut["kind"] != "docx" || firstOut["truncated"] != false || !strings.Contains(firstContent, "docx-line-001") || !strings.Contains(firstContent, "docx-line-012") {
+		t.Fatalf("unexpected docx full-read output: %#v", firstOut)
+	}
+	if _, ok := firstOut["document"].(map[string]any); !ok {
+		t.Fatalf("docx read should preserve structured document payload: %#v", firstOut)
+	}
+	firstDocument := firstOut["document"].(map[string]any)
+	if firstDocument["schema_version"] != "document_read_v1" || firstDocument["source"] != "python_docx" {
+		t.Fatalf("docx should use unified document schema: %#v", firstDocument)
+	}
+	strategy := firstDocument["strategy"].(map[string]any)
+	if strategy["mode"] != "full" || strategy["complete"] != true {
+		t.Fatalf("docx should use unified full-read strategy metadata: %#v", strategy)
+	}
+	pipeline := firstDocument["pipeline"].(map[string]any)
+	pipelineStrategy := pipeline["strategy"].(map[string]any)
+	if pipeline["status"] != "succeeded" || pipelineStrategy["strategy"] != "small_direct" || pipelineStrategy["context_mode"] != "full_text" {
+		t.Fatalf("docx should enter the small-document pipeline: %#v", pipeline)
+	}
+	paragraphs := firstDocument["paragraphs"].([]any)
+	if len(paragraphs) != 12 {
+		t.Fatalf("expected all docx paragraphs, got %#v", firstDocument)
+	}
+	evidenceBlocks := testAnySlice(firstDocument["evidence_blocks"])
+	if len(evidenceBlocks) != 12 {
+		t.Fatalf("expected docx evidence blocks, got %#v", firstDocument)
+	}
+	firstBlock := evidenceBlocks[0].(map[string]any)
+	if firstBlock["blockId"] != "document.p[1]" || firstBlock["documentId"] != "large.docx" || firstBlock["fileType"] != "docx" || firstBlock["sourceHash"] == "" {
+		t.Fatalf("unexpected evidence block identity: %#v", firstBlock)
+	}
+	location := firstBlock["location"].(map[string]any)
+	if intArg(location, "paragraphIndex", 0) != 1 {
+		t.Fatalf("evidence block should expose normalized paragraphIndex: %#v", firstBlock)
+	}
+}
+
+func TestFilesReadDocxLocationDistinguishesTableCells(t *testing.T) {
+	root := t.TempDir()
+	pythonScript := `
+from pathlib import Path
+from docx import Document
+root = Path(__import__("sys").argv[1])
+doc = Document()
+doc.add_paragraph("Before table")
+table = doc.add_table(rows=1, cols=2)
+table.cell(0, 0).text = "Cell A"
+table.cell(0, 1).text = "Cell B"
+doc.add_paragraph("After table")
+doc.save(root / "table.docx")
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create table docx fixture: %v\n%s", err, out)
+	}
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "files.read", map[string]any{
+		"path": "table.docx",
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	document := out["document"].(map[string]any)
+	blocks := document["blocks"].([]any)
+	var tableLocation map[string]any
+	for _, value := range blocks {
+		block := value.(map[string]any)
+		if block["text"] == "Cell A" {
+			tableLocation = block["location"].(map[string]any)
+			break
+		}
+	}
+	if tableLocation == nil {
+		t.Fatalf("missing table cell block in docx read output: %#v", document)
+	}
+	if tableLocation["block_type"] != "table_cell" ||
+		intArg(tableLocation, "paragraph_index", -1) != 0 ||
+		intArg(tableLocation, "table_index", 0) != 1 ||
+		intArg(tableLocation, "row_index", 0) != 1 ||
+		intArg(tableLocation, "cell_index", 0) != 1 {
+		t.Fatalf("unexpected table cell location: %#v", tableLocation)
+	}
+	evidenceBlocks := testAnySlice(document["evidence_blocks"])
+	foundCellAnchor := false
+	for _, value := range evidenceBlocks {
+		block := value.(map[string]any)
+		if block["text"] != "Cell A" {
+			continue
+		}
+		foundCellAnchor = true
+		if block["type"] != "table_cell" {
+			t.Fatalf("table cell evidence block should keep type: %#v", block)
+		}
+		location := block["location"].(map[string]any)
+		if location["tableId"] != "table_1" || intArg(location, "rowIndex", 0) != 1 || intArg(location, "columnIndex", 0) != 1 {
+			t.Fatalf("table cell evidence block should normalize location: %#v", block)
+		}
+	}
+	if !foundCellAnchor {
+		t.Fatalf("missing table cell evidence block: %#v", evidenceBlocks)
+	}
+}
+
+func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
+	root := t.TempDir()
+	writeDocxFixture(t, root, "note.docx", "First paragraph\nSecond paragraph")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	read, err := hub.Execute(context.Background(), "files.read", map[string]any{
+		"path": "note.docx",
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOut := read.Output.(map[string]any)
+	document := readOut["document"].(map[string]any)
+	blocks := document["blocks"].([]any)
+	if len(blocks) < 2 {
+		t.Fatalf("expected full read blocks, got %#v", document)
+	}
+	location := blocks[1].(map[string]any)["location"].(map[string]any)
+
+	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
+		"path":        "note.docx",
+		"location":    location,
+		"old_text":    "Second paragraph",
+		"source_hash": sourceHash("Second paragraph"),
+		"text":        "Replaced by location",
+		"output_path": "outputs/location-replaced.docx",
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if intArg(out, "paragraph_index", 0) != 2 {
+		t.Fatalf("location should resolve paragraph 2: %#v", out)
+	}
+	edited, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": out["output_path"]}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := edited.Output.(map[string]any)["content"].(string)
+	if !strings.Contains(content, "Replaced by location") || strings.Contains(content, "Second paragraph") {
+		t.Fatalf("location replacement did not apply to expected paragraph: %q", content)
+	}
+
+	_, err = hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
+		"path":        "note.docx",
+		"location":    location,
+		"old_text":    "Wrong paragraph",
+		"text":        "Should not be written",
+		"output_path": "outputs/location-mismatch.docx",
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "old_text mismatch") {
+		t.Fatalf("expected old_text preflight mismatch, got %v", err)
+	}
+}
+
+func TestDocxParagraphToolsRejectTableCellLocation(t *testing.T) {
+	root := t.TempDir()
+	pythonScript := `
+from pathlib import Path
+from docx import Document
+root = Path(__import__("sys").argv[1])
+doc = Document()
+table = doc.add_table(rows=1, cols=1)
+table.cell(0, 0).text = "Cell A"
+doc.save(root / "table.docx")
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create table docx fixture: %v\n%s", err, out)
+	}
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	read, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": "table.docx"}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := read.Output.(map[string]any)["document"].(map[string]any)
+	blocks := document["blocks"].([]any)
+	location := blocks[0].(map[string]any)["location"].(map[string]any)
+	_, err = hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
+		"path":        "table.docx",
+		"location":    location,
+		"output_path": "outputs/deleted.docx",
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "only top-level paragraph locations are currently editable") {
+		t.Fatalf("expected table cell location rejection, got %v", err)
+	}
+}
+
+func TestFilesReadExtractsStructuredOfficeDocuments(t *testing.T) {
+	root := t.TempDir()
+	writeStructuredOfficeFixtures(t, root)
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	cases := map[string][]string{
+		"note.docx":   {"Docx alpha", "Docx beta"},
+		"slides.pptx": {"Slide title"},
+		"book.xlsx":   {"Header", "Cell value"},
+	}
+	for name, wants := range cases {
+		result, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": name}, "s", "run")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := result.Output.(map[string]any)
+		content := out["content"].(string)
+		if out["kind"] != strings.TrimPrefix(filepath.Ext(name), ".") {
+			t.Fatalf("%s kind mismatch: %#v", name, out)
+		}
+		if _, ok := out["document"].(map[string]any); !ok {
+			t.Fatalf("%s missing structured document payload: %#v", name, out)
+		}
+		for _, want := range wants {
+			if !strings.Contains(content, want) {
+				t.Fatalf("%s content missing %q: %q", name, want, content)
+			}
+		}
+		if out["untrusted"] != true {
+			t.Fatalf("%s should remain untrusted: %#v", name, out)
+		}
+	}
+}
+
+func writeStructuredOfficeFixtures(t *testing.T, root string) {
+	t.Helper()
+	pythonScript := `
+from pathlib import Path
+from docx import Document
+from pptx import Presentation
+from pptx.util import Inches
+root = Path(__import__("sys").argv[1])
+doc = Document()
+doc.add_paragraph("Docx alpha")
+doc.add_paragraph("Docx beta")
+doc.save(root / "note.docx")
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])
+slide.shapes.title.text = "Slide title"
+box = slide.shapes.add_textbox(Inches(1), Inches(1.5), Inches(6), Inches(1))
+box.text = "Slide body"
+prs.save(root / "slides.pptx")
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create office fixtures with python adapters: %v\n%s", err, out)
+	}
+	nodeScript := `
+const ExcelJS = require("exceljs");
+(async () => {
+  const root = process.argv[1];
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Sheet One");
+  sheet.addRow(["Header", "Cell value"]);
+  await workbook.xlsx.writeFile(root + "/book.xlsx");
+})().catch(error => {
+  console.error(error && error.stack || error);
+  process.exit(1);
+});
+`
+	cmd = exec.Command(documentNodeBinary(), "-e", nodeScript, root)
+	cmd.Env = append(os.Environ(), "NODE_PATH="+documentNodeModulesPath())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create xlsx fixture with exceljs: %v\n%s", err, out)
+	}
+}
+
+func TestOfficeReplaceTextRequiresMappedLibrary(t *testing.T) {
+	root := t.TempDir()
+	writeDocxFixture(t, root, "note.docx", "Replace Alpha in this document.")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
+		"path":        "note.docx",
+		"output_path": "outputs/note.edited.docx",
+		"replacements": []any{
+			map[string]any{"find": "Alpha", "replace": "Beta"},
+		},
+		"expected_replacements": 1,
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if out["replacements"] != 1 {
+		t.Fatalf("unexpected replace output: %#v", out)
+	}
+}
+
+func TestDocxParagraphToolsWriteNewVersions(t *testing.T) {
+	root := t.TempDir()
+	writeDocxFixture(t, root, "note.docx", "First paragraph\nSecond paragraph\nThird paragraph")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	cases := []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{
+			tool: "docx.replace_paragraph",
+			args: map[string]any{
+				"path":            "note.docx",
+				"paragraph_index": 2,
+				"old_text":        "Second paragraph",
+				"text":            "Replaced second paragraph",
+				"output_path":     "outputs/replaced.docx",
+			},
+			want: "Replaced second paragraph",
+		},
+		{
+			tool: "docx.insert_paragraph",
+			args: map[string]any{
+				"path":            "note.docx",
+				"paragraph_index": 1,
+				"position":        "after",
+				"text":            "Inserted after first",
+				"output_path":     "outputs/inserted.docx",
+			},
+			want: "Inserted after first",
+		},
+		{
+			tool: "docx.delete_paragraph",
+			args: map[string]any{
+				"path":            "note.docx",
+				"paragraph_index": 2,
+				"output_path":     "outputs/deleted.docx",
+			},
+			want: "First paragraph",
+		},
+		{
+			tool: "docx.set_text_style",
+			args: map[string]any{
+				"path":            "note.docx",
+				"paragraph_index": 1,
+				"style":           map[string]any{"builtin_style": "Heading 1", "bold": true, "font_size_pt": 18},
+				"output_path":     "outputs/styled.docx",
+			},
+			want: "First paragraph",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			result, err := hub.Execute(context.Background(), tc.tool, tc.args, "s", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := result.Output.(map[string]any)
+			outputPath := out["output_path"].(string)
+			if outputPath == filepath.Join(root, "note.docx") {
+				t.Fatalf("tool overwrote input: %#v", out)
+			}
+			if _, err := os.Stat(outputPath); err != nil {
+				t.Fatalf("expected output file: %v", err)
+			}
+			read, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": outputPath}, "s", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			content := read.Output.(map[string]any)["content"].(string)
+			if !strings.Contains(content, tc.want) {
+				t.Fatalf("edited docx missing %q: %q", tc.want, content)
+			}
+		})
+	}
+}
+
+func TestDocxParagraphToolRejectsOutOfRangeParagraph(t *testing.T) {
+	root := t.TempDir()
+	writeDocxFixture(t, root, "note.docx", "Only paragraph")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
+		"path":            "note.docx",
+		"paragraph_index": 99,
+		"output_path":     "outputs/deleted.docx",
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "paragraph_index out of range") {
+		t.Fatalf("expected paragraph range error, got %v", err)
+	}
+}
+
+func TestPptxSlideToolsWriteNewVersions(t *testing.T) {
+	root := t.TempDir()
+	writePptxFixture(t, root, "deck.pptx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	cases := []struct {
+		tool       string
+		args       map[string]any
+		wantSlides int
+		wantText   string
+		wantTitles []string
+	}{
+		{
+			tool: "pptx.add_slide",
+			args: map[string]any{
+				"path":         "deck.pptx",
+				"layout_index": 1,
+				"title":        "Added slide",
+				"body":         "Added body",
+				"output_path":  "outputs/added.pptx",
+			},
+			wantSlides: 3,
+			wantText:   "Added slide",
+		},
+		{
+			tool: "pptx.duplicate_slide",
+			args: map[string]any{
+				"path":        "deck.pptx",
+				"slide_index": 1,
+				"output_path": "outputs/duplicated.pptx",
+			},
+			wantSlides: 3,
+			wantText:   "First slide",
+			wantTitles: []string{"First slide", "First slide", "Second slide"},
+		},
+		{
+			tool: "pptx.delete_slide",
+			args: map[string]any{
+				"path":        "deck.pptx",
+				"slide_index": 2,
+				"output_path": "outputs/deleted.pptx",
+			},
+			wantSlides: 1,
+			wantText:   "First slide",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			result, err := hub.Execute(context.Background(), tc.tool, tc.args, "s", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := result.Output.(map[string]any)
+			outputPath := out["output_path"].(string)
+			if outputPath == filepath.Join(root, "deck.pptx") {
+				t.Fatalf("tool overwrote input: %#v", out)
+			}
+			if _, err := os.Stat(outputPath); err != nil {
+				t.Fatalf("expected output file: %v", err)
+			}
+			read, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": outputPath}, "s", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			readOut := read.Output.(map[string]any)
+			content := readOut["content"].(string)
+			document := readOut["document"].(map[string]any)
+			slides := document["slides"].([]any)
+			if len(slides) != tc.wantSlides {
+				t.Fatalf("expected %d slides, got %#v", tc.wantSlides, document)
+			}
+			if !strings.Contains(content, tc.wantText) {
+				t.Fatalf("edited pptx missing %q: %q", tc.wantText, content)
+			}
+			if len(tc.wantTitles) > 0 {
+				gotTitles := pptxSlideTitles(document)
+				if !slicesEqual(gotTitles, tc.wantTitles) {
+					t.Fatalf("unexpected slide order, got %#v want %#v", gotTitles, tc.wantTitles)
+				}
+			}
+		})
+	}
+}
+
+func pptxSlideTitles(document map[string]any) []string {
+	slides, _ := document["slides"].([]any)
+	out := []string{}
+	for _, slideValue := range slides {
+		slide, _ := slideValue.(map[string]any)
+		items, _ := slide["items"].([]any)
+		title := ""
+		for _, itemValue := range items {
+			item, _ := itemValue.(map[string]any)
+			if item["type"] == "text" {
+				title = fmt.Sprint(item["text"])
+				break
+			}
+		}
+		out = append(out, title)
+	}
+	return out
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestPptxDeleteSlideRejectsOnlySlide(t *testing.T) {
+	root := t.TempDir()
+	writeSingleSlidePptxFixture(t, root, "single.pptx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "pptx.delete_slide", map[string]any{
+		"path":        "single.pptx",
+		"slide_index": 1,
+		"output_path": "outputs/deleted.pptx",
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "cannot delete the only slide") {
+		t.Fatalf("expected only-slide error, got %v", err)
+	}
+}
+
+func TestXlsxStructureToolsWriteNewVersions(t *testing.T) {
+	root := t.TempDir()
+	writeXlsxFixture(t, root, "book.xlsx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	cases := []struct {
+		tool     string
+		args     map[string]any
+		contains []string
+	}{
+		{
+			tool: "xlsx.update_cell",
+			args: map[string]any{
+				"path":        "book.xlsx",
+				"sheet":       "Sheet1",
+				"cell":        "B2",
+				"value":       99,
+				"output_path": "outputs/cell.xlsx",
+			},
+			contains: []string{"99"},
+		},
+		{
+			tool: "xlsx.insert_row",
+			args: map[string]any{
+				"path":        "book.xlsx",
+				"sheet":       "Sheet1",
+				"row":         2,
+				"position":    "after",
+				"values":      []any{"Inserted", 77, "New"},
+				"output_path": "outputs/inserted.xlsx",
+			},
+			contains: []string{"Inserted", "77", "New"},
+		},
+		{
+			tool: "xlsx.delete_row",
+			args: map[string]any{
+				"path":        "book.xlsx",
+				"sheet":       "Sheet1",
+				"row":         2,
+				"output_path": "outputs/deleted.xlsx",
+			},
+			contains: []string{"Bob", "92"},
+		},
+		{
+			tool: "xlsx.update_row",
+			args: map[string]any{
+				"path":        "book.xlsx",
+				"sheet":       "Sheet1",
+				"row":         2,
+				"values":      []any{"Updated", 66, "Changed"},
+				"output_path": "outputs/row.xlsx",
+			},
+			contains: []string{"Updated", "66", "Changed"},
+		},
+		{
+			tool: "xlsx.append_row",
+			args: map[string]any{
+				"path":        "book.xlsx",
+				"sheet":       "Sheet1",
+				"values":      []any{"Appended", 55, "Done"},
+				"output_path": "outputs/appended.xlsx",
+			},
+			contains: []string{"Appended", "55", "Done"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			result, err := hub.Execute(context.Background(), tc.tool, tc.args, "s", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := result.Output.(map[string]any)
+			outputPath := out["output_path"].(string)
+			if outputPath == filepath.Join(root, "book.xlsx") {
+				t.Fatalf("tool overwrote input: %#v", out)
+			}
+			if _, err := os.Stat(outputPath); err != nil {
+				t.Fatalf("expected output file: %v", err)
+			}
+			read, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": outputPath}, "s", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			content := read.Output.(map[string]any)["content"].(string)
+			for _, want := range tc.contains {
+				if !strings.Contains(content, want) {
+					t.Fatalf("edited xlsx missing %q: %q", want, content)
+				}
+			}
+		})
+	}
+}
+
+func TestXlsxStructureToolRejectsMissingSheet(t *testing.T) {
+	root := t.TempDir()
+	writeXlsxFixture(t, root, "book.xlsx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "xlsx.update_cell", map[string]any{
+		"path":        "book.xlsx",
+		"sheet":       "Missing",
+		"cell":        "A1",
+		"value":       "x",
+		"output_path": "outputs/missing.xlsx",
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "sheet not found") {
+		t.Fatalf("expected missing sheet error, got %v", err)
+	}
+}
+
+func TestXlsxStructureToolRejectsInvalidCell(t *testing.T) {
+	root := t.TempDir()
+	writeXlsxFixture(t, root, "book.xlsx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "xlsx.update_cell", map[string]any{
+		"path":        "book.xlsx",
+		"sheet":       "Sheet1",
+		"cell":        "bad",
+		"value":       "x",
+		"output_path": "outputs/bad.xlsx",
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "cell must be a valid A1 address") {
+		t.Fatalf("expected invalid cell error, got %v", err)
+	}
+}
+
+func TestPDFTransformToolsWriteNewVersions(t *testing.T) {
+	root := t.TempDir()
+	writePDFBlankFixture(t, root, "first.pdf", 3)
+	writePDFBlankFixture(t, root, "second.pdf", 2)
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	cases := []struct {
+		name      string
+		args      map[string]any
+		wantPages int
+	}{
+		{
+			name: "extract_pages",
+			args: map[string]any{
+				"path":        "first.pdf",
+				"operation":   "extract_pages",
+				"pages":       []any{1, 3},
+				"output_path": "outputs/extracted.pdf",
+			},
+			wantPages: 2,
+		},
+		{
+			name: "delete_pages",
+			args: map[string]any{
+				"path":        "first.pdf",
+				"operation":   "delete_pages",
+				"pages":       []any{2},
+				"output_path": "outputs/deleted.pdf",
+			},
+			wantPages: 2,
+		},
+		{
+			name: "rotate_pages",
+			args: map[string]any{
+				"path":        "first.pdf",
+				"operation":   "rotate_pages",
+				"pages":       []any{1},
+				"rotation":    90,
+				"output_path": "outputs/rotated.pdf",
+			},
+			wantPages: 3,
+		},
+		{
+			name: "merge",
+			args: map[string]any{
+				"operation":   "merge",
+				"inputs":      []any{"first.pdf", "second.pdf"},
+				"output_path": "outputs/merged.pdf",
+			},
+			wantPages: 5,
+		},
+		{
+			name: "split",
+			args: map[string]any{
+				"path":        "first.pdf",
+				"operation":   "split",
+				"output_path": "outputs/split.pdf",
+			},
+			wantPages: 3,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := hub.Execute(context.Background(), "pdf.transform", tc.args, "s", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := result.Output.(map[string]any)
+			if out["pages"] != tc.wantPages {
+				t.Fatalf("unexpected pages for %s: %#v", tc.name, out)
+			}
+			if tc.name == "split" {
+				outputs := out["outputs"].([]string)
+				if len(outputs) != tc.wantPages {
+					t.Fatalf("split should return one output per page: %#v", out)
+				}
+				for _, path := range outputs {
+					if _, err := os.Stat(path); err != nil {
+						t.Fatalf("split output missing: %v", err)
+					}
+				}
+				return
+			}
+			outputPath := out["output_path"].(string)
+			if _, err := os.Stat(outputPath); err != nil {
+				t.Fatalf("expected output file: %v", err)
+			}
+		})
+	}
+}
+
+func TestPDFTransformRejectsOutOfRangePage(t *testing.T) {
+	root := t.TempDir()
+	writePDFBlankFixture(t, root, "first.pdf", 1)
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "pdf.transform", map[string]any{
+		"path":        "first.pdf",
+		"operation":   "extract_pages",
+		"pages":       []any{2},
+		"output_path": "outputs/bad.pdf",
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "page out of range") {
+		t.Fatalf("expected page range error, got %v", err)
+	}
+}
+
+func TestResolvePathAcceptsAllowedMacAbsolutePathMissingLeadingSlash(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	missingSlash := strings.TrimPrefix(filepath.Join(root, "note.txt"), string(os.PathSeparator))
+	got, err := hub.resolvePath(missingSlash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Join(root, "note.txt") {
+		t.Fatalf("unexpected normalized path: %q", got)
+	}
+}
+
+func writeDocxFixture(t *testing.T, root, name, text string) {
+	t.Helper()
+	pythonScript := `
+from pathlib import Path
+from docx import Document
+root = Path(__import__("sys").argv[1])
+name = __import__("sys").argv[2]
+text = __import__("sys").argv[3]
+doc = Document()
+for part in text.split("\n"):
+    doc.add_paragraph(part)
+doc.save(root / name)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name, text)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create docx fixture: %v\n%s", err, out)
+	}
+}
+
+func writePptxFixture(t *testing.T, root, name string) {
+	t.Helper()
+	pythonScript := `
+from pathlib import Path
+from pptx import Presentation
+root = Path(__import__("sys").argv[1])
+name = __import__("sys").argv[2]
+prs = Presentation()
+slide1 = prs.slides.add_slide(prs.slide_layouts[1])
+slide1.shapes.title.text = "First slide"
+slide1.placeholders[1].text = "First body"
+slide2 = prs.slides.add_slide(prs.slide_layouts[1])
+slide2.shapes.title.text = "Second slide"
+slide2.placeholders[1].text = "Second body"
+prs.save(root / name)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create pptx fixture: %v\n%s", err, out)
+	}
+}
+
+func writeXlsxFixture(t *testing.T, root, name string) {
+	t.Helper()
+	nodeScript := `
+const ExcelJS = require("exceljs");
+(async () => {
+  const root = process.argv[1];
+  const name = process.argv[2];
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Sheet1");
+  sheet.addRow(["Name", "Score", "Status"]);
+  sheet.addRow(["Alice", 88, "Ready"]);
+  sheet.addRow(["Bob", 92, "Done"]);
+  await workbook.xlsx.writeFile(root + "/" + name);
+})().catch(error => {
+  console.error(error && error.stack || error);
+  process.exit(1);
+});
+`
+	cmd := exec.Command(documentNodeBinary(), "-e", nodeScript, root, name)
+	cmd.Env = append(os.Environ(), "NODE_PATH="+documentNodeModulesPath())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create xlsx fixture: %v\n%s", err, out)
+	}
+}
+
+func writePDFBlankFixture(t *testing.T, root, name string, pages int) {
+	t.Helper()
+	pythonScript := `
+from pathlib import Path
+from pypdf import PdfWriter
+root = Path(__import__("sys").argv[1])
+name = __import__("sys").argv[2]
+pages = int(__import__("sys").argv[3])
+writer = PdfWriter()
+for _ in range(pages):
+    writer.add_blank_page(width=200, height=200)
+with open(root / name, "wb") as f:
+    writer.write(f)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name, fmt.Sprint(pages))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create pdf fixture: %v\n%s", err, out)
+	}
+}
+
+func writeSingleSlidePptxFixture(t *testing.T, root, name string) {
+	t.Helper()
+	pythonScript := `
+from pathlib import Path
+from pptx import Presentation
+root = Path(__import__("sys").argv[1])
+name = __import__("sys").argv[2]
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[1])
+slide.shapes.title.text = "Only slide"
+slide.placeholders[1].text = "Only body"
+prs.save(root / name)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create single pptx fixture: %v\n%s", err, out)
+	}
+}
+
+func TestOfficeReplaceTextRejectsEscapingOutputPath(t *testing.T) {
+	root := t.TempDir()
+	if err := writeZipFile(filepath.Join(root, "note.docx"), map[string]string{
+		"word/document.xml": `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>No match here.</w:t></w:r></w:p></w:body></w:document>`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
+		"path":        "note.docx",
+		"output_path": "../note.edited.docx",
+		"replacements": []any{
+			map[string]any{"find": "missing", "replace": "new"},
+		},
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "cannot escape workspace") {
+		t.Fatalf("expected escaping output path error, got %v", err)
+	}
+}
+
+func writeZipFile(path string, entries map[string]string) error {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range entries {
+		w, err := zw.Create(name)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			return err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
+func testAnySlice(value any) []any {
+	switch v := value.(type) {
+	case []any:
+		return v
+	case []map[string]any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out
+	default:
+		return nil
 	}
 }

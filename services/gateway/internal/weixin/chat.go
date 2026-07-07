@@ -1,0 +1,964 @@
+package weixin
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
+)
+
+type Dispatcher struct {
+	store                      store.Store
+	runtime                    agent.Runtime
+	tools                      *toolhub.ToolHub
+	cfg                        config.NotificationChannelConfig
+	workspaceBaseRoot          string
+	observationSummaryMaxBytes int
+}
+
+type InboundMessage struct {
+	Binding        app.NotificationBinding
+	FromUserID     string
+	ContextToken   string
+	Text           string
+	Attachments    []app.MessageAttachment
+	ExternalID     string
+	ProviderCursor string
+	CreatedAt      time.Time
+}
+
+func NewDispatcher(st store.Store, runtime agent.Runtime, cfg config.NotificationChannelConfig) *Dispatcher {
+	return &Dispatcher{store: st, runtime: runtime, cfg: cfg}
+}
+
+func NewDispatcherWithConfig(st store.Store, runtime agent.Runtime, cfg config.Config, tools ...*toolhub.ToolHub) *Dispatcher {
+	var hub *toolhub.ToolHub
+	if len(tools) > 0 {
+		hub = tools[0]
+	}
+	return &Dispatcher{
+		store:                      st,
+		runtime:                    runtime,
+		tools:                      hub,
+		cfg:                        cfg.Tools.Notifications.Channels["weixin"],
+		workspaceBaseRoot:          strings.TrimSpace(cfg.Workspaces.DefaultRoot),
+		observationSummaryMaxBytes: cfg.Runtime.ObservationSummaryMaxBytes,
+	}
+}
+
+func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) error {
+	text := strings.TrimSpace(inbound.Text)
+	if text == "" && len(inbound.Attachments) == 0 {
+		return nil
+	}
+	chatSession := d.ensureChatSession(inbound)
+	externalID := strings.TrimSpace(inbound.ExternalID)
+	if externalID == "" {
+		externalID = stableInboundID(inbound)
+	}
+	if _, ok := d.store.FindWeixinChatMessageByExternalID(chatSession.ID, externalID); ok {
+		return nil
+	}
+	receivedAt := inbound.CreatedAt
+	if receivedAt.IsZero() {
+		receivedAt = time.Now().UTC()
+	}
+	if text != "" && len(inbound.Attachments) == 0 && isClearConversationRequest(text) {
+		return d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
+	}
+	if text != "" && len(inbound.Attachments) == 0 {
+		if handled, err := d.handleApprovalReply(ctx, inbound, chatSession, externalID, text, receivedAt); handled || err != nil {
+			return err
+		}
+	}
+	if text == "" && len(inbound.Attachments) > 0 {
+		inboundContent := pendingAttachmentContext(inbound.Attachments)
+		inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+			ChatSessionID:     chatSession.ID,
+			BindingID:         inbound.Binding.ID,
+			Direction:         "inbound",
+			Role:              "user",
+			ExternalMessageID: externalID,
+			Content:           inboundContent,
+			ContextToken:      inbound.ContextToken,
+			Status:            "needs_user_instruction",
+			CreatedAt:         receivedAt,
+		})
+		d.store.AddMessage(app.Message{
+			SessionID:   chatSession.LinkedSessionID,
+			Role:        "user",
+			Content:     inboundContent,
+			Attachments: inbound.Attachments,
+			CreatedAt:   receivedAt,
+		})
+		answer := attachmentClarificationPrompt(inbound.Attachments)
+		sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
+		outbound := app.WeixinChatMessage{
+			ChatSessionID: chatSession.ID,
+			BindingID:     inbound.Binding.ID,
+			Direction:     "outbound",
+			Role:          "assistant",
+			Content:       answer,
+			ContextToken:  inbound.ContextToken,
+			Status:        "sent",
+		}
+		if sendErr != nil {
+			outbound.Status = "failed"
+			outbound.Error = sendErr.Error()
+		} else if sendResult.Status != "" {
+			outbound.Status = sendResult.Status
+		}
+		d.store.SaveWeixinChatMessage(outbound)
+		_ = inboundMsg
+		return sendErr
+	}
+	inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+		ChatSessionID:     chatSession.ID,
+		BindingID:         inbound.Binding.ID,
+		Direction:         "inbound",
+		Role:              "user",
+		ExternalMessageID: externalID,
+		Content:           text,
+		ContextToken:      inbound.ContextToken,
+		Status:            "received",
+		CreatedAt:         receivedAt,
+	})
+	processing := inboundMsg
+	processing.Status = "processing"
+	processing = d.store.SaveWeixinChatMessage(processing)
+	recipient := d.replyRecipient(inbound)
+	if _, err := notification.SendWeixinTyping(ctx, d.store, d.cfg,
+		recipient,
+		inbound.ContextToken,
+		inbound.Binding.CredentialRef,
+		inbound.Binding.BaseURL,
+		notification.TypingStatusTyping,
+	); err != nil {
+		d.auditTypingFailure(chatSession, inbound, "start", err)
+	}
+	defer func() {
+		if _, err := notification.SendWeixinTyping(context.Background(), d.store, d.cfg,
+			recipient,
+			inbound.ContextToken,
+			inbound.Binding.CredentialRef,
+			inbound.Binding.BaseURL,
+			notification.TypingStatusCancel,
+		); err != nil {
+			d.auditTypingFailure(chatSession, inbound, "cancel", err)
+		}
+	}()
+
+	result, err := d.runtime.HandleMessageWithAttachments(ctx, chatSession.LinkedSessionID, text, inbound.Attachments)
+	if err != nil {
+		processing.Status = "failed"
+		processing.Error = err.Error()
+		d.store.SaveWeixinChatMessage(processing)
+		return err
+	}
+	processing.LinkedRunID = result.Run.ID
+	processing.Status = "processed"
+	processing = d.store.SaveWeixinChatMessage(processing)
+
+	answer := strings.TrimSpace(result.Message.Content)
+	if len(result.Approvals) > 0 {
+		answer = weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1])
+	}
+	if answer == "" {
+		answer = "我已经收到，但这次没有生成可发送的回复。"
+	}
+	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, result.Run.ID)
+	outbound := app.WeixinChatMessage{
+		ChatSessionID: chatSession.ID,
+		BindingID:     inbound.Binding.ID,
+		Direction:     "outbound",
+		Role:          "assistant",
+		Content:       answer,
+		ContextToken:  inbound.ContextToken,
+		LinkedRunID:   result.Run.ID,
+		Status:        "sent",
+	}
+	if sendErr != nil {
+		outbound.Status = "failed"
+		outbound.Error = sendErr.Error()
+	} else if sendResult.Status != "" {
+		outbound.Status = sendResult.Status
+	}
+	d.store.SaveWeixinChatMessage(outbound)
+	if sendErr != nil {
+		return sendErr
+	}
+	return nil
+}
+
+func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.WeixinChatSession, externalID, text string, receivedAt time.Time) error {
+	oldSessionID := chatSession.LinkedSessionID
+	d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+		ChatSessionID:     chatSession.ID,
+		BindingID:         inbound.Binding.ID,
+		Direction:         "inbound",
+		Role:              "user",
+		ExternalMessageID: externalID,
+		Content:           text,
+		ContextToken:      inbound.ContextToken,
+		Status:            "received",
+		CreatedAt:         receivedAt,
+	})
+	session := d.store.CreateSessionWithScope("微信会话", chatSession.OwnerID, chatSession.WorkspaceRoot, "weixin", true)
+	chatSession.LinkedSessionID = session.ID
+	chatSession.Status = "active"
+	if inbound.ContextToken != "" {
+		chatSession.LastContextToken = inbound.ContextToken
+	}
+	chatSession = d.store.SaveWeixinChatSession(chatSession)
+	d.store.AddAudit(app.AuditEvent{
+		SessionID: session.ID,
+		Actor:     "gateway",
+		Type:      "weixin_chat.cleared",
+		Summary:   "Weixin chat linked to a fresh Agent session",
+		Fields: map[string]any{
+			"binding_id":         inbound.Binding.ID,
+			"chat_session_id":    chatSession.ID,
+			"old_agent_session":  oldSessionID,
+			"new_agent_session":  session.ID,
+			"external_user_id":   chatSession.ExternalUserID,
+			"old_context_hidden": true,
+		},
+	})
+	answer := "对话已清空。后续消息会从新的上下文开始。"
+	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
+	outbound := app.WeixinChatMessage{
+		ChatSessionID: chatSession.ID,
+		BindingID:     inbound.Binding.ID,
+		Direction:     "outbound",
+		Role:          "assistant",
+		Content:       answer,
+		ContextToken:  inbound.ContextToken,
+		Status:        "sent",
+		CreatedAt:     time.Now().UTC(),
+	}
+	if sendErr != nil {
+		outbound.Status = "failed"
+		outbound.Error = sendErr.Error()
+	} else if sendResult.Status != "" {
+		outbound.Status = sendResult.Status
+	}
+	d.store.SaveWeixinChatMessage(outbound)
+	return sendErr
+}
+
+func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMessage, answer, runID string) (notification.Result, error) {
+	recipient := d.replyRecipient(inbound)
+	if mediaPath, ok := singleMediaMarkdownPath(answer); ok {
+		if imagePath, ok := d.workspaceMediaPath(mediaPath); ok {
+			return notification.SendWeixinImage(ctx, d.store, d.cfg,
+				recipient,
+				inbound.ContextToken,
+				inbound.Binding.CredentialRef,
+				inbound.Binding.BaseURL,
+				imagePath,
+				"",
+				runID,
+			)
+		}
+	}
+	if filePath, fileName, ok := d.workspaceFilePath(answer, inbound); ok {
+		return notification.SendWeixinFile(ctx, d.store, d.cfg,
+			recipient,
+			inbound.ContextToken,
+			inbound.Binding.CredentialRef,
+			inbound.Binding.BaseURL,
+			filePath,
+			fileName,
+			"",
+			runID,
+		)
+	}
+	return notification.SendWeixinText(ctx, d.store, d.cfg,
+		recipient,
+		inbound.ContextToken,
+		inbound.Binding.CredentialRef,
+		inbound.Binding.BaseURL,
+		answer,
+		runID,
+	)
+}
+
+func isClearConversationRequest(text string) bool {
+	value := strings.TrimSpace(strings.ToLower(text))
+	value = strings.Trim(value, " \t\r\n。.!！,，")
+	switch value {
+	case "清空对话", "清空会话", "清除对话", "清除会话", "重置对话", "重置会话", "重新开始", "开始新对话", "新对话", "clear chat", "clear conversation", "reset chat", "reset conversation", "new chat":
+		return true
+	default:
+		return false
+	}
+}
+
+func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.WeixinChatSession, externalID, text string, receivedAt time.Time) (bool, error) {
+	approval, ok := d.pendingApprovalForChatSession(chatSession)
+	if !ok {
+		return false, nil
+	}
+	decision, ok := parseApprovalReply(text)
+	if !ok {
+		answer := weixinApprovalPrompt(approval)
+		return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, approval.RunID, "needs_clear_approval_reply")
+	}
+	inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+		ChatSessionID:     chatSession.ID,
+		BindingID:         inbound.Binding.ID,
+		Direction:         "inbound",
+		Role:              "user",
+		ExternalMessageID: externalID,
+		Content:           text,
+		ContextToken:      inbound.ContextToken,
+		Status:            "received",
+		CreatedAt:         receivedAt,
+	})
+	_ = inboundMsg
+	if decision {
+		resolved, err := d.store.ResolveApproval(approval.ID, "approved", "confirmed from vx")
+		if err != nil {
+			return true, err
+		}
+		if _, err := d.executeApprovedToolCall(ctx, resolved); err != nil {
+			return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, "确认失败："+err.Error(), approval.RunID, "failed")
+		}
+		if result, resumed, err := d.runtime.ResumeRunAfterApproval(ctx, approval.SessionID, approval.RunID); err != nil {
+			return true, err
+		} else if resumed {
+			answer := strings.TrimSpace(result.Message.Content)
+			if answer == "" {
+				answer = "已确认并继续执行。"
+			}
+			return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, result.Run.ID, "")
+		}
+		d.completeRunIfApprovalsResolved(approval.RunID)
+		if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+			if answer := weixinApprovedToolAnswer(call); answer != "" {
+				return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, approval.RunID, "")
+			}
+		}
+		return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, "已确认并执行。", approval.RunID, "")
+	}
+	resolved, err := d.store.ResolveApproval(approval.ID, "rejected", "rejected from vx")
+	if err != nil {
+		return true, err
+	}
+	if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
+		now := time.Now().UTC()
+		call.Status = "rejected"
+		call.Error = "user rejected approval from vx"
+		call.CompletedAt = &now
+		d.store.SaveToolCall(call)
+	}
+	d.completeRunIfApprovalsResolved(resolved.RunID)
+	answer := "已取消，本次需要确认的操作没有执行。"
+	return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, resolved.RunID, "")
+}
+
+func (d *Dispatcher) sendApprovalReplyResult(ctx context.Context, inbound InboundMessage, chatSession app.WeixinChatSession, externalID, text string, receivedAt time.Time, answer, runID, inboundStatus string) error {
+	if inboundStatus != "" && inboundStatus != "received" {
+		d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+			ChatSessionID:     chatSession.ID,
+			BindingID:         inbound.Binding.ID,
+			Direction:         "inbound",
+			Role:              "user",
+			ExternalMessageID: externalID,
+			Content:           text,
+			ContextToken:      inbound.ContextToken,
+			LinkedRunID:       runID,
+			Status:            inboundStatus,
+			CreatedAt:         receivedAt,
+		})
+	}
+	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, runID)
+	outbound := app.WeixinChatMessage{
+		ChatSessionID: chatSession.ID,
+		BindingID:     inbound.Binding.ID,
+		Direction:     "outbound",
+		Role:          "assistant",
+		Content:       answer,
+		ContextToken:  inbound.ContextToken,
+		LinkedRunID:   runID,
+		Status:        "sent",
+	}
+	if sendErr != nil {
+		outbound.Status = "failed"
+		outbound.Error = sendErr.Error()
+	} else if sendResult.Status != "" {
+		outbound.Status = sendResult.Status
+	}
+	d.store.SaveWeixinChatMessage(outbound)
+	return sendErr
+}
+
+func (d *Dispatcher) pendingApprovalForChatSession(chatSession app.WeixinChatSession) (app.Approval, bool) {
+	if strings.TrimSpace(chatSession.LinkedSessionID) == "" {
+		return app.Approval{}, false
+	}
+	approvals := d.store.ListApprovals("pending")
+	for i := len(approvals) - 1; i >= 0; i-- {
+		approval := approvals[i]
+		if approval.SessionID == chatSession.LinkedSessionID {
+			return approval, true
+		}
+	}
+	return app.Approval{}, false
+}
+
+func parseApprovalReply(text string) (bool, bool) {
+	value := strings.TrimSpace(strings.ToLower(text))
+	value = strings.Trim(value, " \t\r\n。.!！,，")
+	switch value {
+	case "是", "确认", "同意", "可以", "执行", "继续", "好", "好的", "yes", "y", "ok", "approve", "approved", "confirm":
+		return true, true
+	case "否", "不", "不要", "取消", "拒绝", "不同意", "停止", "no", "n", "reject", "rejected", "cancel":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func (d *Dispatcher) executeApprovedToolCall(ctx context.Context, approval app.Approval) (app.ToolCall, error) {
+	call, ok := d.store.GetToolCall(approval.ToolCallID)
+	if !ok {
+		return app.ToolCall{}, fmt.Errorf("approved tool call not found")
+	}
+	if call.Status != "approval_pending" {
+		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
+	}
+	if call.Tool == "notify.ask_approval" {
+		now := time.Now().UTC()
+		call.Status = "completed_after_approval"
+		call.CompletedAt = &now
+		call.Result = map[string]any{"status": "approval_confirmed"}
+		call.Error = ""
+		call.ObservationSummary = agent.CompressObservation(call.Tool, call.Result, d.observationLimit())
+		d.store.SaveToolCall(call)
+		return call, nil
+	}
+	if d.tools == nil {
+		return app.ToolCall{}, fmt.Errorf("vx approval execution is not configured")
+	}
+	def, ok := d.tools.Definition(call.Tool)
+	if !ok {
+		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
+	}
+	timeout := time.Duration(def.TimeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	call.Status = "running_after_approval"
+	d.store.SaveToolCall(call)
+	result, err := d.tools.Execute(execCtx, call.Tool, call.Arguments, call.SessionID, call.RunID)
+	now := time.Now().UTC()
+	call.CompletedAt = &now
+	if err != nil {
+		call.Status = "failed_after_approval"
+		call.Error = err.Error()
+		if result.Output != nil {
+			call.Result = result.Output
+		}
+		d.store.SaveToolCall(call)
+		return call, nil
+	}
+	call.Status = "completed_after_approval"
+	call.Result = result.Output
+	call.Error = ""
+	call.ObservationSummary = agent.CompressObservation(call.Tool, result.Output, d.observationLimit())
+	d.store.SaveToolCall(call)
+	return call, nil
+}
+
+func (d *Dispatcher) completeRunIfApprovalsResolved(runID string) {
+	if runID == "" {
+		return
+	}
+	run, ok := d.store.GetRun(runID)
+	if !ok || run.State != "approval_pending" {
+		return
+	}
+	for _, approval := range d.store.ListApprovals("pending") {
+		if approval.RunID == runID {
+			return
+		}
+	}
+	now := time.Now().UTC()
+	run.State = "completed"
+	run.CompletedAt = &now
+	d.store.SaveRun(run)
+}
+
+func (d *Dispatcher) observationLimit() int {
+	if d.observationSummaryMaxBytes > 0 {
+		return d.observationSummaryMaxBytes
+	}
+	return 1200
+}
+
+func attachmentClarificationPrompt(attachments []app.MessageAttachment) string {
+	hasImage := false
+	hasDocument := false
+	hasOther := false
+	for _, attachment := range attachments {
+		switch {
+		case isImageAttachment(attachment):
+			hasImage = true
+		case isDocumentAttachment(attachment):
+			hasDocument = true
+		default:
+			hasOther = true
+		}
+	}
+	switch {
+	case hasDocument && !hasImage && !hasOther:
+		return "我已收到文档。你想让我对它做什么？\n\n我可以帮你：总结内容、提取关键信息、按问题查找答案、检查风险点、修改 Word/Excel/PPT/PDF 并把新文件发回。"
+	case hasImage && !hasDocument && !hasOther:
+		return "我已收到图片。你想让我对它做什么？\n\n我可以帮你：描述图片内容、提取文字、整理要点、生成说明，或按你的要求继续处理。"
+	case hasDocument:
+		return "我已收到附件。你想让我对它们做什么？\n\n我可以读取文档内容、查看图片、总结/提取/问答，也可以按要求修改文档并把新文件发回。"
+	default:
+		return "我已收到附件。你想让我对它们做什么？\n\n请直接回复你的要求，我会根据附件类型选择可用的读取、分析或处理工具。"
+	}
+}
+
+func weixinApprovalPrompt(approval app.Approval) string {
+	lines := []string{"需要你确认后才能执行：", "操作：" + approvalActionText(approval)}
+	if path := cleanWeixinString(approval.Arguments["path"]); path != "" {
+		lines = append(lines, "文件："+path)
+	}
+	if outputPath := cleanWeixinString(approval.Arguments["output_path"]); outputPath != "" {
+		lines = append(lines, "将生成："+outputPath)
+	}
+	if paragraphIndex := intLikeWeixinValue(approval.Arguments["paragraph_index"]); paragraphIndex > 0 {
+		lines = append(lines, fmt.Sprintf("目标段落：第 %d 段", paragraphIndex))
+	}
+	if oldText := cleanWeixinString(approval.Arguments["old_text"]); oldText != "" {
+		lines = append(lines, "原文："+trimWeixinText(oldText, 160))
+	}
+	if text := cleanWeixinString(approval.Arguments["text"]); text != "" {
+		lines = append(lines, "修改为："+trimWeixinText(text, 220))
+	}
+	if command := cleanWeixinString(approval.Arguments["command"]); command != "" {
+		lines = append(lines, "命令："+command)
+	}
+	lines = append(lines, "", "请回复“是”确认执行，或回复“否”取消执行。")
+	return strings.Join(lines, "\n")
+}
+
+func approvalActionText(approval app.Approval) string {
+	if summary := strings.TrimSpace(approval.Summary); summary != "" && !strings.HasPrefix(summary, "Approve ") {
+		return summary
+	}
+	switch approval.Tool {
+	case "docx.replace_paragraph":
+		return "修改 Word 文档中的一段正文"
+	case "docx.insert_paragraph":
+		return "在 Word 文档中插入一段正文"
+	case "docx.delete_paragraph":
+		return "删除 Word 文档中的一段正文"
+	case "docx.set_text_style":
+		return "调整 Word 文档段落样式"
+	case "office.replace_text":
+		return "替换 Office 文档中的指定文本"
+	case "shell.exec_sandboxed":
+		return "执行一条沙箱命令"
+	case "code.apply_patch":
+		return "应用代码补丁"
+	case "file.delete":
+		return "删除文件到回收区"
+	case "email.send":
+		return "发送邮件"
+	case "calendar.create":
+		return "创建日历事件"
+	case "memory.write_sensitive":
+		return "写入敏感记忆"
+	default:
+		return "执行一个需要确认的操作"
+	}
+}
+
+func weixinApprovedToolAnswer(call app.ToolCall) string {
+	if !isDocumentMutationToolName(call.Tool) {
+		return ""
+	}
+	result, ok := call.Result.(map[string]any)
+	if !ok {
+		return ""
+	}
+	outputPath := cleanWeixinString(result["output_path"])
+	if outputPath == "" {
+		return ""
+	}
+	return "修改好的文件：" + outputPath
+}
+
+func isDocumentMutationToolName(tool string) bool {
+	return strings.HasPrefix(tool, "docx.") ||
+		strings.HasPrefix(tool, "pptx.") ||
+		strings.HasPrefix(tool, "xlsx.") ||
+		tool == "office.replace_text" ||
+		tool == "pdf.transform"
+}
+
+func cleanWeixinString(value any) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || text == "<nil>" {
+		return ""
+	}
+	return text
+}
+
+func intLikeWeixinValue(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return int(n)
+	default:
+		var out int
+		_, _ = fmt.Sscanf(fmt.Sprint(value), "%d", &out)
+		return out
+	}
+}
+
+func trimWeixinText(value string, limit int) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	runes := []rune(value)
+	if limit <= 0 || len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "..."
+}
+
+func pendingAttachmentContext(attachments []app.MessageAttachment) string {
+	lines := []string{"VX attachment received without user instruction. Ask the user what to do before processing; use these attachment paths if the next user message refers to this attachment:"}
+	for _, attachment := range attachments {
+		relPath := filepath.ToSlash(strings.TrimSpace(attachment.RelPath))
+		if relPath == "" {
+			continue
+		}
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			name = filepath.Base(relPath)
+		}
+		fields := []string{
+			"- name=" + name,
+			"path=" + relPath,
+		}
+		if attachment.ContentType != "" {
+			fields = append(fields, "content_type="+attachment.ContentType)
+		}
+		if attachment.Bytes > 0 {
+			fields = append(fields, fmt.Sprintf("bytes=%d", attachment.Bytes))
+		}
+		lines = append(lines, strings.Join(fields, " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func isImageAttachment(attachment app.MessageAttachment) bool {
+	contentType := strings.ToLower(strings.TrimSpace(attachment.ContentType))
+	if strings.HasPrefix(contentType, "image/") {
+		return true
+	}
+	relPath := strings.ToLower(filepath.ToSlash(strings.TrimSpace(attachment.RelPath)))
+	switch filepath.Ext(relPath) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDocumentAttachment(attachment app.MessageAttachment) bool {
+	contentType := strings.ToLower(strings.TrimSpace(attachment.ContentType))
+	if strings.Contains(contentType, "pdf") ||
+		strings.Contains(contentType, "word") ||
+		strings.Contains(contentType, "excel") ||
+		strings.Contains(contentType, "powerpoint") ||
+		strings.Contains(contentType, "spreadsheet") ||
+		strings.Contains(contentType, "presentation") ||
+		strings.HasPrefix(contentType, "text/") {
+		return true
+	}
+	relPath := strings.ToLower(filepath.ToSlash(strings.TrimSpace(attachment.RelPath)))
+	switch filepath.Ext(relPath) {
+	case ".txt", ".md", ".csv", ".tsv", ".pdf", ".docx", ".xlsx", ".pptx":
+		return true
+	default:
+		return false
+	}
+}
+
+func singleMediaMarkdownPath(answer string) (string, bool) {
+	answer = strings.TrimSpace(answer)
+	if !strings.HasPrefix(answer, "![") {
+		return "", false
+	}
+	closeAlt := strings.Index(answer, "](")
+	if closeAlt < 2 || !strings.HasSuffix(answer, ")") {
+		return "", false
+	}
+	path := strings.TrimSpace(answer[closeAlt+2 : len(answer)-1])
+	path = strings.TrimPrefix(path, "workspace://")
+	path = strings.TrimLeft(path, "/")
+	path = filepath.ToSlash(filepath.Clean(path))
+	if path == "." || strings.HasPrefix(path, "../") || !strings.HasPrefix(path, "media/") {
+		return "", false
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return path, true
+	default:
+		return "", false
+	}
+}
+
+func (d *Dispatcher) replyRecipient(inbound InboundMessage) string {
+	if from := strings.TrimSpace(inbound.FromUserID); from != "" {
+		return from
+	}
+	return strings.TrimSpace(inbound.Binding.ExternalUserID)
+}
+
+func (d *Dispatcher) workspaceMediaPath(mediaPath string) (string, bool) {
+	mediaPath = filepath.ToSlash(strings.TrimSpace(mediaPath))
+	for _, object := range d.store.ListArtifactObjects(200) {
+		if filepath.ToSlash(object.Key) == mediaPath && strings.HasPrefix(filepath.ToSlash(object.Key), "media/") && strings.TrimSpace(object.Path) != "" {
+			return object.Path, true
+		}
+	}
+	return "", false
+}
+
+var workspaceFilePathPattern = regexp.MustCompile(`(?:workspace://)?((?:outputs|uploads)/[A-Za-z0-9._~!$&'()*+,;=:@%/\-]+\.(?:docx|xlsx|pptx|pdf|txt|md|csv|tsv))`)
+
+func (d *Dispatcher) workspaceFilePath(answer string, inbound InboundMessage) (string, string, bool) {
+	matches := workspaceFilePathPattern.FindAllStringSubmatch(answer, -1)
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		relPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(match[1])))
+		if relPath == "." || strings.HasPrefix(relPath, "../") {
+			continue
+		}
+		if strings.HasPrefix(relPath, "uploads/") && !isLikelyOutputFileAnswer(answer) {
+			continue
+		}
+		if absPath, ok := d.workspaceObjectPath(relPath); ok {
+			return absPath, filepath.Base(relPath), true
+		}
+		if absPath, ok := d.workspaceSessionPath(relPath, inbound); ok {
+			return absPath, filepath.Base(relPath), true
+		}
+	}
+	return "", "", false
+}
+
+func isLikelyOutputFileAnswer(answer string) bool {
+	lower := strings.ToLower(answer)
+	return strings.Contains(lower, "output_path") ||
+		strings.Contains(lower, "output file") ||
+		strings.Contains(answer, "输出文件") ||
+		strings.Contains(answer, "修改好的文件") ||
+		strings.Contains(answer, "已完成") ||
+		strings.Contains(answer, "修改后")
+}
+
+func (d *Dispatcher) workspaceObjectPath(relPath string) (string, bool) {
+	relPath = filepath.ToSlash(strings.TrimSpace(relPath))
+	for _, object := range d.store.ListArtifactObjects(200) {
+		if filepath.ToSlash(object.Key) == relPath && strings.TrimSpace(object.Path) != "" {
+			return object.Path, true
+		}
+	}
+	return "", false
+}
+
+func (d *Dispatcher) workspaceSessionPath(relPath string, inbound InboundMessage) (string, bool) {
+	relPath = filepath.ToSlash(strings.TrimSpace(relPath))
+	if relPath == "" || strings.HasPrefix(relPath, "../") {
+		return "", false
+	}
+	externalUserID := strings.TrimSpace(inbound.FromUserID)
+	if externalUserID == "" {
+		externalUserID = strings.TrimSpace(inbound.Binding.ExternalUserID)
+	}
+	root := ""
+	if chatSession, ok := d.store.FindWeixinChatSession(inbound.Binding.ID, externalUserID); ok {
+		root = strings.TrimSpace(chatSession.WorkspaceRoot)
+		if root == "" {
+			if session, ok := d.store.GetSession(chatSession.LinkedSessionID); ok {
+				root = strings.TrimSpace(session.WorkspaceRoot)
+			}
+		}
+	}
+	if root == "" {
+		return "", false
+	}
+	absPath := filepath.Join(root, relPath)
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	cleanPath, err := filepath.Abs(absPath)
+	if err != nil || !strings.HasPrefix(cleanPath, cleanRoot+string(os.PathSeparator)) {
+		return "", false
+	}
+	if info, err := os.Stat(cleanPath); err == nil && !info.IsDir() {
+		return cleanPath, true
+	}
+	return "", false
+}
+
+func (d *Dispatcher) auditTypingFailure(chatSession app.WeixinChatSession, inbound InboundMessage, phase string, err error) {
+	d.store.AddAudit(app.AuditEvent{
+		SessionID: chatSession.LinkedSessionID,
+		Actor:     "gateway",
+		Type:      "weixin_chat.typing_failed",
+		Summary:   "Weixin sendtyping failed; continuing message handling",
+		Fields: map[string]any{
+			"binding_id":      inbound.Binding.ID,
+			"chat_session_id": chatSession.ID,
+			"phase":           phase,
+			"error":           err.Error(),
+		},
+	})
+}
+
+func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.WeixinChatSession {
+	externalUserID := strings.TrimSpace(inbound.FromUserID)
+	if externalUserID == "" {
+		externalUserID = strings.TrimSpace(inbound.Binding.ExternalUserID)
+	}
+	profile := d.ensureOwnerProfile(inbound, externalUserID)
+	ownerID := profile.ID
+	workspaceRoot := strings.TrimSpace(profile.WorkspaceRoot)
+	if existing, ok := d.store.FindWeixinChatSession(inbound.Binding.ID, externalUserID); ok {
+		changed := false
+		if existing.OwnerID != ownerID && ownerID != "" {
+			existing.OwnerID = ownerID
+			changed = true
+		}
+		if existing.WorkspaceRoot != workspaceRoot && workspaceRoot != "" {
+			existing.WorkspaceRoot = workspaceRoot
+			changed = true
+		}
+		if inbound.ContextToken != "" && existing.LastContextToken != inbound.ContextToken {
+			existing.LastContextToken = inbound.ContextToken
+			changed = true
+		}
+		if inbound.ProviderCursor != "" && existing.ProviderCursor != inbound.ProviderCursor {
+			existing.ProviderCursor = inbound.ProviderCursor
+			changed = true
+		}
+		if changed {
+			return d.store.SaveWeixinChatSession(existing)
+		}
+		return existing
+	}
+	session := d.store.CreateSessionWithScope("微信会话", ownerID, workspaceRoot, "weixin", true)
+	return d.store.SaveWeixinChatSession(app.WeixinChatSession{
+		OwnerID:          ownerID,
+		WorkspaceRoot:    workspaceRoot,
+		BindingID:        inbound.Binding.ID,
+		Channel:          "weixin",
+		Provider:         inbound.Binding.Provider,
+		ExternalUserID:   externalUserID,
+		DisplayName:      inbound.Binding.DisplayName,
+		LinkedSessionID:  session.ID,
+		Status:           "active",
+		ProviderCursor:   inbound.ProviderCursor,
+		LastContextToken: inbound.ContextToken,
+	})
+}
+
+func (d *Dispatcher) ensureOwnerProfile(inbound InboundMessage, externalUserID string) app.OwnerProfile {
+	externalRef := weixinExternalRef(inbound.Binding.ID, externalUserID)
+	if profile, ok := d.store.FindOwnerProfileByExternalRef("weixin", externalRef); ok {
+		if strings.TrimSpace(profile.WorkspaceRoot) == "" {
+			profile.WorkspaceRoot = d.weixinWorkspaceRoot(profile.ID)
+			profile = d.store.SaveOwnerProfile(profile)
+		}
+		return profile
+	}
+	ownerID := weixinOwnerID(inbound.Binding.ID, externalUserID)
+	displayName := strings.TrimSpace(inbound.Binding.DisplayName)
+	if displayName == "" {
+		displayName = "微信用户"
+	}
+	return d.store.SaveOwnerProfile(app.OwnerProfile{
+		ID:               ownerID,
+		Source:           "weixin",
+		ExternalRef:      externalRef,
+		WorkspaceRoot:    d.weixinWorkspaceRoot(ownerID),
+		DefaultChannel:   "weixin",
+		DefaultBindingID: inbound.Binding.ID,
+		DisplayName:      displayName,
+		Preferences:      map[string]string{},
+	})
+}
+
+func weixinExternalRef(bindingID, externalUserID string) string {
+	return strings.TrimSpace(bindingID) + ":" + strings.TrimSpace(externalUserID)
+}
+
+func weixinOwnerID(bindingID, externalUserID string) string {
+	seed := strings.TrimSpace(bindingID) + "\x00" + strings.TrimSpace(externalUserID)
+	sum := sha256.Sum256([]byte(seed))
+	return "wx_" + hex.EncodeToString(sum[:])[:24]
+}
+
+func (d *Dispatcher) weixinWorkspaceRoot(ownerID string) string {
+	base := strings.TrimSpace(d.workspaceBaseRoot)
+	if base == "" || strings.TrimSpace(ownerID) == "" {
+		return ""
+	}
+	root := filepath.Join(base, "users", ownerID)
+	_ = os.MkdirAll(root, 0o755)
+	return root
+}
+
+func stableInboundID(inbound InboundMessage) string {
+	parts := []string{
+		inbound.Binding.ID,
+		strings.TrimSpace(inbound.FromUserID),
+		strings.TrimSpace(inbound.ContextToken),
+		strings.TrimSpace(inbound.Text),
+	}
+	for _, attachment := range inbound.Attachments {
+		parts = append(parts,
+			strings.TrimSpace(attachment.RelPath),
+			strings.TrimSpace(attachment.SHA256),
+			fmt.Sprint(attachment.Bytes),
+		)
+	}
+	if !inbound.CreatedAt.IsZero() {
+		parts = append(parts, inbound.CreatedAt.UTC().Format(time.RFC3339Nano))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return "wxin_" + hex.EncodeToString(sum[:])[:32]
+}

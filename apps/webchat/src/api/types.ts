@@ -3,6 +3,8 @@ export type RiskLevel = "read" | "draft" | "reversible" | "dangerous";
 export type Session = {
   id: string;
   title: string;
+  source?: string;
+  hidden?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -14,6 +16,7 @@ export type Message = {
   content: string;
   created_at: string;
   run_id?: string;
+  attachments?: MessageAttachment[];
 };
 
 export type RunFeedback = {
@@ -99,6 +102,44 @@ export type AgentResult = {
   approvals: Approval[];
 };
 
+export type MessageAttachment = {
+  artifact_id?: string;
+  name: string;
+  rel_path: string;
+  uri?: string;
+  content_type?: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+  sha256?: string;
+  source?: string;
+  caption?: string;
+  understanding_summary?: string;
+};
+
+export type ModelStreamEvent = {
+  type: string;
+  session_id?: string;
+  run_id?: string;
+  message_id?: string;
+  span_id?: string;
+  text?: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  arguments_delta?: string;
+  arguments?: unknown;
+  error?: string;
+};
+
+export type SessionEvent = {
+  id: string;
+  time: string;
+  type: string;
+  session_id?: string;
+  run_id?: string;
+  payload?: unknown;
+};
+
 export type ApprovalResolution = {
   approval: Approval;
   tool_call?: ToolCall | null;
@@ -136,6 +177,29 @@ export type Client = {
   created_at: string;
   last_seen_at?: string;
   revoked_at?: string;
+};
+
+export type NotificationBinding = {
+  id: string;
+  owner_id: string;
+  channel: string;
+  provider: string;
+  status: "waiting_scan" | "waiting_confirm" | "active" | "expired" | "revoked" | "failed" | string;
+  display_name?: string;
+  external_user_id?: string;
+  account_id?: string;
+  credential_ref?: string;
+  context_token?: string;
+  base_url?: string;
+  qr_code_url?: string;
+  qr_code_image?: string;
+  default_for_channel: boolean;
+  scopes: string[];
+  created_at: string;
+  updated_at: string;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+  last_error?: string;
 };
 
 export type PublicModelProfile = {
@@ -284,6 +348,20 @@ export type ArtifactObject = {
   content_type: string;
   bytes: number;
   created_at: string;
+};
+
+export type DocumentUploadResult = {
+  artifact: ArtifactObject;
+  path: string;
+  rel_path: string;
+  bytes: number;
+  media?: {
+    rel_path?: string;
+    content_type?: string;
+    sha256?: string;
+    width?: number;
+    height?: number;
+  };
 };
 
 export type EpisodeSummary = {

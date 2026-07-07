@@ -12,6 +12,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .cache/
+.tools/
 .env
 .env.*
 !.env.example
@@ -24,6 +25,8 @@ data/artifacts/*
 data/memory/*
 data/eval/*
 data/models/*
+data/workspaces/*
+!data/workspaces/.gitkeep
 data/workspaces/.sparkclaw/
 services/gateway/internal/agent/data/artifacts/*
 !data/logs/.gitkeep

@@ -1,0 +1,106 @@
+package toolhub
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+)
+
+func TestBrowserAutomationToolsRegisterOnlyWhenEnabled(t *testing.T) {
+	cfg := config.Default()
+	disabled := New(cfg, store.NewMemoryStore())
+	if _, ok := disabled.Definition("browser.open"); ok {
+		t.Fatal("browser automation tools should not register when disabled")
+	}
+
+	cfg.Tools.BrowserAutomation.Enabled = true
+	enabled := New(cfg, store.NewMemoryStore())
+	for _, name := range []string{
+		"browser.status",
+		"browser.list_tabs",
+		"browser.open",
+		"browser.focus",
+		"browser.close",
+		"browser.navigate",
+		"browser.snapshot",
+		"browser.screenshot",
+		"browser.wait",
+		"browser.click",
+		"browser.type",
+		"browser.select",
+	} {
+		if _, ok := enabled.Definition(name); !ok {
+			t.Fatalf("%s should register when browser automation is enabled", name)
+		}
+	}
+}
+
+func TestBrowserAutomationToolSchemas(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	hub := New(cfg, store.NewMemoryStore())
+
+	valid := map[string]map[string]any{
+		"browser.open":     {"url": "https://example.com"},
+		"browser.focus":    {"page_id": "page_1"},
+		"browser.close":    {"page_id": "page_1"},
+		"browser.navigate": {"url": "https://example.com/settings"},
+		"browser.wait":     {"text": "Loaded"},
+		"browser.click":    {"uid": "button_1"},
+		"browser.type":     {"text": "hello"},
+		"browser.select":   {"uid": "select_1", "value": "A"},
+	}
+	for name, args := range valid {
+		if err := hub.Validate(name, args); err != nil {
+			t.Fatalf("%s should accept valid args: %v", name, err)
+		}
+	}
+	if err := hub.Validate("browser.click", map[string]any{}); err == nil {
+		t.Fatal("browser.click should require uid")
+	}
+}
+
+func TestAttachBrowserScreenshotSavesWorkspaceFile(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	hub := New(cfg, store.NewMemoryStore())
+	result := browserautomation.Result{
+		Tool: "browser.screenshot",
+		Output: map[string]any{
+			"content": []any{
+				map[string]any{
+					"type":     "image",
+					"mimeType": "image/png",
+					"data":     "iVBORw0KGgo=",
+				},
+			},
+		},
+	}
+
+	hub.attachBrowserScreenshot(context.Background(), &result)
+
+	output, ok := result.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("expected output map, got %#v", result.Output)
+	}
+	path := strings.TrimSpace(browserAutomationStringValue(output["screenshot_path"]))
+	if path == "" {
+		t.Fatalf("expected screenshot_path in output: %#v", output)
+	}
+	if !strings.HasPrefix(path, filepath.Join(root, ".sparkclaw", "screenshots")) {
+		t.Fatalf("screenshot should be saved under workspace, got %q", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected screenshot file to exist: %v", err)
+	}
+	if markdown := browserAutomationStringValue(output["screenshot_markdown"]); !strings.Contains(markdown, path) {
+		t.Fatalf("markdown should include saved path, got %q", markdown)
+	}
+}

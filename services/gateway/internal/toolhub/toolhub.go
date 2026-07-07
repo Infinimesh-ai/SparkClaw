@@ -2,6 +2,8 @@ package toolhub
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,11 +18,14 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/personaldata"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/sandbox"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
 
 type ToolHub struct {
@@ -32,6 +37,9 @@ type ToolHub struct {
 	artifacts artifact.Store
 	email     personaldata.EmailAdapter
 	cal       personaldata.CalendarAdapter
+	notify    notification.Router
+	webSearch websearch.Adapter
+	browser   browserautomation.Adapter
 }
 
 type Result struct {
@@ -48,8 +56,20 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		artifacts: artifact.NewStore(cfg.Storage),
 		email:     personaldata.NewEmailAdapter(cfg.Adapters.Email, cfg.Workspaces.DefaultRoot),
 		cal:       personaldata.NewCalendarAdapter(cfg.Adapters.Calendar, cfg.Workspaces.DefaultRoot),
+		notify:    notification.NewRouter(cfg, st),
+		webSearch: websearch.NewAdapter(cfg),
+		browser:   browserautomation.NewAdapter(cfg),
 	}
 	for _, def := range defaultDefinitions() {
+		if def.Name == "web.search" && !cfg.Tools.Web.Search.Enabled {
+			continue
+		}
+		if isReminderTool(def.Name) && !cfg.Tools.Reminders.Enabled {
+			continue
+		}
+		if isBrowserAutomationTool(def.Name) && !cfg.Tools.BrowserAutomation.Enabled {
+			continue
+		}
 		h.defs[def.Name] = def
 	}
 	return h
@@ -57,6 +77,11 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 
 func (h *ToolHub) WithArtifactStore(artifacts artifact.Store) *ToolHub {
 	h.artifacts = artifacts
+	return h
+}
+
+func (h *ToolHub) WithBrowserAutomationAdapter(adapter browserautomation.Adapter) *ToolHub {
+	h.browser = adapter
 	return h
 }
 
@@ -80,6 +105,42 @@ func (h *ToolHub) Config() config.Config {
 	return h.cfg
 }
 
+func (h *ToolHub) forSession(sessionID string) *ToolHub {
+	if strings.TrimSpace(sessionID) == "" || h.store == nil {
+		return h
+	}
+	session, ok := h.store.GetSession(sessionID)
+	if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
+		return h
+	}
+	root, err := filepath.Abs(session.WorkspaceRoot)
+	if err != nil {
+		return h
+	}
+	clone := *h
+	clone.cfg = h.cfg
+	clone.cfg.Workspaces.DefaultRoot = root
+	if !containsPathRoot(clone.cfg.Workspaces.Allowlist, root) {
+		clone.cfg.Workspaces.Allowlist = append(append([]string{}, clone.cfg.Workspaces.Allowlist...), root)
+	}
+	_ = os.MkdirAll(root, 0o755)
+	return &clone
+}
+
+func containsPathRoot(roots []string, root string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	for _, item := range roots {
+		abs, err := filepath.Abs(item)
+		if err == nil && abs == absRoot {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *ToolHub) Validate(name string, args map[string]any) error {
 	def, ok := h.defs[name]
 	if !ok {
@@ -96,6 +157,7 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	if err := validateInput(def, args); err != nil {
 		return Result{}, err
 	}
+	h = h.forSession(sessionID)
 	var result Result
 	var err error
 	switch name {
@@ -103,12 +165,46 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 		result, err = h.filesSearch(ctx, args)
 	case "files.read":
 		result, err = h.filesRead(ctx, args)
+	case "images.inspect":
+		result, err = h.imageInspect(ctx, args)
+	case "media.render_weather_card":
+		result, err = h.renderWeatherCard(ctx, args, sessionID, runID)
 	case "files.write_draft":
 		result, err = h.filesWriteDraft(ctx, args)
 	case "file.delete":
 		result, err = h.fileDelete(ctx, args)
+	case "office.replace_text":
+		result, err = h.officeReplaceText(ctx, args)
+	case "docx.replace_paragraph":
+		result, err = h.docxStructureEdit(ctx, "replace_paragraph", args)
+	case "docx.insert_paragraph":
+		result, err = h.docxStructureEdit(ctx, "insert_paragraph", args)
+	case "docx.delete_paragraph":
+		result, err = h.docxStructureEdit(ctx, "delete_paragraph", args)
+	case "docx.set_text_style":
+		result, err = h.docxStructureEdit(ctx, "set_text_style", args)
+	case "pptx.add_slide":
+		result, err = h.pptxSlideEdit(ctx, "add_slide", args)
+	case "pptx.duplicate_slide":
+		result, err = h.pptxSlideEdit(ctx, "duplicate_slide", args)
+	case "pptx.delete_slide":
+		result, err = h.pptxSlideEdit(ctx, "delete_slide", args)
+	case "xlsx.update_cell":
+		result, err = h.xlsxStructureEdit(ctx, "update_cell", args)
+	case "xlsx.insert_row":
+		result, err = h.xlsxStructureEdit(ctx, "insert_row", args)
+	case "xlsx.delete_row":
+		result, err = h.xlsxStructureEdit(ctx, "delete_row", args)
+	case "xlsx.update_row":
+		result, err = h.xlsxStructureEdit(ctx, "update_row", args)
+	case "xlsx.append_row":
+		result, err = h.xlsxStructureEdit(ctx, "append_row", args)
+	case "pdf.extract_text":
+		result, err = h.pdfExtractText(ctx, args)
+	case "pdf.transform":
+		result, err = h.pdfTransform(ctx, args)
 	case "memory.search":
-		result, err = h.memorySearch(args)
+		result, err = h.memorySearch(args, sessionID)
 	case "memory.write_candidate", "memory.propose":
 		result, err = h.memoryWriteCandidate(args, sessionID, runID)
 	case "memory.write_sensitive":
@@ -119,6 +215,12 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 		result, err = h.knowledgeSearch(ctx, args, sessionID, runID)
 	case "browser.read":
 		result, err = h.browserRead(ctx, args, sessionID, runID)
+	case "web.search":
+		result, err = h.webSearchTool(ctx, args)
+	case "browser.status":
+		result, err = h.browserAutomationHealth(ctx)
+	case "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.type", "browser.select":
+		result, err = h.browserAutomationTool(ctx, name, args)
 	case "email.search":
 		result, err = h.emailSearch(ctx, args)
 	case "email.read_thread":
@@ -133,6 +235,14 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 		result, err = h.calendarProposeEvent(ctx, args)
 	case "calendar.create":
 		result, err = h.calendarCreate(ctx, args)
+	case "reminders.create":
+		result, err = h.remindersCreate(args, sessionID, runID)
+	case "reminders.list":
+		result, err = h.remindersList(args, sessionID)
+	case "reminders.update":
+		result, err = h.remindersUpdate(args, sessionID)
+	case "reminders.cancel":
+		result, err = h.remindersCancel(args, sessionID)
 	case "code.apply_patch":
 		result, err = h.codeApplyPatch(ctx, args)
 	case "shell.exec_sandboxed":
@@ -149,6 +259,24 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func isReminderTool(name string) bool {
+	switch name {
+	case "reminders.create", "reminders.list", "reminders.update", "reminders.cancel":
+		return true
+	default:
+		return false
+	}
+}
+
+func isBrowserAutomationTool(name string) bool {
+	switch name {
+	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.type", "browser.select":
+		return true
+	default:
+		return false
+	}
 }
 
 func defaultDefinitions() []app.ToolDefinition {
@@ -176,22 +304,88 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "files.read",
-			Description: "Read a UTF-8 text file from an allowed workspace with a byte limit.",
+			Description: "Read a workspace file through the unified document read contract. Adapters may use different strategies internally, but return content plus a document envelope with format, strategy, locations, and stats.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":      map[string]any{"type": "string"},
 				"max_bytes": map[string]any{"type": "number"},
 			}),
-			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted"}, map[string]any{
+			OutputSchema: objectSchema([]string{"path", "kind", "content", "bytes", "truncated", "untrusted"}, map[string]any{
 				"path":      stringSchema(),
+				"kind":      stringSchema(),
 				"content":   stringSchema(),
 				"bytes":     integerSchema(),
+				"max_bytes": integerSchema(),
 				"truncated": booleanSchema(),
 				"untrusted": booleanSchema(),
+				"document":  objectValueSchema(),
 			}),
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
 			Idempotent:       true,
 			TimeoutMS:        3000,
+			Sandbox:          "forbidden",
+			Audit:            "always",
+		},
+		{
+			Name:        "images.inspect",
+			Description: "Inspect an uploaded workspace image with the deep multimodal model. Use for image description, visible text extraction, and questions about attached images.",
+			InputSchema: schema("object", []string{"path"}, map[string]any{
+				"path":         stringSchema(),
+				"question":     stringSchema(),
+				"content_type": stringSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"status", "path", "content_type", "bytes", "summary", "untrusted"}, map[string]any{
+				"status":             stringSchema(),
+				"path":               stringSchema(),
+				"content_type":       stringSchema(),
+				"bytes":              integerSchema(),
+				"width":              integerSchema(),
+				"height":             integerSchema(),
+				"model_content_type": stringSchema(),
+				"model_bytes":        integerSchema(),
+				"model_width":        integerSchema(),
+				"model_height":       integerSchema(),
+				"resized":            booleanSchema(),
+				"resize_note":        stringSchema(),
+				"fallback_policy":    stringSchema(),
+				"question":           stringSchema(),
+				"summary":            stringSchema(),
+				"model":              stringSchema(),
+				"profile":            stringSchema(),
+				"lane":               stringSchema(),
+				"mock":               booleanSchema(),
+				"untrusted":          booleanSchema(),
+			}),
+			Risk:             app.RiskRead,
+			RequiresApproval: false,
+			Idempotent:       true,
+			TimeoutMS:        120000,
+			Sandbox:          "forbidden",
+			Audit:            "always",
+		},
+		{
+			Name:        "media.render_weather_card",
+			Description: "Look up weather from Open-Meteo and render it into a PNG weather card saved under workspace media/. Return the media path as the final Markdown image when a user wants weather as an image.",
+			InputSchema: strictObjectSchema([]string{"location"}, map[string]any{
+				"location": stringSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"status", "media_path", "path", "content_type", "bytes", "width", "height", "summary", "untrusted"}, map[string]any{
+				"status":       stringSchema(),
+				"media_path":   stringSchema(),
+				"path":         stringSchema(),
+				"uri":          stringSchema(),
+				"content_type": stringSchema(),
+				"bytes":        integerSchema(),
+				"width":        integerSchema(),
+				"height":       integerSchema(),
+				"sha256":       stringSchema(),
+				"summary":      stringSchema(),
+				"untrusted":    booleanSchema(),
+			}),
+			Risk:             app.RiskDraft,
+			RequiresApproval: false,
+			Idempotent:       false,
+			TimeoutMS:        5000,
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
@@ -234,6 +428,173 @@ func defaultDefinitions() []app.ToolDefinition {
 			Idempotent:       false,
 			TimeoutMS:        3000,
 			Sandbox:          "required",
+			Audit:            "always",
+		},
+		{
+			Name:        "office.replace_text",
+			Description: "Replace explicit text pairs in a workspace docx/xlsx/pptx and write a new Office file without overwriting the original.",
+			InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
+				"path":        stringSchema(),
+				"output_path": stringSchema(),
+				"replacements": arraySchema(map[string]any{
+					"type":     "object",
+					"required": []string{"find", "replace"},
+					"properties": map[string]any{
+						"find":    stringSchema(),
+						"replace": stringSchema(),
+					},
+				}),
+				"expected_replacements": map[string]any{"type": "number"},
+			}),
+			OutputSchema: objectSchema([]string{"status", "path", "output_path", "replacements", "bytes", "untrusted"}, map[string]any{
+				"status":       stringSchema(),
+				"path":         stringSchema(),
+				"output_path":  stringSchema(),
+				"replacements": integerSchema(),
+				"bytes":        integerSchema(),
+				"details":      arraySchema(objectValueSchema()),
+				"untrusted":    booleanSchema(),
+			}),
+			Risk:             app.RiskReversible,
+			RequiresApproval: true,
+			Idempotent:       false,
+			TimeoutMS:        5000,
+			Sandbox:          "optional",
+			Audit:            "always",
+		},
+		docxToolDefinition("docx.replace_paragraph", "Replace one DOCX paragraph by location or 1-based paragraph_index and write a new DOCX file. Requires old_text or source_hash evidence from files.read preflight.", []string{"path", "text", "output_path"}, map[string]any{
+			"path":            stringSchema(),
+			"paragraph_index": integerSchema(),
+			"location":        objectValueSchema(),
+			"old_text":        stringSchema(),
+			"source_hash":     stringSchema(),
+			"text":            stringSchema(),
+			"output_path":     stringSchema(),
+		}),
+		docxToolDefinition("docx.insert_paragraph", "Insert a DOCX paragraph at start/end or before/after a location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "position", "text", "output_path"}, map[string]any{
+			"path":            stringSchema(),
+			"position":        map[string]any{"enum": []any{"start", "end", "before", "after"}},
+			"paragraph_index": integerSchema(),
+			"location":        objectValueSchema(),
+			"text":            stringSchema(),
+			"output_path":     stringSchema(),
+		}),
+		docxToolDefinition("docx.delete_paragraph", "Delete one DOCX paragraph by location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "output_path"}, map[string]any{
+			"path":            stringSchema(),
+			"paragraph_index": integerSchema(),
+			"location":        objectValueSchema(),
+			"output_path":     stringSchema(),
+		}),
+		docxToolDefinition("docx.set_text_style", "Set simple paragraph-level DOCX style by location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "style", "output_path"}, map[string]any{
+			"path":            stringSchema(),
+			"paragraph_index": integerSchema(),
+			"location":        objectValueSchema(),
+			"style": objectSchema([]string{}, map[string]any{
+				"builtin_style": stringSchema(),
+				"bold":          booleanSchema(),
+				"font_size_pt":  integerSchema(),
+			}),
+			"output_path": stringSchema(),
+		}),
+		pptxToolDefinition("pptx.add_slide", "Add a new PPTX slide using a layout index and write a new PPTX file.", []string{"path", "output_path"}, map[string]any{
+			"path":         stringSchema(),
+			"layout_index": integerSchema(),
+			"title":        stringSchema(),
+			"body":         stringSchema(),
+			"output_path":  stringSchema(),
+		}),
+		pptxToolDefinition("pptx.duplicate_slide", "Duplicate one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"slide_index": integerSchema(),
+			"output_path": stringSchema(),
+		}),
+		pptxToolDefinition("pptx.delete_slide", "Delete one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"slide_index": integerSchema(),
+			"output_path": stringSchema(),
+		}),
+		xlsxToolDefinition("xlsx.update_cell", "Update one XLSX cell by sheet name and A1 cell address, then write a new XLSX file.", []string{"path", "sheet", "cell", "value", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"sheet":       stringSchema(),
+			"cell":        stringSchema(),
+			"value":       scalarValueSchema(),
+			"output_path": stringSchema(),
+		}),
+		xlsxToolDefinition("xlsx.insert_row", "Insert one XLSX row before or after a 1-based row index, then write a new XLSX file.", []string{"path", "sheet", "row", "position", "values", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"sheet":       stringSchema(),
+			"row":         integerSchema(),
+			"position":    map[string]any{"enum": []any{"before", "after"}},
+			"values":      arraySchema(scalarValueSchema()),
+			"output_path": stringSchema(),
+		}),
+		xlsxToolDefinition("xlsx.delete_row", "Delete one XLSX row by sheet name and 1-based row index, then write a new XLSX file.", []string{"path", "sheet", "row", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"sheet":       stringSchema(),
+			"row":         integerSchema(),
+			"output_path": stringSchema(),
+		}),
+		xlsxToolDefinition("xlsx.update_row", "Replace one XLSX row's leading cells with provided values, then write a new XLSX file.", []string{"path", "sheet", "row", "values", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"sheet":       stringSchema(),
+			"row":         integerSchema(),
+			"values":      arraySchema(scalarValueSchema()),
+			"output_path": stringSchema(),
+		}),
+		xlsxToolDefinition("xlsx.append_row", "Append one XLSX row to the end of a sheet, then write a new XLSX file.", []string{"path", "sheet", "values", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"sheet":       stringSchema(),
+			"values":      arraySchema(scalarValueSchema()),
+			"output_path": stringSchema(),
+		}),
+		{
+			Name:        "pdf.extract_text",
+			Description: "Extract text from a standard text PDF inside the workspace. Scanned/OCR PDFs are not supported.",
+			InputSchema: schema("object", []string{"path"}, map[string]any{
+				"path":      stringSchema(),
+				"max_bytes": map[string]any{"type": "number"},
+			}),
+			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "scanned_unsupported"}, map[string]any{
+				"path":                stringSchema(),
+				"content":             stringSchema(),
+				"bytes":               integerSchema(),
+				"truncated":           booleanSchema(),
+				"untrusted":           booleanSchema(),
+				"scanned_unsupported": booleanSchema(),
+			}),
+			Risk:             app.RiskRead,
+			RequiresApproval: false,
+			Idempotent:       true,
+			TimeoutMS:        10000,
+			Sandbox:          "optional",
+			Audit:            "always",
+		},
+		{
+			Name:        "pdf.transform",
+			Description: "Perform a bounded PDF transform such as extract_pages, delete_pages, rotate_pages, merge, or split and write a new PDF.",
+			InputSchema: schema("object", []string{"operation", "output_path"}, map[string]any{
+				"path":        stringSchema(),
+				"inputs":      stringArraySchema(),
+				"operation":   map[string]any{"enum": []any{"extract_pages", "delete_pages", "rotate_pages", "merge", "split"}},
+				"pages":       map[string]any{"type": "array", "items": map[string]any{"type": "number"}},
+				"rotation":    map[string]any{"type": "number"},
+				"output_path": stringSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"status", "operation", "output_path", "bytes"}, map[string]any{
+				"status":      stringSchema(),
+				"operation":   stringSchema(),
+				"path":        stringSchema(),
+				"inputs":      stringArraySchema(),
+				"output_path": stringSchema(),
+				"outputs":     stringArraySchema(),
+				"bytes":       integerSchema(),
+				"pages":       integerSchema(),
+			}),
+			Risk:             app.RiskReversible,
+			RequiresApproval: true,
+			Idempotent:       false,
+			TimeoutMS:        15000,
+			Sandbox:          "optional",
 			Audit:            "always",
 		},
 		{
@@ -431,6 +792,44 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
+		{
+			Name:        "web.search",
+			Description: "Search the public web through the configured Parallel Free Search MCP and return untrusted source evidence.",
+			InputSchema: schema("object", []string{"query"}, map[string]any{
+				"query":       map[string]any{"type": "string"},
+				"max_results": map[string]any{"type": "number"},
+				"freshness":   map[string]any{"type": "string"},
+			}),
+			OutputSchema: objectSchema([]string{"query", "answer", "provider", "count", "results", "untrusted"}, map[string]any{
+				"query":     stringSchema(),
+				"answer":    stringSchema(),
+				"provider":  stringSchema(),
+				"model":     stringSchema(),
+				"count":     integerSchema(),
+				"results":   arraySchema(objectValueSchema()),
+				"citations": stringArraySchema(),
+				"took_ms":   integerSchema(),
+				"untrusted": booleanSchema(),
+			}),
+			Risk:             app.RiskRead,
+			RequiresApproval: false,
+			Idempotent:       true,
+			TimeoutMS:        30000,
+			Sandbox:          "forbidden",
+			Audit:            "always",
+		},
+		browserAutomationDefinition("browser.status", "Check whether the Chrome DevTools MCP browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.list_tabs", "List browser tabs/pages visible through Chrome DevTools MCP.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.open", "Open a URL in a new Chrome page/tab through Chrome DevTools MCP.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.focus", "Focus/select a browser page/tab by stable page identifier.", app.RiskRead, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.close", "Close a browser page/tab by stable page identifier.", app.RiskReversible, true, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.snapshot", "Take a structured page snapshot for reading and stable element refs.", app.RiskRead, false, nil, nil, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.screenshot", "Take a browser screenshot for visual confirmation.", app.RiskRead, false, nil, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.wait", "Wait for visible text or observable page state before continuing.", app.RiskRead, false, []string{"text"}, nil, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, true, []string{"uid"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.type", "Type or fill text into a clear element ref or current focus.", app.RiskDraft, true, []string{"text"}, []string{"uid"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.select", "Select a dropdown or select-like value using a clear element ref.", app.RiskDraft, true, []string{"uid", "value"}, []string{"value"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		{
 			Name:        "email.search",
 			Description: "Search local mock email threads without external account access.",
@@ -641,11 +1040,109 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
+		{
+			Name:        "reminders.create",
+			Description: "Create a local scheduled self reminder. Default to channel=web unless the current session is a Weixin chat or the user explicitly asks for Weixin/vx. For Web-originated Weixin reminders, include recipient matching one bound Weixin user when multiple bindings exist.",
+			InputSchema: schema("object", []string{"text", "due_time"}, map[string]any{
+				"text":       stringSchema(),
+				"due_time":   stringSchema(),
+				"timezone":   stringSchema(),
+				"channel":    stringSchema(),
+				"recipient":  stringSchema(),
+				"recurrence": stringSchema(),
+				"dedupe_key": stringSchema(),
+			}),
+			OutputSchema:     reminderOutputSchema(),
+			Risk:             app.RiskReversible,
+			RequiresApproval: false,
+			Idempotent:       false,
+			TimeoutMS:        1000,
+			Sandbox:          "forbidden",
+			Audit:            "always",
+		},
+		{
+			Name:        "reminders.list",
+			Description: "List local reminders by optional status and time range.",
+			InputSchema: schema("object", []string{}, map[string]any{
+				"status":    stringSchema(),
+				"from_time": stringSchema(),
+				"to_time":   stringSchema(),
+				"limit":     map[string]any{"type": "number"},
+			}),
+			OutputSchema: objectSchema([]string{"reminders", "count"}, map[string]any{
+				"reminders": arraySchema(objectValueSchema()),
+				"count":     integerSchema(),
+			}),
+			Risk:             app.RiskRead,
+			RequiresApproval: false,
+			Idempotent:       true,
+			TimeoutMS:        1000,
+			Sandbox:          "forbidden",
+			Audit:            "always",
+		},
+		{
+			Name:        "reminders.update",
+			Description: "Update a pending local reminder without sending it immediately.",
+			InputSchema: schema("object", []string{"reminder_id"}, map[string]any{
+				"reminder_id": stringSchema(),
+				"text":        stringSchema(),
+				"due_time":    stringSchema(),
+				"timezone":    stringSchema(),
+				"channel":     stringSchema(),
+				"recipient":   stringSchema(),
+				"recurrence":  stringSchema(),
+			}),
+			OutputSchema:     reminderOutputSchema(),
+			Risk:             app.RiskReversible,
+			RequiresApproval: false,
+			Idempotent:       false,
+			TimeoutMS:        1000,
+			Sandbox:          "forbidden",
+			Audit:            "always",
+		},
+		{
+			Name:        "reminders.cancel",
+			Description: "Cancel a pending local reminder.",
+			InputSchema: schema("object", []string{"reminder_id"}, map[string]any{
+				"reminder_id": stringSchema(),
+				"reason":      stringSchema(),
+			}),
+			OutputSchema:     reminderOutputSchema(),
+			Risk:             app.RiskReversible,
+			RequiresApproval: false,
+			Idempotent:       false,
+			TimeoutMS:        1000,
+			Sandbox:          "forbidden",
+			Audit:            "always",
+		},
 	}
+}
+
+func reminderOutputSchema() map[string]any {
+	return objectSchema([]string{"reminder_id", "text_summary", "due_time", "timezone", "channel", "status"}, map[string]any{
+		"reminder_id":      stringSchema(),
+		"text_summary":     stringSchema(),
+		"due_time":         stringSchema(),
+		"timezone":         stringSchema(),
+		"channel":          stringSchema(),
+		"recipient":        stringSchema(),
+		"status":           stringSchema(),
+		"created_at":       stringSchema(),
+		"updated_at":       stringSchema(),
+		"canceled_at":      stringSchema(),
+		"last_delivery_id": stringSchema(),
+		"last_error":       stringSchema(),
+	})
 }
 
 func objectSchema(required []string, properties map[string]any) map[string]any {
 	return schema("object", required, properties)
+}
+
+func strictObjectSchema(required []string, properties map[string]any) map[string]any {
+	out := schema("object", required, properties)
+	out["additionalProperties"] = false
+	return out
 }
 
 func stringSchema() map[string]any {
@@ -670,6 +1167,136 @@ func arraySchema(item map[string]any) map[string]any {
 
 func stringArraySchema() map[string]any {
 	return arraySchema(stringSchema())
+}
+
+func scalarValueSchema() map[string]any {
+	return map[string]any{"type": []any{"string", "number", "integer", "boolean", "null"}}
+}
+
+func docxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {
+	return app.ToolDefinition{
+		Name:        name,
+		Description: description,
+		InputSchema: schema("object", required, input),
+		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "untrusted"}, map[string]any{
+			"status":          stringSchema(),
+			"operation":       stringSchema(),
+			"path":            stringSchema(),
+			"output_path":     stringSchema(),
+			"bytes":           integerSchema(),
+			"paragraph_index": integerSchema(),
+			"position":        stringSchema(),
+			"text":            stringSchema(),
+			"style":           objectValueSchema(),
+			"location":        objectValueSchema(),
+			"untrusted":       booleanSchema(),
+		}),
+		Risk:             app.RiskReversible,
+		RequiresApproval: true,
+		Idempotent:       false,
+		TimeoutMS:        10000,
+		Sandbox:          "optional",
+		Audit:            "always",
+	}
+}
+
+func pptxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {
+	return app.ToolDefinition{
+		Name:        name,
+		Description: description,
+		InputSchema: schema("object", required, input),
+		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "slides", "untrusted"}, map[string]any{
+			"status":               stringSchema(),
+			"operation":            stringSchema(),
+			"path":                 stringSchema(),
+			"output_path":          stringSchema(),
+			"bytes":                integerSchema(),
+			"slides":               integerSchema(),
+			"slide_index":          integerSchema(),
+			"inserted_slide_index": integerSchema(),
+			"layout_index":         integerSchema(),
+			"title":                stringSchema(),
+			"body":                 stringSchema(),
+			"untrusted":            booleanSchema(),
+		}),
+		Risk:             app.RiskReversible,
+		RequiresApproval: true,
+		Idempotent:       false,
+		TimeoutMS:        10000,
+		Sandbox:          "optional",
+		Audit:            "always",
+	}
+}
+
+func xlsxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {
+	return app.ToolDefinition{
+		Name:        name,
+		Description: description,
+		InputSchema: schema("object", required, input),
+		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "sheet", "untrusted"}, map[string]any{
+			"status":       stringSchema(),
+			"operation":    stringSchema(),
+			"path":         stringSchema(),
+			"output_path":  stringSchema(),
+			"bytes":        integerSchema(),
+			"sheet":        stringSchema(),
+			"cell":         stringSchema(),
+			"row":          integerSchema(),
+			"inserted_row": integerSchema(),
+			"value":        scalarValueSchema(),
+			"values":       arraySchema(scalarValueSchema()),
+			"untrusted":    booleanSchema(),
+		}),
+		Risk:             app.RiskReversible,
+		RequiresApproval: true,
+		Idempotent:       false,
+		TimeoutMS:        10000,
+		Sandbox:          "optional",
+		Audit:            "always",
+	}
+}
+
+func browserAutomationDefinition(name, description string, risk app.RiskLevel, approval bool, required []string, extraInput []string, outputRequired []string) app.ToolDefinition {
+	return app.ToolDefinition{
+		Name:        name,
+		Description: description,
+		InputSchema: schema("object", required, browserAutomationInputProperties(required, extraInput)),
+		OutputSchema: objectSchema(outputRequired, map[string]any{
+			"tool":        stringSchema(),
+			"raw_tool":    stringSchema(),
+			"arguments":   objectValueSchema(),
+			"output":      objectValueSchema(),
+			"text":        stringSchema(),
+			"pages":       arraySchema(objectValueSchema()),
+			"untrusted":   booleanSchema(),
+			"provider":    stringSchema(),
+			"duration_ms": integerSchema(),
+		}),
+		Risk:             risk,
+		RequiresApproval: approval,
+		Idempotent:       risk == app.RiskRead,
+		TimeoutMS:        15000,
+		Sandbox:          "forbidden",
+		Audit:            "always",
+	}
+}
+
+func browserAutomationInputProperties(required []string, extra []string) map[string]any {
+	all := slices.Clone(required)
+	all = append(all, extra...)
+	all = append(all, "mode", "target_kind", "focused", "current_focus", "rich_text", "timeout_ms", "reason")
+	out := map[string]any{}
+	for _, field := range all {
+		switch field {
+		case "page_id", "uid", "url", "text", "value", "mode", "target_kind", "reason":
+			out[field] = stringSchema()
+		case "focused", "current_focus", "rich_text":
+			out[field] = booleanSchema()
+		case "timeout_ms":
+			out[field] = map[string]any{"type": "number"}
+		}
+	}
+	return out
 }
 
 func schema(kind string, required []string, properties map[string]any) map[string]any {
@@ -1080,31 +1707,233 @@ func (h *ToolHub) filesRead(ctx context.Context, args map[string]any) (Result, e
 	if err != nil {
 		return Result{}, err
 	}
-	maxBytes := intArg(args, "max_bytes", 20000)
+	structured := isStructuredDocumentPath(path)
+	defaultMaxBytes := 200000
+	if structured && strings.ToLower(filepath.Ext(path)) != ".docx" {
+		defaultMaxBytes = 20000
+	}
+	maxBytes := intArg(args, "max_bytes", defaultMaxBytes)
 	if maxBytes <= 0 || maxBytes > 200000 {
-		maxBytes = 20000
+		maxBytes = defaultMaxBytes
 	}
 	select {
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
 	default:
 	}
+	if structured {
+		return h.readStructuredDocument(ctx, path, maxBytes)
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Result{}, err
 	}
-	truncated := false
-	if len(raw) > maxBytes {
+	truncated := len(raw) > maxBytes
+	if truncated {
 		raw = raw[:maxBytes]
-		truncated = true
 	}
+	relPath := h.workspaceRelPath(path)
+	document := textDocumentReadEnvelope(string(raw), truncated, maxBytes)
+	attachSmallDocumentPipeline(document, relPath, "text", string(raw), truncated, maxBytes)
 	return Result{Output: map[string]any{
-		"path":      path,
-		"content":   string(raw),
-		"bytes":     len(raw),
-		"truncated": truncated,
-		"untrusted": true,
+		"path":         path,
+		"rel_path":     relPath,
+		"already_read": true,
+		"kind":         "text",
+		"content":      string(raw),
+		"bytes":        len(raw),
+		"max_bytes":    maxBytes,
+		"truncated":    truncated,
+		"untrusted":    true,
+		"document":     document,
 	}}, nil
+}
+
+func textDocumentReadEnvelope(content string, truncated bool, maxBytes int) map[string]any {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	if normalized == "" {
+		lines = []string{}
+	}
+	blocks := []map[string]any{}
+	for index, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lineNumber := index + 1
+		blocks = append(blocks, map[string]any{
+			"text": line,
+			"location": map[string]any{
+				"part":        "document",
+				"block_type":  "line",
+				"block_index": len(blocks) + 1,
+				"line_start":  lineNumber,
+				"line_end":    lineNumber,
+				"path":        fmt.Sprintf("document.line[%d]", lineNumber),
+			},
+		})
+	}
+	evidenceBlocks := evidenceBlocksFromDocumentBlocks("", "text", blocks)
+	mode := "full"
+	reason := "default_full_read"
+	if truncated {
+		mode = "byte_limited"
+		reason = "max_bytes_exceeded"
+	}
+	return map[string]any{
+		"schema_version": "document_read_v1",
+		"format":         "text",
+		"source":         "plain_text",
+		"content_scope":  map[string]any{"kind": "full_document", "complete": !truncated},
+		"strategy": map[string]any{
+			"mode":       mode,
+			"reason":     reason,
+			"complete":   !truncated,
+			"max_bytes":  maxBytes,
+			"extensible": true,
+		},
+		"blocks":          blocks,
+		"evidence_blocks": evidenceBlocks,
+		"stats": map[string]any{
+			"blocks":   len(blocks),
+			"complete": !truncated,
+		},
+	}
+}
+
+func attachEvidenceBlocks(document map[string]any, documentID, fileType string) {
+	if document == nil {
+		return
+	}
+	blocks := documentAnySlice(document["blocks"])
+	if len(blocks) == 0 {
+		return
+	}
+	document["evidence_blocks"] = evidenceBlocksFromAnyBlocks(documentID, fileType, blocks)
+}
+
+func evidenceBlocksFromDocumentBlocks(documentID, fileType string, blocks []map[string]any) []map[string]any {
+	raw := make([]any, 0, len(blocks))
+	for _, block := range blocks {
+		raw = append(raw, block)
+	}
+	return evidenceBlocksFromAnyBlocks(documentID, fileType, raw)
+}
+
+func evidenceBlocksFromAnyBlocks(documentID, fileType string, blocks []any) []map[string]any {
+	out := []map[string]any{}
+	headingPath := []string{}
+	for i, item := range blocks {
+		block, ok := documentAnyMap(item)
+		if !ok {
+			continue
+		}
+		text := strings.TrimSpace(documentStringValue(block["text"]))
+		if text == "" || text == "<nil>" {
+			continue
+		}
+		location, _ := documentAnyMap(block["location"])
+		blockType := evidenceBlockType(fileType, block, location, text)
+		if blockType == "heading" {
+			headingPath = appendHeadingPath(headingPath, text)
+		}
+		blockID := evidenceBlockID(location, i+1)
+		normalizedLocation := evidenceBlockLocation(location, headingPath)
+		evidence := map[string]any{
+			"blockId":    blockID,
+			"documentId": documentID,
+			"fileType":   fileType,
+			"type":       blockType,
+			"text":       text,
+			"location":   normalizedLocation,
+			"sourceHash": sourceHash(text),
+		}
+		out = append(out, evidence)
+	}
+	return out
+}
+
+func evidenceBlockType(fileType string, block map[string]any, location map[string]any, text string) string {
+	if blockType := strings.TrimSpace(documentStringValue(location["block_type"])); blockType == "table_cell" {
+		return "table_cell"
+	}
+	style := strings.ToLower(strings.TrimSpace(documentStringValue(block["style"])))
+	if strings.Contains(style, "heading") || looksDocumentHeading(text) {
+		return "heading"
+	}
+	switch fileType {
+	case "pdf":
+		return "pdf_text"
+	case "pptx":
+		return "slide_text"
+	default:
+		return "paragraph"
+	}
+}
+
+func looksDocumentHeading(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || len([]rune(text)) > 40 {
+		return false
+	}
+	prefixes := []string{"一、", "二、", "三、", "四、", "五、", "六、", "七、", "八、", "九、", "十、"}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func appendHeadingPath(path []string, heading string) []string {
+	next := append([]string(nil), path...)
+	if len(next) == 0 {
+		return []string{heading}
+	}
+	next[len(next)-1] = heading
+	return next
+}
+
+func evidenceBlockID(location map[string]any, fallback int) string {
+	if path := strings.TrimSpace(documentStringValue(location["path"])); path != "" && path != "<nil>" {
+		return path
+	}
+	return fmt.Sprintf("blk_%d", fallback)
+}
+
+func evidenceBlockLocation(location map[string]any, headingPath []string) map[string]any {
+	out := map[string]any{}
+	if value := documentIntValue(location["page_number"]); value > 0 {
+		out["pageNumber"] = value
+	}
+	if value := documentIntValue(location["paragraph_index"]); value > 0 {
+		out["paragraphIndex"] = value
+	}
+	if value := documentIntValue(location["table_index"]); value > 0 {
+		out["tableId"] = fmt.Sprintf("table_%d", value)
+	}
+	if value := documentIntValue(location["row_index"]); value > 0 {
+		out["rowIndex"] = value
+	}
+	if value := documentIntValue(location["cell_index"]); value > 0 {
+		out["columnIndex"] = value
+	}
+	if value := documentIntValue(location["slide_number"]); value > 0 {
+		out["slideNumber"] = value
+	}
+	if len(headingPath) > 0 {
+		out["headingPath"] = append([]string(nil), headingPath...)
+		out["sectionPath"] = append([]string(nil), headingPath...)
+	}
+	if path := strings.TrimSpace(documentStringValue(location["path"])); path != "" && path != "<nil>" {
+		out["path"] = path
+	}
+	return out
+}
+
+func sourceHash(text string) string {
+	sum := sha1.Sum([]byte(text))
+	return "sha1:" + hex.EncodeToString(sum[:])
 }
 
 func (h *ToolHub) filesWriteDraft(ctx context.Context, args map[string]any) (Result, error) {
@@ -1134,11 +1963,58 @@ func (h *ToolHub) filesWriteDraft(ctx context.Context, args map[string]any) (Res
 	return Result{Output: map[string]any{"path": path, "bytes": len(content), "status": "draft_written"}}, nil
 }
 
-func (h *ToolHub) memorySearch(args map[string]any) (Result, error) {
+func (h *ToolHub) memorySearch(args map[string]any, sessionID string) (Result, error) {
 	h.applyMemoryRetention()
 	query := stringArg(args, "query", "")
 	memories := h.store.SearchMemories(query)
+	ownerID := h.ownerIDForSession(sessionID)
+	filtered := memories[:0]
+	for _, memory := range memories {
+		if h.memoryVisibleToOwner(memory, ownerID) {
+			filtered = append(filtered, memory)
+		}
+	}
+	memories = filtered
 	return Result{Output: map[string]any{"query": query, "results": memories, "count": len(memories)}}, nil
+}
+
+func (h *ToolHub) ownerIDForSession(sessionID string) string {
+	if strings.TrimSpace(sessionID) == "" || h.store == nil {
+		return app.DefaultOwnerID
+	}
+	if session, ok := h.store.GetSession(sessionID); ok && strings.TrimSpace(session.OwnerID) != "" {
+		return strings.TrimSpace(session.OwnerID)
+	}
+	return app.DefaultOwnerID
+}
+
+func (h *ToolHub) sessionVisibleToOwner(sessionID, ownerID string) bool {
+	if strings.TrimSpace(sessionID) == "" {
+		return ownerID == "" || ownerID == app.DefaultOwnerID
+	}
+	session, ok := h.store.GetSession(sessionID)
+	if !ok {
+		return ownerID == app.DefaultOwnerID
+	}
+	sessionOwner := strings.TrimSpace(session.OwnerID)
+	if sessionOwner == "" {
+		sessionOwner = app.DefaultOwnerID
+	}
+	if strings.TrimSpace(ownerID) == "" {
+		ownerID = app.DefaultOwnerID
+	}
+	return sessionOwner == ownerID
+}
+
+func (h *ToolHub) memoryVisibleToOwner(memory app.Memory, ownerID string) bool {
+	if strings.TrimSpace(memory.SourceID) == "" {
+		return ownerID == "" || ownerID == app.DefaultOwnerID
+	}
+	run, ok := h.store.GetRun(memory.SourceID)
+	if !ok {
+		return ownerID == "" || ownerID == app.DefaultOwnerID
+	}
+	return h.sessionVisibleToOwner(run.SessionID, ownerID)
 }
 
 func (h *ToolHub) memoryWriteCandidate(args map[string]any, sessionID, runID string) (Result, error) {
@@ -1241,6 +2117,7 @@ func (h *ToolHub) resolvePath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("path is required")
 	}
+	path = h.normalizePossiblyMissingRootSlash(path)
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(h.cfg.Workspaces.DefaultRoot, path)
 	}
@@ -1252,6 +2129,35 @@ func (h *ToolHub) resolvePath(path string) (string, error) {
 		return "", fmt.Errorf("path %s is outside workspace allowlist", abs)
 	}
 	return abs, nil
+}
+
+func (h *ToolHub) workspaceRelPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+	root, err := filepath.Abs(h.cfg.Workspaces.DefaultRoot)
+	if err != nil || root == "" {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+	return filepath.ToSlash(rel)
+}
+
+func (h *ToolHub) normalizePossiblyMissingRootSlash(path string) string {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if filepath.IsAbs(clean) {
+		return path
+	}
+	candidate := string(os.PathSeparator) + clean
+	abs, err := filepath.Abs(candidate)
+	if err != nil || !h.allowed(abs) {
+		return path
+	}
+	return candidate
 }
 
 func (h *ToolHub) resolveDraftPath(path string) (string, error) {

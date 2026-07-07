@@ -22,6 +22,11 @@ type PostgresStore struct {
 const postgresSchema = `
 CREATE TABLE IF NOT EXISTS owners (
   id TEXT PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT '',
+  external_ref TEXT NOT NULL DEFAULT '',
+  workspace_root TEXT NOT NULL DEFAULT '',
+  default_channel TEXT NOT NULL DEFAULT '',
+  default_binding_id TEXT NOT NULL DEFAULT '',
   display_name TEXT NOT NULL,
   email TEXT NOT NULL DEFAULT '',
   preferences JSONB NOT NULL DEFAULT '{}',
@@ -32,6 +37,12 @@ CREATE TABLE IF NOT EXISTS owners (
 ALTER TABLE owners ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';
 ALTER TABLE owners ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE owners ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE owners ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '';
+ALTER TABLE owners ADD COLUMN IF NOT EXISTS external_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE owners ADD COLUMN IF NOT EXISTS workspace_root TEXT NOT NULL DEFAULT '';
+ALTER TABLE owners ADD COLUMN IF NOT EXISTS default_channel TEXT NOT NULL DEFAULT '';
+ALTER TABLE owners ADD COLUMN IF NOT EXISTS default_binding_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS owners_external_ref_idx ON owners(source, external_ref);
 
 CREATE TABLE IF NOT EXISTS clients (
   id TEXT PRIMARY KEY,
@@ -54,7 +65,11 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL DEFAULT 'owner',
+  workspace_root TEXT NOT NULL DEFAULT '',
   title TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'webchat',
+  hidden BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -65,6 +80,7 @@ CREATE TABLE IF NOT EXISTS messages (
   run_id TEXT,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  attachments JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -147,6 +163,135 @@ CREATE TABLE IF NOT EXISTS approvals (
   resolution_note TEXT
 );
 
+CREATE TABLE IF NOT EXISTS reminders (
+  id TEXT PRIMARY KEY,
+  session_id TEXT,
+  run_id TEXT,
+  text TEXT NOT NULL,
+  text_summary TEXT NOT NULL,
+  due_time TIMESTAMPTZ NOT NULL,
+  timezone TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  recipient TEXT NOT NULL DEFAULT '',
+  recurrence TEXT NOT NULL DEFAULT '',
+  dedupe_key TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  last_delivery_id TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  canceled_at TIMESTAMPTZ,
+  delivery_attempt INTEGER NOT NULL DEFAULT 0
+);
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS recipient_binding TEXT NOT NULL DEFAULT '';
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS binding_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS credential_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS base_url TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS reminders_status_due_time_idx ON reminders (status, due_time);
+
+CREATE TABLE IF NOT EXISTS reminder_deliveries (
+  id TEXT PRIMARY KEY,
+  reminder_id TEXT NOT NULL REFERENCES reminders(id),
+  channel TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  recipient TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  provider_status TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  retry_state TEXT NOT NULL DEFAULT '',
+  attempt INTEGER NOT NULL DEFAULT 0,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS reminder_deliveries_reminder_id_idx ON reminder_deliveries (reminder_id);
+
+CREATE TABLE IF NOT EXISTS notification_bindings (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  status TEXT NOT NULL,
+  display_name TEXT NOT NULL DEFAULT '',
+  external_user_id TEXT NOT NULL DEFAULT '',
+  account_id TEXT NOT NULL DEFAULT '',
+  credential_ref TEXT NOT NULL DEFAULT '',
+  base_url TEXT NOT NULL DEFAULT '',
+  provider_session_id TEXT NOT NULL DEFAULT '',
+  provider_state TEXT NOT NULL DEFAULT '',
+  context_token TEXT NOT NULL DEFAULT '',
+  provider_cursor TEXT NOT NULL DEFAULT '',
+  qr_code_url TEXT NOT NULL DEFAULT '',
+  qr_code_image TEXT NOT NULL DEFAULT '',
+  default_for_channel BOOLEAN NOT NULL DEFAULT false,
+  scopes JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  last_error TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS notification_bindings_channel_status_idx ON notification_bindings (channel, status);
+
+ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS provider_session_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS provider_state TEXT NOT NULL DEFAULT '';
+ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS context_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS provider_cursor TEXT NOT NULL DEFAULT '';
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'webchat';
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT 'owner';
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS workspace_root TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS weixin_chat_sessions (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL DEFAULT '',
+  workspace_root TEXT NOT NULL DEFAULT '',
+  binding_id TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'weixin',
+  provider TEXT NOT NULL DEFAULT '',
+  external_user_id TEXT NOT NULL DEFAULT '',
+  display_name TEXT NOT NULL DEFAULT '',
+  linked_session_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  provider_cursor TEXT NOT NULL DEFAULT '',
+  last_context_token TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS weixin_chat_sessions_binding_user_idx ON weixin_chat_sessions(binding_id, external_user_id);
+CREATE INDEX IF NOT EXISTS weixin_chat_sessions_linked_session_idx ON weixin_chat_sessions(linked_session_id);
+
+CREATE TABLE IF NOT EXISTS weixin_chat_messages (
+  id TEXT PRIMARY KEY,
+  chat_session_id TEXT NOT NULL,
+  binding_id TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  role TEXT NOT NULL,
+  external_message_id TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL,
+  context_token TEXT NOT NULL DEFAULT '',
+  linked_run_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS weixin_chat_messages_external_idx ON weixin_chat_messages(chat_session_id, external_message_id);
+CREATE INDEX IF NOT EXISTS weixin_chat_messages_chat_created_idx ON weixin_chat_messages(chat_session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS credential_secrets (
+  ref TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  value TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY,
   happened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -203,6 +348,7 @@ CREATE TABLE IF NOT EXISTS eval_runs (
 );
 
 ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS failure_archives JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]';
 
 CREATE TABLE IF NOT EXISTS artifact_objects (
   id TEXT PRIMARY KEY,
@@ -354,25 +500,36 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 }
 
 func (s *PostgresStore) CreateSession(title string) app.Session {
+	return s.CreateSessionWithScope(title, app.DefaultOwnerID, "", "webchat", false)
+}
+
+func (s *PostgresStore) CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session {
 	now := time.Now().UTC()
 	if title == "" {
 		title = "New SparkClaw Session"
 	}
-	session := app.Session{ID: app.NewID("s"), Title: title, CreatedAt: now, UpdatedAt: now}
+	if strings.TrimSpace(ownerID) == "" {
+		ownerID = app.DefaultOwnerID
+	}
+	if strings.TrimSpace(source) == "" {
+		source = "webchat"
+	}
+	session := app.Session{ID: app.NewID("s"), OwnerID: ownerID, WorkspaceRoot: strings.TrimSpace(workspaceRoot), Title: title, Source: source, Hidden: hidden, CreatedAt: now, UpdatedAt: now}
 	ctx := context.Background()
 	_, _ = s.db.Exec(ctx, `
-		INSERT INTO sessions (id, title, created_at, updated_at)
-		VALUES ($1, $2, $3, $4)
-	`, session.ID, session.Title, session.CreatedAt, session.UpdatedAt)
-	s.appendAudit(ctx, "session.created", session.ID, "", "system", "Session created", map[string]any{"title": title})
+		INSERT INTO sessions (id, owner_id, workspace_root, title, source, hidden, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, session.ID, session.OwnerID, session.WorkspaceRoot, session.Title, session.Source, session.Hidden, session.CreatedAt, session.UpdatedAt)
+	s.appendAudit(ctx, "session.created", session.ID, "", "system", "Session created", map[string]any{"title": title, "owner_id": ownerID})
 	s.appendEvent(ctx, "session.created", session.ID, "", session)
 	return session
 }
 
 func (s *PostgresStore) ListSessions() []app.Session {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, title, created_at, updated_at
+		SELECT id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
 		FROM sessions
+		WHERE hidden = false
 		ORDER BY updated_at DESC
 	`)
 	if err != nil {
@@ -384,7 +541,7 @@ func (s *PostgresStore) ListSessions() []app.Session {
 
 func (s *PostgresStore) GetSession(id string) (app.Session, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, title, created_at, updated_at
+		SELECT id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
 		FROM sessions
 		WHERE id = $1
 	`, id)
@@ -403,7 +560,7 @@ func (s *PostgresStore) UpdateSessionTitle(id, title string) (app.Session, error
 		UPDATE sessions
 		SET title = $2, updated_at = $3
 		WHERE id = $1
-		RETURNING id, title, created_at, updated_at
+		RETURNING id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
 	`, id, title, now)
 	session, err := scanSession(row)
 	if err != nil {
@@ -435,6 +592,8 @@ func (s *PostgresStore) DeleteSession(id string) (app.Session, error) {
 		`DELETE FROM memories WHERE source_run_id IN (SELECT id FROM agent_runs WHERE session_id = $1)`,
 		`DELETE FROM episode_summaries WHERE session_id = $1`,
 		`DELETE FROM artifact_objects WHERE session_id = $1`,
+		`DELETE FROM weixin_chat_messages WHERE chat_session_id IN (SELECT id FROM weixin_chat_sessions WHERE linked_session_id = $1)`,
+		`DELETE FROM weixin_chat_sessions WHERE linked_session_id = $1`,
 		`DELETE FROM tool_calls WHERE session_id = $1`,
 		`DELETE FROM model_calls WHERE session_id = $1`,
 		`DELETE FROM messages WHERE session_id = $1`,
@@ -540,30 +699,57 @@ func (s *PostgresStore) TouchClient(id string) {
 }
 
 func (s *PostgresStore) GetOwnerProfile() app.OwnerProfile {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, display_name, email, preferences, created_at, updated_at
-		FROM owners
-		WHERE id = $1
-	`, app.DefaultOwnerID)
-	profile, err := scanOwnerProfile(row)
-	if err == nil {
-		return profile
-	}
-	profile = app.DefaultOwnerProfile()
-	_, _ = s.db.Exec(context.Background(), `
-		INSERT INTO owners (id, display_name, email, preferences, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (id) DO NOTHING
-	`, profile.ID, profile.DisplayName, profile.Email, mustJSON(profile.Preferences), profile.CreatedAt, profile.UpdatedAt)
+	profile, _ := s.GetOwnerProfileByID(app.DefaultOwnerID)
 	return profile
 }
 
 func (s *PostgresStore) UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
-	current := s.GetOwnerProfile()
+	profile.ID = app.DefaultOwnerID
+	return s.SaveOwnerProfile(profile)
+}
+
+func (s *PostgresStore) GetOwnerProfileByID(id string) (app.OwnerProfile, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = app.DefaultOwnerID
+	}
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, source, external_ref, workspace_root, default_channel, default_binding_id,
+			display_name, email, preferences, created_at, updated_at
+		FROM owners
+		WHERE id = $1
+	`, id)
+	profile, err := scanOwnerProfile(row)
+	if err == nil {
+		return profile, true
+	}
+	if id != app.DefaultOwnerID {
+		return app.OwnerProfile{}, false
+	}
+	profile = app.DefaultOwnerProfile()
+	_, _ = s.db.Exec(context.Background(), `
+		INSERT INTO owners (id, source, external_ref, workspace_root, default_channel, default_binding_id,
+			display_name, email, preferences, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (id) DO NOTHING
+	`, profile.ID, profile.Source, profile.ExternalRef, profile.WorkspaceRoot, profile.DefaultChannel,
+		profile.DefaultBindingID, profile.DisplayName, profile.Email, mustJSON(profile.Preferences),
+		profile.CreatedAt, profile.UpdatedAt)
+	return profile, true
+}
+
+func (s *PostgresStore) SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
+	profile.ID = strings.TrimSpace(profile.ID)
+	if profile.ID == "" {
+		profile.ID = app.DefaultOwnerID
+	}
+	current, ok := s.GetOwnerProfileByID(profile.ID)
 	now := time.Now().UTC()
-	profile.ID = current.ID
 	if profile.CreatedAt.IsZero() {
 		profile.CreatedAt = current.CreatedAt
+	}
+	if !ok || profile.CreatedAt.IsZero() {
+		profile.CreatedAt = now
 	}
 	profile.UpdatedAt = now
 	if profile.Preferences == nil {
@@ -572,22 +758,67 @@ func (s *PostgresStore) UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerPr
 	profile = normalizeOwnerProfile(profile)
 	ctx := context.Background()
 	_, _ = s.db.Exec(ctx, `
-		INSERT INTO owners (id, display_name, email, preferences, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO owners (id, source, external_ref, workspace_root, default_channel, default_binding_id,
+			display_name, email, preferences, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (id) DO UPDATE SET
+			source = EXCLUDED.source,
+			external_ref = EXCLUDED.external_ref,
+			workspace_root = EXCLUDED.workspace_root,
+			default_channel = EXCLUDED.default_channel,
+			default_binding_id = EXCLUDED.default_binding_id,
 			display_name = EXCLUDED.display_name,
 			email = EXCLUDED.email,
 			preferences = EXCLUDED.preferences,
 			updated_at = EXCLUDED.updated_at
-	`, profile.ID, profile.DisplayName, profile.Email, mustJSON(profile.Preferences), profile.CreatedAt, profile.UpdatedAt)
+	`, profile.ID, profile.Source, profile.ExternalRef, profile.WorkspaceRoot, profile.DefaultChannel,
+		profile.DefaultBindingID, profile.DisplayName, profile.Email, mustJSON(profile.Preferences),
+		profile.CreatedAt, profile.UpdatedAt)
 	s.appendAudit(ctx, "owner_profile.updated", "", "", "owner", profile.DisplayName, map[string]any{
 		"owner_id":     profile.ID,
+		"source":       profile.Source,
+		"external_ref": profile.ExternalRef != "",
 		"email_set":    profile.Email != "",
 		"preferences":  len(profile.Preferences),
 		"display_name": profile.DisplayName,
 	})
 	s.appendEvent(ctx, "owner_profile.updated", "", "", profile)
 	return profile
+}
+
+func (s *PostgresStore) ListOwnerProfiles() []app.OwnerProfile {
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, source, external_ref, workspace_root, default_channel, default_binding_id,
+			display_name, email, preferences, created_at, updated_at
+		FROM owners
+		ORDER BY updated_at DESC
+	`)
+	if err != nil {
+		return []app.OwnerProfile{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanOwnerProfile)
+}
+
+func (s *PostgresStore) FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool) {
+	source = strings.TrimSpace(source)
+	externalRef = strings.TrimSpace(externalRef)
+	if source == "" || externalRef == "" {
+		return app.OwnerProfile{}, false
+	}
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, source, external_ref, workspace_root, default_channel, default_binding_id,
+			display_name, email, preferences, created_at, updated_at
+		FROM owners
+		WHERE source = $1 AND external_ref = $2
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, source, externalRef)
+	profile, err := scanOwnerProfile(row)
+	if err != nil {
+		return app.OwnerProfile{}, false
+	}
+	return profile, true
 }
 
 func (s *PostgresStore) SavePairingCode(code app.PairingCode) {
@@ -683,12 +914,12 @@ func (s *PostgresStore) AddMessage(message app.Message) app.Message {
 	}
 	ctx := context.Background()
 	_, _ = s.db.Exec(ctx, `
-		INSERT INTO messages (id, session_id, run_id, role, content, created_at)
-		VALUES ($1, $2, nullif($3, ''), $4, $5, $6)
-	`, message.ID, message.SessionID, message.RunID, message.Role, message.Content, message.CreatedAt)
+		INSERT INTO messages (id, session_id, run_id, role, content, attachments, created_at)
+		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7)
+	`, message.ID, message.SessionID, message.RunID, message.Role, message.Content, mustJSON(message.Attachments), message.CreatedAt)
 	if session, ok := s.GetSession(message.SessionID); ok {
 		session.UpdatedAt = message.CreatedAt
-		if session.Title == "" || session.Title == "New SparkClaw Session" {
+		if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
 			session.Title = deriveTitle(message.Content)
 		}
 		_, _ = s.db.Exec(ctx, `
@@ -703,7 +934,7 @@ func (s *PostgresStore) AddMessage(message app.Message) app.Message {
 
 func (s *PostgresStore) ListMessages(sessionID string) []app.Message {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, coalesce(run_id, ''), role, content, created_at
+		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, created_at
 		FROM messages
 		WHERE session_id = $1
 		ORDER BY created_at ASC
@@ -1019,6 +1250,534 @@ func (s *PostgresStore) ListApprovals(status string) []app.Approval {
 	}
 	defer rows.Close()
 	return collectRows(rows, scanApproval)
+}
+
+func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
+	now := time.Now().UTC()
+	if reminder.ID == "" {
+		reminder.ID = app.NewID("rem")
+	}
+	if reminder.CreatedAt.IsZero() {
+		reminder.CreatedAt = now
+	}
+	if reminder.UpdatedAt.IsZero() {
+		reminder.UpdatedAt = now
+	}
+	if reminder.Status == "" {
+		reminder.Status = "pending"
+	}
+	if reminder.TextSummary == "" {
+		reminder.TextSummary = summarizeReminderText(reminder.Text)
+	}
+	ctx := context.Background()
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO reminders (
+			id, session_id, run_id, text, text_summary, due_time, timezone, channel, recipient,
+			recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status,
+			last_delivery_id, last_error, created_at, updated_at, sent_at, canceled_at, delivery_attempt
+		)
+		VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+		ON CONFLICT (id) DO UPDATE SET
+			text = EXCLUDED.text,
+			text_summary = EXCLUDED.text_summary,
+			due_time = EXCLUDED.due_time,
+			timezone = EXCLUDED.timezone,
+			channel = EXCLUDED.channel,
+			recipient = EXCLUDED.recipient,
+			recipient_binding = EXCLUDED.recipient_binding,
+			binding_id = EXCLUDED.binding_id,
+			credential_ref = EXCLUDED.credential_ref,
+			base_url = EXCLUDED.base_url,
+			recurrence = EXCLUDED.recurrence,
+			dedupe_key = EXCLUDED.dedupe_key,
+			status = EXCLUDED.status,
+			last_delivery_id = EXCLUDED.last_delivery_id,
+			last_error = EXCLUDED.last_error,
+			updated_at = EXCLUDED.updated_at,
+			sent_at = EXCLUDED.sent_at,
+			canceled_at = EXCLUDED.canceled_at,
+			delivery_attempt = EXCLUDED.delivery_attempt
+	`, reminder.ID, reminder.SessionID, reminder.RunID, reminder.Text, reminder.TextSummary, reminder.DueTime, reminder.Timezone, reminder.Channel, reminder.Recipient,
+		reminder.RecipientBinding, reminder.BindingID, reminder.CredentialRef, reminder.BaseURL, reminder.Recurrence, reminder.DedupeKey, reminder.Status, reminder.LastDeliveryID, reminder.LastError, reminder.CreatedAt, reminder.UpdatedAt,
+		reminder.SentAt, reminder.CanceledAt, reminder.DeliveryAttempt)
+	s.appendAudit(ctx, "reminder."+reminder.Status, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, map[string]any{
+		"reminder_id": reminder.ID,
+		"due_time":    reminder.DueTime.UTC().Format(time.RFC3339),
+		"channel":     reminder.Channel,
+	})
+	s.appendEvent(ctx, "reminder."+reminder.Status, reminder.SessionID, reminder.RunID, reminder)
+	return reminder
+}
+
+func (s *PostgresStore) GetReminder(id string) (app.Reminder, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
+			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+		FROM reminders
+		WHERE id = $1
+	`, id)
+	reminder, err := scanReminder(row)
+	return reminder, err == nil
+}
+
+func (s *PostgresStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	var from, to any
+	if filter.From != nil {
+		from = *filter.From
+	}
+	if filter.To != nil {
+		to = *filter.To
+	}
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
+			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+		FROM reminders
+		WHERE ($1 = '' OR status = $1)
+			AND ($2::timestamptz IS NULL OR due_time >= $2::timestamptz)
+			AND ($3::timestamptz IS NULL OR due_time <= $3::timestamptz)
+		ORDER BY due_time ASC
+		LIMIT $4
+	`, filter.Status, from, to, limit)
+	if err != nil {
+		return []app.Reminder{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanReminder)
+}
+
+func (s *PostgresStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
+	now := time.Now().UTC()
+	if delivery.ID == "" {
+		delivery.ID = app.NewID("rdel")
+	}
+	if delivery.CreatedAt.IsZero() {
+		delivery.CreatedAt = now
+	}
+	ctx := context.Background()
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO reminder_deliveries (
+			id, reminder_id, channel, provider, recipient, status, provider_status, error,
+			retry_state, attempt, sent_at, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (id) DO UPDATE SET
+			channel = EXCLUDED.channel,
+			provider = EXCLUDED.provider,
+			recipient = EXCLUDED.recipient,
+			status = EXCLUDED.status,
+			provider_status = EXCLUDED.provider_status,
+			error = EXCLUDED.error,
+			retry_state = EXCLUDED.retry_state,
+			attempt = EXCLUDED.attempt,
+			sent_at = EXCLUDED.sent_at,
+			created_at = EXCLUDED.created_at
+	`, delivery.ID, delivery.ReminderID, delivery.Channel, delivery.Provider, delivery.Recipient, delivery.Status, delivery.ProviderStatus, delivery.Error,
+		delivery.RetryState, delivery.Attempt, zeroTimeToNil(delivery.SentAt), delivery.CreatedAt)
+	_, _ = s.db.Exec(ctx, `
+		UPDATE reminders
+		SET last_delivery_id = $1,
+			last_error = $2,
+			status = CASE WHEN $3 = 'sent' THEN 'sent' WHEN $3 = 'failed' THEN 'failed' ELSE status END,
+			sent_at = CASE WHEN $3 = 'sent' THEN $4 ELSE sent_at END,
+			delivery_attempt = $5,
+			updated_at = $6
+		WHERE id = $7
+	`, delivery.ID, delivery.Error, delivery.Status, zeroTimeToNil(delivery.SentAt), delivery.Attempt, now, delivery.ReminderID)
+	s.appendAudit(ctx, "reminder_delivery."+delivery.Status, "", delivery.ReminderID, "scheduler", delivery.ProviderStatus, map[string]any{
+		"delivery_id": delivery.ID,
+		"reminder_id": delivery.ReminderID,
+		"channel":     delivery.Channel,
+		"provider":    delivery.Provider,
+		"attempt":     delivery.Attempt,
+	})
+	s.appendEvent(ctx, "reminder_delivery."+delivery.Status, "", delivery.ReminderID, delivery)
+	return delivery
+}
+
+func (s *PostgresStore) ListReminderDeliveries(reminderID string) []app.ReminderDelivery {
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, reminder_id, channel, provider, recipient, status, provider_status, error,
+			retry_state, attempt, sent_at, created_at
+		FROM reminder_deliveries
+		WHERE $1 = '' OR reminder_id = $1
+		ORDER BY created_at ASC
+	`, reminderID)
+	if err != nil {
+		return []app.ReminderDelivery{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanReminderDelivery)
+}
+
+func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
+	now := time.Now().UTC()
+	if binding.ID == "" {
+		binding.ID = app.NewID("bind")
+	}
+	if binding.OwnerID == "" {
+		binding.OwnerID = app.DefaultOwnerID
+	}
+	if binding.CreatedAt.IsZero() {
+		binding.CreatedAt = now
+	}
+	binding.UpdatedAt = now
+	if binding.Status == "" {
+		binding.Status = "waiting_scan"
+	}
+	ctx := context.Background()
+	if binding.DefaultForChannel {
+		_, _ = s.db.Exec(ctx, `
+			UPDATE notification_bindings
+			SET default_for_channel = false, updated_at = $1
+			WHERE owner_id = $2 AND channel = $3 AND id <> $4
+		`, now, binding.OwnerID, binding.Channel, binding.ID)
+	}
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO notification_bindings (
+			id, owner_id, channel, provider, status, display_name, external_user_id, account_id,
+			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
+			created_at, updated_at, expires_at, revoked_at, last_error
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+		ON CONFLICT (id) DO UPDATE SET
+			provider = EXCLUDED.provider,
+			status = EXCLUDED.status,
+			display_name = EXCLUDED.display_name,
+			external_user_id = EXCLUDED.external_user_id,
+			account_id = EXCLUDED.account_id,
+			credential_ref = EXCLUDED.credential_ref,
+			base_url = EXCLUDED.base_url,
+			provider_session_id = EXCLUDED.provider_session_id,
+			provider_state = EXCLUDED.provider_state,
+			context_token = EXCLUDED.context_token,
+			provider_cursor = EXCLUDED.provider_cursor,
+			qr_code_url = EXCLUDED.qr_code_url,
+			qr_code_image = EXCLUDED.qr_code_image,
+			default_for_channel = EXCLUDED.default_for_channel,
+			scopes = EXCLUDED.scopes,
+			updated_at = EXCLUDED.updated_at,
+			expires_at = EXCLUDED.expires_at,
+			revoked_at = EXCLUDED.revoked_at,
+			last_error = EXCLUDED.last_error
+	`, binding.ID, binding.OwnerID, binding.Channel, binding.Provider, binding.Status, binding.DisplayName,
+		binding.ExternalUserID, binding.AccountID, binding.CredentialRef, binding.BaseURL, binding.ProviderSessionID,
+		binding.ProviderState, binding.ContextToken, binding.ProviderCursor, binding.QRCodeURL, binding.QRCodeImage, binding.DefaultForChannel, mustJSON(binding.Scopes), binding.CreatedAt, binding.UpdatedAt,
+		binding.ExpiresAt, binding.RevokedAt, binding.LastError)
+	s.appendAudit(ctx, "notification_binding."+binding.Status, "", "", "owner", binding.Channel, map[string]any{
+		"binding_id": binding.ID,
+		"channel":    binding.Channel,
+		"provider":   binding.Provider,
+		"default":    binding.DefaultForChannel,
+	})
+	s.appendEvent(ctx, "notification_binding."+binding.Status, "", "", binding)
+	return binding
+}
+
+func (s *PostgresStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, account_id,
+			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
+			created_at, updated_at, expires_at, revoked_at, last_error
+		FROM notification_bindings
+		WHERE id = $1
+	`, id)
+	binding, err := scanNotificationBinding(row)
+	return binding, err == nil
+}
+
+func (s *PostgresStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, account_id,
+			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
+			created_at, updated_at, expires_at, revoked_at, last_error
+		FROM notification_bindings
+		WHERE ($1 = '' OR channel = $1) AND ($2 = '' OR status = $2)
+		ORDER BY updated_at DESC
+	`, channel, status)
+	if err != nil {
+		return []app.NotificationBinding{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanNotificationBinding)
+}
+
+func (s *PostgresStore) RevokeNotificationBinding(id string) (app.NotificationBinding, error) {
+	binding, ok := s.GetNotificationBinding(id)
+	if !ok {
+		return app.NotificationBinding{}, errors.New("notification binding not found")
+	}
+	if binding.Status == "revoked" {
+		return binding, nil
+	}
+	now := time.Now().UTC()
+	binding.Status = "revoked"
+	binding.RevokedAt = &now
+	binding.UpdatedAt = now
+	binding.DefaultForChannel = false
+	return s.SaveNotificationBinding(binding), nil
+}
+
+func (s *PostgresStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
+	now := time.Now().UTC()
+	if session.ID == "" {
+		session.ID = app.NewID("wxchat")
+	}
+	if session.Channel == "" {
+		session.Channel = "weixin"
+	}
+	if session.Status == "" {
+		session.Status = "active"
+	}
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = now
+	}
+	session.UpdatedAt = now
+	_, _ = s.db.Exec(context.Background(), `
+		INSERT INTO weixin_chat_sessions (
+			id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+			display_name, linked_session_id, status, provider_cursor, last_context_token,
+			created_at, updated_at
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		ON CONFLICT (id) DO UPDATE SET
+			owner_id = EXCLUDED.owner_id,
+			workspace_root = EXCLUDED.workspace_root,
+			binding_id = EXCLUDED.binding_id,
+			channel = EXCLUDED.channel,
+			provider = EXCLUDED.provider,
+			external_user_id = EXCLUDED.external_user_id,
+			display_name = EXCLUDED.display_name,
+			linked_session_id = EXCLUDED.linked_session_id,
+			status = EXCLUDED.status,
+			provider_cursor = EXCLUDED.provider_cursor,
+			last_context_token = EXCLUDED.last_context_token,
+			updated_at = EXCLUDED.updated_at
+	`, session.ID, session.OwnerID, session.WorkspaceRoot, session.BindingID, session.Channel, session.Provider,
+		session.ExternalUserID, session.DisplayName, session.LinkedSessionID, session.Status,
+		session.ProviderCursor, session.LastContextToken, session.CreatedAt, session.UpdatedAt)
+	if strings.TrimSpace(session.LinkedSessionID) != "" {
+		_, _ = s.db.Exec(context.Background(), `
+			UPDATE sessions
+			SET source = 'weixin',
+			    hidden = true,
+			    owner_id = CASE WHEN $3 <> '' THEN $3 ELSE owner_id END,
+			    workspace_root = CASE WHEN $4 <> '' THEN $4 ELSE workspace_root END,
+			    title = CASE WHEN title = '' OR title = 'New SparkClaw Session' THEN '微信会话' ELSE title END,
+			    updated_at = $2
+			WHERE id = $1
+		`, session.LinkedSessionID, now, session.OwnerID, session.WorkspaceRoot)
+	}
+	s.appendAudit(context.Background(), "weixin_chat_session."+session.Status, session.LinkedSessionID, "", "gateway", redactPostgresExternalID(session.ExternalUserID), map[string]any{
+		"chat_session_id": session.ID,
+		"binding_id":      session.BindingID,
+		"provider":        session.Provider,
+	})
+	s.appendEvent(context.Background(), "weixin_chat_session."+session.Status, session.LinkedSessionID, "", session)
+	return session
+}
+
+func (s *PostgresStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+		       display_name, linked_session_id, status, provider_cursor, last_context_token,
+		       created_at, updated_at
+		FROM weixin_chat_sessions
+		WHERE id = $1
+	`, id)
+	session, err := scanWeixinChatSession(row)
+	if err != nil {
+		return app.WeixinChatSession{}, false
+	}
+	return session, true
+}
+
+func (s *PostgresStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+		       display_name, linked_session_id, status, provider_cursor, last_context_token,
+		       created_at, updated_at
+		FROM weixin_chat_sessions
+		WHERE binding_id = $1 AND external_user_id = $2
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, bindingID, externalUserID)
+	session, err := scanWeixinChatSession(row)
+	if err != nil {
+		return app.WeixinChatSession{}, false
+	}
+	return session, true
+}
+
+func (s *PostgresStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+		       display_name, linked_session_id, status, provider_cursor, last_context_token,
+		       created_at, updated_at
+		FROM weixin_chat_sessions
+		WHERE linked_session_id = $1
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, sessionID)
+	session, err := scanWeixinChatSession(row)
+	if err != nil {
+		return app.WeixinChatSession{}, false
+	}
+	return session, true
+}
+
+func (s *PostgresStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
+	now := time.Now().UTC()
+	if message.ID == "" {
+		message.ID = app.NewID("wxmsg")
+	}
+	if message.CreatedAt.IsZero() {
+		message.CreatedAt = now
+	}
+	message.UpdatedAt = now
+	_, _ = s.db.Exec(context.Background(), `
+		INSERT INTO weixin_chat_messages (
+			id, chat_session_id, binding_id, direction, role, external_message_id,
+			content, context_token, linked_run_id, status, error, created_at, updated_at
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		ON CONFLICT (id) DO UPDATE SET
+			chat_session_id = EXCLUDED.chat_session_id,
+			binding_id = EXCLUDED.binding_id,
+			direction = EXCLUDED.direction,
+			role = EXCLUDED.role,
+			external_message_id = EXCLUDED.external_message_id,
+			content = EXCLUDED.content,
+			context_token = EXCLUDED.context_token,
+			linked_run_id = EXCLUDED.linked_run_id,
+			status = EXCLUDED.status,
+			error = EXCLUDED.error,
+			updated_at = EXCLUDED.updated_at
+	`, message.ID, message.ChatSessionID, message.BindingID, message.Direction, message.Role,
+		message.ExternalMessageID, message.Content, message.ContextToken, message.LinkedRunID,
+		message.Status, message.Error, message.CreatedAt, message.UpdatedAt)
+	s.appendAudit(context.Background(), "weixin_chat_message."+message.Status, "", message.LinkedRunID, "gateway", message.Direction, map[string]any{
+		"message_id":      message.ID,
+		"chat_session_id": message.ChatSessionID,
+		"binding_id":      message.BindingID,
+		"direction":       message.Direction,
+		"role":            message.Role,
+	})
+	s.appendEvent(context.Background(), "weixin_chat_message."+message.Status, "", message.LinkedRunID, message)
+	return message
+}
+
+func (s *PostgresStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+		       content, context_token, linked_run_id, status, error, created_at, updated_at
+		FROM weixin_chat_messages
+		WHERE id = $1
+	`, id)
+	message, err := scanWeixinChatMessage(row)
+	if err != nil {
+		return app.WeixinChatMessage{}, false
+	}
+	return message, true
+}
+
+func (s *PostgresStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
+	if strings.TrimSpace(externalMessageID) == "" {
+		return app.WeixinChatMessage{}, false
+	}
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+		       content, context_token, linked_run_id, status, error, created_at, updated_at
+		FROM weixin_chat_messages
+		WHERE chat_session_id = $1 AND external_message_id = $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, chatSessionID, externalMessageID)
+	message, err := scanWeixinChatMessage(row)
+	if err != nil {
+		return app.WeixinChatMessage{}, false
+	}
+	return message, true
+}
+
+func (s *PostgresStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
+	query := `
+		SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+		       content, context_token, linked_run_id, status, error, created_at, updated_at
+		FROM weixin_chat_messages
+		WHERE ($1 = '' OR chat_session_id = $1)
+		ORDER BY created_at ASC
+	`
+	args := []any{chatSessionID}
+	if limit > 0 {
+		query = `
+			SELECT * FROM (
+				SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+				       content, context_token, linked_run_id, status, error, created_at, updated_at
+				FROM weixin_chat_messages
+				WHERE ($1 = '' OR chat_session_id = $1)
+				ORDER BY created_at DESC
+				LIMIT $2
+			) recent
+			ORDER BY created_at ASC
+		`
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(context.Background(), query, args...)
+	if err != nil {
+		return []app.WeixinChatMessage{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanWeixinChatMessage)
+}
+
+func (s *PostgresStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
+	now := time.Now().UTC()
+	if secret.CreatedAt.IsZero() {
+		secret.CreatedAt = now
+	}
+	secret.UpdatedAt = now
+	ctx := context.Background()
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO credential_secrets (ref, kind, value, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (ref) DO UPDATE SET
+			kind = EXCLUDED.kind,
+			value = EXCLUDED.value,
+			updated_at = EXCLUDED.updated_at
+	`, secret.Ref, secret.Kind, secret.Value, secret.CreatedAt, secret.UpdatedAt)
+	s.appendAudit(ctx, "credential_secret.saved", "", "", "gateway", secret.Kind, map[string]any{
+		"ref":  secret.Ref,
+		"kind": secret.Kind,
+	})
+	return secret
+}
+
+func (s *PostgresStore) GetCredentialSecret(ref string) (app.CredentialSecret, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT ref, kind, value, created_at, updated_at
+		FROM credential_secrets
+		WHERE ref = $1
+	`, ref)
+	secret, err := scanCredentialSecret(row)
+	return secret, err == nil
+}
+
+func (s *PostgresStore) DeleteCredentialSecret(ref string) error {
+	tag, err := s.db.Exec(context.Background(), `DELETE FROM credential_secrets WHERE ref = $1`, ref)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("credential secret not found")
+	}
+	s.appendAudit(context.Background(), "credential_secret.deleted", "", "", "gateway", "credential deleted", map[string]any{"ref": ref})
+	return nil
 }
 
 func (s *PostgresStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {
@@ -1908,7 +2667,7 @@ func collectRows[T any](rows pgx.Rows, scan func(scanner) (T, error)) []T {
 
 func scanSession(row scanner) (app.Session, error) {
 	var session app.Session
-	err := row.Scan(&session.ID, &session.Title, &session.CreatedAt, &session.UpdatedAt)
+	err := row.Scan(&session.ID, &session.OwnerID, &session.WorkspaceRoot, &session.Title, &session.Source, &session.Hidden, &session.CreatedAt, &session.UpdatedAt)
 	return session, err
 }
 
@@ -1921,7 +2680,9 @@ func scanClient(row scanner) (app.Client, error) {
 func scanOwnerProfile(row scanner) (app.OwnerProfile, error) {
 	var profile app.OwnerProfile
 	var preferences []byte
-	err := row.Scan(&profile.ID, &profile.DisplayName, &profile.Email, &preferences, &profile.CreatedAt, &profile.UpdatedAt)
+	err := row.Scan(&profile.ID, &profile.Source, &profile.ExternalRef, &profile.WorkspaceRoot,
+		&profile.DefaultChannel, &profile.DefaultBindingID, &profile.DisplayName, &profile.Email,
+		&preferences, &profile.CreatedAt, &profile.UpdatedAt)
 	if err != nil {
 		return app.OwnerProfile{}, err
 	}
@@ -1941,7 +2702,52 @@ func scanPairingCode(row scanner) (app.PairingCode, error) {
 
 func scanMessage(row scanner) (app.Message, error) {
 	var message app.Message
-	err := row.Scan(&message.ID, &message.SessionID, &message.RunID, &message.Role, &message.Content, &message.CreatedAt)
+	var attachments []byte
+	err := row.Scan(&message.ID, &message.SessionID, &message.RunID, &message.Role, &message.Content, &attachments, &message.CreatedAt)
+	if len(attachments) > 0 {
+		_ = json.Unmarshal(attachments, &message.Attachments)
+	}
+	return message, err
+}
+
+func scanWeixinChatSession(row scanner) (app.WeixinChatSession, error) {
+	var session app.WeixinChatSession
+	err := row.Scan(
+		&session.ID,
+		&session.OwnerID,
+		&session.WorkspaceRoot,
+		&session.BindingID,
+		&session.Channel,
+		&session.Provider,
+		&session.ExternalUserID,
+		&session.DisplayName,
+		&session.LinkedSessionID,
+		&session.Status,
+		&session.ProviderCursor,
+		&session.LastContextToken,
+		&session.CreatedAt,
+		&session.UpdatedAt,
+	)
+	return session, err
+}
+
+func scanWeixinChatMessage(row scanner) (app.WeixinChatMessage, error) {
+	var message app.WeixinChatMessage
+	err := row.Scan(
+		&message.ID,
+		&message.ChatSessionID,
+		&message.BindingID,
+		&message.Direction,
+		&message.Role,
+		&message.ExternalMessageID,
+		&message.Content,
+		&message.ContextToken,
+		&message.LinkedRunID,
+		&message.Status,
+		&message.Error,
+		&message.CreatedAt,
+		&message.UpdatedAt,
+	)
 	return message, err
 }
 
@@ -2024,6 +2830,47 @@ func scanApproval(row scanner) (app.Approval, error) {
 	approval.Arguments = map[string]any{}
 	_ = json.Unmarshal(args, &approval.Arguments)
 	return approval, nil
+}
+
+func scanReminder(row scanner) (app.Reminder, error) {
+	var reminder app.Reminder
+	err := row.Scan(&reminder.ID, &reminder.SessionID, &reminder.RunID, &reminder.Text, &reminder.TextSummary,
+		&reminder.DueTime, &reminder.Timezone, &reminder.Channel, &reminder.Recipient, &reminder.RecipientBinding,
+		&reminder.BindingID, &reminder.CredentialRef, &reminder.BaseURL, &reminder.Recurrence,
+		&reminder.DedupeKey, &reminder.Status, &reminder.LastDeliveryID, &reminder.LastError,
+		&reminder.CreatedAt, &reminder.UpdatedAt, &reminder.SentAt, &reminder.CanceledAt, &reminder.DeliveryAttempt)
+	return reminder, err
+}
+
+func scanReminderDelivery(row scanner) (app.ReminderDelivery, error) {
+	var delivery app.ReminderDelivery
+	err := row.Scan(&delivery.ID, &delivery.ReminderID, &delivery.Channel, &delivery.Provider, &delivery.Recipient,
+		&delivery.Status, &delivery.ProviderStatus, &delivery.Error, &delivery.RetryState, &delivery.Attempt,
+		&delivery.SentAt, &delivery.CreatedAt)
+	return delivery, err
+}
+
+func scanNotificationBinding(row scanner) (app.NotificationBinding, error) {
+	var binding app.NotificationBinding
+	var scopes []byte
+	err := row.Scan(&binding.ID, &binding.OwnerID, &binding.Channel, &binding.Provider, &binding.Status,
+		&binding.DisplayName, &binding.ExternalUserID, &binding.AccountID, &binding.CredentialRef,
+		&binding.BaseURL, &binding.ProviderSessionID, &binding.ProviderState, &binding.ContextToken,
+		&binding.ProviderCursor, &binding.QRCodeURL, &binding.QRCodeImage, &binding.DefaultForChannel,
+		&scopes, &binding.CreatedAt, &binding.UpdatedAt, &binding.ExpiresAt, &binding.RevokedAt,
+		&binding.LastError)
+	if err != nil {
+		return app.NotificationBinding{}, err
+	}
+	binding.Scopes = []string{}
+	_ = json.Unmarshal(scopes, &binding.Scopes)
+	return binding, nil
+}
+
+func scanCredentialSecret(row scanner) (app.CredentialSecret, error) {
+	var secret app.CredentialSecret
+	err := row.Scan(&secret.Ref, &secret.Kind, &secret.Value, &secret.CreatedAt, &secret.UpdatedAt)
+	return secret, err
 }
 
 func scanMemoryCandidate(row scanner) (app.MemoryCandidate, error) {
@@ -2146,6 +2993,22 @@ func decodeJSON(raw []byte) any {
 		return nil
 	}
 	return out
+}
+
+func zeroTimeToNil(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
+
+func redactPostgresExternalID(value string) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) <= 6 {
+		return value
+	}
+	return string(runes[:3]) + "***" + string(runes[len(runes)-2:])
 }
 
 func rollbackTx(ctx context.Context, tx pgx.Tx) {

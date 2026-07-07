@@ -95,6 +95,34 @@ func TestMemoryStoreUpdatesOwnerProfile(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
+	st := NewMemoryStore()
+	profile := st.SaveOwnerProfile(app.OwnerProfile{
+		ID:               "wx_owner",
+		Source:           "weixin",
+		ExternalRef:      "bind:user",
+		WorkspaceRoot:    "/tmp/sparkclaw/users/wx_owner",
+		DefaultChannel:   "weixin",
+		DefaultBindingID: "bind",
+		DisplayName:      "微信用户",
+		Preferences:      map[string]string{"locale": "zh-CN"},
+	})
+	if profile.ID != "wx_owner" || profile.Source != "weixin" || profile.WorkspaceRoot == "" {
+		t.Fatalf("profile did not save extended fields: %#v", profile)
+	}
+	found, ok := st.FindOwnerProfileByExternalRef("weixin", "bind:user")
+	if !ok || found.ID != profile.ID {
+		t.Fatalf("profile external ref lookup failed: %#v ok=%v", found, ok)
+	}
+	if _, ok := st.GetOwnerProfileByID("missing"); ok {
+		t.Fatalf("missing profile should not be found")
+	}
+	profiles := st.ListOwnerProfiles()
+	if len(profiles) != 2 {
+		t.Fatalf("expected default and weixin profiles, got %#v", profiles)
+	}
+}
+
 func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 	st := NewMemoryStore()
 	session := st.CreateSession("Feedback")

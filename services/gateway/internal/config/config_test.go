@@ -94,16 +94,89 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_WEB_SEARCH_ENABLED", "true")
+	t.Setenv("SPARKCLAW_WEB_SEARCH_PROVIDER", "parallel-free")
+	t.Setenv("SPARKCLAW_PARALLEL_BASE_URL", "https://search.parallel.ai/mcp")
+	t.Setenv("SPARKCLAW_PARALLEL_MAX_RESULTS", "7")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Tools.Web.Search.Enabled || cfg.Tools.Web.Search.Provider != "parallel-free" {
+		t.Fatalf("web search env did not apply: %#v", cfg.Tools.Web.Search)
+	}
+	parallel := cfg.Plugins.Entries.Parallel.Config.WebSearch
+	if parallel.BaseURL != "https://search.parallel.ai/mcp" || parallel.MaxResults != 7 {
+		t.Fatalf("parallel env did not apply: %#v", parallel)
+	}
+}
+
+func TestLoadKeepsWebSearchDisabledByDefaultForParallelFree(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Web.Search.Enabled {
+		t.Fatalf("web search should stay disabled until explicitly enabled: %#v", cfg.Tools.Web.Search)
+	}
+}
+
+func TestLoadDefaultsWeixinNotificationToQRProvider(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	weixin := cfg.Tools.Notifications.Channels["weixin"]
+	if weixin.Provider != "openclaw-weixin-qr" {
+		t.Fatalf("expected openclaw-weixin-qr provider, got %#v", weixin)
+	}
+	if weixin.BaseURL != "https://ilinkai.weixin.qq.com" {
+		t.Fatalf("expected default ilink base URL, got %#v", weixin)
+	}
+	if weixin.Enabled {
+		t.Fatalf("weixin notification channel should still be disabled until explicitly enabled")
+	}
+}
+
+func TestLoadAppliesParallelAPIKeyEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_PARALLEL_API_KEY", "par-env")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey != "par-env" {
+		t.Fatalf("parallel api key env did not apply: %#v", cfg.Plugins.Entries.Parallel.Config.WebSearch)
+	}
+}
+
+func TestLoadKeepsWebSearchDisabledWhenExplicitlyDisabled(t *testing.T) {
+	t.Setenv("SPARKCLAW_WEB_SEARCH_ENABLED", "false")
+	t.Setenv("SPARKCLAW_PARALLEL_API_KEY", "par-env")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Web.Search.Enabled {
+		t.Fatalf("web search should stay disabled when explicitly disabled: %#v", cfg.Tools.Web.Search)
+	}
+}
+
 func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_MODEL_MODE", "external-model")
 	t.Setenv("SPARKCLAW_FAST_BASE_URL", "http://fast.example.test/v1")
 	t.Setenv("SPARKCLAW_FAST_MODEL", "sparkclaw-fast")
 	t.Setenv("SPARKCLAW_FAST_SERVED_NAME", "fast-lane")
 	t.Setenv("SPARKCLAW_FAST_MAX_TOKENS", "333")
+	t.Setenv("SPARKCLAW_FAST_CONTEXT_TOKENS", "12000")
 	t.Setenv("SPARKCLAW_DEEP_BASE_URL", "http://deep.example.test/v1")
 	t.Setenv("SPARKCLAW_DEEP_MODEL", "sparkclaw-deep")
 	t.Setenv("SPARKCLAW_DEEP_SERVED_NAME", "deep-lane")
 	t.Setenv("SPARKCLAW_DEEP_MAX_TOKENS", "444")
+	t.Setenv("SPARKCLAW_DEEP_CONTEXT_TOKENS", "12288")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
 	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
 
@@ -120,11 +193,17 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	if cfg.Model.Fast.MaxTokens != 333 {
 		t.Fatalf("fast max tokens env did not apply: %#v", cfg.Model.Fast)
 	}
+	if cfg.Model.Fast.ContextTokens != 12000 {
+		t.Fatalf("fast context tokens env did not apply: %#v", cfg.Model.Fast)
+	}
 	if cfg.Model.Deep.BaseURL != "http://deep.example.test/v1" || cfg.Model.Deep.Model != "sparkclaw-deep" || cfg.Model.Deep.Name != "deep-lane" {
 		t.Fatalf("deep model env did not apply: %#v", cfg.Model.Deep)
 	}
 	if cfg.Model.Deep.MaxTokens != 444 {
 		t.Fatalf("deep max tokens env did not apply: %#v", cfg.Model.Deep)
+	}
+	if cfg.Model.Deep.ContextTokens != 12288 {
+		t.Fatalf("deep context tokens env did not apply: %#v", cfg.Model.Deep)
 	}
 	if cfg.Model.HTTPTimeoutSeconds != 555 {
 		t.Fatalf("model HTTP timeout env did not apply: %#v", cfg.Model)

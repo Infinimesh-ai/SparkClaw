@@ -3,10 +3,14 @@ package gateway
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +27,261 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
+
+func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("session_id", "session_upload"); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("file", "example.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("# Uploaded\nSparkClaw document upload.")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/documents/upload", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("upload returned %d: %s", resp.StatusCode, raw)
+	}
+	var decoded struct {
+		Artifact app.ArtifactObject `json:"artifact"`
+		Path     string             `json:"path"`
+		RelPath  string             `json:"rel_path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Artifact.Kind != "document_upload" || decoded.Artifact.SessionID != "session_upload" {
+		t.Fatalf("unexpected artifact: %#v", decoded.Artifact)
+	}
+	raw, err := os.ReadFile(decoded.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "SparkClaw document upload") {
+		t.Fatalf("uploaded file content mismatch: %q", raw)
+	}
+	objects := st.ListArtifactObjects(10)
+	if len(objects) == 0 || objects[0].Kind != "document_upload" {
+		t.Fatalf("upload artifact not stored: %#v", objects)
+	}
+}
+
+func TestUploadDocumentAddsExtensionFromContentType(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", `form-data; name="file"; filename="pdf"`)
+	partHeader.Set("Content-Type", "application/pdf")
+	part, err := writer.CreatePart(partHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("%PDF-1.4\n% uploaded test pdf\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/documents/upload", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("upload returned %d: %s", resp.StatusCode, raw)
+	}
+	var decoded struct {
+		Artifact app.ArtifactObject `json:"artifact"`
+		Path     string             `json:"path"`
+		RelPath  string             `json:"rel_path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(decoded.RelPath, ".pdf") {
+		t.Fatalf("expected inferred .pdf extension, got %q", decoded.RelPath)
+	}
+	if decoded.Artifact.ContentType != "application/pdf" {
+		t.Fatalf("unexpected content type: %q", decoded.Artifact.ContentType)
+	}
+	raw, err := os.ReadFile(decoded.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(raw, []byte("%PDF-1.4")) {
+		t.Fatalf("uploaded bytes were not preserved: %q", raw)
+	}
+}
+
+func TestUploadImageSavesUnderMedia(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	userRoot := filepath.Join(root, "users", "owner-a")
+	session := st.CreateSessionWithScope("user upload", "owner-a", userRoot, "webchat", false)
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	png, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwN7WAAAAABJRU5ErkJggg==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("session_id", session.ID); err != nil {
+		t.Fatal(err)
+	}
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", `form-data; name="file"; filename="sample.png"`)
+	partHeader.Set("Content-Type", "application/octet-stream")
+	part, err := writer.CreatePart(partHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(png); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/documents/upload", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("upload returned %d: %s", resp.StatusCode, raw)
+	}
+	var decoded struct {
+		Artifact app.ArtifactObject `json:"artifact"`
+		Path     string             `json:"path"`
+		RelPath  string             `json:"rel_path"`
+		Media    map[string]any     `json:"media"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(filepath.ToSlash(decoded.RelPath), "media/") {
+		t.Fatalf("image should be saved under media/: %#v", decoded)
+	}
+	if decoded.Artifact.Kind != "media_image_upload" {
+		t.Fatalf("unexpected image artifact kind: %#v", decoded.Artifact)
+	}
+	if _, err := os.Stat(filepath.Join(userRoot, "media")); err != nil {
+		t.Fatalf("media directory should be created automatically: %v", err)
+	}
+	if !strings.HasPrefix(decoded.Path, userRoot) {
+		t.Fatalf("image should be saved under session workspace root: %#v", decoded)
+	}
+	if decoded.Media["width"] == nil || decoded.Media["height"] == nil {
+		t.Fatalf("media metadata should include dimensions: %#v", decoded.Media)
+	}
+}
+
+func TestAvailableDocumentsIncludesUploadsAndMedia(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	if err := os.MkdirAll(filepath.Join(root, "uploads", "20260702"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "media", "20260702"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "uploads", "20260702", "note.txt"), []byte("note"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	png, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwN7WAAAAABJRU5ErkJggg==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "media", "20260702", "image.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(ts.URL + "/api/documents/available?limit=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("available returned %d: %s", resp.StatusCode, raw)
+	}
+	var decoded struct {
+		Documents []app.ArtifactObject `json:"documents"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{}
+	kinds := map[string]string{}
+	for _, object := range decoded.Documents {
+		keys = append(keys, object.Key)
+		kinds[object.Key] = object.Kind
+	}
+	if !slices.Contains(keys, "uploads/20260702/note.txt") || !slices.Contains(keys, "media/20260702/image.png") {
+		t.Fatalf("available documents should include uploads and media, got %#v", keys)
+	}
+	if kinds["media/20260702/image.png"] != "media_image_upload" {
+		t.Fatalf("media object should keep image kind: %#v", kinds)
+	}
+}
 
 func TestApprovalExecutesPatchAfterApproval(t *testing.T) {
 	root := t.TempDir()
@@ -221,7 +480,7 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_sessions_total 1",
 		"sparkclaw_messages_total 2",
 		"sparkclaw_agent_runs_total 1",
-		"sparkclaw_model_calls_total 2",
+		"sparkclaw_model_calls_total 4",
 		"sparkclaw_model_call_errors_total 0",
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
 		"sparkclaw_memory_candidates_total 1",
@@ -1431,6 +1690,11 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	cfg.Gateway.APIToken = "secret-token"
 	cfg.State.EncryptAtRest = true
 	cfg.State.EncryptionKey = "state-secret"
+	cfg.Tools.Web.Search.Enabled = true
+	cfg.Tools.Web.Search.Provider = "parallel-free"
+	cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = "par-super-secret"
+	cfg.Plugins.Entries.Parallel.Config.WebSearch.BaseURL = "https://search.parallel.ai/mcp"
+	cfg.Plugins.Entries.Parallel.Config.WebSearch.MaxResults = 7
 
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -1513,6 +1777,18 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 			EncryptionKey     string `json:"encryption_key"`
 			EncryptionKeyFile string `json:"encryption_key_file"`
 		} `json:"state"`
+		Tools struct {
+			Web struct {
+				Search struct {
+					Enabled          bool   `json:"enabled"`
+					Provider         string `json:"provider"`
+					BaseURL          string `json:"base_url"`
+					APIKeyConfigured bool   `json:"api_key_configured"`
+					APIKey           string `json:"api_key"`
+					MaxResults       int    `json:"max_results"`
+				} `json:"search"`
+			} `json:"web"`
+		} `json:"tools"`
 		ToolPolicy struct {
 			PolicyPath                      string         `json:"policy_path"`
 			DefinitionCount                 int            `json:"definition_count"`
@@ -1535,6 +1811,12 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	}
 	if !decoded.State.EncryptAtRest || decoded.State.EncryptionKey != "configured" || decoded.State.EncryptionKeyFile != "missing" {
 		t.Fatalf("state encryption status was not exposed safely: %#v", decoded.State)
+	}
+	if !decoded.Tools.Web.Search.Enabled || decoded.Tools.Web.Search.Provider != "parallel-free" || decoded.Tools.Web.Search.MaxResults != 7 || !decoded.Tools.Web.Search.APIKeyConfigured {
+		t.Fatalf("web search safe summary missing: %#v", decoded.Tools.Web.Search)
+	}
+	if decoded.Tools.Web.Search.APIKey != "" {
+		t.Fatalf("parallel api key was exposed: %#v", decoded.Tools.Web.Search)
 	}
 	if decoded.ToolPolicy.PolicyPath == "" || decoded.ToolPolicy.DefinitionCount == 0 || decoded.ToolPolicy.RiskCounts["dangerous"] == 0 {
 		t.Fatalf("tool policy summary missing: %#v", decoded.ToolPolicy)
@@ -1695,6 +1977,91 @@ func TestOwnerProfileEndpointUpdatesProfile(t *testing.T) {
 	}
 }
 
+func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	wxRoot := filepath.Join(root, "users", "wx_owner")
+	st.SaveOwnerProfile(app.OwnerProfile{
+		ID:               "wx_owner",
+		Source:           "weixin",
+		ExternalRef:      "bind:user",
+		WorkspaceRoot:    wxRoot,
+		DefaultChannel:   "weixin",
+		DefaultBindingID: "bind",
+		DisplayName:      "微信用户",
+		Preferences:      map[string]string{},
+	})
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	createResp, err := http.Post(ts.URL+"/api/sessions", "application/json", bytes.NewBufferString(`{"title":"wx session","owner_id":"wx_owner"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create session returned %d", createResp.StatusCode)
+	}
+	var created app.Session
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.OwnerID != "wx_owner" || created.WorkspaceRoot != wxRoot {
+		t.Fatalf("session did not inherit profile scope: %#v", created)
+	}
+
+	defaultList, err := http.Get(ts.URL + "/api/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer defaultList.Body.Close()
+	var defaultPayload struct {
+		Sessions []app.Session `json:"sessions"`
+	}
+	if err := json.NewDecoder(defaultList.Body).Decode(&defaultPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(defaultPayload.Sessions) != 0 {
+		t.Fatalf("default owner list should not include weixin session: %#v", defaultPayload.Sessions)
+	}
+
+	wxList, err := http.Get(ts.URL + "/api/sessions?owner_id=wx_owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wxList.Body.Close()
+	var wxPayload struct {
+		Sessions []app.Session `json:"sessions"`
+	}
+	if err := json.NewDecoder(wxList.Body).Decode(&wxPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(wxPayload.Sessions) != 1 || wxPayload.Sessions[0].ID != created.ID {
+		t.Fatalf("weixin owner list missing scoped session: %#v", wxPayload.Sessions)
+	}
+
+	profilesResp, err := http.Get(ts.URL + "/api/profiles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer profilesResp.Body.Close()
+	var profilesPayload struct {
+		Profiles []app.OwnerProfile `json:"profiles"`
+	}
+	if err := json.NewDecoder(profilesResp.Body).Decode(&profilesPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(profilesPayload.Profiles, func(profile app.OwnerProfile) bool {
+		return profile.ID == "wx_owner" && profile.ExternalRef == "bind:user"
+	}) {
+		t.Fatalf("profiles list missing weixin profile: %#v", profilesPayload.Profiles)
+	}
+}
+
 func TestPairingIssuesClientToken(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
@@ -1831,6 +2198,144 @@ func TestPairingIssuesClientToken(t *testing.T) {
 	}
 }
 
+func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:   true,
+		Provider:  "openclaw-weixin-compatible",
+		BaseURL:   "http://127.0.0.1:1",
+		Token:     "secret-token",
+		Recipient: "wx-user-123456",
+	}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	startResp, err := http.Post(ts.URL+"/api/notification-bindings/weixin/start", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer startResp.Body.Close()
+	if startResp.StatusCode != http.StatusCreated {
+		t.Fatalf("start binding returned %d", startResp.StatusCode)
+	}
+	var started map[string]any
+	if err := json.NewDecoder(startResp.Body).Decode(&started); err != nil {
+		t.Fatal(err)
+	}
+	id := started["id"].(string)
+	if started["status"] != "waiting_scan" || started["qr_code_url"] == "" {
+		t.Fatalf("unexpected start response: %#v", started)
+	}
+
+	pollResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pollResp.Body.Close()
+	var polled map[string]any
+	if err := json.NewDecoder(pollResp.Body).Decode(&polled); err != nil {
+		t.Fatal(err)
+	}
+	if polled["status"] != "active" {
+		t.Fatalf("expected active binding after poll, got %#v", polled)
+	}
+	if polled["credential_ref"] != "configured" {
+		t.Fatalf("credential ref should be redacted/configured: %#v", polled)
+	}
+	if strings.Contains(fmt.Sprint(polled["external_user_id"]), "123456") {
+		t.Fatalf("external user id should be redacted: %#v", polled)
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/notification-bindings/"+id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revokeResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer revokeResp.Body.Close()
+	var revoked map[string]any
+	if err := json.NewDecoder(revokeResp.Body).Decode(&revoked); err != nil {
+		t.Fatal(err)
+	}
+	if revoked["status"] != "revoked" {
+		t.Fatalf("expected revoked binding, got %#v", revoked)
+	}
+}
+
+func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
+		Enabled:   true,
+		Provider:  "openclaw-weixin-compatible",
+		BaseURL:   "http://127.0.0.1:1",
+		Token:     "secret-token",
+		Recipient: "wx-default-recipient",
+	}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	startAndPoll := func() map[string]any {
+		t.Helper()
+		startResp, err := http.Post(ts.URL+"/api/notification-bindings/weixin/start", "application/json", bytes.NewBufferString(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer startResp.Body.Close()
+		if startResp.StatusCode != http.StatusCreated {
+			t.Fatalf("start binding returned %d", startResp.StatusCode)
+		}
+		var started map[string]any
+		if err := json.NewDecoder(startResp.Body).Decode(&started); err != nil {
+			t.Fatal(err)
+		}
+		id := started["id"].(string)
+		pollResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pollResp.Body.Close()
+		var polled map[string]any
+		if err := json.NewDecoder(pollResp.Body).Decode(&polled); err != nil {
+			t.Fatal(err)
+		}
+		if polled["status"] != "active" {
+			t.Fatalf("expected active binding after poll, got %#v", polled)
+		}
+		return polled
+	}
+
+	first := startAndPoll()
+	second := startAndPoll()
+	if first["default_for_channel"] != true {
+		t.Fatalf("first active binding should become default when no default exists: %#v", first)
+	}
+	if second["default_for_channel"] == true {
+		t.Fatalf("second active binding should not steal default without explicit request: %#v", second)
+	}
+	bindings := st.ListNotificationBindings("weixin", "active")
+	defaults := 0
+	for _, binding := range bindings {
+		if binding.DefaultForChannel {
+			defaults++
+		}
+	}
+	if defaults != 1 {
+		t.Fatalf("expected exactly one default binding, got %d in %#v", defaults, bindings)
+	}
+}
+
 func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
@@ -1877,7 +2382,9 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	if len(decoded.ToolCalls) == 0 {
 		t.Fatal("trace did not include tool calls")
 	}
-	if !hasServerTestModelCall(decoded.ModelCalls, "chat", "fast") || !hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
+	if !hasServerTestModelCall(decoded.ModelCalls, "task_hint", "fast") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "fast") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)
 	}
 	listResp, err := http.Get(ts.URL + "/api/traces")
@@ -2088,6 +2595,7 @@ func hasGatewayAuditType(events []app.AuditEvent, typ string) bool {
 
 func testConfig(root string) config.Config {
 	cfg := config.Default()
+	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")

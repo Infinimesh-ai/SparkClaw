@@ -11,14 +11,14 @@
     }
   },
   "model": {
-    "mock": true,
+    "mock": false,
     "http_timeout_seconds": 300,
     "disable_thinking": false,
     "fast": {
       "name": "sparkclaw-fast",
       "base_url": "http://127.0.0.1:8001/v1",
       "model": "Qwen/Qwen3.6-35B-A3B-FP8",
-      "context_tokens": 131072,
+      "context_tokens": 12288,
       "mtp": true,
       "max_tokens": 1024
     },
@@ -26,7 +26,7 @@
       "name": "sparkclaw-deep",
       "base_url": "http://127.0.0.1:8002/v1",
       "model": "Qwen/Qwen3.6-27B-FP8",
-      "context_tokens": 131072,
+      "context_tokens": 12288,
       "mtp": true,
       "max_tokens": 2048
     },
@@ -50,6 +50,31 @@
       "model": "Qwen/Qwen3Guard-0.6B",
       "context_tokens": 32768,
       "mtp": false
+    }
+  },
+  "plugins": {
+    "entries": {
+      "parallel": {
+        "config": {
+          "webSearch": {
+            "baseUrl": "https://search.parallel.ai/mcp",
+            "maxResults": 5
+          }
+        }
+      }
+    }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "enabled": false,
+        "provider": "parallel-free"
+      }
+    },
+    "browserAutomation": {
+      "enabled": false,
+      "provider": "chrome-devtools-mcp",
+      "profile": "agent"
     }
   },
   "memory": {
@@ -89,6 +114,13 @@
     "calendar": {
       "backend": "file",
       "base_url": ""
+    },
+    "browserAutomation": {
+      "mcpCommand": "npx",
+      "mcpArgs": ["-y", "chrome-devtools-mcp@latest"],
+      "timeoutMs": 15000,
+      "allowUserProfile": false,
+      "requireApprovalForUserProfile": true
     }
   },
   "workspaces": {
@@ -115,7 +147,12 @@
     "dirs": ["./skills", "./data/skills"]
   },
   "runtime": {
-    "observation_summary_max_bytes": 1200
+    "observation_summary_max_bytes": 2400,
+    "react_max_duration_seconds": 180,
+    "react_max_tool_calls": 16,
+    "react_max_observation_bytes": 48000,
+    "react_max_no_progress_actions": 3,
+    "react_max_repeated_tool_calls": 3
   },
   "logging": {
     "level": "info",

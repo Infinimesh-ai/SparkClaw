@@ -34,23 +34,30 @@ type FileStoreOptions struct {
 }
 
 type Snapshot struct {
-	Sessions         map[string]app.Session         `json:"sessions"`
-	Clients          map[string]app.Client          `json:"clients"`
-	OwnerProfile     app.OwnerProfile               `json:"owner_profile"`
-	PairingCodes     map[string]app.PairingCode     `json:"pairing_codes"`
-	Messages         map[string][]app.Message       `json:"messages"`
-	RunFeedback      map[string][]app.RunFeedback   `json:"run_feedback"`
-	Runs             map[string]app.AgentRun        `json:"runs"`
-	ModelCalls       map[string]app.ModelCall       `json:"model_calls"`
-	ToolCalls        map[string]app.ToolCall        `json:"tool_calls"`
-	Approvals        map[string]app.Approval        `json:"approvals"`
-	Memories         map[string]app.Memory          `json:"memories"`
-	MemoryCandidates map[string]app.MemoryCandidate `json:"memory_candidates"`
-	AuditEvents      []app.AuditEvent               `json:"audit_events"`
-	Events           []app.Event                    `json:"events"`
-	EvalRuns         map[string]app.EvalRun         `json:"eval_runs"`
-	ArtifactObjects  map[string]app.ArtifactObject  `json:"artifact_objects"`
-	EpisodeSummaries map[string]app.EpisodeSummary  `json:"episode_summaries"`
+	Sessions             map[string]app.Session             `json:"sessions"`
+	Clients              map[string]app.Client              `json:"clients"`
+	OwnerProfile         app.OwnerProfile                   `json:"owner_profile"`
+	OwnerProfiles        map[string]app.OwnerProfile        `json:"owner_profiles,omitempty"`
+	PairingCodes         map[string]app.PairingCode         `json:"pairing_codes"`
+	Messages             map[string][]app.Message           `json:"messages"`
+	RunFeedback          map[string][]app.RunFeedback       `json:"run_feedback"`
+	Runs                 map[string]app.AgentRun            `json:"runs"`
+	ModelCalls           map[string]app.ModelCall           `json:"model_calls"`
+	ToolCalls            map[string]app.ToolCall            `json:"tool_calls"`
+	Approvals            map[string]app.Approval            `json:"approvals"`
+	Reminders            map[string]app.Reminder            `json:"reminders"`
+	ReminderDelivery     map[string]app.ReminderDelivery    `json:"reminder_delivery"`
+	NotificationBindings map[string]app.NotificationBinding `json:"notification_bindings"`
+	WeixinChatSessions   map[string]app.WeixinChatSession   `json:"weixin_chat_sessions"`
+	WeixinChatMessages   map[string]app.WeixinChatMessage   `json:"weixin_chat_messages"`
+	CredentialSecrets    map[string]app.CredentialSecret    `json:"credential_secrets"`
+	Memories             map[string]app.Memory              `json:"memories"`
+	MemoryCandidates     map[string]app.MemoryCandidate     `json:"memory_candidates"`
+	AuditEvents          []app.AuditEvent                   `json:"audit_events"`
+	Events               []app.Event                        `json:"events"`
+	EvalRuns             map[string]app.EvalRun             `json:"eval_runs"`
+	ArtifactObjects      map[string]app.ArtifactObject      `json:"artifact_objects"`
+	EpisodeSummaries     map[string]app.EpisodeSummary      `json:"episode_summaries"`
 }
 
 func NewFileStore(path string) (*FileStore, error) {
@@ -88,6 +95,12 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 
 func (s *FileStore) CreateSession(title string) app.Session {
 	out := s.inner.CreateSession(title)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session {
+	out := s.inner.CreateSessionWithScope(title, ownerID, workspaceRoot, source, hidden)
 	s.persist()
 	return out
 }
@@ -154,6 +167,24 @@ func (s *FileStore) UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfil
 	out := s.inner.UpdateOwnerProfile(profile)
 	s.persist()
 	return out
+}
+
+func (s *FileStore) GetOwnerProfileByID(id string) (app.OwnerProfile, bool) {
+	return s.inner.GetOwnerProfileByID(id)
+}
+
+func (s *FileStore) SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
+	out := s.inner.SaveOwnerProfile(profile)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) ListOwnerProfiles() []app.OwnerProfile {
+	return s.inner.ListOwnerProfiles()
+}
+
+func (s *FileStore) FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool) {
+	return s.inner.FindOwnerProfileByExternalRef(source, externalRef)
 }
 
 func (s *FileStore) SavePairingCode(code app.PairingCode) {
@@ -243,6 +274,106 @@ func (s *FileStore) ResolveApproval(id, status, note string) (app.Approval, erro
 
 func (s *FileStore) ListApprovals(status string) []app.Approval {
 	return s.inner.ListApprovals(status)
+}
+
+func (s *FileStore) SaveReminder(reminder app.Reminder) app.Reminder {
+	out := s.inner.SaveReminder(reminder)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetReminder(id string) (app.Reminder, bool) {
+	return s.inner.GetReminder(id)
+}
+
+func (s *FileStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
+	return s.inner.ListReminders(filter)
+}
+
+func (s *FileStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
+	out := s.inner.SaveReminderDelivery(delivery)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) ListReminderDeliveries(reminderID string) []app.ReminderDelivery {
+	return s.inner.ListReminderDeliveries(reminderID)
+}
+
+func (s *FileStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
+	out := s.inner.SaveNotificationBinding(binding)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
+	return s.inner.GetNotificationBinding(id)
+}
+
+func (s *FileStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
+	return s.inner.ListNotificationBindings(channel, status)
+}
+
+func (s *FileStore) RevokeNotificationBinding(id string) (app.NotificationBinding, error) {
+	out, err := s.inner.RevokeNotificationBinding(id)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
+}
+
+func (s *FileStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
+	out := s.inner.SaveWeixinChatSession(session)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
+	return s.inner.GetWeixinChatSession(id)
+}
+
+func (s *FileStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
+	return s.inner.FindWeixinChatSession(bindingID, externalUserID)
+}
+
+func (s *FileStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
+	return s.inner.FindWeixinChatSessionByLinkedSessionID(sessionID)
+}
+
+func (s *FileStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
+	out := s.inner.SaveWeixinChatMessage(message)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
+	return s.inner.GetWeixinChatMessage(id)
+}
+
+func (s *FileStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
+	return s.inner.FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID)
+}
+
+func (s *FileStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
+	return s.inner.ListWeixinChatMessages(chatSessionID, limit)
+}
+
+func (s *FileStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
+	out := s.inner.SaveCredentialSecret(secret)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetCredentialSecret(ref string) (app.CredentialSecret, bool) {
+	return s.inner.GetCredentialSecret(ref)
+}
+
+func (s *FileStore) DeleteCredentialSecret(ref string) error {
+	err := s.inner.DeleteCredentialSecret(ref)
+	if err == nil {
+		s.persist()
+	}
+	return err
 }
 
 func (s *FileStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {

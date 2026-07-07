@@ -1,14 +1,20 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"math"
 	"net"
@@ -25,6 +31,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -41,6 +48,7 @@ type Server struct {
 	runtime   agent.Runtime
 	traces    *trace.Writer
 	artifacts artifact.Store
+	bindings  binding.Router
 	mux       *http.ServeMux
 	started   time.Time
 	limiter   *rateLimiter
@@ -60,6 +68,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		runtime:   runtime,
 		traces:    traces,
 		artifacts: artifacts,
+		bindings:  binding.NewRouter(cfg),
 		mux:       http.NewServeMux(),
 		started:   time.Now().UTC(),
 		limiter:   newRateLimiter(cfg.Gateway.RateLimit),
@@ -85,17 +94,25 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/config", s.getConfig)
 	s.mux.HandleFunc("GET /api/owner", s.getOwnerProfile)
 	s.mux.HandleFunc("POST /api/owner", s.updateOwnerProfile)
+	s.mux.HandleFunc("GET /api/profiles", s.listOwnerProfiles)
+	s.mux.HandleFunc("GET /api/profiles/{owner_id}", s.getOwnerProfileByID)
+	s.mux.HandleFunc("PATCH /api/profiles/{owner_id}", s.patchOwnerProfile)
 	s.mux.HandleFunc("GET /api/clients", s.listClients)
 	s.mux.HandleFunc("POST /api/clients/{id}/revoke", s.revokeClient)
 	s.mux.HandleFunc("POST /api/tool-policy", s.updateToolPolicy)
 	s.mux.HandleFunc("POST /api/pairing/start", s.startPairing)
 	s.mux.HandleFunc("POST /api/pairing/claim", s.claimPairing)
+	s.mux.HandleFunc("GET /api/notification-bindings", s.listNotificationBindings)
+	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
+	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
+	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
 	s.mux.HandleFunc("POST /api/sessions", s.createSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	s.mux.HandleFunc("PATCH /api/sessions/{id}", s.updateSession)
 	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}/messages", s.listMessages)
+	s.mux.HandleFunc("POST /api/sessions/{id}/messages/stream", s.postMessageStream)
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.postMessage)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events/stream", s.streamSessionEvents)
@@ -124,6 +141,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/traces", s.listTraces)
 	s.mux.HandleFunc("GET /api/traces/{run_id}", s.getTrace)
 	s.mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
+	s.mux.HandleFunc("POST /api/documents/upload", s.uploadDocument)
+	s.mux.HandleFunc("GET /api/documents/available", s.listAvailableDocuments)
+	s.mux.HandleFunc("GET /api/documents/file", s.getUploadedDocument)
+	s.mux.HandleFunc("GET /api/workspace/screenshots/{name}", s.getWorkspaceScreenshot)
 	s.mux.HandleFunc("GET /api/evals", s.listEvals)
 	s.mux.HandleFunc("POST /api/evals/run", s.runEval)
 	s.mux.HandleFunc("GET /api/evals/{id}", s.getEval)
@@ -266,6 +287,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"storage":     publicStorageConfig(s.cfg.Storage),
 		"state":       publicStateConfig(s.cfg.State),
 		"adapters":    publicAdapterConfig(s.cfg.Adapters),
+		"tools":       publicToolsConfig(s.cfg),
 		"memory":      s.cfg.Memory,
 		"skills":      s.cfg.Skills,
 		"runtime":     s.cfg.Runtime,
@@ -294,6 +316,54 @@ func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.store.UpdateOwnerProfile(profile))
+}
+
+func (s *Server) listOwnerProfiles(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": s.store.ListOwnerProfiles()})
+}
+
+func (s *Server) getOwnerProfileByID(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("owner_id"))
+	profile, ok := s.store.GetOwnerProfileByID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("profile not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, profile)
+}
+
+func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("owner_id"))
+	current, ok := s.store.GetOwnerProfileByID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("profile not found"))
+		return
+	}
+	var input struct {
+		DisplayName      string            `json:"display_name"`
+		Email            string            `json:"email"`
+		Preferences      map[string]string `json:"preferences"`
+		Source           string            `json:"source"`
+		ExternalRef      string            `json:"external_ref"`
+		WorkspaceRoot    string            `json:"workspace_root"`
+		DefaultChannel   string            `json:"default_channel"`
+		DefaultBindingID string            `json:"default_binding_id"`
+	}
+	if err := readJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	profile, err := normalizeOwnerProfileInput(current, input.DisplayName, input.Email, input.Preferences)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	profile.Source = strings.TrimSpace(input.Source)
+	profile.ExternalRef = strings.TrimSpace(input.ExternalRef)
+	profile.WorkspaceRoot = strings.TrimSpace(input.WorkspaceRoot)
+	profile.DefaultChannel = strings.TrimSpace(input.DefaultChannel)
+	profile.DefaultBindingID = strings.TrimSpace(input.DefaultBindingID)
+	writeJSON(w, http.StatusOK, s.store.SaveOwnerProfile(profile))
 }
 
 func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
@@ -481,19 +551,150 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request) {
+	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"bindings": publicNotificationBindings(s.store.ListNotificationBindings(channel, status)),
+	})
+}
+
+func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	channel := strings.TrimSpace(r.PathValue("channel"))
+	if channel == "" {
+		writeError(w, http.StatusBadRequest, errors.New("channel is required"))
+		return
+	}
+	var input struct {
+		Scopes            []string `json:"scopes"`
+		DefaultForChannel bool     `json:"default_for_channel"`
+	}
+	if r.Body != nil && r.Body != http.NoBody {
+		_ = json.NewDecoder(r.Body).Decode(&input)
+	}
+	if len(input.Scopes) == 0 {
+		input.Scopes = []string{"reminder_send_self"}
+	}
+	now := time.Now().UTC()
+	binding := app.NotificationBinding{
+		ID:                app.NewID("bind"),
+		OwnerID:           app.DefaultOwnerID,
+		Channel:           channel,
+		Status:            "waiting_scan",
+		DefaultForChannel: input.DefaultForChannel,
+		Scopes:            input.Scopes,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	started, err := s.bindings.Start(r.Context(), binding)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	started = s.store.SaveNotificationBinding(started)
+	writeJSON(w, http.StatusCreated, publicNotificationBinding(started))
+}
+
+func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	bindingID := strings.TrimSpace(r.PathValue("id"))
+	binding, ok := s.store.GetNotificationBinding(bindingID)
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+		return
+	}
+	if binding.Status == "waiting_scan" || binding.Status == "waiting_confirm" {
+		poll, err := s.bindings.Poll(r.Context(), binding)
+		if err == nil && poll.Status != "" && poll.Status != binding.Status {
+			binding.Status = poll.Status
+			binding.DisplayName = poll.DisplayName
+			binding.ExternalUserID = poll.ExternalUserID
+			binding.AccountID = poll.AccountID
+			binding.CredentialRef = poll.CredentialRef
+			binding.BaseURL = poll.BaseURL
+			binding.LastError = poll.LastError
+			binding.UpdatedAt = time.Now().UTC()
+			if poll.CredentialRef != "" && poll.CredentialSecret != "" {
+				s.store.SaveCredentialSecret(app.CredentialSecret{
+					Ref:   poll.CredentialRef,
+					Kind:  poll.CredentialKind,
+					Value: poll.CredentialSecret,
+				})
+			}
+			if binding.Status == "active" {
+				if binding.DefaultForChannel || !s.hasActiveDefaultNotificationBinding(binding.Channel, binding.ID) {
+					binding.DefaultForChannel = true
+				}
+				binding.QRCodeURL = ""
+				binding.QRCodeImage = ""
+			}
+			binding = s.store.SaveNotificationBinding(binding)
+		} else if err != nil {
+			binding.LastError = err.Error()
+			binding.UpdatedAt = time.Now().UTC()
+			binding = s.store.SaveNotificationBinding(binding)
+		}
+	}
+	writeJSON(w, http.StatusOK, publicNotificationBinding(binding))
+}
+
+func (s *Server) hasActiveDefaultNotificationBinding(channel, exceptID string) bool {
+	for _, binding := range s.store.ListNotificationBindings(channel, "active") {
+		if binding.ID != exceptID && binding.DefaultForChannel {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	bindingID := strings.TrimSpace(r.PathValue("id"))
+	binding, ok := s.store.GetNotificationBinding(bindingID)
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+		return
+	}
+	_ = s.bindings.Cancel(r.Context(), binding)
+	revoked, err := s.store.RevokeNotificationBinding(bindingID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(binding.CredentialRef) != "" {
+		_ = s.store.DeleteCredentialSecret(binding.CredentialRef)
+	}
+	writeJSON(w, http.StatusOK, publicNotificationBinding(revoked))
+}
+
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.store.ListSessions()})
+	ownerID := queryOwnerID(r)
+	sessions := []app.Session{}
+	for _, session := range s.store.ListSessions() {
+		if sessionOwnerID(session) == ownerID {
+			sessions = append(sessions, session)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Title string `json:"title"`
+		Title   string `json:"title"`
+		OwnerID string `json:"owner_id"`
 	}
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	session := s.store.CreateSession(input.Title)
+	ownerID := strings.TrimSpace(input.OwnerID)
+	if ownerID == "" {
+		ownerID = app.DefaultOwnerID
+	}
+	profile, ok := s.store.GetOwnerProfileByID(ownerID)
+	if !ok {
+		writeError(w, http.StatusBadRequest, errors.New("profile not found"))
+		return
+	}
+	session := s.store.CreateSessionWithScope(input.Title, profile.ID, profile.WorkspaceRoot, "webchat", false)
 	writeJSON(w, http.StatusCreated, session)
 }
 
@@ -550,7 +751,8 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Content string `json:"content"`
+		Content     string                    `json:"content"`
+		Attachments []agent.MessageAttachment `json:"attachments"`
 	}
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -560,12 +762,125 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
-	result, err := s.runtime.HandleMessage(r.Context(), sessionID, input.Content)
+	result, err := s.runtime.HandleMessageWithAttachments(r.Context(), sessionID, input.Content, sanitizeMessageAttachments(input.Attachments))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if _, ok := s.store.GetSession(sessionID); !ok {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	var input struct {
+		Content     string                    `json:"content"`
+		Attachments []agent.MessageAttachment `json:"attachments"`
+	}
+	if err := readJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(input.Content) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("content is required"))
+		return
+	}
+	after := lastEventID(s.store.EventsAfter(sessionID, ""))
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("message streaming is unavailable"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusCreated)
+
+	send := func(name string, value any) error {
+		if err := writeNamedSSE(w, name, value); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+	if err := send("message.stream.started", map[string]string{"session_id": sessionID}); err != nil {
+		return
+	}
+	attachments := sanitizeMessageAttachments(input.Attachments)
+
+	type streamResult struct {
+		result agent.Result
+		err    error
+	}
+	modelEvents := make(chan agent.StreamEvent, 16)
+	results := make(chan streamResult, 1)
+	go func() {
+		result, err := s.runtime.HandleMessageStreamWithAttachments(r.Context(), sessionID, input.Content, attachments, func(event agent.StreamEvent) error {
+			select {
+			case <-r.Context().Done():
+				return r.Context().Err()
+			case modelEvents <- event:
+				return nil
+			}
+		})
+		results <- streamResult{result: result, err: err}
+		close(modelEvents)
+	}()
+
+	sendRuntimeEvents := func() bool {
+		for _, event := range s.store.EventsAfter(sessionID, after) {
+			if event.ID == after {
+				continue
+			}
+			after = event.ID
+			if !streamVisibleEvent(event.Type) {
+				continue
+			}
+			if err := send(event.Type, event); err != nil {
+				return false
+			}
+		}
+		return true
+	}
+
+	poll := time.NewTicker(200 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-modelEvents:
+			if !ok {
+				modelEvents = nil
+				continue
+			}
+			name := strings.TrimSpace(event.Type)
+			if name == "" {
+				name = "model.event"
+			}
+			if err := send(name, event); err != nil {
+				return
+			}
+		case <-poll.C:
+			if !sendRuntimeEvents() {
+				return
+			}
+		case result := <-results:
+			if !sendRuntimeEvents() {
+				return
+			}
+			if result.err != nil {
+				_ = send("error", map[string]string{"error": result.err.Error(), "session_id": sessionID})
+				return
+			}
+			_ = send("message.stream.final", result.result)
+			return
+		}
+	}
 }
 
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
@@ -977,6 +1292,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	var call *app.ToolCall
+	resumed := false
 	if status == "approved" {
 		executed, err := s.executeApprovedToolCall(r, approval)
 		if err != nil {
@@ -984,6 +1300,12 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			return
 		}
 		call = &executed
+		if _, ok, err := s.runtime.ResumeRunAfterApproval(r.Context(), approval.SessionID, approval.RunID); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		} else if ok {
+			resumed = true
+		}
 	}
 	if status == "rejected" {
 		if rejected, ok := s.store.GetToolCall(approval.ToolCallID); ok {
@@ -995,7 +1317,9 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			call = &rejected
 		}
 	}
-	s.completeRunIfApprovalsResolved(approval.RunID)
+	if !resumed {
+		s.completeRunIfApprovalsResolved(approval.RunID)
+	}
 	s.refreshTrace(r.Context(), approval.RunID)
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
 }
@@ -1239,7 +1563,14 @@ func memorySensitivePattern(content string, patterns []string) (string, bool) {
 }
 
 func (s *Server) listMemoryCandidates(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"memory_candidates": s.store.ListMemoryCandidates(r.URL.Query().Get("status"))})
+	ownerID := queryOwnerID(r)
+	candidates := []app.MemoryCandidate{}
+	for _, candidate := range s.store.ListMemoryCandidates(r.URL.Query().Get("status")) {
+		if s.sessionIDVisibleToOwner(candidate.SessionID, ownerID) {
+			candidates = append(candidates, candidate)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memory_candidates": candidates})
 }
 
 func (s *Server) acceptMemoryCandidate(w http.ResponseWriter, r *http.Request) {
@@ -1327,7 +1658,341 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"artifacts": s.store.ListArtifactObjects(limit)})
+	ownerID := queryOwnerID(r)
+	objects := []app.ArtifactObject{}
+	for _, object := range s.store.ListArtifactObjects(0) {
+		if s.artifactVisibleToOwner(object, ownerID) {
+			objects = append(objects, object)
+		}
+		if limit > 0 && len(objects) >= limit {
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artifacts": objects})
+}
+
+func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
+	const maxUploadBytes = 25 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("multipart field \"file\" is required"))
+		return
+	}
+	defer file.Close()
+	if r.MultipartForm != nil && len(r.MultipartForm.File["file"]) > 1 {
+		writeError(w, http.StatusBadRequest, errors.New("only one file may be uploaded per request"))
+		return
+	}
+	name := cleanUploadFilename(header.Filename)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("uploaded filename is required"))
+		return
+	}
+	contentType := strings.TrimSpace(header.Header.Get("Content-Type"))
+	var sniff bytes.Buffer
+	if _, err := io.Copy(&sniff, io.LimitReader(file, 512)); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	detectedContentType := http.DetectContentType(sniff.Bytes())
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = detectedContentType
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	name = ensureUploadFilenameExtension(name, contentType, detectedContentType)
+	sessionID := strings.TrimSpace(r.FormValue("session_id"))
+	workspaceRoot := s.workspaceRootForSession(sessionID)
+	now := time.Now().UTC()
+	isImage := isImageContentType(contentType)
+	rootName := "uploads"
+	idPrefix := "upload"
+	artifactKind := "document_upload"
+	if isImage {
+		rootName = "media"
+		idPrefix = "media"
+		artifactKind = "media_image_upload"
+	}
+	relPath := filepath.Join(rootName, now.Format("20060102"), app.NewID(idPrefix)+"-"+name)
+	path := filepath.Join(workspaceRoot, relPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	bytesWritten, copyErr := io.Copy(out, io.MultiReader(bytes.NewReader(sniff.Bytes()), file))
+	closeErr := out.Close()
+	if copyErr != nil {
+		writeError(w, http.StatusInternalServerError, copyErr)
+		return
+	}
+	if closeErr != nil {
+		writeError(w, http.StatusInternalServerError, closeErr)
+		return
+	}
+	object := app.ArtifactObject{
+		ID:          app.NewID("obj"),
+		Kind:        artifactKind,
+		SessionID:   sessionID,
+		Backend:     "workspace",
+		Key:         relPath,
+		URI:         "workspace://" + filepath.ToSlash(relPath),
+		Path:        path,
+		ContentType: contentType,
+		Bytes:       int(bytesWritten),
+		CreatedAt:   now,
+	}
+	s.store.SaveArtifactObject(object)
+	s.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		Actor:     "owner",
+		Type:      uploadAuditType(isImage),
+		Summary:   relPath,
+		Fields: map[string]any{
+			"artifact_id":  object.ID,
+			"path":         path,
+			"rel_path":     relPath,
+			"content_type": contentType,
+			"bytes":        bytesWritten,
+		},
+	})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"artifact": object,
+		"path":     path,
+		"rel_path": relPath,
+		"bytes":    bytesWritten,
+		"media":    uploadedMediaMetadata(path, relPath, contentType, isImage),
+	})
+}
+
+func (s *Server) listAvailableDocuments(w http.ResponseWriter, r *http.Request) {
+	limit := queryInt(r, "limit", 50)
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	out := []app.ArtifactObject{}
+	seen := map[string]bool{}
+	workspaceRoot := s.workspaceRootForSession(strings.TrimSpace(r.URL.Query().Get("session_id")))
+	for _, rootName := range []string{"uploads", "media"} {
+		if len(out) >= limit {
+			break
+		}
+		uploadRoot := filepath.Join(workspaceRoot, rootName)
+		_ = filepath.WalkDir(uploadRoot, func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry == nil || len(out) >= limit {
+				return nil
+			}
+			if path != uploadRoot && strings.HasPrefix(entry.Name(), ".") {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			if !pathWithinRoot(uploadRoot, path) || !pathWithinRoot(workspaceRoot, path) {
+				return nil
+			}
+			rel, err := filepath.Rel(workspaceRoot, path)
+			if err != nil {
+				return nil
+			}
+			key := filepath.ToSlash(rel)
+			if seen[key] {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return nil
+			}
+			contentType := "application/octet-stream"
+			if file, err := os.Open(path); err == nil {
+				var sniff [512]byte
+				n, _ := file.Read(sniff[:])
+				_ = file.Close()
+				contentType = http.DetectContentType(sniff[:n])
+			}
+			out = append(out, app.ArtifactObject{
+				ID:          "workspace:" + key,
+				Kind:        availableObjectKind(key, contentType),
+				Backend:     "workspace",
+				Key:         key,
+				URI:         "workspace://" + key,
+				Path:        path,
+				ContentType: contentType,
+				Bytes:       int(info.Size()),
+				CreatedAt:   info.ModTime().UTC(),
+			})
+			seen[key] = true
+			return nil
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"documents": out})
+}
+
+func isImageContentType(contentType string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) {
+	case "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func uploadAuditType(isImage bool) string {
+	if isImage {
+		return "media.image.uploaded"
+	}
+	return "document.uploaded"
+}
+
+func availableObjectKind(key, contentType string) string {
+	if strings.HasPrefix(filepath.ToSlash(key), "media/") || isImageContentType(contentType) {
+		return "media_image_upload"
+	}
+	return "document_upload"
+}
+
+func uploadedMediaMetadata(path, relPath, contentType string, isImage bool) map[string]any {
+	if !isImage {
+		return nil
+	}
+	meta := map[string]any{
+		"rel_path":     filepath.ToSlash(relPath),
+		"content_type": contentType,
+	}
+	if raw, err := os.ReadFile(path); err == nil {
+		sum := sha256.Sum256(raw)
+		meta["sha256"] = hex.EncodeToString(sum[:])
+		if cfg, _, err := image.DecodeConfig(bytes.NewReader(raw)); err == nil {
+			meta["width"] = cfg.Width
+			meta["height"] = cfg.Height
+		}
+	}
+	return meta
+}
+
+func (s *Server) getUploadedDocument(w http.ResponseWriter, r *http.Request) {
+	relPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if relPath == "" {
+		writeError(w, http.StatusBadRequest, errors.New("path is required"))
+		return
+	}
+	clean, ok := cleanWorkspaceRelativePath(relPath)
+	if !ok {
+		writeError(w, http.StatusBadRequest, errors.New("invalid document path"))
+		return
+	}
+	workspaceRoot := s.workspaceRootForSession(strings.TrimSpace(r.URL.Query().Get("session_id")))
+	path := filepath.Join(workspaceRoot, clean)
+	if !pathWithinRoot(workspaceRoot, path) {
+		writeError(w, http.StatusBadRequest, errors.New("document path escapes workspace"))
+		return
+	}
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) workspaceRootForSession(sessionID string) string {
+	if strings.TrimSpace(sessionID) != "" {
+		if session, ok := s.store.GetSession(sessionID); ok && strings.TrimSpace(session.WorkspaceRoot) != "" {
+			return strings.TrimSpace(session.WorkspaceRoot)
+		}
+	}
+	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot)
+}
+
+func (s *Server) getWorkspaceScreenshot(w http.ResponseWriter, r *http.Request) {
+	name := filepath.Base(strings.TrimSpace(r.PathValue("name")))
+	if name == "" || name == "." || name != strings.TrimSpace(r.PathValue("name")) {
+		writeError(w, http.StatusBadRequest, errors.New("invalid screenshot name"))
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" {
+		writeError(w, http.StatusBadRequest, errors.New("unsupported screenshot type"))
+		return
+	}
+	dir := filepath.Join(s.cfg.Workspaces.DefaultRoot, ".sparkclaw", "screenshots")
+	path := filepath.Join(dir, name)
+	cleanDir, err := filepath.Abs(dir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator)) {
+		writeError(w, http.StatusBadRequest, errors.New("invalid screenshot path"))
+		return
+	}
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	http.ServeFile(w, r, cleanPath)
+}
+
+func sanitizeMessageAttachments(attachments []agent.MessageAttachment) []agent.MessageAttachment {
+	out := []agent.MessageAttachment{}
+	for _, attachment := range attachments {
+		clean, ok := cleanWorkspaceRelativePath(attachment.RelPath)
+		if !ok {
+			continue
+		}
+		attachment.RelPath = filepath.ToSlash(clean)
+		attachment.Name = strings.TrimSpace(attachment.Name)
+		if attachment.Name == "" {
+			attachment.Name = filepath.Base(clean)
+		}
+		attachment.ArtifactID = strings.TrimSpace(attachment.ArtifactID)
+		attachment.URI = strings.TrimSpace(attachment.URI)
+		attachment.ContentType = strings.TrimSpace(attachment.ContentType)
+		out = append(out, attachment)
+		if len(out) >= 5 {
+			break
+		}
+	}
+	return out
+}
+
+func cleanWorkspaceRelativePath(value string) (string, bool) {
+	value = strings.TrimSpace(filepath.ToSlash(value))
+	if value == "" || strings.HasPrefix(value, "/") || strings.Contains(value, "\x00") {
+		return "", false
+	}
+	clean := filepath.Clean(value)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return clean, true
+}
+
+func pathWithinRoot(root, path string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func (s *Server) refreshTrace(ctx context.Context, runID string) {
@@ -1544,6 +2209,41 @@ func queryInt(r *http.Request, key string, fallback int) int {
 	return value
 }
 
+func queryOwnerID(r *http.Request) string {
+	ownerID := strings.TrimSpace(r.URL.Query().Get("owner_id"))
+	if ownerID == "" {
+		return app.DefaultOwnerID
+	}
+	return ownerID
+}
+
+func sessionOwnerID(session app.Session) string {
+	if strings.TrimSpace(session.OwnerID) == "" {
+		return app.DefaultOwnerID
+	}
+	return strings.TrimSpace(session.OwnerID)
+}
+
+func (s *Server) sessionIDVisibleToOwner(sessionID, ownerID string) bool {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		ownerID = app.DefaultOwnerID
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return ownerID == app.DefaultOwnerID
+	}
+	session, ok := s.store.GetSession(sessionID)
+	if !ok {
+		return ownerID == app.DefaultOwnerID
+	}
+	return sessionOwnerID(session) == ownerID
+}
+
+func (s *Server) artifactVisibleToOwner(object app.ArtifactObject, ownerID string) bool {
+	return s.sessionIDVisibleToOwner(object.SessionID, ownerID)
+}
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -1565,6 +2265,31 @@ func writeSSEEvent(w http.ResponseWriter, event app.Event) error {
 		return err
 	}
 	return nil
+}
+
+func writeNamedSSE(w http.ResponseWriter, name string, value any) error {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\n", name); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", raw); err != nil {
+		return err
+	}
+	return nil
+}
+
+func lastEventID(events []app.Event) string {
+	if len(events) == 0 {
+		return ""
+	}
+	return events[len(events)-1].ID
+}
+
+func streamVisibleEvent(typ string) bool {
+	return strings.HasPrefix(typ, "tool_call.") || strings.HasPrefix(typ, "approval.")
 }
 
 func isLocalRequest(r *http.Request) bool {
@@ -1694,7 +2419,96 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 			"base_url": cfg.Calendar.BaseURL,
 			"token":    configuredStatus(cfg.Calendar.Token),
 		},
+		"browserAutomation": map[string]any{
+			"mcp_command":                       cfg.BrowserAutomation.MCPCommand,
+			"mcp_args_count":                    len(cfg.BrowserAutomation.MCPArgs),
+			"timeout_ms":                        cfg.BrowserAutomation.TimeoutMS,
+			"allow_user_profile":                cfg.BrowserAutomation.AllowUserProfile,
+			"require_approval_for_user_profile": cfg.BrowserAutomation.RequireApprovalForUserProfile,
+		},
 	}
+}
+
+func publicToolsConfig(cfg config.Config) map[string]any {
+	webSearch := cfg.Plugins.Entries.Parallel.Config.WebSearch
+	notificationChannels := map[string]any{}
+	for name, channel := range cfg.Tools.Notifications.Channels {
+		notificationChannels[name] = map[string]any{
+			"enabled":          channel.Enabled,
+			"provider":         channel.Provider,
+			"base_url":         channel.BaseURL,
+			"token_configured": strings.TrimSpace(channel.Token) != "",
+			"recipient_set":    strings.TrimSpace(channel.Recipient) != "",
+		}
+	}
+	return map[string]any{
+		"web": map[string]any{
+			"search": map[string]any{
+				"enabled":            cfg.Tools.Web.Search.Enabled,
+				"provider":           cfg.Tools.Web.Search.Provider,
+				"base_url":           webSearch.BaseURL,
+				"api_key_configured": strings.TrimSpace(webSearch.APIKey) != "",
+				"max_results":        webSearch.MaxResults,
+			},
+		},
+		"browserAutomation": map[string]any{
+			"enabled":  cfg.Tools.BrowserAutomation.Enabled,
+			"provider": cfg.Tools.BrowserAutomation.Provider,
+			"profile":  cfg.Tools.BrowserAutomation.Profile,
+		},
+		"reminders": map[string]any{
+			"enabled":         cfg.Tools.Reminders.Enabled,
+			"default_channel": cfg.Tools.Reminders.DefaultChannel,
+		},
+		"notifications": map[string]any{
+			"channels": notificationChannels,
+		},
+	}
+}
+
+func publicNotificationBindings(bindings []app.NotificationBinding) []map[string]any {
+	out := make([]map[string]any, 0, len(bindings))
+	for _, binding := range bindings {
+		out = append(out, publicNotificationBinding(binding))
+	}
+	return out
+}
+
+func publicNotificationBinding(binding app.NotificationBinding) map[string]any {
+	return map[string]any{
+		"id":                  binding.ID,
+		"owner_id":            binding.OwnerID,
+		"channel":             binding.Channel,
+		"provider":            binding.Provider,
+		"status":              binding.Status,
+		"display_name":        binding.DisplayName,
+		"external_user_id":    redactExternalID(binding.ExternalUserID),
+		"account_id":          redactExternalID(binding.AccountID),
+		"credential_ref":      configuredStatus(binding.CredentialRef),
+		"context_token":       configuredStatus(binding.ContextToken),
+		"base_url":            binding.BaseURL,
+		"qr_code_url":         binding.QRCodeURL,
+		"qr_code_image":       binding.QRCodeImage,
+		"default_for_channel": binding.DefaultForChannel,
+		"scopes":              binding.Scopes,
+		"created_at":          binding.CreatedAt,
+		"updated_at":          binding.UpdatedAt,
+		"expires_at":          binding.ExpiresAt,
+		"revoked_at":          binding.RevokedAt,
+		"last_error":          binding.LastError,
+	}
+}
+
+func redactExternalID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= 6 {
+		return value
+	}
+	return string(runes[:3]) + "***" + string(runes[len(runes)-2:])
 }
 
 func configuredStatus(value string) string {
@@ -1913,4 +2727,80 @@ func writeToolPolicyFile(path string, deny, approvalRequired []string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func cleanUploadFilename(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, string(os.PathSeparator), "_")
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '.', r == '-', r == '_':
+			return r
+		default:
+			return '_'
+		}
+	}, name)
+	name = strings.Trim(name, "._-")
+	if len(name) > 120 {
+		ext := filepath.Ext(name)
+		base := strings.TrimSuffix(name, ext)
+		if len(ext) > 20 {
+			ext = ""
+		}
+		if len(base) > 100 {
+			base = base[:100]
+		}
+		name = base + ext
+	}
+	return name
+}
+
+func ensureUploadFilenameExtension(name, contentType, detectedContentType string) string {
+	if filepath.Ext(name) != "" {
+		return name
+	}
+	ext := extensionForUploadContentType(contentType)
+	if ext == "" {
+		ext = extensionForUploadContentType(detectedContentType)
+	}
+	if ext == "" {
+		return name
+	}
+	return name + ext
+}
+
+func extensionForUploadContentType(contentType string) string {
+	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	switch contentType {
+	case "application/pdf":
+		return ".pdf"
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return ".docx"
+	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return ".xlsx"
+	case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		return ".pptx"
+	case "text/plain":
+		return ".txt"
+	case "text/markdown", "text/x-markdown":
+		return ".md"
+	case "text/csv":
+		return ".csv"
+	case "image/png":
+		return ".png"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ""
+	}
 }

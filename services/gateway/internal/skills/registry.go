@@ -325,10 +325,11 @@ func ensureStringSlice(values []string) []string {
 }
 
 func previewBody(body string) string {
+	const maxPreviewRunes = 2000
 	body = strings.TrimSpace(body)
 	body = strings.Join(strings.Fields(body), " ")
-	if utf8.RuneCountInString(body) > 240 {
-		return string([]rune(body)[:240]) + "..."
+	if utf8.RuneCountInString(body) > maxPreviewRunes {
+		return string([]rune(body)[:maxPreviewRunes]) + "..."
 	}
 	return body
 }

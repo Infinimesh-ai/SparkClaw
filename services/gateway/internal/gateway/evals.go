@@ -492,6 +492,7 @@ func (s *Server) evalMemoryRetention(ctx context.Context) app.EvalCase {
 		if oldMemory == nil {
 			return errors.New("old retention memory was not accepted")
 		}
+		time.Sleep(2 * time.Millisecond)
 		cutoff := time.Now().UTC()
 		time.Sleep(2 * time.Millisecond)
 		freshCandidate := st.AddMemoryCandidate(app.MemoryCandidate{
@@ -820,8 +821,9 @@ func (s *Server) evalToolRepairChaos(ctx context.Context) app.EvalCase {
 		if numericValue(out["count"]) <= 0 {
 			return fmt.Errorf("retry search returned no evidence: %#v", calls[2].Result)
 		}
-		if !strings.Contains(result.Message.Content, "repaired") {
-			return fmt.Errorf("assistant response did not mention repair: %q", result.Message.Content)
+		if !strings.Contains(result.Message.Content, "Answer from local knowledge:") ||
+			!strings.Contains(result.Message.Content, "knowledge/repair-notes.md:L") {
+			return fmt.Errorf("assistant response did not present repaired evidence: %q", result.Message.Content)
 		}
 		modelCalls := st.ListModelCalls(session.ID, result.Run.ID)
 		if !evalHasModelCallOperation(modelCalls, "repair_verifier", "deep") {

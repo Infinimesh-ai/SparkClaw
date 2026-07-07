@@ -17,11 +17,14 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixin"
 )
 
 func main() {
@@ -50,6 +53,10 @@ func main() {
 	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces)
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
+	if cfg.Tools.Reminders.Enabled && !cfg.Tools.Reminders.Disabled {
+		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notification.NewRouter(cfg, st)))
+	}
+	startWeixinContextSyncer(serverCtx, weixin.NewSyncer(st).WithConfig(cfg).WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg, tools)))
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),
@@ -79,6 +86,38 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("sparkclaw gateway stopped")
+}
+
+func startWeixinContextSyncer(ctx context.Context, syncer *weixin.Syncer) {
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			syncer.Tick(ctx)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+}
+
+func startReminderScheduler(ctx context.Context, scheduler *reminder.Scheduler) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			for _, delivery := range scheduler.Tick(ctx) {
+				slog.Info("reminder delivery completed", "reminder_id", delivery.ReminderID, "status", delivery.Status, "channel", delivery.Channel, "retry_state", delivery.RetryState)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 }
 
 func newStore(cfg config.Config) (store.Store, error) {

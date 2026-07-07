@@ -5,13 +5,17 @@ import type {
   Approval,
   ApprovalResolution,
   Client,
+  DocumentUploadResult,
   EpisodeSummary,
   EvalRun,
   Memory,
   MemoryCandidate,
   MemoryExportArchive,
   Message,
+  MessageAttachment,
+  ModelStreamEvent,
   ModelCall,
+  NotificationBinding,
   OwnerProfile,
   PublicConfig,
   ReadyStatus,
@@ -39,19 +43,86 @@ export function clearAPIToken() {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}),
+    ...((init?.headers as Record<string, string> | undefined) ?? {})
+  };
+  if (!(init?.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}),
-      ...(init?.headers ?? {})
-    }
+    headers
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error ?? `HTTP ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+type SendMessageStreamHandlers = {
+  signal?: AbortSignal;
+  onEvent?: (event: string, data: unknown) => void;
+  onTextDelta?: (text: string, event: ModelStreamEvent) => void;
+  onFinal?: (result: AgentResult) => void;
+  onError?: (error: Error) => void;
+};
+
+async function requestEventStream(path: string, init: RequestInit, onBlock: (event: string, data: string) => void) {
+  const headers: Record<string, string> = {
+    ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}),
+    Accept: "text/event-stream",
+    ...((init.headers as Record<string, string> | undefined) ?? {})
+  };
+  if (!(init.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error ?? `HTTP ${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error("Streaming response body is unavailable");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const flushBlock = (block: string) => {
+    const lines = block.split(/\r?\n/);
+    let event = "message";
+    const dataLines: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        event = line.slice("event:".length).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trimStart());
+      }
+    }
+    if (dataLines.length > 0) {
+      onBlock(event, dataLines.join("\n"));
+    }
+  };
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    let boundary = buffer.search(/\r?\n\r?\n/);
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      const match = buffer.match(/\r?\n\r?\n/);
+      buffer = buffer.slice(boundary + (match?.[0].length ?? 2));
+      if (block.trim()) flushBlock(block);
+      boundary = buffer.search(/\r?\n\r?\n/);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) {
+    flushBlock(buffer);
+  }
 }
 
 export function sessionEventsURL(sessionId: string) {
@@ -62,6 +133,19 @@ export function sessionEventsURL(sessionId: string) {
   url.protocol = base.protocol;
   url.host = base.host;
   return url.toString();
+}
+
+export function workspaceScreenshotURL(path: string) {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  const route = `/api/workspace/screenshots/${encodeURIComponent(name)}`;
+  if (!API_BASE) return route;
+  return new URL(route, new URL(API_BASE, window.location.origin)).toString();
+}
+
+export function documentFileURL(path: string) {
+  const route = `/api/documents/file?path=${encodeURIComponent(path)}`;
+  if (!API_BASE) return route;
+  return new URL(route, new URL(API_BASE, window.location.origin)).toString();
 }
 
 export const api = {
@@ -75,6 +159,20 @@ export const api = {
     }),
   clients: () => request<{ clients: Client[] }>("/api/clients"),
   revokeClient: (id: string) => request<Client>(`/api/clients/${id}/revoke`, { method: "POST", body: "{}" }),
+  notificationBindings: (channel = "", status = "") => {
+    const params = new URLSearchParams();
+    if (channel) params.set("channel", channel);
+    if (status) params.set("status", status);
+    const query = params.toString();
+    return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
+  },
+  startNotificationBinding: (channel = "weixin") =>
+    request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
+      method: "POST",
+      body: JSON.stringify({ default_for_channel: false, scopes: ["reminder_send_self"] })
+    }),
+  notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
+  revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
   updateToolPolicy: (deny: string[], approvalRequired: string[]) =>
     request<PublicConfig["tool_policy"]>("/api/tool-policy", {
       method: "POST",
@@ -94,8 +192,44 @@ export const api = {
   deleteSession: (sessionId: string) =>
     request<Session>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
   messages: (sessionId: string) => request<{ messages: Message[] }>(`/api/sessions/${sessionId}/messages`),
-  sendMessage: (sessionId: string, content: string) =>
-    request<AgentResult>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
+  sendMessage: (sessionId: string, content: string, attachments: MessageAttachment[] = []) =>
+    request<AgentResult>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ content, attachments }) }),
+  sendMessageStream: async (sessionId: string, content: string, attachments: MessageAttachment[] = [], handlers: SendMessageStreamHandlers = {}) => {
+    await requestEventStream(
+      `/api/sessions/${sessionId}/messages/stream`,
+      { method: "POST", body: JSON.stringify({ content, attachments }), signal: handlers.signal },
+      (event, rawData) => {
+        let data: unknown = rawData;
+        try {
+          data = JSON.parse(rawData);
+        } catch {
+          // Keep non-JSON stream data as text for diagnostics.
+        }
+        handlers.onEvent?.(event, data);
+        if (event === "text_delta" && data && typeof data === "object") {
+          const streamEvent = data as ModelStreamEvent;
+          if (streamEvent.text) {
+            handlers.onTextDelta?.(streamEvent.text, streamEvent);
+          }
+        } else if (event === "message.stream.final" && data && typeof data === "object") {
+          handlers.onFinal?.(data as AgentResult);
+        } else if (event === "error") {
+          const message = data && typeof data === "object" && "error" in data ? String((data as { error?: unknown }).error ?? "Stream failed") : "Stream failed";
+          handlers.onError?.(new Error(message));
+        }
+      }
+    );
+  },
+  uploadDocument: (sessionId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (sessionId) form.append("session_id", sessionId);
+    return request<DocumentUploadResult>("/api/documents/upload", { method: "POST", body: form });
+  },
+  availableDocuments: (sessionId = "") => {
+    const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+    return request<{ documents: ArtifactObject[] }>(`/api/documents/available${query}`);
+  },
   saveRunFeedback: (runId: string, messageId: string, rating: "up" | "down" | "corrected", note = "", correction = "") =>
     request<RunFeedback>(`/api/runs/${runId}/feedback`, {
       method: "POST",

@@ -8,6 +8,7 @@ import (
 
 type Store interface {
 	CreateSession(title string) app.Session
+	CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session
 	ListSessions() []app.Session
 	GetSession(id string) (app.Session, bool)
 	UpdateSessionTitle(id, title string) (app.Session, error)
@@ -20,6 +21,10 @@ type Store interface {
 	TouchClient(id string)
 	GetOwnerProfile() app.OwnerProfile
 	UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfile
+	GetOwnerProfileByID(id string) (app.OwnerProfile, bool)
+	SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile
+	ListOwnerProfiles() []app.OwnerProfile
+	FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool)
 	SavePairingCode(code app.PairingCode)
 	GetPairingCode(id string) (app.PairingCode, bool)
 	ClaimPairingCode(id, clientID string) (app.PairingCode, error)
@@ -38,6 +43,26 @@ type Store interface {
 	SaveApproval(approval app.Approval)
 	ResolveApproval(id, status, note string) (app.Approval, error)
 	ListApprovals(status string) []app.Approval
+	SaveReminder(reminder app.Reminder) app.Reminder
+	GetReminder(id string) (app.Reminder, bool)
+	ListReminders(filter app.ReminderFilter) []app.Reminder
+	SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery
+	ListReminderDeliveries(reminderID string) []app.ReminderDelivery
+	SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding
+	GetNotificationBinding(id string) (app.NotificationBinding, bool)
+	ListNotificationBindings(channel, status string) []app.NotificationBinding
+	RevokeNotificationBinding(id string) (app.NotificationBinding, error)
+	SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession
+	GetWeixinChatSession(id string) (app.WeixinChatSession, bool)
+	FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool)
+	FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool)
+	SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage
+	GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool)
+	FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool)
+	ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage
+	SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret
+	GetCredentialSecret(ref string) (app.CredentialSecret, bool)
+	DeleteCredentialSecret(ref string) error
 	AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate
 	ResolveMemoryCandidate(id, status string) (app.MemoryCandidate, *app.Memory, error)
 	ListMemoryCandidates(status string) []app.MemoryCandidate

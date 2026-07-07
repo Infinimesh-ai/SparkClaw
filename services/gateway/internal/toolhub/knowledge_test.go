@@ -21,6 +21,7 @@ func TestKnowledgeIndexAndSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
+	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
@@ -198,6 +199,7 @@ func TestKnowledgeUsesDocumentStoreWhenAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
+	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")

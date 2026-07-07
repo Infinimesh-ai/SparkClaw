@@ -12,6 +12,8 @@ import (
 type Config struct {
 	Gateway    GatewayConfig   `json:"gateway"`
 	Model      ModelConfig     `json:"model"`
+	Plugins    PluginsConfig   `json:"plugins"`
+	Tools      ToolsConfig     `json:"tools"`
 	Security   SecurityConfig  `json:"security"`
 	Sandbox    SandboxConfig   `json:"sandbox"`
 	Adapters   AdapterConfig   `json:"adapters"`
@@ -59,6 +61,72 @@ type ModelProfile struct {
 	MaxTokens     int    `json:"max_tokens"`
 }
 
+type PluginsConfig struct {
+	Entries PluginEntriesConfig `json:"entries"`
+}
+
+type PluginEntriesConfig struct {
+	Parallel ParallelPluginConfig `json:"parallel"`
+}
+
+type ParallelPluginConfig struct {
+	Config ParallelProviderConfig `json:"config"`
+}
+
+type ParallelProviderConfig struct {
+	WebSearch ParallelWebSearchConfig `json:"webSearch"`
+}
+
+type ParallelWebSearchConfig struct {
+	APIKey     string `json:"apiKey,omitempty"`
+	BaseURL    string `json:"baseUrl,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
+}
+
+type ToolsConfig struct {
+	Web               WebToolsConfig              `json:"web"`
+	BrowserAutomation BrowserAutomationToolConfig `json:"browserAutomation"`
+	Reminders         RemindersToolConfig         `json:"reminders"`
+	Notifications     NotificationsToolConfig     `json:"notifications"`
+}
+
+type WebToolsConfig struct {
+	Search WebSearchToolConfig `json:"search"`
+}
+
+type WebSearchToolConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider"`
+	Disabled bool   `json:"disabled,omitempty"`
+}
+
+type BrowserAutomationToolConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider"`
+	Profile  string `json:"profile"`
+	Disabled bool   `json:"disabled,omitempty"`
+}
+
+type RemindersToolConfig struct {
+	Enabled        bool   `json:"enabled"`
+	DefaultChannel string `json:"defaultChannel"`
+	Disabled       bool   `json:"disabled,omitempty"`
+}
+
+type NotificationsToolConfig struct {
+	Channels map[string]NotificationChannelConfig `json:"channels"`
+}
+
+type NotificationChannelConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Provider   string `json:"provider"`
+	BaseURL    string `json:"baseUrl"`
+	CDNBaseURL string `json:"cdnBaseUrl,omitempty"`
+	Token      string `json:"token,omitempty"`
+	Recipient  string `json:"recipient,omitempty"`
+	Disabled   bool   `json:"disabled,omitempty"`
+}
+
 type SecurityConfig struct {
 	ExternalContentUntrusted              bool     `json:"external_content_untrusted"`
 	ApprovalRequiredForDangerousTools     bool     `json:"approval_required_for_dangerous_tools"`
@@ -89,14 +157,23 @@ type SandboxConfig struct {
 }
 
 type AdapterConfig struct {
-	Email    ServiceAdapterConfig `json:"email"`
-	Calendar ServiceAdapterConfig `json:"calendar"`
+	Email             ServiceAdapterConfig           `json:"email"`
+	Calendar          ServiceAdapterConfig           `json:"calendar"`
+	BrowserAutomation BrowserAutomationAdapterConfig `json:"browserAutomation"`
 }
 
 type ServiceAdapterConfig struct {
 	Backend string `json:"backend"`
 	BaseURL string `json:"base_url"`
 	Token   string `json:"token,omitempty"`
+}
+
+type BrowserAutomationAdapterConfig struct {
+	MCPCommand                    string   `json:"mcpCommand"`
+	MCPArgs                       []string `json:"mcpArgs"`
+	TimeoutMS                     int      `json:"timeoutMs"`
+	AllowUserProfile              bool     `json:"allowUserProfile"`
+	RequireApprovalForUserProfile bool     `json:"requireApprovalForUserProfile"`
 }
 
 func (c ServiceAdapterConfig) IsHTTP() bool {
@@ -140,6 +217,11 @@ type SkillsConfig struct {
 
 type RuntimeConfig struct {
 	ObservationSummaryMaxBytes int `json:"observation_summary_max_bytes"`
+	ReactMaxDurationSeconds    int `json:"react_max_duration_seconds"`
+	ReactMaxToolCalls          int `json:"react_max_tool_calls"`
+	ReactMaxObservationBytes   int `json:"react_max_observation_bytes"`
+	ReactMaxNoProgressActions  int `json:"react_max_no_progress_actions"`
+	ReactMaxRepeatedToolCalls  int `json:"react_max_repeated_tool_calls"`
 }
 
 type LoggingConfig struct {
@@ -207,7 +289,7 @@ func Default() Config {
 			},
 		},
 		Model: ModelConfig{
-			Mock:               true,
+			Mock:               false,
 			HTTPTimeoutSeconds: 300,
 			DisableThinking:    false,
 			Fast: ModelProfile{
@@ -245,6 +327,46 @@ func Default() Config {
 				ContextTokens: 32768,
 			},
 		},
+		Plugins: PluginsConfig{
+			Entries: PluginEntriesConfig{
+				Parallel: ParallelPluginConfig{
+					Config: ParallelProviderConfig{
+						WebSearch: ParallelWebSearchConfig{
+							APIKey:     "",
+							BaseURL:    "https://search.parallel.ai/mcp",
+							MaxResults: 5,
+						},
+					},
+				},
+			},
+		},
+		Tools: ToolsConfig{
+			Web: WebToolsConfig{
+				Search: WebSearchToolConfig{
+					Enabled:  false,
+					Provider: "parallel-free",
+				},
+			},
+			BrowserAutomation: BrowserAutomationToolConfig{
+				Enabled:  false,
+				Provider: "chrome-devtools-mcp",
+				Profile:  "agent",
+			},
+			Reminders: RemindersToolConfig{
+				Enabled:        true,
+				DefaultChannel: "web",
+			},
+			Notifications: NotificationsToolConfig{
+				Channels: map[string]NotificationChannelConfig{
+					"weixin": {
+						Enabled:    false,
+						Provider:   "openclaw-weixin-qr",
+						BaseURL:    "https://ilinkai.weixin.qq.com",
+						CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
+					},
+				},
+			},
+		},
 		Security: SecurityConfig{
 			ExternalContentUntrusted:              true,
 			ApprovalRequiredForDangerousTools:     true,
@@ -275,6 +397,13 @@ func Default() Config {
 			},
 			Calendar: ServiceAdapterConfig{
 				Backend: "file",
+			},
+			BrowserAutomation: BrowserAutomationAdapterConfig{
+				MCPCommand:                    "npx",
+				MCPArgs:                       []string{"-y", "chrome-devtools-mcp@latest"},
+				TimeoutMS:                     15000,
+				AllowUserProfile:              false,
+				RequireApprovalForUserProfile: true,
 			},
 		},
 		Memory: MemoryConfig{
@@ -309,7 +438,12 @@ func Default() Config {
 			Dirs: []string{"./skills", "./data/skills"},
 		},
 		Runtime: RuntimeConfig{
-			ObservationSummaryMaxBytes: 1200,
+			ObservationSummaryMaxBytes: 2400,
+			ReactMaxDurationSeconds:    180,
+			ReactMaxToolCalls:          16,
+			ReactMaxObservationBytes:   48000,
+			ReactMaxNoProgressActions:  3,
+			ReactMaxRepeatedToolCalls:  3,
 		},
 		Logging: LoggingConfig{
 			Level:          "info",
@@ -430,6 +564,11 @@ func applyEnv(cfg *Config) {
 			cfg.Model.Fast.MaxTokens = tokens
 		}
 	}
+	if v := os.Getenv("SPARKCLAW_FAST_CONTEXT_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Fast.ContextTokens = tokens
+		}
+	}
 	if v := os.Getenv("SPARKCLAW_DEEP_BASE_URL"); v != "" {
 		cfg.Model.Deep.BaseURL = v
 	}
@@ -442,6 +581,11 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_DEEP_MAX_TOKENS"); v != "" {
 		if tokens, err := strconv.Atoi(v); err == nil {
 			cfg.Model.Deep.MaxTokens = tokens
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_DEEP_CONTEXT_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Deep.ContextTokens = tokens
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_EMBEDDING_BASE_URL"); v != "" {
@@ -464,6 +608,93 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_READ_ALLOW_HOSTS"); v != "" {
 		cfg.Security.BrowserReadAllowHosts = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_WEB_SEARCH_ENABLED"); v != "" {
+		cfg.Tools.Web.Search.Enabled = parseBool(v)
+		cfg.Tools.Web.Search.Disabled = !cfg.Tools.Web.Search.Enabled
+	}
+	if v := os.Getenv("SPARKCLAW_WEB_SEARCH_PROVIDER"); v != "" {
+		cfg.Tools.Web.Search.Provider = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED"); v != "" {
+		cfg.Tools.BrowserAutomation.Enabled = parseBool(v)
+		cfg.Tools.BrowserAutomation.Disabled = !cfg.Tools.BrowserAutomation.Enabled
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_PROVIDER"); v != "" {
+		cfg.Tools.BrowserAutomation.Provider = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_PROFILE"); v != "" {
+		cfg.Tools.BrowserAutomation.Profile = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_MCP_COMMAND"); v != "" {
+		cfg.Adapters.BrowserAutomation.MCPCommand = v
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_MCP_ARGS"); v != "" {
+		cfg.Adapters.BrowserAutomation.MCPArgs = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS"); v != "" {
+		if timeoutMS, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.TimeoutMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_ALLOW_USER_PROFILE"); v != "" {
+		cfg.Adapters.BrowserAutomation.AllowUserProfile = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_REQUIRE_APPROVAL_FOR_USER_PROFILE"); v != "" {
+		cfg.Adapters.BrowserAutomation.RequireApprovalForUserProfile = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_REMINDERS_ENABLED"); v != "" {
+		cfg.Tools.Reminders.Enabled = parseBool(v)
+		cfg.Tools.Reminders.Disabled = !cfg.Tools.Reminders.Enabled
+	}
+	if v := os.Getenv("SPARKCLAW_REMINDERS_DEFAULT_CHANNEL"); v != "" {
+		cfg.Tools.Reminders.DefaultChannel = v
+	}
+	ensureNotificationChannels(&cfg.Tools.Notifications)
+	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["weixin"]
+		ch.Enabled = parseBool(v)
+		ch.Disabled = !ch.Enabled
+		cfg.Tools.Notifications.Channels["weixin"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_PROVIDER"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["weixin"]
+		ch.Provider = v
+		cfg.Tools.Notifications.Channels["weixin"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_BASE_URL"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["weixin"]
+		ch.BaseURL = v
+		cfg.Tools.Notifications.Channels["weixin"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_WEIXIN_CDN_BASE_URL"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["weixin"]
+		ch.CDNBaseURL = v
+		cfg.Tools.Notifications.Channels["weixin"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_TOKEN"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["weixin"]
+		ch.Token = v
+		cfg.Tools.Notifications.Channels["weixin"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_RECIPIENT"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["weixin"]
+		ch.Recipient = v
+		cfg.Tools.Notifications.Channels["weixin"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_PARALLEL_API_KEY"); v != "" {
+		cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = v
+	}
+	if v := os.Getenv("PARALLEL_API_KEY"); v != "" && cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey == "" {
+		cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = v
+	}
+	if v := os.Getenv("SPARKCLAW_PARALLEL_BASE_URL"); v != "" {
+		cfg.Plugins.Entries.Parallel.Config.WebSearch.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_PARALLEL_MAX_RESULTS"); v != "" {
+		if maxResults, err := strconv.Atoi(v); err == nil {
+			cfg.Plugins.Entries.Parallel.Config.WebSearch.MaxResults = maxResults
+		}
 	}
 	if v := os.Getenv("SPARKCLAW_MEMORY_RETENTION_DAYS"); v != "" {
 		if days, err := strconv.Atoi(v); err == nil {
@@ -511,6 +742,11 @@ func applyEnv(cfg *Config) {
 			cfg.Runtime.ObservationSummaryMaxBytes = maxBytes
 		}
 	}
+	if v := os.Getenv("SPARKCLAW_REACT_MAX_OBSERVATION_BYTES"); v != "" {
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Runtime.ReactMaxObservationBytes = maxBytes
+		}
+	}
 	if cfg.State.Path != "" {
 		if abs, err := filepath.Abs(cfg.State.Path); err == nil {
 			cfg.State.Path = abs
@@ -529,6 +765,19 @@ func applyEnv(cfg *Config) {
 	for i, p := range cfg.Skills.Dirs {
 		if abs, err := filepath.Abs(p); err == nil {
 			cfg.Skills.Dirs[i] = abs
+		}
+	}
+}
+
+func ensureNotificationChannels(cfg *NotificationsToolConfig) {
+	if cfg.Channels == nil {
+		cfg.Channels = map[string]NotificationChannelConfig{}
+	}
+	if _, ok := cfg.Channels["weixin"]; !ok {
+		cfg.Channels["weixin"] = NotificationChannelConfig{
+			Provider:   "openclaw-weixin-qr",
+			BaseURL:    "https://ilinkai.weixin.qq.com",
+			CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
 		}
 	}
 }

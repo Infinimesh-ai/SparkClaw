@@ -1,13 +1,16 @@
 package modelrouter
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -28,6 +31,10 @@ type Router struct {
 type Task struct {
 	Message        string
 	Risk           app.RiskLevel
+	LaneHint       string
+	TaskType       string
+	EvidenceNeed   string
+	ToolMode       string
 	NeedsCode      bool
 	NeedsTerminal  bool
 	ToolFailures   int
@@ -47,6 +54,28 @@ type ChatResult struct {
 	ResponseTokens int    `json:"response_tokens,omitempty"`
 	TotalTokens    int    `json:"total_tokens,omitempty"`
 }
+
+type ImageInput struct {
+	Path        string
+	Content     []byte
+	ContentType string
+}
+
+type ModelStreamEvent struct {
+	Type           string `json:"type"`
+	SessionID      string `json:"session_id,omitempty"`
+	RunID          string `json:"run_id,omitempty"`
+	MessageID      string `json:"message_id,omitempty"`
+	SpanID         string `json:"span_id,omitempty"`
+	Text           string `json:"text,omitempty"`
+	ToolCallID     string `json:"tool_call_id,omitempty"`
+	ToolName       string `json:"tool_name,omitempty"`
+	ArgumentsDelta string `json:"arguments_delta,omitempty"`
+	Arguments      any    `json:"arguments,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+type StreamHandler func(ModelStreamEvent) error
 
 type EmbeddingResult struct {
 	Lane         string      `json:"lane"`
@@ -107,6 +136,12 @@ func (r Router) ChooseModel(task Task) config.ModelProfile {
 	if task.Risk == app.RiskDangerous || task.NeedsCode || task.NeedsTerminal || task.ToolFailures > 0 || task.RequestedDeep {
 		return r.cfg.Model.Deep
 	}
+	switch strings.ToLower(strings.TrimSpace(task.LaneHint)) {
+	case "deep":
+		return r.cfg.Model.Deep
+	case "fast":
+		return r.cfg.Model.Fast
+	}
 	return r.cfg.Model.Fast
 }
 
@@ -137,6 +172,22 @@ func (r Router) ChatWithProfile(ctx context.Context, profileName, system, user s
 		return ChatResult{}, err
 	}
 	return r.chatWithProfile(ctx, profile, system, user, false)
+}
+
+func (r Router) ChatWithImage(ctx context.Context, profileName, system, user string, image ImageInput) (ChatResult, error) {
+	profile, err := r.Profile(profileName)
+	if err != nil {
+		return ChatResult{}, err
+	}
+	return r.chatWithImageProfile(ctx, profile, system, user, image)
+}
+
+func (r Router) ChatStreamWithProfile(ctx context.Context, profileName, system, user string, emit StreamHandler) (ChatResult, error) {
+	profile, err := r.Profile(profileName)
+	if err != nil {
+		return ChatResult{}, err
+	}
+	return r.chatStreamWithProfile(ctx, profile, system, user, emit)
 }
 
 func (r Router) Profile(name string) (config.ModelProfile, error) {
@@ -187,6 +238,87 @@ func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile
 				}, nil
 			}
 		}
+		return ChatResult{}, err
+	}
+	return ChatResult{
+		Lane:           lane,
+		Profile:        profile.Name,
+		Model:          modelID(profile),
+		Content:        content,
+		Mock:           false,
+		PromptTokens:   usage.PromptTokens,
+		ResponseTokens: usage.ResponseTokens,
+		TotalTokens:    usage.TotalTokens,
+	}, nil
+}
+
+func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelProfile, system, user string, image ImageInput) (ChatResult, error) {
+	lane := r.LaneFor(profile)
+	if len(image.Content) == 0 {
+		return ChatResult{}, errors.New("image content cannot be empty")
+	}
+	if strings.TrimSpace(image.ContentType) == "" {
+		image.ContentType = "application/octet-stream"
+	}
+	if r.cfg.Model.Mock {
+		content := "Mock image inspection: image content was received and can be described by the multimodal model."
+		promptTokens := estimateTokens(system) + estimateTokens(user) + len(image.Content)/768
+		responseTokens := estimateTokens(content)
+		return ChatResult{
+			Lane:           lane,
+			Profile:        profile.Name,
+			Model:          modelID(profile),
+			Content:        content,
+			Mock:           true,
+			PromptTokens:   promptTokens,
+			ResponseTokens: responseTokens,
+			TotalTokens:    promptTokens + responseTokens,
+		}, nil
+	}
+	content, usage, err := r.chatCompletionsWithImage(ctx, profile, system, user, image)
+	if err != nil {
+		return ChatResult{}, err
+	}
+	return ChatResult{
+		Lane:           lane,
+		Profile:        profile.Name,
+		Model:          modelID(profile),
+		Content:        content,
+		Mock:           false,
+		PromptTokens:   usage.PromptTokens,
+		ResponseTokens: usage.ResponseTokens,
+		TotalTokens:    usage.TotalTokens,
+	}, nil
+}
+
+func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelProfile, system, user string, emit StreamHandler) (ChatResult, error) {
+	lane := r.LaneFor(profile)
+	if emit == nil {
+		emit = func(ModelStreamEvent) error { return nil }
+	}
+	if r.cfg.Model.Mock {
+		content := mockResponse(lane, user)
+		for _, chunk := range streamChunks(content, 12) {
+			if err := emit(ModelStreamEvent{Type: "text_delta", Text: chunk}); err != nil {
+				return ChatResult{}, err
+			}
+		}
+		_ = emit(ModelStreamEvent{Type: "done"})
+		promptTokens := estimateTokens(system) + estimateTokens(user)
+		responseTokens := estimateTokens(content)
+		return ChatResult{
+			Lane:           lane,
+			Profile:        profile.Name,
+			Model:          modelID(profile),
+			Content:        content,
+			Mock:           true,
+			PromptTokens:   promptTokens,
+			ResponseTokens: responseTokens,
+			TotalTokens:    promptTokens + responseTokens,
+		}, nil
+	}
+	content, usage, err := r.chatCompletionsStream(ctx, profile, system, user, emit)
+	if err != nil {
 		return ChatResult{}, err
 	}
 	return ChatResult{
@@ -363,7 +495,7 @@ func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", tokenUsage{}, fmt.Errorf("model router received HTTP %d", resp.StatusCode)
+		return "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
 	}
 	var decoded struct {
 		Choices []struct {
@@ -410,6 +542,256 @@ func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile
 		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
 	}
 	return content, usage, nil
+}
+
+func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.ModelProfile, system, user string, image ImageInput) (string, tokenUsage, error) {
+	if profile.BaseURL == "" {
+		return "", tokenUsage{}, errors.New("model base_url is empty")
+	}
+	endpoint := strings.TrimRight(profile.BaseURL, "/") + "/chat/completions"
+	dataURL := "data:" + image.ContentType + ";base64," + base64.StdEncoding.EncodeToString(image.Content)
+	body := map[string]any{
+		"model": modelID(profile),
+		"messages": []map[string]any{
+			{"role": "system", "content": system},
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{"type": "text", "text": user},
+					{"type": "image_url", "image_url": map[string]any{"url": dataURL}},
+				},
+			},
+		},
+		"temperature": 0.2,
+	}
+	if r.cfg.Model.DisableThinking {
+		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+	}
+	if profile.MaxTokens > 0 {
+		body["max_tokens"] = profile.MaxTokens
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", tokenUsage{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return "", tokenUsage{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return "", tokenUsage{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+	}
+	var decoded struct {
+		Choices []struct {
+			Message struct {
+				Content   *string `json:"content"`
+				Reasoning string  `json:"reasoning"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return "", tokenUsage{}, err
+	}
+	if len(decoded.Choices) == 0 {
+		return "", tokenUsage{}, errors.New("model response had no choices")
+	}
+	content := ""
+	if decoded.Choices[0].Message.Content != nil {
+		content = strings.TrimSpace(*decoded.Choices[0].Message.Content)
+	}
+	if content == "" && strings.TrimSpace(decoded.Choices[0].Message.Reasoning) != "" {
+		return "", tokenUsage{}, fmt.Errorf("model response contained reasoning but no assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+	}
+	if content == "" {
+		return "", tokenUsage{}, fmt.Errorf("model response had empty assistant content (finish_reason=%s)", decoded.Choices[0].FinishReason)
+	}
+	usage := tokenUsage{
+		PromptTokens:   decoded.Usage.PromptTokens,
+		ResponseTokens: decoded.Usage.CompletionTokens,
+		TotalTokens:    decoded.Usage.TotalTokens,
+	}
+	if usage.PromptTokens == 0 {
+		usage.PromptTokens = estimateTokens(system) + estimateTokens(user) + len(image.Content)/768
+	}
+	if usage.ResponseTokens == 0 {
+		usage.ResponseTokens = estimateTokens(content)
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
+	}
+	return content, usage, nil
+}
+
+func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelProfile, system, user string, emit StreamHandler) (string, tokenUsage, error) {
+	if profile.BaseURL == "" {
+		return "", tokenUsage{}, errors.New("model base_url is empty")
+	}
+	endpoint := strings.TrimRight(profile.BaseURL, "/") + "/chat/completions"
+	body := map[string]any{
+		"model": modelID(profile),
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
+		},
+		"temperature": 0.2,
+		"stream":      true,
+	}
+	if r.cfg.Model.DisableThinking {
+		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+	}
+	if profile.MaxTokens > 0 {
+		body["max_tokens"] = profile.MaxTokens
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", tokenUsage{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return "", tokenUsage{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return "", tokenUsage{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+	}
+	var content strings.Builder
+	usage := tokenUsage{}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			if err := emit(ModelStreamEvent{Type: "done"}); err != nil {
+				return "", tokenUsage{}, err
+			}
+			break
+		}
+		delta, deltaUsage, err := parseOpenAIStreamChunk(data)
+		if err != nil {
+			_ = emit(ModelStreamEvent{Type: "error", Error: err.Error()})
+			return "", tokenUsage{}, err
+		}
+		if deltaUsage.TotalTokens > 0 || deltaUsage.PromptTokens > 0 || deltaUsage.ResponseTokens > 0 {
+			usage = deltaUsage
+		}
+		for _, event := range delta {
+			if event.Type == "text_delta" {
+				content.WriteString(event.Text)
+			}
+			if err := emit(event); err != nil {
+				return "", tokenUsage{}, err
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		_ = emit(ModelStreamEvent{Type: "error", Error: err.Error()})
+		return "", tokenUsage{}, err
+	}
+	text := strings.TrimSpace(content.String())
+	if text == "" {
+		return "", tokenUsage{}, errors.New("model stream had empty assistant content")
+	}
+	if usage.PromptTokens == 0 {
+		usage.PromptTokens = estimateTokens(system) + estimateTokens(user)
+	}
+	if usage.ResponseTokens == 0 {
+		usage.ResponseTokens = estimateTokens(text)
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
+	}
+	return text, usage, nil
+}
+
+func parseOpenAIStreamChunk(data string) ([]ModelStreamEvent, tokenUsage, error) {
+	var decoded struct {
+		Choices []struct {
+			Delta struct {
+				Content   *string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"delta"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(data), &decoded); err != nil {
+		return nil, tokenUsage{}, err
+	}
+	events := []ModelStreamEvent{}
+	for _, choice := range decoded.Choices {
+		if choice.Delta.Content != nil && *choice.Delta.Content != "" {
+			events = append(events, ModelStreamEvent{Type: "text_delta", Text: *choice.Delta.Content})
+		}
+		for _, toolCall := range choice.Delta.ToolCalls {
+			events = append(events, ModelStreamEvent{
+				Type:           "tool_call_delta",
+				ToolCallID:     toolCall.ID,
+				ToolName:       toolCall.Function.Name,
+				ArgumentsDelta: toolCall.Function.Arguments,
+			})
+		}
+	}
+	return events, tokenUsage{
+		PromptTokens:   decoded.Usage.PromptTokens,
+		ResponseTokens: decoded.Usage.CompletionTokens,
+		TotalTokens:    decoded.Usage.TotalTokens,
+	}, nil
+}
+
+func streamChunks(value string, size int) []string {
+	if size <= 0 {
+		size = 12
+	}
+	runes := []rune(value)
+	chunks := []string{}
+	for i := 0; i < len(runes); i += size {
+		end := i + size
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, string(runes[i:end]))
+	}
+	return chunks
 }
 
 func (r Router) rerank(ctx context.Context, profile config.ModelProfile, query string, documents []string, topN int) ([]RerankScored, tokenUsage, error) {
@@ -662,6 +1044,15 @@ func modelID(profile config.ModelProfile) string {
 }
 
 func mockResponse(lane, user string) string {
+	if injected := mockInjectedResponse(user, "MOCK_TASK_HINT_RESPONSE:"); injected != "" {
+		return injected
+	}
+	if injected := mockInjectedResponse(user, "MOCK_REACT_RESPONSE:"); injected != "" {
+		return injected
+	}
+	if strings.Contains(user, "REACT_OUTPUT_REQUEST") {
+		return mockReActResponse(user)
+	}
 	lower := strings.ToLower(user)
 	switch {
 	case strings.Contains(lower, "approval") || strings.Contains(lower, "shell") || strings.Contains(lower, "delete"):
@@ -675,6 +1066,273 @@ func mockResponse(lane, user string) string {
 	default:
 		return "I will use the fast lane for a bounded local-first response."
 	}
+}
+
+func mockReActResponse(user string) string {
+	goal := mockReActGoal(user)
+	lowerGoal := strings.ToLower(goal)
+	lowerPrompt := strings.ToLower(user)
+	if strings.Contains(lowerPrompt, "previous observation summaries") {
+		if strings.Contains(lowerPrompt, "knowledge.search observation") && strings.Contains(lowerPrompt, "missing knowledge index") {
+			return mockReActAction("knowledge.index_workspace", map[string]any{"chunk_size": 400})
+		}
+		if strings.Contains(lowerPrompt, "knowledge.index_workspace observation") && !strings.Contains(lowerPrompt, "knowledge.search observation bytes") {
+			return mockReActAction("knowledge.search", map[string]any{"query": mockKnowledgeQuery(goal)})
+		}
+		if strings.Contains(lowerGoal, "failing test") || strings.Contains(lowerGoal, "failed test") {
+			if strings.Contains(lowerPrompt, "files.search observation") {
+				return mockReActAction("shell.exec_sandboxed", map[string]any{"command": "npm test"})
+			}
+			return mockReActAction("files.search", map[string]any{"query": "test"})
+		}
+		if strings.Contains(lowerGoal, "compare") {
+			paths := mockPaths(goal)
+			readCount := strings.Count(lowerPrompt, "files.read observation")
+			if readCount < len(paths) {
+				return mockReActAction("files.read", map[string]any{"path": paths[readCount]})
+			}
+		}
+		if strings.Contains(lowerGoal, "draft a reply") && strings.Contains(lowerPrompt, "email.read_thread observation") && !strings.Contains(lowerPrompt, "calendar.read observation") {
+			return mockReActAction("calendar.read", map[string]any{"range": "today"})
+		}
+		if strings.Contains(lowerGoal, "draft a reply") && strings.Contains(lowerPrompt, "email.draft_reply observation") {
+			return `{"type":"final","answer":"I reviewed the observed evidence and prepared the bounded answer."}`
+		}
+		if strings.Contains(lowerGoal, "draft a reply") && strings.Contains(lowerPrompt, "calendar.read observation") {
+			return mockReActAction("email.draft_reply", map[string]any{
+				"thread_id": "thread_alpha",
+				"body":      "Email reply draft prepared by SparkClaw. Please review before sending.",
+			})
+		}
+		if strings.Contains(lowerPrompt, "browser.read observation") && strings.Contains(lowerGoal, "compare") && strings.Count(lowerPrompt, "browser.read observation") < 2 {
+			urls := mockURLs(goal)
+			if len(urls) > 1 {
+				return mockReActAction("browser.read", map[string]any{"url": urls[1]})
+			}
+		}
+		if strings.Contains(lowerPrompt, "browser.type") && (strings.Contains(lowerGoal, "截图") || strings.Contains(lowerGoal, "screenshot")) && !strings.Contains(lowerPrompt, "browser.screenshot") {
+			return mockReActAction("browser.screenshot", map[string]any{})
+		}
+		if strings.Contains(lowerGoal, "detail") && strings.Contains(lowerPrompt, "web.search observation") {
+			return `{"type":"final","answer":"I reviewed the observed web search evidence and prepared the bounded answer."}`
+		}
+		return `{"type":"final","answer":"I reviewed the observed evidence and prepared the bounded answer."}`
+	}
+	switch {
+	case (strings.Contains(lowerGoal, "输入") || strings.Contains(lowerGoal, "type")) && (strings.Contains(lowerGoal, "截图") || strings.Contains(lowerGoal, "screenshot")):
+		return mockReActAction("browser.type", map[string]any{"text": "苹果"})
+	case strings.Contains(lowerGoal, "apply patch"):
+		return mockReActAction("code.apply_patch", map[string]any{"patch": mockPatch(goal)})
+	case strings.Contains(lowerGoal, "inspect repo"):
+		if strings.Contains(lowerGoal, "failing test") || strings.Contains(lowerGoal, "failed test") {
+			return mockReActAction("files.search", map[string]any{"query": "test"})
+		}
+		return mockReActAction("files.search", map[string]any{"query": "repo"})
+	case strings.Contains(lowerGoal, "create calendar event"):
+		return mockReActAction("calendar.create", map[string]any{
+			"title": mockLabeledValue(goal, "title", "SparkClaw Demo"),
+			"start": mockLabeledValue(goal, "start", "2026-05-23T10:00:00Z"),
+		})
+	case strings.Contains(lowerGoal, "shell command") || strings.Contains(lowerGoal, "run tests"):
+		return mockReActAction("shell.exec_sandboxed", map[string]any{"command": mockShellCommand(goal)})
+	case strings.Contains(lowerGoal, "search knowledge"):
+		return mockReActAction("knowledge.search", map[string]any{"query": mockKnowledgeQuery(goal)})
+	case strings.Contains(lowerGoal, "build knowledge index"):
+		return mockReActAction("knowledge.index_workspace", map[string]any{"chunk_size": 400})
+	case strings.Contains(lowerGoal, "summarize unread inbox"):
+		return mockReActAction("email.search", map[string]any{"query": "unread"})
+	case strings.Contains(lowerGoal, "open email thread") || strings.Contains(lowerGoal, "read email thread"):
+		return mockReActAction("email.read_thread", map[string]any{"thread_id": mockThreadID(goal)})
+	case strings.Contains(lowerGoal, "draft a reply"):
+		return mockReActAction("email.read_thread", map[string]any{"thread_id": "thread_alpha"})
+	case strings.Contains(lowerGoal, "email") || strings.Contains(lowerGoal, "inbox"):
+		return mockReActAction("email.search", map[string]any{"query": mockSearchQuery(goal)})
+	case strings.Contains(lowerGoal, "calendar") || strings.Contains(lowerGoal, "schedule"):
+		return mockReActAction("calendar.read", map[string]any{"range": "today"})
+	case strings.Contains(lowerGoal, "remember"):
+		return mockReActAction("memory.write_candidate", map[string]any{
+			"content":     goal,
+			"kind":        "note",
+			"sensitivity": "normal",
+			"reason":      "User asked SparkClaw to remember this.",
+		})
+	case len(mockURLs(goal)) > 0:
+		return mockReActAction("browser.read", map[string]any{"url": mockURLs(goal)[0]})
+	case strings.Contains(lowerGoal, "web") || strings.Contains(lowerGoal, "internet") || strings.Contains(lowerGoal, "news") || strings.Contains(lowerGoal, "latest") || strings.Contains(lowerGoal, "today") || strings.Contains(lowerGoal, "search online") || strings.Contains(lowerGoal, "网上") || strings.Contains(lowerGoal, "联网") || strings.Contains(lowerGoal, "查一下") || strings.Contains(lowerGoal, "最新"):
+		return mockReActAction("web.search", map[string]any{"query": mockSearchQuery(goal)})
+	case strings.Contains(lowerGoal, "compare"):
+		paths := mockPaths(goal)
+		if len(paths) > 0 {
+			return mockReActAction("files.read", map[string]any{"path": paths[0]})
+		}
+		return mockReActAction("files.search", map[string]any{"query": mockSearchQuery(goal)})
+	case strings.Contains(lowerGoal, "search") || strings.Contains(lowerGoal, "find"):
+		return mockReActAction("files.search", map[string]any{"query": mockSearchQuery(goal)})
+	case strings.Contains(lowerGoal, "read") || strings.Contains(lowerGoal, "summarize"):
+		return mockReActAction("files.read", map[string]any{"path": mockPath(goal)})
+	default:
+		return `{"type":"final","answer":"I can answer this directly from the current conversation."}`
+	}
+}
+
+func mockReActAction(tool string, args map[string]any) string {
+	raw, _ := json.Marshal(map[string]any{
+		"type":      "action",
+		"tool":      tool,
+		"arguments": args,
+		"reason":    "mock ReAct action for test coverage",
+	})
+	return string(raw)
+}
+
+func mockReActGoal(user string) string {
+	marker := "User goal:"
+	idx := strings.Index(user, marker)
+	if idx < 0 {
+		return strings.TrimSpace(user)
+	}
+	rest := strings.TrimSpace(user[idx+len(marker):])
+	if next := strings.Index(rest, "\n\n"); next >= 0 {
+		rest = rest[:next]
+	}
+	return strings.TrimSpace(rest)
+}
+
+func mockURLs(content string) []string {
+	fields := strings.Fields(content)
+	urls := []string{}
+	for _, field := range fields {
+		cleaned := strings.Trim(field, ".,;:()[]{}<>\"'`")
+		if strings.HasPrefix(cleaned, "http://") || strings.HasPrefix(cleaned, "https://") {
+			urls = append(urls, cleaned)
+		}
+	}
+	return urls
+}
+
+func mockPath(content string) string {
+	paths := mockPaths(content)
+	if len(paths) > 0 {
+		return paths[0]
+	}
+	return "missing.txt"
+}
+
+func mockPaths(content string) []string {
+	paths := []string{}
+	for _, field := range strings.Fields(content) {
+		cleaned := strings.Trim(field, ".,;:()[]{}<>\"'`")
+		if strings.Contains(cleaned, ".") && !strings.HasPrefix(cleaned, "http") {
+			paths = append(paths, cleaned)
+		}
+	}
+	return paths
+}
+
+func mockSearchQuery(content string) string {
+	lower := strings.ToLower(content)
+	if idx := strings.Index(lower, "search email for "); idx >= 0 {
+		return strings.TrimSpace(content[idx+len("search email for "):])
+	}
+	for _, prefix := range []string{"search for ", "find ", "search "} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			query := strings.TrimSpace(content[idx+len(prefix):])
+			query = strings.TrimSuffix(query, " in the workspace")
+			if query != "" {
+				return query
+			}
+		}
+	}
+	return strings.TrimSpace(content)
+}
+
+func mockThreadID(content string) string {
+	lower := strings.ToLower(content)
+	for _, prefix := range []string{"thread_id:", "thread:"} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			value := strings.TrimSpace(content[idx+len(prefix):])
+			if end := strings.IndexAny(value, " \n\t"); end >= 0 {
+				value = value[:end]
+			}
+			if value != "" {
+				return strings.Trim(value, ".,;:()[]{}<>\"'`")
+			}
+		}
+	}
+	for _, field := range strings.Fields(content) {
+		cleaned := strings.Trim(field, ".,;:()[]{}<>\"'`")
+		if strings.HasPrefix(cleaned, "thread_") {
+			return cleaned
+		}
+	}
+	return "thread_alpha"
+}
+
+func mockKnowledgeQuery(content string) string {
+	lower := strings.ToLower(content)
+	if idx := strings.Index(lower, "search knowledge for "); idx >= 0 {
+		return strings.TrimSpace(content[idx+len("search knowledge for "):])
+	}
+	return mockSearchQuery(content)
+}
+
+func mockLabeledValue(content, label, fallback string) string {
+	lower := strings.ToLower(content)
+	key := strings.ToLower(label) + ":"
+	idx := strings.Index(lower, key)
+	if idx < 0 {
+		return fallback
+	}
+	value := strings.TrimSpace(content[idx+len(key):])
+	labels := []string{" title:", " start:", " end:", " body:", " thread_id:"}
+	end := len(value)
+	lowerValue := strings.ToLower(value)
+	for _, next := range labels {
+		if pos := strings.Index(lowerValue, next); pos >= 0 && pos < end {
+			end = pos
+		}
+	}
+	value = strings.TrimSpace(value[:end])
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func mockShellCommand(content string) string {
+	if start := strings.Index(content, "`"); start >= 0 {
+		if end := strings.Index(content[start+1:], "`"); end >= 0 {
+			return content[start+1 : start+1+end]
+		}
+	}
+	if strings.Contains(strings.ToLower(content), "run tests") {
+		return "npm test"
+	}
+	return "ls -la"
+}
+
+func mockPatch(content string) string {
+	start := strings.Index(content, "```diff")
+	if start < 0 {
+		return content
+	}
+	patch := strings.TrimSpace(content[start+len("```diff"):])
+	if end := strings.LastIndex(patch, "```"); end >= 0 {
+		patch = patch[:end]
+	}
+	return strings.TrimSpace(patch)
+}
+
+func mockInjectedResponse(user, marker string) string {
+	idx := strings.Index(user, marker)
+	if idx < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(user[idx+len(marker):])
+	if newline := strings.Index(value, "\n"); newline >= 0 {
+		value = strings.TrimSpace(value[:newline])
+	}
+	return value
 }
 
 func mockGuard(content string) GuardResult {
@@ -831,6 +1489,24 @@ func estimateTokenList(values []string) int {
 		total += estimateTokens(value)
 	}
 	return total
+}
+
+func modelHTTPError(resp *http.Response, profile config.ModelProfile, endpoint string, raw []byte, system, user string) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	bodyText := strings.TrimSpace(string(body))
+	if bodyText == "" {
+		bodyText = "<empty response body>"
+	}
+	return fmt.Errorf(
+		"model router received HTTP %d from %s model=%q request_bytes=%d system_bytes=%d user_bytes=%d response_body=%q",
+		resp.StatusCode,
+		endpoint,
+		modelID(profile),
+		len(raw),
+		len([]byte(system)),
+		len([]byte(user)),
+		bodyText,
+	)
 }
 
 func estimateTokens(value string) int {

@@ -1,9 +1,11 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Activity,
   Bot,
   CalendarDays,
   Check,
+  CheckCircle2,
   Clock3,
   Copy,
   Database,
@@ -30,10 +32,11 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Upload,
   UserRound,
   X
 } from "lucide-react";
-import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
+import { api, apiToken, clearAPIToken, documentFileURL, saveAPIToken, sessionEventsURL, workspaceScreenshotURL } from "./api/client";
 import type {
   Approval,
   ArtifactObject,
@@ -44,11 +47,14 @@ import type {
   Memory,
   MemoryCandidate,
   Message,
+  MessageAttachment,
   ModelCall,
+  NotificationBinding,
   OwnerProfile,
   PublicConfig,
   ReadyStatus,
   RunTrace,
+  SessionEvent,
   Session,
   Skill,
   ToolCall,
@@ -57,8 +63,18 @@ import type {
 
 type Language = "en" | "zh";
 type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings";
+type StreamStatus = {
+  id: string;
+  type: string;
+  text: string;
+};
+type DocumentUsage = {
+  count: number;
+  last_used_at: string;
+};
 
 const LANGUAGE_STORAGE_KEY = "sparkclaw.language";
+const DOCUMENT_USAGE_STORAGE_KEY = "sparkclaw.document_usage";
 
 const dictionaries = {
   en: {
@@ -133,8 +149,33 @@ const dictionaries = {
       emptyTitle: "Ready for bounded local work.",
       placeholder: "Ask SparkClaw to inspect files, use tools, or prepare a guarded change...",
       send: "Send message",
+      upload: "Upload document",
+      chooseFile: "Choose uploaded file",
+      choosingFile: "Loading uploaded files.",
+      noUploadedFiles: "No uploaded files.",
+      fileName: "File",
+      fileUsage: "Usage",
+      fileRecentUse: "Recent use",
+      fileSize: "Size",
+      fileKind: "Kind",
+      neverUsed: "Never used",
+      usedTimes: "times",
+      uploading: "Uploading document.",
+      uploaded: "Uploaded document",
+      attached: "Attached file",
+      openAttachment: "Open attachment",
+      openFile: "Open file",
+      modifiedFile: "Modified file",
+      removeAttachment: "Remove attachment",
       you: "You",
       assistant: "SparkClaw",
+      waiting: "Thinking.",
+      toolStarted: "Calling tool",
+      toolCompleted: "Tool completed",
+      toolFailed: "Tool failed",
+      approvalPending: "Waiting for approval",
+      approvalApproved: "Approval granted",
+      approvalRejected: "Approval rejected",
       correction: "Correction",
       helpful: "Mark helpful",
       unhelpful: "Mark not helpful",
@@ -158,6 +199,7 @@ const dictionaries = {
       renameSession: "Could not rename session",
       deleteSession: "Could not delete session",
       message: "Message failed",
+      upload: "Document upload failed",
       approval: "Approval update failed",
       approvalEdit: "Approval edit failed",
       memory: "Memory update failed",
@@ -168,6 +210,7 @@ const dictionaries = {
       clientRevoke: "Client revoke failed",
       policyUpdate: "Tool policy update failed",
       ownerUpdate: "Owner profile update failed",
+      binding: "Weixin binding failed",
       trace: "Trace unavailable",
       pairing: "Pairing failed",
       eval: "Eval failed"
@@ -248,6 +291,25 @@ const dictionaries = {
       saveOwner: "Save owner profile",
       cancelOwner: "Cancel owner edit",
       ownerUnavailable: "Owner unavailable.",
+      weixinBinding: "Weixin Reminder Binding",
+      bindWeixin: "Bind Weixin",
+      addWeixinBinding: "Add binding",
+      rebindWeixin: "Rebind",
+      revokeWeixin: "Revoke binding",
+      scanWeixin: "Scan with Weixin to bind reminders.",
+      scannedWeixin: "Scanned. Confirm on your phone.",
+      waitingScan: "Waiting for scan",
+      waitingConfirm: "Waiting for confirmation",
+      bound: "Bound",
+      expired: "Expired",
+      defaultBinding: "Default",
+      bindingProvider: "Provider",
+      bindingAccount: "Account",
+      bindingContext: "Context",
+      bindingBaseUrl: "Base URL",
+      bindingExpires: "Expires",
+      bindingMissing: "No Weixin binding.",
+      bindingQrUnavailable: "QR code unavailable.",
       preferenceFormat: "Preferences use key=value lines",
       preferenceKey: "Preference keys are required",
       toolPolicy: "Tool Policy",
@@ -396,8 +458,33 @@ const dictionaries = {
       emptyTitle: "已准备好执行有边界的本地任务。",
       placeholder: "让 SparkClaw 检查文件、调用工具，或准备需要保护的变更...",
       send: "发送消息",
+      upload: "上传文档",
+      chooseFile: "选择已有文件",
+      choosingFile: "正在加载已上传文件。",
+      noUploadedFiles: "暂无已上传文件。",
+      fileName: "文件",
+      fileUsage: "使用",
+      fileRecentUse: "最近使用",
+      fileSize: "大小",
+      fileKind: "类型",
+      neverUsed: "未使用",
+      usedTimes: "次",
+      uploading: "正在上传文档。",
+      uploaded: "已上传文档",
+      attached: "已添加附件",
+      openAttachment: "打开附件",
+      openFile: "打开文件",
+      modifiedFile: "修改好的文件",
+      removeAttachment: "移除附件",
       you: "你",
       assistant: "SparkClaw",
+      waiting: "正在思考。",
+      toolStarted: "正在调用工具",
+      toolCompleted: "工具调用完成",
+      toolFailed: "工具调用失败",
+      approvalPending: "等待审批",
+      approvalApproved: "审批已通过",
+      approvalRejected: "审批已拒绝",
       correction: "修正内容",
       helpful: "标记有用",
       unhelpful: "标记无用",
@@ -421,6 +508,7 @@ const dictionaries = {
       renameSession: "无法重命名会话",
       deleteSession: "无法删除会话",
       message: "消息发送失败",
+      upload: "文档上传失败",
       approval: "审批更新失败",
       approvalEdit: "审批参数修改失败",
       memory: "记忆更新失败",
@@ -431,6 +519,7 @@ const dictionaries = {
       clientRevoke: "客户端撤销失败",
       policyUpdate: "工具策略更新失败",
       ownerUpdate: "Owner 资料更新失败",
+      binding: "微信绑定失败",
       trace: "Trace 不可用",
       pairing: "配对失败",
       eval: "Eval 失败"
@@ -511,6 +600,25 @@ const dictionaries = {
       saveOwner: "保存 Owner 资料",
       cancelOwner: "取消 Owner 编辑",
       ownerUnavailable: "Owner 不可用。",
+      weixinBinding: "微信提醒绑定",
+      bindWeixin: "绑定微信",
+      addWeixinBinding: "新增绑定",
+      rebindWeixin: "重新绑定",
+      revokeWeixin: "撤销绑定",
+      scanWeixin: "用微信扫码绑定提醒。",
+      scannedWeixin: "已扫码，请在手机上确认。",
+      waitingScan: "等待扫码",
+      waitingConfirm: "等待确认",
+      bound: "已绑定",
+      expired: "已过期",
+      defaultBinding: "默认",
+      bindingProvider: "Provider",
+      bindingAccount: "账号",
+      bindingContext: "上下文",
+      bindingBaseUrl: "Base URL",
+      bindingExpires: "过期时间",
+      bindingMissing: "尚未绑定微信。",
+      bindingQrUnavailable: "二维码不可用。",
       preferenceFormat: "偏好使用 key=value 格式",
       preferenceKey: "偏好 key 不能为空",
       toolPolicy: "工具策略",
@@ -597,6 +705,7 @@ export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [streamStatusesByMessage, setStreamStatusesByMessage] = useState<Record<string, StreamStatus[]>>({});
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -608,6 +717,7 @@ export function App() {
   const [runtimeConfig, setRuntimeConfig] = useState<PublicConfig | null>(null);
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
+  const [notificationBindings, setNotificationBindings] = useState<NotificationBinding[]>([]);
   const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
   const [evalRuns, setEvalRuns] = useState<EvalRun[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactObject[]>([]);
@@ -615,8 +725,16 @@ export function App() {
   const [traceList, setTraceList] = useState<TraceMetadata[]>([]);
   const [traceLoading, setTraceLoading] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [input, setInput] = useState("");
+  const [availableDocuments, setAvailableDocuments] = useState<ArtifactObject[]>([]);
+  const [choosingDocument, setChoosingDocument] = useState(false);
+  const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
+  const [documentUsage, setDocumentUsage] = useState<Record<string, DocumentUsage>>(() => loadDocumentUsage());
+  const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
+  const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
+  const [isComposingInput, setIsComposingInput] = useState(false);
+  const [compositionEndedAt, setCompositionEndedAt] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError] = useState("");
@@ -624,6 +742,8 @@ export function App() {
   const [editingSession, setEditingSession] = useState("");
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [sessionActionId, setSessionActionId] = useState("");
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const activeMessageStreamRef = useRef<string>("");
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
@@ -631,12 +751,13 @@ export function App() {
   }, [language]);
 
   const refreshGlobal = useCallback(async () => {
-    const [readyStatus, configStatus, owner, clientList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces] =
+    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces] =
       await Promise.all([
         api.ready(),
         api.config(),
         api.owner(),
         api.clients(),
+        api.notificationBindings("weixin"),
         api.approvals(),
         api.memoryCandidates(),
         api.memories(),
@@ -649,6 +770,7 @@ export function App() {
     setRuntimeConfig(configStatus);
     setOwnerProfile(owner);
     setClients(clientList.clients ?? []);
+    setNotificationBindings(bindingList.bindings ?? []);
     setApprovals(approvalList.approvals);
     setCandidates(candidateList.memory_candidates);
     setMemories(memoryList.memories);
@@ -667,7 +789,9 @@ export function App() {
       api.audit(sessionId),
       api.episodes(sessionId)
     ]);
-    setMessages(messageList.messages ?? []);
+    if (activeMessageStreamRef.current !== sessionId) {
+      setMessages(messageList.messages ?? []);
+    }
     setToolCalls(callList.tool_calls ?? []);
     setModelCalls(modelCallList.model_calls ?? []);
     setAuditEvents(auditList.audit_events ?? []);
@@ -727,8 +851,10 @@ export function App() {
       events.addEventListener("episode_summary.saved", refreshFromEvent);
     }
     const id = window.setInterval(() => {
-      void refreshSession(activeSession);
-      void refreshGlobal();
+      if (activeMessageStreamRef.current !== activeSession) {
+        void refreshSession(activeSession);
+        void refreshGlobal();
+      }
     }, 5000);
     return () => {
       window.clearInterval(id);
@@ -738,7 +864,17 @@ export function App() {
 
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
+  const weixinBindings = useMemo(
+    () => sortWeixinBindings(notificationBindings.filter((binding) => binding.channel === "weixin" && isVisibleWeixinBinding(binding.status))),
+    [notificationBindings]
+  );
   const active = sessions.find((session) => session.id === activeSession);
+  const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";
+  const activeAttachments = activeSession ? attachmentsBySession[activeSession] ?? [] : [];
+  const sortedAvailableDocuments = useMemo(
+    () => sortDocumentsByUsage(availableDocuments, documentUsage),
+    [availableDocuments, documentUsage]
+  );
   const languageLabel = language === "zh" ? "中" : "EN";
   const nextLanguage = language === "zh" ? "en" : "zh";
 
@@ -749,6 +885,7 @@ export function App() {
       setSessions((current) => [session, ...current]);
       setActiveSession(session.id);
       setMessages([]);
+      setAttachmentsBySession((current) => ({ ...current, [session.id]: [] }));
       setToolCalls([]);
       setModelCalls([]);
       setAuditEvents([]);
@@ -759,25 +896,172 @@ export function App() {
     }
   }
 
-  async function send(content = input) {
-    if (!activeSession || !content.trim() || busy) return;
+  async function send(content = activeInput, sessionId = activeSession) {
+    const trimmed = content.trim();
+    const attachments = attachmentsBySession[sessionId] ?? [];
+    if (!sessionId || (!trimmed && attachments.length === 0) || busy) return;
+    const userMessageId = `local-user-${Date.now()}`;
+    const assistantMessageId = `local-assistant-${Date.now()}`;
     try {
       setBusy(true);
       setError("");
-      setInput("");
-      await api.sendMessage(activeSession, content.trim());
-      const [sessionList] = await Promise.all([api.sessions(), refreshSession(activeSession), refreshGlobal()]);
+      setDraftsBySession((current) => ({ ...current, [sessionId]: "" }));
+      activeMessageStreamRef.current = sessionId;
+      const now = new Date().toISOString();
+      setMessages((current) => [
+        ...current,
+        { id: userMessageId, session_id: sessionId, role: "user", content: trimmed, attachments, created_at: now },
+        { id: assistantMessageId, session_id: sessionId, role: "assistant", content: "", created_at: now }
+      ]);
+      setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
+      setStreamStatusesByMessage((current) => ({
+        ...current,
+        [assistantMessageId]: [{ id: "waiting", type: "waiting", text: text.chat.waiting }]
+      }));
+      let receivedDelta = false;
+      await api.sendMessageStream(sessionId, trimmed || attachmentOnlyPrompt(language), attachments, {
+        onEvent: (event, data) => {
+          const status = streamStatusFromEvent(event, data, text);
+          if (!status) return;
+          setStreamStatusesByMessage((current) => ({
+            ...current,
+            [assistantMessageId]: upsertStreamStatus(current[assistantMessageId] ?? [], status)
+          }));
+        },
+        onTextDelta: (delta) => {
+          receivedDelta = true;
+          setStreamStatusesByMessage((current) => {
+            const next = { ...current };
+            next[assistantMessageId] = (next[assistantMessageId] ?? []).filter((status) => status.id !== "waiting");
+            return next;
+          });
+          setMessages((current) =>
+            current.map((message) => (message.id === assistantMessageId ? { ...message, content: `${message.content}${delta}` } : message))
+          );
+        },
+        onFinal: (result) => {
+          setMessages((current) =>
+            current.map((message) => (message.id === assistantMessageId && !receivedDelta ? result.message : message))
+          );
+        },
+        onError: (streamError) => {
+          throw streamError;
+        }
+      });
+      if (activeMessageStreamRef.current === sessionId) {
+        activeMessageStreamRef.current = "";
+      }
+      const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
       setSessions(sessionList.sessions ?? []);
+      setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.message);
+      setMessages((current) => current.filter((message) => message.id !== userMessageId && message.id !== assistantMessageId));
+      setStreamStatusesByMessage((current) => {
+        const next = { ...current };
+        delete next[assistantMessageId];
+        return next;
+      });
+      if (activeMessageStreamRef.current === sessionId) {
+        activeMessageStreamRef.current = "";
+      }
+      try {
+        await api.sendMessage(sessionId, trimmed || attachmentOnlyPrompt(language), attachments);
+        const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
+        setSessions(sessionList.sessions ?? []);
+        setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
+      } catch (fallbackErr) {
+        setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
+        setError(fallbackErr instanceof Error ? fallbackErr.message : err instanceof Error ? err.message : text.errors.message);
+      }
     } finally {
+      if (activeMessageStreamRef.current === sessionId) {
+        activeMessageStreamRef.current = "";
+      }
       setBusy(false);
     }
   }
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (isComposingInput || Date.now() - compositionEndedAt < 80) return;
     void send();
+  }
+
+  async function uploadDocument(file: File | null) {
+    if (!file || !activeSession || uploadingDocument) return;
+    try {
+      setUploadingDocument(true);
+      setError("");
+      const result = await api.uploadDocument(activeSession, file);
+      const attachment: MessageAttachment = {
+        artifact_id: result.artifact?.id,
+        name: file.name,
+        rel_path: result.rel_path || result.artifact?.key || file.name,
+        uri: result.artifact?.uri,
+        content_type: result.artifact?.content_type || file.type,
+        bytes: result.bytes || result.artifact?.bytes,
+        width: result.media?.width,
+        height: result.media?.height,
+        sha256: result.media?.sha256,
+        source: isImageContentType(result.artifact?.content_type || file.type) ? "web_upload" : undefined
+      };
+      setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
+      await refreshGlobal();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.upload);
+    } finally {
+      setUploadingDocument(false);
+      if (uploadInputRef.current) {
+        uploadInputRef.current.value = "";
+      }
+    }
+  }
+
+  async function openDocumentPicker() {
+    if (!activeSession || choosingDocument) return;
+    try {
+      setChoosingDocument(true);
+      setError("");
+      const result = await api.availableDocuments(activeSession);
+      const documents = result.documents ?? [];
+      setAvailableDocuments(documents);
+      setDocumentPickerOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.upload);
+    } finally {
+      setChoosingDocument(false);
+    }
+  }
+
+  function chooseAvailableDocument(document: ArtifactObject) {
+    if (!activeSession) return;
+    const attachment: MessageAttachment = {
+      artifact_id: document.id,
+      name: fileNameFromPath(document.key),
+      rel_path: document.key,
+      uri: document.uri,
+      content_type: document.content_type,
+      bytes: document.bytes
+    };
+    setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
+    setDocumentUsage((current) => {
+      const previous = current[document.key] ?? { count: 0, last_used_at: "" };
+      const next = {
+        ...current,
+        [document.key]: { count: previous.count + 1, last_used_at: new Date().toISOString() }
+      };
+      saveDocumentUsage(next);
+      return next;
+    });
+    setDocumentPickerOpen(false);
+  }
+
+  function removeAttachment(sessionId: string, attachment: MessageAttachment) {
+    if (!sessionId) return;
+    setAttachmentsBySession((current) => ({
+      ...current,
+      [sessionId]: (current[sessionId] ?? []).filter((item) => item !== attachment)
+    }));
   }
 
   function startRenameSession(session: Session) {
@@ -815,6 +1099,11 @@ export function App() {
       const sessionList = await api.sessions();
       let next = id === activeSession ? sessionList.sessions[0] : sessionList.sessions.find((session) => session.id === activeSession);
       if (!next) next = await api.createSession();
+      setDraftsBySession((current) => {
+        const nextDrafts = { ...current };
+        delete nextDrafts[id];
+        return nextDrafts;
+      });
       setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
       setActiveSession(next.id);
       cancelRenameSession();
@@ -829,7 +1118,10 @@ export function App() {
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
+    if (isComposingInput || event.nativeEvent.isComposing || Date.now() - compositionEndedAt < 80) {
+      return;
+    }
     event.preventDefault();
     void send();
   }
@@ -921,6 +1213,39 @@ export function App() {
       await refreshGlobal();
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.clientRevoke);
+      throw err;
+    }
+  }
+
+  async function startWeixinBinding() {
+    try {
+      setError("");
+      const binding = await api.startNotificationBinding("weixin");
+      setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
+      await refreshGlobal();
+      setTab("settings");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.binding);
+      throw err;
+    }
+  }
+
+  async function refreshWeixinBinding(id: string) {
+    const binding = await api.notificationBinding(id);
+    setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
+    if (!isBindingPending(binding.status)) {
+      await refreshGlobal();
+    }
+    return binding;
+  }
+
+  async function revokeWeixinBinding(id: string) {
+    try {
+      setError("");
+      await api.revokeNotificationBinding(id);
+      await refreshGlobal();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.binding);
       throw err;
     }
   }
@@ -1151,6 +1476,7 @@ export function App() {
                 <MessageBubble
                   key={message.id}
                   message={message}
+                  streamStatuses={streamStatusesByMessage[message.id] ?? []}
                   text={text}
                   language={language}
                   onFeedback={(rating, correction) => saveFeedback(message, rating, correction)}
@@ -1161,24 +1487,127 @@ export function App() {
           <div className="composerDock">
             <div className="starterRow">
               {text.starters.map((prompt) => (
-                <button key={prompt} onClick={() => void send(prompt)} disabled={busy}>
+                <button key={prompt} onClick={() => void send(prompt, activeSession)} disabled={busy}>
                   {prompt}
                 </button>
               ))}
             </div>
+            {activeAttachments.length > 0 && (
+              <div className="attachmentTray">
+                {activeAttachments.map((attachment) => (
+                  <div className="attachmentChip" key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}>
+                    <button
+                      type="button"
+                      className={`attachmentOpen ${isImageAttachment(attachment) ? "image" : ""}`}
+                      title={text.chat.openAttachment}
+                      onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+                    >
+                      {isImageAttachment(attachment) ? (
+                        <img src={documentFileURL(attachment.rel_path)} alt={attachment.name || attachment.rel_path} />
+                      ) : (
+                        <FileSearch size={15} />
+                      )}
+                      <span>{attachment.name || attachment.rel_path}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="attachmentRemove"
+                      title={text.chat.removeAttachment}
+                      onClick={() => removeAttachment(activeSession, attachment)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <form className="composer" onSubmit={onSubmit}>
+              <input
+                ref={uploadInputRef}
+                className="documentUploadInput"
+                type="file"
+                accept=".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"
+                onChange={(event) => void uploadDocument(event.target.files?.[0] ?? null)}
+              />
+              <button
+                className="uploadButton"
+                type="button"
+                disabled={busy || uploadingDocument || !activeSession}
+                title={uploadingDocument ? text.chat.uploading : text.chat.upload}
+                onClick={() => uploadInputRef.current?.click()}
+              >
+                <Upload size={18} />
+              </button>
+              <button
+                className="uploadButton"
+                type="button"
+                disabled={busy || choosingDocument || !activeSession}
+                title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile}
+                onClick={() => void openDocumentPicker()}
+              >
+                <FileSearch size={18} />
+              </button>
               <textarea
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
+                value={activeInput}
+                onChange={(event) => {
+                  if (!activeSession) return;
+                  const value = event.target.value;
+                  setDraftsBySession((current) => ({ ...current, [activeSession]: value }));
+                }}
                 onKeyDown={onComposerKeyDown}
+                onCompositionStart={() => setIsComposingInput(true)}
+                onCompositionEnd={() => {
+                  setIsComposingInput(false);
+                  setCompositionEndedAt(Date.now());
+                }}
                 placeholder={text.chat.placeholder}
                 disabled={busy}
               />
-              <button className="sendButton" disabled={busy || !input.trim()} title={text.chat.send}>
+              <button className="sendButton" disabled={busy || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}>
                 <Send size={18} />
               </button>
             </form>
           </div>
+          {documentPickerOpen && (
+            <div className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.chat.chooseFile}>
+              <div className="documentPicker">
+                <div className="documentPickerHeader">
+                  <strong>{text.chat.chooseFile}</strong>
+                  <button type="button" className="attachmentRemove" onClick={() => setDocumentPickerOpen(false)} title={text.common.cancel}>
+                    <X size={14} />
+                  </button>
+                </div>
+                {sortedAvailableDocuments.length === 0 ? (
+                  <span className="muted">{text.chat.noUploadedFiles}</span>
+                ) : (
+                  <div className="documentPickerList">
+                    <div className="finderHeader">
+                      <span>{text.chat.fileName}</span>
+                      <span>{text.chat.fileUsage}</span>
+                      <span>{text.chat.fileRecentUse}</span>
+                      <span>{text.chat.fileSize}</span>
+                      <span>{text.chat.fileKind}</span>
+                    </div>
+                    {sortedAvailableDocuments.map((document) => {
+                      const usage = documentUsage[document.key];
+                      return (
+                        <button className="finderRow file" key={document.id} type="button" onClick={() => chooseAvailableDocument(document)}>
+                          <span className="finderName fileName">
+                            <FileSearch size={16} />
+                            <strong>{fileNameFromPath(document.key)}</strong>
+                          </span>
+                          <span>{usage ? `${usage.count} ${text.chat.usedTimes}` : text.chat.neverUsed}</span>
+                          <span>{usage ? formatDateTime(usage.last_used_at, language) : "--"}</span>
+                          <span>{formatBytes(document.bytes)}</span>
+                          <span>{fileKindLabel(document)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </section>
       </section>
 
@@ -1264,10 +1693,14 @@ export function App() {
             runtimeConfig={runtimeConfig}
             ownerProfile={ownerProfile}
             clients={clients}
+            weixinBindings={weixinBindings}
             text={text}
             language={language}
             onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
             onRevokeClient={(id) => revokeClient(id)}
+            onStartWeixinBinding={() => startWeixinBinding()}
+            onRefreshWeixinBinding={(id) => refreshWeixinBinding(id)}
+            onRevokeWeixinBinding={(id) => revokeWeixinBinding(id)}
             onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
           />
         )}
@@ -1278,11 +1711,13 @@ export function App() {
 
 function MessageBubble({
   message,
+  streamStatuses,
   text,
   language,
   onFeedback
 }: {
   message: Message;
+  streamStatuses: StreamStatus[];
   text: Copy;
   language: Language;
   onFeedback: (rating: "up" | "down" | "corrected", correction?: string) => Promise<void>;
@@ -1309,7 +1744,9 @@ function MessageBubble({
         <span>{message.role === "user" ? text.chat.you : text.chat.assistant}</span>
         <time>{formatTime(message.created_at, language)}</time>
       </div>
-      <p>{message.content}</p>
+      {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} text={text} />}
+      {streamStatuses.length > 0 && <StreamStatusList statuses={streamStatuses} />}
+      <MessageContent content={message.content} text={text} />
       {message.role === "assistant" && message.run_id && (
         <div className="feedbackBar">
           <button onClick={() => void submit("up")} disabled={saving} title={text.chat.helpful}>
@@ -1332,6 +1769,366 @@ function MessageBubble({
       )}
     </article>
   );
+}
+
+function MessageAttachments({ attachments, text }: { attachments: MessageAttachment[]; text: Copy }) {
+  return (
+    <div className="messageAttachments">
+      {attachments.map((attachment) => (
+        isImageAttachment(attachment) ? (
+          <button
+            key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+            className="messageAttachment image"
+            type="button"
+            title={text.chat.openAttachment}
+            onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+          >
+            <img src={documentFileURL(attachment.rel_path)} alt={attachment.name || attachment.rel_path} />
+            <span>{attachment.name || attachment.rel_path}</span>
+          </button>
+        ) : (
+          <button
+            key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+            className="messageAttachment"
+            type="button"
+            title={text.chat.openAttachment}
+            onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+          >
+            <FileSearch size={15} />
+            <span>{attachment.name || attachment.rel_path}</span>
+          </button>
+        )
+      ))}
+    </div>
+  );
+}
+
+function isImageContentType(contentType?: string) {
+  return (contentType || "").toLowerCase().startsWith("image/");
+}
+
+function isImageAttachment(attachment: MessageAttachment) {
+  if (isImageContentType(attachment.content_type)) return true;
+  return attachment.rel_path.startsWith("media/");
+}
+
+function StreamStatusList({ statuses }: { statuses: StreamStatus[] }) {
+  if (statuses.length === 0) return null;
+  return (
+    <div className="streamStatusList">
+      {statuses.map((status) => (
+        <span key={status.id} className={`streamStatus ${cssToken(status.type)}`}>
+          {status.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function streamStatusFromEvent(event: string, data: unknown, text: Copy): StreamStatus | null {
+  if (event === "message.stream.started") {
+    return { id: "waiting", type: "waiting", text: text.chat.waiting };
+  }
+  const payload = streamPayload(data);
+  if (event.startsWith("tool_call.")) {
+    const tool = stringField(payload, "tool");
+    const label = tool ? `：${tool}` : "";
+    if (event === "tool_call.started") {
+      return { id: `tool:${tool || "unknown"}`, type: "tool_started", text: `${text.chat.toolStarted}${label}` };
+    }
+    if (event === "tool_call.completed" || event === "tool_call.completed_after_approval") {
+      return { id: `tool:${tool || "unknown"}`, type: "tool_completed", text: `${text.chat.toolCompleted}${label}` };
+    }
+    if (event === "tool_call.failed" || event === "tool_call.failed_after_approval" || event === "tool_call.blocked") {
+      return { id: `tool:${tool || "unknown"}`, type: "tool_failed", text: `${text.chat.toolFailed}${label}` };
+    }
+    if (event === "tool_call.approval_pending") {
+      return { id: `approval:${tool || "unknown"}`, type: "approval_pending", text: `${text.chat.approvalPending}${label}` };
+    }
+  }
+  if (event.startsWith("approval.")) {
+    const tool = stringField(payload, "tool");
+    const label = tool ? `：${tool}` : "";
+    if (event === "approval.pending") {
+      return { id: `approval:${tool || "unknown"}`, type: "approval_pending", text: `${text.chat.approvalPending}${label}` };
+    }
+    if (event === "approval.approved") {
+      return { id: `approval:${tool || "unknown"}`, type: "approval_approved", text: `${text.chat.approvalApproved}${label}` };
+    }
+    if (event === "approval.rejected") {
+      return { id: `approval:${tool || "unknown"}`, type: "approval_rejected", text: `${text.chat.approvalRejected}${label}` };
+    }
+  }
+  return null;
+}
+
+function streamPayload(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== "object") return {};
+  if ("payload" in data && data.payload && typeof data.payload === "object") {
+    return data.payload as Record<string, unknown>;
+  }
+  return data as Record<string, unknown>;
+}
+
+function stringField(value: Record<string, unknown>, key: string) {
+  const field = value[key];
+  return typeof field === "string" ? field : "";
+}
+
+function upsertStreamStatus(statuses: StreamStatus[], next: StreamStatus) {
+  const filtered = statuses.filter((status) => status.id !== next.id && !(next.type !== "waiting" && status.id === "waiting"));
+  return [...filtered, next].slice(-5);
+}
+
+function attachmentOnlyPrompt(language: Language) {
+  return language === "zh" ? "请处理我发送的附件。" : "Please work with the attached file.";
+}
+
+function MessageContent({ content, text }: { content: string; text: Copy }) {
+  const documentResult = parseDocumentResultContent(content);
+  if (documentResult) return <WorkspaceDocumentResult path={documentResult.path} label={documentResult.label || text.chat.modifiedFile} text={text} />;
+  const mediaImage = parseSingleMediaImageContent(content);
+  if (mediaImage) return <WorkspaceMediaImage path={mediaImage.path} alt={mediaImage.alt} />;
+  const screenshot = parseScreenshotContent(content);
+  if (!screenshot) return <RenderedMessageText content={content} />;
+  return (
+    <div className="messageContent">
+      {screenshot.text ? <RenderedMessageText content={screenshot.text} /> : null}
+      <WorkspaceScreenshot path={screenshot.path} />
+      <p>截图已保存到：{screenshot.path}</p>
+    </div>
+  );
+}
+
+function WorkspaceDocumentResult({ path, label, text }: { path: string; label: string; text: Copy }) {
+  const fileName = path.split("/").pop() || path;
+  return (
+    <div className="messageContent">
+      <button
+        className="messageDocumentResult"
+        type="button"
+        onClick={() => window.open(documentFileURL(path), "_blank", "noopener,noreferrer")}
+        title={text.chat.openFile}
+      >
+        <FileSearch size={18} />
+        <span>
+          <strong>{label}</strong>
+          <small>{fileName}</small>
+        </span>
+        <Download size={15} />
+      </button>
+    </div>
+  );
+}
+
+function WorkspaceMediaImage({ path, alt }: { path: string; alt: string }) {
+  return (
+    <div className="messageContent mediaOnly">
+      <button
+        className="messageMediaImageButton"
+        type="button"
+        onClick={() => window.open(documentFileURL(path), "_blank", "noopener,noreferrer")}
+        title={alt || path}
+      >
+        <img className="messageMediaImage" src={documentFileURL(path)} alt={alt || "media image"} />
+      </button>
+    </div>
+  );
+}
+
+function parseSingleMediaImageContent(content: string): { alt: string; path: string } | null {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+  if (!match) return null;
+  const rawPath = normalizeWorkspaceMediaPath(match[2].trim());
+  if (!rawPath) return null;
+  return { alt: match[1].trim(), path: rawPath };
+}
+
+function normalizeWorkspaceMediaPath(path: string) {
+  const clean = path.replace(/^workspace:\/\//, "").replace(/^\/+/, "");
+  if (!clean.startsWith("media/")) return "";
+  if (!/\.(png|jpe?g|gif|webp)$/i.test(clean)) return "";
+  return clean;
+}
+
+function parseDocumentResultContent(content: string): { label: string; path: string } | null {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^(修改好的文件|输出文件|Modified file|Output file)[：:]\s*(?:workspace:\/\/)?((?:outputs|uploads)\/[^\s]+\.(?:docx|xlsx|pptx|pdf|txt|md|csv|tsv))$/i);
+  if (!match) return null;
+  const path = normalizeWorkspaceDocumentPath(match[2]);
+  if (!path) return null;
+  return { label: match[1], path };
+}
+
+function normalizeWorkspaceDocumentPath(path: string) {
+  const clean = path.replace(/^workspace:\/\//, "").replace(/^\/+/, "");
+  if (!/^(outputs|uploads)\//.test(clean)) return "";
+  if (!/\.(docx|xlsx|pptx|pdf|txt|md|csv|tsv)$/i.test(clean)) return "";
+  if (clean.includes("..")) return "";
+  return clean;
+}
+
+function RenderedMessageText({ content }: { content: string }) {
+  const blocks = parseMessageBlocks(content);
+  return (
+    <div className="messageContent">
+      {blocks.map((block, index) => {
+        if (block.type === "heading") {
+          return (
+            <p key={index} className={`messageHeading level${block.level}`}>
+              {renderInlineMessageText(block.text, index)}
+            </p>
+          );
+        }
+        if (block.type === "list") {
+          return (
+            <ul key={index} className="messageList">
+              {block.items.map((item, itemIndex) => (
+                <li key={itemIndex}>{renderInlineMessageText(item, itemIndex)}</li>
+              ))}
+            </ul>
+          );
+        }
+        return <p key={index}>{renderInlineMessageText(block.text, index)}</p>;
+      })}
+    </div>
+  );
+}
+
+function WorkspaceScreenshot({ path }: { path: string }) {
+  const [src, setSrc] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectURL = "";
+    const headers = apiToken() ? { Authorization: `Bearer ${apiToken()}` } : undefined;
+    fetch(workspaceScreenshotURL(path), { headers })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        objectURL = URL.createObjectURL(blob);
+        setSrc(objectURL);
+      })
+      .catch(() => {
+        if (!cancelled) setSrc("");
+      });
+    return () => {
+      cancelled = true;
+      if (objectURL) URL.revokeObjectURL(objectURL);
+    };
+  }, [path]);
+
+  if (!src) return null;
+  return <img className="messageScreenshot" src={src} alt="browser screenshot" />;
+}
+
+function parseScreenshotContent(content: string): { text: string; path: string } | null {
+  const markdown = content.match(/!\[[^\]]*\]\(([^)]+?\.(?:png|jpe?g))\)/i);
+  const saved = content.match(/截图已保存到：\s*([^\n]+?\.(?:png|jpe?g))/i);
+  const path = (saved?.[1] ?? markdown?.[1] ?? "").trim();
+  if (!path || !path.includes("/.sparkclaw/screenshots/")) return null;
+  const text = content
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    .replace(/截图已保存到：\s*[^\n]+/g, "")
+    .trim();
+  return { text, path };
+}
+
+type MessageBlock =
+  | { type: "paragraph"; text: string }
+  | { type: "heading"; level: 1 | 2 | 3; text: string }
+  | { type: "list"; items: string[] };
+
+function parseMessageBlocks(content: string): MessageBlock[] {
+  const blocks: MessageBlock[] = [];
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    blocks.push({ type: "paragraph", text: paragraph.join("\n").trim() });
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (listItems.length === 0) return;
+    blocks.push({ type: "list", items: listItems });
+    listItems = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "heading", level: heading[1].length as 1 | 2 | 3, text: heading[2].trim() });
+      continue;
+    }
+    const bullet = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      listItems.push(bullet[1].trim());
+      continue;
+    }
+    flushList();
+    paragraph.push(line);
+  }
+  flushParagraph();
+  flushList();
+  return blocks.length > 0 ? blocks : [{ type: "paragraph", text: content }];
+}
+
+function renderInlineMessageText(text: string, keyPrefix: number) {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let part = 0;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(renderPlainMessageText(text.slice(lastIndex, match.index), `${keyPrefix}-${part++}`));
+    }
+    const token = match[0];
+    if (token.startsWith("**")) {
+      nodes.push(
+        <strong key={`${keyPrefix}-${part++}`} className="messageStrong">
+          {renderPlainMessageText(token.slice(2, -2), `${keyPrefix}-${part++}`)}
+        </strong>
+      );
+    } else {
+      nodes.push(
+        <code key={`${keyPrefix}-${part++}`} className="messageCode">
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    lastIndex = match.index + token.length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(renderPlainMessageText(text.slice(lastIndex), `${keyPrefix}-${part++}`));
+  }
+  return nodes.length > 0 ? nodes : text;
+}
+
+function renderPlainMessageText(text: string, keyPrefix: string) {
+  const parts = text.split("\n");
+  if (parts.length === 1) return <Fragment key={keyPrefix}>{text}</Fragment>;
+  return parts.map((part, index) => (
+    <Fragment key={`${keyPrefix}-${index}`}>
+      {index > 0 ? <br /> : null}
+      {part}
+    </Fragment>
+  ));
 }
 
 function ToolTimelinePanel({ calls, text, onTrace }: { calls: ToolCall[]; text: Copy; onTrace: (runId: string) => void }) {
@@ -2059,19 +2856,27 @@ function SettingsPanel({
   runtimeConfig,
   ownerProfile,
   clients,
+  weixinBindings,
   text,
   language,
   onUpdateOwner,
   onRevokeClient,
+  onStartWeixinBinding,
+  onRefreshWeixinBinding,
+  onRevokeWeixinBinding,
   onUpdatePolicy
 }: {
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
+  weixinBindings: NotificationBinding[];
   text: Copy;
   language: Language;
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
   onRevokeClient: (id: string) => Promise<void>;
+  onStartWeixinBinding: () => Promise<void>;
+  onRefreshWeixinBinding: (id: string) => Promise<NotificationBinding>;
+  onRevokeWeixinBinding: (id: string) => Promise<void>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
 }) {
   const [editingOwner, setEditingOwner] = useState(false);
@@ -2085,6 +2890,35 @@ function SettingsPanel({
   const [approvalText, setApprovalText] = useState("");
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [revokingClient, setRevokingClient] = useState("");
+  const [bindingBusy, setBindingBusy] = useState(false);
+  const [bindingError, setBindingError] = useState("");
+
+  useEffect(() => {
+    const pending = weixinBindings.filter((binding) => isBindingPending(binding.status));
+    if (pending.length === 0) return;
+    let cancelled = false;
+    let timer = 0;
+    const poll = () => {
+      void Promise.allSettled(pending.map((binding) => onRefreshWeixinBinding(binding.id)))
+        .then((results) => {
+          if (cancelled) return;
+          const hasStillPending = results.some((result) => result.status === "fulfilled" && isBindingPending(result.value.status));
+          if (!hasStillPending) return;
+          timer = window.setTimeout(poll, 2000);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) {
+            setBindingError(err instanceof Error ? err.message : text.errors.binding);
+            timer = window.setTimeout(poll, 4000);
+          }
+        });
+    };
+    timer = window.setTimeout(poll, 1000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [onRefreshWeixinBinding, text.errors.binding, weixinBindings]);
 
   if (!runtimeConfig) {
     return (
@@ -2165,9 +2999,123 @@ function SettingsPanel({
     }
   }
 
+  async function startBinding() {
+    if (bindingBusy) return;
+    setBindingBusy(true);
+    setBindingError("");
+    try {
+      await onStartWeixinBinding();
+    } catch (err) {
+      setBindingError(err instanceof Error ? err.message : text.errors.binding);
+    } finally {
+      setBindingBusy(false);
+    }
+  }
+
+  async function refreshBinding(id: string) {
+    if (bindingBusy) return;
+    setBindingBusy(true);
+    setBindingError("");
+    try {
+      await onRefreshWeixinBinding(id);
+    } catch (err) {
+      setBindingError(err instanceof Error ? err.message : text.errors.binding);
+    } finally {
+      setBindingBusy(false);
+    }
+  }
+
+  async function revokeBinding(id: string) {
+    if (bindingBusy) return;
+    setBindingBusy(true);
+    setBindingError("");
+    try {
+      await onRevokeWeixinBinding(id);
+    } catch (err) {
+      setBindingError(err instanceof Error ? err.message : text.errors.binding);
+    } finally {
+      setBindingBusy(false);
+    }
+  }
+
   return (
     <div className="panelStack">
       <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
+      <article className="settingsBlock">
+        <div className="approvalTop">
+          <span className="settingsTitle">
+            <KeyRound size={15} />
+            <strong>{text.settings.weixinBinding}</strong>
+          </span>
+          <div className="buttonRow compactButtons">
+            <button className="approve" onClick={() => void startBinding()} disabled={bindingBusy} title={text.settings.addWeixinBinding}>
+              <Plus size={15} />
+            </button>
+          </div>
+        </div>
+        {weixinBindings.length > 0 ? (
+          <div className="bindingList">
+            {weixinBindings.map((binding) => (
+              <div className="bindingItem" key={binding.id}>
+                <div className="bindingItemTop">
+                  <div>
+                    <strong>{binding.display_name || binding.external_user_id || binding.account_id || binding.id}</strong>
+                    <span className="muted">{bindingStatusLabel(binding.status, text)}{binding.default_for_channel ? ` · ${text.settings.defaultBinding}` : ""}</span>
+                  </div>
+                  <div className="buttonRow compactButtons">
+                    <button className="edit" onClick={() => void refreshBinding(binding.id)} disabled={bindingBusy || !isBindingPending(binding.status)} title={text.common.refresh}>
+                      <RefreshCw size={15} />
+                    </button>
+                    <button className="reject" onClick={() => void revokeBinding(binding.id)} disabled={bindingBusy || binding.status === "revoked"} title={text.settings.revokeWeixin}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+                <dl className="statusGrid compact">
+                  <dt>{text.settings.bindingProvider}</dt>
+                  <dd>{binding.provider}</dd>
+                  <dt>{text.settings.bindingAccount}</dt>
+                  <dd>{binding.external_user_id || binding.account_id || text.common.notSet}</dd>
+                  <dt>{text.settings.bindingContext}</dt>
+                  <dd>{binding.context_token || text.common.notSet}</dd>
+                  <dt>{text.settings.bindingBaseUrl}</dt>
+                  <dd>{binding.base_url || text.common.notSet}</dd>
+                  <dt>{text.settings.bindingExpires}</dt>
+                  <dd>{binding.expires_at ? formatTime(binding.expires_at, language) : text.common.none}</dd>
+                </dl>
+                {binding.status === "waiting_scan" && (
+                  <div className="bindingQr">
+                    {binding.qr_code_image || isImageLikeQR(binding.qr_code_url) ? (
+                      <img src={qrImageSource(binding.qr_code_image || binding.qr_code_url)} alt={text.settings.scanWeixin} />
+                    ) : binding.qr_code_url ? (
+                      <a href={binding.qr_code_url} target="_blank" rel="noreferrer">{binding.qr_code_url}</a>
+                    ) : (
+                      <span className="muted">{text.settings.bindingQrUnavailable}</span>
+                    )}
+                    <small>{text.settings.scanWeixin}</small>
+                  </div>
+                )}
+                {binding.status === "waiting_confirm" && (
+                  <div className="bindingScanned">
+                    <CheckCircle2 size={18} />
+                    <span>{text.settings.scannedWeixin}</span>
+                  </div>
+                )}
+                {binding.last_error && <span className="compactError">{binding.last_error}</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bindingEmpty">
+            <span className="muted">{text.settings.bindingMissing}</span>
+            <button className="secondaryButton" onClick={() => void startBinding()} disabled={bindingBusy}>
+              <KeyRound size={15} />
+              <span>{text.settings.bindWeixin}</span>
+            </button>
+          </div>
+        )}
+        {bindingError && <span className="compactError">{bindingError}</span>}
+      </article>
       <article className="settingsBlock">
         <div className="approvalTop">
           <span className="settingsTitle">
@@ -2509,8 +3457,132 @@ function formatState(state: string, text: Copy) {
   return text.state[state as keyof Copy["state"]] ?? state;
 }
 
+function bindingStatusLabel(status: string, text: Copy) {
+  switch (status) {
+    case "waiting_scan":
+      return text.settings.waitingScan;
+    case "waiting_confirm":
+      return text.settings.waitingConfirm;
+    case "active":
+      return text.settings.bound;
+    case "expired":
+      return text.settings.expired;
+    default:
+      return formatState(status, text);
+  }
+}
+
+function isBindingPending(status: string) {
+  return status === "waiting_scan" || status === "waiting_confirm";
+}
+
+function isVisibleWeixinBinding(status: string) {
+  return isBindingPending(status) || status === "active";
+}
+
+function sortWeixinBindings(bindings: NotificationBinding[]) {
+  const rank = (binding: NotificationBinding) => {
+    if (isBindingPending(binding.status)) return 0;
+    if (binding.status === "active" && binding.default_for_channel) return 1;
+    if (binding.status === "active") return 2;
+    return 3;
+  };
+  return [...bindings].sort((left, right) => {
+    const rankDelta = rank(left) - rank(right);
+    if (rankDelta !== 0) return rankDelta;
+    return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+  });
+}
+
+function isImageLikeQR(value = "") {
+  return value.startsWith("data:image/") || /^https?:\/\/.+\.(png|jpg|jpeg|webp|gif)(\?.*)?$/i.test(value) || isLikelyBase64Image(value);
+}
+
+function qrImageSource(value = "") {
+  if (!value || value.startsWith("data:image/") || value.startsWith("http://") || value.startsWith("https://")) return value;
+  return `data:image/png;base64,${value}`;
+}
+
+function isLikelyBase64Image(value = "") {
+  const trimmed = value.trim();
+  return trimmed.length > 100 && /^[A-Za-z0-9+/=\s]+$/.test(trimmed);
+}
+
 function shortId(id: string) {
   return id.slice(0, 10);
+}
+
+function fileNameFromPath(path: string) {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+function loadDocumentUsage(): Record<string, DocumentUsage> {
+  try {
+    const raw = window.localStorage.getItem(DOCUMENT_USAGE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, DocumentUsage>;
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function saveDocumentUsage(usage: Record<string, DocumentUsage>) {
+  window.localStorage.setItem(DOCUMENT_USAGE_STORAGE_KEY, JSON.stringify(usage));
+}
+
+function sortDocumentsByUsage(documents: ArtifactObject[], usage: Record<string, DocumentUsage>) {
+  return [...documents].sort((a, b) => {
+    const left = usage[a.key];
+    const right = usage[b.key];
+    const countDiff = (right?.count ?? 0) - (left?.count ?? 0);
+    if (countDiff !== 0) return countDiff;
+    const recentDiff = parseTime(right?.last_used_at) - parseTime(left?.last_used_at);
+    if (recentDiff !== 0) return recentDiff;
+    const createdDiff = parseTime(b.created_at) - parseTime(a.created_at);
+    if (createdDiff !== 0) return createdDiff;
+    return a.key.localeCompare(b.key, undefined, { numeric: true });
+  });
+}
+
+function parseTime(value = "") {
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function fileKindLabel(document: ArtifactObject) {
+  const ext = fileNameFromPath(document.key).split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "docx":
+      return "Microsoft Word";
+    case "xlsx":
+      return "Microsoft Excel";
+    case "pptx":
+      return "Microsoft PowerPoint";
+    case "pdf":
+      return "PDF";
+    case "csv":
+      return "CSV";
+    case "md":
+      return "Markdown";
+    case "txt":
+      return "Text";
+    default:
+      return document.content_type || "Document";
+  }
+}
+
+function formatBytes(bytes = 0) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }
 
 function cssToken(value: string) {
@@ -2525,4 +3597,13 @@ function formatLatency(calls: ModelCall[] | undefined, text: Copy) {
 
 function formatTime(value: string, language: Language) {
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+function formatDateTime(value: string, language: Language) {
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }

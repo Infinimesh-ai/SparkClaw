@@ -290,6 +290,14 @@ func (s *FileStore) ListReminders(filter app.ReminderFilter) []app.Reminder {
 	return s.inner.ListReminders(filter)
 }
 
+func (s *FileStore) ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder {
+	out := s.inner.ClaimDueReminders(now, staleBefore, limit)
+	if len(out) > 0 {
+		s.persist()
+	}
+	return out
+}
+
 func (s *FileStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery {
 	out := s.inner.SaveReminderDelivery(delivery)
 	s.persist()

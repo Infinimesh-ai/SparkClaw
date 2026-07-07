@@ -36,3 +36,4 @@ services/gateway/internal/agent/data/artifacts/*
 !data/eval/.gitkeep
 !data/models/.gitkeep
 !data/workspaces/.gitkeep
+services/gateway/internal/weixin/data/

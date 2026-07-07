@@ -45,86 +45,120 @@ func TestExtractLabeledValueStopsBeforeNextLabel(t *testing.T) {
 	}
 }
 
-func TestPlanKnowledgeTools(t *testing.T) {
-	runtime := Runtime{}
-	indexPlans := runtime.plan("Build knowledge index for this workspace")
-	if len(indexPlans) == 0 || indexPlans[0].Name != "knowledge.index_workspace" {
-		t.Fatalf("unexpected index plans: %#v", indexPlans)
+func TestHeuristicTaskHintKnowledgeTools(t *testing.T) {
+	indexHint := heuristicTaskHint("Build knowledge index for this workspace")
+	if !containsString(indexHint.CandidateTools, "knowledge.index_workspace") {
+		t.Fatalf("index hint should offer knowledge.index_workspace: %#v", indexHint.CandidateTools)
+	}
+	if indexHint.ToolMode != "action_required" {
+		t.Fatalf("index tool mode = %q, want action_required", indexHint.ToolMode)
 	}
 
-	searchPlans := runtime.plan("Search knowledge for approval workflows")
-	if len(searchPlans) == 0 || searchPlans[0].Name != "knowledge.search" {
-		t.Fatalf("unexpected search plans: %#v", searchPlans)
+	searchHint := heuristicTaskHint("Search knowledge for approval workflows")
+	if !containsString(searchHint.CandidateTools, "knowledge.search") {
+		t.Fatalf("search hint should offer knowledge.search: %#v", searchHint.CandidateTools)
+	}
+	if searchHint.ToolMode != "read_only" {
+		t.Fatalf("search tool mode = %q, want read_only", searchHint.ToolMode)
 	}
 }
 
-func TestPlanKeepsDraftToolsSeparateFromApprovedSideEffects(t *testing.T) {
-	runtime := Runtime{}
-	draftPlans := runtime.plan("Draft email reply thread_id:thread_alpha body:Thanks, I will review it.")
-	if len(draftPlans) != 2 || draftPlans[0].Name != "email.read_thread" || draftPlans[1].Name != "email.draft_reply" {
-		t.Fatalf("unexpected draft email plans: %#v", draftPlans)
+func TestHeuristicTaskHintKeepsDraftRoutingSeparateFromApprovedSideEffects(t *testing.T) {
+	draftHint := heuristicTaskHint("Draft email reply thread_id:thread_alpha body:Thanks, I will review it.")
+	if draftHint.TaskType != "draft" || draftHint.ToolMode != "draft" {
+		t.Fatalf("draft email hint = %q/%q, want draft/draft", draftHint.TaskType, draftHint.ToolMode)
 	}
-	if got := draftPlans[1].Args["thread_id"]; got != "thread_alpha" {
-		t.Fatalf("draft thread id = %#v", got)
+	if draftHint.EstimatedRisk != string(app.RiskDraft) {
+		t.Fatalf("draft email risk = %q, want draft", draftHint.EstimatedRisk)
 	}
-	sendPlans := runtime.plan("Send email to:owner@example.test subject:SparkClaw checklist body:Deployment is ready.")
-	if len(sendPlans) == 0 || sendPlans[0].Name != "email.send" {
-		t.Fatalf("unexpected send email plans: %#v", sendPlans)
+	if !containsString(draftHint.CandidateTools, "email.read_thread") || !containsString(draftHint.CandidateTools, "email.draft_reply") {
+		t.Fatalf("draft email hint should read the thread before drafting: %#v", draftHint.CandidateTools)
 	}
-	if got := sendPlans[0].Args["to"].([]string)[0]; got != "owner@example.test" {
-		t.Fatalf("unexpected send recipient: %#v", sendPlans[0].Args)
+	if containsString(draftHint.CandidateTools, "email.send") {
+		t.Fatalf("draft email hint must not pre-authorize email.send: %#v", draftHint.CandidateTools)
 	}
 
-	proposalPlans := runtime.plan("Propose calendar event title:SparkClaw Demo start:2026-05-23T10:00:00Z end:2026-05-23T10:30:00Z")
-	if len(proposalPlans) == 0 || proposalPlans[0].Name != "calendar.propose_event" {
-		t.Fatalf("unexpected proposal plans: %#v", proposalPlans)
+	sendHint := heuristicTaskHint("Send email to:owner@example.test subject:SparkClaw checklist body:Deployment is ready.")
+	if sendHint.TaskType != "send" || sendHint.ToolMode != "action_required" {
+		t.Fatalf("send email hint = %q/%q, want send/action_required", sendHint.TaskType, sendHint.ToolMode)
 	}
-	createPlans := runtime.plan("Create calendar event title:SparkClaw Demo start:2026-05-23T10:00:00Z end:2026-05-23T10:30:00Z")
-	if len(createPlans) == 0 || createPlans[0].Name != "calendar.create" {
-		t.Fatalf("unexpected create plans: %#v", createPlans)
+	if sendHint.EstimatedRisk != string(app.RiskDangerous) {
+		t.Fatalf("send email risk = %q, want dangerous", sendHint.EstimatedRisk)
 	}
-	missingEndPlans := runtime.plan("Create calendar event title:SparkClaw Demo start:2026-05-23T10:00:00Z")
-	if len(missingEndPlans) == 0 || missingEndPlans[0].Name != "calendar.create" || missingEndPlans[0].Args["end"] != nil {
-		t.Fatalf("missing end should be left for schema repair: %#v", missingEndPlans)
+	if !containsString(sendHint.CandidateTools, "email.send") {
+		t.Fatalf("send email hint should offer email.send: %#v", sendHint.CandidateTools)
 	}
-	readPlans := runtime.plan("Read calendar for today")
-	if len(readPlans) == 0 || readPlans[0].Name != "calendar.read" {
-		t.Fatalf("unexpected read calendar plans: %#v", readPlans)
+	sendArgs, ok := emailSendArgs("Send email to:owner@example.test subject:SparkClaw checklist body:Deployment is ready.")
+	if !ok {
+		t.Fatalf("emailSendArgs should parse labeled send request")
 	}
-
-	availabilityReplyPlans := runtime.plan("Draft a reply to thread_alpha using calendar availability")
-	if len(availabilityReplyPlans) != 3 ||
-		availabilityReplyPlans[0].Name != "email.read_thread" ||
-		availabilityReplyPlans[1].Name != "calendar.read" ||
-		availabilityReplyPlans[2].Name != "email.draft_reply" {
-		t.Fatalf("calendar-aware reply should read email and calendar before drafting: %#v", availabilityReplyPlans)
+	if got := sendArgs["to"].([]string)[0]; got != "owner@example.test" {
+		t.Fatalf("unexpected send recipient: %#v", sendArgs)
 	}
 
-	inboxPlans := runtime.plan("Summarize unread inbox")
-	if len(inboxPlans) == 0 || inboxPlans[0].Name != "email.search" || inboxPlans[0].Args["query"] != "unread" {
-		t.Fatalf("unread inbox should search email with unread query: %#v", inboxPlans)
+	proposalHint := heuristicTaskHint("Propose calendar event title:SparkClaw Demo start:2026-05-23T10:00:00Z end:2026-05-23T10:30:00Z")
+	if proposalHint.TaskType != "draft" || proposalHint.ToolMode != "draft" {
+		t.Fatalf("proposal hint = %q/%q, want draft/draft", proposalHint.TaskType, proposalHint.ToolMode)
+	}
+	if !containsString(proposalHint.CandidateTools, "calendar.propose_event") || containsString(proposalHint.CandidateTools, "calendar.create") {
+		t.Fatalf("proposal hint should draft without calendar.create: %#v", proposalHint.CandidateTools)
+	}
+	createHint := heuristicTaskHint("Create calendar event title:SparkClaw Demo start:2026-05-23T10:00:00Z end:2026-05-23T10:30:00Z")
+	if createHint.TaskType != "send" || createHint.ToolMode != "action_required" || createHint.EstimatedRisk != string(app.RiskDangerous) {
+		t.Fatalf("create hint = %q/%q/%q, want send/action_required/dangerous", createHint.TaskType, createHint.ToolMode, createHint.EstimatedRisk)
+	}
+	if !containsString(createHint.CandidateTools, "calendar.create") {
+		t.Fatalf("create hint should offer calendar.create: %#v", createHint.CandidateTools)
+	}
+	missingEndArgs := calendarProposalArgs("Create calendar event title:SparkClaw Demo start:2026-05-23T10:00:00Z")
+	if missingEndArgs["end"] != nil {
+		t.Fatalf("missing end should be left for schema repair: %#v", missingEndArgs)
+	}
+	readHint := heuristicTaskHint("Read calendar for today")
+	if readHint.ToolMode != "read_only" || !containsString(readHint.CandidateTools, "calendar.read") {
+		t.Fatalf("read calendar hint should be read-only calendar.read: %q %#v", readHint.ToolMode, readHint.CandidateTools)
+	}
+	if containsString(readHint.CandidateTools, "calendar.create") {
+		t.Fatalf("read calendar hint must not offer calendar.create: %#v", readHint.CandidateTools)
+	}
+
+	availabilityHint := heuristicTaskHint("Draft a reply to thread_alpha using calendar availability")
+	if availabilityHint.TaskType != "draft" || availabilityHint.ToolMode != "draft" {
+		t.Fatalf("availability reply hint = %q/%q, want draft/draft", availabilityHint.TaskType, availabilityHint.ToolMode)
+	}
+	if !containsString(availabilityHint.CandidateTools, "email.read_thread") || !containsString(availabilityHint.CandidateTools, "email.draft_reply") {
+		t.Fatalf("calendar-aware reply should read email evidence before drafting: %#v", availabilityHint.CandidateTools)
+	}
+
+	inboxHint := heuristicTaskHint("Summarize unread inbox")
+	if inboxHint.EvidenceNeed != "personal_data" || !containsString(inboxHint.CandidateTools, "email.search") {
+		t.Fatalf("unread inbox should route to email search: %q %#v", inboxHint.EvidenceNeed, inboxHint.CandidateTools)
+	}
+	if got := emailSearchQuery("Summarize unread inbox"); got != "unread" {
+		t.Fatalf("unread inbox query = %q, want unread", got)
 	}
 }
 
-func TestPlanFileDeleteRequiresDeleteTool(t *testing.T) {
-	runtime := Runtime{}
-	plans := runtime.plan("Delete stale-notes.txt")
-	if len(plans) == 0 || plans[0].Name != "file.delete" {
-		t.Fatalf("unexpected delete plans: %#v", plans)
+func TestHeuristicTaskHintFlagsFileDeleteAsDangerous(t *testing.T) {
+	hint := heuristicTaskHint("Delete stale-notes.txt")
+	if hint.EstimatedRisk != string(app.RiskDangerous) {
+		t.Fatalf("delete risk = %q, want dangerous", hint.EstimatedRisk)
 	}
-	if got := plans[0].Args["path"]; got != "stale-notes.txt" {
-		t.Fatalf("delete path = %#v", got)
+	if hint.EvidenceNeed != "workspace" {
+		t.Fatalf("delete evidence = %q, want workspace", hint.EvidenceNeed)
+	}
+	if got := extractPath("Delete stale-notes.txt"); got != "stale-notes.txt" {
+		t.Fatalf("delete path = %q", got)
 	}
 }
 
-func TestPlanSensitiveMemoryUsesApprovalGatedTool(t *testing.T) {
-	runtime := Runtime{}
-	plans := runtime.plan("Remember sensitive api_key sk-approved-sensitive-test")
-	if len(plans) == 0 || plans[0].Name != "memory.write_sensitive" {
-		t.Fatalf("unexpected sensitive memory plans: %#v", plans)
+func TestHeuristicTaskHintSensitiveMemoryUsesApprovalGatedTool(t *testing.T) {
+	hint := heuristicTaskHint("Remember sensitive api_key sk-approved-sensitive-test")
+	if !containsString(hint.CandidateTools, "memory.write_sensitive") {
+		t.Fatalf("sensitive memory hint should offer memory.write_sensitive: %#v", hint.CandidateTools)
 	}
-	if got := plans[0].Args["sensitivity"]; got != "sensitive" {
-		t.Fatalf("sensitive memory sensitivity = %#v", got)
+	if hint.ToolMode != "draft" || hint.EstimatedRisk != string(app.RiskDraft) {
+		t.Fatalf("sensitive memory hint = %q/%q, want draft/draft", hint.ToolMode, hint.EstimatedRisk)
 	}
 }
 
@@ -3385,7 +3419,7 @@ func TestVisibleToolDefinitionsExposeDocxStructuredToolsForDocumentSkill(t *test
 }
 
 func TestGroundedFileReadSummaryPrefersModelSummaryForMainContent(t *testing.T) {
-	got, ok := groundedFileReadSummary(
+	got, strategy, ok := groundedFileReadSummary(
 		"请读取这个文档并告诉我主要内容",
 		"这份文档主要介绍计算机网络的定义、协议体系和分层模型。",
 		[]app.ToolCall{{
@@ -3408,10 +3442,13 @@ func TestGroundedFileReadSummaryPrefersModelSummaryForMainContent(t *testing.T) 
 	if !strings.Contains(got, "主要介绍计算机网络") {
 		t.Fatalf("expected model summary to be preserved:\n%s", got)
 	}
+	if strategy != strategyGroundedResult {
+		t.Fatalf("model-summary path strategy = %q, want %q", strategy, strategyGroundedResult)
+	}
 }
 
 func TestGroundedFileReadSummaryFailsWhenFinalIsMissing(t *testing.T) {
-	got, ok := groundedFileReadSummary(
+	got, strategy, ok := groundedFileReadSummary(
 		"请总结这个文档",
 		"",
 		[]app.ToolCall{{
@@ -3436,6 +3473,9 @@ func TestGroundedFileReadSummaryFailsWhenFinalIsMissing(t *testing.T) {
 	}
 	if strings.Contains(got, "Extract:") || strings.Contains(got, "主要内容：") || strings.Contains(got, "第一行") {
 		t.Fatalf("file-read fallback must not expose raw lines as a fake summary:\n%s", got)
+	}
+	if strategy != strategyFileReadNoFinal {
+		t.Fatalf("fallback failure strategy = %q, want %q", strategy, strategyFileReadNoFinal)
 	}
 }
 

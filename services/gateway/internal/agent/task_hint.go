@@ -770,110 +770,80 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+// candidateToolAliases maps each canonical ToolHub tool name to the alternate
+// spellings models emit for it. Unknown names are dropped by normalizeCandidateTools.
+var candidateToolAliases = map[string][]string{
+	"web.search":                {"web_search", "google_search", "bing_search", "search_web", "browser.search"},
+	"browser.read":              {"web.browser.read", "browser_read", "web.fetch", "fetch", "url.read"},
+	"browser.status":            {"chrome.status"},
+	"browser.list_tabs":         {"browser.tabs", "list_tabs", "list_pages", "chrome.list_pages"},
+	"browser.open":              {"browser.new_page", "new_page", "chrome.new_page"},
+	"browser.focus":             {"browser.select_page", "select_page", "chrome.select_page"},
+	"browser.close":             {"browser.close_page", "close_page", "chrome.close_page"},
+	"browser.navigate":          {"browser.navigate_page", "navigate_page", "chrome.navigate_page"},
+	"browser.snapshot":          {"browser.take_snapshot", "take_snapshot", "chrome.take_snapshot"},
+	"browser.screenshot":        {"browser.take_screenshot", "take_screenshot", "chrome.take_screenshot"},
+	"browser.wait":              {"browser.wait_for", "wait_for", "chrome.wait_for"},
+	"browser.click":             {"click", "chrome.click"},
+	"browser.type":              {"browser.type_text", "type_text", "browser.fill", "fill", "chrome.type_text", "chrome.fill"},
+	"browser.select":            {"select", "chrome.select"},
+	"files.search":              {"file.search", "workspace.search", "local_files.search"},
+	"files.read":                {"file.read", "workspace.read", "local_files.read"},
+	"files.write_draft":         {"file.write_draft"},
+	"office.replace_text":       {"office.replace", "docx.replace", "xlsx.replace", "pptx.replace"},
+	"docx.replace_paragraph":    {"docx.paragraph_replace"},
+	"docx.insert_paragraph":     {"docx.paragraph_insert"},
+	"docx.delete_paragraph":     {"docx.paragraph_delete"},
+	"docx.set_text_style":       {"docx.style", "docx.set_style"},
+	"pptx.add_slide":            {"pptx.slide_add"},
+	"pptx.duplicate_slide":      {"pptx.copy_slide", "pptx.slide_duplicate"},
+	"pptx.delete_slide":         {"pptx.remove_slide", "pptx.slide_delete"},
+	"xlsx.update_cell":          {"xlsx.cell_update"},
+	"xlsx.insert_row":           {"xlsx.row_insert"},
+	"xlsx.delete_row":           {"xlsx.remove_row", "xlsx.row_delete"},
+	"xlsx.update_row":           {"xlsx.replace_row", "xlsx.row_update"},
+	"xlsx.append_row":           {"xlsx.row_append"},
+	"pdf.extract_text":          {"pdf.read", "pdf.extract"},
+	"pdf.transform":             {"pdf.edit", "pdf.merge", "pdf.split"},
+	"memory.search":             {"memory_search"},
+	"memory.write_candidate":    {"memory.write", "memory_write"},
+	"email.search":              {"email_search"},
+	"email.read_thread":         {"email.read", "email_read"},
+	"calendar.read":             {"calendar_read"},
+	"calendar.propose_event":    {"calendar.propose", "calendar_draft"},
+	"calendar.create":           {"calendar_create"},
+	"email.draft_reply":         {"email.draft"},
+	"email.send":                {"email_send"},
+	"reminders.create":          {"reminder.create", "reminder_create"},
+	"reminders.list":            {"reminder.list", "reminder_list"},
+	"reminders.update":          {"reminder.update", "reminder_update"},
+	"reminders.cancel":          {"reminder.cancel", "reminder_cancel"},
+	"shell.exec_sandboxed":      {"shell.exec", "terminal.exec"},
+	"code.apply_patch":          {"apply_patch"},
+	"knowledge.search":          {"knowledge_search"},
+	"knowledge.index_workspace": {"knowledge.index"},
+	"media.render_weather_card": {"weather.card", "weather_card", "render_weather_card"},
+}
+
+var canonicalCandidateTool = func() map[string]string {
+	out := map[string]string{}
+	for canonical, aliases := range candidateToolAliases {
+		out[canonical] = canonical
+		for _, alias := range aliases {
+			if existing, ok := out[alias]; ok && existing != canonical {
+				panic("duplicate candidate tool alias: " + alias)
+			}
+			out[alias] = canonical
+		}
+	}
+	return out
+}()
+
 func normalizeCandidateTools(values []string, fallback TaskHint) []string {
 	out := []string{}
 	for _, value := range values {
-		switch strings.ToLower(strings.TrimSpace(value)) {
-		case "web.search", "web_search", "google_search", "bing_search", "search_web", "browser.search":
-			out = append(out, "web.search")
-		case "browser.read", "web.browser.read", "browser_read", "web.fetch", "fetch", "url.read":
-			out = append(out, "browser.read")
-		case "browser.status", "chrome.status":
-			out = append(out, "browser.status")
-		case "browser.list_tabs", "browser.tabs", "list_tabs", "list_pages", "chrome.list_pages":
-			out = append(out, "browser.list_tabs")
-		case "browser.open", "browser.new_page", "new_page", "chrome.new_page":
-			out = append(out, "browser.open")
-		case "browser.focus", "browser.select_page", "select_page", "chrome.select_page":
-			out = append(out, "browser.focus")
-		case "browser.close", "browser.close_page", "close_page", "chrome.close_page":
-			out = append(out, "browser.close")
-		case "browser.navigate", "browser.navigate_page", "navigate_page", "chrome.navigate_page":
-			out = append(out, "browser.navigate")
-		case "browser.snapshot", "browser.take_snapshot", "take_snapshot", "chrome.take_snapshot":
-			out = append(out, "browser.snapshot")
-		case "browser.screenshot", "browser.take_screenshot", "take_screenshot", "chrome.take_screenshot":
-			out = append(out, "browser.screenshot")
-		case "browser.wait", "browser.wait_for", "wait_for", "chrome.wait_for":
-			out = append(out, "browser.wait")
-		case "browser.click", "click", "chrome.click":
-			out = append(out, "browser.click")
-		case "browser.type", "browser.type_text", "type_text", "browser.fill", "fill", "chrome.type_text", "chrome.fill":
-			out = append(out, "browser.type")
-		case "browser.select", "select", "chrome.select":
-			out = append(out, "browser.select")
-		case "files.search", "file.search", "workspace.search", "local_files.search":
-			out = append(out, "files.search")
-		case "files.read", "file.read", "workspace.read", "local_files.read":
-			out = append(out, "files.read")
-		case "files.write_draft", "file.write_draft":
-			out = append(out, "files.write_draft")
-		case "office.replace_text", "office.replace", "docx.replace", "xlsx.replace", "pptx.replace":
-			out = append(out, "office.replace_text")
-		case "docx.replace_paragraph", "docx.paragraph_replace":
-			out = append(out, "docx.replace_paragraph")
-		case "docx.insert_paragraph", "docx.paragraph_insert":
-			out = append(out, "docx.insert_paragraph")
-		case "docx.delete_paragraph", "docx.paragraph_delete":
-			out = append(out, "docx.delete_paragraph")
-		case "docx.set_text_style", "docx.style", "docx.set_style":
-			out = append(out, "docx.set_text_style")
-		case "pptx.add_slide", "pptx.slide_add":
-			out = append(out, "pptx.add_slide")
-		case "pptx.duplicate_slide", "pptx.copy_slide", "pptx.slide_duplicate":
-			out = append(out, "pptx.duplicate_slide")
-		case "pptx.delete_slide", "pptx.remove_slide", "pptx.slide_delete":
-			out = append(out, "pptx.delete_slide")
-		case "xlsx.update_cell", "xlsx.cell_update":
-			out = append(out, "xlsx.update_cell")
-		case "xlsx.insert_row", "xlsx.row_insert":
-			out = append(out, "xlsx.insert_row")
-		case "xlsx.delete_row", "xlsx.remove_row", "xlsx.row_delete":
-			out = append(out, "xlsx.delete_row")
-		case "xlsx.update_row", "xlsx.replace_row", "xlsx.row_update":
-			out = append(out, "xlsx.update_row")
-		case "xlsx.append_row", "xlsx.row_append":
-			out = append(out, "xlsx.append_row")
-		case "pdf.extract_text", "pdf.read", "pdf.extract":
-			out = append(out, "pdf.extract_text")
-		case "pdf.transform", "pdf.edit", "pdf.merge", "pdf.split":
-			out = append(out, "pdf.transform")
-		case "memory.search", "memory_search":
-			out = append(out, "memory.search")
-		case "memory.write_candidate", "memory.write", "memory_write":
-			out = append(out, "memory.write_candidate")
-		case "email.search", "email_search":
-			out = append(out, "email.search")
-		case "email.read_thread", "email.read", "email_read":
-			out = append(out, "email.read_thread")
-		case "calendar.read", "calendar_read":
-			out = append(out, "calendar.read")
-		case "calendar.propose_event", "calendar.propose", "calendar_draft":
-			out = append(out, "calendar.propose_event")
-		case "calendar.create", "calendar_create":
-			out = append(out, "calendar.create")
-		case "email.draft_reply", "email.draft":
-			out = append(out, "email.draft_reply")
-		case "email.send", "email_send":
-			out = append(out, "email.send")
-		case "reminders.create", "reminder.create", "reminder_create":
-			out = append(out, "reminders.create")
-		case "reminders.list", "reminder.list", "reminder_list":
-			out = append(out, "reminders.list")
-		case "reminders.update", "reminder.update", "reminder_update":
-			out = append(out, "reminders.update")
-		case "reminders.cancel", "reminder.cancel", "reminder_cancel":
-			out = append(out, "reminders.cancel")
-		case "shell.exec_sandboxed", "shell.exec", "terminal.exec":
-			out = append(out, "shell.exec_sandboxed")
-		case "code.apply_patch", "apply_patch":
-			out = append(out, "code.apply_patch")
-		case "knowledge.search", "knowledge_search":
-			out = append(out, "knowledge.search")
-		case "knowledge.index_workspace", "knowledge.index":
-			out = append(out, "knowledge.index_workspace")
-		case "media.render_weather_card", "weather.card", "weather_card", "render_weather_card":
-			out = append(out, "media.render_weather_card")
+		if canonical, ok := canonicalCandidateTool[strings.ToLower(strings.TrimSpace(value))]; ok {
+			out = append(out, canonical)
 		}
 	}
 	if len(out) == 0 && fallback.EvidenceNeed == "web" && fallback.ToolMode != "none" {

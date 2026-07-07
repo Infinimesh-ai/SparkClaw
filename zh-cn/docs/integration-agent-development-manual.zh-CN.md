@@ -1,6 +1,6 @@
 # SparkClaw 本地新增功能与实现说明
 
-[简体中文](../zh-cn/docs/integration-agent-development-manual.zh-CN.md)
+[English](../../docs/integration-agent-development-manual.zh-CN.md)
 
 ## 1. 对比基线
 

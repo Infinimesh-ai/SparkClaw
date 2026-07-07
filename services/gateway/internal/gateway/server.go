@@ -1026,176 +1026,31 @@ func (s *Server) invokeTool(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if input.Args == nil {
-		input.Args = map[string]any{}
-	}
-	name := r.PathValue("name")
-	def, ok := s.tools.Definition(name)
-	if !ok {
-		writeError(w, http.StatusNotFound, fmt.Errorf("tool %q not found", name))
-		return
-	}
-	if err := s.tools.Validate(name, input.Args); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	runID := app.NewID("manual")
-	now := time.Now().UTC()
-	call := app.ToolCall{
-		ID:        app.NewID("tc"),
-		SessionID: input.SessionID,
-		RunID:     runID,
-		Tool:      name,
-		Risk:      def.Risk,
-		Status:    "started",
-		Arguments: input.Args,
-		StartedAt: now,
-	}
-	decision := s.policies.Decide(def, input.Args)
-	if !decision.Allowed {
-		done := time.Now().UTC()
-		s.store.SaveRun(app.AgentRun{
-			ID:          runID,
-			SessionID:   input.SessionID,
-			State:       "failed",
-			Risk:        def.Risk,
-			StartedAt:   now,
-			CompletedAt: &done,
-			Summary:     decision.Reason,
-		})
-		call.Status = "blocked"
-		call.Error = decision.Reason
-		call.CompletedAt = &done
-		s.store.SaveToolCall(call)
-		writeError(w, http.StatusForbidden, errors.New(decision.Reason))
-		return
-	}
-	if name == "notify.ask_approval" {
-		summary, _ := input.Args["summary"].(string)
-		reason, _ := input.Args["reason"].(string)
-		if reason == "" {
-			reason = "Manual confirmation requested."
-		}
-		s.store.SaveRun(app.AgentRun{
-			ID:        runID,
-			SessionID: input.SessionID,
-			State:     "approval_pending",
-			Risk:      def.Risk,
-			StartedAt: now,
-			Summary:   summary,
-		})
-		approval := app.Approval{
-			ID:         app.NewID("ap"),
-			SessionID:  input.SessionID,
-			RunID:      runID,
-			ToolCallID: call.ID,
-			Tool:       name,
-			Risk:       def.Risk,
-			Status:     "pending",
-			Summary:    summary,
-			Reason:     reason,
-			Resources:  []string{},
-			Arguments:  input.Args,
-			CreatedAt:  time.Now().UTC(),
-		}
-		call.Status = "approval_pending"
-		call.ApprovalID = approval.ID
-		s.store.SaveToolCall(call)
-		s.store.SaveApproval(approval)
-		result := map[string]any{
-			"status":      "approval_requested",
-			"approval_id": approval.ID,
-			"tool_call":   call.ID,
-		}
-		s.refreshTrace(r.Context(), runID)
-		writeJSON(w, http.StatusOK, map[string]any{"tool_call": call, "result": result})
-		return
-	}
-	if decision.RequiresApproval {
-		s.store.SaveRun(app.AgentRun{
-			ID:        runID,
-			SessionID: input.SessionID,
-			State:     "approval_pending",
-			Risk:      def.Risk,
-			StartedAt: now,
-			Summary:   "Manual tool invocation requires approval: " + name,
-		})
-		args := input.Args
-		if verifier, ok := policy.VerifierDecision(def, decision, time.Now().UTC()); ok {
-			args = policy.AttachVerifier(input.Args, verifier)
-			call.Arguments = args
-			s.store.AddAudit(app.AuditEvent{
-				SessionID: input.SessionID,
-				RunID:     runID,
-				Actor:     "verifier",
-				Type:      "verifier.deep_check",
-				Summary:   "Deep verifier queued owner confirmation for " + name,
-				Fields: map[string]any{
-					"tool":          name,
-					"risk":          def.Risk,
-					"verdict":       "ask_user",
-					"requires_deep": decision.RequiresDeep,
-					"manual":        true,
-				},
-			})
-		}
-		approval := app.Approval{
-			ID:         app.NewID("ap"),
-			SessionID:  input.SessionID,
-			RunID:      runID,
-			ToolCallID: call.ID,
-			Tool:       name,
-			Risk:       def.Risk,
-			Status:     "pending",
-			Summary:    "Manual tool invocation requires approval: " + name,
-			Reason:     decision.Reason,
-			Resources:  decision.Resources,
-			Arguments:  args,
-			CreatedAt:  time.Now().UTC(),
-		}
-		call.Status = "approval_pending"
-		call.ApprovalID = approval.ID
-		s.store.SaveToolCall(call)
-		s.store.SaveApproval(approval)
-		s.refreshTrace(r.Context(), runID)
-		writeJSON(w, http.StatusAccepted, map[string]any{"tool_call": call, "approval": approval})
-		return
-	}
-	output, err := s.tools.Execute(r.Context(), name, input.Args, input.SessionID, runID)
-	done := time.Now().UTC()
-	call.CompletedAt = &done
+	invocation, err := s.runtime.InvokeToolManually(r.Context(), r.PathValue("name"), input.Args, input.SessionID)
 	if err != nil {
-		s.store.SaveRun(app.AgentRun{
-			ID:          runID,
-			SessionID:   input.SessionID,
-			State:       "failed",
-			Risk:        def.Risk,
-			StartedAt:   now,
-			CompletedAt: &done,
-			Summary:     err.Error(),
-		})
-		call.Status = "failed"
-		call.Error = err.Error()
-		s.store.SaveToolCall(call)
-		writeError(w, http.StatusBadRequest, err)
+		var argErr agent.ManualArgumentError
+		var denied agent.ManualInvocationDenied
+		var execErr agent.ManualExecutionError
+		switch {
+		case errors.Is(err, agent.ErrManualToolNotFound):
+			writeError(w, http.StatusNotFound, err)
+		case errors.As(err, &argErr):
+			writeError(w, http.StatusBadRequest, argErr.Err)
+		case errors.As(err, &denied):
+			writeError(w, http.StatusForbidden, err)
+		case errors.As(err, &execErr):
+			writeError(w, http.StatusBadRequest, execErr.Err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
+		}
 		return
 	}
-	call.Status = "completed"
-	call.Result = output.Output
-	call.ObservationSummary = agent.CompressObservation(name, output.Output, s.cfg.Runtime.ObservationSummaryMaxBytes)
-	call.ObservationRef = store.ArchiveToolObservation(r.Context(), s.store, s.artifacts, call, output.Output)
-	s.store.SaveToolCall(call)
-	s.store.SaveRun(app.AgentRun{
-		ID:          runID,
-		SessionID:   input.SessionID,
-		State:       "completed",
-		Risk:        def.Risk,
-		StartedAt:   now,
-		CompletedAt: &done,
-		Summary:     call.ObservationSummary,
-	})
-	s.refreshTrace(r.Context(), runID)
-	writeJSON(w, http.StatusOK, map[string]any{"tool_call": call, "result": output.Output})
+	s.refreshTrace(r.Context(), invocation.Call.RunID)
+	if invocation.Approval != nil && invocation.Result == nil {
+		writeJSON(w, http.StatusAccepted, map[string]any{"tool_call": invocation.Call, "approval": invocation.Approval})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tool_call": invocation.Call, "result": invocation.Result})
 }
 
 func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {

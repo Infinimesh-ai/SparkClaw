@@ -6,7 +6,7 @@
 
 ## 目标
 
-把公开网页搜索、URL 读取和真实页面交互统一到一个浏览器能力下。浏览器层应该是真实浏览器身份下的访问系统，而不是独立的静态 fetch 分支。
+把公开网页搜索、URL 读取和真实页面交互统一到一个浏览器能力下。浏览器层应该是真实浏览器身份下的访问系统，而不是独立的静态 fetch 分支。登录态处理见 [浏览器登录态操作文档](browser-login-state-operation.md)。
 
 目标流程是：
 
@@ -143,6 +143,7 @@ browser.snapshot
    - 浏览器 profile/session 配置保持显式。
    - 可以复用已有登录态。
    - human-only 验证必须停下来交给用户。
+   - 登录态契约见 [浏览器登录态操作文档](browser-login-state-operation.md)。
    - 为未来反爬处理留接口，但不加入静默凭证或验证码自动化。
 
 6. 增加 hidden Chromium access。

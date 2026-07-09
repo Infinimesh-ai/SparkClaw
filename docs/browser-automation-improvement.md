@@ -6,7 +6,7 @@ This document is the focused plan for improving SparkClaw's browser-backed web a
 
 ## Goal
 
-Unify public web search, URL reading and live page interaction under one browser capability. The browser layer should behave as a real browser-backed access system, not as a separate static fetch branch.
+Unify public web search, URL reading and live page interaction under one browser capability. The browser layer should behave as a real browser-backed access system, not as a separate static fetch branch. Login-state handling is specified in [Browser Login State Operation Guide](browser-login-state-operation.md).
 
 The target flow is:
 
@@ -143,6 +143,7 @@ Remaining work:
    - Keep browser profile/session configuration explicit.
    - Reuse existing login state when present.
    - Stop for human-only verification.
+   - Use [Browser Login State Operation Guide](browser-login-state-operation.md) for the login-state contract.
    - Leave hooks for future anti-bot handling without adding silent credential or captcha automation.
 
 6. Add hidden Chromium access.

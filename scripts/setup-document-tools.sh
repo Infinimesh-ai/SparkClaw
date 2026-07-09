@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Installs the document tool runtimes the gateway shells out to
-# (see services/gateway/internal/toolhub/document_tools.go).
+# Installs the Node/Python tool runtimes the gateway shells out to
+# (see services/gateway/internal/toolhub/document_tools.go and browser.go).
 # Node modules land in .tools/document-node, Python packages in a
 # .tools/document-python virtualenv — the exact paths the gateway probes.
 set -euo pipefail

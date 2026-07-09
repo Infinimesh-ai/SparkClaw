@@ -80,6 +80,50 @@ func TestBrowserReadArchivesRawSnapshot(t *testing.T) {
 	}
 }
 
+func TestBrowserReadUsesReadabilityForArticleText(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html>
+<html>
+  <head><title>Browser Noise Fixture</title></head>
+  <body>
+    <nav>Navigation clutter should not be selected as the article body.</nav>
+    <article>
+      <h1>Readable Admission Notice</h1>
+      <p>The official admission notice contains application dates, tuition notes, campus locations, and contact channels for applicants.</p>
+      <p>This second paragraph gives the extractor enough meaningful article prose to score the content region over surrounding page chrome.</p>
+      <p>Applicants should use the published school notice as evidence and ignore unrelated menu, footer, and sidebar text.</p>
+    </article>
+    <footer>Footer clutter should also stay out of the extracted article.</footer>
+  </body>
+</html>`))
+	}))
+	defer page.Close()
+
+	cfg := config.Default()
+	cfg.Security.BrowserReadAllowHosts = []string{"127.0.0.1"}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "browser.read", map[string]any{"url": page.URL}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if out["extractor"] != "readability" || out["readability_status"] != "applied" {
+		t.Fatalf("expected readability extraction, got %#v", out)
+	}
+	text := out["text"].(string)
+	if !strings.Contains(text, "Readable Admission Notice") ||
+		!strings.Contains(text, "official admission notice contains application dates") {
+		t.Fatalf("readability text missing article content: %q", text)
+	}
+	for _, noise := range []string{"Navigation clutter", "Footer clutter"} {
+		if strings.Contains(text, noise) {
+			t.Fatalf("readability text retained page chrome %q: %q", noise, text)
+		}
+	}
+}
+
 func hasBrowserArtifactKind(objects []app.ArtifactObject, kind string) bool {
 	for _, object := range objects {
 		if object.Kind == kind {

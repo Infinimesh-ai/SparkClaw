@@ -232,7 +232,7 @@ func toolResultStructuredFields(call app.ToolCall, output any, observationRef st
 		for _, key := range []string{
 			"path", "rel_path", "url", "final_url", "title", "count", "bytes", "truncated", "content_type",
 			"width", "height", "model_content_type", "model_bytes", "model_width", "model_height", "resized", "resize_note",
-			"status_code", "redirected", "fetched_at", "warning",
+			"status_code", "redirected", "fetched_at", "warning", "extractor", "readability_status", "readability_error", "readability_length", "readability_readerable", "excerpt", "byline", "site_name", "lang", "published_time",
 			"output_path", "operation", "paragraph_index", "slide_index", "page", "pages", "page_count", "sheet", "cell", "row", "column", "ref",
 			"screenshot_path", "screenshot_content_type", "screenshot_bytes", "provider", "source", "model", "query", "took_ms", "published_date", "error_code", "exit_code",
 		} {
@@ -553,8 +553,19 @@ func webFetchEvidence(tool string, output map[string]any) []toolEvidence {
 	if status := strings.TrimSpace(stringValue(output["status_code"])); status != "" && status != "<nil>" {
 		parts = append(parts, "status: "+status)
 	}
+	if extractor := strings.TrimSpace(stringValue(output["extractor"])); extractor != "" && extractor != "<nil>" {
+		status := strings.TrimSpace(stringValue(output["readability_status"]))
+		if status != "" && status != "<nil>" {
+			parts = append(parts, "extractor: "+extractor+" ("+status+")")
+		} else {
+			parts = append(parts, "extractor: "+extractor)
+		}
+	}
 	if warning := strings.TrimSpace(stringValue(output["warning"])); warning != "" && warning != "<nil>" {
 		parts = append(parts, "warning: "+warning)
+	}
+	if excerpt := strings.TrimSpace(stringValue(output["excerpt"])); excerpt != "" && excerpt != "<nil>" {
+		parts = append(parts, "excerpt: "+trimForEpisode(excerpt, 360))
 	}
 	text := strings.TrimSpace(stringValue(output["text"]))
 	if text != "" && text != "<nil>" {

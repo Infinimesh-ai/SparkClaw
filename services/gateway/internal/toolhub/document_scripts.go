@@ -34,3 +34,6 @@ var xlsxStructureAdapterScript string
 
 //go:embed scripts/pdf.py
 var pdfAdapterScript string
+
+//go:embed scripts/browser_readability.js
+var browserReadabilityAdapterScript string

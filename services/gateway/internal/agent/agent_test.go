@@ -631,9 +631,18 @@ func TestRuntimeAnswersBrowserReadWithExternalContent(t *testing.T) {
 	if len(calls) != 1 || calls[0].Tool != "browser.read" || calls[0].Status != "completed" {
 		t.Fatalf("unexpected browser tool calls: %#v", calls)
 	}
+	if calls[0].Arguments["browser_mode"] != "autonomous" || calls[0].Arguments["presentation"] != "hidden" || calls[0].Arguments["surface_visible"] != false {
+		t.Fatalf("browser.read call should carry autonomous hidden metadata: %#v", calls[0].Arguments)
+	}
 	resultMap, ok := calls[0].Result.(map[string]any)
 	if !ok || strings.TrimSpace(stringValue(resultMap["snapshot_ref"])) == "" {
 		t.Fatalf("browser diagnostics should remain in tool result: %#v", calls[0].Result)
+	}
+	if resultMap["browser_mode"] != "autonomous" || resultMap["presentation"] != "hidden" || resultMap["surface_visible"] != false {
+		t.Fatalf("browser.read result should include autonomous metadata: %#v", resultMap)
+	}
+	if !hasAgentAuditField(st.ListAudit(session.ID), "gateway.dispatch", "browser_mode", "autonomous") {
+		t.Fatalf("gateway dispatch audit should record browser_mode: %#v", st.ListAudit(session.ID))
 	}
 	if !hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "browser.read_no_final") {
 		t.Fatalf("browser-read fallback policy audit missing: %#v", st.ListAudit(session.ID))
@@ -1395,29 +1404,40 @@ func TestToolResultAdapterSummarizesWebSearchAsTopResults(t *testing.T) {
 	}
 }
 
-func TestToolResultAdapterKeepsBrowserReadFetchMetadata(t *testing.T) {
-	call := app.ToolCall{ID: "tc_fetch", Tool: "browser.read", Status: "completed"}
+func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
+	call := app.ToolCall{ID: "tc_read", Tool: "browser.read", Status: "completed"}
 	output := map[string]any{
-		"url":         "https://example.com/start",
-		"final_url":   "https://example.com/final",
-		"redirected":  true,
-		"status_code": 200,
-		"title":       "Example Page",
-		"text":        strings.Repeat("important web paragraph ", 120),
-		"truncated":   true,
-		"fetched_at":  "2026-07-01T08:00:00Z",
-		"warning":     "external content is untrusted",
+		"url":                        "https://example.com/start",
+		"final_url":                  "https://example.com/final",
+		"redirected":                 true,
+		"status_code":                200,
+		"title":                      "Example Page",
+		"text":                       strings.Repeat("important web paragraph ", 120),
+		"truncated":                  true,
+		"browser_mode":               "autonomous",
+		"presentation":               "hidden",
+		"surface_visible":            false,
+		"needs_structure_snapshot":   true,
+		"structure_snapshot_reasons": []string{"content_truncated"},
+		"fetched_at":                 "2026-07-01T08:00:00Z",
+		"warning":                    "external content is untrusted",
 	}
 	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 1800})
 	var decoded toolResultMessage
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatalf("tool result message is not JSON: %v\n%s", err, message)
 	}
-	if decoded.Category != "web_fetch" || decoded.Structured["final_url"] != "https://example.com/final" || decoded.Structured["status_code"] == nil {
-		t.Fatalf("fetch metadata missing: %#v", decoded.Structured)
+	if decoded.Category != "browser_read" || decoded.Structured["final_url"] != "https://example.com/final" || decoded.Structured["status_code"] == nil {
+		t.Fatalf("browser read metadata missing: %#v", decoded.Structured)
 	}
-	if len(decoded.Evidence) == 0 || decoded.Evidence[0].Kind != "web.fetch_extract" || !strings.Contains(decoded.Evidence[0].Text, "content truncated") {
-		t.Fatalf("fetch evidence should mention truncation: %#v", decoded.Evidence)
+	if decoded.Structured["browser_mode"] != "autonomous" || decoded.Structured["presentation"] != "hidden" || decoded.Structured["surface_visible"] != false {
+		t.Fatalf("browser read mode metadata missing: %#v", decoded.Structured)
+	}
+	if decoded.Structured["needs_structure_snapshot"] != true || !strings.Contains(fmt.Sprint(decoded.Structured["next_step_hint"]), "browser.snapshot") {
+		t.Fatalf("browser read structure diagnostics missing: %#v", decoded.Structured)
+	}
+	if len(decoded.Evidence) == 0 || decoded.Evidence[0].Kind != "browser.read_extract" || !strings.Contains(decoded.Evidence[0].Text, "needs_structure_snapshot: true") || !strings.Contains(decoded.Evidence[0].Text, "content truncated") {
+		t.Fatalf("browser read evidence should mention truncation: %#v", decoded.Evidence)
 	}
 }
 
@@ -2460,6 +2480,20 @@ func (fakeBrowserAutomationAdapter) Health(ctx context.Context) (browserautomati
 
 func (fakeBrowserAutomationAdapter) Close() error { return nil }
 
+func (fakeBrowserAutomationAdapter) ReadPage(ctx context.Context, url string, args map[string]any) (browserautomation.PageReadResult, error) {
+	return browserautomation.PageReadResult{
+		URL:       url,
+		FinalURL:  url,
+		Title:     "Fake Browser Page",
+		HTML:      "<html><head><title>Fake Browser Page</title></head><body><article><h1>Fake browser read</h1><p>Rendered content from the browser session.</p></article></body></html>",
+		Text:      "Fake browser read Rendered content from the browser session.",
+		Rendered:  true,
+		Provider:  "fake-browser",
+		Actions:   []string{"new_page", "evaluate_script"},
+		Untrusted: true,
+	}, nil
+}
+
 func (fakeBrowserAutomationAdapter) Call(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
 	switch tool {
 	case "browser.screenshot":
@@ -2647,8 +2681,50 @@ func TestTaskHintClassifiesWebSearch(t *testing.T) {
 	if hint.EvidenceNeed != "web" || hint.ToolMode != "read_only" {
 		t.Fatalf("web search question should require web evidence: %#v", hint)
 	}
+	if hint.BrowserMode != "autonomous" {
+		t.Fatalf("web search question should use autonomous browser mode: %#v", hint)
+	}
+	if !slicesContainsString(hint.CandidateSkills, "browser_automation") || slicesContainsString(hint.CandidateSkills, "browser_research") {
+		t.Fatalf("web search question should use the unified browser skill: %#v", hint.CandidateSkills)
+	}
 	if !slicesContainsString(hint.CandidateTools, "web.search") || !slicesContainsString(hint.CandidateTools, "browser.read") {
 		t.Fatalf("web search question should suggest web search and browser read: %#v", hint.CandidateTools)
+	}
+}
+
+func TestTaskHintClassifiesBrowserModes(t *testing.T) {
+	webHint := heuristicTaskHint("查一下浙江理工大学招生简章")
+	if webHint.BrowserMode != "autonomous" || webHint.ToolMode != "read_only" {
+		t.Fatalf("ordinary web lookup should use autonomous browser mode: %#v", webHint)
+	}
+	if !slicesContainsString(webHint.CandidateTools, "web.search") || !slicesContainsString(webHint.CandidateTools, "browser.read") || slicesContainsString(webHint.CandidateTools, "browser.open") {
+		t.Fatalf("ordinary web lookup should expose search/read only: %#v", webHint.CandidateTools)
+	}
+
+	openHint := heuristicTaskHint("打开浙江理工大学官网")
+	if openHint.BrowserMode != "collaborative" {
+		t.Fatalf("explicit website open should use collaborative browser mode: %#v", openHint)
+	}
+	if !slicesContainsString(openHint.CandidateTools, "browser.open") {
+		t.Fatalf("explicit website open should expose browser.open: %#v", openHint.CandidateTools)
+	}
+
+	playHint := heuristicTaskHint("打开这个视频并自动播放")
+	if playHint.BrowserMode != "collaborative" {
+		t.Fatalf("playback request should use collaborative browser mode: %#v", playHint)
+	}
+	for _, want := range []string{"browser.open", "browser.snapshot", "browser.click"} {
+		if !slicesContainsString(playHint.CandidateTools, want) {
+			t.Fatalf("playback request should expose %s: %#v", want, playHint.CandidateTools)
+		}
+	}
+
+	readHint := heuristicTaskHint("读取 https://example.com 这篇文章")
+	if readHint.BrowserMode != "autonomous" || readHint.ToolMode != "read_only" {
+		t.Fatalf("URL read should use autonomous read-only mode: %#v", readHint)
+	}
+	if !slicesContainsString(readHint.CandidateTools, "browser.read") || slicesContainsString(readHint.CandidateTools, "browser.open") {
+		t.Fatalf("URL read should prefer browser.read without visible open: %#v", readHint.CandidateTools)
 	}
 }
 
@@ -2675,13 +2751,16 @@ func TestVisibleToolDefinitionsExposeImagesInspectForWorkspaceRead(t *testing.T)
 	}
 }
 
-func TestTaskHintClassifiesBrowserQueryAsWebResearch(t *testing.T) {
+func TestTaskHintClassifiesBrowserQueryAsReadOnlyBrowserAutomation(t *testing.T) {
 	hint := heuristicTaskHint("浏览器查询一下，榆林学院已经升级为了榆林大学。")
 	if hint.EvidenceNeed != "web" || hint.ToolMode != "read_only" {
-		t.Fatalf("browser query should be read-only web research, got %#v", hint)
+		t.Fatalf("browser query should be read-only browser-backed research, got %#v", hint)
 	}
-	if !slicesContainsString(hint.CandidateSkills, "browser_research") || slicesContainsString(hint.CandidateSkills, "browser_automation") {
-		t.Fatalf("browser query should prefer browser_research, got %#v", hint.CandidateSkills)
+	if hint.BrowserMode != "autonomous" {
+		t.Fatalf("browser query should stay autonomous, got %#v", hint)
+	}
+	if !slicesContainsString(hint.CandidateSkills, "browser_automation") || slicesContainsString(hint.CandidateSkills, "browser_research") {
+		t.Fatalf("browser query should use the unified browser skill, got %#v", hint.CandidateSkills)
 	}
 	if !slicesContainsString(hint.CandidateTools, "web.search") || !slicesContainsString(hint.CandidateTools, "browser.read") {
 		t.Fatalf("browser query should expose web search/read tools, got %#v", hint.CandidateTools)
@@ -2692,6 +2771,12 @@ func TestTaskHintClassifiesRelativeTimeAsWebSearch(t *testing.T) {
 	hint := heuristicTaskHint("帮我查一下一年前浙江理工大学招生新闻")
 	if hint.EvidenceNeed != "web" || hint.ToolMode != "read_only" {
 		t.Fatalf("relative-time web question should require web evidence: %#v", hint)
+	}
+	if hint.BrowserMode != "autonomous" {
+		t.Fatalf("relative-time web question should use autonomous browser mode: %#v", hint)
+	}
+	if !slicesContainsString(hint.CandidateSkills, "browser_automation") || slicesContainsString(hint.CandidateSkills, "browser_research") {
+		t.Fatalf("relative-time web question should use the unified browser skill: %#v", hint.CandidateSkills)
 	}
 	if !slicesContainsString(hint.CandidateTools, "web.search") || !slicesContainsString(hint.CandidateTools, "browser.read") {
 		t.Fatalf("relative-time web question should suggest web search and browser read: %#v", hint.CandidateTools)
@@ -2755,6 +2840,9 @@ func TestTaskHintClassifiesBrowserAutomation(t *testing.T) {
 	if hint.EvidenceNeed != "web" || hint.ToolMode != "action_required" {
 		t.Fatalf("browser automation should require action-capable web tools: %#v", hint)
 	}
+	if hint.BrowserMode != "collaborative" {
+		t.Fatalf("browser automation should use collaborative browser mode: %#v", hint)
+	}
 	if !slicesContainsString(hint.CandidateSkills, "browser_automation") {
 		t.Fatalf("browser automation should suggest browser_automation skill: %#v", hint.CandidateSkills)
 	}
@@ -2769,6 +2857,9 @@ func TestTaskHintClassifiesExplicitURLOpenAsBrowserAutomation(t *testing.T) {
 	hint := heuristicTaskHint("打开https://www.apple.com.cn/，帮我找到最新的MacBook界面")
 	if hint.EvidenceNeed != "web" || hint.ToolMode != "action_required" {
 		t.Fatalf("explicit URL open page task should use browser automation: %#v", hint)
+	}
+	if hint.BrowserMode != "collaborative" {
+		t.Fatalf("explicit URL open should use collaborative browser mode: %#v", hint)
 	}
 	if !slicesContainsString(hint.CandidateSkills, "browser_automation") {
 		t.Fatalf("explicit URL open page task should suggest browser automation skill: %#v", hint.CandidateSkills)
@@ -3193,9 +3284,9 @@ func TestVisibleToolDefinitionsTreatsSkillAllowedToolsAsSuggestions(t *testing.T
 		EvidenceNeed:    "web",
 		ToolMode:        "read_only",
 		CandidateTools:  []string{"web.search", "browser.read"},
-		CandidateSkills: []string{"browser_research"},
+		CandidateSkills: []string{"browser_automation"},
 	}, []skills.Skill{{
-		Name:         "browser_research",
+		Name:         "browser_automation",
 		AllowedTools: []string{"browser.read", "files.write_draft"},
 	}})
 	names := visibleToolNames(defs)
@@ -3211,6 +3302,9 @@ func TestURLTaskHintPrefersBrowserReadOnly(t *testing.T) {
 	hint := heuristicTaskHint("https://github.com/Infinimesh-ai/SparkClaw 这个项目是干什么的")
 	if hint.EvidenceNeed != "web" || hint.ToolMode != "read_only" {
 		t.Fatalf("URL question should need read-only web evidence: %#v", hint)
+	}
+	if hint.BrowserMode != "autonomous" {
+		t.Fatalf("URL question should use autonomous browser mode: %#v", hint)
 	}
 	if !slicesContainsString(hint.CandidateTools, "browser.read") || slicesContainsString(hint.CandidateTools, "web.search") {
 		t.Fatalf("URL question should prefer browser.read without web.search: %#v", hint.CandidateTools)
@@ -3230,9 +3324,9 @@ func TestVisibleToolDefinitionsURLTaskDoesNotAddSkillSearchTool(t *testing.T) {
 		EvidenceNeed:    "web",
 		ToolMode:        "read_only",
 		CandidateTools:  []string{"browser.read"},
-		CandidateSkills: []string{"browser_research"},
+		CandidateSkills: []string{"browser_automation"},
 	}, []skills.Skill{{
-		Name:         "browser_research",
+		Name:         "browser_automation",
 		AllowedTools: []string{"web.search", "browser.read"},
 	}})
 	names := visibleToolNames(defs)
@@ -3273,6 +3367,178 @@ func TestVisibleToolDefinitionsBrowserAutomationSkillControlsToolSet(t *testing.
 	}
 }
 
+func TestVisibleToolDefinitionsForStepExpandsBrowserFollowupAfterReadDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Tools.Web.Search.Enabled = true
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+	hint := TaskHint{
+		TaskType:        "search",
+		EvidenceNeed:    "web",
+		ToolMode:        "read_only",
+		BrowserMode:     "autonomous",
+		EstimatedRisk:   "read",
+		ModelLaneHint:   "fast",
+		CandidateSkills: []string{"browser_automation"},
+		CandidateTools:  []string{"web.search", "browser.read"},
+	}
+	base := runtime.visibleToolDefinitions(hint, []skills.Skill{{
+		Name: "browser_automation",
+		AllowedTools: []string{
+			"web.search",
+			"browser.read",
+			"browser.snapshot",
+			"browser.navigate",
+			"browser.click",
+			"browser.wait",
+		},
+	}})
+	baseNames := visibleToolNames(base)
+	if slicesContainsString(baseNames, "browser.snapshot") {
+		t.Fatalf("initial read-only web tools should stay strict before diagnostics: %#v", baseNames)
+	}
+
+	afterRead := runtime.visibleToolDefinitionsForStep(base, hint, []string{`{"tool":"browser.read","structured":{"needs_structure_snapshot":true}}`})
+	afterReadNames := visibleToolNames(afterRead)
+	for _, want := range []string{"browser.snapshot", "browser.navigate", "browser.wait"} {
+		if !slicesContainsString(afterReadNames, want) {
+			t.Fatalf("browser read diagnostics should expose %s, got %#v", want, afterReadNames)
+		}
+	}
+	if slicesContainsString(afterReadNames, "browser.click") {
+		t.Fatalf("browser.click should wait until a snapshot provides refs: %#v", afterReadNames)
+	}
+
+	afterSnapshot := runtime.visibleToolDefinitionsForStep(afterRead, hint, []string{
+		`{"tool":"browser.read","structured":{"needs_structure_snapshot":true}}`,
+		`{"tool":"browser.snapshot","evidence":[{"kind":"browser.accessibility_snapshot","text":"button uid=1 展开更多"}]}`,
+	})
+	afterSnapshotNames := visibleToolNames(afterSnapshot)
+	if !slicesContainsString(afterSnapshotNames, "browser.click") {
+		t.Fatalf("snapshot observation should expose approval-gated browser.click follow-up: %#v", afterSnapshotNames)
+	}
+}
+
+func TestVisibleToolDefinitionsCollaborativeModeExposesLiveReadToolsImmediately(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Tools.Web.Search.Enabled = true
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+	hint := TaskHint{
+		TaskType:        "inspect",
+		EvidenceNeed:    "web",
+		ToolMode:        "read_only",
+		BrowserMode:     "collaborative",
+		EstimatedRisk:   "read",
+		ModelLaneHint:   "deep",
+		CandidateSkills: []string{"browser_automation"},
+		CandidateTools:  []string{"web.search", "browser.read"},
+	}
+	defs := runtime.visibleToolDefinitions(hint, []skills.Skill{{
+		Name: "browser_automation",
+		AllowedTools: []string{
+			"web.search",
+			"browser.read",
+			"browser.status",
+			"browser.list_tabs",
+			"browser.open",
+			"browser.navigate",
+			"browser.snapshot",
+			"browser.screenshot",
+			"browser.wait",
+			"browser.click",
+		},
+	}})
+	names := visibleToolNames(defs)
+	for _, want := range []string{"web.search", "browser.read", "browser.open", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait"} {
+		if !slicesContainsString(names, want) {
+			t.Fatalf("collaborative read-only mode should expose live read tool %s, got %#v", want, names)
+		}
+	}
+	if slicesContainsString(names, "browser.click") {
+		t.Fatalf("collaborative read-only mode should not expose approval-gated click: %#v", names)
+	}
+}
+
+func TestEnrichPlanWithWebFreshnessPreservesLatestIntent(t *testing.T) {
+	plan := enrichPlanWithWebFreshness("最新的巴威台风信息", toolPlan{
+		Name: "web.search",
+		Args: map[string]any{
+			"query": "台风巴威 登陆信息 时间 地点",
+		},
+	})
+	query := fmt.Sprint(plan.Args["query"])
+	if plan.Args["freshness"] != "latest" {
+		t.Fatalf("expected freshness=latest, got %#v", plan.Args)
+	}
+	if !strings.Contains(query, "最新") || !strings.Contains(query, "当前") || !strings.Contains(query, currentSearchDate()) {
+		t.Fatalf("fresh web query should retain latest/current/date intent, got %q", query)
+	}
+}
+
+func TestRunReActAuditsDynamicBrowserFollowupTools(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Tools.Web.Search.Enabled = true
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st := store.NewMemoryStore()
+	session := st.CreateSession("browser follow-up audit")
+	run := app.AgentRun{
+		ID:        app.NewID("run"),
+		SessionID: session.ID,
+		State:     "reacting",
+		Risk:      app.RiskRead,
+		StartedAt: time.Now().UTC(),
+	}
+	st.SaveRun(run)
+	tools := toolhub.New(cfg, st)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+	hint := TaskHint{
+		TaskType:        "search",
+		EvidenceNeed:    "web",
+		ToolMode:        "read_only",
+		BrowserMode:     "autonomous",
+		EstimatedRisk:   "read",
+		ModelLaneHint:   "fast",
+		CandidateSkills: []string{"browser_automation"},
+		CandidateTools:  []string{"web.search", "browser.read"},
+		Reason:          "ordinary autonomous web lookup",
+	}
+	base := runtime.visibleToolDefinitions(hint, []skills.Skill{{
+		Name: "browser_automation",
+		AllowedTools: []string{
+			"web.search",
+			"browser.read",
+			"browser.snapshot",
+			"browser.navigate",
+			"browser.wait",
+		},
+	}})
+	content := `MOCK_REACT_RESPONSE:{"type":"final","answer":"done"}`
+	result := runtime.runReActLoopWithSeed(context.Background(), session.ID, run, content, hint, nil, base, nil, []string{`{"tool":"browser.read","structured":{"needs_structure_snapshot":true}}`})
+	if !result.Completed || result.FinalAnswer != "done" {
+		t.Fatalf("seeded ReAct run should finish with injected final: %#v", result)
+	}
+	if !hasAgentAuditField(st.ListAudit(session.ID), "react.visible_tools_expanded", "browser_mode", "autonomous") {
+		t.Fatalf("dynamic browser follow-up audit missing: %#v", st.ListAudit(session.ID))
+	}
+	if !hasAgentAuditStringSliceField(st.ListAudit(session.ID), "react.visible_tools_expanded", "tools", "browser.snapshot") {
+		t.Fatalf("dynamic browser follow-up audit should include browser.snapshot: %#v", st.ListAudit(session.ID))
+	}
+}
+
 func TestVisibleToolDefinitionsSkillAllowedToolsDoNotOverrideToolMode(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
@@ -3288,7 +3554,7 @@ func TestVisibleToolDefinitionsSkillAllowedToolsDoNotOverrideToolMode(t *testing
 		ToolMode:        "read_only",
 		EstimatedRisk:   "read",
 		ModelLaneHint:   "fast",
-		CandidateSkills: []string{"browser_research"},
+		CandidateSkills: []string{"browser_automation"},
 		CandidateTools:  []string{"browser.open", "browser.snapshot"},
 	}, []skills.Skill{{
 		Name: "browser_automation",

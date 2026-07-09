@@ -4,6 +4,7 @@ type TaskHint struct {
 	TaskType           string   `json:"task_type"`
 	EvidenceNeed       string   `json:"evidence_need"`
 	ToolMode           string   `json:"tool_mode"`
+	BrowserMode        string   `json:"browser_mode,omitempty"`
 	EstimatedRisk      string   `json:"estimated_risk"`
 	ModelLaneHint      string   `json:"model_lane_hint"`
 	CandidateSkills    []string `json:"candidate_skills"`

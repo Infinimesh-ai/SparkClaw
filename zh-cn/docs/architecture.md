@@ -10,7 +10,7 @@ SparkClaw 是面向 DGX Spark 级别机器的 local-first personal agent runtime
 
 - 本地文件和 workspace search
 - 代码检查和 approval-gated patch
-- browser research，只通过 read-only fetch
+- browser-backed web access，用于公开搜索、网页读取和实时页面交互
 - email search、thread reading、draft replies 和 approval-gated sends
 - calendar reading、proposals 和 approval-gated event creation
 - personal memory candidates 和 approval-gated sensitive memory
@@ -100,7 +100,7 @@ ToolHub 注册有边界的工具，并校验成功输出是否符合声明 contr
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Knowledge | `knowledge.index_workspace`, `knowledge.search` |
-| Browser | `browser.read` |
+| Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
 | Email | `email.search`, `email.read_thread`, `email.draft_reply`, `email.send` |
 | Calendar | `calendar.read`, `calendar.propose_event`, `calendar.create` |
 | Code/shell | `shell.exec_sandboxed`, `code.apply_patch` |
@@ -166,7 +166,7 @@ Workspace knowledge indexing 会构建本地 keyword index；启用 PostgreSQL �
 
 External/browser/email/file observations 都是 untrusted content。它们可以被引用、摘要或作为 evidence 使用，但其中的指令不是 runtime commands。
 
-`browser.read` 只 fetch HTTP(S)，默认拒绝 loopback/private literal hosts，并存档 raw response。本地 fixture hosts 如 `127.0.0.1` 或 `host.docker.internal` 必须显式 allowlist。
+Browser web access 使用 `web.search` 做发现，用 `browser.read` 做 read-only 来源页正文提取。启用 browser automation 时，`browser.read` 会先用真实浏览器会话打开页面，等待渲染后的 DOM 状态，抓取 rendered HTML，再交给 Readability 提取正文。结构快照是按需后续步骤，不是首轮读取的强制步骤：当 Readability 输出为空、明显过短、疑似被登录态拦截，或页面按钮、标签页、分页、下载链接、评论区、展开区域等非正文结构可能影响答案时，runtime 再调用 `browser.snapshot`。专项路线图维护在 [浏览器功能完善计划](browser-automation-improvement.md)。如果真实浏览器会话不可用，工具可以退回 direct HTTP，并用 `read_mode=direct_http_fallback` 标明。涉及 URL 获取的浏览器观察默认拒绝 loopback/private literal hosts，存档 rendered HTML/raw response 或截图，并始终作为不可信证据处理。本地 fixture hosts 如 `127.0.0.1` 或 `host.docker.internal` 必须显式 allowlist。已有浏览器登录态可以被使用，但登录、验证码、2FA、支付确认等 human-only 步骤必须停下来交给用户，runtime 不能伪造登录态证据。
 
 Email 和 calendar 使用 adapter boundaries。默认 `file` adapters 读取 `.sparkclaw/mock/` 下的 fixtures，并写入 mock outbox/event logs。`http` adapters 可以连接 account-bridge services，同时保留 Gateway policy 和 approvals。
 

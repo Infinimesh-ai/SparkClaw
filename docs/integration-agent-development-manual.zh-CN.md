@@ -118,7 +118,7 @@ services/gateway/internal/agent/temporal_context.go
   "tool_mode": "none|read_only|draft|action_required",
   "estimated_risk": "read|draft|reversible|dangerous",
   "model_lane_hint": "fast|deep",
-  "candidate_skills": ["browser_research"],
+  "candidate_skills": ["browser_automation"],
   "candidate_tools": ["web.search", "browser.read"],
   "needs_clarification": false,
   "reason": "short explanation"
@@ -128,9 +128,9 @@ services/gateway/internal/agent/temporal_context.go
 `task_hint.go` 中增加了关键词和场景路由规则。比如：
 
 - 普通问候走 fast，不暴露工具。
-- 查最新、联网核实、新闻政策等走 `browser_research`，暴露 `web.search` / `browser.read`。
+- 查最新、联网核实、新闻政策等走统一的 `browser_automation`，优先暴露 `web.search` / `browser.read` 作为 read-only 浏览器访问。
 - 明确 URL 读取只暴露 `browser.read`。
-- 点击、输入、截图、当前浏览器页面等走 `browser_automation`。
+- 点击、输入、截图、当前浏览器页面等也走 `browser_automation`，但升级为可交互浏览器工具。
 - 文档和 Office/PDF 任务走 `document_assistant`。
 - 图片问题走 `image_assistant` 和 `images.inspect`。
 - 天气问题走 `weather_lookup` 和 `media.render_weather_card`。
@@ -219,7 +219,7 @@ Tool Result Adapter 输出固定包含：
 image
 file
 web_search
-web_fetch
+browser_read
 browser
 document_mutation
 execution
@@ -324,7 +324,7 @@ approval_id
 | 工具 | Evidence kind |
 |---|---|
 | `web.search` | `web.search_results` |
-| `browser.read` | `web.fetch_extract` |
+| `browser.read` | `browser.read_extract` |
 | `browser.snapshot` | `browser.accessibility_snapshot` |
 | `browser.open/navigate/wait/list_tabs/status` | `browser.pages` |
 | `images.inspect` | `image.inspect_summary` |
@@ -795,6 +795,7 @@ services/gateway/internal/websearch/parallel_free.go
 新增工具：
 
 ```text
+browser.read
 browser.status
 browser.list_tabs
 browser.open
@@ -823,10 +824,27 @@ services/gateway/internal/browserautomation/mcp_stdio.go
 - `browserautomation.Adapter` 抽象浏览器控制接口。
 - `mcp_stdio.go` 通过 stdio 启动 Chrome DevTools MCP。
 - `browserAutomationTool` 把 SparkClaw 工具名映射到 MCP 工具调用。
+- `browser.read` 在启用 browser automation 时优先通过真实浏览器会话读取页面，首轮只要求打开页面、等待渲染、用 `evaluate_script` 抓取 DOM/HTML，再在 ToolHub 外部交给 `@mozilla/readability` 解析正文。
 - `browser.snapshot` 返回页面结构和可点击元素引用。
 - `browser.screenshot` 返回截图，并通过 artifact 附加截图对象。
 - `browser.click`、`browser.type`、`browser.select` 被标为 `draft` 且需要审批。
 - `browser.close` 被标为 `reversible` 且需要审批。
+
+标准网页读取闭环：
+
+专项规划见 [浏览器功能完善计划](browser-automation-improvement.md)。
+
+```text
+browser.read
+  -> ChromeDevTools MCP new_page 进入页面
+  -> evaluate_script 等待渲染并读取 DOM/HTML
+  -> ToolHub 外部用 @mozilla/readability 提取正文
+  -> 如果正文为空、明显过短、疑似登录拦截或需要非正文结构，再调用 browser.snapshot
+  -> 根据 snapshot 中的控件、分页、展开、下载、内部链接等信息，按需 browser.click 或 browser.navigate
+  -> 页面变化后再次 browser.read，重新读取 DOM/HTML 并执行 Readability
+```
+
+`browser.read` 不应为了普通正文读取强制执行 `take_snapshot`。结构快照用于诊断正文不全、发现交互入口或指导后续点击/跳转；如果 Readability 已经返回完整正文，首轮结果可以不包含 `browser_snapshot_text`。
 
 配置入口：
 
@@ -1462,7 +1480,6 @@ en: Please work with the attached file.
 
 ```text
 skills/browser_automation/SKILL.md
-skills/browser_research/SKILL.md
 skills/coding_helper/SKILL.md
 skills/document_assistant/SKILL.md
 skills/image_assistant/SKILL.md
@@ -1476,8 +1493,7 @@ skills/weather_lookup/SKILL.md
 
 | Skill | 本地作用 |
 |---|---|
-| `browser_research` | 描述先搜索、再读取网页、把网页作为不可信证据的流程。 |
-| `browser_automation` | 描述浏览器真实页面操作流程，包含 snapshot、click、type、screenshot 等工具。 |
+| `browser_automation` | 描述统一浏览器访问流程：公开搜索、网页读取、真实页面状态检查，以及需要时的 snapshot、click、type、screenshot 等工具。 |
 | `document_assistant` | 描述文档上传、读取、总结和 Office/PDF 简单编辑流程。 |
 | `image_assistant` | 描述图片理解、OCR 和图片问答流程。 |
 | `local_civic_notice` | 描述水电气暖、市政通知等本地公共信息核查流程。 |

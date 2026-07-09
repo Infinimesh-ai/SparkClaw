@@ -126,12 +126,14 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 		Type:      "gateway.dispatch",
 		Summary:   "Dispatched run from fast TaskHint classification",
 		Fields: map[string]any{
-			"model_lane_hint":  hint.ModelLaneHint,
-			"task_type":        hint.TaskType,
-			"evidence_need":    hint.EvidenceNeed,
-			"tool_mode":        hint.ToolMode,
-			"candidate_skills": hint.CandidateSkills,
-			"candidate_tools":  hint.CandidateTools,
+			"model_lane_hint":     hint.ModelLaneHint,
+			"task_type":           hint.TaskType,
+			"evidence_need":       hint.EvidenceNeed,
+			"tool_mode":           hint.ToolMode,
+			"browser_mode":        hint.BrowserMode,
+			"browser_mode_reason": hint.Reason,
+			"candidate_skills":    hint.CandidateSkills,
+			"candidate_tools":     hint.CandidateTools,
 		},
 	})
 	relevantSkills := r.relevantSkillsForHint(agentContent, hint)
@@ -157,6 +159,8 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 		Fields: map[string]any{
 			"tools":                    visibleToolNames(visibleTools),
 			"fallback_tool_candidates": fallbackToolCandidatesForAudit(hint),
+			"browser_mode":             hint.BrowserMode,
+			"browser_mode_reason":      hint.Reason,
 		},
 	})
 
@@ -266,12 +270,14 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		Type:      "gateway.dispatch",
 		Summary:   "Dispatched resumed run from fast TaskHint classification",
 		Fields: map[string]any{
-			"model_lane_hint":  hint.ModelLaneHint,
-			"task_type":        hint.TaskType,
-			"evidence_need":    hint.EvidenceNeed,
-			"tool_mode":        hint.ToolMode,
-			"candidate_skills": hint.CandidateSkills,
-			"candidate_tools":  hint.CandidateTools,
+			"model_lane_hint":     hint.ModelLaneHint,
+			"task_type":           hint.TaskType,
+			"evidence_need":       hint.EvidenceNeed,
+			"tool_mode":           hint.ToolMode,
+			"browser_mode":        hint.BrowserMode,
+			"browser_mode_reason": hint.Reason,
+			"candidate_skills":    hint.CandidateSkills,
+			"candidate_tools":     hint.CandidateTools,
 		},
 	})
 	relevantSkills := r.relevantSkillsForHint(content, hint)
@@ -297,6 +303,8 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		Fields: map[string]any{
 			"tools":                    visibleToolNames(visibleTools),
 			"fallback_tool_candidates": fallbackToolCandidatesForAudit(hint),
+			"browser_mode":             hint.BrowserMode,
+			"browser_mode_reason":      hint.Reason,
 			"seed_tool_calls":          toolCallIDs(seedCalls),
 			"seed_observations":        len(seedObservations),
 		},
@@ -1072,6 +1080,129 @@ func enrichPlanWithObservations(goal string, plan toolPlan, calls []app.ToolCall
 	}
 	args["body"] = body
 	return toolPlan{Name: plan.Name, Args: args, RepairAttempt: plan.RepairAttempt}
+}
+
+func enrichPlanWithWebFreshness(goal string, plan toolPlan) toolPlan {
+	if plan.Name != "web.search" || !goalNeedsFreshWeb(goal) {
+		return plan
+	}
+	query := strings.TrimSpace(stringValue(plan.Args["query"]))
+	if query == "" {
+		return plan
+	}
+	args := map[string]any{}
+	for key, value := range plan.Args {
+		args[key] = value
+	}
+	if !hasNonEmptyStringArg(args, "freshness") {
+		args["freshness"] = "latest"
+	}
+	args["query"] = queryWithFreshnessIntent(goal, query, currentSearchDate())
+	return toolPlan{Name: plan.Name, Args: args, RepairAttempt: plan.RepairAttempt}
+}
+
+func goalNeedsFreshWeb(goal string) bool {
+	lower := strings.ToLower(goal)
+	freshTerms := []string{
+		"latest", "recent", "current", "today", "tonight", "now", "this week", "this month", "this year", "real-time", "realtime",
+		"最新", "最近", "当前", "今天", "今日", "今晚", "现在", "实时", "本周", "本月", "今年", "刚刚",
+		"typhoon", "hurricane", "storm", "weather", "forecast", "台风", "飓风", "风暴", "天气", "预报", "气象", "路径",
+		"news", "price", "schedule", "policy", "新闻", "价格", "行情", "日程", "赛程", "政策",
+	}
+	for _, term := range freshTerms {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryWithFreshnessIntent(goal, query, date string) string {
+	if queryHasFreshnessIntent(query, date) {
+		return query
+	}
+	terms := []string{"latest", "current"}
+	if containsCJK(goal) || containsCJK(query) {
+		terms = []string{"最新", "当前"}
+	}
+	if strings.TrimSpace(date) != "" {
+		terms = append(terms, strings.TrimSpace(date))
+	}
+	return strings.TrimSpace(query + " " + strings.Join(terms, " "))
+}
+
+func queryHasFreshnessIntent(query, date string) bool {
+	lower := strings.ToLower(query)
+	for _, term := range []string{"latest", "recent", "current", "today", "now", "real-time", "realtime", "最新", "最近", "当前", "今天", "今日", "实时", "现在"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return strings.TrimSpace(date) != "" && strings.Contains(query, strings.TrimSpace(date))
+}
+
+func currentSearchDate() string {
+	return time.Now().Local().Format("2006-01-02")
+}
+
+func containsCJK(value string) bool {
+	for _, r := range value {
+		if r >= '\u4e00' && r <= '\u9fff' {
+			return true
+		}
+	}
+	return false
+}
+
+func enrichPlanWithBrowserMode(hint TaskHint, plan toolPlan) toolPlan {
+	if !strings.HasPrefix(plan.Name, "browser.") {
+		return plan
+	}
+	mode := browserModeForToolPlan(hint, plan.Name)
+	if mode == "" {
+		return plan
+	}
+	args := map[string]any{}
+	for key, value := range plan.Args {
+		args[key] = value
+	}
+	if !hasNonEmptyStringArg(args, "browser_mode") {
+		args["browser_mode"] = mode
+	}
+	if !hasNonEmptyStringArg(args, "presentation") {
+		args["presentation"] = browserPresentationForMode(mode)
+	}
+	if _, ok := args["surface_visible"]; !ok {
+		args["surface_visible"] = mode == "collaborative"
+	}
+	return toolPlan{Name: plan.Name, Args: args, RepairAttempt: plan.RepairAttempt}
+}
+
+func hasNonEmptyStringArg(args map[string]any, key string) bool {
+	value, ok := args[key]
+	if !ok || value == nil {
+		return false
+	}
+	text := strings.TrimSpace(stringValue(value))
+	return text != "" && text != "<nil>"
+}
+
+func browserModeForToolPlan(hint TaskHint, tool string) string {
+	mode := strings.ToLower(strings.TrimSpace(hint.BrowserMode))
+	if mode == "autonomous" || mode == "collaborative" {
+		return mode
+	}
+	if tool == "browser.read" {
+		return "autonomous"
+	}
+	return "collaborative"
+}
+
+func browserPresentationForMode(mode string) string {
+	if strings.EqualFold(strings.TrimSpace(mode), "collaborative") {
+		return "visible"
+	}
+	return "hidden"
 }
 
 func emailDraftBodyFromObservations(goal string, calls []app.ToolCall) string {

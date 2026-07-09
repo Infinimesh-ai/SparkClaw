@@ -181,7 +181,7 @@ func toolResultCategory(tool string) string {
 	case tool == "web.search":
 		return "web_search"
 	case tool == "browser.read":
-		return "web_fetch"
+		return "browser_read"
 	case strings.HasPrefix(tool, "browser."):
 		return "browser"
 	case strings.HasPrefix(tool, "docx.") || strings.HasPrefix(tool, "pptx.") || strings.HasPrefix(tool, "xlsx.") || strings.HasPrefix(tool, "pdf.") || strings.HasPrefix(tool, "office.") || tool == "files.write_draft":
@@ -232,7 +232,8 @@ func toolResultStructuredFields(call app.ToolCall, output any, observationRef st
 		for _, key := range []string{
 			"path", "rel_path", "url", "final_url", "title", "count", "bytes", "truncated", "content_type",
 			"width", "height", "model_content_type", "model_bytes", "model_width", "model_height", "resized", "resize_note",
-			"status_code", "redirected", "fetched_at", "warning", "extractor", "readability_status", "readability_error", "readability_length", "readability_readerable", "excerpt", "byline", "site_name", "lang", "published_time",
+			"status_code", "status_code_source", "redirected", "fetched_at", "warning", "extractor", "readability_status", "readability_error", "readability_length", "readability_readerable", "needs_structure_snapshot", "structure_snapshot_reasons", "excerpt", "byline", "site_name", "lang", "published_time",
+			"read_mode", "browser_mode", "presentation", "surface_visible", "rendered", "browser_provider", "browser_duration_ms", "browser_actions", "browser_ready_state", "browser_lang", "browser_html_length", "browser_html_truncated", "browser_text_length", "browser_scroll_height", "auth_challenge_detected", "browser_session_error",
 			"output_path", "operation", "paragraph_index", "slide_index", "page", "pages", "page_count", "sheet", "cell", "row", "column", "ref",
 			"screenshot_path", "screenshot_content_type", "screenshot_bytes", "provider", "source", "model", "query", "took_ms", "published_date", "error_code", "exit_code",
 		} {
@@ -267,11 +268,15 @@ func addTypedStructuredFields(fields map[string]any, tool string, output map[str
 	case "web_search":
 		fields["results"] = compactWebSearchResults(output, 5)
 		fields["next_step_hint"] = "Use browser.read on a result URL before relying on facts that require source-page evidence."
-	case "web_fetch":
+	case "browser_read":
 		if fields["final_url"] == nil {
 			fields["final_url"] = firstNonEmptyString(output["final_url"], output["url"])
 		}
-		fields["next_step_hint"] = "If content is truncated or insufficient, fetch the same URL with a narrower target or larger max_bytes."
+		if boolValue(output["needs_structure_snapshot"]) {
+			fields["next_step_hint"] = "Call browser.snapshot before final if page structure may reveal missing content; then use one clear browser.navigate or approval-gated browser.click and browser.read again if needed."
+		} else {
+			fields["next_step_hint"] = "If content is truncated or insufficient, read the same URL again with a narrower target or larger max_bytes."
+		}
 	case "file":
 		if tool == "files.read" {
 			fields["already_read"] = true
@@ -411,7 +416,7 @@ func selectedToolArgs(args map[string]any) map[string]any {
 		return nil
 	}
 	out := map[string]any{}
-	for _, key := range []string{"path", "root", "query", "url", "output_path", "page", "pages", "sheet", "cell", "row", "column", "ref"} {
+	for _, key := range []string{"path", "root", "query", "url", "output_path", "page", "pages", "sheet", "cell", "row", "column", "ref", "browser_mode", "presentation", "surface_visible"} {
 		if value, ok := args[key]; ok && usefulStructuredValue(value) {
 			out[key] = value
 		}
@@ -456,7 +461,7 @@ func toolResultEvidence(tool string, output any, evidenceLimit int) []toolEviden
 		if evidence := webSearchEvidence(tool, outputMap); len(evidence) > 0 {
 			return evidence
 		}
-		if evidence := webFetchEvidence(tool, outputMap); len(evidence) > 0 {
+		if evidence := browserReadEvidence(tool, outputMap); len(evidence) > 0 {
 			return evidence
 		}
 		if evidence := browserAutomationEvidence(tool, outputMap); len(evidence) > 0 {
@@ -538,7 +543,7 @@ func webSearchEvidence(tool string, output map[string]any) []toolEvidence {
 	}}
 }
 
-func webFetchEvidence(tool string, output map[string]any) []toolEvidence {
+func browserReadEvidence(tool string, output map[string]any) []toolEvidence {
 	if tool != "browser.read" {
 		return nil
 	}
@@ -564,6 +569,20 @@ func webFetchEvidence(tool string, output map[string]any) []toolEvidence {
 	if warning := strings.TrimSpace(stringValue(output["warning"])); warning != "" && warning != "<nil>" {
 		parts = append(parts, "warning: "+warning)
 	}
+	if mode := strings.TrimSpace(stringValue(output["read_mode"])); mode != "" && mode != "<nil>" {
+		parts = append(parts, "read_mode: "+mode)
+	}
+	if auth := boolValue(output["auth_challenge_detected"]); auth {
+		parts = append(parts, "auth_challenge_detected: true")
+	}
+	if boolValue(output["needs_structure_snapshot"]) {
+		reasons := stringListValue(output["structure_snapshot_reasons"])
+		if len(reasons) > 0 {
+			parts = append(parts, "needs_structure_snapshot: true ("+strings.Join(reasons, ", ")+")")
+		} else {
+			parts = append(parts, "needs_structure_snapshot: true")
+		}
+	}
 	if excerpt := strings.TrimSpace(stringValue(output["excerpt"])); excerpt != "" && excerpt != "<nil>" {
 		parts = append(parts, "excerpt: "+trimForEpisode(excerpt, 360))
 	}
@@ -574,6 +593,9 @@ func webFetchEvidence(tool string, output map[string]any) []toolEvidence {
 		}
 		parts = append(parts, truncateByStrategy(tool, text, defaultToolResultEvidenceLimit))
 	}
+	if snapshot := strings.TrimSpace(stringValue(output["browser_snapshot_text"])); snapshot != "" && snapshot != "<nil>" {
+		parts = append(parts, "structure snapshot:\n"+trimForEpisode(snapshot, 700))
+	}
 	if len(parts) == 0 {
 		if len(evidence) > 0 {
 			return evidence
@@ -581,7 +603,7 @@ func webFetchEvidence(tool string, output map[string]any) []toolEvidence {
 		return nil
 	}
 	evidence = append(evidence, toolEvidence{
-		Kind:      "web.fetch_extract",
+		Kind:      "browser.read_extract",
 		Text:      strings.Join(parts, "\n"),
 		Truncated: boolValue(output["truncated"]) || len([]rune(text)) > defaultToolResultEvidenceLimit,
 	})
@@ -1231,6 +1253,34 @@ func boolValue(value any) bool {
 		return strings.EqualFold(strings.TrimSpace(v), "true")
 	default:
 		return false
+	}
+}
+
+func stringListValue(value any) []string {
+	switch v := value.(type) {
+	case []string:
+		out := []string{}
+		for _, item := range v {
+			if text := strings.TrimSpace(item); text != "" && text != "<nil>" {
+				out = append(out, text)
+			}
+		}
+		return out
+	case []any:
+		out := []string{}
+		for _, item := range v {
+			if text := strings.TrimSpace(stringValue(item)); text != "" && text != "<nil>" {
+				out = append(out, text)
+			}
+		}
+		return out
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		return []string{strings.TrimSpace(v)}
+	default:
+		return nil
 	}
 }
 

@@ -40,6 +40,7 @@ func (a ParallelFreeAdapter) Search(ctx context.Context, request Request) (Resul
 	if query == "" {
 		return Result{}, errors.New("web.search query cannot be empty")
 	}
+	query = queryWithFreshness(query, request.Freshness)
 	maxResults := request.MaxResults
 	if maxResults <= 0 {
 		maxResults = a.cfg.MaxResults
@@ -81,6 +82,37 @@ func (a ParallelFreeAdapter) Search(ctx context.Context, request Request) (Resul
 		TookMS:    time.Since(start).Milliseconds(),
 		Untrusted: true,
 	}, nil
+}
+
+func queryWithFreshness(query, freshness string) string {
+	if strings.TrimSpace(freshness) == "" || webQueryHasFreshness(query) {
+		return query
+	}
+	terms := []string{"latest", "current"}
+	if containsCJK(query) {
+		terms = []string{"最新", "当前"}
+	}
+	date := time.Now().Local().Format("2006-01-02")
+	return strings.TrimSpace(query + " " + strings.Join(append(terms, date), " "))
+}
+
+func webQueryHasFreshness(query string) bool {
+	lower := strings.ToLower(query)
+	for _, term := range []string{"latest", "recent", "current", "today", "now", "real-time", "realtime", "最新", "最近", "当前", "今天", "今日", "实时", "现在"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCJK(value string) bool {
+	for _, r := range value {
+		if r >= '\u4e00' && r <= '\u9fff' {
+			return true
+		}
+	}
+	return false
 }
 
 type parallelFreeSearchRequest struct {

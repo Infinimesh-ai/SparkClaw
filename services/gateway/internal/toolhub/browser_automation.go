@@ -12,23 +12,61 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 )
 
-func (h *ToolHub) browserAutomationHealth(ctx context.Context) (Result, error) {
+func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]any) (Result, error) {
+	_, metadata := browserAutomationArgsWithMode("browser.status", args)
 	result, err := h.browser.Health(ctx)
 	if err != nil {
 		return Result{}, err
 	}
+	if strings.TrimSpace(result.BrowserMode) == "" {
+		result.BrowserMode = metadata.BrowserMode
+	}
+	if strings.TrimSpace(result.Presentation) == "" {
+		result.Presentation = metadata.Presentation
+	}
+	result.SurfaceVisible = result.SurfaceVisible || metadata.SurfaceVisible
 	return Result{Output: result}, nil
 }
 
 func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args map[string]any) (Result, error) {
-	result, err := h.browser.Call(ctx, name, args)
+	callArgs, metadata := browserAutomationArgsWithMode(name, args)
+	result, err := h.browser.Call(ctx, name, callArgs)
 	if err != nil {
 		return Result{}, err
 	}
+	if strings.TrimSpace(result.BrowserMode) == "" {
+		result.BrowserMode = metadata.BrowserMode
+	}
+	if strings.TrimSpace(result.Presentation) == "" {
+		result.Presentation = metadata.Presentation
+	}
+	result.SurfaceVisible = result.SurfaceVisible || metadata.SurfaceVisible
 	if name == "browser.screenshot" {
 		h.attachBrowserScreenshot(ctx, &result)
 	}
 	return Result{Output: result}, nil
+}
+
+func browserAutomationArgsWithMode(name string, args map[string]any) (map[string]any, browserModeMetadata) {
+	fallbackMode := "collaborative"
+	if name == "browser.read" {
+		fallbackMode = "autonomous"
+	}
+	metadata := browserModeMetadataFromArgs(args, fallbackMode)
+	out := map[string]any{}
+	for key, value := range args {
+		out[key] = value
+	}
+	if strings.TrimSpace(stringArg(out, "browser_mode", "")) == "" {
+		out["browser_mode"] = metadata.BrowserMode
+	}
+	if strings.TrimSpace(stringArg(out, "presentation", "")) == "" {
+		out["presentation"] = metadata.Presentation
+	}
+	if _, ok := out["surface_visible"]; !ok {
+		out["surface_visible"] = metadata.SurfaceVisible
+	}
+	return out, metadata
 }
 
 func (h *ToolHub) attachBrowserScreenshot(ctx context.Context, result *browserautomation.Result) {

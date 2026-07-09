@@ -671,14 +671,23 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "browser.read",
-			Description: "Fetch a public HTTP(S) page as read-only untrusted external content.",
+			Description: "Read a public HTTP(S) page through the mode-safe browser access path, extracting rendered HTML with Readability when a browser session is selected. Use browser.snapshot separately when page structure or controls are needed.",
 			InputSchema: schema("object", []string{"url"}, map[string]any{
-				"url":       map[string]any{"type": "string"},
-				"max_bytes": map[string]any{"type": "number"},
+				"url":                    map[string]any{"type": "string"},
+				"max_bytes":              map[string]any{"type": "number"},
+				"timeout_ms":             map[string]any{"type": "number"},
+				"browser_mode":           stringSchema(),
+				"presentation":           stringSchema(),
+				"surface_visible":        booleanSchema(),
+				"force_browser_session":  booleanSchema(),
+				"browser_session":        booleanSchema(),
+				"disable_hidden_browser": booleanSchema(),
+				"visible_browser":        booleanSchema(),
 			}),
 			OutputSchema: objectSchema([]string{"url", "status_code", "content_type", "title", "text", "bytes", "truncated", "untrusted", "untrusted_external_content", "warning"}, map[string]any{
 				"url":                        stringSchema(),
 				"status_code":                integerSchema(),
+				"status_code_source":         stringSchema(),
 				"content_type":               stringSchema(),
 				"title":                      stringSchema(),
 				"text":                       stringSchema(),
@@ -692,6 +701,8 @@ func defaultDefinitions() []app.ToolDefinition {
 				"readability_error":          stringSchema(),
 				"readability_length":         integerSchema(),
 				"readability_readerable":     booleanSchema(),
+				"needs_structure_snapshot":   booleanSchema(),
+				"structure_snapshot_reasons": stringArraySchema(),
 				"excerpt":                    stringSchema(),
 				"byline":                     stringSchema(),
 				"site_name":                  stringSchema(),
@@ -700,17 +711,35 @@ func defaultDefinitions() []app.ToolDefinition {
 				"snapshot_ref":               stringSchema(),
 				"snapshot_object_key":        stringSchema(),
 				"snapshot_error":             stringSchema(),
+				"read_mode":                  stringSchema(),
+				"browser_mode":               stringSchema(),
+				"presentation":               stringSchema(),
+				"surface_visible":            booleanSchema(),
+				"rendered":                   booleanSchema(),
+				"browser_provider":           stringSchema(),
+				"browser_duration_ms":        integerSchema(),
+				"browser_actions":            stringArraySchema(),
+				"browser_ready_state":        stringSchema(),
+				"browser_lang":               stringSchema(),
+				"browser_html_length":        integerSchema(),
+				"browser_html_truncated":     booleanSchema(),
+				"browser_text_length":        integerSchema(),
+				"browser_scroll_height":      integerSchema(),
+				"browser_snapshot_text":      stringSchema(),
+				"browser_session_error":      stringSchema(),
+				"browser_session_warnings":   objectValueSchema(),
+				"auth_challenge_detected":    booleanSchema(),
 			}),
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
 			Idempotent:       true,
-			TimeoutMS:        8000,
+			TimeoutMS:        30000,
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
 		{
 			Name:        "web.search",
-			Description: "Search the public web through the configured Parallel Free Search MCP and return untrusted source evidence.",
+			Description: "Search the public web as the discovery step for browser-backed research and return untrusted source evidence.",
 			InputSchema: schema("object", []string{"query"}, map[string]any{
 				"query":       map[string]any{"type": "string"},
 				"max_results": map[string]any{"type": "number"},
@@ -740,7 +769,7 @@ func defaultDefinitions() []app.ToolDefinition {
 		browserAutomationDefinition("browser.focus", "Focus/select a browser page/tab by stable page identifier.", app.RiskRead, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.close", "Close a browser page/tab by stable page identifier.", app.RiskReversible, true, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.snapshot", "Take a structured page snapshot for reading and stable element refs.", app.RiskRead, false, nil, nil, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.snapshot", "Take a structured page snapshot for reading and stable element refs.", app.RiskRead, false, nil, []string{"url", "browser_page_ref", "verbose", "filePath"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.screenshot", "Take a browser screenshot for visual confirmation.", app.RiskRead, false, nil, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.wait", "Wait for visible text or observable page state before continuing.", app.RiskRead, false, []string{"text"}, nil, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, true, []string{"uid"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
@@ -1178,15 +1207,18 @@ func browserAutomationDefinition(name, description string, risk app.RiskLevel, a
 		Description: description,
 		InputSchema: schema("object", required, browserAutomationInputProperties(required, extraInput)),
 		OutputSchema: objectSchema(outputRequired, map[string]any{
-			"tool":        stringSchema(),
-			"raw_tool":    stringSchema(),
-			"arguments":   objectValueSchema(),
-			"output":      objectValueSchema(),
-			"text":        stringSchema(),
-			"pages":       arraySchema(objectValueSchema()),
-			"untrusted":   booleanSchema(),
-			"provider":    stringSchema(),
-			"duration_ms": integerSchema(),
+			"tool":            stringSchema(),
+			"raw_tool":        stringSchema(),
+			"arguments":       objectValueSchema(),
+			"output":          objectValueSchema(),
+			"text":            stringSchema(),
+			"pages":           arraySchema(objectValueSchema()),
+			"browser_mode":    stringSchema(),
+			"presentation":    stringSchema(),
+			"surface_visible": booleanSchema(),
+			"untrusted":       booleanSchema(),
+			"provider":        stringSchema(),
+			"duration_ms":     integerSchema(),
 		}),
 		Risk:             risk,
 		RequiresApproval: approval,
@@ -1200,13 +1232,13 @@ func browserAutomationDefinition(name, description string, risk app.RiskLevel, a
 func browserAutomationInputProperties(required []string, extra []string) map[string]any {
 	all := slices.Clone(required)
 	all = append(all, extra...)
-	all = append(all, "mode", "target_kind", "focused", "current_focus", "rich_text", "timeout_ms", "reason")
+	all = append(all, "mode", "target_kind", "focused", "current_focus", "rich_text", "timeout_ms", "reason", "browser_mode", "presentation", "surface_visible", "disable_hidden_browser", "visible_browser")
 	out := map[string]any{}
 	for _, field := range all {
 		switch field {
-		case "page_id", "uid", "url", "text", "value", "mode", "target_kind", "reason":
+		case "page_id", "uid", "url", "text", "value", "mode", "target_kind", "reason", "browser_mode", "presentation", "browser_page_ref", "filePath":
 			out[field] = stringSchema()
-		case "focused", "current_focus", "rich_text":
+		case "focused", "current_focus", "rich_text", "surface_visible", "disable_hidden_browser", "visible_browser", "verbose":
 			out[field] = booleanSchema()
 		case "timeout_ms":
 			out[field] = map[string]any{"type": "number"}

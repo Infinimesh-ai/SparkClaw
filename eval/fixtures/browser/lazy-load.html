@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lazy Loaded Notice Fixture</title>
+    <style>
+      body { min-height: 2400px; font-family: sans-serif; }
+      .spacer { height: 1400px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article id="notice">
+        <h1>Lazy Loaded Notice</h1>
+        <p>The first section is visible before scrolling.</p>
+      </article>
+      <div class="spacer" aria-hidden="true"></div>
+    </main>
+    <script>
+      let loaded = false;
+      function appendLazySection() {
+        if (loaded) return;
+        loaded = true;
+        const p = document.createElement("p");
+        p.textContent = "LAZY_SECTION_AFTER_SCROLL confirms the read path scrolled and captured delayed article content.";
+        document.getElementById("notice").appendChild(p);
+      }
+      window.addEventListener("scroll", appendLazySection);
+    </script>
+  </body>
+</html>

@@ -262,7 +262,7 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 func (d *Dispatcher) sendAssistantAnswer(ctx context.Context, inbound InboundMessage, answer, runID string) (notification.Result, error) {
 	recipient := d.replyRecipient(inbound)
 	if mediaPath, ok := singleMediaMarkdownPath(answer); ok {
-		if imagePath, ok := d.workspaceMediaPath(mediaPath); ok {
+		if imagePath, ok := d.workspaceMediaPath(mediaPath, inbound); ok {
 			return notification.SendWeixinImage(ctx, d.store, d.cfg,
 				recipient,
 				inbound.ContextToken,
@@ -643,18 +643,46 @@ func singleMediaMarkdownPath(answer string) (string, bool) {
 		return "", false
 	}
 	path := strings.TrimSpace(answer[closeAlt+2 : len(answer)-1])
-	path = strings.TrimPrefix(path, "workspace://")
-	path = strings.TrimLeft(path, "/")
-	path = filepath.ToSlash(filepath.Clean(path))
-	if path == "." || strings.HasPrefix(path, "../") || !strings.HasPrefix(path, "media/") {
+	cleaned, ok := cleanMediaMarkdownTarget(path)
+	if !ok {
 		return "", false
 	}
-	switch strings.ToLower(filepath.Ext(path)) {
+	switch strings.ToLower(filepath.Ext(cleaned)) {
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
-		return path, true
+		return cleaned, true
 	default:
 		return "", false
 	}
+}
+
+func cleanMediaMarkdownTarget(path string) (string, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", false
+	}
+	if strings.HasPrefix(path, "workspace://") {
+		path = strings.TrimPrefix(path, "workspace://")
+		path = strings.TrimLeft(path, "/")
+		cleaned := filepath.ToSlash(filepath.Clean(path))
+		if cleaned == "." || strings.HasPrefix(cleaned, "../") || !strings.HasPrefix(cleaned, "media/") {
+			return "", false
+		}
+		return cleaned, true
+	}
+	if filepath.IsAbs(path) {
+		cleaned := filepath.Clean(path)
+		slash := filepath.ToSlash(cleaned)
+		if !strings.Contains(slash, "/media/") {
+			return "", false
+		}
+		return cleaned, true
+	}
+	path = strings.TrimLeft(path, "/")
+	cleaned := filepath.ToSlash(filepath.Clean(path))
+	if cleaned == "." || strings.HasPrefix(cleaned, "../") || !strings.HasPrefix(cleaned, "media/") {
+		return "", false
+	}
+	return cleaned, true
 }
 
 func (d *Dispatcher) replyRecipient(inbound InboundMessage) string {
@@ -664,11 +692,41 @@ func (d *Dispatcher) replyRecipient(inbound InboundMessage) string {
 	return strings.TrimSpace(inbound.Binding.ExternalUserID)
 }
 
-func (d *Dispatcher) workspaceMediaPath(mediaPath string) (string, bool) {
-	mediaPath = filepath.ToSlash(strings.TrimSpace(mediaPath))
+func (d *Dispatcher) workspaceMediaPath(mediaPath string, inbound InboundMessage) (string, bool) {
+	mediaPath = strings.TrimSpace(mediaPath)
+	if mediaPath == "" {
+		return "", false
+	}
+	relPath := ""
+	if !filepath.IsAbs(mediaPath) {
+		relPath = filepath.ToSlash(strings.TrimSpace(mediaPath))
+	}
+	absPath := ""
+	if filepath.IsAbs(mediaPath) {
+		cleaned, err := filepath.Abs(mediaPath)
+		if err != nil {
+			return "", false
+		}
+		absPath = filepath.Clean(cleaned)
+	}
 	for _, object := range d.store.ListArtifactObjects(200) {
-		if filepath.ToSlash(object.Key) == mediaPath && strings.HasPrefix(filepath.ToSlash(object.Key), "media/") && strings.TrimSpace(object.Path) != "" {
+		key := filepath.ToSlash(object.Key)
+		objectPath := strings.TrimSpace(object.Path)
+		if !strings.HasPrefix(key, "media/") || objectPath == "" {
+			continue
+		}
+		if relPath != "" && key == relPath {
 			return object.Path, true
+		}
+		if absPath != "" {
+			if objectAbs, err := filepath.Abs(objectPath); err == nil && filepath.Clean(objectAbs) == absPath {
+				return object.Path, true
+			}
+		}
+	}
+	if relPath != "" {
+		if path, ok := d.workspaceSessionPath(relPath, inbound); ok {
+			return path, true
 		}
 	}
 	return "", false

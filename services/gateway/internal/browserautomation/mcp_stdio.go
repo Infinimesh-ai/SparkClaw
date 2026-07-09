@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
+
+const hiddenBrowserViewport = "1365x768"
 
 type jsonRPCRequest struct {
 	JSONRPC string         `json:"jsonrpc"`
@@ -32,15 +35,19 @@ type jsonRPCError struct {
 }
 
 func (a *ChromeDevToolsAdapter) listTools(ctx context.Context) ([]string, error) {
+	return a.listToolsWithSession(ctx, false)
+}
+
+func (a *ChromeDevToolsAdapter) listToolsWithSession(ctx context.Context, hidden bool) ([]string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	session, err := a.ensureSessionLocked(ctx)
+	session, err := a.ensureSessionLocked(ctx, hidden)
 	if err != nil {
 		return nil, err
 	}
 	response, err := session.request(ctx, "tools/list", nil)
 	if err != nil {
-		a.resetSessionLocked()
+		a.resetSessionLocked(hidden)
 		return nil, err
 	}
 	var decoded struct {
@@ -59,9 +66,13 @@ func (a *ChromeDevToolsAdapter) listTools(ctx context.Context) ([]string, error)
 }
 
 func (a *ChromeDevToolsAdapter) callTool(ctx context.Context, name string, args map[string]any) (any, error) {
+	return a.callToolWithSession(ctx, false, name, args)
+}
+
+func (a *ChromeDevToolsAdapter) callToolWithSession(ctx context.Context, hidden bool, name string, args map[string]any) (any, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	session, err := a.ensureSessionLocked(ctx)
+	session, err := a.ensureSessionLocked(ctx, hidden)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +81,7 @@ func (a *ChromeDevToolsAdapter) callTool(ctx context.Context, name string, args 
 		"arguments": args,
 	})
 	if err != nil {
-		a.resetSessionLocked()
+		a.resetSessionLocked(hidden)
 		return nil, err
 	}
 	var decoded any
@@ -82,11 +93,11 @@ func (a *ChromeDevToolsAdapter) callTool(ctx context.Context, name string, args 
 	return decoded, nil
 }
 
-func (a *ChromeDevToolsAdapter) ensureSessionLocked(ctx context.Context) (*stdioSession, error) {
-	if a.session != nil && a.session.alive() {
-		return a.session, nil
+func (a *ChromeDevToolsAdapter) ensureSessionLocked(ctx context.Context, hidden bool) (*stdioSession, error) {
+	if session := a.sessionForModeLocked(hidden); session != nil && session.alive() {
+		return session, nil
 	}
-	session, err := a.newSession(ctx)
+	session, err := a.newSession(ctx, hidden)
 	if err != nil {
 		return nil, err
 	}
@@ -94,15 +105,42 @@ func (a *ChromeDevToolsAdapter) ensureSessionLocked(ctx context.Context) (*stdio
 		session.close()
 		return nil, err
 	}
-	a.session = session
+	a.setSessionForModeLocked(hidden, session)
 	return session, nil
 }
 
-func (a *ChromeDevToolsAdapter) resetSessionLocked() {
+func (a *ChromeDevToolsAdapter) sessionForModeLocked(hidden bool) *stdioSession {
+	if hidden {
+		return a.hiddenSession
+	}
+	return a.session
+}
+
+func (a *ChromeDevToolsAdapter) setSessionForModeLocked(hidden bool, session *stdioSession) {
+	if hidden {
+		a.hiddenSession = session
+		return
+	}
+	a.session = session
+}
+
+func (a *ChromeDevToolsAdapter) resetSessionLocked(hidden bool) {
+	if hidden {
+		if a.hiddenSession != nil {
+			a.hiddenSession.close()
+			a.hiddenSession = nil
+		}
+		return
+	}
 	if a.session != nil {
 		a.session.close()
 		a.session = nil
 	}
+}
+
+func (a *ChromeDevToolsAdapter) resetAllSessionsLocked() {
+	a.resetSessionLocked(false)
+	a.resetSessionLocked(true)
 }
 
 type stdioSession struct {
@@ -115,7 +153,7 @@ type stdioSession struct {
 	nextID int
 }
 
-func (a *ChromeDevToolsAdapter) newSession(ctx context.Context) (*stdioSession, error) {
+func (a *ChromeDevToolsAdapter) newSession(ctx context.Context, hidden bool) (*stdioSession, error) {
 	adapterCfg := a.cfg.Adapters.BrowserAutomation
 	if adapterCfg.MCPCommand == "" {
 		return nil, errors.New("browser automation MCP command is empty")
@@ -125,8 +163,15 @@ func (a *ChromeDevToolsAdapter) newSession(ctx context.Context) (*stdioSession, 
 		return nil, ctx.Err()
 	default:
 	}
+	args := cloneStringSlice(adapterCfg.MCPArgs)
+	if hidden {
+		if unsafeFlag := hiddenMCPArgsUnsafeFlag(args); unsafeFlag != "" {
+			return nil, fmt.Errorf("hidden browser session refuses configured %s", unsafeFlag)
+		}
+		args = hiddenMCPArgs(args)
+	}
 	execCtx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(execCtx, adapterCfg.MCPCommand, adapterCfg.MCPArgs...)
+	cmd := exec.CommandContext(execCtx, adapterCfg.MCPCommand, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -161,6 +206,61 @@ func (a *ChromeDevToolsAdapter) newSession(ctx context.Context) (*stdioSession, 
 		errs:   errs,
 		nextID: 1,
 	}, nil
+}
+
+func hiddenMCPArgs(args []string) []string {
+	out := cloneStringSlice(args)
+	if !hasMCPFlag(out, "--headless") {
+		out = append(out, "--headless")
+	}
+	if !hasMCPFlag(out, "--isolated") {
+		out = append(out, "--isolated")
+	}
+	if !hasMCPFlag(out, "--viewport") {
+		out = append(out, "--viewport="+hiddenBrowserViewport)
+	}
+	if !hasMCPFlag(out, "--no-usage-statistics") && !hasMCPFlag(out, "--usage-statistics") {
+		out = append(out, "--no-usage-statistics")
+	}
+	return out
+}
+
+func hiddenMCPArgsUnsafeFlag(args []string) string {
+	for _, names := range [][]string{
+		{"--browserUrl", "--browser-url"},
+		{"--userDataDir", "--user-data-dir"},
+	} {
+		if hasMCPFlag(args, names...) {
+			return names[0]
+		}
+	}
+	return ""
+}
+
+func hasMCPFlag(args []string, names ...string) bool {
+	want := map[string]bool{}
+	for _, name := range names {
+		want[name] = true
+	}
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if want[arg] {
+			return true
+		}
+		if idx := strings.IndexByte(arg, '='); idx > 0 && want[arg[:idx]] {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
 }
 
 func (s *stdioSession) alive() bool {

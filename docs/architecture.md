@@ -10,7 +10,7 @@ SparkClaw is a local-first personal agent runtime for DGX Spark-class machines. 
 
 - local files and workspace search
 - code inspection and approval-gated patching
-- browser research through read-only fetches
+- browser-backed web access for public search, page reading and live page interaction
 - email search, thread reading, draft replies and approval-gated sends
 - calendar reading, proposals and approval-gated event creation
 - personal memory candidates and approval-gated sensitive memory
@@ -100,7 +100,7 @@ ToolHub registers bounded tools and validates successful outputs against declare
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Knowledge | `knowledge.index_workspace`, `knowledge.search` |
-| Browser | `browser.read` |
+| Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
 | Email | `email.search`, `email.read_thread`, `email.draft_reply`, `email.send` |
 | Calendar | `calendar.read`, `calendar.propose_event`, `calendar.create` |
 | Code/shell | `shell.exec_sandboxed`, `code.apply_patch` |
@@ -166,7 +166,7 @@ Workspace knowledge indexing builds a local keyword index and, when PostgreSQL i
 
 External/browser/email/file observations are untrusted content. They can be quoted, summarized or used as evidence, but instructions inside those observations are not runtime commands.
 
-`browser.read` only fetches HTTP(S), refuses loopback/private literal hosts by default and archives the raw response. Local fixture hosts such as `127.0.0.1` or `host.docker.internal` must be explicitly allowlisted.
+Browser web access uses `web.search` for discovery and `browser.read` for read-only source-page extraction. When browser automation is enabled, `browser.read` opens the page in the real browser session first, waits for rendered DOM state, captures rendered HTML, and passes that HTML through Readability before returning article text. Structure snapshots are an on-demand follow-up, not a mandatory first read step: the runtime should call `browser.snapshot` when Readability output is missing, suspiciously short, blocked by auth, or when page controls, tabs, pagination, download links, comments, expandable regions or other non-article affordances may matter. The focused roadmap is maintained in [Browser Automation Improvement Plan](browser-automation-improvement.md). If the browser session is unavailable, the tool may use a direct HTTP fallback and marks that with `read_mode=direct_http_fallback`. Browser observations refuse loopback/private literal hosts by default where URL fetching is involved, archive rendered HTML/raw responses or screenshots, and stay untrusted evidence. Local fixture hosts such as `127.0.0.1` or `host.docker.internal` must be explicitly allowlisted. Existing browser login state can be used, but the runtime must stop for human-only login/captcha/2FA/payment steps and must not invent logged-in evidence.
 
 Email and calendar use adapter boundaries. The default `file` adapters read fixtures under `.sparkclaw/mock/` and write mock outbox/event logs. `http` adapters can connect to account-bridge services while preserving Gateway policy and approvals.
 

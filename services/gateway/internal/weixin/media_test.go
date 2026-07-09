@@ -103,6 +103,98 @@ func TestAttachmentClarificationPromptDistinguishesDocuments(t *testing.T) {
 	}
 }
 
+func TestSendAssistantAnswerUploadsAbsoluteWeatherCardArtifact(t *testing.T) {
+	var sawUpload bool
+	var sentTextItems int
+	var sentImageItems int
+	var serverURL string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/getuploadurl":
+			_, _ = w.Write([]byte(`{"upload_full_url":"` + serverURL + `/upload"}`))
+		case "/upload":
+			sawUpload = true
+			w.Header().Set("x-encrypted-param", "download-param-weather")
+			_, _ = w.Write([]byte(`ok`))
+		case "/ilink/bot/sendmessage":
+			var payload struct {
+				Msg struct {
+					ItemList []struct {
+						Type int `json:"type"`
+					} `json:"item_list"`
+				} `json:"msg"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			for _, item := range payload.Msg.ItemList {
+				switch item.Type {
+				case 1:
+					sentTextItems++
+				case 2:
+					sentImageItems++
+				}
+			}
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	serverURL = ts.URL
+
+	root := t.TempDir()
+	relPath := filepath.Join("media", "20260708", "weather_card.png")
+	absPath := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rawImage := tinyPNG(t)
+	if err := os.WriteFile(absPath, rawImage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := store.NewMemoryStore()
+	st.SaveArtifactObject(app.ArtifactObject{
+		ID:          "obj_weather",
+		Kind:        "media_weather_card",
+		Backend:     "workspace",
+		Key:         filepath.ToSlash(relPath),
+		URI:         "workspace://" + filepath.ToSlash(relPath),
+		Path:        absPath,
+		ContentType: "image/png",
+		Bytes:       len(rawImage),
+		CreatedAt:   time.Now().UTC(),
+	})
+	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{
+		Enabled:    true,
+		Provider:   "openclaw-weixin-qr",
+		BaseURL:    ts.URL,
+		CDNBaseURL: ts.URL,
+		Token:      "bot-token",
+	})
+
+	_, err := dispatcher.sendAssistantAnswer(context.Background(), InboundMessage{
+		Binding: app.NotificationBinding{
+			ID:             "bind_1",
+			Channel:        "weixin",
+			Provider:       "openclaw-weixin-qr",
+			ExternalUserID: "wx-user",
+			BaseURL:        ts.URL,
+		},
+		FromUserID:   "wx-user",
+		ContextToken: "ctx-1",
+	}, "![]("+absPath+")", "run-weather")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawUpload {
+		t.Fatal("expected absolute weather card artifact to be uploaded as image")
+	}
+	if sentImageItems != 1 || sentTextItems != 0 {
+		t.Fatalf("expected one image item and no text items, got image=%d text=%d", sentImageItems, sentTextItems)
+	}
+}
+
 func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	var sentText string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

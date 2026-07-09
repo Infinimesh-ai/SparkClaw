@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JS Rendered Notice Fixture</title>
+  </head>
+  <body>
+    <main id="app">
+      <p id="loading">STATIC_SHELL_BEFORE_JS_RENDER</p>
+    </main>
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("app").innerHTML = `
+          <article>
+            <h1>JS Rendered Notice</h1>
+            <p>JS_RENDERED_NOTICE_2026 appears only after browser JavaScript execution.</p>
+            <p>The rendered article includes admission dates, contact channels, campus notes, and local runtime evidence markers.</p>
+            <p>SparkClaw should extract this rendered article instead of the static loading shell.</p>
+          </article>
+        `;
+      });
+    </script>
+  </body>
+</html>

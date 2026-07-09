@@ -66,6 +66,28 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 	}
 }
 
+func TestBrowserOpenPassesCollaborativeMetadata(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	callArgs := map[string]any{}
+	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(fakePageReadAdapter{callArgs: &callArgs})
+
+	result, err := hub.Execute(context.Background(), "browser.open", map[string]any{"url": "https://example.com"}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if callArgs["browser_mode"] != "collaborative" || callArgs["presentation"] != "visible" || callArgs["surface_visible"] != true {
+		t.Fatalf("browser.open should pass collaborative visible metadata to adapter: %#v", callArgs)
+	}
+	out, ok := result.Output.(browserautomation.Result)
+	if !ok {
+		t.Fatalf("expected browser automation result, got %#v", result.Output)
+	}
+	if out.BrowserMode != "collaborative" || out.Presentation != "visible" || !out.SurfaceVisible {
+		t.Fatalf("browser.open output should include collaborative metadata: %#v", out)
+	}
+}
+
 func TestAttachBrowserScreenshotSavesWorkspaceFile(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()

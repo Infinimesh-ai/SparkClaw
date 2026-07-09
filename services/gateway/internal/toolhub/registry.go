@@ -103,8 +103,8 @@ var toolRegistry = map[string]toolRegistration{
 	},
 	"browser.status": {
 		enabled: browserAutomationEnabled,
-		run: func(h *ToolHub, ctx context.Context, _ string, _ map[string]any, _, _ string) (Result, error) {
-			return h.browserAutomationHealth(ctx)
+		run: func(h *ToolHub, ctx context.Context, _ string, args map[string]any, _, _ string) (Result, error) {
+			return h.browserAutomationHealth(ctx, args)
 		},
 	},
 	"browser.list_tabs":      {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},

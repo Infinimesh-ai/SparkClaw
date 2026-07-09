@@ -3640,6 +3640,81 @@ func TestRepeatedFailedToolCallStopsSameArguments(t *testing.T) {
 	}
 }
 
+func TestRepeatedToolBudgetRequiresSameArgumentsAndResult(t *testing.T) {
+	run := repeatedToolCallRun{}
+	for _, call := range []app.ToolCall{
+		{
+			Tool:      "browser.read",
+			Status:    "completed",
+			Arguments: map[string]any{"url": "https://example.test/a"},
+			Result: map[string]any{
+				"status_code": 404,
+				"text":        "404 not found",
+			},
+		},
+		{
+			Tool:      "browser.read",
+			Status:    "completed",
+			Arguments: map[string]any{"url": "https://example.test/b"},
+			Result: map[string]any{
+				"status_code": 404,
+				"text":        "404 not found",
+			},
+		},
+		{
+			Tool:      "browser.read",
+			Status:    "completed",
+			Arguments: map[string]any{"url": "https://example.test/c"},
+			Result: map[string]any{
+				"status_code": 404,
+				"text":        "404 not found",
+			},
+		},
+	} {
+		run = advanceRepeatedToolCallRun(run, call)
+		if run.Count != 1 {
+			t.Fatalf("different browser.read URLs should not accumulate repeated-tool budget: %#v", run)
+		}
+	}
+}
+
+func TestRepeatedToolBudgetAccumulatesStableIdenticalResults(t *testing.T) {
+	run := repeatedToolCallRun{}
+	for _, fetchedAt := range []string{
+		"2026-07-08T10:19:12Z",
+		"2026-07-08T10:19:13Z",
+		"2026-07-08T10:19:14Z",
+	} {
+		run = advanceRepeatedToolCallRun(run, app.ToolCall{
+			Tool:      "browser.read",
+			Status:    "completed",
+			Arguments: map[string]any{"url": "https://example.test/same"},
+			Result: map[string]any{
+				"fetched_at":   fetchedAt,
+				"snapshot_ref": "artifact://sparkclaw/browser/snapshots/" + fetchedAt,
+				"status_code":  200,
+				"text":         "same page body",
+			},
+		})
+	}
+	if run.Count != 3 {
+		t.Fatalf("same tool, same arguments and same stable result should accumulate, got %#v", run)
+	}
+
+	run = advanceRepeatedToolCallRun(run, app.ToolCall{
+		Tool:      "browser.read",
+		Status:    "completed",
+		Arguments: map[string]any{"url": "https://example.test/same"},
+		Result: map[string]any{
+			"status_code": 200,
+			"text":        "updated page body",
+		},
+	})
+	if run.Count != 1 {
+		t.Fatalf("changed browser.read content should reset repeated-tool budget, got %#v", run)
+	}
+}
+
 func TestGroundedSummaryUsesCompletedImageInspection(t *testing.T) {
 	got := groundedSummary("这张图讲了什么", "", []app.ToolCall{
 		{

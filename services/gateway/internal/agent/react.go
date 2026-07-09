@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -41,6 +42,12 @@ type reactRunBudget struct {
 	MaxObservationBytes  int
 	MaxNoProgressActions int
 	MaxRepeatedToolCalls int
+}
+
+type repeatedToolCallRun struct {
+	Tool        string
+	Fingerprint string
+	Count       int
 }
 
 func (r Runtime) reactBudget() reactRunBudget {
@@ -87,11 +94,10 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 	compactContextText := contextSnapshot.ForReActCompact()
 	budget := r.reactBudget()
 	noProgressActions := 0
-	lastToolName := ""
-	repeatedToolCalls := 0
+	repeatedRun := repeatedToolCallRun{}
 	attempts := 0
 	for {
-		if stop, reason := shouldStopReActRun(ctx, budget, result.ToolCalls, result.Observations, noProgressActions, repeatedToolCalls, lastToolName); stop {
+		if stop, reason := shouldStopReActRun(ctx, budget, result.ToolCalls, result.Observations, noProgressActions, repeatedRun.Count, repeatedRun.Tool); stop {
 			if grounded, ok := groundedImageInspectSummary(content, "", result.ToolCalls); ok {
 				result.FinalAnswer = grounded
 				result.Completed = true
@@ -108,8 +114,8 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 					"tool_calls":          len(result.ToolCalls),
 					"observation_bytes":   observationsBytes(result.Observations),
 					"no_progress_actions": noProgressActions,
-					"repeated_tool":       lastToolName,
-					"repeated_tool_calls": repeatedToolCalls,
+					"repeated_tool":       repeatedRun.Tool,
+					"repeated_tool_calls": repeatedRun.Count,
 				},
 			})
 			return result
@@ -161,8 +167,7 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 			})
 			result.Observations = append(result.Observations, observation)
 			noProgressActions++
-			lastToolName = ""
-			repeatedToolCalls = 0
+			repeatedRun = repeatedToolCallRun{}
 			continue
 		}
 		r.store.AddAudit(app.AuditEvent{
@@ -187,12 +192,7 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
 		result.ToolCalls = append(result.ToolCalls, call)
 		completedSoFar = append(completedSoFar, call)
-		if call.Tool == lastToolName {
-			repeatedToolCalls++
-		} else {
-			lastToolName = call.Tool
-			repeatedToolCalls = 1
-		}
+		repeatedRun = advanceRepeatedToolCallRun(repeatedRun, call)
 		if approval != nil {
 			result.Approvals = append(result.Approvals, *approval)
 		}
@@ -378,6 +378,84 @@ func repeatedCompletedToolCall(calls []app.ToolCall, threshold int) bool {
 		count++
 	}
 	return count >= threshold
+}
+
+func advanceRepeatedToolCallRun(run repeatedToolCallRun, call app.ToolCall) repeatedToolCallRun {
+	fingerprint := repeatedToolCallFingerprint(call)
+	tool := strings.TrimSpace(call.Tool)
+	if fingerprint == "" || tool == "" {
+		return repeatedToolCallRun{}
+	}
+	if run.Tool == tool && run.Fingerprint == fingerprint {
+		run.Count++
+		return run
+	}
+	return repeatedToolCallRun{Tool: tool, Fingerprint: fingerprint, Count: 1}
+}
+
+func repeatedToolCallFingerprint(call app.ToolCall) string {
+	tool := strings.TrimSpace(call.Tool)
+	if tool == "" {
+		return ""
+	}
+	payload := map[string]any{
+		"tool":      tool,
+		"arguments": call.Arguments,
+		"status":    call.Status,
+		"result":    stableToolFingerprintValue(call.Result),
+		"error":     call.Error,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Sprint(payload)
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func stableToolFingerprintValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if volatileToolFingerprintKey(key) {
+				continue
+			}
+			out[key] = stableToolFingerprintValue(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, child := range typed {
+			out[i] = stableToolFingerprintValue(child)
+		}
+		return out
+	default:
+		return typed
+	}
+}
+
+func volatileToolFingerprintKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "artifact_uri",
+		"artifact_url",
+		"created_at",
+		"completed_at",
+		"fetched_at",
+		"id",
+		"object_key",
+		"observation_ref",
+		"run_id",
+		"session_id",
+		"snapshot_object_key",
+		"snapshot_ref",
+		"started_at",
+		"tool_call_id",
+		"updated_at":
+		return true
+	default:
+		return false
+	}
 }
 
 func repeatedToolFailureMessage(goal string, calls []app.ToolCall) string {

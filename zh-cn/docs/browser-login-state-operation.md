@@ -137,6 +137,13 @@ browser tool 检测到 auth challenge
        等待用户下一条消息
 ```
 
+`BrowserLoginBlock` 的创建以工具结果中的登录交接字段为准，而不是绑定某一个工具名。
+`browser.read` 是最常见路径，但如果 `browser.open`、`browser.navigate` 或
+`browser.snapshot` 这类可见浏览器工具返回了
+`browser_auth_status=handoff_waiting|handoff_required`、
+`login_handoff_opened=true`，或
+`auth_challenge_detected=true` 且 `login_handoff_required=true`，也必须创建 block。
+
 可见交接只服务于登录步骤。认证验证成功后，最终页面读取、snapshot 或 navigation 继续使用
 `browser_mode=autonomous`、`presentation=hidden` 和 `surface_visible=false`。
 

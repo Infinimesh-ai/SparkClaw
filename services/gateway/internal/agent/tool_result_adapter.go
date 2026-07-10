@@ -250,6 +250,22 @@ func toolResultStructuredFields(call app.ToolCall, output any, observationRef st
 		if value, ok := outputMap["status"]; ok && usefulStructuredValue(value) {
 			fields["result_status"] = value
 		}
+		if strings.HasPrefix(call.Tool, "browser.") {
+			if nestedOutput, ok := anyMap(outputMap["output"]); ok {
+				for _, key := range []string{
+					"url", "final_url", "title", "browser_mode", "presentation", "surface_visible",
+					"auth_challenge_detected", "auth_challenge_kind", "auth_site_origin", "auth_site_realm",
+					"browser_auth_status", "browser_auth_record_id", "browser_profile_id", "owner_id",
+					"login_surface", "login_handoff_required", "login_handoff_opened", "login_handoff_url",
+					"browser_auth_restore_attempted", "browser_auth_restore_succeeded", "browser_auth_restore_error",
+					"browser_auth_export_error", "browser_auth_record_saved", "browser_session_error",
+				} {
+					if value, ok := nestedOutput[key]; ok && usefulStructuredValue(value) {
+						fields[key] = value
+					}
+				}
+			}
+		}
 		if refs := compactArtifactRefs(outputMap); len(refs) > 0 {
 			fields["artifact_refs"] = refs
 		}

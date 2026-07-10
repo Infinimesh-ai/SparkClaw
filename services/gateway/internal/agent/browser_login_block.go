@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,11 +19,11 @@ const (
 )
 
 func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal string, plan toolPlan, call app.ToolCall) (app.BrowserLoginBlock, bool) {
-	if call.Tool != "browser.read" || !toolCallCompleted(call) {
+	if !browserToolMayCreateLoginBlock(call.Tool) || !toolCallCompleted(call) {
 		return app.BrowserLoginBlock{}, false
 	}
-	output, ok := anyMap(call.Result)
-	if !ok || !browserReadOutputNeedsLoginBlock(output) {
+	output := browserLoginToolFields(call)
+	if !browserOutputNeedsLoginBlock(output) {
 		return app.BrowserLoginBlock{}, false
 	}
 	resumeArgs := clonePlanArgs(plan.Args)
@@ -39,7 +40,7 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal stri
 	block.RunID = runID
 	block.Status = app.BrowserLoginBlockStatusWaiting
 	block.OriginalGoal = goal
-	block.ResumeTool = plan.Name
+	block.ResumeTool = browserLoginResumeTool(plan.Name)
 	block.ResumeArgs = resumeArgs
 	block.LastToolCallID = call.ID
 	block.LoginHandoffURL = firstNonEmptyString(output["login_handoff_url"], output["final_url"], output["url"], resumeArgs["url"])
@@ -63,7 +64,63 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal stri
 	return block, true
 }
 
-func browserReadOutputNeedsLoginBlock(output map[string]any) bool {
+func browserToolMayCreateLoginBlock(tool string) bool {
+	return tool == "browser.read" || strings.HasPrefix(tool, "browser.")
+}
+
+func browserLoginResumeTool(tool string) string {
+	if tool == "browser.read" {
+		return tool
+	}
+	return "browser.read"
+}
+
+func browserLoginToolFields(call app.ToolCall) map[string]any {
+	fields := map[string]any{}
+	mergeBrowserLoginFields(fields, call.Arguments, false)
+	if output, ok := anyMap(call.Result); ok {
+		mergeBrowserLoginFields(fields, output, true)
+		if nested, ok := anyMap(output["output"]); ok {
+			mergeBrowserLoginFields(fields, nested, true)
+		}
+		if nestedArgs, ok := anyMap(output["arguments"]); ok {
+			mergeBrowserLoginFields(fields, nestedArgs, false)
+		}
+	}
+	if structured := toolResultStructuredFieldsFromSummary(call.ObservationSummary); len(structured) > 0 {
+		mergeBrowserLoginFields(fields, structured, false)
+	}
+	return fields
+}
+
+func toolResultStructuredFieldsFromSummary(summary string) map[string]any {
+	summary = strings.TrimSpace(summary)
+	if summary == "" || !strings.HasPrefix(summary, "{") {
+		return nil
+	}
+	var message toolResultMessage
+	if err := json.Unmarshal([]byte(summary), &message); err != nil {
+		return nil
+	}
+	return message.Structured
+}
+
+func mergeBrowserLoginFields(dst, src map[string]any, overwrite bool) {
+	if src == nil {
+		return
+	}
+	for key, value := range src {
+		if _, ok := dst[key]; ok && !overwrite {
+			continue
+		}
+		if strings.TrimSpace(stringValue(value)) == "" || stringValue(value) == "<nil>" {
+			continue
+		}
+		dst[key] = value
+	}
+}
+
+func browserOutputNeedsLoginBlock(output map[string]any) bool {
 	status := strings.ToLower(strings.TrimSpace(stringValue(output["browser_auth_status"])))
 	if status == "handoff_waiting" || status == "handoff_required" {
 		return true

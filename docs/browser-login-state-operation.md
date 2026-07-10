@@ -157,6 +157,14 @@ browser tool detects auth challenge
        wait for the user's next message
 ```
 
+`BrowserLoginBlock` creation is keyed by the auth handoff fields in the tool
+result, not by a single tool name. `browser.read` is the common path, but a
+visible browser tool such as `browser.open`, `browser.navigate` or
+`browser.snapshot` must also create the block if its result reports
+`browser_auth_status=handoff_waiting|handoff_required`,
+`login_handoff_opened=true`, or
+`auth_challenge_detected=true` with `login_handoff_required=true`.
+
 The visible handoff is only for the login step. Once authentication is verified,
 the final page read, snapshot or navigation continues with
 `browser_mode=autonomous`, `presentation=hidden` and `surface_visible=false`.

@@ -721,6 +721,51 @@ func TestRuntimeBlocksAndResumesAutonomousBrowserLogin(t *testing.T) {
 	}
 }
 
+func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st := store.NewMemoryStore()
+	session := st.CreateSession("visible browser login block")
+	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true}
+	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+
+	first, err := runtime.HandleMessage(context.Background(), session.ID, `打开 https://example.com/protected
+MOCK_REACT_RESPONSE:{"type":"action","tool":"browser.open","arguments":{"url":"https://example.com/protected"},"reason":"test visible login handoff"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Run.State != "browser_login_blocked" || first.Run.CompletedAt != nil {
+		t.Fatalf("visible browser login handoff should pause the original run, got %#v", first.Run)
+	}
+	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	if !ok {
+		t.Fatalf("expected active browser login block from browser.open result")
+	}
+	if block.RunID != first.Run.ID || block.ResumeTool != "browser.read" || block.ResumeArgs["url"] != "https://example.com/protected" {
+		t.Fatalf("visible browser block should preserve original URL and resume through browser.read: %#v", block)
+	}
+	if block.BrowserAuthStatus != "handoff_waiting" || block.LoginHandoffURL != "https://example.com/protected" {
+		t.Fatalf("visible browser block lost auth handoff fields: %#v", block)
+	}
+
+	adapter.readCalls = 1
+	second, err := runtime.HandleMessage(context.Background(), session.ID, "登录完成")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Run.ID != first.Run.ID {
+		t.Fatalf("login completion should resume original run: first=%s second=%s", first.Run.ID, second.Run.ID)
+	}
+	if adapter.listTabsCalls == 0 {
+		t.Fatalf("login completion should inspect visible tabs before resuming")
+	}
+}
+
 func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
@@ -1555,6 +1600,36 @@ func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
 	}
 	if len(decoded.Evidence) == 0 || decoded.Evidence[0].Kind != "browser.read_extract" || !strings.Contains(decoded.Evidence[0].Text, "needs_structure_snapshot: true") || !strings.Contains(decoded.Evidence[0].Text, "content truncated") {
 		t.Fatalf("browser read evidence should mention truncation: %#v", decoded.Evidence)
+	}
+}
+
+func TestToolResultAdapterKeepsBrowserAutomationNestedAuthFields(t *testing.T) {
+	call := app.ToolCall{ID: "tc_open", Tool: "browser.open", Status: "completed"}
+	output := browserautomation.Result{
+		Tool:    "browser.open",
+		RawTool: "new_page",
+		Output: map[string]any{
+			"url":                     "https://example.com/protected",
+			"final_url":               "https://example.com/protected",
+			"auth_challenge_detected": true,
+			"browser_auth_status":     "handoff_waiting",
+			"login_handoff_required":  true,
+			"login_handoff_opened":    true,
+			"login_handoff_url":       "https://example.com/protected",
+		},
+		Provider:  "fake-browser",
+		Untrusted: true,
+	}
+	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 1800})
+	var decoded toolResultMessage
+	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
+		t.Fatalf("tool result message is not JSON: %v\n%s", err, message)
+	}
+	if decoded.Category != "browser" ||
+		decoded.Structured["browser_auth_status"] != "handoff_waiting" ||
+		decoded.Structured["login_handoff_opened"] != true ||
+		decoded.Structured["login_handoff_url"] != "https://example.com/protected" {
+		t.Fatalf("browser automation nested auth fields missing: %#v", decoded.Structured)
 	}
 }
 
@@ -2637,11 +2712,12 @@ func (fakeBrowserAutomationAdapter) Call(ctx context.Context, tool string, args 
 }
 
 type loginBlockBrowserAdapter struct {
-	readCalls     int
-	listTabsCalls int
-	exportCalls   int
-	importCalls   int
-	openCalls     int
+	readCalls         int
+	listTabsCalls     int
+	exportCalls       int
+	importCalls       int
+	openCalls         int
+	openAuthChallenge bool
 }
 
 func (a *loginBlockBrowserAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
@@ -2706,6 +2782,31 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 		}, nil
 	case "browser.open":
 		a.openCalls++
+		if a.openAuthChallenge {
+			target := stringValue(args["url"])
+			return browserautomation.Result{
+				Tool:      tool,
+				RawTool:   "new_page",
+				Arguments: args,
+				Output: map[string]any{
+					"url":                     target,
+					"final_url":               target,
+					"auth_challenge_detected": true,
+					"auth_challenge_kind":     "login_or_verification",
+					"auth_site_origin":        "https://example.com",
+					"browser_auth_status":     "handoff_waiting",
+					"browser_profile_id":      "default",
+					"owner_id":                app.DefaultOwnerID,
+					"login_surface":           "collaborative_visible",
+					"login_handoff_required":  true,
+					"login_handoff_opened":    true,
+					"login_handoff_url":       target,
+				},
+				Text:      "Login required",
+				Untrusted: true,
+				Provider:  "login-block-fake",
+			}, nil
+		}
 	}
 	return browserautomation.Result{
 		Tool:      tool,

@@ -766,6 +766,99 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"browser.open","arguments":{"url":"h
 	}
 }
 
+func TestRuntimeCreatesBrowserLoginBlockFromVisibleAuthGateText(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st := store.NewMemoryStore()
+	session := st.CreateSession("visible browser auth gate text")
+	adapter := &loginBlockBrowserAdapter{openAuthGateText: "本资源仅限内网访问，请您使用校园网或登录 SSLVPN 后访问。"}
+	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+
+	first, err := runtime.HandleMessage(context.Background(), session.ID, `访问 https://s.zstu.edu.cn，查询我的个人课表
+MOCK_REACT_RESPONSE:{"type":"action","tool":"browser.open","arguments":{"url":"https://s.zstu.edu.cn"},"reason":"test visible auth gate text"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Run.State != "browser_login_blocked" || first.Run.CompletedAt != nil {
+		t.Fatalf("visible auth gate text should pause the original run, got %#v", first.Run)
+	}
+	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
+	if !ok {
+		t.Fatalf("expected active browser login block from visible auth gate text")
+	}
+	if block.RunID != first.Run.ID || !strings.Contains(block.OriginalGoal, "查询我的个人课表") {
+		t.Fatalf("visible auth gate block lost original run/task state: %#v", block)
+	}
+	if block.BrowserAuthStatus != "handoff_waiting" || block.LoginHandoffURL != "https://s.zstu.edu.cn" || block.SiteOrigin != "https://s.zstu.edu.cn" {
+		t.Fatalf("visible auth gate block lost synthesized login fields: %#v", block)
+	}
+	if !strings.Contains(first.Message.Content, "任务已暂停在浏览器登录步骤") {
+		t.Fatalf("first answer should ask user to finish login:\n%s", first.Message.Content)
+	}
+}
+
+func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *testing.T) {
+	cfg := agentTestConfig()
+	st := store.NewMemoryStore()
+	session := st.CreateSession("snapshot auth gate previous url")
+	now := time.Now().UTC()
+	run := app.AgentRun{
+		ID:        app.NewID("run"),
+		SessionID: session.ID,
+		State:     "reacting",
+		Risk:      app.RiskRead,
+		StartedAt: now,
+	}
+	st.SaveRun(run)
+	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	done := now
+	doneSnapshot := now.Add(time.Millisecond)
+	st.SaveToolCall(app.ToolCall{
+		ID:          app.NewID("tc"),
+		SessionID:   session.ID,
+		RunID:       run.ID,
+		Tool:        "browser.open",
+		Status:      "completed",
+		Arguments:   map[string]any{"url": "https://s.zstu.edu.cn"},
+		Result:      map[string]any{"tool": "browser.open", "text": "opened page"},
+		StartedAt:   now,
+		CompletedAt: &done,
+	})
+	snapshot := app.ToolCall{
+		ID:        app.NewID("tc"),
+		SessionID: session.ID,
+		RunID:     run.ID,
+		Tool:      "browser.snapshot",
+		Status:    "completed",
+		Arguments: map[string]any{"browser_page_ref": "page-1"},
+		Result: map[string]any{
+			"tool": "browser.snapshot",
+			"text": "本资源仅限内网访问，请您使用校园网或登录 SSLVPN 后访问。",
+		},
+		StartedAt:   now.Add(time.Millisecond),
+		CompletedAt: &doneSnapshot,
+	}
+	st.SaveToolCall(snapshot)
+
+	block, ok := runtime.recordBrowserLoginBlockFromToolCall(session.ID, run.ID, "访问https://s.zstu.edu.cn，查询我的个人课表", toolPlan{
+		Name: "browser.snapshot",
+		Args: snapshot.Arguments,
+	}, snapshot)
+	if !ok {
+		t.Fatalf("expected auth gate snapshot text to create browser login block")
+	}
+	if block.ResumeArgs["url"] != "https://s.zstu.edu.cn" || block.LoginHandoffURL != "https://s.zstu.edu.cn" || block.SiteOrigin != "https://s.zstu.edu.cn" {
+		t.Fatalf("snapshot auth gate should inherit previous browser URL: %#v", block)
+	}
+	if block.BrowserAuthStatus != "handoff_waiting" || block.OriginalGoal != "访问https://s.zstu.edu.cn，查询我的个人课表" {
+		t.Fatalf("snapshot auth gate block lost resume metadata: %#v", block)
+	}
+}
+
 func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
@@ -2718,6 +2811,7 @@ type loginBlockBrowserAdapter struct {
 	importCalls       int
 	openCalls         int
 	openAuthChallenge bool
+	openAuthGateText  string
 }
 
 func (a *loginBlockBrowserAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
@@ -2782,6 +2876,21 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 		}, nil
 	case "browser.open":
 		a.openCalls++
+		if strings.TrimSpace(a.openAuthGateText) != "" {
+			target := stringValue(args["url"])
+			return browserautomation.Result{
+				Tool:      tool,
+				RawTool:   "new_page",
+				Arguments: args,
+				Output: map[string]any{
+					"url":       target,
+					"final_url": target,
+				},
+				Text:      a.openAuthGateText,
+				Untrusted: true,
+				Provider:  "login-block-fake",
+			}, nil
+		}
 		if a.openAuthChallenge {
 			target := stringValue(args["url"])
 			return browserautomation.Result{

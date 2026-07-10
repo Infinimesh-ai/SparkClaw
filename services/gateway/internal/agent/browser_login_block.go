@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -27,10 +28,26 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal stri
 		return app.BrowserLoginBlock{}, false
 	}
 	resumeArgs := clonePlanArgs(plan.Args)
-	if firstNonEmptyString(resumeArgs["url"], output["url"], output["final_url"], output["login_handoff_url"]) == "" {
+	targetURL := firstNonEmptyString(resumeArgs["url"], output["url"], output["final_url"], output["login_handoff_url"])
+	if targetURL == "" {
+		targetURL = r.recentBrowserURLForLoginBlock(sessionID, runID, call.ID)
+	}
+	if targetURL == "" {
 		return app.BrowserLoginBlock{}, false
 	}
-	resumeArgs["url"] = firstNonEmptyString(resumeArgs["url"], output["url"], output["final_url"], output["login_handoff_url"])
+	resumeArgs["url"] = targetURL
+	if firstNonEmptyString(output["url"]) == "" {
+		output["url"] = targetURL
+	}
+	if firstNonEmptyString(output["final_url"]) == "" {
+		output["final_url"] = targetURL
+	}
+	if firstNonEmptyString(output["login_handoff_url"]) == "" {
+		output["login_handoff_url"] = targetURL
+	}
+	if firstNonEmptyString(output["auth_site_origin"]) == "" {
+		output["auth_site_origin"] = browserLoginURLOrigin(targetURL)
+	}
 	existing, hasExisting := r.store.FindActiveBrowserLoginBlock(sessionID)
 	block := app.BrowserLoginBlock{}
 	if hasExisting && existing.RunID == runID {
@@ -64,6 +81,21 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal stri
 	return block, true
 }
 
+func (r Runtime) recentBrowserURLForLoginBlock(sessionID, runID, currentCallID string) string {
+	calls := toolCallsForRun(r.store.ListToolCalls(sessionID), runID)
+	for i := len(calls) - 1; i >= 0; i-- {
+		call := calls[i]
+		if call.ID == currentCallID || !toolCallCompleted(call) || !strings.HasPrefix(call.Tool, "browser.") {
+			continue
+		}
+		fields := browserLoginToolFields(call)
+		if target := firstNonEmptyString(call.Arguments["url"], fields["login_handoff_url"], fields["final_url"], fields["url"], fields["current_url"]); target != "" {
+			return target
+		}
+	}
+	return ""
+}
+
 func browserToolMayCreateLoginBlock(tool string) bool {
 	return tool == "browser.read" || strings.HasPrefix(tool, "browser.")
 }
@@ -90,16 +122,165 @@ func browserLoginToolFields(call app.ToolCall) map[string]any {
 	if structured := toolResultStructuredFieldsFromSummary(call.ObservationSummary); len(structured) > 0 {
 		mergeBrowserLoginFields(fields, structured, false)
 	}
+	normalizeBrowserLoginFieldsFromObservation(call, fields)
 	return fields
 }
 
-func toolResultStructuredFieldsFromSummary(summary string) map[string]any {
+func normalizeBrowserLoginFieldsFromObservation(call app.ToolCall, fields map[string]any) {
+	if browserOutputNeedsLoginBlock(fields) || !browserToolCanInferLoginBlock(call.Tool) {
+		return
+	}
+	if !browserLoginObservationNeedsHandoff(call, fields) {
+		return
+	}
+	fields["auth_challenge_detected"] = true
+	fields["login_handoff_required"] = true
+	fields["browser_auth_status"] = "handoff_waiting"
+	if firstNonEmptyString(fields["auth_challenge_kind"]) == "" {
+		fields["auth_challenge_kind"] = "login_or_verification"
+	}
+	if firstNonEmptyString(fields["login_surface"]) == "" {
+		fields["login_surface"] = browserLoginSurfaceFromFields(fields)
+	}
+	targetURL := firstNonEmptyString(fields["login_handoff_url"], fields["final_url"], fields["url"], fields["current_url"], call.Arguments["url"])
+	if targetURL == "" {
+		return
+	}
+	if firstNonEmptyString(fields["url"]) == "" {
+		fields["url"] = targetURL
+	}
+	if firstNonEmptyString(fields["final_url"]) == "" {
+		fields["final_url"] = targetURL
+	}
+	if firstNonEmptyString(fields["login_handoff_url"]) == "" {
+		fields["login_handoff_url"] = targetURL
+	}
+	if firstNonEmptyString(fields["auth_site_origin"]) == "" {
+		fields["auth_site_origin"] = browserLoginURLOrigin(targetURL)
+	}
+}
+
+func browserToolCanInferLoginBlock(tool string) bool {
+	switch tool {
+	case "browser.read", "browser.open", "browser.navigate", "browser.snapshot", "browser.wait", "browser.click", "browser.type", "browser.select", "browser.press":
+		return true
+	default:
+		return false
+	}
+}
+
+func browserLoginObservationNeedsHandoff(call app.ToolCall, fields map[string]any) bool {
+	if boolValue(fields["auth_challenge_detected"]) {
+		return true
+	}
+	return browserLoginObservationLooksLikeAuthGate(browserLoginObservationText(call, fields))
+}
+
+func browserLoginObservationText(call app.ToolCall, fields map[string]any) string {
+	parts := []string{}
+	appendText := func(value any) {
+		text := strings.TrimSpace(stringValue(value))
+		if text == "" || text == "<nil>" {
+			return
+		}
+		parts = append(parts, text)
+	}
+	for _, key := range []string{"title", "text", "excerpt", "summary", "browser_snapshot_text", "snapshot_text", "current_title", "current_url"} {
+		if value, ok := fields[key]; ok {
+			appendText(value)
+		}
+	}
+	if result, ok := anyMap(call.Result); ok {
+		appendBrowserLoginObservationText(&parts, result, 0)
+	}
+	if message := toolResultMessageFromSummary(call.ObservationSummary); message != nil {
+		appendText(message.Summary)
+		for _, evidence := range message.Evidence {
+			appendText(evidence.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func appendBrowserLoginObservationText(parts *[]string, values map[string]any, depth int) {
+	if depth > 3 || values == nil {
+		return
+	}
+	for _, key := range []string{"title", "text", "excerpt", "summary", "message", "description", "current_title"} {
+		text := strings.TrimSpace(stringValue(values[key]))
+		if text != "" && text != "<nil>" {
+			*parts = append(*parts, text)
+		}
+	}
+	if content := browserAutomationContentText(values); content != "" {
+		*parts = append(*parts, content)
+	}
+	for _, key := range []string{"output", "result", "value", "data", "hidden_page_state"} {
+		if nested, ok := anyMap(values[key]); ok {
+			appendBrowserLoginObservationText(parts, nested, depth+1)
+		}
+	}
+	if content, ok := values["content"].([]any); ok {
+		for _, item := range content {
+			if nested, ok := anyMap(item); ok {
+				appendBrowserLoginObservationText(parts, nested, depth+1)
+			}
+		}
+	}
+}
+
+func toolResultMessageFromSummary(summary string) *toolResultMessage {
 	summary = strings.TrimSpace(summary)
 	if summary == "" || !strings.HasPrefix(summary, "{") {
 		return nil
 	}
 	var message toolResultMessage
 	if err := json.Unmarshal([]byte(summary), &message); err != nil {
+		return nil
+	}
+	return &message
+}
+
+func browserLoginObservationLooksLikeAuthGate(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"please sign in", "sign in to continue", "login required", "log in to view", "authentication required",
+		"password", "captcha", "verification code", "sms code", "two-factor", "2fa", "single sign-on", "sso login", "cas login",
+		"access denied", "members only", "paywall", "subscribe to continue",
+		"请登录", "登录后查看", "未登录", "验证码", "短信验证码", "扫码登录", "账号密码", "用户名", "密码",
+		"统一身份认证", "身份认证", "单点登录", "访问受限", "本资源仅限内网访问", "仅限内网", "内网访问",
+		"请您使用校园网", "sslvpn", "ssl vpn", "vpn登录", "cas登录", "cas认证",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func browserLoginSurfaceFromFields(fields map[string]any) string {
+	mode := strings.ToLower(strings.TrimSpace(firstNonEmptyString(fields["browser_mode"])))
+	presentation := strings.ToLower(strings.TrimSpace(firstNonEmptyString(fields["presentation"])))
+	if mode == "collaborative" || presentation == "visible" || boolValue(fields["surface_visible"]) {
+		return "collaborative_visible"
+	}
+	return "visible_handoff"
+}
+
+func browserLoginURLOrigin(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+}
+
+func toolResultStructuredFieldsFromSummary(summary string) map[string]any {
+	message := toolResultMessageFromSummary(summary)
+	if message == nil {
 		return nil
 	}
 	return message.Structured

@@ -16,6 +16,9 @@ must also record the unfinished task as a dedicated browser-login block; a login
 wall is not a completed answer and must not depend on ordinary prompt context to
 resume. Provider support is limited to browser-visible cookie/storage state;
 password, captcha, SMS, 2FA and payment confirmation still stop for the user.
+The target behavior should match the OpenClaw-style handoff contract: after the
+user says login succeeded, the agent resumes the interrupted browser task from
+the authenticated browser state instead of asking for the goal again.
 
 ## Product Contract
 
@@ -31,9 +34,9 @@ tasks. When it detects that a page needs login:
    SparkClaw opens a visible login handoff page, records a `BrowserLoginBlock`
    for the unfinished run, and asks the user to finish login in the browser.
    After the user's next reply, SparkClaw verifies the current visible browser
-   state, persists the resulting auth state when policy allows it, then closes
-   or hides the handoff surface and continues the original task in the hidden
-   browser session.
+   state, exports the resulting cookie/storage state, persists it when policy
+   allows it, then closes or hides the handoff surface and continues the
+   original task in the hidden browser session.
 2. If a valid auth record already exists in the database for the same owner,
    browser profile, site and account, SparkClaw restores or refreshes that state
    without showing a window, verifies that the page is authenticated, then
@@ -103,6 +106,24 @@ state must live behind encrypted `CredentialSecret` or artifact references, not
 in tool arguments, traces, audit metadata or plain JSON summaries. The file
 backend must respect the existing state encryption configuration.
 
+When a user completes a visible login handoff, the browser provider should
+export an origin-scoped state bundle containing only reusable browser state:
+
+- cookies visible to the provider for the target origin and compatible domain
+  scope;
+- `localStorage` and `sessionStorage` for the target origin when available;
+- provider/session metadata needed to re-import the state into the configured
+  hidden or collaborative browser profile.
+
+The exported bundle must be saved through `CredentialSecret` or the artifact
+store and referenced by `CredentialRef`/`CookieJarRef`; the plaintext cookie
+string must never appear in traces, model-visible observations, audit fields or
+chat content. A record becomes `active` only after SparkClaw reuses the exported
+state and verifies that the destination page is no longer on the login wall.
+Future visits to the same `owner_id` + `browser_profile_id` + `site_origin` +
+`site_realm` + `account_hint` must try this stored state before asking the user
+to log in again.
+
 ## Browser Login Block Record
 
 `BrowserAuthRecord` only describes reusable authenticated state. It must not be
@@ -120,12 +141,15 @@ type BrowserLoginBlock struct {
     ResumeArgs        map[string]any `json:"resume_args"`
     LastToolCallID    string         `json:"last_tool_call_id,omitempty"`
     LoginHandoffURL   string         `json:"login_handoff_url,omitempty"`
+    LoginHandoffPageID string         `json:"login_handoff_page_id,omitempty"`
+    LastVisiblePageID  string         `json:"last_visible_page_id,omitempty"`
     OwnerID           string         `json:"owner_id"`
     BrowserProfileID  string         `json:"browser_profile_id"`
     SiteOrigin        string         `json:"site_origin"`
     SiteRealm         string         `json:"site_realm,omitempty"`
     AccountHint       string         `json:"account_hint,omitempty"`
     BrowserAuthStatus string         `json:"browser_auth_status,omitempty"`
+    ResolvedAuthRecordID string       `json:"resolved_auth_record_id,omitempty"`
     LastUserReply     string         `json:"last_user_reply,omitempty"`
     LastError         string         `json:"last_error,omitempty"`
     CreatedAt         time.Time      `json:"created_at"`
@@ -137,8 +161,17 @@ type BrowserLoginBlock struct {
 An active block is part of runtime state, not extra prompt context. The owning
 run should move to `browser_login_blocked` with no `completed_at` timestamp,
 and the block should keep the original goal, tool name, tool arguments and all
-owner/profile/site keys required to resume. The next user message in the same
-session is routed to this block before normal TaskHint generation.
+owner/profile/site keys required to resume. When the browser provider exposes a
+stable page identifier, the block should also store the visible login handoff
+page id so the resume path can inspect and continue from the same authenticated
+tab. The next user message in the same session is routed to this block before
+normal TaskHint generation.
+
+OpenClaw-style continuation is a hard requirement: while the block is active,
+the user's next reply is a signal or correction for the blocked run, not a new
+goal. A reply such as "login completed" or "登录成功" must never produce an
+assistant answer that asks what the user wants to do next if `OriginalGoal` is
+available.
 
 ## Autonomous Flow
 
@@ -164,6 +197,10 @@ visible browser tool such as `browser.open`, `browser.navigate` or
 `browser_auth_status=handoff_waiting|handoff_required`,
 `login_handoff_opened=true`, or
 `auth_challenge_detected=true` with `login_handoff_required=true`.
+Visible tool observations must also detect common human login blockers such as
+password forms, captcha/verification-code pages, SSO/VPN/login prompts and
+provider-specific "login required" pages, then normalize them into the same
+auth handoff fields so `BrowserLoginBlock` is created.
 
 The visible handoff is only for the login step. Once authentication is verified,
 the final page read, snapshot or navigation continues with
@@ -194,14 +231,24 @@ For all three cases, first inspect the current visible browser state with
    `login_handoff_url` or original resume URL visibly, then keep the block
    waiting and explain what page was reopened.
 3. If the user says login completed or the reply is ambiguous, try the stored
-   resume operation with `login_handoff_completed=true`,
+   resume operation. First bind to the visible handoff tab using
+   `LoginHandoffPageID` or the best matching current tab, verify that the page is
+   past the login wall, and export cookie/storage state from that visible
+   browser context.
+4. Save/update `BrowserAuthRecord` from the exported cookie/storage state, then
+   verify reuse by importing it into the intended hidden or profile-scoped
+   browser context. The retry should include `login_handoff_completed=true`,
    `persist_browser_auth=true`, `browser_mode=autonomous`,
-   `presentation=hidden` and `surface_visible=false`.
-4. If the resumed read verifies authenticated state, mark the block `resolved`,
-   save/update `BrowserAuthRecord`, close or hide the disposable handoff surface
-   when supported, and continue the original ReAct run using the original goal,
-   original tool history and the new browser observation.
-5. If there are no visible tabs, the provider cannot export auth state, or the
+   `presentation=hidden` and `surface_visible=false` when hidden reuse is
+   supported.
+5. If authenticated state is verified, mark the block `resolved`, store
+   `resolved_auth_record_id`, close or hide the disposable handoff surface when
+   supported, and continue the original ReAct run using the original goal,
+   original tool history and the new browser observation. If hidden import fails
+   but the visible tab is authenticated, continue in the visible tab or keep the
+   block waiting with an explicit `hidden_auth_restore_failed`; do not reopen the
+   site in a fresh tab and do not ask the user to restate the goal.
+6. If there are no visible tabs, the provider cannot export auth state, or the
    resumed read still lands on a login wall, keep the block `waiting`, update
    `last_error`, and use the user's reply plus the original goal/resume URL to
    either reopen the handoff page or ask for the missing human step.
@@ -217,6 +264,8 @@ the task.
 browser tool detects auth challenge
   -> keep current visible surface
   -> ask the user to complete login in the browser
+  -> when the user reports success, inspect the same visible tab first
+  -> export and persist origin-scoped cookie/storage state when policy allows
   -> verify authenticated DOM state
   -> optionally persist/update BrowserAuthRecord
   -> continue with collaborative tools on the same visible page/session
@@ -225,6 +274,10 @@ browser tool detects auth challenge
 Collaborative mode does not open a separate login pop-up unless the user asks
 for a new window. It also does not hide or close the browser after login unless
 the user asks or the page was created as a disposable task tab.
+When the user restates the original goal after login, TaskHint/ReAct should
+prefer `browser.list_tabs`, `browser.focus` and `browser.snapshot` on the
+authenticated visible tab. It should not call `browser.open` for the same origin
+unless the user explicitly requests a new page or the existing tab is gone.
 
 ## Detection And Output Fields
 
@@ -253,6 +306,10 @@ a login wall.
 - Do not ask the user to paste passwords, SMS codes or 2FA codes into chat.
 - Do not automate captcha, SMS code, 2FA, payment confirmation, consent,
   purchase, account security or password-change steps.
+- Captcha, SMS, 2FA and similar human-verification pages should remain open in
+  the visible browser. SparkClaw may wait for the user's "login completed"
+  signal and then verify the resulting state, but it must not solve, bypass or
+  request the verification secret in chat.
 - Do not store raw passwords or cookies in traces, audit events or model-visible
   observations.
 - Do not reuse an auth record across owners, profiles, origins or account hints
@@ -314,6 +371,16 @@ Minimum tests for implementation:
   record after verified login, closes or hides the handoff surface when
   supported, then resumes the original run and continues the original read
   hidden.
+- A follow-up "login completed" message preserves `OriginalGoal`; it must not
+  ask the user what to do next when the blocked goal is known.
+- After a successful human login, the exported cookie/storage state is persisted
+  as an encrypted secret/artifact reference and subsequent same-scope visits
+  reuse it without asking the user to log in again.
+- If a captcha/SMS/2FA page appears, SparkClaw leaves it to the user in the
+  visible browser and resumes only after the user reports completion.
+- If the user restates the goal after login and an authenticated tab is still
+  open, SparkClaw focuses/snapshots that tab instead of opening a new tab for
+  the same origin.
 - A follow-up "wrong page" message reopens or corrects the handoff URL while
   preserving the original blocked task and progress.
 - If no visible tab exists or the page is still unauthenticated, the active

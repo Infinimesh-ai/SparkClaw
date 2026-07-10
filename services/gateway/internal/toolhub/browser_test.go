@@ -2,6 +2,7 @@ package toolhub
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -166,6 +167,7 @@ func TestBrowserReadSignalsStructureSnapshotForShortInteractivePage(t *testing.T
 func TestBrowserReadUsesBrowserSessionWhenEnabled(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
 	readArgs := map[string]any{}
 	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(fakePageReadAdapter{readArgs: &readArgs})
 
@@ -214,6 +216,7 @@ func TestBrowserReadUsesBrowserSessionWhenEnabled(t *testing.T) {
 func TestBrowserReadAutonomousHiddenUsesHiddenBrowserSessionWhenEnabled(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
 	readArgs := map[string]any{}
 	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(fakePageReadAdapter{readArgs: &readArgs})
 
@@ -245,6 +248,139 @@ func TestBrowserReadAutonomousHiddenUsesHiddenBrowserSessionWhenEnabled(t *testi
 	}
 	if !strings.Contains(fmt.Sprint(out["text"]), "Browser-rendered content loaded after JavaScript execution") {
 		t.Fatalf("hidden browser read did not extract rendered text: %#v", out)
+	}
+}
+
+func TestBrowserReadAutonomousAuthChallengeStartsVisibleHandoff(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
+	cfg.Tools.BrowserAutomation.Profile = "default"
+	st := store.NewMemoryStore()
+	adapter := &authFlowBrowserAdapter{
+		readResult: browserautomation.PageReadResult{
+			URL:                   "https://example.com/private",
+			FinalURL:              "https://example.com/private",
+			Title:                 "Login Required",
+			HTML:                  "<html><body><input type=\"password\"><p>Please sign in to continue</p></body></html>",
+			Text:                  "Please sign in to continue",
+			Rendered:              true,
+			AuthChallengeDetected: true,
+			ReadMode:              "hidden_browser_session",
+			BrowserMode:           "autonomous",
+			Presentation:          "hidden",
+			Provider:              "fake-browser",
+			Actions:               []string{"new_hidden_page", "evaluate_script"},
+			Untrusted:             true,
+		},
+	}
+	hub := New(cfg, st).WithBrowserAutomationAdapter(adapter)
+	result, err := hub.Execute(context.Background(), "browser.read", map[string]any{
+		"url":             "https://example.com/private",
+		"browser_mode":    "autonomous",
+		"presentation":    "hidden",
+		"surface_visible": false,
+	}, "", "run_auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if stringArg(out, "browser_auth_status", "") != "handoff_waiting" || !boolArg(out, "login_handoff_opened", false) {
+		t.Fatalf("expected visible handoff output, got %#v", out)
+	}
+	if adapter.callTool != "browser.open" || stringArg(adapter.callArgs, "browser_mode", "") != "collaborative" || !boolArg(adapter.callArgs, "surface_visible", false) {
+		t.Fatalf("handoff did not open visible browser page: tool=%s args=%#v", adapter.callTool, adapter.callArgs)
+	}
+	if !hasToolhubAuditType(st.ListAudit(""), "browser_auth.challenge_detected") || !hasToolhubAuditType(st.ListAudit(""), "browser_auth.handoff_started") {
+		t.Fatalf("missing browser auth audit events: %#v", st.ListAudit(""))
+	}
+}
+
+func TestBrowserReadRestoresStoredAuthBeforeHiddenRead(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
+	cfg.Tools.BrowserAutomation.Profile = "default"
+	st := store.NewMemoryStore()
+	authState := browserautomation.AuthState{
+		Origin:       "https://example.com",
+		URL:          "https://example.com/private",
+		Cookie:       "fixture=stored",
+		LocalStorage: map[string]string{"logged_in": "yes"},
+	}
+	rawState, _ := json.Marshal(authState)
+	st.SaveCredentialSecret(app.CredentialSecret{Ref: "browser-auth:stored", Kind: "browser-auth-state", Value: string(rawState)})
+	st.SaveBrowserAuthRecord(app.BrowserAuthRecord{
+		ID:               "auth_stored",
+		OwnerID:          app.DefaultOwnerID,
+		BrowserProfileID: "default",
+		SiteOrigin:       "https://example.com",
+		CredentialRef:    "browser-auth:stored",
+		CookieJarRef:     "browser-auth:stored",
+	})
+	adapter := &authFlowBrowserAdapter{readResult: authenticatedPageReadResult("https://example.com/private")}
+	hub := New(cfg, st).WithBrowserAutomationAdapter(adapter)
+	result, err := hub.Execute(context.Background(), "browser.read", map[string]any{
+		"url":             "https://example.com/private",
+		"browser_mode":    "autonomous",
+		"presentation":    "hidden",
+		"surface_visible": false,
+	}, "", "run_auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if stringArg(out, "browser_auth_status", "") != "restored" || !boolArg(out, "browser_auth_restore_succeeded", false) {
+		t.Fatalf("expected restored auth output, got %#v", out)
+	}
+	if adapter.importedState == nil || adapter.importedState.Cookie != "fixture=stored" || stringArg(adapter.importArgs, "presentation", "") != "hidden" {
+		t.Fatalf("stored auth state was not imported into hidden browser: state=%#v args=%#v", adapter.importedState, adapter.importArgs)
+	}
+	if adapter.callTool == "browser.open" {
+		t.Fatalf("stored auth restore should not open visible handoff")
+	}
+}
+
+func TestBrowserReadCompletedHandoffSavesAuthAndContinuesHidden(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
+	cfg.Tools.BrowserAutomation.Profile = "default"
+	st := store.NewMemoryStore()
+	adapter := &authFlowBrowserAdapter{
+		readResult: authenticatedPageReadResult("https://example.com/private"),
+		exportState: browserautomation.AuthState{
+			Origin:       "https://example.com",
+			URL:          "https://example.com/private",
+			Cookie:       "fixture=visible",
+			LocalStorage: map[string]string{"logged_in": "yes"},
+		},
+	}
+	hub := New(cfg, st).WithBrowserAutomationAdapter(adapter)
+	result, err := hub.Execute(context.Background(), "browser.read", map[string]any{
+		"url":                     "https://example.com/private",
+		"browser_mode":            "autonomous",
+		"presentation":            "hidden",
+		"surface_visible":         false,
+		"login_handoff_completed": true,
+	}, "", "run_auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if !boolArg(out, "browser_auth_record_saved", false) || stringArg(out, "browser_auth_record_id", "") == "" {
+		t.Fatalf("expected saved browser auth record output, got %#v", out)
+	}
+	record, ok := st.FindBrowserAuthRecord(app.DefaultOwnerID, "default", "https://example.com", "", "")
+	if !ok || record.Status != app.BrowserAuthStatusActive || record.CredentialRef == "" {
+		t.Fatalf("saved browser auth record missing: %#v ok=%v", record, ok)
+	}
+	secret, ok := st.GetCredentialSecret(record.CredentialRef)
+	if !ok || !strings.Contains(secret.Value, "fixture=visible") {
+		t.Fatalf("saved browser auth secret missing: %#v ok=%v", secret, ok)
+	}
+	if adapter.importedState == nil || adapter.importedState.Cookie != "fixture=visible" {
+		t.Fatalf("completed handoff auth state was not imported into hidden browser: %#v", adapter.importedState)
 	}
 }
 
@@ -348,6 +484,83 @@ func (f fakePageReadAdapter) ReadPage(ctx context.Context, url string, args map[
 }
 
 func (fakePageReadAdapter) Close() error { return nil }
+
+type authFlowBrowserAdapter struct {
+	readResult    browserautomation.PageReadResult
+	exportState   browserautomation.AuthState
+	callTool      string
+	callArgs      map[string]any
+	importedState *browserautomation.AuthState
+	importArgs    map[string]any
+}
+
+func (a *authFlowBrowserAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
+	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true}, Provider: "fake-browser", Untrusted: true}, nil
+}
+
+func (a *authFlowBrowserAdapter) Call(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
+	a.callTool = tool
+	a.callArgs = cloneTestArgs(args)
+	return browserautomation.Result{Tool: tool, RawTool: strings.TrimPrefix(tool, "browser."), Output: map[string]any{"ok": true}, Provider: "fake-browser", Untrusted: true}, nil
+}
+
+func (a *authFlowBrowserAdapter) ReadPage(ctx context.Context, url string, args map[string]any) (browserautomation.PageReadResult, error) {
+	result := a.readResult
+	result.URL = url
+	if result.FinalURL == "" {
+		result.FinalURL = url
+	}
+	if result.BrowserMode == "" {
+		result.BrowserMode = fmt.Sprint(args["browser_mode"])
+	}
+	if result.Presentation == "" {
+		result.Presentation = fmt.Sprint(args["presentation"])
+	}
+	result.SurfaceVisible = boolArg(args, "surface_visible", false)
+	return result, nil
+}
+
+func (a *authFlowBrowserAdapter) ExportAuthState(ctx context.Context, args map[string]any) (browserautomation.AuthState, error) {
+	state := a.exportState
+	if state.Origin == "" {
+		state.Origin = "https://example.com"
+	}
+	return state, nil
+}
+
+func (a *authFlowBrowserAdapter) ImportAuthState(ctx context.Context, state browserautomation.AuthState, args map[string]any) error {
+	a.importedState = &state
+	a.importArgs = cloneTestArgs(args)
+	return nil
+}
+
+func (a *authFlowBrowserAdapter) Close() error { return nil }
+
+func authenticatedPageReadResult(rawURL string) browserautomation.PageReadResult {
+	return browserautomation.PageReadResult{
+		URL:          rawURL,
+		FinalURL:     rawURL,
+		Title:        "Private Page",
+		HTML:         "<html><body><article><h1>Private Page</h1><p>Authenticated content.</p></article></body></html>",
+		Text:         "Private Page Authenticated content.",
+		Rendered:     true,
+		ReadMode:     "hidden_browser_session",
+		BrowserMode:  "autonomous",
+		Presentation: "hidden",
+		Provider:     "fake-browser",
+		Actions:      []string{"new_hidden_page", "evaluate_script"},
+		Untrusted:    true,
+	}
+}
+
+func hasToolhubAuditType(events []app.AuditEvent, typ string) bool {
+	for _, event := range events {
+		if event.Type == typ {
+			return true
+		}
+	}
+	return false
+}
 
 func cloneTestArgs(args map[string]any) map[string]any {
 	out := map[string]any{}

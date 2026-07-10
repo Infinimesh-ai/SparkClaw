@@ -29,6 +29,8 @@ type MemoryStore struct {
 	weixinChatSessions   map[string]app.WeixinChatSession
 	weixinChatMessages   map[string]app.WeixinChatMessage
 	credentialSecrets    map[string]app.CredentialSecret
+	browserAuthRecords   map[string]app.BrowserAuthRecord
+	browserLoginBlocks   map[string]app.BrowserLoginBlock
 	memories             map[string]app.Memory
 	memoryCandidates     map[string]app.MemoryCandidate
 	auditEvents          []app.AuditEvent
@@ -59,6 +61,8 @@ func NewMemoryStore() *MemoryStore {
 		weixinChatSessions:   map[string]app.WeixinChatSession{},
 		weixinChatMessages:   map[string]app.WeixinChatMessage{},
 		credentialSecrets:    map[string]app.CredentialSecret{},
+		browserAuthRecords:   map[string]app.BrowserAuthRecord{},
+		browserLoginBlocks:   map[string]app.BrowserLoginBlock{},
 		memories:             map[string]app.Memory{},
 		memoryCandidates:     map[string]app.MemoryCandidate{},
 		auditEvents:          []app.AuditEvent{},
@@ -92,6 +96,8 @@ func (s *MemoryStore) snapshot() Snapshot {
 		WeixinChatSessions:   cloneMap(s.weixinChatSessions),
 		WeixinChatMessages:   cloneMap(s.weixinChatMessages),
 		CredentialSecrets:    cloneMap(s.credentialSecrets),
+		BrowserAuthRecords:   cloneMap(s.browserAuthRecords),
+		BrowserLoginBlocks:   cloneMap(s.browserLoginBlocks),
 		Memories:             cloneMap(s.memories),
 		MemoryCandidates:     cloneMap(s.memoryCandidates),
 		AuditEvents:          append([]app.AuditEvent(nil), s.auditEvents...),
@@ -124,6 +130,8 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.weixinChatSessions = ensureMap(snapshot.WeixinChatSessions)
 	s.weixinChatMessages = ensureMap(snapshot.WeixinChatMessages)
 	s.credentialSecrets = ensureMap(snapshot.CredentialSecrets)
+	s.browserAuthRecords = ensureMap(snapshot.BrowserAuthRecords)
+	s.browserLoginBlocks = ensureMap(snapshot.BrowserLoginBlocks)
 	s.memories = ensureMap(snapshot.Memories)
 	s.memoryCandidates = ensureMap(snapshot.MemoryCandidates)
 	s.auditEvents = append([]app.AuditEvent(nil), snapshot.AuditEvents...)
@@ -1183,6 +1191,153 @@ func (s *MemoryStore) DeleteCredentialSecret(ref string) error {
 	return nil
 }
 
+func (s *MemoryStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record = normalizeBrowserAuthRecord(record, s.browserAuthRecords[record.ID])
+	s.browserAuthRecords[record.ID] = record
+	s.appendAuditLocked("browser_auth.record_saved", "", "", "gateway", record.SiteOrigin, browserAuthAuditFields(record, nil))
+	s.appendEventLocked("browser_auth.record_saved", "", "", record)
+	return record
+}
+
+func (s *MemoryStore) GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	record, ok := s.browserAuthRecords[strings.TrimSpace(id)]
+	if !ok {
+		return app.BrowserAuthRecord{}, false
+	}
+	return record, true
+}
+
+func (s *MemoryStore) FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool) {
+	ownerID, browserProfileID, siteOrigin, siteRealm, accountHint = normalizeBrowserAuthLookup(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	matches := []app.BrowserAuthRecord{}
+	now := time.Now().UTC()
+	for _, record := range s.browserAuthRecords {
+		record = normalizeBrowserAuthRecord(record, app.BrowserAuthRecord{})
+		if record.OwnerID != ownerID || record.BrowserProfileID != browserProfileID || record.SiteOrigin != siteOrigin || record.SiteRealm != siteRealm || record.AccountHint != accountHint {
+			continue
+		}
+		if record.Status != app.BrowserAuthStatusActive || record.RevokedAt != nil {
+			continue
+		}
+		if record.ExpiresAt != nil && !record.ExpiresAt.After(now) {
+			continue
+		}
+		matches = append(matches, record)
+	}
+	if len(matches) == 0 {
+		return app.BrowserAuthRecord{}, false
+	}
+	slices.SortFunc(matches, func(a, b app.BrowserAuthRecord) int {
+		return b.UpdatedAt.Compare(a.UpdatedAt)
+	})
+	return matches[0], true
+}
+
+func (s *MemoryStore) ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID != "" {
+		ownerID = normalizeBrowserAuthOwnerID(ownerID)
+	}
+	browserProfileID = strings.TrimSpace(browserProfileID)
+	if browserProfileID != "" {
+		browserProfileID = normalizeBrowserProfileID(browserProfileID)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []app.BrowserAuthRecord{}
+	for _, record := range s.browserAuthRecords {
+		record = normalizeBrowserAuthRecord(record, app.BrowserAuthRecord{})
+		if ownerID != "" && record.OwnerID != ownerID {
+			continue
+		}
+		if browserProfileID != "" && record.BrowserProfileID != browserProfileID {
+			continue
+		}
+		out = append(out, record)
+	}
+	slices.SortFunc(out, func(a, b app.BrowserAuthRecord) int {
+		return b.UpdatedAt.Compare(a.UpdatedAt)
+	})
+	return out
+}
+
+func (s *MemoryStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.TrimSpace(id)
+	record, ok := s.browserAuthRecords[id]
+	if !ok {
+		return app.BrowserAuthRecord{}, errors.New("browser auth record not found")
+	}
+	now := time.Now().UTC()
+	record.Status = app.BrowserAuthStatusRevoked
+	record.RevokedAt = &now
+	record.UpdatedAt = now
+	record.LastError = strings.TrimSpace(reason)
+	s.browserAuthRecords[id] = record
+	s.appendAuditLocked("browser_auth.record_revoked", "", "", "owner", record.SiteOrigin, browserAuthAuditFields(record, map[string]any{"reason": record.LastError}))
+	s.appendEventLocked("browser_auth.record_revoked", "", "", record)
+	return record, nil
+}
+
+func (s *MemoryStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	block = normalizeBrowserLoginBlock(block, s.browserLoginBlocks[block.ID])
+	s.browserLoginBlocks[block.ID] = block
+	s.appendAuditLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
+	s.appendEventLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, block)
+	return block
+}
+
+func (s *MemoryStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	block, ok := s.browserLoginBlocks[strings.TrimSpace(id)]
+	if !ok {
+		return app.BrowserLoginBlock{}, false
+	}
+	return block, true
+}
+
+func (s *MemoryStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
+	blocks := s.ListBrowserLoginBlocks(sessionID, "")
+	for _, block := range blocks {
+		if browserLoginBlockActive(block.Status) {
+			return block, true
+		}
+	}
+	return app.BrowserLoginBlock{}, false
+}
+
+func (s *MemoryStore) ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock {
+	sessionID = strings.TrimSpace(sessionID)
+	status = strings.TrimSpace(status)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []app.BrowserLoginBlock{}
+	for _, block := range s.browserLoginBlocks {
+		block = normalizeBrowserLoginBlock(block, app.BrowserLoginBlock{})
+		if sessionID != "" && block.SessionID != sessionID {
+			continue
+		}
+		if status != "" && block.Status != status {
+			continue
+		}
+		out = append(out, block)
+	}
+	slices.SortFunc(out, func(a, b app.BrowserLoginBlock) int {
+		return b.UpdatedAt.Compare(a.UpdatedAt)
+	})
+	return out
+}
+
 func (s *MemoryStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1627,6 +1782,153 @@ func cloneOwnerProfileMap(in map[string]app.OwnerProfile) map[string]app.OwnerPr
 		out[id] = cloneOwnerProfile(profile)
 	}
 	return out
+}
+
+func normalizeBrowserAuthRecord(record app.BrowserAuthRecord, current app.BrowserAuthRecord) app.BrowserAuthRecord {
+	now := time.Now().UTC()
+	record.OwnerID = normalizeBrowserAuthOwnerID(record.OwnerID)
+	record.BrowserProfileID = normalizeBrowserProfileID(record.BrowserProfileID)
+	record.SiteOrigin = normalizeSiteOrigin(record.SiteOrigin)
+	record.SiteRealm = strings.TrimSpace(record.SiteRealm)
+	record.AccountHint = strings.ToLower(strings.TrimSpace(record.AccountHint))
+	record.AuthStrategy = strings.TrimSpace(record.AuthStrategy)
+	if record.AuthStrategy == "" {
+		record.AuthStrategy = "session_restore"
+	}
+	record.Status = strings.TrimSpace(record.Status)
+	if record.Status == "" {
+		record.Status = app.BrowserAuthStatusActive
+	}
+	if record.ID == "" {
+		record.ID = app.NewID("bauth")
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = current.CreatedAt
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	return record
+}
+
+func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.BrowserLoginBlock) app.BrowserLoginBlock {
+	now := time.Now().UTC()
+	block.SessionID = strings.TrimSpace(block.SessionID)
+	block.RunID = strings.TrimSpace(block.RunID)
+	block.Status = strings.TrimSpace(block.Status)
+	if block.Status == "" {
+		block.Status = app.BrowserLoginBlockStatusWaiting
+	}
+	block.OriginalGoal = strings.TrimSpace(block.OriginalGoal)
+	block.ResumeTool = strings.TrimSpace(block.ResumeTool)
+	if block.ResumeTool == "" {
+		block.ResumeTool = "browser.read"
+	}
+	if block.ResumeArgs == nil {
+		block.ResumeArgs = map[string]any{}
+	}
+	block.LastToolCallID = strings.TrimSpace(block.LastToolCallID)
+	block.LoginHandoffURL = strings.TrimSpace(block.LoginHandoffURL)
+	block.OwnerID = normalizeBrowserAuthOwnerID(block.OwnerID)
+	block.BrowserProfileID = normalizeBrowserProfileID(block.BrowserProfileID)
+	block.SiteOrigin = normalizeSiteOrigin(block.SiteOrigin)
+	block.SiteRealm = strings.TrimSpace(block.SiteRealm)
+	block.AccountHint = strings.ToLower(strings.TrimSpace(block.AccountHint))
+	block.BrowserAuthStatus = strings.TrimSpace(block.BrowserAuthStatus)
+	block.LastUserReply = strings.TrimSpace(block.LastUserReply)
+	block.LastError = strings.TrimSpace(block.LastError)
+	if block.ID == "" {
+		block.ID = app.NewID("blogin")
+	}
+	if block.CreatedAt.IsZero() {
+		block.CreatedAt = current.CreatedAt
+	}
+	if block.CreatedAt.IsZero() {
+		block.CreatedAt = now
+	}
+	if !browserLoginBlockActive(block.Status) && block.ResolvedAt == nil {
+		block.ResolvedAt = current.ResolvedAt
+	}
+	block.UpdatedAt = now
+	return block
+}
+
+func browserLoginBlockActive(status string) bool {
+	switch strings.TrimSpace(status) {
+	case app.BrowserLoginBlockStatusWaiting, app.BrowserLoginBlockStatusResuming:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeBrowserAuthLookup(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (string, string, string, string, string) {
+	return normalizeBrowserAuthOwnerID(ownerID),
+		normalizeBrowserProfileID(browserProfileID),
+		normalizeSiteOrigin(siteOrigin),
+		strings.TrimSpace(siteRealm),
+		strings.ToLower(strings.TrimSpace(accountHint))
+}
+
+func normalizeBrowserAuthOwnerID(ownerID string) string {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return app.DefaultOwnerID
+	}
+	return ownerID
+}
+
+func normalizeBrowserProfileID(profileID string) string {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return "default"
+	}
+	return profileID
+}
+
+func normalizeSiteOrigin(origin string) string {
+	origin = strings.TrimSpace(origin)
+	origin = strings.TrimRight(origin, "/")
+	return strings.ToLower(origin)
+}
+
+func browserAuthAuditFields(record app.BrowserAuthRecord, extra map[string]any) map[string]any {
+	fields := map[string]any{
+		"record_id":          record.ID,
+		"owner_id":           record.OwnerID,
+		"browser_profile_id": record.BrowserProfileID,
+		"site_origin":        record.SiteOrigin,
+		"site_realm":         record.SiteRealm,
+		"account_hint":       record.AccountHint,
+		"auth_strategy":      record.AuthStrategy,
+		"status":             record.Status,
+		"credential_ref_set": strings.TrimSpace(record.CredentialRef) != "",
+		"cookie_jar_ref_set": strings.TrimSpace(record.CookieJarRef) != "",
+	}
+	for key, value := range extra {
+		fields[key] = value
+	}
+	return fields
+}
+
+func browserLoginBlockAuditFields(block app.BrowserLoginBlock, extra map[string]any) map[string]any {
+	fields := map[string]any{
+		"block_id":           block.ID,
+		"run_id":             block.RunID,
+		"status":             block.Status,
+		"resume_tool":        block.ResumeTool,
+		"last_tool_call_id":  block.LastToolCallID,
+		"owner_id":           block.OwnerID,
+		"browser_profile_id": block.BrowserProfileID,
+		"site_origin":        block.SiteOrigin,
+		"site_realm":         block.SiteRealm,
+		"account_hint":       block.AccountHint,
+	}
+	for key, value := range extra {
+		fields[key] = value
+	}
+	return fields
 }
 
 func ensureOwnerProfileMap(in map[string]app.OwnerProfile, fallback app.OwnerProfile) map[string]app.OwnerProfile {

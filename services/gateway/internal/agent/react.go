@@ -27,12 +27,13 @@ type reactPromptOptions struct {
 }
 
 type reactRunResult struct {
-	Chat         modelrouter.ChatResult
-	ToolCalls    []app.ToolCall
-	Approvals    []app.Approval
-	Observations []string
-	FinalAnswer  string
-	Completed    bool
+	Chat              modelrouter.ChatResult
+	ToolCalls         []app.ToolCall
+	Approvals         []app.Approval
+	Observations      []string
+	FinalAnswer       string
+	Completed         bool
+	BrowserLoginBlock *app.BrowserLoginBlock
 }
 
 type reactRunBudget struct {
@@ -227,6 +228,12 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 			result.Observations = append(result.Observations, observation)
 		} else if !toolCallAdvancedRun(call, observation) {
 			noProgressActions++
+		}
+		if block, ok := r.recordBrowserLoginBlockFromToolCall(sessionID, run.ID, content, plan, call); ok {
+			result.BrowserLoginBlock = &block
+			result.FinalAnswer = browserLoginBlockedMessage(block)
+			result.Completed = false
+			return result
 		}
 		if approval != nil {
 			result.FinalAnswer = fmt.Sprintf("%s is waiting for approval.", call.Tool)

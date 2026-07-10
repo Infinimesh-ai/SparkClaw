@@ -173,6 +173,64 @@ type CredentialSecret struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+const (
+	BrowserAuthStatusActive  = "active"
+	BrowserAuthStatusExpired = "expired"
+	BrowserAuthStatusRevoked = "revoked"
+	BrowserAuthStatusFailed  = "failed"
+)
+
+const (
+	BrowserLoginBlockStatusWaiting  = "waiting"
+	BrowserLoginBlockStatusResuming = "resuming"
+	BrowserLoginBlockStatusResolved = "resolved"
+	BrowserLoginBlockStatusCanceled = "canceled"
+	BrowserLoginBlockStatusFailed   = "failed"
+)
+
+type BrowserAuthRecord struct {
+	ID               string     `json:"id"`
+	OwnerID          string     `json:"owner_id"`
+	BrowserProfileID string     `json:"browser_profile_id"`
+	SiteOrigin       string     `json:"site_origin"`
+	SiteRealm        string     `json:"site_realm,omitempty"`
+	AccountHint      string     `json:"account_hint,omitempty"`
+	AuthStrategy     string     `json:"auth_strategy"`
+	Status           string     `json:"status"`
+	SessionRef       string     `json:"session_ref,omitempty"`
+	CredentialRef    string     `json:"credential_ref,omitempty"`
+	CookieJarRef     string     `json:"cookie_jar_ref,omitempty"`
+	LastVerifiedAt   time.Time  `json:"last_verified_at,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	LastError        string     `json:"last_error,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+}
+
+type BrowserLoginBlock struct {
+	ID                string         `json:"id"`
+	SessionID         string         `json:"session_id"`
+	RunID             string         `json:"run_id"`
+	Status            string         `json:"status"`
+	OriginalGoal      string         `json:"original_goal"`
+	ResumeTool        string         `json:"resume_tool"`
+	ResumeArgs        map[string]any `json:"resume_args"`
+	LastToolCallID    string         `json:"last_tool_call_id,omitempty"`
+	LoginHandoffURL   string         `json:"login_handoff_url,omitempty"`
+	OwnerID           string         `json:"owner_id"`
+	BrowserProfileID  string         `json:"browser_profile_id"`
+	SiteOrigin        string         `json:"site_origin"`
+	SiteRealm         string         `json:"site_realm,omitempty"`
+	AccountHint       string         `json:"account_hint,omitempty"`
+	BrowserAuthStatus string         `json:"browser_auth_status,omitempty"`
+	LastUserReply     string         `json:"last_user_reply,omitempty"`
+	LastError         string         `json:"last_error,omitempty"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	ResolvedAt        *time.Time     `json:"resolved_at,omitempty"`
+}
+
 type Memory struct {
 	ID        string    `json:"id"`
 	Kind      string    `json:"kind"`

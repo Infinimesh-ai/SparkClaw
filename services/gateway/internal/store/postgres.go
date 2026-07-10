@@ -292,6 +292,55 @@ CREATE TABLE IF NOT EXISTS credential_secrets (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS browser_auth_records (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  browser_profile_id TEXT NOT NULL,
+  site_origin TEXT NOT NULL,
+  site_realm TEXT NOT NULL DEFAULT '',
+  account_hint TEXT NOT NULL DEFAULT '',
+  auth_strategy TEXT NOT NULL,
+  status TEXT NOT NULL,
+  session_ref TEXT NOT NULL DEFAULT '',
+  credential_ref TEXT NOT NULL DEFAULT '',
+  cookie_jar_ref TEXT NOT NULL DEFAULT '',
+  last_verified_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS browser_auth_lookup_idx
+  ON browser_auth_records(owner_id, browser_profile_id, site_origin, site_realm, account_hint, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS browser_login_blocks (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  run_id TEXT NOT NULL REFERENCES agent_runs(id),
+  status TEXT NOT NULL,
+  original_goal TEXT NOT NULL DEFAULT '',
+  resume_tool TEXT NOT NULL DEFAULT 'browser.read',
+  resume_args JSONB NOT NULL DEFAULT '{}',
+  last_tool_call_id TEXT NOT NULL DEFAULT '',
+  login_handoff_url TEXT NOT NULL DEFAULT '',
+  owner_id TEXT NOT NULL DEFAULT 'owner',
+  browser_profile_id TEXT NOT NULL DEFAULT 'default',
+  site_origin TEXT NOT NULL DEFAULT '',
+  site_realm TEXT NOT NULL DEFAULT '',
+  account_hint TEXT NOT NULL DEFAULT '',
+  browser_auth_status TEXT NOT NULL DEFAULT '',
+  last_user_reply TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS browser_login_blocks_active_idx
+  ON browser_login_blocks(session_id, status, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY,
   happened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1806,6 +1855,196 @@ func (s *PostgresStore) DeleteCredentialSecret(ref string) error {
 	return nil
 }
 
+func (s *PostgresStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
+	current, _ := s.GetBrowserAuthRecord(record.ID)
+	record = normalizeBrowserAuthRecord(record, current)
+	ctx := context.Background()
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO browser_auth_records (
+			id, owner_id, browser_profile_id, site_origin, site_realm, account_hint, auth_strategy, status,
+			session_ref, credential_ref, cookie_jar_ref, last_verified_at, expires_at, last_error, created_at, updated_at, revoked_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		ON CONFLICT (id) DO UPDATE SET
+			owner_id = EXCLUDED.owner_id,
+			browser_profile_id = EXCLUDED.browser_profile_id,
+			site_origin = EXCLUDED.site_origin,
+			site_realm = EXCLUDED.site_realm,
+			account_hint = EXCLUDED.account_hint,
+			auth_strategy = EXCLUDED.auth_strategy,
+			status = EXCLUDED.status,
+			session_ref = EXCLUDED.session_ref,
+			credential_ref = EXCLUDED.credential_ref,
+			cookie_jar_ref = EXCLUDED.cookie_jar_ref,
+			last_verified_at = EXCLUDED.last_verified_at,
+			expires_at = EXCLUDED.expires_at,
+			last_error = EXCLUDED.last_error,
+			updated_at = EXCLUDED.updated_at,
+			revoked_at = EXCLUDED.revoked_at
+	`, record.ID, record.OwnerID, record.BrowserProfileID, record.SiteOrigin, record.SiteRealm, record.AccountHint, record.AuthStrategy,
+		record.Status, record.SessionRef, record.CredentialRef, record.CookieJarRef, zeroTimeToNil(record.LastVerifiedAt),
+		record.ExpiresAt, record.LastError, record.CreatedAt, record.UpdatedAt, record.RevokedAt)
+	s.appendAudit(ctx, "browser_auth.record_saved", "", "", "gateway", record.SiteOrigin, browserAuthAuditFields(record, nil))
+	s.appendEvent(ctx, "browser_auth.record_saved", "", "", record)
+	return record
+}
+
+func (s *PostgresStore) GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, browser_profile_id, site_origin, site_realm, account_hint, auth_strategy, status,
+			session_ref, credential_ref, cookie_jar_ref, last_verified_at, expires_at, last_error, created_at, updated_at, revoked_at
+		FROM browser_auth_records
+		WHERE id = $1
+	`, strings.TrimSpace(id))
+	record, err := scanBrowserAuthRecord(row)
+	return record, err == nil
+}
+
+func (s *PostgresStore) FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool) {
+	ownerID, browserProfileID, siteOrigin, siteRealm, accountHint = normalizeBrowserAuthLookup(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint)
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, browser_profile_id, site_origin, site_realm, account_hint, auth_strategy, status,
+			session_ref, credential_ref, cookie_jar_ref, last_verified_at, expires_at, last_error, created_at, updated_at, revoked_at
+		FROM browser_auth_records
+		WHERE owner_id = $1
+		  AND browser_profile_id = $2
+		  AND site_origin = $3
+		  AND site_realm = $4
+		  AND account_hint = $5
+		  AND status = $6
+		  AND revoked_at IS NULL
+		  AND (expires_at IS NULL OR expires_at > now())
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, ownerID, browserProfileID, siteOrigin, siteRealm, accountHint, app.BrowserAuthStatusActive)
+	record, err := scanBrowserAuthRecord(row)
+	return record, err == nil
+}
+
+func (s *PostgresStore) ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID != "" {
+		ownerID = normalizeBrowserAuthOwnerID(ownerID)
+	}
+	browserProfileID = strings.TrimSpace(browserProfileID)
+	if browserProfileID != "" {
+		browserProfileID = normalizeBrowserProfileID(browserProfileID)
+	}
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, owner_id, browser_profile_id, site_origin, site_realm, account_hint, auth_strategy, status,
+			session_ref, credential_ref, cookie_jar_ref, last_verified_at, expires_at, last_error, created_at, updated_at, revoked_at
+		FROM browser_auth_records
+		WHERE ($1 = '' OR owner_id = $1) AND ($2 = '' OR browser_profile_id = $2)
+		ORDER BY updated_at DESC
+	`, ownerID, browserProfileID)
+	if err != nil {
+		return []app.BrowserAuthRecord{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanBrowserAuthRecord)
+}
+
+func (s *PostgresStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error) {
+	record, ok := s.GetBrowserAuthRecord(id)
+	if !ok {
+		return app.BrowserAuthRecord{}, errors.New("browser auth record not found")
+	}
+	now := time.Now().UTC()
+	record.Status = app.BrowserAuthStatusRevoked
+	record.RevokedAt = &now
+	record.UpdatedAt = now
+	record.LastError = strings.TrimSpace(reason)
+	record = s.SaveBrowserAuthRecord(record)
+	s.appendAudit(context.Background(), "browser_auth.record_revoked", "", "", "owner", record.SiteOrigin, browserAuthAuditFields(record, map[string]any{"reason": record.LastError}))
+	s.appendEvent(context.Background(), "browser_auth.record_revoked", "", "", record)
+	return record, nil
+}
+
+func (s *PostgresStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+	current, _ := s.GetBrowserLoginBlock(block.ID)
+	block = normalizeBrowserLoginBlock(block, current)
+	ctx := context.Background()
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO browser_login_blocks (
+			id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
+			created_at, updated_at, resolved_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		ON CONFLICT (id) DO UPDATE SET
+			session_id = EXCLUDED.session_id,
+			run_id = EXCLUDED.run_id,
+			status = EXCLUDED.status,
+			original_goal = EXCLUDED.original_goal,
+			resume_tool = EXCLUDED.resume_tool,
+			resume_args = EXCLUDED.resume_args,
+			last_tool_call_id = EXCLUDED.last_tool_call_id,
+			login_handoff_url = EXCLUDED.login_handoff_url,
+			owner_id = EXCLUDED.owner_id,
+			browser_profile_id = EXCLUDED.browser_profile_id,
+			site_origin = EXCLUDED.site_origin,
+			site_realm = EXCLUDED.site_realm,
+			account_hint = EXCLUDED.account_hint,
+			browser_auth_status = EXCLUDED.browser_auth_status,
+			last_user_reply = EXCLUDED.last_user_reply,
+			last_error = EXCLUDED.last_error,
+			updated_at = EXCLUDED.updated_at,
+			resolved_at = EXCLUDED.resolved_at
+	`, block.ID, block.SessionID, block.RunID, block.Status, block.OriginalGoal, block.ResumeTool, mustJSON(block.ResumeArgs),
+		block.LastToolCallID, block.LoginHandoffURL, block.OwnerID, block.BrowserProfileID, block.SiteOrigin,
+		block.SiteRealm, block.AccountHint, block.BrowserAuthStatus, block.LastUserReply, block.LastError,
+		block.CreatedAt, block.UpdatedAt, block.ResolvedAt)
+	s.appendAudit(ctx, "browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
+	s.appendEvent(ctx, "browser_login_block."+block.Status, block.SessionID, block.RunID, block)
+	return block
+}
+
+func (s *PostgresStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
+			created_at, updated_at, resolved_at
+		FROM browser_login_blocks
+		WHERE id = $1
+	`, strings.TrimSpace(id))
+	block, err := scanBrowserLoginBlock(row)
+	return block, err == nil
+}
+
+func (s *PostgresStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
+			created_at, updated_at, resolved_at
+		FROM browser_login_blocks
+		WHERE session_id = $1 AND status IN ($2, $3)
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, strings.TrimSpace(sessionID), app.BrowserLoginBlockStatusWaiting, app.BrowserLoginBlockStatusResuming)
+	block, err := scanBrowserLoginBlock(row)
+	return block, err == nil
+}
+
+func (s *PostgresStore) ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock {
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
+			created_at, updated_at, resolved_at
+		FROM browser_login_blocks
+		WHERE ($1 = '' OR session_id = $1) AND ($2 = '' OR status = $2)
+		ORDER BY updated_at DESC
+	`, strings.TrimSpace(sessionID), strings.TrimSpace(status))
+	if err != nil {
+		return []app.BrowserLoginBlock{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanBrowserLoginBlock)
+}
+
 func (s *PostgresStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {
 	if candidate.ID == "" {
 		candidate.ID = app.NewID("mc")
@@ -2897,6 +3136,68 @@ func scanCredentialSecret(row scanner) (app.CredentialSecret, error) {
 	var secret app.CredentialSecret
 	err := row.Scan(&secret.Ref, &secret.Kind, &secret.Value, &secret.CreatedAt, &secret.UpdatedAt)
 	return secret, err
+}
+
+func scanBrowserAuthRecord(row scanner) (app.BrowserAuthRecord, error) {
+	var record app.BrowserAuthRecord
+	var lastVerifiedAt *time.Time
+	err := row.Scan(
+		&record.ID,
+		&record.OwnerID,
+		&record.BrowserProfileID,
+		&record.SiteOrigin,
+		&record.SiteRealm,
+		&record.AccountHint,
+		&record.AuthStrategy,
+		&record.Status,
+		&record.SessionRef,
+		&record.CredentialRef,
+		&record.CookieJarRef,
+		&lastVerifiedAt,
+		&record.ExpiresAt,
+		&record.LastError,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+		&record.RevokedAt,
+	)
+	if lastVerifiedAt != nil {
+		record.LastVerifiedAt = *lastVerifiedAt
+	}
+	return record, err
+}
+
+func scanBrowserLoginBlock(row scanner) (app.BrowserLoginBlock, error) {
+	var block app.BrowserLoginBlock
+	var args []byte
+	err := row.Scan(
+		&block.ID,
+		&block.SessionID,
+		&block.RunID,
+		&block.Status,
+		&block.OriginalGoal,
+		&block.ResumeTool,
+		&args,
+		&block.LastToolCallID,
+		&block.LoginHandoffURL,
+		&block.OwnerID,
+		&block.BrowserProfileID,
+		&block.SiteOrigin,
+		&block.SiteRealm,
+		&block.AccountHint,
+		&block.BrowserAuthStatus,
+		&block.LastUserReply,
+		&block.LastError,
+		&block.CreatedAt,
+		&block.UpdatedAt,
+		&block.ResolvedAt,
+	)
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &block.ResumeArgs)
+	}
+	if block.ResumeArgs == nil {
+		block.ResumeArgs = map[string]any{}
+	}
+	return block, err
 }
 
 func scanMemoryCandidate(row scanner) (app.MemoryCandidate, error) {

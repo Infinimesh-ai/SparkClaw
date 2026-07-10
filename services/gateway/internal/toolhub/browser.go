@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,24 +21,36 @@ import (
 
 const browserReadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
+type browserAuthStateAdapter interface {
+	ExportAuthState(ctx context.Context, args map[string]any) (browserautomation.AuthState, error)
+	ImportAuthState(ctx context.Context, state browserautomation.AuthState, args map[string]any) error
+}
+
 func (h *ToolHub) browserRead(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	parsed, maxBytes, err := parseBrowserReadArgs(ctx, h, args)
 	if err != nil {
 		return Result{}, err
 	}
 	metadata := browserModeMetadataFromArgs(args, "autonomous")
+	authState := h.prepareBrowserAuth(ctx, parsed, args, metadata, sessionID, runID)
 	if h.shouldUseBrowserSessionReadForMode(args, metadata) {
 		result, err := h.browserReadViaSession(ctx, parsed, args, maxBytes, metadata, sessionID, runID)
 		if err == nil {
+			h.finalizeBrowserAuth(ctx, result.Output, authState, args, metadata, sessionID, runID)
 			return result, nil
 		}
 		fallback, fallbackErr := h.browserReadDirect(ctx, parsed, maxBytes, metadata, sessionID, runID, "direct_http_fallback", err)
 		if fallbackErr == nil {
+			h.finalizeBrowserAuth(ctx, fallback.Output, authState, args, metadata, sessionID, runID)
 			return fallback, nil
 		}
 		return Result{}, fmt.Errorf("browser session read failed: %v; direct fallback failed: %w", err, fallbackErr)
 	}
-	return h.browserReadDirect(ctx, parsed, maxBytes, metadata, sessionID, runID, "direct_http", nil)
+	result, err := h.browserReadDirect(ctx, parsed, maxBytes, metadata, sessionID, runID, "direct_http", nil)
+	if err == nil {
+		h.finalizeBrowserAuth(ctx, result.Output, authState, args, metadata, sessionID, runID)
+	}
+	return result, err
 }
 
 func parseBrowserReadArgs(ctx context.Context, h *ToolHub, args map[string]any) (*url.URL, int, error) {
@@ -92,6 +105,27 @@ type browserModeMetadata struct {
 	SurfaceVisible bool
 }
 
+type browserAuthRunState struct {
+	OwnerID             string
+	BrowserProfileID    string
+	SiteOrigin          string
+	SiteRealm           string
+	AccountHint         string
+	AuthStrategy        string
+	Record              app.BrowserAuthRecord
+	RecordFound         bool
+	LookupAudited       bool
+	RestoreAttempted    bool
+	RestoreSucceeded    bool
+	RestoreError        string
+	ExportedState       *browserautomation.AuthState
+	ExportError         string
+	ImportedAfterExport bool
+	HandoffOpened       bool
+	HandoffError        string
+	SavedRecordID       string
+}
+
 func browserModeMetadataFromArgs(args map[string]any, fallbackMode string) browserModeMetadata {
 	mode := strings.ToLower(strings.TrimSpace(stringArg(args, "browser_mode", "")))
 	if mode != "autonomous" && mode != "collaborative" {
@@ -117,6 +151,318 @@ func browserModeMetadataFromArgs(args map[string]any, fallbackMode string) brows
 		Presentation:   presentation,
 		SurfaceVisible: surfaceVisible,
 	}
+}
+
+func (h *ToolHub) prepareBrowserAuth(ctx context.Context, parsed *url.URL, args map[string]any, metadata browserModeMetadata, sessionID, runID string) *browserAuthRunState {
+	state := h.newBrowserAuthRunState(parsed, args, sessionID)
+	if h.store == nil {
+		return state
+	}
+	record, ok := h.store.FindBrowserAuthRecord(state.OwnerID, state.BrowserProfileID, state.SiteOrigin, state.SiteRealm, state.AccountHint)
+	state.Record = record
+	state.RecordFound = ok
+	h.addBrowserAuthAudit("browser_auth.record_lookup", sessionID, runID, metadata, state, map[string]any{"found": ok})
+	state.LookupAudited = true
+	if boolArg(args, "login_handoff_completed", false) || boolArg(args, "persist_browser_auth", false) || boolArg(args, "save_browser_auth", false) {
+		h.exportBrowserAuthForHandoff(ctx, state, args, metadata)
+		return state
+	}
+	if !ok || strings.TrimSpace(record.CredentialRef) == "" {
+		return state
+	}
+	if !h.shouldUseBrowserSessionReadForMode(args, metadata) {
+		return state
+	}
+	h.restoreBrowserAuthRecord(ctx, state, args, metadata)
+	return state
+}
+
+func (h *ToolHub) newBrowserAuthRunState(parsed *url.URL, args map[string]any, sessionID string) *browserAuthRunState {
+	ownerID := strings.TrimSpace(stringArg(args, "owner_id", ""))
+	if ownerID == "" && h.store != nil && strings.TrimSpace(sessionID) != "" {
+		if session, ok := h.store.GetSession(sessionID); ok {
+			ownerID = session.OwnerID
+		}
+	}
+	if ownerID == "" {
+		ownerID = app.DefaultOwnerID
+	}
+	profileID := strings.TrimSpace(stringArg(args, "browser_profile_id", ""))
+	if profileID == "" {
+		profileID = strings.TrimSpace(h.cfg.Tools.BrowserAutomation.Profile)
+	}
+	if profileID == "" {
+		profileID = "default"
+	}
+	origin := browserAuthOrigin(parsed)
+	return &browserAuthRunState{
+		OwnerID:          ownerID,
+		BrowserProfileID: profileID,
+		SiteOrigin:       origin,
+		SiteRealm:        strings.TrimSpace(stringArg(args, "site_realm", "")),
+		AccountHint:      strings.ToLower(strings.TrimSpace(stringArg(args, "account_hint", ""))),
+		AuthStrategy:     firstNonEmptyString(strings.TrimSpace(stringArg(args, "auth_strategy", "")), "session_restore"),
+	}
+}
+
+func browserAuthOrigin(parsed *url.URL) string {
+	if parsed == nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Host)
+	if host == "" {
+		return ""
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + host
+}
+
+func cloneBrowserArgs(args map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range args {
+		out[key] = value
+	}
+	return out
+}
+
+func (h *ToolHub) restoreBrowserAuthRecord(ctx context.Context, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata) {
+	state.RestoreAttempted = true
+	adapter, ok := h.browser.(browserAuthStateAdapter)
+	if !ok {
+		state.RestoreError = "browser auth restore unsupported by adapter"
+		return
+	}
+	secret, ok := h.store.GetCredentialSecret(state.Record.CredentialRef)
+	if !ok {
+		state.RestoreError = "browser auth credential secret not found"
+		return
+	}
+	var authState browserautomation.AuthState
+	if err := json.Unmarshal([]byte(secret.Value), &authState); err != nil {
+		state.RestoreError = "browser auth credential secret is invalid"
+		return
+	}
+	importArgs := cloneBrowserArgs(args)
+	importArgs["browser_mode"] = metadata.BrowserMode
+	importArgs["presentation"] = metadata.Presentation
+	importArgs["surface_visible"] = metadata.SurfaceVisible
+	if err := adapter.ImportAuthState(ctx, authState, importArgs); err != nil {
+		state.RestoreError = compactBrowserExtractionError(err.Error())
+		return
+	}
+	state.RestoreSucceeded = true
+}
+
+func (h *ToolHub) exportBrowserAuthForHandoff(ctx context.Context, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata) {
+	adapter, ok := h.browser.(browserAuthStateAdapter)
+	if !ok {
+		state.ExportError = "browser auth export unsupported by adapter"
+		return
+	}
+	exportArgs := cloneBrowserArgs(args)
+	exportArgs["browser_mode"] = "collaborative"
+	exportArgs["presentation"] = "visible"
+	exportArgs["surface_visible"] = true
+	authState, err := adapter.ExportAuthState(ctx, exportArgs)
+	if err != nil {
+		state.ExportError = compactBrowserExtractionError(err.Error())
+		return
+	}
+	if !strings.EqualFold(strings.TrimRight(authState.Origin, "/"), state.SiteOrigin) {
+		state.ExportError = "browser auth export origin mismatch"
+		return
+	}
+	state.ExportedState = &authState
+	if metadata.BrowserMode == "autonomous" && metadata.Presentation == "hidden" && !metadata.SurfaceVisible {
+		importArgs := cloneBrowserArgs(args)
+		importArgs["browser_mode"] = metadata.BrowserMode
+		importArgs["presentation"] = metadata.Presentation
+		importArgs["surface_visible"] = metadata.SurfaceVisible
+		if err := adapter.ImportAuthState(ctx, authState, importArgs); err != nil {
+			state.RestoreAttempted = true
+			state.RestoreError = compactBrowserExtractionError(err.Error())
+			return
+		}
+		state.RestoreAttempted = true
+		state.RestoreSucceeded = true
+		state.ImportedAfterExport = true
+	}
+}
+
+func (h *ToolHub) finalizeBrowserAuth(ctx context.Context, output any, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata, sessionID, runID string) {
+	out, ok := output.(map[string]any)
+	if !ok || state == nil {
+		return
+	}
+	h.applyBrowserAuthOutputBase(out, state)
+	if state.RestoreAttempted {
+		out["browser_auth_restore_attempted"] = true
+		out["browser_auth_restore_succeeded"] = state.RestoreSucceeded
+		if state.RestoreError != "" {
+			out["browser_auth_restore_error"] = state.RestoreError
+			h.addBrowserAuthAudit("browser_auth.restore_failed", sessionID, runID, metadata, state, map[string]any{"reason": state.RestoreError})
+		} else if state.RestoreSucceeded {
+			h.addBrowserAuthAudit("browser_auth.restore_succeeded", sessionID, runID, metadata, state, nil)
+		}
+	}
+	if state.ExportError != "" {
+		out["browser_auth_export_error"] = state.ExportError
+	}
+	authChallenge := boolArg(out, "auth_challenge_detected", false)
+	if authChallenge {
+		h.finalizeBrowserAuthChallenge(ctx, out, state, args, metadata, sessionID, runID)
+		return
+	}
+	h.finalizeBrowserAuthVerified(out, state, sessionID, runID, metadata)
+}
+
+func (h *ToolHub) applyBrowserAuthOutputBase(out map[string]any, state *browserAuthRunState) {
+	out["owner_id"] = state.OwnerID
+	out["browser_profile_id"] = state.BrowserProfileID
+	out["auth_site_origin"] = state.SiteOrigin
+	out["auth_site_realm"] = state.SiteRealm
+	out["account_hint"] = state.AccountHint
+	if state.RecordFound {
+		out["browser_auth_record_id"] = state.Record.ID
+	}
+	if _, ok := out["browser_auth_status"]; !ok {
+		out["browser_auth_status"] = "none"
+	}
+}
+
+func (h *ToolHub) finalizeBrowserAuthChallenge(ctx context.Context, out map[string]any, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata, sessionID, runID string) {
+	out["auth_challenge_kind"] = "login_or_verification"
+	out["login_handoff_required"] = true
+	h.addBrowserAuthAudit("browser_auth.challenge_detected", sessionID, runID, metadata, state, nil)
+	if state.RecordFound && h.store != nil {
+		record := state.Record
+		record.Status = app.BrowserAuthStatusFailed
+		record.LastError = firstNonEmptyString(state.RestoreError, "auth challenge after browser auth restore")
+		record = h.store.SaveBrowserAuthRecord(record)
+		state.Record = record
+		out["browser_auth_record_id"] = record.ID
+	}
+	if metadata.BrowserMode == "collaborative" || metadata.Presentation == "visible" || metadata.SurfaceVisible {
+		out["browser_auth_status"] = "handoff_waiting"
+		out["login_surface"] = "collaborative_visible"
+		return
+	}
+	out["browser_auth_status"] = "handoff_required"
+	out["login_surface"] = "visible_handoff"
+	h.openBrowserLoginHandoff(ctx, out, state, args, metadata, sessionID, runID)
+}
+
+func (h *ToolHub) finalizeBrowserAuthVerified(out map[string]any, state *browserAuthRunState, sessionID, runID string, metadata browserModeMetadata) {
+	if state.ExportedState != nil && h.store != nil {
+		record := state.Record
+		if record.ID == "" {
+			record.ID = app.NewID("bauth")
+		}
+		record.OwnerID = state.OwnerID
+		record.BrowserProfileID = state.BrowserProfileID
+		record.SiteOrigin = state.SiteOrigin
+		record.SiteRealm = state.SiteRealm
+		record.AccountHint = state.AccountHint
+		record.AuthStrategy = state.AuthStrategy
+		record.Status = app.BrowserAuthStatusActive
+		record.LastError = ""
+		record.LastVerifiedAt = time.Now().UTC()
+		record.SessionRef = state.ExportedState.Provider
+		ref := "browser-auth:" + record.ID
+		record.CredentialRef = ref
+		record.CookieJarRef = ref
+		raw, _ := json.Marshal(state.ExportedState)
+		h.store.SaveCredentialSecret(app.CredentialSecret{
+			Ref:   ref,
+			Kind:  "browser-auth-state",
+			Value: string(raw),
+		})
+		record = h.store.SaveBrowserAuthRecord(record)
+		state.Record = record
+		state.RecordFound = true
+		state.SavedRecordID = record.ID
+		out["browser_auth_record_id"] = record.ID
+		out["browser_auth_record_saved"] = true
+		h.addBrowserAuthAudit("browser_auth.handoff_verified", sessionID, runID, metadata, state, nil)
+	}
+	if state.RestoreSucceeded {
+		out["browser_auth_status"] = "restored"
+		if h.store != nil && state.Record.ID != "" {
+			record := state.Record
+			record.LastVerifiedAt = time.Now().UTC()
+			record.Status = app.BrowserAuthStatusActive
+			record.LastError = ""
+			record = h.store.SaveBrowserAuthRecord(record)
+			state.Record = record
+		}
+		return
+	}
+	if state.ExportedState != nil {
+		out["browser_auth_status"] = "verified"
+		return
+	}
+	out["browser_auth_status"] = "none"
+	out["login_handoff_required"] = false
+}
+
+func (h *ToolHub) openBrowserLoginHandoff(ctx context.Context, out map[string]any, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata, sessionID, runID string) {
+	if h.browser == nil {
+		state.HandoffError = "browser automation adapter unavailable"
+		out["login_handoff_error"] = state.HandoffError
+		return
+	}
+	handoffArgs := map[string]any{
+		"url":             stringArg(out, "final_url", stringArg(args, "url", "")),
+		"browser_mode":    "collaborative",
+		"presentation":    "visible",
+		"surface_visible": true,
+		"reason":          "browser_auth_handoff_required",
+	}
+	if timeoutMS := intArg(args, "timeout_ms", h.cfg.Adapters.BrowserAutomation.TimeoutMS); timeoutMS > 0 {
+		handoffArgs["timeout_ms"] = timeoutMS
+	}
+	result, err := h.browser.Call(ctx, "browser.open", handoffArgs)
+	if err != nil {
+		state.HandoffError = compactBrowserExtractionError(err.Error())
+		out["login_handoff_error"] = state.HandoffError
+		return
+	}
+	state.HandoffOpened = true
+	out["browser_auth_status"] = "handoff_waiting"
+	out["login_handoff_opened"] = true
+	out["login_handoff_url"] = handoffArgs["url"]
+	out["login_handoff_provider"] = result.Provider
+	h.addBrowserAuthAudit("browser_auth.handoff_started", sessionID, runID, metadata, state, nil)
+}
+
+func (h *ToolHub) addBrowserAuthAudit(typ, sessionID, runID string, metadata browserModeMetadata, state *browserAuthRunState, extra map[string]any) {
+	if h.store == nil || state == nil {
+		return
+	}
+	fields := map[string]any{
+		"owner_id":           state.OwnerID,
+		"browser_profile_id": state.BrowserProfileID,
+		"site_origin":        state.SiteOrigin,
+		"site_realm":         state.SiteRealm,
+		"account_hint":       state.AccountHint,
+		"browser_mode":       metadata.BrowserMode,
+		"presentation":       metadata.Presentation,
+		"surface_visible":    metadata.SurfaceVisible,
+		"record_found":       state.RecordFound,
+	}
+	if state.Record.ID != "" {
+		fields["record_id"] = state.Record.ID
+	}
+	for key, value := range extra {
+		fields[key] = value
+	}
+	h.store.AddAudit(app.AuditEvent{
+		Type:      typ,
+		SessionID: sessionID,
+		RunID:     runID,
+		Actor:     "toolhub",
+		Summary:   state.SiteOrigin,
+		Fields:    fields,
+	})
 }
 
 func (h *ToolHub) browserReadDirect(ctx context.Context, parsed *url.URL, maxBytes int, metadata browserModeMetadata, sessionID, runID, readMode string, browserSessionErr error) (Result, error) {

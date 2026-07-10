@@ -51,6 +51,8 @@ type Snapshot struct {
 	WeixinChatSessions   map[string]app.WeixinChatSession   `json:"weixin_chat_sessions"`
 	WeixinChatMessages   map[string]app.WeixinChatMessage   `json:"weixin_chat_messages"`
 	CredentialSecrets    map[string]app.CredentialSecret    `json:"credential_secrets"`
+	BrowserAuthRecords   map[string]app.BrowserAuthRecord   `json:"browser_auth_records,omitempty"`
+	BrowserLoginBlocks   map[string]app.BrowserLoginBlock   `json:"browser_login_blocks,omitempty"`
 	Memories             map[string]app.Memory              `json:"memories"`
 	MemoryCandidates     map[string]app.MemoryCandidate     `json:"memory_candidates"`
 	AuditEvents          []app.AuditEvent                   `json:"audit_events"`
@@ -384,6 +386,50 @@ func (s *FileStore) DeleteCredentialSecret(ref string) error {
 		s.persist()
 	}
 	return err
+}
+
+func (s *FileStore) SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord {
+	out := s.inner.SaveBrowserAuthRecord(record)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool) {
+	return s.inner.GetBrowserAuthRecord(id)
+}
+
+func (s *FileStore) FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool) {
+	return s.inner.FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint)
+}
+
+func (s *FileStore) ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord {
+	return s.inner.ListBrowserAuthRecords(ownerID, browserProfileID)
+}
+
+func (s *FileStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error) {
+	out, err := s.inner.RevokeBrowserAuthRecord(id, reason)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
+}
+
+func (s *FileStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+	out := s.inner.SaveBrowserLoginBlock(block)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
+	return s.inner.GetBrowserLoginBlock(id)
+}
+
+func (s *FileStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
+	return s.inner.FindActiveBrowserLoginBlock(sessionID)
+}
+
+func (s *FileStore) ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock {
+	return s.inner.ListBrowserLoginBlocks(sessionID, status)
 }
 
 func (s *FileStore) AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate {

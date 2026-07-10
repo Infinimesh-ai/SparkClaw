@@ -70,6 +70,17 @@ type PageReadResult struct {
 	Errors                map[string]any `json:"errors,omitempty"`
 }
 
+type AuthState struct {
+	Origin         string            `json:"origin"`
+	URL            string            `json:"url,omitempty"`
+	Title          string            `json:"title,omitempty"`
+	Cookie         string            `json:"cookie,omitempty"`
+	LocalStorage   map[string]string `json:"local_storage,omitempty"`
+	SessionStorage map[string]string `json:"session_storage,omitempty"`
+	ExportedAt     time.Time         `json:"exported_at"`
+	Provider       string            `json:"provider,omitempty"`
+}
+
 type ChromeDevToolsAdapter struct {
 	cfg           config.Config
 	mu            sync.Mutex
@@ -285,6 +296,67 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 		result.Errors = nil
 	}
 	return result, nil
+}
+
+func (a *ChromeDevToolsAdapter) ExportAuthState(ctx context.Context, args map[string]any) (AuthState, error) {
+	metadata := browserModeMetadata(args, "collaborative")
+	hidden := shouldUseHiddenBrowserSession(metadata, args)
+	out, err := a.callToolWithSession(ctx, hidden, "evaluate_script", map[string]any{
+		"function": browserExportAuthStateEvaluateFunction,
+	})
+	if err != nil {
+		return AuthState{}, err
+	}
+	if err := mcpToolError("evaluate_script", out); err != nil {
+		return AuthState{}, err
+	}
+	payload := evaluatePayloadMap(out)
+	if payload == nil {
+		return AuthState{}, errors.New("browser auth export returned no payload")
+	}
+	state := AuthState{
+		Origin:         firstStringValue(payload, "origin"),
+		URL:            firstStringValue(payload, "url", "href"),
+		Title:          firstStringValue(payload, "title"),
+		Cookie:         firstStringValue(payload, "cookie"),
+		LocalStorage:   stringMapValue(payload["localStorage"], payload["local_storage"]),
+		SessionStorage: stringMapValue(payload["sessionStorage"], payload["session_storage"]),
+		ExportedAt:     time.Now().UTC(),
+		Provider:       browserProviderName(hidden),
+	}
+	if strings.TrimSpace(state.Origin) == "" {
+		return AuthState{}, errors.New("browser auth export missing origin")
+	}
+	return state, nil
+}
+
+func (a *ChromeDevToolsAdapter) ImportAuthState(ctx context.Context, state AuthState, args map[string]any) error {
+	if strings.TrimSpace(state.Origin) == "" {
+		return errors.New("browser auth import missing origin")
+	}
+	metadata := browserModeMetadata(args, "autonomous")
+	hidden := shouldUseHiddenBrowserSession(metadata, args)
+	timeoutMS := intArg(args, "timeout_ms", a.cfg.Adapters.BrowserAutomation.TimeoutMS)
+	if timeoutMS <= 0 {
+		timeoutMS = 15000
+	}
+	openOutput, err := a.callToolWithSession(ctx, hidden, "new_page", map[string]any{
+		"url":     state.Origin,
+		"timeout": timeoutMS,
+	})
+	if err != nil {
+		return err
+	}
+	if err := mcpToolError("new_page", openOutput); err != nil {
+		return err
+	}
+	evaluateOutput, err := a.callToolWithSession(ctx, hidden, "evaluate_script", map[string]any{
+		"function": browserImportAuthStateEvaluateFunction(state),
+	})
+	if err != nil {
+		return err
+	}
+	return mcpToolError("evaluate_script", evaluateOutput)
 }
 
 func (a *ChromeDevToolsAdapter) hiddenSnapshot(ctx context.Context, started time.Time, args map[string]any, metadata browserModeFields) (Result, error) {
@@ -678,6 +750,66 @@ const browserPageStateEvaluateFunction = `() => ({
   readyState: document.readyState
 })`
 
+const browserExportAuthStateEvaluateFunction = `() => {
+  const dumpStorage = (storage) => {
+    const out = {};
+    if (!storage) {
+      return out;
+    }
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key) {
+        out[key] = storage.getItem(key) || "";
+      }
+    }
+    return out;
+  };
+  return {
+    origin: location.origin,
+    url: location.href,
+    title: document.title || "",
+    cookie: document.cookie || "",
+    localStorage: dumpStorage(window.localStorage),
+    sessionStorage: dumpStorage(window.sessionStorage)
+  };
+}`
+
+func browserImportAuthStateEvaluateFunction(state AuthState) string {
+	raw, _ := json.Marshal(state)
+	return fmt.Sprintf(`() => {
+  const state = %s;
+  const applyStorage = (storage, values) => {
+    if (!storage || !values || typeof values !== "object") {
+      return 0;
+    }
+    let count = 0;
+    for (const [key, value] of Object.entries(values)) {
+      storage.setItem(key, String(value));
+      count++;
+    }
+    return count;
+  };
+  let cookieCount = 0;
+  if (state.cookie) {
+    for (const part of String(state.cookie).split(";")) {
+      const cookie = part.trim();
+      if (!cookie || cookie.indexOf("=") <= 0) {
+        continue;
+      }
+      document.cookie = cookie + "; path=/";
+      cookieCount++;
+    }
+  }
+  return {
+    origin: location.origin,
+    url: location.href,
+    cookieCount,
+    localStorageCount: applyStorage(window.localStorage, state.local_storage || state.localStorage),
+    sessionStorageCount: applyStorage(window.sessionStorage, state.session_storage || state.sessionStorage)
+  };
+}`, string(raw))
+}
+
 func evaluatePayloadMap(output any) map[string]any {
 	if payload := mapValue(output); payload != nil {
 		for _, key := range []string{"result", "value", "json", "data"} {
@@ -702,6 +834,21 @@ func evaluatePayloadMap(output any) map[string]any {
 		return parsed
 	}
 	return nil
+}
+
+func stringMapValue(values ...any) map[string]string {
+	for _, value := range values {
+		raw := mapValue(value)
+		if raw == nil {
+			continue
+		}
+		out := map[string]string{}
+		for key, item := range raw {
+			out[key] = stringValue(item)
+		}
+		return out
+	}
+	return map[string]string{}
 }
 
 func looksLikePageReadPayload(value map[string]any) bool {

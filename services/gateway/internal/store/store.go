@@ -64,6 +64,15 @@ type Store interface {
 	SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret
 	GetCredentialSecret(ref string) (app.CredentialSecret, bool)
 	DeleteCredentialSecret(ref string) error
+	SaveBrowserAuthRecord(record app.BrowserAuthRecord) app.BrowserAuthRecord
+	GetBrowserAuthRecord(id string) (app.BrowserAuthRecord, bool)
+	FindBrowserAuthRecord(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (app.BrowserAuthRecord, bool)
+	ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord
+	RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error)
+	SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock
+	GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool)
+	FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool)
+	ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock
 	AddMemoryCandidate(candidate app.MemoryCandidate) app.MemoryCandidate
 	ResolveMemoryCandidate(id, status string) (app.MemoryCandidate, *app.Memory, error)
 	ListMemoryCandidates(status string) []app.MemoryCandidate

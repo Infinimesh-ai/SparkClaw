@@ -273,6 +273,7 @@ func newHiddenBrowserScenarioHub(t *testing.T, adapter browserautomation.Adapter
 	t.Helper()
 	cfg := config.Default()
 	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
 	cfg.Storage.ArtifactDir = t.TempDir()
 	return New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(adapter)
 }

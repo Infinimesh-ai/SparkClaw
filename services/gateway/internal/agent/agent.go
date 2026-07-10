@@ -85,6 +85,9 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 		CreatedAt:   time.Now().UTC(),
 	})
 	_ = userMessage
+	if result, handled, err := r.resumeBrowserLoginBlock(ctx, sessionID, visibleContent, emit); handled || err != nil {
+		return result, err
+	}
 
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
@@ -185,7 +188,10 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 	}
 
 	now := time.Now().UTC()
-	if len(approvals) > 0 {
+	if reactResult.BrowserLoginBlock != nil {
+		run.State = "browser_login_blocked"
+		run.CompletedAt = nil
+	} else if len(approvals) > 0 {
 		run.State = "approval_pending"
 		run.CompletedAt = nil
 	} else if isBlockedFinalAnswer(reactResult.FinalAnswer) {
@@ -204,7 +210,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, agentContent, run.Summary, currentToolCalls)
-	if emit != nil && len(approvals) == 0 && !isBlockedFinalAnswer(reactResult.FinalAnswer) {
+	if emit != nil && len(approvals) == 0 && reactResult.BrowserLoginBlock == nil && !isBlockedFinalAnswer(reactResult.FinalAnswer) {
 		if streamed, streamedChat, err := r.streamFinalAnswer(ctx, agentContent, run, run.Summary, currentToolCalls, emit); err == nil && strings.TrimSpace(streamed) != "" {
 			run.Summary = r.applyGroundedSummary(sessionID, run.ID, agentContent, streamed, currentToolCalls)
 			reactResult.Chat = streamedChat
@@ -321,7 +327,10 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
 
 	now := time.Now().UTC()
-	if len(approvals) > 0 {
+	if reactResult.BrowserLoginBlock != nil {
+		run.State = "browser_login_blocked"
+		run.CompletedAt = nil
+	} else if len(approvals) > 0 {
 		run.State = "approval_pending"
 		run.CompletedAt = nil
 	} else if isBlockedFinalAnswer(reactResult.FinalAnswer) {

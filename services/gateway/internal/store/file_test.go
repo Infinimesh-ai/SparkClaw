@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,17 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		Rating:     "corrected",
 		Correction: "Persistent correction.",
 	})
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID:        session.ID,
+		RunID:            run.ID,
+		OriginalGoal:     "Read https://example.com/protected",
+		ResumeTool:       "browser.read",
+		ResumeArgs:       map[string]any{"url": "https://example.com/protected"},
+		LoginHandoffURL:  "https://example.com/protected",
+		OwnerID:          app.DefaultOwnerID,
+		BrowserProfileID: "default",
+		SiteOrigin:       "https://example.com",
+	})
 
 	reloaded, err := NewFileStore(path)
 	if err != nil {
@@ -159,6 +171,9 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	feedback := reloaded.ListRunFeedback(run.ID)
 	if len(feedback) != 1 || feedback[0].Rating != "corrected" || feedback[0].Correction != "Persistent correction." {
 		t.Fatalf("run feedback did not reload: %#v", feedback)
+	}
+	if active, ok := reloaded.FindActiveBrowserLoginBlock(session.ID); !ok || active.ID != block.ID || active.ResumeArgs["url"] != "https://example.com/protected" {
+		t.Fatalf("browser login block did not reload: %#v ok=%v", active, ok)
 	}
 }
 
@@ -224,11 +239,23 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	if _, memory, err := st.ResolveMemoryCandidate(candidate.ID, "accepted"); err != nil || memory == nil {
 		t.Fatalf("accepted memory missing memory=%#v err=%v", memory, err)
 	}
+	st.SaveCredentialSecret(app.CredentialSecret{
+		Ref:   "browser-auth:test",
+		Kind:  "browser-auth-state",
+		Value: `{"cookie":"fixture=browser-cookie"}`,
+	})
+	st.SaveBrowserAuthRecord(app.BrowserAuthRecord{
+		OwnerID:          app.DefaultOwnerID,
+		BrowserProfileID: "default",
+		SiteOrigin:       "https://example.com",
+		CredentialRef:    "browser-auth:test",
+		CookieJarRef:     "browser-auth:test",
+	})
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(raw, []byte("super private encrypted memory")) || !bytes.Contains(raw, []byte(`"alg": "AES-256-GCM"`)) {
+	if bytes.Contains(raw, []byte("super private encrypted memory")) || bytes.Contains(raw, []byte("browser-cookie")) || !bytes.Contains(raw, []byte(`"alg": "AES-256-GCM"`)) {
 		t.Fatalf("encrypted state leaked plaintext or missing envelope: %s", raw)
 	}
 	reloaded, err := NewFileStoreWithOptions(FileStoreOptions{
@@ -241,6 +268,12 @@ func TestFileStoreEncryptsStateAtRest(t *testing.T) {
 	}
 	if memories := reloaded.SearchMemories("encrypted memory"); len(memories) != 1 {
 		t.Fatalf("encrypted memory did not reload: %#v", memories)
+	}
+	if record, ok := reloaded.FindBrowserAuthRecord(app.DefaultOwnerID, "default", "https://example.com", "", ""); !ok || record.CredentialRef != "browser-auth:test" {
+		t.Fatalf("browser auth record did not reload from encrypted state: %#v ok=%v", record, ok)
+	}
+	if secret, ok := reloaded.GetCredentialSecret("browser-auth:test"); !ok || !strings.Contains(secret.Value, "browser-cookie") {
+		t.Fatalf("browser auth secret did not reload from encrypted state: %#v ok=%v", secret, ok)
 	}
 }
 

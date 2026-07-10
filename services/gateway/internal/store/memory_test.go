@@ -123,6 +123,85 @@ func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite(t *testing.T) {
+	st := NewMemoryStore()
+	record := st.SaveBrowserAuthRecord(app.BrowserAuthRecord{
+		OwnerID:          "owner-a",
+		BrowserProfileID: "work",
+		SiteOrigin:       "https://Example.COM/",
+		AccountHint:      "Ada@Example.COM",
+		CredentialRef:    "browser-auth:work",
+		CookieJarRef:     "browser-auth:work",
+	})
+	if record.ID == "" || record.Status != app.BrowserAuthStatusActive || record.SiteOrigin != "https://example.com" || record.AccountHint != "ada@example.com" {
+		t.Fatalf("browser auth record was not normalized: %#v", record)
+	}
+	if found, ok := st.FindBrowserAuthRecord("owner-a", "work", "https://example.com", "", "ada@example.com"); !ok || found.ID != record.ID {
+		t.Fatalf("expected scoped browser auth record, got %#v ok=%v", found, ok)
+	}
+	for _, tc := range []struct {
+		name             string
+		ownerID          string
+		browserProfileID string
+		accountHint      string
+	}{
+		{name: "other owner", ownerID: "owner-b", browserProfileID: "work", accountHint: "ada@example.com"},
+		{name: "other profile", ownerID: "owner-a", browserProfileID: "personal", accountHint: "ada@example.com"},
+		{name: "other account", ownerID: "owner-a", browserProfileID: "work", accountHint: "other@example.com"},
+	} {
+		if found, ok := st.FindBrowserAuthRecord(tc.ownerID, tc.browserProfileID, "https://example.com", "", tc.accountHint); ok {
+			t.Fatalf("%s should not match browser auth record: %#v", tc.name, found)
+		}
+	}
+	revoked, err := st.RevokeBrowserAuthRecord(record.ID, "owner requested")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked.Status != app.BrowserAuthStatusRevoked || revoked.RevokedAt == nil {
+		t.Fatalf("record was not revoked: %#v", revoked)
+	}
+	if _, ok := st.FindBrowserAuthRecord("owner-a", "work", "https://example.com", "", "ada@example.com"); ok {
+		t.Fatalf("revoked browser auth record should not be active")
+	}
+	if !hasAuditType(st.ListAudit(""), "browser_auth.record_saved") || !hasAuditType(st.ListAudit(""), "browser_auth.record_revoked") {
+		t.Fatalf("browser auth audit events missing: %#v", st.ListAudit(""))
+	}
+}
+
+func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
+	st := NewMemoryStore()
+	session := st.CreateSession("login block")
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID:        session.ID,
+		RunID:            run.ID,
+		OriginalGoal:     "Read https://example.com/protected",
+		ResumeTool:       "browser.read",
+		ResumeArgs:       map[string]any{"url": "https://example.com/protected"},
+		LoginHandoffURL:  "https://example.com/protected",
+		OwnerID:          "owner-a",
+		BrowserProfileID: "work",
+		SiteOrigin:       "https://Example.COM/",
+	})
+	if block.ID == "" || block.Status != app.BrowserLoginBlockStatusWaiting || block.SiteOrigin != "https://example.com" {
+		t.Fatalf("browser login block was not normalized: %#v", block)
+	}
+	if found, ok := st.FindActiveBrowserLoginBlock(session.ID); !ok || found.ID != block.ID {
+		t.Fatalf("expected active browser login block, got %#v ok=%v", found, ok)
+	}
+	now := time.Now().UTC()
+	block.Status = app.BrowserLoginBlockStatusResolved
+	block.ResolvedAt = &now
+	st.SaveBrowserLoginBlock(block)
+	if _, ok := st.FindActiveBrowserLoginBlock(session.ID); ok {
+		t.Fatalf("resolved browser login block should not remain active")
+	}
+	if blocks := st.ListBrowserLoginBlocks(session.ID, app.BrowserLoginBlockStatusResolved); len(blocks) != 1 || blocks[0].ID != block.ID {
+		t.Fatalf("resolved browser login block should be listed: %#v", blocks)
+	}
+}
+
 func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 	st := NewMemoryStore()
 	session := st.CreateSession("Feedback")

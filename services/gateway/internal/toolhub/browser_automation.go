@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 )
 
@@ -28,8 +29,20 @@ func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]a
 	return Result{Output: result}, nil
 }
 
-func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args map[string]any) (Result, error) {
+func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args map[string]any, sessionID string) (Result, error) {
 	callArgs, metadata := browserAutomationArgsWithMode(name, args)
+	if strings.TrimSpace(stringArg(callArgs, "owner_id", "")) == "" {
+		ownerID := ""
+		if h.store != nil && strings.TrimSpace(sessionID) != "" {
+			if session, ok := h.store.GetSession(sessionID); ok {
+				ownerID = strings.TrimSpace(session.OwnerID)
+			}
+		}
+		callArgs["owner_id"] = firstNonEmptyString(ownerID, app.DefaultOwnerID)
+	}
+	if strings.TrimSpace(stringArg(callArgs, "browser_profile_id", "")) == "" {
+		callArgs["browser_profile_id"] = firstNonEmptyString(strings.TrimSpace(h.cfg.Tools.BrowserAutomation.Profile), "default")
+	}
 	result, err := h.browser.Call(ctx, name, callArgs)
 	if err != nil {
 		return Result{}, err
@@ -48,11 +61,7 @@ func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args m
 }
 
 func browserAutomationArgsWithMode(name string, args map[string]any) (map[string]any, browserModeMetadata) {
-	fallbackMode := "collaborative"
-	if name == "browser.read" {
-		fallbackMode = "autonomous"
-	}
-	metadata := browserModeMetadataFromArgs(args, fallbackMode)
+	metadata := browserModeMetadataFromArgs(args, "autonomous")
 	out := map[string]any{}
 	for key, value := range args {
 		out[key] = value

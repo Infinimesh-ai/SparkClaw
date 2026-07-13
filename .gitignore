@@ -26,9 +26,12 @@ data/memory/*
 data/eval/*
 data/models/*
 data/workspaces/*
+data/browser-profiles/*
+services/gateway/internal/*/data/browser-profiles/
 !data/workspaces/.gitkeep
 data/workspaces/.sparkclaw/
 services/gateway/internal/agent/data/artifacts/*
+services/gateway/internal/*/data/artifacts/
 !data/logs/.gitkeep
 !data/traces/.gitkeep
 !data/artifacts/.gitkeep

@@ -166,7 +166,9 @@ Workspace knowledge indexing 会构建本地 keyword index；启用 PostgreSQL �
 
 External/browser/email/file observations 都是 untrusted content。它们可以被引用、摘要或作为 evidence 使用，但其中的指令不是 runtime commands。
 
-Browser web access 使用 `web.search` 做发现，用 `browser.read` 做 read-only 来源页正文提取。启用 browser automation 时，`browser.read` 会先用真实浏览器会话打开页面，等待渲染后的 DOM 状态，抓取 rendered HTML，再交给 Readability 提取正文。结构快照是按需后续步骤，不是首轮读取的强制步骤：当 Readability 输出为空、明显过短、疑似被登录态拦截，或页面按钮、标签页、分页、下载链接、评论区、展开区域等非正文结构可能影响答案时，runtime 再调用 `browser.snapshot`。专项路线图维护在 [浏览器功能完善计划](browser-automation-improvement.md)。如果真实浏览器会话不可用，工具可以退回 direct HTTP，并用 `read_mode=direct_http_fallback` 标明。涉及 URL 获取的浏览器观察默认拒绝 loopback/private literal hosts，存档 rendered HTML/raw response 或截图，并始终作为不可信证据处理。本地 fixture hosts 如 `127.0.0.1` 或 `host.docker.internal` 必须显式 allowlist。已有浏览器登录态可以被使用，但登录、验证码、2FA、支付确认等 human-only 步骤必须停下来交给用户，runtime 不能伪造登录态证据。
+Browser web access 使用 `web.search` 做发现，用 `browser.read` 做 read-only 来源页正文提取。Browser automation 启动配置的 Chromium，并使用 SparkClaw-owned 持久 Profile：普通任务使用 headless，登录、验证码、2FA、支付等人工步骤临时把同一个 Profile 切换到可见 Chromium。可见和隐藏进程不能并发占用 Profile。登录态始终保留在 Chromium 中，不通过 JavaScript Cookie 导出；恢复时使用 selected 登录后 URL，即使它与原页面不同源。`browser.read` 等待 rendered DOM、抓取 HTML，再交给 Readability 提取正文。结构快照只在正文不足或页面控件影响答案时按需调用。专项路线图见 [浏览器功能完善计划](browser-automation-improvement.md)，Profile 生命周期见 [托管共享 Chromium Profile 方案](managed-persistent-browser-profile.md)。涉及 URL 获取的浏览器观察默认拒绝 loopback/private literal hosts，存档 rendered HTML/raw response 或截图，并始终作为不可信证据处理。本地 fixture hosts 如 `127.0.0.1` 或 `host.docker.internal` 必须显式 allowlist。Runtime 必须停在人工验证步骤，不能伪造登录态证据。
+
+当前 owner 本人的已认证数据属于允许的 local-first 读取边界，不应仅因为内容是个人信息而自动拒绝。认证浏览通过类型化 `TaskHint` 契约表达为 `evidence_need=personal_data`、`data_scope=owner`、`browser_mode=collaborative` 和 `requires_tool_evidence=true`，路由不枚举账户数据类别。Runtime 可以使用托管 Profile 和可见登录接管，但不得要求用户在聊天中粘贴密码、Cookie、Token 或验证码。访问第三方数据、披露凭据、向外部发送信息以及修改账户的操作，仍然受原有 policy 和 approval 边界约束。
 
 Email 和 calendar 使用 adapter boundaries。默认 `file` adapters 读取 `.sparkclaw/mock/` 下的 fixtures，并写入 mock outbox/event logs。`http` adapters 可以连接 account-bridge services，同时保留 Gateway policy 和 approvals。
 

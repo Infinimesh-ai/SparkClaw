@@ -10,7 +10,7 @@ SparkClaw has one browser capability with two presentation modes.
 
 Autonomous mode is the default for ordinary information tasks. The runtime may search, open pages in a browser-backed session, read rendered DOM/HTML, run Readability, inspect structure when needed and return evidence-backed answers. It should not show a browser surface, narrate visible UI operations or imply that the user must watch the page.
 
-Collaborative mode is used when the user explicitly asks SparkClaw to operate a visible browser/page with them. Examples include opening a specific webpage, showing a page, playing a video, clicking a page control, typing into a form, using the current browser tab, taking a screenshot for visual confirmation or continuing after the user completes login.
+Collaborative mode is used when the user explicitly asks SparkClaw to operate a browser/page with them. The managed Chromium surface may remain hidden for ordinary operations; it becomes visible for human verification, visual handoff, or an explicit request to see the page.
 
 Both modes still treat browser content as untrusted external content. Both modes must stop for password entry, captcha, SMS code, 2FA, permission grants, payment confirmation and other human-only verification.
 
@@ -19,9 +19,9 @@ Both modes still treat browser content as untrusted external content. Both modes
 | Mode | User intent | Browser surface | Primary tools |
 |---|---|---|---|
 | `autonomous` | User wants information, verification, summary or comparison. | Hidden/background from the user. | `web.search`, `browser.read`, conditional `browser.snapshot`, conditional `browser.navigate`. |
-| `collaborative` | User wants a visible page operation or shared browser state. | Visible or explicitly user-facing. | `browser.status`, `browser.list_tabs`, `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, approval-gated `browser.click/type/select`. |
+| `collaborative` | User wants live page operation or shared browser state. | Hidden by default; visible for human verification or explicit display. | `browser.status`, `browser.list_tabs`, `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, approval-gated `browser.click/type/select`. |
 
-The difference is presentation and user intent, not whether ChromeDevTools MCP is used. Autonomous mode may still use a real browser session for login state, JavaScript rendering and lazy-loaded content; it simply returns results instead of presenting the browser as the primary experience.
+The difference is user intent and interaction policy, not browser ownership. Both modes use the same managed Chromium profile. Presentation switches between headless and visible Chromium only when the workflow requires it.
 
 ## Classification Rules
 
@@ -102,12 +102,16 @@ The adapter should receive mode metadata on browser calls that create or operate
 
 Implementation expectations:
 
-- Autonomous reads use hidden/background presentation where available. If the current MCP provider can only create a normal Chrome tab, SparkClaw must route autonomous hidden `browser.read` through a non-visible read path such as direct HTTP plus Readability, unless the tool call explicitly forces a browser session.
-- When the hidden Chromium provider is available, autonomous hidden reads and snapshots should use that provider before direct HTTP fallback.
-- Collaborative, visible and forced-session reads may use ChromeDevTools MCP `new_page -> evaluate_script -> Readability`.
-- Collaborative operations use a visible or user-facing browser surface where the app can show progress and let the user intervene.
-- Future adapters may map autonomous mode to a headless or isolated profile and collaborative mode to the user's Chrome profile. The mode field must be present before that split so routing does not depend on provider internals.
-- Existing user login state can be reused only when explicitly configured and policy allows it.
+- Autonomous reads and ordinary collaborative operations use headless Chromium with the selected persistent profile.
+- Visible presentation uses the same Chromium executable and profile, after the headless process has stopped and released the profile.
+- ChromeDevTools MCP remains the transport, but adapter-owned `--executablePath` must point to Chromium.
+- Shared-profile launches use `--userDataDir` and must not use `--isolated`.
+- Login completion switches back to headless Chromium and resumes from the selected post-login URL, without requiring origin equality.
+- Cookie/storage export and personal Chrome attachment are not part of this mode contract.
+- SparkClaw-only fields such as `visible_browser`, `presentation`, owner/profile
+  metadata, and login continuation flags are stripped before MCP tool calls.
+- Public string or number `page_id` values are normalized to the numeric MCP
+  `pageId` field for `select_page` and `close_page`.
 
 ## Runtime Behavior
 
@@ -219,7 +223,7 @@ The implementation is complete when:
 
 ## Implementation Status
 
-Status as of 2026-07-09: the runtime implementation is aligned with this guide. Current ChromeDevTools MCP reads are used for collaborative/visible or forced-session reads; autonomous hidden reads avoid opening visible Chrome tabs until the hidden Chromium provider described in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md) is added.
+Status as of 2026-07-10: the selected adapter design uses one managed persistent Chromium profile per logical browser profile. Ordinary work is headless; visible Chromium is a temporary presentation for human verification or explicit display. Implementation must serialize the two presentations and resume login flows from the actual post-login URL.
 
 - `TaskHint` includes `browser_mode`, with model prompt, heuristic fallback and normalization support for `autonomous` and `collaborative`.
 - Autonomous web tasks keep the initial model-visible tool set strict; `browser.snapshot`, `browser.navigate` and `browser.wait` are exposed only after `browser.read` reports `needs_structure_snapshot=true`, and `browser.click` waits for snapshot evidence.

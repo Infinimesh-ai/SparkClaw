@@ -852,8 +852,8 @@ browser.read
 "tools": {
   "browserAutomation": {
     "enabled": false,
-    "provider": "chrome-devtools-mcp",
-    "profile": "agent"
+    "provider": "chromium-devtools-mcp",
+    "profile": "default"
   }
 },
 "adapters": {
@@ -861,8 +861,8 @@ browser.read
     "mcpCommand": "npx",
     "mcpArgs": ["-y", "chrome-devtools-mcp@latest"],
     "timeoutMs": 15000,
-    "allowUserProfile": false,
-    "requireApprovalForUserProfile": true
+    "chromiumExecutable": "",
+    "profileDir": "./data/browser-profiles"
   }
 }
 ```
@@ -1555,8 +1555,8 @@ RuntimeConfig
   },
   "browserAutomation": {
     "enabled": false,
-    "provider": "chrome-devtools-mcp",
-    "profile": "agent"
+    "provider": "chromium-devtools-mcp",
+    "profile": "default"
   }
 }
 ```

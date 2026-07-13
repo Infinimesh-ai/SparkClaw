@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -165,11 +166,11 @@ type ServiceAdapterConfig struct {
 }
 
 type BrowserAutomationAdapterConfig struct {
-	MCPCommand                    string   `json:"mcpCommand"`
-	MCPArgs                       []string `json:"mcpArgs"`
-	TimeoutMS                     int      `json:"timeoutMs"`
-	AllowUserProfile              bool     `json:"allowUserProfile"`
-	RequireApprovalForUserProfile bool     `json:"requireApprovalForUserProfile"`
+	MCPCommand         string   `json:"mcpCommand"`
+	MCPArgs            []string `json:"mcpArgs"`
+	TimeoutMS          int      `json:"timeoutMs"`
+	ChromiumExecutable string   `json:"chromiumExecutable"`
+	ProfileDir         string   `json:"profileDir"`
 }
 
 func (c ServiceAdapterConfig) IsHTTP() bool {
@@ -268,6 +269,14 @@ func Load(path string) (Config, error) {
 			cfg.Workspaces.Allowlist[i] = abs
 		}
 	}
+	if strings.TrimSpace(cfg.Adapters.BrowserAutomation.ProfileDir) == "" {
+		cfg.Adapters.BrowserAutomation.ProfileDir = "./data/browser-profiles"
+	}
+	profileDir, err := filepath.Abs(cfg.Adapters.BrowserAutomation.ProfileDir)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve browser profile directory: %w", err)
+	}
+	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
 	normalizeRuntimeLimits(&cfg.Runtime)
 	return cfg, nil
 }
@@ -368,8 +377,8 @@ func Default() Config {
 			},
 			BrowserAutomation: BrowserAutomationToolConfig{
 				Enabled:  false,
-				Provider: "chrome-devtools-mcp",
-				Profile:  "agent",
+				Provider: "chromium-devtools-mcp",
+				Profile:  "default",
 			},
 			Reminders: RemindersToolConfig{
 				Enabled:        true,
@@ -418,11 +427,10 @@ func Default() Config {
 				Backend: "file",
 			},
 			BrowserAutomation: BrowserAutomationAdapterConfig{
-				MCPCommand:                    "npx",
-				MCPArgs:                       []string{"-y", "chrome-devtools-mcp@latest"},
-				TimeoutMS:                     15000,
-				AllowUserProfile:              false,
-				RequireApprovalForUserProfile: true,
+				MCPCommand: "npx",
+				MCPArgs:    []string{"-y", "chrome-devtools-mcp@latest"},
+				TimeoutMS:  15000,
+				ProfileDir: "./data/browser-profiles",
 			},
 		},
 		Memory: MemoryConfig{
@@ -654,11 +662,11 @@ func applyEnv(cfg *Config) {
 			cfg.Adapters.BrowserAutomation.TimeoutMS = timeoutMS
 		}
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_ALLOW_USER_PROFILE"); v != "" {
-		cfg.Adapters.BrowserAutomation.AllowUserProfile = parseBool(v)
+	if v := os.Getenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE"); v != "" {
+		cfg.Adapters.BrowserAutomation.ChromiumExecutable = v
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_REQUIRE_APPROVAL_FOR_USER_PROFILE"); v != "" {
-		cfg.Adapters.BrowserAutomation.RequireApprovalForUserProfile = parseBool(v)
+	if v := os.Getenv("SPARKCLAW_BROWSER_PROFILE_DIR"); v != "" {
+		cfg.Adapters.BrowserAutomation.ProfileDir = v
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_ENABLED"); v != "" {
 		cfg.Tools.Reminders.Enabled = parseBool(v)

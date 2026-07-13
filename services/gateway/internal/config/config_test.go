@@ -113,6 +113,23 @@ func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
+	profileDir := filepath.Join(t.TempDir(), "browser-profile")
+	t.Setenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE", "/opt/test/chromium")
+	t.Setenv("SPARKCLAW_BROWSER_PROFILE_DIR", profileDir)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Adapters.BrowserAutomation.ChromiumExecutable != "/opt/test/chromium" {
+		t.Fatalf("shared Chromium env did not apply: %#v", cfg.Adapters.BrowserAutomation)
+	}
+	if cfg.Adapters.BrowserAutomation.ProfileDir != profileDir || !filepath.IsAbs(cfg.Adapters.BrowserAutomation.ProfileDir) {
+		t.Fatalf("browser profile directory was not normalized: %#v", cfg.Adapters.BrowserAutomation)
+	}
+}
+
 func TestLoadKeepsWebSearchDisabledByDefaultForParallelFree(t *testing.T) {
 	cfg, err := Load("")
 	if err != nil {

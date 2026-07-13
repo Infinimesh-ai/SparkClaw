@@ -1830,6 +1830,8 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 	}
 	block.LastToolCallID = strings.TrimSpace(block.LastToolCallID)
 	block.LoginHandoffURL = strings.TrimSpace(block.LoginHandoffURL)
+	block.LoginHandoffPageID = strings.TrimSpace(block.LoginHandoffPageID)
+	block.LastVisiblePageID = strings.TrimSpace(block.LastVisiblePageID)
 	block.OwnerID = normalizeBrowserAuthOwnerID(block.OwnerID)
 	block.BrowserProfileID = normalizeBrowserProfileID(block.BrowserProfileID)
 	block.SiteOrigin = normalizeSiteOrigin(block.SiteOrigin)
@@ -1914,16 +1916,18 @@ func browserAuthAuditFields(record app.BrowserAuthRecord, extra map[string]any) 
 
 func browserLoginBlockAuditFields(block app.BrowserLoginBlock, extra map[string]any) map[string]any {
 	fields := map[string]any{
-		"block_id":           block.ID,
-		"run_id":             block.RunID,
-		"status":             block.Status,
-		"resume_tool":        block.ResumeTool,
-		"last_tool_call_id":  block.LastToolCallID,
-		"owner_id":           block.OwnerID,
-		"browser_profile_id": block.BrowserProfileID,
-		"site_origin":        block.SiteOrigin,
-		"site_realm":         block.SiteRealm,
-		"account_hint":       block.AccountHint,
+		"block_id":              block.ID,
+		"run_id":                block.RunID,
+		"status":                block.Status,
+		"resume_tool":           block.ResumeTool,
+		"last_tool_call_id":     block.LastToolCallID,
+		"login_handoff_page_id": block.LoginHandoffPageID,
+		"last_visible_page_id":  block.LastVisiblePageID,
+		"owner_id":              block.OwnerID,
+		"browser_profile_id":    block.BrowserProfileID,
+		"site_origin":           block.SiteOrigin,
+		"site_realm":            block.SiteRealm,
+		"account_hint":          block.AccountHint,
 	}
 	for key, value := range extra {
 		fields[key] = value

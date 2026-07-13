@@ -10,7 +10,7 @@ SparkClaw 只有一个浏览器能力，但有两种呈现模式。
 
 自主模式是普通信息任务的默认模式。Runtime 可以搜索、用 browser-backed session 打开页面、读取 rendered DOM/HTML、运行 Readability、必要时查看结构，并返回有证据支撑的答案。它不应该展示浏览器画面，不应该把可见 UI 操作作为用户需要关注的主体验，也不应该暗示用户必须看着页面。
 
-协作模式用于用户明确要求 SparkClaw 和自己一起操作可见浏览器/页面的场景。例如打开某个网页、展示页面、播放视频、点击页面控件、在表单中输入、使用当前浏览器标签页、截图做视觉确认，或用户完成登录后继续操作。
+协作模式用于用户明确要求 SparkClaw 与自己一起操作浏览器/页面的场景。普通操作仍可以保持隐藏；只有人工验证、可视交接或用户明确要求查看页面时才显示托管 Chromium。
 
 两种模式下，浏览器内容都仍然是不可信外部内容。两种模式都必须在密码、验证码、短信码、2FA、授权、支付确认等 human-only 验证步骤前停止。
 
@@ -19,9 +19,9 @@ SparkClaw 只有一个浏览器能力，但有两种呈现模式。
 | 模式 | 用户意图 | 浏览器画面 | 主要工具 |
 |---|---|---|---|
 | `autonomous` | 用户要信息、核实、总结或比较。 | 对用户隐藏/后台执行。 | `web.search`、`browser.read`、按需 `browser.snapshot`、按需 `browser.navigate`。 |
-| `collaborative` | 用户要可见页面操作或共享浏览器状态。 | 可见或明确面向用户。 | `browser.status`、`browser.list_tabs`、`browser.open`、`browser.navigate`、`browser.snapshot`、`browser.screenshot`、需要 approval 的 `browser.click/type/select`。 |
+| `collaborative` | 用户要实时页面操作或共享浏览器状态。 | 默认隐藏；人工验证或明确展示时可见。 | `browser.status`、`browser.list_tabs`、`browser.open`、`browser.navigate`、`browser.snapshot`、`browser.screenshot`、需要 approval 的 `browser.click/type/select`。 |
 
-两者差异在于呈现方式和用户意图，而不是是否使用 ChromeDevTools MCP。自主模式也可以使用真实浏览器会话来获得登录态、JS 渲染和懒加载内容；它只是返回结果，而不是把浏览器画面作为主要体验。
+两者差异在于用户意图和交互 policy，而不是浏览器所有权。两种模式使用同一个托管 Chromium Profile，只在流程需要时切换 headless 和 visible presentation。
 
 ## 分类规则
 
@@ -102,12 +102,16 @@ type TaskHint struct {
 
 实现要求：
 
-- 自主读取优先使用 hidden/background presentation。如果当前 MCP provider 只能创建普通 Chrome tab，SparkClaw 必须把自主 hidden `browser.read` 路由到不会展示页面的读取路径，例如 direct HTTP 加 Readability，除非工具调用显式强制使用浏览器 session。
-- hidden Chromium provider 可用时，自主 hidden 读取和 snapshot 应先使用该 provider，再 fallback 到 direct HTTP。
-- 协作、可见和 forced-session 读取可以使用 ChromeDevTools MCP 的 `new_page -> evaluate_script -> Readability`。
-- 协作操作使用可见或用户可感知的浏览器画面，让应用可以展示进度并允许用户介入。
-- 未来 adapter 可以把自主模式映射到 headless/isolated profile，把协作模式映射到用户 Chrome profile。必须先有 mode 字段，避免路由依赖 provider 内部细节。
-- 只有显式配置且 policy 允许时，才可复用已有用户登录态。
+- 自主读取和普通协作操作使用选中持久 Profile 的 headless Chromium。
+- visible presentation 使用同一个 Chromium executable 和 Profile，并且只能在 headless 进程停止并释放 Profile 后启动。
+- ChromeDevTools MCP 继续作为传输层，但 adapter-owned `--executablePath` 必须指向 Chromium。
+- 共享 Profile 启动使用 `--userDataDir`，不能使用 `--isolated`。
+- 登录完成后切回 headless Chromium，并从 selected 登录后 URL 恢复，不要求 origin 相同。
+- Cookie/storage 导出和个人 Chrome 附着不属于本模式契约。
+- `visible_browser`、`presentation`、owner/profile metadata 和登录恢复标记等
+  SparkClaw-only 字段在 MCP 调用前必须移除。
+- 公开 string 或 number `page_id` 在 `select_page` 和 `close_page` 前转换为 MCP 的数值
+  `pageId`。
 
 ## Runtime 行为
 
@@ -219,7 +223,7 @@ Trace/audit 测试：
 
 ## 实现状态
 
-截至 2026-07-09，runtime 实现已经与本指南对齐。当前 ChromeDevTools MCP 读取用于协作/可见或 forced-session 读取；自主 hidden 读取在 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md) 定义的 hidden Chromium provider 加入前避免打开可见 Chrome tab。
+截至 2026-07-10，确定的 adapter 方案为每个逻辑 browser profile 使用一个托管持久 Chromium Profile。普通任务使用 headless；visible Chromium 只用于人工验证或明确展示。实现必须串行化两种 presentation，并从登录后的实际 URL 恢复。
 
 - `TaskHint` 已包含 `browser_mode`，模型提示词、heuristic fallback 和 normalization 均支持 `autonomous` 与 `collaborative`。
 - 自主网页任务初始保持严格的 model-visible 工具集；只有当 `browser.read` 返回 `needs_structure_snapshot=true` 后，才暴露 `browser.snapshot`、`browser.navigate` 和 `browser.wait`，`browser.click` 仍等待 snapshot evidence。

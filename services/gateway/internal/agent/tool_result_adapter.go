@@ -233,7 +233,7 @@ func toolResultStructuredFields(call app.ToolCall, output any, observationRef st
 			"path", "rel_path", "url", "final_url", "title", "count", "bytes", "truncated", "content_type",
 			"width", "height", "model_content_type", "model_bytes", "model_width", "model_height", "resized", "resize_note",
 			"status_code", "status_code_source", "redirected", "fetched_at", "warning", "extractor", "readability_status", "readability_error", "readability_length", "readability_readerable", "needs_structure_snapshot", "structure_snapshot_reasons", "excerpt", "byline", "site_name", "lang", "published_time",
-			"read_mode", "browser_mode", "presentation", "surface_visible", "rendered", "browser_provider", "browser_duration_ms", "browser_actions", "browser_ready_state", "browser_lang", "browser_html_length", "browser_html_truncated", "browser_text_length", "browser_scroll_height", "auth_challenge_detected", "auth_challenge_kind", "auth_site_origin", "auth_site_realm", "browser_auth_status", "browser_auth_record_id", "browser_profile_id", "owner_id", "login_surface", "login_handoff_required", "login_handoff_opened", "login_handoff_url", "browser_auth_restore_attempted", "browser_auth_restore_succeeded", "browser_auth_restore_error", "browser_auth_export_error", "browser_auth_record_saved", "browser_session_error",
+			"read_mode", "browser_mode", "presentation", "surface_visible", "rendered", "browser_provider", "browser_duration_ms", "browser_actions", "browser_ready_state", "browser_lang", "browser_html_length", "browser_html_truncated", "browser_text_length", "browser_scroll_height", "browser_page_auth_state", "browser_page_auth_confidence", "browser_page_auth_signals", "auth_challenge_detected", "auth_challenge_kind", "auth_site_origin", "auth_site_realm", "browser_auth_status", "browser_auth_strategy", "browser_profile_id", "owner_id", "login_surface", "login_handoff_required", "login_handoff_opened", "login_handoff_url", "browser_session_error",
 			"output_path", "operation", "paragraph_index", "slide_index", "page", "pages", "page_count", "sheet", "cell", "row", "column", "ref",
 			"screenshot_path", "screenshot_content_type", "screenshot_bytes", "provider", "source", "model", "query", "took_ms", "published_date", "error_code", "exit_code",
 		} {
@@ -254,11 +254,11 @@ func toolResultStructuredFields(call app.ToolCall, output any, observationRef st
 			if nestedOutput, ok := anyMap(outputMap["output"]); ok {
 				for _, key := range []string{
 					"url", "final_url", "title", "browser_mode", "presentation", "surface_visible",
+					"browser_page_auth_state", "browser_page_auth_confidence", "browser_page_auth_signals",
 					"auth_challenge_detected", "auth_challenge_kind", "auth_site_origin", "auth_site_realm",
-					"browser_auth_status", "browser_auth_record_id", "browser_profile_id", "owner_id",
+					"browser_auth_status", "browser_auth_strategy", "browser_profile_id", "owner_id",
 					"login_surface", "login_handoff_required", "login_handoff_opened", "login_handoff_url",
-					"browser_auth_restore_attempted", "browser_auth_restore_succeeded", "browser_auth_restore_error",
-					"browser_auth_export_error", "browser_auth_record_saved", "browser_session_error",
+					"browser_session_error",
 				} {
 					if value, ok := nestedOutput[key]; ok && usefulStructuredValue(value) {
 						fields[key] = value

@@ -209,26 +209,28 @@ type BrowserAuthRecord struct {
 }
 
 type BrowserLoginBlock struct {
-	ID                string         `json:"id"`
-	SessionID         string         `json:"session_id"`
-	RunID             string         `json:"run_id"`
-	Status            string         `json:"status"`
-	OriginalGoal      string         `json:"original_goal"`
-	ResumeTool        string         `json:"resume_tool"`
-	ResumeArgs        map[string]any `json:"resume_args"`
-	LastToolCallID    string         `json:"last_tool_call_id,omitempty"`
-	LoginHandoffURL   string         `json:"login_handoff_url,omitempty"`
-	OwnerID           string         `json:"owner_id"`
-	BrowserProfileID  string         `json:"browser_profile_id"`
-	SiteOrigin        string         `json:"site_origin"`
-	SiteRealm         string         `json:"site_realm,omitempty"`
-	AccountHint       string         `json:"account_hint,omitempty"`
-	BrowserAuthStatus string         `json:"browser_auth_status,omitempty"`
-	LastUserReply     string         `json:"last_user_reply,omitempty"`
-	LastError         string         `json:"last_error,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	ResolvedAt        *time.Time     `json:"resolved_at,omitempty"`
+	ID                 string         `json:"id"`
+	SessionID          string         `json:"session_id"`
+	RunID              string         `json:"run_id"`
+	Status             string         `json:"status"`
+	OriginalGoal       string         `json:"original_goal"`
+	ResumeTool         string         `json:"resume_tool"`
+	ResumeArgs         map[string]any `json:"resume_args"`
+	LastToolCallID     string         `json:"last_tool_call_id,omitempty"`
+	LoginHandoffURL    string         `json:"login_handoff_url,omitempty"`
+	LoginHandoffPageID string         `json:"login_handoff_page_id,omitempty"`
+	LastVisiblePageID  string         `json:"last_visible_page_id,omitempty"`
+	OwnerID            string         `json:"owner_id"`
+	BrowserProfileID   string         `json:"browser_profile_id"`
+	SiteOrigin         string         `json:"site_origin"`
+	SiteRealm          string         `json:"site_realm,omitempty"`
+	AccountHint        string         `json:"account_hint,omitempty"`
+	BrowserAuthStatus  string         `json:"browser_auth_status,omitempty"`
+	LastUserReply      string         `json:"last_user_reply,omitempty"`
+	LastError          string         `json:"last_error,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	ResolvedAt         *time.Time     `json:"resolved_at,omitempty"`
 }
 
 type Memory struct {

@@ -61,8 +61,8 @@ func browserAutomationEnabled(cfg config.Config) bool {
 }
 
 func browserAutomationPassthrough() toolExecutor {
-	return func(h *ToolHub, ctx context.Context, name string, args map[string]any, _, _ string) (Result, error) {
-		return h.browserAutomationTool(ctx, name, args)
+	return func(h *ToolHub, ctx context.Context, name string, args map[string]any, sessionID, _ string) (Result, error) {
+		return h.browserAutomationTool(ctx, name, args, sessionID)
 	}
 }
 

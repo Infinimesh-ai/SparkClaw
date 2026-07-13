@@ -3,11 +3,17 @@ package browserautomation
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,13 +41,19 @@ type jsonRPCError struct {
 }
 
 func (a *ChromeDevToolsAdapter) listTools(ctx context.Context) ([]string, error) {
-	return a.listToolsWithSession(ctx, false)
+	hidden := true
+	a.mu.Lock()
+	if a.session != nil && a.session.alive() {
+		hidden = false
+	}
+	a.mu.Unlock()
+	return a.listToolsWithSession(ctx, hidden, a.browserProfileKey(nil))
 }
 
-func (a *ChromeDevToolsAdapter) listToolsWithSession(ctx context.Context, hidden bool) ([]string, error) {
+func (a *ChromeDevToolsAdapter) listToolsWithSession(ctx context.Context, hidden bool, profileKey string) ([]string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	session, err := a.ensureSessionLocked(ctx, hidden)
+	session, err := a.ensureSessionLocked(ctx, hidden, profileKey)
 	if err != nil {
 		return nil, err
 	}
@@ -66,22 +78,125 @@ func (a *ChromeDevToolsAdapter) listToolsWithSession(ctx context.Context, hidden
 }
 
 func (a *ChromeDevToolsAdapter) callTool(ctx context.Context, name string, args map[string]any) (any, error) {
-	return a.callToolWithSession(ctx, false, name, args)
+	return a.callToolWithSession(ctx, false, a.browserProfileKey(args), name, args)
 }
 
-func (a *ChromeDevToolsAdapter) callToolWithSession(ctx context.Context, hidden bool, name string, args map[string]any) (any, error) {
+func (a *ChromeDevToolsAdapter) callToolWithSession(ctx context.Context, hidden bool, profileKey, name string, args map[string]any) (any, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	session, err := a.ensureSessionLocked(ctx, hidden)
+	startupURL := ""
+	if name == "new_page" {
+		startupURL = chromiumStartupURL(args)
+	}
+	session, started, err := a.ensureSessionLockedWithStartupURL(ctx, hidden, profileKey, startupURL)
 	if err != nil {
 		return nil, err
+	}
+	if name == "new_page" && startupURL != "" {
+		if started {
+			pages, listErr := callSessionTool(ctx, session, "list_pages", nil)
+			if listErr != nil {
+				a.resetSessionLocked(hidden)
+				return nil, listErr
+			}
+			if out, reused, navigateErr := navigateReusableBlankPage(ctx, session, pages, startupURL, args); navigateErr != nil {
+				a.resetSessionLocked(hidden)
+				return nil, navigateErr
+			} else if reused {
+				a.cleanupAboutBlankPagesLocked(ctx, session)
+				if cleaned, listErr := callSessionTool(ctx, session, "list_pages", nil); listErr == nil {
+					return cleaned, nil
+				}
+				return out, nil
+			}
+			if !selectedPageMatchesURL(pages, startupURL) {
+				out, openErr := callSessionTool(ctx, session, "new_page", args)
+				if openErr != nil {
+					a.resetSessionLocked(hidden)
+					return nil, openErr
+				}
+				a.cleanupAboutBlankPagesLocked(ctx, session)
+				return out, nil
+			}
+			a.cleanupAboutBlankPagesLocked(ctx, session)
+			return callSessionTool(ctx, session, "list_pages", nil)
+		}
+		pages, listErr := callSessionTool(ctx, session, "list_pages", nil)
+		if listErr == nil {
+			out, reused, navigateErr := navigateReusableBlankPage(ctx, session, pages, startupURL, args)
+			if navigateErr != nil {
+				a.resetSessionLocked(hidden)
+				return nil, navigateErr
+			}
+			if reused {
+				a.cleanupAboutBlankPagesLocked(ctx, session)
+				if cleaned, cleanedErr := callSessionTool(ctx, session, "list_pages", nil); cleanedErr == nil {
+					return cleaned, nil
+				}
+				return out, nil
+			}
+		}
+	}
+	decoded, err := callSessionTool(ctx, session, name, args)
+	if err != nil {
+		a.resetSessionLocked(hidden)
+		return nil, err
+	}
+	if name == "new_page" {
+		a.cleanupAboutBlankPagesLocked(ctx, session)
+	}
+	return decoded, nil
+}
+
+func navigateSelectedPage(ctx context.Context, session *stdioSession, targetURL string, openArgs map[string]any) (any, error) {
+	navigateArgs := map[string]any{"url": targetURL, "type": "url"}
+	if timeout, ok := openArgs["timeout"]; ok {
+		navigateArgs["timeout"] = timeout
+	}
+	return callSessionTool(ctx, session, "navigate_page", navigateArgs)
+}
+
+func navigateReusableBlankPage(ctx context.Context, session *stdioSession, pages any, targetURL string, openArgs map[string]any) (any, bool, error) {
+	entries := mcpPageEntries(pages)
+	blankID := 0
+	selected := false
+	for _, entry := range entries {
+		if !strings.EqualFold(strings.TrimSpace(entry.URL), "about:blank") {
+			continue
+		}
+		if blankID == 0 || entry.Selected {
+			blankID = entry.ID
+			selected = entry.Selected
+		}
+		if entry.Selected {
+			break
+		}
+	}
+	if blankID == 0 {
+		return nil, false, nil
+	}
+	if !selected {
+		selectedOutput, err := callSessionTool(ctx, session, "select_page", map[string]any{"pageId": blankID, "bringToFront": true})
+		if err != nil {
+			return nil, true, err
+		}
+		if err := mcpToolError("select_page", selectedOutput); err != nil {
+			return nil, true, err
+		}
+	}
+	out, err := navigateSelectedPage(ctx, session, targetURL, openArgs)
+	return out, true, err
+}
+
+func callSessionTool(ctx context.Context, session *stdioSession, name string, args map[string]any) (any, error) {
+	if args == nil {
+		args = map[string]any{}
 	}
 	response, err := session.request(ctx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	})
 	if err != nil {
-		a.resetSessionLocked(hidden)
 		return nil, err
 	}
 	var decoded any
@@ -93,20 +208,135 @@ func (a *ChromeDevToolsAdapter) callToolWithSession(ctx context.Context, hidden 
 	return decoded, nil
 }
 
-func (a *ChromeDevToolsAdapter) ensureSessionLocked(ctx context.Context, hidden bool) (*stdioSession, error) {
-	if session := a.sessionForModeLocked(hidden); session != nil && session.alive() {
-		return session, nil
+func chromiumStartupURL(args map[string]any) string {
+	raw := strings.TrimSpace(stringArg(args, "url"))
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ""
 	}
-	session, err := a.newSession(ctx, hidden)
+	return parsed.String()
+}
+
+type mcpPageEntry struct {
+	ID       int
+	URL      string
+	Selected bool
+}
+
+func mcpPageEntries(output any) []mcpPageEntry {
+	result, ok := output.(map[string]any)
+	if !ok {
+		return nil
+	}
+	pages := extractPages(result)
+	entries := make([]mcpPageEntry, 0, len(pages))
+	for _, raw := range pages {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		line := strings.TrimSpace(stringValue(item["text"]))
+		idText := ""
+		for _, key := range []string{"pageId", "page_id", "id"} {
+			if value := strings.TrimSpace(stringValue(item[key])); value != "" && value != "<nil>" {
+				idText = value
+				break
+			}
+		}
+		if idText == "" && line != "" {
+			if before, _, found := strings.Cut(strings.TrimSpace(strings.TrimPrefix(line, "-")), ":"); found {
+				idText = strings.TrimSpace(before)
+			}
+		}
+		id, err := strconv.Atoi(strings.TrimPrefix(strings.ToLower(idText), "page_"))
+		if err != nil {
+			continue
+		}
+		pageURL := strings.TrimSpace(stringValue(item["url"]))
+		if pageURL == "" || pageURL == "<nil>" {
+			if strings.Contains(strings.ToLower(line), "about:blank") {
+				pageURL = "about:blank"
+			} else {
+				pageURL = firstHTTPURL(line)
+			}
+		}
+		selected := boolValue(item["selected"]) || strings.Contains(strings.ToLower(line), "[selected]")
+		entries = append(entries, mcpPageEntry{ID: id, URL: pageURL, Selected: selected})
+	}
+	return entries
+}
+
+func firstHTTPURL(text string) string {
+	for _, field := range strings.Fields(text) {
+		candidate := strings.Trim(field, "()[]<>,\"")
+		parsed, err := url.Parse(candidate)
+		if err == nil && parsed.Hostname() != "" && (parsed.Scheme == "http" || parsed.Scheme == "https") {
+			return parsed.String()
+		}
+	}
+	return ""
+}
+
+func selectedPageMatchesURL(output any, targetURL string) bool {
+	targetURL = strings.TrimRight(strings.TrimSpace(targetURL), "/")
+	for _, entry := range mcpPageEntries(output) {
+		if entry.Selected {
+			return strings.EqualFold(strings.TrimRight(strings.TrimSpace(entry.URL), "/"), targetURL)
+		}
+	}
+	return false
+}
+
+func (a *ChromeDevToolsAdapter) cleanupAboutBlankPagesLocked(ctx context.Context, session *stdioSession) {
+	output, err := callSessionTool(ctx, session, "list_pages", nil)
 	if err != nil {
-		return nil, err
+		return
+	}
+	entries := mcpPageEntries(output)
+	nonBlank := 0
+	for _, entry := range entries {
+		if !strings.EqualFold(strings.TrimSpace(entry.URL), "about:blank") {
+			nonBlank++
+		}
+	}
+	if nonBlank == 0 {
+		return
+	}
+	for _, entry := range entries {
+		if !strings.EqualFold(strings.TrimSpace(entry.URL), "about:blank") {
+			continue
+		}
+		closed, err := callSessionTool(ctx, session, "close_page", map[string]any{"pageId": entry.ID})
+		if err != nil || mcpToolError("close_page", closed) != nil {
+			continue
+		}
+	}
+}
+
+func (a *ChromeDevToolsAdapter) ensureSessionLocked(ctx context.Context, hidden bool, profileKey string) (*stdioSession, error) {
+	session, _, err := a.ensureSessionLockedWithStartupURL(ctx, hidden, profileKey, "")
+	return session, err
+}
+
+func (a *ChromeDevToolsAdapter) ensureSessionLockedWithStartupURL(ctx context.Context, hidden bool, profileKey, startupURL string) (*stdioSession, bool, error) {
+	if a.activeProfile != "" && a.activeProfile != profileKey {
+		a.resetAllSessionsLocked()
+	}
+	a.resetSessionLocked(!hidden)
+	if session := a.sessionForModeLocked(hidden); session != nil && session.alive() {
+		return session, false, nil
+	}
+	session, err := a.newSession(ctx, hidden, profileKey, startupURL)
+	if err != nil {
+		return nil, false, err
 	}
 	if err := session.initialize(); err != nil {
 		session.close()
-		return nil, err
+		return nil, false, err
 	}
 	a.setSessionForModeLocked(hidden, session)
-	return session, nil
+	a.activeProfile = profileKey
+	return session, true, nil
 }
 
 func (a *ChromeDevToolsAdapter) sessionForModeLocked(hidden bool) *stdioSession {
@@ -141,6 +371,7 @@ func (a *ChromeDevToolsAdapter) resetSessionLocked(hidden bool) {
 func (a *ChromeDevToolsAdapter) resetAllSessionsLocked() {
 	a.resetSessionLocked(false)
 	a.resetSessionLocked(true)
+	a.activeProfile = ""
 }
 
 type stdioSession struct {
@@ -153,7 +384,7 @@ type stdioSession struct {
 	nextID int
 }
 
-func (a *ChromeDevToolsAdapter) newSession(ctx context.Context, hidden bool) (*stdioSession, error) {
+func (a *ChromeDevToolsAdapter) newSession(ctx context.Context, hidden bool, profileKey, startupURL string) (*stdioSession, error) {
 	adapterCfg := a.cfg.Adapters.BrowserAutomation
 	if adapterCfg.MCPCommand == "" {
 		return nil, errors.New("browser automation MCP command is empty")
@@ -164,12 +395,18 @@ func (a *ChromeDevToolsAdapter) newSession(ctx context.Context, hidden bool) (*s
 	default:
 	}
 	args := cloneStringSlice(adapterCfg.MCPArgs)
-	if hidden {
-		if unsafeFlag := hiddenMCPArgsUnsafeFlag(args); unsafeFlag != "" {
-			return nil, fmt.Errorf("hidden browser session refuses configured %s", unsafeFlag)
-		}
-		args = hiddenMCPArgs(args)
+	if unsafeFlag := sharedProfileMCPArgsUnsafeFlag(args); unsafeFlag != "" {
+		return nil, fmt.Errorf("shared Chromium profile refuses configured %s", unsafeFlag)
 	}
+	executable, err := resolveChromiumExecutable(adapterCfg.ChromiumExecutable)
+	if err != nil {
+		return nil, err
+	}
+	profileDir, err := resolveSharedProfileDir(adapterCfg.ProfileDir, profileKey)
+	if err != nil {
+		return nil, err
+	}
+	args = sharedProfileMCPArgs(args, hidden, executable, profileDir, startupURL)
 	execCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(execCtx, adapterCfg.MCPCommand, args...)
 	stdin, err := cmd.StdinPipe()
@@ -208,16 +445,20 @@ func (a *ChromeDevToolsAdapter) newSession(ctx context.Context, hidden bool) (*s
 	}, nil
 }
 
-func hiddenMCPArgs(args []string) []string {
+func sharedProfileMCPArgs(args []string, hidden bool, executable, profileDir, startupURL string) []string {
 	out := cloneStringSlice(args)
-	if !hasMCPFlag(out, "--headless") {
+	out = append(out,
+		"--executablePath="+executable,
+		"--userDataDir="+profileDir,
+	)
+	if hidden {
 		out = append(out, "--headless")
+		if !hasMCPFlag(out, "--viewport") {
+			out = append(out, "--viewport="+hiddenBrowserViewport)
+		}
 	}
-	if !hasMCPFlag(out, "--isolated") {
-		out = append(out, "--isolated")
-	}
-	if !hasMCPFlag(out, "--viewport") {
-		out = append(out, "--viewport="+hiddenBrowserViewport)
+	if startupURL != "" {
+		out = append(out, "--chromeArg="+startupURL)
 	}
 	if !hasMCPFlag(out, "--no-usage-statistics") && !hasMCPFlag(out, "--usage-statistics") {
 		out = append(out, "--no-usage-statistics")
@@ -225,16 +466,106 @@ func hiddenMCPArgs(args []string) []string {
 	return out
 }
 
-func hiddenMCPArgsUnsafeFlag(args []string) string {
+func sharedProfileMCPArgsUnsafeFlag(args []string) string {
 	for _, names := range [][]string{
 		{"--browserUrl", "--browser-url"},
+		{"--wsEndpoint", "--ws-endpoint"},
+		{"--autoConnect", "--auto-connect"},
 		{"--userDataDir", "--user-data-dir"},
+		{"--executablePath", "--executable-path", "-e"},
+		{"--isolated"},
+		{"--headless"},
+		{"--chromeArg", "--chrome-arg"},
 	} {
 		if hasMCPFlag(args, names...) {
 			return names[0]
 		}
 	}
 	return ""
+}
+
+func resolveChromiumExecutable(configured string) (string, error) {
+	configured = strings.TrimSpace(configured)
+	if configured != "" {
+		return validateChromiumExecutable(configured)
+	}
+	for _, name := range []string{"chromium", "chromium-browser"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return validateChromiumExecutable(path)
+		}
+	}
+	candidates := []string{}
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = append(candidates, "/Applications/Chromium.app/Contents/MacOS/Chromium")
+	case "linux":
+		candidates = append(candidates, "/usr/bin/chromium", "/usr/bin/chromium-browser")
+	case "windows":
+		if localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); localAppData != "" {
+			candidates = append(candidates, filepath.Join(localAppData, "Chromium", "Application", "chrome.exe"))
+		}
+	}
+	for _, candidate := range candidates {
+		if path, err := validateChromiumExecutable(candidate); err == nil {
+			return path, nil
+		}
+	}
+	return "", errors.New("browser shared profile Chromium executable was not found; set SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE")
+}
+
+func validateChromiumExecutable(path string) (string, error) {
+	abs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return "", fmt.Errorf("resolve Chromium executable: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("browser shared profile Chromium executable %q: %w", abs, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("browser shared profile Chromium executable %q is a directory", abs)
+	}
+	return abs, nil
+}
+
+func resolveSharedProfileDir(configured, profileKey string) (string, error) {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		configured = "./data/browser-profiles"
+	}
+	root, err := filepath.Abs(configured)
+	if err != nil {
+		return "", fmt.Errorf("resolve browser shared profile directory: %w", err)
+	}
+	ownerID, profileID, _ := strings.Cut(strings.TrimSpace(profileKey), "\x00")
+	if ownerID == "" {
+		ownerID = "owner"
+	}
+	if profileID == "" {
+		profileID = "default"
+	}
+	ownerDigest := sha256.Sum256([]byte(ownerID))
+	profileDigest := sha256.Sum256([]byte(profileID))
+	abs := filepath.Join(root, fmt.Sprintf("%x", ownerDigest[:12]), fmt.Sprintf("%x", profileDigest[:12]), "user-data")
+	if err := os.MkdirAll(abs, 0o700); err != nil {
+		return "", fmt.Errorf("create browser shared profile directory: %w", err)
+	}
+	return abs, nil
+}
+
+func (a *ChromeDevToolsAdapter) browserProfileKey(args map[string]any) string {
+	ownerID := strings.TrimSpace(stringArg(args, "owner_id"))
+	if ownerID == "" {
+		ownerID = "owner"
+	}
+	profileID := strings.TrimSpace(stringArg(args, "browser_profile_id"))
+	if profileID == "" {
+		profileID = strings.TrimSpace(a.cfg.Tools.BrowserAutomation.Profile)
+	}
+	if profileID == "" {
+		profileID = "default"
+	}
+	return ownerID + "\x00" + profileID
 }
 
 func hasMCPFlag(args []string, names ...string) bool {

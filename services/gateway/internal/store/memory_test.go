@@ -174,17 +174,19 @@ func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
-		SessionID:        session.ID,
-		RunID:            run.ID,
-		OriginalGoal:     "Read https://example.com/protected",
-		ResumeTool:       "browser.read",
-		ResumeArgs:       map[string]any{"url": "https://example.com/protected"},
-		LoginHandoffURL:  "https://example.com/protected",
-		OwnerID:          "owner-a",
-		BrowserProfileID: "work",
-		SiteOrigin:       "https://Example.COM/",
+		SessionID:          session.ID,
+		RunID:              run.ID,
+		OriginalGoal:       "Read https://example.com/protected",
+		ResumeTool:         "browser.read",
+		ResumeArgs:         map[string]any{"url": "https://example.com/protected"},
+		LoginHandoffURL:    "https://example.com/protected",
+		LoginHandoffPageID: "page-1",
+		LastVisiblePageID:  "page-2",
+		OwnerID:            "owner-a",
+		BrowserProfileID:   "work",
+		SiteOrigin:         "https://Example.COM/",
 	})
-	if block.ID == "" || block.Status != app.BrowserLoginBlockStatusWaiting || block.SiteOrigin != "https://example.com" {
+	if block.ID == "" || block.Status != app.BrowserLoginBlockStatusWaiting || block.SiteOrigin != "https://example.com" || block.LastVisiblePageID != "page-2" {
 		t.Fatalf("browser login block was not normalized: %#v", block)
 	}
 	if found, ok := st.FindActiveBrowserLoginBlock(session.ID); !ok || found.ID != block.ID {

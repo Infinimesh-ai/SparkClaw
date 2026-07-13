@@ -201,6 +201,49 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 			},
 		})
 		if parsed.Kind == "final" {
+			if requiresPersonalBrowserEvidence(hint) && !hasBrowserToolCall(result.ToolCalls) {
+				if recovery, ok := ownerPersonalBrowserRecoveryAction(content, stepVisibleTools); ok {
+					parsed.Kind = "action"
+					parsed.Action = recovery
+					r.store.AddAudit(app.AuditEvent{
+						SessionID: sessionID,
+						RunID:     run.ID,
+						Actor:     "runtime",
+						Type:      "react.final_recovered",
+						Summary:   "Converted unsupported personal-account refusal into browser open",
+						Fields: map[string]any{
+							"step":                   stepNumber,
+							"tool":                   recovery.Tool,
+							"evidence_need":          hint.EvidenceNeed,
+							"data_scope":             hint.DataScope,
+							"browser_mode":           hint.BrowserMode,
+							"requires_tool_evidence": hint.RequiresToolEvidence,
+						},
+					})
+				} else {
+					result.Observations = append(result.Observations, "runtime_requirement: This is an owner-authorized local personal-data browser task, but no browser tool has been called yet. Use the visible browser tools and the managed profile. If authentication is required, open the page and let the browser login handoff pause for the owner; do not ask for passwords in chat and do not refuse solely because the account data is personal.")
+					noProgressActions++
+					r.store.AddAudit(app.AuditEvent{
+						SessionID: sessionID,
+						RunID:     run.ID,
+						Actor:     "runtime",
+						Type:      "react.final_deferred",
+						Summary:   "Deferred unsupported final for owner-authorized personal browser task",
+						Fields: map[string]any{
+							"step":                   stepNumber,
+							"evidence_need":          hint.EvidenceNeed,
+							"data_scope":             hint.DataScope,
+							"browser_mode":           hint.BrowserMode,
+							"requires_tool_evidence": hint.RequiresToolEvidence,
+							"visible_tools":          visibleToolNames(stepVisibleTools),
+							"browser_tool_run":       false,
+						},
+					})
+					continue
+				}
+			}
+		}
+		if parsed.Kind == "final" {
 			result.FinalAnswer = parsed.Final.Answer
 			result.Completed = true
 			return result
@@ -667,6 +710,8 @@ func contextualSystemPromptForReAct(goal string, episodes []app.EpisodeSummary, 
 		"- Policy/approval observations are constraints. Do not bypass or re-plan around them to avoid approval.",
 		"- Do not claim an action was approved or executed unless the observation says so.",
 		"- Do not say a tool is unavailable when it appears in Model-visible ToolDefinition JSON.",
+		"- Owner personal-data rule: SparkClaw is a local-first runtime. When the owner asks to inspect their own authenticated account data and browser tools are visible, use the managed browser profile. Personal or authenticated data is not by itself a reason to refuse. Never ask the owner to paste passwords, cookies, tokens, or verification codes into chat; use the visible browser login handoff for human-only authentication.",
+		"- Tool-evidence contract: when TaskHint.requires_tool_evidence=true, do not return final before a visible tool has produced evidence or a policy/login handoff has explicitly blocked progress.",
 		"- If the user explicitly asks to open, navigate, or jump to a page and browser.open or browser.navigate is visible, use an action instead of final unless the target page is genuinely unknown.",
 		"- For an explicit URL with 'open/打开', prefer browser.open. Use browser.navigate only when the user asks to navigate the current tab/page or preserve the current tab context.",
 		"- Do not include explanatory fields such as reason in tool arguments unless the ToolDefinition schema requires them.",
@@ -678,6 +723,31 @@ func contextualSystemPromptForReAct(goal string, episodes []app.EpisodeSummary, 
 		lines = append(lines, "", "Browser structure rule: if the user asks to inspect page structure, DOM, controls, elements, refs, or page state, use browser.snapshot. Do not use browser.screenshot for structure inspection unless the user explicitly asks for a screenshot or visual confirmation.")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func hasBrowserToolCall(calls []app.ToolCall) bool {
+	for _, call := range calls {
+		if strings.HasPrefix(call.Tool, "browser.") {
+			return true
+		}
+	}
+	return false
+}
+
+func ownerPersonalBrowserRecoveryAction(goal string, visibleTools []app.ToolDefinition) (reactAction, bool) {
+	if !containsString(visibleToolNames(visibleTools), "browser.open") {
+		return reactAction{}, false
+	}
+	urls := extractURLs(goal)
+	if len(urls) == 0 {
+		return reactAction{}, false
+	}
+	return reactAction{
+		Type:      "action",
+		Tool:      "browser.open",
+		Arguments: map[string]any{"url": urls[0]},
+		Reason:    "Open the owner-requested account page using the managed browser profile.",
+	}, true
 }
 
 func compactContextualSystemPrompt(episodes []app.EpisodeSummary, relevantSkills []skills.Skill) string {

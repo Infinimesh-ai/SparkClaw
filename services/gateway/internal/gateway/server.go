@@ -2210,11 +2210,9 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 			"token":    configuredStatus(cfg.Calendar.Token),
 		},
 		"browserAutomation": map[string]any{
-			"mcp_command":                       cfg.BrowserAutomation.MCPCommand,
-			"mcp_args_count":                    len(cfg.BrowserAutomation.MCPArgs),
-			"timeout_ms":                        cfg.BrowserAutomation.TimeoutMS,
-			"allow_user_profile":                cfg.BrowserAutomation.AllowUserProfile,
-			"require_approval_for_user_profile": cfg.BrowserAutomation.RequireApprovalForUserProfile,
+			"mcp_command":    cfg.BrowserAutomation.MCPCommand,
+			"mcp_args_count": len(cfg.BrowserAutomation.MCPArgs),
+			"timeout_ms":     cfg.BrowserAutomation.TimeoutMS,
 		},
 	}
 }

@@ -655,12 +655,12 @@ func TestRuntimeBlocksAndResumesAutonomousBrowserLogin(t *testing.T) {
 	cfg.Tools.BrowserAutomation.Enabled = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
-	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com", "vpn.example.com"}
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
 	session := st.CreateSession("browser login block")
-	adapter := &loginBlockBrowserAdapter{}
+	adapter := &loginBlockBrowserAdapter{selectedTabURL: "https://vpn.example.com/home"}
 	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
@@ -682,7 +682,7 @@ func TestRuntimeBlocksAndResumesAutonomousBrowserLogin(t *testing.T) {
 		t.Fatalf("first answer should ask user to finish login:\n%s", first.Message.Content)
 	}
 
-	second, err := runtime.HandleMessage(context.Background(), session.ID, "登录完成")
+	second, err := runtime.HandleMessage(context.Background(), session.ID, "登录成功")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,9 +696,8 @@ func TestRuntimeBlocksAndResumesAutonomousBrowserLogin(t *testing.T) {
 	if _, ok := st.FindActiveBrowserLoginBlock(session.ID); ok {
 		t.Fatalf("active browser login block should be cleared after verified login")
 	}
-	authRecords := st.ListBrowserAuthRecords(app.DefaultOwnerID, block.BrowserProfileID)
-	if len(authRecords) != 1 || authRecords[0].SiteOrigin != "https://example.com" {
-		t.Fatalf("verified login should save scoped auth record: scoped=%#v all=%#v", authRecords, st.ListBrowserAuthRecords("", ""))
+	if authRecords := st.ListBrowserAuthRecords(app.DefaultOwnerID, block.BrowserProfileID); len(authRecords) != 0 {
+		t.Fatalf("shared Chromium profile should not create exported auth records: %#v", authRecords)
 	}
 	calls := st.ListToolCalls(session.ID)
 	if !hasToolCallStatus(calls, "browser.list_tabs", "completed") {
@@ -716,8 +715,17 @@ func TestRuntimeBlocksAndResumesAutonomousBrowserLogin(t *testing.T) {
 	if resumedRead.RunID != first.Run.ID || resumedRead.Arguments["browser_mode"] != "autonomous" || resumedRead.Arguments["presentation"] != "hidden" || resumedRead.Arguments["surface_visible"] != false {
 		t.Fatalf("resumed browser.read should preserve original run and hidden mode: %#v", resumedRead)
 	}
-	if adapter.listTabsCalls == 0 || adapter.exportCalls == 0 || adapter.importCalls == 0 {
-		t.Fatalf("adapter did not inspect tabs/export/import auth state: %#v", adapter)
+	if resumedRead.Arguments["url"] != "https://vpn.example.com/home" || adapter.lastReadURL != "https://vpn.example.com/home" {
+		t.Fatalf("resume should use selected post-login URL: call=%#v adapter=%#v", resumedRead.Arguments, adapter)
+	}
+	if resolved[0].SiteOrigin != "https://vpn.example.com" || resolved[0].LoginHandoffURL != "https://vpn.example.com/home" || resolved[0].LastVisiblePageID != "page-2" {
+		t.Fatalf("resolved login block should keep post-login target: %#v", resolved[0])
+	}
+	if adapter.listTabsCalls == 0 {
+		t.Fatalf("shared profile should inspect tabs before resuming: %#v", adapter)
+	}
+	if !hasAgentAuditType(st.ListAudit(session.ID), "browser_login_block.post_login_target_selected") {
+		t.Fatalf("missing post-login target audit: %#v", st.ListAudit(session.ID))
 	}
 }
 
@@ -859,6 +867,139 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 	}
 }
 
+func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t *testing.T) {
+	cfg := agentTestConfig()
+	st := store.NewMemoryStore()
+	session := st.CreateSession("authenticated snapshot with login wording")
+	now := time.Now().UTC()
+	run := app.AgentRun{
+		ID:        app.NewID("run"),
+		SessionID: session.ID,
+		State:     "reacting",
+		Risk:      app.RiskRead,
+		StartedAt: now,
+	}
+	st.SaveRun(run)
+	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	done := now
+	st.SaveToolCall(app.ToolCall{
+		ID:          app.NewID("tc"),
+		SessionID:   session.ID,
+		RunID:       run.ID,
+		Tool:        "browser.open",
+		Status:      "completed",
+		Arguments:   map[string]any{"url": "https://webvpn.example.edu"},
+		Result:      map[string]any{"tool": "browser.open", "text": "opened page"},
+		StartedAt:   now,
+		CompletedAt: &done,
+	})
+	snapshot := app.ToolCall{
+		ID:        app.NewID("tc"),
+		SessionID: session.ID,
+		RunID:     run.ID,
+		Tool:      "browser.snapshot",
+		Status:    "completed",
+		Result: map[string]any{
+			"tool": "browser.snapshot",
+			"text": "当前用户 张同学 业务系统 校内办公门户 软件正版化（激活需登录SSLVPN） 电子资源导航",
+		},
+		StartedAt:   now.Add(time.Millisecond),
+		CompletedAt: &done,
+	}
+
+	if block, ok := runtime.recordBrowserLoginBlockFromToolCall(session.ID, run.ID, "查看账户数据", toolPlan{
+		Name: "browser.snapshot",
+		Args: snapshot.Arguments,
+	}, snapshot); ok {
+		t.Fatalf("authenticated application snapshot must continue instead of reopening login handoff: %#v", block)
+	}
+}
+
+func TestBrowserAuthGateInferenceRequiresStrongOrCompoundEvidence(t *testing.T) {
+	if browserLoginObservationLooksLikeAuthGate("软件正版化（激活需登录SSLVPN）") {
+		t.Fatal("a resource label mentioning SSLVPN is not a login wall")
+	}
+	if browserLoginObservationLooksLikeAuthGate("统一身份认证服务入口") {
+		t.Fatal("an authentication navigation label alone is not a login wall")
+	}
+	if browserLoginObservationLooksLikeAuthGate("密码管理服务与 single sign-on 使用指南") {
+		t.Fatal("credential-related navigation or documentation labels alone are not a login wall")
+	}
+	if !browserLoginObservationLooksLikeAuthGate("本资源仅限内网访问，请您使用校园网或登录 SSLVPN 后访问。") {
+		t.Fatal("an explicit restricted-resource instruction should require login handoff")
+	}
+	if !browserLoginObservationLooksLikeAuthGate("请输入用户名和密码") {
+		t.Fatal("visible credential prompts should require login handoff")
+	}
+}
+
+func TestBrowserAuthAssessmentUsesEvidencePriority(t *testing.T) {
+	profileVerified := app.ToolCall{
+		Tool:   "browser.read",
+		Status: "completed",
+		Result: map[string]any{
+			"browser_auth_status":     "profile_verified",
+			"auth_challenge_detected": false,
+			"rendered":                true,
+			"text":                    "软件正版化（激活需登录SSLVPN）",
+		},
+	}
+	assessment := assessBrowserAuthentication(profileVerified, browserLoginToolFields(profileVerified))
+	if assessment.State != browserAuthAuthenticated || assessment.Confidence != "provider" {
+		t.Fatalf("structured profile verification must outrank weak page text: %#v", assessment)
+	}
+
+	structuredApp := app.ToolCall{
+		Tool:   "browser.read",
+		Status: "completed",
+		Result: map[string]any{
+			"browser_page_auth_state":      "authenticated",
+			"browser_page_auth_confidence": "application_continuity",
+			"browser_page_auth_signals":    []string{"usable_application_shell"},
+			"auth_challenge_detected":      false,
+			"text":                         "Password login styles and account settings",
+		},
+	}
+	assessment = assessBrowserAuthentication(structuredApp, browserLoginToolFields(structuredApp))
+	if assessment.State != browserAuthAuthenticated || assessment.Confidence != "application_continuity" {
+		t.Fatalf("structured application continuity must outrank unrelated login text: %#v", assessment)
+	}
+
+	structuredUnknown := app.ToolCall{
+		Tool:   "browser.read",
+		Status: "completed",
+		Result: map[string]any{
+			"browser_page_auth_state":      "unknown",
+			"browser_page_auth_confidence": "insufficient",
+			"browser_page_auth_signals":    []string{"application_shell_too_weak"},
+			"auth_challenge_detected":      false,
+			"rendered":                     true,
+		},
+	}
+	assessment = assessBrowserAuthentication(structuredUnknown, browserLoginToolFields(structuredUnknown))
+	if assessment.State != browserAuthUnknown || assessment.Confidence != "insufficient" {
+		t.Fatalf("structured unknown must not be upgraded by a negative Boolean: %#v", assessment)
+	}
+
+	conflicting := app.ToolCall{
+		Tool:   "browser.snapshot",
+		Status: "completed",
+		Result: map[string]any{
+			"text": "退出登录。请登录后查看此页面。",
+		},
+	}
+	assessment = assessBrowserAuthentication(conflicting, browserLoginToolFields(conflicting))
+	if assessment.State != browserAuthUnknown || assessment.Confidence != "conflicting" {
+		t.Fatalf("conflicting visible evidence must remain unknown: %#v", assessment)
+	}
+
+	insufficient := app.ToolCall{Tool: "browser.snapshot", Status: "completed", Result: map[string]any{"text": "欢迎访问"}}
+	assessment = assessBrowserAuthentication(insufficient, browserLoginToolFields(insufficient))
+	if assessment.State != browserAuthUnknown || assessment.Confidence != "insufficient" {
+		t.Fatalf("insufficient evidence must not be treated as authenticated: %#v", assessment)
+	}
+}
+
 func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
@@ -901,6 +1042,40 @@ func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 		if call.Tool == "browser.read" && boolValue(call.Arguments["login_handoff_completed"]) {
 			t.Fatalf("wrong-page reply must not be treated as login completion: %#v", calls)
 		}
+	}
+}
+
+func TestBrowserSelectedTabTargetParsesMCPTextPage(t *testing.T) {
+	call := app.ToolCall{
+		Tool:   "browser.list_tabs",
+		Status: "completed",
+		Result: map[string]any{
+			"pages": []any{
+				map[string]any{"text": "1: about:blank"},
+				map[string]any{"text": "2: University WebVPN (https://webvpn.example.edu/home) [selected]"},
+			},
+		},
+	}
+	target, ok := browserSelectedTabTarget(call)
+	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "2" {
+		t.Fatalf("selected MCP text page was not parsed: %#v ok=%v", target, ok)
+	}
+}
+
+func TestBrowserSelectedTabTargetPrefersLoginBlockPageOverAnotherSelectedTask(t *testing.T) {
+	call := app.ToolCall{
+		Tool:   "browser.list_tabs",
+		Status: "completed",
+		Result: map[string]any{
+			"pages": []any{
+				map[string]any{"text": "2: University WebVPN (https://webvpn.example.edu/home)"},
+				map[string]any{"text": "8: QQ Mail (https://mail.qq.com/) [selected]"},
+			},
+		},
+	}
+	target, ok := browserSelectedTabTarget(call, "2")
+	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "2" {
+		t.Fatalf("login block page should win over another task's selected tab: %#v ok=%v", target, ok)
 	}
 }
 
@@ -2806,12 +2981,12 @@ func (fakeBrowserAutomationAdapter) Call(ctx context.Context, tool string, args 
 
 type loginBlockBrowserAdapter struct {
 	readCalls         int
+	lastReadURL       string
 	listTabsCalls     int
-	exportCalls       int
-	importCalls       int
 	openCalls         int
 	openAuthChallenge bool
 	openAuthGateText  string
+	selectedTabURL    string
 }
 
 func (a *loginBlockBrowserAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
@@ -2827,6 +3002,7 @@ func (a *loginBlockBrowserAdapter) Close() error { return nil }
 
 func (a *loginBlockBrowserAdapter) ReadPage(ctx context.Context, url string, args map[string]any) (browserautomation.PageReadResult, error) {
 	a.readCalls++
+	a.lastReadURL = url
 	if a.readCalls == 1 {
 		return browserautomation.PageReadResult{
 			URL:                   url,
@@ -2864,13 +3040,22 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 	switch tool {
 	case "browser.list_tabs":
 		a.listTabsCalls++
+		selectedURL := strings.TrimSpace(a.selectedTabURL)
+		if selectedURL == "" {
+			selectedURL = "https://example.com/protected"
+		}
 		return browserautomation.Result{
 			Tool:      tool,
 			RawTool:   "list_pages",
 			Arguments: args,
 			Output:    map[string]any{"ok": true},
-			Pages:     []any{map[string]any{"id": "page-1", "url": "https://example.com/protected", "title": "Protected content"}},
-			Text:      "page-1 https://example.com/protected Protected content",
+			Pages: []any{map[string]any{
+				"id":       "page-2",
+				"url":      selectedURL,
+				"title":    "Authenticated destination",
+				"selected": true,
+			}},
+			Text:      "page-2 " + selectedURL + " Authenticated destination [selected]",
 			Untrusted: true,
 			Provider:  "login-block-fake",
 		}, nil
@@ -2926,27 +3111,6 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 		Untrusted: true,
 		Provider:  "login-block-fake",
 	}, nil
-}
-
-func (a *loginBlockBrowserAdapter) ExportAuthState(ctx context.Context, args map[string]any) (browserautomation.AuthState, error) {
-	a.exportCalls++
-	return browserautomation.AuthState{
-		Origin:       "https://example.com",
-		URL:          "https://example.com/protected",
-		Title:        "Protected content",
-		Cookie:       "sid=stored",
-		LocalStorage: map[string]string{"logged_in": "true"},
-		ExportedAt:   time.Now().UTC(),
-		Provider:     "login-block-fake",
-	}, nil
-}
-
-func (a *loginBlockBrowserAdapter) ImportAuthState(ctx context.Context, state browserautomation.AuthState, args map[string]any) error {
-	a.importCalls++
-	if state.Origin != "https://example.com" {
-		return errors.New("unexpected origin")
-	}
-	return nil
 }
 
 func hasToolCallStatus(calls []app.ToolCall, tool, status string) bool {
@@ -3155,6 +3319,92 @@ func TestTaskHintClassifiesBrowserModes(t *testing.T) {
 	}
 	if !slicesContainsString(readHint.CandidateTools, "browser.read") || slicesContainsString(readHint.CandidateTools, "browser.open") {
 		t.Fatalf("URL read should prefer browser.read without visible open: %#v", readHint.CandidateTools)
+	}
+}
+
+func TestTaskHintClassifiesOwnerAuthenticatedBrowserData(t *testing.T) {
+	prompts := []string{
+		"登录https://webvpn.zstu.edu.cn，查看我的课表",
+		"打开 https://example.com/account 完成统一认证后查询奖助学金复核状态",
+		"Sign in to https://example.com and inspect the eligibility decision",
+	}
+	for _, prompt := range prompts {
+		hint := heuristicTaskHint(prompt)
+		if hint.EvidenceNeed != "personal_data" || hint.DataScope != "owner" || !hint.RequiresToolEvidence || hint.ToolMode != "action_required" || hint.BrowserMode != "collaborative" {
+			t.Fatalf("owner account request should require collaborative personal-data browser access for %q: %#v", prompt, hint)
+		}
+		if hint.ModelLaneHint != "deep" || !slicesContainsString(hint.CandidateSkills, "browser_automation") {
+			t.Fatalf("owner account request should use deep browser automation for %q: %#v", prompt, hint)
+		}
+		for _, want := range []string{"browser.open", "browser.snapshot", "browser.click"} {
+			if !slicesContainsString(hint.CandidateTools, want) {
+				t.Fatalf("owner account request should expose %s for %q: %#v", want, prompt, hint.CandidateTools)
+			}
+		}
+	}
+}
+
+func TestNormalizeTaskHintPreservesOwnerAuthenticatedBrowserRouting(t *testing.T) {
+	fallback := heuristicTaskHint("登录https://webvpn.zstu.edu.cn，查看我的课表")
+	hint := normalizeTaskHint(TaskHint{
+		TaskType:             "summarize",
+		EvidenceNeed:         "web",
+		DataScope:            "public",
+		ToolMode:             "read_only",
+		BrowserMode:          "autonomous",
+		RequiresToolEvidence: false,
+		EstimatedRisk:        string(app.RiskRead),
+		ModelLaneHint:        "fast",
+		CandidateSkills:      []string{"browser_automation"},
+		CandidateTools:       []string{"browser.read"},
+		Reason:               "Private accounts cannot be accessed, so no tools should be invoked.",
+	}, fallback)
+	if !requiresPersonalBrowserEvidence(hint) || hint.ToolMode != "action_required" || hint.ModelLaneHint != "deep" {
+		t.Fatalf("model hint must not downgrade owner-authorized browser access: %#v", hint)
+	}
+	if hint.Reason != fallback.Reason {
+		t.Fatalf("misleading model refusal reason should be replaced: %q", hint.Reason)
+	}
+}
+
+func TestHasBrowserToolCall(t *testing.T) {
+	if hasBrowserToolCall([]app.ToolCall{{Tool: "email.search"}}) {
+		t.Fatal("non-browser call must not satisfy personal browser evidence")
+	}
+	if !hasBrowserToolCall([]app.ToolCall{{Tool: "browser.open"}}) {
+		t.Fatal("browser call should satisfy personal browser evidence")
+	}
+}
+
+func TestRuntimeRecoversPersonalAccountRefusalIntoBrowserOpen(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	cfg.Security.BrowserReadAllowHosts = []string{"example.com"}
+	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
+	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
+	st := store.NewMemoryStore()
+	session := st.CreateSession("owner account browser recovery")
+	adapter := &loginBlockBrowserAdapter{openAuthChallenge: true}
+	tools := toolhub.New(cfg, st).WithBrowserAutomationAdapter(adapter)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+
+	result, err := runtime.HandleMessage(context.Background(), session.ID, `登录https://example.com/protected，查看我的课表
+MOCK_REACT_RESPONSE:{"type":"final","answer":"I cannot access personal accounts."}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, blocked := st.FindActiveBrowserLoginBlock(session.ID)
+	if result.Run.State != "browser_login_blocked" || !blocked || block.RunID != result.Run.ID {
+		t.Fatalf("personal-account refusal should recover into browser login handoff: %#v", result)
+	}
+	if adapter.openCalls != 1 {
+		t.Fatalf("runtime should open the requested account URL exactly once: %#v", adapter)
+	}
+	if !hasAgentAuditType(st.ListAudit(session.ID), "react.final_recovered") {
+		t.Fatalf("missing personal browser recovery audit: %#v", st.ListAudit(session.ID))
 	}
 }
 

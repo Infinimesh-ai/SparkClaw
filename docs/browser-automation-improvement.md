@@ -13,8 +13,8 @@ The target flow is:
 ```text
 web.search discovers candidate URLs when needed
   -> browser.read chooses the mode-safe read path
-      - collaborative/visible/forced session reads use ChromeDevTools MCP
-      - autonomous/hidden reads avoid visible Chrome tabs until a hidden provider exists
+      - ordinary reads use headless Chromium with the managed shared profile
+      - human verification temporarily switches the same profile to visible Chromium
   -> evaluate_script reads rendered DOM/HTML after page rendering and lazy loading when a browser session is selected
   -> ToolHub runs @mozilla/readability outside the browser to extract article text
   -> if the article text is incomplete, browser.snapshot inspects page structure
@@ -25,8 +25,8 @@ web.search discovers candidate URLs when needed
 ## Design Rules
 
 - `browser.read` should use the real browser session first for collaborative/visible reads, explicit forced-session reads, or autonomous reads backed by a hidden/headless provider.
-- Autonomous hidden reads must not open a user-visible Chrome tab through a provider that cannot hide it; use direct HTTP plus Readability until a hidden provider is available.
-- The next autonomous browser milestone is a hidden Chromium/Chrome provider: real rendering, JavaScript execution and DOM extraction without showing a window.
+- Autonomous hidden reads use headless Chromium with the managed shared profile.
+- Visible Chromium is reserved for human verification or explicit display, then the same profile returns to headless execution.
 - `browser.read` should not force `take_snapshot` for every normal page read.
 - Readability is the default article extractor for rendered HTML.
 - Structure snapshots are diagnostic and interactive aids, used only when body extraction is insufficient or page structure matters.
@@ -108,14 +108,14 @@ The loop must stay bounded. If one retry does not reveal useful content, return 
 
 ## Implementation Status
 
-The browser-read implementation uses ChromeDevTools MCP for collaborative/visible or forced-session reads, then uses `evaluate_script` to capture rendered DOM/HTML and runs `@mozilla/readability` outside the browser. Autonomous hidden reads currently use direct HTTP plus Readability when the available ChromeDevTools provider would otherwise open a visible tab.
+The target browser-read implementation launches configured Chromium through ChromeDevTools MCP. Ordinary reads use headless Chromium; login handoff temporarily switches the same persistent profile to visible Chromium and resumes from the selected post-login URL.
 
 The default `browser.read` path no longer takes a structure snapshot as part of every browser-session read. Explicit page-structure inspection still uses `browser.snapshot`, which maps to ChromeDevTools MCP `take_snapshot`.
 
 Remaining work:
 
-- Implement the hidden Chromium provider described in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md), so autonomous reads can be both real-browser-backed and non-visible.
-- Replace autonomous `browser.snapshot` over the visible current tab with hidden-page or archived-HTML structure extraction.
+- Implement the shared Chromium profile lifecycle described in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md).
+- Remove cookie export/origin equality from login continuation and reuse the selected post-login URL.
 - Improve follow-up selection quality after `browser.snapshot`, especially choosing the safest single internal link or expand control.
 - Keep login and anti-bot handling as explicit future extensions.
 

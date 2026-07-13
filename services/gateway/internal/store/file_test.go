@@ -102,15 +102,17 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		Correction: "Persistent correction.",
 	})
 	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
-		SessionID:        session.ID,
-		RunID:            run.ID,
-		OriginalGoal:     "Read https://example.com/protected",
-		ResumeTool:       "browser.read",
-		ResumeArgs:       map[string]any{"url": "https://example.com/protected"},
-		LoginHandoffURL:  "https://example.com/protected",
-		OwnerID:          app.DefaultOwnerID,
-		BrowserProfileID: "default",
-		SiteOrigin:       "https://example.com",
+		SessionID:          session.ID,
+		RunID:              run.ID,
+		OriginalGoal:       "Read https://example.com/protected",
+		ResumeTool:         "browser.read",
+		ResumeArgs:         map[string]any{"url": "https://example.com/protected"},
+		LoginHandoffURL:    "https://example.com/protected",
+		LoginHandoffPageID: "page-1",
+		LastVisiblePageID:  "page-2",
+		OwnerID:            app.DefaultOwnerID,
+		BrowserProfileID:   "default",
+		SiteOrigin:         "https://example.com",
 	})
 
 	reloaded, err := NewFileStore(path)
@@ -172,7 +174,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if len(feedback) != 1 || feedback[0].Rating != "corrected" || feedback[0].Correction != "Persistent correction." {
 		t.Fatalf("run feedback did not reload: %#v", feedback)
 	}
-	if active, ok := reloaded.FindActiveBrowserLoginBlock(session.ID); !ok || active.ID != block.ID || active.ResumeArgs["url"] != "https://example.com/protected" {
+	if active, ok := reloaded.FindActiveBrowserLoginBlock(session.ID); !ok || active.ID != block.ID || active.ResumeArgs["url"] != "https://example.com/protected" || active.LoginHandoffPageID != "page-1" || active.LastVisiblePageID != "page-2" {
 		t.Fatalf("browser login block did not reload: %#v ok=%v", active, ok)
 	}
 }

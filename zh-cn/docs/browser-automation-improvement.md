@@ -13,8 +13,8 @@
 ```text
 需要发现来源时先 web.search
   -> browser.read 选择符合模式的读取路径
-      - 协作/可见/强制 session 读取使用 ChromeDevTools MCP
-      - 自主/隐藏读取在 hidden provider 可用前避免打开可见 Chrome tab
+      - 普通读取使用托管共享 Profile 的 headless Chromium
+      - 人工验证临时把同一个 Profile 切换到可见 Chromium
   -> 选择浏览器 session 时，evaluate_script 在渲染和懒加载后读取 DOM/HTML
   -> ToolHub 在浏览器外部用 @mozilla/readability 提取正文
   -> 如果正文不完整，再用 browser.snapshot 查看页面结构
@@ -25,8 +25,8 @@
 ## 设计规则
 
 - `browser.read` 对协作/可见读取、显式强制 session 读取，或已有 hidden/headless provider 支持的自主读取，优先使用真实浏览器会话。
-- 当前 provider 不能隐藏页面时，自主 hidden 读取不能打开用户可见的 Chrome tab；在 hidden provider 可用前，应使用 direct HTTP 加 Readability。
-- 下一个自主浏览器里程碑是 hidden Chromium/Chrome provider：真实渲染、执行 JavaScript、提取 DOM，但不展示窗口。
+- 自主 hidden 读取使用托管共享 Profile 的 headless Chromium。
+- visible Chromium 仅用于人工验证或明确展示，完成后同一个 Profile 切回 headless。
 - `browser.read` 不应为了普通网页读取强制执行 `take_snapshot`。
 - Readability 是 rendered HTML 的默认正文提取器。
 - 结构快照是诊断和交互辅助，只在正文不足或页面结构重要时使用。
@@ -108,14 +108,14 @@ browser.snapshot
 
 ## 实现状态
 
-当前 browser-read 实现会在协作/可见或 forced-session 读取中通过 ChromeDevTools MCP 打开页面，用 `evaluate_script` 抓取 rendered DOM/HTML，并在浏览器外部运行 `@mozilla/readability`。当可用 ChromeDevTools provider 会打开可见 tab 时，自主 hidden 读取当前使用 direct HTTP 加 Readability。
+目标 browser-read 实现通过 ChromeDevTools MCP 启动配置的 Chromium。普通读取使用 headless Chromium；登录交接临时把同一个持久 Profile 切换到可见 Chromium，并从 selected 登录后 URL 恢复。
 
 默认 `browser.read` 路径已经不再把结构快照作为每一次浏览器会话读取的固定步骤。显式页面结构检查仍然使用 `browser.snapshot`，并映射到 ChromeDevTools MCP 的 `take_snapshot`。
 
 剩余工作：
 
-- 实现 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md) 中定义的 hidden Chromium provider，让自主读取既能真实浏览器渲染，又不展示窗口。
-- 将自主 `browser.snapshot` 从“可见浏览器当前 tab”改为 hidden page 或 archived HTML 结构提取。
+- 实现 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md) 中定义的共享 Chromium Profile 生命周期。
+- 从登录恢复中移除 Cookie 导出/origin equality，并复用 selected 登录后 URL。
 - 改进 snapshot 之后的后续选择质量，尤其是如何选择最安全的单个内部链接或展开控件。
 - 登录和反爬处理保持为显式的后续扩展。
 

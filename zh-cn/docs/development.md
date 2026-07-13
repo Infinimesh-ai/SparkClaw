@@ -165,6 +165,8 @@ WebChat 位于 `apps/webchat/src/App.tsx`，共享 API types 位于 `apps/webcha
 - `SPARKCLAW_STATE_BACKEND`, `SPARKCLAW_STATE_DSN`
 - `SPARKCLAW_ARTIFACT_BACKEND`
 - `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`
+- `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`
+- `SPARKCLAW_BROWSER_PROFILE_DIR`
 - `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`
 
 不要提交 `.env`、state encryption keys 或 downloaded model weights。

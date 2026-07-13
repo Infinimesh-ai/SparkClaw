@@ -2,311 +2,144 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-hidden-chromium-access.md)
 
-This document defines the next browser-access milestone for SparkClaw:
-autonomous mode should be able to visit webpages as a real Chromium/Chrome
-browser without showing a window to the user. It complements the broader
-[Browser Automation Improvement Plan](browser-automation-improvement.md) and
-the presentation contract in [Browser Modes Coding Guide](browser-modes-coding-guide.md).
+This document defines hidden browser execution. Profile ownership and visible
+login transitions are specified in
+[Managed Shared Chromium Profile](managed-persistent-browser-profile.md).
 
-## Source Relationship
+## Decision
 
-The implementation should be compatible with the Chromium browser model. The
-public reference point is the official GitHub mirror of Chromium source:
-[chromium/chromium](https://github.com/chromium/chromium).
+SparkClaw uses Chromium for every managed browser surface:
 
-SparkClaw should **not** vendor or compile Chromium source in the gateway.
-Instead, it should use an installed Chrome/Chromium/Chrome for Testing binary
-or an existing DevTools-capable provider, and drive it through the current
-browser automation adapter boundary.
+- ordinary browsing runs in headless Chromium;
+- login and human verification temporarily run in visible Chromium;
+- both presentations use the same persistent profile for the selected logical
+  browser profile;
+- personal Chrome attachment is not supported;
+- Cookie/storage export is not used.
 
-## Goal
+## Goals
 
-Autonomous web reads should have a real rendered browser path:
-
-```text
-web.search
-  -> browser.read(browser_mode=autonomous, presentation=hidden)
-  -> hidden Chromium/Chrome page loads URL
-  -> JavaScript, redirects, cookies, normal rendering and lazy loading complete
-  -> evaluate_script extracts DOM/HTML/text/page metadata
-  -> ToolHub runs @mozilla/readability
-  -> autonomous structure snapshot inspects links, buttons and page affordances
-  -> optional bounded hidden navigate/read follow-up
-  -> final answer with source evidence
-```
-
-The user should not see a browser window, tab, screenshot, or UI narration for
-ordinary information tasks.
-
-## Non-Goals
-
-- Do not bypass login, captcha, 2FA, paywalls, bot checks or payment flows.
-- Do not silently use the user's visible Chrome profile for autonomous reads.
-- Do not make `browser.snapshot` depend on whatever visible browser tab happens
-  to be focused.
-- Do not hide multi-step account-changing browser operations inside autonomous
-  tools.
-- Do not add a hard dependency on a developer-machine-specific Chromium path.
+- Render JavaScript pages without showing a browser window.
+- Preserve Chromium-managed login state across visible and hidden transitions.
+- Keep normal search, reading, snapshots, navigation, and safe interaction
+  hidden.
+- Show Chromium only when human intervention is required or explicitly
+  requested.
+- Keep browser lifecycle and profile state owned by Gateway.
 
 ## Provider Contract
 
-SparkClaw should keep one browser capability with two provider surfaces:
+The existing Chrome DevTools MCP package remains the automation transport, but
+the launched browser executable is configured Chromium. Provider names and
+diagnostics should describe Chromium, not imply that SparkClaw attached to the
+user's Chrome profile.
 
-| Surface | Mode | Window | Profile | Primary use |
-|---|---|---|---|---|
-| hidden Chromium provider | `autonomous` | none/headless | isolated runtime profile by default | search/read/render/structure extraction |
-| visible DevTools provider | `collaborative` | visible | configured user profile only when allowed | open/show/click/type/screenshot/login handoff |
-
-The hidden provider may be implemented by either:
-
-- configuring the existing ChromeDevTools MCP subprocess to launch/use a
-  headless Chrome/Chromium instance, if that provider supports the needed launch
-  flags and lifecycle control; or
-- adding a new adapter implementation behind the existing
-  `browserautomation.Adapter` boundary that starts Chrome/Chromium headless and
-  speaks the Chrome DevTools Protocol directly.
-
-Both choices must reuse the existing ToolHub and ReAct routing contracts. The
-model should still call `web.search`, `browser.read`, `browser.snapshot`,
-`browser.navigate` and related tools; provider selection belongs below ToolHub.
-
-## Current Implementation Notes
-
-The first implementation uses the existing ChromeDevTools MCP adapter and starts
-a second MCP stdio session for autonomous hidden access. The visible
-collaborative session keeps the configured MCP arguments unchanged; the hidden
-session appends provider launch flags for `--headless`, `--isolated`,
-`--viewport=1365x768` and `--no-usage-statistics` when they are not already
-configured.
-
-`browser.read(browser_mode=autonomous, presentation=hidden)` now tries this
-hidden browser session first and reports `read_mode=hidden_browser_session`.
-If the hidden provider cannot start or navigate, the existing direct HTTP path
-remains the fallback and reports `read_mode=direct_http_fallback`.
-
-Autonomous hidden `browser.snapshot` with a URL reads that URL through the
-hidden browser session before calling `take_snapshot`. If no URL or future page
-reference is provided, it fails explicitly instead of snapshotting whatever
-visible tab happens to be focused.
-
-After a hidden snapshot, `browser.open`, `browser.navigate`, `browser.click`
-and `browser.wait` also stay on the hidden session when the call carries
-`browser_mode=autonomous`, `presentation=hidden` and `surface_visible=false`.
-Those follow-up calls add a lightweight current-page state (`current_url`,
-`current_title`, `current_ready_state`) so the model can decide whether to call
-`browser.read` again or stop.
-
-## Launch Requirements
-
-A hidden Chromium process should be launched with an isolated, owned lifecycle:
-
-- root it in a cancellable context and close it from `Adapter.Close()`
-- apply gateway timeouts to every page operation
-- use a runtime-owned user data directory, not the user's normal Chrome profile
-- allow an explicit configured Chrome/Chromium executable, with cross-platform
-  discovery fallback
-- avoid focusing or showing a window
-- keep stderr/stdout captured for diagnostics without leaking page content into
-  logs
-- delete or expire temporary profiles according to storage policy
-
-Typical launch intent:
+Hidden launch requirements:
 
 ```text
-chrome-or-chromium
-  --headless=new
-  --remote-debugging-port=0 or --remote-debugging-pipe
-  --user-data-dir=<runtime-owned-profile>
-  --no-first-run
-  --no-default-browser-check
+--executablePath=<Chromium executable>
+--userDataDir=<SparkClaw shared profile>
+--headless
+--viewport=1365x768
+--no-usage-statistics
 ```
 
-Exact flags should be provider-specific and tested on macOS/Linux before they
-become defaults.
+The hidden shared-profile provider must reject `--isolated`, user-supplied
+profile paths, browser endpoints, and automatic Chrome attachment flags.
 
 ## Read Path
 
-For autonomous reads, `browser.read` should choose the hidden browser session
-when available:
-
 ```text
 browser.read
-  -> select hidden provider for autonomous/hidden
-  -> create or reuse hidden page context
-  -> navigate to URL
-  -> wait for load/domcontentloaded/network-idle bounded by timeout
-  -> perform small scroll loop for lazy-loaded body content
-  -> evaluate DOM extraction script
-  -> return rendered HTML/text and page metadata
-  -> run Readability in ToolHub
+  -> start or reuse headless Chromium for the selected profile
+  -> new_page target URL
+  -> wait for render state
+  -> evaluate_script for DOM/HTML/text diagnostics
+  -> run Readability outside Chromium
+  -> return content and structure diagnostics
 ```
 
-Expected output additions:
+`browser.snapshot` and safe follow-up tools use the same active headless
+session. They do not launch a second isolated browser.
 
-- `read_mode=hidden_browser_session`
-- `rendered=true`
-- `browser_mode=autonomous`
-- `presentation=hidden`
-- `surface_visible=false`
-- `browser_provider=chromium-headless` or a specific provider name
-- `browser_actions` such as `new_hidden_page`, `navigate`, `evaluate_script`
-- `browser_page_ref` or equivalent stable hidden session reference
-- `auth_challenge_detected` when login/captcha/password indicators appear
+## Authentication Transition
 
-If the hidden provider is unavailable, the current direct HTTP path remains the
-fallback. It must continue to report `read_mode=direct_http` or
-`direct_http_fallback`.
+When hidden Chromium detects a login or verification wall:
 
-## Autonomous Snapshot
+1. Create a `BrowserLoginBlock`.
+2. Stop headless Chromium and release the profile.
+3. Start visible Chromium with the same executable and profile.
+4. Reuse or open the handoff page.
+5. Wait for the user to complete the human-only step.
+6. Capture the selected post-login URL.
+7. Stop visible Chromium.
+8. Restart headless Chromium with the same profile.
+9. Read and verify the post-login URL.
 
-Autonomous `browser.snapshot` must not call visible-browser `take_snapshot` on
-the currently focused tab. It should use one of these sources, in order:
+The runtime does not compare the post-login origin with the original origin.
 
-1. the hidden Chromium page referenced by the latest `browser.read`
-2. a `browser_page_ref` supplied by the model/runtime
-3. the archived raw HTML from `snapshot_ref`
-4. a fresh hidden/direct read of the requested URL
+## Visibility Rules
 
-The snapshot should describe page structure, not only article text:
+Hidden is the default for:
 
-- document title and final URL
-- canonical URL and meta description
-- headings
-- links with label, absolute URL, internal/external classification
-- buttons and button-like elements
-- forms and inputs without sensitive values
-- tables with captions/header summaries and row/column counts
-- attachments and download links
-- pagination and next/previous links
-- expand/read-more affordances such as `展开`, `更多`, `阅读全文`, `显示全部`
-- login/captcha/paywall/auth hints
+- public and authenticated reads;
+- search result inspection;
+- snapshots and DOM structure inspection;
+- navigation and safe read-only interactions;
+- continuing a task after login verification.
 
-Autonomous snapshot output should use stable structural identifiers for the
-snapshot result, but these identifiers are not the same as visible-browser
-accessibility refs. They may guide `browser.navigate` or another `browser.read`;
-they should not be treated as permission to click sensitive controls.
+Visible Chromium is reserved for:
 
-## Hidden Interaction Loop
+- password entry;
+- captcha, SMS, 2FA, passkey, permission, consent, and payment confirmation;
+- sites that reject headless execution after authentication;
+- an explicit user request to see the browser surface.
 
-The first hidden interaction loop should be conservative:
+## Lifecycle
 
-```text
-browser.read
-  -> needs_structure_snapshot=true
-  -> browser.snapshot using hidden page or archived HTML
-  -> choose one safe internal link or one safe expand/read-more control
-  -> browser.navigate or approval-gated browser.click
-  -> browser.read again
-  -> final
-```
+- One profile has one active Chromium/MCP process.
+- Switching visible/hidden closes the active process before starting another.
+- `Close()` shuts down the current process on Gateway shutdown.
+- Process startup and shutdown are bounded by timeouts.
+- Chromium profile locks are respected and never force-deleted.
+- The profile directory is never copied while live.
 
-Allowed autonomous actions:
+## Output Fields
 
-- follow a public internal link
-- expand non-sensitive article text
-- move to next page in a public article/list
-- download/read public attachments through existing document tools
+Browser output should preserve:
 
-Stop instead of acting when the next step is login, password, captcha, SMS code,
-2FA, consent, purchase, submit, delete, send, subscribe or account security.
+- `browser_mode`
+- `presentation`
+- `surface_visible`
+- `browser_provider`
+- `browser_profile_id`
+- `browser_actions`
+- `read_mode`
+- `auth_challenge_detected`
+- `needs_structure_snapshot`
+- `final_url`
 
-## Mode Routing
-
-ToolHub should route by metadata:
-
-```text
-browser_mode=autonomous + presentation=hidden
-  -> hidden Chromium provider if available
-  -> direct HTTP fallback if unavailable
-
-browser_mode=collaborative or presentation=visible or surface_visible=true
-  -> visible DevTools provider
-```
-
-Forced-session arguments can still exist, but they must be explicit and audited.
-If a forced autonomous browser session would create a visible window, ToolHub
-should reject it or downgrade to direct HTTP instead of surprising the user.
+Profile filesystem paths and credential material are never model-visible.
 
 ## Failure Semantics
 
-The hidden browser path should return explicit failures:
+- Chromium executable missing;
+- shared profile path invalid or busy;
+- hidden Chromium start failed;
+- visible-to-hidden switch failed;
+- page read failed;
+- authentication wall remains after the user reports completion;
+- site rejects headless execution.
 
-- `hidden_browser_unavailable`
-- `navigation_timeout`
-- `render_timeout`
-- `auth_challenge_detected`
-- `captcha_detected`
-- `snapshot_source_missing`
-- `provider_opened_visible_surface`
+These conditions must remain distinguishable in tool output and audit events.
 
-An `about:blank` snapshot after a URL-based read is not useful evidence. It
-should be treated as a failed snapshot and trigger a repair path, not a normal
-completed observation.
+## Acceptance Tests
 
-## Observability
-
-Every hidden browser call should preserve:
-
-- selected provider
-- launch mode
-- profile mode
-- page ref
-- final URL
-- readiness state
-- DOM/text lengths and truncation
-- whether JavaScript execution completed
-- whether auth/captcha/paywall was detected
-- whether any fallback occurred
-
-Audit events should make it clear whether a read used hidden browser rendering,
-direct HTTP, or visible collaborative browser automation.
-
-## Implementation Phases
-
-1. Documentation and contracts. Done when this document and its Chinese mirror
-   are linked from the browser roadmap.
-2. Provider capability detection.
-   - Detect whether current ChromeDevTools MCP can launch/use headless Chrome.
-   - If not, introduce a separate hidden Chromium adapter behind
-     `browserautomation.Adapter`.
-3. Hidden read path.
-   - Implement autonomous hidden `browser.read`.
-   - Return rendered HTML/text with `read_mode=hidden_browser_session`.
-4. Autonomous structure snapshot.
-   - Parse hidden DOM or archived HTML into structured links/buttons/forms.
-   - Stop using visible `take_snapshot` for autonomous hidden snapshot.
-5. Hidden follow-up loop.
-   - Support one safe navigate/expand/read retry.
-   - Keep approvals and sensitive-action stops intact.
-6. Login and anti-bot extension points.
-   - Preserve explicit handoff to collaborative mode for user-completed login.
-   - Keep anti-bot handling as future policy-governed work.
-
-## Required Tests
-
-- Autonomous hidden `browser.read` returns rendered JS content from a fixture
-  without opening a visible provider.
-- Autonomous hidden `browser.read` reports `read_mode=hidden_browser_session`,
-  `rendered=true`, `presentation=hidden` and `surface_visible=false`.
-- Autonomous `browser.snapshot` after hidden/direct `browser.read` uses the
-  target page or archived HTML, never an unrelated `about:blank` tab.
-- Structure snapshot extracts links, buttons, headings, forms, tables,
-  attachments and pagination from fixture HTML.
-- If hidden browser launch fails, `browser.read` falls back to direct HTTP with
-  explicit fallback metadata.
-- Collaborative visible tools still use the visible provider and screenshots
-  still render as before.
-- `Adapter.Close()` terminates hidden browser subprocesses.
-- `go test ./services/gateway/internal/browserautomation -count=1`
-- `go test ./services/gateway/internal/toolhub -count=1`
-- `go test ./services/gateway/internal/agent -count=1`
-- `go test ./services/gateway/...`
-- `git diff --check`
-
-## Acceptance Criteria
-
-The milestone is complete when ordinary Weixin/web information questions can
-load JavaScript-rendered pages through a real browser engine, extract article
-content and inspect page structure without showing a browser window. Explicit
-open/show/play/click/screenshot requests must still use collaborative visible
-browser tools.
+- Hidden and visible sessions use the same Chromium executable and profile.
+- Hidden launch is headless and not isolated.
+- Hidden and visible sessions never overlap for one profile.
+- Hidden reads can reuse login state created in visible Chromium.
+- Cross-origin SSO resumes from the post-login URL.
+- No Cookie/storage export or injection occurs.
+- Ordinary reads do not show a browser window.
+- Human-only verification reliably switches to visible Chromium.

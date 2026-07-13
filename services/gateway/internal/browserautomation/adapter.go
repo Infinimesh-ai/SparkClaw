@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,9 @@ type PageReadResult struct {
 	HTMLTruncated         bool           `json:"html_truncated,omitempty"`
 	TextLength            int            `json:"text_length,omitempty"`
 	ScrollHeight          int            `json:"scroll_height,omitempty"`
+	AuthState             string         `json:"auth_state,omitempty"`
+	AuthConfidence        string         `json:"auth_confidence,omitempty"`
+	AuthSignals           []string       `json:"auth_signals,omitempty"`
 	AuthChallengeDetected bool           `json:"auth_challenge_detected,omitempty"`
 	SnapshotText          string         `json:"snapshot_text,omitempty"`
 	Snapshot              any            `json:"snapshot,omitempty"`
@@ -70,22 +74,12 @@ type PageReadResult struct {
 	Errors                map[string]any `json:"errors,omitempty"`
 }
 
-type AuthState struct {
-	Origin         string            `json:"origin"`
-	URL            string            `json:"url,omitempty"`
-	Title          string            `json:"title,omitempty"`
-	Cookie         string            `json:"cookie,omitempty"`
-	LocalStorage   map[string]string `json:"local_storage,omitempty"`
-	SessionStorage map[string]string `json:"session_storage,omitempty"`
-	ExportedAt     time.Time         `json:"exported_at"`
-	Provider       string            `json:"provider,omitempty"`
-}
-
 type ChromeDevToolsAdapter struct {
 	cfg           config.Config
 	mu            sync.Mutex
 	session       *stdioSession
 	hiddenSession *stdioSession
+	activeProfile string
 }
 
 func NewAdapter(cfg config.Config) Adapter {
@@ -111,7 +105,7 @@ func (a *ChromeDevToolsAdapter) Health(ctx context.Context) (Result, error) {
 		Tool:       "browser.status",
 		Output:     map[string]any{"ok": true, "tool_count": len(tools), "tools": tools},
 		Untrusted:  true,
-		Provider:   "chrome-devtools-mcp",
+		Provider:   "chromium-devtools-mcp",
 		DurationMS: time.Since(started).Milliseconds(),
 	}, nil
 }
@@ -130,7 +124,8 @@ func (a *ChromeDevToolsAdapter) Call(ctx context.Context, tool string, args map[
 		return Result{}, err
 	}
 	hidden := shouldUseHiddenAutomationTool(tool, metadata, args)
-	out, err := a.callToolWithSession(ctx, hidden, rawTool, rawArgs)
+	profileKey := a.browserProfileKey(args)
+	out, err := a.callToolWithSession(ctx, hidden, profileKey, rawTool, rawArgs)
 	if err != nil {
 		return Result{}, err
 	}
@@ -139,7 +134,7 @@ func (a *ChromeDevToolsAdapter) Call(ctx context.Context, tool string, args map[
 		return Result{}, err
 	}
 	if hidden {
-		normalized = a.withHiddenPageState(ctx, normalized)
+		normalized = a.withHiddenPageState(ctx, normalized, profileKey)
 	}
 	return Result{
 		Tool:           tool,
@@ -157,8 +152,8 @@ func (a *ChromeDevToolsAdapter) Call(ctx context.Context, tool string, args map[
 	}, nil
 }
 
-func (a *ChromeDevToolsAdapter) withHiddenPageState(ctx context.Context, output any) any {
-	pageState, err := a.callToolWithSession(ctx, true, "evaluate_script", map[string]any{
+func (a *ChromeDevToolsAdapter) withHiddenPageState(ctx context.Context, output any, profileKey string) any {
+	pageState, err := a.callToolWithSession(ctx, true, profileKey, "evaluate_script", map[string]any{
 		"function": browserPageStateEvaluateFunction,
 	})
 	normalized := map[string]any{}
@@ -188,6 +183,7 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 	started := time.Now()
 	metadata := browserModeMetadata(args, "autonomous")
 	hidden := shouldUseHiddenBrowserSession(metadata, args)
+	profileKey := a.browserProfileKey(args)
 	provider := browserProviderName(hidden)
 	readMode := "browser_session"
 	openAction := "new_page"
@@ -217,11 +213,11 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 		Presentation:   metadata.Presentation,
 		SurfaceVisible: metadata.SurfaceVisible,
 	}
-	tools, listErr := a.listToolsWithSession(readCtx, hidden)
+	tools, listErr := a.listToolsWithSession(readCtx, hidden, profileKey)
 	if listErr != nil {
 		result.Errors["tools/list"] = listErr.Error()
 	}
-	openOutput, err := a.callToolWithSession(readCtx, hidden, "new_page", map[string]any{
+	openOutput, err := a.callToolWithSession(readCtx, hidden, profileKey, "new_page", map[string]any{
 		"url":     targetURL,
 		"timeout": timeoutMS,
 	})
@@ -241,7 +237,7 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 	if len(tools) > 0 && !containsToolName(tools, "evaluate_script") {
 		result.Errors["evaluate_script"] = "tool unavailable"
 	} else {
-		evaluateOutput, evalErr := a.callToolWithSession(readCtx, hidden, "evaluate_script", map[string]any{
+		evaluateOutput, evalErr := a.callToolWithSession(readCtx, hidden, profileKey, "evaluate_script", map[string]any{
 			"function": browserReadEvaluateFunction(maxChars),
 		})
 		if evalErr != nil {
@@ -264,13 +260,16 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 				result.HTMLTruncated = boolValue(payload["htmlTruncated"])
 				result.TextLength = intValue(payload["textLength"])
 				result.ScrollHeight = intValue(payload["scrollHeight"])
+				result.AuthState = firstStringValue(payload, "authState", "auth_state")
+				result.AuthConfidence = firstStringValue(payload, "authConfidence", "auth_confidence")
+				result.AuthSignals = firstStringSliceValue(payload["authSignals"], payload["auth_signals"])
 				result.AuthChallengeDetected = boolValue(payload["authChallengeDetected"])
 			}
 		}
 	}
 
 	if readPageSnapshotRequested(args) {
-		snapshotOutput, snapshotErr := a.callToolWithSession(readCtx, hidden, "take_snapshot", map[string]any{})
+		snapshotOutput, snapshotErr := a.callToolWithSession(readCtx, hidden, profileKey, "take_snapshot", map[string]any{})
 		if snapshotErr != nil {
 			result.Errors["take_snapshot"] = snapshotErr.Error()
 		} else if err := mcpToolError("take_snapshot", snapshotOutput); err != nil {
@@ -296,67 +295,6 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 		result.Errors = nil
 	}
 	return result, nil
-}
-
-func (a *ChromeDevToolsAdapter) ExportAuthState(ctx context.Context, args map[string]any) (AuthState, error) {
-	metadata := browserModeMetadata(args, "collaborative")
-	hidden := shouldUseHiddenBrowserSession(metadata, args)
-	out, err := a.callToolWithSession(ctx, hidden, "evaluate_script", map[string]any{
-		"function": browserExportAuthStateEvaluateFunction,
-	})
-	if err != nil {
-		return AuthState{}, err
-	}
-	if err := mcpToolError("evaluate_script", out); err != nil {
-		return AuthState{}, err
-	}
-	payload := evaluatePayloadMap(out)
-	if payload == nil {
-		return AuthState{}, errors.New("browser auth export returned no payload")
-	}
-	state := AuthState{
-		Origin:         firstStringValue(payload, "origin"),
-		URL:            firstStringValue(payload, "url", "href"),
-		Title:          firstStringValue(payload, "title"),
-		Cookie:         firstStringValue(payload, "cookie"),
-		LocalStorage:   stringMapValue(payload["localStorage"], payload["local_storage"]),
-		SessionStorage: stringMapValue(payload["sessionStorage"], payload["session_storage"]),
-		ExportedAt:     time.Now().UTC(),
-		Provider:       browserProviderName(hidden),
-	}
-	if strings.TrimSpace(state.Origin) == "" {
-		return AuthState{}, errors.New("browser auth export missing origin")
-	}
-	return state, nil
-}
-
-func (a *ChromeDevToolsAdapter) ImportAuthState(ctx context.Context, state AuthState, args map[string]any) error {
-	if strings.TrimSpace(state.Origin) == "" {
-		return errors.New("browser auth import missing origin")
-	}
-	metadata := browserModeMetadata(args, "autonomous")
-	hidden := shouldUseHiddenBrowserSession(metadata, args)
-	timeoutMS := intArg(args, "timeout_ms", a.cfg.Adapters.BrowserAutomation.TimeoutMS)
-	if timeoutMS <= 0 {
-		timeoutMS = 15000
-	}
-	openOutput, err := a.callToolWithSession(ctx, hidden, "new_page", map[string]any{
-		"url":     state.Origin,
-		"timeout": timeoutMS,
-	})
-	if err != nil {
-		return err
-	}
-	if err := mcpToolError("new_page", openOutput); err != nil {
-		return err
-	}
-	evaluateOutput, err := a.callToolWithSession(ctx, hidden, "evaluate_script", map[string]any{
-		"function": browserImportAuthStateEvaluateFunction(state),
-	})
-	if err != nil {
-		return err
-	}
-	return mcpToolError("evaluate_script", evaluateOutput)
 }
 
 func (a *ChromeDevToolsAdapter) hiddenSnapshot(ctx context.Context, started time.Time, args map[string]any, metadata browserModeFields) (Result, error) {
@@ -387,26 +325,29 @@ func (a *ChromeDevToolsAdapter) hiddenSnapshot(ctx context.Context, started time
 		return Result{}, errors.New("hidden browser snapshot returned no page structure")
 	}
 	output := map[string]any{
-		"tool":                    "browser.snapshot",
-		"raw_tool":                "hidden_read_take_snapshot",
-		"url":                     page.URL,
-		"final_url":               page.FinalURL,
-		"title":                   page.Title,
-		"text":                    snapshotText,
-		"snapshot":                page.Snapshot,
-		"browser_mode":            page.BrowserMode,
-		"presentation":            page.Presentation,
-		"surface_visible":         page.SurfaceVisible,
-		"read_mode":               page.ReadMode,
-		"browser_provider":        page.Provider,
-		"browser_actions":         page.Actions,
-		"browser_ready_state":     page.ReadyState,
-		"browser_lang":            page.Lang,
-		"browser_html_length":     page.HTMLLength,
-		"browser_text_length":     page.TextLength,
-		"browser_scroll_height":   page.ScrollHeight,
-		"auth_challenge_detected": page.AuthChallengeDetected,
-		"untrusted":               true,
+		"tool":                         "browser.snapshot",
+		"raw_tool":                     "hidden_read_take_snapshot",
+		"url":                          page.URL,
+		"final_url":                    page.FinalURL,
+		"title":                        page.Title,
+		"text":                         snapshotText,
+		"snapshot":                     page.Snapshot,
+		"browser_mode":                 page.BrowserMode,
+		"presentation":                 page.Presentation,
+		"surface_visible":              page.SurfaceVisible,
+		"read_mode":                    page.ReadMode,
+		"browser_provider":             page.Provider,
+		"browser_actions":              page.Actions,
+		"browser_ready_state":          page.ReadyState,
+		"browser_lang":                 page.Lang,
+		"browser_html_length":          page.HTMLLength,
+		"browser_text_length":          page.TextLength,
+		"browser_scroll_height":        page.ScrollHeight,
+		"browser_page_auth_state":      page.AuthState,
+		"browser_page_auth_confidence": page.AuthConfidence,
+		"browser_page_auth_signals":    append([]string{}, page.AuthSignals...),
+		"auth_challenge_detected":      page.AuthChallengeDetected,
+		"untrusted":                    true,
 	}
 	if len(page.Errors) > 0 {
 		output["browser_session_warnings"] = page.Errors
@@ -435,7 +376,7 @@ func readPageSnapshotRequested(args map[string]any) bool {
 }
 
 func shouldUseHiddenBrowserSession(metadata browserModeFields, args map[string]any) bool {
-	if metadata.BrowserMode != "autonomous" || metadata.Presentation != "hidden" || metadata.SurfaceVisible {
+	if metadata.Presentation != "hidden" || metadata.SurfaceVisible {
 		return false
 	}
 	if boolArg(args, "visible_browser") || boolArg(args, "disable_hidden_browser") {
@@ -445,22 +386,14 @@ func shouldUseHiddenBrowserSession(metadata browserModeFields, args map[string]a
 }
 
 func shouldUseHiddenAutomationTool(tool string, metadata browserModeFields, args map[string]any) bool {
-	if !shouldUseHiddenBrowserSession(metadata, args) {
-		return false
-	}
-	switch tool {
-	case "browser.open", "browser.navigate", "browser.click", "browser.wait":
-		return true
-	default:
-		return false
-	}
+	return tool != "browser.status" && shouldUseHiddenBrowserSession(metadata, args)
 }
 
 func browserProviderName(hidden bool) string {
 	if hidden {
-		return "chrome-devtools-mcp-headless"
+		return "chromium-devtools-mcp-headless"
 	}
-	return "chrome-devtools-mcp"
+	return "chromium-devtools-mcp-visible"
 }
 
 type browserModeFields struct {
@@ -479,13 +412,13 @@ func browserModeMetadata(args map[string]any, fallbackMode string) browserModeFi
 	}
 	presentation := strings.ToLower(strings.TrimSpace(stringArg(args, "presentation")))
 	if presentation != "hidden" && presentation != "visible" {
-		if mode == "collaborative" {
+		if boolArg(args, "visible_browser") || boolArg(args, "disable_hidden_browser") {
 			presentation = "visible"
 		} else {
 			presentation = "hidden"
 		}
 	}
-	surfaceVisible := mode == "collaborative"
+	surfaceVisible := presentation == "visible"
 	if _, ok := args["surface_visible"]; ok {
 		surfaceVisible = boolArg(args, "surface_visible")
 	}
@@ -497,10 +430,7 @@ func browserModeMetadata(args map[string]any, fallbackMode string) browserModeFi
 }
 
 func defaultBrowserModeForTool(tool string) string {
-	if tool == "browser.read" {
-		return "autonomous"
-	}
-	return "collaborative"
+	return "autonomous"
 }
 
 func containsToolName(tools []string, name string) bool {
@@ -520,9 +450,11 @@ func mapTool(tool string, args map[string]any) (string, map[string]any, error) {
 	case "browser.open":
 		return "new_page", rawArgsForTool("new_page", args), nil
 	case "browser.focus":
-		return "select_page", rawArgsForTool("select_page", args), nil
+		pageArgs, err := browserPageIDArgs(args, true)
+		return "select_page", pageArgs, err
 	case "browser.close":
-		return "close_page", rawArgsForTool("close_page", args), nil
+		pageArgs, err := browserPageIDArgs(args, false)
+		return "close_page", pageArgs, err
 	case "browser.navigate":
 		return "navigate_page", rawArgsForTool("navigate_page", args), nil
 	case "browser.snapshot":
@@ -562,7 +494,29 @@ func rawArgs(args map[string]any) map[string]any {
 	delete(out, "browser_mode")
 	delete(out, "presentation")
 	delete(out, "surface_visible")
+	delete(out, "disable_hidden_browser")
+	delete(out, "visible_browser")
+	delete(out, "owner_id")
+	delete(out, "browser_profile_id")
+	delete(out, "login_handoff_completed")
 	return out
+}
+
+func browserPageIDArgs(args map[string]any, bringToFront bool) (map[string]any, error) {
+	raw := strings.TrimSpace(stringValue(args["page_id"]))
+	if raw == "" || raw == "<nil>" {
+		raw = strings.TrimSpace(stringValue(args["pageId"]))
+	}
+	raw = strings.TrimPrefix(strings.ToLower(raw), "page_")
+	pageID, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, fmt.Errorf("browser page_id %q must identify a numeric MCP page", raw)
+	}
+	out := map[string]any{"pageId": pageID}
+	if bringToFront {
+		out["bringToFront"] = true
+	}
+	return out, nil
 }
 
 func rawArgsForTool(rawTool string, args map[string]any) map[string]any {
@@ -610,7 +564,7 @@ func typeTextArgs(args map[string]any) map[string]any {
 }
 
 func normalizeOutput(tool string, output any) any {
-	if tool != "browser.list_tabs" {
+	if tool != "browser.list_tabs" && tool != "browser.open" {
 		return output
 	}
 	result, ok := output.(map[string]any)
@@ -716,14 +670,100 @@ const browserReadEvaluateFunctionTemplate = `async () => {
   window.scrollTo(0, 0);
   await wait(150);
   const html = document.documentElement ? document.documentElement.outerHTML : "";
-  const text = document.body ? document.body.innerText : "";
   const title = document.title || "";
   const lang = document.documentElement ? (document.documentElement.lang || "") : "";
-  const loginText = (title + "\n" + text.slice(0, 5000)).toLowerCase();
-  const authChallengeDetected = Boolean(
-    document.querySelector('input[type="password"], input[name*="password" i], input[id*="password" i]') ||
-    /登录|登入|验证码|扫码|sign in|log in|password|captcha|verification code/.test(loginText)
+  const isVisible = (element) => {
+    if (!element || element.disabled || element.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || "1") > 0 && rect.width > 0 && rect.height > 0;
+  };
+  const excludedTextTags = new Set(["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT", "META", "LINK"]);
+  const visibleTextFor = (root, maxLength = limit) => {
+    if (!root) return "";
+    const parts = [];
+    let length = 0;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode() && length < maxLength) {
+      const node = walker.currentNode;
+      const parent = node.parentElement;
+      if (!parent || excludedTextTags.has(parent.tagName) || !isVisible(parent)) continue;
+      const value = (node.nodeValue || "").replace(/\s+/g, " ").trim();
+      if (!value) continue;
+      parts.push(value);
+      length += value.length + 1;
+    }
+    return parts.join(" ").slice(0, maxLength);
+  };
+  const text = visibleTextFor(document.body);
+  const pageText = (title + "\n" + text.slice(0, 12000)).toLowerCase();
+  const routeText = (location.pathname + location.search + location.hash).toLowerCase();
+  const loginPromptPattern = /请(?:先)?登录|登录后(?:查看|访问|继续)|未登录|重新登录|账号登录|密码登录|扫码登录|please sign in|sign in to continue|login required|log in to (?:view|continue)|enter (?:your )?password/;
+  const verificationPattern = /验证码|短信验证码|captcha|verification code|sms code|two-factor|2fa|one[- ]time password|\botp\b/;
+  const loginActionPattern = /^(?:登录|登陆|继续登录|sign in|log in|login|continue)$/;
+  const logoutPattern = /退出登录|安全退出|注销登录|sign out|log out|logout/;
+  const accountPattern = /个人中心|我的账户|账户设置|账号设置|用户菜单|个人资料|account|profile|user menu|avatar/;
+  const loginRoutePattern = /(?:^|[\/#?&=._-])(?:login|signin|sign-in|logon|auth|oauth|sso|verify|verification|captcha)(?:$|[\/#?&=._-])/;
+  const loginTitlePattern = /(?:登录|登陆|sign in|log in|login)/;
+  const interactive = Array.from(document.querySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [role="menuitem"], [tabindex]')).filter(isVisible);
+  const controlLabel = (element) => [
+    element.innerText,
+    element.getAttribute("aria-label"),
+    element.getAttribute("title"),
+    element.getAttribute("value"),
+    element.getAttribute("name"),
+  ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().toLowerCase();
+  const visibleLogoutControl = interactive.some((element) => logoutPattern.test(controlLabel(element)));
+  const visibleAccountControl = interactive.some((element) => accountPattern.test(controlLabel(element)));
+  const passwordInputs = Array.from(document.querySelectorAll(
+    'input[type="password"], input[name*="password" i], input[id*="password" i]'
+  )).filter(isVisible);
+  const verificationInputs = Array.from(document.querySelectorAll(
+    'input[name*="captcha" i], input[id*="captcha" i], input[name*="verification" i], input[id*="verification" i], input[name*="otp" i], input[id*="otp" i], input[autocomplete="one-time-code"]'
+  )).filter(isVisible);
+  const credentialHasLoginContext = passwordInputs.some((input) => {
+    const context = input.closest('form, dialog, [role="dialog"], [aria-modal="true"]');
+    if (!context || !isVisible(context)) return false;
+    const contextText = visibleTextFor(context, 3000).toLowerCase();
+    const contextActions = Array.from(context.querySelectorAll('button, input[type="submit"], a, [role="button"]')).filter(isVisible);
+    return loginPromptPattern.test(contextText) || contextActions.some((element) => loginActionPattern.test(controlLabel(element)));
+  });
+  const explicitLoginPrompt = loginPromptPattern.test(pageText);
+  const explicitVerificationPrompt = verificationPattern.test(pageText);
+  const loginRouteOrTitle = loginRoutePattern.test(routeText) || loginTitlePattern.test(title.toLowerCase());
+  const challengeSignals = [];
+  if (verificationInputs.length > 0 || explicitVerificationPrompt && loginRouteOrTitle) challengeSignals.push("visible_verification_challenge");
+  if (credentialHasLoginContext) challengeSignals.push("contextual_login_credentials");
+  if (explicitLoginPrompt && loginRouteOrTitle) challengeSignals.push("explicit_login_page");
+  const authenticatedSignals = [];
+  if (visibleLogoutControl) authenticatedSignals.push("visible_sign_out_control");
+  if (visibleAccountControl) authenticatedSignals.push("visible_account_control");
+  const applicationLandmarks = Array.from(document.querySelectorAll('main, nav, aside, [role="main"], [role="navigation"], [role="menubar"], [role="tree"]')).filter(isVisible);
+  const usableApplicationShell = !loginRouteOrTitle && text.length >= 80 && (
+    applicationLandmarks.length > 0 && interactive.length >= 4 || interactive.length >= 8
   );
+  if (usableApplicationShell && challengeSignals.length === 0) authenticatedSignals.push("usable_application_shell");
+  let authState = "unknown";
+  let authConfidence = "insufficient";
+  let authSignals = [];
+  if (challengeSignals.length > 0 && authenticatedSignals.length > 0) {
+    authConfidence = "conflicting";
+    authSignals = challengeSignals.concat(authenticatedSignals);
+  } else if (challengeSignals.length > 0) {
+    authState = "challenged";
+    authConfidence = "explicit_ui";
+    authSignals = challengeSignals;
+  } else if (authenticatedSignals.includes("visible_sign_out_control") || authenticatedSignals.includes("visible_account_control")) {
+    authState = "authenticated";
+    authConfidence = "explicit_ui";
+    authSignals = authenticatedSignals;
+  } else if (usableApplicationShell) {
+    authConfidence = "application_shell";
+    authSignals = authenticatedSignals;
+  }
+  const authChallengeDetected = authState === "challenged";
   return {
     url: location.href,
     title,
@@ -740,6 +780,9 @@ const browserReadEvaluateFunctionTemplate = `async () => {
       document.body ? document.body.scrollHeight : 0,
       document.documentElement ? document.documentElement.scrollHeight : 0
     ),
+    authState,
+    authConfidence,
+    authSignals,
     authChallengeDetected
   };
 }`
@@ -749,66 +792,6 @@ const browserPageStateEvaluateFunction = `() => ({
   title: document.title || "",
   readyState: document.readyState
 })`
-
-const browserExportAuthStateEvaluateFunction = `() => {
-  const dumpStorage = (storage) => {
-    const out = {};
-    if (!storage) {
-      return out;
-    }
-    for (let i = 0; i < storage.length; i++) {
-      const key = storage.key(i);
-      if (key) {
-        out[key] = storage.getItem(key) || "";
-      }
-    }
-    return out;
-  };
-  return {
-    origin: location.origin,
-    url: location.href,
-    title: document.title || "",
-    cookie: document.cookie || "",
-    localStorage: dumpStorage(window.localStorage),
-    sessionStorage: dumpStorage(window.sessionStorage)
-  };
-}`
-
-func browserImportAuthStateEvaluateFunction(state AuthState) string {
-	raw, _ := json.Marshal(state)
-	return fmt.Sprintf(`() => {
-  const state = %s;
-  const applyStorage = (storage, values) => {
-    if (!storage || !values || typeof values !== "object") {
-      return 0;
-    }
-    let count = 0;
-    for (const [key, value] of Object.entries(values)) {
-      storage.setItem(key, String(value));
-      count++;
-    }
-    return count;
-  };
-  let cookieCount = 0;
-  if (state.cookie) {
-    for (const part of String(state.cookie).split(";")) {
-      const cookie = part.trim();
-      if (!cookie || cookie.indexOf("=") <= 0) {
-        continue;
-      }
-      document.cookie = cookie + "; path=/";
-      cookieCount++;
-    }
-  }
-  return {
-    origin: location.origin,
-    url: location.href,
-    cookieCount,
-    localStorageCount: applyStorage(window.localStorage, state.local_storage || state.localStorage),
-    sessionStorageCount: applyStorage(window.sessionStorage, state.session_storage || state.sessionStorage)
-  };
-}`, string(raw))
-}
 
 func evaluatePayloadMap(output any) map[string]any {
 	if payload := mapValue(output); payload != nil {
@@ -933,6 +916,36 @@ func firstStringValue(values map[string]any, keys ...string) string {
 	return ""
 }
 
+func firstStringSliceValue(values ...any) []string {
+	for _, value := range values {
+		var items []any
+		switch typed := value.(type) {
+		case []any:
+			items = typed
+		case []string:
+			out := make([]string, 0, len(typed))
+			for _, item := range typed {
+				if item = strings.TrimSpace(item); item != "" {
+					out = append(out, item)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			if text := strings.TrimSpace(stringValue(item)); text != "" {
+				out = append(out, text)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
 func intArg(args map[string]any, key string, fallback int) int {
 	if args == nil {
 		return fallback
@@ -978,7 +991,7 @@ func boolValue(value any) bool {
 }
 
 func pagesFromOutput(tool string, output any) []any {
-	if tool != "browser.list_tabs" {
+	if tool != "browser.list_tabs" && tool != "browser.open" {
 		return nil
 	}
 	result, ok := output.(map[string]any)

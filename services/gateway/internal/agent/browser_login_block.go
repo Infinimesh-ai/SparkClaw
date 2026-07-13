@@ -24,6 +24,20 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal stri
 		return app.BrowserLoginBlock{}, false
 	}
 	output := browserLoginToolFields(call)
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		RunID:     runID,
+		Actor:     "runtime",
+		Type:      "browser_auth.assessed",
+		Summary:   firstNonEmptyString(output["auth_evidence_state"], "unknown"),
+		Fields: map[string]any{
+			"tool_call_id": call.ID,
+			"tool":         call.Tool,
+			"state":        output["auth_evidence_state"],
+			"confidence":   output["auth_evidence_confidence"],
+			"signals":      output["auth_evidence_signals"],
+		},
+	})
 	if !browserOutputNeedsLoginBlock(output) {
 		return app.BrowserLoginBlock{}, false
 	}
@@ -67,7 +81,7 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal stri
 	block.SiteRealm = firstNonEmptyString(output["auth_site_realm"], resumeArgs["site_realm"])
 	block.AccountHint = firstNonEmptyString(output["account_hint"], resumeArgs["account_hint"])
 	block.BrowserAuthStatus = firstNonEmptyString(output["browser_auth_status"])
-	block.LastError = firstNonEmptyString(output["login_handoff_error"], output["browser_auth_restore_error"])
+	block.LastError = firstNonEmptyString(output["login_handoff_error"], output["browser_session_error"])
 	block.ResolvedAt = nil
 	block = r.store.SaveBrowserLoginBlock(block)
 	r.store.AddAudit(app.AuditEvent{
@@ -127,10 +141,12 @@ func browserLoginToolFields(call app.ToolCall) map[string]any {
 }
 
 func normalizeBrowserLoginFieldsFromObservation(call app.ToolCall, fields map[string]any) {
-	if browserOutputNeedsLoginBlock(fields) || !browserToolCanInferLoginBlock(call.Tool) {
+	if !browserToolCanInferLoginBlock(call.Tool) {
 		return
 	}
-	if !browserLoginObservationNeedsHandoff(call, fields) {
+	assessment := assessBrowserAuthentication(call, fields)
+	addBrowserAuthAssessmentFields(fields, assessment)
+	if assessment.State != browserAuthChallenged {
 		return
 	}
 	fields["auth_challenge_detected"] = true
@@ -167,13 +183,6 @@ func browserToolCanInferLoginBlock(tool string) bool {
 	default:
 		return false
 	}
-}
-
-func browserLoginObservationNeedsHandoff(call app.ToolCall, fields map[string]any) bool {
-	if boolValue(fields["auth_challenge_detected"]) {
-		return true
-	}
-	return browserLoginObservationLooksLikeAuthGate(browserLoginObservationText(call, fields))
 }
 
 func browserLoginObservationText(call app.ToolCall, fields map[string]any) string {
@@ -248,17 +257,25 @@ func browserLoginObservationLooksLikeAuthGate(text string) bool {
 	}
 	for _, marker := range []string{
 		"please sign in", "sign in to continue", "login required", "log in to view", "authentication required",
-		"password", "captcha", "verification code", "sms code", "two-factor", "2fa", "single sign-on", "sso login", "cas login",
+		"captcha", "verification code", "sms code", "two-factor", "2fa", "sso login", "cas login",
 		"access denied", "members only", "paywall", "subscribe to continue",
-		"请登录", "登录后查看", "未登录", "验证码", "短信验证码", "扫码登录", "账号密码", "用户名", "密码",
-		"统一身份认证", "身份认证", "单点登录", "访问受限", "本资源仅限内网访问", "仅限内网", "内网访问",
-		"请您使用校园网", "sslvpn", "ssl vpn", "vpn登录", "cas登录", "cas认证",
+		"请登录", "登录后查看", "未登录", "验证码", "短信验证码", "扫码登录", "账号密码",
+		"访问受限", "vpn登录", "cas登录", "cas认证",
 	} {
 		if strings.Contains(text, marker) {
 			return true
 		}
 	}
-	return false
+	limitedResource := containsAny(text, "本资源仅限内网访问", "仅限内网", "内网访问", "restricted resource")
+	authInstruction := containsAny(text,
+		"请您使用校园网", "请使用校园网", "登录 sslvpn", "登录sslvpn", "login with vpn", "connect to vpn",
+	)
+	if limitedResource && authInstruction {
+		return true
+	}
+	credentialField := containsAny(text, "password", "密码") &&
+		containsAny(text, "enter", "input", "textbox", "username", "account", "请输入", "输入", "用户名", "账号")
+	return credentialField
 }
 
 func browserLoginSurfaceFromFields(fields map[string]any) string {
@@ -366,7 +383,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	resumeApprovals := []app.Approval{}
 	tabCall, tabApproval, tabObservation := r.runToolPlan(ctx, sessionID, run.ID, toolPlan{
 		Name: "browser.list_tabs",
-		Args: visibleBrowserResumeArgs("browser_login_block_resume"),
+		Args: visibleBrowserResumeArgs(block, "browser_login_block_resume"),
 	})
 	resumeCalls = append(resumeCalls, tabCall)
 	if tabApproval != nil {
@@ -392,6 +409,31 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		block.LastError = "browser_login_block_missing_tab"
 		return r.reopenBrowserLoginBlock(ctx, sessionID, run, block, userReply, resumeCalls, resumeApprovals, "browser_login_block_missing_tab")
 	}
+	if target, ok := browserSelectedTabTarget(tabCall, block.LastVisiblePageID, block.LoginHandoffPageID); ok {
+		previousOrigin := block.SiteOrigin
+		block.LoginHandoffURL = target.URL
+		block.LastVisiblePageID = target.PageID
+		if block.LoginHandoffPageID == "" {
+			block.LoginHandoffPageID = target.PageID
+		}
+		block.SiteOrigin = browserLoginURLOrigin(target.URL)
+		resumeArgs := clonePlanArgs(block.ResumeArgs)
+		resumeArgs["url"] = target.URL
+		block.ResumeArgs = resumeArgs
+		block = r.store.SaveBrowserLoginBlock(block)
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID,
+			RunID:     run.ID,
+			Actor:     "runtime",
+			Type:      "browser_login_block.post_login_target_selected",
+			Summary:   target.URL,
+			Fields: browserLoginBlockRuntimeFields(block, map[string]any{
+				"page_id":              target.PageID,
+				"previous_site_origin": previousOrigin,
+				"post_login_url":       target.URL,
+			}),
+		})
+	}
 
 	resumePlan := toolPlan{Name: block.ResumeTool, Args: browserLoginResumeArgs(block)}
 	if resumePlan.Name == "" {
@@ -405,11 +447,30 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	if readObservation == "" && tabObservation != "" {
 		readObservation = tabObservation
 	}
-	if browserLoginResumeStillWaiting(readCall) {
+	readAssessment := assessBrowserAuthentication(readCall, browserLoginToolFields(readCall))
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		RunID:     run.ID,
+		Actor:     "runtime",
+		Type:      "browser_auth.confirmation",
+		Summary:   string(readAssessment.State),
+		Fields: browserLoginBlockRuntimeFields(block, map[string]any{
+			"phase":        "profile_read",
+			"tool_call_id": readCall.ID,
+			"state":        string(readAssessment.State),
+			"confidence":   readAssessment.Confidence,
+			"signals":      readAssessment.Signals,
+		}),
+	})
+	if readAssessment.State != browserAuthAuthenticated {
 		block = updateBrowserLoginBlockFromResumeCall(block, readCall)
 		block.Status = app.BrowserLoginBlockStatusWaiting
 		if block.LastError == "" {
-			block.LastError = "browser_login_block_still_unauthenticated"
+			if readAssessment.State == browserAuthUnknown {
+				block.LastError = "browser_login_auth_evidence_inconclusive"
+			} else {
+				block.LastError = "browser_login_block_still_unauthenticated"
+			}
 		}
 		block = r.store.SaveBrowserLoginBlock(block)
 		r.store.AddAudit(app.AuditEvent{
@@ -507,16 +568,24 @@ func (r Runtime) reopenBrowserLoginBlock(ctx context.Context, sessionID string, 
 		openCall, approval, _ := r.runToolPlan(ctx, sessionID, run.ID, toolPlan{
 			Name: "browser.open",
 			Args: map[string]any{
-				"url":             target,
-				"browser_mode":    "collaborative",
-				"presentation":    "visible",
-				"surface_visible": true,
-				"reason":          reason,
+				"url":                target,
+				"browser_mode":       "collaborative",
+				"presentation":       "visible",
+				"surface_visible":    true,
+				"reason":             reason,
+				"owner_id":           block.OwnerID,
+				"browser_profile_id": block.BrowserProfileID,
 			},
 		})
 		calls = append(calls, openCall)
 		if approval != nil {
 			approvals = append(approvals, *approval)
+		}
+		if opened, ok := browserSelectedTabTarget(openCall); ok {
+			block.LoginHandoffURL = opened.URL
+			block.LoginHandoffPageID = opened.PageID
+			block.LastVisiblePageID = opened.PageID
+			block.SiteOrigin = browserLoginURLOrigin(opened.URL)
 		}
 	}
 	block.Status = app.BrowserLoginBlockStatusWaiting
@@ -568,19 +637,26 @@ func browserLoginReplyIntent(reply string) string {
 	if firstURL(reply) != "" || containsAny(lower, "wrong page", "not this page", "incorrect page", "页面错", "页面不对", "不是这个页面", "不是这个", "打开错", "找错", "链接错") {
 		return browserLoginReplyWrongPage
 	}
-	if containsAny(lower, "logged in", "login completed", "signed in", "done", "finished", "登录完成", "已登录", "登好了", "登录好了", "好了", "完成了") {
+	if containsAny(lower, "logged in", "login completed", "login successful", "signed in", "done", "finished", "登录完成", "登录成功", "已经登录成功", "已登录", "登好了", "登录好了", "好了", "完成了") {
 		return browserLoginReplyCompleted
 	}
 	return browserLoginReplyAmbiguous
 }
 
-func visibleBrowserResumeArgs(reason string) map[string]any {
-	return map[string]any{
+func visibleBrowserResumeArgs(block app.BrowserLoginBlock, reason string) map[string]any {
+	args := map[string]any{
 		"browser_mode":    "collaborative",
 		"presentation":    "visible",
 		"surface_visible": true,
 		"reason":          reason,
 	}
+	if block.OwnerID != "" {
+		args["owner_id"] = block.OwnerID
+	}
+	if block.BrowserProfileID != "" {
+		args["browser_profile_id"] = block.BrowserProfileID
+	}
+	return args
 }
 
 func browserLoginResumeArgs(block app.BrowserLoginBlock) map[string]any {
@@ -589,8 +665,6 @@ func browserLoginResumeArgs(block app.BrowserLoginBlock) map[string]any {
 		args["url"] = firstNonEmptyString(block.LoginHandoffURL, block.SiteOrigin)
 	}
 	args["login_handoff_completed"] = true
-	args["persist_browser_auth"] = true
-	args["save_browser_auth"] = true
 	args["browser_mode"] = "autonomous"
 	args["presentation"] = "hidden"
 	args["surface_visible"] = false
@@ -609,24 +683,6 @@ func browserLoginResumeArgs(block app.BrowserLoginBlock) map[string]any {
 	return args
 }
 
-func browserLoginResumeStillWaiting(call app.ToolCall) bool {
-	if call.Status != "completed" {
-		return true
-	}
-	output, ok := anyMap(call.Result)
-	if !ok {
-		return false
-	}
-	status := strings.ToLower(strings.TrimSpace(stringValue(output["browser_auth_status"])))
-	if status == "handoff_waiting" || status == "handoff_required" || boolValue(output["auth_challenge_detected"]) || boolValue(output["login_handoff_required"]) {
-		return true
-	}
-	if err := strings.TrimSpace(stringValue(output["browser_auth_export_error"])); err != "" && err != "<nil>" {
-		return true
-	}
-	return false
-}
-
 func updateBrowserLoginBlockFromResumeCall(block app.BrowserLoginBlock, call app.ToolCall) app.BrowserLoginBlock {
 	block.LastToolCallID = call.ID
 	if call.Error != "" {
@@ -643,7 +699,7 @@ func updateBrowserLoginBlockFromResumeCall(block app.BrowserLoginBlock, call app
 	if value := firstNonEmptyString(output["browser_auth_status"]); value != "" {
 		block.BrowserAuthStatus = value
 	}
-	block.LastError = firstNonEmptyString(output["browser_auth_export_error"], output["login_handoff_error"], output["browser_auth_restore_error"])
+	block.LastError = firstNonEmptyString(output["login_handoff_error"], output["browser_session_error"])
 	return block
 }
 
@@ -707,21 +763,96 @@ func firstURL(content string) string {
 
 func browserLoginBlockRuntimeFields(block app.BrowserLoginBlock, extra map[string]any) map[string]any {
 	fields := map[string]any{
-		"block_id":           block.ID,
-		"run_id":             block.RunID,
-		"status":             block.Status,
-		"resume_tool":        block.ResumeTool,
-		"owner_id":           block.OwnerID,
-		"browser_profile_id": block.BrowserProfileID,
-		"site_origin":        block.SiteOrigin,
-		"site_realm":         block.SiteRealm,
-		"account_hint":       block.AccountHint,
-		"login_handoff_url":  block.LoginHandoffURL,
+		"block_id":              block.ID,
+		"run_id":                block.RunID,
+		"status":                block.Status,
+		"resume_tool":           block.ResumeTool,
+		"owner_id":              block.OwnerID,
+		"browser_profile_id":    block.BrowserProfileID,
+		"site_origin":           block.SiteOrigin,
+		"site_realm":            block.SiteRealm,
+		"account_hint":          block.AccountHint,
+		"login_handoff_url":     block.LoginHandoffURL,
+		"login_handoff_page_id": block.LoginHandoffPageID,
+		"last_visible_page_id":  block.LastVisiblePageID,
 	}
 	for key, value := range extra {
 		fields[key] = value
 	}
 	return fields
+}
+
+type browserTabTarget struct {
+	URL    string
+	PageID string
+}
+
+func browserSelectedTabTarget(call app.ToolCall, preferredPageIDs ...string) (browserTabTarget, bool) {
+	if (call.Tool != "browser.list_tabs" && call.Tool != "browser.open") || !toolCallCompleted(call) {
+		return browserTabTarget{}, false
+	}
+	result, ok := anyMap(call.Result)
+	if !ok {
+		return browserTabTarget{}, false
+	}
+	pages := anySlice(result["pages"])
+	if len(pages) == 0 {
+		if output, ok := anyMap(result["output"]); ok {
+			pages = anySlice(output["pages"])
+		}
+	}
+	candidates := []browserTabTarget{}
+	selectedTarget := browserTabTarget{}
+	preferred := map[string]bool{}
+	for _, pageID := range preferredPageIDs {
+		if pageID = strings.TrimSpace(pageID); pageID != "" {
+			preferred[pageID] = true
+		}
+	}
+	for _, raw := range pages {
+		item, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		text := strings.TrimSpace(stringValue(item["text"]))
+		url := strings.TrimSpace(stringValue(firstPresent(item, "url", "href")))
+		if url == "" || url == "<nil>" {
+			url = firstURL(text)
+		}
+		if !browserLoginResumeURLUsable(url) {
+			continue
+		}
+		pageID := strings.TrimSpace(stringValue(firstPresent(item, "page_id", "targetId", "target_id", "id")))
+		if (pageID == "" || pageID == "<nil>") && text != "" {
+			if before, _, found := strings.Cut(strings.TrimSpace(strings.TrimPrefix(text, "-")), ":"); found {
+				pageID = strings.TrimSpace(before)
+			}
+		}
+		target := browserTabTarget{URL: url, PageID: pageID}
+		if preferred[pageID] {
+			return target, true
+		}
+		selected := boolValue(item["selected"]) || strings.Contains(strings.ToLower(text), "[selected]")
+		if selected {
+			selectedTarget = target
+		}
+		candidates = append(candidates, target)
+	}
+	if selectedTarget.URL != "" {
+		return selectedTarget, true
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true
+	}
+	return browserTabTarget{}, false
+}
+
+func browserLoginResumeURLUsable(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Hostname() == "" {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
 }
 
 func browserLoginMissingRunError(block app.BrowserLoginBlock) error {

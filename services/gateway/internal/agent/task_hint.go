@@ -32,7 +32,7 @@ func (r Runtime) generateTaskHint(ctx context.Context, sessionID, runID, content
 		userParts = append(userParts, "Agent context:\n"+contextText)
 	}
 	userParts = append(userParts, "Current user message:\n"+content)
-	userParts = append(userParts, "Return TaskHint JSON with task_type, evidence_need, tool_mode, browser_mode, estimated_risk, model_lane_hint, candidate_skills, candidate_tools, needs_clarification, reason. browser_mode must be \"\", \"autonomous\", or \"collaborative\". estimated_risk must be one of the strings \"read\", \"draft\", \"reversible\", \"dangerous\".")
+	userParts = append(userParts, "Return TaskHint JSON with task_type, evidence_need, data_scope, tool_mode, browser_mode, requires_tool_evidence, estimated_risk, model_lane_hint, candidate_skills, candidate_tools, needs_clarification, reason. data_scope must be \"\", \"public\", or \"owner\". browser_mode must be \"\", \"autonomous\", or \"collaborative\". estimated_risk must be one of the strings \"read\", \"draft\", \"reversible\", \"dangerous\".")
 	user := strings.Join(userParts, "\n\n")
 	started := time.Now().UTC()
 	chat, err := r.models.ChatWithProfile(ctx, "fast", system, user)
@@ -55,13 +55,15 @@ func (r Runtime) generateTaskHint(ctx context.Context, sessionID, runID, content
 		Type:      "task_hint.generated",
 		Summary:   "Generated TaskHint with fast model",
 		Fields: map[string]any{
-			"task_type":        hint.TaskType,
-			"evidence_need":    hint.EvidenceNeed,
-			"tool_mode":        hint.ToolMode,
-			"browser_mode":     hint.BrowserMode,
-			"model_lane_hint":  hint.ModelLaneHint,
-			"candidate_skills": hint.CandidateSkills,
-			"candidate_tools":  hint.CandidateTools,
+			"task_type":              hint.TaskType,
+			"evidence_need":          hint.EvidenceNeed,
+			"data_scope":             hint.DataScope,
+			"tool_mode":              hint.ToolMode,
+			"browser_mode":           hint.BrowserMode,
+			"requires_tool_evidence": hint.RequiresToolEvidence,
+			"model_lane_hint":        hint.ModelLaneHint,
+			"candidate_skills":       hint.CandidateSkills,
+			"candidate_tools":        hint.CandidateTools,
 		},
 	})
 	return hint
@@ -74,6 +76,7 @@ func taskHintRoutingPrompt() string {
 		"- Direct conversation, greetings, simple explanations from current conversation: task_type=general_chat or answer, evidence_need=none, tool_mode=none, model_lane_hint=fast.",
 		"- Public facts, latest/recent/current information, policy/news/school/admission/search/verify claims, and Chinese phrases like 上网查/联网查/浏览器查询/查一下/搜索一下: evidence_need=web, tool_mode=read_only, browser_mode=autonomous, candidate_skills=[browser_automation], candidate_tools=[web.search,browser.read].",
 		"- Specific URL reading without live interaction: evidence_need=web, tool_mode=read_only, browser_mode=autonomous, candidate_skills=[browser_automation], candidate_tools=[browser.read].",
+		"- Authenticated browsing through a supplied URL uses the current session owner's managed profile: evidence_need=personal_data, data_scope=owner, tool_mode=action_required, browser_mode=collaborative, requires_tool_evidence=true, model_lane_hint=deep, candidate_skills=[browser_automation], and action-capable browser tools. Do not classify the requested account-data category by name. Do not refuse merely because authentication is required; pause for visible human login instead of asking for credentials in chat.",
 		"- Browser automation means browser-backed web access, not necessarily visible step-by-step UI operation. Use browser_mode=collaborative and action-capable browser tools only when the user asks to open/show/navigate a live page, operate the current tab, click, type, select, screenshot, play media, or continue after login.",
 		"- Weather questions: default to a weather card. Use candidate_skills=[weather_lookup], tool_mode=action_required, model_lane_hint=deep, candidate_tools=[media.render_weather_card]. If the user explicitly asks for plain text/no image/no card, answer briefly only when card rendering fails.",
 		"- Workspace/project/file/code questions: evidence_need=workspace, candidate_skills=[local_files], candidate_tools=[files.search,files.read].",
@@ -160,12 +163,14 @@ func (r Runtime) auditTaskHintFallback(sessionID, runID string, hint TaskHint, r
 		Type:      "task_hint.fallback",
 		Summary:   "Used heuristic TaskHint fallback",
 		Fields: map[string]any{
-			"reason":          reason,
-			"task_type":       hint.TaskType,
-			"evidence_need":   hint.EvidenceNeed,
-			"tool_mode":       hint.ToolMode,
-			"browser_mode":    hint.BrowserMode,
-			"candidate_tools": hint.CandidateTools,
+			"reason":                 reason,
+			"task_type":              hint.TaskType,
+			"evidence_need":          hint.EvidenceNeed,
+			"data_scope":             hint.DataScope,
+			"tool_mode":              hint.ToolMode,
+			"browser_mode":           hint.BrowserMode,
+			"requires_tool_evidence": hint.RequiresToolEvidence,
+			"candidate_tools":        hint.CandidateTools,
 		},
 	})
 }
@@ -212,6 +217,9 @@ func normalizeTaskHint(hint, fallback TaskHint) TaskHint {
 	}
 	if !inSet(hint.EvidenceNeed, "none", "workspace", "web", "memory", "personal_data", "device", "command") {
 		hint.EvidenceNeed = fallback.EvidenceNeed
+	}
+	if !inSet(hint.DataScope, "", "public", "owner") {
+		hint.DataScope = fallback.DataScope
 	}
 	if !inSet(hint.ToolMode, "none", "read_only", "draft", "action_required") {
 		hint.ToolMode = fallback.ToolMode
@@ -266,8 +274,13 @@ func normalizeTaskHint(hint, fallback TaskHint) TaskHint {
 		hint.BrowserMode = fallback.BrowserMode
 		hint.EstimatedRisk = fallback.EstimatedRisk
 		hint.ModelLaneHint = fallback.ModelLaneHint
+		hint.DataScope = fallback.DataScope
+		hint.RequiresToolEvidence = fallback.RequiresToolEvidence
 		hint.CandidateSkills = append(hint.CandidateSkills, "browser_automation")
 		hint.CandidateTools = append(fallback.CandidateTools, hint.CandidateTools...)
+		if fallback.DataScope == "owner" {
+			hint.Reason = fallback.Reason
+		}
 	}
 	hint.BrowserMode = normalizeBrowserModeForHint(hint, fallback)
 	hint.CandidateSkills = normalizeCandidateSkills(hint.CandidateSkills, fallback)
@@ -421,11 +434,26 @@ func heuristicTaskHint(content string) TaskHint {
 		hint.EvidenceNeed = "web"
 		hint.ToolMode = "action_required"
 		hint.BrowserMode = "collaborative"
+		hint.DataScope = "public"
+		hint.RequiresToolEvidence = true
 		hint.EstimatedRisk = string(app.RiskReversible)
 		hint.ModelLaneHint = "deep"
 		hint.CandidateSkills = []string{"browser_automation"}
 		hint.CandidateTools = browserAutomationToolsForGoal(lower)
 		hint.Reason = "The user asked SparkClaw to operate the live Chrome browser."
+	}
+	if shouldUseAuthenticatedBrowserSession(content, lower) {
+		hint.TaskType = "inspect"
+		hint.EvidenceNeed = "personal_data"
+		hint.DataScope = "owner"
+		hint.ToolMode = "action_required"
+		hint.BrowserMode = "collaborative"
+		hint.RequiresToolEvidence = true
+		hint.EstimatedRisk = string(app.RiskReversible)
+		hint.ModelLaneHint = "deep"
+		hint.CandidateSkills = []string{"browser_automation"}
+		hint.CandidateTools = browserAutomationToolsForGoal(lower)
+		hint.Reason = "The owner asked SparkClaw to use the managed browser session to access their own authenticated account data; use visible human login when required and never request credentials in chat."
 	}
 	if containsAny(lower, "search", "find", "找", "搜索", "查") && !domainSpecificSearch(lower) && !shouldUseBrowserAutomation(lower) && !shouldUseLiveBrowserForURL(content, lower) {
 		hint.TaskType = "search"
@@ -646,10 +674,25 @@ func shouldUseLiveBrowserForURL(content, lower string) bool {
 	if len(extractURLs(content)) == 0 {
 		return false
 	}
-	if !containsAny(lower, "打开", "访问", "进入", "跳转", "open", "go to") {
+	if !containsAny(lower, "打开", "访问", "进入", "跳转", "登录", "登陆", "open", "go to", "log in", "login", "sign in") {
 		return false
 	}
 	return true
+}
+
+func shouldUseAuthenticatedBrowserSession(content, lower string) bool {
+	return len(extractURLs(content)) > 0 && containsAny(lower,
+		"登录", "登陆", "认证", "身份验证", "验证码", "单点登录", "统一认证",
+		"log in", "login", "logged in", "sign in", "authenticated", "authentication", "sso",
+	)
+}
+
+func requiresPersonalBrowserEvidence(hint TaskHint) bool {
+	return hint.RequiresToolEvidence &&
+		hint.DataScope == "owner" &&
+		hint.EvidenceNeed == "personal_data" &&
+		hint.BrowserMode == "collaborative" &&
+		containsString(hint.CandidateSkills, "browser_automation")
 }
 
 func browserAutomationTools() []string {

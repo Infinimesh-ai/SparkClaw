@@ -1,329 +1,228 @@
 # 浏览器登录态操作文档
 
-> 语言： [English](../../docs/browser-login-state-operation.md) | 简体中文
+> 语言：[English](../../docs/browser-login-state-operation.md) | 简体中文
 
-本文档定义 SparkClaw 在自主模式和协作模式下处理需要登录的浏览器页面时的操作规则。
-它补充 [浏览器功能完善计划](browser-automation-improvement.md)、
-[浏览器模式代码编写指南](browser-modes-coding-guide.md) 和
-[隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md)。
+本文档定义 SparkClaw 如何在人工登录时暂停浏览器任务，并使用同一个托管 Chromium Profile
+恢复任务。Profile 生命周期见
+[托管共享 Chromium Profile 方案](managed-persistent-browser-profile.md)。
 
 ## 当前状态
 
-截至 2026-07-10：SparkClaw 已经会持久化按 scope 隔离的浏览器登录记录，并能在自主
-读取遇到登录墙时打开可见登录交接页。runtime 还必须把未完成任务记录为专门的浏览器
-登录阻塞态；登录墙不是已完成回答，恢复流程不能依赖普通 prompt 上下文拼接。provider
-当前只覆盖浏览器可见的 cookie/storage 状态；密码、验证码、短信码、2FA 和支付确认仍
-必须停下来交给用户。
-目标行为应参考 OpenClaw 式交接契约：用户说登录成功后，agent 要从已认证的浏览器状态
-继续被打断的浏览器任务，而不是再次询问用户原本要做什么。
+截至 2026-07-10：托管共享 Chromium Profile 是确定的登录态方案。Cookie/storage 导出、
+个人 Chrome 附着，以及要求登录前后 origin 相同，均属于 legacy 行为，新的登录恢复流程不能
+继续使用。
 
 ## 产品契约
 
-所有浏览器工具都必须用同一套规则处理登录态。该规则适用于 `browser.read`、
-`browser.snapshot`、`browser.navigate`、`browser.open`、`browser.click`、
-`browser.wait`，以及未来所有会访问登录后页面的浏览器工具。
+- 浏览器任务默认在 headless Chromium 中执行。
+- 登录、验证码、短信、2FA、授权、支付或其他人工步骤会创建 `BrowserLoginBlock`，并把
+  同一个 Profile 切换到可见 Chromium。
+- 同一 session 中用户的下一条消息用于恢复被阻塞的原 run，不是新目标。
+- 登录后使用当前选中可见页面的实际 URL 作为恢复目标。
+- 已认证页面可以与原始页面处于不同 origin。
+- 普通自动化继续前，使用同一个 Profile 切回 headless Chromium。
+- 浏览器凭据始终保留在 Chromium Profile 中；Gateway 不导出、注入或保存 Cookie/storage。
 
-自主模式下，普通信息任务应保持浏览器界面隐藏。检测到页面需要登录时：
+## Browser Login Block
 
-1. 如果当前 owner、浏览器 profile 和站点是第一次登录，SparkClaw 打开可见登录交接页，
-   为未完成 run 记录 `BrowserLoginBlock`，并请用户在浏览器里完成登录。用户下一次回复后，
-   SparkClaw 先验证当前可见浏览器状态，导出由登录产生的 cookie/storage 状态；策略允许
-   时持久化登录态；随后关闭或隐藏交接界面，并回到隐藏浏览器 session 继续原任务。
-2. 如果数据库里已有同一 owner、浏览器 profile、站点和账号的有效登录记录，SparkClaw
-   在不显示窗口的情况下恢复或刷新登录态，验证页面已处于登录后状态，然后继续隐藏执行。
-3. 如果记录不存在、过期、被站点拒绝，或者仍需要密码、验证码、短信码、2FA、授权确认、
-   支付确认等 human-only 步骤，则回退到首次登录的可见交接流程。
-
-协作模式使用已经可见的浏览器界面，不需要自主模式的弹出和隐藏循环。需要登录时，用户在
-可见浏览器中完成登录，SparkClaw 再从该页面状态继续。策略允许时，协作模式也可以保存或
-复用同一套数据库登录记录，但不能突然切换用户正在看的浏览器界面。
-
-## 身份和 Profile 键
-
-SparkClaw 现在是多用户、多配置文件模型。浏览器登录数据必须同时按以下键隔离：
-
-| Key | 含义 |
-|---|---|
-| `owner_id` | SparkClaw owner profile ID，来自 `OwnerProfile`。 |
-| `browser_profile_id` | 逻辑浏览器 profile，例如 `default`、`work`、`school` 或 `personal`。 |
-| `site_origin` | 规范化 origin，例如 `https://example.com`。 |
-| `site_realm` | 可选的更细登录域，用于一个 origin 承载多个应用的情况。 |
-| `account_hint` | 可选的非敏感账号标签，例如邮箱域名或脱敏用户名。 |
-| `auth_strategy` | `session_restore`、`credential_login`、`sso_handoff` 或 provider-specific 策略。 |
-
-除非用户明确关联 profile，否则记录不得跨 owner 或逻辑浏览器 profile 共享。
-`owner_a/work` 查不到记录时，不能自动退到 `owner_a/personal` 或 `owner_b/work`。
-
-runtime 应从当前 session/client 绑定推导 `owner_id`，从显式工具参数、owner 偏好或
-`tools.browserAutomation.profile` 推导 `browser_profile_id`，默认值为 `default`。
-
-## 持久化登录记录
-
-store 应新增一个 typed auth record，并一次性实现 memory、file、Postgres 三个后端：
-
-```go
-type BrowserAuthRecord struct {
-    ID               string     `json:"id"`
-    OwnerID          string     `json:"owner_id"`
-    BrowserProfileID string     `json:"browser_profile_id"`
-    SiteOrigin       string     `json:"site_origin"`
-    SiteRealm        string     `json:"site_realm,omitempty"`
-    AccountHint      string     `json:"account_hint,omitempty"`
-    AuthStrategy     string     `json:"auth_strategy"`
-    Status           string     `json:"status"` // active, expired, revoked, failed
-    SessionRef       string     `json:"session_ref,omitempty"`
-    CredentialRef    string     `json:"credential_ref,omitempty"`
-    CookieJarRef     string     `json:"cookie_jar_ref,omitempty"`
-    LastVerifiedAt   time.Time  `json:"last_verified_at,omitempty"`
-    ExpiresAt        *time.Time `json:"expires_at,omitempty"`
-    LastError        string     `json:"last_error,omitempty"`
-    CreatedAt        time.Time  `json:"created_at"`
-    UpdatedAt        time.Time  `json:"updated_at"`
-    RevokedAt        *time.Time `json:"revoked_at,omitempty"`
-}
-```
-
-密码、cookie、refresh token、导出的 storage state 等 secret value 必须放在加密的
-`CredentialSecret` 或 artifact 引用后面，不能出现在工具参数、trace、audit metadata
-或明文 JSON summary 中。file 后端必须遵守现有 state encryption 配置。
-
-用户完成可见登录交接后，browser provider 应导出一个按 origin 限定的状态包，只包含可复用
-的浏览器状态：
-
-- provider 在目标 origin 和兼容 domain scope 下可见的 cookies；
-- 目标 origin 的 `localStorage` 和 `sessionStorage`，如果 provider 能获取；
-- 将该状态导入配置好的 hidden 或 collaborative 浏览器 profile 所需的 provider/session
-  metadata。
-
-导出的状态包必须通过 `CredentialSecret` 或 artifact store 保存，并由
-`CredentialRef`/`CookieJarRef` 引用；明文 cookie 字符串绝不能出现在 trace、模型可见
-observation、audit fields 或聊天内容里。只有当 SparkClaw 复用导出的状态并验证目标页面
-不再处于登录墙后，记录才能标记为 `active`。同一 `owner_id` + `browser_profile_id` +
-`site_origin` + `site_realm` + `account_hint` 的后续访问，必须先尝试这条存储状态，
-再要求用户重新登录。
-
-## 浏览器登录阻塞记录
-
-`BrowserAuthRecord` 只描述可复用的已认证状态。它不能作为“某个任务正在等待用户完成登录”
-的事实来源。自主登录交接需要另一个 typed block：
+未完成任务必须保存在 durable runtime state 中：
 
 ```go
 type BrowserLoginBlock struct {
-    ID                string         `json:"id"`
-    SessionID         string         `json:"session_id"`
-    RunID             string         `json:"run_id"`
-    Status            string         `json:"status"` // waiting, resuming, resolved, canceled, failed
-    OriginalGoal      string         `json:"original_goal"`
-    ResumeTool        string         `json:"resume_tool"` // 通常是 browser.read
-    ResumeArgs        map[string]any `json:"resume_args"`
-    LastToolCallID    string         `json:"last_tool_call_id,omitempty"`
-    LoginHandoffURL   string         `json:"login_handoff_url,omitempty"`
-    LoginHandoffPageID string         `json:"login_handoff_page_id,omitempty"`
-    LastVisiblePageID  string         `json:"last_visible_page_id,omitempty"`
-    OwnerID           string         `json:"owner_id"`
-    BrowserProfileID  string         `json:"browser_profile_id"`
-    SiteOrigin        string         `json:"site_origin"`
-    SiteRealm         string         `json:"site_realm,omitempty"`
-    AccountHint       string         `json:"account_hint,omitempty"`
-    BrowserAuthStatus string         `json:"browser_auth_status,omitempty"`
-    ResolvedAuthRecordID string       `json:"resolved_auth_record_id,omitempty"`
-    LastUserReply     string         `json:"last_user_reply,omitempty"`
-    LastError         string         `json:"last_error,omitempty"`
-    CreatedAt         time.Time      `json:"created_at"`
-    UpdatedAt         time.Time      `json:"updated_at"`
-    ResolvedAt        *time.Time     `json:"resolved_at,omitempty"`
+    ID                  string         `json:"id"`
+    SessionID           string         `json:"session_id"`
+    RunID               string         `json:"run_id"`
+    Status              string         `json:"status"`
+    OriginalGoal        string         `json:"original_goal"`
+    ResumeTool          string         `json:"resume_tool"`
+    ResumeArgs          map[string]any `json:"resume_args"`
+    LoginHandoffURL     string         `json:"login_handoff_url,omitempty"`
+    LoginHandoffPageID  string         `json:"login_handoff_page_id,omitempty"`
+    LastVisiblePageID   string         `json:"last_visible_page_id,omitempty"`
+    OwnerID             string         `json:"owner_id"`
+    BrowserProfileID    string         `json:"browser_profile_id"`
+    SiteOrigin          string         `json:"site_origin"`
+    LastUserReply       string         `json:"last_user_reply,omitempty"`
+    LastError           string         `json:"last_error,omitempty"`
+    CreatedAt           time.Time      `json:"created_at"`
+    UpdatedAt           time.Time      `json:"updated_at"`
+    ResolvedAt          *time.Time     `json:"resolved_at,omitempty"`
 }
 ```
 
-active block 属于 runtime 状态，不是额外 prompt 上下文。对应 run 应进入
-`browser_login_blocked`，且 `completed_at` 为空；block 保存原始目标、工具名、工具参数，
-以及恢复所需的 owner/profile/site key。如果 provider 暴露稳定 page id，block 还应保存
-可见登录交接页的 page id，这样恢复路径可以检查并继续同一个已登录标签页。同一个 session
-的下一条用户消息，在普通 TaskHint 生成前优先路由给这个 block。
+`OriginalGoal` 和原始 URL 保持不变，用作任务上下文。登录完成后可以用实际页面更新
+`LoginHandoffURL`、`ResumeArgs.url` 和 `SiteOrigin`。
 
-OpenClaw 式续跑是硬性要求：active block 存在时，用户下一条回复只是被阻塞 run 的解除信号
-或修正信号，不是新目标。如果 `OriginalGoal` 存在，用户说“login completed”或“登录成功”
-绝不能得到“请告诉我接下来想做什么”的回答。
-
-## 自主模式流程
+## 首次登录或登录失效
 
 ```text
-browser tool 检测到 auth challenge
-  -> normalize owner_id + browser_profile_id + site_origin + optional realm
-  -> lookup BrowserAuthRecord
-  -> 如果 active record 存在：
-       在 hidden provider 中 restore session/credential
-       验证 DOM 已处于登录后状态
-       继续隐藏浏览器操作
-  -> 如果没有可用记录：
-       打开可见登录交接窗口/页面
-       保存包含原 run、目标、工具和参数的 BrowserLoginBlock
-       将原 run 状态设为 browser_login_blocked
-       等待用户下一条消息
+headless Chromium 遇到认证或验证墙
+  -> 创建 BrowserLoginBlock
+  -> 原 run 保持 browser_login_blocked
+  -> 停止 headless Chromium
+  -> 使用同一个 Profile 启动可见 Chromium
+  -> 打开或复用交接页面
+  -> 请用户完成人工步骤
 ```
 
-`BrowserLoginBlock` 的创建以工具结果中的登录交接字段为准，而不是绑定某一个工具名。
-`browser.read` 是最常见路径，但如果 `browser.open`、`browser.navigate` 或
-`browser.snapshot` 这类可见浏览器工具返回了
-`browser_auth_status=handoff_waiting|handoff_required`、
-`login_handoff_opened=true`，或
-`auth_challenge_detected=true` 且 `login_handoff_required=true`，也必须创建 block。
-可见浏览器工具 observation 还必须识别常见 human 登录阻塞，例如密码表单、验证码/校验码页、
-SSO/VPN/登录提示和 provider-specific 的“需要登录”页面，并将它们规范化为同一组 auth
-handoff 字段，确保 `BrowserLoginBlock` 会被创建。
+Runtime 不能把原 run 标记为完成，也不能让用户重复说明目标。
 
-可见交接只服务于登录步骤。认证验证成功后，最终页面读取、snapshot 或 navigation 继续使用
-`browser_mode=autonomous`、`presentation=hidden` 和 `surface_visible=false`。
+## 用户确认后的恢复流程
 
-如果登录成功但 hidden provider 无法导入或复用 session，应返回明确的
-`hidden_auth_restore_failed`，并保持用户可见交接页打开；不能假装隐藏任务已经成功。
+用户回复 `login completed`、`logged in`、`登录完成`、`登录成功` 或 `已经登录成功` 时：
 
-## 用户回复后的恢复流程
+1. 保留原 run 和 block。
+2. 从当前可见 Chromium session 获取标签页列表。
+3. 优先选择当前 login block 记录的 handoff/last-visible page ID；该页面已不存在时，
+   才使用 provider 标记为 selected 的当前标签页。
+4. 读取当前 URL，并忽略 `about:blank` 和浏览器内部页面。
+5. 使用登录后的 URL 更新 block 和 resume arguments。
+6. 停止可见 Chromium，等待共享 Profile 释放。
+7. 使用同一个 Profile 启动 headless Chromium。
+8. 读取登录后的 URL。
+9. 页面已认证时 resolve block，并继续原 ReAct run。
+10. 页面仍是登录或验证墙时，重新切回可见模式并保持 block waiting。
 
-当 session 有 active `BrowserLoginBlock` 时，下一条用户消息是阻塞态回复，不是新的无关任务。
-runtime 应在普通 planning 前用简单规则识别：
+Runtime 必须复用已有的 selected 交接标签页，不能因为登录前后 origin 不同就再打开一个可见
+页面。
+多个对话共享同一 browser profile 时，只要 login block 自己的 handoff 页面仍存在，另一个
+任务的 selected 标签页就不能覆盖它。
 
-- 登录完成：例如 “done”、“logged in”、“I signed in”、“登录完成”、“已登录”、“登好了”、
-  “好了”。
-- 页面错误：例如 “wrong page”、“not this page”、“页面错了”、“不是这个页面”、“你打开错了”，
-  或者用户给了修正后的 URL。
-- 模糊回复：active block 存在时的其他回复。
+认证验证必须优先使用页面状态，而不是宽泛关键词。可见密码框、验证码/2FA 控件或明确的
+“请登录”提示属于 challenge 证据；`sign out`、`log out`、`退出登录` 或可用的认证后应用
+正文属于已认证证据。“激活需登录 VPN”之类导航文字不能重新打开 login block。
 
-三种情况都要先用 `browser.list_tabs` 或等价 provider 调用检查当前可见浏览器状态。然后：
+### 分层认证评估
 
-1. 如果用户说页面错了并提供 URL，更新 block 的恢复 URL，打开该 URL 的可见交接页，block
-   继续等待。
-2. 如果用户说页面错了但没提供 URL，重新打开已记录的 `login_handoff_url` 或原始恢复 URL，
-   block 继续等待，并说明重新打开了哪个页面。
-3. 如果用户说登录完成，或回复较模糊，使用已存恢复操作。首先通过
-   `LoginHandoffPageID` 或最匹配的当前标签页绑定可见交接 tab，验证页面已经越过登录墙，
-   并从该可见浏览器上下文导出 cookie/storage 状态。
-4. 基于导出的 cookie/storage 状态保存或更新 `BrowserAuthRecord`，然后把它导入目标 hidden
-   或 profile-scoped 浏览器上下文来验证可复用。provider 支持 hidden 复用时，重试应附带
-   `login_handoff_completed=true`、`persist_browser_auth=true`、
-   `browser_mode=autonomous`、`presentation=hidden`、`surface_visible=false`。
-5. 如果认证状态验证成功，标记 block 为 `resolved`，写入 `resolved_auth_record_id`；
-   provider 支持时关闭或隐藏一次性交接页；然后使用原始 goal、原工具历史和新的浏览器
-   observation 继续原 ReAct run。如果 hidden import 失败但可见标签页已经认证成功，则继续在
-   可见 tab 上执行，或用明确的 `hidden_auth_restore_failed` 保持 block 等待；不能为同一站点
-   重新打开一个新 tab，也不能让用户重述目标。
-6. 如果没有可见标签页、provider 无法导出登录态，或恢复读取仍落在登录墙，block 保持
-   `waiting`，更新 `last_error`，并结合用户回复、原目标和恢复 URL 决定是重新打开交接页
-   还是提示缺少哪个 human-only 步骤。
+登录态是逐步确认结果，不是一次字符串判断。Runtime 使用带置信度和 evidence signals 的
+`unknown`、`challenged`、`authenticated` 三态评估。该流程参考 OpenClaw browser
+automation loop 的原则：固定 Profile 和标签页、操作前检查可见 UI、页面变化后重新
+snapshot、避免盲等，并且只报告真实的人工阻塞。
 
-不能丢失上文任务和进度。恢复运行使用原 `run_id`、`original_goal`、此前工具 observations
-和已存 `resume_args`；用户回复只作为解除阻塞或修正交接页的信号。
+证据优先级如下：
 
-## 协作模式流程
+1. Provider 结构化状态，例如 `profile_verified` 或明确 auth challenge；
+2. 可见控件和明确指令，例如密码、验证码、2FA 控件，或退出登录、账户控件；
+3. 组合页面证据，例如“资源受限”与明确 VPN/登录要求同时出现；
+4. 普通页面文字和导航标签，单独出现时证据不足。
+
+Browser provider 必须用结构化 `state`、`confidence` 和 `signals` 输出页面级评估；
+`auth_challenge_detected` 只作为 `state=challenged` 的兼容投影。Provider 按以下层次评估：
+
+1. **明确挑战控件**：可见验证码/OTP 控件，或位于登录语境 form/dialog 中、同时存在匹配
+   登录动作的可见凭据控件。密码输入框本身不能代表登录墙，因为已登录应用也可能包含
+   文件夹解锁、支付确认、账户设置或凭据管理控件。
+2. **明确已认证控件**：可见退出控件、账户身份控件，或其他只在认证后应用中可用的控件。
+3. **认证后应用连续性**：用户确认登录后，同一个托管 Profile 到达可用的非登录应用路由，
+   页面具有足够的可见应用壳且不存在明确挑战。这是正向证据，不只是“没有发现登录关键词”。
+   Provider 只报告应用壳信号；ToolHub 必须把它与已确认的共享 Profile 切换组合后，才能升级为
+   `authenticated`。
+4. **文本兜底**：页面级明确登录指令只有来自可见页面文本时才能支持 challenge。
+   `script`、`style`、`template`、隐藏节点、metadata 或无关导航中的文字都不是认证证据。
+
+Provider 必须判断证据组合，不能独立匹配关键词。类似登录的路由或标题只能增强可见登录
+控件，不能单独决定状态；同样，没有 Profile 连续性或认证控件的普通应用壳不足以证明账户
+已登录。同一页面同时出现强 challenge 和 authenticated 信号时，必须返回带冲突 signals 的
+`unknown` 并重新 snapshot/read，不能压成一个 Boolean 结果。
+
+这些规则必须保持域名无关。生产认证规则不得依赖站点 hostname、邮箱品牌、学校名称或
+账户专用 Cookie 名称。测试可以使用具备真实站点形态的 fixture，但实现必须依据可复用的
+DOM、路由、Profile 连续性和控件证据。
+
+冲突证据返回 `unknown`，不能静默选择未登录或已登录。恢复确认先验证 selected handoff
+标签页，再执行基于 Profile 的页面读取。只有 `authenticated` 才能 resolve block；
+`unknown` 以证据不足原因继续 waiting，`challenged` 则携带实际 challenge 证据继续
+waiting。低优先级文本绝不能覆盖 Provider 的结构化验证结果。
+
+## 登录后域名语义
+
+Origin 相同不是认证成功的必要条件。
+
+例如：
 
 ```text
-browser tool 检测到 auth challenge
-  -> 保持当前可见浏览器界面
-  -> 请用户在浏览器中完成登录
-  -> 用户报告成功后，先检查同一个可见 tab
-  -> 策略允许时导出并持久化按 origin 限定的 cookie/storage 状态
-  -> 验证 DOM 已处于登录后状态
-  -> 可选地持久化或更新 BrowserAuthRecord
-  -> 在同一个可见页面/session 上继续使用协作工具
+原始请求：   https://s.example.edu
+可见登录：   https://vpn.example.edu
+认证后页面： https://sso-app.vpn.example.edu/home
+恢复目标：   https://sso-app.vpn.example.edu/home
 ```
 
-协作模式不会额外打开登录弹窗，除非用户要求新窗口。登录后也不会隐藏或关闭浏览器，除非用户
-要求，或该页面本来就是一次性任务 tab。
-如果用户登录后再次说明原目标，TaskHint/ReAct 应优先对已认证的可见标签页使用
-`browser.list_tabs`、`browser.focus` 和 `browser.snapshot`。除非用户明确要求新开页面，
-或原标签页已经不存在，否则不应对同一 origin 调用 `browser.open`。
+最终选中的 URL 成为实际操作目标；原始 URL 仍保留在 `OriginalGoal` 和历史工具调用中。
 
-## 检测和输出字段
+只有空 URL、`about:blank`、浏览器内部 scheme 或被 host policy 阻止的 URL 才应被拒绝。
 
-涉及登录态的浏览器 observation 应尽量包含以下字段：
+## 使用 Profile 而不是 Cookie 导出
 
-- `auth_challenge_detected`
-- `auth_challenge_kind`
-- `auth_site_origin`
-- `auth_site_realm`
-- `browser_auth_status`：`none`、`challenge`、`restored`、`handoff_required`、
-  `handoff_waiting`、`verified`、`expired`、`failed`
-- `browser_auth_record_id`
-- `browser_profile_id`
-- `owner_id`
-- `login_surface`：`hidden`、`visible_handoff`、`collaborative_visible`
-- `login_handoff_required`
+托管共享 Profile 不使用浏览器 auth payload：
 
-登录检测应基于页面证据，例如 password 字段、登录文案、HTTP redirect、正文被登录墙遮挡、
-账号菜单是否出现以及 provider-specific 信号。页面只显示登录墙时，不能推断登录后私有内容。
+- 不通过 `document.cookie` 导出认证状态；
+- 不调用 `ExportAuthState` 或 `ImportAuthState`；
+- 不创建 browser-auth `CredentialSecret`；
+- 不比较导出 origin 和原始 site origin；
+- 不使用 JavaScript 重建 Cookie。
 
-## 安全规则
+HttpOnly Cookie、Cookie 属性、IndexedDB、Service Worker 和跨域 SSO 状态都由 Chromium
+完整 Profile 原生保留。
 
-- 不要求用户把密码、短信码或 2FA code 粘贴到聊天里。
-- 不自动化验证码、短信码、2FA、支付确认、授权同意、购买、账号安全或改密步骤。
-- 验证码、短信码、2FA 等 human-verification 页面应停留在可见浏览器里。SparkClaw 可以等待
-  用户说“登录完成”后验证结果状态，但不能解码、绕过或在聊天中索要 verification secret。
-- 不把原始密码或 cookie 存入 trace、audit event 或模型可见 observation。
-- 未经用户明确操作，不跨 owner、profile、origin 或 account hint 复用登录记录。
-- restore 后落回登录墙时，将记录标记为 expired 或 failed。
-- 必须提供撤销浏览器登录记录并删除其 secret refs 的路径。
+## 已有登录态
 
-## Audit Events
+后续任务由 headless Chromium 使用持久 Profile 打开目标页面：
 
-gateway 应审计以下状态转换，但不写入 secret value：
+- 页面已认证：继续隐藏执行；
+- 登录过期或出现新的验证墙：创建或重新打开 login block，并切换到可见 Chromium；
+- 登录成功后站点仍拒绝 headless：保持可见协作模式并明确说明限制。
 
-- `browser_auth.challenge_detected`
-- `browser_auth.record_lookup`
-- `browser_auth.restore_attempted`
-- `browser_auth.restore_succeeded`
-- `browser_auth.restore_failed`
-- `browser_auth.handoff_started`
-- `browser_auth.handoff_verified`
-- `browser_auth.record_saved`
-- `browser_auth.record_revoked`
+## 页面错误和标签页缺失
+
+- `wrong page` 或 `页面不对`：block 保持 waiting，并尽量在现有可见标签页导航到正确 URL。
+- 没有 selected 可用标签页：返回 `browser_login_block_missing_tab`。
+- selected 页面仍是认证墙：返回 `browser_login_block_still_unauthenticated`。
+- selected 页面证据冲突或不足：返回 `browser_login_auth_evidence_inconclusive`，记录 provider
+  signals，不应立即要求用户重复登录。
+- Profile 转换失败：保持 block waiting，并把生命周期失败与网站登录失败分开报告。
+
+## Audit 事件
+
+不记录 secret 的前提下审计：
+
 - `browser_login_block.created`
 - `browser_login_block.resume_requested`
 - `browser_login_block.current_tabs_checked`
-- `browser_login_block.reopened`
+- `browser_login_block.post_login_target_selected`
+- `browser_profile.switch_visible`
+- `browser_profile.switch_hidden`
 - `browser_login_block.resolved`
+- `browser_login_block.reopened`
 - `browser_login_block.still_waiting`
 
-事件应包含 `owner_id`、`browser_profile_id`、`site_origin`、`site_realm`、
-已知时的 `account_hint`、选中的 `browser_mode`、provider，以及适用的失败原因。
+记录 owner/profile、presentation、可用时的 selected page id、原 site origin、登录后 site origin
+和失败原因。不能记录 Cookie、token、storage value 或真实 Profile 路径。
 
 ## 失败语义
 
-使用明确的工具错误或输出状态：
-
-- `browser_auth_record_missing`
-- `browser_auth_record_expired`
-- `browser_auth_restore_failed`
-- `browser_auth_handoff_required`
-- `browser_auth_handoff_timeout`
-- `browser_auth_handoff_canceled`
-- `browser_auth_verification_failed`
-- `browser_auth_profile_mismatch`
 - `browser_login_block_missing_tab`
 - `browser_login_block_still_unauthenticated`
-
-自主模式遇到 `missing`、`expired` 和 `restore_failed` 时，在策略允许的情况下启动可见登录
-交接。协作模式应报告页面状态，并等待用户在可见浏览器中完成登录。
+- `browser_login_post_login_url_missing`
+- `browser_shared_profile_busy`
+- `browser_shared_profile_start_failed`
+- `browser_shared_profile_stop_timeout`
+- `browser_shared_profile_visible_verification_failed`
+- `browser_shared_profile_hidden_verification_failed`
 
 ## 验收测试
 
-最小实现测试：
-
-- 自主模式首次登录检测登录墙，打开可见交接页；创建 `BrowserLoginBlock`；将原 run 标记为
-  `browser_login_blocked`；且不声称任务完成。
-- 用户回复“登录完成”后，先检查当前标签页；验证登录成功后保存记录；provider 支持时关闭或
-  隐藏交接界面；随后恢复原 run 并继续隐藏读取原页面。
-- 用户回复“登录完成”后保留 `OriginalGoal`；如果已知被阻塞目标，不能询问用户接下来想做什么。
-- 用户完成 human login 后，导出的 cookie/storage 状态会以加密 secret/artifact 引用保存；
-  后续相同 scope 的访问应复用它，不再要求用户重复登录。
-- 如果出现验证码、短信码或 2FA 页面，SparkClaw 把该步骤留给可见浏览器中的用户，并只在用户
-  报告完成后继续恢复。
-- 如果用户登录后重述目标，且已认证标签页仍打开，SparkClaw 应 focus/snapshot 该标签页，而
-  不是为同一 origin 打开新标签页。
-- 用户回复“页面错了”后，重新打开或修正交接 URL，同时保留原阻塞任务和进度。
-- 如果没有可见标签页，或者页面仍未登录，active block 保持等待，下一条回答说明缺少的具体步骤。
-- 自主模式同一 owner/profile/site 的第二次登录从数据库记录恢复，并且不打开可见界面。
-- 过期或被拒绝的存储状态会被标记为 failed/expired，并回退到可见交接。
-- 协作模式保持可见页面，不执行自主模式的弹出和隐藏循环。
-- 不同 owner 和浏览器 profile 的记录不能交叉使用。
-- store 接口变更同时覆盖 memory、file 和 Postgres 后端，并覆盖 snapshot/file encryption。
-- audit event 包含登录态转换 metadata，但不包含 secret value。
+- 登录墙创建 durable block，并使用此前 headless 使用的同一个 Profile 打开可见 Chromium。
+- `登录成功` 会被识别为完成信号。
+- 登录完成后复用当前 selected 可见标签页。
+- WebVPN/SSO 跨 origin 跳转会更新恢复 URL，不产生 origin mismatch。
+- 可见 Chromium 停止后才启动 headless Chromium。
+- headless Chromium 复用 Profile 登录态并继续原 run。
+- 类 QQ 邮箱 SPA fixture 在 Profile 已持久化、邮箱应用壳可用，但隐藏/style 内容仍含密码或
+  登录字符串时，必须保持 authenticated。
+- 只有文件夹解锁或账户设置密码框、但没有登录 form 的页面不能创建 login block。
+- 可见密码框、明确登录动作和登录语境文字同时存在的真实登录 form 仍为 challenged。
+- 强 challenge 与 authenticated 控件冲突时返回 `unknown`，审计中保留两组 signals。
+- 不创建重复可见交接标签页。
+- 不创建 browser auth `CredentialSecret`。
+- 验证码、短信、2FA、授权和支付步骤仍由用户完成。
+- Profile 形态切换过程中保留原始目标。

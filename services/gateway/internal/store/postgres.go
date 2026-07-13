@@ -325,6 +325,8 @@ CREATE TABLE IF NOT EXISTS browser_login_blocks (
   resume_args JSONB NOT NULL DEFAULT '{}',
   last_tool_call_id TEXT NOT NULL DEFAULT '',
   login_handoff_url TEXT NOT NULL DEFAULT '',
+  login_handoff_page_id TEXT NOT NULL DEFAULT '',
+  last_visible_page_id TEXT NOT NULL DEFAULT '',
   owner_id TEXT NOT NULL DEFAULT 'owner',
   browser_profile_id TEXT NOT NULL DEFAULT 'default',
   site_origin TEXT NOT NULL DEFAULT '',
@@ -337,6 +339,11 @@ CREATE TABLE IF NOT EXISTS browser_login_blocks (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   resolved_at TIMESTAMPTZ
 );
+
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS login_handoff_page_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS last_visible_page_id TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS browser_login_blocks_active_idx
   ON browser_login_blocks(session_id, status, updated_at DESC);
@@ -1967,11 +1974,12 @@ func (s *PostgresStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.B
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO browser_login_blocks (
 			id, session_id, run_id, status, original_goal, resume_tool, resume_args,
-			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
+			owner_id, browser_profile_id, site_origin,
 			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
 			created_at, updated_at, resolved_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 		ON CONFLICT (id) DO UPDATE SET
 			session_id = EXCLUDED.session_id,
 			run_id = EXCLUDED.run_id,
@@ -1981,6 +1989,8 @@ func (s *PostgresStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.B
 			resume_args = EXCLUDED.resume_args,
 			last_tool_call_id = EXCLUDED.last_tool_call_id,
 			login_handoff_url = EXCLUDED.login_handoff_url,
+			login_handoff_page_id = EXCLUDED.login_handoff_page_id,
+			last_visible_page_id = EXCLUDED.last_visible_page_id,
 			owner_id = EXCLUDED.owner_id,
 			browser_profile_id = EXCLUDED.browser_profile_id,
 			site_origin = EXCLUDED.site_origin,
@@ -1992,7 +2002,8 @@ func (s *PostgresStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.B
 			updated_at = EXCLUDED.updated_at,
 			resolved_at = EXCLUDED.resolved_at
 	`, block.ID, block.SessionID, block.RunID, block.Status, block.OriginalGoal, block.ResumeTool, mustJSON(block.ResumeArgs),
-		block.LastToolCallID, block.LoginHandoffURL, block.OwnerID, block.BrowserProfileID, block.SiteOrigin,
+		block.LastToolCallID, block.LoginHandoffURL, block.LoginHandoffPageID, block.LastVisiblePageID,
+		block.OwnerID, block.BrowserProfileID, block.SiteOrigin,
 		block.SiteRealm, block.AccountHint, block.BrowserAuthStatus, block.LastUserReply, block.LastError,
 		block.CreatedAt, block.UpdatedAt, block.ResolvedAt)
 	s.appendAudit(ctx, "browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
@@ -2003,7 +2014,8 @@ func (s *PostgresStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.B
 func (s *PostgresStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
-			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
+			owner_id, browser_profile_id, site_origin,
 			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
 			created_at, updated_at, resolved_at
 		FROM browser_login_blocks
@@ -2016,7 +2028,8 @@ func (s *PostgresStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, 
 func (s *PostgresStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
-			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
+			owner_id, browser_profile_id, site_origin,
 			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
 			created_at, updated_at, resolved_at
 		FROM browser_login_blocks
@@ -2031,7 +2044,8 @@ func (s *PostgresStore) FindActiveBrowserLoginBlock(sessionID string) (app.Brows
 func (s *PostgresStore) ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock {
 	rows, err := s.db.Query(context.Background(), `
 		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
-			last_tool_call_id, login_handoff_url, owner_id, browser_profile_id, site_origin,
+			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
+			owner_id, browser_profile_id, site_origin,
 			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
 			created_at, updated_at, resolved_at
 		FROM browser_login_blocks
@@ -3179,6 +3193,8 @@ func scanBrowserLoginBlock(row scanner) (app.BrowserLoginBlock, error) {
 		&args,
 		&block.LastToolCallID,
 		&block.LoginHandoffURL,
+		&block.LoginHandoffPageID,
+		&block.LastVisiblePageID,
 		&block.OwnerID,
 		&block.BrowserProfileID,
 		&block.SiteOrigin,

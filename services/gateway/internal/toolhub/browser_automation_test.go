@@ -64,20 +64,33 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 	if err := hub.Validate("browser.click", map[string]any{}); err == nil {
 		t.Fatal("browser.click should require uid")
 	}
+	if err := hub.Validate("browser.focus", map[string]any{"page_id": 1}); err != nil {
+		t.Fatalf("browser.focus should accept numeric page ids from MCP output: %v", err)
+	}
 }
 
 func TestBrowserOpenPassesCollaborativeMetadata(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.BrowserAutomation.Enabled = true
 	callArgs := map[string]any{}
-	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(fakePageReadAdapter{callArgs: &callArgs})
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("browser owner", "owner-a", "", "webchat", false)
+	hub := New(cfg, st).WithBrowserAutomationAdapter(fakePageReadAdapter{callArgs: &callArgs})
 
-	result, err := hub.Execute(context.Background(), "browser.open", map[string]any{"url": "https://example.com"}, "s", "run")
+	result, err := hub.Execute(context.Background(), "browser.open", map[string]any{
+		"url":             "https://example.com",
+		"browser_mode":    "collaborative",
+		"presentation":    "visible",
+		"surface_visible": true,
+	}, session.ID, "run")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if callArgs["browser_mode"] != "collaborative" || callArgs["presentation"] != "visible" || callArgs["surface_visible"] != true {
 		t.Fatalf("browser.open should pass collaborative visible metadata to adapter: %#v", callArgs)
+	}
+	if callArgs["owner_id"] != "owner-a" || callArgs["browser_profile_id"] != "default" {
+		t.Fatalf("browser.open should bind the shared profile to session owner and logical profile: %#v", callArgs)
 	}
 	out, ok := result.Output.(browserautomation.Result)
 	if !ok {
@@ -85,6 +98,20 @@ func TestBrowserOpenPassesCollaborativeMetadata(t *testing.T) {
 	}
 	if out.BrowserMode != "collaborative" || out.Presentation != "visible" || !out.SurfaceVisible {
 		t.Fatalf("browser.open output should include collaborative metadata: %#v", out)
+	}
+}
+
+func TestBrowserOpenDefaultsToAutonomousHidden(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	callArgs := map[string]any{}
+	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(fakePageReadAdapter{callArgs: &callArgs})
+
+	if _, err := hub.Execute(context.Background(), "browser.open", map[string]any{"url": "https://example.com"}, "", "run"); err != nil {
+		t.Fatal(err)
+	}
+	if callArgs["browser_mode"] != "autonomous" || callArgs["presentation"] != "hidden" || callArgs["surface_visible"] != false {
+		t.Fatalf("browser.open should stay hidden unless visibility is explicit: %#v", callArgs)
 	}
 }
 

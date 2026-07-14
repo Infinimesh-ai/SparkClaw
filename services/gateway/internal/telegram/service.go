@@ -205,8 +205,17 @@ func (s *Service) dispatchPending(ctx context.Context) {
 		inbox.LastError = ""
 		inbox.AvailableAt = now.Add(inboxLeaseDuration)
 		inbox = s.store.SaveChannelInboxUpdate(inbox)
-		go s.processInbox(ctx, inbox)
+		go s.runReservedInbox(ctx, inbox)
 	}
+}
+
+func (s *Service) runReservedInbox(ctx context.Context, inbox app.ChannelInboxUpdate) {
+	defer func() {
+		<-s.sem
+		s.releaseChat(inbox.ChatKey)
+		s.signalWorker()
+	}()
+	s.processInbox(ctx, inbox)
 }
 
 func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate) {
@@ -215,9 +224,6 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 	defer func() {
 		cancel()
 		s.unregisterActive(inbox.BindingID, inbox.ID)
-		<-s.sem
-		s.releaseChat(inbox.ChatKey)
-		s.signalWorker()
 	}()
 	binding, ok := s.store.GetNotificationBinding(inbox.BindingID)
 	if !ok || binding.Status == "revoked" || binding.Status == "expired" || binding.Status == "failed" {

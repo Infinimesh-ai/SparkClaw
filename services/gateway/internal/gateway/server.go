@@ -33,6 +33,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
@@ -42,24 +43,35 @@ import (
 )
 
 type Server struct {
-	cfg       config.Config
-	store     store.Store
-	tools     *toolhub.ToolHub
-	runtime   agent.Runtime
-	traces    *trace.Writer
-	artifacts artifact.Store
-	policies  policy.Engine
-	bindings  binding.Router
-	mux       *http.ServeMux
-	started   time.Time
-	limiter   *rateLimiter
+	cfg         config.Config
+	store       store.Store
+	tools       *toolhub.ToolHub
+	runtime     agent.Runtime
+	traces      *trace.Writer
+	artifacts   artifact.Store
+	policies    policy.Engine
+	bindings    binding.Router
+	credentials credential.CredentialVault
+	mux         *http.ServeMux
+	started     time.Time
+	limiter     *rateLimiter
 }
 
-func New(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime) *Server {
-	return NewWithTrace(cfg, st, tools, runtime, trace.NewWriterFromConfig(cfg))
+type Option func(*Server)
+
+func WithCredentialVault(vault credential.CredentialVault) Option {
+	return func(server *Server) {
+		if vault != nil {
+			server.credentials = vault
+		}
+	}
 }
 
-func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer) *Server {
+func New(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, options ...Option) *Server {
+	return NewWithTrace(cfg, st, tools, runtime, trace.NewWriterFromConfig(cfg), options...)
+}
+
+func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer, options ...Option) *Server {
 	artifacts := tools.ArtifactStore()
 	if artifacts == nil {
 		artifacts = artifact.NewStore(cfg.Storage)
@@ -73,11 +85,18 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		traces:    traces,
 		artifacts: artifacts,
 		policies:  policy.New(cfg),
-		bindings:  binding.NewRouter(cfg),
-		mux:       http.NewServeMux(),
-		started:   time.Now().UTC(),
-		limiter:   newRateLimiter(cfg.Gateway.RateLimit),
+		credentials: credential.New(st, credential.Options{
+			Key:     cfg.State.CredentialKey,
+			KeyFile: cfg.State.CredentialKeyFile,
+		}),
+		mux:     http.NewServeMux(),
+		started: time.Now().UTC(),
+		limiter: newRateLimiter(cfg.Gateway.RateLimit),
 	}
+	for _, option := range options {
+		option(s)
+	}
+	s.bindings = binding.NewRouter(cfg, s.credentials)
 	s.applyMemoryRetention()
 	s.routes()
 	return s
@@ -292,7 +311,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"storage":     publicStorageConfig(s.cfg.Storage),
 		"state":       publicStateConfig(s.cfg.State),
 		"adapters":    publicAdapterConfig(s.cfg.Adapters),
-		"tools":       publicToolsConfig(s.cfg),
+		"tools":       s.publicToolsConfig(),
 		"memory":      s.cfg.Memory,
 		"skills":      s.cfg.Skills,
 		"runtime":     s.cfg.Runtime,
@@ -566,7 +585,7 @@ func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request) {
-	channel := strings.TrimSpace(r.PathValue("channel"))
+	channel := strings.ToLower(strings.TrimSpace(r.PathValue("channel")))
 	if channel == "" {
 		writeError(w, http.StatusBadRequest, errors.New("channel is required"))
 		return
@@ -574,15 +593,27 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 	var input struct {
 		Scopes            []string `json:"scopes"`
 		DefaultForChannel bool     `json:"default_for_channel"`
+		BotToken          string   `json:"bot_token"`
 	}
 	if r.Body != nil && r.Body != http.NoBody {
-		_ = json.NewDecoder(r.Body).Decode(&input)
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		if err := readJSON(r, &input); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, errors.New("invalid notification binding request"))
+			return
+		}
+	}
+	if channel == "telegram" {
+		capability := s.bindings.Capability(channel, s.store.ListNotificationBindings(channel, ""))
+		if !capability.Startable {
+			writeError(w, connectorStartStatus(capability.DisabledReason), &binding.BindingError{Code: capability.DisabledReason})
+			return
+		}
 	}
 	if len(input.Scopes) == 0 {
 		input.Scopes = []string{"reminder_send_self"}
 	}
 	now := time.Now().UTC()
-	binding := app.NotificationBinding{
+	pendingBinding := app.NotificationBinding{
 		ID:                app.NewID("bind"),
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           channel,
@@ -592,13 +623,20 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	started, err := s.bindings.Start(r.Context(), binding)
+	started, err := s.bindings.Start(r.Context(), pendingBinding, binding.StartOptions{CredentialSecret: input.BotToken})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, connectorStartStatus(errorCode(err)), err)
 		return
 	}
 	started = s.store.SaveNotificationBinding(started)
-	writeJSON(w, http.StatusCreated, publicNotificationBinding(started))
+	if persisted, ok := s.store.GetNotificationBinding(started.ID); !ok || persisted.CredentialRef != started.CredentialRef {
+		if started.CredentialRef != "" {
+			_ = s.credentials.Delete(r.Context(), started.CredentialRef)
+		}
+		writeError(w, http.StatusInternalServerError, errors.New("notification binding could not be persisted"))
+		return
+	}
+	writeJSON(w, http.StatusCreated, publicNotificationBinding(started, true))
 }
 
 func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) {
@@ -666,7 +704,7 @@ func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if strings.TrimSpace(binding.CredentialRef) != "" {
-		_ = s.store.DeleteCredentialSecret(binding.CredentialRef)
+		_ = s.credentials.Delete(r.Context(), binding.CredentialRef)
 	}
 	writeJSON(w, http.StatusOK, publicNotificationBinding(revoked))
 }
@@ -2119,7 +2157,38 @@ func boolMetric(value bool) int {
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, map[string]any{"error": err.Error()})
+	payload := map[string]any{"error": err.Error()}
+	if code := errorCode(err); code != "" {
+		payload["code"] = code
+	}
+	writeJSON(w, status, payload)
+}
+
+func errorCode(err error) string {
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
+	}
+	return ""
+}
+
+func connectorStartStatus(code string) int {
+	switch code {
+	case binding.CodeOperatorDisabled:
+		return http.StatusForbidden
+	case binding.CodeBindingInProgress, binding.CodeBindingActive:
+		return http.StatusConflict
+	case binding.CodeConnectorUnavailable:
+		return http.StatusNotImplemented
+	case credential.CodeKeyUnavailable:
+		return http.StatusServiceUnavailable
+	case binding.CodeInvalidBotToken:
+		return http.StatusBadRequest
+	case binding.CodeTelegramUnreachable:
+		return http.StatusBadGateway
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 func modelMode(cfg config.Config) string {
@@ -2217,17 +2286,27 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 	}
 }
 
-func publicToolsConfig(cfg config.Config) map[string]any {
+func (s *Server) publicToolsConfig() map[string]any {
+	cfg := s.cfg
 	webSearch := cfg.Plugins.Entries.Parallel.Config.WebSearch
 	notificationChannels := map[string]any{}
 	for name, channel := range cfg.Tools.Notifications.Channels {
-		notificationChannels[name] = map[string]any{
+		publicChannel := map[string]any{
 			"enabled":          channel.Enabled,
 			"provider":         channel.Provider,
 			"base_url":         channel.BaseURL,
 			"token_configured": strings.TrimSpace(channel.Token) != "",
 			"recipient_set":    strings.TrimSpace(channel.Recipient) != "",
 		}
+		if name == "telegram" {
+			capability := s.bindings.Capability(name, s.store.ListNotificationBindings(name, ""))
+			publicChannel["available"] = capability.Available
+			publicChannel["operator_enabled"] = capability.OperatorEnabled
+			publicChannel["binding_status"] = capability.BindingStatus
+			publicChannel["startable"] = capability.Startable
+			publicChannel["disabled_reason"] = capability.DisabledReason
+		}
+		notificationChannels[name] = publicChannel
 	}
 	return map[string]any{
 		"web": map[string]any{
@@ -2262,7 +2341,11 @@ func publicNotificationBindings(bindings []app.NotificationBinding) []map[string
 	return out
 }
 
-func publicNotificationBinding(binding app.NotificationBinding) map[string]any {
+func publicNotificationBinding(binding app.NotificationBinding, includeActivation ...bool) map[string]any {
+	qrCodeURL := binding.QRCodeURL
+	if binding.Channel == "telegram" && (len(includeActivation) == 0 || !includeActivation[0]) {
+		qrCodeURL = ""
+	}
 	return map[string]any{
 		"id":                  binding.ID,
 		"owner_id":            binding.OwnerID,
@@ -2275,7 +2358,7 @@ func publicNotificationBinding(binding app.NotificationBinding) map[string]any {
 		"credential_ref":      configuredStatus(binding.CredentialRef),
 		"context_token":       configuredStatus(binding.ContextToken),
 		"base_url":            binding.BaseURL,
-		"qr_code_url":         binding.QRCodeURL,
+		"qr_code_url":         qrCodeURL,
 		"qr_code_image":       binding.QRCodeImage,
 		"default_for_channel": binding.DefaultForChannel,
 		"scopes":              binding.Scopes,

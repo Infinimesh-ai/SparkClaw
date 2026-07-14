@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
@@ -51,7 +52,15 @@ func main() {
 	models := modelrouter.New(cfg)
 	traces := trace.NewWriterFromConfig(cfg)
 	runtime := agent.NewRuntimeWithSkills(st, tools, policyEngine, models, traces, skills.NewRegistry(cfg)).WithArtifactStore(artifactStore)
-	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces)
+	credentialVault := credential.New(st, credential.Options{
+		Key:        cfg.State.CredentialKey,
+		KeyFile:    cfg.State.CredentialKeyFile,
+		AutoCreate: true,
+	})
+	if err := credentialVault.Ready(); err != nil {
+		slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
+	}
+	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces, gateway.WithCredentialVault(credentialVault))
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 	if cfg.Tools.Reminders.Enabled {

@@ -2,16 +2,22 @@ package binding
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
@@ -19,6 +25,59 @@ type StartRequest struct {
 	OwnerID string
 	Channel string
 	Scopes  []string
+}
+
+type StartOptions struct {
+	CredentialSecret string
+}
+
+const (
+	CodeConnectorUnavailable = "connector_unavailable"
+	CodeOperatorDisabled     = "operator_disabled"
+	CodeBindingInProgress    = "binding_in_progress"
+	CodeBindingActive        = "binding_active"
+	CodeInvalidBotToken      = "invalid_bot_token"
+	CodeTelegramUnreachable  = "telegram_unreachable"
+)
+
+type BindingError struct {
+	Code string
+}
+
+func (e *BindingError) Error() string {
+	switch e.Code {
+	case CodeConnectorUnavailable:
+		return "connector is unavailable"
+	case CodeOperatorDisabled:
+		return "connector is disabled by the operator"
+	case CodeBindingInProgress:
+		return "a binding is already waiting for confirmation"
+	case CodeBindingActive:
+		return "an active binding already exists"
+	case CodeInvalidBotToken:
+		return "Telegram rejected the bot token"
+	case CodeTelegramUnreachable:
+		return "Telegram could not be reached"
+	default:
+		return "notification binding failed"
+	}
+}
+
+func (e *BindingError) ErrorCode() string {
+	if e == nil {
+		return ""
+	}
+	return e.Code
+}
+
+type ConnectorCapability struct {
+	Channel         string `json:"channel"`
+	Provider        string `json:"provider"`
+	Available       bool   `json:"available"`
+	OperatorEnabled bool   `json:"operator_enabled"`
+	BindingStatus   string `json:"binding_status"`
+	Startable       bool   `json:"startable"`
+	DisabledReason  string `json:"disabled_reason"`
 }
 
 type PollResult struct {
@@ -34,40 +93,81 @@ type PollResult struct {
 }
 
 type Adapter interface {
-	Start(ctx context.Context, binding app.NotificationBinding) (app.NotificationBinding, error)
+	Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error)
 	Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error)
 	Cancel(ctx context.Context, binding app.NotificationBinding) error
 }
 
 type Router struct {
 	adapters map[string]Adapter
+	configs  map[string]config.NotificationChannelConfig
+	vault    credential.CredentialVault
 }
 
 const bindingSessionTTL = 365 * 24 * time.Hour
 
-func NewRouter(cfg config.Config) Router {
+func NewRouter(cfg config.Config, vaults ...credential.CredentialVault) Router {
 	adapters := map[string]Adapter{}
+	configs := map[string]config.NotificationChannelConfig{}
+	var vault credential.CredentialVault
+	if len(vaults) > 0 {
+		vault = vaults[0]
+	}
 	for channel, channelCfg := range cfg.Tools.Notifications.Channels {
 		channel = strings.ToLower(strings.TrimSpace(channel))
 		if channel == "" {
 			continue
 		}
+		configs[channel] = channelCfg
 		switch strings.ToLower(strings.TrimSpace(channelCfg.Provider)) {
+		case "telegram-bot-api":
+			adapters[channel] = NewTelegramAdapter(channel, channelCfg, vault)
 		case "openclaw-weixin-qr", "openclaw-weixin-login-qr":
 			adapters[channel] = NewWeixinQRAdapter(channel, channelCfg)
 		default:
 			adapters[channel] = NewManualWeixinAdapter(channel, channelCfg)
 		}
 	}
-	return Router{adapters: adapters}
+	return Router{adapters: adapters, configs: configs, vault: vault}
 }
 
-func (r Router) Start(ctx context.Context, binding app.NotificationBinding) (app.NotificationBinding, error) {
+func (r Router) Start(ctx context.Context, binding app.NotificationBinding, options ...StartOptions) (app.NotificationBinding, error) {
 	adapter, ok := r.adapters[strings.ToLower(strings.TrimSpace(binding.Channel))]
 	if !ok {
-		return app.NotificationBinding{}, errors.New("binding channel is not configured")
+		return app.NotificationBinding{}, &BindingError{Code: CodeConnectorUnavailable}
 	}
-	return adapter.Start(ctx, binding)
+	var startOptions StartOptions
+	if len(options) > 0 {
+		startOptions = options[0]
+	}
+	return adapter.Start(ctx, binding, startOptions)
+}
+
+func (r Router) Capability(channel string, bindings []app.NotificationBinding) ConnectorCapability {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	cfg, configured := r.configs[channel]
+	_, available := r.adapters[channel]
+	capability := ConnectorCapability{
+		Channel:         channel,
+		Provider:        strings.ToLower(strings.TrimSpace(cfg.Provider)),
+		Available:       configured && available,
+		OperatorEnabled: cfg.Enabled,
+		BindingStatus:   currentBindingStatus(bindings),
+	}
+	if !capability.Available {
+		capability.DisabledReason = CodeConnectorUnavailable
+	} else if !capability.OperatorEnabled {
+		capability.DisabledReason = CodeOperatorDisabled
+	} else if channel == "telegram" && (r.vault == nil || r.vault.Ready() != nil) {
+		capability.DisabledReason = credential.CodeKeyUnavailable
+	} else if capability.BindingStatus == "waiting_confirm" || capability.BindingStatus == "waiting_scan" {
+		capability.DisabledReason = CodeBindingInProgress
+	} else if capability.BindingStatus == "active" {
+		capability.DisabledReason = CodeBindingActive
+	} else {
+		capability.Startable = true
+	}
+	return capability
 }
 
 func (r Router) Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error) {
@@ -86,6 +186,93 @@ func (r Router) Cancel(ctx context.Context, binding app.NotificationBinding) err
 	return adapter.Cancel(ctx, binding)
 }
 
+type TelegramAdapter struct {
+	channel string
+	cfg     config.NotificationChannelConfig
+	vault   credential.CredentialVault
+}
+
+func NewTelegramAdapter(channel string, cfg config.NotificationChannelConfig, vault credential.CredentialVault) *TelegramAdapter {
+	return &TelegramAdapter{channel: channel, cfg: cfg, vault: vault}
+}
+
+func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error) {
+	if !a.cfg.Enabled {
+		return app.NotificationBinding{}, &BindingError{Code: CodeOperatorDisabled}
+	}
+	if a.vault == nil {
+		return app.NotificationBinding{}, &credential.Error{Code: credential.CodeKeyUnavailable}
+	}
+	if err := a.vault.Ready(); err != nil {
+		return app.NotificationBinding{}, err
+	}
+	token := []byte(strings.TrimSpace(options.CredentialSecret))
+	defer clear(token)
+	if !validTelegramToken(token) {
+		return app.NotificationBinding{}, &BindingError{Code: CodeInvalidBotToken}
+	}
+	client := telegram.NewClient(a.cfg.BaseURL, string(token), nil)
+	bot, err := client.GetMe(ctx)
+	if err != nil {
+		var apiErr *telegram.APIError
+		if errors.As(err, &apiErr) && (apiErr.Code == http.StatusUnauthorized || apiErr.Code == http.StatusNotFound) {
+			return app.NotificationBinding{}, &BindingError{Code: CodeInvalidBotToken}
+		}
+		return app.NotificationBinding{}, &BindingError{Code: CodeTelegramUnreachable}
+	}
+	if !bot.IsBot || strings.TrimSpace(bot.Username) == "" {
+		return app.NotificationBinding{}, &BindingError{Code: CodeInvalidBotToken}
+	}
+	challenge, challengeHash, err := newActivationChallenge()
+	if err != nil {
+		return app.NotificationBinding{}, &credential.Error{Code: credential.CodeSealFailed}
+	}
+	credentialRef, err := a.vault.Seal(ctx, "telegram-bot-token", token)
+	if err != nil {
+		return app.NotificationBinding{}, err
+	}
+	now := time.Now().UTC()
+	if binding.ID == "" {
+		binding.ID = app.NewID("bind")
+	}
+	if binding.CreatedAt.IsZero() {
+		binding.CreatedAt = now
+	}
+	activationURL := url.URL{Scheme: "https", Host: "t.me", Path: "/" + strings.TrimPrefix(bot.Username, "@")}
+	query := activationURL.Query()
+	query.Set("start", challenge)
+	activationURL.RawQuery = query.Encode()
+	expires := now.Add(30 * time.Minute)
+	binding.Channel = a.channel
+	binding.Provider = "telegram-bot-api"
+	binding.Status = "waiting_confirm"
+	binding.DisplayName = "@" + strings.TrimPrefix(bot.Username, "@")
+	binding.AccountID = strconv.FormatInt(bot.ID, 10)
+	binding.CredentialRef = credentialRef
+	binding.BaseURL = a.cfg.BaseURL
+	binding.ProviderState = challengeHash
+	binding.QRCodeURL = activationURL.String()
+	binding.QRCodeImage = ""
+	binding.Scopes = normalizeScopes(binding.Scopes)
+	binding.ExpiresAt = &expires
+	binding.UpdatedAt = now
+	return binding, nil
+}
+
+func (a *TelegramAdapter) Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error) {
+	_ = ctx
+	if binding.ExpiresAt != nil && time.Now().UTC().After(*binding.ExpiresAt) && binding.Status == "waiting_confirm" {
+		return PollResult{Status: "expired", LastError: "Telegram binding activation expired"}, nil
+	}
+	return PollResult{Status: binding.Status}, nil
+}
+
+func (a *TelegramAdapter) Cancel(ctx context.Context, binding app.NotificationBinding) error {
+	_ = ctx
+	_ = binding
+	return nil
+}
+
 type ManualWeixinAdapter struct {
 	channel string
 	cfg     config.NotificationChannelConfig
@@ -95,8 +282,9 @@ func NewManualWeixinAdapter(channel string, cfg config.NotificationChannelConfig
 	return &ManualWeixinAdapter{channel: channel, cfg: cfg}
 }
 
-func (a *ManualWeixinAdapter) Start(ctx context.Context, binding app.NotificationBinding) (app.NotificationBinding, error) {
+func (a *ManualWeixinAdapter) Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error) {
 	_ = ctx
+	_ = options
 	now := time.Now().UTC()
 	if binding.ID == "" {
 		binding.ID = app.NewID("bind")
@@ -174,7 +362,8 @@ func NewWeixinQRAdapter(channel string, cfg config.NotificationChannelConfig) *W
 	}
 }
 
-func (a *WeixinQRAdapter) Start(ctx context.Context, binding app.NotificationBinding) (app.NotificationBinding, error) {
+func (a *WeixinQRAdapter) Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error) {
+	_ = options
 	endpoint := strings.TrimSpace(a.cfg.BaseURL)
 	if endpoint == "" {
 		endpoint = weixinproto.DefaultBaseURL
@@ -389,4 +578,56 @@ func valueOr(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func currentBindingStatus(bindings []app.NotificationBinding) string {
+	for _, binding := range bindings {
+		if binding.Status == "active" {
+			return "active"
+		}
+	}
+	pendingStatus := ""
+	pendingLatest := time.Time{}
+	for _, binding := range bindings {
+		if (binding.Status == "waiting_confirm" || binding.Status == "waiting_scan") && !binding.UpdatedAt.Before(pendingLatest) {
+			pendingStatus = binding.Status
+			pendingLatest = binding.UpdatedAt
+		}
+	}
+	if pendingStatus != "" {
+		return pendingStatus
+	}
+	status := "unbound"
+	latest := time.Time{}
+	for _, binding := range bindings {
+		if !binding.UpdatedAt.Before(latest) {
+			status = binding.Status
+			latest = binding.UpdatedAt
+		}
+	}
+	return valueOr(status, "unbound")
+}
+
+func validTelegramToken(token []byte) bool {
+	if len(token) < 16 || len(token) > 256 {
+		return false
+	}
+	parts := strings.SplitN(string(token), ":", 2)
+	if len(parts) != 2 || len(parts[1]) < 10 {
+		return false
+	}
+	if _, err := strconv.ParseInt(parts[0], 10, 64); err != nil {
+		return false
+	}
+	return !strings.ContainsAny(string(token), " \t\r\n")
+}
+
+func newActivationChallenge() (string, string, error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", err
+	}
+	challenge := base64.RawURLEncoding.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(challenge))
+	return challenge, fmt.Sprintf("sha256:%x", hash[:]), nil
 }

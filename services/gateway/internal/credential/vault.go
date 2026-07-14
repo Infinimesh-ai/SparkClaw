@@ -53,6 +53,13 @@ func (e *Error) Unwrap() error {
 	return e.cause
 }
 
+func (e *Error) ErrorCode() string {
+	if e == nil {
+		return ""
+	}
+	return e.Code
+}
+
 func ErrorCode(err error) string {
 	var credentialErr *Error
 	if errors.As(err, &credentialErr) {

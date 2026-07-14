@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -116,12 +117,19 @@ type NotificationsToolConfig struct {
 }
 
 type NotificationChannelConfig struct {
-	Enabled    bool   `json:"enabled"`
-	Provider   string `json:"provider"`
-	BaseURL    string `json:"baseUrl"`
-	CDNBaseURL string `json:"cdnBaseUrl,omitempty"`
-	Token      string `json:"token,omitempty"`
-	Recipient  string `json:"recipient,omitempty"`
+	Enabled            bool   `json:"enabled"`
+	Provider           string `json:"provider"`
+	BaseURL            string `json:"baseUrl"`
+	CDNBaseURL         string `json:"cdnBaseUrl,omitempty"`
+	Token              string `json:"token,omitempty"`
+	Recipient          string `json:"recipient,omitempty"`
+	UpdateMode         string `json:"updateMode,omitempty"`
+	PollTimeoutSeconds int    `json:"pollTimeoutSeconds,omitempty"`
+	PrivateChatsOnly   bool   `json:"privateChatsOnly,omitempty"`
+	MaxDownloadBytes   int64  `json:"maxDownloadBytes,omitempty"`
+	MaxAttachments     int    `json:"maxAttachments,omitempty"`
+	MaxConcurrency     int    `json:"maxConcurrency,omitempty"`
+	MaxPending         int    `json:"maxPending,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -280,6 +288,9 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
 	normalizeRuntimeLimits(&cfg.Runtime)
+	if err := normalizeNotificationChannels(&cfg.Tools.Notifications); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -388,6 +399,18 @@ func Default() Config {
 			},
 			Notifications: NotificationsToolConfig{
 				Channels: map[string]NotificationChannelConfig{
+					"telegram": {
+						Enabled:            true,
+						Provider:           "telegram-bot-api",
+						BaseURL:            "https://api.telegram.org",
+						UpdateMode:         "long-polling",
+						PollTimeoutSeconds: 30,
+						PrivateChatsOnly:   true,
+						MaxDownloadBytes:   20 << 20,
+						MaxAttachments:     5,
+						MaxConcurrency:     4,
+						MaxPending:         32,
+					},
 					"weixin": {
 						Enabled:    false,
 						Provider:   "openclaw-weixin-qr",
@@ -715,6 +738,51 @@ func applyEnv(cfg *Config) {
 		ch.Recipient = v
 		cfg.Tools.Notifications.Channels["weixin"] = ch
 	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_ENABLED"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["telegram"]
+		ch.Enabled = parseBool(v)
+		cfg.Tools.Notifications.Channels["telegram"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_BASE_URL"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["telegram"]
+		ch.BaseURL = v
+		cfg.Tools.Notifications.Channels["telegram"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_POLL_TIMEOUT_SECONDS"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.PollTimeoutSeconds = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_DOWNLOAD_BYTES"); v != "" {
+		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxDownloadBytes = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_ATTACHMENTS"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxAttachments = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_CONCURRENCY"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxConcurrency = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_PENDING"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxPending = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
 	if v := os.Getenv("SPARKCLAW_PARALLEL_API_KEY"); v != "" {
 		cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = v
 	}
@@ -818,6 +886,73 @@ func ensureNotificationChannels(cfg *NotificationsToolConfig) {
 			CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
 		}
 	}
+	if _, ok := cfg.Channels["telegram"]; !ok {
+		cfg.Channels["telegram"] = Default().Tools.Notifications.Channels["telegram"]
+	}
+}
+
+func normalizeNotificationChannels(cfg *NotificationsToolConfig) error {
+	ensureNotificationChannels(cfg)
+	telegram := cfg.Channels["telegram"]
+	defaults := Default().Tools.Notifications.Channels["telegram"]
+	if strings.TrimSpace(telegram.Provider) == "" {
+		telegram.Provider = defaults.Provider
+	}
+	if strings.TrimSpace(telegram.BaseURL) == "" {
+		telegram.BaseURL = defaults.BaseURL
+	}
+	if strings.TrimSpace(telegram.UpdateMode) == "" {
+		telegram.UpdateMode = defaults.UpdateMode
+	}
+	if telegram.PollTimeoutSeconds <= 0 {
+		telegram.PollTimeoutSeconds = defaults.PollTimeoutSeconds
+	}
+	if telegram.MaxDownloadBytes <= 0 {
+		telegram.MaxDownloadBytes = defaults.MaxDownloadBytes
+	}
+	if telegram.MaxAttachments <= 0 {
+		telegram.MaxAttachments = defaults.MaxAttachments
+	}
+	if telegram.MaxConcurrency <= 0 {
+		telegram.MaxConcurrency = defaults.MaxConcurrency
+	}
+	if telegram.MaxPending == 0 {
+		telegram.MaxPending = defaults.MaxPending
+	}
+	telegram.PrivateChatsOnly = true
+	telegram.Provider = strings.ToLower(strings.TrimSpace(telegram.Provider))
+	telegram.BaseURL = strings.TrimRight(strings.TrimSpace(telegram.BaseURL), "/")
+	telegram.UpdateMode = strings.ToLower(strings.TrimSpace(telegram.UpdateMode))
+	if telegram.Provider != "telegram-bot-api" {
+		return fmt.Errorf("unsupported Telegram provider %q", telegram.Provider)
+	}
+	endpoint, err := url.Parse(telegram.BaseURL)
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return errors.New("Telegram baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
+	}
+	if strings.EqualFold(endpoint.Hostname(), "api.telegram.org") && endpoint.Scheme != "https" {
+		return errors.New("Telegram api.telegram.org baseUrl must use HTTPS")
+	}
+	if telegram.UpdateMode != "long-polling" {
+		return fmt.Errorf("unsupported Telegram updateMode %q", telegram.UpdateMode)
+	}
+	if telegram.PollTimeoutSeconds < 1 || telegram.PollTimeoutSeconds > 50 {
+		return errors.New("Telegram pollTimeoutSeconds must be between 1 and 50")
+	}
+	if telegram.MaxDownloadBytes < 1 || telegram.MaxDownloadBytes > 20<<20 {
+		return errors.New("Telegram maxDownloadBytes must be between 1 and 20971520")
+	}
+	if telegram.MaxAttachments < 1 || telegram.MaxAttachments > 5 {
+		return errors.New("Telegram maxAttachments must be between 1 and 5")
+	}
+	if telegram.MaxConcurrency < 1 || telegram.MaxConcurrency > 16 {
+		return errors.New("Telegram maxConcurrency must be between 1 and 16")
+	}
+	if telegram.MaxPending < telegram.MaxConcurrency || telegram.MaxPending > 1024 {
+		return errors.New("Telegram maxPending must be at least maxConcurrency and at most 1024")
+	}
+	cfg.Channels["telegram"] = telegram
+	return nil
 }
 
 func applyToolPolicyFile(cfg *Config) error {

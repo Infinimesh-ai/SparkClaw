@@ -75,6 +75,32 @@
       "enabled": false,
       "provider": "chromium-devtools-mcp",
       "profile": "default"
+    },
+    "reminders": {
+      "enabled": true,
+      "defaultChannel": "web"
+    },
+    "notifications": {
+      "channels": {
+        "weixin": {
+          "enabled": false,
+          "provider": "openclaw-weixin-qr",
+          "baseUrl": "https://ilinkai.weixin.qq.com",
+          "cdnBaseUrl": "https://novac2c.cdn.weixin.qq.com/c2c"
+        },
+        "telegram": {
+          "enabled": true,
+          "provider": "telegram-bot-api",
+          "baseUrl": "https://api.telegram.org",
+          "updateMode": "long-polling",
+          "pollTimeoutSeconds": 30,
+          "privateChatsOnly": true,
+          "maxDownloadBytes": 20971520,
+          "maxAttachments": 5,
+          "maxConcurrency": 4,
+          "maxPending": 32
+        }
+      }
     }
   },
   "memory": {

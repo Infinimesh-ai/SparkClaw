@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Save,
   ScrollText,
+  Send,
   Settings,
   ShieldAlert,
   Terminal,
@@ -801,26 +802,28 @@ export function SettingsPanel({
   ownerProfile,
   clients,
   weixinBindings,
+  telegramBindings,
   text,
   language,
   onUpdateOwner,
   onRevokeClient,
-  onStartWeixinBinding,
-  onRefreshWeixinBinding,
-  onRevokeWeixinBinding,
+  onStartNotificationBinding,
+  onRefreshNotificationBinding,
+  onRevokeNotificationBinding,
   onUpdatePolicy
 }: {
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
   weixinBindings: NotificationBinding[];
+  telegramBindings: NotificationBinding[];
   text: CopyText;
   language: Language;
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
   onRevokeClient: (id: string) => Promise<void>;
-  onStartWeixinBinding: () => Promise<void>;
-  onRefreshWeixinBinding: (id: string) => Promise<NotificationBinding>;
-  onRevokeWeixinBinding: (id: string) => Promise<void>;
+  onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
+  onRefreshNotificationBinding: (id: string) => Promise<NotificationBinding>;
+  onRevokeNotificationBinding: (id: string) => Promise<void>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
 }) {
   const [editingOwner, setEditingOwner] = useState(false);
@@ -836,14 +839,15 @@ export function SettingsPanel({
   const [revokingClient, setRevokingClient] = useState("");
   const [bindingBusy, setBindingBusy] = useState(false);
   const [bindingError, setBindingError] = useState("");
+  const [telegramToken, setTelegramToken] = useState("");
 
   useEffect(() => {
-    const pending = weixinBindings.filter((binding) => isBindingPending(binding.status));
+    const pending = [...weixinBindings, ...telegramBindings].filter((binding) => isBindingPending(binding.status));
     if (pending.length === 0) return;
     let cancelled = false;
     let timer = 0;
     const poll = () => {
-      void Promise.allSettled(pending.map((binding) => onRefreshWeixinBinding(binding.id)))
+      void Promise.allSettled(pending.map((binding) => onRefreshNotificationBinding(binding.id)))
         .then((results) => {
           if (cancelled) return;
           const hasStillPending = results.some((result) => result.status === "fulfilled" && isBindingPending(result.value.status));
@@ -862,7 +866,7 @@ export function SettingsPanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [onRefreshWeixinBinding, text.errors.binding, weixinBindings]);
+  }, [onRefreshNotificationBinding, telegramBindings, text.errors.binding, weixinBindings]);
 
   if (!runtimeConfig) {
     return (
@@ -873,6 +877,7 @@ export function SettingsPanel({
     );
   }
   const policy = runtimeConfig.tool_policy;
+  const notificationChannels = runtimeConfig.tools.notifications.channels;
   const riskCounts = Object.entries(policy.risk_counts).sort(([left], [right]) => left.localeCompare(right));
   const preferences = ownerProfile?.preferences ?? {};
 
@@ -943,12 +948,20 @@ export function SettingsPanel({
     }
   }
 
-  async function startBinding() {
+  async function startBinding(channel: "weixin" | "telegram") {
     if (bindingBusy) return;
+    const botToken = channel === "telegram" ? telegramToken.trim() : "";
+    if (channel === "telegram" && !botToken) {
+      setBindingError(text.settings.telegramTokenRequired);
+      return;
+    }
     setBindingBusy(true);
     setBindingError("");
     try {
-      await onStartWeixinBinding();
+      await onStartNotificationBinding(channel, botToken);
+      if (channel === "telegram") {
+        setTelegramToken("");
+      }
     } catch (err) {
       setBindingError(err instanceof Error ? err.message : text.errors.binding);
     } finally {
@@ -961,7 +974,7 @@ export function SettingsPanel({
     setBindingBusy(true);
     setBindingError("");
     try {
-      await onRefreshWeixinBinding(id);
+      await onRefreshNotificationBinding(id);
     } catch (err) {
       setBindingError(err instanceof Error ? err.message : text.errors.binding);
     } finally {
@@ -974,7 +987,7 @@ export function SettingsPanel({
     setBindingBusy(true);
     setBindingError("");
     try {
-      await onRevokeWeixinBinding(id);
+      await onRevokeNotificationBinding(id);
     } catch (err) {
       setBindingError(err instanceof Error ? err.message : text.errors.binding);
     } finally {
@@ -982,24 +995,53 @@ export function SettingsPanel({
     }
   }
 
-  return (
-    <div className="panelStack">
-      <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
+  function renderNotificationBindingSection(channel: "weixin" | "telegram", bindings: NotificationBinding[]) {
+    const isTelegram = channel === "telegram";
+    const Icon = isTelegram ? Send : KeyRound;
+    const title = isTelegram ? text.settings.telegramBinding : text.settings.weixinBinding;
+    const addTitle = isTelegram ? text.settings.addTelegramBinding : text.settings.addWeixinBinding;
+    const bindLabel = isTelegram ? text.settings.bindTelegram : text.settings.bindWeixin;
+    const missing = isTelegram ? text.settings.telegramBindingMissing : text.settings.bindingMissing;
+    const waitingInstruction = isTelegram ? text.settings.openTelegramToBind : text.settings.scanWeixin;
+    const scannedInstruction = isTelegram ? text.settings.waitingTelegramStart : text.settings.scannedWeixin;
+    const channelConfig = notificationChannels[channel];
+    const startable = isTelegram ? channelConfig?.startable === true : channelConfig?.enabled !== false;
+    const tokenEditable = isTelegram && channelConfig?.available === true && channelConfig?.operator_enabled === true && channelConfig?.startable === true;
+    const startDisabled = bindingBusy || !startable || (isTelegram && !telegramToken.trim());
+    const capabilityNote = isTelegram
+      ? notificationCapabilityLabel(channelConfig?.disabled_reason ?? "", channelConfig?.binding_status ?? "", text)
+      : channelConfig?.enabled === false ? text.settings.bindingOperatorDisabled : channelConfig?.provider;
+    return (
       <article className="settingsBlock">
         <div className="approvalTop">
           <span className="settingsTitle">
-            <KeyRound size={15} />
-            <strong>{text.settings.weixinBinding}</strong>
+            <Icon size={15} />
+            <strong>{title}</strong>
           </span>
           <div className="buttonRow compactButtons">
-            <button className="approve" onClick={() => void startBinding()} disabled={bindingBusy} title={text.settings.addWeixinBinding}>
+            <button className="approve" onClick={() => void startBinding(channel)} disabled={startDisabled} title={addTitle}>
               <Plus size={15} />
             </button>
           </div>
         </div>
-        {weixinBindings.length > 0 ? (
+        {capabilityNote && <span className="muted bindingCapability">{capabilityNote}</span>}
+        {isTelegram && (
+          <label className="inputGroup compact telegramTokenInput">
+            <span>{text.settings.telegramToken}</span>
+            <input
+              type="password"
+              value={telegramToken}
+              onChange={(event) => setTelegramToken(event.target.value)}
+              placeholder={text.settings.telegramTokenPlaceholder}
+              autoComplete="new-password"
+              spellCheck={false}
+              disabled={bindingBusy || !tokenEditable}
+            />
+          </label>
+        )}
+        {bindings.length > 0 ? (
           <div className="bindingList">
-            {weixinBindings.map((binding) => (
+            {bindings.map((binding) => (
               <div className="bindingItem" key={binding.id}>
                 <div className="bindingItemTop">
                   <div>
@@ -1010,7 +1052,7 @@ export function SettingsPanel({
                     <button className="edit" onClick={() => void refreshBinding(binding.id)} disabled={bindingBusy || !isBindingPending(binding.status)} title={text.common.refresh}>
                       <RefreshCw size={15} />
                     </button>
-                    <button className="reject" onClick={() => void revokeBinding(binding.id)} disabled={bindingBusy || binding.status === "revoked"} title={text.settings.revokeWeixin}>
+                    <button className="reject" onClick={() => void revokeBinding(binding.id)} disabled={bindingBusy || binding.status === "revoked"} title={text.settings.revokeBinding}>
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -1030,19 +1072,25 @@ export function SettingsPanel({
                 {binding.status === "waiting_scan" && (
                   <div className="bindingQr">
                     {binding.qr_code_image || isImageLikeQR(binding.qr_code_url) ? (
-                      <img src={qrImageSource(binding.qr_code_image || binding.qr_code_url)} alt={text.settings.scanWeixin} />
+                      <img src={qrImageSource(binding.qr_code_image || binding.qr_code_url)} alt={waitingInstruction} />
                     ) : binding.qr_code_url ? (
                       <a href={binding.qr_code_url} target="_blank" rel="noreferrer">{binding.qr_code_url}</a>
                     ) : (
                       <span className="muted">{text.settings.bindingQrUnavailable}</span>
                     )}
-                    <small>{text.settings.scanWeixin}</small>
+                    <small>{waitingInstruction}</small>
                   </div>
                 )}
                 {binding.status === "waiting_confirm" && (
                   <div className="bindingScanned">
                     <CheckCircle2 size={18} />
-                    <span>{text.settings.scannedWeixin}</span>
+                    <span>{scannedInstruction}</span>
+                    {isTelegram && binding.qr_code_url && (
+                      <a className="secondaryButton bindingOpenLink" href={binding.qr_code_url} target="_blank" rel="noreferrer">
+                        <Send size={15} />
+                        <span>{text.settings.openTelegram}</span>
+                      </a>
+                    )}
                   </div>
                 )}
                 {binding.last_error && <span className="compactError">{binding.last_error}</span>}
@@ -1051,15 +1099,23 @@ export function SettingsPanel({
           </div>
         ) : (
           <div className="bindingEmpty">
-            <span className="muted">{text.settings.bindingMissing}</span>
-            <button className="secondaryButton" onClick={() => void startBinding()} disabled={bindingBusy}>
-              <KeyRound size={15} />
-              <span>{text.settings.bindWeixin}</span>
+            <span className="muted">{missing}</span>
+            <button className="secondaryButton" onClick={() => void startBinding(channel)} disabled={startDisabled}>
+              <Icon size={15} />
+              <span>{bindLabel}</span>
             </button>
           </div>
         )}
-        {bindingError && <span className="compactError">{bindingError}</span>}
       </article>
+    );
+  }
+
+  return (
+    <div className="panelStack">
+      <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
+      {renderNotificationBindingSection("weixin", weixinBindings)}
+      {renderNotificationBindingSection("telegram", telegramBindings)}
+      {bindingError && <span className="compactError">{bindingError}</span>}
       <article className="settingsBlock">
         <div className="approvalTop">
           <span className="settingsTitle">
@@ -1293,6 +1349,23 @@ export function SettingsPanel({
       </article>
     </div>
   );
+}
+
+function notificationCapabilityLabel(reason: string, status: string, text: CopyText) {
+  switch (reason) {
+    case "connector_unavailable":
+      return text.settings.bindingUnavailable;
+    case "operator_disabled":
+      return text.settings.bindingOperatorDisabled;
+    case "credential_key_unavailable":
+      return text.settings.bindingCredentialUnavailable;
+    case "binding_in_progress":
+      return bindingStatusLabel(status, text);
+    case "binding_active":
+      return text.settings.bound;
+    default:
+      return status === "unbound" ? text.settings.bindingReady : bindingStatusLabel(status, text);
+  }
 }
 
 export function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {

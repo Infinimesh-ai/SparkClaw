@@ -100,11 +100,11 @@ export function isBindingPending(status: string) {
   return status === "waiting_scan" || status === "waiting_confirm";
 }
 
-export function isVisibleWeixinBinding(status: string) {
+export function isVisibleNotificationBinding(status: string) {
   return isBindingPending(status) || status === "active";
 }
 
-export function sortWeixinBindings(bindings: NotificationBinding[]) {
+export function sortNotificationBindings(bindings: NotificationBinding[]) {
   const rank = (binding: NotificationBinding) => {
     if (isBindingPending(binding.status)) return 0;
     if (binding.status === "active" && binding.default_for_channel) return 1;
@@ -117,6 +117,9 @@ export function sortWeixinBindings(bindings: NotificationBinding[]) {
     return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
   });
 }
+
+export const isVisibleWeixinBinding = isVisibleNotificationBinding;
+export const sortWeixinBindings = sortNotificationBindings;
 
 export function isImageLikeQR(value = "") {
   return value.startsWith("data:image/") || /^https?:\/\/.+\.(png|jpg|jpeg|webp|gif)(\?.*)?$/i.test(value) || isLikelyBase64Image(value);

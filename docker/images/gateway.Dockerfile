@@ -7,7 +7,8 @@ RUN go build -o /out/sparkclaw ./services/gateway/cmd/sparkclaw
 
 FROM alpine:3.22
 WORKDIR /app
-RUN adduser -D -u 10001 sparkclaw
+RUN apk add --no-cache ca-certificates ffmpeg \
+    && adduser -D -u 10001 sparkclaw
 COPY --from=build /out/sparkclaw /usr/local/bin/sparkclaw
 COPY configs /app/configs
 USER sparkclaw

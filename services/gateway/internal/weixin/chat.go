@@ -64,7 +64,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	// provider (the cursor is only advanced after successful dispatch); reuse
 	// its record so the retry does not duplicate the chat history.
 	retryID := ""
-	if existing, ok := d.store.FindWeixinChatMessageByExternalID(chatSession.ID, externalID); ok {
+	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
 		if existing.Status != "failed" {
 			return nil
 		}
@@ -84,7 +84,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	}
 	if text == "" && len(inbound.Attachments) > 0 {
 		inboundContent := pendingAttachmentContext(inbound.Attachments)
-		inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+		inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
 			ID:                retryID,
 			ChatSessionID:     chatSession.ID,
 			BindingID:         inbound.Binding.ID,
@@ -105,7 +105,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		})
 		answer := attachmentClarificationPrompt(inbound.Attachments)
 		sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
-		outbound := app.WeixinChatMessage{
+		outbound := app.ExternalChatMessage{
 			ChatSessionID: chatSession.ID,
 			BindingID:     inbound.Binding.ID,
 			Direction:     "outbound",
@@ -120,11 +120,11 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		} else if sendResult.Status != "" {
 			outbound.Status = sendResult.Status
 		}
-		d.store.SaveWeixinChatMessage(outbound)
+		d.store.SaveExternalChatMessage(outbound)
 		_ = inboundMsg
 		return sendErr
 	}
-	inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
 		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
@@ -138,7 +138,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	})
 	processing := inboundMsg
 	processing.Status = "processing"
-	processing = d.store.SaveWeixinChatMessage(processing)
+	processing = d.store.SaveExternalChatMessage(processing)
 	recipient := d.replyRecipient(inbound)
 	if _, err := notification.SendWeixinTyping(ctx, d.store, d.cfg,
 		recipient,
@@ -165,12 +165,12 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if err != nil {
 		processing.Status = "failed"
 		processing.Error = err.Error()
-		d.store.SaveWeixinChatMessage(processing)
+		d.store.SaveExternalChatMessage(processing)
 		return err
 	}
 	processing.LinkedRunID = result.Run.ID
 	processing.Status = "processed"
-	processing = d.store.SaveWeixinChatMessage(processing)
+	processing = d.store.SaveExternalChatMessage(processing)
 
 	answer := strings.TrimSpace(result.Message.Content)
 	if len(result.Approvals) > 0 {
@@ -180,7 +180,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		answer = "我已经收到，但这次没有生成可发送的回复。"
 	}
 	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, result.Run.ID)
-	outbound := app.WeixinChatMessage{
+	outbound := app.ExternalChatMessage{
 		ChatSessionID: chatSession.ID,
 		BindingID:     inbound.Binding.ID,
 		Direction:     "outbound",
@@ -196,16 +196,16 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	} else if sendResult.Status != "" {
 		outbound.Status = sendResult.Status
 	}
-	d.store.SaveWeixinChatMessage(outbound)
+	d.store.SaveExternalChatMessage(outbound)
 	if sendErr != nil {
 		return sendErr
 	}
 	return nil
 }
 
-func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.WeixinChatSession, externalID, text string, receivedAt time.Time) error {
+func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) error {
 	oldSessionID := chatSession.LinkedSessionID
-	d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+	d.store.SaveExternalChatMessage(app.ExternalChatMessage{
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
 		Direction:         "inbound",
@@ -222,7 +222,7 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 	if inbound.ContextToken != "" {
 		chatSession.LastContextToken = inbound.ContextToken
 	}
-	chatSession = d.store.SaveWeixinChatSession(chatSession)
+	chatSession = d.store.SaveExternalChatSession(chatSession)
 	d.store.AddAudit(app.AuditEvent{
 		SessionID: session.ID,
 		Actor:     "gateway",
@@ -239,7 +239,7 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 	})
 	answer := "对话已清空。后续消息会从新的上下文开始。"
 	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
-	outbound := app.WeixinChatMessage{
+	outbound := app.ExternalChatMessage{
 		ChatSessionID: chatSession.ID,
 		BindingID:     inbound.Binding.ID,
 		Direction:     "outbound",
@@ -255,7 +255,7 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 	} else if sendResult.Status != "" {
 		outbound.Status = sendResult.Status
 	}
-	d.store.SaveWeixinChatMessage(outbound)
+	d.store.SaveExternalChatMessage(outbound)
 	return sendErr
 }
 
@@ -307,7 +307,7 @@ func isClearConversationRequest(text string) bool {
 	}
 }
 
-func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.WeixinChatSession, externalID, text string, receivedAt time.Time) (bool, error) {
+func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) (bool, error) {
 	approval, ok := d.pendingApprovalForChatSession(chatSession)
 	if !ok {
 		return false, nil
@@ -317,7 +317,7 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		answer := weixinApprovalPrompt(approval)
 		return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, approval.RunID, "needs_clear_approval_reply")
 	}
-	inboundMsg := d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
 		Direction:         "inbound",
@@ -370,9 +370,9 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 	return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, resolved.RunID, "")
 }
 
-func (d *Dispatcher) sendApprovalReplyResult(ctx context.Context, inbound InboundMessage, chatSession app.WeixinChatSession, externalID, text string, receivedAt time.Time, answer, runID, inboundStatus string) error {
+func (d *Dispatcher) sendApprovalReplyResult(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time, answer, runID, inboundStatus string) error {
 	if inboundStatus != "" && inboundStatus != "received" {
-		d.store.SaveWeixinChatMessage(app.WeixinChatMessage{
+		d.store.SaveExternalChatMessage(app.ExternalChatMessage{
 			ChatSessionID:     chatSession.ID,
 			BindingID:         inbound.Binding.ID,
 			Direction:         "inbound",
@@ -386,7 +386,7 @@ func (d *Dispatcher) sendApprovalReplyResult(ctx context.Context, inbound Inboun
 		})
 	}
 	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, runID)
-	outbound := app.WeixinChatMessage{
+	outbound := app.ExternalChatMessage{
 		ChatSessionID: chatSession.ID,
 		BindingID:     inbound.Binding.ID,
 		Direction:     "outbound",
@@ -402,11 +402,11 @@ func (d *Dispatcher) sendApprovalReplyResult(ctx context.Context, inbound Inboun
 	} else if sendResult.Status != "" {
 		outbound.Status = sendResult.Status
 	}
-	d.store.SaveWeixinChatMessage(outbound)
+	d.store.SaveExternalChatMessage(outbound)
 	return sendErr
 }
 
-func (d *Dispatcher) pendingApprovalForChatSession(chatSession app.WeixinChatSession) (app.Approval, bool) {
+func (d *Dispatcher) pendingApprovalForChatSession(chatSession app.ExternalChatSession) (app.Approval, bool) {
 	if strings.TrimSpace(chatSession.LinkedSessionID) == "" {
 		return app.Approval{}, false
 	}
@@ -787,7 +787,7 @@ func (d *Dispatcher) workspaceSessionPath(relPath string, inbound InboundMessage
 		externalUserID = strings.TrimSpace(inbound.Binding.ExternalUserID)
 	}
 	root := ""
-	if chatSession, ok := d.store.FindWeixinChatSession(inbound.Binding.ID, externalUserID); ok {
+	if chatSession, ok := d.store.FindExternalChatSession(inbound.Binding.ID, externalUserID, ""); ok {
 		root = strings.TrimSpace(chatSession.WorkspaceRoot)
 		if root == "" {
 			if session, ok := d.store.GetSession(chatSession.LinkedSessionID); ok {
@@ -813,7 +813,7 @@ func (d *Dispatcher) workspaceSessionPath(relPath string, inbound InboundMessage
 	return "", false
 }
 
-func (d *Dispatcher) auditTypingFailure(chatSession app.WeixinChatSession, inbound InboundMessage, phase string, err error) {
+func (d *Dispatcher) auditTypingFailure(chatSession app.ExternalChatSession, inbound InboundMessage, phase string, err error) {
 	d.store.AddAudit(app.AuditEvent{
 		SessionID: chatSession.LinkedSessionID,
 		Actor:     "gateway",
@@ -828,7 +828,7 @@ func (d *Dispatcher) auditTypingFailure(chatSession app.WeixinChatSession, inbou
 	})
 }
 
-func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.WeixinChatSession {
+func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.ExternalChatSession {
 	externalUserID := strings.TrimSpace(inbound.FromUserID)
 	if externalUserID == "" {
 		externalUserID = strings.TrimSpace(inbound.Binding.ExternalUserID)
@@ -836,7 +836,7 @@ func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.WeixinChatSes
 	profile := d.ensureOwnerProfile(inbound, externalUserID)
 	ownerID := profile.ID
 	workspaceRoot := strings.TrimSpace(profile.WorkspaceRoot)
-	if existing, ok := d.store.FindWeixinChatSession(inbound.Binding.ID, externalUserID); ok {
+	if existing, ok := d.store.FindExternalChatSession(inbound.Binding.ID, externalUserID, ""); ok {
 		changed := false
 		if existing.OwnerID != ownerID && ownerID != "" {
 			existing.OwnerID = ownerID
@@ -855,18 +855,19 @@ func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.WeixinChatSes
 			changed = true
 		}
 		if changed {
-			return d.store.SaveWeixinChatSession(existing)
+			return d.store.SaveExternalChatSession(existing)
 		}
 		return existing
 	}
 	session := d.store.CreateSessionWithScope("微信会话", ownerID, workspaceRoot, "weixin", true)
-	return d.store.SaveWeixinChatSession(app.WeixinChatSession{
+	return d.store.SaveExternalChatSession(app.ExternalChatSession{
 		OwnerID:          ownerID,
 		WorkspaceRoot:    workspaceRoot,
 		BindingID:        inbound.Binding.ID,
 		Channel:          "weixin",
 		Provider:         inbound.Binding.Provider,
 		ExternalUserID:   externalUserID,
+		ExternalChatID:   externalUserID,
 		DisplayName:      inbound.Binding.DisplayName,
 		LinkedSessionID:  session.ID,
 		Status:           "active",

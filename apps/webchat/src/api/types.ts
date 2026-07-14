@@ -328,6 +328,26 @@ export type PublicConfig = {
   runtime: {
     observation_summary_max_bytes: number;
   };
+  tools: {
+    notifications: {
+      channels: Record<string, {
+        enabled: boolean;
+        provider: string;
+        base_url: string;
+        token_configured: boolean;
+        recipient_set: boolean;
+        available?: boolean;
+        operator_enabled?: boolean;
+        binding_status?: string;
+        startable?: boolean;
+        disabled_reason?: string;
+      }>;
+    };
+    reminders: {
+      enabled: boolean;
+      default_channel: string;
+    };
+  };
   tool_policy: {
     policy_path: string;
     external_content_untrusted: boolean;

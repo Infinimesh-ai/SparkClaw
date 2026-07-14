@@ -15,6 +15,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
@@ -23,6 +24,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixin"
@@ -58,13 +60,41 @@ func main() {
 	defer transcriber.Close()
 	traces := trace.NewWriterFromConfig(cfg)
 	runtime := agent.NewRuntimeWithSkills(st, tools, policyEngine, models, traces, skills.NewRegistry(cfg)).WithArtifactStore(artifactStore)
-	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces, gateway.WithSpeechTranscriber(transcriber))
+	credentialVault := credential.New(st, credential.Options{
+		Key:        cfg.State.CredentialKey,
+		KeyFile:    cfg.State.CredentialKeyFile,
+		AutoCreate: true,
+	})
+	if err := credentialVault.Ready(); err != nil {
+		slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
+	}
+	telegramService := telegram.NewService(
+		st,
+		cfg.Tools.Notifications.Channels["telegram"],
+		credentialVault,
+		telegram.NewDispatcher(st, runtime, cfg),
+	)
+	server := gateway.NewWithTrace(
+		cfg,
+		st,
+		tools,
+		runtime,
+		traces,
+		gateway.WithSpeechTranscriber(transcriber),
+		gateway.WithCredentialVault(credentialVault),
+		gateway.WithNotificationBindingCancellation(telegramService.CancelBinding),
+	)
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 	if cfg.Tools.Reminders.Enabled {
-		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notification.NewRouter(cfg, st)))
+		notificationRouter := notification.NewRouter(cfg, st)
+		if cfg.Tools.Notifications.Channels["telegram"].Enabled {
+			notificationRouter = notificationRouter.WithAdapter("telegram", telegram.NewNotificationAdapter(st, credentialVault, cfg.Tools.Notifications.Channels["telegram"]))
+		}
+		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notificationRouter))
 	}
 	startWeixinContextSyncer(serverCtx, weixin.NewSyncer(st).WithConfig(cfg).WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg)))
+	startTelegramService(serverCtx, telegramService)
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),
@@ -94,6 +124,14 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("sparkclaw gateway stopped")
+}
+
+func startTelegramService(ctx context.Context, service *telegram.Service) {
+	go func() {
+		if err := service.Run(ctx); err != nil && ctx.Err() == nil {
+			slog.Warn("Telegram connector stopped", "code", "telegram_service_failed")
+		}
+	}()
 }
 
 func startWeixinContextSyncer(ctx context.Context, syncer *weixin.Syncer) {

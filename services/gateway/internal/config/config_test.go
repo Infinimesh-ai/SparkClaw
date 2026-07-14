@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -386,6 +387,103 @@ func TestLoadAppliesStateEncryptionEnvironment(t *testing.T) {
 	}
 	if cfg.State.EncryptionKeyFile != keyFile {
 		t.Fatalf("state encryption key file was not normalized: %#v", cfg.State)
+	}
+}
+
+func TestLoadAppliesCredentialKeyEnvironment(t *testing.T) {
+	root := t.TempDir()
+	keyFile := filepath.Join(root, "credential.key")
+	t.Setenv("SPARKCLAW_CREDENTIAL_KEY", "01234567890123456789012345678901")
+	t.Setenv("SPARKCLAW_CREDENTIAL_KEY_FILE", keyFile)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.State.CredentialKey != "01234567890123456789012345678901" {
+		t.Fatalf("credential key env did not apply")
+	}
+	if cfg.State.CredentialKeyFile != keyFile {
+		t.Fatalf("credential key file was not normalized: %#v", cfg.State)
+	}
+}
+
+func TestLoadNormalizesTelegramConnectorDefaults(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	telegram := cfg.Tools.Notifications.Channels["telegram"]
+	if !telegram.Enabled || telegram.Provider != "telegram-bot-api" || telegram.BaseURL != "https://api.telegram.org" {
+		t.Fatalf("unexpected Telegram defaults: %#v", telegram)
+	}
+	if telegram.UpdateMode != "long-polling" || telegram.PollTimeoutSeconds != 30 || !telegram.PrivateChatsOnly {
+		t.Fatalf("Telegram polling defaults missing: %#v", telegram)
+	}
+	if telegram.MaxDownloadBytes != 20<<20 || telegram.MaxAttachments != 5 || telegram.MaxVoiceSeconds != 120 || telegram.MaxConcurrency != 4 || telegram.MaxPending != 32 {
+		t.Fatalf("Telegram limits missing: %#v", telegram)
+	}
+}
+
+func TestLoadAppliesTelegramEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_TELEGRAM_ENABLED", "false")
+	t.Setenv("SPARKCLAW_TELEGRAM_BASE_URL", "http://127.0.0.1:18888")
+	t.Setenv("SPARKCLAW_TELEGRAM_POLL_TIMEOUT_SECONDS", "20")
+	t.Setenv("SPARKCLAW_TELEGRAM_MAX_DOWNLOAD_BYTES", "1048576")
+	t.Setenv("SPARKCLAW_TELEGRAM_MAX_ATTACHMENTS", "3")
+	t.Setenv("SPARKCLAW_TELEGRAM_MAX_VOICE_SECONDS", "90")
+	t.Setenv("SPARKCLAW_TELEGRAM_MAX_CONCURRENCY", "2")
+	t.Setenv("SPARKCLAW_TELEGRAM_MAX_PENDING", "8")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	telegram := cfg.Tools.Notifications.Channels["telegram"]
+	if telegram.Enabled || telegram.BaseURL != "http://127.0.0.1:18888" || telegram.PollTimeoutSeconds != 20 {
+		t.Fatalf("Telegram environment did not apply: %#v", telegram)
+	}
+	if telegram.MaxDownloadBytes != 1048576 || telegram.MaxAttachments != 3 || telegram.MaxVoiceSeconds != 90 || telegram.MaxConcurrency != 2 || telegram.MaxPending != 8 {
+		t.Fatalf("Telegram limits environment did not apply: %#v", telegram)
+	}
+}
+
+func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "credential in URL", mutate: func(cfg *Config) {
+			channel := cfg.Tools.Notifications.Channels["telegram"]
+			channel.BaseURL = "https://secret@example.test"
+			cfg.Tools.Notifications.Channels["telegram"] = channel
+		}},
+		{name: "insecure cloud URL", mutate: func(cfg *Config) {
+			channel := cfg.Tools.Notifications.Channels["telegram"]
+			channel.BaseURL = "http://api.telegram.org"
+			cfg.Tools.Notifications.Channels["telegram"] = channel
+		}},
+		{name: "unbounded pending", mutate: func(cfg *Config) {
+			channel := cfg.Tools.Notifications.Channels["telegram"]
+			channel.MaxPending = 2048
+			cfg.Tools.Notifications.Channels["telegram"] = channel
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := Default()
+			test.mutate(&cfg)
+			path := filepath.Join(t.TempDir(), "config.json")
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("expected invalid Telegram config to fail")
+			}
+		})
 	}
 }
 

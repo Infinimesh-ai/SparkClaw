@@ -52,6 +52,20 @@
       "mtp": false
     }
   },
+  "speech": {
+    "enabled": true,
+    "backend": "openai-http",
+    "base_url": "https://sparkclaw.infinimesh.cloud/asr",
+    "allowed_hosts": ["sparkclaw.infinimesh.cloud"],
+    "model": "sparkclaw-asr",
+    "default_language": "auto",
+    "timeout_seconds": 120,
+    "max_audio_seconds": 60,
+    "max_upload_bytes": 3145728,
+    "max_concurrency": 1,
+    "max_pending": 1,
+    "retain_audio": false
+  },
   "plugins": {
     "entries": {
       "parallel": {

@@ -36,6 +36,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
@@ -50,16 +51,27 @@ type Server struct {
 	artifacts artifact.Store
 	policies  policy.Engine
 	bindings  binding.Router
+	speech    speech.Transcriber
 	mux       *http.ServeMux
 	started   time.Time
 	limiter   *rateLimiter
 }
 
-func New(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime) *Server {
-	return NewWithTrace(cfg, st, tools, runtime, trace.NewWriterFromConfig(cfg))
+type Option func(*Server)
+
+func WithSpeechTranscriber(transcriber speech.Transcriber) Option {
+	return func(server *Server) {
+		if transcriber != nil {
+			server.speech = transcriber
+		}
+	}
 }
 
-func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer) *Server {
+func New(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, options ...Option) *Server {
+	return NewWithTrace(cfg, st, tools, runtime, trace.NewWriterFromConfig(cfg), options...)
+}
+
+func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer, options ...Option) *Server {
 	artifacts := tools.ArtifactStore()
 	if artifacts == nil {
 		artifacts = artifact.NewStore(cfg.Storage)
@@ -74,9 +86,13 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		artifacts: artifacts,
 		policies:  policy.New(cfg),
 		bindings:  binding.NewRouter(cfg),
+		speech:    speech.NewDisabled(cfg.Speech),
 		mux:       http.NewServeMux(),
 		started:   time.Now().UTC(),
 		limiter:   newRateLimiter(cfg.Gateway.RateLimit),
+	}
+	for _, option := range options {
+		option(s)
 	}
 	s.applyMemoryRetention()
 	s.routes()
@@ -146,6 +162,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/traces", s.listTraces)
 	s.mux.HandleFunc("GET /api/traces/{run_id}", s.getTrace)
 	s.mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
+	s.mux.HandleFunc("GET /api/speech/status", s.getSpeechStatus)
+	s.mux.HandleFunc("POST /api/speech/transcriptions", s.postSpeechTranscription)
 	s.mux.HandleFunc("POST /api/documents/upload", s.uploadDocument)
 	s.mux.HandleFunc("GET /api/documents/available", s.listAvailableDocuments)
 	s.mux.HandleFunc("GET /api/documents/file", s.getUploadedDocument)
@@ -174,6 +192,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	speechStatus := s.speech.Status(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":               true,
 		"workspace_root":   s.cfg.Workspaces.DefaultRoot,
@@ -188,6 +207,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		"rate_limit":       publicRateLimitConfig(s.cfg.Gateway.RateLimit),
 		"model_mode":       modelMode(s.cfg),
 		"gateway_binding":  s.Addr(),
+		"speech":           speechStatus,
 	})
 }
 
@@ -286,6 +306,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"gateway":     publicGatewayConfig(s.cfg.Gateway),
 		"model":       publicModelConfig(s.cfg.Model),
+		"speech":      publicSpeechConfig(s.cfg.Speech),
 		"workspaces":  s.cfg.Workspaces,
 		"security":    s.cfg.Security,
 		"sandbox":     s.cfg.Sandbox,
@@ -2169,6 +2190,18 @@ func publicModelProfile(profile config.ModelProfile) map[string]any {
 		"context_tokens": profile.ContextTokens,
 		"mtp":            profile.MTP,
 		"max_tokens":     profile.MaxTokens,
+	}
+}
+
+func publicSpeechConfig(cfg config.SpeechConfig) map[string]any {
+	return map[string]any{
+		"enabled":           cfg.Enabled,
+		"backend":           cfg.Backend,
+		"model":             cfg.Model,
+		"default_language":  cfg.DefaultLanguage,
+		"max_audio_seconds": cfg.MaxAudioSeconds,
+		"max_upload_bytes":  cfg.MaxUploadBytes,
+		"retain_audio":      false,
 	}
 }
 

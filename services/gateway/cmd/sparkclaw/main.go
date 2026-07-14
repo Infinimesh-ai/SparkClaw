@@ -21,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
@@ -49,9 +50,15 @@ func main() {
 	defer tools.Close()
 	policyEngine := policy.New(cfg)
 	models := modelrouter.New(cfg)
+	transcriber, err := speech.New(cfg.Speech)
+	if err != nil {
+		slog.Error("failed to initialize speech adapter", "error", err)
+		os.Exit(1)
+	}
+	defer transcriber.Close()
 	traces := trace.NewWriterFromConfig(cfg)
 	runtime := agent.NewRuntimeWithSkills(st, tools, policyEngine, models, traces, skills.NewRegistry(cfg)).WithArtifactStore(artifactStore)
-	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces)
+	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces, gateway.WithSpeechTranscriber(transcriber))
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 	if cfg.Tools.Reminders.Enabled {

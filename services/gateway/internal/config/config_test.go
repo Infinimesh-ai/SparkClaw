@@ -94,6 +94,62 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsSpeechToSparkClawASR(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Speech.Enabled || cfg.Speech.Backend != "openai-http" {
+		t.Fatalf("speech should use the managed ASR endpoint by default: %#v", cfg.Speech)
+	}
+	if cfg.Speech.BaseURL != "https://sparkclaw.infinimesh.cloud/asr" || cfg.Speech.Model != "sparkclaw-asr" {
+		t.Fatalf("unexpected default speech endpoint: %#v", cfg.Speech)
+	}
+	if cfg.Speech.MaxAudioSeconds != 60 || cfg.Speech.MaxUploadBytes != 3<<20 || cfg.Speech.MaxConcurrency != 1 {
+		t.Fatalf("speech limits missing: %#v", cfg.Speech)
+	}
+}
+
+func TestLoadAppliesSpeechEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_SPEECH_ENABLED", "true")
+	t.Setenv("SPARKCLAW_SPEECH_BACKEND", "openai-http")
+	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "https://speech.example.test/asr/")
+	t.Setenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS", "speech.example.test")
+	t.Setenv("SPARKCLAW_SPEECH_MODEL", "test-asr")
+	t.Setenv("SPARKCLAW_SPEECH_DEFAULT_LANGUAGE", "zh-CN")
+	t.Setenv("SPARKCLAW_SPEECH_TIMEOUT_SECONDS", "45")
+	t.Setenv("SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS", "30")
+	t.Setenv("SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES", "2097152")
+	t.Setenv("SPARKCLAW_SPEECH_MAX_CONCURRENCY", "2")
+	t.Setenv("SPARKCLAW_SPEECH_MAX_PENDING", "3")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Speech.BaseURL != "https://speech.example.test/asr" || cfg.Speech.Model != "test-asr" {
+		t.Fatalf("speech endpoint env did not apply: %#v", cfg.Speech)
+	}
+	if cfg.Speech.DefaultLanguage != "zh-CN" || cfg.Speech.TimeoutSeconds != 45 {
+		t.Fatalf("speech model env did not apply: %#v", cfg.Speech)
+	}
+	if cfg.Speech.MaxAudioSeconds != 30 || cfg.Speech.MaxUploadBytes != 2097152 || cfg.Speech.MaxConcurrency != 2 || cfg.Speech.MaxPending != 3 {
+		t.Fatalf("speech limits env did not apply: %#v", cfg.Speech)
+	}
+}
+
+func TestLoadRejectsInsecureOrUnlistedSpeechEndpoint(t *testing.T) {
+	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "http://sparkclaw.infinimesh.cloud/asr")
+	if _, err := Load(""); err == nil {
+		t.Fatal("expected insecure speech URL to be rejected")
+	}
+
+	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "https://speech.example.test/asr")
+	if _, err := Load(""); err == nil {
+		t.Fatal("expected speech host outside the allowlist to be rejected")
+	}
+}
+
 func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_WEB_SEARCH_ENABLED", "true")
 	t.Setenv("SPARKCLAW_WEB_SEARCH_PROVIDER", "infinimesh-info")

@@ -43,18 +43,19 @@ import (
 )
 
 type Server struct {
-	cfg         config.Config
-	store       store.Store
-	tools       *toolhub.ToolHub
-	runtime     agent.Runtime
-	traces      *trace.Writer
-	artifacts   artifact.Store
-	policies    policy.Engine
-	bindings    binding.Router
-	credentials credential.CredentialVault
-	mux         *http.ServeMux
-	started     time.Time
-	limiter     *rateLimiter
+	cfg           config.Config
+	store         store.Store
+	tools         *toolhub.ToolHub
+	runtime       agent.Runtime
+	traces        *trace.Writer
+	artifacts     artifact.Store
+	policies      policy.Engine
+	bindings      binding.Router
+	credentials   credential.CredentialVault
+	cancelBinding func(string)
+	mux           *http.ServeMux
+	started       time.Time
+	limiter       *rateLimiter
 }
 
 type Option func(*Server)
@@ -64,6 +65,12 @@ func WithCredentialVault(vault credential.CredentialVault) Option {
 		if vault != nil {
 			server.credentials = vault
 		}
+	}
+}
+
+func WithNotificationBindingCancellation(cancel func(string)) Option {
+	return func(server *Server) {
+		server.cancelBinding = cancel
 	}
 }
 
@@ -702,6 +709,9 @@ func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if s.cancelBinding != nil {
+		s.cancelBinding(bindingID)
 	}
 	if strings.TrimSpace(binding.CredentialRef) != "" {
 		_ = s.credentials.Delete(r.Context(), binding.CredentialRef)

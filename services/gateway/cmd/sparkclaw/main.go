@@ -23,6 +23,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixin"
@@ -60,13 +61,32 @@ func main() {
 	if err := credentialVault.Ready(); err != nil {
 		slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
 	}
-	server := gateway.NewWithTrace(cfg, st, tools, runtime, traces, gateway.WithCredentialVault(credentialVault))
+	telegramService := telegram.NewService(
+		st,
+		cfg.Tools.Notifications.Channels["telegram"],
+		credentialVault,
+		telegram.NewDispatcher(st, runtime, cfg),
+	)
+	server := gateway.NewWithTrace(
+		cfg,
+		st,
+		tools,
+		runtime,
+		traces,
+		gateway.WithCredentialVault(credentialVault),
+		gateway.WithNotificationBindingCancellation(telegramService.CancelBinding),
+	)
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 	if cfg.Tools.Reminders.Enabled {
-		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notification.NewRouter(cfg, st)))
+		notificationRouter := notification.NewRouter(cfg, st)
+		if cfg.Tools.Notifications.Channels["telegram"].Enabled {
+			notificationRouter = notificationRouter.WithAdapter("telegram", telegram.NewNotificationAdapter(st, credentialVault, cfg.Tools.Notifications.Channels["telegram"]))
+		}
+		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notificationRouter))
 	}
 	startWeixinContextSyncer(serverCtx, weixin.NewSyncer(st).WithConfig(cfg).WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg)))
+	startTelegramService(serverCtx, telegramService)
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),
@@ -96,6 +116,14 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("sparkclaw gateway stopped")
+}
+
+func startTelegramService(ctx context.Context, service *telegram.Service) {
+	go func() {
+		if err := service.Run(ctx); err != nil && ctx.Err() == nil {
+			slog.Warn("Telegram connector stopped", "code", "telegram_service_failed")
+		}
+	}()
 }
 
 func startWeixinContextSyncer(ctx context.Context, syncer *weixin.Syncer) {

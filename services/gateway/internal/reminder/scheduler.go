@@ -57,6 +57,7 @@ func (s *Scheduler) deliver(ctx context.Context, reminder app.Reminder) app.Remi
 	result, err := s.router.Send(ctx, notification.Notification{
 		ReminderID:       reminder.ID,
 		Channel:          reminder.Channel,
+		BindingID:        reminder.BindingID,
 		Recipient:        reminder.Recipient,
 		RecipientBinding: reminder.RecipientBinding,
 		CredentialRef:    reminder.CredentialRef,

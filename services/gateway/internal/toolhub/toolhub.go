@@ -1009,7 +1009,7 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "reminders.create",
-			Description: "Create a local scheduled self reminder. Default to channel=web unless the current session is a Weixin chat or the user explicitly asks for Weixin/vx. For Web-originated Weixin reminders, include recipient matching one bound Weixin user when multiple bindings exist.",
+			Description: "Create a local scheduled self reminder. Default to the current external chat channel, otherwise web. For Web-originated Telegram or Weixin reminders, include a recipient matching one active binding when multiple bindings exist.",
 			InputSchema: schema("object", []string{"text", "due_time"}, map[string]any{
 				"text":       stringSchema(),
 				"due_time":   stringSchema(),

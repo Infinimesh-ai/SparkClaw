@@ -1942,6 +1942,43 @@ button.finderRow {
   max-width: 100%;
 }
 
+.bindingCapability {
+  min-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.inputGroup.compact {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inputGroup.compact input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  outline: none;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+}
+
+.inputGroup.compact input:focus {
+  border-color: var(--cyber-blue);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.18);
+}
+
+.inputGroup.compact input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .bindingQr,
 .bindingEmpty {
   display: flex;
@@ -1995,6 +2032,13 @@ button.finderRow {
   font-size: 12px;
   font-weight: 700;
   text-align: center;
+}
+
+.bindingOpenLink {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+  text-decoration: none;
 }
 
 .bindingList {
@@ -2296,5 +2340,34 @@ button.finderRow {
 
   .composer {
     margin: 0 16px 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bindingItemTop {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bindingItemTop .compactButtons {
+    justify-content: flex-end;
+  }
+
+  .statusGrid.compact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .statusGrid.compact dd {
+    margin-bottom: 6px;
+  }
+
+  .bindingScanned {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bindingOpenLink,
+  .bindingEmpty .secondaryButton {
+    width: 100%;
   }
 }

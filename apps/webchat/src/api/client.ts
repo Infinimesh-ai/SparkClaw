@@ -166,10 +166,10 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
-  startNotificationBinding: (channel = "weixin") =>
+  startNotificationBinding: (channel = "weixin", botToken = "") =>
     request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
       method: "POST",
-      body: JSON.stringify({ default_for_channel: false, scopes: ["reminder_send_self"] })
+      body: JSON.stringify({ default_for_channel: false, scopes: ["reminder_send_self"], bot_token: botToken })
     }),
   notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),

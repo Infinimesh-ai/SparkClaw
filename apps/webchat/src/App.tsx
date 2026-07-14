@@ -66,8 +66,8 @@ import {
   saveDocumentUsage,
   shortId,
   sortDocumentsByUsage,
-  sortWeixinBindings,
-  isVisibleWeixinBinding
+  sortNotificationBindings,
+  isVisibleNotificationBinding
 } from "./lib/format";
 import type { DocumentUsage } from "./lib/format";
 import type {
@@ -155,7 +155,7 @@ export function App() {
         api.config(),
         api.owner(),
         api.clients(),
-        api.notificationBindings("weixin"),
+        api.notificationBindings(),
         api.approvals(),
         api.memoryCandidates(),
         api.memories(),
@@ -168,7 +168,7 @@ export function App() {
     setRuntimeConfig(configStatus);
     setOwnerProfile(owner);
     setClients(clientList.clients ?? []);
-    setNotificationBindings(bindingList.bindings ?? []);
+    setNotificationBindings((current) => preserveEphemeralBindingData(bindingList.bindings ?? [], current));
     setApprovals(approvalList.approvals);
     setCandidates(candidateList.memory_candidates);
     setMemories(memoryList.memories);
@@ -263,7 +263,11 @@ export function App() {
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
   const weixinBindings = useMemo(
-    () => sortWeixinBindings(notificationBindings.filter((binding) => binding.channel === "weixin" && isVisibleWeixinBinding(binding.status))),
+    () => sortNotificationBindings(notificationBindings.filter((binding) => binding.channel === "weixin" && isVisibleNotificationBinding(binding.status))),
+    [notificationBindings]
+  );
+  const telegramBindings = useMemo(
+    () => sortNotificationBindings(notificationBindings.filter((binding) => binding.channel === "telegram" && isVisibleNotificationBinding(binding.status))),
     [notificationBindings]
   );
   const active = sessions.find((session) => session.id === activeSession);
@@ -615,12 +619,16 @@ export function App() {
     }
   }
 
-  async function startWeixinBinding() {
+  async function startNotificationBinding(channel: string, botToken = "") {
     try {
       setError("");
-      const binding = await api.startNotificationBinding("weixin");
+      const binding = await api.startNotificationBinding(channel, botToken);
       setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
-      await refreshGlobal();
+      if (channel === "telegram") {
+        setRuntimeConfig(await api.config());
+      } else {
+        await refreshGlobal();
+      }
       setTab("settings");
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.binding);
@@ -628,16 +636,19 @@ export function App() {
     }
   }
 
-  async function refreshWeixinBinding(id: string) {
+  async function refreshNotificationBinding(id: string) {
     const binding = await api.notificationBinding(id);
-    setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
+    setNotificationBindings((current) => preserveEphemeralBindingData(
+      [binding, ...current.filter((item) => item.id !== binding.id)],
+      current
+    ));
     if (!isBindingPending(binding.status)) {
       await refreshGlobal();
     }
     return binding;
   }
 
-  async function revokeWeixinBinding(id: string) {
+  async function revokeNotificationBinding(id: string) {
     try {
       setError("");
       await api.revokeNotificationBinding(id);
@@ -1092,13 +1103,14 @@ export function App() {
             ownerProfile={ownerProfile}
             clients={clients}
             weixinBindings={weixinBindings}
+            telegramBindings={telegramBindings}
             text={text}
             language={language}
             onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
             onRevokeClient={(id) => revokeClient(id)}
-            onStartWeixinBinding={() => startWeixinBinding()}
-            onRefreshWeixinBinding={(id) => refreshWeixinBinding(id)}
-            onRevokeWeixinBinding={(id) => revokeWeixinBinding(id)}
+            onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
+            onRefreshNotificationBinding={(id) => refreshNotificationBinding(id)}
+            onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
             onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
           />
         )}
@@ -1107,3 +1119,13 @@ export function App() {
   );
 }
 
+function preserveEphemeralBindingData(incoming: NotificationBinding[], current: NotificationBinding[]) {
+  const previousByID = new Map(current.map((binding) => [binding.id, binding]));
+  return incoming.map((binding) => {
+    const previous = previousByID.get(binding.id);
+    if (binding.channel === "telegram" && isBindingPending(binding.status) && !binding.qr_code_url && previous?.qr_code_url) {
+      return { ...binding, qr_code_url: previous.qr_code_url };
+    }
+    return binding;
+  });
+}

@@ -206,6 +206,8 @@ type StateConfig struct {
 	EncryptAtRest     bool   `json:"encrypt_at_rest"`
 	EncryptionKey     string `json:"encryption_key,omitempty"`
 	EncryptionKeyFile string `json:"encryption_key_file,omitempty"`
+	CredentialKey     string `json:"credential_key,omitempty"`
+	CredentialKeyFile string `json:"credential_key_file,omitempty"`
 }
 
 type SkillsConfig struct {
@@ -460,6 +462,8 @@ func Default() Config {
 			EncryptAtRest:     false,
 			EncryptionKey:     "",
 			EncryptionKeyFile: "",
+			CredentialKey:     "",
+			CredentialKeyFile: "./data/memory/gateway-credentials.key",
 		},
 		Skills: SkillsConfig{
 			Dirs: []string{"./skills", "./data/skills"},
@@ -555,6 +559,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE"); v != "" {
 		cfg.State.EncryptionKeyFile = v
+	}
+	if v := os.Getenv("SPARKCLAW_CREDENTIAL_KEY"); v != "" {
+		cfg.State.CredentialKey = v
+	}
+	if v := os.Getenv("SPARKCLAW_CREDENTIAL_KEY_FILE"); v != "" {
+		cfg.State.CredentialKeyFile = v
 	}
 	if v := os.Getenv("SPARKCLAW_MODEL_MODE"); v != "" {
 		switch strings.ToLower(strings.TrimSpace(v)) {
@@ -778,6 +788,11 @@ func applyEnv(cfg *Config) {
 	if cfg.State.EncryptionKeyFile != "" {
 		if abs, err := filepath.Abs(cfg.State.EncryptionKeyFile); err == nil {
 			cfg.State.EncryptionKeyFile = abs
+		}
+	}
+	if cfg.State.CredentialKeyFile != "" {
+		if abs, err := filepath.Abs(cfg.State.CredentialKeyFile); err == nil {
+			cfg.State.CredentialKeyFile = abs
 		}
 	}
 	if cfg.Storage.ArtifactDir != "" {

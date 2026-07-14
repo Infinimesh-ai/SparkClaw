@@ -141,7 +141,9 @@
     "path": "./data/memory/gateway-state.json",
     "encrypt_at_rest": false,
     "encryption_key": "",
-    "encryption_key_file": ""
+    "encryption_key_file": "",
+    "credential_key": "",
+    "credential_key_file": "./data/memory/gateway-credentials.key"
   },
   "skills": {
     "dirs": ["./skills", "./data/skills"]

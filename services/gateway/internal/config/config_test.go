@@ -249,6 +249,24 @@ func TestLoadAppliesStateEncryptionEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesCredentialKeyEnvironment(t *testing.T) {
+	root := t.TempDir()
+	keyFile := filepath.Join(root, "credential.key")
+	t.Setenv("SPARKCLAW_CREDENTIAL_KEY", "01234567890123456789012345678901")
+	t.Setenv("SPARKCLAW_CREDENTIAL_KEY_FILE", keyFile)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.State.CredentialKey != "01234567890123456789012345678901" {
+		t.Fatalf("credential key env did not apply")
+	}
+	if cfg.State.CredentialKeyFile != keyFile {
+		t.Fatalf("credential key file was not normalized: %#v", cfg.State)
+	}
+}
+
 func escapeJSONPath(path string) string {
 	out := ""
 	for _, ch := range path {

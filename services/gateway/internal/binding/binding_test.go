@@ -143,6 +143,9 @@ func TestTelegramAdapterDoesNotPersistRejectedToken(t *testing.T) {
 
 func TestRouterTelegramCapabilitySeparatesAvailabilityAndState(t *testing.T) {
 	cfg := config.Default()
+	channel := cfg.Tools.Notifications.Channels["telegram"]
+	channel.Enabled = true
+	cfg.Tools.Notifications.Channels["telegram"] = channel
 	st := store.NewMemoryStore()
 	vault := credential.New(st, credential.Options{Key: strings.Repeat("v", 32)})
 	router := NewRouter(cfg, vault)
@@ -157,7 +160,7 @@ func TestRouterTelegramCapabilitySeparatesAvailabilityAndState(t *testing.T) {
 		t.Fatalf("pending binding capability mismatch: %#v", capability)
 	}
 
-	channel := cfg.Tools.Notifications.Channels["telegram"]
+	channel = cfg.Tools.Notifications.Channels["telegram"]
 	channel.Enabled = false
 	cfg.Tools.Notifications.Channels["telegram"] = channel
 	capability = NewRouter(cfg, vault).Capability("telegram", nil)
@@ -165,7 +168,11 @@ func TestRouterTelegramCapabilitySeparatesAvailabilityAndState(t *testing.T) {
 		t.Fatalf("operator kill switch mismatch: %#v", capability)
 	}
 
-	capability = NewRouter(config.Default(), credential.New(st, credential.Options{})).Capability("telegram", nil)
+	missingKeyCfg := config.Default()
+	channel = missingKeyCfg.Tools.Notifications.Channels["telegram"]
+	channel.Enabled = true
+	missingKeyCfg.Tools.Notifications.Channels["telegram"] = channel
+	capability = NewRouter(missingKeyCfg, credential.New(st, credential.Options{})).Capability("telegram", nil)
 	if capability.Startable || capability.DisabledReason != credential.CodeKeyUnavailable {
 		t.Fatalf("missing credential key mismatch: %#v", capability)
 	}

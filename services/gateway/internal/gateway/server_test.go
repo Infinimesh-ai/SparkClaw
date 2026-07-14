@@ -2293,6 +2293,7 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	channel := cfg.Tools.Notifications.Channels["telegram"]
+	channel.Enabled = true
 	channel.BaseURL = telegramAPI.URL
 	cfg.Tools.Notifications.Channels["telegram"] = channel
 	st := store.NewMemoryStore()

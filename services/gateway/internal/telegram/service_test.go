@@ -373,6 +373,9 @@ func telegramTestConfig(t *testing.T) config.Config {
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = t.TempDir()
 	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
+	channel := cfg.Tools.Notifications.Channels["telegram"]
+	channel.Enabled = true
+	cfg.Tools.Notifications.Channels["telegram"] = channel
 	return cfg
 }
 

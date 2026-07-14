@@ -128,6 +128,7 @@ type NotificationChannelConfig struct {
 	PrivateChatsOnly   bool   `json:"privateChatsOnly,omitempty"`
 	MaxDownloadBytes   int64  `json:"maxDownloadBytes,omitempty"`
 	MaxAttachments     int    `json:"maxAttachments,omitempty"`
+	MaxVoiceSeconds    int    `json:"maxVoiceSeconds,omitempty"`
 	MaxConcurrency     int    `json:"maxConcurrency,omitempty"`
 	MaxPending         int    `json:"maxPending,omitempty"`
 }
@@ -408,6 +409,7 @@ func Default() Config {
 						PrivateChatsOnly:   true,
 						MaxDownloadBytes:   20 << 20,
 						MaxAttachments:     5,
+						MaxVoiceSeconds:    120,
 						MaxConcurrency:     4,
 						MaxPending:         32,
 					},
@@ -769,6 +771,13 @@ func applyEnv(cfg *Config) {
 			cfg.Tools.Notifications.Channels["telegram"] = ch
 		}
 	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_VOICE_SECONDS"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxVoiceSeconds = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
 	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_CONCURRENCY"); v != "" {
 		if value, err := strconv.Atoi(v); err == nil {
 			ch := cfg.Tools.Notifications.Channels["telegram"]
@@ -913,6 +922,9 @@ func normalizeNotificationChannels(cfg *NotificationsToolConfig) error {
 	if telegram.MaxAttachments <= 0 {
 		telegram.MaxAttachments = defaults.MaxAttachments
 	}
+	if telegram.MaxVoiceSeconds <= 0 {
+		telegram.MaxVoiceSeconds = defaults.MaxVoiceSeconds
+	}
 	if telegram.MaxConcurrency <= 0 {
 		telegram.MaxConcurrency = defaults.MaxConcurrency
 	}
@@ -944,6 +956,9 @@ func normalizeNotificationChannels(cfg *NotificationsToolConfig) error {
 	}
 	if telegram.MaxAttachments < 1 || telegram.MaxAttachments > 5 {
 		return errors.New("Telegram maxAttachments must be between 1 and 5")
+	}
+	if telegram.MaxVoiceSeconds < 1 || telegram.MaxVoiceSeconds > 600 {
+		return errors.New("Telegram maxVoiceSeconds must be between 1 and 600")
 	}
 	if telegram.MaxConcurrency < 1 || telegram.MaxConcurrency > 16 {
 		return errors.New("Telegram maxConcurrency must be between 1 and 16")

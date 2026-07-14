@@ -280,7 +280,7 @@ func TestLoadNormalizesTelegramConnectorDefaults(t *testing.T) {
 	if telegram.UpdateMode != "long-polling" || telegram.PollTimeoutSeconds != 30 || !telegram.PrivateChatsOnly {
 		t.Fatalf("Telegram polling defaults missing: %#v", telegram)
 	}
-	if telegram.MaxDownloadBytes != 20<<20 || telegram.MaxAttachments != 5 || telegram.MaxConcurrency != 4 || telegram.MaxPending != 32 {
+	if telegram.MaxDownloadBytes != 20<<20 || telegram.MaxAttachments != 5 || telegram.MaxVoiceSeconds != 120 || telegram.MaxConcurrency != 4 || telegram.MaxPending != 32 {
 		t.Fatalf("Telegram limits missing: %#v", telegram)
 	}
 }
@@ -291,6 +291,7 @@ func TestLoadAppliesTelegramEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_TELEGRAM_POLL_TIMEOUT_SECONDS", "20")
 	t.Setenv("SPARKCLAW_TELEGRAM_MAX_DOWNLOAD_BYTES", "1048576")
 	t.Setenv("SPARKCLAW_TELEGRAM_MAX_ATTACHMENTS", "3")
+	t.Setenv("SPARKCLAW_TELEGRAM_MAX_VOICE_SECONDS", "90")
 	t.Setenv("SPARKCLAW_TELEGRAM_MAX_CONCURRENCY", "2")
 	t.Setenv("SPARKCLAW_TELEGRAM_MAX_PENDING", "8")
 
@@ -302,7 +303,7 @@ func TestLoadAppliesTelegramEnvironment(t *testing.T) {
 	if telegram.Enabled || telegram.BaseURL != "http://127.0.0.1:18888" || telegram.PollTimeoutSeconds != 20 {
 		t.Fatalf("Telegram environment did not apply: %#v", telegram)
 	}
-	if telegram.MaxDownloadBytes != 1048576 || telegram.MaxAttachments != 3 || telegram.MaxConcurrency != 2 || telegram.MaxPending != 8 {
+	if telegram.MaxDownloadBytes != 1048576 || telegram.MaxAttachments != 3 || telegram.MaxVoiceSeconds != 90 || telegram.MaxConcurrency != 2 || telegram.MaxPending != 8 {
 		t.Fatalf("Telegram limits environment did not apply: %#v", telegram)
 	}
 }

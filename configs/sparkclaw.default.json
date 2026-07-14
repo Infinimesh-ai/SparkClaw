@@ -97,6 +97,7 @@
           "privateChatsOnly": true,
           "maxDownloadBytes": 20971520,
           "maxAttachments": 5,
+          "maxVoiceSeconds": 120,
           "maxConcurrency": 4,
           "maxPending": 32
         }

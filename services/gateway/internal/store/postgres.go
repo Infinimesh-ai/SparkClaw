@@ -1053,6 +1053,11 @@ func (s *PostgresStore) ClaimPairingCode(id, clientID string) (app.PairingCode, 
 func (s *PostgresStore) AddMessage(message app.Message) app.Message {
 	if message.ID == "" {
 		message.ID = app.NewID("m")
+	} else {
+		var exists bool
+		if err := s.db.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)`, message.ID).Scan(&exists); err == nil && exists {
+			return message
+		}
 	}
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = time.Now().UTC()

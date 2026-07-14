@@ -601,6 +601,12 @@ func (s *MemoryStore) AddMessage(message app.Message) app.Message {
 	defer s.mu.Unlock()
 	if message.ID == "" {
 		message.ID = app.NewID("m")
+	} else {
+		for _, existing := range s.messages[message.SessionID] {
+			if existing.ID == message.ID {
+				return existing
+			}
+		}
 	}
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = time.Now().UTC()

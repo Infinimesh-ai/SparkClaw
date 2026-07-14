@@ -61,23 +61,33 @@ func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 }
 
 func (r Runtime) HandleMessage(ctx context.Context, sessionID, content string) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, content, nil, nil)
+	return r.handleMessage(ctx, sessionID, content, content, nil, nil, "", "")
 }
 
 func (r Runtime) HandleMessageStream(ctx context.Context, sessionID, content string, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, content, nil, emit)
+	return r.handleMessage(ctx, sessionID, content, content, nil, emit, "", "")
 }
 
 func (r Runtime) HandleMessageWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, nil)
+	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, nil, "", "")
 }
 
 func (r Runtime) HandleMessageStreamWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, emit)
+	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, emit, "", "")
 }
 
-func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, agentContent string, attachments []MessageAttachment, emit StreamHandler) (Result, error) {
+func (r Runtime) HandleMessageWithAttachmentsIdempotent(ctx context.Context, sessionID, messageID, runID, content string, attachments []MessageAttachment) (Result, error) {
+	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, nil, messageID, runID)
+}
+
+func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, agentContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string) (Result, error) {
+	if requestedRunID != "" {
+		if existing, ok := r.store.GetRun(requestedRunID); ok && existing.SessionID == sessionID && existing.State != "received" {
+			return r.resultForExistingRun(existing), nil
+		}
+	}
 	userMessage := r.store.AddMessage(app.Message{
+		ID:          messageID,
 		SessionID:   sessionID,
 		Role:        "user",
 		Content:     visibleContent,
@@ -90,11 +100,14 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 	}
 
 	run := app.AgentRun{
-		ID:        app.NewID("run"),
+		ID:        requestedRunID,
 		SessionID: sessionID,
 		State:     "received",
 		Risk:      classifyRisk(agentContent),
 		StartedAt: time.Now().UTC(),
+	}
+	if run.ID == "" {
+		run.ID = app.NewID("run")
 	}
 	r.store.SaveRun(run)
 	guard, guardErr := r.classifyWithGuard(ctx, sessionID, run.ID, agentContent)
@@ -248,6 +261,23 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 	})
 	r.writeTrace(ctx, run, reactResult.Chat, allToolCalls, allApprovals, feedback, &episode)
 	return Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}, nil
+}
+
+func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
+	message := app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary}
+	messages := r.store.ListMessages(run.SessionID)
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].RunID == run.ID && messages[index].Role == "assistant" {
+			message = messages[index]
+			break
+		}
+	}
+	return Result{
+		Run:       run,
+		Message:   message,
+		ToolCalls: toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID),
+		Approvals: approvalsForRun(r.store.ListApprovals(""), run.ID),
+	}
 }
 
 func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID string) (Result, bool, error) {

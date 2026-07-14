@@ -26,6 +26,7 @@ check() {
 
 check "node" node --version
 check "npm" npm --version
+check "curl" curl --version
 check "docker" bash -lc "$DOCKER_BIN --version"
 check "docker compose" bash -lc "$DOCKER_BIN compose version"
 if go version >/tmp/sparkclaw-doctor.out 2>&1; then
@@ -59,6 +60,24 @@ if command -v lsof >/dev/null 2>&1; then
       echo "ok  port $port available"
     fi
   done
+fi
+
+SPEECH_ENABLED="${SPARKCLAW_SPEECH_ENABLED:-true}"
+if [[ "$SPEECH_ENABLED" == "true" || "$SPEECH_ENABLED" == "1" ]]; then
+  SPEECH_BASE_URL="${SPARKCLAW_SPEECH_BASE_URL:-https://sparkclaw.infinimesh.cloud/asr}"
+  SPEECH_MODEL="${SPARKCLAW_SPEECH_MODEL:-sparkclaw-asr}"
+  SPEECH_RUNTIME_VERSION="${SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION:-0.24.0}"
+  check "speech health" curl --fail --silent --show-error --max-time 5 "$SPEECH_BASE_URL/health"
+  check "speech runtime" bash -lc '
+    payload="$(curl --fail --silent --show-error --max-time 5 "$1/version")" || exit 1
+    node -e '\''const body = JSON.parse(process.argv[1]); if (body.version !== process.argv[2]) { throw new Error(`expected vLLM ${process.argv[2]}, got ${body.version ?? "missing"}`); }'\'' "$payload" "$2"
+  ' _ "$SPEECH_BASE_URL" "$SPEECH_RUNTIME_VERSION"
+  check "speech model" bash -lc '
+    payload="$(curl --fail --silent --show-error --max-time 5 "$1/v1/models")" || exit 1
+    node -e '\''const body = JSON.parse(process.argv[1]); if (!body.data?.some((item) => item.id === process.argv[2])) { throw new Error(`served model ${process.argv[2]} is unavailable`); }'\'' "$payload" "$2"
+  ' _ "$SPEECH_BASE_URL" "$SPEECH_MODEL"
+else
+  echo "warn speech checks disabled by SPARKCLAW_SPEECH_ENABLED=$SPEECH_ENABLED"
 fi
 
 echo "done"

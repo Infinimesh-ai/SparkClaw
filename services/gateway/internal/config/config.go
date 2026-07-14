@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 type Config struct {
 	Gateway    GatewayConfig   `json:"gateway"`
 	Model      ModelConfig     `json:"model"`
+	Speech     SpeechConfig    `json:"speech"`
 	Plugins    PluginsConfig   `json:"plugins"`
 	Tools      ToolsConfig     `json:"tools"`
 	Security   SecurityConfig  `json:"security"`
@@ -60,6 +62,21 @@ type ModelProfile struct {
 	ContextTokens int    `json:"context_tokens"`
 	MTP           bool   `json:"mtp"`
 	MaxTokens     int    `json:"max_tokens"`
+}
+
+type SpeechConfig struct {
+	Enabled         bool     `json:"enabled"`
+	Backend         string   `json:"backend"`
+	BaseURL         string   `json:"base_url"`
+	AllowedHosts    []string `json:"allowed_hosts"`
+	Model           string   `json:"model"`
+	DefaultLanguage string   `json:"default_language"`
+	TimeoutSeconds  int      `json:"timeout_seconds"`
+	MaxAudioSeconds int      `json:"max_audio_seconds"`
+	MaxUploadBytes  int64    `json:"max_upload_bytes"`
+	MaxConcurrency  int      `json:"max_concurrency"`
+	MaxPending      int      `json:"max_pending"`
+	RetainAudio     bool     `json:"retain_audio"`
 }
 
 type PluginsConfig struct {
@@ -278,6 +295,9 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
 	normalizeRuntimeLimits(&cfg.Runtime)
+	if err := normalizeSpeechConfig(&cfg.Speech); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -301,6 +321,83 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	if rt.ReactMaxRepeatedToolCalls <= 0 {
 		rt.ReactMaxRepeatedToolCalls = defaults.ReactMaxRepeatedToolCalls
 	}
+}
+
+func normalizeSpeechConfig(speech *SpeechConfig) error {
+	defaults := Default().Speech
+	if speech.TimeoutSeconds <= 0 {
+		speech.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if speech.MaxAudioSeconds <= 0 {
+		speech.MaxAudioSeconds = defaults.MaxAudioSeconds
+	}
+	if speech.MaxUploadBytes <= 0 {
+		speech.MaxUploadBytes = defaults.MaxUploadBytes
+	}
+	if speech.MaxConcurrency <= 0 {
+		speech.MaxConcurrency = defaults.MaxConcurrency
+	}
+	if speech.MaxPending < 0 {
+		return errors.New("speech.max_pending cannot be negative")
+	}
+	if strings.TrimSpace(speech.DefaultLanguage) == "" {
+		speech.DefaultLanguage = defaults.DefaultLanguage
+	}
+	if len(speech.AllowedHosts) == 0 {
+		speech.AllowedHosts = append([]string(nil), defaults.AllowedHosts...)
+	}
+	speech.AllowedHosts = normalizeHostList(speech.AllowedHosts)
+	if speech.RetainAudio {
+		return errors.New("speech.retain_audio is not supported")
+	}
+	if !speech.Enabled {
+		speech.Backend = "disabled"
+		return nil
+	}
+
+	speech.Backend = strings.ToLower(strings.TrimSpace(speech.Backend))
+	if speech.Backend != "openai-http" {
+		return fmt.Errorf("unsupported speech backend %q", speech.Backend)
+	}
+	if strings.TrimSpace(speech.Model) == "" {
+		return errors.New("speech.model is required")
+	}
+	parsed, err := url.Parse(strings.TrimSpace(speech.BaseURL))
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		return errors.New("speech.base_url must be an absolute https URL")
+	}
+	if parsed.Scheme != "https" {
+		return errors.New("speech.base_url must use https")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("speech.base_url cannot contain credentials, query parameters, or fragments")
+	}
+	if !containsFold(speech.AllowedHosts, parsed.Hostname()) {
+		return fmt.Errorf("speech.base_url host %q is not listed in speech.allowed_hosts", parsed.Hostname())
+	}
+	speech.BaseURL = strings.TrimRight(parsed.String(), "/")
+	return nil
+}
+
+func normalizeHostList(values []string) []string {
+	out := []string{}
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" || containsFold(out, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func containsFold(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func Default() Config {
@@ -354,6 +451,20 @@ func Default() Config {
 				Model:         "Qwen/Qwen3Guard-0.6B",
 				ContextTokens: 32768,
 			},
+		},
+		Speech: SpeechConfig{
+			Enabled:         true,
+			Backend:         "openai-http",
+			BaseURL:         "https://sparkclaw.infinimesh.cloud/asr",
+			AllowedHosts:    []string{"sparkclaw.infinimesh.cloud"},
+			Model:           "sparkclaw-asr",
+			DefaultLanguage: "auto",
+			TimeoutSeconds:  120,
+			MaxAudioSeconds: 60,
+			MaxUploadBytes:  3 << 20,
+			MaxConcurrency:  1,
+			MaxPending:      1,
+			RetainAudio:     false,
 		},
 		Plugins: PluginsConfig{
 			Entries: PluginEntriesConfig{
@@ -576,6 +687,49 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_MODEL_DISABLE_THINKING"); v != "" {
 		cfg.Model.DisableThinking = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_ENABLED"); v != "" {
+		cfg.Speech.Enabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_BACKEND"); v != "" {
+		cfg.Speech.Backend = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_BASE_URL"); v != "" {
+		cfg.Speech.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS"); v != "" {
+		cfg.Speech.AllowedHosts = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MODEL"); v != "" {
+		cfg.Speech.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_DEFAULT_LANGUAGE"); v != "" {
+		cfg.Speech.DefaultLanguage = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.TimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.MaxAudioSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Speech.MaxUploadBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_CONCURRENCY"); v != "" {
+		if maxConcurrency, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.MaxConcurrency = maxConcurrency
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_PENDING"); v != "" {
+		if maxPending, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.MaxPending = maxPending
+		}
 	}
 	if v := os.Getenv("SPARKCLAW_FAST_BASE_URL"); v != "" {
 		cfg.Model.Fast.BaseURL = v

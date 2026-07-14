@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
@@ -150,6 +155,127 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Speech.Enabled = true
+	cfg.Tools.Web.Search.Enabled = true
+	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "integration-entitlement-canary"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "integration-device-canary"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "integration-license-canary"
+	telegramConfig := cfg.Tools.Notifications.Channels["telegram"]
+	telegramConfig.Enabled = true
+	cfg.Tools.Notifications.Channels["telegram"] = telegramConfig
+	cfg.Workspaces.DefaultRoot = root + "/workspaces"
+	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
+	cfg.Storage.TraceDir = root + "/traces"
+	cfg.Storage.ArtifactDir = root + "/artifacts"
+	cfg.State.Backend = "file"
+	cfg.State.Path = root + "/state.json"
+	cfg.State.CredentialKey = "01234567890123456789012345678901"
+	cfg.State.CredentialKeyFile = ""
+
+	st, err := newStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closer, ok := st.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+	artifactStore := artifact.NewStore(cfg.Storage)
+	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir)).WithArtifactStore(artifactStore)
+	vault := credential.New(st, credential.Options{Key: cfg.State.CredentialKey, AutoCreate: true})
+	if err := vault.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	backend := &recordingSpeechTranscriber{status: speech.Status{
+		Enabled: true, Ready: true, State: speech.StateReady, Backend: "openai-http", Model: "sparkclaw-asr",
+	}}
+	telegramService := telegram.NewService(st, telegramConfig, vault, telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: backend}))
+	server := gateway.NewWithTrace(
+		cfg,
+		st,
+		tools,
+		runtime,
+		trace.NewWriter(cfg.Storage.TraceDir),
+		gateway.WithSpeechTranscriber(backend),
+		gateway.WithCredentialVault(vault),
+		gateway.WithNotificationBindingCancellation(telegramService.CancelBinding),
+	)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	readyRaw := readTestEndpoint(t, ts.URL+"/readyz")
+	var ready struct {
+		StateBackend string        `json:"state_backend"`
+		Speech       speech.Status `json:"speech"`
+	}
+	if err := json.Unmarshal(readyRaw, &ready); err != nil {
+		t.Fatal(err)
+	}
+	if ready.StateBackend != "file" || !ready.Speech.Enabled || !ready.Speech.Ready {
+		t.Fatalf("unexpected all-enabled readiness: %#v", ready)
+	}
+
+	configRaw := readTestEndpoint(t, ts.URL+"/api/config")
+	var publicConfig struct {
+		Speech struct {
+			Enabled bool `json:"enabled"`
+		} `json:"speech"`
+		Tools struct {
+			Web struct {
+				Search struct {
+					Enabled    bool `json:"enabled"`
+					Configured bool `json:"configured"`
+				} `json:"search"`
+			} `json:"web"`
+			Notifications struct {
+				Channels map[string]struct {
+					Enabled         bool `json:"enabled"`
+					OperatorEnabled bool `json:"operator_enabled"`
+				} `json:"channels"`
+			} `json:"notifications"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(configRaw, &publicConfig); err != nil {
+		t.Fatal(err)
+	}
+	telegramStatus := publicConfig.Tools.Notifications.Channels["telegram"]
+	if !publicConfig.Speech.Enabled || !publicConfig.Tools.Web.Search.Enabled || !publicConfig.Tools.Web.Search.Configured || !telegramStatus.Enabled || !telegramStatus.OperatorEnabled {
+		t.Fatalf("all-enabled public config mismatch: %#v", publicConfig)
+	}
+	for _, secret := range []string{
+		cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof,
+		cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation,
+		cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof,
+		cfg.State.CredentialKey,
+	} {
+		if strings.Contains(string(configRaw), secret) || strings.Contains(string(readyRaw), secret) {
+			t.Fatalf("public status leaked integration secret")
+		}
+	}
+}
+
+func readTestEndpoint(t *testing.T, endpoint string) []byte {
+	t.Helper()
+	response, err := http.Get(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s returned %d", endpoint, response.StatusCode)
+	}
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func newFailingInfoServer(t *testing.T, failure string) *httptest.Server {

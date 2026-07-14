@@ -95,19 +95,63 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultsSpeechToSparkClawASR(t *testing.T) {
+func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Speech.Enabled || cfg.Speech.Backend != "openai-http" {
-		t.Fatalf("speech should use the managed ASR endpoint by default: %#v", cfg.Speech)
+	if cfg.Speech.Enabled || cfg.Speech.Backend != "disabled" {
+		t.Fatalf("speech should be disabled by default: %#v", cfg.Speech)
 	}
 	if cfg.Speech.BaseURL != "https://sparkclaw.infinimesh.cloud/asr" || cfg.Speech.Model != "sparkclaw-asr" {
-		t.Fatalf("unexpected default speech endpoint: %#v", cfg.Speech)
+		t.Fatalf("managed speech profile should remain available for explicit enablement: %#v", cfg.Speech)
 	}
 	if cfg.Speech.MaxAudioSeconds != 60 || cfg.Speech.MaxUploadBytes != 3<<20 || cfg.Speech.MaxConcurrency != 1 {
 		t.Fatalf("speech limits missing: %#v", cfg.Speech)
+	}
+	if cfg.Tools.Web.Search.Enabled {
+		t.Fatalf("Infinimesh web search should be disabled by default: %#v", cfg.Tools.Web.Search)
+	}
+	if cfg.Tools.Notifications.Channels["telegram"].Enabled {
+		t.Fatalf("Telegram should be disabled by default: %#v", cfg.Tools.Notifications.Channels["telegram"])
+	}
+	if cfg.State.Backend != "file" {
+		t.Fatalf("default state backend changed: %#v", cfg.State)
+	}
+}
+
+func TestLoadOptionalFeatureCompatibilityMatrix(t *testing.T) {
+	tests := []struct {
+		name      string
+		webSearch string
+		speech    string
+		telegram  string
+	}{
+		{name: "all disabled", webSearch: "false", speech: "false", telegram: "false"},
+		{name: "Telegram only", webSearch: "false", speech: "false", telegram: "true"},
+		{name: "speech only", webSearch: "false", speech: "true", telegram: "false"},
+		{name: "all enabled with file state", webSearch: "true", speech: "true", telegram: "true"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("SPARKCLAW_WEB_SEARCH_ENABLED", test.webSearch)
+			t.Setenv("SPARKCLAW_SPEECH_ENABLED", test.speech)
+			t.Setenv("SPARKCLAW_TELEGRAM_ENABLED", test.telegram)
+			t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF", "test-entitlement")
+			t.Setenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION", "test-device")
+			t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF", "test-license")
+
+			cfg, err := Load("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Tools.Web.Search.Enabled != (test.webSearch == "true") || cfg.Speech.Enabled != (test.speech == "true") || cfg.Tools.Notifications.Channels["telegram"].Enabled != (test.telegram == "true") {
+				t.Fatalf("feature matrix mismatch: web=%v speech=%v telegram=%v", cfg.Tools.Web.Search.Enabled, cfg.Speech.Enabled, cfg.Tools.Notifications.Channels["telegram"].Enabled)
+			}
+			if cfg.State.Backend != "file" {
+				t.Fatalf("feature matrix left the default file backend: %#v", cfg.State)
+			}
+		})
 	}
 }
 
@@ -140,6 +184,7 @@ func TestLoadAppliesSpeechEnvironment(t *testing.T) {
 }
 
 func TestLoadRejectsInsecureOrUnlistedSpeechEndpoint(t *testing.T) {
+	t.Setenv("SPARKCLAW_SPEECH_ENABLED", "true")
 	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "http://sparkclaw.infinimesh.cloud/asr")
 	if _, err := Load(""); err == nil {
 		t.Fatal("expected insecure speech URL to be rejected")
@@ -414,7 +459,7 @@ func TestLoadNormalizesTelegramConnectorDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	telegram := cfg.Tools.Notifications.Channels["telegram"]
-	if !telegram.Enabled || telegram.Provider != "telegram-bot-api" || telegram.BaseURL != "https://api.telegram.org" {
+	if telegram.Enabled || telegram.Provider != "telegram-bot-api" || telegram.BaseURL != "https://api.telegram.org" {
 		t.Fatalf("unexpected Telegram defaults: %#v", telegram)
 	}
 	if telegram.UpdateMode != "long-polling" || telegram.PollTimeoutSeconds != 30 || !telegram.PrivateChatsOnly {
@@ -426,7 +471,7 @@ func TestLoadNormalizesTelegramConnectorDefaults(t *testing.T) {
 }
 
 func TestLoadAppliesTelegramEnvironment(t *testing.T) {
-	t.Setenv("SPARKCLAW_TELEGRAM_ENABLED", "false")
+	t.Setenv("SPARKCLAW_TELEGRAM_ENABLED", "true")
 	t.Setenv("SPARKCLAW_TELEGRAM_BASE_URL", "http://127.0.0.1:18888")
 	t.Setenv("SPARKCLAW_TELEGRAM_POLL_TIMEOUT_SECONDS", "20")
 	t.Setenv("SPARKCLAW_TELEGRAM_MAX_DOWNLOAD_BYTES", "1048576")
@@ -440,7 +485,7 @@ func TestLoadAppliesTelegramEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	telegram := cfg.Tools.Notifications.Channels["telegram"]
-	if telegram.Enabled || telegram.BaseURL != "http://127.0.0.1:18888" || telegram.PollTimeoutSeconds != 20 {
+	if !telegram.Enabled || telegram.BaseURL != "http://127.0.0.1:18888" || telegram.PollTimeoutSeconds != 20 {
 		t.Fatalf("Telegram environment did not apply: %#v", telegram)
 	}
 	if telegram.MaxDownloadBytes != 1048576 || telegram.MaxAttachments != 3 || telegram.MaxVoiceSeconds != 90 || telegram.MaxConcurrency != 2 || telegram.MaxPending != 8 {

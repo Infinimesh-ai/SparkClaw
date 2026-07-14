@@ -60,17 +60,20 @@ func main() {
 	defer transcriber.Close()
 	traces := trace.NewWriterFromConfig(cfg)
 	runtime := agent.NewRuntimeWithSkills(st, tools, policyEngine, models, traces, skills.NewRegistry(cfg)).WithArtifactStore(artifactStore)
+	telegramConfig := cfg.Tools.Notifications.Channels["telegram"]
 	credentialVault := credential.New(st, credential.Options{
 		Key:        cfg.State.CredentialKey,
 		KeyFile:    cfg.State.CredentialKeyFile,
-		AutoCreate: true,
+		AutoCreate: telegramConfig.Enabled,
 	})
-	if err := credentialVault.Ready(); err != nil {
-		slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
+	if telegramConfig.Enabled {
+		if err := credentialVault.Ready(); err != nil {
+			slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
+		}
 	}
 	telegramService := telegram.NewService(
 		st,
-		cfg.Tools.Notifications.Channels["telegram"],
+		telegramConfig,
 		credentialVault,
 		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}),
 	)
@@ -88,13 +91,15 @@ func main() {
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 	if cfg.Tools.Reminders.Enabled {
 		notificationRouter := notification.NewRouter(cfg, st)
-		if cfg.Tools.Notifications.Channels["telegram"].Enabled {
-			notificationRouter = notificationRouter.WithAdapter("telegram", telegram.NewNotificationAdapter(st, credentialVault, cfg.Tools.Notifications.Channels["telegram"]))
+		if telegramConfig.Enabled {
+			notificationRouter = notificationRouter.WithAdapter("telegram", telegram.NewNotificationAdapter(st, credentialVault, telegramConfig))
 		}
 		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notificationRouter))
 	}
 	startWeixinContextSyncer(serverCtx, weixin.NewSyncer(st).WithConfig(cfg).WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg)))
-	startTelegramService(serverCtx, telegramService)
+	if telegramConfig.Enabled {
+		startTelegramService(serverCtx, telegramService)
+	}
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),

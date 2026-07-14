@@ -93,7 +93,19 @@ if command -v lsof >/dev/null 2>&1; then
   done
 fi
 
-SPEECH_ENABLED="${SPARKCLAW_SPEECH_ENABLED:-true}"
+TELEGRAM_ENABLED="${SPARKCLAW_TELEGRAM_ENABLED:-false}"
+if is_true "$TELEGRAM_ENABLED"; then
+  echo "ok  Telegram connector enabled"
+  if command -v ffmpeg >/dev/null 2>&1; then
+    echo "ok  ffmpeg"
+  else
+    echo "warn ffmpeg unavailable; Telegram text and attachments work, but voice normalization is unavailable"
+  fi
+else
+  echo "ok  Telegram connector disabled"
+fi
+
+SPEECH_ENABLED="${SPARKCLAW_SPEECH_ENABLED:-false}"
 if [[ "$SPEECH_ENABLED" == "true" || "$SPEECH_ENABLED" == "1" ]]; then
   SPEECH_BASE_URL="${SPARKCLAW_SPEECH_BASE_URL:-https://sparkclaw.infinimesh.cloud/asr}"
   SPEECH_MODEL="${SPARKCLAW_SPEECH_MODEL:-sparkclaw-asr}"
@@ -108,7 +120,7 @@ if [[ "$SPEECH_ENABLED" == "true" || "$SPEECH_ENABLED" == "1" ]]; then
     node -e '\''const body = JSON.parse(process.argv[1]); if (!body.data?.some((item) => item.id === process.argv[2])) { throw new Error(`served model ${process.argv[2]} is unavailable`); }'\'' "$payload" "$2"
   ' _ "$SPEECH_BASE_URL" "$SPEECH_MODEL"
 else
-  echo "warn speech checks disabled by SPARKCLAW_SPEECH_ENABLED=$SPEECH_ENABLED"
+  echo "ok  speech disabled"
 fi
 
 echo "done"

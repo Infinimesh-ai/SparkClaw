@@ -549,7 +549,7 @@ func Default() Config {
 			},
 		},
 		Speech: SpeechConfig{
-			Enabled:         true,
+			Enabled:         false,
 			Backend:         "openai-http",
 			BaseURL:         "https://sparkclaw.infinimesh.cloud/asr",
 			AllowedHosts:    []string{"sparkclaw.infinimesh.cloud"},
@@ -606,7 +606,7 @@ func Default() Config {
 			Notifications: NotificationsToolConfig{
 				Channels: map[string]NotificationChannelConfig{
 					"telegram": {
-						Enabled:            true,
+						Enabled:            false,
 						Provider:           "telegram-bot-api",
 						BaseURL:            "https://api.telegram.org",
 						UpdateMode:         "long-polling",

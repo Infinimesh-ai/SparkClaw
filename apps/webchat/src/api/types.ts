@@ -160,6 +160,32 @@ export type ReadyStatus = {
   };
   model_mode: string;
   gateway_binding: string;
+  speech: SpeechStatus;
+};
+
+export type SpeechStatus = {
+  enabled: boolean;
+  ready: boolean;
+  state: "disabled" | "unavailable" | "warming" | "ready" | "busy" | string;
+  backend: string;
+  model: string;
+  supports_streaming: boolean;
+  accepted_content_types: string[];
+  max_audio_seconds: number;
+  max_upload_bytes: number;
+  reason?: string;
+};
+
+export type SpeechTranscriptionResult = {
+  id: string;
+  request_id: string;
+  session_id: string;
+  text: string;
+  language?: string;
+  duration_ms: number;
+  inference_ms: number;
+  model?: string;
+  audio_retained: false;
 };
 
 export type OwnerProfile = {
@@ -233,6 +259,15 @@ export type PublicConfig = {
     embedding: PublicModelProfile;
     reranker: PublicModelProfile;
     guard: PublicModelProfile;
+  };
+  speech: {
+    enabled: boolean;
+    backend: string;
+    model: string;
+    default_language: string;
+    max_audio_seconds: number;
+    max_upload_bytes: number;
+    retain_audio: false;
   };
   workspaces: {
     default_root: string;

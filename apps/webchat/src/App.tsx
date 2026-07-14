@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { api, apiToken, clearAPIToken, documentFileURL, saveAPIToken, sessionEventsURL, workspaceScreenshotURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
-import type { Language } from "./i18n";
+import type { Copy as CopyText, Language } from "./i18n";
 import {
   attachmentOnlyPrompt,
   isImageAttachment,
@@ -56,6 +56,9 @@ import {
   ToolTimelinePanel,
   TracePanel
 } from "./components/panels";
+import { VoiceInputButton, VoiceInputStatus } from "./components/VoiceInputButton";
+import { useVoiceInput } from "./hooks/useVoiceInput";
+import type { VoiceDraftAnchor, VoiceInputState } from "./hooks/useVoiceInput";
 import {
   fileKindLabel,
   fileNameFromPath,
@@ -70,6 +73,7 @@ import {
   isVisibleWeixinBinding
 } from "./lib/format";
 import type { DocumentUsage } from "./lib/format";
+import { insertVoiceTranscript } from "./lib/voiceDraft";
 import type {
   Approval,
   ArtifactObject,
@@ -141,6 +145,7 @@ export function App() {
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [sessionActionId, setSessionActionId] = useState("");
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeMessageStreamRef = useRef<string>("");
 
   useEffect(() => {
@@ -276,6 +281,35 @@ export function App() {
   const languageLabel = language === "zh" ? "中" : "EN";
   const nextLanguage = language === "zh" ? "en" : "zh";
 
+  const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
+    let nextCaret = 0;
+    setDraftsBySession((current) => {
+      const currentDraft = current[anchor.sessionId] ?? "";
+      const selectionStillValid = currentDraft === anchor.draft;
+      const start = selectionStillValid ? Math.min(anchor.selectionStart, currentDraft.length) : currentDraft.length;
+      const end = selectionStillValid ? Math.min(Math.max(anchor.selectionEnd, start), currentDraft.length) : currentDraft.length;
+      const inserted = insertVoiceTranscript(currentDraft, result.text, start, end);
+      nextCaret = inserted.caret;
+      return { ...current, [anchor.sessionId]: inserted.value };
+    });
+    if (anchor.sessionId === activeSession) {
+      window.requestAnimationFrame(() => {
+        composerInputRef.current?.focus();
+        composerInputRef.current?.setSelectionRange(nextCaret, nextCaret);
+      });
+    }
+  }, [activeSession]);
+
+  const voice = useVoiceInput({
+    speech: ready?.speech ?? null,
+    sessionId: activeSession,
+    language: runtimeConfig?.speech.default_language ?? "auto",
+    externallyDisabled: busy || !activeSession,
+    onTranscript: applyVoiceTranscript
+  });
+  const voiceLabel = voiceInputLabel(voice.state, voice.errorCode, voice.errorDetail, text);
+  const voiceTitle = voiceInputTitle(voice.state, voiceLabel, text);
+
   async function createSession() {
     try {
       setError("");
@@ -297,7 +331,7 @@ export function App() {
   async function send(content = activeInput, sessionId = activeSession) {
     const trimmed = content.trim();
     const attachments = attachmentsBySession[sessionId] ?? [];
-    if (!sessionId || (!trimmed && attachments.length === 0) || busy) return;
+    if (!sessionId || (!trimmed && attachments.length === 0) || busy || voice.active) return;
     const userMessageId = `local-user-${Date.now()}`;
     const assistantMessageId = `local-assistant-${Date.now()}`;
     try {
@@ -945,7 +979,22 @@ export function App() {
               >
                 <FileSearch size={18} />
               </button>
+              <VoiceInputButton
+                state={voice.state}
+                disabled={voice.disabled}
+                title={voiceTitle}
+                onClick={() => {
+                  const input = composerInputRef.current;
+                  voice.toggle({
+                    sessionId: activeSession,
+                    draft: activeInput,
+                    selectionStart: input?.selectionStart ?? activeInput.length,
+                    selectionEnd: input?.selectionEnd ?? activeInput.length
+                  });
+                }}
+              />
               <textarea
+                ref={composerInputRef}
                 value={activeInput}
                 onChange={(event) => {
                   if (!activeSession) return;
@@ -961,9 +1010,10 @@ export function App() {
                 placeholder={text.chat.placeholder}
                 disabled={busy}
               />
-              <button className="sendButton" disabled={busy || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}>
+              <button className="sendButton" disabled={busy || voice.active || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}>
                 <Send size={18} />
               </button>
+              <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} label={voiceLabel} />
             </form>
           </div>
           {documentPickerOpen && (
@@ -1107,3 +1157,44 @@ export function App() {
   );
 }
 
+function voiceInputTitle(state: VoiceInputState, label: string, text: CopyText) {
+  if (state === "recording") return text.chat.voiceStop;
+  if (state === "encoding" || state === "transcribing") return text.chat.voiceCancel;
+  if (state === "requesting_permission") return text.chat.voiceRequesting;
+  if (state === "disabled") return label;
+  return text.chat.voiceStart;
+}
+
+function voiceInputLabel(state: VoiceInputState, errorCode: string, errorDetail: string, text: CopyText) {
+  if (state === "requesting_permission") return text.chat.voiceRequesting;
+  if (state === "recording") return text.chat.voiceRecording;
+  if (state === "encoding") return text.chat.voicePreparing;
+  if (state === "transcribing") return text.chat.voiceTranscribing;
+  switch (errorCode) {
+    case "voice_capture_unsupported":
+      return text.chat.voiceUnsupported;
+    case "voice_permission_denied":
+      return text.chat.voicePermissionDenied;
+    case "voice_no_device":
+      return text.chat.voiceNoDevice;
+    case "voice_capture_failed":
+      return text.chat.voiceCaptureFailed;
+    case "speech_too_short":
+      return text.chat.voiceTooShort;
+    case "speech_no_speech":
+      return text.chat.voiceNoSpeech;
+    case "speech_too_large":
+      return text.chat.voiceTooLarge;
+    case "speech_busy":
+      return text.chat.voiceBusy;
+    case "speech_disabled":
+    case "speech_model_unavailable":
+      return state === "disabled" ? text.chat.voiceUnavailable : errorDetail || text.chat.voiceUnavailable;
+    case "speech_timeout":
+      return text.chat.voiceTimeout;
+    case "speech_inference_failed":
+      return errorDetail || text.chat.voiceFailed;
+    default:
+      return state === "error" ? errorDetail || text.chat.voiceFailed : text.chat.voiceUnavailable;
+  }
+}

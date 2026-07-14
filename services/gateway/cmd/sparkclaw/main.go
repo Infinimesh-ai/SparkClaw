@@ -72,7 +72,7 @@ func main() {
 		st,
 		cfg.Tools.Notifications.Channels["telegram"],
 		credentialVault,
-		telegram.NewDispatcher(st, runtime, cfg),
+		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}),
 	)
 	server := gateway.NewWithTrace(
 		cfg,
@@ -124,6 +124,41 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("sparkclaw gateway stopped")
+}
+
+type telegramSpeechTranscriber struct {
+	transcriber speech.Transcriber
+}
+
+func (a telegramSpeechTranscriber) Available(ctx context.Context) error {
+	if a.transcriber == nil {
+		return speech.NewError(speech.CodeDisabled, "speech transcription is disabled", false, nil)
+	}
+	status := a.transcriber.Status(ctx)
+	if !status.Enabled {
+		return speech.NewError(speech.CodeDisabled, "speech transcription is disabled", false, nil)
+	}
+	if !status.Ready {
+		return speech.NewError(speech.CodeUnavailable, "speech transcription is unavailable", true, nil)
+	}
+	return nil
+}
+
+func (a telegramSpeechTranscriber) Transcribe(ctx context.Context, request telegram.VoiceTranscriptionRequest) (string, error) {
+	if a.transcriber == nil {
+		return "", speech.NewError(speech.CodeDisabled, "speech transcription is disabled", false, nil)
+	}
+	result, err := a.transcriber.Transcribe(ctx, speech.Request{
+		RequestID:  request.RequestID,
+		SessionID:  request.SessionID,
+		Language:   request.Language,
+		PCM16WAV:   request.PCM16WAV,
+		DurationMS: int64(request.DurationMS),
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
 }
 
 func startTelegramService(ctx context.Context, service *telegram.Service) {

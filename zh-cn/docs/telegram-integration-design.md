@@ -85,7 +85,7 @@ Telegram 是现有 SparkClaw Agent Runtime 的 transport adapter，不创建第�
 | `startable` | 服务端计算的当前 start endpoint 调用许可；POST 会重新计算相同条件。 |
 | `disabled_reason` | `startable=false` 的稳定机器码，否则为空；UI 负责本地化展示。 |
 
-Disabled reason 优先级为 `connector_unavailable`、`operator_disabled`、`credential_key_unavailable`、`binding_in_progress`、`binding_active`。默认发行配置启用已存在的 Telegram connector；没有 binding 时不会发起任何 Telegram 请求。Operator 可用唯一 kill switch 显式关闭。
+Disabled reason 优先级为 `connector_unavailable`、`operator_disabled`、`credential_key_unavailable`、`binding_in_progress`、`binding_active`。默认发行配置关闭 Telegram，使 minimal runtime 没有 connector 副作用或 credential 要求。Operator 使用唯一 kill switch 显式开启；开启但没有 binding 时不会发起 Telegram 请求。
 
 Operator-disabled connector 不会让 `/readyz` 失败。已配置 active binding 无法解密 credential 时，connector 状态显示 degraded，且不启动 poller。
 
@@ -142,7 +142,7 @@ Vault 使用 AES-256-GCM 和每次随机 nonce，把带版本的 ciphertext enve
 密钥规则：
 
 - 从明确的环境值或配置 key file 加载 32-byte master key；
-- 默认本地部署可以在首次接受 binding 前，用加密随机数创建配置的 key file，权限必须为 `0600`；
+- 显式启用 Telegram 的本地部署可以在首次接受 binding 前，用加密随机数创建配置的 key file，权限必须为 `0600`；
 - master key 不得保存到 state snapshot 或 PostgreSQL；
 - 不得暴露提交 token 是否与现有值部分匹配；
 - 在可行范围内清零临时 token buffer，WebChat 每次响应后都清空输入；
@@ -248,7 +248,7 @@ API/UI 错误使用稳定 code 和已清洗 message。
 WebChat 渲染服务端 connector summary，不能因 config object 存在与否自行推断 capability。
 
 - 仅当 `startable=true` 且没有 in-flight request 时启用 token input 和 Bind button；
-- 默认 unbound 本地配置必须 startable，修复此前 token/button 永久 disabled 的状态；
+- Enabled 但 unbound 的本地配置必须 startable；默认 disabled 配置报告 `operator_disabled`；
 - disabled 时在控件旁展示本地化 `disabled_reason`；
 - password input 不能预填、持久化、记录日志或在 navigation 后恢复；
 - 成功和失败响应后都清空 token；

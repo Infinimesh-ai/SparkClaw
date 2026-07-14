@@ -85,7 +85,7 @@ The fields have distinct meanings:
 | `startable` | Server-computed permission to call the start endpoint now. The POST endpoint recomputes the same decision. |
 | `disabled_reason` | Stable machine code explaining `startable=false`, empty otherwise. The UI maps codes to localized copy. |
 
-Disabled reason precedence is `connector_unavailable`, `operator_disabled`, `credential_key_unavailable`, `binding_in_progress`, then `binding_active`. The default distribution enables the available Telegram connector; without a binding it performs no Telegram request. Operators can explicitly turn it off with the one kill switch.
+Disabled reason precedence is `connector_unavailable`, `operator_disabled`, `credential_key_unavailable`, `binding_in_progress`, then `binding_active`. The default distribution keeps Telegram off so the minimal runtime has no connector side effects or credential requirement. Operators enable it with the one kill switch; without a binding, an enabled connector performs no Telegram request.
 
 An operator-disabled connector does not make `/readyz` fail. A configured active binding whose credential cannot be decrypted is visible as degraded connector state and does not start a poller.
 
@@ -142,7 +142,7 @@ The vault uses AES-256-GCM with a fresh random nonce and stores a versioned ciph
 Key rules:
 
 - load a 32-byte master key from an explicit environment value or a configured key file;
-- the default local deployment may create the configured key file once with cryptographically random bytes and mode `0600` before accepting a binding;
+- an explicitly Telegram-enabled local deployment may create the configured key file once with cryptographically random bytes and mode `0600` before accepting a binding;
 - never store the master key in the state snapshot or PostgreSQL;
 - never expose whether a submitted token partially matched an existing value;
 - zero temporary token buffers where practical and clear the WebChat input after every response;
@@ -248,7 +248,7 @@ Errors returned to API/UI use stable codes and sanitized messages.
 WebChat renders the server connector summary and never derives capability from the mere presence of a config object.
 
 - token input and Bind button are enabled only when `startable=true` and no request is in flight;
-- the default unbound local configuration is startable, fixing the prior permanently-disabled token/button state;
+- an enabled but unbound local configuration is startable, while the default disabled configuration reports `operator_disabled`;
 - when disabled, the localized `disabled_reason` is shown next to the control;
 - password input is never prefilled, persisted, logged, or restored after navigation;
 - submit clears the token on both success and failure;

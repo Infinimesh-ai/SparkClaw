@@ -24,6 +24,21 @@ check() {
   fi
 }
 
+is_true() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on|required) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+secret_configured() {
+  local direct_name="$1"
+  local file_name="$2"
+  local direct_value="${!direct_name:-}"
+  local file_path="${!file_name:-}"
+  [[ -n "$direct_value" ]] || [[ -n "$file_path" && -r "$file_path" && -s "$file_path" ]]
+}
+
 check "node" node --version
 check "npm" npm --version
 check "docker" bash -lc "$DOCKER_BIN --version"
@@ -50,6 +65,22 @@ for file in scripts/serve_fast.sh scripts/serve_deep.sh benchmarks/model_baselin
   fi
   echo "ok  $file"
 done
+
+if is_true "${SPARKCLAW_WEB_SEARCH_ENABLED:-false}"; then
+  if [[ "${SPARKCLAW_WEB_SEARCH_PROVIDER:-infinimesh-info}" == "infinimesh-info" ]] &&
+    secret_configured SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE &&
+    secret_configured SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE &&
+    secret_configured SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE; then
+    echo "ok  infinimesh info credentials configured"
+  elif [[ "${SPARKCLAW_WEB_SEARCH_PROVIDER:-infinimesh-info}" == "infinimesh-info" ]]; then
+    echo "err infinimesh info credentials missing"
+    exit 1
+  else
+    echo "warn legacy web search provider configured"
+  fi
+else
+  echo "ok  web search disabled"
+fi
 
 if command -v lsof >/dev/null 2>&1; then
   for port in 18789 18790 18889; do

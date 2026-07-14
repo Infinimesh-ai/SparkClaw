@@ -61,6 +61,18 @@
             "maxResults": 5
           }
         }
+      },
+      "infinimeshInfo": {
+        "config": {
+          "baseUrl": "https://info.infinimesh.cn",
+          "tokenBatchSize": 10,
+          "maxAttempts": 3,
+          "retryBaseDelayMs": 200,
+          "requestTimeoutSeconds": 30,
+          "responseBodyMaxBytes": 4194304,
+          "language": "zh-CN",
+          "maxSources": 8
+        }
       }
     }
   },
@@ -68,7 +80,7 @@
     "web": {
       "search": {
         "enabled": false,
-        "provider": "parallel-free"
+        "provider": "infinimesh-info"
       }
     },
     "browserAutomation": {

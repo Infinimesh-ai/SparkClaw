@@ -1,6 +1,8 @@
 package reminder
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +11,10 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 )
 
 func TestSchedulerRecordsFailureWhenChannelDisabled(t *testing.T) {
@@ -77,6 +81,54 @@ func TestSchedulerStoresWebReminderDelivery(t *testing.T) {
 	}
 	if updated.Status != "sent" || updated.LastDeliveryID != deliveries[0].ID {
 		t.Fatalf("expected reminder to be marked sent, got %#v", updated)
+	}
+}
+
+func TestSchedulerDeliversTelegramReminderThroughBoundCredential(t *testing.T) {
+	var gotChatID int64
+	var gotText string
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			ChatID int64  `json:"chat_id"`
+			Text   string `json:"text"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		gotChatID, gotText = payload.ChatID, payload.Text
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":88,"type":"private"},"date":1}}`))
+	}))
+	defer provider.Close()
+
+	cfg := config.Default()
+	st := store.NewMemoryStore()
+	vault := credential.New(st, credential.Options{Key: base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))})
+	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte("123456:AA-reminder-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "bind_telegram_reminder", Channel: "telegram", Provider: "telegram-bot-api", Status: "active",
+		ExternalChatID: "88", CredentialRef: ref, BaseURL: provider.URL,
+	})
+	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	reminder := st.SaveReminder(app.Reminder{
+		Text: "Telegram reminder", TextSummary: "Telegram reminder", DueTime: due, Timezone: "Asia/Shanghai",
+		Channel: "telegram", Recipient: "88", BindingID: binding.ID, CredentialRef: ref,
+		BaseURL: provider.URL, Status: "pending", CreatedAt: due.Add(-time.Hour), UpdatedAt: due.Add(-time.Hour),
+	})
+	router := notification.NewRouter(cfg, st).WithAdapter("telegram", telegram.NewNotificationAdapter(st, vault, cfg.Tools.Notifications.Channels["telegram"]))
+	scheduler := NewScheduler(st, router)
+	scheduler.now = func() time.Time { return due.Add(time.Minute) }
+	deliveries := scheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Status != "sent" || deliveries[0].Provider != "telegram-bot-api" {
+		t.Fatalf("unexpected Telegram delivery: %#v", deliveries)
+	}
+	if gotChatID != 88 || gotText != "Telegram reminder" {
+		t.Fatalf("unexpected Telegram request: chat=%d text=%q", gotChatID, gotText)
+	}
+	updated, _ := st.GetReminder(reminder.ID)
+	if updated.Status != "sent" || updated.LastDeliveryID != deliveries[0].ID {
+		t.Fatalf("Telegram reminder state was not completed: %#v", updated)
 	}
 }
 

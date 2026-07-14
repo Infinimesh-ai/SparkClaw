@@ -21,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -1692,10 +1693,10 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	cfg.State.EncryptAtRest = true
 	cfg.State.EncryptionKey = "state-secret"
 	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.Web.Search.Provider = "parallel-free"
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = "par-super-secret"
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.BaseURL = "https://search.parallel.ai/mcp"
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.MaxResults = 7
+	cfg.Tools.Web.Search.Provider = "infinimesh-info"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-super-secret"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "attestation-super-secret"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-super-secret"
 
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -1781,12 +1782,12 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 		Tools struct {
 			Web struct {
 				Search struct {
-					Enabled          bool   `json:"enabled"`
-					Provider         string `json:"provider"`
-					BaseURL          string `json:"base_url"`
-					APIKeyConfigured bool   `json:"api_key_configured"`
-					APIKey           string `json:"api_key"`
-					MaxResults       int    `json:"max_results"`
+					Enabled           bool   `json:"enabled"`
+					Provider          string `json:"provider"`
+					Configured        bool   `json:"configured"`
+					EntitlementProof  string `json:"entitlement_proof"`
+					DeviceAttestation string `json:"device_attestation"`
+					LicenseProof      string `json:"license_proof"`
 				} `json:"search"`
 			} `json:"web"`
 		} `json:"tools"`
@@ -1813,11 +1814,11 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	if !decoded.State.EncryptAtRest || decoded.State.EncryptionKey != "configured" || decoded.State.EncryptionKeyFile != "missing" {
 		t.Fatalf("state encryption status was not exposed safely: %#v", decoded.State)
 	}
-	if !decoded.Tools.Web.Search.Enabled || decoded.Tools.Web.Search.Provider != "parallel-free" || decoded.Tools.Web.Search.MaxResults != 7 || !decoded.Tools.Web.Search.APIKeyConfigured {
+	if !decoded.Tools.Web.Search.Enabled || decoded.Tools.Web.Search.Provider != "infinimesh-info" || !decoded.Tools.Web.Search.Configured {
 		t.Fatalf("web search safe summary missing: %#v", decoded.Tools.Web.Search)
 	}
-	if decoded.Tools.Web.Search.APIKey != "" {
-		t.Fatalf("parallel api key was exposed: %#v", decoded.Tools.Web.Search)
+	if decoded.Tools.Web.Search.EntitlementProof != "" || decoded.Tools.Web.Search.DeviceAttestation != "" || decoded.Tools.Web.Search.LicenseProof != "" {
+		t.Fatalf("infinimesh info credentials were exposed: %#v", decoded.Tools.Web.Search)
 	}
 	if decoded.ToolPolicy.PolicyPath == "" || decoded.ToolPolicy.DefinitionCount == 0 || decoded.ToolPolicy.RiskCounts["dangerous"] == 0 {
 		t.Fatalf("tool policy summary missing: %#v", decoded.ToolPolicy)
@@ -2268,6 +2269,124 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	if revoked["status"] != "revoked" {
 		t.Fatalf("expected revoked binding, got %#v", revoked)
 	}
+}
+
+func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
+	const validToken = "123456789:AA-valid-gateway-token"
+	const rejectedToken = "987654321:AA-rejected-gateway-token"
+	telegramAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot" + validToken + "/getMe":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": map[string]any{"id": 123456789, "is_bot": true, "username": "sparkclaw_gateway_bot"},
+			})
+		case "/bot" + rejectedToken + "/getMe":
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 401, "description": "Unauthorized"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer telegramAPI.Close()
+
+	root := t.TempDir()
+	cfg := testConfig(root)
+	channel := cfg.Tools.Notifications.Channels["telegram"]
+	channel.Enabled = true
+	channel.BaseURL = telegramAPI.URL
+	cfg.Tools.Notifications.Channels["telegram"] = channel
+	st := store.NewMemoryStore()
+	vault := credential.New(st, credential.Options{Key: strings.Repeat("z", 32)})
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime, WithCredentialVault(vault))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	connector := readTelegramConnector(t, ts.URL)
+	if connector["available"] != true || connector["operator_enabled"] != true || connector["binding_status"] != "unbound" || connector["startable"] != true || connector["disabled_reason"] != "" {
+		t.Fatalf("unexpected unbound connector capability: %#v", connector)
+	}
+
+	rejectedBody := `{"bot_token":"` + rejectedToken + `"}`
+	rejected, err := http.Post(ts.URL+"/api/notification-bindings/telegram/start", "application/json", strings.NewReader(rejectedBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectedRaw, _ := io.ReadAll(rejected.Body)
+	rejected.Body.Close()
+	if rejected.StatusCode != http.StatusBadRequest || !bytes.Contains(rejectedRaw, []byte(`"code":"invalid_bot_token"`)) || bytes.Contains(rejectedRaw, []byte(rejectedToken)) {
+		t.Fatalf("rejected token response was unsafe: status=%d body=%s", rejected.StatusCode, rejectedRaw)
+	}
+	if bindings := st.ListNotificationBindings("telegram", ""); len(bindings) != 0 {
+		t.Fatalf("rejected token persisted a binding: %#v", bindings)
+	}
+
+	validBody := `{"bot_token":"` + validToken + `"}`
+	startedResp, err := http.Post(ts.URL+"/api/notification-bindings/telegram/start", "application/json", strings.NewReader(validBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer startedResp.Body.Close()
+	if startedResp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(startedResp.Body)
+		t.Fatalf("start Telegram binding returned %d: %s", startedResp.StatusCode, raw)
+	}
+	var started map[string]any
+	if err := json.NewDecoder(startedResp.Body).Decode(&started); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := started["id"].(string)
+	activationURL, _ := started["qr_code_url"].(string)
+	if id == "" || started["status"] != "waiting_confirm" || !strings.Contains(activationURL, "t.me/sparkclaw_gateway_bot?start=") || strings.Contains(fmt.Sprint(started), validToken) {
+		t.Fatalf("unexpected Telegram start response: %#v", started)
+	}
+	persisted, ok := st.GetNotificationBinding(id)
+	if !ok || persisted.CredentialRef == "" || persisted.ExternalUserID != "" || persisted.ExternalChatID != "" {
+		t.Fatalf("unexpected persisted Telegram binding: %#v ok=%v", persisted, ok)
+	}
+	secret, ok := st.GetCredentialSecret(persisted.CredentialRef)
+	if !ok || strings.Contains(secret.Value, validToken) || !strings.Contains(secret.Value, "AES-256-GCM") {
+		t.Fatalf("Telegram credential was not sealed: %#v ok=%v", secret, ok)
+	}
+
+	listedResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listedResp.Body.Close()
+	var listed map[string]any
+	if err := json.NewDecoder(listedResp.Body).Decode(&listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed["qr_code_url"] != "" {
+		t.Fatalf("activation challenge leaked after start response: %#v", listed)
+	}
+	connector = readTelegramConnector(t, ts.URL)
+	if connector["binding_status"] != "waiting_confirm" || connector["startable"] != false || connector["disabled_reason"] != "binding_in_progress" {
+		t.Fatalf("pending connector capability mismatch: %#v", connector)
+	}
+}
+
+func readTelegramConnector(t *testing.T, baseURL string) map[string]any {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/api/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var configBody struct {
+		Tools struct {
+			Notifications struct {
+				Channels map[string]map[string]any `json:"channels"`
+			} `json:"notifications"`
+		} `json:"tools"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&configBody); err != nil {
+		t.Fatal(err)
+	}
+	return configBody.Tools.Notifications.Channels["telegram"]
 }
 
 func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {

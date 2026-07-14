@@ -52,6 +52,20 @@
       "mtp": false
     }
   },
+  "speech": {
+    "enabled": false,
+    "backend": "openai-http",
+    "base_url": "https://sparkclaw.infinimesh.cloud/asr",
+    "allowed_hosts": ["sparkclaw.infinimesh.cloud"],
+    "model": "sparkclaw-asr",
+    "default_language": "auto",
+    "timeout_seconds": 120,
+    "max_audio_seconds": 60,
+    "max_upload_bytes": 3145728,
+    "max_concurrency": 1,
+    "max_pending": 1,
+    "retain_audio": false
+  },
   "plugins": {
     "entries": {
       "parallel": {
@@ -61,6 +75,18 @@
             "maxResults": 5
           }
         }
+      },
+      "infinimeshInfo": {
+        "config": {
+          "baseUrl": "https://info.infinimesh.cn",
+          "tokenBatchSize": 10,
+          "maxAttempts": 3,
+          "retryBaseDelayMs": 200,
+          "requestTimeoutSeconds": 30,
+          "responseBodyMaxBytes": 4194304,
+          "language": "zh-CN",
+          "maxSources": 8
+        }
       }
     }
   },
@@ -68,13 +94,40 @@
     "web": {
       "search": {
         "enabled": false,
-        "provider": "parallel-free"
+        "provider": "infinimesh-info"
       }
     },
     "browserAutomation": {
       "enabled": false,
       "provider": "chromium-devtools-mcp",
       "profile": "default"
+    },
+    "reminders": {
+      "enabled": true,
+      "defaultChannel": "web"
+    },
+    "notifications": {
+      "channels": {
+        "weixin": {
+          "enabled": false,
+          "provider": "openclaw-weixin-qr",
+          "baseUrl": "https://ilinkai.weixin.qq.com",
+          "cdnBaseUrl": "https://novac2c.cdn.weixin.qq.com/c2c"
+        },
+        "telegram": {
+          "enabled": false,
+          "provider": "telegram-bot-api",
+          "baseUrl": "https://api.telegram.org",
+          "updateMode": "long-polling",
+          "pollTimeoutSeconds": 30,
+          "privateChatsOnly": true,
+          "maxDownloadBytes": 20971520,
+          "maxAttachments": 5,
+          "maxVoiceSeconds": 120,
+          "maxConcurrency": 4,
+          "maxPending": 32
+        }
+      }
     }
   },
   "memory": {
@@ -141,7 +194,9 @@
     "path": "./data/memory/gateway-state.json",
     "encrypt_at_rest": false,
     "encryption_key": "",
-    "encryption_key_file": ""
+    "encryption_key_file": "",
+    "credential_key": "",
+    "credential_key_file": "./data/memory/gateway-credentials.key"
   },
   "skills": {
     "dirs": ["./skills", "./data/skills"]

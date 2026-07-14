@@ -37,6 +37,9 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 | Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
 | Docker profiles and local deployment | Complete | Compose config, image builds, doctor script |
 | DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
+| Infinimesh Info `web.search` provider | Complete，opt-in | Contract/fault tests、redacted public config、credential-gated live smoke |
+| WebChat 与 Gateway speech transcription | Complete，opt-in | Speech/Gateway tests、voice frontend tests、live ASR smoke evidence |
+| Telegram owner connector | Complete，opt-in | Credential、store、binding、worker、media、reminder 与 WebChat tests |
 
 ## 标准验证
 
@@ -46,6 +49,7 @@ Host checks：
 
 ```bash
 npm --workspace @sparkclaw/webchat run build
+npm --workspace @sparkclaw/webchat run test:voice
 go test ./services/gateway/...
 bash scripts/doctor.sh
 bash scripts/run-eval.sh
@@ -138,6 +142,8 @@ WebChat 位于 `apps/webchat/src/App.tsx`，共享 API types 位于 `apps/webcha
 
 - Gateway 保持 policy 和 execution 的 source of truth。
 - 展示 approval、trace 和 tool-call state，而不是隐藏它们。
+- 保留 review-before-send microphone flow 与 Telegram binding lifecycle。
+- 修改 composer 或 settings control 后检查 desktop 与 mobile layout。
 - 运行 `npm --workspace @sparkclaw/webchat run build`。
 - runtime status 和 error states 要足够可见，方便本地 operator 排障。
 
@@ -167,9 +173,19 @@ WebChat 位于 `apps/webchat/src/App.tsx`，共享 API types 位于 `apps/webcha
 - `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`
 - `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`
 - `SPARKCLAW_BROWSER_PROFILE_DIR`
+- `SPARKCLAW_WEB_SEARCH_ENABLED`, `SPARKCLAW_WEB_SEARCH_PROVIDER`
+- `SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE`
+- `SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE`
+- `SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE`
+- `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BACKEND`
+- `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`
+- `SPARKCLAW_TELEGRAM_ENABLED`, `SPARKCLAW_TELEGRAM_BASE_URL`
+- `SPARKCLAW_CREDENTIAL_KEY`, `SPARKCLAW_CREDENTIAL_KEY_FILE`
 - `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`
 
 不要提交 `.env`、state encryption keys 或 downloaded model weights。
+
+Infinimesh search、speech 与 Telegram 相互独立且默认关闭。Minimal profile 继续使用 `file` state backend，不要求 cloud 或 connector credential。每项功能都必须显式启用；Telegram enabled 而 speech disabled 时，text 与 attachment 继续可用，voice 返回明确不可用响应。
 
 ## Data And Trace Hygiene
 
@@ -178,6 +194,8 @@ Traces 和 artifacts 是开发资产，但可能包含敏感运行上下文。�
 - 确认 redaction settings 已启用
 - 避免提交 `data/`
 - 扫描 diff 中的 `hf_`、`sk-` 和 `Authorization` 等 token
+- 确认 Infinimesh query 与 speech transcript 不进入 log、trace、status payload 或 committed fixture
+- 确认 Telegram file/PostgreSQL state 保存 credential envelope，而不是 bot token
 - raw external observations 只有在明确清洗后才进入 training data
 
 ## Post-MVP Work

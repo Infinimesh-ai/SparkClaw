@@ -53,14 +53,18 @@ type Store interface {
 	GetNotificationBinding(id string) (app.NotificationBinding, bool)
 	ListNotificationBindings(channel, status string) []app.NotificationBinding
 	RevokeNotificationBinding(id string) (app.NotificationBinding, error)
-	SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession
-	GetWeixinChatSession(id string) (app.WeixinChatSession, bool)
-	FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool)
-	FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool)
-	SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage
-	GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool)
-	FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool)
-	ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage
+	SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession
+	GetExternalChatSession(id string) (app.ExternalChatSession, bool)
+	FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool)
+	FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool)
+	SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage
+	GetExternalChatMessage(id string) (app.ExternalChatMessage, bool)
+	FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool)
+	ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage
+	SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate
+	GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool)
+	FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool)
+	ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate
 	SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret
 	GetCredentialSecret(ref string) (app.CredentialSecret, bool)
 	DeleteCredentialSecret(ref string) error

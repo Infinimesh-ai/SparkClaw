@@ -160,6 +160,32 @@ export type ReadyStatus = {
   };
   model_mode: string;
   gateway_binding: string;
+  speech: SpeechStatus;
+};
+
+export type SpeechStatus = {
+  enabled: boolean;
+  ready: boolean;
+  state: "disabled" | "unavailable" | "warming" | "ready" | "busy" | string;
+  backend: string;
+  model: string;
+  supports_streaming: boolean;
+  accepted_content_types: string[];
+  max_audio_seconds: number;
+  max_upload_bytes: number;
+  reason?: string;
+};
+
+export type SpeechTranscriptionResult = {
+  id: string;
+  request_id: string;
+  session_id: string;
+  text: string;
+  language?: string;
+  duration_ms: number;
+  inference_ms: number;
+  model?: string;
+  audio_retained: false;
 };
 
 export type OwnerProfile = {
@@ -234,6 +260,15 @@ export type PublicConfig = {
     reranker: PublicModelProfile;
     guard: PublicModelProfile;
   };
+  speech: {
+    enabled: boolean;
+    backend: string;
+    model: string;
+    default_language: string;
+    max_audio_seconds: number;
+    max_upload_bytes: number;
+    retain_audio: false;
+  };
   workspaces: {
     default_root: string;
     allowlist: string[];
@@ -292,6 +327,26 @@ export type PublicConfig = {
   };
   runtime: {
     observation_summary_max_bytes: number;
+  };
+  tools: {
+    notifications: {
+      channels: Record<string, {
+        enabled: boolean;
+        provider: string;
+        base_url: string;
+        token_configured: boolean;
+        recipient_set: boolean;
+        available?: boolean;
+        operator_enabled?: boolean;
+        binding_status?: string;
+        startable?: boolean;
+        disabled_reason?: string;
+      }>;
+    };
+    reminders: {
+      enabled: boolean;
+      default_channel: string;
+    };
   };
   tool_policy: {
     policy_path: string;

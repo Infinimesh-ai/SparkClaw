@@ -27,6 +27,7 @@ import (
 type Notification struct {
 	ReminderID       string
 	Channel          string
+	BindingID        string
 	BaseURL          string
 	Recipient        string
 	RecipientBinding string
@@ -113,6 +114,14 @@ type Adapter interface {
 type Router struct {
 	channels map[string]Adapter
 	store    store.Store
+}
+
+func (r Router) WithAdapter(channel string, adapter Adapter) Router {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	if channel != "" && adapter != nil {
+		r.channels[channel] = adapter
+	}
+	return r
 }
 
 func NewRouter(cfg config.Config, stores ...store.Store) Router {

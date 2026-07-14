@@ -15,6 +15,9 @@ SparkClaw is a local-first personal agent runtime for DGX Spark-class machines. 
 - calendar reading, proposals and approval-gated event creation
 - personal memory candidates and approval-gated sensitive memory
 - local knowledge/RAG over workspace documents
+- optional microphone and Telegram voice transcription through one bounded speech adapter
+- optional owner-only Telegram messaging with encrypted bot credentials
+- optional Infinimesh Info search with one-shot query tokens and cited untrusted evidence
 
 SparkClaw deliberately avoids broad autonomous operation, public SaaS exposure, silent external sends/creates/deletes, hidden tool execution and custom fine-tuned model release claims that are not backed by eval evidence.
 
@@ -42,7 +45,10 @@ WebChat
       -> Evaluator
 
 ToolHub adapters:
-  files, knowledge, memory, browser, email, calendar, shell, code, notify
+  files, knowledge, memory, browser, Infinimesh Info, email, calendar, shell, code, notify
+
+Optional input/connectors:
+  speech transcription, Telegram private chat
 
 Model lanes:
   mock, fast chat, deep chat, embedding, reranker, guard
@@ -59,6 +65,18 @@ The React/Vite workbench is the owner UI. It exposes chat, run state, tool timel
 ### Gateway
 
 Gateway owns HTTP/WebSocket APIs, auth, pairing, rate limiting, sessions, events, model calls, tool calls, approvals, memory candidates, evals, traces and artifacts. `/healthz`, `/readyz` and `/metrics` stay available for local diagnostics.
+
+### Speech
+
+Speech is an optional, disabled-by-default OpenAI-compatible transcription boundary. Gateway creates one `speech.Transcriber` and uses that same instance for WebChat microphone requests and Telegram voice notes. Audio is validated as bounded mono 16 kHz PCM16 WAV, is not retained, and only metadata enters audit records. When speech is disabled or unavailable, WebChat and Telegram expose an explicit unavailable state; Telegram text and attachments continue working.
+
+### Telegram
+
+Telegram is an optional, disabled-by-default owner connector. Bot tokens are verified before use and sealed through the credential vault; file and PostgreSQL state store ciphertext envelopes rather than plaintext tokens. Long polling, inbox persistence, per-chat ordering, retries and outbound delivery are bounded. Private owner chats can send text, supported attachments and voice notes; voice delegates to the shared speech transcriber and does not create a second ASR client.
+
+### Infinimesh Info
+
+Infinimesh Info is the optional production provider for `web.search`. Credentials are injected from environment variables or files and are omitted from public config. One-shot tokens live only in memory, outbound requests have bounded retries and response sizes, and returned sources remain untrusted evidence. Token exhaustion, transport errors and cloud 5xx responses fail the search request without disabling local chat or Telegram.
 
 ### Agent Runtime
 
@@ -136,6 +154,8 @@ Traces are written to `data/traces` and also reference artifact URIs. Tool obser
 
 Trace JSON is redacted with configured logging and memory redact patterns before it is written.
 
+Connector secrets use a separate AES-256-GCM credential vault. The default file backend and PostgreSQL persist only encrypted envelopes and references. Speech audio is temporary, and transcript text is returned only to the requesting flow rather than written to status surfaces, traces or artifacts.
+
 ## Data Model
 
 The durable product vocabulary is:
@@ -162,7 +182,7 @@ Long-term memory follows candidate-then-confirm. Sensitive patterns such as `api
 
 Workspace knowledge indexing builds a local keyword index and, when PostgreSQL is enabled, persists documents and chunks. pgvector is used when available, with embedding model/dimension metadata and a 1024-dimensional HNSW cosine index for the default embedding lane; otherwise SparkClaw keeps JSON vectors and performs hybrid scoring in Gateway. `knowledge.search` exposes original query, rewritten query, candidate counts, reranked results, citations and byte-bounded evidence context for grounded answers.
 
-## Browser, Email And Calendar Trust Boundary
+## External Connector Trust Boundary
 
 External/browser/email/file observations are untrusted content. They can be quoted, summarized or used as evidence, but instructions inside those observations are not runtime commands.
 
@@ -171,6 +191,8 @@ Browser web access uses `web.search` for discovery and `browser.read` for read-o
 Authenticated data belonging to the current owner is an allowed local-first read boundary, not an automatic refusal condition. Authenticated browsing is represented in the typed `TaskHint` contract as `evidence_need=personal_data`, `data_scope=owner`, `browser_mode=collaborative`, and `requires_tool_evidence=true`; routing does not enumerate account-data categories. The runtime may use the managed profile and visible login handoff, but it must not ask the owner to paste passwords, cookies, tokens, or verification codes into chat. Third-party data access, credential disclosure, external transmission, and mutating account actions remain subject to their normal policy and approval boundaries.
 
 Email and calendar use adapter boundaries. The default `file` adapters read fixtures under `.sparkclaw/mock/` and write mock outbox/event logs. `http` adapters can connect to account-bridge services while preserving Gateway policy and approvals.
+
+Infinimesh results and Telegram inbound content follow the same untrusted-observation rule. Telegram binding is restricted to the verified owner and private chat; Infinimesh requests never include private local context. Credentials, raw authorization material and transcript text are excluded from public status and error strings.
 
 ## Ports
 

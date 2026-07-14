@@ -165,3 +165,33 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 		t.Fatalf("reminder should capture current weixin recipient context, got %#v", reminder)
 	}
 }
+
+func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
+	cfg := config.Default()
+	st := store.NewMemoryStore()
+	linked := st.CreateSession("Telegram conversation")
+	st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "bind_telegram", Channel: "telegram", Provider: "telegram-bot-api", Status: "active",
+		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
+		CredentialRef: "cred_telegram", BaseURL: "https://api.telegram.org",
+	})
+	st.SaveExternalChatSession(app.ExternalChatSession{
+		BindingID: "bind_telegram", Channel: "telegram", Provider: "telegram-bot-api",
+		ExternalUserID: "42", ExternalChatID: "1001", ExternalThreadID: "7",
+		LinkedSessionID: linked.ID, Status: "active",
+	})
+	hub := New(cfg, st)
+	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
+		"text": "喝水", "due_time": "2026-07-01T09:00:00+08:00",
+	}, linked.ID, "run_telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reminder, ok := st.GetReminder(created.Output.(map[string]any)["reminder_id"].(string))
+	if !ok {
+		t.Fatal("reminder missing")
+	}
+	if reminder.Channel != "telegram" || reminder.Recipient != "1001" || reminder.RecipientBinding != "7" || reminder.BindingID != "bind_telegram" || reminder.CredentialRef != "cred_telegram" {
+		t.Fatalf("reminder should capture current Telegram target: %#v", reminder)
+	}
+}

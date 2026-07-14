@@ -23,12 +23,27 @@ import type {
   RunTrace,
   Session,
   Skill,
+  SpeechStatus,
+  SpeechTranscriptionResult,
   TraceMetadata,
   ToolCall
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
+
+export class APIError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly retryable: boolean;
+
+  constructor(status: number, message: string, code = "", retryable = false) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
 
 export function apiToken() {
   return import.meta.env.VITE_SPARKCLAW_API_TOKEN ?? window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
@@ -55,8 +70,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `HTTP ${response.status}`);
+    const body = await response.json().catch(() => ({})) as { error?: unknown; code?: unknown; retryable?: unknown };
+    throw new APIError(
+      response.status,
+      typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
+      typeof body.code === "string" ? body.code : "",
+      body.retryable === true
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -150,6 +170,19 @@ export function documentFileURL(path: string) {
 
 export const api = {
   ready: () => request<ReadyStatus>("/readyz"),
+  speechStatus: () => request<SpeechStatus>("/api/speech/status"),
+  transcribeSpeech: (sessionId: string, requestId: string, language: string, file: Blob, signal?: AbortSignal) => {
+    const form = new FormData();
+    form.append("file", file, "recording.wav");
+    form.append("session_id", sessionId);
+    form.append("request_id", requestId);
+    form.append("language", language || "auto");
+    return request<SpeechTranscriptionResult>("/api/speech/transcriptions", {
+      method: "POST",
+      body: form,
+      signal
+    });
+  },
   config: () => request<PublicConfig>("/api/config"),
   owner: () => request<OwnerProfile>("/api/owner"),
   updateOwner: (displayName: string, email: string, preferences: Record<string, string>) =>
@@ -166,10 +199,10 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
-  startNotificationBinding: (channel = "weixin") =>
+  startNotificationBinding: (channel = "weixin", botToken = "") =>
     request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
       method: "POST",
-      body: JSON.stringify({ default_for_channel: false, scopes: ["reminder_send_self"] })
+      body: JSON.stringify({ default_for_channel: false, scopes: ["reminder_send_self"], bot_token: botToken })
     }),
   notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),

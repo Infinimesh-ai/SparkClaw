@@ -48,8 +48,11 @@ type Snapshot struct {
 	Reminders            map[string]app.Reminder            `json:"reminders"`
 	ReminderDelivery     map[string]app.ReminderDelivery    `json:"reminder_delivery"`
 	NotificationBindings map[string]app.NotificationBinding `json:"notification_bindings"`
-	WeixinChatSessions   map[string]app.WeixinChatSession   `json:"weixin_chat_sessions"`
-	WeixinChatMessages   map[string]app.WeixinChatMessage   `json:"weixin_chat_messages"`
+	ExternalChatSessions map[string]app.ExternalChatSession `json:"external_chat_sessions,omitempty"`
+	ExternalChatMessages map[string]app.ExternalChatMessage `json:"external_chat_messages,omitempty"`
+	ChannelInboxUpdates  map[string]app.ChannelInboxUpdate  `json:"channel_inbox_updates,omitempty"`
+	WeixinChatSessions   map[string]app.WeixinChatSession   `json:"weixin_chat_sessions,omitempty"`
+	WeixinChatMessages   map[string]app.WeixinChatMessage   `json:"weixin_chat_messages,omitempty"`
 	CredentialSecrets    map[string]app.CredentialSecret    `json:"credential_secrets"`
 	BrowserAuthRecords   map[string]app.BrowserAuthRecord   `json:"browser_auth_records,omitempty"`
 	BrowserLoginBlocks   map[string]app.BrowserLoginBlock   `json:"browser_login_blocks,omitempty"`
@@ -334,40 +337,90 @@ func (s *FileStore) RevokeNotificationBinding(id string) (app.NotificationBindin
 	return out, err
 }
 
-func (s *FileStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
-	out := s.inner.SaveWeixinChatSession(session)
+func (s *FileStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {
+	out := s.inner.SaveExternalChatSession(session)
 	s.persist()
 	return out
+}
+
+func (s *FileStore) GetExternalChatSession(id string) (app.ExternalChatSession, bool) {
+	return s.inner.GetExternalChatSession(id)
+}
+
+func (s *FileStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
+	return s.inner.FindExternalChatSession(bindingID, externalChatID, externalThreadID)
+}
+
+func (s *FileStore) FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool) {
+	return s.inner.FindExternalChatSessionByLinkedSessionID(sessionID)
+}
+
+func (s *FileStore) SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage {
+	out := s.inner.SaveExternalChatMessage(message)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetExternalChatMessage(id string) (app.ExternalChatMessage, bool) {
+	return s.inner.GetExternalChatMessage(id)
+}
+
+func (s *FileStore) FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool) {
+	return s.inner.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
+}
+
+func (s *FileStore) ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage {
+	return s.inner.ListExternalChatMessages(chatSessionID, limit)
+}
+
+func (s *FileStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {
+	out := s.inner.SaveChannelInboxUpdate(update)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool) {
+	return s.inner.GetChannelInboxUpdate(id)
+}
+
+func (s *FileStore) FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool) {
+	return s.inner.FindChannelInboxUpdate(bindingID, externalID)
+}
+
+func (s *FileStore) ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate {
+	return s.inner.ListChannelInboxUpdates(channel, status, readyBefore, limit)
+}
+
+func (s *FileStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
+	return s.SaveExternalChatSession(session)
 }
 
 func (s *FileStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
-	return s.inner.GetWeixinChatSession(id)
+	return s.GetExternalChatSession(id)
 }
 
 func (s *FileStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
-	return s.inner.FindWeixinChatSession(bindingID, externalUserID)
+	return s.FindExternalChatSession(bindingID, externalUserID, "")
 }
 
 func (s *FileStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
-	return s.inner.FindWeixinChatSessionByLinkedSessionID(sessionID)
+	return s.FindExternalChatSessionByLinkedSessionID(sessionID)
 }
 
 func (s *FileStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
-	out := s.inner.SaveWeixinChatMessage(message)
-	s.persist()
-	return out
+	return s.SaveExternalChatMessage(message)
 }
 
 func (s *FileStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
-	return s.inner.GetWeixinChatMessage(id)
+	return s.GetExternalChatMessage(id)
 }
 
 func (s *FileStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
-	return s.inner.FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID)
+	return s.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
 }
 
 func (s *FileStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
-	return s.inner.ListWeixinChatMessages(chatSessionID, limit)
+	return s.ListExternalChatMessages(chatSessionID, limit)
 }
 
 func (s *FileStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {

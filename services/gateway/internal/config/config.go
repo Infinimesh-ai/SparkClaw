@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 type Config struct {
 	Gateway    GatewayConfig   `json:"gateway"`
 	Model      ModelConfig     `json:"model"`
+	Speech     SpeechConfig    `json:"speech"`
 	Plugins    PluginsConfig   `json:"plugins"`
 	Tools      ToolsConfig     `json:"tools"`
 	Security   SecurityConfig  `json:"security"`
@@ -62,12 +64,28 @@ type ModelProfile struct {
 	MaxTokens     int    `json:"max_tokens"`
 }
 
+type SpeechConfig struct {
+	Enabled         bool     `json:"enabled"`
+	Backend         string   `json:"backend"`
+	BaseURL         string   `json:"base_url"`
+	AllowedHosts    []string `json:"allowed_hosts"`
+	Model           string   `json:"model"`
+	DefaultLanguage string   `json:"default_language"`
+	TimeoutSeconds  int      `json:"timeout_seconds"`
+	MaxAudioSeconds int      `json:"max_audio_seconds"`
+	MaxUploadBytes  int64    `json:"max_upload_bytes"`
+	MaxConcurrency  int      `json:"max_concurrency"`
+	MaxPending      int      `json:"max_pending"`
+	RetainAudio     bool     `json:"retain_audio"`
+}
+
 type PluginsConfig struct {
 	Entries PluginEntriesConfig `json:"entries"`
 }
 
 type PluginEntriesConfig struct {
-	Parallel ParallelPluginConfig `json:"parallel"`
+	Parallel       ParallelPluginConfig       `json:"parallel"`
+	InfinimeshInfo InfinimeshInfoPluginConfig `json:"infinimeshInfo"`
 }
 
 type ParallelPluginConfig struct {
@@ -82,6 +100,30 @@ type ParallelWebSearchConfig struct {
 	APIKey     string `json:"apiKey,omitempty"`
 	BaseURL    string `json:"baseUrl,omitempty"`
 	MaxResults int    `json:"maxResults,omitempty"`
+}
+
+type InfinimeshInfoPluginConfig struct {
+	Config InfinimeshInfoConfig `json:"config"`
+}
+
+type InfinimeshInfoConfig struct {
+	BaseURL               string `json:"baseUrl"`
+	TokenBatchSize        int    `json:"tokenBatchSize"`
+	MaxAttempts           int    `json:"maxAttempts"`
+	RetryBaseDelayMS      int    `json:"retryBaseDelayMs"`
+	RequestTimeoutSeconds int    `json:"requestTimeoutSeconds"`
+	ResponseBodyMaxBytes  int64  `json:"responseBodyMaxBytes"`
+	Language              string `json:"language"`
+	MaxSources            int    `json:"maxSources"`
+	EntitlementProof      string `json:"-"`
+	DeviceAttestation     string `json:"-"`
+	LicenseProof          string `json:"-"`
+}
+
+func (cfg InfinimeshInfoConfig) Configured() bool {
+	return strings.TrimSpace(cfg.EntitlementProof) != "" &&
+		strings.TrimSpace(cfg.DeviceAttestation) != "" &&
+		strings.TrimSpace(cfg.LicenseProof) != ""
 }
 
 type ToolsConfig struct {
@@ -116,12 +158,20 @@ type NotificationsToolConfig struct {
 }
 
 type NotificationChannelConfig struct {
-	Enabled    bool   `json:"enabled"`
-	Provider   string `json:"provider"`
-	BaseURL    string `json:"baseUrl"`
-	CDNBaseURL string `json:"cdnBaseUrl,omitempty"`
-	Token      string `json:"token,omitempty"`
-	Recipient  string `json:"recipient,omitempty"`
+	Enabled            bool   `json:"enabled"`
+	Provider           string `json:"provider"`
+	BaseURL            string `json:"baseUrl"`
+	CDNBaseURL         string `json:"cdnBaseUrl,omitempty"`
+	Token              string `json:"token,omitempty"`
+	Recipient          string `json:"recipient,omitempty"`
+	UpdateMode         string `json:"updateMode,omitempty"`
+	PollTimeoutSeconds int    `json:"pollTimeoutSeconds,omitempty"`
+	PrivateChatsOnly   bool   `json:"privateChatsOnly,omitempty"`
+	MaxDownloadBytes   int64  `json:"maxDownloadBytes,omitempty"`
+	MaxAttachments     int    `json:"maxAttachments,omitempty"`
+	MaxVoiceSeconds    int    `json:"maxVoiceSeconds,omitempty"`
+	MaxConcurrency     int    `json:"maxConcurrency,omitempty"`
+	MaxPending         int    `json:"maxPending,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -206,6 +256,8 @@ type StateConfig struct {
 	EncryptAtRest     bool   `json:"encrypt_at_rest"`
 	EncryptionKey     string `json:"encryption_key,omitempty"`
 	EncryptionKeyFile string `json:"encryption_key_file,omitempty"`
+	CredentialKey     string `json:"credential_key,omitempty"`
+	CredentialKeyFile string `json:"credential_key_file,omitempty"`
 }
 
 type SkillsConfig struct {
@@ -243,6 +295,9 @@ func Load(path string) (Config, error) {
 		}
 	}
 	applyEnv(&cfg)
+	if err := applyInfinimeshInfoCredentials(&cfg); err != nil {
+		return Config{}, err
+	}
 	if err := applyToolPolicyFile(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -278,6 +333,15 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
 	normalizeRuntimeLimits(&cfg.Runtime)
+	if err := normalizeInfinimeshInfoConfig(&cfg.Plugins.Entries.InfinimeshInfo.Config); err != nil {
+		return Config{}, err
+	}
+	if err := normalizeSpeechConfig(&cfg.Speech); err != nil {
+		return Config{}, err
+	}
+	if err := normalizeNotificationChannels(&cfg.Tools.Notifications); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -301,6 +365,135 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	if rt.ReactMaxRepeatedToolCalls <= 0 {
 		rt.ReactMaxRepeatedToolCalls = defaults.ReactMaxRepeatedToolCalls
 	}
+}
+
+func normalizeInfinimeshInfoConfig(cfg *InfinimeshInfoConfig) error {
+	defaults := Default().Plugins.Entries.InfinimeshInfo.Config
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		cfg.BaseURL = defaults.BaseURL
+	}
+	parsedBaseURL, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
+	if err != nil || parsedBaseURL.Host == "" || (parsedBaseURL.Scheme != "http" && parsedBaseURL.Scheme != "https") {
+		return errors.New("infinimesh info base URL must be an absolute HTTP(S) URL")
+	}
+	cfg.BaseURL = strings.TrimRight(parsedBaseURL.String(), "/")
+	if cfg.TokenBatchSize <= 0 {
+		cfg.TokenBatchSize = defaults.TokenBatchSize
+	}
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = defaults.MaxAttempts
+	}
+	if cfg.RetryBaseDelayMS <= 0 {
+		cfg.RetryBaseDelayMS = defaults.RetryBaseDelayMS
+	}
+	if cfg.RequestTimeoutSeconds <= 0 {
+		cfg.RequestTimeoutSeconds = defaults.RequestTimeoutSeconds
+	}
+	if cfg.ResponseBodyMaxBytes <= 0 {
+		cfg.ResponseBodyMaxBytes = defaults.ResponseBodyMaxBytes
+	}
+	if strings.TrimSpace(cfg.Language) == "" {
+		cfg.Language = defaults.Language
+	}
+	if cfg.MaxSources <= 0 {
+		cfg.MaxSources = defaults.MaxSources
+	}
+	if cfg.TokenBatchSize > 100 {
+		return errors.New("infinimesh info token batch size must not exceed 100")
+	}
+	if cfg.MaxAttempts > 5 {
+		return errors.New("infinimesh info max attempts must not exceed 5")
+	}
+	if cfg.RetryBaseDelayMS > 5000 {
+		return errors.New("infinimesh info retry base delay must not exceed 5000ms")
+	}
+	if cfg.RequestTimeoutSeconds > 120 {
+		return errors.New("infinimesh info request timeout must not exceed 120 seconds")
+	}
+	if cfg.ResponseBodyMaxBytes < 1024 || cfg.ResponseBodyMaxBytes > 8<<20 {
+		return errors.New("infinimesh info response body limit must be between 1024 and 8388608 bytes")
+	}
+	if cfg.MaxSources > 40 {
+		return errors.New("infinimesh info max sources must not exceed 40")
+	}
+	return nil
+}
+
+func normalizeSpeechConfig(speech *SpeechConfig) error {
+	defaults := Default().Speech
+	if speech.TimeoutSeconds <= 0 {
+		speech.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if speech.MaxAudioSeconds <= 0 {
+		speech.MaxAudioSeconds = defaults.MaxAudioSeconds
+	}
+	if speech.MaxUploadBytes <= 0 {
+		speech.MaxUploadBytes = defaults.MaxUploadBytes
+	}
+	if speech.MaxConcurrency <= 0 {
+		speech.MaxConcurrency = defaults.MaxConcurrency
+	}
+	if speech.MaxPending < 0 {
+		return errors.New("speech.max_pending cannot be negative")
+	}
+	if strings.TrimSpace(speech.DefaultLanguage) == "" {
+		speech.DefaultLanguage = defaults.DefaultLanguage
+	}
+	if len(speech.AllowedHosts) == 0 {
+		speech.AllowedHosts = append([]string(nil), defaults.AllowedHosts...)
+	}
+	speech.AllowedHosts = normalizeHostList(speech.AllowedHosts)
+	if speech.RetainAudio {
+		return errors.New("speech.retain_audio is not supported")
+	}
+	if !speech.Enabled {
+		speech.Backend = "disabled"
+		return nil
+	}
+
+	speech.Backend = strings.ToLower(strings.TrimSpace(speech.Backend))
+	if speech.Backend != "openai-http" {
+		return fmt.Errorf("unsupported speech backend %q", speech.Backend)
+	}
+	if strings.TrimSpace(speech.Model) == "" {
+		return errors.New("speech.model is required")
+	}
+	parsed, err := url.Parse(strings.TrimSpace(speech.BaseURL))
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		return errors.New("speech.base_url must be an absolute https URL")
+	}
+	if parsed.Scheme != "https" {
+		return errors.New("speech.base_url must use https")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("speech.base_url cannot contain credentials, query parameters, or fragments")
+	}
+	if !containsFold(speech.AllowedHosts, parsed.Hostname()) {
+		return fmt.Errorf("speech.base_url host %q is not listed in speech.allowed_hosts", parsed.Hostname())
+	}
+	speech.BaseURL = strings.TrimRight(parsed.String(), "/")
+	return nil
+}
+
+func normalizeHostList(values []string) []string {
+	out := []string{}
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" || containsFold(out, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func containsFold(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func Default() Config {
@@ -355,6 +548,20 @@ func Default() Config {
 				ContextTokens: 32768,
 			},
 		},
+		Speech: SpeechConfig{
+			Enabled:         false,
+			Backend:         "openai-http",
+			BaseURL:         "https://sparkclaw.infinimesh.cloud/asr",
+			AllowedHosts:    []string{"sparkclaw.infinimesh.cloud"},
+			Model:           "sparkclaw-asr",
+			DefaultLanguage: "auto",
+			TimeoutSeconds:  120,
+			MaxAudioSeconds: 60,
+			MaxUploadBytes:  3 << 20,
+			MaxConcurrency:  1,
+			MaxPending:      1,
+			RetainAudio:     false,
+		},
 		Plugins: PluginsConfig{
 			Entries: PluginEntriesConfig{
 				Parallel: ParallelPluginConfig{
@@ -366,13 +573,25 @@ func Default() Config {
 						},
 					},
 				},
+				InfinimeshInfo: InfinimeshInfoPluginConfig{
+					Config: InfinimeshInfoConfig{
+						BaseURL:               "https://info.infinimesh.cn",
+						TokenBatchSize:        10,
+						MaxAttempts:           3,
+						RetryBaseDelayMS:      200,
+						RequestTimeoutSeconds: 30,
+						ResponseBodyMaxBytes:  4 << 20,
+						Language:              "zh-CN",
+						MaxSources:            8,
+					},
+				},
 			},
 		},
 		Tools: ToolsConfig{
 			Web: WebToolsConfig{
 				Search: WebSearchToolConfig{
 					Enabled:  false,
-					Provider: "parallel-free",
+					Provider: "infinimesh-info",
 				},
 			},
 			BrowserAutomation: BrowserAutomationToolConfig{
@@ -386,6 +605,19 @@ func Default() Config {
 			},
 			Notifications: NotificationsToolConfig{
 				Channels: map[string]NotificationChannelConfig{
+					"telegram": {
+						Enabled:            false,
+						Provider:           "telegram-bot-api",
+						BaseURL:            "https://api.telegram.org",
+						UpdateMode:         "long-polling",
+						PollTimeoutSeconds: 30,
+						PrivateChatsOnly:   true,
+						MaxDownloadBytes:   20 << 20,
+						MaxAttachments:     5,
+						MaxVoiceSeconds:    120,
+						MaxConcurrency:     4,
+						MaxPending:         32,
+					},
 					"weixin": {
 						Enabled:    false,
 						Provider:   "openclaw-weixin-qr",
@@ -460,6 +692,8 @@ func Default() Config {
 			EncryptAtRest:     false,
 			EncryptionKey:     "",
 			EncryptionKeyFile: "",
+			CredentialKey:     "",
+			CredentialKeyFile: "./data/memory/gateway-credentials.key",
 		},
 		Skills: SkillsConfig{
 			Dirs: []string{"./skills", "./data/skills"},
@@ -556,6 +790,12 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE"); v != "" {
 		cfg.State.EncryptionKeyFile = v
 	}
+	if v := os.Getenv("SPARKCLAW_CREDENTIAL_KEY"); v != "" {
+		cfg.State.CredentialKey = v
+	}
+	if v := os.Getenv("SPARKCLAW_CREDENTIAL_KEY_FILE"); v != "" {
+		cfg.State.CredentialKeyFile = v
+	}
 	if v := os.Getenv("SPARKCLAW_MODEL_MODE"); v != "" {
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "external", "external-model", "real", "local", "dgx-spark-local":
@@ -576,6 +816,49 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_MODEL_DISABLE_THINKING"); v != "" {
 		cfg.Model.DisableThinking = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_ENABLED"); v != "" {
+		cfg.Speech.Enabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_BACKEND"); v != "" {
+		cfg.Speech.Backend = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_BASE_URL"); v != "" {
+		cfg.Speech.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS"); v != "" {
+		cfg.Speech.AllowedHosts = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MODEL"); v != "" {
+		cfg.Speech.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_DEFAULT_LANGUAGE"); v != "" {
+		cfg.Speech.DefaultLanguage = v
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.TimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.MaxAudioSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Speech.MaxUploadBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_CONCURRENCY"); v != "" {
+		if maxConcurrency, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.MaxConcurrency = maxConcurrency
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_SPEECH_MAX_PENDING"); v != "" {
+		if maxPending, err := strconv.Atoi(v); err == nil {
+			cfg.Speech.MaxPending = maxPending
+		}
 	}
 	if v := os.Getenv("SPARKCLAW_FAST_BASE_URL"); v != "" {
 		cfg.Model.Fast.BaseURL = v
@@ -705,6 +988,58 @@ func applyEnv(cfg *Config) {
 		ch.Recipient = v
 		cfg.Tools.Notifications.Channels["weixin"] = ch
 	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_ENABLED"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["telegram"]
+		ch.Enabled = parseBool(v)
+		cfg.Tools.Notifications.Channels["telegram"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_BASE_URL"); v != "" {
+		ch := cfg.Tools.Notifications.Channels["telegram"]
+		ch.BaseURL = v
+		cfg.Tools.Notifications.Channels["telegram"] = ch
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_POLL_TIMEOUT_SECONDS"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.PollTimeoutSeconds = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_DOWNLOAD_BYTES"); v != "" {
+		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxDownloadBytes = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_ATTACHMENTS"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxAttachments = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_VOICE_SECONDS"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxVoiceSeconds = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_CONCURRENCY"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxConcurrency = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_TELEGRAM_MAX_PENDING"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			ch := cfg.Tools.Notifications.Channels["telegram"]
+			ch.MaxPending = value
+			cfg.Tools.Notifications.Channels["telegram"] = ch
+		}
+	}
 	if v := os.Getenv("SPARKCLAW_PARALLEL_API_KEY"); v != "" {
 		cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = v
 	}
@@ -718,6 +1053,52 @@ func applyEnv(cfg *Config) {
 		if maxResults, err := strconv.Atoi(v); err == nil {
 			cfg.Plugins.Entries.Parallel.Config.WebSearch.MaxResults = maxResults
 		}
+	}
+	info := &cfg.Plugins.Entries.InfinimeshInfo.Config
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_BASE_URL"); v != "" {
+		info.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_TOKEN_BATCH_SIZE"); v != "" {
+		if count, err := strconv.Atoi(v); err == nil {
+			info.TokenBatchSize = count
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_MAX_ATTEMPTS"); v != "" {
+		if attempts, err := strconv.Atoi(v); err == nil {
+			info.MaxAttempts = attempts
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_RETRY_BASE_DELAY_MS"); v != "" {
+		if delay, err := strconv.Atoi(v); err == nil {
+			info.RetryBaseDelayMS = delay
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_REQUEST_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			info.RequestTimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_RESPONSE_BODY_MAX_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			info.ResponseBodyMaxBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_LANGUAGE"); v != "" {
+		info.Language = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_MAX_SOURCES"); v != "" {
+		if count, err := strconv.Atoi(v); err == nil {
+			info.MaxSources = count
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF"); v != "" {
+		info.EntitlementProof = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION"); v != "" {
+		info.DeviceAttestation = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF"); v != "" {
+		info.LicenseProof = v
 	}
 	if v := os.Getenv("SPARKCLAW_MEMORY_RETENTION_DAYS"); v != "" {
 		if days, err := strconv.Atoi(v); err == nil {
@@ -780,6 +1161,11 @@ func applyEnv(cfg *Config) {
 			cfg.State.EncryptionKeyFile = abs
 		}
 	}
+	if cfg.State.CredentialKeyFile != "" {
+		if abs, err := filepath.Abs(cfg.State.CredentialKeyFile); err == nil {
+			cfg.State.CredentialKeyFile = abs
+		}
+	}
 	if cfg.Storage.ArtifactDir != "" {
 		if abs, err := filepath.Abs(cfg.Storage.ArtifactDir); err == nil {
 			cfg.Storage.ArtifactDir = abs
@@ -790,6 +1176,49 @@ func applyEnv(cfg *Config) {
 			cfg.Skills.Dirs[i] = abs
 		}
 	}
+}
+
+func applyInfinimeshInfoCredentials(cfg *Config) error {
+	info := &cfg.Plugins.Entries.InfinimeshInfo.Config
+	var err error
+	info.EntitlementProof, err = secretFromEnvOrFile(
+		info.EntitlementProof,
+		"SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE",
+	)
+	if err != nil {
+		return err
+	}
+	info.DeviceAttestation, err = secretFromEnvOrFile(
+		info.DeviceAttestation,
+		"SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE",
+	)
+	if err != nil {
+		return err
+	}
+	info.LicenseProof, err = secretFromEnvOrFile(
+		info.LicenseProof,
+		"SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE",
+	)
+	return err
+}
+
+func secretFromEnvOrFile(direct, fileEnv string) (string, error) {
+	if value := strings.TrimSpace(direct); value != "" {
+		return value, nil
+	}
+	path := strings.TrimSpace(os.Getenv(fileEnv))
+	if path == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", fileEnv, err)
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return "", fmt.Errorf("read %s: credential file is empty", fileEnv)
+	}
+	return value, nil
 }
 
 func ensureNotificationChannels(cfg *NotificationsToolConfig) {
@@ -803,6 +1232,79 @@ func ensureNotificationChannels(cfg *NotificationsToolConfig) {
 			CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
 		}
 	}
+	if _, ok := cfg.Channels["telegram"]; !ok {
+		cfg.Channels["telegram"] = Default().Tools.Notifications.Channels["telegram"]
+	}
+}
+
+func normalizeNotificationChannels(cfg *NotificationsToolConfig) error {
+	ensureNotificationChannels(cfg)
+	telegram := cfg.Channels["telegram"]
+	defaults := Default().Tools.Notifications.Channels["telegram"]
+	if strings.TrimSpace(telegram.Provider) == "" {
+		telegram.Provider = defaults.Provider
+	}
+	if strings.TrimSpace(telegram.BaseURL) == "" {
+		telegram.BaseURL = defaults.BaseURL
+	}
+	if strings.TrimSpace(telegram.UpdateMode) == "" {
+		telegram.UpdateMode = defaults.UpdateMode
+	}
+	if telegram.PollTimeoutSeconds <= 0 {
+		telegram.PollTimeoutSeconds = defaults.PollTimeoutSeconds
+	}
+	if telegram.MaxDownloadBytes <= 0 {
+		telegram.MaxDownloadBytes = defaults.MaxDownloadBytes
+	}
+	if telegram.MaxAttachments <= 0 {
+		telegram.MaxAttachments = defaults.MaxAttachments
+	}
+	if telegram.MaxVoiceSeconds <= 0 {
+		telegram.MaxVoiceSeconds = defaults.MaxVoiceSeconds
+	}
+	if telegram.MaxConcurrency <= 0 {
+		telegram.MaxConcurrency = defaults.MaxConcurrency
+	}
+	if telegram.MaxPending == 0 {
+		telegram.MaxPending = defaults.MaxPending
+	}
+	telegram.PrivateChatsOnly = true
+	telegram.Provider = strings.ToLower(strings.TrimSpace(telegram.Provider))
+	telegram.BaseURL = strings.TrimRight(strings.TrimSpace(telegram.BaseURL), "/")
+	telegram.UpdateMode = strings.ToLower(strings.TrimSpace(telegram.UpdateMode))
+	if telegram.Provider != "telegram-bot-api" {
+		return fmt.Errorf("unsupported Telegram provider %q", telegram.Provider)
+	}
+	endpoint, err := url.Parse(telegram.BaseURL)
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return errors.New("Telegram baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
+	}
+	if strings.EqualFold(endpoint.Hostname(), "api.telegram.org") && endpoint.Scheme != "https" {
+		return errors.New("Telegram api.telegram.org baseUrl must use HTTPS")
+	}
+	if telegram.UpdateMode != "long-polling" {
+		return fmt.Errorf("unsupported Telegram updateMode %q", telegram.UpdateMode)
+	}
+	if telegram.PollTimeoutSeconds < 1 || telegram.PollTimeoutSeconds > 50 {
+		return errors.New("Telegram pollTimeoutSeconds must be between 1 and 50")
+	}
+	if telegram.MaxDownloadBytes < 1 || telegram.MaxDownloadBytes > 20<<20 {
+		return errors.New("Telegram maxDownloadBytes must be between 1 and 20971520")
+	}
+	if telegram.MaxAttachments < 1 || telegram.MaxAttachments > 5 {
+		return errors.New("Telegram maxAttachments must be between 1 and 5")
+	}
+	if telegram.MaxVoiceSeconds < 1 || telegram.MaxVoiceSeconds > 600 {
+		return errors.New("Telegram maxVoiceSeconds must be between 1 and 600")
+	}
+	if telegram.MaxConcurrency < 1 || telegram.MaxConcurrency > 16 {
+		return errors.New("Telegram maxConcurrency must be between 1 and 16")
+	}
+	if telegram.MaxPending < telegram.MaxConcurrency || telegram.MaxPending > 1024 {
+		return errors.New("Telegram maxPending must be at least maxConcurrency and at most 1024")
+	}
+	cfg.Channels["telegram"] = telegram
+	return nil
 }
 
 func applyToolPolicyFile(cfg *Config) error {

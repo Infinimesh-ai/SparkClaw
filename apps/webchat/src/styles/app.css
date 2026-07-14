@@ -1209,7 +1209,7 @@ button.finderRow {
 
 .composer {
   display: grid;
-  grid-template-columns: 42px 42px minmax(0, 1fr) 42px;
+  grid-template-columns: 42px 42px 42px minmax(0, 1fr) 42px;
   flex: 0 0 auto;
   gap: 10px;
   min-width: 0;
@@ -1225,7 +1225,8 @@ button.finderRow {
   display: none;
 }
 
-.uploadButton {
+.uploadButton,
+.voiceButton {
   display: grid;
   place-items: center;
   width: 42px;
@@ -1238,10 +1239,95 @@ button.finderRow {
   transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
-.uploadButton:hover {
+.uploadButton:hover,
+.voiceButton:hover {
   color: var(--text-primary);
   border-color: rgba(16, 185, 129, 0.42);
   background: var(--surface-hover);
+}
+
+.voiceButton.recording {
+  color: #fff;
+  border-color: rgba(239, 68, 68, 0.72);
+  background: rgba(239, 68, 68, 0.78);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.14);
+}
+
+.voiceButton.encoding,
+.voiceButton.transcribing {
+  color: var(--amber-warning);
+  border-color: rgba(245, 158, 11, 0.42);
+}
+
+.voiceButton.disabled {
+  color: var(--text-tertiary);
+}
+
+.voiceButton .spin {
+  animation: voice-spin 900ms linear infinite;
+}
+
+.voiceStatus {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 6px 2px;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.voiceStatus.error {
+  color: var(--crimson-danger);
+}
+
+.voiceStatusLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voiceStatus time {
+  margin-left: auto;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.voiceRecordDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--crimson-danger);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.13);
+}
+
+.voiceLevel {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.voiceLevel i {
+  display: block;
+  width: 2px;
+  max-height: 18px;
+  border-radius: 1px;
+  background: var(--emerald-success);
+  transition: height 80ms linear;
+}
+
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .composer::before {
@@ -1942,6 +2028,43 @@ button.finderRow {
   max-width: 100%;
 }
 
+.bindingCapability {
+  min-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.inputGroup.compact {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inputGroup.compact input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  outline: none;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+}
+
+.inputGroup.compact input:focus {
+  border-color: var(--cyber-blue);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.18);
+}
+
+.inputGroup.compact input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .bindingQr,
 .bindingEmpty {
   display: flex;
@@ -1995,6 +2118,13 @@ button.finderRow {
   font-size: 12px;
   font-weight: 700;
   text-align: center;
+}
+
+.bindingOpenLink {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+  text-decoration: none;
 }
 
 .bindingList {
@@ -2296,5 +2426,34 @@ button.finderRow {
 
   .composer {
     margin: 0 16px 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bindingItemTop {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bindingItemTop .compactButtons {
+    justify-content: flex-end;
+  }
+
+  .statusGrid.compact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .statusGrid.compact dd {
+    margin-bottom: 6px;
+  }
+
+  .bindingScanned {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bindingOpenLink,
+  .bindingEmpty .secondaryButton {
+    width: 100%;
   }
 }

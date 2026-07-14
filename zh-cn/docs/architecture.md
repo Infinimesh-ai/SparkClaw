@@ -15,6 +15,9 @@ SparkClaw 是面向 DGX Spark 级别机器的 local-first personal agent runtime
 - calendar reading、proposals 和 approval-gated event creation
 - personal memory candidates 和 approval-gated sensitive memory
 - workspace documents 的 local knowledge/RAG
+- 通过一个有界 speech adapter 提供可选的 microphone 与 Telegram voice transcription
+- 使用加密 bot credential 的可选 owner-only Telegram messaging
+- 使用 one-shot query token 和 cited untrusted evidence 的可选 Infinimesh Info search
 
 SparkClaw 明确避免 broad autonomous operation、公开 SaaS 暴露、silent external sends/creates/deletes、隐藏工具执行，以及没有 eval 证据支撑的自定义 fine-tuned model release 声称。
 
@@ -42,7 +45,10 @@ WebChat
       -> Evaluator
 
 ToolHub adapters:
-  files, knowledge, memory, browser, email, calendar, shell, code, notify
+  files, knowledge, memory, browser, Infinimesh Info, email, calendar, shell, code, notify
+
+Optional input/connectors:
+  speech transcription, Telegram private chat
 
 Model lanes:
   mock, fast chat, deep chat, embedding, reranker, guard
@@ -59,6 +65,18 @@ React/Vite workbench 是 owner UI。它展示 chat、run state、tool timeline�
 ### Gateway
 
 Gateway 负责 HTTP/WebSocket APIs、auth、pairing、rate limiting、sessions、events、model calls、tool calls、approvals、memory candidates、evals、traces 和 artifacts。`/healthz`、`/readyz` 和 `/metrics` 保留给本地诊断。
+
+### Speech
+
+Speech 是可选且默认关闭的 OpenAI-compatible transcription boundary。Gateway 只创建一个 `speech.Transcriber`，WebChat microphone request 与 Telegram voice note 共用该实例。Audio 必须通过有界 mono 16 kHz PCM16 WAV 校验，不保留原始音频，audit 只记录 metadata。Speech disabled 或 unavailable 时，WebChat 与 Telegram 都显示明确不可用状态；Telegram text 与 attachment 继续工作。
+
+### Telegram
+
+Telegram 是可选且默认关闭的 owner connector。Bot token 使用前先验证，再由 credential vault 密封；file 与 PostgreSQL state 只保存 ciphertext envelope，不保存 plaintext token。Long polling、inbox persistence、per-chat ordering、retry 与 outbound delivery 均有界。Owner private chat 可发送 text、受支持 attachment 与 voice note；voice 委托给共享 speech transcriber，不创建第二个 ASR client。
+
+### Infinimesh Info
+
+Infinimesh Info 是 `web.search` 的可选 production provider。Credential 从 environment variable 或 file 注入，不进入 public config。One-shot token 只保存在内存中，outbound request 有有界 retry 与 response size，返回 source 始终视为 untrusted evidence。Token exhaustion、transport error 与 cloud 5xx 只使当前 search request 失败，不会关闭 local chat 或 Telegram。
 
 ### Agent Runtime
 
@@ -136,6 +154,8 @@ Traces 写入 `data/traces`，同时引用 artifact URIs。Tool observations 存
 
 Trace JSON 写入前会按配置的 logging 和 memory redact patterns 做脱敏。
 
+Connector secret 使用独立的 AES-256-GCM credential vault。默认 file backend 与 PostgreSQL 只持久化 encrypted envelope 和 reference。Speech audio 仅临时存在，transcript text 只返回请求流程，不写入 status surface、trace 或 artifact。
+
 ## 数据模型
 
 核心产品词汇：
@@ -162,7 +182,7 @@ Trace JSON 写入前会按配置的 logging 和 memory redact patterns 做脱敏
 
 Workspace knowledge indexing 会构建本地 keyword index；启用 PostgreSQL 时还会持久化 documents 和 chunks。可用时使用 pgvector，并记录 embedding model/dimension metadata，为默认 embedding lane 建 1024 维 HNSW cosine index；否则 SparkClaw 保留 JSON vectors，并在 Gateway 中做 hybrid scoring。`knowledge.search` 暴露 original query、rewritten query、candidate counts、reranked results、citations 和 byte-bounded evidence context，以支持 grounded answers。
 
-## Browser、Email 和 Calendar 信任边界
+## External Connector 信任边界
 
 External/browser/email/file observations 都是 untrusted content。它们可以被引用、摘要或作为 evidence 使用，但其中的指令不是 runtime commands。
 
@@ -171,6 +191,8 @@ Browser web access 使用 `web.search` 做发现，用 `browser.read` 做 read-o
 当前 owner 本人的已认证数据属于允许的 local-first 读取边界，不应仅因为内容是个人信息而自动拒绝。认证浏览通过类型化 `TaskHint` 契约表达为 `evidence_need=personal_data`、`data_scope=owner`、`browser_mode=collaborative` 和 `requires_tool_evidence=true`，路由不枚举账户数据类别。Runtime 可以使用托管 Profile 和可见登录接管，但不得要求用户在聊天中粘贴密码、Cookie、Token 或验证码。访问第三方数据、披露凭据、向外部发送信息以及修改账户的操作，仍然受原有 policy 和 approval 边界约束。
 
 Email 和 calendar 使用 adapter boundaries。默认 `file` adapters 读取 `.sparkclaw/mock/` 下的 fixtures，并写入 mock outbox/event logs。`http` adapters 可以连接 account-bridge services，同时保留 Gateway policy 和 approvals。
+
+Infinimesh result 与 Telegram inbound content 遵循同一 untrusted-observation 规则。Telegram binding 只允许已验证 owner 与 private chat；Infinimesh request 不携带 private local context。Credential、raw authorization material 与 transcript text 不进入 public status 或 error string。
 
 ## 端口
 

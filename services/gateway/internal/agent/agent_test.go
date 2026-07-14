@@ -34,6 +34,37 @@ func TestExtractLabeledValueKeepsMultiWordValues(t *testing.T) {
 	}
 }
 
+func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T) {
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = t.TempDir()
+	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+	session := st.CreateSession("Telegram idempotency")
+
+	first, err := runtime.HandleMessageWithAttachmentsIdempotent(context.Background(), session.ID, "tg_message_42", "tg_run_42", "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := runtime.HandleMessageWithAttachmentsIdempotent(context.Background(), session.ID, "tg_message_42", "tg_run_42", "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Run.ID != "tg_run_42" || second.Run.ID != first.Run.ID || second.Message.ID != first.Message.ID {
+		t.Fatalf("idempotent result changed: first=%#v second=%#v", first, second)
+	}
+	if runs := st.ListRuns(session.ID); len(runs) != 1 || runs[0].ID != "tg_run_42" {
+		t.Fatalf("duplicate Agent run was created: %#v", runs)
+	}
+	messages := st.ListMessages(session.ID)
+	if len(messages) != 2 || messages[0].ID != "tg_message_42" || messages[1].RunID != "tg_run_42" {
+		t.Fatalf("duplicate or unstable messages were created: %#v", messages)
+	}
+}
+
 func TestExtractLabeledValueStopsBeforeNextLabel(t *testing.T) {
 	content := "Draft email reply thread_id:thread_alpha body:Thanks, I will review the SparkClaw checklist."
 

@@ -37,6 +37,9 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 | Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
 | Docker profiles and local deployment | Complete | Compose config, image builds, doctor script |
 | DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
+| Infinimesh Info `web.search` provider | Complete, opt-in | Contract/fault tests, redacted public config, credential-gated live smoke |
+| WebChat and Gateway speech transcription | Complete, opt-in | Speech/Gateway tests, voice frontend tests, live ASR smoke evidence |
+| Telegram owner connector | Complete, opt-in | Credential, store, binding, worker, media, reminder and WebChat tests |
 
 ## Standard Verification
 
@@ -46,6 +49,7 @@ Host checks:
 
 ```bash
 npm --workspace @sparkclaw/webchat run build
+npm --workspace @sparkclaw/webchat run test:voice
 go test ./services/gateway/...
 bash scripts/doctor.sh
 bash scripts/run-eval.sh
@@ -138,6 +142,8 @@ When changing UI behavior:
 
 - Keep Gateway as the source of truth for policy and execution.
 - Show approval, trace and tool-call state rather than hiding it.
+- Preserve the review-before-send microphone flow and the Telegram binding lifecycle.
+- Check both desktop and mobile layouts after changing composer or settings controls.
 - Build with `npm --workspace @sparkclaw/webchat run build`.
 - Keep runtime status and error states visible enough for local operators.
 
@@ -167,9 +173,19 @@ Common environment variables:
 - `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`
 - `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`
 - `SPARKCLAW_BROWSER_PROFILE_DIR`
+- `SPARKCLAW_WEB_SEARCH_ENABLED`, `SPARKCLAW_WEB_SEARCH_PROVIDER`
+- `SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE`
+- `SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE`
+- `SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE`
+- `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BACKEND`
+- `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`
+- `SPARKCLAW_TELEGRAM_ENABLED`, `SPARKCLAW_TELEGRAM_BASE_URL`
+- `SPARKCLAW_CREDENTIAL_KEY`, `SPARKCLAW_CREDENTIAL_KEY_FILE`
 - `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`
 
 Never commit `.env`, state encryption keys or downloaded model weights.
+
+Infinimesh search, speech and Telegram are independently disabled by default. The minimal profile remains on the `file` state backend and requires no cloud or connector credential. Enable each feature explicitly; enabling Telegram without speech keeps text and attachments available while voice returns a clear unavailable response.
 
 ## Data And Trace Hygiene
 
@@ -178,6 +194,8 @@ Traces and artifacts are development assets, but they can contain sensitive oper
 - confirm redaction settings are active
 - avoid committing `data/`
 - scan diffs for tokens such as `hf_`, `sk-` and `Authorization`
+- keep Infinimesh queries and speech transcripts out of logs, traces, status payloads and committed fixtures
+- confirm Telegram file/PostgreSQL state contains credential envelopes rather than bot tokens
 - keep raw external observations out of training data unless deliberately cleaned
 
 ## Post-MVP Work

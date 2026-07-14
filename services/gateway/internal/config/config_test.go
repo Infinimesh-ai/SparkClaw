@@ -96,20 +96,25 @@ func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 
 func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_WEB_SEARCH_ENABLED", "true")
-	t.Setenv("SPARKCLAW_WEB_SEARCH_PROVIDER", "parallel-free")
-	t.Setenv("SPARKCLAW_PARALLEL_BASE_URL", "https://search.parallel.ai/mcp")
-	t.Setenv("SPARKCLAW_PARALLEL_MAX_RESULTS", "7")
+	t.Setenv("SPARKCLAW_WEB_SEARCH_PROVIDER", "infinimesh-info")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_BASE_URL", "https://info.example.test")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_TOKEN_BATCH_SIZE", "7")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_MAX_ATTEMPTS", "2")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_MAX_SOURCES", "6")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF", "entitlement-env")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION", "attestation-env")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF", "license-env")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Tools.Web.Search.Enabled || cfg.Tools.Web.Search.Provider != "parallel-free" {
+	if !cfg.Tools.Web.Search.Enabled || cfg.Tools.Web.Search.Provider != "infinimesh-info" {
 		t.Fatalf("web search env did not apply: %#v", cfg.Tools.Web.Search)
 	}
-	parallel := cfg.Plugins.Entries.Parallel.Config.WebSearch
-	if parallel.BaseURL != "https://search.parallel.ai/mcp" || parallel.MaxResults != 7 {
-		t.Fatalf("parallel env did not apply: %#v", parallel)
+	info := cfg.Plugins.Entries.InfinimeshInfo.Config
+	if info.BaseURL != "https://info.example.test" || info.TokenBatchSize != 7 || info.MaxAttempts != 2 || info.MaxSources != 6 || !info.Configured() {
+		t.Fatalf("infinimesh info env did not apply: %#v", info)
 	}
 }
 
@@ -130,13 +135,92 @@ func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadKeepsWebSearchDisabledByDefaultForParallelFree(t *testing.T) {
+func TestLoadKeepsInfinimeshWebSearchDisabledByDefault(t *testing.T) {
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Tools.Web.Search.Enabled {
 		t.Fatalf("web search should stay disabled until explicitly enabled: %#v", cfg.Tools.Web.Search)
+	}
+}
+
+func TestLoadReadsInfinimeshInfoCredentialsFromFiles(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE":  "entitlement-file",
+		"SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE": "attestation-file",
+		"SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE":      "license-file",
+	}
+	for envName, value := range files {
+		path := filepath.Join(root, envName)
+		if err := os.WriteFile(path, []byte("  "+value+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(envName, path)
+	}
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := cfg.Plugins.Entries.InfinimeshInfo.Config
+	if info.EntitlementProof != "entitlement-file" || info.DeviceAttestation != "attestation-file" || info.LicenseProof != "license-file" {
+		t.Fatal("infinimesh info credential files were not loaded")
+	}
+}
+
+func TestLoadPrefersDirectInfinimeshInfoCredentialOverFile(t *testing.T) {
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF", "direct-proof")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE", filepath.Join(t.TempDir(), "missing"))
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof != "direct-proof" {
+		t.Fatal("direct credential did not take precedence")
+	}
+}
+
+func TestLoadRejectsUnreadableInfinimeshInfoCredentialFile(t *testing.T) {
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE", filepath.Join(t.TempDir(), "missing"))
+	if _, err := Load(""); err == nil {
+		t.Fatal("expected unreadable credential file to fail config loading")
+	}
+}
+
+func TestLoadDoesNotAcceptInfinimeshInfoCredentialsFromJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sparkclaw.json")
+	if err := os.WriteFile(path, []byte(`{
+  "plugins": {
+    "entries": {
+      "infinimeshInfo": {
+        "config": {
+          "entitlementProof": "json-entitlement",
+          "deviceAttestation": "json-attestation",
+          "licenseProof": "json-license"
+        }
+      }
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := cfg.Plugins.Entries.InfinimeshInfo.Config
+	if info.EntitlementProof != "" || info.DeviceAttestation != "" || info.LicenseProof != "" {
+		t.Fatal("infinimesh info credentials must not load from JSON")
+	}
+}
+
+func TestLoadValidatesInfinimeshInfoLimits(t *testing.T) {
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_TOKEN_BATCH_SIZE", "101")
+	if _, err := Load(""); err == nil {
+		t.Fatal("expected oversized token batch to fail config loading")
 	}
 }
 

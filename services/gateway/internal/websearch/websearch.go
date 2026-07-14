@@ -42,10 +42,18 @@ type Item struct {
 
 func NewAdapter(cfg config.Config) Adapter {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Tools.Web.Search.Provider))
-	if provider == "" || provider == "parallel-free" {
+	switch provider {
+	case "", "infinimesh-info":
+		adapter, err := NewInfinimeshInfoAdapter(cfg.Plugins.Entries.InfinimeshInfo.Config, nil)
+		if err != nil {
+			return disabledAdapter{reason: err.Error()}
+		}
+		return adapter
+	case "parallel-free":
 		return NewParallelFreeAdapter(cfg.Plugins.Entries.Parallel.Config.WebSearch, &http.Client{Timeout: webSearchHTTPTimeout(cfg)})
+	default:
+		return disabledAdapter{reason: "unsupported web search provider: " + provider}
 	}
-	return disabledAdapter{reason: "unsupported web search provider: " + provider}
 }
 
 func webSearchHTTPTimeout(cfg config.Config) time.Duration {

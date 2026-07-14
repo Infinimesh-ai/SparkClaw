@@ -2218,7 +2218,7 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 }
 
 func publicToolsConfig(cfg config.Config) map[string]any {
-	webSearch := cfg.Plugins.Entries.Parallel.Config.WebSearch
+	infoSearch := cfg.Plugins.Entries.InfinimeshInfo.Config
 	notificationChannels := map[string]any{}
 	for name, channel := range cfg.Tools.Notifications.Channels {
 		notificationChannels[name] = map[string]any{
@@ -2232,11 +2232,9 @@ func publicToolsConfig(cfg config.Config) map[string]any {
 	return map[string]any{
 		"web": map[string]any{
 			"search": map[string]any{
-				"enabled":            cfg.Tools.Web.Search.Enabled,
-				"provider":           cfg.Tools.Web.Search.Provider,
-				"base_url":           webSearch.BaseURL,
-				"api_key_configured": strings.TrimSpace(webSearch.APIKey) != "",
-				"max_results":        webSearch.MaxResults,
+				"enabled":    cfg.Tools.Web.Search.Enabled,
+				"provider":   cfg.Tools.Web.Search.Provider,
+				"configured": infoSearch.Configured(),
 			},
 		},
 		"browserAutomation": map[string]any{

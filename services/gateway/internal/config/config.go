@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -67,7 +68,8 @@ type PluginsConfig struct {
 }
 
 type PluginEntriesConfig struct {
-	Parallel ParallelPluginConfig `json:"parallel"`
+	Parallel       ParallelPluginConfig       `json:"parallel"`
+	InfinimeshInfo InfinimeshInfoPluginConfig `json:"infinimeshInfo"`
 }
 
 type ParallelPluginConfig struct {
@@ -82,6 +84,30 @@ type ParallelWebSearchConfig struct {
 	APIKey     string `json:"apiKey,omitempty"`
 	BaseURL    string `json:"baseUrl,omitempty"`
 	MaxResults int    `json:"maxResults,omitempty"`
+}
+
+type InfinimeshInfoPluginConfig struct {
+	Config InfinimeshInfoConfig `json:"config"`
+}
+
+type InfinimeshInfoConfig struct {
+	BaseURL               string `json:"baseUrl"`
+	TokenBatchSize        int    `json:"tokenBatchSize"`
+	MaxAttempts           int    `json:"maxAttempts"`
+	RetryBaseDelayMS      int    `json:"retryBaseDelayMs"`
+	RequestTimeoutSeconds int    `json:"requestTimeoutSeconds"`
+	ResponseBodyMaxBytes  int64  `json:"responseBodyMaxBytes"`
+	Language              string `json:"language"`
+	MaxSources            int    `json:"maxSources"`
+	EntitlementProof      string `json:"-"`
+	DeviceAttestation     string `json:"-"`
+	LicenseProof          string `json:"-"`
+}
+
+func (cfg InfinimeshInfoConfig) Configured() bool {
+	return strings.TrimSpace(cfg.EntitlementProof) != "" &&
+		strings.TrimSpace(cfg.DeviceAttestation) != "" &&
+		strings.TrimSpace(cfg.LicenseProof) != ""
 }
 
 type ToolsConfig struct {
@@ -243,6 +269,9 @@ func Load(path string) (Config, error) {
 		}
 	}
 	applyEnv(&cfg)
+	if err := applyInfinimeshInfoCredentials(&cfg); err != nil {
+		return Config{}, err
+	}
 	if err := applyToolPolicyFile(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -278,6 +307,9 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
 	normalizeRuntimeLimits(&cfg.Runtime)
+	if err := normalizeInfinimeshInfoConfig(&cfg.Plugins.Entries.InfinimeshInfo.Config); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -301,6 +333,58 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	if rt.ReactMaxRepeatedToolCalls <= 0 {
 		rt.ReactMaxRepeatedToolCalls = defaults.ReactMaxRepeatedToolCalls
 	}
+}
+
+func normalizeInfinimeshInfoConfig(cfg *InfinimeshInfoConfig) error {
+	defaults := Default().Plugins.Entries.InfinimeshInfo.Config
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		cfg.BaseURL = defaults.BaseURL
+	}
+	parsedBaseURL, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
+	if err != nil || parsedBaseURL.Host == "" || (parsedBaseURL.Scheme != "http" && parsedBaseURL.Scheme != "https") {
+		return errors.New("infinimesh info base URL must be an absolute HTTP(S) URL")
+	}
+	cfg.BaseURL = strings.TrimRight(parsedBaseURL.String(), "/")
+	if cfg.TokenBatchSize <= 0 {
+		cfg.TokenBatchSize = defaults.TokenBatchSize
+	}
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = defaults.MaxAttempts
+	}
+	if cfg.RetryBaseDelayMS <= 0 {
+		cfg.RetryBaseDelayMS = defaults.RetryBaseDelayMS
+	}
+	if cfg.RequestTimeoutSeconds <= 0 {
+		cfg.RequestTimeoutSeconds = defaults.RequestTimeoutSeconds
+	}
+	if cfg.ResponseBodyMaxBytes <= 0 {
+		cfg.ResponseBodyMaxBytes = defaults.ResponseBodyMaxBytes
+	}
+	if strings.TrimSpace(cfg.Language) == "" {
+		cfg.Language = defaults.Language
+	}
+	if cfg.MaxSources <= 0 {
+		cfg.MaxSources = defaults.MaxSources
+	}
+	if cfg.TokenBatchSize > 100 {
+		return errors.New("infinimesh info token batch size must not exceed 100")
+	}
+	if cfg.MaxAttempts > 5 {
+		return errors.New("infinimesh info max attempts must not exceed 5")
+	}
+	if cfg.RetryBaseDelayMS > 5000 {
+		return errors.New("infinimesh info retry base delay must not exceed 5000ms")
+	}
+	if cfg.RequestTimeoutSeconds > 120 {
+		return errors.New("infinimesh info request timeout must not exceed 120 seconds")
+	}
+	if cfg.ResponseBodyMaxBytes < 1024 || cfg.ResponseBodyMaxBytes > 8<<20 {
+		return errors.New("infinimesh info response body limit must be between 1024 and 8388608 bytes")
+	}
+	if cfg.MaxSources > 40 {
+		return errors.New("infinimesh info max sources must not exceed 40")
+	}
+	return nil
 }
 
 func Default() Config {
@@ -366,13 +450,25 @@ func Default() Config {
 						},
 					},
 				},
+				InfinimeshInfo: InfinimeshInfoPluginConfig{
+					Config: InfinimeshInfoConfig{
+						BaseURL:               "https://info.infinimesh.cn",
+						TokenBatchSize:        10,
+						MaxAttempts:           3,
+						RetryBaseDelayMS:      200,
+						RequestTimeoutSeconds: 30,
+						ResponseBodyMaxBytes:  4 << 20,
+						Language:              "zh-CN",
+						MaxSources:            8,
+					},
+				},
 			},
 		},
 		Tools: ToolsConfig{
 			Web: WebToolsConfig{
 				Search: WebSearchToolConfig{
 					Enabled:  false,
-					Provider: "parallel-free",
+					Provider: "infinimesh-info",
 				},
 			},
 			BrowserAutomation: BrowserAutomationToolConfig{
@@ -719,6 +815,52 @@ func applyEnv(cfg *Config) {
 			cfg.Plugins.Entries.Parallel.Config.WebSearch.MaxResults = maxResults
 		}
 	}
+	info := &cfg.Plugins.Entries.InfinimeshInfo.Config
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_BASE_URL"); v != "" {
+		info.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_TOKEN_BATCH_SIZE"); v != "" {
+		if count, err := strconv.Atoi(v); err == nil {
+			info.TokenBatchSize = count
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_MAX_ATTEMPTS"); v != "" {
+		if attempts, err := strconv.Atoi(v); err == nil {
+			info.MaxAttempts = attempts
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_RETRY_BASE_DELAY_MS"); v != "" {
+		if delay, err := strconv.Atoi(v); err == nil {
+			info.RetryBaseDelayMS = delay
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_REQUEST_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			info.RequestTimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_RESPONSE_BODY_MAX_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			info.ResponseBodyMaxBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_LANGUAGE"); v != "" {
+		info.Language = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_MAX_SOURCES"); v != "" {
+		if count, err := strconv.Atoi(v); err == nil {
+			info.MaxSources = count
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF"); v != "" {
+		info.EntitlementProof = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION"); v != "" {
+		info.DeviceAttestation = v
+	}
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF"); v != "" {
+		info.LicenseProof = v
+	}
 	if v := os.Getenv("SPARKCLAW_MEMORY_RETENTION_DAYS"); v != "" {
 		if days, err := strconv.Atoi(v); err == nil {
 			cfg.Memory.RetentionDays = days
@@ -790,6 +932,49 @@ func applyEnv(cfg *Config) {
 			cfg.Skills.Dirs[i] = abs
 		}
 	}
+}
+
+func applyInfinimeshInfoCredentials(cfg *Config) error {
+	info := &cfg.Plugins.Entries.InfinimeshInfo.Config
+	var err error
+	info.EntitlementProof, err = secretFromEnvOrFile(
+		info.EntitlementProof,
+		"SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE",
+	)
+	if err != nil {
+		return err
+	}
+	info.DeviceAttestation, err = secretFromEnvOrFile(
+		info.DeviceAttestation,
+		"SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE",
+	)
+	if err != nil {
+		return err
+	}
+	info.LicenseProof, err = secretFromEnvOrFile(
+		info.LicenseProof,
+		"SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE",
+	)
+	return err
+}
+
+func secretFromEnvOrFile(direct, fileEnv string) (string, error) {
+	if value := strings.TrimSpace(direct); value != "" {
+		return value, nil
+	}
+	path := strings.TrimSpace(os.Getenv(fileEnv))
+	if path == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", fileEnv, err)
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return "", fmt.Errorf("read %s: credential file is empty", fileEnv)
+	}
+	return value, nil
 }
 
 func ensureNotificationChannels(cfg *NotificationsToolConfig) {

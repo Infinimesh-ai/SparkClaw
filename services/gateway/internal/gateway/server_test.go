@@ -1692,10 +1692,10 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	cfg.State.EncryptAtRest = true
 	cfg.State.EncryptionKey = "state-secret"
 	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.Web.Search.Provider = "parallel-free"
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = "par-super-secret"
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.BaseURL = "https://search.parallel.ai/mcp"
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.MaxResults = 7
+	cfg.Tools.Web.Search.Provider = "infinimesh-info"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-super-secret"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "attestation-super-secret"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-super-secret"
 
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -1781,12 +1781,12 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 		Tools struct {
 			Web struct {
 				Search struct {
-					Enabled          bool   `json:"enabled"`
-					Provider         string `json:"provider"`
-					BaseURL          string `json:"base_url"`
-					APIKeyConfigured bool   `json:"api_key_configured"`
-					APIKey           string `json:"api_key"`
-					MaxResults       int    `json:"max_results"`
+					Enabled           bool   `json:"enabled"`
+					Provider          string `json:"provider"`
+					Configured        bool   `json:"configured"`
+					EntitlementProof  string `json:"entitlement_proof"`
+					DeviceAttestation string `json:"device_attestation"`
+					LicenseProof      string `json:"license_proof"`
 				} `json:"search"`
 			} `json:"web"`
 		} `json:"tools"`
@@ -1813,11 +1813,11 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	if !decoded.State.EncryptAtRest || decoded.State.EncryptionKey != "configured" || decoded.State.EncryptionKeyFile != "missing" {
 		t.Fatalf("state encryption status was not exposed safely: %#v", decoded.State)
 	}
-	if !decoded.Tools.Web.Search.Enabled || decoded.Tools.Web.Search.Provider != "parallel-free" || decoded.Tools.Web.Search.MaxResults != 7 || !decoded.Tools.Web.Search.APIKeyConfigured {
+	if !decoded.Tools.Web.Search.Enabled || decoded.Tools.Web.Search.Provider != "infinimesh-info" || !decoded.Tools.Web.Search.Configured {
 		t.Fatalf("web search safe summary missing: %#v", decoded.Tools.Web.Search)
 	}
-	if decoded.Tools.Web.Search.APIKey != "" {
-		t.Fatalf("parallel api key was exposed: %#v", decoded.Tools.Web.Search)
+	if decoded.Tools.Web.Search.EntitlementProof != "" || decoded.Tools.Web.Search.DeviceAttestation != "" || decoded.Tools.Web.Search.LicenseProof != "" {
+		t.Fatalf("infinimesh info credentials were exposed: %#v", decoded.Tools.Web.Search)
 	}
 	if decoded.ToolPolicy.PolicyPath == "" || decoded.ToolPolicy.DefinitionCount == 0 || decoded.ToolPolicy.RiskCounts["dangerous"] == 0 {
 		t.Fatalf("tool policy summary missing: %#v", decoded.ToolPolicy)

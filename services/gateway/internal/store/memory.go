@@ -26,8 +26,9 @@ type MemoryStore struct {
 	reminders            map[string]app.Reminder
 	reminderDelivery     map[string]app.ReminderDelivery
 	notificationBindings map[string]app.NotificationBinding
-	weixinChatSessions   map[string]app.WeixinChatSession
-	weixinChatMessages   map[string]app.WeixinChatMessage
+	externalChatSessions map[string]app.ExternalChatSession
+	externalChatMessages map[string]app.ExternalChatMessage
+	channelInboxUpdates  map[string]app.ChannelInboxUpdate
 	credentialSecrets    map[string]app.CredentialSecret
 	browserAuthRecords   map[string]app.BrowserAuthRecord
 	browserLoginBlocks   map[string]app.BrowserLoginBlock
@@ -58,8 +59,9 @@ func NewMemoryStore() *MemoryStore {
 		reminders:            map[string]app.Reminder{},
 		reminderDelivery:     map[string]app.ReminderDelivery{},
 		notificationBindings: map[string]app.NotificationBinding{},
-		weixinChatSessions:   map[string]app.WeixinChatSession{},
-		weixinChatMessages:   map[string]app.WeixinChatMessage{},
+		externalChatSessions: map[string]app.ExternalChatSession{},
+		externalChatMessages: map[string]app.ExternalChatMessage{},
+		channelInboxUpdates:  map[string]app.ChannelInboxUpdate{},
 		credentialSecrets:    map[string]app.CredentialSecret{},
 		browserAuthRecords:   map[string]app.BrowserAuthRecord{},
 		browserLoginBlocks:   map[string]app.BrowserLoginBlock{},
@@ -93,8 +95,9 @@ func (s *MemoryStore) snapshot() Snapshot {
 		Reminders:            cloneMap(s.reminders),
 		ReminderDelivery:     cloneMap(s.reminderDelivery),
 		NotificationBindings: cloneMap(s.notificationBindings),
-		WeixinChatSessions:   cloneMap(s.weixinChatSessions),
-		WeixinChatMessages:   cloneMap(s.weixinChatMessages),
+		ExternalChatSessions: cloneMap(s.externalChatSessions),
+		ExternalChatMessages: cloneMap(s.externalChatMessages),
+		ChannelInboxUpdates:  cloneMap(s.channelInboxUpdates),
 		CredentialSecrets:    cloneMap(s.credentialSecrets),
 		BrowserAuthRecords:   cloneMap(s.browserAuthRecords),
 		BrowserLoginBlocks:   cloneMap(s.browserLoginBlocks),
@@ -127,8 +130,36 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.reminders = ensureMap(snapshot.Reminders)
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
 	s.notificationBindings = ensureMap(snapshot.NotificationBindings)
-	s.weixinChatSessions = ensureMap(snapshot.WeixinChatSessions)
-	s.weixinChatMessages = ensureMap(snapshot.WeixinChatMessages)
+	s.externalChatSessions = ensureMap(snapshot.ExternalChatSessions)
+	for id, session := range snapshot.WeixinChatSessions {
+		if _, exists := s.externalChatSessions[id]; !exists {
+			s.externalChatSessions[id] = session
+		}
+	}
+	s.externalChatMessages = ensureMap(snapshot.ExternalChatMessages)
+	for id, message := range snapshot.WeixinChatMessages {
+		if _, exists := s.externalChatMessages[id]; !exists {
+			s.externalChatMessages[id] = message
+		}
+	}
+	for id, session := range s.externalChatSessions {
+		if session.Channel == "" {
+			session.Channel = "weixin"
+		}
+		if session.ExternalChatID == "" {
+			session.ExternalChatID = session.ExternalUserID
+		}
+		s.externalChatSessions[id] = session
+	}
+	for id, message := range s.externalChatMessages {
+		if message.Channel == "" {
+			if session, ok := s.externalChatSessions[message.ChatSessionID]; ok {
+				message.Channel = session.Channel
+			}
+		}
+		s.externalChatMessages[id] = message
+	}
+	s.channelInboxUpdates = ensureMap(snapshot.ChannelInboxUpdates)
 	s.credentialSecrets = ensureMap(snapshot.CredentialSecrets)
 	s.browserAuthRecords = ensureMap(snapshot.BrowserAuthRecords)
 	s.browserLoginBlocks = ensureMap(snapshot.BrowserLoginBlocks)
@@ -141,7 +172,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.episodeSummaries = ensureMap(snapshot.EpisodeSummaries)
 	s.documents = ensureMap(snapshot.Documents)
 	s.documentChunks = ensureMap(snapshot.DocumentChunks)
-	s.hideLinkedWeixinSessionsLocked()
+	s.hideLinkedExternalChatSessionsLocked()
 }
 
 func (s *MemoryStore) CreateSession(title string) app.Session {
@@ -177,11 +208,11 @@ func (s *MemoryStore) CreateSessionWithScope(title, ownerID, workspaceRoot, sour
 	return session
 }
 
-func (s *MemoryStore) hideLinkedWeixinSessionsLocked() {
+func (s *MemoryStore) hideLinkedExternalChatSessionsLocked() {
 	now := time.Now().UTC()
-	for _, chatSession := range s.weixinChatSessions {
+	for _, chatSession := range s.externalChatSessions {
 		if linked, ok := s.sessions[chatSession.LinkedSessionID]; ok {
-			linked.Source = "weixin"
+			linked.Source = chatSession.Channel
 			linked.Hidden = true
 			if strings.TrimSpace(chatSession.OwnerID) != "" {
 				linked.OwnerID = chatSession.OwnerID
@@ -190,7 +221,7 @@ func (s *MemoryStore) hideLinkedWeixinSessionsLocked() {
 				linked.WorkspaceRoot = chatSession.WorkspaceRoot
 			}
 			if linked.Title == "" || linked.Title == "New SparkClaw Session" {
-				linked.Title = "微信会话"
+				linked.Title = externalChatSessionTitle(chatSession.Channel)
 			}
 			if linked.UpdatedAt.IsZero() {
 				linked.UpdatedAt = now
@@ -324,6 +355,18 @@ func (s *MemoryStore) DeleteSession(id string) (app.Session, error) {
 	for episodeID, summary := range s.episodeSummaries {
 		if summary.SessionID == id {
 			delete(s.episodeSummaries, episodeID)
+		}
+	}
+	deletedChatSessions := map[string]bool{}
+	for chatSessionID, chatSession := range s.externalChatSessions {
+		if chatSession.LinkedSessionID == id {
+			deletedChatSessions[chatSessionID] = true
+			delete(s.externalChatSessions, chatSessionID)
+		}
+	}
+	for messageID, message := range s.externalChatMessages {
+		if deletedChatSessions[message.ChatSessionID] {
+			delete(s.externalChatMessages, messageID)
 		}
 	}
 	s.auditEvents = filterAuditEvents(s.auditEvents, id)
@@ -1024,15 +1067,18 @@ func (s *MemoryStore) RevokeNotificationBinding(id string) (app.NotificationBind
 	return binding, nil
 }
 
-func (s *MemoryStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
+func (s *MemoryStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	if session.ID == "" {
-		session.ID = app.NewID("wxchat")
+		session.ID = app.NewID("extchat")
 	}
 	if session.Channel == "" {
 		session.Channel = "weixin"
+	}
+	if session.ExternalChatID == "" {
+		session.ExternalChatID = session.ExternalUserID
 	}
 	if session.Status == "" {
 		session.Status = "active"
@@ -1042,7 +1088,7 @@ func (s *MemoryStore) SaveWeixinChatSession(session app.WeixinChatSession) app.W
 	}
 	session.UpdatedAt = now
 	if linked, ok := s.sessions[session.LinkedSessionID]; ok {
-		linked.Source = "weixin"
+		linked.Source = session.Channel
 		linked.Hidden = true
 		if strings.TrimSpace(session.OwnerID) != "" {
 			linked.OwnerID = session.OwnerID
@@ -1051,110 +1097,234 @@ func (s *MemoryStore) SaveWeixinChatSession(session app.WeixinChatSession) app.W
 			linked.WorkspaceRoot = session.WorkspaceRoot
 		}
 		linked.UpdatedAt = now
-		if linked.Title == "" || linked.Title == "微信会话" {
-			linked.Title = "微信会话"
+		if linked.Title == "" || linked.Title == "New SparkClaw Session" || linked.Title == "微信会话" {
+			linked.Title = externalChatSessionTitle(session.Channel)
 		}
 		s.sessions[linked.ID] = linked
 	}
-	s.weixinChatSessions[session.ID] = session
-	s.appendAuditLocked("weixin_chat_session."+session.Status, session.LinkedSessionID, "", "gateway", redactExternalID(session.ExternalUserID), map[string]any{
+	s.externalChatSessions[session.ID] = session
+	s.appendAuditLocked("external_chat_session."+session.Status, session.LinkedSessionID, "", "gateway", redactExternalID(session.ExternalUserID), map[string]any{
 		"chat_session_id": session.ID,
 		"binding_id":      session.BindingID,
+		"channel":         session.Channel,
 		"provider":        session.Provider,
 	})
-	s.appendEventLocked("weixin_chat_session."+session.Status, session.LinkedSessionID, "", session)
+	s.appendEventLocked("external_chat_session."+session.Status, session.LinkedSessionID, "", session)
 	return session
 }
 
-func (s *MemoryStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
+func (s *MemoryStore) GetExternalChatSession(id string) (app.ExternalChatSession, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	session, ok := s.weixinChatSessions[id]
+	session, ok := s.externalChatSessions[id]
 	return session, ok
 }
 
-func (s *MemoryStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
+func (s *MemoryStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, session := range s.weixinChatSessions {
-		if session.BindingID == bindingID && session.ExternalUserID == externalUserID {
+	for _, session := range s.externalChatSessions {
+		chatID := session.ExternalChatID
+		if chatID == "" {
+			chatID = session.ExternalUserID
+		}
+		if session.BindingID == bindingID && chatID == externalChatID && session.ExternalThreadID == externalThreadID {
 			return session, true
 		}
 	}
-	return app.WeixinChatSession{}, false
+	return app.ExternalChatSession{}, false
 }
 
-func (s *MemoryStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
+func (s *MemoryStore) FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, session := range s.weixinChatSessions {
+	for _, session := range s.externalChatSessions {
 		if session.LinkedSessionID == sessionID {
 			return session, true
 		}
 	}
-	return app.WeixinChatSession{}, false
+	return app.ExternalChatSession{}, false
 }
 
-func (s *MemoryStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
+func (s *MemoryStore) SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	if message.ID == "" {
-		message.ID = app.NewID("wxmsg")
+		message.ID = app.NewID("extmsg")
+	}
+	if message.Channel == "" {
+		if session, ok := s.externalChatSessions[message.ChatSessionID]; ok {
+			message.Channel = session.Channel
+		}
 	}
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = now
 	}
 	message.UpdatedAt = now
-	s.weixinChatMessages[message.ID] = message
-	s.appendAuditLocked("weixin_chat_message."+message.Status, "", message.LinkedRunID, "gateway", message.Direction, map[string]any{
+	s.externalChatMessages[message.ID] = message
+	s.appendAuditLocked("external_chat_message."+message.Status, "", message.LinkedRunID, "gateway", message.Direction, map[string]any{
 		"message_id":      message.ID,
 		"chat_session_id": message.ChatSessionID,
 		"binding_id":      message.BindingID,
+		"channel":         message.Channel,
 		"direction":       message.Direction,
 		"role":            message.Role,
 	})
-	s.appendEventLocked("weixin_chat_message."+message.Status, "", message.LinkedRunID, message)
+	s.appendEventLocked("external_chat_message."+message.Status, "", message.LinkedRunID, message)
 	return message
 }
 
-func (s *MemoryStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
+func (s *MemoryStore) GetExternalChatMessage(id string) (app.ExternalChatMessage, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	message, ok := s.weixinChatMessages[id]
+	message, ok := s.externalChatMessages[id]
 	return message, ok
 }
 
-func (s *MemoryStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
+func (s *MemoryStore) FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool) {
 	if strings.TrimSpace(externalMessageID) == "" {
-		return app.WeixinChatMessage{}, false
+		return app.ExternalChatMessage{}, false
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, message := range s.weixinChatMessages {
+	for _, message := range s.externalChatMessages {
 		if message.ChatSessionID == chatSessionID && message.ExternalMessageID == externalMessageID {
 			return message, true
 		}
 	}
-	return app.WeixinChatMessage{}, false
+	return app.ExternalChatMessage{}, false
 }
 
-func (s *MemoryStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
+func (s *MemoryStore) ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := []app.WeixinChatMessage{}
-	for _, message := range s.weixinChatMessages {
+	out := []app.ExternalChatMessage{}
+	for _, message := range s.externalChatMessages {
 		if chatSessionID == "" || message.ChatSessionID == chatSessionID {
 			out = append(out, message)
 		}
 	}
-	slices.SortFunc(out, func(a, b app.WeixinChatMessage) int {
+	slices.SortFunc(out, func(a, b app.ExternalChatMessage) int {
 		return a.CreatedAt.Compare(b.CreatedAt)
 	})
 	if limit > 0 && len(out) > limit {
 		return out[len(out)-limit:]
 	}
 	return out
+}
+
+func (s *MemoryStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	for _, existing := range s.channelInboxUpdates {
+		if existing.BindingID == update.BindingID && existing.ExternalID == update.ExternalID && existing.ID != update.ID {
+			existing.Payload = append([]byte(nil), existing.Payload...)
+			return existing
+		}
+	}
+	if update.ID == "" {
+		update.ID = app.NewID("inbox")
+	}
+	if update.Status == "" {
+		update.Status = "pending"
+	}
+	if update.AvailableAt.IsZero() {
+		update.AvailableAt = now
+	}
+	if update.CreatedAt.IsZero() {
+		update.CreatedAt = now
+	}
+	update.UpdatedAt = now
+	update.Payload = append([]byte(nil), update.Payload...)
+	s.channelInboxUpdates[update.ID] = update
+	return update
+}
+
+func (s *MemoryStore) GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	update, ok := s.channelInboxUpdates[id]
+	update.Payload = append([]byte(nil), update.Payload...)
+	return update, ok
+}
+
+func (s *MemoryStore) FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, update := range s.channelInboxUpdates {
+		if update.BindingID == bindingID && update.ExternalID == externalID {
+			update.Payload = append([]byte(nil), update.Payload...)
+			return update, true
+		}
+	}
+	return app.ChannelInboxUpdate{}, false
+}
+
+func (s *MemoryStore) ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []app.ChannelInboxUpdate{}
+	for _, update := range s.channelInboxUpdates {
+		if channel != "" && update.Channel != channel {
+			continue
+		}
+		if status != "" && update.Status != status {
+			continue
+		}
+		if !readyBefore.IsZero() && update.AvailableAt.After(readyBefore) {
+			continue
+		}
+		update.Payload = append([]byte(nil), update.Payload...)
+		out = append(out, update)
+	}
+	slices.SortFunc(out, func(a, b app.ChannelInboxUpdate) int {
+		return a.CreatedAt.Compare(b.CreatedAt)
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func externalChatSessionTitle(channel string) string {
+	if strings.EqualFold(strings.TrimSpace(channel), "telegram") {
+		return "Telegram 会话"
+	}
+	return "微信会话"
+}
+
+func (s *MemoryStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
+	return s.SaveExternalChatSession(session)
+}
+
+func (s *MemoryStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
+	return s.GetExternalChatSession(id)
+}
+
+func (s *MemoryStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
+	return s.FindExternalChatSession(bindingID, externalUserID, "")
+}
+
+func (s *MemoryStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
+	return s.FindExternalChatSessionByLinkedSessionID(sessionID)
+}
+
+func (s *MemoryStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
+	return s.SaveExternalChatMessage(message)
+}
+
+func (s *MemoryStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
+	return s.GetExternalChatMessage(id)
+}
+
+func (s *MemoryStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
+	return s.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
+}
+
+func (s *MemoryStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
+	return s.ListExternalChatMessages(chatSessionID, limit)
 }
 
 func (s *MemoryStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {

@@ -216,6 +216,8 @@ CREATE TABLE IF NOT EXISTS notification_bindings (
   status TEXT NOT NULL,
   display_name TEXT NOT NULL DEFAULT '',
   external_user_id TEXT NOT NULL DEFAULT '',
+  external_chat_id TEXT NOT NULL DEFAULT '',
+  external_thread_id TEXT NOT NULL DEFAULT '',
   account_id TEXT NOT NULL DEFAULT '',
   credential_ref TEXT NOT NULL DEFAULT '',
   base_url TEXT NOT NULL DEFAULT '',
@@ -240,6 +242,8 @@ ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS provider_session_id T
 ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS provider_state TEXT NOT NULL DEFAULT '';
 ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS context_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS provider_cursor TEXT NOT NULL DEFAULT '';
+ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS external_chat_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS external_thread_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'webchat';
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT 'owner';
@@ -283,6 +287,91 @@ CREATE TABLE IF NOT EXISTS weixin_chat_messages (
 
 CREATE INDEX IF NOT EXISTS weixin_chat_messages_external_idx ON weixin_chat_messages(chat_session_id, external_message_id);
 CREATE INDEX IF NOT EXISTS weixin_chat_messages_chat_created_idx ON weixin_chat_messages(chat_session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS external_chat_sessions (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL DEFAULT '',
+  workspace_root TEXT NOT NULL DEFAULT '',
+  binding_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT '',
+  external_user_id TEXT NOT NULL DEFAULT '',
+  external_chat_id TEXT NOT NULL DEFAULT '',
+  external_thread_id TEXT NOT NULL DEFAULT '',
+  display_name TEXT NOT NULL DEFAULT '',
+  linked_session_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  provider_cursor TEXT NOT NULL DEFAULT '',
+  last_context_token TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS external_chat_sessions_binding_chat_idx
+  ON external_chat_sessions(binding_id, external_chat_id, external_thread_id);
+CREATE INDEX IF NOT EXISTS external_chat_sessions_linked_session_idx
+  ON external_chat_sessions(linked_session_id);
+
+CREATE TABLE IF NOT EXISTS external_chat_messages (
+  id TEXT PRIMARY KEY,
+  chat_session_id TEXT NOT NULL,
+  binding_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  role TEXT NOT NULL,
+  external_message_id TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL,
+  context_token TEXT NOT NULL DEFAULT '',
+  linked_run_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS external_chat_messages_external_idx
+  ON external_chat_messages(chat_session_id, external_message_id);
+CREATE INDEX IF NOT EXISTS external_chat_messages_chat_created_idx
+  ON external_chat_messages(chat_session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS channel_inbox_updates (
+  id TEXT PRIMARY KEY,
+  binding_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  chat_key TEXT NOT NULL DEFAULT '',
+  payload JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(binding_id, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS channel_inbox_updates_ready_idx
+  ON channel_inbox_updates(channel, status, available_at, created_at);
+
+INSERT INTO external_chat_sessions (
+  id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+  external_chat_id, external_thread_id, display_name, linked_session_id, status,
+  provider_cursor, last_context_token, created_at, updated_at
+)
+SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+       external_user_id, '', display_name, linked_session_id, status,
+       provider_cursor, last_context_token, created_at, updated_at
+FROM weixin_chat_sessions
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO external_chat_messages (
+  id, chat_session_id, binding_id, channel, direction, role, external_message_id,
+  content, context_token, linked_run_id, status, error, created_at, updated_at
+)
+SELECT id, chat_session_id, binding_id, 'weixin', direction, role, external_message_id,
+       content, context_token, linked_run_id, status, error, created_at, updated_at
+FROM weixin_chat_messages
+ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS credential_secrets (
   ref TEXT PRIMARY KEY,
@@ -648,8 +737,8 @@ func (s *PostgresStore) DeleteSession(id string) (app.Session, error) {
 		`DELETE FROM memories WHERE source_run_id IN (SELECT id FROM agent_runs WHERE session_id = $1)`,
 		`DELETE FROM episode_summaries WHERE session_id = $1`,
 		`DELETE FROM artifact_objects WHERE session_id = $1`,
-		`DELETE FROM weixin_chat_messages WHERE chat_session_id IN (SELECT id FROM weixin_chat_sessions WHERE linked_session_id = $1)`,
-		`DELETE FROM weixin_chat_sessions WHERE linked_session_id = $1`,
+		`DELETE FROM external_chat_messages WHERE chat_session_id IN (SELECT id FROM external_chat_sessions WHERE linked_session_id = $1)`,
+		`DELETE FROM external_chat_sessions WHERE linked_session_id = $1`,
 		`DELETE FROM tool_calls WHERE session_id = $1`,
 		`DELETE FROM model_calls WHERE session_id = $1`,
 		`DELETE FROM messages WHERE session_id = $1`,
@@ -1522,16 +1611,18 @@ func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding)
 	}
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO notification_bindings (
-			id, owner_id, channel, provider, status, display_name, external_user_id, account_id,
+			id, owner_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
 			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
 			created_at, updated_at, expires_at, revoked_at, last_error
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		ON CONFLICT (id) DO UPDATE SET
 			provider = EXCLUDED.provider,
 			status = EXCLUDED.status,
 			display_name = EXCLUDED.display_name,
 			external_user_id = EXCLUDED.external_user_id,
+			external_chat_id = EXCLUDED.external_chat_id,
+			external_thread_id = EXCLUDED.external_thread_id,
 			account_id = EXCLUDED.account_id,
 			credential_ref = EXCLUDED.credential_ref,
 			base_url = EXCLUDED.base_url,
@@ -1548,7 +1639,7 @@ func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding)
 			revoked_at = EXCLUDED.revoked_at,
 			last_error = EXCLUDED.last_error
 	`, binding.ID, binding.OwnerID, binding.Channel, binding.Provider, binding.Status, binding.DisplayName,
-		binding.ExternalUserID, binding.AccountID, binding.CredentialRef, binding.BaseURL, binding.ProviderSessionID,
+		binding.ExternalUserID, binding.ExternalChatID, binding.ExternalThreadID, binding.AccountID, binding.CredentialRef, binding.BaseURL, binding.ProviderSessionID,
 		binding.ProviderState, binding.ContextToken, binding.ProviderCursor, binding.QRCodeURL, binding.QRCodeImage, binding.DefaultForChannel, mustJSON(binding.Scopes), binding.CreatedAt, binding.UpdatedAt,
 		binding.ExpiresAt, binding.RevokedAt, binding.LastError)
 	s.appendAudit(ctx, "notification_binding."+binding.Status, "", "", "owner", binding.Channel, map[string]any{
@@ -1563,7 +1654,7 @@ func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding)
 
 func (s *PostgresStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, account_id,
+		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
 			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
 			created_at, updated_at, expires_at, revoked_at, last_error
 		FROM notification_bindings
@@ -1575,7 +1666,7 @@ func (s *PostgresStore) GetNotificationBinding(id string) (app.NotificationBindi
 
 func (s *PostgresStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, account_id,
+		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
 			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
 			created_at, updated_at, expires_at, revoked_at, last_error
 		FROM notification_bindings
@@ -1605,13 +1696,16 @@ func (s *PostgresStore) RevokeNotificationBinding(id string) (app.NotificationBi
 	return s.SaveNotificationBinding(binding), nil
 }
 
-func (s *PostgresStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
+func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {
 	now := time.Now().UTC()
 	if session.ID == "" {
-		session.ID = app.NewID("wxchat")
+		session.ID = app.NewID("extchat")
 	}
 	if session.Channel == "" {
 		session.Channel = "weixin"
+	}
+	if session.ExternalChatID == "" {
+		session.ExternalChatID = session.ExternalUserID
 	}
 	if session.Status == "" {
 		session.Status = "active"
@@ -1621,12 +1715,12 @@ func (s *PostgresStore) SaveWeixinChatSession(session app.WeixinChatSession) app
 	}
 	session.UpdatedAt = now
 	_, _ = s.db.Exec(context.Background(), `
-		INSERT INTO weixin_chat_sessions (
+		INSERT INTO external_chat_sessions (
 			id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
-			display_name, linked_session_id, status, provider_cursor, last_context_token,
-			created_at, updated_at
+			external_chat_id, external_thread_id, display_name, linked_session_id, status,
+			provider_cursor, last_context_token, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		ON CONFLICT (id) DO UPDATE SET
 			owner_id = EXCLUDED.owner_id,
 			workspace_root = EXCLUDED.workspace_root,
@@ -1634,6 +1728,8 @@ func (s *PostgresStore) SaveWeixinChatSession(session app.WeixinChatSession) app
 			channel = EXCLUDED.channel,
 			provider = EXCLUDED.provider,
 			external_user_id = EXCLUDED.external_user_id,
+			external_chat_id = EXCLUDED.external_chat_id,
+			external_thread_id = EXCLUDED.external_thread_id,
 			display_name = EXCLUDED.display_name,
 			linked_session_id = EXCLUDED.linked_session_id,
 			status = EXCLUDED.status,
@@ -1641,96 +1737,95 @@ func (s *PostgresStore) SaveWeixinChatSession(session app.WeixinChatSession) app
 			last_context_token = EXCLUDED.last_context_token,
 			updated_at = EXCLUDED.updated_at
 	`, session.ID, session.OwnerID, session.WorkspaceRoot, session.BindingID, session.Channel, session.Provider,
-		session.ExternalUserID, session.DisplayName, session.LinkedSessionID, session.Status,
-		session.ProviderCursor, session.LastContextToken, session.CreatedAt, session.UpdatedAt)
+		session.ExternalUserID, session.ExternalChatID, session.ExternalThreadID, session.DisplayName,
+		session.LinkedSessionID, session.Status, session.ProviderCursor, session.LastContextToken,
+		session.CreatedAt, session.UpdatedAt)
 	if strings.TrimSpace(session.LinkedSessionID) != "" {
 		_, _ = s.db.Exec(context.Background(), `
 			UPDATE sessions
-			SET source = 'weixin',
+			SET source = $5,
 			    hidden = true,
 			    owner_id = CASE WHEN $3 <> '' THEN $3 ELSE owner_id END,
 			    workspace_root = CASE WHEN $4 <> '' THEN $4 ELSE workspace_root END,
-			    title = CASE WHEN title = '' OR title = 'New SparkClaw Session' THEN '微信会话' ELSE title END,
+			    title = CASE WHEN title = '' OR title = 'New SparkClaw Session' OR title = '微信会话' THEN $6 ELSE title END,
 			    updated_at = $2
 			WHERE id = $1
-		`, session.LinkedSessionID, now, session.OwnerID, session.WorkspaceRoot)
+		`, session.LinkedSessionID, now, session.OwnerID, session.WorkspaceRoot, session.Channel, externalChatSessionTitle(session.Channel))
 	}
-	s.appendAudit(context.Background(), "weixin_chat_session."+session.Status, session.LinkedSessionID, "", "gateway", redactPostgresExternalID(session.ExternalUserID), map[string]any{
+	s.appendAudit(context.Background(), "external_chat_session."+session.Status, session.LinkedSessionID, "", "gateway", redactPostgresExternalID(session.ExternalUserID), map[string]any{
 		"chat_session_id": session.ID,
 		"binding_id":      session.BindingID,
+		"channel":         session.Channel,
 		"provider":        session.Provider,
 	})
-	s.appendEvent(context.Background(), "weixin_chat_session."+session.Status, session.LinkedSessionID, "", session)
+	s.appendEvent(context.Background(), "external_chat_session."+session.Status, session.LinkedSessionID, "", session)
 	return session
 }
 
-func (s *PostgresStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
+func (s *PostgresStore) GetExternalChatSession(id string) (app.ExternalChatSession, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
-		       display_name, linked_session_id, status, provider_cursor, last_context_token,
-		       created_at, updated_at
-		FROM weixin_chat_sessions
+		       external_chat_id, external_thread_id, display_name, linked_session_id, status,
+		       provider_cursor, last_context_token, created_at, updated_at
+		FROM external_chat_sessions
 		WHERE id = $1
 	`, id)
-	session, err := scanWeixinChatSession(row)
-	if err != nil {
-		return app.WeixinChatSession{}, false
-	}
-	return session, true
+	session, err := scanExternalChatSession(row)
+	return session, err == nil
 }
 
-func (s *PostgresStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
+func (s *PostgresStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
-		       display_name, linked_session_id, status, provider_cursor, last_context_token,
-		       created_at, updated_at
-		FROM weixin_chat_sessions
-		WHERE binding_id = $1 AND external_user_id = $2
+		       external_chat_id, external_thread_id, display_name, linked_session_id, status,
+		       provider_cursor, last_context_token, created_at, updated_at
+		FROM external_chat_sessions
+		WHERE binding_id = $1 AND external_chat_id = $2 AND external_thread_id = $3
 		ORDER BY updated_at DESC
 		LIMIT 1
-	`, bindingID, externalUserID)
-	session, err := scanWeixinChatSession(row)
-	if err != nil {
-		return app.WeixinChatSession{}, false
-	}
-	return session, true
+	`, bindingID, externalChatID, externalThreadID)
+	session, err := scanExternalChatSession(row)
+	return session, err == nil
 }
 
-func (s *PostgresStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
+func (s *PostgresStore) FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
-		       display_name, linked_session_id, status, provider_cursor, last_context_token,
-		       created_at, updated_at
-		FROM weixin_chat_sessions
+		       external_chat_id, external_thread_id, display_name, linked_session_id, status,
+		       provider_cursor, last_context_token, created_at, updated_at
+		FROM external_chat_sessions
 		WHERE linked_session_id = $1
 		ORDER BY updated_at DESC
 		LIMIT 1
 	`, sessionID)
-	session, err := scanWeixinChatSession(row)
-	if err != nil {
-		return app.WeixinChatSession{}, false
-	}
-	return session, true
+	session, err := scanExternalChatSession(row)
+	return session, err == nil
 }
 
-func (s *PostgresStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
+func (s *PostgresStore) SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage {
 	now := time.Now().UTC()
 	if message.ID == "" {
-		message.ID = app.NewID("wxmsg")
+		message.ID = app.NewID("extmsg")
+	}
+	if message.Channel == "" {
+		if session, ok := s.GetExternalChatSession(message.ChatSessionID); ok {
+			message.Channel = session.Channel
+		}
 	}
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = now
 	}
 	message.UpdatedAt = now
 	_, _ = s.db.Exec(context.Background(), `
-		INSERT INTO weixin_chat_messages (
-			id, chat_session_id, binding_id, direction, role, external_message_id,
+		INSERT INTO external_chat_messages (
+			id, chat_session_id, binding_id, channel, direction, role, external_message_id,
 			content, context_token, linked_run_id, status, error, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (id) DO UPDATE SET
 			chat_session_id = EXCLUDED.chat_session_id,
 			binding_id = EXCLUDED.binding_id,
+			channel = EXCLUDED.channel,
 			direction = EXCLUDED.direction,
 			role = EXCLUDED.role,
 			external_message_id = EXCLUDED.external_message_id,
@@ -1740,58 +1835,53 @@ func (s *PostgresStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app
 			status = EXCLUDED.status,
 			error = EXCLUDED.error,
 			updated_at = EXCLUDED.updated_at
-	`, message.ID, message.ChatSessionID, message.BindingID, message.Direction, message.Role,
+	`, message.ID, message.ChatSessionID, message.BindingID, message.Channel, message.Direction, message.Role,
 		message.ExternalMessageID, message.Content, message.ContextToken, message.LinkedRunID,
 		message.Status, message.Error, message.CreatedAt, message.UpdatedAt)
-	s.appendAudit(context.Background(), "weixin_chat_message."+message.Status, "", message.LinkedRunID, "gateway", message.Direction, map[string]any{
+	s.appendAudit(context.Background(), "external_chat_message."+message.Status, "", message.LinkedRunID, "gateway", message.Direction, map[string]any{
 		"message_id":      message.ID,
 		"chat_session_id": message.ChatSessionID,
 		"binding_id":      message.BindingID,
+		"channel":         message.Channel,
 		"direction":       message.Direction,
 		"role":            message.Role,
 	})
-	s.appendEvent(context.Background(), "weixin_chat_message."+message.Status, "", message.LinkedRunID, message)
+	s.appendEvent(context.Background(), "external_chat_message."+message.Status, "", message.LinkedRunID, message)
 	return message
 }
 
-func (s *PostgresStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
+func (s *PostgresStore) GetExternalChatMessage(id string) (app.ExternalChatMessage, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+		SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
 		       content, context_token, linked_run_id, status, error, created_at, updated_at
-		FROM weixin_chat_messages
+		FROM external_chat_messages
 		WHERE id = $1
 	`, id)
-	message, err := scanWeixinChatMessage(row)
-	if err != nil {
-		return app.WeixinChatMessage{}, false
-	}
-	return message, true
+	message, err := scanExternalChatMessage(row)
+	return message, err == nil
 }
 
-func (s *PostgresStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
+func (s *PostgresStore) FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool) {
 	if strings.TrimSpace(externalMessageID) == "" {
-		return app.WeixinChatMessage{}, false
+		return app.ExternalChatMessage{}, false
 	}
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+		SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
 		       content, context_token, linked_run_id, status, error, created_at, updated_at
-		FROM weixin_chat_messages
+		FROM external_chat_messages
 		WHERE chat_session_id = $1 AND external_message_id = $2
 		ORDER BY created_at DESC
 		LIMIT 1
 	`, chatSessionID, externalMessageID)
-	message, err := scanWeixinChatMessage(row)
-	if err != nil {
-		return app.WeixinChatMessage{}, false
-	}
-	return message, true
+	message, err := scanExternalChatMessage(row)
+	return message, err == nil
 }
 
-func (s *PostgresStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
+func (s *PostgresStore) ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage {
 	query := `
-		SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+		SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
 		       content, context_token, linked_run_id, status, error, created_at, updated_at
-		FROM weixin_chat_messages
+		FROM external_chat_messages
 		WHERE ($1 = '' OR chat_session_id = $1)
 		ORDER BY created_at ASC
 	`
@@ -1799,9 +1889,9 @@ func (s *PostgresStore) ListWeixinChatMessages(chatSessionID string, limit int) 
 	if limit > 0 {
 		query = `
 			SELECT * FROM (
-				SELECT id, chat_session_id, binding_id, direction, role, external_message_id,
+				SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
 				       content, context_token, linked_run_id, status, error, created_at, updated_at
-				FROM weixin_chat_messages
+				FROM external_chat_messages
 				WHERE ($1 = '' OR chat_session_id = $1)
 				ORDER BY created_at DESC
 				LIMIT $2
@@ -1812,10 +1902,134 @@ func (s *PostgresStore) ListWeixinChatMessages(chatSessionID string, limit int) 
 	}
 	rows, err := s.db.Query(context.Background(), query, args...)
 	if err != nil {
-		return []app.WeixinChatMessage{}
+		return []app.ExternalChatMessage{}
 	}
 	defer rows.Close()
-	return collectRows(rows, scanWeixinChatMessage)
+	return collectRows(rows, scanExternalChatMessage)
+}
+
+func (s *PostgresStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {
+	now := time.Now().UTC()
+	if update.ID == "" {
+		if existing, ok := s.FindChannelInboxUpdate(update.BindingID, update.ExternalID); ok {
+			return existing
+		}
+	}
+	if update.ID == "" {
+		update.ID = app.NewID("inbox")
+	}
+	if update.Status == "" {
+		update.Status = "pending"
+	}
+	if update.AvailableAt.IsZero() {
+		update.AvailableAt = now
+	}
+	if update.CreatedAt.IsZero() {
+		update.CreatedAt = now
+	}
+	update.UpdatedAt = now
+	_, err := s.db.Exec(context.Background(), `
+		INSERT INTO channel_inbox_updates (
+			id, binding_id, channel, external_id, chat_key, payload, status, attempts,
+			available_at, last_error, created_at, updated_at
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		ON CONFLICT (binding_id, external_id) DO UPDATE SET
+			chat_key = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.chat_key ELSE channel_inbox_updates.chat_key END,
+			payload = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.payload ELSE channel_inbox_updates.payload END,
+			status = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.status ELSE channel_inbox_updates.status END,
+			attempts = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.attempts ELSE channel_inbox_updates.attempts END,
+			available_at = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.available_at ELSE channel_inbox_updates.available_at END,
+			last_error = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.last_error ELSE channel_inbox_updates.last_error END,
+			updated_at = CASE WHEN channel_inbox_updates.id = EXCLUDED.id THEN EXCLUDED.updated_at ELSE channel_inbox_updates.updated_at END
+	`, update.ID, update.BindingID, update.Channel, update.ExternalID, update.ChatKey,
+		mustJSONRaw(update.Payload), update.Status, update.Attempts, update.AvailableAt,
+		update.LastError, update.CreatedAt, update.UpdatedAt)
+	if err == nil {
+		if saved, ok := s.FindChannelInboxUpdate(update.BindingID, update.ExternalID); ok {
+			return saved
+		}
+	}
+	return update
+}
+
+func (s *PostgresStore) GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
+		       available_at, last_error, created_at, updated_at
+		FROM channel_inbox_updates WHERE id = $1
+	`, id)
+	update, err := scanChannelInboxUpdate(row)
+	return update, err == nil
+}
+
+func (s *PostgresStore) FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
+		       available_at, last_error, created_at, updated_at
+		FROM channel_inbox_updates WHERE binding_id = $1 AND external_id = $2
+	`, bindingID, externalID)
+	update, err := scanChannelInboxUpdate(row)
+	return update, err == nil
+}
+
+func (s *PostgresStore) ListChannelInboxUpdates(channel, status string, readyBefore time.Time, limit int) []app.ChannelInboxUpdate {
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `
+		SELECT id, binding_id, channel, external_id, chat_key, payload, status, attempts,
+		       available_at, last_error, created_at, updated_at
+		FROM channel_inbox_updates
+		WHERE ($1 = '' OR channel = $1)
+		  AND ($2 = '' OR status = $2)
+	`
+	args := []any{channel, status}
+	if !readyBefore.IsZero() {
+		query += ` AND available_at <= $3 ORDER BY created_at ASC LIMIT $4`
+		args = append(args, readyBefore, limit)
+	} else {
+		query += ` ORDER BY created_at ASC LIMIT $3`
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(context.Background(), query, args...)
+	if err != nil {
+		return []app.ChannelInboxUpdate{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanChannelInboxUpdate)
+}
+
+func (s *PostgresStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
+	return s.SaveExternalChatSession(session)
+}
+
+func (s *PostgresStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
+	return s.GetExternalChatSession(id)
+}
+
+func (s *PostgresStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
+	return s.FindExternalChatSession(bindingID, externalUserID, "")
+}
+
+func (s *PostgresStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
+	return s.FindExternalChatSessionByLinkedSessionID(sessionID)
+}
+
+func (s *PostgresStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
+	return s.SaveExternalChatMessage(message)
+}
+
+func (s *PostgresStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
+	return s.GetExternalChatMessage(id)
+}
+
+func (s *PostgresStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
+	return s.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
+}
+
+func (s *PostgresStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
+	return s.ListExternalChatMessages(chatSessionID, limit)
 }
 
 func (s *PostgresStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
@@ -2989,8 +3203,8 @@ func scanMessage(row scanner) (app.Message, error) {
 	return message, err
 }
 
-func scanWeixinChatSession(row scanner) (app.WeixinChatSession, error) {
-	var session app.WeixinChatSession
+func scanExternalChatSession(row scanner) (app.ExternalChatSession, error) {
+	var session app.ExternalChatSession
 	err := row.Scan(
 		&session.ID,
 		&session.OwnerID,
@@ -2999,6 +3213,8 @@ func scanWeixinChatSession(row scanner) (app.WeixinChatSession, error) {
 		&session.Channel,
 		&session.Provider,
 		&session.ExternalUserID,
+		&session.ExternalChatID,
+		&session.ExternalThreadID,
 		&session.DisplayName,
 		&session.LinkedSessionID,
 		&session.Status,
@@ -3010,12 +3226,13 @@ func scanWeixinChatSession(row scanner) (app.WeixinChatSession, error) {
 	return session, err
 }
 
-func scanWeixinChatMessage(row scanner) (app.WeixinChatMessage, error) {
-	var message app.WeixinChatMessage
+func scanExternalChatMessage(row scanner) (app.ExternalChatMessage, error) {
+	var message app.ExternalChatMessage
 	err := row.Scan(
 		&message.ID,
 		&message.ChatSessionID,
 		&message.BindingID,
+		&message.Channel,
 		&message.Direction,
 		&message.Role,
 		&message.ExternalMessageID,
@@ -3028,6 +3245,27 @@ func scanWeixinChatMessage(row scanner) (app.WeixinChatMessage, error) {
 		&message.UpdatedAt,
 	)
 	return message, err
+}
+
+func scanChannelInboxUpdate(row scanner) (app.ChannelInboxUpdate, error) {
+	var update app.ChannelInboxUpdate
+	var payload []byte
+	err := row.Scan(
+		&update.ID,
+		&update.BindingID,
+		&update.Channel,
+		&update.ExternalID,
+		&update.ChatKey,
+		&payload,
+		&update.Status,
+		&update.Attempts,
+		&update.AvailableAt,
+		&update.LastError,
+		&update.CreatedAt,
+		&update.UpdatedAt,
+	)
+	update.Payload = append([]byte(nil), payload...)
+	return update, err
 }
 
 func scanRunFeedback(row scanner) (app.RunFeedback, error) {
@@ -3133,7 +3371,7 @@ func scanNotificationBinding(row scanner) (app.NotificationBinding, error) {
 	var binding app.NotificationBinding
 	var scopes []byte
 	err := row.Scan(&binding.ID, &binding.OwnerID, &binding.Channel, &binding.Provider, &binding.Status,
-		&binding.DisplayName, &binding.ExternalUserID, &binding.AccountID, &binding.CredentialRef,
+		&binding.DisplayName, &binding.ExternalUserID, &binding.ExternalChatID, &binding.ExternalThreadID, &binding.AccountID, &binding.CredentialRef,
 		&binding.BaseURL, &binding.ProviderSessionID, &binding.ProviderState, &binding.ContextToken,
 		&binding.ProviderCursor, &binding.QRCodeURL, &binding.QRCodeImage, &binding.DefaultForChannel,
 		&scopes, &binding.CreatedAt, &binding.UpdatedAt, &binding.ExpiresAt, &binding.RevokedAt,
@@ -3318,6 +3556,13 @@ func mustJSON(value any) []byte {
 		return []byte(`null`)
 	}
 	return raw
+}
+
+func mustJSONRaw(value json.RawMessage) []byte {
+	if len(value) == 0 || !json.Valid(value) {
+		return []byte(`{}`)
+	}
+	return append([]byte(nil), value...)
 }
 
 func optionalJSON(value any) []byte {

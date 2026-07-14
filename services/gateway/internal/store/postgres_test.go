@@ -282,11 +282,27 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreExternalChatAndInboxParity(t *testing.T) {
+	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SPARKCLAW_TEST_POSTGRES_DSN to run postgres store integration tests")
+	}
+	st, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	truncatePostgresStore(t, st)
+	testExternalChatAndInboxParity(t, st)
+}
+
 func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 	t.Helper()
 	_, err := st.db.Exec(context.Background(), `
-		TRUNCATE events, audit_events, owners, eval_runs, artifact_objects, episode_summaries, document_chunks, documents, memories, memory_candidates, approvals, tool_calls, model_calls, run_feedback,
-			messages, agent_runs, sessions
+		TRUNCATE channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions,
+			credential_secrets, notification_bindings, reminder_deliveries, reminders, events, audit_events, owners, eval_runs,
+			artifact_objects, episode_summaries, document_chunks, documents, memories, memory_candidates, approvals, tool_calls,
+			model_calls, run_feedback, messages, agent_runs, sessions
 		RESTART IDENTITY CASCADE
 	`)
 	if err != nil {

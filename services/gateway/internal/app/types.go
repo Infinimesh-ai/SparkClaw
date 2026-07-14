@@ -1,6 +1,9 @@
 package app
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type RiskLevel string
 
@@ -114,6 +117,8 @@ type NotificationBinding struct {
 	Status            string     `json:"status"`
 	DisplayName       string     `json:"display_name,omitempty"`
 	ExternalUserID    string     `json:"external_user_id,omitempty"`
+	ExternalChatID    string     `json:"external_chat_id,omitempty"`
+	ExternalThreadID  string     `json:"external_thread_id,omitempty"`
 	AccountID         string     `json:"account_id,omitempty"`
 	CredentialRef     string     `json:"credential_ref,omitempty"`
 	BaseURL           string     `json:"base_url,omitempty"`
@@ -132,7 +137,7 @@ type NotificationBinding struct {
 	LastError         string     `json:"last_error,omitempty"`
 }
 
-type WeixinChatSession struct {
+type ExternalChatSession struct {
 	ID               string    `json:"id"`
 	OwnerID          string    `json:"owner_id,omitempty"`
 	WorkspaceRoot    string    `json:"workspace_root,omitempty"`
@@ -140,6 +145,8 @@ type WeixinChatSession struct {
 	Channel          string    `json:"channel"`
 	Provider         string    `json:"provider"`
 	ExternalUserID   string    `json:"external_user_id,omitempty"`
+	ExternalChatID   string    `json:"external_chat_id,omitempty"`
+	ExternalThreadID string    `json:"external_thread_id,omitempty"`
 	DisplayName      string    `json:"display_name,omitempty"`
 	LinkedSessionID  string    `json:"linked_session_id,omitempty"`
 	Status           string    `json:"status"`
@@ -149,10 +156,11 @@ type WeixinChatSession struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-type WeixinChatMessage struct {
+type ExternalChatMessage struct {
 	ID                string    `json:"id"`
 	ChatSessionID     string    `json:"chat_session_id"`
 	BindingID         string    `json:"binding_id"`
+	Channel           string    `json:"channel"`
 	Direction         string    `json:"direction"`
 	Role              string    `json:"role"`
 	ExternalMessageID string    `json:"external_message_id,omitempty"`
@@ -163,6 +171,26 @@ type WeixinChatMessage struct {
 	Error             string    `json:"error,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// Transitional aliases keep old file snapshots and downstream callers
+// readable while channel chat persistence moves to connector-neutral names.
+type WeixinChatSession = ExternalChatSession
+type WeixinChatMessage = ExternalChatMessage
+
+type ChannelInboxUpdate struct {
+	ID          string          `json:"id"`
+	BindingID   string          `json:"binding_id"`
+	Channel     string          `json:"channel"`
+	ExternalID  string          `json:"external_id"`
+	ChatKey     string          `json:"chat_key"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	Status      string          `json:"status"`
+	Attempts    int             `json:"attempts"`
+	AvailableAt time.Time       `json:"available_at"`
+	LastError   string          `json:"last_error,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type CredentialSecret struct {

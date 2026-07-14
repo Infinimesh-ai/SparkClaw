@@ -20,7 +20,7 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 	}
 	channel := strings.TrimSpace(stringArg(args, "channel", ""))
 	if channel == "" {
-		if _, ok := h.store.FindWeixinChatSessionByLinkedSessionID(sessionID); ok {
+		if _, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok {
 			channel = "weixin"
 		} else {
 			channel = "web"
@@ -84,7 +84,7 @@ type weixinReminderRecipient struct {
 }
 
 func (h *ToolHub) resolveWeixinReminderRecipient(sessionID, requestedRecipient string) (weixinReminderRecipient, error) {
-	if chatSession, ok := h.store.FindWeixinChatSessionByLinkedSessionID(sessionID); ok {
+	if chatSession, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok {
 		binding, _ := h.store.GetNotificationBinding(strings.TrimSpace(chatSession.BindingID))
 		return validateWeixinReminderRecipient(weixinReminderRecipient{
 			recipient:     strings.TrimSpace(firstNonEmptyString(requestedRecipient, chatSession.ExternalUserID)),

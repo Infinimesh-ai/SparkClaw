@@ -125,13 +125,7 @@ func (r Router) WithAdapter(channel string, adapter Adapter) Router {
 }
 
 func NewRouter(cfg config.Config, stores ...store.Store) Router {
-	channels := map[string]Adapter{
-		"web": WebAdapter{},
-	}
-	var st store.Store
-	if len(stores) > 0 {
-		st = stores[0]
-	}
+	router := NewBaseRouter(stores...)
 	for name, channel := range cfg.Tools.Notifications.Channels {
 		name = strings.ToLower(strings.TrimSpace(name))
 		if name == "" || !channel.Enabled {
@@ -139,10 +133,21 @@ func NewRouter(cfg config.Config, stores ...store.Store) Router {
 		}
 		switch strings.ToLower(strings.TrimSpace(channel.Provider)) {
 		case "openclaw-weixin-compatible", "openclaw-weixin-qr", "openclaw-weixin-login-qr", "weixin", "vx":
-			channels[name] = NewWeixinAdapter(name, channel, st)
+			router = router.WithAdapter(name, NewWeixinAdapter(name, channel, router.store))
 		}
 	}
-	return Router{channels: channels, store: st}
+	return router
+}
+
+func NewBaseRouter(stores ...store.Store) Router {
+	var st store.Store
+	if len(stores) > 0 {
+		st = stores[0]
+	}
+	return Router{
+		channels: map[string]Adapter{"web": WebAdapter{}},
+		store:    st,
+	}
 }
 
 func (r Router) Send(ctx context.Context, notification Notification) (Result, error) {

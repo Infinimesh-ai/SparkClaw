@@ -24,6 +24,7 @@ const (
 	// maxDispatchAttempts is how many polls a failing inbound message is
 	// retried for before the cursor is advanced past it.
 	maxDispatchAttempts = 3
+	syncInterval        = 15 * time.Second
 )
 
 type Syncer struct {
@@ -71,6 +72,19 @@ func (s *Syncer) WithConfig(cfg config.Config) *Syncer {
 	s.cfg = cfg
 	s.media = NewMediaAdapter(cfg, s.store)
 	return s
+}
+
+func (s *Syncer) Run(ctx context.Context) error {
+	ticker := time.NewTicker(syncInterval)
+	defer ticker.Stop()
+	for {
+		s.Tick(ctx)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *Syncer) Tick(ctx context.Context) {

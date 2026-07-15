@@ -16,7 +16,7 @@ SparkClaw is a local-first personal agent runtime for DGX Spark-class machines. 
 - personal memory candidates and approval-gated sensitive memory
 - local knowledge/RAG over workspace documents
 - optional microphone and Telegram voice transcription through one bounded speech adapter
-- optional owner-only Telegram messaging with encrypted bot credentials
+- optional owner-authorized Telegram messaging with multiple encrypted Bot bindings
 - optional Infinimesh Info search with one-shot query tokens and cited untrusted evidence
 
 SparkClaw deliberately avoids broad autonomous operation, public SaaS exposure, silent external sends/creates/deletes, hidden tool execution and custom fine-tuned model release claims that are not backed by eval evidence.
@@ -48,7 +48,8 @@ ToolHub adapters:
   files, knowledge, memory, browser, Infinimesh Info, email, calendar, shell, code, notify
 
 Optional input/connectors:
-  speech transcription, Telegram private chat
+  speech transcription
+  connector Registry -> Telegram private chat, Weixin
 
 Model lanes:
   mock, fast chat, deep chat, embedding, reranker, guard
@@ -70,9 +71,13 @@ Gateway owns HTTP/WebSocket APIs, auth, pairing, rate limiting, sessions, events
 
 Speech is an optional, disabled-by-default OpenAI-compatible transcription boundary. Gateway creates one `speech.Transcriber` and uses that same instance for WebChat microphone requests and Telegram voice notes. Audio is validated as bounded mono 16 kHz PCM16 WAV, is not retained, and only metadata enters audit records. When speech is disabled or unavailable, WebChat and Telegram expose an explicit unavailable state; Telegram text and attachments continue working.
 
+### Messaging Connector Registry
+
+`connector.Registry` is the in-process composition boundary for third-party messaging software. A connector registers only the capabilities it implements: owner binding, outbound notification, an optional `connectorruntime.Runtime`, and binding cancellation. Gateway, reminder delivery, and process startup consume those contracts without selecting Telegram or Weixin by name. `remindertarget.Resolver` selects an outbound binding from normalized binding/session fields, so ToolHub also remains provider-neutral. Protocol-specific polling, media handling, authorization, acknowledgement, target validation, and sends remain inside each provider package.
+
 ### Telegram
 
-Telegram is an optional, disabled-by-default owner connector. Bot tokens are verified before use and sealed through the credential vault; file and PostgreSQL state store ciphertext envelopes rather than plaintext tokens. Long polling, inbox persistence, per-chat ordering, retries and outbound delivery are bounded. Private owner chats can send text, supported attachments and voice notes; voice delegates to the shared speech transcriber and does not create a second ASR client.
+Telegram is an optional, disabled-by-default owner-authorized connector. Multiple Bot bindings may coexist, including bindings activated by different external Telegram users. Each Bot token is verified before use and sealed separately through the credential vault; file and PostgreSQL state store ciphertext envelopes rather than plaintext tokens. Each binding has its own activation challenge, cursor, inbox identity, and private-chat authorization. Long polling, inbox persistence, per-chat ordering, retries and outbound delivery are bounded. Authorized private chats can send text, supported attachments and voice notes; voice delegates to the shared speech transcriber and does not create a second ASR client.
 
 ### Infinimesh Info
 
@@ -192,7 +197,7 @@ Authenticated data belonging to the current owner is an allowed local-first read
 
 Email and calendar use adapter boundaries. The default `file` adapters read fixtures under `.sparkclaw/mock/` and write mock outbox/event logs. `http` adapters can connect to account-bridge services while preserving Gateway policy and approvals.
 
-Infinimesh results and Telegram inbound content follow the same untrusted-observation rule. Telegram binding is restricted to the verified owner and private chat; Infinimesh requests never include private local context. Credentials, raw authorization material and transcript text are excluded from public status and error strings.
+Infinimesh results and Telegram inbound content follow the same untrusted-observation rule. Each Telegram binding is restricted to the external user and private chat that completed its activation challenge; multiple bindings do not share authorization or credentials. Infinimesh requests never include private local context. Credentials, raw authorization material and transcript text are excluded from public status and error strings.
 
 ## Ports
 

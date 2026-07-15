@@ -14,7 +14,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -188,24 +187,25 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	artifactStore := artifact.NewStore(cfg.Storage)
 	tools := toolhub.New(cfg, st).WithArtifactStore(artifactStore)
 	defer tools.Close()
-	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir)).WithArtifactStore(artifactStore)
-	vault := credential.New(st, credential.Options{Key: cfg.State.CredentialKey, AutoCreate: true})
-	if err := vault.Ready(); err != nil {
-		t.Fatal(err)
-	}
+	traces := trace.NewWriter(cfg.Storage.TraceDir)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), traces).WithArtifactStore(artifactStore)
 	backend := &recordingSpeechTranscriber{status: speech.Status{
 		Enabled: true, Ready: true, State: speech.StateReady, Backend: "openai-http", Model: "sparkclaw-asr",
 	}}
-	telegramService := telegram.NewService(st, telegramConfig, vault, telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: backend}))
+	connectors, err := newConnectorAssembly(cfg, st, runtime, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := gateway.NewWithTrace(
 		cfg,
 		st,
 		tools,
 		runtime,
-		trace.NewWriter(cfg.Storage.TraceDir),
+		traces,
 		gateway.WithSpeechTranscriber(backend),
-		gateway.WithCredentialVault(vault),
-		gateway.WithNotificationBindingCancellation(telegramService.CancelBinding),
+		gateway.WithCredentialVault(connectors.credentials),
+		gateway.WithBindingRouter(connectors.registry.BindingRouter()),
+		gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
 	)
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()

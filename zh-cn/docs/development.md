@@ -39,7 +39,7 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 | DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
 | Infinimesh Info `web.search` provider | Complete，opt-in | Contract/fault tests、redacted public config、credential-gated live smoke |
 | WebChat 与 Gateway speech transcription | Complete，opt-in | Speech/Gateway tests、voice frontend tests、live ASR smoke evidence |
-| Telegram owner connector | Complete，opt-in | Credential、store、binding、worker、media、reminder 与 WebChat tests |
+| 消息连接器 Registry 与 Telegram 多 Bot binding | Complete，opt-in | Provider-neutral registry、credential 隔离、binding、worker、media、reminder 与 WebChat tests |
 
 ## 标准验证
 
@@ -142,7 +142,7 @@ WebChat 位于 `apps/webchat/src/App.tsx`，共享 API types 位于 `apps/webcha
 
 - Gateway 保持 policy 和 execution 的 source of truth。
 - 展示 approval、trace 和 tool-call state，而不是隐藏它们。
-- 保留 review-before-send microphone flow 与 Telegram binding lifecycle。
+- 保留 review-before-send microphone flow 与 Telegram multi-binding lifecycle。
 - 修改 composer 或 settings control 后检查 desktop 与 mobile layout。
 - 运行 `npm --workspace @sparkclaw/webchat run build`。
 - runtime status 和 error states 要足够可见，方便本地 operator 排障。

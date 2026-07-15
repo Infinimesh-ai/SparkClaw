@@ -54,7 +54,8 @@ type Server struct {
 	bindings      binding.Router
 	speech        speech.Transcriber
 	credentials   credential.CredentialVault
-	cancelBinding func(string)
+	cancelBinding func(app.NotificationBinding)
+	bindingsSet   bool
 	mux           *http.ServeMux
 	started       time.Time
 	limiter       *rateLimiter
@@ -78,7 +79,14 @@ func WithCredentialVault(vault credential.CredentialVault) Option {
 	}
 }
 
-func WithNotificationBindingCancellation(cancel func(string)) Option {
+func WithBindingRouter(router binding.Router) Option {
+	return func(server *Server) {
+		server.bindings = router
+		server.bindingsSet = true
+	}
+}
+
+func WithNotificationBindingCancellation(cancel func(app.NotificationBinding)) Option {
 	return func(server *Server) {
 		server.cancelBinding = cancel
 	}
@@ -114,7 +122,9 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 	for _, option := range options {
 		option(s)
 	}
-	s.bindings = binding.NewRouter(cfg, s.credentials)
+	if !s.bindingsSet {
+		s.bindings = binding.NewRouter(cfg, s.credentials)
+	}
 	s.applyMemoryRetention()
 	s.routes()
 	return s
@@ -616,6 +626,7 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 	var input struct {
 		Scopes            []string `json:"scopes"`
 		DefaultForChannel bool     `json:"default_for_channel"`
+		CredentialSecret  string   `json:"credential_secret"`
 		BotToken          string   `json:"bot_token"`
 	}
 	if r.Body != nil && r.Body != http.NoBody {
@@ -625,12 +636,10 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	if channel == "telegram" {
-		capability := s.bindings.Capability(channel, s.store.ListNotificationBindings(channel, ""))
-		if !capability.Startable {
-			writeError(w, connectorStartStatus(capability.DisabledReason), &binding.BindingError{Code: capability.DisabledReason})
-			return
-		}
+	capability := s.bindings.Capability(channel, s.store.ListNotificationBindings(channel, ""))
+	if !capability.Startable {
+		writeError(w, connectorStartStatus(capability.DisabledReason), &binding.BindingError{Code: capability.DisabledReason})
+		return
 	}
 	if len(input.Scopes) == 0 {
 		input.Scopes = []string{"reminder_send_self"}
@@ -646,7 +655,11 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	started, err := s.bindings.Start(r.Context(), pendingBinding, binding.StartOptions{CredentialSecret: input.BotToken})
+	credentialSecret := strings.TrimSpace(input.CredentialSecret)
+	if credentialSecret == "" {
+		credentialSecret = input.BotToken
+	}
+	started, err := s.bindings.Start(r.Context(), pendingBinding, binding.StartOptions{CredentialSecret: credentialSecret})
 	if err != nil {
 		writeError(w, connectorStartStatus(errorCode(err)), err)
 		return
@@ -727,7 +740,7 @@ func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if s.cancelBinding != nil {
-		s.cancelBinding(bindingID)
+		s.cancelBinding(binding)
 	}
 	if strings.TrimSpace(binding.CredentialRef) != "" {
 		_ = s.credentials.Delete(r.Context(), binding.CredentialRef)
@@ -2336,14 +2349,12 @@ func (s *Server) publicToolsConfig() map[string]any {
 			"token_configured": strings.TrimSpace(channel.Token) != "",
 			"recipient_set":    strings.TrimSpace(channel.Recipient) != "",
 		}
-		if name == "telegram" {
-			capability := s.bindings.Capability(name, s.store.ListNotificationBindings(name, ""))
-			publicChannel["available"] = capability.Available
-			publicChannel["operator_enabled"] = capability.OperatorEnabled
-			publicChannel["binding_status"] = capability.BindingStatus
-			publicChannel["startable"] = capability.Startable
-			publicChannel["disabled_reason"] = capability.DisabledReason
-		}
+		capability := s.bindings.Capability(name, s.store.ListNotificationBindings(name, ""))
+		publicChannel["available"] = capability.Available
+		publicChannel["operator_enabled"] = capability.OperatorEnabled
+		publicChannel["binding_status"] = capability.BindingStatus
+		publicChannel["startable"] = capability.Startable
+		publicChannel["disabled_reason"] = capability.DisabledReason
 		notificationChannels[name] = publicChannel
 	}
 	return map[string]any{
@@ -2379,7 +2390,7 @@ func publicNotificationBindings(bindings []app.NotificationBinding) []map[string
 
 func publicNotificationBinding(binding app.NotificationBinding, includeActivation ...bool) map[string]any {
 	qrCodeURL := binding.QRCodeURL
-	if binding.Channel == "telegram" && (len(includeActivation) == 0 || !includeActivation[0]) {
+	if binding.Status == "waiting_confirm" && (len(includeActivation) == 0 || !includeActivation[0]) {
 		qrCodeURL = ""
 	}
 	return map[string]any{

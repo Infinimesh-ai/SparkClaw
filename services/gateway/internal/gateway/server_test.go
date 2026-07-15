@@ -3,6 +3,7 @@ package gateway
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -28,6 +30,26 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
+
+type genericBindingAdapter struct {
+	credentialSecret string
+}
+
+func (a *genericBindingAdapter) Availability() error { return nil }
+func (a *genericBindingAdapter) Policy() binding.AdapterPolicy {
+	return binding.AdapterPolicy{ExclusiveBinding: true}
+}
+func (a *genericBindingAdapter) Start(_ context.Context, record app.NotificationBinding, options binding.StartOptions) (app.NotificationBinding, error) {
+	a.credentialSecret = options.CredentialSecret
+	record.Provider = "alpha-http"
+	record.Status = "waiting_confirm"
+	record.QRCodeURL = "https://alpha.example/activate"
+	return record, nil
+}
+func (a *genericBindingAdapter) Poll(context.Context, app.NotificationBinding) (binding.PollResult, error) {
+	return binding.PollResult{Status: "waiting_confirm"}, nil
+}
+func (a *genericBindingAdapter) Cancel(context.Context, app.NotificationBinding) error { return nil }
 
 func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
 	root := t.TempDir()
@@ -2271,8 +2293,67 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	}
 }
 
+func TestNotificationBindingUsesInjectedProviderNeutralAdapter(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	cfg.Tools.Notifications.Channels["alpha"] = config.NotificationChannelConfig{
+		Enabled:  true,
+		Provider: "alpha-http",
+	}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	adapter := &genericBindingAdapter{}
+	router := binding.NewBaseRouter(cfg).WithAdapter("alpha", adapter)
+	server := New(cfg, st, tools, runtime, WithBindingRouter(router))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	response, err := http.Post(
+		ts.URL+"/api/notification-bindings/alpha/start",
+		"application/json",
+		strings.NewReader(`{"credential_secret":"alpha-secret"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(response.Body)
+		t.Fatalf("generic binding start returned %d: %s", response.StatusCode, raw)
+	}
+	if adapter.credentialSecret != "alpha-secret" {
+		t.Fatalf("generic credential was not forwarded: %q", adapter.credentialSecret)
+	}
+	var started map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&started); err != nil {
+		t.Fatal(err)
+	}
+	if started["channel"] != "alpha" || started["provider"] != "alpha-http" || started["status"] != "waiting_confirm" {
+		t.Fatalf("unexpected generic binding: %#v", started)
+	}
+	id, _ := started["id"].(string)
+	connector := readNotificationConnector(t, ts.URL, "alpha")
+	if connector["available"] != true || connector["binding_status"] != "waiting_confirm" || connector["startable"] != false || connector["disabled_reason"] != binding.CodeBindingInProgress {
+		t.Fatalf("generic connector capability mismatch: %#v", connector)
+	}
+	listedResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listedResp.Body.Close()
+	var listed map[string]any
+	if err := json.NewDecoder(listedResp.Body).Decode(&listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed["qr_code_url"] != "" {
+		t.Fatalf("generic activation challenge leaked after start response: %#v", listed)
+	}
+}
+
 func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	const validToken = "123456789:AA-valid-gateway-token"
+	const secondValidToken = "234567890:AA-second-gateway-token"
 	const rejectedToken = "987654321:AA-rejected-gateway-token"
 	telegramAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -2280,6 +2361,11 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":     true,
 				"result": map[string]any{"id": 123456789, "is_bot": true, "username": "sparkclaw_gateway_bot"},
+			})
+		case "/bot" + secondValidToken + "/getMe":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": map[string]any{"id": 234567890, "is_bot": true, "username": "sparkclaw_second_bot"},
 			})
 		case "/bot" + rejectedToken + "/getMe":
 			w.WriteHeader(http.StatusUnauthorized)
@@ -2364,12 +2450,47 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 		t.Fatalf("activation challenge leaked after start response: %#v", listed)
 	}
 	connector = readTelegramConnector(t, ts.URL)
-	if connector["binding_status"] != "waiting_confirm" || connector["startable"] != false || connector["disabled_reason"] != "binding_in_progress" {
+	if connector["binding_status"] != "waiting_confirm" || connector["startable"] != true || connector["disabled_reason"] != "" {
 		t.Fatalf("pending connector capability mismatch: %#v", connector)
+	}
+
+	secondBody := `{"credential_secret":"` + secondValidToken + `"}`
+	secondResp, err := http.Post(ts.URL+"/api/notification-bindings/telegram/start", "application/json", strings.NewReader(secondBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(secondResp.Body)
+		t.Fatalf("start second Telegram binding returned %d: %s", secondResp.StatusCode, raw)
+	}
+	var second map[string]any
+	if err := json.NewDecoder(secondResp.Body).Decode(&second); err != nil {
+		t.Fatal(err)
+	}
+	secondID, _ := second["id"].(string)
+	if secondID == "" || secondID == id || second["display_name"] != "@sparkclaw_second_bot" || strings.Contains(fmt.Sprint(second), secondValidToken) {
+		t.Fatalf("unexpected second Telegram binding: %#v", second)
+	}
+	secondPersisted, ok := st.GetNotificationBinding(secondID)
+	if !ok || secondPersisted.CredentialRef == "" || secondPersisted.CredentialRef == persisted.CredentialRef || secondPersisted.AccountID != "234567890" {
+		t.Fatalf("second Telegram binding was not isolated: %#v ok=%v", secondPersisted, ok)
+	}
+	bindings := st.ListNotificationBindings("telegram", "")
+	if len(bindings) != 2 {
+		t.Fatalf("Telegram binding count = %d, want 2: %#v", len(bindings), bindings)
+	}
+	connector = readTelegramConnector(t, ts.URL)
+	if connector["startable"] != true || connector["disabled_reason"] != "" {
+		t.Fatalf("multi-binding connector stopped accepting bots: %#v", connector)
 	}
 }
 
 func readTelegramConnector(t *testing.T, baseURL string) map[string]any {
+	return readNotificationConnector(t, baseURL, "telegram")
+}
+
+func readNotificationConnector(t *testing.T, baseURL, channel string) map[string]any {
 	t.Helper()
 	resp, err := http.Get(baseURL + "/api/config")
 	if err != nil {
@@ -2386,7 +2507,7 @@ func readTelegramConnector(t *testing.T, baseURL string) map[string]any {
 	if err := json.NewDecoder(resp.Body).Decode(&configBody); err != nil {
 		t.Fatal(err)
 	}
-	return configBody.Tools.Notifications.Channels["telegram"]
+	return configBody.Tools.Notifications.Channels[channel]
 }
 
 func TestNotificationBindingSecondActiveDoesNotStealDefault(t *testing.T) {

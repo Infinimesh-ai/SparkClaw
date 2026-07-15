@@ -67,7 +67,7 @@ func TestRemindersCreateRequiresRecipientWhenWebSessionHasMultipleWeixinBindings
 		"due_time": "2026-07-01T09:00:00+08:00",
 		"channel":  "weixin",
 	}, "web_session", "run_web")
-	if err == nil || !strings.Contains(err.Error(), "多个微信绑定用户") {
+	if err == nil || !strings.Contains(err.Error(), "multiple weixin bindings") {
 		t.Fatalf("expected multiple binding clarification error, got %v", err)
 	}
 }

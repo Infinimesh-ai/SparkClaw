@@ -92,7 +92,13 @@ type PollResult struct {
 	LastError        string
 }
 
+type AdapterPolicy struct {
+	ExclusiveBinding bool
+}
+
 type Adapter interface {
+	Availability() error
+	Policy() AdapterPolicy
 	Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error)
 	Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error)
 	Cancel(ctx context.Context, binding app.NotificationBinding) error
@@ -101,14 +107,12 @@ type Adapter interface {
 type Router struct {
 	adapters map[string]Adapter
 	configs  map[string]config.NotificationChannelConfig
-	vault    credential.CredentialVault
 }
 
 const bindingSessionTTL = 365 * 24 * time.Hour
 
 func NewRouter(cfg config.Config, vaults ...credential.CredentialVault) Router {
-	adapters := map[string]Adapter{}
-	configs := map[string]config.NotificationChannelConfig{}
+	router := NewBaseRouter(cfg)
 	var vault credential.CredentialVault
 	if len(vaults) > 0 {
 		vault = vaults[0]
@@ -118,17 +122,35 @@ func NewRouter(cfg config.Config, vaults ...credential.CredentialVault) Router {
 		if channel == "" {
 			continue
 		}
-		configs[channel] = channelCfg
 		switch strings.ToLower(strings.TrimSpace(channelCfg.Provider)) {
 		case "telegram-bot-api":
-			adapters[channel] = NewTelegramAdapter(channel, channelCfg, vault)
+			router = router.WithAdapter(channel, NewTelegramAdapter(channel, channelCfg, vault))
 		case "openclaw-weixin-qr", "openclaw-weixin-login-qr":
-			adapters[channel] = NewWeixinQRAdapter(channel, channelCfg)
+			router = router.WithAdapter(channel, NewWeixinQRAdapter(channel, channelCfg))
 		default:
-			adapters[channel] = NewManualWeixinAdapter(channel, channelCfg)
+			router = router.WithAdapter(channel, NewManualWeixinAdapter(channel, channelCfg))
 		}
 	}
-	return Router{adapters: adapters, configs: configs, vault: vault}
+	return router
+}
+
+func NewBaseRouter(cfg config.Config) Router {
+	configs := make(map[string]config.NotificationChannelConfig, len(cfg.Tools.Notifications.Channels))
+	for channel, channelCfg := range cfg.Tools.Notifications.Channels {
+		channel = strings.ToLower(strings.TrimSpace(channel))
+		if channel != "" {
+			configs[channel] = channelCfg
+		}
+	}
+	return Router{adapters: map[string]Adapter{}, configs: configs}
+}
+
+func (r Router) WithAdapter(channel string, adapter Adapter) Router {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	if channel != "" && adapter != nil {
+		r.adapters[channel] = adapter
+	}
+	return r
 }
 
 func (r Router) Start(ctx context.Context, binding app.NotificationBinding, options ...StartOptions) (app.NotificationBinding, error) {
@@ -146,7 +168,7 @@ func (r Router) Start(ctx context.Context, binding app.NotificationBinding, opti
 func (r Router) Capability(channel string, bindings []app.NotificationBinding) ConnectorCapability {
 	channel = strings.ToLower(strings.TrimSpace(channel))
 	cfg, configured := r.configs[channel]
-	_, available := r.adapters[channel]
+	adapter, available := r.adapters[channel]
 	capability := ConnectorCapability{
 		Channel:         channel,
 		Provider:        strings.ToLower(strings.TrimSpace(cfg.Provider)),
@@ -158,16 +180,24 @@ func (r Router) Capability(channel string, bindings []app.NotificationBinding) C
 		capability.DisabledReason = CodeConnectorUnavailable
 	} else if !capability.OperatorEnabled {
 		capability.DisabledReason = CodeOperatorDisabled
-	} else if channel == "telegram" && (r.vault == nil || r.vault.Ready() != nil) {
-		capability.DisabledReason = credential.CodeKeyUnavailable
-	} else if capability.BindingStatus == "waiting_confirm" || capability.BindingStatus == "waiting_scan" {
+	} else if err := adapter.Availability(); err != nil {
+		capability.DisabledReason = availabilityErrorCode(err)
+	} else if adapter.Policy().ExclusiveBinding && (capability.BindingStatus == "waiting_confirm" || capability.BindingStatus == "waiting_scan") {
 		capability.DisabledReason = CodeBindingInProgress
-	} else if capability.BindingStatus == "active" {
+	} else if adapter.Policy().ExclusiveBinding && capability.BindingStatus == "active" {
 		capability.DisabledReason = CodeBindingActive
 	} else {
 		capability.Startable = true
 	}
 	return capability
+}
+
+func availabilityErrorCode(err error) string {
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) && strings.TrimSpace(coded.ErrorCode()) != "" {
+		return coded.ErrorCode()
+	}
+	return CodeConnectorUnavailable
 }
 
 func (r Router) Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error) {
@@ -194,6 +224,17 @@ type TelegramAdapter struct {
 
 func NewTelegramAdapter(channel string, cfg config.NotificationChannelConfig, vault credential.CredentialVault) *TelegramAdapter {
 	return &TelegramAdapter{channel: channel, cfg: cfg, vault: vault}
+}
+
+func (a *TelegramAdapter) Availability() error {
+	if a.vault == nil {
+		return &credential.Error{Code: credential.CodeKeyUnavailable}
+	}
+	return a.vault.Ready()
+}
+
+func (a *TelegramAdapter) Policy() AdapterPolicy {
+	return AdapterPolicy{}
 }
 
 func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error) {
@@ -282,6 +323,14 @@ func NewManualWeixinAdapter(channel string, cfg config.NotificationChannelConfig
 	return &ManualWeixinAdapter{channel: channel, cfg: cfg}
 }
 
+func (a *ManualWeixinAdapter) Availability() error {
+	return nil
+}
+
+func (a *ManualWeixinAdapter) Policy() AdapterPolicy {
+	return AdapterPolicy{}
+}
+
 func (a *ManualWeixinAdapter) Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error) {
 	_ = ctx
 	_ = options
@@ -360,6 +409,14 @@ func NewWeixinQRAdapter(channel string, cfg config.NotificationChannelConfig) *W
 		cfg:     cfg,
 		client:  &http.Client{Timeout: 35 * time.Second},
 	}
+}
+
+func (a *WeixinQRAdapter) Availability() error {
+	return nil
+}
+
+func (a *WeixinQRAdapter) Policy() AdapterPolicy {
+	return AdapterPolicy{}
 }
 
 func (a *WeixinQRAdapter) Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error) {

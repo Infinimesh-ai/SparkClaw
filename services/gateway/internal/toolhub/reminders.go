@@ -23,9 +23,12 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 		if chatSession, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok {
 			channel = chatSession.Channel
 			if strings.TrimSpace(channel) == "" {
-				channel = "weixin"
+				if binding, bindingOK := h.store.GetNotificationBinding(strings.TrimSpace(chatSession.BindingID)); bindingOK {
+					channel = binding.Channel
+				}
 			}
-		} else {
+		}
+		if strings.TrimSpace(channel) == "" {
 			channel = "web"
 		}
 	}
@@ -39,27 +42,16 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 	bindingID := ""
 	credentialRef := ""
 	baseURL := ""
-	switch channel {
-	case "weixin":
-		resolved, err := h.resolveWeixinReminderRecipient(sessionID, recipient)
+	if channel != "web" {
+		resolved, err := h.reminders.Resolve(channel, sessionID, recipient)
 		if err != nil {
 			return Result{}, err
 		}
-		recipient = resolved.recipient
-		recipientBinding = resolved.contextToken
-		bindingID = resolved.bindingID
-		credentialRef = resolved.credentialRef
-		baseURL = resolved.baseURL
-	case "telegram":
-		resolved, err := h.resolveTelegramReminderRecipient(sessionID, recipient)
-		if err != nil {
-			return Result{}, err
-		}
-		recipient = resolved.recipient
-		recipientBinding = resolved.threadID
-		bindingID = resolved.bindingID
-		credentialRef = resolved.credentialRef
-		baseURL = resolved.baseURL
+		recipient = resolved.Recipient
+		recipientBinding = resolved.RecipientBinding
+		bindingID = resolved.BindingID
+		credentialRef = resolved.CredentialRef
+		baseURL = resolved.BaseURL
 	}
 	now := time.Now().UTC()
 	reminder := app.Reminder{
@@ -87,178 +79,6 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 	}
 	reminder = h.store.SaveReminder(reminder)
 	return Result{Output: reminderToolOutput(reminder)}, nil
-}
-
-type weixinReminderRecipient struct {
-	recipient     string
-	contextToken  string
-	bindingID     string
-	credentialRef string
-	baseURL       string
-}
-
-type telegramReminderRecipient struct {
-	recipient     string
-	threadID      string
-	bindingID     string
-	credentialRef string
-	baseURL       string
-}
-
-func (h *ToolHub) resolveWeixinReminderRecipient(sessionID, requestedRecipient string) (weixinReminderRecipient, error) {
-	if chatSession, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok && strings.EqualFold(chatSession.Channel, "weixin") {
-		binding, _ := h.store.GetNotificationBinding(strings.TrimSpace(chatSession.BindingID))
-		return validateWeixinReminderRecipient(weixinReminderRecipient{
-			recipient:     strings.TrimSpace(firstNonEmptyString(requestedRecipient, chatSession.ExternalUserID)),
-			contextToken:  strings.TrimSpace(chatSession.LastContextToken),
-			bindingID:     strings.TrimSpace(chatSession.BindingID),
-			credentialRef: strings.TrimSpace(binding.CredentialRef),
-			baseURL:       strings.TrimSpace(binding.BaseURL),
-		})
-	}
-	bindings := h.store.ListNotificationBindings("weixin", "active")
-	if len(bindings) == 0 {
-		return weixinReminderRecipient{}, errors.New("微信提醒需要先绑定微信用户；当前没有可用的微信绑定")
-	}
-	if strings.TrimSpace(requestedRecipient) == "" {
-		if len(bindings) > 1 {
-			return weixinReminderRecipient{}, fmt.Errorf("检测到多个微信绑定用户，请先说明要提醒哪个用户：%s", describeWeixinBindings(bindings))
-		}
-		return validateWeixinReminderRecipient(recipientFromBinding(bindings[0]))
-	}
-	matches := []app.NotificationBinding{}
-	needle := strings.ToLower(strings.TrimSpace(requestedRecipient))
-	for _, binding := range bindings {
-		if bindingMatchesRecipient(binding, needle) {
-			matches = append(matches, binding)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return weixinReminderRecipient{}, fmt.Errorf("没有找到匹配的微信绑定用户 %q；可选用户：%s", requestedRecipient, describeWeixinBindings(bindings))
-	case 1:
-		return validateWeixinReminderRecipient(recipientFromBinding(matches[0]))
-	default:
-		return weixinReminderRecipient{}, fmt.Errorf("微信绑定用户 %q 不唯一，请更具体说明：%s", requestedRecipient, describeWeixinBindings(matches))
-	}
-}
-
-func (h *ToolHub) resolveTelegramReminderRecipient(sessionID, requestedRecipient string) (telegramReminderRecipient, error) {
-	if chatSession, ok := h.store.FindExternalChatSessionByLinkedSessionID(sessionID); ok && strings.EqualFold(chatSession.Channel, "telegram") {
-		binding, bindingOK := h.store.GetNotificationBinding(strings.TrimSpace(chatSession.BindingID))
-		if !bindingOK || binding.Status != "active" || binding.Channel != "telegram" {
-			return telegramReminderRecipient{}, errors.New("Telegram 提醒绑定已不可用；请重新绑定后再创建提醒")
-		}
-		if requested := strings.ToLower(strings.TrimSpace(requestedRecipient)); requested != "" && !bindingMatchesRecipient(binding, requested) {
-			return telegramReminderRecipient{}, errors.New("Telegram 私聊提醒只能发送到当前已绑定的 chat")
-		}
-		return validateTelegramReminderRecipient(telegramReminderRecipient{
-			recipient:     strings.TrimSpace(chatSession.ExternalChatID),
-			threadID:      strings.TrimSpace(chatSession.ExternalThreadID),
-			bindingID:     strings.TrimSpace(chatSession.BindingID),
-			credentialRef: strings.TrimSpace(binding.CredentialRef),
-			baseURL:       strings.TrimSpace(binding.BaseURL),
-		})
-	}
-	bindings := h.store.ListNotificationBindings("telegram", "active")
-	if len(bindings) == 0 {
-		return telegramReminderRecipient{}, errors.New("Telegram 提醒需要先完成 Bot 绑定；当前没有可用的 Telegram 绑定")
-	}
-	if strings.TrimSpace(requestedRecipient) == "" {
-		if len(bindings) > 1 {
-			return telegramReminderRecipient{}, fmt.Errorf("检测到多个 Telegram 绑定，请先说明目标：%s", describeReminderBindings(bindings))
-		}
-		return validateTelegramReminderRecipient(telegramRecipientFromBinding(bindings[0]))
-	}
-	matches := []app.NotificationBinding{}
-	needle := strings.ToLower(strings.TrimSpace(requestedRecipient))
-	for _, binding := range bindings {
-		if bindingMatchesRecipient(binding, needle) {
-			matches = append(matches, binding)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return telegramReminderRecipient{}, fmt.Errorf("没有找到匹配的 Telegram 绑定 %q；可选目标：%s", requestedRecipient, describeReminderBindings(bindings))
-	case 1:
-		return validateTelegramReminderRecipient(telegramRecipientFromBinding(matches[0]))
-	default:
-		return telegramReminderRecipient{}, fmt.Errorf("Telegram 绑定 %q 不唯一，请更具体说明：%s", requestedRecipient, describeReminderBindings(matches))
-	}
-}
-
-func validateTelegramReminderRecipient(recipient telegramReminderRecipient) (telegramReminderRecipient, error) {
-	if strings.TrimSpace(recipient.recipient) == "" {
-		return telegramReminderRecipient{}, errors.New("Telegram 提醒缺少目标 chat；请先完成私聊激活")
-	}
-	if strings.TrimSpace(recipient.credentialRef) == "" {
-		return telegramReminderRecipient{}, errors.New("Telegram 提醒缺少安全凭据引用；请重新绑定 Bot")
-	}
-	return recipient, nil
-}
-
-func telegramRecipientFromBinding(binding app.NotificationBinding) telegramReminderRecipient {
-	return telegramReminderRecipient{
-		recipient:     strings.TrimSpace(binding.ExternalChatID),
-		threadID:      strings.TrimSpace(binding.ExternalThreadID),
-		bindingID:     strings.TrimSpace(binding.ID),
-		credentialRef: strings.TrimSpace(binding.CredentialRef),
-		baseURL:       strings.TrimSpace(binding.BaseURL),
-	}
-}
-
-func validateWeixinReminderRecipient(recipient weixinReminderRecipient) (weixinReminderRecipient, error) {
-	if strings.TrimSpace(recipient.recipient) == "" {
-		return weixinReminderRecipient{}, errors.New("微信提醒缺少目标用户；请先让目标微信用户完成绑定或发送一条消息")
-	}
-	if strings.TrimSpace(recipient.contextToken) == "" {
-		return weixinReminderRecipient{}, errors.New("微信提醒缺少 context_token；请先让目标微信用户向助手发送一条消息后再创建提醒")
-	}
-	return recipient, nil
-}
-
-func recipientFromBinding(binding app.NotificationBinding) weixinReminderRecipient {
-	return weixinReminderRecipient{
-		recipient:     strings.TrimSpace(binding.ExternalUserID),
-		contextToken:  strings.TrimSpace(binding.ContextToken),
-		bindingID:     strings.TrimSpace(binding.ID),
-		credentialRef: strings.TrimSpace(binding.CredentialRef),
-		baseURL:       strings.TrimSpace(binding.BaseURL),
-	}
-}
-
-func bindingMatchesRecipient(binding app.NotificationBinding, needle string) bool {
-	for _, value := range []string{binding.ID, binding.ExternalUserID, binding.ExternalChatID, binding.DisplayName, binding.AccountID} {
-		if strings.ToLower(strings.TrimSpace(value)) == needle {
-			return true
-		}
-	}
-	return false
-}
-
-func describeWeixinBindings(bindings []app.NotificationBinding) string {
-	return describeReminderBindings(bindings)
-}
-
-func describeReminderBindings(bindings []app.NotificationBinding) string {
-	parts := make([]string, 0, len(bindings))
-	for _, binding := range bindings {
-		label := strings.TrimSpace(binding.DisplayName)
-		if label == "" {
-			label = strings.TrimSpace(binding.AccountID)
-		}
-		if label == "" {
-			label = strings.TrimSpace(binding.ExternalUserID)
-		}
-		if label == "" {
-			label = strings.TrimSpace(binding.ExternalChatID)
-		}
-		if label == "" {
-			label = strings.TrimSpace(binding.ID)
-		}
-		parts = append(parts, fmt.Sprintf("%s(%s)", label, binding.ID))
-	}
-	return strings.Join(parts, "、")
 }
 
 func normalizeReminderChannel(channel string) string {

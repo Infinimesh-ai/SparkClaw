@@ -141,7 +141,7 @@ func TestTelegramAdapterDoesNotPersistRejectedToken(t *testing.T) {
 	}
 }
 
-func TestRouterTelegramCapabilitySeparatesAvailabilityAndState(t *testing.T) {
+func TestRouterTelegramCapabilityAllowsMultipleBindings(t *testing.T) {
 	cfg := config.Default()
 	channel := cfg.Tools.Notifications.Channels["telegram"]
 	channel.Enabled = true
@@ -156,8 +156,14 @@ func TestRouterTelegramCapabilitySeparatesAvailabilityAndState(t *testing.T) {
 
 	pending := app.NotificationBinding{Channel: "telegram", Status: "waiting_confirm", UpdatedAt: time.Now().UTC()}
 	capability = router.Capability("telegram", []app.NotificationBinding{pending})
-	if capability.Startable || capability.BindingStatus != "waiting_confirm" || capability.DisabledReason != CodeBindingInProgress {
+	if !capability.Startable || capability.BindingStatus != "waiting_confirm" || capability.DisabledReason != "" {
 		t.Fatalf("pending binding capability mismatch: %#v", capability)
+	}
+
+	active := app.NotificationBinding{Channel: "telegram", Status: "active", UpdatedAt: time.Now().UTC().Add(time.Second)}
+	capability = router.Capability("telegram", []app.NotificationBinding{pending, active})
+	if !capability.Startable || capability.BindingStatus != "active" || capability.DisabledReason != "" {
+		t.Fatalf("active binding capability mismatch: %#v", capability)
 	}
 
 	channel = cfg.Tools.Notifications.Channels["telegram"]

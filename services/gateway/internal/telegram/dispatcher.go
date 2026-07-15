@@ -10,26 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-type AgentRuntime interface {
-	HandleMessageWithAttachments(context.Context, string, string, []agent.MessageAttachment) (agent.Result, error)
-	ExecuteApprovedToolCall(context.Context, app.Approval) (app.ToolCall, error)
-	ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error)
-	CompleteRunIfApprovalsResolved(string)
-}
-
-type idempotentAgentRuntime interface {
-	HandleMessageWithAttachmentsIdempotent(context.Context, string, string, string, string, []agent.MessageAttachment) (agent.Result, error)
-}
-
 type Dispatcher struct {
 	store       store.Store
-	runtime     AgentRuntime
+	runtime     connectorruntime.AgentBridge
 	client      BotAPI
 	transcriber VoiceTranscriber
 	normalizer  func(context.Context, string, string, int) error
@@ -37,14 +26,14 @@ type Dispatcher struct {
 	channelCfg  config.NotificationChannelConfig
 }
 
-func NewDispatcher(st store.Store, runtime AgentRuntime, cfg config.Config, transcribers ...VoiceTranscriber) *Dispatcher {
+func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.Config, transcribers ...VoiceTranscriber) *Dispatcher {
 	transcriber := VoiceTranscriber(DisabledVoiceTranscriber{})
 	if len(transcribers) > 0 && transcribers[0] != nil {
 		transcriber = transcribers[0]
 	}
 	return &Dispatcher{
 		store:       st,
-		runtime:     runtime,
+		runtime:     connectorruntime.NewAgentBridge(runtime),
 		transcriber: transcriber,
 		normalizer:  normalizeTelegramAudio,
 		cfg:         cfg,
@@ -150,13 +139,13 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	runID := stableTelegramID("run", binding.ID, externalID)
 	inbound := d.saveInbound(chatSession, binding, externalID, text, "processing", runID)
 	_ = d.client.SendChatAction(ctx, message.Chat.ID, message.MessageThreadID, "typing")
-	var result agent.Result
-	if idempotent, ok := d.runtime.(idempotentAgentRuntime); ok {
-		result, err = idempotent.HandleMessageWithAttachmentsIdempotent(ctx, chatSession.LinkedSessionID,
-			stableTelegramID("message", binding.ID, externalID), runID, text, attachments)
-	} else {
-		result, err = d.runtime.HandleMessageWithAttachments(ctx, chatSession.LinkedSessionID, text, attachments)
-	}
+	result, err := d.runtime.Handle(ctx, connectorruntime.AgentRequest{
+		SessionID:   chatSession.LinkedSessionID,
+		MessageID:   stableTelegramID("message", binding.ID, externalID),
+		RunID:       runID,
+		Text:        text,
+		Attachments: attachments,
+	})
 	if err != nil {
 		inbound.Status = "failed"
 		inbound.Error = connectorErrorCode(err)

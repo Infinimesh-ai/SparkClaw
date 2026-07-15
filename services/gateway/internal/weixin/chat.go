@@ -12,16 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type Dispatcher struct {
 	store             store.Store
-	runtime           agent.Runtime
+	runtime           connectorruntime.AgentBridge
 	cfg               config.NotificationChannelConfig
 	workspaceBaseRoot string
 }
@@ -37,14 +37,14 @@ type InboundMessage struct {
 	CreatedAt      time.Time
 }
 
-func NewDispatcher(st store.Store, runtime agent.Runtime, cfg config.NotificationChannelConfig) *Dispatcher {
-	return &Dispatcher{store: st, runtime: runtime, cfg: cfg}
+func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.NotificationChannelConfig) *Dispatcher {
+	return &Dispatcher{store: st, runtime: connectorruntime.NewAgentBridge(runtime), cfg: cfg}
 }
 
-func NewDispatcherWithConfig(st store.Store, runtime agent.Runtime, cfg config.Config) *Dispatcher {
+func NewDispatcherWithConfig(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.Config) *Dispatcher {
 	return &Dispatcher{
 		store:             st,
-		runtime:           runtime,
+		runtime:           connectorruntime.NewAgentBridge(runtime),
 		cfg:               cfg.Tools.Notifications.Channels["weixin"],
 		workspaceBaseRoot: strings.TrimSpace(cfg.Workspaces.DefaultRoot),
 	}
@@ -161,7 +161,11 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		}
 	}()
 
-	result, err := d.runtime.HandleMessageWithAttachments(ctx, chatSession.LinkedSessionID, text, inbound.Attachments)
+	result, err := d.runtime.Handle(ctx, connectorruntime.AgentRequest{
+		SessionID:   chatSession.LinkedSessionID,
+		Text:        text,
+		Attachments: inbound.Attachments,
+	})
 	if err != nil {
 		processing.Status = "failed"
 		processing.Error = err.Error()

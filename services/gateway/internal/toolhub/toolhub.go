@@ -21,8 +21,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/personaldata"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/sandbox"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
@@ -37,7 +37,7 @@ type ToolHub struct {
 	artifacts artifact.Store
 	email     personaldata.EmailAdapter
 	cal       personaldata.CalendarAdapter
-	notify    notification.Router
+	reminders *remindertarget.Resolver
 	webSearch websearch.Adapter
 	browser   browserautomation.Adapter
 }
@@ -56,7 +56,7 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		artifacts: artifact.NewStore(cfg.Storage),
 		email:     personaldata.NewEmailAdapter(cfg.Adapters.Email, cfg.Workspaces.DefaultRoot),
 		cal:       personaldata.NewCalendarAdapter(cfg.Adapters.Calendar, cfg.Workspaces.DefaultRoot),
-		notify:    notification.NewRouter(cfg, st),
+		reminders: remindertarget.NewResolver(st),
 		webSearch: websearch.NewAdapter(cfg),
 		browser:   browserautomation.NewAdapter(cfg),
 	}

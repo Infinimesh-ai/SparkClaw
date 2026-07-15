@@ -16,7 +16,7 @@ SparkClaw 是面向 DGX Spark 级别机器的 local-first personal agent runtime
 - personal memory candidates 和 approval-gated sensitive memory
 - workspace documents 的 local knowledge/RAG
 - 通过一个有界 speech adapter 提供可选的 microphone 与 Telegram voice transcription
-- 使用加密 bot credential 的可选 owner-only Telegram messaging
+- 使用多个加密 Bot binding 的可选 owner-authorized Telegram messaging
 - 使用 one-shot query token 和 cited untrusted evidence 的可选 Infinimesh Info search
 
 SparkClaw 明确避免 broad autonomous operation、公开 SaaS 暴露、silent external sends/creates/deletes、隐藏工具执行，以及没有 eval 证据支撑的自定义 fine-tuned model release 声称。
@@ -48,7 +48,8 @@ ToolHub adapters:
   files, knowledge, memory, browser, Infinimesh Info, email, calendar, shell, code, notify
 
 Optional input/connectors:
-  speech transcription, Telegram private chat
+  speech transcription
+  connector Registry -> Telegram private chat, 微信
 
 Model lanes:
   mock, fast chat, deep chat, embedding, reranker, guard
@@ -70,9 +71,13 @@ Gateway 负责 HTTP/WebSocket APIs、auth、pairing、rate limiting、sessions�
 
 Speech 是可选且默认关闭的 OpenAI-compatible transcription boundary。Gateway 只创建一个 `speech.Transcriber`，WebChat microphone request 与 Telegram voice note 共用该实例。Audio 必须通过有界 mono 16 kHz PCM16 WAV 校验，不保留原始音频，audit 只记录 metadata。Speech disabled 或 unavailable 时，WebChat 与 Telegram 都显示明确不可用状态；Telegram text 与 attachment 继续工作。
 
+### 消息连接器注册层
+
+`connector.Registry` 是第三方消息软件的进程内 composition boundary。连接器只注册自己实现的能力：owner binding、outbound notification、可选的 `connectorruntime.Runtime` 和 binding cancellation。Gateway、提醒投递和进程启动只消费这些契约，不按名称选择 Telegram 或微信。`remindertarget.Resolver` 根据统一的 binding/session 字段选择外发 binding，因此 ToolHub 也不依赖 provider。协议专用的 polling、media handling、authorization、acknowledgement、目标校验和发送仍留在各 provider package。
+
 ### Telegram
 
-Telegram 是可选且默认关闭的 owner connector。Bot token 使用前先验证，再由 credential vault 密封；file 与 PostgreSQL state 只保存 ciphertext envelope，不保存 plaintext token。Long polling、inbox persistence、per-chat ordering、retry 与 outbound delivery 均有界。Owner private chat 可发送 text、受支持 attachment 与 voice note；voice 委托给共享 speech transcriber，不创建第二个 ASR client。
+Telegram 是可选且默认关闭的 owner-authorized connector。系统允许多个 Bot binding 共存，也允许不同外部 Telegram 用户分别完成激活。每个 Bot token 使用前先验证，并分别由 credential vault 密封；file 与 PostgreSQL state 只保存 ciphertext envelope，不保存 plaintext token。每条 binding 都有独立的 activation challenge、cursor、inbox identity 和私聊鉴权。Long polling、inbox persistence、per-chat ordering、retry 与 outbound delivery 均有界。已授权私聊可发送 text、受支持 attachment 与 voice note；voice 委托给共享 speech transcriber，不创建第二个 ASR client。
 
 ### Infinimesh Info
 
@@ -192,7 +197,7 @@ Browser web access 使用 `web.search` 做发现，用 `browser.read` 做 read-o
 
 Email 和 calendar 使用 adapter boundaries。默认 `file` adapters 读取 `.sparkclaw/mock/` 下的 fixtures，并写入 mock outbox/event logs。`http` adapters 可以连接 account-bridge services，同时保留 Gateway policy 和 approvals。
 
-Infinimesh result 与 Telegram inbound content 遵循同一 untrusted-observation 规则。Telegram binding 只允许已验证 owner 与 private chat；Infinimesh request 不携带 private local context。Credential、raw authorization material 与 transcript text 不进入 public status 或 error string。
+Infinimesh result 与 Telegram inbound content 遵循同一 untrusted-observation 规则。每条 Telegram binding 只允许完成其 activation challenge 的外部用户和 private chat；多条 binding 不共享鉴权或 credential。Infinimesh request 不携带 private local context。Credential、raw authorization material 与 transcript text 不进入 public status 或 error string。
 
 ## 端口
 

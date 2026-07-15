@@ -39,7 +39,7 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 | DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
 | Infinimesh Info `web.search` provider | Complete, opt-in | Contract/fault tests, redacted public config, credential-gated live smoke |
 | WebChat and Gateway speech transcription | Complete, opt-in | Speech/Gateway tests, voice frontend tests, live ASR smoke evidence |
-| Telegram owner connector | Complete, opt-in | Credential, store, binding, worker, media, reminder and WebChat tests |
+| Messaging connector Registry and Telegram multi-Bot binding | Complete, opt-in | Provider-neutral registry, credential isolation, binding, worker, media, reminder and WebChat tests |
 
 ## Standard Verification
 
@@ -142,7 +142,7 @@ When changing UI behavior:
 
 - Keep Gateway as the source of truth for policy and execution.
 - Show approval, trace and tool-call state rather than hiding it.
-- Preserve the review-before-send microphone flow and the Telegram binding lifecycle.
+- Preserve the review-before-send microphone flow and the Telegram multi-binding lifecycle.
 - Check both desktop and mobile layouts after changing composer or settings controls.
 - Build with `npm --workspace @sparkclaw/webchat run build`.
 - Keep runtime status and error states visible enough for local operators.

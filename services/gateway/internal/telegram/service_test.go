@@ -57,6 +57,44 @@ func TestServicePersistsUpdateBeforeAdvancingOffset(t *testing.T) {
 	}
 }
 
+func TestServicePollsEveryTelegramBinding(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	st := store.NewMemoryStore()
+	bindingA := st.SaveNotificationBinding(activeTelegramBinding("bind_poll_a", 1, 101))
+	bindingB := st.SaveNotificationBinding(activeTelegramBinding("bind_poll_b", 2, 202))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	polled := map[string]int{}
+	newBot := func(bindingID string) *fakeBotAPI {
+		bot := &fakeBotAPI{}
+		bot.getUpdates = func(context.Context, int64, int) ([]Update, error) {
+			polled[bindingID]++
+			if polled[bindingA.ID] > 0 && polled[bindingB.ID] > 0 {
+				cancel()
+				return nil, context.Canceled
+			}
+			return nil, nil
+		}
+		return bot
+	}
+	bots := map[string]*fakeBotAPI{
+		bindingA.ID: newBot(bindingA.ID),
+		bindingB.ID: newBot(bindingB.ID),
+	}
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg)).
+		WithClientFactory(func(_ context.Context, binding app.NotificationBinding) (BotAPI, error) {
+			return bots[binding.ID], nil
+		})
+
+	if err := service.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if polled[bindingA.ID] == 0 || polled[bindingB.ID] == 0 {
+		t.Fatalf("not every Telegram binding was polled: %#v", polled)
+	}
+}
+
 func TestServiceDeduplicatesTransportUpdates(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
@@ -139,6 +177,55 @@ func TestServiceActivationRequiresMatchingPrivateChallenge(t *testing.T) {
 	}
 	if bot.sentCount() != 1 {
 		t.Fatalf("activation welcome count = %d", bot.sentCount())
+	}
+}
+
+func TestServiceActivatesMultipleBotsForDifferentUsers(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	st := store.NewMemoryStore()
+	expires := time.Now().UTC().Add(time.Minute)
+	newBinding := func(id, challenge, credentialRef string) app.NotificationBinding {
+		return st.SaveNotificationBinding(app.NotificationBinding{
+			ID:            id,
+			OwnerID:       app.DefaultOwnerID,
+			Channel:       "telegram",
+			Provider:      "telegram-bot-api",
+			Status:        "waiting_confirm",
+			CredentialRef: credentialRef,
+			ProviderState: activationHash(challenge),
+			ExpiresAt:     &expires,
+		})
+	}
+	bindingA := newBinding("bind_user_a", "challenge-a", "cred_bot_a")
+	bindingB := newBinding("bind_user_b", "challenge-b", "cred_bot_b")
+	bots := map[string]*fakeBotAPI{
+		bindingA.ID: {},
+		bindingB.ID: {},
+	}
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg)).
+		WithClientFactory(func(_ context.Context, binding app.NotificationBinding) (BotAPI, error) {
+			return bots[binding.ID], nil
+		})
+
+	service.processInbox(context.Background(), saveInboxFixture(t, st, bindingA.ID, Update{
+		UpdateID: 1,
+		Message:  telegramTextMessage(1, 101, 1001, "/start challenge-a"),
+	}))
+	service.processInbox(context.Background(), saveInboxFixture(t, st, bindingB.ID, Update{
+		UpdateID: 2,
+		Message:  telegramTextMessage(2, 202, 2002, "/start challenge-b"),
+	}))
+
+	activatedA, _ := st.GetNotificationBinding(bindingA.ID)
+	activatedB, _ := st.GetNotificationBinding(bindingB.ID)
+	if activatedA.Status != "active" || activatedA.ExternalUserID != "101" || activatedA.ExternalChatID != "1001" || activatedA.CredentialRef != "cred_bot_a" {
+		t.Fatalf("first Telegram user activation mismatch: %#v", activatedA)
+	}
+	if activatedB.Status != "active" || activatedB.ExternalUserID != "202" || activatedB.ExternalChatID != "2002" || activatedB.CredentialRef != "cred_bot_b" {
+		t.Fatalf("second Telegram user activation mismatch: %#v", activatedB)
+	}
+	if bots[bindingA.ID].sentCount() != 1 || bots[bindingB.ID].sentCount() != 1 {
+		t.Fatalf("activation acknowledgements crossed bots: first=%d second=%d", bots[bindingA.ID].sentCount(), bots[bindingB.ID].sentCount())
 	}
 }
 
@@ -252,8 +339,9 @@ func (b *fakeBotAPI) DownloadFile(ctx context.Context, source, destination strin
 func (b *fakeBotAPI) SendMessage(_ context.Context, _, _ int64, message string, _ *InlineKeyboardMarkup) (Message, error) {
 	b.mu.Lock()
 	b.sent = append(b.sent, message)
+	messageID := int64(len(b.sent))
 	b.mu.Unlock()
-	return Message{MessageID: int64(len(b.sent))}, nil
+	return Message{MessageID: messageID}, nil
 }
 func (b *fakeBotAPI) SendChatAction(context.Context, int64, int64, string) error { return nil }
 func (b *fakeBotAPI) SendPhoto(context.Context, int64, int64, string, string) (Message, error) {

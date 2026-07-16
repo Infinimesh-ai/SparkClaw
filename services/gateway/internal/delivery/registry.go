@@ -23,6 +23,15 @@ func (c Capabilities) Validate(content app.MessageContent) error {
 		if !c.Parts[part.Kind] {
 			return fmt.Errorf("content kind %q is not supported", part.Kind)
 		}
+		if strings.TrimSpace(part.ID) == "" {
+			return errors.New("delivery part id is required")
+		}
+		if part.Kind == app.MessagePartText && strings.TrimSpace(part.Text) == "" {
+			return fmt.Errorf("text part %q is empty", part.ID)
+		}
+		if part.Kind != app.MessagePartText && strings.TrimSpace(part.ArtifactID) == "" && (part.Resource == nil || strings.TrimSpace(part.Resource.Ref) == "") {
+			return fmt.Errorf("binary part %q has no governed resource", part.ID)
+		}
 		if part.Kind == app.MessagePartAudio && len(c.AudioDispositions) > 0 && !c.AudioDispositions[part.Disposition] {
 			return fmt.Errorf("audio disposition %q is not supported", part.Disposition)
 		}

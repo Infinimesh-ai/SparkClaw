@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -19,8 +21,27 @@ type Registration struct {
 	Channel       string
 	Binding       binding.Adapter
 	Notification  notification.Adapter
+	Provider      delivery.Provider
 	Runtime       connectorruntime.Runtime
 	CancelBinding func(app.NotificationBinding)
+}
+
+func (r *Registry) ProviderRegistry() (*delivery.ProviderRegistry, error) {
+	providers := delivery.NewProviderRegistry()
+	for _, channel := range r.channels() {
+		registration := r.registrations[channel]
+		channelCfg := r.cfg.Tools.Notifications.Channels[channel]
+		if !channelCfg.Enabled || registration.Provider == nil {
+			continue
+		}
+		if normalizeChannel(registration.Provider.Key()) != channel {
+			return nil, fmt.Errorf("connector channel %q does not match delivery provider key %q", channel, registration.Provider.Key())
+		}
+		if err := providers.Register(registration.Provider); err != nil {
+			return nil, err
+		}
+	}
+	return providers, nil
 }
 
 type Registry struct {

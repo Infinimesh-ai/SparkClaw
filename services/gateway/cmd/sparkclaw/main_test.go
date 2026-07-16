@@ -195,7 +195,7 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if services.server == nil || services.connectors == nil || services.connectors.registry == nil || services.reminderScheduler == nil {
+	if services.server == nil || services.connectors == nil || services.connectors.registry == nil || services.connectors.endpoints == nil || services.connectors.delivery == nil || services.reminderScheduler == nil {
 		t.Fatalf("optional service assembly is incomplete: %#v", services)
 	}
 	ts := httptest.NewServer(services.server.Handler())

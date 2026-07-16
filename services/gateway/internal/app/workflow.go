@@ -27,7 +27,9 @@ const (
 type OutputKind string
 
 const (
-	OutputKindText OutputKind = "text"
+	OutputKindText  OutputKind = "text"
+	OutputKindFile  OutputKind = "file"
+	OutputKindImage OutputKind = "image"
 )
 
 type DataScope string

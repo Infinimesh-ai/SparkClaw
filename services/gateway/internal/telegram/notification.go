@@ -47,7 +47,11 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 	if !ok || binding.Channel != a.Key() || binding.Status != "active" {
 		return a.deliveryFailure(endpoint, request, "telegram binding is unavailable", "blocked")
 	}
-	prepared, err := delivery.PrepareParts(ctx, request.Content, a.resources)
+	resources := delivery.ResourceResolver(a.resources)
+	if endpoint.SessionID != "" {
+		resources = delivery.NewEndpointResourceResolver(a.store, endpoint)
+	}
+	prepared, err := delivery.PrepareParts(ctx, request.Content, resources)
 	if err != nil {
 		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
 	}
@@ -97,7 +101,9 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 		}
 	}
 	deliveredAt := time.Now().UTC()
-	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: "telegram-bot-api", AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}, nil
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: "telegram-bot-api", AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
+	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	return receipt, nil
 }
 
 func telegramDeliveryAddress(endpoint app.MessageEndpoint, binding app.NotificationBinding) (int64, int64, error) {
@@ -117,7 +123,9 @@ func telegramDeliveryAddress(endpoint app.MessageEndpoint, binding app.Notificat
 
 func (a *NotificationAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {
 	err := delivery.DeliveryError{Message: message, State: retryState}
-	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}, err
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}
+	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	return receipt, err
 }
 
 func firstNonEmpty(values ...string) string {

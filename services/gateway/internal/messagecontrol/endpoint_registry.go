@@ -95,7 +95,7 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 				ID: id, OwnerID: ownerID, Kind: app.EndpointKindThirdPartyDevice,
 				ProviderKey: strings.ToLower(strings.TrimSpace(chat.Channel)), BindingRef: binding.ID,
 				Address: firstEndpointValue(chat.ExternalChatID, chat.ExternalUserID), ThreadRef: chat.ExternalThreadID, ContextRef: chat.LastContextToken,
-				Status: app.EndpointActive, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
+				SessionID: chat.LinkedSessionID, Status: app.EndpointActive, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
 			}, nil
 		}
 	}

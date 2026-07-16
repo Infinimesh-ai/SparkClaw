@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -137,7 +138,7 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 				ExternalUserID: "7",
 				ExternalChatID: "9",
 			}
-			dispatcher := telegram.NewDispatcher(st, runtime, cfg).WithClient(bot)
+			dispatcher := telegram.NewDispatcher(st, runtime, cfg).WithClient(bot).WithResultDeliverer(recordingMainResultDeliverer{bot: bot})
 			err = dispatcher.HandleUpdate(context.Background(), binding, telegram.Update{
 				UpdateID: 1,
 				Message: &telegram.Message{
@@ -153,6 +154,19 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 			}
 		})
 	}
+}
+
+type recordingMainResultDeliverer struct{ bot *recordingTelegramBot }
+
+func (d recordingMainResultDeliverer) DeliverWorkflowResult(ctx context.Context, result app.WorkflowResult) (app.DeliveryReceipt, error) {
+	for _, part := range result.Content.Parts {
+		if part.Kind == app.MessagePartText && strings.TrimSpace(part.Text) != "" {
+			_, err := d.bot.SendMessage(ctx, 9, 0, part.Text, nil)
+			now := time.Now().UTC()
+			return app.DeliveryReceipt{DeliveryID: "test_delivery", EndpointID: result.ReturnRoute.SourceEndpointID, Status: app.DeliverySucceeded, AttemptedAt: now, DeliveredAt: &now}, err
+		}
+	}
+	return app.DeliveryReceipt{}, errors.New("workflow result has no text part")
 }
 
 func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {

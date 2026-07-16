@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   model_lane TEXT NOT NULL,
   risk_level TEXT NOT NULL,
   summary TEXT,
+  workflow_state JSONB,
+  message_context JSONB,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
 );

@@ -3,6 +3,10 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"mime"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -106,7 +110,7 @@ func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app
 	route := run.Workflow.Route
 	return Result{
 		Run: run, Message: assistant, ToolCalls: workflowExecution.ToolCalls, Approvals: workflowExecution.Approvals, RouteDecision: &route,
-		WorkflowResult: workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
+		WorkflowResult: r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
 	}, true, nil
 }
 
@@ -174,11 +178,11 @@ func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, go
 	episode := summarizeEpisode(goal, run, nil, nil, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, nil, nil, nil, &episode)
-	result := workflowResultForTerminalRoute(run, route, returnRoute, run.Summary)
+	result := r.workflowResultForTerminalRoute(run, route, returnRoute, run.Summary)
 	return Result{Run: run, Message: assistant, RouteDecision: &route, WorkflowResult: result, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 }
 
-func workflowResultForRun(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
+func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
 	if run.Workflow == nil {
 		return nil
 	}
@@ -191,11 +195,13 @@ func workflowResultForRun(run app.AgentRun, route app.RouteDecision, returnRoute
 	case run.Workflow.Status == app.WorkflowStatusBlocked || run.State == "blocked":
 		status = app.WorkflowResultBlocked
 	}
+	ownerID, authorization := r.workflowResultIdentity(run)
 	result := &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
+		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...),
 		Workflow:   app.WorkflowContractRef{ID: run.Workflow.Plan.ProfileID, Revision: run.Workflow.Plan.ProfileRevision},
-		Content:    app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
+		Content:    r.workflowResultContent(run, summary),
 		References: workflowResourceRefs(run.Workflow), ReturnRoute: returnRoute,
 	}
 	if status == app.WorkflowResultFailed || status == app.WorkflowResultBlocked {
@@ -204,28 +210,121 @@ func workflowResultForRun(run app.AgentRun, route app.RouteDecision, returnRoute
 	return result
 }
 
+func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.MessageContent {
+	if strings.TrimSpace(summary) == "" {
+		summary = "The workflow completed successfully."
+	}
+	parts := []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}
+	if run.Workflow == nil {
+		return app.MessageContent{Parts: parts}
+	}
+	for refIndex, ref := range workflowResourceRefs(run.Workflow) {
+		if ref.Kind != "path" || strings.TrimSpace(ref.Ref) == "" || strings.TrimSpace(ref.Provenance) == "" {
+			continue
+		}
+		call, ok := r.store.GetToolCall(ref.Provenance)
+		if !ok || !toolCallCompleted(call) {
+			continue
+		}
+		definition, ok := r.tools.Definition(call.Tool)
+		if !ok {
+			continue
+		}
+		kind := app.MessagePartKind("")
+		switch {
+		case containsToolEffect(definition.Directory.Effects, app.ToolEffectWorkspaceWrite) && containsOutputKind(definition.Directory.OutputKinds, app.OutputKindFile):
+			kind = app.MessagePartFile
+		case containsOutputKind(definition.Directory.OutputKinds, app.OutputKindImage):
+			kind = app.MessagePartImage
+		default:
+			continue
+		}
+		resourceRef, ok := r.workflowOutputResourceRef(run.SessionID, ref)
+		if !ok {
+			continue
+		}
+		name := filepath.Base(filepath.Clean(resourceRef.Ref))
+		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		parts = append(parts, app.MessagePart{
+			ID: fmt.Sprintf("%s:output:%d", call.ID, refIndex), Kind: kind, Disposition: app.MessageDispositionAttachment,
+			Resource: &resourceRef,
+			Name:     name, ContentType: contentType,
+		})
+	}
+	return app.MessageContent{Parts: parts}
+}
+
+func (r Runtime) workflowOutputResourceRef(sessionID string, ref app.ResourceRef) (app.ResourceRef, bool) {
+	session, ok := r.store.GetSession(sessionID)
+	if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
+		return app.ResourceRef{}, false
+	}
+	root, err := filepath.Abs(session.WorkspaceRoot)
+	if err != nil {
+		return app.ResourceRef{}, false
+	}
+	candidate := strings.TrimSpace(ref.Ref)
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, filepath.FromSlash(candidate))
+	}
+	candidate, err = filepath.Abs(candidate)
+	if err != nil || candidate == root || !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+		return app.ResourceRef{}, false
+	}
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return app.ResourceRef{}, false
+	}
+	return app.ResourceRef{Kind: "workspace_file", Ref: filepath.ToSlash(relative), Provenance: ref.Provenance}, true
+}
+
+func containsToolEffect(values []app.ToolEffect, expected app.ToolEffect) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func containsOutputKind(values []app.OutputKind, expected app.OutputKind) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func (r Runtime) workflowResultForDispatchFailure(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
 	workflow := app.WorkflowContractRef{}
 	if leaf, err := r.capabilities.ResolveLeaf(route.CapabilityPath); err == nil && leaf.Workflow != nil {
 		workflow = *leaf.Workflow
 	}
+	ownerID, authorization := r.workflowResultIdentity(run)
 	return &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
+		OwnerID: ownerID, Authorization: authorization,
 		Status: app.WorkflowResultFailed, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...), Workflow: workflow,
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
 		ReturnRoute: returnRoute, Error: &app.WorkflowResultError{Code: "workflow_dispatch_failed", Message: summary},
 	}
 }
 
-func workflowResultForTerminalRoute(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
+func (r Runtime) workflowResultForTerminalRoute(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
 	status := app.WorkflowResultBlocked
 	workflowID := app.WorkflowID("router.blocked")
 	if route.Status == app.RouteClarify {
 		status = app.WorkflowResultWaiting
 		workflowID = "router.clarify"
 	}
+	ownerID, authorization := r.workflowResultIdentity(run)
 	return &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
+		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...),
 		Workflow:    app.WorkflowContractRef{ID: workflowID, Revision: 1},
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
@@ -233,19 +332,37 @@ func workflowResultForTerminalRoute(run app.AgentRun, route app.RouteDecision, r
 	}
 }
 
-func workflowResultForUnmatched(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
+func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
 	status := app.WorkflowResultSucceeded
 	if run.State == "approval_pending" || run.State == "browser_login_blocked" {
 		status = app.WorkflowResultWaiting
 	} else if run.State == "blocked" {
 		status = app.WorkflowResultBlocked
 	}
+	ownerID, authorization := r.workflowResultIdentity(run)
 	return &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
+		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: nil, Workflow: app.WorkflowContractRef{ID: "react.unmatched", Revision: 1},
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
 		ReturnRoute: returnRoute,
 	}
+}
+
+func (r Runtime) workflowResultIdentity(run app.AgentRun) (string, app.MessageAuthorization) {
+	if run.MessageContext != nil {
+		ownerID := strings.TrimSpace(run.MessageContext.OwnerID)
+		authorization := run.MessageContext.Authorization
+		if ownerID != "" && strings.TrimSpace(authorization.PrincipalID) == ownerID {
+			authorization.Scope = append([]string(nil), authorization.Scope...)
+			return ownerID, authorization
+		}
+	}
+	ownerID := app.DefaultOwnerID
+	if session, ok := r.store.GetSession(run.SessionID); ok && strings.TrimSpace(session.OwnerID) != "" {
+		ownerID = strings.TrimSpace(session.OwnerID)
+	}
+	return ownerID, app.MessageAuthorization{PrincipalID: ownerID}
 }
 
 func workflowResourceRefs(state *app.WorkflowState) []app.ResourceRef {

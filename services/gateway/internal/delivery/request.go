@@ -16,7 +16,29 @@ func RequestFromWorkflowResult(ctx context.Context, result app.WorkflowResult, r
 	if result.SchemaVersion != app.WorkflowResultSchemaVersion {
 		return app.DeliveryRequest{}, false, errors.New("unsupported workflow result schema")
 	}
-	return RequestForMessage(ctx, result.ID, result.OwnerID, result.Authorization, result.Content, result.ReturnRoute, routes)
+	request, deliver, err := RequestForMessage(ctx, result.ID, result.OwnerID, result.Authorization, result.Content, result.ReturnRoute, routes)
+	request.RunID = result.RunID
+	return request, deliver, err
+}
+
+type WorkflowResultDeliverer struct {
+	routes  ReturnRouteResolver
+	gateway *Gateway
+}
+
+func NewWorkflowResultDeliverer(routes ReturnRouteResolver, gateway *Gateway) *WorkflowResultDeliverer {
+	return &WorkflowResultDeliverer{routes: routes, gateway: gateway}
+}
+
+func (d *WorkflowResultDeliverer) DeliverWorkflowResult(ctx context.Context, result app.WorkflowResult) (app.DeliveryReceipt, error) {
+	if d == nil || d.gateway == nil {
+		return app.DeliveryReceipt{}, errors.New("workflow result delivery is unavailable")
+	}
+	request, deliver, err := RequestFromWorkflowResult(ctx, result, d.routes)
+	if err != nil || !deliver {
+		return app.DeliveryReceipt{}, err
+	}
+	return d.gateway.Deliver(ctx, request)
 }
 
 // RequestForMessage is shared by explicit message.send and ordinary Workflow

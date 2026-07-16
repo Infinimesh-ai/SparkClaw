@@ -90,12 +90,14 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   model_lane TEXT NOT NULL,
   risk_level TEXT NOT NULL,
   summary TEXT,
-  workflow_state JSONB,
+	workflow_state JSONB,
+	message_context JSONB,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
 );
 
 ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS workflow_state JSONB;
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS message_context JSONB;
 
 CREATE TABLE IF NOT EXISTS run_feedback (
   id TEXT PRIMARY KEY,
@@ -1101,24 +1103,26 @@ func (s *PostgresStore) SaveRun(run app.AgentRun) {
 		run.StartedAt = time.Now().UTC()
 	}
 	workflowState := optionalJSON(run.Workflow)
+	messageContext := optionalJSON(run.MessageContext)
 	_, _ = s.db.Exec(ctx, `
-		INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level, summary, workflow_state, started_at, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level, summary, workflow_state, message_context, started_at, completed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE SET
 			state = EXCLUDED.state,
 			model_lane = EXCLUDED.model_lane,
 			risk_level = EXCLUDED.risk_level,
 			summary = EXCLUDED.summary,
 			workflow_state = EXCLUDED.workflow_state,
+			message_context = EXCLUDED.message_context,
 			started_at = EXCLUDED.started_at,
 			completed_at = EXCLUDED.completed_at
-	`, run.ID, run.SessionID, run.State, run.ModelLane, string(run.Risk), run.Summary, workflowState, run.StartedAt, run.CompletedAt)
+	`, run.ID, run.SessionID, run.State, run.ModelLane, string(run.Risk), run.Summary, workflowState, messageContext, run.StartedAt, run.CompletedAt)
 	s.appendEvent(ctx, "run."+run.State, run.SessionID, run.ID, run)
 }
 
 func (s *PostgresStore) GetRun(id string) (app.AgentRun, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state
+		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state, message_context
 		FROM agent_runs
 		WHERE id = $1
 	`, id)
@@ -1128,7 +1132,7 @@ func (s *PostgresStore) GetRun(id string) (app.AgentRun, bool) {
 
 func (s *PostgresStore) ListRuns(sessionID string) []app.AgentRun {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state
+		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state, message_context
 		FROM agent_runs
 		WHERE $1 = '' OR session_id = $1
 		ORDER BY started_at DESC
@@ -2796,7 +2800,8 @@ func scanRun(row scanner) (app.AgentRun, error) {
 	var run app.AgentRun
 	var risk string
 	var workflowState []byte
-	err := row.Scan(&run.ID, &run.SessionID, &run.State, &run.ModelLane, &risk, &run.StartedAt, &run.CompletedAt, &run.Summary, &workflowState)
+	var messageContext []byte
+	err := row.Scan(&run.ID, &run.SessionID, &run.State, &run.ModelLane, &risk, &run.StartedAt, &run.CompletedAt, &run.Summary, &workflowState, &messageContext)
 	if err != nil {
 		return app.AgentRun{}, err
 	}
@@ -2807,6 +2812,13 @@ func scanRun(row scanner) (app.AgentRun, error) {
 			return app.AgentRun{}, fmt.Errorf("decode workflow state: %w", err)
 		}
 		run.Workflow = &workflow
+	}
+	if len(messageContext) > 0 {
+		var context app.MessageRunContext
+		if err := json.Unmarshal(messageContext, &context); err != nil {
+			return app.AgentRun{}, fmt.Errorf("decode message run context: %w", err)
+		}
+		run.MessageContext = &context
 	}
 	return run, nil
 }

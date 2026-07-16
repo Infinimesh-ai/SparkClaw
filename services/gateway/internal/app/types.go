@@ -412,15 +412,16 @@ type VerifierDecision struct {
 }
 
 type AgentRun struct {
-	ID          string         `json:"id"`
-	SessionID   string         `json:"session_id"`
-	State       string         `json:"state"`
-	ModelLane   string         `json:"model_lane"`
-	Risk        RiskLevel      `json:"risk"`
-	StartedAt   time.Time      `json:"started_at"`
-	CompletedAt *time.Time     `json:"completed_at,omitempty"`
-	Summary     string         `json:"summary,omitempty"`
-	Workflow    *WorkflowState `json:"workflow,omitempty"`
+	ID             string             `json:"id"`
+	SessionID      string             `json:"session_id"`
+	State          string             `json:"state"`
+	ModelLane      string             `json:"model_lane"`
+	Risk           RiskLevel          `json:"risk"`
+	StartedAt      time.Time          `json:"started_at"`
+	CompletedAt    *time.Time         `json:"completed_at,omitempty"`
+	Summary        string             `json:"summary,omitempty"`
+	MessageContext *MessageRunContext `json:"message_context,omitempty"`
+	Workflow       *WorkflowState     `json:"workflow,omitempty"`
 }
 
 type ModelCall struct {

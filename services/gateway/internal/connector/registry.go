@@ -27,27 +27,17 @@ type Registration struct {
 }
 
 func (r *Registry) ProviderRegistry() (*delivery.ProviderRegistry, error) {
-	providers := delivery.NewProviderRegistry()
-	for _, channel := range r.channels() {
-		registration := r.registrations[channel]
-		channelCfg := r.cfg.Tools.Notifications.Channels[channel]
-		if !channelCfg.Enabled || registration.Provider == nil {
-			continue
-		}
-		if normalizeChannel(registration.Provider.Key()) != channel {
-			return nil, fmt.Errorf("connector channel %q does not match delivery provider key %q", channel, registration.Provider.Key())
-		}
-		if err := providers.Register(registration.Provider); err != nil {
-			return nil, err
-		}
+	if r == nil || r.providers == nil {
+		return nil, errors.New("connector provider registry is unavailable")
 	}
-	return providers, nil
+	return r.providers, nil
 }
 
 type Registry struct {
 	cfg           config.Config
 	store         store.Store
 	registrations map[string]Registration
+	providers     *delivery.ProviderRegistry
 }
 
 func NewRegistry(cfg config.Config, st store.Store) *Registry {
@@ -55,6 +45,7 @@ func NewRegistry(cfg config.Config, st store.Store) *Registry {
 		cfg:           cfg,
 		store:         st,
 		registrations: map[string]Registration{},
+		providers:     delivery.NewProviderRegistry(),
 	}
 }
 
@@ -68,6 +59,15 @@ func (r *Registry) Register(registration Registration) error {
 	}
 	if _, exists := r.registrations[channel]; exists {
 		return errors.New("connector channel is already registered")
+	}
+	channelCfg := r.cfg.Tools.Notifications.Channels[channel]
+	if channelCfg.Enabled && registration.Provider != nil {
+		if normalizeChannel(registration.Provider.Key()) != channel {
+			return fmt.Errorf("connector channel %q does not match delivery provider key %q", channel, registration.Provider.Key())
+		}
+		if err := r.providers.Register(registration.Provider); err != nil {
+			return err
+		}
 	}
 	registration.Channel = channel
 	r.registrations[channel] = registration

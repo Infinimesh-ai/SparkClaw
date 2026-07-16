@@ -29,9 +29,11 @@ func (p *scheduledRequestPublisher) Publish(ctx context.Context, envelope app.Me
 	if err != nil {
 		return err
 	}
+	ingress := app.MessageIngressContext{Source: envelope.Source, OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: envelope.ReturnRoute}
 	result, err := p.bridge.Handle(ctx, connectorruntime.AgentRequest{
 		SessionID: envelope.CorrelationID, MessageID: envelope.ID, RunID: "run_" + envelope.ID,
 		Text: text, Attachments: attachments,
+		Ingress: &ingress,
 	})
 	if err != nil {
 		return err
@@ -39,19 +41,13 @@ func (p *scheduledRequestPublisher) Publish(ctx context.Context, envelope app.Me
 	switch result.Run.State {
 	case "approval_pending", "browser_login_blocked":
 		return fmt.Errorf("scheduled request is waiting in state %q", result.Run.State)
-	case "failed":
-		return errors.New("scheduled request workflow failed")
 	}
-	content, err := legacyResultContent(result.Message)
+	workflowResult, err := connectorruntime.WorkflowResultFromAgentResult(result, ingress)
 	if err != nil {
 		return err
 	}
-	workflowResult := app.WorkflowResult{
-		SchemaVersion: app.WorkflowResultSchemaVersion,
-		ID:            "result_" + envelope.ID, RunID: result.Run.ID, OwnerID: envelope.OwnerID, Authorization: envelope.Authorization,
-		Status:   app.WorkflowResultSucceeded,
-		Workflow: app.WorkflowContractRef{ID: app.WorkflowID("legacy.timer_request"), Revision: 1},
-		Content:  content, ReturnRoute: envelope.ReturnRoute,
+	if workflowResult.Status == app.WorkflowResultWaiting {
+		return fmt.Errorf("scheduled request is waiting in workflow result state %q", workflowResult.Status)
 	}
 	request, deliverResult, err := delivery.RequestFromWorkflowResult(ctx, workflowResult, p.routes)
 	if err != nil || !deliverResult {
@@ -86,43 +82,4 @@ func legacyAgentInput(content app.MessageContent) (string, []app.MessageAttachme
 		attachments = append(attachments, attachment)
 	}
 	return strings.TrimSpace(strings.Join(texts, "\n")), attachments, nil
-}
-
-func legacyResultContent(message app.Message) (app.MessageContent, error) {
-	parts := []app.MessagePart{}
-	if strings.TrimSpace(message.Content) != "" {
-		parts = append(parts, app.MessagePart{ID: message.ID + ":text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: message.Content})
-	}
-	for _, attachment := range message.Attachments {
-		kind := app.MessagePartFile
-		if strings.HasPrefix(strings.ToLower(attachment.ContentType), "image/") {
-			kind = app.MessagePartImage
-		} else if strings.HasPrefix(strings.ToLower(attachment.ContentType), "audio/") {
-			kind = app.MessagePartAudio
-		}
-		var resource *app.ResourceRef
-		switch {
-		case strings.TrimSpace(attachment.RelPath) != "":
-			resource = &app.ResourceRef{Kind: "workspace_file", Ref: attachment.RelPath, Provenance: "workflow_result"}
-		case strings.TrimSpace(attachment.URI) != "":
-			resource = &app.ResourceRef{Kind: "artifact", Ref: attachment.URI, Provenance: "workflow_result"}
-		case strings.TrimSpace(attachment.ArtifactID) != "":
-			resource = &app.ResourceRef{Kind: "artifact", Ref: attachment.ArtifactID, Provenance: "workflow_result"}
-		default:
-			return app.MessageContent{}, fmt.Errorf("workflow result attachment %q has no governed resource reference", attachment.Name)
-		}
-		disposition := app.MessageDispositionAttachment
-		if kind == app.MessagePartAudio && strings.Contains(strings.ToLower(attachment.Source), "voice") {
-			disposition = app.MessageDispositionVoiceNote
-		}
-		parts = append(parts, app.MessagePart{
-			ID: "result:part:" + fmt.Sprint(len(parts)), Kind: kind, Disposition: disposition,
-			ArtifactID: attachment.ArtifactID, Resource: resource, Name: attachment.Name, ContentType: attachment.ContentType,
-			Bytes: attachment.Bytes, Width: attachment.Width, Height: attachment.Height, SHA256: attachment.SHA256, Caption: attachment.Caption,
-		})
-	}
-	if len(parts) == 0 {
-		parts = append(parts, app.MessagePart{ID: "scheduled-empty-result", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "The scheduled request completed without a user-visible result."})
-	}
-	return app.MessageContent{Parts: parts}, nil
 }

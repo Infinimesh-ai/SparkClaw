@@ -81,6 +81,15 @@ type MessageAuthorization struct {
 	Scope       []string `json:"scope,omitempty"`
 }
 
+// MessageIngressContext carries provider-neutral source and return metadata
+// alongside the legacy text/attachment Agent API during migration.
+type MessageIngressContext struct {
+	Source        MessageSourceContext `json:"source"`
+	OwnerID       string               `json:"owner_id"`
+	Authorization MessageAuthorization `json:"authorization"`
+	ReturnRoute   ReturnRoute          `json:"return_route"`
+}
+
 type MessagePart struct {
 	ID                string                 `json:"id"`
 	Kind              MessagePartKind        `json:"kind"`
@@ -141,6 +150,15 @@ type RouteDecision struct {
 	Confidence      float64           `json:"confidence,omitempty"`
 	Facts           map[string]string `json:"facts,omitempty"`
 	Reason          string            `json:"reason,omitempty"`
+}
+
+// MessageRunContext persists the identity and return boundary needed by
+// idempotent replay and approval/login resume, including unmatched ReAct runs.
+type MessageRunContext struct {
+	OwnerID       string               `json:"owner_id"`
+	Authorization MessageAuthorization `json:"authorization"`
+	ReturnRoute   ReturnRoute          `json:"return_route"`
+	Route         RouteDecision        `json:"route"`
 }
 
 type RouteOperation string
@@ -218,6 +236,7 @@ type DeliveryRequest struct {
 	ID             DeliveryID           `json:"id"`
 	IdempotencyKey string               `json:"idempotency_key"`
 	ResultID       string               `json:"result_id,omitempty"`
+	RunID          string               `json:"run_id,omitempty"`
 	OwnerID        string               `json:"owner_id"`
 	Authorization  MessageAuthorization `json:"authorization"`
 	Target         EndpointID           `json:"target"`

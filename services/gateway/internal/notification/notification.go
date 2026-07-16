@@ -246,7 +246,11 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	if !ok || binding.Status != "active" || strings.ToLower(strings.TrimSpace(binding.Channel)) != strings.ToLower(strings.TrimSpace(a.channel)) {
 		return a.deliveryFailure(endpoint, request, "weixin binding is unavailable", "blocked")
 	}
-	prepared, err := delivery.PrepareParts(ctx, request.Content, a.resources)
+	resources := delivery.ResourceResolver(a.resources)
+	if endpoint.SessionID != "" {
+		resources = delivery.NewEndpointResourceResolver(a.store, endpoint)
+	}
+	prepared, err := delivery.PrepareParts(ctx, request.Content, resources)
 	if err != nil {
 		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
 	}
@@ -285,12 +289,16 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 		}
 	}
 	deliveredAt := time.Now().UTC()
-	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}, nil
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
+	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	return receipt, nil
 }
 
 func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {
 	err := delivery.DeliveryError{Message: message, State: retryState}
-	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}, err
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}
+	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
+	return receipt, err
 }
 
 func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Result, error) {

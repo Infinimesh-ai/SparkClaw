@@ -12,6 +12,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -106,6 +107,61 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"files.write_draft","arguments":{"pa
 	if _, err := os.Stat(writtenPath); err != nil {
 		t.Fatalf("document processing did not write the draft at %q: %v", writtenPath, err)
 	}
+	if result.WorkflowResult == nil || len(result.WorkflowResult.Content.Parts) != 2 {
+		t.Fatalf("document processing did not expose its declared file output: %#v", result.WorkflowResult)
+	}
+	filePart := result.WorkflowResult.Content.Parts[1]
+	if filePart.Kind != app.MessagePartFile || filePart.Resource == nil || filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "workflow-draft.txt" {
+		t.Fatalf("unexpected document output part: %#v", filePart)
+	}
+
+	endpoint := app.MessageEndpoint{ID: "endpoint_fake", OwnerID: result.WorkflowResult.OwnerID, Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "fake", Status: app.EndpointActive}
+	routes := fixedWorkflowResultEndpoint{endpoint: endpoint}
+	provider := &capturingWorkflowResultProvider{}
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	workflowResult := *result.WorkflowResult
+	workflowResult.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: endpoint.ID}
+	request, deliverResult, err := delivery.RequestFromWorkflowResult(t.Context(), workflowResult, routes)
+	if err != nil || !deliverResult {
+		t.Fatalf("build document delivery request: deliver=%t err=%v", deliverResult, err)
+	}
+	if _, err := delivery.NewGateway(routes, providers, nil).Deliver(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || len(provider.content.Parts) != 2 || provider.content.Parts[1].Kind != app.MessagePartFile {
+		t.Fatalf("document result did not reach the provider exactly once: calls=%d content=%#v", provider.calls, provider.content)
+	}
+}
+
+type fixedWorkflowResultEndpoint struct{ endpoint app.MessageEndpoint }
+
+func (r fixedWorkflowResultEndpoint) Get(context.Context, app.EndpointID) (app.MessageEndpoint, error) {
+	return r.endpoint, nil
+}
+
+func (r fixedWorkflowResultEndpoint) Resolve(context.Context, app.ReturnRoute) (app.MessageEndpoint, bool, error) {
+	return r.endpoint, true, nil
+}
+
+type capturingWorkflowResultProvider struct {
+	calls   int
+	content app.MessageContent
+}
+
+func (*capturingWorkflowResultProvider) Key() string { return "fake" }
+func (*capturingWorkflowResultProvider) Capabilities() delivery.Capabilities {
+	return delivery.Capabilities{Parts: map[app.MessagePartKind]bool{
+		app.MessagePartText: true, app.MessagePartFile: true,
+	}}
+}
+func (p *capturingWorkflowResultProvider) Deliver(_ context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
+	p.calls++
+	p.content = request.Content
+	now := time.Now().UTC()
+	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, AttemptedAt: now, DeliveredAt: &now}, nil
 }
 
 func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
@@ -170,6 +226,33 @@ func TestMatchedDispatchFailureReturnsFailedWorkflowResultWithoutFallback(t *tes
 	}
 }
 
+func TestExistingTerminalRouteKeepsItsWorkflowIdentity(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	for _, test := range []struct {
+		status app.RouteStatus
+		path   []app.CapabilityID
+		want   app.WorkflowID
+	}{
+		{status: app.RouteClarify, path: []app.CapabilityID{"document"}, want: "router.clarify"},
+		{status: app.RouteBlocked, path: []app.CapabilityID{"browser"}, want: "router.blocked"},
+		{status: app.RouteMatched, path: []app.CapabilityID{"browser", app.CapabilityBrowserSearch}, want: app.WorkflowBrowserSearch},
+	} {
+		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: test.status, CatalogRevision: runtime.capabilities.Revision(), CapabilityPath: test.path}
+		run := app.AgentRun{
+			ID: app.NewID("run"), SessionID: session.ID, State: "blocked", Summary: "persisted result", StartedAt: time.Now().UTC(),
+			MessageContext: &app.MessageRunContext{
+				OwnerID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID},
+				ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("session:" + session.ID)}, Route: route,
+			},
+		}
+		result := runtime.resultForExistingRun(run)
+		if result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != test.want {
+			t.Fatalf("existing %q route changed identity: %#v", test.status, result.WorkflowResult)
+		}
+	}
+}
+
 type testRuntimeConfig struct {
 	config  config.Config
 	root    string
@@ -188,7 +271,7 @@ func newWorkflowE2ERuntime(t *testing.T, customize func(*testRuntimeConfig)) (Ru
 		customize(&testCfg)
 	}
 	st := store.NewMemoryStore()
-	session := st.CreateSession("workflow e2e")
+	session := st.CreateSessionWithScope("workflow e2e", app.DefaultOwnerID, root, "web", false)
 	tools := toolhub.New(testCfg.config, st)
 	if testCfg.browser {
 		tools = tools.WithBrowserAutomationAdapter(fakeBrowserAutomationAdapter{})

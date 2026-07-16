@@ -7,6 +7,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 )
 
@@ -35,17 +36,19 @@ func TestScheduledPublisherDoesNotPresentWaitingRunAsSuccess(t *testing.T) {
 }
 
 func TestLegacyResultContentPreservesGovernedReferenceKinds(t *testing.T) {
-	content, err := legacyResultContent(app.Message{ID: "message", Attachments: []app.MessageAttachment{
+	ingress := app.MessageIngressContext{OwnerID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, ReturnRoute: app.ReturnRoute{Mode: app.ReturnNowhere}}
+	result, err := connectorruntime.WorkflowResultFromAgentResult(agent.Result{Run: app.AgentRun{ID: "run", State: "completed"}, Message: app.Message{ID: "message", Attachments: []app.MessageAttachment{
 		{Name: "workspace.txt", RelPath: "outputs/workspace.txt", ContentType: "text/plain"},
 		{Name: "artifact.pdf", URI: "artifact://result", ContentType: "application/pdf"},
-	}})
+	}}}, ingress)
 	if err != nil {
 		t.Fatal(err)
 	}
+	content := result.Content
 	if content.Parts[0].Resource.Kind != "workspace_file" || content.Parts[1].Resource.Kind != "artifact" {
 		t.Fatalf("unexpected resource projection: %#v", content.Parts)
 	}
-	if _, err := legacyResultContent(app.Message{Attachments: []app.MessageAttachment{{Name: "missing.bin"}}}); err == nil {
+	if _, err := connectorruntime.WorkflowResultFromAgentResult(agent.Result{Run: app.AgentRun{ID: "run", State: "completed"}, Message: app.Message{Attachments: []app.MessageAttachment{{Name: "missing.bin"}}}}, ingress); err == nil {
 		t.Fatal("expected attachment without a governed reference to fail")
 	}
 }

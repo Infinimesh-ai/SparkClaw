@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -14,8 +15,48 @@ type artifactStore interface {
 	ListArtifactObjects(int) []app.ArtifactObject
 }
 
+type endpointResourceStore interface {
+	artifactStore
+	GetSession(string) (app.Session, bool)
+}
+
 type ResourceResolver interface {
 	Resolve(context.Context, app.MessagePart) (string, error)
+}
+
+type EndpointResourceResolver struct {
+	store    endpointResourceStore
+	endpoint app.MessageEndpoint
+}
+
+func NewEndpointResourceResolver(st endpointResourceStore, endpoint app.MessageEndpoint) EndpointResourceResolver {
+	return EndpointResourceResolver{store: st, endpoint: endpoint}
+}
+
+func (r EndpointResourceResolver) Resolve(ctx context.Context, part app.MessagePart) (string, error) {
+	if part.Resource != nil && part.Resource.Kind == "workspace_file" {
+		if r.store == nil || strings.TrimSpace(r.endpoint.SessionID) == "" {
+			return "", errors.New("workspace delivery endpoint has no linked session")
+		}
+		session, ok := r.store.GetSession(r.endpoint.SessionID)
+		if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
+			return "", errors.New("workspace delivery session is unavailable")
+		}
+		root, err := filepath.Abs(session.WorkspaceRoot)
+		if err != nil {
+			return "", errors.New("workspace delivery root is invalid")
+		}
+		candidate, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(strings.TrimSpace(part.Resource.Ref))))
+		if err != nil || candidate == root || !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+			return "", errors.New("workspace delivery resource escapes the linked workspace")
+		}
+		info, err := os.Stat(candidate)
+		if err != nil || !info.Mode().IsRegular() {
+			return "", errors.New("workspace delivery resource is unavailable")
+		}
+		return candidate, nil
+	}
+	return NewStoreResourceResolver(r.store).Resolve(ctx, part)
 }
 
 type StoreResourceResolver struct {

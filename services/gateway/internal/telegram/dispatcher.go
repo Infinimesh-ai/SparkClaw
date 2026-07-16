@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
@@ -24,6 +25,13 @@ type Dispatcher struct {
 	normalizer  func(context.Context, string, string, int) error
 	cfg         config.Config
 	channelCfg  config.NotificationChannelConfig
+	results     connectorruntime.ResultDeliverer
+}
+
+func (d *Dispatcher) WithResultDeliverer(deliverer connectorruntime.ResultDeliverer) *Dispatcher {
+	copy := *d
+	copy.results = deliverer
+	return &copy
 }
 
 func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.Config, transcribers ...VoiceTranscriber) *Dispatcher {
@@ -139,12 +147,14 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	runID := stableTelegramID("run", binding.ID, externalID)
 	inbound := d.saveInbound(chatSession, binding, externalID, text, "processing", runID)
 	_ = d.client.SendChatAction(ctx, message.Chat.ID, message.MessageThreadID, "typing")
+	ingress := telegramIngress(binding, chatSession, externalID, message.MessageThreadID)
 	result, err := d.runtime.Handle(ctx, connectorruntime.AgentRequest{
 		SessionID:   chatSession.LinkedSessionID,
 		MessageID:   stableTelegramID("message", binding.ID, externalID),
 		RunID:       runID,
 		Text:        text,
 		Attachments: attachments,
+		Ingress:     &ingress,
 	})
 	if err != nil {
 		inbound.Status = "failed"
@@ -155,17 +165,11 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	inbound.Status = "processed"
 	inbound.LinkedRunID = result.Run.ID
 	d.store.SaveExternalChatMessage(inbound)
-	answer := strings.TrimSpace(result.Message.Content)
-	var keyboard *InlineKeyboardMarkup
 	if len(result.Approvals) > 0 {
 		approval := result.Approvals[len(result.Approvals)-1]
-		answer = approvalPrompt(approval)
-		keyboard = approvalKeyboard(approval.ID)
+		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, approvalPrompt(approval), result.Run.ID, result.Run.ID, approvalKeyboard(approval.ID))
 	}
-	if answer == "" {
-		answer = "The message was processed, but there is no reply content to send."
-	}
-	return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, answer, result.Run.ID, result.Run.ID, keyboard)
+	return d.deliverAgentResult(ctx, result, ingress)
 }
 
 func (d *Dispatcher) handleCallback(ctx context.Context, binding app.NotificationBinding, update Update) error {
@@ -206,17 +210,12 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 		if result, resumed, err := d.runtime.ResumeRunAfterApproval(ctx, approval.SessionID, approval.RunID); err != nil {
 			return err
 		} else if resumed {
-			answer := strings.TrimSpace(result.Message.Content)
-			var keyboard *InlineKeyboardMarkup
 			if len(result.Approvals) > 0 {
 				next := result.Approvals[len(result.Approvals)-1]
-				answer = approvalPrompt(next)
-				keyboard = approvalKeyboard(next.ID)
+				return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, approvalPrompt(next), "approval:"+approval.ID, result.Run.ID, approvalKeyboard(next.ID))
 			}
-			if answer == "" {
-				answer = "Approved and continued."
-			}
-			return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, answer, "approval:"+approval.ID, result.Run.ID, keyboard)
+			ingress := telegramIngress(binding, chatSession, "approval:"+approval.ID, threadID)
+			return d.deliverAgentResult(ctx, result, ingress)
 		}
 		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 		return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Approved and executed.", "approval:"+approval.ID, approval.RunID, nil)
@@ -237,6 +236,35 @@ func (d *Dispatcher) resolveApproval(ctx context.Context, binding app.Notificati
 	}
 	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
 	return d.sendAndRecord(ctx, binding, chatSession, chatID, threadID, "Canceled. The requested action was not executed.", "approval:"+approval.ID, resolved.RunID, nil)
+}
+
+func (d *Dispatcher) deliverAgentResult(ctx context.Context, result agent.Result, ingress app.MessageIngressContext) error {
+	if d.results == nil {
+		return fmt.Errorf("telegram workflow result delivery is unavailable")
+	}
+	workflowResult, err := connectorruntime.WorkflowResultFromAgentResult(result, ingress)
+	if err != nil {
+		return err
+	}
+	_, err = d.results.DeliverWorkflowResult(ctx, workflowResult)
+	return err
+}
+
+func telegramIngress(binding app.NotificationBinding, chatSession app.ExternalChatSession, nativeMessageID string, threadID int64) app.MessageIngressContext {
+	ownerID := firstNonEmpty(chatSession.OwnerID, binding.OwnerID, app.DefaultOwnerID)
+	nativeThreadRef := ""
+	if threadID != 0 {
+		nativeThreadRef = strconv.FormatInt(threadID, 10)
+	}
+	endpointID := app.EndpointID(chatSession.ID)
+	return app.MessageIngressContext{
+		Source: app.MessageSourceContext{
+			Kind: app.MessageSourceThirdPartyDevice, Adapter: strings.ToLower(strings.TrimSpace(binding.Channel)),
+			EndpointID: endpointID, NativeMessageID: nativeMessageID, NativeThreadRef: nativeThreadRef,
+		},
+		OwnerID: ownerID, Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: append([]string(nil), binding.Scopes...)},
+		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpointID},
+	}
 }
 
 func (d *Dispatcher) resetConversation(ctx context.Context, binding app.NotificationBinding, chatSession app.ExternalChatSession, message *Message) error {

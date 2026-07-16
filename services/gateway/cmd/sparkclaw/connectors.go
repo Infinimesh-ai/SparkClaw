@@ -47,12 +47,20 @@ func newConnectorAssembly(
 	}
 
 	registry := connector.NewRegistry(cfg, st)
+	providers, err := registry.ProviderRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("assemble delivery providers: %w", err)
+	}
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	routes := messagecontrol.NewReturnRouteResolver(endpoints)
+	deliveryGateway := delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{})
+	resultDeliverer := delivery.NewWorkflowResultDeliverer(routes, deliveryGateway)
 	telegramNotifications := telegram.NewNotificationAdapter(st, vault, telegramConfig)
 	telegramService := telegram.NewService(
 		st,
 		telegramConfig,
 		vault,
-		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}),
+		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}).WithResultDeliverer(resultDeliverer),
 	)
 	if err := registry.Register(connector.Registration{
 		Channel:      "telegram",
@@ -70,7 +78,7 @@ func newConnectorAssembly(
 	weixinConfig := cfg.Tools.Notifications.Channels["weixin"]
 	weixinSyncer := weixin.NewSyncer(st).
 		WithConfig(cfg).
-		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg))
+		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(resultDeliverer))
 	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
 	if err := registry.Register(connector.Registration{
 		Channel:      "weixin",
@@ -82,14 +90,9 @@ func newConnectorAssembly(
 		return nil, fmt.Errorf("register Weixin connector: %w", err)
 	}
 
-	providers, err := registry.ProviderRegistry()
-	if err != nil {
-		return nil, fmt.Errorf("assemble delivery providers: %w", err)
-	}
-	endpoints := messagecontrol.NewEndpointRegistry(st)
 	return &connectorAssembly{
 		registry: registry, credentials: vault, endpoints: endpoints,
-		delivery: delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{}),
+		delivery: deliveryGateway,
 	}, nil
 }
 

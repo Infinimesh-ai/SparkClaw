@@ -83,26 +83,30 @@ func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 }
 
 func (r Runtime) HandleMessage(ctx context.Context, sessionID, content string) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, nil, nil, "", "")
+	return r.handleMessage(ctx, sessionID, content, nil, nil, "", "", nil)
 }
 
 func (r Runtime) HandleMessageStream(ctx context.Context, sessionID, content string, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, nil, emit, "", "")
+	return r.handleMessage(ctx, sessionID, content, nil, emit, "", "", nil)
 }
 
 func (r Runtime) HandleMessageWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, attachments, nil, "", "")
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, "", "", nil)
 }
 
 func (r Runtime) HandleMessageStreamWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, attachments, emit, "", "")
+	return r.handleMessage(ctx, sessionID, content, attachments, emit, "", "", nil)
 }
 
 func (r Runtime) HandleMessageWithAttachmentsIdempotent(ctx context.Context, sessionID, messageID, runID, content string, attachments []MessageAttachment) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID)
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, nil)
 }
 
-func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string) (Result, error) {
+func (r Runtime) HandleMessageWithIngress(ctx context.Context, sessionID, messageID, runID, content string, attachments []MessageAttachment, ingress app.MessageIngressContext) (Result, error) {
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, &ingress)
+}
+
+func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string, ingress *app.MessageIngressContext) (Result, error) {
 	if requestedRunID != "" {
 		if existing, ok := r.store.GetRun(requestedRunID); ok && existing.SessionID == sessionID && existing.State != "received" {
 			return r.resultForExistingRun(existing), nil
@@ -123,7 +127,19 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	if !ok {
 		session = app.Session{ID: sessionID, OwnerID: app.DefaultOwnerID, Source: "web"}
 	}
-	envelope, err := messageplane.Normalize(messageplane.Ingress{Session: session, Message: message})
+	normalizedIngress := messageplane.Ingress{Session: session, Message: message}
+	if ingress != nil {
+		normalizedIngress.OwnerID = ingress.OwnerID
+		normalizedIngress.SourceKind = ingress.Source.Kind
+		normalizedIngress.Adapter = ingress.Source.Adapter
+		normalizedIngress.EndpointID = ingress.Source.EndpointID
+		normalizedIngress.NativeMessageID = ingress.Source.NativeMessageID
+		normalizedIngress.NativeThreadRef = ingress.Source.NativeThreadRef
+		normalizedIngress.ScheduleID = ingress.Source.ScheduleID
+		normalizedIngress.ReturnRoute = &ingress.ReturnRoute
+		normalizedIngress.Authorization = ingress.Authorization
+	}
+	envelope, err := messageplane.Normalize(normalizedIngress)
 	if err != nil {
 		return Result{}, fmt.Errorf("normalize message ingress: %w", err)
 	}
@@ -139,6 +155,9 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		State:     "received",
 		Risk:      classifyRisk(agentContent),
 		StartedAt: time.Now().UTC(),
+		MessageContext: &app.MessageRunContext{
+			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: envelope.ReturnRoute,
+		},
 	}
 	if run.ID == "" {
 		run.ID = app.NewID("run")
@@ -181,13 +200,27 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		episode := summarizeEpisode(visibleContent, run, allToolCalls, allApprovals, run.Summary, now)
 		r.store.SaveEpisodeSummary(episode)
 		r.writeTrace(ctx, run, modelrouter.ChatResult{}, allToolCalls, allApprovals, feedback, &episode)
-		return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
+		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: guard.Reason}
+		run.MessageContext.Route = route
+		r.store.SaveRun(run)
+		return Result{
+			Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}, RouteDecision: &route,
+			WorkflowResult: r.workflowResultForTerminalRoute(run, route, envelope.ReturnRoute, run.Summary),
+		}, nil
 	}
 
 	route, routingErr := r.routeCapability(ctx, sessionID, run.ID, agentContent)
 	if routingErr != nil {
-		return r.blockWorkflowSetup(ctx, run, visibleContent, routingErr), nil
+		route = app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
+		run.MessageContext.Route = route
+		result := r.blockWorkflowSetup(ctx, run, visibleContent, routingErr)
+		result.Run.MessageContext = run.MessageContext
+		result.RouteDecision = &route
+		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, envelope.ReturnRoute, result.Message.Content)
+		return result, nil
 	}
+	run.MessageContext.Route = route
+	r.store.SaveRun(run)
 	if route.Status == app.RouteClarify || route.Status == app.RouteBlocked {
 		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
 	}
@@ -338,9 +371,9 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	r.writeTrace(ctx, run, reactResult.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route}
 	if authoritativeWorkflow {
-		result.WorkflowResult = workflowResultForRun(run, route, envelope.ReturnRoute, run.Summary)
+		result.WorkflowResult = r.workflowResultForRun(run, route, envelope.ReturnRoute, run.Summary)
 	} else {
-		result.WorkflowResult = workflowResultForUnmatched(run, route, envelope.ReturnRoute, run.Summary)
+		result.WorkflowResult = r.workflowResultForUnmatched(run, route, envelope.ReturnRoute, run.Summary)
 	}
 	return result, nil
 }
@@ -363,7 +396,18 @@ func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = workflowResultForRun(run, route, run.Workflow.ReturnRoute, message.Content)
+		result.WorkflowResult = r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, message.Content)
+	} else if run.MessageContext != nil {
+		route := run.MessageContext.Route
+		result.RouteDecision = &route
+		switch route.Status {
+		case app.RouteUnmatched:
+			result.WorkflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, message.Content)
+		case app.RouteClarify, app.RouteBlocked:
+			result.WorkflowResult = r.workflowResultForTerminalRoute(run, route, run.MessageContext.ReturnRoute, message.Content)
+		default:
+			result.WorkflowResult = r.workflowResultForDispatchFailure(run, route, run.MessageContext.ReturnRoute, message.Content)
+		}
 	}
 	return result
 }
@@ -492,7 +536,13 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		CreatedAt: now,
 	})
 	r.writeTrace(ctx, run, reactResult.Chat, currentToolCalls, allApprovals, feedback, &episode)
-	return Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}, true, nil
+	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}
+	if run.MessageContext != nil {
+		route := run.MessageContext.Route
+		result.RouteDecision = &route
+		result.WorkflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+	}
+	return result, true, nil
 }
 
 func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, sessionID string, run app.AgentRun, content string, seedCalls []app.ToolCall) (Result, bool) {
@@ -535,7 +585,13 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 		},
 	})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
-	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, true
+	result := Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
+	if run.MessageContext != nil {
+		route := run.MessageContext.Route
+		result.RouteDecision = &route
+		result.WorkflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+	}
+	return result, true
 }
 
 func (r Runtime) streamFinalAnswer(ctx context.Context, goal string, run app.AgentRun, answer string, calls []app.ToolCall, emit StreamHandler) (string, modelrouter.ChatResult, error) {

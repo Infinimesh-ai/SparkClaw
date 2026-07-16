@@ -26,7 +26,7 @@ func adaptWorkflowOutcome(definition app.ToolDefinition, call app.ToolCall) (app
 }
 
 func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
-	return app.ToolOutcome{
+	outcome := app.ToolOutcome{
 		ID:         "outcome_" + call.ID,
 		ToolCallID: call.ID,
 		Tool:       call.Tool,
@@ -34,6 +34,12 @@ func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		Status:     call.Status,
 		Retryable:  call.Status == "failed",
 	}
+	if output, ok := anyMap(call.Result); ok {
+		if ref := firstNonEmptyString(output["output_path"], output["screenshot_path"], output["path"]); ref != "" {
+			outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: ref, Provenance: call.ID}}
+		}
+	}
+	return outcome
 }
 
 func adaptWebSearchWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {

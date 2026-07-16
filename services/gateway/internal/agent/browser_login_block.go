@@ -659,7 +659,7 @@ func (r Runtime) finishBrowserLoginBlockedRun(ctx context.Context, run app.Agent
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = workflowResultForRun(run, route, run.Workflow.ReturnRoute, summary)
+		result.WorkflowResult = r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, summary)
 	}
 	return result
 }
@@ -686,7 +686,7 @@ func (r Runtime) blockPersistedWorkflowResume(ctx context.Context, run app.Agent
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = workflowResultForRun(result.Run, route, run.Workflow.ReturnRoute, result.Message.Content)
+		result.WorkflowResult = r.workflowResultForRun(result.Run, route, run.Workflow.ReturnRoute, result.Message.Content)
 	}
 	return result
 }
@@ -740,7 +740,7 @@ func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.Ag
 	route := run.Workflow.Route
 	return Result{
 		Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route,
-		WorkflowResult: workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
+		WorkflowResult: r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
 	}
 }
 

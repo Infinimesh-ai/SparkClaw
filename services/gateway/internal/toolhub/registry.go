@@ -88,10 +88,24 @@ func browserAutomationRegistration(summary string, riskEffect app.ToolEffect) to
 }
 
 func documentProcessingRegistration(run toolExecutor, summary string) toolRegistration {
-	return workflowRegistration(
+	registration := workflowRegistration(
 		toolRegistration{run: run}, app.CapabilityDocumentProcessing, nil, app.OutcomeAdapterGeneric,
 		summary, "Use only inside the document.processing workflow.", "Do not use for browser work or read-only document questions.", app.ToolEffectWorkspaceWrite,
 	)
+	registration.directory.OutputKinds = []app.OutputKind{app.OutputKindFile}
+	return registration
+}
+
+func documentDeletionRegistration(run toolExecutor, summary string) toolRegistration {
+	registration := documentProcessingRegistration(run, summary)
+	registration.directory.OutputKinds = nil
+	return registration
+}
+
+func browserScreenshotRegistration() toolRegistration {
+	registration := browserAutomationRegistration("Capture a browser screenshot.", app.ToolEffectExternalRead)
+	registration.directory.OutputKinds = []app.OutputKind{app.OutputKindImage}
+	return registration
 }
 
 func browserReadRegistration() toolRegistration {
@@ -120,7 +134,7 @@ var toolRegistry = map[string]toolRegistration{
 	"images.inspect":            {run: ctxArgs((*ToolHub).imageInspect)},
 	"media.render_weather_card": {run: ctxArgsSessionRun((*ToolHub).renderWeatherCard)},
 	"files.write_draft":         documentProcessingRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
-	"file.delete":               documentProcessingRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
+	"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
 	"office.replace_text":       documentProcessingRegistration(ctxArgs((*ToolHub).officeReplaceText), "Replace bounded text in an Office document and write a new file."),
 	"docx.replace_paragraph":    documentProcessingRegistration(structureOp((*ToolHub).docxStructureEdit, "replace_paragraph"), "Replace one DOCX paragraph and write a new document."),
 	"docx.insert_paragraph":     documentProcessingRegistration(structureOp((*ToolHub).docxStructureEdit, "insert_paragraph"), "Insert one DOCX paragraph and write a new document."),
@@ -156,7 +170,7 @@ var toolRegistry = map[string]toolRegistration{
 	"browser.close":        browserAutomationRegistration("Close a managed browser tab.", app.ToolEffectExternalInteract),
 	"browser.navigate":     browserAutomationRegistration("Navigate a managed browser tab.", app.ToolEffectExternalRead),
 	"browser.snapshot":     browserAutomationRegistration("Capture structured browser page state.", app.ToolEffectExternalRead),
-	"browser.screenshot":   browserAutomationRegistration("Capture a browser screenshot.", app.ToolEffectExternalRead),
+	"browser.screenshot":   browserScreenshotRegistration(),
 	"browser.wait":         browserAutomationRegistration("Wait for observable browser state.", app.ToolEffectExternalRead),
 	"browser.click":        browserAutomationRegistration("Click a referenced page control.", app.ToolEffectExternalInteract),
 	"browser.type":         browserAutomationRegistration("Type into a referenced page control.", app.ToolEffectExternalInteract),

@@ -1,0 +1,43 @@
+package messagecontrol
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+)
+
+type EndpointResolver interface {
+	Get(context.Context, app.EndpointID) (app.MessageEndpoint, error)
+}
+
+type ReturnRouteResolver struct {
+	endpoints EndpointResolver
+}
+
+func NewReturnRouteResolver(endpoints EndpointResolver) *ReturnRouteResolver {
+	return &ReturnRouteResolver{endpoints: endpoints}
+}
+
+func (r *ReturnRouteResolver) Resolve(ctx context.Context, route app.ReturnRoute) (app.MessageEndpoint, bool, error) {
+	if r == nil || r.endpoints == nil {
+		return app.MessageEndpoint{}, false, errors.New("return route resolver is unavailable")
+	}
+	var id app.EndpointID
+	switch route.Mode {
+	case app.ReturnToSource:
+		id = route.SourceEndpointID
+	case app.ReturnToEndpoint:
+		id = route.EndpointID
+	case app.ReturnNowhere:
+		return app.MessageEndpoint{}, false, nil
+	default:
+		return app.MessageEndpoint{}, false, fmt.Errorf("unsupported return mode %q", route.Mode)
+	}
+	if id == "" {
+		return app.MessageEndpoint{}, false, errors.New("return route endpoint is required")
+	}
+	endpoint, err := r.endpoints.Get(ctx, id)
+	return endpoint, err == nil, err
+}

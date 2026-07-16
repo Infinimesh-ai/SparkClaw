@@ -42,7 +42,7 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 | Infinimesh Info `web.search` provider | Complete, opt-in | Contract/fault tests, redacted public config, credential-gated live smoke |
 | WebChat and Gateway speech transcription | Complete, opt-in | Speech/Gateway tests, voice frontend tests, live ASR smoke evidence |
 | Messaging connector Registry and Telegram multi-Bot binding | Complete, opt-in | Provider-neutral registry, credential isolation, binding, worker, media, reminder and WebChat tests |
-| Message Control, scheduled messages, and result delivery | Implemented; Workflow integration in progress | Endpoint/Schedule registries, bounded Timer workers, Provider capability preflight, [migration guide](message-control-delivery-migration.md) |
+| Message Control, scheduled messages, and result delivery | Complete for the router-first vertical slice | Persisted ingress/return context, Endpoint/Schedule registries, bounded Timer workers, one WorkflowResult delivery path, Provider capability preflight, [migration guide](message-control-delivery-migration.md) |
 
 ## Standard Verification
 

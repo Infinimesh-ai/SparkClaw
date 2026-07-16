@@ -42,7 +42,7 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 | Infinimesh Info `web.search` provider | Complete，opt-in | Contract/fault tests、redacted public config、credential-gated live smoke |
 | WebChat 与 Gateway speech transcription | Complete，opt-in | Speech/Gateway tests、voice frontend tests、live ASR smoke evidence |
 | 消息连接器 Registry 与 Telegram 多 Bot binding | Complete，opt-in | Provider-neutral registry、credential 隔离、binding、worker、media、reminder 与 WebChat tests |
-| 消息控制、定时消息与结果投递 | 已实现；Workflow 集成进行中 | Endpoint/Schedule Registry、有界 Timer Worker、Provider 能力预检、[迁移指南](message-control-delivery-migration.md) |
+| 消息控制、定时消息与结果投递 | Router-first 垂直切片已完成 | 持久化入口/返回上下文、Endpoint/Schedule Registry、有界 Timer Worker、唯一 WorkflowResult 投递链路、Provider 能力预检、[迁移指南](message-control-delivery-migration.md) |
 
 ## 标准验证
 

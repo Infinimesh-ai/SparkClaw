@@ -50,8 +50,10 @@ Endpoint Registry 保存注册 Key 与 Binding Reference。Provider 凭据和原
 - ReturnRoute 与可选的预期能力家族。
 
 没有 `ScheduleSpec` 的旧记录会投影为 literal 文本 Schedule，投递前从 Binding
-或 Session 推导 Owner。Memory 和 File 状态无需增加集合；Postgres 在 Runtime
-Schema 与 `migrations/0001_core.sql` 中增加可空 `schedule_spec JSONB`。
+或 Session 推导 Owner。缺失的历史 Dedupe Key 会稳定投影为 `reminder:<id>`；旧的
+直接 Recipient/Context/Credential 字段由对应 Provider 解析。Memory 和 File 状态
+无需增加集合；Postgres 在 Runtime Schema 与 `migrations/0001_core.sql` 中增加可空
+`schedule_spec JSONB`。
 
 `reminders.create` 工具新增可选 `payload_mode` 和 `expected_capability`，旧调用默认
 为 `literal`。原有 List、Update、Cancel、Recurrence、Retry 和 Delivery History
@@ -59,13 +61,22 @@ Schema 与 `migrations/0001_core.sql` 中增加可空 `schedule_spec JSONB`。
 
 ## Workflow 集成
 
-当前组合层把定时 request Envelope 适配到旧 Agent 入口，再把完成的 Agent 结果
-转换回共享的 `WorkflowResult -> DeliveryRequest -> Gateway` 链路。处于
-`approval_pending` 或 `browser_login_blocked` 的 Run 不会被伪装成已完成结果。
+Router-first 垂直切片已经完成集成。Web、Telegram、微信与 Timer 入口都携带
+`MessageIngressContext`；其中的 Owner、Authorization、来源 Endpoint、Route
+Decision 与 ReturnRoute 会持久化到 Run。已匹配 Workflow 原样返回自己的
+`WorkflowResult`。未匹配 ReAct 只经过一个有界兼容 Adapter；已匹配结果若缺失
+WorkflowResult 会明确失败。
 
-Workflow 分支集成后，只需把 `cmd/sparkclaw/scheduled_messages.go` 替换为公共消息/
-工作队列 Publisher。Schedule Registry、Timer Worker、Return Route Resolver、
-Delivery Gateway 与 Provider Adapter 保持不变。
+普通 Connector 回复与定时 Request 结果都遵循
+`WorkflowResult -> DeliveryRequest -> Delivery Gateway -> Provider`。业务上的
+Failed/Blocked 结果仍然可以作为输出投递；投递成功后不会把 Timer Transport 状态
+改成失败。Approval 或浏览器登录 Waiting 状态保持明确，不会伪装为定时任务已完成。
+只有 ToolHub Metadata 声明相应 Output Kind 且路径位于关联 Workspace 内时，文档处理
+输出和浏览器截图才会成为文件/图片 Message Part。
+
+平行的 `notification.Router`、Connector Notification Registration 和 Reminder
+Notification Bridge 已删除。Provider-specific Direct Send 只保留给 Typing、Command、
+Approval Prompt 等 Connector Control Traffic。
 
 Web 投递当前保留旧的本地 Receipt 行为。后续可以通过端口把
 `delivery.LocalWebDelivery` 替换为持久化 Web Event/Streaming，而无需修改

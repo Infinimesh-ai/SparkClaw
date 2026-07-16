@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -32,6 +33,24 @@ func (p blockingPublisher) Publish(ctx context.Context, envelope app.MessageEnve
 	p.received <- envelope
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+func newTestMessageScheduler(t *testing.T, st store.Store, providers ...delivery.Provider) *Scheduler {
+	t.Helper()
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	providerRegistry := delivery.NewProviderRegistry()
+	for _, provider := range providers {
+		if err := providerRegistry.Register(provider); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return NewMessageScheduler(
+		st,
+		messagecontrol.NewScheduleRegistry(st),
+		messagecontrol.NewReturnRouteResolver(endpoints),
+		delivery.NewGateway(endpoints, providerRegistry, delivery.LocalWebDelivery{}),
+		nil,
+	)
 }
 
 func TestTimerRunKeepsPollingWhileScheduledRequestsAreSlow(t *testing.T) {
@@ -113,12 +132,7 @@ func TestCanceledScheduledRequestRemainsLeasedForRecovery(t *testing.T) {
 	}
 }
 
-func TestSchedulerRecordsFailureWhenChannelDisabled(t *testing.T) {
-	cfg := config.Default()
-	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
-		Enabled:  false,
-		Provider: "openclaw-weixin-compatible",
-	}
+func TestSchedulerRecordsFailureWhenProviderIsNotRegistered(t *testing.T) {
 	st := store.NewMemoryStore()
 	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	reminder := st.SaveReminder(app.Reminder{
@@ -131,7 +145,7 @@ func TestSchedulerRecordsFailureWhenChannelDisabled(t *testing.T) {
 		CreatedAt:   due.Add(-time.Hour),
 		UpdatedAt:   due.Add(-time.Hour),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())
@@ -151,7 +165,6 @@ func TestSchedulerRecordsFailureWhenChannelDisabled(t *testing.T) {
 }
 
 func TestSchedulerStoresWebReminderDelivery(t *testing.T) {
-	cfg := config.Default()
 	st := store.NewMemoryStore()
 	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	reminder := st.SaveReminder(app.Reminder{
@@ -164,7 +177,7 @@ func TestSchedulerStoresWebReminderDelivery(t *testing.T) {
 		CreatedAt:   due.Add(-time.Hour),
 		UpdatedAt:   due.Add(-time.Hour),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())
@@ -212,8 +225,7 @@ func TestSchedulerDeliversTelegramReminderThroughBoundCredential(t *testing.T) {
 		Channel: "telegram", Recipient: "88", BindingID: binding.ID, CredentialRef: ref,
 		BaseURL: provider.URL, Status: "pending", CreatedAt: due.Add(-time.Hour), UpdatedAt: due.Add(-time.Hour),
 	})
-	router := notification.NewRouter(cfg, st).WithAdapter("telegram", telegram.NewNotificationAdapter(st, vault, cfg.Tools.Notifications.Channels["telegram"]))
-	scheduler := NewScheduler(st, router)
+	scheduler := newTestMessageScheduler(t, st, telegram.NewNotificationAdapter(st, vault, cfg.Tools.Notifications.Channels["telegram"]))
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 	deliveries := scheduler.Tick(t.Context())
 	if len(deliveries) != 1 || deliveries[0].Status != "sent" || deliveries[0].Provider != "telegram-bot-api" {
@@ -284,7 +296,7 @@ func TestSchedulerUsesReminderSpecificWeixinRecipient(t *testing.T) {
 		CreatedAt:        due.Add(-time.Hour),
 		UpdatedAt:        due.Add(-time.Hour),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st, notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st))
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())
@@ -297,7 +309,6 @@ func TestSchedulerUsesReminderSpecificWeixinRecipient(t *testing.T) {
 }
 
 func TestSchedulerReschedulesRecurringReminder(t *testing.T) {
-	cfg := config.Default()
 	st := store.NewMemoryStore()
 	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	reminder := st.SaveReminder(app.Reminder{
@@ -311,7 +322,7 @@ func TestSchedulerReschedulesRecurringReminder(t *testing.T) {
 		CreatedAt:   due.Add(-time.Hour),
 		UpdatedAt:   due.Add(-time.Hour),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st)
 	now := due.Add(time.Minute)
 	scheduler.now = func() time.Time { return now }
 
@@ -379,7 +390,7 @@ func TestSchedulerKeepsRetryableFailurePending(t *testing.T) {
 		CreatedAt:        due.Add(-time.Hour),
 		UpdatedAt:        due.Add(-time.Hour),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st, notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st))
 	now := due.Add(time.Minute)
 	scheduler.now = func() time.Time { return now }
 
@@ -421,11 +432,6 @@ func TestSchedulerKeepsRetryableFailurePending(t *testing.T) {
 }
 
 func TestSchedulerBlockedFailureIsTerminal(t *testing.T) {
-	cfg := config.Default()
-	cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{
-		Enabled:  false,
-		Provider: "openclaw-weixin-compatible",
-	}
 	st := store.NewMemoryStore()
 	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	reminder := st.SaveReminder(app.Reminder{
@@ -438,7 +444,7 @@ func TestSchedulerBlockedFailureIsTerminal(t *testing.T) {
 		CreatedAt:   due.Add(-time.Hour),
 		UpdatedAt:   due.Add(-time.Hour),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st)
 	now := due.Add(time.Minute)
 	scheduler.now = func() time.Time { return now }
 
@@ -490,7 +496,7 @@ func TestSchedulerMarksReminderSendingDuringDelivery(t *testing.T) {
 		UpdatedAt:        due.Add(-time.Hour),
 	})
 	reminderID = reminder.ID
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st, notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st))
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())
@@ -507,7 +513,6 @@ func TestSchedulerMarksReminderSendingDuringDelivery(t *testing.T) {
 }
 
 func TestSchedulerReclaimsStaleSendingReminder(t *testing.T) {
-	cfg := config.Default()
 	st := store.NewMemoryStore()
 	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	reminder := st.SaveReminder(app.Reminder{
@@ -520,7 +525,7 @@ func TestSchedulerReclaimsStaleSendingReminder(t *testing.T) {
 		CreatedAt:   due.Add(-time.Hour),
 		UpdatedAt:   due.Add(-10 * time.Minute),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())
@@ -610,7 +615,7 @@ func TestSchedulerDoesNotFallbackToDefaultWeixinBinding(t *testing.T) {
 		CreatedAt:   due.Add(-time.Hour),
 		UpdatedAt:   due.Add(-time.Hour),
 	})
-	scheduler := NewScheduler(st, notification.NewRouter(cfg, st))
+	scheduler := newTestMessageScheduler(t, st, notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st))
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())

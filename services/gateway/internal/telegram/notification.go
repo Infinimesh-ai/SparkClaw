@@ -43,8 +43,8 @@ func (a *NotificationAdapter) Capabilities() delivery.Capabilities {
 }
 
 func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef))
-	if !ok || binding.Channel != a.Key() || binding.Status != "active" {
+	binding, ok := a.deliveryBinding(endpoint, request)
+	if !ok {
 		return a.deliveryFailure(endpoint, request, "telegram binding is unavailable", "blocked")
 	}
 	resources := delivery.ResourceResolver(a.resources)
@@ -104,6 +104,25 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: "telegram-bot-api", AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
 	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
 	return receipt, nil
+}
+
+func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, bool) {
+	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
+		binding.Status == "active" && binding.Channel == a.Key() {
+		return binding, true
+	}
+	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
+		return app.NotificationBinding{}, false
+	}
+	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
+	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), a.Key()) {
+		return app.NotificationBinding{}, false
+	}
+	return app.NotificationBinding{
+		ID: reminder.BindingID, OwnerID: request.OwnerID, Channel: a.Key(), Status: "active",
+		ExternalChatID: reminder.Recipient, ExternalThreadID: reminder.RecipientBinding,
+		CredentialRef: reminder.CredentialRef, BaseURL: reminder.BaseURL,
+	}, true
 }
 
 func telegramDeliveryAddress(endpoint app.MessageEndpoint, binding app.NotificationBinding) (int64, int64, error) {

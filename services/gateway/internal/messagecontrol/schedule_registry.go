@@ -107,6 +107,10 @@ func (r *ScheduleRegistry) ClaimDue(_ context.Context, now, staleBefore time.Tim
 }
 
 func (r *ScheduleRegistry) fromReminder(reminder app.Reminder) app.MessageSchedule {
+	dedupeKey := strings.TrimSpace(reminder.DedupeKey)
+	if dedupeKey == "" {
+		dedupeKey = "reminder:" + reminder.ID
+	}
 	spec := app.ScheduleSpec{}
 	if reminder.ScheduleSpec != nil {
 		spec = *reminder.ScheduleSpec
@@ -139,7 +143,7 @@ func (r *ScheduleRegistry) fromReminder(reminder app.Reminder) app.MessageSchedu
 	return app.MessageSchedule{
 		ID: app.ScheduleID(reminder.ID), SessionID: reminder.SessionID, RunID: reminder.RunID, Spec: spec,
 		DueTime: reminder.DueTime, Timezone: reminder.Timezone, Recurrence: reminder.Recurrence,
-		DedupeKey: reminder.DedupeKey, Status: reminder.Status, DeliveryAttempt: reminder.DeliveryAttempt,
+		DedupeKey: dedupeKey, Status: reminder.Status, DeliveryAttempt: reminder.DeliveryAttempt,
 		CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt, SentAt: reminder.SentAt, CanceledAt: reminder.CanceledAt,
 	}
 }

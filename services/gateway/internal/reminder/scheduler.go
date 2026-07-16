@@ -10,7 +10,6 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -43,19 +42,6 @@ type Scheduler struct {
 	publisher MessagePublisher
 	now       func() time.Time
 	interval  time.Duration
-}
-
-// NewScheduler preserves the original notification.Router constructor for
-// downstream tests and callers. Production composition uses NewMessageScheduler.
-func NewScheduler(st store.Store, router notification.Router) *Scheduler {
-	endpoints := messagecontrol.NewEndpointRegistry(st)
-	return NewMessageScheduler(
-		st,
-		messagecontrol.NewScheduleRegistry(st),
-		messagecontrol.NewReturnRouteResolver(endpoints),
-		notificationGateway{store: st, router: router},
-		nil,
-	)
 }
 
 func NewMessageScheduler(st store.Store, schedules *messagecontrol.ScheduleRegistry, routes *messagecontrol.ReturnRouteResolver, gateway DeliveryGateway, publisher MessagePublisher) *Scheduler {
@@ -265,63 +251,4 @@ func valueTime(value *time.Time, fallback time.Time) time.Time {
 		return value.UTC()
 	}
 	return fallback
-}
-
-type notificationGateway struct {
-	store  store.Store
-	router notification.Router
-}
-
-func (g notificationGateway) Deliver(ctx context.Context, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	endpointRegistry := messagecontrol.NewEndpointRegistry(g.store)
-	endpoint, err := endpointRegistry.Get(ctx, request.Target)
-	if err != nil {
-		return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: request.Target, Status: app.DeliveryFailed, Error: err.Error(), RetryState: "blocked", AttemptedAt: time.Now().UTC()}, err
-	}
-	texts := make([]string, 0, len(request.Content.Parts))
-	for _, part := range request.Content.Parts {
-		if part.Kind != app.MessagePartText {
-			err := fmt.Errorf("legacy notification gateway does not support %q", part.Kind)
-			return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: err.Error(), RetryState: "blocked", AttemptedAt: time.Now().UTC()}, err
-		}
-		texts = append(texts, part.Text)
-	}
-	notice := notification.Notification{Channel: "web", MessageText: strings.Join(texts, "\n"), DedupeKey: request.IdempotencyKey}
-	if endpoint.Kind == app.EndpointKindThirdPartyDevice {
-		if binding, ok := g.store.GetNotificationBinding(endpoint.BindingRef); ok {
-			notice.Channel, notice.BindingID = endpoint.ProviderKey, binding.ID
-			notice.Recipient = firstValue(binding.ExternalChatID, binding.ExternalUserID)
-			notice.RecipientBinding = firstValue(binding.ExternalThreadID, binding.ContextToken)
-			notice.CredentialRef, notice.BaseURL = binding.CredentialRef, binding.BaseURL
-		} else if reminder, ok := g.store.GetReminder(request.ResultID); ok {
-			notice.Channel, notice.BindingID = endpoint.ProviderKey, reminder.BindingID
-			notice.Recipient, notice.RecipientBinding = reminder.Recipient, reminder.RecipientBinding
-			notice.CredentialRef, notice.BaseURL = reminder.CredentialRef, reminder.BaseURL
-		} else {
-			return app.DeliveryReceipt{}, errors.New("notification binding is unavailable")
-		}
-	}
-	result, err := g.router.Send(ctx, notice)
-	receipt := app.DeliveryReceipt{
-		DeliveryID: app.DeliveryID(result.DeliveryID), EndpointID: endpoint.ID, ProviderRef: result.Provider,
-		Status: app.DeliverySucceeded, Error: result.Error, RetryState: result.RetryState, AttemptedAt: time.Now().UTC(),
-	}
-	if result.SentAt.IsZero() {
-		result.SentAt = time.Now().UTC()
-	}
-	if err != nil || result.Status == "failed" {
-		receipt.Status = app.DeliveryFailed
-		return receipt, err
-	}
-	receipt.DeliveredAt = &result.SentAt
-	return receipt, nil
-}
-
-func firstValue(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }

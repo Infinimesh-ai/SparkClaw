@@ -13,14 +13,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type Registration struct {
 	Channel       string
 	Binding       binding.Adapter
-	Notification  notification.Adapter
 	Provider      delivery.Provider
 	Runtime       connectorruntime.Runtime
 	CancelBinding func(app.NotificationBinding)
@@ -35,15 +32,13 @@ func (r *Registry) ProviderRegistry() (*delivery.ProviderRegistry, error) {
 
 type Registry struct {
 	cfg           config.Config
-	store         store.Store
 	registrations map[string]Registration
 	providers     *delivery.ProviderRegistry
 }
 
-func NewRegistry(cfg config.Config, st store.Store) *Registry {
+func NewRegistry(cfg config.Config) *Registry {
 	return &Registry{
 		cfg:           cfg,
-		store:         st,
 		registrations: map[string]Registration{},
 		providers:     delivery.NewProviderRegistry(),
 	}
@@ -80,18 +75,6 @@ func (r *Registry) BindingRouter() binding.Router {
 		registration := r.registrations[channel]
 		if registration.Binding != nil {
 			router = router.WithAdapter(channel, registration.Binding)
-		}
-	}
-	return router
-}
-
-func (r *Registry) NotificationRouter() notification.Router {
-	router := notification.NewBaseRouter(r.store)
-	for _, channel := range r.channels() {
-		registration := r.registrations[channel]
-		channelCfg := r.cfg.Tools.Notifications.Channels[channel]
-		if channelCfg.Enabled && registration.Notification != nil {
-			router = router.WithAdapter(channel, registration.Notification)
 		}
 	}
 	return router

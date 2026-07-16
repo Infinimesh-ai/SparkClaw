@@ -13,7 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestRouterRequiresExplicitWeixinRecipientContextAndCredential(t *testing.T) {
+func TestWeixinSendRequiresExplicitRecipientContextAndCredential(t *testing.T) {
 	var gotAuth string
 	var gotRecipient string
 	var gotContextToken string
@@ -58,8 +58,7 @@ func TestRouterRequiresExplicitWeixinRecipientContextAndCredential(t *testing.T)
 		Provider: "openclaw-weixin-qr",
 		BaseURL:  ts.URL,
 	}
-	router := NewRouter(cfg, st)
-	result, err := router.Send(t.Context(), Notification{
+	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st).Send(t.Context(), Notification{
 		Channel:          "weixin",
 		Recipient:        "wx-user-1",
 		RecipientBinding: "ctx-token",
@@ -114,7 +113,7 @@ func TestWeixinProviderRejectsUnsupportedAudioBeforeExternalSend(t *testing.T) {
 	}
 }
 
-func TestRouterDoesNotUseDefaultBindingWhenWeixinRecipientMissing(t *testing.T) {
+func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 	st := store.NewMemoryStore()
 	st.SaveCredentialSecret(app.CredentialSecret{
 		Ref:   "provider:openclaw-weixin-qr:bind_1",
@@ -139,8 +138,7 @@ func TestRouterDoesNotUseDefaultBindingWhenWeixinRecipientMissing(t *testing.T) 
 		Provider: "openclaw-weixin-qr",
 		BaseURL:  "http://127.0.0.1:1",
 	}
-	router := NewRouter(cfg, st)
-	result, err := router.Send(t.Context(), Notification{
+	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st).Send(t.Context(), Notification{
 		Channel:          "weixin",
 		RecipientBinding: "ctx-token",
 		CredentialRef:    "provider:openclaw-weixin-qr:bind_1",

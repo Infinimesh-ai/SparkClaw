@@ -81,7 +81,13 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 		if providerKey == "" || providerKey == "web" {
 			kind, providerKey = app.EndpointKindWeb, ""
 		}
-		return app.MessageEndpoint{ID: id, OwnerID: ownerID, Kind: kind, ProviderKey: providerKey, BindingRef: reminder.BindingID, Status: app.EndpointActive, CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt}, nil
+		return app.MessageEndpoint{
+			ID: id, OwnerID: ownerID, Kind: kind, ProviderKey: providerKey,
+			BindingRef: reminder.BindingID, Address: reminder.Recipient,
+			ThreadRef: reminder.RecipientBinding, ContextRef: reminder.RecipientBinding,
+			SessionID: reminder.SessionID, Status: app.EndpointActive,
+			CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
+		}, nil
 	}
 	binding, ok := r.store.GetNotificationBinding(value)
 	if !ok {

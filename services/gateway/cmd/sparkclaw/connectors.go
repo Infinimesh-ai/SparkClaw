@@ -46,7 +46,7 @@ func newConnectorAssembly(
 		}
 	}
 
-	registry := connector.NewRegistry(cfg, st)
+	registry := connector.NewRegistry(cfg)
 	providers, err := registry.ProviderRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("assemble delivery providers: %w", err)
@@ -63,11 +63,10 @@ func newConnectorAssembly(
 		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}).WithResultDeliverer(resultDeliverer),
 	)
 	if err := registry.Register(connector.Registration{
-		Channel:      "telegram",
-		Binding:      binding.NewTelegramAdapter("telegram", telegramConfig, vault),
-		Notification: telegramNotifications,
-		Provider:     telegramNotifications,
-		Runtime:      telegramService,
+		Channel:  "telegram",
+		Binding:  binding.NewTelegramAdapter("telegram", telegramConfig, vault),
+		Provider: telegramNotifications,
+		Runtime:  telegramService,
 		CancelBinding: func(record app.NotificationBinding) {
 			telegramService.CancelBinding(record.ID)
 		},
@@ -81,11 +80,10 @@ func newConnectorAssembly(
 		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(resultDeliverer))
 	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
 	if err := registry.Register(connector.Registration{
-		Channel:      "weixin",
-		Binding:      newWeixinBindingAdapter("weixin", weixinConfig),
-		Notification: weixinNotifications,
-		Provider:     weixinNotifications,
-		Runtime:      weixinSyncer,
+		Channel:  "weixin",
+		Binding:  newWeixinBindingAdapter("weixin", weixinConfig),
+		Provider: weixinNotifications,
+		Runtime:  weixinSyncer,
 	}); err != nil {
 		return nil, fmt.Errorf("register Weixin connector: %w", err)
 	}

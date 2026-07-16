@@ -109,96 +109,6 @@ type Result struct {
 	SentAt         time.Time
 }
 
-type Adapter interface {
-	Send(ctx context.Context, notification Notification) (Result, error)
-}
-
-type Router struct {
-	channels map[string]Adapter
-	store    store.Store
-}
-
-func (r Router) WithAdapter(channel string, adapter Adapter) Router {
-	channel = strings.ToLower(strings.TrimSpace(channel))
-	if channel != "" && adapter != nil {
-		r.channels[channel] = adapter
-	}
-	return r
-}
-
-func NewRouter(cfg config.Config, stores ...store.Store) Router {
-	router := NewBaseRouter(stores...)
-	for name, channel := range cfg.Tools.Notifications.Channels {
-		name = strings.ToLower(strings.TrimSpace(name))
-		if name == "" || !channel.Enabled {
-			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(channel.Provider)) {
-		case "openclaw-weixin-compatible", "openclaw-weixin-qr", "openclaw-weixin-login-qr", "weixin", "vx":
-			router = router.WithAdapter(name, NewWeixinAdapter(name, channel, router.store))
-		}
-	}
-	return router
-}
-
-func NewBaseRouter(stores ...store.Store) Router {
-	var st store.Store
-	if len(stores) > 0 {
-		st = stores[0]
-	}
-	return Router{
-		channels: map[string]Adapter{"web": WebAdapter{}},
-		store:    st,
-	}
-}
-
-func (r Router) Send(ctx context.Context, notification Notification) (Result, error) {
-	channel := strings.ToLower(strings.TrimSpace(notification.Channel))
-	if channel == "" {
-		channel = "web"
-	}
-	adapter, ok := r.channels[channel]
-	if !ok {
-		return Result{
-			DeliveryID: app.NewID("rdel"),
-			Channel:    channel,
-			Status:     "failed",
-			Error:      "notification channel is not configured or enabled",
-			RetryState: "blocked",
-		}, fmt.Errorf("notification channel %q is not configured or enabled", channel)
-	}
-	return adapter.Send(ctx, notification)
-}
-
-type WebAdapter struct{}
-
-func (a WebAdapter) Send(ctx context.Context, notification Notification) (Result, error) {
-	_ = ctx
-	message := strings.TrimSpace(notification.MessageText)
-	if message == "" {
-		return Result{
-			DeliveryID:     app.NewID("rdel"),
-			Channel:        "web",
-			Provider:       "web-local",
-			Recipient:      strings.TrimSpace(notification.Recipient),
-			Status:         "failed",
-			ProviderStatus: "failed",
-			Error:          "notification message cannot be empty",
-			RetryState:     "blocked",
-		}, errors.New("notification message cannot be empty")
-	}
-	return Result{
-		DeliveryID:     app.NewID("rdel"),
-		Channel:        "web",
-		Provider:       "web-local",
-		Recipient:      strings.TrimSpace(notification.Recipient),
-		Status:         "sent",
-		ProviderStatus: "stored",
-		RetryState:     "none",
-		SentAt:         time.Now().UTC(),
-	}, nil
-}
-
 type WeixinAdapter struct {
 	channel   string
 	cfg       config.NotificationChannelConfig
@@ -242,8 +152,8 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	if a.store == nil {
 		return a.deliveryFailure(endpoint, request, "weixin binding store is unavailable", "blocked")
 	}
-	binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef))
-	if !ok || binding.Status != "active" || strings.ToLower(strings.TrimSpace(binding.Channel)) != strings.ToLower(strings.TrimSpace(a.channel)) {
+	binding, ok := a.deliveryBinding(endpoint, request)
+	if !ok {
 		return a.deliveryFailure(endpoint, request, "weixin binding is unavailable", "blocked")
 	}
 	resources := delivery.ResourceResolver(a.resources)
@@ -292,6 +202,25 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
 	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
 	return receipt, nil
+}
+
+func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, bool) {
+	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
+		binding.Status == "active" && strings.EqualFold(strings.TrimSpace(binding.Channel), strings.TrimSpace(a.channel)) {
+		return binding, true
+	}
+	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
+		return app.NotificationBinding{}, false
+	}
+	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
+	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), strings.TrimSpace(a.channel)) {
+		return app.NotificationBinding{}, false
+	}
+	return app.NotificationBinding{
+		ID: reminder.BindingID, OwnerID: request.OwnerID, Channel: reminder.Channel, Status: "active",
+		ExternalUserID: reminder.Recipient, ContextToken: reminder.RecipientBinding,
+		CredentialRef: reminder.CredentialRef, BaseURL: reminder.BaseURL,
+	}, true
 }
 
 func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {

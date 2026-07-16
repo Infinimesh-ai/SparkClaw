@@ -53,12 +53,33 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		ModelLane: "fast",
 		Risk:      app.RiskRead,
 		StartedAt: time.Now().UTC(),
+		Workflow: &app.WorkflowState{
+			SchemaVersion: 1,
+			Plan: app.WorkflowPlan{
+				SchemaVersion:   1,
+				ProfileID:       app.WorkflowWebExplicitURL,
+				ProfileRevision: 1,
+			},
+			PlanDigest:    "sha256:postgres-plan",
+			Status:        app.WorkflowStatusSucceeded,
+			ActiveNodeIDs: []app.WorkflowNodeID{"read"},
+			Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+				"read": {Status: app.WorkflowNodeSucceeded, ScopeRevision: 1},
+			},
+		},
 	}
 	st.SaveRun(run)
+	if got, ok := st.GetRun(run.ID); !ok || got.Workflow == nil || got.Workflow.PlanDigest != "sha256:postgres-plan" || got.Workflow.Nodes["read"].Status != app.WorkflowNodeSucceeded {
+		t.Fatalf("workflow state did not round trip: %#v ok=%v", got, ok)
+	}
 	call := app.ToolCall{
 		ID:                 app.NewID("tc"),
 		SessionID:          session.ID,
 		RunID:              run.ID,
+		WorkflowID:         app.WorkflowWebExplicitURL,
+		WorkflowNodeID:     "read",
+		ScopeRevision:      1,
+		Capability:         "web.page.read",
 		Tool:               "memory.write_candidate",
 		Risk:               app.RiskDraft,
 		Status:             "completed",
@@ -68,7 +89,8 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		StartedAt:          time.Now().UTC(),
 	}
 	st.SaveToolCall(call)
-	if got, ok := st.GetToolCall(call.ID); !ok || got.Arguments["content"] != "postgres memory" || got.ObservationSummary != call.ObservationSummary {
+	if got, ok := st.GetToolCall(call.ID); !ok || got.Arguments["content"] != "postgres memory" || got.ObservationSummary != call.ObservationSummary ||
+		got.WorkflowID != app.WorkflowWebExplicitURL || got.WorkflowNodeID != "read" || got.ScopeRevision != 1 || got.Capability != "web.page.read" {
 		t.Fatalf("tool call did not round trip: %#v ok=%v", got, ok)
 	}
 	modelCompleted := time.Now().UTC()
@@ -236,50 +258,6 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		t.Fatalf("episode summary did not round trip: %#v", episodes)
 	}
 
-	now := time.Now().UTC()
-	doc := app.Document{
-		ID:          app.NewID("doc"),
-		Source:      "workspace",
-		Root:        "/workspace",
-		Path:        "/workspace/notes.md",
-		RelPath:     "notes.md",
-		ContentHash: "hash-doc",
-		Bytes:       64,
-		IndexedAt:   now,
-	}
-	chunk := app.DocumentChunk{
-		ID:             app.NewID("chk"),
-		DocumentID:     doc.ID,
-		Source:         "workspace",
-		Root:           "/workspace",
-		Path:           doc.Path,
-		RelPath:        doc.RelPath,
-		StartLine:      1,
-		EndLine:        2,
-		Text:           "Approval workflows stay auditable with policy checks.",
-		Terms:          []string{"approval", "workflows", "auditable", "policy"},
-		ContentHash:    "hash-chunk",
-		Embedding:      []float32{1, 0, 0},
-		EmbeddingModel: "mock-embedding",
-		IndexedAt:      now,
-	}
-	summary, err := st.ReplaceDocumentChunks("/workspace", []app.Document{doc}, []app.DocumentChunk{chunk})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if summary.Documents != 1 || summary.Chunks != 1 || !summary.VectorEnabled {
-		t.Fatalf("unexpected document index summary: %#v", summary)
-	}
-	hits, err := st.SearchDocumentChunks("approval policy", []float32{1, 0, 0}, "mock-embedding", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(hits) != 1 || hits[0].RelPath != "notes.md" || hits[0].KeywordScore == 0 {
-		t.Fatalf("document chunk search failed: %#v", hits)
-	}
-	if hits[0].Citation != "notes.md:L1-L2" {
-		t.Fatalf("document chunk citation missing: %#v", hits[0])
-	}
 }
 
 func TestPostgresStoreExternalChatAndInboxParity(t *testing.T) {
@@ -301,7 +279,7 @@ func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 	_, err := st.db.Exec(context.Background(), `
 		TRUNCATE channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions,
 			credential_secrets, notification_bindings, reminder_deliveries, reminders, events, audit_events, owners, eval_runs,
-			artifact_objects, episode_summaries, document_chunks, documents, memories, memory_candidates, approvals, tool_calls,
+			artifact_objects, episode_summaries, memories, memory_candidates, approvals, tool_calls,
 			model_calls, run_feedback, messages, agent_runs, sessions
 		RESTART IDENTITY CASCADE
 	`)

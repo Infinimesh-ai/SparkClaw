@@ -1044,6 +1044,12 @@ func modelID(profile config.ModelProfile) string {
 }
 
 func mockResponse(lane, user string) string {
+	if injected := mockInjectedResponse(user, "MOCK_DIRECTORY_SELECTION_RESPONSE:"); injected != "" {
+		return injected
+	}
+	if injected := mockInjectedResponse(user, "MOCK_INTENT_RESPONSE:"); injected != "" {
+		return injected
+	}
 	if injected := mockInjectedResponse(user, "MOCK_TASK_HINT_RESPONSE:"); injected != "" {
 		return injected
 	}
@@ -1052,6 +1058,22 @@ func mockResponse(lane, user string) string {
 	}
 	if strings.Contains(user, "REACT_OUTPUT_REQUEST") {
 		return mockReActResponse(user)
+	}
+	if strings.Contains(user, "DIRECTORY_SELECTION_REQUEST") {
+		for _, line := range strings.Split(user, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "- entry_id=") {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			entryID := strings.TrimPrefix(fields[1], "entry_id=")
+			if entryID != "" {
+				return `{"entry_id":"` + entryID + `"}`
+			}
+		}
 	}
 	lower := strings.ToLower(user)
 	switch {
@@ -1073,11 +1095,11 @@ func mockReActResponse(user string) string {
 	lowerGoal := strings.ToLower(goal)
 	lowerPrompt := strings.ToLower(user)
 	if strings.Contains(lowerPrompt, "previous observation summaries") {
-		if strings.Contains(lowerPrompt, "knowledge.search observation") && strings.Contains(lowerPrompt, "missing knowledge index") {
-			return mockReActAction("knowledge.index_workspace", map[string]any{"chunk_size": 400})
-		}
-		if strings.Contains(lowerPrompt, "knowledge.index_workspace observation") && !strings.Contains(lowerPrompt, "knowledge.search observation bytes") {
-			return mockReActAction("knowledge.search", map[string]any{"query": mockKnowledgeQuery(goal)})
+		if strings.Contains(lowerPrompt, "workflow_requirement: source_page_required") && !strings.Contains(lowerPrompt, "browser.read observation") {
+			urls := mockURLs(user)
+			if len(urls) > 0 {
+				return mockReActAction("browser.read", map[string]any{"url": urls[0]})
+			}
 		}
 		if strings.Contains(lowerGoal, "failing test") || strings.Contains(lowerGoal, "failed test") {
 			if strings.Contains(lowerPrompt, "files.search observation") {
@@ -1091,18 +1113,6 @@ func mockReActResponse(user string) string {
 			if readCount < len(paths) {
 				return mockReActAction("files.read", map[string]any{"path": paths[readCount]})
 			}
-		}
-		if strings.Contains(lowerGoal, "draft a reply") && strings.Contains(lowerPrompt, "email.read_thread observation") && !strings.Contains(lowerPrompt, "calendar.read observation") {
-			return mockReActAction("calendar.read", map[string]any{"range": "today"})
-		}
-		if strings.Contains(lowerGoal, "draft a reply") && strings.Contains(lowerPrompt, "email.draft_reply observation") {
-			return `{"type":"final","answer":"I reviewed the observed evidence and prepared the bounded answer."}`
-		}
-		if strings.Contains(lowerGoal, "draft a reply") && strings.Contains(lowerPrompt, "calendar.read observation") {
-			return mockReActAction("email.draft_reply", map[string]any{
-				"thread_id": "thread_alpha",
-				"body":      "Email reply draft prepared by SparkClaw. Please review before sending.",
-			})
 		}
 		if strings.Contains(lowerPrompt, "browser.read observation") && strings.Contains(lowerGoal, "compare") && strings.Count(lowerPrompt, "browser.read observation") < 2 {
 			urls := mockURLs(goal)
@@ -1128,27 +1138,8 @@ func mockReActResponse(user string) string {
 			return mockReActAction("files.search", map[string]any{"query": "test"})
 		}
 		return mockReActAction("files.search", map[string]any{"query": "repo"})
-	case strings.Contains(lowerGoal, "create calendar event"):
-		return mockReActAction("calendar.create", map[string]any{
-			"title": mockLabeledValue(goal, "title", "SparkClaw Demo"),
-			"start": mockLabeledValue(goal, "start", "2026-05-23T10:00:00Z"),
-		})
 	case strings.Contains(lowerGoal, "shell command") || strings.Contains(lowerGoal, "run tests"):
 		return mockReActAction("shell.exec_sandboxed", map[string]any{"command": mockShellCommand(goal)})
-	case strings.Contains(lowerGoal, "search knowledge"):
-		return mockReActAction("knowledge.search", map[string]any{"query": mockKnowledgeQuery(goal)})
-	case strings.Contains(lowerGoal, "build knowledge index"):
-		return mockReActAction("knowledge.index_workspace", map[string]any{"chunk_size": 400})
-	case strings.Contains(lowerGoal, "summarize unread inbox"):
-		return mockReActAction("email.search", map[string]any{"query": "unread"})
-	case strings.Contains(lowerGoal, "open email thread") || strings.Contains(lowerGoal, "read email thread"):
-		return mockReActAction("email.read_thread", map[string]any{"thread_id": mockThreadID(goal)})
-	case strings.Contains(lowerGoal, "draft a reply"):
-		return mockReActAction("email.read_thread", map[string]any{"thread_id": "thread_alpha"})
-	case strings.Contains(lowerGoal, "email") || strings.Contains(lowerGoal, "inbox"):
-		return mockReActAction("email.search", map[string]any{"query": mockSearchQuery(goal)})
-	case strings.Contains(lowerGoal, "calendar") || strings.Contains(lowerGoal, "schedule"):
-		return mockReActAction("calendar.read", map[string]any{"range": "today"})
 	case strings.Contains(lowerGoal, "remember"):
 		return mockReActAction("memory.write_candidate", map[string]any{
 			"content":     goal,
@@ -1244,59 +1235,6 @@ func mockSearchQuery(content string) string {
 		}
 	}
 	return strings.TrimSpace(content)
-}
-
-func mockThreadID(content string) string {
-	lower := strings.ToLower(content)
-	for _, prefix := range []string{"thread_id:", "thread:"} {
-		if idx := strings.Index(lower, prefix); idx >= 0 {
-			value := strings.TrimSpace(content[idx+len(prefix):])
-			if end := strings.IndexAny(value, " \n\t"); end >= 0 {
-				value = value[:end]
-			}
-			if value != "" {
-				return strings.Trim(value, ".,;:()[]{}<>\"'`")
-			}
-		}
-	}
-	for _, field := range strings.Fields(content) {
-		cleaned := strings.Trim(field, ".,;:()[]{}<>\"'`")
-		if strings.HasPrefix(cleaned, "thread_") {
-			return cleaned
-		}
-	}
-	return "thread_alpha"
-}
-
-func mockKnowledgeQuery(content string) string {
-	lower := strings.ToLower(content)
-	if idx := strings.Index(lower, "search knowledge for "); idx >= 0 {
-		return strings.TrimSpace(content[idx+len("search knowledge for "):])
-	}
-	return mockSearchQuery(content)
-}
-
-func mockLabeledValue(content, label, fallback string) string {
-	lower := strings.ToLower(content)
-	key := strings.ToLower(label) + ":"
-	idx := strings.Index(lower, key)
-	if idx < 0 {
-		return fallback
-	}
-	value := strings.TrimSpace(content[idx+len(key):])
-	labels := []string{" title:", " start:", " end:", " body:", " thread_id:"}
-	end := len(value)
-	lowerValue := strings.ToLower(value)
-	for _, next := range labels {
-		if pos := strings.Index(lowerValue, next); pos >= 0 && pos < end {
-			end = pos
-		}
-	}
-	value = strings.TrimSpace(value[:end])
-	if value == "" {
-		return fallback
-	}
-	return value
 }
 
 func mockShellCommand(content string) string {

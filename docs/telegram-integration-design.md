@@ -81,7 +81,7 @@ The fields have distinct meanings:
 |---|---|
 | `available` | This Gateway binary recognizes the provider and has constructed the connector dependencies. It is not a configuration switch. |
 | `operator_enabled` | The single operator kill switch from `tools.notifications.channels.telegram.enabled`. It blocks new binding, polling, inbound processing, and outbound delivery when false. |
-| `binding_status` | Aggregate state of the owner's current Telegram binding: `unbound`, `waiting_confirm`, `active`, `failed`, `expired`, or `revoked`. It never reports connector availability. |
+| `binding_status` | Aggregate state of the owner's current Telegram binding: `unbound`, `active`, `failed`, or `revoked`. `active` may still have no recipient until the first fresh private message claims the chat. It never reports connector availability. |
 | `startable` | Server-computed permission to call the start endpoint now. The POST endpoint recomputes the same decision. |
 | `disabled_reason` | Stable machine code explaining `startable=false`, empty otherwise. The UI maps codes to localized copy. |
 
@@ -91,20 +91,16 @@ An operator-disabled connector does not make `/readyz` fail. A configured active
 
 ## 5. Binding State Machine
 
-The virtual `unbound` state is not persisted. Persisted binding statuses are `waiting_confirm`, `active`, `failed`, `expired`, and `revoked`. Token verification is request-local and is not a durable `verifying` state.
+The virtual `unbound` state is not persisted. A verified Telegram bot is persisted as `active` immediately. Recipient claim is a separate property of the active binding: empty external user/chat IDs mean the bot is connected but no phone chat has claimed it yet. Token verification is request-local and is not a durable `verifying` state.
 
 ```mermaid
 stateDiagram-v2
     [*] --> unbound
-    unbound --> waiting_confirm: getMe succeeds, token sealed, binding saved
-    waiting_confirm --> active: private /start challenge matches
-    waiting_confirm --> expired: activation deadline passes
-    waiting_confirm --> failed: durable connector failure
-    waiting_confirm --> revoked: owner revokes
+    unbound --> active: getMe succeeds, token sealed, recipient unset
+    active --> active: first fresh private message claims recipient
     active --> failed: credential cannot be unsealed or permanent Bot API failure
     active --> revoked: owner revokes
     failed --> revoked: owner revokes
-    expired --> revoked: owner revokes
     revoked --> [*]
 ```
 
@@ -113,14 +109,14 @@ Start flow:
 1. WebChat sends the token only in `POST /api/notification-bindings/telegram/start`.
 2. Gateway checks connector `startable` and validates request size and token syntax without echoing the token.
 3. Gateway calls `getMe` with a bounded client. A failed or invalid `getMe` creates no binding and stores no secret.
-4. Gateway generates a high-entropy one-time activation challenge and stores only its hash and expiry.
-5. Gateway seals the verified token in the credential vault and receives a random `credential_ref` that contains no token fragment or bot identity.
-6. Gateway saves a `waiting_confirm` binding containing only `credential_ref`, verified bot ID/username, challenge hash, base URL, and expiry. If binding persistence fails, it deletes the newly stored credential.
-7. Gateway returns a `t.me/<bot>?start=<challenge>` activation URL. The challenge is returned only on this start response and is not later listed.
-8. Only a private `/start <challenge>` update can activate the binding. A random user who messages the public bot cannot claim it.
-9. Activation atomically records Telegram user ID, chat ID, optional thread ID, and clears the challenge hash.
+4. Gateway seals the verified token in the credential vault and receives a random `credential_ref` that contains no token fragment or bot identity.
+5. Gateway saves an `active` binding containing `credential_ref`, verified bot ID/username, base URL, and creation time. External user/chat IDs remain empty. If binding persistence fails, it deletes the newly stored credential.
+6. The Telegram service immediately polls the verified bot. Private messages older than the binding creation time, with a small clock-skew tolerance, and all group messages are ignored for claiming.
+7. The first fresh private message atomically records Telegram user ID, chat ID, optional thread ID, and context token. A lock ensures that concurrent chats cannot both win.
+8. A first plain `/start` only receives a connected acknowledgement. Any other first message is claimed and then dispatched normally so the owner does not need to resend it.
+9. After claim, only the stored user, private chat, and thread policy are authorized. Because Telegram bots are public endpoints, the owner should message the bot promptly: first fresh private sender wins while recipient IDs are empty.
 
-Revocation is idempotent: stop polling and delivery, mark the binding `revoked`, delete its credential, cancel pending inbox work, and retain only redacted audit history. Restart reconstructs pollers only for eligible `waiting_confirm` and `active` bindings.
+Revocation is idempotent: stop polling and delivery, mark the binding `revoked`, delete its credential, cancel pending inbox work, and retain only redacted audit history. Restart reconstructs pollers for active bindings. Legacy Telegram `waiting_confirm` or `expired` challenge bindings with a sealed credential are migrated to active, recipient-unset direct-claim mode.
 
 ## 6. Encrypted Credential Boundary
 
@@ -185,8 +181,8 @@ A completed inbound message never creates a second Agent run. A transient retry 
 
 Authorization happens before download, workspace creation, FFmpeg, transcription, Agent calls, or tool calls.
 
-- `waiting_confirm` accepts only the matching private activation challenge.
-- `active` accepts only the stored bot credential, Telegram user ID, chat ID, and thread ID policy.
+- `active` with empty recipient IDs accepts only a fresh private message as an atomic one-time claim; historical and group messages cannot claim it.
+- `active` with recipient IDs accepts only the stored bot credential, Telegram user ID, chat ID, and thread ID policy.
 - all other senders receive at most a generic unauthorized response with rate limiting; no identity detail is disclosed.
 - exact external IDs may be stored where required for delivery, but public API values are redacted and logs/metrics use keyed hashes.
 - group and forwarded-channel messages are rejected in this phase.
@@ -231,29 +227,33 @@ Errors returned to API/UI use stable codes and sanitized messages.
 | `operator_disabled` | no | Kill switch blocks start, polling, and delivery. |
 | `credential_key_unavailable` | after operator repair | No binding start; existing binding remains visible but stopped. |
 | `invalid_bot_token` | no | `getMe` rejected the token; nothing persisted. |
-| `telegram_unreachable` | yes, bounded | Start request fails without persisting token; polling retries. |
+| `telegram_rate_limited` | yes, after delay | Telegram returned `429`; nothing persisted. |
+| `telegram_unavailable` | yes, bounded | Telegram returned `408` or `5xx`; nothing persisted. |
+| `telegram_unreachable` | yes, bounded | DNS, TLS, proxy, or transport failed; nothing persisted. |
+| `telegram_verification_failed` | after inspection | Telegram returned an unexpected successful response; nothing persisted. |
 | `credential_seal_failed` | after repair | No binding persists. |
 | `credential_unseal_failed` | after repair | Poller/delivery stops and binding is degraded/failed without exposing the token. |
-| `activation_invalid` | no | Unknown sender is isolated; binding remains pending. |
 | `attachment_too_large` / `attachment_unsupported` | no | No download or Agent run beyond the allowed boundary. |
 | `voice_unavailable` | no until adapter repair | Ask the owner to send text; no cloud fallback. |
 | `queue_full` | yes | Authorized sender gets a busy response; update remains retryable. |
 | `retry_exhausted` | operator action | Inbox/delivery remains inspectable as failed. |
 | `binding_unavailable` | no | Binding is revoked, expired, failed, or disabled. |
 
-`429` with `retry_after`, timeouts, connection resets, and selected `5xx` responses are transient. Authentication failures, malformed successful payloads, unsupported media, authorization failures, and path violations are permanent.
+The binding API treats only Telegram JSON error envelopes with credential-related `4xx` codes (except `408` and `429`) as rejected tokens. Non-JSON proxy responses stay separate from credential errors. `429` with `retry_after`, timeouts, connection resets, and selected `5xx` responses are transient. Authentication failures, malformed successful payloads, unsupported media, authorization failures, and path violations are permanent.
 
 ## 12. WebChat Interaction Contract
 
 WebChat renders the server connector summary and never derives capability from the mere presence of a config object.
 
 - token input and Bind button are enabled only when `startable=true` and no request is in flight;
+- after token verification, WebChat shows that the bot is connected and asks the owner to send a private phone message while recipient IDs are empty;
+- WebChat polls active recipient-unset bindings until the first private chat is linked;
+- Telegram never renders a QR code or activation challenge; the WeChat QR binding flow remains independent;
 - an enabled but unbound local configuration is startable, while the default disabled configuration reports `operator_disabled`;
 - when disabled, the localized `disabled_reason` is shown next to the control;
 - password input is never prefilled, persisted, logged, or restored after navigation;
 - submit clears the token on both success and failure;
-- `waiting_confirm` shows the verified bot handle, activation link, expiry, and refresh/revoke actions;
-- `active`, `failed`, `expired`, and `revoked` use the binding status from Gateway, not local inference;
+- `active`, `failed`, and `revoked` use the binding status and recipient fields from Gateway, not local inference;
 - narrow layouts stack the input and actions, preserve readable error wrapping, and keep icon buttons at stable dimensions.
 
 ## 13. Store And Backend Parity
@@ -273,7 +273,7 @@ The default file snapshot must contain only encrypted credential envelopes. Post
 | Capability/UI | `available`, kill switch, binding state, `startable`, and each `disabled_reason` are API-tested; desktop and narrow WebChat controls are interactive in the default unbound state. |
 | Token validation | `getMe` runs before any secret/binding write; invalid/unreachable responses persist nothing. |
 | Secret safety | Canary token absent from file snapshot, PostgreSQL plaintext queries, public API, errors, logs, trace, audit, and fixtures; binding contains only `credential_ref`. |
-| Binding auth | Only the private one-time challenge activates; replay, wrong user, wrong chat, group chat, expired challenge, and revoked binding are rejected before side effects. |
+| Binding auth | The first fresh private message claims exactly once; historical updates, concurrent losing chats, later wrong users/chats, group chats, and revoked bindings are rejected before side effects. |
 | Polling | Durable insert precedes offset; duplicates are suppressed; restart reclaims work without duplicate Agent runs. |
 | Workers | Same chat stays ordered, different chats run concurrently, global and pending limits hold under saturation. |
 | Media | Size/MIME/path/partial download/timeout/cleanup limits pass; unknown users cannot trigger downloads. |

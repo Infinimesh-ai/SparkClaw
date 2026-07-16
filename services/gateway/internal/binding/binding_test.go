@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -101,16 +100,11 @@ func TestTelegramAdapterVerifiesBeforeSealing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if started.Status != "waiting_confirm" || started.CredentialRef == "" || started.ExternalUserID != "" || started.ExternalChatID != "" {
+	if started.Status != "active" || started.CredentialRef == "" || started.ExternalUserID != "" || started.ExternalChatID != "" || started.DefaultForChannel {
 		t.Fatalf("unexpected Telegram binding: %#v", started)
 	}
-	activation, err := url.Parse(started.QRCodeURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	challenge := activation.Query().Get("start")
-	if activation.Host != "t.me" || challenge == "" || strings.Contains(started.ProviderState, challenge) || !strings.HasPrefix(started.ProviderState, "sha256:") {
-		t.Fatalf("activation challenge was not isolated: binding=%#v", started)
+	if started.QRCodeURL != "" || started.QRCodeImage != "" || started.ProviderState != "" || started.ExpiresAt != nil || started.ContextToken != "" {
+		t.Fatalf("Telegram bot verification should not create QR or challenge state: %#v", started)
 	}
 	stored, ok := st.GetCredentialSecret(started.CredentialRef)
 	if !ok || strings.Contains(stored.Value, token) || stored.Value == token {
@@ -139,6 +133,69 @@ func TestTelegramAdapterDoesNotPersistRejectedToken(t *testing.T) {
 	if secrets := st.ListNotificationBindings("telegram", ""); len(secrets) != 0 {
 		t.Fatalf("rejected token created binding state: %#v", secrets)
 	}
+}
+
+func TestTelegramAdapterClassifiesVerificationFailures(t *testing.T) {
+	const token = "123456789:AA-verification-failure-token"
+	tests := []struct {
+		name     string
+		status   int
+		body     string
+		wantCode string
+	}{
+		{name: "malformed token", status: http.StatusBadRequest, body: `{"ok":false,"error_code":400,"description":"Bad Request"}`, wantCode: CodeInvalidBotToken},
+		{name: "rate limited", status: http.StatusTooManyRequests, body: `{"ok":false,"error_code":429,"description":"Too Many Requests"}`, wantCode: CodeTelegramRateLimited},
+		{name: "service unavailable HTML", status: http.StatusServiceUnavailable, body: "upstream unavailable", wantCode: CodeTelegramUnavailable},
+		{name: "unexpected success response", status: http.StatusOK, body: "not-json", wantCode: CodeTelegramVerifyFailed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			adapter := newTestTelegramAdapter(server.URL)
+			_, err := adapter.Start(t.Context(), app.NotificationBinding{}, StartOptions{CredentialSecret: token})
+			var bindingErr *BindingError
+			if !errors.As(err, &bindingErr) || bindingErr.Code != tt.wantCode {
+				t.Fatalf("verification error = %#v, want code %q", err, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestTelegramAdapterClassifiesTransportFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	baseURL := server.URL
+	server.Close()
+
+	adapter := newTestTelegramAdapter(baseURL)
+	_, err := adapter.Start(t.Context(), app.NotificationBinding{}, StartOptions{CredentialSecret: "123456789:AA-transport-failure-token"})
+	var bindingErr *BindingError
+	if !errors.As(err, &bindingErr) || bindingErr.Code != CodeTelegramUnreachable {
+		t.Fatalf("transport error = %#v, want code %q", err, CodeTelegramUnreachable)
+	}
+}
+
+func TestTelegramBindingErrorRetryability(t *testing.T) {
+	for _, code := range []string{CodeTelegramRateLimited, CodeTelegramUnavailable, CodeTelegramUnreachable} {
+		if !(&BindingError{Code: code}).Retryable() {
+			t.Errorf("binding error %q should be retryable", code)
+		}
+	}
+	for _, code := range []string{CodeInvalidBotToken, CodeTelegramVerifyFailed} {
+		if (&BindingError{Code: code}).Retryable() {
+			t.Errorf("binding error %q should not be retryable", code)
+		}
+	}
+}
+
+func newTestTelegramAdapter(baseURL string) *TelegramAdapter {
+	st := store.NewMemoryStore()
+	vault := credential.New(st, credential.Options{Key: strings.Repeat("t", 32)})
+	return NewTelegramAdapter("telegram", config.NotificationChannelConfig{Enabled: true, BaseURL: baseURL}, vault)
 }
 
 func TestRouterTelegramCapabilityAllowsMultipleBindings(t *testing.T) {

@@ -157,7 +157,7 @@ Telegram hardening：
 | Compose config | 使用 `docker/env/sparkclaw.example.env` 通过 |
 | Docs mirror 与 local links | 31 个 project Markdown files 通过；排除本地生成的 tool paths |
 | WebChat layout | Production build 与 responsive CSS/DOM review 通过。Bundled in-app browser plugin 初始化时重复定义受保护的 `process` global，因此未生成 live desktop/mobile screenshots。 |
-| Broad legacy golden eval | Scope 收敛后不再作为最终门禁；其详细 email、calendar、knowledge cases 属于本次集成中尚未具体扩展的产品区域。 |
+| Broad legacy golden eval | Scope 收敛后不再作为最终门禁；仅有原型的领域已从活动矩阵移除，见[暂缓能力](deferred-email-calendar-knowledge.md)。 |
 
 Browser plugin 初始化问题与 deferred broad legacy eval 是残余 validation risk，
 不是三个已集成功能的 merge conflict 或已知 regression。
@@ -191,7 +191,7 @@ docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
 本次集成的 mock validation 使用聚焦于三个合并功能的 `cmd/sparkclaw` 与 config matrix。
-Email、calendar、knowledge 的详细 golden cases 等这些产品区域有具体扩展计划后再补。
+仅有原型的领域在满足已记录的重新引入门槛前，不进入活动矩阵。
 
 最终矩阵还必须包含：
 

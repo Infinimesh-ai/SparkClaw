@@ -429,20 +429,20 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		ID:        "ap_one",
 		SessionID: run.SessionID,
 		RunID:     run.ID,
-		Tool:      "email.send",
+		Tool:      "code.apply_patch",
 		Risk:      app.RiskDangerous,
 		Status:    "pending",
-		Summary:   "Send email",
+		Summary:   "Apply code patch",
 		CreatedAt: created,
 	})
 	st.SaveApproval(app.Approval{
 		ID:        "ap_two",
 		SessionID: run.SessionID,
 		RunID:     run.ID,
-		Tool:      "calendar.create",
+		Tool:      "file.delete",
 		Risk:      app.RiskDangerous,
 		Status:    "pending",
-		Summary:   "Create calendar event",
+		Summary:   "Move file to trash",
 		CreatedAt: created,
 	})
 	cfg := config.Default()
@@ -1124,12 +1124,10 @@ func TestManualToolInvokeValidatesArgumentsBeforeApproval(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"session_id": sessionID,
 		"args": map[string]any{
-			"to":      []any{"owner@example.test", 42},
-			"subject": "SparkClaw checklist",
-			"body":    "Deployment is ready.",
+			"command": 42,
 		},
 	})
-	resp, err := http.Post(ts.URL+"/api/tools/email.send/invoke", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/tools/shell.exec_sandboxed/invoke", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1221,14 +1219,14 @@ func TestChaosEvalRejectsPromptInjectionToolEscalation(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
 		t.Fatal(err)
 	}
-	if run.Status != "passed" || len(run.Cases) != 2 {
+	if run.Status != "passed" || len(run.Cases) != 1 {
 		t.Fatalf("unexpected chaos eval result: %#v", run)
 	}
 	seen := map[string]string{}
 	for _, evalCase := range run.Cases {
 		seen[evalCase.Name] = evalCase.Status
 	}
-	if seen["prompt_injection_chaos"] != "passed" || seen["tool_repair_missing_knowledge_index"] != "passed" {
+	if seen["prompt_injection_chaos"] != "passed" {
 		t.Fatalf("unexpected chaos eval cases: %#v", run)
 	}
 }
@@ -1274,9 +1272,6 @@ func TestSmokeEvalChecksModelRouting(t *testing.T) {
 	}
 	if seen["pairing_auth_boundary"] != "passed" {
 		t.Fatalf("smoke eval did not pass pairing_auth_boundary: %#v", run.Cases)
-	}
-	if seen["schema_repair_missing_calendar_end"] != "passed" {
-		t.Fatalf("smoke eval did not pass schema_repair_missing_calendar_end: %#v", run.Cases)
 	}
 }
 
@@ -1412,127 +1407,6 @@ func TestFailedEvalArchivesFailureArtifact(t *testing.T) {
 	}
 	if len(artifacts.Artifacts) == 0 || artifacts.Artifacts[0].Kind != "eval_failure" || artifacts.Artifacts[0].EvalID != run.ID {
 		t.Fatalf("artifact list did not include eval failure archive: %#v", artifacts.Artifacts)
-	}
-}
-
-func TestApprovedPersonalSideEffectsWriteMockRecords(t *testing.T) {
-	root := t.TempDir()
-	cfg := testConfig(root)
-
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime)
-	ts := httptest.NewServer(server.Handler())
-	defer ts.Close()
-
-	sessionID := createTestSession(t, ts.URL)
-	body, _ := json.Marshal(map[string]any{
-		"session_id": sessionID,
-		"args": map[string]any{
-			"to":      []string{"owner@example.test"},
-			"subject": "SparkClaw checklist",
-			"body":    "Deployment is ready.",
-		},
-	})
-	resp, err := http.Post(ts.URL+"/api/tools/email.send/invoke", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("email send invoke returned %d", resp.StatusCode)
-	}
-	approvals := getApprovals(t, ts.URL)
-	if len(approvals) != 1 || approvals[0]["tool"] != "email.send" {
-		t.Fatalf("expected pending email approval, got %#v", approvals)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".sparkclaw", "mock", "email_outbox.jsonl")); !os.IsNotExist(err) {
-		t.Fatalf("email was written before approval err=%v", err)
-	}
-	modifiedResp, err := http.Post(ts.URL+"/api/approvals/"+approvals[0]["id"].(string)+"/modify", "application/json", bytes.NewBufferString(`{"note":"tighten copy","args":{"subject":"SparkClaw checklist updated","body":"Deployment is ready after review."}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer modifiedResp.Body.Close()
-	if modifiedResp.StatusCode != http.StatusOK {
-		t.Fatalf("email modify returned %d", modifiedResp.StatusCode)
-	}
-	var modified struct {
-		Approval struct {
-			Status    string         `json:"status"`
-			Arguments map[string]any `json:"arguments"`
-		} `json:"approval"`
-		ToolCall struct {
-			Status    string         `json:"status"`
-			Arguments map[string]any `json:"arguments"`
-		} `json:"tool_call"`
-	}
-	if err := json.NewDecoder(modifiedResp.Body).Decode(&modified); err != nil {
-		t.Fatal(err)
-	}
-	if modified.Approval.Status != "pending" || modified.ToolCall.Status != "approval_pending" {
-		t.Fatalf("modify resolved approval unexpectedly: %#v", modified)
-	}
-	if modified.Approval.Arguments["subject"] != "SparkClaw checklist updated" || modified.ToolCall.Arguments["body"] != "Deployment is ready after review." {
-		t.Fatalf("modify did not update pending arguments: %#v", modified)
-	}
-	invalidModifyResp, err := http.Post(ts.URL+"/api/approvals/"+approvals[0]["id"].(string)+"/modify", "application/json", bytes.NewBufferString(`{"args":{"to":["owner@example.test",42]}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	invalidModifyResp.Body.Close()
-	if invalidModifyResp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("invalid email modify returned %d", invalidModifyResp.StatusCode)
-	}
-	approvedResp, err := http.Post(ts.URL+"/api/approvals/"+approvals[0]["id"].(string)+"/approve", "application/json", bytes.NewBufferString(`{"note":"approved"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer approvedResp.Body.Close()
-	if approvedResp.StatusCode != http.StatusOK {
-		t.Fatalf("email approval returned %d", approvedResp.StatusCode)
-	}
-	raw, err := os.ReadFile(filepath.Join(root, ".sparkclaw", "mock", "email_outbox.jsonl"))
-	if err != nil || !strings.Contains(string(raw), "SparkClaw checklist updated") || strings.Contains(string(raw), "Deployment is ready.\"") {
-		t.Fatalf("email mock record missing raw=%q err=%v", raw, err)
-	}
-
-	calendarBody, _ := json.Marshal(map[string]any{
-		"session_id": sessionID,
-		"args": map[string]any{
-			"title": "SparkClaw Demo",
-			"start": "2026-05-23T10:00:00Z",
-			"end":   "2026-05-23T10:30:00Z",
-		},
-	})
-	calendarResp, err := http.Post(ts.URL+"/api/tools/calendar.create/invoke", "application/json", bytes.NewReader(calendarBody))
-	if err != nil {
-		t.Fatal(err)
-	}
-	calendarResp.Body.Close()
-	if calendarResp.StatusCode != http.StatusAccepted {
-		t.Fatalf("calendar create invoke returned %d", calendarResp.StatusCode)
-	}
-	approvals = getApprovals(t, ts.URL)
-	if len(approvals) != 1 || approvals[0]["tool"] != "calendar.create" {
-		t.Fatalf("expected pending calendar approval, got %#v", approvals)
-	}
-	calendarApproved, err := http.Post(ts.URL+"/api/approvals/"+approvals[0]["id"].(string)+"/approve", "application/json", bytes.NewBufferString(`{"note":"approved"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer calendarApproved.Body.Close()
-	if calendarApproved.StatusCode != http.StatusOK {
-		t.Fatalf("calendar approval returned %d", calendarApproved.StatusCode)
-	}
-	raw, err = os.ReadFile(filepath.Join(root, ".sparkclaw", "mock", "calendar_created_events.jsonl"))
-	if err != nil || !strings.Contains(string(raw), "SparkClaw Demo") {
-		t.Fatalf("calendar mock record missing raw=%q err=%v", raw, err)
-	}
-	artifacts := st.ListArtifactObjects(10)
-	if !hasArtifactKind(artifacts, "tool_observation") {
-		t.Fatalf("approved side effects did not archive observations: %#v", artifacts)
 	}
 }
 
@@ -1847,6 +1721,30 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	}
 	if len(decoded.ToolPolicy.DefinitionApprovalRequiredTools) == 0 || len(decoded.ToolPolicy.DeniedTools) == 0 {
 		t.Fatalf("tool policy lists missing: %#v", decoded.ToolPolicy)
+	}
+}
+
+func TestWebSearchConfiguredMatchesProvider(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.Tools.Web.Search.Provider = "parallel-free"
+	if webSearchConfigured(cfg) {
+		t.Fatal("legacy parallel-free provider should not be configured")
+	}
+
+	cfg.Tools.Web.Search.Provider = "infinimesh-info"
+	if webSearchConfigured(cfg) {
+		t.Fatal("Infinimesh Info should not be configured without all credentials")
+	}
+	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "attestation"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license"
+	if !webSearchConfigured(cfg) {
+		t.Fatal("Infinimesh Info should be configured with all credentials")
+	}
+
+	cfg.Tools.Web.Search.Provider = "unsupported"
+	if webSearchConfigured(cfg) {
+		t.Fatal("unsupported providers should not be configured")
 	}
 }
 
@@ -2351,6 +2249,27 @@ func TestNotificationBindingUsesInjectedProviderNeutralAdapter(t *testing.T) {
 	}
 }
 
+func TestConnectorStartStatusClassifiesTelegramVerificationFailures(t *testing.T) {
+	tests := map[string]int{
+		binding.CodeInvalidBotToken:      http.StatusBadRequest,
+		binding.CodeTelegramRateLimited:  http.StatusTooManyRequests,
+		binding.CodeTelegramUnavailable:  http.StatusServiceUnavailable,
+		binding.CodeTelegramUnreachable:  http.StatusBadGateway,
+		binding.CodeTelegramVerifyFailed: http.StatusBadGateway,
+	}
+	for code, want := range tests {
+		if got := connectorStartStatus(code); got != want {
+			t.Errorf("connectorStartStatus(%q) = %d, want %d", code, got, want)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	writeError(recorder, http.StatusServiceUnavailable, &binding.BindingError{Code: binding.CodeTelegramUnavailable})
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"retryable":true`)) {
+		t.Fatalf("retryable Telegram error response = %s", recorder.Body.String())
+	}
+}
+
 func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 	const validToken = "123456789:AA-valid-gateway-token"
 	const secondValidToken = "234567890:AA-second-gateway-token"
@@ -2424,12 +2343,11 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := started["id"].(string)
-	activationURL, _ := started["qr_code_url"].(string)
-	if id == "" || started["status"] != "waiting_confirm" || !strings.Contains(activationURL, "t.me/sparkclaw_gateway_bot?start=") || strings.Contains(fmt.Sprint(started), validToken) {
+	if id == "" || started["status"] != "active" || started["qr_code_url"] != "" || strings.Contains(fmt.Sprint(started), validToken) {
 		t.Fatalf("unexpected Telegram start response: %#v", started)
 	}
 	persisted, ok := st.GetNotificationBinding(id)
-	if !ok || persisted.CredentialRef == "" || persisted.ExternalUserID != "" || persisted.ExternalChatID != "" {
+	if !ok || persisted.CredentialRef == "" || persisted.ExternalUserID != "" || persisted.ExternalChatID != "" || persisted.ProviderState != "" || persisted.ExpiresAt != nil {
 		t.Fatalf("unexpected persisted Telegram binding: %#v ok=%v", persisted, ok)
 	}
 	secret, ok := st.GetCredentialSecret(persisted.CredentialRef)
@@ -2447,11 +2365,11 @@ func TestTelegramBindingCapabilityAndSecretBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if listed["qr_code_url"] != "" {
-		t.Fatalf("activation challenge leaked after start response: %#v", listed)
+		t.Fatalf("Telegram direct binding unexpectedly returned QR state: %#v", listed)
 	}
 	connector = readTelegramConnector(t, ts.URL)
-	if connector["binding_status"] != "waiting_confirm" || connector["startable"] != true || connector["disabled_reason"] != "" {
-		t.Fatalf("pending connector capability mismatch: %#v", connector)
+	if connector["binding_status"] != "active" || connector["startable"] != true || connector["disabled_reason"] != "" {
+		t.Fatalf("active connector capability mismatch: %#v", connector)
 	}
 
 	secondBody := `{"credential_secret":"` + secondValidToken + `"}`
@@ -2623,10 +2541,13 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	if len(decoded.ToolCalls) == 0 {
 		t.Fatal("trace did not include tool calls")
 	}
-	if !hasServerTestModelCall(decoded.ModelCalls, "task_hint", "fast") ||
+	if !hasServerTestModelCall(decoded.ModelCalls, "intent_classification", "fast") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "fast") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)
+	}
+	if hasServerTestModelCall(decoded.ModelCalls, "task_hint", "fast") {
+		t.Fatalf("migrated workspace search unexpectedly used TaskHint: %#v", decoded.ModelCalls)
 	}
 	listResp, err := http.Get(ts.URL + "/api/traces")
 	if err != nil {

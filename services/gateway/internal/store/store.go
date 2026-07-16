@@ -95,8 +95,3 @@ type Store interface {
 	SaveEpisodeSummary(summary app.EpisodeSummary)
 	ListEpisodeSummaries(sessionID string) []app.EpisodeSummary
 }
-
-type DocumentStore interface {
-	ReplaceDocumentChunks(root string, documents []app.Document, chunks []app.DocumentChunk) (app.DocumentIndexSummary, error)
-	SearchDocumentChunks(query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error)
-}

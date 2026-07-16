@@ -137,7 +137,7 @@ Required behavior:
 - Submit non-empty messages through the active session.
 - Show busy state while a message is being processed.
 - Refresh messages, tools, approvals, traces and status after send.
-- Provide starter prompts for common local workflows: file search, browser read, email search, calendar read, memory proposal and sandbox command.
+- Provide starter prompts for common local workflows: file search, browser read, memory proposal and sandbox command.
 - Assistant messages with `run_id` expose feedback: helpful, unhelpful and corrected answer.
 
 Backend:

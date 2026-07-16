@@ -343,21 +343,8 @@ func TestLoadDefaultsWeixinNotificationToQRProvider(t *testing.T) {
 	}
 }
 
-func TestLoadAppliesParallelAPIKeyEnvironment(t *testing.T) {
-	t.Setenv("SPARKCLAW_PARALLEL_API_KEY", "par-env")
-
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey != "par-env" {
-		t.Fatalf("parallel api key env did not apply: %#v", cfg.Plugins.Entries.Parallel.Config.WebSearch)
-	}
-}
-
 func TestLoadKeepsWebSearchDisabledWhenExplicitlyDisabled(t *testing.T) {
 	t.Setenv("SPARKCLAW_WEB_SEARCH_ENABLED", "false")
-	t.Setenv("SPARKCLAW_PARALLEL_API_KEY", "par-env")
 
 	cfg, err := Load("")
 	if err != nil {

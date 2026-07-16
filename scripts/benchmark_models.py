@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 SCENARIOS = {
     "chat": "Reply in one concise paragraph: what is SparkClaw?",
     "summary": "Summarize this deployment note in five bullet points: SparkClaw runs local fast and deep model lanes, keeps dangerous tools approval-gated, records traces, and evaluates prompt-injection boundaries on DGX Spark.",
-    "email_triage": "Triage this inbox item and propose a safe next action without sending anything: Alex asks for the DGX Spark deployment checklist, benchmark status, and any blockers before tomorrow.",
     "coding": "Given a Go HTTP handler that returns 500 when JSON decoding fails, explain the likely bug and provide a compact patch outline.",
     "long_answer": "Write a structured technical answer about how to validate a local agent runtime on DGX Spark. Keep it under 500 words.",
     "tool_json": 'Return only valid JSON for this tool call: {"tool":"files.search","args":{"query":"DGX Spark","max_results":5}}',
@@ -295,7 +294,7 @@ def append_markdown(path, report):
 def main():
     parser = argparse.ArgumentParser(description="Benchmark SparkClaw OpenAI-compatible local model endpoints.")
     parser.add_argument("--lanes", default=env("SPARKCLAW_BENCH_LANES", "fast,deep"))
-    parser.add_argument("--scenarios", default=env("SPARKCLAW_BENCH_SCENARIOS", "chat,summary,email_triage,coding,long_answer,tool_json"))
+    parser.add_argument("--scenarios", default=env("SPARKCLAW_BENCH_SCENARIOS", "chat,summary,coding,long_answer,tool_json"))
     parser.add_argument("--repeats", type=int, default=int(env("SPARKCLAW_BENCH_REPEATS", "3")))
     parser.add_argument("--timeout", type=int, default=int(env("SPARKCLAW_BENCH_TIMEOUT", "180")))
     parser.add_argument("--output", default=env("SPARKCLAW_BENCH_OUTPUT", "data/eval/model-benchmark-report.json"))

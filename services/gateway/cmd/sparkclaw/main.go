@@ -15,10 +15,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -56,29 +54,15 @@ func main() {
 	defer transcriber.Close()
 	traces := trace.NewWriterFromConfig(cfg)
 	runtime := agent.NewRuntimeWithSkills(st, tools, policyEngine, models, traces, skills.NewRegistry(cfg)).WithArtifactStore(artifactStore)
-	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, transcriber)
 	if err != nil {
-		slog.Error("failed to initialize connectors", "error", err)
+		slog.Error("failed to initialize gateway services", "error", err)
 		os.Exit(1)
 	}
-	notificationRouter := connectors.registry.NotificationRouter()
-	server := gateway.NewWithTrace(
-		cfg,
-		st,
-		tools,
-		runtime,
-		traces,
-		gateway.WithSpeechTranscriber(transcriber),
-		gateway.WithCredentialVault(connectors.credentials),
-		gateway.WithBindingRouter(connectors.registry.BindingRouter()),
-		gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
-	)
+	server := services.server
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
-	if cfg.Tools.Reminders.Enabled {
-		startReminderScheduler(serverCtx, reminder.NewScheduler(st, notificationRouter))
-	}
-	connectors.registry.Start(serverCtx)
+	services.Start(serverCtx)
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),
@@ -108,23 +92,6 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("sparkclaw gateway stopped")
-}
-
-func startReminderScheduler(ctx context.Context, scheduler *reminder.Scheduler) {
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			for _, delivery := range scheduler.Tick(ctx) {
-				slog.Info("reminder delivery completed", "reminder_id", delivery.ReminderID, "status", delivery.Status, "channel", delivery.Channel, "retry_state", delivery.RetryState)
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
 }
 
 func newStore(cfg config.Config) (store.Store, error) {

@@ -110,7 +110,6 @@ python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---|
 | 2026-05-24 | DGX Spark | deep | chat | 1 | 209.7 | 209.7 | 2105.0 | 2105.0 | 16.36 | real endpoint benchmark |
 | 2026-05-24 | DGX Spark | deep | coding | 1 | 348.7 | 348.7 | 23917.3 | 23917.3 | 16.29 | real endpoint benchmark |
-| 2026-05-24 | DGX Spark | deep | email_triage | 1 | 350.6 | 350.6 | 7932.8 | 7932.8 | 12.93 | real endpoint benchmark |
 | 2026-05-24 | DGX Spark | deep | summary | 1 | 351.0 | 351.0 | 3351.7 | 3351.7 | 17.66 | real endpoint benchmark |
 
 ## DGX Spark Run 2026-05-24T14:30:46.126303+00:00
@@ -119,7 +118,6 @@ python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---|
 | 2026-05-24 | DGX Spark | fast | chat | 1 | 29661.8 | 29661.8 | 29943.9 | 29943.9 | 85.07 | cold first request after model load |
 | 2026-05-24 | DGX Spark | fast | coding | 1 | 145.1 | 145.1 | 4288.4 | 4288.4 | 61.54 | real endpoint benchmark |
-| 2026-05-24 | DGX Spark | fast | email_triage | 1 | 151.4 | 151.4 | 3306.4 | 3306.4 | 58.95 | real endpoint benchmark |
 | 2026-05-24 | DGX Spark | fast | summary | 1 | 154.3 | 154.3 | 929.0 | 929.0 | 69.71 | real endpoint benchmark |
 
 ## Endpoint Check 2026-05-24T14:50:08.058881+00:00
@@ -137,11 +135,9 @@ Profile: `dual-light-v1`
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---|
 | 2026-05-25 | DGX Spark | deep | chat | 2 | 9770.6 | 19240.7 | 16268.1 | 25489.8 | 7.38 | real endpoint benchmark |
 | 2026-05-25 | DGX Spark | deep | coding | 2 | 302.0 | 303.4 | 36045.6 | 41436.7 | 7.28 | real endpoint benchmark |
-| 2026-05-25 | DGX Spark | deep | email_triage | 2 | 310.8 | 312.5 | 13068.7 | 14112.4 | 7.33 | real endpoint benchmark |
 | 2026-05-25 | DGX Spark | deep | summary | 2 | 309.5 | 309.7 | 7547.1 | 7621.3 | 7.39 | real endpoint benchmark |
 | 2026-05-25 | DGX Spark | fast | chat | 2 | 9747.9 | 19391.2 | 10227.8 | 19871.5 | 50.01 | real endpoint benchmark |
 | 2026-05-25 | DGX Spark | fast | coding | 2 | 317.6 | 514.6 | 6867.4 | 7079.1 | 48.09 | real endpoint benchmark |
-| 2026-05-25 | DGX Spark | fast | email_triage | 2 | 125.2 | 125.4 | 4767.1 | 5012.3 | 48.15 | real endpoint benchmark |
 | 2026-05-25 | DGX Spark | fast | summary | 2 | 482.7 | 835.4 | 1587.3 | 1938.3 | 48.89 | real endpoint benchmark |
 
 ## 运行说明

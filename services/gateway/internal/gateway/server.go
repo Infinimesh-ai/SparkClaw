@@ -2200,6 +2200,10 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	if code := errorCode(err); code != "" {
 		payload["code"] = code
 	}
+	var retryable interface{ Retryable() bool }
+	if errors.As(err, &retryable) {
+		payload["retryable"] = retryable.Retryable()
+	}
 	writeJSON(w, status, payload)
 }
 
@@ -2223,7 +2227,11 @@ func connectorStartStatus(code string) int {
 		return http.StatusServiceUnavailable
 	case binding.CodeInvalidBotToken:
 		return http.StatusBadRequest
-	case binding.CodeTelegramUnreachable:
+	case binding.CodeTelegramRateLimited:
+		return http.StatusTooManyRequests
+	case binding.CodeTelegramUnavailable:
+		return http.StatusServiceUnavailable
+	case binding.CodeTelegramUnreachable, binding.CodeTelegramVerifyFailed:
 		return http.StatusBadGateway
 	default:
 		return http.StatusBadRequest
@@ -2319,16 +2327,6 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 
 func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 	return map[string]any{
-		"email": map[string]any{
-			"backend":  cfg.Email.Backend,
-			"base_url": cfg.Email.BaseURL,
-			"token":    configuredStatus(cfg.Email.Token),
-		},
-		"calendar": map[string]any{
-			"backend":  cfg.Calendar.Backend,
-			"base_url": cfg.Calendar.BaseURL,
-			"token":    configuredStatus(cfg.Calendar.Token),
-		},
 		"browserAutomation": map[string]any{
 			"mcp_command":    cfg.BrowserAutomation.MCPCommand,
 			"mcp_args_count": len(cfg.BrowserAutomation.MCPArgs),
@@ -2339,7 +2337,6 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 
 func (s *Server) publicToolsConfig() map[string]any {
 	cfg := s.cfg
-	infoSearch := cfg.Plugins.Entries.InfinimeshInfo.Config
 	notificationChannels := map[string]any{}
 	for name, channel := range cfg.Tools.Notifications.Channels {
 		publicChannel := map[string]any{
@@ -2362,7 +2359,7 @@ func (s *Server) publicToolsConfig() map[string]any {
 			"search": map[string]any{
 				"enabled":    cfg.Tools.Web.Search.Enabled,
 				"provider":   cfg.Tools.Web.Search.Provider,
-				"configured": infoSearch.Configured(),
+				"configured": webSearchConfigured(cfg),
 			},
 		},
 		"browserAutomation": map[string]any{
@@ -2377,6 +2374,15 @@ func (s *Server) publicToolsConfig() map[string]any {
 		"notifications": map[string]any{
 			"channels": notificationChannels,
 		},
+	}
+}
+
+func webSearchConfigured(cfg config.Config) bool {
+	switch strings.ToLower(strings.TrimSpace(cfg.Tools.Web.Search.Provider)) {
+	case "", "infinimesh-info":
+		return cfg.Plugins.Entries.InfinimeshInfo.Config.Configured()
+	default:
+		return false
 	}
 }
 

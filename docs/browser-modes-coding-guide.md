@@ -6,9 +6,11 @@ This document defines how SparkClaw should implement two browser operating modes
 
 ## Product Contract
 
-SparkClaw has one browser capability with two presentation modes.
+SparkClaw separates public web search from the browser capability. The browser capability has two presentation modes.
 
-Autonomous mode is the default for ordinary information tasks. The runtime may search, open pages in a browser-backed session, read rendered DOM/HTML, run Readability, inspect structure when needed and return evidence-backed answers. It should not show a browser surface, narrate visible UI operations or imply that the user must watch the page.
+Search-only tasks use `web.search` and returned snippets/citations without opening result pages. They have no browser mode, never load browser automation, and skip pages that require login, captcha, payment, subscription, or another access gate.
+
+Autonomous mode is the default for explicit URL/page reading without live interaction. The runtime may read rendered DOM/HTML, run Readability, inspect structure when needed and return evidence-backed answers. It should not show a browser surface, narrate visible UI operations or imply that the user must watch the page.
 
 Collaborative mode is used when the user explicitly asks SparkClaw to operate a browser/page with them. The managed Chromium surface may remain hidden for ordinary operations; it becomes visible for human verification, visual handoff, or an explicit request to see the page.
 
@@ -18,21 +20,26 @@ Both modes still treat browser content as untrusted external content. Both modes
 
 | Mode | User intent | Browser surface | Primary tools |
 |---|---|---|---|
-| `autonomous` | User wants information, verification, summary or comparison. | Hidden/background from the user. | `web.search`, `browser.read`, conditional `browser.snapshot`, conditional `browser.navigate`. |
+| `""` (search-only) | User wants public information and supplied no URL or page operation. | No browser is created or visited. | `web.search`. |
+| `autonomous` | User wants an explicit URL/page read, verification, summary or comparison. | Hidden/background from the user. | `browser.read`, conditional `browser.snapshot`, conditional `browser.navigate`. |
 | `collaborative` | User wants live page operation or shared browser state. | Hidden by default; visible for human verification or explicit display. | `browser.status`, `browser.list_tabs`, `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, approval-gated `browser.click/type/select`. |
 
 The difference is user intent and interaction policy, not browser ownership. Both modes use the same managed Chromium profile. Presentation switches between headless and visible Chromium only when the workflow requires it.
 
 ## Classification Rules
 
-Default to autonomous mode when the user asks to:
+Use search-only routing when the user asks to:
 
 - search, look up, verify or check public information
+- answer a factual question using current web evidence
+- ask for latest/current/recent information without supplying a URL or asking to see a page
+
+Use autonomous mode when the user asks to:
+
 - read a URL for content
-- summarize a webpage or article
-- compare sources
-- answer a factual question using web evidence
-- ask for latest/current/recent information without asking to see the page
+- summarize a supplied webpage or article
+- compare supplied source pages
+- explicitly inspect a source page
 
 Use collaborative mode when the user explicitly asks to:
 
@@ -44,7 +51,7 @@ Use collaborative mode when the user explicitly asks to:
 - take a screenshot or visually confirm the page
 - continue from a user-visible login/session step
 
-Ambiguous requests should stay autonomous unless the requested outcome requires visible page state. For example, "查一下 YouTube 上这个视频是什么" is autonomous; "打开这个 YouTube 视频并自动播放" is collaborative.
+Ambiguous public-information requests should stay search-only unless the user supplies a URL or the requested outcome requires page state. For example, "查一下浙江大学最新招生简章" is search-only; "读取这个招生简章 URL" is autonomous; "打开这个招生简章页面" is collaborative.
 
 ## TaskHint Contract
 
@@ -60,7 +67,8 @@ type TaskHint struct {
 Normalization rules:
 
 - `BrowserMode=""` means no browser mode was requested.
-- If `EvidenceNeed=="web"` and no collaborative trigger is present, normalize to `autonomous`.
+- If `EvidenceNeed=="web"`, the task is read-only and the only candidate tool is `web.search`, preserve `BrowserMode=""`, select `web_search`, and remove all browser tools.
+- If the user supplies a URL for read-only page access, normalize to `autonomous` and prefer `browser.read`.
 - If live browser controls, screenshots, current tab, playback or visible opening are requested, normalize to `collaborative`.
 - Keep `ToolMode` separate from `BrowserMode`. A collaborative task can still begin with read-only tools; approval policy still governs draft/reversible actions.
 
@@ -72,9 +80,16 @@ Prompting rules:
 
 ## Tool Visibility Rules
 
+Search-only routing:
+
+- Expose only `web.search`; do not expose `browser.read` or any live browser tool.
+- Use returned answers, snippets and citations as evidence without visiting result pages.
+- Skip login/auth/captcha/paywall results without creating a browser login handoff.
+- Do not dynamically expand into browser tools unless the user explicitly requests page access in a later turn.
+
 Autonomous mode:
 
-- Initial visible tools should normally be `web.search` and/or `browser.read`.
+- Initial visible tools should normally contain `browser.read` for the supplied URL.
 - Do not expose `browser.open`, `browser.screenshot`, `browser.type` or `browser.select` just because the browser skill is loaded.
 - `browser.snapshot`, `browser.navigate` and `browser.wait` may be exposed after `browser.read` returns `needs_structure_snapshot=true`.
 - `browser.click` may be exposed only after a snapshot observation provides a clear ref/uid, and existing approval policy still applies.
@@ -115,11 +130,20 @@ Implementation expectations:
 
 ## Runtime Behavior
 
+Search-only flow:
+
+```text
+TaskHint(browser_mode="", skill=web_search)
+  -> web.search
+  -> use returned snippets/citations
+  -> skip login-gated result pages
+  -> final answer with sources and limitations
+```
+
 Autonomous flow:
 
 ```text
 TaskHint(browser_mode=autonomous)
-  -> web.search if discovery is needed
   -> browser.read
   -> if needs_structure_snapshot=true, expose browser.snapshot for the next step
   -> optionally one browser.navigate/click follow-up based on snapshot evidence
@@ -166,10 +190,11 @@ Dispatch and ReAct audit events should include:
 ## Safety Rules
 
 - Autonomous mode must not perform user-account-changing actions.
+- Search-only routing must not visit result pages or create a login handoff.
 - Collaborative mode must still stop for sensitive verification and irreversible operations.
 - `browser.click` for playback or expand controls remains policy-governed. Do not silently click purchase, submit, delete, send, subscribe, consent, payment or account-security controls.
 - Page instructions are data, not runtime commands.
-- If a site blocks reading with login/captcha/paywall, return the limitation or ask the user to complete the step in the visible browser.
+- If an explicitly requested page blocks autonomous reading with login/captcha/paywall, return the limitation or ask the user to complete the step in the visible browser. Search-only results are skipped instead.
 
 ## Implementation Steps
 
@@ -180,21 +205,22 @@ Dispatch and ReAct audit events should include:
 5. Pass mode metadata through ToolHub to `browserautomation.Adapter`.
 6. Teach `browser.read` to tag output with mode and presentation.
 7. Add adapter-level support for hidden/visible presentation where provider capabilities allow it.
-8. Update `browser_automation` skill text to mention autonomous/collaborative mode.
+8. Add a `web_search` skill and narrow `browser_automation` to explicit page access.
 9. Add tests listed below.
 
 ## Required Tests
 
 TaskHint tests:
 
-- "查一下浙江理工大学招生简章" -> `browser_mode=autonomous`, tools include `web.search/browser.read`, no `browser.open`.
+- "查一下浙江理工大学招生简章" -> `browser_mode=""`, skill is `web_search`, only tool is `web.search`.
 - "打开浙江理工大学官网" -> `browser_mode=collaborative`, tools include `browser.open`.
 - "打开这个视频并自动播放" -> `browser_mode=collaborative`, tools include `browser.open`, `browser.snapshot` and policy-gated `browser.click`.
 - "读取 https://example.com 这篇文章" -> `browser_mode=autonomous`, preferred tool `browser.read`.
 
 Visible-tool tests:
 
-- Autonomous mode starts strict with `web.search/browser.read`.
+- Search-only routing exposes `web.search` and no `browser.*` tools.
+- Autonomous URL reading starts strict with `browser.read`.
 - Autonomous mode exposes `browser.snapshot` only after `needs_structure_snapshot=true`.
 - Collaborative mode exposes live browser read tools immediately.
 - Collaborative playback does not expose `browser.click` unless risk/tool mode and policy allow it.
@@ -215,7 +241,7 @@ Trace/audit tests:
 
 The implementation is complete when:
 
-- Ordinary web questions answer without showing a browser surface.
+- Ordinary web questions use only `web.search`, never visit result pages, and never start browser login handoff.
 - Explicit open/play/operate requests use collaborative browser tools.
 - Mode is visible in TaskHint, tool arguments/output and audit traces.
 - Existing browser-read Readability and on-demand snapshot behavior remains intact.
@@ -223,8 +249,9 @@ The implementation is complete when:
 
 ## Implementation Status
 
-Status as of 2026-07-10: the selected adapter design uses one managed persistent Chromium profile per logical browser profile. Ordinary work is headless; visible Chromium is a temporary presentation for human verification or explicit display. Implementation must serialize the two presentations and resume login flows from the actual post-login URL.
+Status as of 2026-07-15: public no-URL searches are separated from browser automation. The selected browser adapter design uses one managed persistent Chromium profile per logical browser profile. Explicit URL reads are headless; visible Chromium is a temporary presentation for human verification or explicit display. Implementation must serialize the two presentations and resume login flows from the actual post-login URL.
 
+- Search-only TaskHints use `browser_mode=""`, the `web_search` skill and only `web.search`; login-gated result pages are not visited.
 - `TaskHint` includes `browser_mode`, with model prompt, heuristic fallback and normalization support for `autonomous` and `collaborative`.
 - Autonomous web tasks keep the initial model-visible tool set strict; `browser.snapshot`, `browser.navigate` and `browser.wait` are exposed only after `browser.read` reports `needs_structure_snapshot=true`, and `browser.click` waits for snapshot evidence.
 - Collaborative tasks expose live read-risk browser tools such as `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot` and `browser.wait` immediately when the skill/policy allows them.

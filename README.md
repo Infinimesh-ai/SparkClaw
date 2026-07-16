@@ -22,13 +22,14 @@ Implemented and validated:
 - Go Gateway API with health, readiness, direct chat, sessions, messages, events, tools, approvals, memories, traces, artifacts, eval reports, feedback, client pairing, token auth and rate limiting.
 - Agent Runtime with guard review, Gateway-controlled fast/deep routing, bounded repair, schema repair, grounded final answers and trace snapshots.
 - Single-machine `dual-light-v1` model profile for NVIDIA GB10: `fast` and `deep` chat lanes plus embedding and reranker resident together, with explicit context, KV cache and sequence caps.
-- ToolHub with JSON-schema-validated tools for files, memory, knowledge/RAG, browser read, email, calendar, sandbox shell, code patching, notification and approvals.
-- Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application, email send, calendar create and sensitive memory writes.
-- File, browser, email and calendar observations are treated as untrusted data and are summarized before being used for answers.
+- ToolHub with JSON-schema-validated tools for files, memory, browser access, sandbox shell, code patching, notification and approvals.
+- Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application and sensitive memory writes.
+- File, browser and external adapter observations are treated as untrusted data and are summarized before being used for answers.
+- Email, calendar and workspace knowledge/RAG are deliberately deferred until they have complete product designs; see [Deferred Capabilities](docs/deferred-email-calendar-knowledge.md).
 - File-backed state for local runs, PostgreSQL 18/pgvector for durable sessions, tool calls, approvals, evals and document chunks, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
-- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner, vLLM fast/deep/embedding/reranker endpoints and 58-case real-model golden eval coverage.
+- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding/reranker endpoints. The historical run used 58 cases; the active matrix now has 43 after prototype-only capabilities were removed.
 
 Known operating boundary:
 
@@ -47,7 +48,8 @@ sudo -n env SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
   docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d --build
 ```
 
-Open [http://127.0.0.1:18790](http://127.0.0.1:18790).
+Open [http://127.0.0.1:18790](http://127.0.0.1:18790) locally, or use
+`http://<host-lan-ip>:18790` from another device on the same LAN.
 
 Run the project health check and golden eval:
 
@@ -106,7 +108,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-Current golden eval coverage is 58 cases. It verifies direct chat, config/tool/skill visibility, auth and rate-limit surfaces, grounded file/browser/email/calendar answers, approval lifecycles, memory review, sensitive-memory handling, knowledge indexing/search, prompt-injection chaos, repair paths, trace refresh, artifact catalog entries, model-call telemetry and eval history.
+Current golden eval coverage is 43 cases. It verifies direct chat, config/tool/skill visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
 
 ## Open Source
 

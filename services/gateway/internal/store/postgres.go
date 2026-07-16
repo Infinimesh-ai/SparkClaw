@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"time"
@@ -91,9 +90,12 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   model_lane TEXT NOT NULL,
   risk_level TEXT NOT NULL,
   summary TEXT,
+  workflow_state JSONB,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
 );
+
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS workflow_state JSONB;
 
 CREATE TABLE IF NOT EXISTS run_feedback (
   id TEXT PRIMARY KEY,
@@ -131,6 +133,10 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
   run_id TEXT NOT NULL REFERENCES agent_runs(id),
+  workflow_id TEXT NOT NULL DEFAULT '',
+  workflow_node_id TEXT NOT NULL DEFAULT '',
+  scope_revision INTEGER NOT NULL DEFAULT 0,
+  capability TEXT NOT NULL DEFAULT '',
   tool TEXT NOT NULL,
   risk_level TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -145,6 +151,10 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	);
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS observation_ref TEXT;
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS observation_summary TEXT NOT NULL DEFAULT '';
+	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS workflow_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS workflow_node_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS scope_revision INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY,
@@ -527,44 +537,6 @@ CREATE TABLE IF NOT EXISTS episode_summaries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS documents (
-  id TEXT PRIMARY KEY,
-  source TEXT NOT NULL,
-  root TEXT NOT NULL,
-  path TEXT NOT NULL,
-  rel_path TEXT NOT NULL,
-  object_key TEXT,
-  content_hash TEXT NOT NULL,
-  bytes INTEGER NOT NULL,
-  indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (source, root, rel_path)
-);
-
-CREATE TABLE IF NOT EXISTS document_chunks (
-  id TEXT PRIMARY KEY,
-  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-  source TEXT NOT NULL,
-  root TEXT NOT NULL,
-  path TEXT NOT NULL,
-  rel_path TEXT NOT NULL,
-  start_line INTEGER NOT NULL,
-  end_line INTEGER NOT NULL,
-  text TEXT NOT NULL,
-  terms TEXT[] NOT NULL DEFAULT '{}',
-  content_hash TEXT NOT NULL,
-  embedding_json JSONB,
-  embedding_model TEXT,
-  embedding_dim INTEGER NOT NULL DEFAULT 0,
-  indexed_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS embedding_dim INTEGER NOT NULL DEFAULT 0;
-
-UPDATE document_chunks
-SET embedding_dim = jsonb_array_length(embedding_json)
-WHERE embedding_dim = 0
-  AND jsonb_typeof(embedding_json) = 'array';
-
 CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_run_feedback_run_updated ON run_feedback(run_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_clients_token_hash ON clients(token_hash);
@@ -578,42 +550,6 @@ CREATE INDEX IF NOT EXISTS idx_eval_runs_started ON eval_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_created ON artifact_objects(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_run ON artifact_objects(run_id);
 CREATE INDEX IF NOT EXISTS idx_episode_summaries_session_created ON episode_summaries(session_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_documents_source_root_rel ON documents(source, root, rel_path);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_source_root ON document_chunks(source, root);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_model_dim ON document_chunks(embedding_model, embedding_dim);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_terms ON document_chunks USING GIN (terms);
-`
-
-const postgresVectorSchema = `
-DO $$
-BEGIN
-  CREATE EXTENSION IF NOT EXISTS vector;
-EXCEPTION
-  WHEN undefined_file THEN
-    RAISE NOTICE 'pgvector extension is not installed; document_chunks.embedding will be skipped';
-END
-$$;
-
-DO $$
-BEGIN
-  ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS embedding vector;
-EXCEPTION
-  WHEN undefined_object THEN
-    RAISE NOTICE 'pgvector type is unavailable; using document_chunks.embedding_json fallback only';
-END
-$$;
-
-DO $$
-BEGIN
-  CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_hnsw_1024
-    ON document_chunks
-    USING hnsw ((embedding::vector(1024)) vector_cosine_ops)
-    WHERE embedding IS NOT NULL AND vector_dims(embedding) = 1024;
-EXCEPTION
-  WHEN undefined_object OR undefined_column THEN
-    RAISE NOTICE 'pgvector HNSW index unavailable; vector search will use exact scan or JSON fallback';
-END
-$$;
 `
 
 func NewPostgresStore(ctx context.Context, dsn string) (*PostgresStore, error) {
@@ -640,7 +576,6 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 	if _, err := s.db.Exec(ctx, postgresSchema); err != nil {
 		return fmt.Errorf("migrate postgres store: %w", err)
 	}
-	_, _ = s.db.Exec(ctx, postgresVectorSchema)
 	return nil
 }
 
@@ -1164,23 +1099,25 @@ func (s *PostgresStore) SaveRun(run app.AgentRun) {
 	if run.StartedAt.IsZero() {
 		run.StartedAt = time.Now().UTC()
 	}
+	workflowState := optionalJSON(run.Workflow)
 	_, _ = s.db.Exec(ctx, `
-		INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level, summary, started_at, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level, summary, workflow_state, started_at, completed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (id) DO UPDATE SET
 			state = EXCLUDED.state,
 			model_lane = EXCLUDED.model_lane,
 			risk_level = EXCLUDED.risk_level,
 			summary = EXCLUDED.summary,
+			workflow_state = EXCLUDED.workflow_state,
 			started_at = EXCLUDED.started_at,
 			completed_at = EXCLUDED.completed_at
-	`, run.ID, run.SessionID, run.State, run.ModelLane, string(run.Risk), run.Summary, run.StartedAt, run.CompletedAt)
+	`, run.ID, run.SessionID, run.State, run.ModelLane, string(run.Risk), run.Summary, workflowState, run.StartedAt, run.CompletedAt)
 	s.appendEvent(ctx, "run."+run.State, run.SessionID, run.ID, run)
 }
 
 func (s *PostgresStore) GetRun(id string) (app.AgentRun, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, '')
+		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state
 		FROM agent_runs
 		WHERE id = $1
 	`, id)
@@ -1190,7 +1127,7 @@ func (s *PostgresStore) GetRun(id string) (app.AgentRun, bool) {
 
 func (s *PostgresStore) ListRuns(sessionID string) []app.AgentRun {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, '')
+		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state
 		FROM agent_runs
 		WHERE $1 = '' OR session_id = $1
 		ORDER BY started_at DESC
@@ -1268,11 +1205,16 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 	result := optionalJSON(call.Result)
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO tool_calls (
-			id, session_id, run_id, tool, risk_level, status, arguments, result, error,
+			id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
+			tool, risk_level, status, arguments, result, error,
 			approval_id, observation_ref, observation_summary, started_at, completed_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, nullif($9, ''), nullif($10, ''), nullif($11, ''), $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), nullif($14, ''), nullif($15, ''), $16, $17, $18)
 		ON CONFLICT (id) DO UPDATE SET
+			workflow_id = EXCLUDED.workflow_id,
+			workflow_node_id = EXCLUDED.workflow_node_id,
+			scope_revision = EXCLUDED.scope_revision,
+			capability = EXCLUDED.capability,
 			risk_level = EXCLUDED.risk_level,
 			status = EXCLUDED.status,
 			arguments = EXCLUDED.arguments,
@@ -1283,7 +1225,8 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 			observation_summary = EXCLUDED.observation_summary,
 			started_at = EXCLUDED.started_at,
 			completed_at = EXCLUDED.completed_at
-	`, call.ID, call.SessionID, call.RunID, call.Tool, string(call.Risk), call.Status, args, result, call.Error, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt)
+	`, call.ID, call.SessionID, call.RunID, string(call.WorkflowID), string(call.WorkflowNodeID), call.ScopeRevision, call.Capability,
+		call.Tool, string(call.Risk), call.Status, args, result, call.Error, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt)
 	s.appendAudit(ctx, "tool_call."+call.Status, call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 		"risk": call.Risk,
 		"id":   call.ID,
@@ -1293,7 +1236,8 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 
 func (s *PostgresStore) GetToolCall(id string) (app.ToolCall, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, session_id, run_id, tool, risk_level, status, arguments, result, coalesce(error, ''),
+		SELECT id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
+			tool, risk_level, status, arguments, result, coalesce(error, ''),
 			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, '')
 		FROM tool_calls
 		WHERE id = $1
@@ -1304,7 +1248,8 @@ func (s *PostgresStore) GetToolCall(id string) (app.ToolCall, bool) {
 
 func (s *PostgresStore) ListToolCalls(sessionID string) []app.ToolCall {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, run_id, tool, risk_level, status, arguments, result, coalesce(error, ''),
+		SELECT id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
+			tool, risk_level, status, arguments, result, coalesce(error, ''),
 			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, '')
 		FROM tool_calls
 		WHERE $1 = '' OR session_id = $1
@@ -2682,450 +2627,6 @@ func (s *PostgresStore) ListEpisodeSummaries(sessionID string) []app.EpisodeSumm
 	return collectRows(rows, scanEpisodeSummary)
 }
 
-func (s *PostgresStore) ReplaceDocumentChunks(root string, documents []app.Document, chunks []app.DocumentChunk) (app.DocumentIndexSummary, error) {
-	ctx := context.Background()
-	now := time.Now().UTC()
-	source := "workspace"
-	if len(documents) > 0 && strings.TrimSpace(documents[0].Source) != "" {
-		source = documents[0].Source
-	}
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return app.DocumentIndexSummary{}, err
-	}
-	defer rollbackTx(ctx, tx)
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM documents
-		WHERE source = $1 AND root = $2
-	`, source, root); err != nil {
-		return app.DocumentIndexSummary{}, err
-	}
-	for _, doc := range documents {
-		if doc.IndexedAt.IsZero() {
-			doc.IndexedAt = now
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO documents (
-				id, source, root, path, rel_path, object_key, content_hash, bytes, indexed_at
-			)
-			VALUES ($1, $2, $3, $4, $5, nullif($6, ''), $7, $8, $9)
-		`, doc.ID, doc.Source, doc.Root, doc.Path, doc.RelPath, doc.ObjectKey, doc.ContentHash, doc.Bytes, doc.IndexedAt); err != nil {
-			return app.DocumentIndexSummary{}, err
-		}
-	}
-	vectorColumn := s.hasVectorColumn(ctx)
-	for _, chunk := range chunks {
-		if chunk.IndexedAt.IsZero() {
-			chunk.IndexedAt = now
-		}
-		chunk.EmbeddingDim = len(chunk.Embedding)
-		if vectorColumn && len(chunk.Embedding) > 0 {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO document_chunks (
-					id, document_id, source, root, path, rel_path, start_line, end_line, text,
-					terms, content_hash, embedding_json, embedding, embedding_model, embedding_dim, indexed_at
-				)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::vector, nullif($14, ''), $15, $16)
-			`, chunk.ID, chunk.DocumentID, chunk.Source, chunk.Root, chunk.Path, chunk.RelPath, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.Terms, chunk.ContentHash, optionalJSON(chunk.Embedding), vectorLiteral(chunk.Embedding), chunk.EmbeddingModel, chunk.EmbeddingDim, chunk.IndexedAt); err != nil {
-				return app.DocumentIndexSummary{}, err
-			}
-			continue
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO document_chunks (
-				id, document_id, source, root, path, rel_path, start_line, end_line, text,
-				terms, content_hash, embedding_json, embedding_model, embedding_dim, indexed_at
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), $14, $15)
-		`, chunk.ID, chunk.DocumentID, chunk.Source, chunk.Root, chunk.Path, chunk.RelPath, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.Terms, chunk.ContentHash, optionalJSON(chunk.Embedding), chunk.EmbeddingModel, chunk.EmbeddingDim, chunk.IndexedAt); err != nil {
-			return app.DocumentIndexSummary{}, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.DocumentIndexSummary{}, err
-	}
-	embeddingModel := ""
-	embeddingDim := 0
-	vectorEnabled := false
-	for _, chunk := range chunks {
-		if len(chunk.Embedding) > 0 {
-			vectorEnabled = true
-			embeddingModel = chunk.EmbeddingModel
-			embeddingDim = len(chunk.Embedding)
-			break
-		}
-	}
-	s.appendAudit(ctx, "documents.indexed", "", "", "toolhub", "Workspace knowledge indexed", map[string]any{
-		"root":            root,
-		"documents":       len(documents),
-		"chunks":          len(chunks),
-		"vector_enabled":  vectorEnabled,
-		"embedding_model": embeddingModel,
-		"embedding_dim":   embeddingDim,
-	})
-	s.appendEvent(ctx, "documents.indexed", "", "", map[string]any{
-		"root":            root,
-		"documents":       len(documents),
-		"chunks":          len(chunks),
-		"vector_enabled":  vectorEnabled,
-		"embedding_model": embeddingModel,
-		"embedding_dim":   embeddingDim,
-	})
-	backend := "postgres"
-	if vectorEnabled && vectorColumn {
-		backend = "postgres_pgvector"
-	}
-	return app.DocumentIndexSummary{
-		Backend:        backend,
-		Root:           root,
-		Documents:      len(documents),
-		Chunks:         len(chunks),
-		VectorEnabled:  vectorEnabled,
-		EmbeddingModel: embeddingModel,
-		EmbeddingDim:   embeddingDim,
-		IndexedAt:      now,
-	}, nil
-}
-
-func (s *PostgresStore) SearchDocumentChunks(query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error) {
-	if maxResults <= 0 || maxResults > 50 {
-		maxResults = 8
-	}
-	ctx := context.Background()
-	if len(embedding) > 0 && s.hasVectorColumn(ctx) && len(embedding) == 1024 {
-		hits, err := s.searchDocumentChunksWithVector(ctx, query, embedding, embeddingModel, maxResults)
-		if err == nil {
-			return hits, nil
-		}
-	}
-	return s.searchDocumentChunksGeneric(ctx, query, embedding, embeddingModel, maxResults)
-}
-
-type dbDocumentChunk struct {
-	ID             string
-	Path           string
-	RelPath        string
-	StartLine      int
-	EndLine        int
-	Text           string
-	Terms          []string
-	Embedding      []float32
-	EmbeddingModel string
-	EmbeddingDim   int
-	VectorScore    float64
-	Backend        string
-}
-
-func (s *PostgresStore) searchDocumentChunksWithVector(ctx context.Context, query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error) {
-	limit := maxResults * 8
-	if limit < 50 {
-		limit = 50
-	}
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rollbackTx(ctx, tx)
-	_, _ = tx.Exec(ctx, "SET LOCAL hnsw.ef_search = 100")
-	rows, err := tx.Query(ctx, `
-		SELECT id, path, rel_path, start_line, end_line, text, terms, embedding_json,
-			coalesce(embedding_model, ''), embedding_dim,
-			1 - (embedding::vector(1024) <=> $1::vector(1024)) AS vector_score
-		FROM document_chunks
-		WHERE embedding IS NOT NULL
-			AND embedding_dim = 1024
-			AND vector_dims(embedding) = 1024
-			AND ($2 = '' OR embedding_model = $2)
-		ORDER BY embedding::vector(1024) <=> $1::vector(1024)
-		LIMIT $3
-	`, vectorLiteral(embedding), strings.TrimSpace(embeddingModel), limit)
-	if err != nil {
-		return nil, err
-	}
-	candidates := map[string]dbDocumentChunk{}
-	for rows.Next() {
-		chunk, err := scanDBDocumentChunk(rows, "postgres_pgvector")
-		if err == nil {
-			candidates[chunk.ID] = chunk
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	for _, chunk := range s.keywordDocumentCandidates(ctx, query, embeddingModel, len(embedding), limit) {
-		if existing, ok := candidates[chunk.ID]; ok {
-			if existing.VectorScore != 0 {
-				chunk.VectorScore = existing.VectorScore
-			}
-		}
-		candidates[chunk.ID] = chunk
-	}
-	return rankDocumentChunks(query, embedding, mapValues(candidates), maxResults), nil
-}
-
-func (s *PostgresStore) searchDocumentChunksGeneric(ctx context.Context, query string, embedding []float32, embeddingModel string, maxResults int) ([]app.DocumentChunkHit, error) {
-	limit := maxResults * 20
-	if limit < 200 {
-		limit = 200
-	}
-	embeddingDim := len(embedding)
-	rows, err := s.db.Query(ctx, `
-		SELECT id, path, rel_path, start_line, end_line, text, terms, embedding_json,
-			coalesce(embedding_model, ''), embedding_dim, 0::double precision AS vector_score
-		FROM document_chunks
-		WHERE ($1 = '' OR coalesce(embedding_model, '') IN ($1, ''))
-			AND ($2 = 0 OR embedding_dim = $2 OR embedding_dim = 0)
-		ORDER BY indexed_at DESC
-		LIMIT $3
-	`, strings.TrimSpace(embeddingModel), embeddingDim, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	candidates := []dbDocumentChunk{}
-	for rows.Next() {
-		chunk, err := scanDBDocumentChunk(rows, "postgres_json")
-		if err == nil {
-			candidates = append(candidates, chunk)
-		}
-	}
-	return rankDocumentChunks(query, embedding, candidates, maxResults), nil
-}
-
-func (s *PostgresStore) keywordDocumentCandidates(ctx context.Context, query, embeddingModel string, embeddingDim, limit int) []dbDocumentChunk {
-	queryTerms := documentTerms(query)
-	if len(queryTerms) == 0 {
-		return nil
-	}
-	rows, err := s.db.Query(ctx, `
-		SELECT id, path, rel_path, start_line, end_line, text, terms, embedding_json,
-			coalesce(embedding_model, ''), embedding_dim, 0::double precision AS vector_score
-		FROM document_chunks
-		WHERE ($3 = '' OR coalesce(embedding_model, '') IN ($3, ''))
-			AND ($4 = 0 OR embedding_dim = $4 OR embedding_dim = 0)
-			AND (
-				terms && $1
-				OR lower(text) LIKE '%' || lower($2) || '%'
-				OR lower(rel_path) LIKE '%' || lower($2) || '%'
-			)
-		ORDER BY indexed_at DESC
-		LIMIT $5
-	`, queryTerms, query, strings.TrimSpace(embeddingModel), embeddingDim, limit)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	candidates := []dbDocumentChunk{}
-	for rows.Next() {
-		chunk, err := scanDBDocumentChunk(rows, "postgres_pgvector")
-		if err == nil {
-			candidates = append(candidates, chunk)
-		}
-	}
-	return candidates
-}
-
-func rankDocumentChunks(query string, embedding []float32, chunks []dbDocumentChunk, maxResults int) []app.DocumentChunkHit {
-	queryTerms := documentTerms(query)
-	hits := []app.DocumentChunkHit{}
-	for _, chunk := range chunks {
-		keywordScore := scoreDocumentChunk(queryTerms, chunk)
-		vectorScore := chunk.VectorScore
-		if vectorScore == 0 {
-			vectorScore = searchableVectorScore(embedding, chunk)
-		}
-		score := float64(keywordScore) + vectorScore*6
-		if score <= 0 {
-			continue
-		}
-		hits = append(hits, app.DocumentChunkHit{
-			Path:           chunk.Path,
-			RelPath:        chunk.RelPath,
-			StartLine:      chunk.StartLine,
-			EndLine:        chunk.EndLine,
-			Citation:       documentCitation(chunk.RelPath, chunk.StartLine, chunk.EndLine),
-			Score:          score,
-			KeywordScore:   keywordScore,
-			VectorScore:    vectorScore,
-			Snippet:        documentSnippet(chunk.Text, queryTerms),
-			Terms:          intersectDocumentTerms(queryTerms, chunk.Terms),
-			EmbeddingModel: chunk.EmbeddingModel,
-			EmbeddingDim:   chunk.EmbeddingDim,
-			Backend:        chunk.Backend,
-		})
-	}
-	slices.SortFunc(hits, func(a, b app.DocumentChunkHit) int {
-		if a.Score != b.Score {
-			if a.Score > b.Score {
-				return -1
-			}
-			return 1
-		}
-		return strings.Compare(a.RelPath, b.RelPath)
-	})
-	if len(hits) > maxResults {
-		hits = hits[:maxResults]
-	}
-	return hits
-}
-
-func scanDBDocumentChunk(row scanner, backend string) (dbDocumentChunk, error) {
-	var chunk dbDocumentChunk
-	var embeddingJSON []byte
-	err := row.Scan(&chunk.ID, &chunk.Path, &chunk.RelPath, &chunk.StartLine, &chunk.EndLine, &chunk.Text, &chunk.Terms, &embeddingJSON, &chunk.EmbeddingModel, &chunk.EmbeddingDim, &chunk.VectorScore)
-	if err != nil {
-		return dbDocumentChunk{}, err
-	}
-	if len(embeddingJSON) > 0 {
-		_ = json.Unmarshal(embeddingJSON, &chunk.Embedding)
-	}
-	if chunk.EmbeddingDim == 0 {
-		chunk.EmbeddingDim = len(chunk.Embedding)
-	}
-	chunk.Backend = backend
-	return chunk, nil
-}
-
-func searchableVectorScore(queryEmbedding []float32, chunk dbDocumentChunk) float64 {
-	if len(queryEmbedding) == 0 || len(chunk.Embedding) == 0 {
-		return 0
-	}
-	if chunk.EmbeddingDim != 0 && chunk.EmbeddingDim != len(queryEmbedding) {
-		return 0
-	}
-	return cosine(queryEmbedding, chunk.Embedding)
-}
-
-func (s *PostgresStore) hasVectorColumn(ctx context.Context) bool {
-	var exists bool
-	err := s.db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM information_schema.columns
-			WHERE table_schema = 'public'
-				AND table_name = 'document_chunks'
-				AND column_name = 'embedding'
-		)
-	`).Scan(&exists)
-	return err == nil && exists
-}
-
-func vectorLiteral(vector []float32) string {
-	parts := make([]string, 0, len(vector))
-	for _, value := range vector {
-		parts = append(parts, fmt.Sprintf("%.8g", value))
-	}
-	return "[" + strings.Join(parts, ",") + "]"
-}
-
-func documentTerms(text string) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, term := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && (r < 0x4e00 || r > 0x9fff)
-	}) {
-		if len(term) < 2 || seen[term] {
-			continue
-		}
-		seen[term] = true
-		out = append(out, term)
-	}
-	return out
-}
-
-func scoreDocumentChunk(queryTerms []string, chunk dbDocumentChunk) int {
-	score := 0
-	text := strings.ToLower(chunk.Text)
-	rel := strings.ToLower(chunk.RelPath)
-	for _, term := range queryTerms {
-		if slices.Contains(chunk.Terms, term) {
-			score += 3
-		}
-		if strings.Contains(rel, term) {
-			score += 2
-		}
-		if strings.Contains(text, term) {
-			score++
-		}
-	}
-	return score
-}
-
-func intersectDocumentTerms(queryTerms, chunkTerms []string) []string {
-	out := []string{}
-	for _, term := range queryTerms {
-		if slices.Contains(chunkTerms, term) {
-			out = append(out, term)
-		}
-	}
-	return out
-}
-
-func documentSnippet(text string, terms []string) string {
-	lower := strings.ToLower(text)
-	idx := -1
-	queryLen := 0
-	for _, term := range terms {
-		if found := strings.Index(lower, term); found >= 0 && (idx < 0 || found < idx) {
-			idx = found
-			queryLen = len(term)
-		}
-	}
-	if idx < 0 {
-		return compactText(text, 240)
-	}
-	start := idx - 80
-	if start < 0 {
-		start = 0
-	}
-	end := idx + queryLen + 160
-	if end > len(text) {
-		end = len(text)
-	}
-	return strings.TrimSpace(text[start:end])
-}
-
-func documentCitation(relPath string, startLine, endLine int) string {
-	relPath = strings.TrimSpace(relPath)
-	if relPath == "" {
-		return ""
-	}
-	if startLine <= 0 {
-		return relPath
-	}
-	if endLine <= 0 || endLine < startLine || endLine == startLine {
-		return fmt.Sprintf("%s:L%d", relPath, startLine)
-	}
-	return fmt.Sprintf("%s:L%d-L%d", relPath, startLine, endLine)
-}
-
-func compactText(value string, max int) string {
-	value = strings.Join(strings.Fields(value), " ")
-	if len(value) <= max {
-		return value
-	}
-	return value[:max] + "..."
-}
-
-func cosine(a, b []float32) float64 {
-	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		av := float64(a[i])
-		bv := float64(b[i])
-		dot += av * bv
-		normA += av * av
-		normB += bv * bv
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
-}
-
 func mapValues[K comparable, V any](values map[K]V) []V {
 	out := make([]V, 0, len(values))
 	for _, value := range values {
@@ -3292,9 +2793,20 @@ func scanRunFeedback(row scanner) (app.RunFeedback, error) {
 func scanRun(row scanner) (app.AgentRun, error) {
 	var run app.AgentRun
 	var risk string
-	err := row.Scan(&run.ID, &run.SessionID, &run.State, &run.ModelLane, &risk, &run.StartedAt, &run.CompletedAt, &run.Summary)
+	var workflowState []byte
+	err := row.Scan(&run.ID, &run.SessionID, &run.State, &run.ModelLane, &risk, &run.StartedAt, &run.CompletedAt, &run.Summary, &workflowState)
+	if err != nil {
+		return app.AgentRun{}, err
+	}
 	run.Risk = app.RiskLevel(risk)
-	return run, err
+	if len(workflowState) > 0 {
+		var workflow app.WorkflowState
+		if err := json.Unmarshal(workflowState, &workflow); err != nil {
+			return app.AgentRun{}, fmt.Errorf("decode workflow state: %w", err)
+		}
+		run.Workflow = &workflow
+	}
+	return run, nil
 }
 
 func scanModelCall(row scanner) (app.ModelCall, error) {
@@ -3326,7 +2838,8 @@ func scanToolCall(row scanner) (app.ToolCall, error) {
 	var risk string
 	var args []byte
 	var result []byte
-	err := row.Scan(&call.ID, &call.SessionID, &call.RunID, &call.Tool, &risk, &call.Status, &args, &result, &call.Error, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary)
+	err := row.Scan(&call.ID, &call.SessionID, &call.RunID, &call.WorkflowID, &call.WorkflowNodeID, &call.ScopeRevision, &call.Capability,
+		&call.Tool, &risk, &call.Status, &args, &result, &call.Error, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary)
 	if err != nil {
 		return app.ToolCall{}, err
 	}

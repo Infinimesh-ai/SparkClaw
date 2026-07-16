@@ -81,7 +81,7 @@ Telegram 是现有 SparkClaw Agent Runtime 的 transport adapter，不创建第�
 |---|---|
 | `available` | 当前 Gateway binary 识别 provider 且 connector 依赖已构造；它不是配置开关。 |
 | `operator_enabled` | 来自 `tools.notifications.channels.telegram.enabled` 的唯一 operator kill switch；为 false 时阻止新绑定、polling、入站处理和出站投递。 |
-| `binding_status` | 当前 owner 的 Telegram binding 汇总状态：`unbound`、`waiting_confirm`、`active`、`failed`、`expired` 或 `revoked`；不能用它表达 connector 可用性。 |
+| `binding_status` | 当前 owner 的 Telegram binding 汇总状态：`unbound`、`active`、`failed` 或 `revoked`。首次新私聊认领前，`active` 也可能尚无 recipient；不能用它表达 connector 可用性。 |
 | `startable` | 服务端计算的当前 start endpoint 调用许可；POST 会重新计算相同条件。 |
 | `disabled_reason` | `startable=false` 的稳定机器码，否则为空；UI 负责本地化展示。 |
 
@@ -91,20 +91,16 @@ Operator-disabled connector 不会让 `/readyz` 失败。已配置 active bindin
 
 ## 5. Binding 状态机
 
-虚拟 `unbound` 状态不持久化。持久化 binding 状态为 `waiting_confirm`、`active`、`failed`、`expired`、`revoked`。Token 验证只存在于请求过程中，不保存 `verifying` 状态。
+虚拟 `unbound` 状态不持久化。Telegram Bot 验证成功后立即持久化为 `active`。会话认领是 active binding 的独立属性：external user/chat ID 为空表示 Bot 已连接，但手机私聊尚未认领。Token 验证只存在于请求过程中，不保存 `verifying` 状态。
 
 ```mermaid
 stateDiagram-v2
     [*] --> unbound
-    unbound --> waiting_confirm: getMe 成功、token seal、binding 保存
-    waiting_confirm --> active: 私聊 /start challenge 匹配
-    waiting_confirm --> expired: 激活期限到期
-    waiting_confirm --> failed: durable connector failure
-    waiting_confirm --> revoked: owner 撤销
+    unbound --> active: getMe 成功、token seal、recipient 未设置
+    active --> active: 首条新私聊认领 recipient
     active --> failed: credential 无法 unseal 或永久 Bot API failure
     active --> revoked: owner 撤销
     failed --> revoked: owner 撤销
-    expired --> revoked: owner 撤销
     revoked --> [*]
 ```
 
@@ -113,14 +109,14 @@ Start 流程：
 1. WebChat 只通过 `POST /api/notification-bindings/telegram/start` 发送 token。
 2. Gateway 检查 connector `startable`，限制 request size，并校验 token 语法但不回显 token。
 3. Gateway 使用有界 client 调用 `getMe`。`getMe` 失败或返回非法 Bot 时，不创建 binding，也不保存 secret。
-4. Gateway 生成高熵、一次性的 activation challenge，只保存其 hash 和 expiry。
-5. Gateway 在 credential vault 中 seal 已验证 token，获得不含 token 片段和 Bot identity 的随机 `credential_ref`。
-6. Gateway 保存 `waiting_confirm` binding，其中仅包含 `credential_ref`、已验证 Bot ID/username、challenge hash、base URL 和 expiry。Binding 持久化失败时删除刚写入的 credential。
-7. Gateway 返回 `t.me/<bot>?start=<challenge>` activation URL。Challenge 只在这次 start response 返回，后续 list 不再返回。
-8. 只有私聊 `/start <challenge>` update 可以激活 binding。其他用户向公开 Bot 发消息不能抢占绑定。
-9. 激活时原子记录 Telegram user ID、chat ID、可选 thread ID，并清除 challenge hash。
+4. Gateway 在 credential vault 中 seal 已验证 token，获得不含 token 片段和 Bot identity 的随机 `credential_ref`。
+5. Gateway 保存 `active` binding，其中包含 `credential_ref`、已验证 Bot ID/username、base URL 和创建时间；external user/chat ID 保持为空。Binding 持久化失败时删除刚写入的 credential。
+6. Telegram service 立即轮询已验证 Bot。早于 binding 创建时间的私聊消息（允许少量时钟偏差）以及所有群聊消息都不能用于认领。
+7. 首条新的私聊消息原子记录 Telegram user ID、chat ID、可选 thread ID 和 context token；加锁保证并发 chat 不能同时认领成功。
+8. 如果首条消息是普通 `/start`，只回复已连接确认；其他首条消息在认领后正常分发，owner 无需重发。
+9. 认领完成后，只允许已保存的 user、private chat 和 thread policy。由于 Telegram Bot 是公开入口，owner 应尽快发送消息：recipient ID 为空期间，首个新私聊 sender 获胜。
 
-撤销必须幂等：停止 polling 和投递，把 binding 标记为 `revoked`，删除其 credential，取消 pending inbox，只保留脱敏 audit history。重启时只为符合条件的 `waiting_confirm` 和 `active` binding 重建 poller。
+撤销必须幂等：停止 polling 和投递，把 binding 标记为 `revoked`，删除其 credential，取消 pending inbox，只保留脱敏 audit history。重启时为 active binding 重建 poller。带密封 credential 的旧 Telegram `waiting_confirm` 或 `expired` challenge binding 会迁移为 active、recipient 未设置的直接认领模式。
 
 ## 6. 加密 Credential 边界
 
@@ -185,8 +181,8 @@ Queue 必须有界。饱和时产生 `queue_full` 和 metrics；若 sender 已�
 
 认证必须发生在下载、workspace 创建、FFmpeg、转写、Agent call 和 tool call 之前。
 
-- `waiting_confirm` 只接受匹配的私聊 activation challenge。
-- `active` 只接受已保存的 Bot credential、Telegram user ID、chat ID 和 thread ID policy。
+- recipient ID 为空的 `active` 只允许一条新私聊原子认领；历史消息和群聊不能认领。
+- recipient ID 已设置的 `active` 只接受已保存的 Bot credential、Telegram user ID、chat ID 和 thread ID policy。
 - 其他 sender 最多得到限流后的通用 unauthorized response，不泄露 identity detail。
 - 投递需要的 exact external ID 可以持久化，但 public API 必须脱敏，日志和 metrics 使用 keyed hash。
 - 本阶段拒绝群聊和 forwarded-channel message。
@@ -231,29 +227,33 @@ API/UI 错误使用稳定 code 和已清洗 message。
 | `operator_disabled` | 否 | Kill switch 阻止 start、polling 和 delivery。 |
 | `credential_key_unavailable` | operator 修复后 | 不开始绑定；现有 binding 可见但停止。 |
 | `invalid_bot_token` | 否 | `getMe` 拒绝 token；不持久化任何内容。 |
-| `telegram_unreachable` | 有界重试 | Start request 不持久化 token；polling 可重试。 |
+| `telegram_rate_limited` | 延迟后重试 | Telegram 返回 `429`；不持久化任何内容。 |
+| `telegram_unavailable` | 有界重试 | Telegram 返回 `408` 或 `5xx`；不持久化任何内容。 |
+| `telegram_unreachable` | 有界重试 | DNS、TLS、代理或传输失败；不持久化任何内容。 |
+| `telegram_verification_failed` | 检查后重试 | Telegram 返回异常的成功响应；不持久化任何内容。 |
 | `credential_seal_failed` | 修复后 | 不持久化 binding。 |
 | `credential_unseal_failed` | 修复后 | Poller/delivery 停止，binding degraded/failed，且不暴露 token。 |
-| `activation_invalid` | 否 | 隔离未知 sender；binding 保持 pending。 |
 | `attachment_too_large` / `attachment_unsupported` | 否 | 在允许边界之外不下载、不创建 Agent run。 |
 | `voice_unavailable` | adapter 修复前否 | 提示 owner 发文字，不回退云端。 |
 | `queue_full` | 是 | 已认证 sender 得到 busy response；update 保持 retryable。 |
 | `retry_exhausted` | 需 operator | Inbox/delivery 以 failed 保持可检查。 |
 | `binding_unavailable` | 否 | Binding 已 revoked、expired、failed 或 disabled。 |
 
-`429` 且带 `retry_after`、timeout、connection reset 和部分 `5xx` 为瞬时失败。认证失败、malformed success payload、不支持媒体、authorization failure 和 path violation 为永久失败。
+绑定 API 仅把 Telegram JSON 错误信封中的凭据类 `4xx`（`408`、`429` 除外）判定为 token 被拒绝；非 JSON 代理响应不会归入凭据错误。`429` 且带 `retry_after`、timeout、connection reset 和部分 `5xx` 为瞬时失败。认证失败、malformed success payload、不支持媒体、authorization failure 和 path violation 为永久失败。
 
 ## 12. WebChat 交互契约
 
 WebChat 渲染服务端 connector summary，不能因 config object 存在与否自行推断 capability。
 
 - 仅当 `startable=true` 且没有 in-flight request 时启用 token input 和 Bind button；
+- token 验证后，在 recipient ID 为空期间提示 Bot 已连接，并要求 owner 用手机发送一条私聊消息；
+- WebChat 持续轮询 active 且 recipient 未设置的 binding，直到首个私聊完成关联；
+- Telegram 不渲染二维码或 activation challenge；微信扫码绑定流程保持独立；
 - Enabled 但 unbound 的本地配置必须 startable；默认 disabled 配置报告 `operator_disabled`；
 - disabled 时在控件旁展示本地化 `disabled_reason`；
 - password input 不能预填、持久化、记录日志或在 navigation 后恢复；
 - 成功和失败响应后都清空 token；
-- `waiting_confirm` 展示已验证 Bot handle、activation link、expiry、refresh/revoke action；
-- `active`、`failed`、`expired`、`revoked` 使用 Gateway binding status，禁止本地推断；
+- `active`、`failed`、`revoked` 使用 Gateway binding status 和 recipient 字段，禁止本地推断；
 - 窄屏下 input 和 action 纵向排列，错误可读换行，icon button 尺寸稳定。
 
 ## 13. Store 与 Backend Parity
@@ -273,7 +273,7 @@ WebChat 渲染服务端 connector summary，不能因 config object 存在与否
 | Capability/UI | API tests 覆盖 `available`、kill switch、binding state、`startable` 和每个 `disabled_reason`；desktop 和 narrow WebChat 在默认 unbound 状态可交互。 |
 | Token 验证 | `getMe` 先于任何 secret/binding write；invalid/unreachable response 不持久化。 |
 | Secret 安全 | Canary token 不出现在 file snapshot、PostgreSQL plaintext query、public API、error、log、trace、audit 和 fixture；binding 只含 `credential_ref`。 |
-| Binding auth | 只有私聊 one-time challenge 可激活；replay、wrong user、wrong chat、group chat、expired challenge、revoked binding 均在副作用前拒绝。 |
+| Binding auth | 首条新私聊只能认领一次；历史 update、并发失败 chat、后续 wrong user/chat、group chat 和 revoked binding 均在副作用前拒绝。 |
 | Polling | Durable insert 先于 offset；duplicate 被抑制；restart 恢复且不重复 Agent run。 |
 | Worker | 同 chat 保序，不同 chat 并行；饱和时仍满足 global/pending limit。 |
 | Media | size/MIME/path/partial download/timeout/cleanup 全覆盖；unknown user 不能触发下载。 |

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import type * as React from "react";
 import {
   Activity,
-  CalendarDays,
   Check,
   CheckCircle2,
   Clock3,
@@ -18,7 +17,6 @@ import {
   KeyRound,
   Library,
   ListChecks,
-  Mail,
   MemoryStick,
   Pencil,
   Plus,
@@ -56,7 +54,6 @@ import type {
 } from "../api/types";
 import type { Copy as CopyText, Language } from "../i18n";
 import {
-  adapterLabel,
   bindingStatusLabel,
   cssToken,
   formatLatency,
@@ -76,6 +73,15 @@ import {
   stripSystemArgs
 } from "../lib/format";
 
+function isBindingSetupPending(binding: NotificationBinding) {
+  return isBindingPending(binding.status) || (
+    binding.channel === "telegram" &&
+    binding.status === "active" &&
+    !binding.external_user_id &&
+    !binding.context_token
+  );
+}
+
 export function ToolTimelinePanel({ calls, text, onTrace }: { calls: ToolCall[]; text: CopyText; onTrace: (runId: string) => void }) {
   return (
     <div className="panelStack">
@@ -94,15 +100,9 @@ export function ToolCallItem({ call, text, onTrace }: { call: ToolCall; text: Co
     ? Terminal
     : call.tool.includes("memory")
       ? Database
-      : call.tool.includes("knowledge")
-        ? Library
-        : call.tool.includes("browser")
-          ? Globe2
-          : call.tool.includes("email")
-            ? Mail
-            : call.tool.includes("calendar")
-              ? CalendarDays
-              : FileSearch;
+      : call.tool.includes("browser")
+        ? Globe2
+        : FileSearch;
   return (
     <article className={`toolCall ${call.risk} ${cssToken(call.status)}`}>
       <div className="toolIcon">
@@ -842,7 +842,7 @@ export function SettingsPanel({
   const [telegramToken, setTelegramToken] = useState("");
 
   useEffect(() => {
-    const pending = [...weixinBindings, ...telegramBindings].filter((binding) => isBindingPending(binding.status));
+    const pending = [...weixinBindings, ...telegramBindings].filter(isBindingSetupPending);
     if (pending.length === 0) return;
     let cancelled = false;
     let timer = 0;
@@ -850,7 +850,13 @@ export function SettingsPanel({
       void Promise.allSettled(pending.map((binding) => onRefreshNotificationBinding(binding.id)))
         .then((results) => {
           if (cancelled) return;
-          const hasStillPending = results.some((result) => result.status === "fulfilled" && isBindingPending(result.value.status));
+          const rejected = results.find((result) => result.status === "rejected");
+          if (rejected?.status === "rejected") {
+            setBindingError(rejected.reason instanceof Error ? rejected.reason.message : text.errors.binding);
+            timer = window.setTimeout(poll, 4000);
+            return;
+          }
+          const hasStillPending = results.some((result) => result.status === "fulfilled" && isBindingSetupPending(result.value));
           if (!hasStillPending) return;
           timer = window.setTimeout(poll, 2000);
         })
@@ -1002,8 +1008,8 @@ export function SettingsPanel({
     const addTitle = isTelegram ? text.settings.addTelegramBinding : text.settings.addWeixinBinding;
     const bindLabel = isTelegram ? text.settings.bindTelegram : text.settings.bindWeixin;
     const missing = isTelegram ? text.settings.telegramBindingMissing : text.settings.bindingMissing;
-    const waitingInstruction = isTelegram ? text.settings.openTelegramToBind : text.settings.scanWeixin;
-    const scannedInstruction = isTelegram ? text.settings.waitingTelegramStart : text.settings.scannedWeixin;
+    const waitingInstruction = text.settings.scanWeixin;
+    const scannedInstruction = text.settings.scannedWeixin;
     const channelConfig = notificationChannels[channel];
     const startable = isTelegram ? channelConfig?.startable === true : channelConfig?.enabled !== false;
     const tokenEditable = isTelegram && channelConfig?.available === true && channelConfig?.operator_enabled === true && channelConfig?.startable === true;
@@ -1049,7 +1055,7 @@ export function SettingsPanel({
                     <span className="muted">{bindingStatusLabel(binding.status, text)}{binding.default_for_channel ? ` · ${text.settings.defaultBinding}` : ""}</span>
                   </div>
                   <div className="buttonRow compactButtons">
-                    <button className="edit" onClick={() => void refreshBinding(binding.id)} disabled={bindingBusy || !isBindingPending(binding.status)} title={text.common.refresh}>
+                    <button className="edit" onClick={() => void refreshBinding(binding.id)} disabled={bindingBusy || !isBindingSetupPending(binding)} title={text.common.refresh}>
                       <RefreshCw size={15} />
                     </button>
                     <button className="reject" onClick={() => void revokeBinding(binding.id)} disabled={bindingBusy || binding.status === "revoked"} title={text.settings.revokeBinding}>
@@ -1081,16 +1087,16 @@ export function SettingsPanel({
                     <small>{waitingInstruction}</small>
                   </div>
                 )}
-                {binding.status === "waiting_confirm" && (
+                {binding.status === "waiting_confirm" && !isTelegram && (
                   <div className="bindingScanned">
                     <CheckCircle2 size={18} />
                     <span>{scannedInstruction}</span>
-                    {isTelegram && binding.qr_code_url && (
-                      <a className="secondaryButton bindingOpenLink" href={binding.qr_code_url} target="_blank" rel="noreferrer">
-                        <Send size={15} />
-                        <span>{text.settings.openTelegram}</span>
-                      </a>
-                    )}
+                  </div>
+                )}
+                {isTelegram && binding.status === "active" && !binding.external_user_id && !binding.context_token && (
+                  <div className="bindingScanned">
+                    <Send size={18} />
+                    <span>{text.settings.telegramAwaitingMessage}</span>
                   </div>
                 )}
                 {binding.last_error && <span className="compactError">{binding.last_error}</span>}
@@ -1328,15 +1334,6 @@ export function SettingsPanel({
           </dd>
           <dt>{text.settings.artifacts}</dt>
           <dd>{runtimeConfig.storage.artifact_backend} · {runtimeConfig.storage.artifact_dir || runtimeConfig.storage.artifact_bucket}</dd>
-        </dl>
-      </article>
-      <article className="settingsBlock">
-        <strong>{text.settings.adapters}</strong>
-        <dl className="statusGrid compact">
-          <dt>{text.settings.email}</dt>
-          <dd>{adapterLabel(runtimeConfig.adapters.email, text)}</dd>
-          <dt>Calendar</dt>
-          <dd>{adapterLabel(runtimeConfig.adapters.calendar, text)}</dd>
           <dt>{text.settings.memory}</dt>
           <dd>
             {runtimeConfig.memory.enabled

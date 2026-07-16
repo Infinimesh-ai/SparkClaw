@@ -11,15 +11,14 @@ SparkClaw 是面向 DGX Spark 级别机器的 local-first personal agent runtime
 - 本地文件和 workspace search
 - 代码检查和 approval-gated patch
 - browser-backed web access，用于公开搜索、网页读取和实时页面交互
-- email search、thread reading、draft replies 和 approval-gated sends
-- calendar reading、proposals 和 approval-gated event creation
 - personal memory candidates 和 approval-gated sensitive memory
-- workspace documents 的 local knowledge/RAG
 - 通过一个有界 speech adapter 提供可选的 microphone 与 Telegram voice transcription
 - 使用多个加密 Bot binding 的可选 owner-authorized Telegram messaging
 - 使用 one-shot query token 和 cited untrusted evidence 的可选 Infinimesh Info search
 
 SparkClaw 明确避免 broad autonomous operation、公开 SaaS 暴露、silent external sends/creates/deletes、隐藏工具执行，以及没有 eval 证据支撑的自定义 fine-tuned model release 声称。
+
+邮件、日历和 Workspace Knowledge/RAG 在具备完整设计前不属于当前产品边界。已移除的原型范围及重新引入门槛记录在[暂缓的邮件、日历与 Knowledge 能力](deferred-email-calendar-knowledge.md)中。
 
 ## 原则
 
@@ -45,7 +44,7 @@ WebChat
       -> Evaluator
 
 ToolHub adapters:
-  files, knowledge, memory, browser, Infinimesh Info, email, calendar, shell, code, notify
+  files, memory, browser, Infinimesh Info, shell, code, notify
 
 Optional input/connectors:
   speech transcription
@@ -77,7 +76,7 @@ Speech 是可选且默认关闭的 OpenAI-compatible transcription boundary。Ga
 
 ### Telegram
 
-Telegram 是可选且默认关闭的 owner-authorized connector。系统允许多个 Bot binding 共存，也允许不同外部 Telegram 用户分别完成激活。每个 Bot token 使用前先验证，并分别由 credential vault 密封；file 与 PostgreSQL state 只保存 ciphertext envelope，不保存 plaintext token。每条 binding 都有独立的 activation challenge、cursor、inbox identity 和私聊鉴权。Long polling、inbox persistence、per-chat ordering、retry 与 outbound delivery 均有界。已授权私聊可发送 text、受支持 attachment 与 voice note；voice 委托给共享 speech transcriber，不创建第二个 ASR client。
+Telegram 是可选且默认关闭的 owner-authorized connector。系统允许多个 Bot binding 共存，也允许不同外部 Telegram 用户分别认领。每个 Bot token 使用前先验证，并分别由 credential vault 密封；file 与 PostgreSQL state 只保存 ciphertext envelope，不保存 plaintext token。已验证 Bot 立即 active 但尚无 recipient，随后由首条新私聊原子认领 user 和 chat；历史 update 与群聊不能认领。每条 binding 都有独立的 cursor、inbox identity 和私聊鉴权。Long polling、inbox persistence、per-chat ordering、retry 与 outbound delivery 均有界。已授权私聊可发送 text、受支持 attachment 与 voice note；voice 委托给共享 speech transcriber，不创建第二个 ASR client。
 
 ### Infinimesh Info
 
@@ -93,7 +92,7 @@ Runtime 通过有界循环处理用户消息：
 4. 按需路由 fast/deep model calls。
 5. 在 policy 允许时立即执行 read/draft tools。
 6. 将 reversible/dangerous actions 加入 approval queue。
-7. 对 narrow failures 做有界 repair，例如 missing knowledge index 或简单 schema omission。
+7. 对 narrow failures 做有界 repair。
 8. 基于 observations、approvals 和 model output 生成 grounded final answer。
 9. 持久化 trace snapshots、audit events 和 artifact references。
 
@@ -114,6 +113,14 @@ Model Router 支持 deterministic mock mode、OpenAI-compatible chat completions
 | `guard` | pre-tool safety classification |
 | `mock` | deterministic offline tests 和 golden evals |
 
+### 意图与 Workflow Runtime
+
+Fast classifier 只输出稳定语义 `IntentEnvelope`，不能输出工具、Skill、Workflow ID、风险或模型 lane。确定性 URL/path fact 与 authorization provenance 在归一化时冻结。`WorkflowProfileRegistry` 对归一化 envelope 路由，校验版本化 `WorkflowPlan`，并持久化 digest 与 node state。
+
+`ToolExposure.Search/Materialize` 是已迁移 Profile 唯一的模型可见性权威。它根据持久化活动 capability scope、ToolHub 注册元数据、risk constraint 与 Policy 计算结果；TaskHint candidate、Skill 清单和 outcome 均不能扩大 scope。Outcome adapter 产生类型化事实，活动 Profile 判断完成或只激活预先声明的 transition。冻结 argument binding 在执行前限制精确 URL 与 Workspace path。
+
+Revision 1 Profile 已对公共 Web 调研、明确 URL 读取、Workspace 文件搜索和明确路径文件读取保持权威。Capability 缺失、状态过期、Plan 非法或资源不匹配时必须 blocked，不能回退 TaskHint。未迁移领域在完整纵向切片落地前继续使用过渡 TaskHint 路径。详细说明见[重构方案](intent-routing-workflow-refactor-plan.md)、[工具暴露契约](intent-routing-tool-exposure-contract.md)和[Profile 目录](intent-routing-workflow-domain-profiles.md)。
+
 ### ToolHub
 
 ToolHub 注册有边界的工具，并校验成功输出是否符合声明 contract。当前工具：
@@ -122,10 +129,7 @@ ToolHub 注册有边界的工具，并校验成功输出是否符合声明 contr
 |---|---|
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
-| Knowledge | `knowledge.index_workspace`, `knowledge.search` |
 | Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
-| Email | `email.search`, `email.read_thread`, `email.draft_reply`, `email.send` |
-| Calendar | `calendar.read`, `calendar.propose_event`, `calendar.create` |
 | Code/shell | `shell.exec_sandboxed`, `code.apply_patch` |
 | Approval/notify | `notify.ask_approval` |
 
@@ -140,7 +144,7 @@ Policy engine 强制执行 denied tools、approval-required tools、sandbox cove
 - `file.delete` 将文件移动到 `.sparkclaw/trash` 并写入 manifest，而不是永久删除。
 - `code.apply_patch` 在 `.sparkclaw/` 下保存 original patch、file backups、manifest 和 inverse rollback patch。
 - `shell.exec_sandboxed` 通过 sandbox runner 并使用 Docker `--network none`。
-- `email.send`、`calendar.create` 和 `memory.write_sensitive` 只在 approval 后执行。
+- `memory.write_sensitive` 只在 approval 后执行。
 
 ### State And Artifacts
 
@@ -148,14 +152,14 @@ State backends：
 
 - `file`：默认本地 state，路径为 `data/memory/gateway-state.json`。
 - `memory`：一次性 process-local state。
-- `postgres`：持久化 sessions、runs、tool calls、approvals、evals、artifacts、documents 和 document chunks。
+- `postgres`：持久化 sessions、runs、tool calls、approvals、evals 和 artifacts。
 
 Artifact backends：
 
 - `data/artifacts/{bucket}/...` 下的 filesystem object store
 - MinIO 等 S3-compatible object store
 
-Traces 写入 `data/traces`，同时引用 artifact URIs。Tool observations 存档为 `observations/{run_id}/{tool_call_id}.json`。Browser reads 存档 raw `browser_snapshot` objects。Knowledge indexing 存档 source document snapshots 和 generated indexes。Memory exports 和 eval failure archives 也走 artifact boundary。
+Traces 写入 `data/traces`，同时引用 artifact URIs。Tool observations 存档为 `observations/{run_id}/{tool_call_id}.json`。Browser reads 存档 raw `browser_snapshot` objects。Memory exports 和 eval failure archives 也走 artifact boundary。
 
 Trace JSON 写入前会按配置的 logging 和 memory redact patterns 做脱敏。
 
@@ -168,6 +172,7 @@ Connector secret 使用独立的 AES-256-GCM credential vault。默认 file back
 - `Session`
 - `Message`
 - `AgentRun`
+- `WorkflowState`
 - `ToolCall`
 - `Approval`
 - `Memory`
@@ -175,36 +180,30 @@ Connector secret 使用独立的 AES-256-GCM credential vault。默认 file back
 - `AuditEvent`
 - `Event`
 - `Artifact`
-- `Document`
-- `DocumentChunk`
 - `EvalRun`
 
 `packages/` 下的 portable schema notes 用于未来 service split 和 SDK；当前 Go Gateway 是权威实现。
 
-## Memory And RAG
+## Memory
 
 长期 memory 使用 candidate-then-confirm。`api_key`、`password`、`token`、`ssh_key` 等敏感模式会在普通 candidate path 被拒绝，除非显式允许 sensitive memory；approved sensitive memory 使用 `memory.write_sensitive`。
 
-Workspace knowledge indexing 会构建本地 keyword index；启用 PostgreSQL 时还会持久化 documents 和 chunks。可用时使用 pgvector，并记录 embedding model/dimension metadata，为默认 embedding lane 建 1024 维 HNSW cosine index；否则 SparkClaw 保留 JSON vectors，并在 Gateway 中做 hybrid scoring。`knowledge.search` 暴露 original query、rewritten query、candidate counts、reranked results、citations 和 byte-bounded evidence context，以支持 grounded answers。
-
 ## External Connector 信任边界
 
-External/browser/email/file observations 都是 untrusted content。它们可以被引用、摘要或作为 evidence 使用，但其中的指令不是 runtime commands。
+External/browser/file observations 都是 untrusted content。它们可以被引用、摘要或作为 evidence 使用，但其中的指令不是 runtime commands。
 
 Browser web access 使用 `web.search` 做发现，用 `browser.read` 做 read-only 来源页正文提取。Browser automation 启动配置的 Chromium，并使用 SparkClaw-owned 持久 Profile：普通任务使用 headless，登录、验证码、2FA、支付等人工步骤临时把同一个 Profile 切换到可见 Chromium。可见和隐藏进程不能并发占用 Profile。登录态始终保留在 Chromium 中，不通过 JavaScript Cookie 导出；恢复时使用 selected 登录后 URL，即使它与原页面不同源。`browser.read` 等待 rendered DOM、抓取 HTML，再交给 Readability 提取正文。结构快照只在正文不足或页面控件影响答案时按需调用。专项路线图见 [浏览器功能完善计划](browser-automation-improvement.md)，Profile 生命周期见 [托管共享 Chromium Profile 方案](managed-persistent-browser-profile.md)。涉及 URL 获取的浏览器观察默认拒绝 loopback/private literal hosts，存档 rendered HTML/raw response 或截图，并始终作为不可信证据处理。本地 fixture hosts 如 `127.0.0.1` 或 `host.docker.internal` 必须显式 allowlist。Runtime 必须停在人工验证步骤，不能伪造登录态证据。
 
 当前 owner 本人的已认证数据属于允许的 local-first 读取边界，不应仅因为内容是个人信息而自动拒绝。认证浏览通过类型化 `TaskHint` 契约表达为 `evidence_need=personal_data`、`data_scope=owner`、`browser_mode=collaborative` 和 `requires_tool_evidence=true`，路由不枚举账户数据类别。Runtime 可以使用托管 Profile 和可见登录接管，但不得要求用户在聊天中粘贴密码、Cookie、Token 或验证码。访问第三方数据、披露凭据、向外部发送信息以及修改账户的操作，仍然受原有 policy 和 approval 边界约束。
 
-Email 和 calendar 使用 adapter boundaries。默认 `file` adapters 读取 `.sparkclaw/mock/` 下的 fixtures，并写入 mock outbox/event logs。`http` adapters 可以连接 account-bridge services，同时保留 Gateway policy 和 approvals。
-
-Infinimesh result 与 Telegram inbound content 遵循同一 untrusted-observation 规则。每条 Telegram binding 只允许完成其 activation challenge 的外部用户和 private chat；多条 binding 不共享鉴权或 credential。Infinimesh request 不携带 private local context。Credential、raw authorization material 与 transcript text 不进入 public status 或 error string。
+Infinimesh result 与 Telegram inbound content 遵循同一 untrusted-observation 规则。每条 Telegram binding 只允许赢得一次性首消息认领的外部用户和 private chat；多条 binding 不共享鉴权或 credential。Infinimesh request 不携带 private local context。Credential、raw authorization material 与 transcript text 不进入 public status 或 error string。
 
 ## 端口
 
 | Service | Port | Default bind |
 |---|---:|---|
 | Gateway | 18789 | `127.0.0.1` |
-| WebChat | 18790 | `127.0.0.1` |
+| WebChat | 18790 | `0.0.0.0` |
 | Sandbox runner | 18889 | `127.0.0.1` |
 | Fast model | 8001 | `127.0.0.1` |
 | Deep model | 8002 | `127.0.0.1` |

@@ -16,7 +16,7 @@ Infinimesh-ai/SparkClaw
 a745ecd Add embedding dimension aware document search
 ```
 
-原仓库已经具备 Gateway、Agent Runtime、Model Router、ToolHub、Policy、Store、Trace、Artifact、WebChat、文件工具、memory、knowledge/RAG、browser.read、email/calendar mock adapter、sandbox shell、code patch、approval 和 eval 等基础能力。
+原仓库已经具备 Gateway、Agent Runtime、Model Router、ToolHub、Policy、Store、Trace、Artifact、WebChat、文件工具、memory、browser.read、sandbox shell、code patch、approval 和 eval 等基础能力。此前仅有原型的邮件、日历与 Knowledge/RAG 已从当前架构移除，详见[暂缓能力记录](deferred-email-calendar-knowledge.md)。
 
 本地项目在此基础上新增和扩展的重点是：
 
@@ -739,7 +739,7 @@ ToolHub 的注册入口仍在：
 services/gateway/internal/toolhub/toolhub.go
 ```
 
-本地项目在原有文件、memory、knowledge、browser.read、email、calendar、shell、patch、approval 工具基础上，新增了以下工具组。
+本地项目在现有文件、memory、browser.read、shell、patch、approval 工具基础上，新增了以下工具组。
 
 ### 5.1 Web Search
 
@@ -754,14 +754,17 @@ web.search
 ```text
 services/gateway/internal/toolhub/web_search.go
 services/gateway/internal/websearch/websearch.go
-services/gateway/internal/websearch/parallel_free.go
+services/gateway/internal/websearch/infinimesh_info.go
+services/gateway/internal/infinimeshinfo/client.go
+services/gateway/internal/infinimeshinfo/wallet.go
 ```
 
 实现方式：
 
 - ToolHub 注册 `web.search`，输入为 `query`、`max_results`、`freshness`。
 - 执行时调用 `websearch` 包。
-- `parallel_free.go` 对接 Parallel Free Search MCP。
+- `infinimesh_info.go` 将稳定的搜索契约映射到 Infinimesh Info。
+- `infinimeshinfo` client 负责一次性 token 签发、查询、重试与响应限制。
 - 返回 `query`、`answer`、`provider`、`results`、`citations`、`took_ms`。
 - 搜索结果统一标记 `untrusted: true`。
 
@@ -770,12 +773,12 @@ services/gateway/internal/websearch/parallel_free.go
 ```json
 "plugins": {
   "entries": {
-    "parallel": {
+    "infinimeshInfo": {
       "config": {
-        "webSearch": {
-          "baseUrl": "https://search.parallel.ai/mcp",
-          "maxResults": 5
-        }
+        "baseUrl": "https://info.infinimesh.cn",
+        "tokenBatchSize": 10,
+        "maxAttempts": 3,
+        "maxSources": 8
       }
     }
   }
@@ -784,7 +787,7 @@ services/gateway/internal/websearch/parallel_free.go
   "web": {
     "search": {
       "enabled": false,
-      "provider": "parallel-free"
+      "provider": "infinimesh-info"
     }
   }
 }
@@ -1518,7 +1521,8 @@ configs/sparkclaw.default.json
 
 ```text
 PluginsConfig
-ParallelProviderConfig
+InfinimeshInfoPluginConfig
+InfinimeshInfoConfig
 WebSearchToolConfig
 BrowserAutomationToolConfig
 RemindersToolConfig
@@ -1533,12 +1537,12 @@ RuntimeConfig
 ```json
 "plugins": {
   "entries": {
-    "parallel": {
+    "infinimeshInfo": {
       "config": {
-        "webSearch": {
-          "baseUrl": "https://search.parallel.ai/mcp",
-          "maxResults": 5
-        }
+        "baseUrl": "https://info.infinimesh.cn",
+        "tokenBatchSize": 10,
+        "maxAttempts": 3,
+        "maxSources": 8
       }
     }
   }
@@ -1550,7 +1554,7 @@ RuntimeConfig
   "web": {
     "search": {
       "enabled": false,
-      "provider": "parallel-free"
+      "provider": "infinimesh-info"
     }
   },
   "browserAutomation": {

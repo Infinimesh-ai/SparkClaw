@@ -29,6 +29,36 @@ type APIError struct {
 	RetryAfter  time.Duration
 }
 
+type ResponseError struct {
+	StatusCode int
+	Detail     string
+}
+
+func (e *ResponseError) Error() string {
+	if e == nil {
+		return "Telegram returned an unexpected response"
+	}
+	return fmt.Sprintf("Telegram returned an unexpected HTTP %d response: %s", e.StatusCode, e.Detail)
+}
+
+type transportError struct {
+	operation string
+	message   string
+	timeout   bool
+}
+
+func (e *transportError) Error() string {
+	return e.operation + ": " + e.message
+}
+
+func (e *transportError) Timeout() bool {
+	return e.timeout
+}
+
+func (e *transportError) Temporary() bool {
+	return true
+}
+
 func (e *APIError) Error() string {
 	if e == nil {
 		return "Telegram API error"
@@ -268,11 +298,11 @@ func (c *Client) execute(req *http.Request, result any) error {
 		return fmt.Errorf("read Telegram API response: %w", err)
 	}
 	if len(raw) > maxAPIResponseBytes {
-		return errors.New("Telegram API response exceeds size limit")
+		return &ResponseError{StatusCode: resp.StatusCode, Detail: "response exceeds size limit"}
 	}
 	var decoded apiResponse
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return fmt.Errorf("decode Telegram API response: HTTP %d", resp.StatusCode)
+		return &ResponseError{StatusCode: resp.StatusCode, Detail: "response is not valid JSON"}
 	}
 	if !decoded.OK || resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		apiErr := &APIError{Code: decoded.ErrorCode, Description: strings.TrimSpace(c.sanitize(decoded.Description))}
@@ -291,7 +321,7 @@ func (c *Client) execute(req *http.Request, result any) error {
 		return nil
 	}
 	if err := json.Unmarshal(decoded.Result, result); err != nil {
-		return fmt.Errorf("decode Telegram API result: %w", err)
+		return &ResponseError{StatusCode: resp.StatusCode, Detail: "result does not match the expected schema"}
 	}
 	return nil
 }
@@ -305,8 +335,12 @@ func (c *Client) fileEndpoint(filePath string) string {
 }
 
 func (c *Client) transportError(operation string, err error) error {
-	message := c.sanitize(err.Error())
-	return fmt.Errorf("%s: %s", operation, message)
+	var netErr interface{ Timeout() bool }
+	return &transportError{
+		operation: operation,
+		message:   c.sanitize(err.Error()),
+		timeout:   errors.As(err, &netErr) && netErr.Timeout(),
+	}
 }
 
 func (c *Client) sanitize(message string) string {

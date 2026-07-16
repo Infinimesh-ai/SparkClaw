@@ -215,67 +215,6 @@ CREATE TABLE IF NOT EXISTS episode_summaries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS documents (
-  id TEXT PRIMARY KEY,
-  source TEXT NOT NULL,
-  root TEXT NOT NULL,
-  path TEXT NOT NULL,
-  rel_path TEXT NOT NULL,
-  object_key TEXT,
-  content_hash TEXT NOT NULL,
-  bytes INTEGER NOT NULL,
-  indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (source, root, rel_path)
-);
-
-CREATE TABLE IF NOT EXISTS document_chunks (
-  id TEXT PRIMARY KEY,
-  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-  source TEXT NOT NULL,
-  root TEXT NOT NULL,
-  path TEXT NOT NULL,
-  rel_path TEXT NOT NULL,
-  start_line INTEGER NOT NULL,
-  end_line INTEGER NOT NULL,
-  text TEXT NOT NULL,
-  terms TEXT[] NOT NULL DEFAULT '{}',
-  content_hash TEXT NOT NULL,
-  embedding_json JSONB,
-  embedding_model TEXT,
-  embedding_dim INTEGER NOT NULL DEFAULT 0,
-  indexed_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-DO $$
-BEGIN
-  CREATE EXTENSION IF NOT EXISTS vector;
-EXCEPTION
-  WHEN undefined_file THEN
-    RAISE NOTICE 'pgvector extension is not installed; document_chunks.embedding will be skipped';
-END
-$$;
-
-DO $$
-BEGIN
-  ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS embedding vector;
-EXCEPTION
-  WHEN undefined_object THEN
-    RAISE NOTICE 'pgvector type is unavailable; using document_chunks.embedding_json fallback only';
-END
-$$;
-
-DO $$
-BEGIN
-  CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_hnsw_1024
-    ON document_chunks
-    USING hnsw ((embedding::vector(1024)) vector_cosine_ops)
-    WHERE embedding IS NOT NULL AND vector_dims(embedding) = 1024;
-EXCEPTION
-  WHEN undefined_object OR undefined_column THEN
-    RAISE NOTICE 'pgvector HNSW index unavailable; vector search will use exact scan or JSON fallback';
-END
-$$;
-
 CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_run_feedback_run_updated ON run_feedback(run_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_clients_token_hash ON clients(token_hash);
@@ -289,12 +228,3 @@ CREATE INDEX IF NOT EXISTS idx_eval_runs_started ON eval_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_created ON artifact_objects(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_run ON artifact_objects(run_id);
 CREATE INDEX IF NOT EXISTS idx_episode_summaries_session_created ON episode_summaries(session_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_documents_source_root_rel ON documents(source, root, rel_path);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_source_root ON document_chunks(source, root);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_model_dim ON document_chunks(embedding_model, embedding_dim);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_terms ON document_chunks USING GIN (terms);
-
-UPDATE document_chunks
-SET embedding_dim = jsonb_array_length(embedding_json)
-WHERE embedding_dim = 0
-  AND jsonb_typeof(embedding_json) = 'array';

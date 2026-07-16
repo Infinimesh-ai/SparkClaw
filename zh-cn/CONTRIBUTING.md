@@ -53,7 +53,7 @@ bash scripts/run-eval.sh
 - unit tests
 - 至少一个 golden 或 smoke eval path 覆盖用户可见行为
 
-file、browser、email、calendar 和 external adapter content 都必须视为 untrusted data。Reversible 和 dangerous actions 必须保持 approval-gated。
+file、browser 和 external adapter content 都必须视为 untrusted data。Reversible 和 dangerous actions 必须保持 approval-gated。
 
 ## 文档
 

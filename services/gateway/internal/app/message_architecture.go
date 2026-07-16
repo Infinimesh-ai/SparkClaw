@@ -1,0 +1,200 @@
+package app
+
+import "time"
+
+const (
+	MessageEnvelopeSchemaVersion = 1
+	RouteDecisionSchemaVersion   = 1
+	WorkflowResultSchemaVersion  = 1
+	DeliveryRequestSchemaVersion = 1
+)
+
+type MessageSourceKind string
+
+const (
+	MessageSourceWeb              MessageSourceKind = "web"
+	MessageSourceThirdPartyDevice MessageSourceKind = "third_party_device"
+	MessageSourceTimer            MessageSourceKind = "timer"
+)
+
+type MessagePartKind string
+
+const (
+	MessagePartText  MessagePartKind = "text"
+	MessagePartImage MessagePartKind = "image"
+	MessagePartAudio MessagePartKind = "audio"
+	MessagePartFile  MessagePartKind = "file"
+)
+
+type MessagePartDisposition string
+
+const (
+	MessageDispositionInline     MessagePartDisposition = "inline"
+	MessageDispositionAttachment MessagePartDisposition = "attachment"
+	MessageDispositionVoiceNote  MessagePartDisposition = "voice_note"
+)
+
+type EndpointID string
+type ScheduleID string
+type CapabilityID string
+type DeliveryID string
+
+type EndpointKind string
+
+const (
+	EndpointKindWeb              EndpointKind = "web"
+	EndpointKindThirdPartyDevice EndpointKind = "third_party_device"
+)
+
+type ReturnMode string
+
+const (
+	ReturnToSource   ReturnMode = "source"
+	ReturnToEndpoint ReturnMode = "endpoint"
+	ReturnNowhere    ReturnMode = "none"
+)
+
+type MessageSourceContext struct {
+	Kind            MessageSourceKind `json:"kind"`
+	Adapter         string            `json:"adapter,omitempty"`
+	EndpointID      EndpointID        `json:"endpoint_id,omitempty"`
+	NativeMessageID string            `json:"native_message_id,omitempty"`
+	NativeThreadRef string            `json:"native_thread_ref,omitempty"`
+	ScheduleID      ScheduleID        `json:"schedule_id,omitempty"`
+}
+
+type MessageAuthorization struct {
+	PrincipalID string   `json:"principal_id"`
+	Scope       []string `json:"scope,omitempty"`
+}
+
+type MessagePart struct {
+	ID                string                 `json:"id"`
+	Kind              MessagePartKind        `json:"kind"`
+	Disposition       MessagePartDisposition `json:"disposition"`
+	Text              string                 `json:"text,omitempty"`
+	ArtifactID        string                 `json:"artifact_id,omitempty"`
+	Resource          *ResourceRef           `json:"resource,omitempty"`
+	Name              string                 `json:"name,omitempty"`
+	ContentType       string                 `json:"content_type,omitempty"`
+	Bytes             int                    `json:"bytes,omitempty"`
+	Width             int                    `json:"width,omitempty"`
+	Height            int                    `json:"height,omitempty"`
+	SHA256            string                 `json:"sha256,omitempty"`
+	Caption           string                 `json:"caption,omitempty"`
+	DerivedFromPartID string                 `json:"derived_from_part_id,omitempty"`
+}
+
+type MessageContent struct {
+	Parts []MessagePart `json:"parts"`
+}
+
+type ReturnRoute struct {
+	Mode             ReturnMode `json:"mode"`
+	SourceEndpointID EndpointID `json:"source_endpoint_id,omitempty"`
+	EndpointID       EndpointID `json:"endpoint_id,omitempty"`
+}
+
+type MessageEnvelope struct {
+	SchemaVersion  int                  `json:"schema_version"`
+	ID             string               `json:"id"`
+	IdempotencyKey string               `json:"idempotency_key"`
+	CorrelationID  string               `json:"correlation_id,omitempty"`
+	CausationID    string               `json:"causation_id,omitempty"`
+	Source         MessageSourceContext `json:"source"`
+	OwnerID        string               `json:"owner_id"`
+	ActorID        string               `json:"actor_id"`
+	Content        MessageContent       `json:"content"`
+	ReturnRoute    ReturnRoute          `json:"return_route"`
+	Authorization  MessageAuthorization `json:"authorization"`
+	CreatedAt      time.Time            `json:"created_at"`
+}
+
+type RouteStatus string
+
+const (
+	RouteMatched   RouteStatus = "matched"
+	RouteClarify   RouteStatus = "clarify"
+	RouteUnmatched RouteStatus = "unmatched"
+	RouteBlocked   RouteStatus = "blocked"
+)
+
+type RouteDecision struct {
+	SchemaVersion   int               `json:"schema_version"`
+	Status          RouteStatus       `json:"status"`
+	CatalogRevision string            `json:"catalog_revision"`
+	CapabilityPath  []CapabilityID    `json:"capability_path,omitempty"`
+	Slots           map[string]any    `json:"slots,omitempty"`
+	Confidence      float64           `json:"confidence,omitempty"`
+	Facts           map[string]string `json:"facts,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
+}
+
+type WorkflowContractRef struct {
+	ID       WorkflowID `json:"id"`
+	Revision int        `json:"revision"`
+}
+
+type WorkflowResultStatus string
+
+const (
+	WorkflowResultSucceeded WorkflowResultStatus = "succeeded"
+	WorkflowResultWaiting   WorkflowResultStatus = "waiting"
+	WorkflowResultBlocked   WorkflowResultStatus = "blocked"
+	WorkflowResultFailed    WorkflowResultStatus = "failed"
+)
+
+type WorkflowResumeState struct {
+	Kind  string         `json:"kind"`
+	Token string         `json:"token,omitempty"`
+	Data  map[string]any `json:"data,omitempty"`
+}
+
+type WorkflowResultError struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable,omitempty"`
+}
+
+type WorkflowResult struct {
+	SchemaVersion  int                  `json:"schema_version"`
+	ID             string               `json:"id"`
+	RunID          string               `json:"run_id"`
+	Status         WorkflowResultStatus `json:"status"`
+	CapabilityPath []CapabilityID       `json:"capability_path"`
+	Workflow       WorkflowContractRef  `json:"workflow"`
+	Data           map[string]any       `json:"data,omitempty"`
+	Content        MessageContent       `json:"content"`
+	References     []ResourceRef        `json:"references,omitempty"`
+	ReturnRoute    ReturnRoute          `json:"return_route"`
+	Resume         *WorkflowResumeState `json:"resume,omitempty"`
+	Error          *WorkflowResultError `json:"error,omitempty"`
+}
+
+type DeliveryRequest struct {
+	SchemaVersion  int            `json:"schema_version"`
+	ID             DeliveryID     `json:"id"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	ResultID       string         `json:"result_id,omitempty"`
+	Target         EndpointID     `json:"target"`
+	Content        MessageContent `json:"content"`
+	CreatedAt      time.Time      `json:"created_at"`
+}
+
+type DeliveryStatus string
+
+const (
+	DeliveryPending   DeliveryStatus = "pending"
+	DeliverySucceeded DeliveryStatus = "succeeded"
+	DeliveryFailed    DeliveryStatus = "failed"
+)
+
+type DeliveryReceipt struct {
+	DeliveryID  DeliveryID     `json:"delivery_id"`
+	EndpointID  EndpointID     `json:"endpoint_id"`
+	Status      DeliveryStatus `json:"status"`
+	ProviderRef string         `json:"provider_ref,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	AttemptedAt time.Time      `json:"attempted_at"`
+	DeliveredAt *time.Time     `json:"delivered_at,omitempty"`
+}

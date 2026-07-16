@@ -30,7 +30,9 @@ Set `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN` inside `.env`. The token is passed on
 | `compat` | Gateway connected to externally managed OpenAI-compatible endpoints. |
 | `models-local` | PostgreSQL 18/pgvector, MinIO, sandbox-runner, Gateway, WebChat and optional vLLM lanes. |
 
-All host ports bind to localhost by default. Containers communicate over the private `sparkclaw_internal` network.
+WebChat binds host port `18790` to `0.0.0.0` by default for LAN access. Gateway,
+models, state services, and the sandbox runner remain bound to localhost.
+Containers communicate over the private `sparkclaw_internal` network.
 
 ## Minimal Local Runtime
 
@@ -49,7 +51,8 @@ curl -fsS http://127.0.0.1:18789/readyz
 bash scripts/doctor.sh
 ```
 
-Open WebChat at [http://127.0.0.1:18790](http://127.0.0.1:18790).
+Open WebChat locally at [http://127.0.0.1:18790](http://127.0.0.1:18790), or
+from another LAN device at `http://<host-lan-ip>:18790`.
 
 Run golden eval against the Dockerized Gateway:
 
@@ -70,6 +73,9 @@ npm install
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 npm --workspace @sparkclaw/webchat run dev
 ```
+
+The host WebChat dev server also listens on `0.0.0.0:18790` and proxies API
+requests to the loopback-only Gateway.
 
 Use token auth for local protected runs:
 
@@ -107,7 +113,7 @@ SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?ss
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
-Gateway applies the core schema at startup. The project-standard data service image is PostgreSQL 18 with pgvector. If pgvector is available, document chunks use model/dimension-filtered vector search and a 1024-dimensional HNSW cosine index for the default embedding lane. If a plain Postgres instance is used without pgvector, embeddings are also stored in JSON form and hybrid scoring runs in Gateway.
+Gateway applies the active core schema at startup. The project-standard data service image remains PostgreSQL 18 with pgvector available, but Gateway no longer creates or queries a document-chunk/vector schema while workspace knowledge/RAG is deferred.
 
 ## Artifact Storage
 
@@ -149,27 +155,6 @@ go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 
 When the runner talks to a host Docker socket, set `SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT` and `SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT` if paths differ between host and container.
 
-## Email And Calendar Adapters
-
-Default adapters are local file fixtures. To connect bridge services:
-
-```bash
-SPARKCLAW_EMAIL_ADAPTER_BACKEND=http \
-SPARKCLAW_EMAIL_ADAPTER_URL=http://127.0.0.1:18910 \
-SPARKCLAW_CALENDAR_ADAPTER_BACKEND=http \
-SPARKCLAW_CALENDAR_ADAPTER_URL=http://127.0.0.1:18911 \
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-```
-
-Expected HTTP endpoints:
-
-- `GET /email/search`
-- `GET /email/threads/{id}`
-- `POST /email/send`
-- `GET /calendar/events`
-- `POST /calendar/events`
-
-Drafting and event proposals remain local until the owner approves send/create actions.
 
 ## DGX Spark Data Services
 
@@ -279,7 +264,7 @@ BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh
 ```
 
-The validated real-model run completed 58 golden cases. See [model_baseline.md](../benchmarks/model_baseline.md) for benchmark rows and operating notes.
+The historical validated real-model run completed 58 golden cases. The active matrix now contains 43 cases and should be rerun after model-stack changes. See [model_baseline.md](../benchmarks/model_baseline.md) for benchmark rows and operating notes.
 
 ## Backup And Restore
 
@@ -320,9 +305,10 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 
 ## Secure Defaults
 
-- Bind host ports to `127.0.0.1`.
+- Expose only WebChat on `0.0.0.0:18790`; keep Gateway and other service ports
+  bound to `127.0.0.1`.
+- Set `SPARKCLAW_API_TOKEN` before sharing WebChat on a LAN or shared machine.
 - Keep Gateway unauthenticated only for local development.
-- Set `SPARKCLAW_API_TOKEN` for shared machines.
 - Keep dangerous and reversible tools approval-gated.
 - Keep shell execution sandboxed and network-disabled.
 - Treat browser/email/file observations as untrusted.

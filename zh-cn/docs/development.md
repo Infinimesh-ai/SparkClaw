@@ -28,10 +28,12 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
+| Intent/Profile/Tool Exposure 重构 | 按领域推进；Web 与 Workspace read/search 已权威迁移 | Profile Registry、Plan 校验、Exposure 与资源边界测试 |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
-| Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/email/calendar golden cases |
+| Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
-| File, browser, email, calendar, memory, knowledge, code and notify workflows | Complete | Unit tests plus 58-case eval |
+| File、browser、memory、code 和 notify workflow | Complete | Unit tests plus 43-case eval |
+| 邮件、日历和 Workspace Knowledge/RAG | 已暂缓；原型已移除 | [暂缓能力记录](deferred-email-calendar-knowledge.md) |
 | Skills registry boundary | Complete | Registry tests and `/api/skills`; skills do not bypass policy |
 | WebChat workbench | Complete | TypeScript/Vite build |
 | Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
@@ -84,18 +86,16 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 
 ## Golden Eval 覆盖
 
-`scripts/run-eval.sh` 当前期望 58 个 golden cases。覆盖：
+`scripts/run-eval.sh` 当前期望 43 个 golden cases。覆盖：
 
 - direct `/chat` profile selection
 - config、tool、skill、owner、client、auth 和 rate-limit surfaces
 - file search/read/write/delete 和 multi-file grounded answers
 - browser read、multi-source comparison、raw snapshots 和 prompt-injection handling
 - memory candidates、sensitive-memory rejection、approval-gated sensitive writes、editing 和 export
-- email search/thread/draft/send 和 calendar read/propose/create
 - approval modification、approval-pending run lifecycle 和 post-approval trace refresh
 - shell 和 code patch approval、rollback artifacts 和 sandbox command queueing
 - model-call telemetry 和 fast/deep/repair lane selection
-- knowledge indexing/search、citations、query rewrite metadata 和 missing-index repair
 - smoke/chaos eval persistence、failure archives 和 eval history
 
 添加 user-visible behavior 时，优先添加聚焦单元测试，以及一个覆盖真实 API path 的 golden case。
@@ -105,13 +105,15 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 新增工具时：
 
 1. 定义 input 和 output structures。
-2. 在 ToolHub 注册工具并指定 risk level。
-3. 校验成功 output。
+2. 在 ToolHub 同一 registration 中注册 execution、risk、语义 capability、可信目录元数据、effect 与 outcome adapter。
+3. 校验成功 output 与类型化 `ToolOutcome` adaptation。
 4. 如果它会 mutate、send、delete、execute 或暴露 sensitive data，添加 policy defaults。
 5. 添加 audit events 和 trace observation summaries。
 6. 如果 observation 可能很大或未来有用，存档完整 observation。
 7. 添加 unit tests 和至少一个 golden/smoke eval path。
 8. 如果改变产品边界，更新 [架构](architecture.md)。
+
+注册 capability 不会自动让模型看到工具。已迁移 Workflow Profile 必须把 capability 放入冻结活动 scope，且 `ToolExposure.Search/Materialize` 必须接纳并物化对应 registration。不要在 TaskHint、Skill metadata 或 Agent Runtime 中增加平行工具名清单。
 
 当前 risk expectations：
 
@@ -121,6 +123,20 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 | `draft` | 可产生本地 drafts/candidates，无外部副作用。 |
 | `reversible` | 需要 approval；必须保存 recovery metadata。 |
 | `dangerous` | 需要 approval；必须记录 reason、resources 和 execution result。 |
+
+## 使用 Intent 与 Workflow Profile
+
+完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个语义切片时：
+
+1. Fast 输出保持工具中立，Normalizer 冻结确定性 fact。
+2. 增加唯一类型化 Profile match、版本化 resolver、assessment 与 completion behavior。
+3. 让 Registry 在持久化前拒绝非法 identity、graph、scope、transition、dependency 与 argument binding。
+4. 通过 ToolHub registration 增加 capability 和 outcome adapter。
+5. 在冻结 Plan 中绑定受治理 URL/path/record 参数。
+6. 删除同一意图的 TaskHint candidate 与 Skill visibility 清单。
+7. 用端到端测试证明迁移路由经过 Tool Exposure，且没有产生 legacy routing audit。
+
+Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 switch 来选择 scope、资源、assessment 或下一步，应把行为移入 Profile、Plan binding 或 outcome adapter。
 
 ## 使用 Models
 
@@ -204,7 +220,7 @@ Traces 和 artifacts 是开发资产，但可能包含敏感运行上下文。�
 
 - 更长的 DGX Spark soak loops
 - smaller-context 和 no-MTP residency matrix，用于 simultaneous fast/deep serving
-- external email/calendar account bridges
+- 在满足[暂缓能力](deferred-email-calendar-knowledge.md)门槛后，以设计优先方式重新引入相应能力
 - connector hardening 和 user-facing account setup
 - trace cleaning 后的 LoRA/QLoRA 或 distillation
 - GGUF/Ollama/llama.cpp compatibility profile validation

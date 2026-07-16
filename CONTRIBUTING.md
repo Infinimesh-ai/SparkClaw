@@ -53,7 +53,7 @@ New or changed tools must include:
 - unit tests
 - at least one golden or smoke eval path for user-visible behavior
 
-Treat file, browser, email, calendar and external adapter content as untrusted data. Reversible and dangerous actions must remain approval-gated.
+Treat file, browser and external adapter content as untrusted data. Reversible and dangerous actions must remain approval-gated.
 
 ## Documentation
 

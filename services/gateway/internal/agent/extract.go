@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
 
 func searchQuery(content string) string {
@@ -35,36 +34,6 @@ func trimSearchScope(value string) string {
 		}
 	}
 	return strings.TrimSpace(value)
-}
-
-func emailSearchQuery(content string) string {
-	content = strings.TrimSpace(content)
-	lower := strings.ToLower(content)
-	if containsAny(lower, "unread", "未读") {
-		return "unread"
-	}
-	if containsAny(lower, "important", "重要") {
-		return "important"
-	}
-	patterns := []string{
-		"search email for",
-		"search emails for",
-		"search mail for",
-		"search inbox for",
-		"find email for",
-		"find emails for",
-		"find mail for",
-		"find inbox for",
-	}
-	for _, pattern := range patterns {
-		if idx := strings.Index(lower, pattern); idx >= 0 {
-			rest := strings.TrimSpace(content[idx+len(pattern):])
-			if rest != "" {
-				return trimSearchScope(trimSentence(rest))
-			}
-		}
-	}
-	return searchQuery(content)
 }
 
 func codeSearchQuery(content string) string {
@@ -142,7 +111,7 @@ func looksLikeLocalPathToken(content string, start, end int, value string) bool 
 	if strings.Contains(lower, "://") || strings.Contains(value, "@") {
 		return false
 	}
-	for _, prefix := range []string{"browser.", "files.", "email.", "calendar.", "memory.", "knowledge.", "code.", "shell.", "notify."} {
+	for _, prefix := range []string{"browser.", "files.", "memory.", "code.", "shell.", "notify."} {
 		if strings.HasPrefix(lower, prefix) {
 			return false
 		}
@@ -265,107 +234,6 @@ func parseLabeledValue(rest string) string {
 	return strings.TrimSpace(rest)
 }
 
-func draftBody(content, fallback string) string {
-	if match := regexp.MustCompile("(?is)body[:=]\\s*(.+)$").FindStringSubmatch(content); len(match) > 1 {
-		return strings.TrimSpace(match[1])
-	}
-	if match := regexp.MustCompile("(?is)draft[:=]\\s*(.+)$").FindStringSubmatch(content); len(match) > 1 {
-		return strings.TrimSpace(match[1])
-	}
-	return fallback
-}
-
-func emailSendArgs(content string) (map[string]any, bool) {
-	to := stringListFromLabel(content, "to")
-	subject := extractLabeledValue(content, "subject")
-	body := draftBody(content, "")
-	if len(to) == 0 || strings.TrimSpace(subject) == "" || strings.TrimSpace(body) == "" {
-		return nil, false
-	}
-	return map[string]any{
-		"thread_id": emailThreadID(content),
-		"to":        to,
-		"subject":   subject,
-		"body":      body,
-	}, true
-}
-
-func emailThreadID(content string) string {
-	if labeled := extractLabeledValue(content, "thread"); labeled != "" {
-		return labeled
-	}
-	if match := regexp.MustCompile(`(?i)\bthread[_-][A-Za-z0-9_-]+\b`).FindString(content); match != "" {
-		return strings.TrimSpace(match)
-	}
-	return ""
-}
-
-func stringListFromLabel(content, label string) []string {
-	raw := extractLabeledValue(content, label)
-	if raw == "" {
-		return nil
-	}
-	parts := strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ',' || r == ';' || r == '，' || r == '；'
-	})
-	out := []string{}
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
-func calendarProposalArgs(content string) map[string]any {
-	title := extractLabeledValue(content, "title")
-	if title == "" {
-		title = "SparkClaw proposed event"
-	}
-	start := extractDateTimeValue(content, "start")
-	if start == "" {
-		start = time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
-	}
-	end := extractDateTimeValue(content, "end")
-	args := map[string]any{
-		"title": title,
-		"start": start,
-		"notes": "Draft proposal generated locally. Review before creating any external event.",
-	}
-	if end != "" {
-		args["end"] = end
-	}
-	return args
-}
-
-func extractDateTimeValue(content, label string) string {
-	if match := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(label) + `[:=]\s*([0-9T:Z+\-]+)`).FindStringSubmatch(content); len(match) > 1 {
-		return strings.TrimSpace(match[1])
-	}
-	return ""
-}
-
-func shouldCreateCalendarEvent(lower, content string) bool {
-	if containsAny(lower, "read", "open", "show", "list", "check", "today", "读取", "打开", "查看", "列出", "今天") {
-		return false
-	}
-	if containsAny(lower, "create", "invite", "安排", "创建") {
-		return true
-	}
-	if containsAny(lower, "schedule") {
-		return extractLabeledValue(content, "title") != "" || extractDateTimeValue(content, "start") != ""
-	}
-	return false
-}
-
-func shouldPlanEmailWorkflow(lower string) bool {
-	if containsAny(lower, "email", "mail", "inbox", "邮件", "收件箱") {
-		return true
-	}
-	return containsAny(lower, "reply", "回复") && containsAny(lower, "calendar", "schedule", "availability", "available", "日程", "会议", "空闲", "可用时间")
-}
-
 func isCodeTask(content string) bool {
 	return containsAny(content,
 		"code", "patch", "diff", "repo", "repository", "codebase",
@@ -400,12 +268,9 @@ func containsAny(content string, needles ...string) bool {
 }
 
 func domainSpecificSearch(content string) bool {
-	return containsAny(content,
-		"knowledge", "rag", "知识库", "文档库",
-		"email", "mail", "inbox", "邮件", "收件箱",
-		"calendar", "schedule", "meeting", "日程", "会议",
-		"browser", "web", "网页", "网址",
-	)
+	return containsEnglishSemanticTerm(content,
+		"browser", "web",
+	) || containsAny(content, "网页", "网址")
 }
 
 func trimSentence(value string) string {

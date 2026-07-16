@@ -179,6 +179,86 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	}
 }
 
+func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSession("Workflow State")
+	run := app.AgentRun{
+		ID:        app.NewID("run"),
+		SessionID: session.ID,
+		State:     "running",
+		ModelLane: "fast",
+		Risk:      app.RiskRead,
+		Workflow: &app.WorkflowState{
+			SchemaVersion: 1,
+			Plan: app.WorkflowPlan{
+				SchemaVersion:   1,
+				ProfileID:       app.WorkflowWebPublicResearch,
+				ProfileRevision: 3,
+				InitialNodeIDs:  []app.WorkflowNodeID{"research"},
+			},
+			PlanDigest:    "sha256:test-plan",
+			Status:        app.WorkflowStatusRunning,
+			ActiveNodeIDs: []app.WorkflowNodeID{"research"},
+			Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+				"research": {
+					Status: app.WorkflowNodeActive,
+					CurrentScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
+						Name: "web.page.read",
+					}}},
+					ScopeRevision:     2,
+					AppliedOutcomeIDs: []string{"outcome_search"},
+					TransitionActivations: map[app.TransitionID]int{
+						"source_page": 1,
+					},
+					LastDirectory: &app.DirectoryViewRef{
+						ViewID:            "view_restart",
+						DirectoryRevision: "directory_7",
+						EntryIDs:          []app.ToolDirectoryEntryID{"entry_browser_read"},
+					},
+				},
+			},
+		},
+	}
+	st.SaveRun(run)
+	st.SaveToolCall(app.ToolCall{
+		ID:             app.NewID("tc"),
+		SessionID:      session.ID,
+		RunID:          run.ID,
+		WorkflowID:     app.WorkflowWebPublicResearch,
+		WorkflowNodeID: "research",
+		ScopeRevision:  2,
+		Capability:     "web.page.read",
+		Tool:           "browser.read",
+		Risk:           app.RiskRead,
+		Status:         "completed",
+		Arguments:      map[string]any{"url": "https://example.com/source"},
+	})
+
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotRun, ok := reloaded.GetRun(run.ID)
+	if !ok || gotRun.Workflow == nil {
+		t.Fatalf("workflow state did not reload: %#v ok=%v", gotRun, ok)
+	}
+	gotNode := gotRun.Workflow.Nodes["research"]
+	if gotRun.Workflow.PlanDigest != "sha256:test-plan" || gotNode.ScopeRevision != 2 ||
+		gotNode.TransitionActivations["source_page"] != 1 || len(gotNode.AppliedOutcomeIDs) != 1 ||
+		gotNode.LastDirectory == nil || gotNode.LastDirectory.DirectoryRevision != "directory_7" {
+		t.Fatalf("workflow restart state changed: %#v", gotRun.Workflow)
+	}
+	calls := reloaded.ListToolCalls(session.ID)
+	if len(calls) != 1 || calls[0].WorkflowID != app.WorkflowWebPublicResearch ||
+		calls[0].WorkflowNodeID != "research" || calls[0].ScopeRevision != 2 || calls[0].Capability != "web.page.read" {
+		t.Fatalf("tool workflow binding did not reload: %#v", calls)
+	}
+}
+
 func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gateway-state.json")
 	st, err := NewFileStore(path)

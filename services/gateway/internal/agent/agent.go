@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
@@ -20,13 +21,16 @@ import (
 )
 
 type Runtime struct {
-	store     store.Store
-	tools     *toolhub.ToolHub
-	policy    policy.Engine
-	models    modelrouter.Router
-	traces    *trace.Writer
-	skills    skills.Registry
-	artifacts artifact.Store
+	store        store.Store
+	tools        *toolhub.ToolHub
+	policy       policy.Engine
+	models       modelrouter.Router
+	traces       *trace.Writer
+	skills       skills.Registry
+	artifacts    artifact.Store
+	exposure     *toolExposureEngine
+	profiles     workflowProfileRegistry
+	capabilities capability.Catalog
 }
 
 type Result struct {
@@ -43,11 +47,26 @@ type StreamHandler func(StreamEvent) error
 type MessageAttachment = app.MessageAttachment
 
 func NewRuntime(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) Runtime {
-	return Runtime{store: st, tools: tools, policy: policyEngine, models: models, traces: traces, artifacts: artifact.NewStore(tools.Config().Storage)}
+	return newRuntime(st, tools, policyEngine, models, traces, skills.Registry{})
 }
 
 func NewRuntimeWithSkills(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) Runtime {
-	return Runtime{store: st, tools: tools, policy: policyEngine, models: models, traces: traces, skills: skillRegistry, artifacts: artifact.NewStore(tools.Config().Storage)}
+	return newRuntime(st, tools, policyEngine, models, traces, skillRegistry)
+}
+
+func newRuntime(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) Runtime {
+	return Runtime{
+		store:        st,
+		tools:        tools,
+		policy:       policyEngine,
+		models:       models,
+		traces:       traces,
+		skills:       skillRegistry,
+		artifacts:    artifact.NewStore(tools.Config().Storage),
+		exposure:     newToolExposureEngine(st, tools, policyEngine),
+		profiles:     defaultWorkflowProfileRegistry(),
+		capabilities: capability.MustDefaultCatalog(),
+	}
 }
 
 func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
@@ -57,44 +76,57 @@ func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
 
 func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 	r.policy = policyEngine
+	r.exposure = newToolExposureEngine(r.store, r.tools, policyEngine)
 	return r
 }
 
 func (r Runtime) HandleMessage(ctx context.Context, sessionID, content string) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, content, nil, nil, "", "")
+	return r.handleMessage(ctx, sessionID, content, nil, nil, "", "")
 }
 
 func (r Runtime) HandleMessageStream(ctx context.Context, sessionID, content string, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, content, nil, emit, "", "")
+	return r.handleMessage(ctx, sessionID, content, nil, emit, "", "")
 }
 
 func (r Runtime) HandleMessageWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, nil, "", "")
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, "", "")
 }
 
 func (r Runtime) HandleMessageStreamWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, emit, "", "")
+	return r.handleMessage(ctx, sessionID, content, attachments, emit, "", "")
 }
 
 func (r Runtime) HandleMessageWithAttachmentsIdempotent(ctx context.Context, sessionID, messageID, runID, content string, attachments []MessageAttachment) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, contentWithAttachments(content, attachments), attachments, nil, messageID, runID)
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID)
 }
 
-func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, agentContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string) (Result, error) {
+func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string) (Result, error) {
 	if requestedRunID != "" {
 		if existing, ok := r.store.GetRun(requestedRunID); ok && existing.SessionID == sessionID && existing.State != "received" {
 			return r.resultForExistingRun(existing), nil
 		}
 	}
-	userMessage := r.store.AddMessage(app.Message{
+	if messageID == "" {
+		messageID = app.NewID("m")
+	}
+	message := app.Message{
 		ID:          messageID,
 		SessionID:   sessionID,
 		Role:        "user",
 		Content:     visibleContent,
 		Attachments: attachments,
 		CreatedAt:   time.Now().UTC(),
-	})
-	_ = userMessage
+	}
+	session, ok := r.store.GetSession(sessionID)
+	if !ok {
+		session = app.Session{ID: sessionID, OwnerID: app.DefaultOwnerID, Source: "web"}
+	}
+	envelope, err := messageplane.Normalize(messageplane.Ingress{Session: session, Message: message})
+	if err != nil {
+		return Result{}, fmt.Errorf("normalize message ingress: %w", err)
+	}
+	agentContent := messageplane.RoutingProjection(envelope)
+	userMessage := r.store.AddMessage(message)
 	if result, handled, err := r.resumeBrowserLoginBlock(ctx, sessionID, visibleContent, emit); handled || err != nil {
 		return result, err
 	}
@@ -110,6 +142,22 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 		run.ID = app.NewID("run")
 	}
 	r.store.SaveRun(run)
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		RunID:     run.ID,
+		Actor:     "message_plane",
+		Type:      "message.envelope.normalized",
+		Summary:   "Normalized inbound content into the channel-neutral message contract",
+		Fields: map[string]any{
+			"envelope_id":      envelope.ID,
+			"schema_version":   envelope.SchemaVersion,
+			"source_kind":      envelope.Source.Kind,
+			"return_mode":      envelope.ReturnRoute.Mode,
+			"content_kinds":    messageplane.ContentKinds(envelope.Content),
+			"part_count":       len(envelope.Content.Parts),
+			"catalog_revision": r.capabilities.Revision(),
+		},
+	})
 	guard, guardErr := r.classifyWithGuard(ctx, sessionID, run.ID, agentContent)
 	if guardErr == nil && guard.Verdict == "block" {
 		now := time.Now().UTC()
@@ -134,27 +182,102 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 		return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
 	}
 
-	hint := r.generateTaskHint(ctx, sessionID, run.ID, agentContent)
-	r.store.AddAudit(app.AuditEvent{
-		SessionID: sessionID,
-		RunID:     run.ID,
-		Actor:     "gateway",
-		Type:      "gateway.dispatch",
-		Summary:   "Dispatched run from fast TaskHint classification",
-		Fields: map[string]any{
-			"model_lane_hint":        hint.ModelLaneHint,
-			"task_type":              hint.TaskType,
-			"evidence_need":          hint.EvidenceNeed,
-			"data_scope":             hint.DataScope,
-			"tool_mode":              hint.ToolMode,
-			"browser_mode":           hint.BrowserMode,
-			"requires_tool_evidence": hint.RequiresToolEvidence,
-			"browser_mode_reason":    hint.Reason,
-			"candidate_skills":       hint.CandidateSkills,
-			"candidate_tools":        hint.CandidateTools,
-		},
-	})
-	relevantSkills := r.relevantSkillsForHint(agentContent, hint)
+	recognized, authoritativeWorkflow, routingErr := r.classifyIntent(ctx, sessionID, run.ID, userMessage.ID, agentContent)
+	if routingErr != nil {
+		return r.blockWorkflowSetup(ctx, run, visibleContent, routingErr), nil
+	}
+	var hint TaskHint
+	var relevantSkills []skills.Skill
+	var visibleTools []app.ToolDefinition
+	var activeProfile workflowProfile
+	if authoritativeWorkflow {
+		var plan app.WorkflowPlan
+		var err error
+		activeProfile, plan, err = r.profiles.Resolve(recognized)
+		if err != nil {
+			return r.blockWorkflowSetup(ctx, run, visibleContent, err), nil
+		}
+		run.Workflow = newWorkflowState(recognized.Intent, plan)
+		run.State = "routing"
+		r.store.SaveRun(run)
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID,
+			RunID:     run.ID,
+			Actor:     "runtime",
+			Type:      "workflow.resolved",
+			Summary:   "Resolved stable intent into a frozen workflow plan",
+			Fields: map[string]any{
+				"workflow_id":       plan.ProfileID,
+				"profile_revision":  plan.ProfileRevision,
+				"plan_digest":       run.Workflow.PlanDigest,
+				"active_node_ids":   run.Workflow.ActiveNodeIDs,
+				"completion":        plan.Completion,
+				"procedural_skills": plan.SkillIDs,
+			},
+		})
+		workflowHint := activeProfile.Hint(run.Workflow)
+		relevantSkills = r.exactWorkflowSkills(plan.SkillIDs)
+		visibleTools, err = r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(sessionID), &workflowHint)
+		if err != nil {
+			return r.blockWorkflowSetup(ctx, run, visibleContent, err), nil
+		}
+		hint = workflowHint.taskHint()
+		if refreshed, ok := r.store.GetRun(run.ID); ok {
+			run = refreshed
+		}
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID,
+			RunID:     run.ID,
+			Actor:     "gateway",
+			Type:      "gateway.dispatch",
+			Summary:   "Dispatched run from stable semantic intent",
+			Fields: map[string]any{
+				"workflow_id":     plan.ProfileID,
+				"node_id":         hint.WorkflowNodeID,
+				"scope_revision":  hint.ScopeRevision,
+				"capability":      hint.Capability,
+				"model_lane_hint": hint.ModelLaneHint,
+			},
+		})
+	} else {
+		hint = r.generateTaskHint(ctx, sessionID, run.ID, agentContent)
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID,
+			RunID:     run.ID,
+			Actor:     "gateway",
+			Type:      "gateway.dispatch",
+			Summary:   "Dispatched unmigrated domain from TaskHint classification",
+			Fields: map[string]any{
+				"model_lane_hint":        hint.ModelLaneHint,
+				"task_type":              hint.TaskType,
+				"evidence_need":          hint.EvidenceNeed,
+				"data_scope":             hint.DataScope,
+				"tool_mode":              hint.ToolMode,
+				"browser_mode":           hint.BrowserMode,
+				"requires_tool_evidence": hint.RequiresToolEvidence,
+				"browser_mode_reason":    hint.Reason,
+				"candidate_skills":       hint.CandidateSkills,
+				"candidate_tools":        hint.CandidateTools,
+			},
+		})
+		relevantSkills = r.relevantSkillsForHint(agentContent, hint)
+		visibleTools = r.visibleToolDefinitions(hint, relevantSkills)
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID,
+			RunID:     run.ID,
+			Actor:     "runtime",
+			Type:      "react.visible_tools",
+			Summary:   "Selected model-visible ToolDefinitions for an unmigrated domain",
+			Fields: map[string]any{
+				"tools":                    visibleToolNames(visibleTools),
+				"fallback_tool_candidates": fallbackToolCandidatesForAudit(hint),
+				"browser_mode":             hint.BrowserMode,
+				"data_scope":               hint.DataScope,
+				"requires_tool_evidence":   hint.RequiresToolEvidence,
+				"browser_mode_reason":      hint.Reason,
+			},
+		})
+	}
 	if len(relevantSkills) > 0 {
 		r.store.AddAudit(app.AuditEvent{
 			SessionID: sessionID,
@@ -167,42 +290,22 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 			},
 		})
 	}
-	visibleTools := r.visibleToolDefinitions(hint, relevantSkills)
-	r.store.AddAudit(app.AuditEvent{
-		SessionID: sessionID,
-		RunID:     run.ID,
-		Actor:     "runtime",
-		Type:      "react.visible_tools",
-		Summary:   "Selected model-visible ToolDefinitions",
-		Fields: map[string]any{
-			"tools":                    visibleToolNames(visibleTools),
-			"fallback_tool_candidates": fallbackToolCandidatesForAudit(hint),
-			"browser_mode":             hint.BrowserMode,
-			"data_scope":               hint.DataScope,
-			"requires_tool_evidence":   hint.RequiresToolEvidence,
-			"browser_mode_reason":      hint.Reason,
-		},
-	})
-
 	run.State = "reacting"
 	r.store.SaveRun(run)
 
-	reactResult := r.runReActLoop(ctx, sessionID, run, agentContent, hint, relevantSkills, visibleTools)
+	var reactResult reactRunResult
+	if authoritativeWorkflow {
+		reactResult = r.runWorkflow(ctx, sessionID, run, agentContent, activeProfile, hint, relevantSkills, visibleTools)
+		if refreshed, ok := r.store.GetRun(run.ID); ok {
+			run = refreshed
+		}
+	} else {
+		reactResult = r.runReActLoop(ctx, sessionID, run, agentContent, hint, relevantSkills, visibleTools)
+	}
 	toolCalls := reactResult.ToolCalls
 	approvals := reactResult.Approvals
 	observations := reactResult.Observations
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
-	if memoryPlan, ok := r.knowledgeMemoryProposalPlan(agentContent, currentToolCalls); ok {
-		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, memoryPlan)
-		toolCalls = append(toolCalls, call)
-		if approval != nil {
-			approvals = append(approvals, *approval)
-		}
-		if observation != "" {
-			observations = append(observations, observation)
-		}
-		currentToolCalls = toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
-	}
 
 	now := time.Now().UTC()
 	if reactResult.BrowserLoginBlock != nil {
@@ -211,6 +314,9 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent, a
 	} else if len(approvals) > 0 {
 		run.State = "approval_pending"
 		run.CompletedAt = nil
+	} else if run.Workflow != nil && run.Workflow.Status == app.WorkflowStatusBlocked {
+		run.State = "blocked"
+		run.CompletedAt = &now
 	} else if isBlockedFinalAnswer(reactResult.FinalAnswer) {
 		run.State = "blocked"
 		run.CompletedAt = &now
@@ -517,50 +623,6 @@ func finalAnswerToolEvidence(calls []app.ToolCall) string {
 	return strings.Join(lines, "\n")
 }
 
-func contentWithAttachments(content string, attachments []MessageAttachment) string {
-	if len(attachments) == 0 {
-		return content
-	}
-	lines := []string{strings.TrimSpace(content), "", "Attached files for this user turn:"}
-	for _, attachment := range attachments {
-		relPath := strings.TrimSpace(filepath.ToSlash(attachment.RelPath))
-		if relPath == "" {
-			continue
-		}
-		name := strings.TrimSpace(attachment.Name)
-		if name == "" {
-			name = filepath.Base(relPath)
-		}
-		detail := "- " + name + " path=" + relPath
-		if attachment.ContentType != "" {
-			detail += " content_type=" + attachment.ContentType
-		}
-		if attachment.Bytes > 0 {
-			detail += fmt.Sprintf(" bytes=%d", attachment.Bytes)
-		}
-		if attachment.Width > 0 && attachment.Height > 0 {
-			detail += fmt.Sprintf(" size=%dx%d", attachment.Width, attachment.Height)
-		}
-		if attachment.SHA256 != "" {
-			detail += " sha256=" + attachment.SHA256
-		}
-		if isLikelyImageAttachment(attachment) {
-			detail += " media_kind=image"
-		}
-		lines = append(lines, detail)
-	}
-	lines = append(lines, "When the user asks about an attached image, use images.inspect with the listed path. For attached documents or text files, use the appropriate read/document tool. If the user wants an image as the response, return a single Markdown media link after generating or locating it with visible tools.")
-	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
-
-func isLikelyImageAttachment(attachment MessageAttachment) bool {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(attachment.ContentType)), "image/") {
-		return true
-	}
-	relPath := strings.ToLower(filepath.ToSlash(strings.TrimSpace(attachment.RelPath)))
-	return strings.HasPrefix(relPath, "media/")
-}
-
 func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrouter.ChatResult, toolCalls []app.ToolCall, approvals []app.Approval, feedback []app.RunFeedback, episode *app.EpisodeSummary) {
 	if r.traces != nil {
 		object, _ := r.traces.WriteRunObject(ctx, trace.RunTrace{
@@ -824,44 +886,30 @@ func modelCallFromGuard(sessionID, runID string, guard modelrouter.GuardResult, 
 }
 
 type toolPlan struct {
-	Name          string
-	Args          map[string]any
-	RepairAttempt int
-}
-
-func mentionsKnowledgeSearch(lower string) bool {
-	return containsAny(lower, "knowledge", "rag", "知识库", "文档库") &&
-		containsAny(lower, "search", "find", "query", "查", "找", "检索", "搜索")
-}
-
-func (r Runtime) knowledgeMemoryProposalPlan(content string, calls []app.ToolCall) (toolPlan, bool) {
-	lower := strings.ToLower(content)
-	if !mentionsKnowledgeSearch(lower) || !containsAny(lower, "remember", "记住", "记忆") {
-		return toolPlan{}, false
-	}
-	answer, ok := knowledgeAnswerFromCalls(content, calls)
-	if !ok {
-		return toolPlan{}, false
-	}
-	return toolPlan{Name: "memory.write_candidate", Args: map[string]any{
-		"content":     "Knowledge answer: " + answer,
-		"kind":        "semantic",
-		"sensitivity": "normal",
-		"reason":      "The user asked SparkClaw to remember the locally evidenced knowledge-search result.",
-	}}, true
+	Name           string
+	Args           map[string]any
+	RepairAttempt  int
+	WorkflowID     app.WorkflowID
+	WorkflowNodeID app.WorkflowNodeID
+	ScopeRevision  int
+	Capability     string
 }
 
 func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan toolPlan) (app.ToolCall, *app.Approval, string) {
 	def, ok := r.tools.Definition(plan.Name)
 	now := time.Now().UTC()
 	call := app.ToolCall{
-		ID:        app.NewID("tc"),
-		SessionID: sessionID,
-		RunID:     runID,
-		Tool:      plan.Name,
-		Status:    "started",
-		Arguments: plan.Args,
-		StartedAt: now,
+		ID:             app.NewID("tc"),
+		SessionID:      sessionID,
+		RunID:          runID,
+		Tool:           plan.Name,
+		Status:         "started",
+		Arguments:      plan.Args,
+		StartedAt:      now,
+		WorkflowID:     plan.WorkflowID,
+		WorkflowNodeID: plan.WorkflowNodeID,
+		ScopeRevision:  plan.ScopeRevision,
+		Capability:     plan.Capability,
 	}
 	if !ok {
 		call.Status = "failed"
@@ -874,33 +922,16 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	call.Risk = def.Risk
 	if err := r.tools.Validate(plan.Name, plan.Args); err != nil {
-		if repairedPlan, ok := r.schemaRepairPlan(plan, err); ok {
-			r.markRepairing(runID)
-			r.store.AddAudit(app.AuditEvent{
-				SessionID: sessionID,
-				RunID:     runID,
-				Actor:     "runtime",
-				Type:      "repair.schema",
-				Summary:   "Schema repair filled missing arguments for " + plan.Name,
-				Fields: map[string]any{
-					"tool":          plan.Name,
-					"error":         err.Error(),
-					"repair_reason": "missing calendar end derived from start",
-				},
-			})
-			call.Status = "repaired"
-			call.Error = err.Error()
-			call.Result = map[string]any{
-				"repair":        "schema",
-				"repaired_args": repairedPlan.Args,
-			}
-			done := time.Now().UTC()
-			call.CompletedAt = &done
-			r.store.SaveToolCall(call)
-			repairedCall, approval, observation := r.runToolPlan(ctx, sessionID, runID, repairedPlan)
-			return repairedCall, approval, fmt.Sprintf("%s schema repaired after %s. %s", plan.Name, call.ID, observation)
-		}
 		call.Status = "failed"
+		call.Error = err.Error()
+		done := time.Now().UTC()
+		call.CompletedAt = &done
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
+		r.store.SaveToolCall(call)
+		return call, nil, call.ObservationSummary
+	}
+	if err := r.validateWorkflowToolPlan(runID, plan, def); err != nil {
+		call.Status = "blocked"
 		call.Error = err.Error()
 		done := time.Now().UTC()
 		call.CompletedAt = &done
@@ -977,23 +1008,6 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		call.Error = err.Error()
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
 		r.store.SaveToolCall(call)
-		if repair, ok := r.repairPlan(plan, err); ok {
-			r.markRepairing(runID)
-			escalation := r.escalateRepair(ctx, sessionID, runID, plan, err)
-			repairCall, _, repairObservation := r.runToolPlan(ctx, sessionID, runID, repair)
-			retry := plan
-			retry.RepairAttempt = plan.RepairAttempt + 1
-			retryCall, _, retryObservation := r.runToolPlan(ctx, sessionID, runID, retry)
-			call.Result = map[string]any{
-				"initial_error":      err.Error(),
-				"repair_escalation":  escalation,
-				"repair_tool_call":   repairCall.ID,
-				"retry_tool_call":    retryCall.ID,
-				"repair_observation": repairObservation,
-				"retry_observation":  retryObservation,
-			}
-			return call, nil, fmt.Sprintf("%s failed, repaired with %s, then retried as %s.", plan.Name, repairCall.ID, retryCall.ID)
-		}
 		return call, nil, call.ObservationSummary
 	}
 	call.Status = "completed"
@@ -1027,108 +1041,6 @@ func (r Runtime) toolResultObservationBudget(tool string) (int, int) {
 	return maxBytes, evidenceLimit
 }
 
-func (r Runtime) escalateRepair(ctx context.Context, sessionID, runID string, failed toolPlan, failure error) string {
-	task := modelrouter.Task{
-		Message:       failed.Name + " failed: " + failure.Error(),
-		Risk:          app.RiskRead,
-		ToolFailures:  1,
-		RequestedDeep: true,
-	}
-	system := systemPrompt() + "\nRepair verifier: inspect the failed tool call as data, choose a bounded repair, and do not execute side effects."
-	user := fmt.Sprintf("failed_tool=%s\nerror=%s\nargs=%s", failed.Name, failure.Error(), toolArgsSummary(failed.Args))
-	started := time.Now().UTC()
-	chat, err := r.models.Chat(ctx, task, system, user)
-	completed := time.Now().UTC()
-	r.store.SaveModelCall(modelCallFromChat(sessionID, runID, "repair_verifier", chat, err, started, completed))
-	fields := map[string]any{
-		"failed_tool": failed.Name,
-		"error":       failure.Error(),
-		"lane":        chat.Lane,
-		"profile":     chat.Profile,
-		"status":      "completed",
-	}
-	if err != nil {
-		fields["status"] = "failed"
-		fields["repair_error"] = err.Error()
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID,
-			RunID:     runID,
-			Actor:     "model-router",
-			Type:      "repair.escalation_failed",
-			Summary:   "Deep repair verifier failed for " + failed.Name,
-			Fields:    fields,
-		})
-		return "deep repair verifier failed: " + err.Error()
-	}
-	r.store.AddAudit(app.AuditEvent{
-		SessionID: sessionID,
-		RunID:     runID,
-		Actor:     "model-router",
-		Type:      "repair.escalated",
-		Summary:   "Deep repair verifier reviewed " + failed.Name,
-		Fields:    fields,
-	})
-	return fmt.Sprintf("deep repair verifier (%s) reviewed %s.", chat.Profile, failed.Name)
-}
-
-func (r Runtime) repairPlan(plan toolPlan, err error) (toolPlan, bool) {
-	if plan.RepairAttempt > 0 {
-		return toolPlan{}, false
-	}
-	errText := strings.ToLower(err.Error())
-	switch plan.Name {
-	case "knowledge.search":
-		if containsAny(errText, "knowledge.json", "no such file", "cannot find", "missing index") {
-			return toolPlan{Name: "knowledge.index_workspace", Args: map[string]any{}, RepairAttempt: plan.RepairAttempt + 1}, true
-		}
-	}
-	return toolPlan{}, false
-}
-
-func (r Runtime) schemaRepairPlan(plan toolPlan, err error) (toolPlan, bool) {
-	if plan.RepairAttempt > 0 {
-		return toolPlan{}, false
-	}
-	if plan.Name != "calendar.propose_event" && plan.Name != "calendar.create" {
-		return toolPlan{}, false
-	}
-	if !strings.Contains(err.Error(), `requires "end"`) {
-		return toolPlan{}, false
-	}
-	start, ok := plan.Args["start"].(string)
-	if !ok || strings.TrimSpace(start) == "" {
-		return toolPlan{}, false
-	}
-	parsed, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(start))
-	if parseErr != nil {
-		return toolPlan{}, false
-	}
-	repairedArgs := map[string]any{}
-	for key, value := range plan.Args {
-		repairedArgs[key] = value
-	}
-	repairedArgs["end"] = parsed.Add(30 * time.Minute).Format(time.RFC3339)
-	return toolPlan{Name: plan.Name, Args: repairedArgs, RepairAttempt: plan.RepairAttempt + 1}, true
-}
-
-const defaultEmailDraftBody = "Email reply draft prepared by SparkClaw. Please review before sending."
-
-func enrichPlanWithObservations(goal string, plan toolPlan, calls []app.ToolCall) toolPlan {
-	if plan.Name != "email.draft_reply" || strings.TrimSpace(stringValue(plan.Args["body"])) != defaultEmailDraftBody {
-		return plan
-	}
-	body := emailDraftBodyFromObservations(goal, calls)
-	if body == "" {
-		return plan
-	}
-	args := map[string]any{}
-	for key, value := range plan.Args {
-		args[key] = value
-	}
-	args["body"] = body
-	return toolPlan{Name: plan.Name, Args: args, RepairAttempt: plan.RepairAttempt}
-}
-
 func enrichPlanWithWebFreshness(goal string, plan toolPlan) toolPlan {
 	if plan.Name != "web.search" || !goalNeedsFreshWeb(goal) {
 		return plan
@@ -1145,7 +1057,8 @@ func enrichPlanWithWebFreshness(goal string, plan toolPlan) toolPlan {
 		args["freshness"] = "latest"
 	}
 	args["query"] = queryWithFreshnessIntent(goal, query, currentSearchDate())
-	return toolPlan{Name: plan.Name, Args: args, RepairAttempt: plan.RepairAttempt}
+	plan.Args = args
+	return plan
 }
 
 func goalNeedsFreshWeb(goal string) bool {
@@ -1222,7 +1135,8 @@ func enrichPlanWithBrowserMode(hint TaskHint, plan toolPlan) toolPlan {
 	if _, ok := args["surface_visible"]; !ok {
 		args["surface_visible"] = mode == "collaborative"
 	}
-	return toolPlan{Name: plan.Name, Args: args, RepairAttempt: plan.RepairAttempt}
+	plan.Args = args
+	return plan
 }
 
 func hasNonEmptyStringArg(args map[string]any, key string) bool {
@@ -1250,70 +1164,6 @@ func browserPresentationForMode(mode string) string {
 		return "visible"
 	}
 	return "hidden"
-}
-
-func emailDraftBodyFromObservations(goal string, calls []app.ToolCall) string {
-	thread := latestEmailThreadFromCalls(calls)
-	subject := "your note"
-	sender := "there"
-	latest := ""
-	if thread != nil {
-		if value := cleanOptionalString(thread["subject"]); value != "" {
-			subject = value
-		}
-		if value := cleanOptionalString(thread["from"]); value != "" {
-			sender = value
-		}
-		latest = latestEmailMessageBody(thread)
-	}
-	lines := []string{
-		"Hi " + sender + ",",
-		"",
-		"Thanks for the message about " + subject + ".",
-	}
-	if latest != "" {
-		lines = append(lines, "I saw your note: "+quoteInline(trimForEpisode(strings.Join(strings.Fields(latest), " "), 180))+".")
-	}
-	if asksForFreeSlots(goal) || containsAny(goal, "calendar", "schedule", "日程", "会议") {
-		slots := calendarAvailabilityLinesForDraft(goal, calls)
-		if len(slots) > 0 {
-			lines = append(lines, "", "Based on my calendar, I can make any of these times work:")
-			for _, slot := range slots {
-				lines = append(lines, strings.TrimPrefix(slot, "- "))
-			}
-		} else {
-			lines = append(lines, "", "I checked my calendar and do not see a clear free slot in the observed range.")
-		}
-	}
-	lines = append(lines, "", "Please confirm what works best.", "", "Best,")
-	return strings.Join(lines, "\n")
-}
-
-func latestEmailThreadFromCalls(calls []app.ToolCall) map[string]any {
-	for i := len(calls) - 1; i >= 0; i-- {
-		call := calls[i]
-		if call.Tool != "email.read_thread" || call.Status != "completed" {
-			continue
-		}
-		result, ok := anyMap(call.Result)
-		if !ok {
-			continue
-		}
-		thread, ok := anyMap(result["thread"])
-		if ok {
-			return thread
-		}
-	}
-	return nil
-}
-
-func (r Runtime) markRepairing(runID string) {
-	run, ok := r.store.GetRun(runID)
-	if !ok {
-		return
-	}
-	run.State = "repairing"
-	r.store.SaveRun(run)
 }
 
 func systemPrompt() string {
@@ -1446,14 +1296,12 @@ func summarizeEpisode(goal string, run app.AgentRun, calls []app.ToolCall, appro
 	tools := make([]string, 0, len(calls))
 	failures := []string{}
 	repairPerformed := false
-	sawFailure := false
 	for _, call := range calls {
 		tools = append(tools, call.Tool+":"+call.Status)
 		if strings.Contains(call.Status, "failed") || call.Error != "" {
 			failures = append(failures, call.Tool+":"+call.Error)
-			sawFailure = true
 		}
-		if call.Status == "repaired" || sawFailure && call.Tool == "knowledge.index_workspace" && call.Status == "completed" {
+		if call.Status == "repaired" {
 			repairPerformed = true
 		}
 	}
@@ -1575,10 +1423,6 @@ func approvalSummary(name string, args map[string]any) string {
 		return "Move file to SparkClaw trash: " + stringValue(args["path"])
 	case "memory.write_sensitive":
 		return "Write sensitive memory after owner approval"
-	case "email.send":
-		return "Send email to " + strings.Join(stringSliceValue(args["to"]), ", ")
-	case "calendar.create":
-		return "Create calendar event: " + stringValue(args["title"])
 	case "docx.replace_paragraph":
 		return "修改 Word 文档段落：" + stringValue(args["path"])
 	case "docx.insert_paragraph":

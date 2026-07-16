@@ -63,13 +63,13 @@
 - `deep` 保留能稳定运行的最大 context。
 - `fast` 降到 32K 或 64K。
 - MTP 和 DFlash 类优化都先关闭。
-- 升级为推荐 profile 前，必须测 startup、idle residency、warm request、long-context request 和 58-case golden eval。
+- 升级为推荐 profile 前，必须测 startup、idle residency、warm request、long-context request 和当前 43-case golden eval。
 
 这样 SparkClaw 仍然有一个响应快的本地 `fast` lane，同时保住 `deep` 最重要的价值：在更大的证据窗口里处理复杂推理。
 
 第一轮接受结论：在辅助模型显式 KV cap 后，`dual-light-v1` 可以作为单机完整产品常驻 profile。Warm `fast` 约 48-50 tok/s，warm `deep` 约 7.3 tok/s。停掉 embedding/reranker 后的 chat-only 对照中，`deep` 吞吐基本不变，因此 `deep` 慢应视为稠密模型的质量/稳定性取舍，而不是常驻方案失败。辅助模型如果在两个 chat lanes 常驻后启动，需要小的显式 KV budget：embedding 32K 启动失败，embedding 8K + 2G KV 可启动，warm request 约 28.5 ms。
 
-这个单用户 profile 的验收标准是综合任务表现，而不是并发。2026-05-25，`dual-light-v1` 在 fast、deep、embedding、reranker 全部常驻，并由 external Gateway 调用的情况下，通过了 58-case real-model golden eval。因此它是当前接受的单机双模型 profile；后续调优重点应放在质量回退、启动体验和 first-request warmup 上。
+这个单用户 profile 的验收标准是综合任务表现，而不是并发。2026-05-25，`dual-light-v1` 在 fast、deep、embedding、reranker 全部常驻，并由 external Gateway 调用的情况下，通过了历史 58-case real-model golden eval。因此它是当前接受的单机双模型 profile；后续调优重点应放在质量回退、启动体验和 first-request warmup 上。模型栈行为发生变化时，仍需重新运行当前 43-case 活动矩阵。
 
 ### 轻量双常驻测试循环
 

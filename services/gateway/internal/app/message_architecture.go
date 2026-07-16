@@ -160,6 +160,8 @@ type WorkflowResult struct {
 	SchemaVersion  int                  `json:"schema_version"`
 	ID             string               `json:"id"`
 	RunID          string               `json:"run_id"`
+	OwnerID        string               `json:"owner_id"`
+	Authorization  MessageAuthorization `json:"authorization"`
 	Status         WorkflowResultStatus `json:"status"`
 	CapabilityPath []CapabilityID       `json:"capability_path"`
 	Workflow       WorkflowContractRef  `json:"workflow"`
@@ -172,13 +174,15 @@ type WorkflowResult struct {
 }
 
 type DeliveryRequest struct {
-	SchemaVersion  int            `json:"schema_version"`
-	ID             DeliveryID     `json:"id"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	ResultID       string         `json:"result_id,omitempty"`
-	Target         EndpointID     `json:"target"`
-	Content        MessageContent `json:"content"`
-	CreatedAt      time.Time      `json:"created_at"`
+	SchemaVersion  int                  `json:"schema_version"`
+	ID             DeliveryID           `json:"id"`
+	IdempotencyKey string               `json:"idempotency_key"`
+	ResultID       string               `json:"result_id,omitempty"`
+	OwnerID        string               `json:"owner_id"`
+	Authorization  MessageAuthorization `json:"authorization"`
+	Target         EndpointID           `json:"target"`
+	Content        MessageContent       `json:"content"`
+	CreatedAt      time.Time            `json:"created_at"`
 }
 
 type DeliveryStatus string
@@ -195,6 +199,7 @@ type DeliveryReceipt struct {
 	Status      DeliveryStatus `json:"status"`
 	ProviderRef string         `json:"provider_ref,omitempty"`
 	Error       string         `json:"error,omitempty"`
+	RetryState  string         `json:"retry_state,omitempty"`
 	AttemptedAt time.Time      `json:"attempted_at"`
 	DeliveredAt *time.Time     `json:"delivered_at,omitempty"`
 }

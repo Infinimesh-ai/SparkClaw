@@ -45,22 +45,22 @@ func (a *NotificationAdapter) Capabilities() delivery.Capabilities {
 func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef))
 	if !ok || binding.Channel != a.Key() || binding.Status != "active" {
-		return a.deliveryFailure(endpoint, request, "telegram binding is unavailable")
+		return a.deliveryFailure(endpoint, request, "telegram binding is unavailable", "blocked")
 	}
 	prepared, err := delivery.PrepareParts(ctx, request.Content, a.resources)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, err.Error())
+		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
 	}
-	chatID, threadID, err := telegramDeliveryAddress(binding)
+	chatID, threadID, err := telegramDeliveryAddress(endpoint, binding)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, err.Error())
+		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
 	}
 	if a.vault == nil {
-		return a.deliveryFailure(endpoint, request, "telegram credential vault is unavailable")
+		return a.deliveryFailure(endpoint, request, "telegram credential vault is unavailable", "blocked")
 	}
 	token, err := a.vault.Open(ctx, binding.CredentialRef)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, "telegram credential is unavailable")
+		return a.deliveryFailure(endpoint, request, "telegram credential is unavailable", "blocked")
 	}
 	defer clear(token)
 	baseURL := strings.TrimRight(strings.TrimSpace(binding.BaseURL), "/")
@@ -68,7 +68,7 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 		baseURL = strings.TrimRight(strings.TrimSpace(a.cfg.BaseURL), "/")
 	}
 	if baseURL == "" {
-		return a.deliveryFailure(endpoint, request, "telegram base URL is unavailable")
+		return a.deliveryFailure(endpoint, request, "telegram base URL is unavailable", "blocked")
 	}
 	client := NewClient(baseURL, string(token), &http.Client{Timeout: 15 * time.Second})
 	attemptedAt := time.Now().UTC()
@@ -89,20 +89,24 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 			_, err = client.SendDocument(ctx, chatID, threadID, item.Path, firstNonEmpty(item.Part.Name, filepath.Base(item.Path)), caption)
 		}
 		if err != nil {
-			return a.deliveryFailure(endpoint, request, "telegram delivery failed")
+			state := "blocked"
+			if telegramNotificationRetryable(err) {
+				state = "retryable"
+			}
+			return a.deliveryFailure(endpoint, request, "telegram delivery failed", state)
 		}
 	}
 	deliveredAt := time.Now().UTC()
 	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: "telegram-bot-api", AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}, nil
 }
 
-func telegramDeliveryAddress(binding app.NotificationBinding) (int64, int64, error) {
-	chatID, err := strconv.ParseInt(strings.TrimSpace(binding.ExternalChatID), 10, 64)
+func telegramDeliveryAddress(endpoint app.MessageEndpoint, binding app.NotificationBinding) (int64, int64, error) {
+	chatID, err := strconv.ParseInt(firstNonEmpty(endpoint.Address, binding.ExternalChatID), 10, 64)
 	if err != nil || chatID == 0 {
 		return 0, 0, errors.New("telegram chat binding is invalid")
 	}
 	threadID := int64(0)
-	if value := strings.TrimSpace(binding.ExternalThreadID); value != "" {
+	if value := firstNonEmpty(endpoint.ThreadRef, binding.ExternalThreadID); value != "" {
 		threadID, err = strconv.ParseInt(value, 10, 64)
 		if err != nil || threadID == 0 {
 			return 0, 0, errors.New("telegram thread binding is invalid")
@@ -111,8 +115,9 @@ func telegramDeliveryAddress(binding app.NotificationBinding) (int64, int64, err
 	return chatID, threadID, nil
 }
 
-func (a *NotificationAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message string) (app.DeliveryReceipt, error) {
-	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, AttemptedAt: time.Now().UTC()}, errors.New(message)
+func (a *NotificationAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {
+	err := delivery.DeliveryError{Message: message, State: retryState}
+	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}, err
 }
 
 func firstNonEmpty(values ...string) string {

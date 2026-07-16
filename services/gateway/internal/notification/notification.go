@@ -240,15 +240,15 @@ func (a *WeixinAdapter) Capabilities() delivery.Capabilities {
 
 func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	if a.store == nil {
-		return a.deliveryFailure(endpoint, request, "weixin binding store is unavailable")
+		return a.deliveryFailure(endpoint, request, "weixin binding store is unavailable", "blocked")
 	}
 	binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef))
 	if !ok || binding.Status != "active" || strings.ToLower(strings.TrimSpace(binding.Channel)) != strings.ToLower(strings.TrimSpace(a.channel)) {
-		return a.deliveryFailure(endpoint, request, "weixin binding is unavailable")
+		return a.deliveryFailure(endpoint, request, "weixin binding is unavailable", "blocked")
 	}
 	prepared, err := delivery.PrepareParts(ctx, request.Content, a.resources)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, err.Error())
+		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
 	}
 	attemptedAt := time.Now().UTC()
 	providerRef := "openclaw-weixin-compatible"
@@ -257,8 +257,8 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 			Channel:          a.channel,
 			BindingID:        binding.ID,
 			BaseURL:          binding.BaseURL,
-			Recipient:        firstNonEmpty(binding.ExternalChatID, binding.ExternalUserID),
-			RecipientBinding: firstNonEmpty(binding.ExternalThreadID, binding.ContextToken),
+			Recipient:        firstNonEmpty(endpoint.Address, binding.ExternalChatID, binding.ExternalUserID),
+			RecipientBinding: firstNonEmpty(endpoint.ThreadRef, endpoint.ContextRef, binding.ExternalThreadID, binding.ContextToken),
 			CredentialRef:    binding.CredentialRef,
 			MessageText:      firstNonEmpty(item.Part.Text, item.Part.Caption),
 			DedupeKey:        request.IdempotencyKey + ":" + item.Part.ID,
@@ -278,7 +278,7 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 			err = fmt.Errorf("content kind %q is not supported", item.Part.Kind)
 		}
 		if err != nil {
-			return a.deliveryFailure(endpoint, request, firstNonEmpty(result.Error, err.Error()))
+			return a.deliveryFailure(endpoint, request, firstNonEmpty(result.Error, err.Error()), firstNonEmpty(result.RetryState, "blocked"))
 		}
 		if result.Provider != "" {
 			providerRef = result.Provider
@@ -288,8 +288,9 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}, nil
 }
 
-func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message string) (app.DeliveryReceipt, error) {
-	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, AttemptedAt: time.Now().UTC()}, errors.New(message)
+func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {
+	err := delivery.DeliveryError{Message: message, State: retryState}
+	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}, err
 }
 
 func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Result, error) {

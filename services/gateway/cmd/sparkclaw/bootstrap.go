@@ -2,12 +2,11 @@ package main
 
 import (
 	"context"
-	"log/slog"
-	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -36,7 +35,9 @@ func newGatewayServices(
 
 	var reminderScheduler *reminder.Scheduler
 	if cfg.Tools.Reminders.Enabled {
-		reminderScheduler = reminder.NewScheduler(st, connectors.registry.NotificationRouter())
+		schedules := messagecontrol.NewScheduleRegistry(st)
+		routes := messagecontrol.NewReturnRouteResolver(connectors.endpoints)
+		reminderScheduler = reminder.NewMessageScheduler(st, schedules, routes, connectors.delivery, newScheduledRequestPublisher(runtime, routes, connectors.delivery))
 	}
 
 	return &gatewayServices{
@@ -58,24 +59,7 @@ func newGatewayServices(
 
 func (s *gatewayServices) Start(ctx context.Context) {
 	if s.reminderScheduler != nil {
-		startReminderScheduler(ctx, s.reminderScheduler)
+		go s.reminderScheduler.Run(ctx)
 	}
 	s.connectors.registry.Start(ctx)
-}
-
-func startReminderScheduler(ctx context.Context, scheduler *reminder.Scheduler) {
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			for _, delivery := range scheduler.Tick(ctx) {
-				slog.Info("reminder delivery completed", "reminder_id", delivery.ReminderID, "status", delivery.Status, "channel", delivery.Channel, "retry_state", delivery.RetryState)
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
 }

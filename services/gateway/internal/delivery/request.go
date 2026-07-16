@@ -16,12 +16,12 @@ func RequestFromWorkflowResult(ctx context.Context, result app.WorkflowResult, r
 	if result.SchemaVersion != app.WorkflowResultSchemaVersion {
 		return app.DeliveryRequest{}, false, errors.New("unsupported workflow result schema")
 	}
-	return RequestForMessage(ctx, result.ID, result.Content, result.ReturnRoute, routes)
+	return RequestForMessage(ctx, result.ID, result.OwnerID, result.Authorization, result.Content, result.ReturnRoute, routes)
 }
 
 // RequestForMessage is shared by explicit message.send and ordinary Workflow
 // results so both enter the same Delivery Gateway contract.
-func RequestForMessage(ctx context.Context, sourceID string, content app.MessageContent, route app.ReturnRoute, routes ReturnRouteResolver) (app.DeliveryRequest, bool, error) {
+func RequestForMessage(ctx context.Context, sourceID, ownerID string, authorization app.MessageAuthorization, content app.MessageContent, route app.ReturnRoute, routes ReturnRouteResolver) (app.DeliveryRequest, bool, error) {
 	if routes == nil {
 		return app.DeliveryRequest{}, false, errors.New("return route resolver is unavailable")
 	}
@@ -35,6 +35,8 @@ func RequestForMessage(ctx context.Context, sourceID string, content app.Message
 		ID:             app.DeliveryID(app.NewID("del")),
 		IdempotencyKey: sourceID + ":" + string(endpoint.ID),
 		ResultID:       sourceID,
+		OwnerID:        ownerID,
+		Authorization:  authorization,
 		Target:         endpoint.ID,
 		Content:        content,
 		CreatedAt:      now,

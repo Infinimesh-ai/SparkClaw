@@ -19,6 +19,9 @@ type MessageEndpoint struct {
 	Kind        EndpointKind   `json:"kind"`
 	ProviderKey string         `json:"provider_key,omitempty"`
 	BindingRef  string         `json:"binding_ref,omitempty"`
+	Address     string         `json:"address,omitempty"`
+	ThreadRef   string         `json:"thread_ref,omitempty"`
+	ContextRef  string         `json:"context_ref,omitempty"`
 	SessionID   string         `json:"session_id,omitempty"`
 	Status      EndpointStatus `json:"status"`
 	CreatedAt   time.Time      `json:"created_at,omitempty"`

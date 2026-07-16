@@ -31,8 +31,13 @@ func (r StoreResourceResolver) Resolve(_ context.Context, part app.MessagePart) 
 		return "", errors.New("artifact resolver is unavailable")
 	}
 	wanted := strings.TrimSpace(part.ArtifactID)
-	if wanted == "" && part.Resource != nil && part.Resource.Kind == "artifact" {
-		wanted = strings.TrimSpace(part.Resource.Ref)
+	if wanted == "" && part.Resource != nil {
+		switch part.Resource.Kind {
+		case "artifact", "workspace_file":
+			wanted = strings.TrimSpace(part.Resource.Ref)
+		default:
+			return "", fmt.Errorf("resource kind %q is not deliverable", part.Resource.Kind)
+		}
 	}
 	if wanted == "" {
 		return "", errors.New("binary delivery part requires an artifact id")

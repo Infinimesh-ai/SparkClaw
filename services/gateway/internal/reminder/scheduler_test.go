@@ -2,8 +2,10 @@ package reminder
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,10 +14,72 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/telegram"
 )
+
+type blockingPublisher struct {
+	received chan app.MessageEnvelope
+}
+
+func (p blockingPublisher) Publish(ctx context.Context, envelope app.MessageEnvelope) error {
+	p.received <- envelope
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestTimerRunKeepsPollingWhileScheduledRequestsAreSlow(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSession("Timer queue")
+	schedules := messagecontrol.NewScheduleRegistry(st)
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	routes := messagecontrol.NewReturnRouteResolver(endpoints)
+	now := time.Now().UTC()
+	makeSchedule := func(id string) {
+		schedule := app.MessageSchedule{
+			ID: app.ScheduleID(id), SessionID: session.ID, DueTime: now.Add(-time.Minute), Timezone: "UTC", DedupeKey: id, Status: "pending", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
+			Spec: app.ScheduleSpec{
+				SchemaVersion: app.ScheduleSpecSchemaVersion, OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+				Payload:       app.SchedulePayload{Mode: app.SchedulePayloadRequest, Content: app.MessageContent{Parts: []app.MessagePart{{ID: id + ":text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "search later"}}}},
+				ReturnRoute:   app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: messagecontrol.WebEndpointID(session.ID)},
+				Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, ExpectedCapabilityPath: []app.CapabilityID{"browser"},
+			},
+		}
+		if _, err := schedules.Save(t.Context(), schedule); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range workerCount {
+		makeSchedule(fmt.Sprintf("sched_slow_%d", i))
+	}
+	publisher := blockingPublisher{received: make(chan app.MessageEnvelope, workerCount)}
+	scheduler := NewMessageScheduler(st, schedules, routes, nil, publisher)
+	scheduler.interval = 5 * time.Millisecond
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { scheduler.Run(ctx); close(done) }()
+	for range workerCount {
+		envelope := <-publisher.received
+		if envelope.Source.Kind != app.MessageSourceTimer || envelope.Source.ScheduleID == "" {
+			t.Fatalf("timer did not publish a normalized envelope: %#v", envelope)
+		}
+	}
+	makeSchedule("sched_claimed_while_busy")
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if reminder, ok := st.GetReminder("sched_claimed_while_busy"); ok && reminder.Status == "sending" {
+			cancel()
+			<-done
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	t.Fatal("poll loop stopped claiming schedules while all workflow workers were busy")
+}
 
 func TestSchedulerRecordsFailureWhenChannelDisabled(t *testing.T) {
 	cfg := config.Default()

@@ -198,6 +198,7 @@ ALTER TABLE reminders ADD COLUMN IF NOT EXISTS recipient_binding TEXT NOT NULL D
 ALTER TABLE reminders ADD COLUMN IF NOT EXISTS binding_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE reminders ADD COLUMN IF NOT EXISTS credential_ref TEXT NOT NULL DEFAULT '';
 ALTER TABLE reminders ADD COLUMN IF NOT EXISTS base_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS schedule_spec JSONB;
 
 CREATE INDEX IF NOT EXISTS reminders_status_due_time_idx ON reminders (status, due_time);
 
@@ -1369,9 +1370,9 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 		INSERT INTO reminders (
 			id, session_id, run_id, text, text_summary, due_time, timezone, channel, recipient,
 			recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status,
-			last_delivery_id, last_error, created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			last_delivery_id, last_error, created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 		)
-		VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+		VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		ON CONFLICT (id) DO UPDATE SET
 			text = EXCLUDED.text,
 			text_summary = EXCLUDED.text_summary,
@@ -1391,10 +1392,11 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 			updated_at = EXCLUDED.updated_at,
 			sent_at = EXCLUDED.sent_at,
 			canceled_at = EXCLUDED.canceled_at,
-			delivery_attempt = EXCLUDED.delivery_attempt
+			delivery_attempt = EXCLUDED.delivery_attempt,
+			schedule_spec = EXCLUDED.schedule_spec
 	`, reminder.ID, reminder.SessionID, reminder.RunID, reminder.Text, reminder.TextSummary, reminder.DueTime, reminder.Timezone, reminder.Channel, reminder.Recipient,
 		reminder.RecipientBinding, reminder.BindingID, reminder.CredentialRef, reminder.BaseURL, reminder.Recurrence, reminder.DedupeKey, reminder.Status, reminder.LastDeliveryID, reminder.LastError, reminder.CreatedAt, reminder.UpdatedAt,
-		reminder.SentAt, reminder.CanceledAt, reminder.DeliveryAttempt)
+		reminder.SentAt, reminder.CanceledAt, reminder.DeliveryAttempt, mustJSON(reminder.ScheduleSpec))
 	s.appendAudit(ctx, "reminder."+reminder.Status, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, map[string]any{
 		"reminder_id": reminder.ID,
 		"due_time":    reminder.DueTime.UTC().Format(time.RFC3339),
@@ -1408,7 +1410,7 @@ func (s *PostgresStore) GetReminder(id string) (app.Reminder, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
-			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 		FROM reminders
 		WHERE id = $1
 	`, id)
@@ -1431,7 +1433,7 @@ func (s *PostgresStore) ListReminders(filter app.ReminderFilter) []app.Reminder 
 	rows, err := s.db.Query(context.Background(), `
 		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
-			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 		FROM reminders
 		WHERE ($1 = '' OR status = $1)
 			AND ($2::timestamptz IS NULL OR due_time >= $2::timestamptz)
@@ -1463,7 +1465,7 @@ func (s *PostgresStore) ClaimDueReminders(now, staleBefore time.Time, limit int)
 		)
 		RETURNING id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
-			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 	`, now.UTC(), staleBefore.UTC(), limit)
 	if err != nil {
 		return []app.Reminder{}
@@ -2869,11 +2871,18 @@ func scanApproval(row scanner) (app.Approval, error) {
 
 func scanReminder(row scanner) (app.Reminder, error) {
 	var reminder app.Reminder
+	var scheduleSpec []byte
 	err := row.Scan(&reminder.ID, &reminder.SessionID, &reminder.RunID, &reminder.Text, &reminder.TextSummary,
 		&reminder.DueTime, &reminder.Timezone, &reminder.Channel, &reminder.Recipient, &reminder.RecipientBinding,
 		&reminder.BindingID, &reminder.CredentialRef, &reminder.BaseURL, &reminder.Recurrence,
 		&reminder.DedupeKey, &reminder.Status, &reminder.LastDeliveryID, &reminder.LastError,
-		&reminder.CreatedAt, &reminder.UpdatedAt, &reminder.SentAt, &reminder.CanceledAt, &reminder.DeliveryAttempt)
+		&reminder.CreatedAt, &reminder.UpdatedAt, &reminder.SentAt, &reminder.CanceledAt, &reminder.DeliveryAttempt, &scheduleSpec)
+	if err == nil && len(scheduleSpec) > 0 && string(scheduleSpec) != "null" {
+		var spec app.ScheduleSpec
+		if json.Unmarshal(scheduleSpec, &spec) == nil && spec.SchemaVersion != 0 {
+			reminder.ScheduleSpec = &spec
+		}
+	}
 	return reminder, err
 }
 

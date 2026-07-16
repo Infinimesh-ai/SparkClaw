@@ -1,12 +1,14 @@
 package toolhub
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 )
 
 func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) (Result, error) {
@@ -42,6 +44,7 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 	bindingID := ""
 	credentialRef := ""
 	baseURL := ""
+	endpointID := app.EndpointID("session:" + sessionID)
 	if channel != "web" {
 		resolved, err := h.reminders.Resolve(channel, sessionID, recipient)
 		if err != nil {
@@ -52,6 +55,19 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 		bindingID = resolved.BindingID
 		credentialRef = resolved.CredentialRef
 		baseURL = resolved.BaseURL
+		endpointID = resolved.EndpointID
+	}
+	payloadMode := app.SchedulePayloadMode(strings.ToLower(strings.TrimSpace(stringArg(args, "payload_mode", string(app.SchedulePayloadLiteral)))))
+	if payloadMode != app.SchedulePayloadLiteral && payloadMode != app.SchedulePayloadRequest {
+		return Result{}, errors.New("payload_mode must be literal or request")
+	}
+	ownerID := h.ownerIDForSession(sessionID)
+	expected := []app.CapabilityID{"message", "message.send"}
+	if payloadMode == app.SchedulePayloadRequest {
+		expected = nil
+		if value := strings.TrimSpace(stringArg(args, "expected_capability", "")); value != "" {
+			expected = []app.CapabilityID{app.CapabilityID(value)}
+		}
 	}
 	now := time.Now().UTC()
 	reminder := app.Reminder{
@@ -73,11 +89,31 @@ func (h *ToolHub) remindersCreate(args map[string]any, sessionID, runID string) 
 		Status:           "pending",
 		CreatedAt:        now,
 		UpdatedAt:        now,
+		ScheduleSpec: &app.ScheduleSpec{
+			SchemaVersion: app.ScheduleSpecSchemaVersion,
+			OwnerID:       ownerID,
+			ActorID:       ownerID,
+			Payload: app.SchedulePayload{
+				Mode:    payloadMode,
+				Content: app.MessageContent{Parts: []app.MessagePart{{ID: "schedule:text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: text}}},
+			},
+			ReturnRoute:            app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: endpointID},
+			Authorization:          app.MessageAuthorization{PrincipalID: ownerID},
+			ExpectedCapabilityPath: expected,
+		},
 	}
 	if reminder.DedupeKey == "" {
 		reminder.DedupeKey = reminder.ID
 	}
-	reminder = h.store.SaveReminder(reminder)
+	schedule := app.MessageSchedule{
+		ID: app.ScheduleID(reminder.ID), SessionID: reminder.SessionID, RunID: reminder.RunID, Spec: *reminder.ScheduleSpec,
+		DueTime: reminder.DueTime, Timezone: reminder.Timezone, Recurrence: reminder.Recurrence, DedupeKey: reminder.DedupeKey,
+		Status: reminder.Status, CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
+	}
+	if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(context.Background(), schedule); err != nil {
+		return Result{}, err
+	}
+	reminder, _ = h.store.GetReminder(reminder.ID)
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
@@ -158,6 +194,9 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 		}
 		reminder.Text = text
 		reminder.TextSummary = summarizeText(text, 80)
+		if reminder.ScheduleSpec != nil {
+			reminder.ScheduleSpec.Payload.Content = app.MessageContent{Parts: []app.MessagePart{{ID: "schedule:text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: text}}}
+		}
 	}
 	if due, ok := optionalStringArg(args, "due_time"); ok {
 		t, err := parseReminderTime(due)
@@ -169,17 +208,51 @@ func (h *ToolHub) remindersUpdate(args map[string]any, sessionID string) (Result
 	if timezone, ok := optionalStringArg(args, "timezone"); ok {
 		reminder.Timezone = strings.TrimSpace(timezone)
 	}
-	if channel, ok := optionalStringArg(args, "channel"); ok {
-		reminder.Channel = strings.TrimSpace(channel)
-	}
-	if recipient, ok := optionalStringArg(args, "recipient"); ok {
-		reminder.Recipient = strings.TrimSpace(recipient)
+	channelValue, channelChanged := optionalStringArg(args, "channel")
+	recipientValue, recipientChanged := optionalStringArg(args, "recipient")
+	if channelChanged || recipientChanged {
+		channel := reminder.Channel
+		if channelChanged {
+			channel = normalizeReminderChannel(channelValue)
+		}
+		requestedRecipient := reminder.Recipient
+		if recipientChanged {
+			requestedRecipient = strings.TrimSpace(recipientValue)
+		}
+		endpointID := app.EndpointID("session:" + reminder.SessionID)
+		reminder.Channel = channel
+		if channel == "web" {
+			reminder.Recipient, reminder.RecipientBinding, reminder.BindingID, reminder.CredentialRef, reminder.BaseURL = "", "", "", "", ""
+		} else {
+			resolved, err := h.reminders.Resolve(channel, reminder.SessionID, requestedRecipient)
+			if err != nil {
+				return Result{}, err
+			}
+			reminder.Recipient, reminder.RecipientBinding = resolved.Recipient, resolved.RecipientBinding
+			reminder.BindingID, reminder.CredentialRef, reminder.BaseURL = resolved.BindingID, resolved.CredentialRef, resolved.BaseURL
+			endpointID = resolved.EndpointID
+		}
+		if reminder.ScheduleSpec != nil {
+			reminder.ScheduleSpec.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: endpointID}
+		}
 	}
 	if recurrence, ok := optionalStringArg(args, "recurrence"); ok {
 		reminder.Recurrence = strings.TrimSpace(recurrence)
 	}
 	reminder.UpdatedAt = time.Now().UTC()
-	reminder = h.store.SaveReminder(reminder)
+	if reminder.ScheduleSpec != nil {
+		schedule := app.MessageSchedule{
+			ID: app.ScheduleID(reminder.ID), SessionID: reminder.SessionID, RunID: reminder.RunID, Spec: *reminder.ScheduleSpec,
+			DueTime: reminder.DueTime, Timezone: reminder.Timezone, Recurrence: reminder.Recurrence, DedupeKey: reminder.DedupeKey,
+			Status: reminder.Status, DeliveryAttempt: reminder.DeliveryAttempt, CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
+		}
+		if _, err := messagecontrol.NewScheduleRegistry(h.store).Save(context.Background(), schedule); err != nil {
+			return Result{}, err
+		}
+		reminder, _ = h.store.GetReminder(reminder.ID)
+	} else {
+		reminder = h.store.SaveReminder(reminder)
+	}
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
@@ -237,6 +310,10 @@ func reminderToolOutput(reminder app.Reminder) map[string]any {
 		"updated_at":       reminder.UpdatedAt.UTC().Format(time.RFC3339),
 		"last_delivery_id": reminder.LastDeliveryID,
 		"last_error":       reminder.LastError,
+		"payload_mode":     string(app.SchedulePayloadLiteral),
+	}
+	if reminder.ScheduleSpec != nil && reminder.ScheduleSpec.Payload.Mode != "" {
+		out["payload_mode"] = reminder.ScheduleSpec.Payload.Mode
 	}
 	if reminder.CanceledAt != nil {
 		out["canceled_at"] = reminder.CanceledAt.UTC().Format(time.RFC3339)

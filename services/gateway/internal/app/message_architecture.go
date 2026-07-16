@@ -39,6 +39,19 @@ type ScheduleID string
 type CapabilityID string
 type DeliveryID string
 
+const (
+	CapabilityBrowserSearch       CapabilityID = "browser.search"
+	CapabilityBrowserAutomation   CapabilityID = "browser.automation"
+	CapabilityDocumentInformation CapabilityID = "document.information"
+	CapabilityDocumentProcessing  CapabilityID = "document.processing"
+)
+
+const (
+	CapabilityQualifierOperation = "operation"
+	CapabilityOperationDiscover  = "discover"
+	CapabilityOperationRead      = "read"
+)
+
 type EndpointKind string
 
 const (
@@ -124,10 +137,37 @@ type RouteDecision struct {
 	Status          RouteStatus       `json:"status"`
 	CatalogRevision string            `json:"catalog_revision"`
 	CapabilityPath  []CapabilityID    `json:"capability_path,omitempty"`
-	Slots           map[string]any    `json:"slots,omitempty"`
+	Slots           RouteSlots        `json:"slots,omitempty"`
 	Confidence      float64           `json:"confidence,omitempty"`
 	Facts           map[string]string `json:"facts,omitempty"`
 	Reason          string            `json:"reason,omitempty"`
+}
+
+type RouteOperation string
+
+const (
+	RouteOperationSearch    RouteOperation = "search"
+	RouteOperationRead      RouteOperation = "read"
+	RouteOperationOpen      RouteOperation = "open"
+	RouteOperationNavigate  RouteOperation = "navigate"
+	RouteOperationInspect   RouteOperation = "inspect"
+	RouteOperationInteract  RouteOperation = "interact"
+	RouteOperationCreate    RouteOperation = "create"
+	RouteOperationEdit      RouteOperation = "edit"
+	RouteOperationTransform RouteOperation = "transform"
+	RouteOperationDelete    RouteOperation = "delete"
+)
+
+// RouteSlots are semantic inputs only. They deliberately cannot identify a
+// tool, workflow step, risk level, policy decision, or model lane.
+type RouteSlots struct {
+	Operation  RouteOperation `json:"operation,omitempty"`
+	Query      string         `json:"query,omitempty"`
+	TargetKind string         `json:"target_kind,omitempty"`
+	TargetRef  string         `json:"target_ref,omitempty"`
+	TargetRefs []string       `json:"target_refs,omitempty"`
+	OutputRef  string         `json:"output_ref,omitempty"`
+	Format     string         `json:"format,omitempty"`
 }
 
 type WorkflowContractRef struct {

@@ -29,6 +29,7 @@ func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 	return app.ToolOutcome{
 		ID:         "outcome_" + call.ID,
 		ToolCallID: call.ID,
+		Tool:       call.Tool,
 		NodeID:     nodeID,
 		Status:     call.Status,
 		Retryable:  call.Status == "failed",

@@ -24,7 +24,7 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 		t.Fatalf("unexpected directory view: %#v", view)
 	}
 	entry := view.Entries[0]
-	if entry.Capability.Name != "web.discovery" || entry.Summary == "" {
+	if entry.Capability.Name != string(app.CapabilityBrowserSearch) || entry.Capability.Qualifiers[app.CapabilityQualifierOperation] != app.CapabilityOperationDiscover || entry.Summary == "" {
 		t.Fatalf("unexpected directory entry: %#v", entry)
 	}
 	if run, ok := st.GetRun(request.RunID); !ok || run.Workflow.Nodes[request.NodeID].LastDirectory.ViewID != view.ViewID {
@@ -125,17 +125,17 @@ func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.Mem
 	st := store.NewMemoryStore()
 	hub := toolhub.New(cfg, st)
 	engine := newToolExposureEngine(st, hub, policy.New(cfg))
-	nodeID := app.WorkflowNodeID("research")
+	nodeID := app.WorkflowNodeID("browser_search")
 	plan := app.WorkflowPlan{
 		SchemaVersion:   1,
-		ProfileID:       app.WorkflowWebPublicResearch,
+		ProfileID:       app.WorkflowBrowserSearch,
 		ProfileRevision: 1,
 		InitialNodeIDs:  []app.WorkflowNodeID{nodeID},
 		Completion:      app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID:           nodeID,
 			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "discover public web evidence", Completion: app.CompletionEvidence},
-			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: "web.discovery"}}},
+			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: string(app.CapabilityBrowserSearch), Qualifiers: map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationDiscover}}}},
 			AllowedRisks: []app.RiskLevel{app.RiskRead},
 			MaxAttempts:  2,
 		}},
@@ -163,7 +163,7 @@ func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.Mem
 	})
 	return st, engine, app.ExposureRequest{
 		RunID:         "run_web_exposure",
-		WorkflowID:    app.WorkflowWebPublicResearch,
+		WorkflowID:    app.WorkflowBrowserSearch,
 		NodeID:        nodeID,
 		ScopeRevision: 1,
 		ActorRef:      "owner",

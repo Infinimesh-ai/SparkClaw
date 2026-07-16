@@ -10,7 +10,7 @@ designs.
 
 ## Implementation Status
 
-Phase 1 establishes the contracts that later migrations depend on:
+Phase 1 established the contracts that later migrations depend on:
 
 - channel-neutral `MessageEnvelope`, multimodal `MessageContent`,
   `RouteDecision`, `WorkflowResult`, and delivery contracts live in
@@ -19,14 +19,27 @@ Phase 1 establishes the contracts that later migrations depend on:
   into that message contract before Guard or intent handling;
 - `internal/capability` owns the versioned default capability tree and rejects
   stale, invented, or invalid Fast routing paths edge by edge;
-- the current Agent entry point consumes the normalized routing projection and
-  audits the envelope schema and capability catalog revision.
+- the Agent entry point consumes the normalized routing projection and audits
+  the envelope schema and capability catalog revision.
 
-Current Workflow execution, reminder scheduling, and connector notification
-delivery remain compatibility implementations. Their migration behind the
-Workflow Registry, Schedule Registry, Endpoint Registry, and Delivery Gateway
-is the next architecture phase; the Phase 1 contracts do not require changing
-the Store interface or concrete providers.
+Phase 2 completes the first production vertical slice:
+
+- Catalog revision 2 exposes exactly `browser.search`,
+  `browser.automation`, `document.information`, and `document.processing`;
+- every message is classified by the Fast router against that tree before
+  execution, with a strict tool-neutral response schema;
+- the Workflow Registry resolves an exact versioned contract, the Dispatcher
+  persists the route and return context, and Tool Exposure materializes only
+  the selected Workflow's registered tools;
+- browser and document approval/login resumes reuse the persisted route and
+  Workflow identity rather than classifying the message again;
+- only `unmatched` enters the transitional ReAct path. A known route that is
+  stale, invalid, blocked, or fails execution returns an explicit
+  `WorkflowResult` and never falls back.
+
+Reminder scheduling, Endpoint/Provider abstraction, and result delivery are
+separate parallel migrations. They remain outside this vertical slice and do
+not require changes to the Store interface or connector implementations here.
 
 ## Architecture Decision
 
@@ -251,29 +264,19 @@ The catalog is a versioned tree of user-visible product capabilities:
 
 ```text
 capability
-  conversation
-    answer
-
   browser
     search
     automation
 
-  file
-    discover
-    read
-    create
-    edit
-    transform
-    delete
-
-  message
-    send
-    schedule
+  document
+    information
+    processing
 ```
 
-Text, image, audio, and file do not appear as modality branches. An image can
-be input to conversation, an audio request can route to browser search through
-its transcript, and a file can route according to the requested operation.
+Text, image, audio, and file do not appear as modality branches. They are
+message parts. For example, an audio request can route to browser search
+through its transcript, while a file reference can be a typed slot for a
+document Workflow.
 
 Each internal node defines only its children and routing description. Each
 leaf identifies a Workflow contract. The catalog does not define tools.
@@ -302,6 +305,19 @@ clarification result.
 The Workflow Registry maps a capability leaf to a versioned Workflow contract.
 The Dispatcher persists a new run and invokes that Workflow. It does not
 reinterpret the message.
+
+The current revision uses an exact one-to-one mapping:
+
+| Capability leaf | Workflow | Fixed tool boundary |
+|---|---|---|
+| `browser.search` | `browser.search@1` | `web.search`, `browser.read` |
+| `browser.automation` | `browser.automation@1` | registered browser status, tab, navigation, inspection, screenshot, wait, and interaction tools |
+| `document.information` | `document.information@1` | `files.search`, `files.read`, `pdf.extract_text` |
+| `document.processing` | `document.processing@1` | registered document information, write, Office/PDF transform, and governed delete tools |
+
+Tool names are ToolHub registration metadata, not router output. The
+Dispatcher does not search for a “close enough” Workflow, and legacy Workflow
+IDs fail closed instead of being reinterpreted as one of these leaves.
 
 At the overall architecture level, a Workflow is only this boundary:
 
@@ -355,8 +371,8 @@ The Result Presenter may format content but cannot change execution status or
 call tools. User-visible text, images, voice/audio, and files must be present as
 Message Parts.
 
-Explicit `message.send` and normal Workflow result return both create a
-`DeliveryRequest` and enter the Delivery Gateway.
+In the target architecture, explicit sends and normal Workflow result returns
+both create a `DeliveryRequest` and enter the Delivery Gateway.
 
 The Delivery Gateway resolves the target Endpoint and chooses only between:
 
@@ -385,7 +401,7 @@ Web or third-party input
 
 ```text
 User message
-  -> route to message.schedule
+  -> create a Schedule through the Message Control Plane
   -> store Schedule(message payload, trigger, ReturnRoute, authorization)
 
 Timer fires
@@ -402,8 +418,9 @@ Scheduled payloads have two modes:
 - `literal`: send the stored multimodal content unchanged;
 - `request`: route the stored content as a new Agent request.
 
-This makes scheduling reusable for browser, file, conversation, future
-capabilities, and direct text/image/audio/file delivery.
+This makes scheduling reusable for browser, document, future capabilities,
+and direct text/image/audio/file delivery without adding timer-specific logic
+to a domain Workflow.
 
 ## Foundation Plane
 

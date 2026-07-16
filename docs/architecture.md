@@ -113,27 +113,32 @@ Default lanes:
 | `guard` | pre-tool safety classification |
 | `mock` | deterministic offline tests and golden evals |
 
-### Intent And Workflow Runtime
+### Capability Routing And Workflow Runtime
 
-Fast classification outputs only a stable semantic `IntentEnvelope` and cannot
-emit tools, Skills, workflow IDs, risk, or model lanes. Deterministic URL/path
-facts and authorization provenance are frozen during normalization. The
-`WorkflowProfileRegistry` routes the normalized envelope, validates a
-versioned `WorkflowPlan`, and persists its digest and node state.
+The Fast router outputs only a strict `RouteDecision`: status, catalog
+revision, registered capability path, typed slots, confidence, reason, and
+deterministic facts. It cannot emit tools, Skills, Workflow IDs, risk, model
+lanes, or arbitrary fields. Deterministic URL/path facts are frozen during
+normalization, and the catalog validates every path edge and leaf operation.
 
-`ToolExposure.Search/Materialize` is the only model-visibility authority for
-migrated profiles. It derives the active capability scope from persisted state,
-registered ToolHub metadata, risk constraints, and Policy; TaskHint candidates,
-Skill lists, and outcomes cannot widen it. Outcome adapters produce typed
-facts, while the active profile assesses completion or activates only a
-predeclared transition. Frozen argument bindings constrain exact URLs and
-workspace paths before execution.
+Catalog revision 2 has four production leaves: `browser.search`,
+`browser.automation`, `document.information`, and `document.processing`.
+`WorkflowProfileRegistry.Resolve` maps each leaf to its exact revision 1
+Workflow; it performs no intent matching. The Dispatcher persists the
+`RouteDecision`, `ReturnRoute`, validated plan digest, and node state.
 
-Revision 1 profiles are authoritative for public Web research, explicit URL
-reads, workspace file search, and explicit-path file reads. Missing capability,
-stale state, invalid plan, or resource mismatch blocks and never falls back to
-TaskHint. Unmigrated domains continue on the transitional TaskHint path until
-their complete vertical slice lands. See the
+ToolHub capability metadata is the model-visibility authority. Tool Exposure
+materializes the complete fixed scope for the selected Workflow, subject to
+Policy; TaskHint candidates, Skill lists, and outcomes cannot widen it.
+Outcome adapters produce typed facts, while the active profile assesses
+completion or activates only a predeclared transition. Approval and browser
+login resumes use the persisted route and exact Workflow scope.
+
+Missing capability, stale state, invalid plan, resource mismatch, and matched
+execution failure block or fail explicitly and never fall back. Only a router
+status of `unmatched` enters the transitional ReAct path for domains not yet
+migrated. Legacy Web/workspace Workflow IDs are retained only as persisted
+identifiers and fail closed. See the
 [refactor plan](intent-routing-workflow-refactor-plan.md),
 [exposure contract](intent-routing-tool-exposure-contract.md), and
 [profile catalog](intent-routing-workflow-domain-profiles.md).

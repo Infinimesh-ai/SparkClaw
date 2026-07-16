@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-16.v1"
+	DefaultCatalogRevision = "2026-07-16.v2"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -98,21 +98,12 @@ func DefaultCatalog() (Catalog, error) {
 	}
 	return NewCatalog(DefaultCatalogRevision, []Node{
 		branch(string(RootID), "", "Registered user-visible product capabilities."),
-		branch("conversation", string(RootID), "Answer or discuss without a more specific product operation."),
-		leaf("conversation.answer", "conversation", "Answer a user message."),
-		branch("browser", string(RootID), "Work with public or interactive browser resources."),
-		leaf("browser.search", "browser", "Search public information sources."),
-		leaf("browser.automation", "browser", "Interact with pages and browser sessions."),
-		branch("file", string(RootID), "Work with governed files in the user's workspace."),
-		leaf("file.discover", "file", "Discover files and workspace structure."),
-		leaf("file.read", "file", "Read or inspect file content."),
-		leaf("file.create", "file", "Create a new file or document."),
-		leaf("file.edit", "file", "Edit an existing file or document."),
-		leaf("file.transform", "file", "Convert or transform file content."),
-		leaf("file.delete", "file", "Delete a file subject to policy."),
-		branch("message", string(RootID), "Send content now or arrange future message creation."),
-		leaf("message.send", "message", "Send multimodal content to an endpoint."),
-		leaf("message.schedule", "message", "Create or change a scheduled message."),
+		branch("browser", string(RootID), "Search public information or interact with browser sessions."),
+		leaf(string(app.CapabilityBrowserSearch), "browser", "Discover and read public Internet sources."),
+		leaf(string(app.CapabilityBrowserAutomation), "browser", "Operate pages and browser sessions interactively."),
+		branch("document", string(RootID), "Read or process governed documents and files in the workspace."),
+		leaf(string(app.CapabilityDocumentInformation), "document", "Discover files and read document information."),
+		leaf(string(app.CapabilityDocumentProcessing), "document", "Create, edit, transform, or delete governed documents."),
 	})
 }
 
@@ -165,8 +156,11 @@ func (c Catalog) ValidateDecision(decision app.RouteDecision) error {
 	}
 	switch decision.Status {
 	case app.RouteMatched:
-		_, err := c.ResolveLeaf(decision.CapabilityPath)
-		return err
+		leaf, err := c.ResolveLeaf(decision.CapabilityPath)
+		if err != nil {
+			return err
+		}
+		return validateMatchedSlots(leaf.ID, decision.Slots)
 	case app.RouteClarify, app.RouteBlocked:
 		if len(decision.CapabilityPath) == 0 {
 			return nil
@@ -181,6 +175,26 @@ func (c Catalog) ValidateDecision(decision app.RouteDecision) error {
 	default:
 		return fmt.Errorf("unsupported route status %q", decision.Status)
 	}
+}
+
+func validateMatchedSlots(leafID app.CapabilityID, slots app.RouteSlots) error {
+	allowed := map[app.CapabilityID][]app.RouteOperation{
+		app.CapabilityBrowserSearch:       {app.RouteOperationSearch, app.RouteOperationRead},
+		app.CapabilityBrowserAutomation:   {app.RouteOperationOpen, app.RouteOperationNavigate, app.RouteOperationInspect, app.RouteOperationInteract},
+		app.CapabilityDocumentInformation: {app.RouteOperationSearch, app.RouteOperationRead},
+		app.CapabilityDocumentProcessing:  {app.RouteOperationCreate, app.RouteOperationEdit, app.RouteOperationTransform, app.RouteOperationDelete},
+	}
+	operations, ok := allowed[leafID]
+	if !ok {
+		return fmt.Errorf("capability %q has no typed slot contract", leafID)
+	}
+	if !slices.Contains(operations, slots.Operation) {
+		return fmt.Errorf("operation %q is not valid for capability %q", slots.Operation, leafID)
+	}
+	if slots.TargetKind != "" && slots.TargetKind != "url" && slots.TargetKind != "workspace_path" {
+		return fmt.Errorf("target kind %q is not registered", slots.TargetKind)
+	}
+	return nil
 }
 
 func (c Catalog) resolvePath(path []app.CapabilityID) (Node, error) {

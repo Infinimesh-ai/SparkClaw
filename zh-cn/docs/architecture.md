@@ -113,13 +113,15 @@ Model Router 支持 deterministic mock mode、OpenAI-compatible chat completions
 | `guard` | pre-tool safety classification |
 | `mock` | deterministic offline tests 和 golden evals |
 
-### 意图与 Workflow Runtime
+### 能力路由与 Workflow Runtime
 
-Fast classifier 只输出稳定语义 `IntentEnvelope`，不能输出工具、Skill、Workflow ID、风险或模型 lane。确定性 URL/path fact 与 authorization provenance 在归一化时冻结。`WorkflowProfileRegistry` 对归一化 envelope 路由，校验版本化 `WorkflowPlan`，并持久化 digest 与 node state。
+Fast Router 只输出严格 `RouteDecision`：状态、Catalog Revision、已注册能力路径、类型化 Slot、Confidence、Reason 和确定性 Fact。它不能输出工具、Skill、Workflow ID、风险、模型 Lane 或任意字段。确定性 URL/path Fact 在归一化时冻结，Catalog 校验路径每条边和叶子 Operation。
 
-`ToolExposure.Search/Materialize` 是已迁移 Profile 唯一的模型可见性权威。它根据持久化活动 capability scope、ToolHub 注册元数据、risk constraint 与 Policy 计算结果；TaskHint candidate、Skill 清单和 outcome 均不能扩大 scope。Outcome adapter 产生类型化事实，活动 Profile 判断完成或只激活预先声明的 transition。冻结 argument binding 在执行前限制精确 URL 与 Workspace path。
+Catalog revision 2 有四个生产叶子：`browser.search`、`browser.automation`、`document.information` 和 `document.processing`。`WorkflowProfileRegistry.Resolve` 把每个叶子精确映射到 revision 1 Workflow，不再执行意图匹配。Dispatcher 持久化 `RouteDecision`、`ReturnRoute`、已校验 Plan Digest 与 Node State。
 
-Revision 1 Profile 已对公共 Web 调研、明确 URL 读取、Workspace 文件搜索和明确路径文件读取保持权威。Capability 缺失、状态过期、Plan 非法或资源不匹配时必须 blocked，不能回退 TaskHint。未迁移领域在完整纵向切片落地前继续使用过渡 TaskHint 路径。详细说明见[重构方案](intent-routing-workflow-refactor-plan.md)、[工具暴露契约](intent-routing-tool-exposure-contract.md)和[Profile 目录](intent-routing-workflow-domain-profiles.md)。
+ToolHub Capability Metadata 是模型可见性权威。Tool Exposure 在 Policy 约束下物化所选 Workflow 的完整固定 Scope；TaskHint Candidate、Skill 清单和 Outcome 不能扩权。Outcome Adapter 产生类型化 Fact，活动 Profile 判断完成或只激活预先声明的 Transition。审批和浏览器登录恢复使用已持久化路由与精确 Workflow Scope。
+
+Capability 缺失、状态过期、Plan 非法、资源不匹配和已匹配执行失败时必须明确 Block 或 Fail，不能回退。只有 Router 状态为 `unmatched` 时，未迁移领域才进入过渡 ReAct。旧 Web/Workspace Workflow ID 仅作为持久化标识保留，并关闭失败。详细说明见[重构方案](intent-routing-workflow-refactor-plan.md)、[工具暴露契约](intent-routing-tool-exposure-contract.md)和[Profile 目录](intent-routing-workflow-domain-profiles.md)。
 
 ### ToolHub
 

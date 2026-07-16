@@ -70,110 +70,97 @@ func browserAutomationPassthrough() toolExecutor {
 	}
 }
 
+func workflowRegistration(base toolRegistration, capability app.CapabilityID, qualifiers map[string]string, adapter app.ToolOutcomeAdapter, summary, whenToUse, whenNotToUse string, effects ...app.ToolEffect) toolRegistration {
+	base.capabilities = []app.CapabilityDescriptor{{Name: string(capability), Qualifiers: qualifiers}}
+	base.outcomeAdapter = adapter
+	base.directory = app.ToolDirectoryMetadata{
+		Summary: summary, WhenToUse: whenToUse, WhenNotToUse: whenNotToUse, Effects: effects,
+	}
+	return base
+}
+
+func browserAutomationRegistration(summary string, riskEffect app.ToolEffect) toolRegistration {
+	return workflowRegistration(
+		toolRegistration{enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+		app.CapabilityBrowserAutomation, nil, app.OutcomeAdapterGeneric,
+		summary, "Use only inside the browser.automation workflow.", "Do not use for public discovery or local document work.", riskEffect,
+	)
+}
+
+func documentProcessingRegistration(run toolExecutor, summary string) toolRegistration {
+	return workflowRegistration(
+		toolRegistration{run: run}, app.CapabilityDocumentProcessing, nil, app.OutcomeAdapterGeneric,
+		summary, "Use only inside the document.processing workflow.", "Do not use for browser work or read-only document questions.", app.ToolEffectWorkspaceWrite,
+	)
+}
+
+func browserReadRegistration() toolRegistration {
+	registration := workflowRegistration(
+		toolRegistration{run: ctxArgsSessionRun((*ToolHub).browserRead)}, app.CapabilityBrowserSearch,
+		map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationRead}, app.OutcomeAdapterWebPage,
+		"Read a known URL and extract source-page evidence.",
+		"Use for a known URL in browser.search or as bounded evidence in browser.automation.",
+		"Do not use for public discovery or local document work.", app.ToolEffectExternalRead,
+	)
+	registration.capabilities = append(registration.capabilities, app.CapabilityDescriptor{Name: string(app.CapabilityBrowserAutomation)})
+	return registration
+}
+
 // toolRegistry maps tool name -> execution + availability. Adding a tool means
 // one entry here plus its definition in defaultDefinitions().
 var toolRegistry = map[string]toolRegistration{
-	"files.search": {
-		run: ctxArgs((*ToolHub).filesSearch),
-		capabilities: []app.CapabilityDescriptor{{
-			Name: "workspace.file.search",
-		}},
-		outcomeAdapter: app.OutcomeAdapterWorkspaceSearch,
-		directory: app.ToolDirectoryMetadata{
-			Summary:      "Search file names and bounded text content in the configured workspace.",
-			WhenToUse:    "Use when the owner asks to find local workspace files and no exact path is known.",
-			WhenNotToUse: "Do not use for public Web search, knowledge-index search, or file mutation.",
-			InputKinds:   []app.TargetKind{app.TargetKindNone},
-			OutputKinds:  []app.OutputKind{app.OutputKindText},
-			Effects:      []app.ToolEffect{app.ToolEffectWorkspaceRead},
-		},
-	},
-	"files.read": {
-		run: ctxArgs((*ToolHub).filesRead),
-		capabilities: []app.CapabilityDescriptor{{
-			Name: "workspace.file.read",
-		}},
-		outcomeAdapter: app.OutcomeAdapterWorkspaceRead,
-		directory: app.ToolDirectoryMetadata{
-			Summary:      "Read one explicitly identified file inside the configured workspace.",
-			WhenToUse:    "Use when the workflow has a deterministic workspace path target.",
-			WhenNotToUse: "Do not use to discover unknown files or modify file content.",
-			InputKinds:   []app.TargetKind{app.TargetKindWorkspacePath},
-			OutputKinds:  []app.OutputKind{app.OutputKindText},
-			Effects:      []app.ToolEffect{app.ToolEffectWorkspaceRead},
-		},
-	},
+	"files.search": workflowRegistration(toolRegistration{run: ctxArgs((*ToolHub).filesSearch)}, app.CapabilityDocumentInformation, nil, app.OutcomeAdapterWorkspaceSearch,
+		"Search file names and bounded text content in the configured workspace.",
+		"Use when the owner asks to find local workspace files and no exact path is known.",
+		"Do not use for public Web search, knowledge-index search, or file mutation.", app.ToolEffectWorkspaceRead),
+	"files.read": workflowRegistration(toolRegistration{run: ctxArgs((*ToolHub).filesRead)}, app.CapabilityDocumentInformation, nil, app.OutcomeAdapterWorkspaceRead,
+		"Read one explicitly identified file inside the configured workspace.",
+		"Use when the workflow has a deterministic workspace path target.",
+		"Do not use to discover unknown files or modify file content.", app.ToolEffectWorkspaceRead),
 	"images.inspect":            {run: ctxArgs((*ToolHub).imageInspect)},
 	"media.render_weather_card": {run: ctxArgsSessionRun((*ToolHub).renderWeatherCard)},
-	"files.write_draft":         {run: ctxArgs((*ToolHub).filesWriteDraft)},
-	"file.delete":               {run: ctxArgs((*ToolHub).fileDelete)},
-	"office.replace_text":       {run: ctxArgs((*ToolHub).officeReplaceText)},
-	"docx.replace_paragraph":    {run: structureOp((*ToolHub).docxStructureEdit, "replace_paragraph")},
-	"docx.insert_paragraph":     {run: structureOp((*ToolHub).docxStructureEdit, "insert_paragraph")},
-	"docx.delete_paragraph":     {run: structureOp((*ToolHub).docxStructureEdit, "delete_paragraph")},
-	"docx.set_text_style":       {run: structureOp((*ToolHub).docxStructureEdit, "set_text_style")},
-	"pptx.add_slide":            {run: structureOp((*ToolHub).pptxSlideEdit, "add_slide")},
-	"pptx.duplicate_slide":      {run: structureOp((*ToolHub).pptxSlideEdit, "duplicate_slide")},
-	"pptx.delete_slide":         {run: structureOp((*ToolHub).pptxSlideEdit, "delete_slide")},
-	"xlsx.update_cell":          {run: structureOp((*ToolHub).xlsxStructureEdit, "update_cell")},
-	"xlsx.insert_row":           {run: structureOp((*ToolHub).xlsxStructureEdit, "insert_row")},
-	"xlsx.delete_row":           {run: structureOp((*ToolHub).xlsxStructureEdit, "delete_row")},
-	"xlsx.update_row":           {run: structureOp((*ToolHub).xlsxStructureEdit, "update_row")},
-	"xlsx.append_row":           {run: structureOp((*ToolHub).xlsxStructureEdit, "append_row")},
-	"pdf.extract_text":          {run: ctxArgs((*ToolHub).pdfExtractText)},
-	"pdf.transform":             {run: ctxArgs((*ToolHub).pdfTransform)},
-	"memory.search":             {run: argsSession((*ToolHub).memorySearch)},
-	"memory.write_candidate":    {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
-	"memory.propose":            {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
-	"memory.write_sensitive":    {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
-	"browser.read": {
-		run: ctxArgsSessionRun((*ToolHub).browserRead),
-		capabilities: []app.CapabilityDescriptor{{
-			Name: "web.page.read",
-		}},
-		outcomeAdapter: app.OutcomeAdapterWebPage,
-		directory: app.ToolDirectoryMetadata{
-			Summary:      "Read a known public URL and extract source-page evidence.",
-			WhenToUse:    "Use when the target URL is known or a workflow assessment requires source-page evidence.",
-			WhenNotToUse: "Do not use for public discovery, visible tab opening, or page interaction.",
-			InputKinds:   []app.TargetKind{app.TargetKindExplicitURL},
-			OutputKinds:  []app.OutputKind{app.OutputKindText},
-			Effects:      []app.ToolEffect{app.ToolEffectExternalRead},
-		},
-	},
-	"web.search": {
-		enabled: func(cfg config.Config) bool { return cfg.Tools.Web.Search.Enabled },
-		run:     ctxArgs((*ToolHub).webSearchTool),
-		capabilities: []app.CapabilityDescriptor{{
-			Name: "web.discovery",
-		}},
-		outcomeAdapter: app.OutcomeAdapterWebSearch,
-		directory: app.ToolDirectoryMetadata{
-			Summary:      "Discover public web sources when the target URL is unknown.",
-			WhenToUse:    "Use for public search, freshness checks, and source discovery.",
-			WhenNotToUse: "Do not use when a specific URL is already known or for source-page verification.",
-			InputKinds:   []app.TargetKind{app.TargetKindNone},
-			OutputKinds:  []app.OutputKind{app.OutputKindText},
-			Effects:      []app.ToolEffect{app.ToolEffectExternalRead},
-		},
-	},
-	"browser.status": {
-		enabled: browserAutomationEnabled,
-		run: func(h *ToolHub, ctx context.Context, _ string, args map[string]any, _, _ string) (Result, error) {
-			return h.browserAutomationHealth(ctx, args)
-		},
-	},
-	"browser.list_tabs":    {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.open":         {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.focus":        {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.close":        {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.navigate":     {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.snapshot":     {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.screenshot":   {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.wait":         {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.click":        {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.type":         {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.select":       {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"files.write_draft":         documentProcessingRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
+	"file.delete":               documentProcessingRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
+	"office.replace_text":       documentProcessingRegistration(ctxArgs((*ToolHub).officeReplaceText), "Replace bounded text in an Office document and write a new file."),
+	"docx.replace_paragraph":    documentProcessingRegistration(structureOp((*ToolHub).docxStructureEdit, "replace_paragraph"), "Replace one DOCX paragraph and write a new document."),
+	"docx.insert_paragraph":     documentProcessingRegistration(structureOp((*ToolHub).docxStructureEdit, "insert_paragraph"), "Insert one DOCX paragraph and write a new document."),
+	"docx.delete_paragraph":     documentProcessingRegistration(structureOp((*ToolHub).docxStructureEdit, "delete_paragraph"), "Delete one DOCX paragraph and write a new document."),
+	"docx.set_text_style":       documentProcessingRegistration(structureOp((*ToolHub).docxStructureEdit, "set_text_style"), "Apply a bounded DOCX paragraph style and write a new document."),
+	"pptx.add_slide":            documentProcessingRegistration(structureOp((*ToolHub).pptxSlideEdit, "add_slide"), "Add one PPTX slide and write a new presentation."),
+	"pptx.duplicate_slide":      documentProcessingRegistration(structureOp((*ToolHub).pptxSlideEdit, "duplicate_slide"), "Duplicate one PPTX slide and write a new presentation."),
+	"pptx.delete_slide":         documentProcessingRegistration(structureOp((*ToolHub).pptxSlideEdit, "delete_slide"), "Delete one PPTX slide and write a new presentation."),
+	"xlsx.update_cell":          documentProcessingRegistration(structureOp((*ToolHub).xlsxStructureEdit, "update_cell"), "Update one XLSX cell and write a new workbook."),
+	"xlsx.insert_row":           documentProcessingRegistration(structureOp((*ToolHub).xlsxStructureEdit, "insert_row"), "Insert one XLSX row and write a new workbook."),
+	"xlsx.delete_row":           documentProcessingRegistration(structureOp((*ToolHub).xlsxStructureEdit, "delete_row"), "Delete one XLSX row and write a new workbook."),
+	"xlsx.update_row":           documentProcessingRegistration(structureOp((*ToolHub).xlsxStructureEdit, "update_row"), "Update one XLSX row and write a new workbook."),
+	"xlsx.append_row":           documentProcessingRegistration(structureOp((*ToolHub).xlsxStructureEdit, "append_row"), "Append one XLSX row and write a new workbook."),
+	"pdf.extract_text": workflowRegistration(toolRegistration{run: ctxArgs((*ToolHub).pdfExtractText)}, app.CapabilityDocumentInformation, nil, app.OutcomeAdapterWorkspaceRead,
+		"Extract bounded text from a workspace PDF.", "Use to read a text PDF inside document.information.", "Do not use for PDF mutation or browser content.", app.ToolEffectWorkspaceRead),
+	"pdf.transform":          documentProcessingRegistration(ctxArgs((*ToolHub).pdfTransform), "Apply a bounded PDF transform and write governed output."),
+	"memory.search":          {run: argsSession((*ToolHub).memorySearch)},
+	"memory.write_candidate": {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
+	"memory.propose":         {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
+	"memory.write_sensitive": {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
+	"browser.read":           browserReadRegistration(),
+	"web.search": workflowRegistration(toolRegistration{enabled: func(cfg config.Config) bool { return cfg.Tools.Web.Search.Enabled }, run: ctxArgs((*ToolHub).webSearchTool)}, app.CapabilityBrowserSearch,
+		map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationDiscover}, app.OutcomeAdapterWebSearch,
+		"Discover public web sources when the target URL is unknown.",
+		"Use for public search, freshness checks, and source discovery.",
+		"Do not use when a specific URL is already known or for source-page verification.", app.ToolEffectExternalRead),
+	"browser.status": workflowRegistration(toolRegistration{enabled: browserAutomationEnabled, run: func(h *ToolHub, ctx context.Context, _ string, args map[string]any, _, _ string) (Result, error) {
+		return h.browserAutomationHealth(ctx, args)
+	}}, app.CapabilityBrowserAutomation, nil, app.OutcomeAdapterGeneric, "Check browser automation availability.", "Use before interaction when provider health is unknown.", "Do not use for public search.", app.ToolEffectExternalRead),
+	"browser.list_tabs":    browserAutomationRegistration("List tabs in the managed browser session.", app.ToolEffectExternalRead),
+	"browser.open":         browserAutomationRegistration("Open a URL in a managed browser tab.", app.ToolEffectExternalRead),
+	"browser.focus":        browserAutomationRegistration("Focus a managed browser tab.", app.ToolEffectExternalRead),
+	"browser.close":        browserAutomationRegistration("Close a managed browser tab.", app.ToolEffectExternalInteract),
+	"browser.navigate":     browserAutomationRegistration("Navigate a managed browser tab.", app.ToolEffectExternalRead),
+	"browser.snapshot":     browserAutomationRegistration("Capture structured browser page state.", app.ToolEffectExternalRead),
+	"browser.screenshot":   browserAutomationRegistration("Capture a browser screenshot.", app.ToolEffectExternalRead),
+	"browser.wait":         browserAutomationRegistration("Wait for observable browser state.", app.ToolEffectExternalRead),
+	"browser.click":        browserAutomationRegistration("Click a referenced page control.", app.ToolEffectExternalInteract),
+	"browser.type":         browserAutomationRegistration("Type into a referenced page control.", app.ToolEffectExternalInteract),
+	"browser.select":       browserAutomationRegistration("Select a value in a referenced page control.", app.ToolEffectExternalInteract),
 	"reminders.create":     {enabled: remindersEnabled, run: argsSessionRun((*ToolHub).remindersCreate)},
 	"reminders.list":       {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersList)},
 	"reminders.update":     {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersUpdate)},

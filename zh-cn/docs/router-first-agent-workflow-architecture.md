@@ -8,7 +8,7 @@ Workflow 专项设计。
 
 ## 实施状态
 
-第一阶段先建立后续迁移依赖的稳定契约：
+第一阶段已建立后续迁移依赖的稳定契约：
 
 - 渠道无关的 `MessageEnvelope`、多媒体 `MessageContent`、
   `RouteDecision`、`WorkflowResult` 与投递契约位于 `internal/app`；
@@ -16,11 +16,21 @@ Workflow 专项设计。
   规范化为统一消息契约；
 - `internal/capability` 持有带版本的默认能力树，逐层拒绝过期、虚构或父子边
   不合法的 Fast 路由结果；
-- 当前 Agent 入口使用规范化后的路由文本投影，并审计消息契约版本与能力目录版本。
+- Agent 入口使用规范化后的路由文本投影，并审计消息契约版本与能力目录版本。
 
-现有 Workflow 执行、提醒调度和 Connector 通知投递仍是兼容实现。下一阶段会把
-它们迁移到 Workflow Registry、Schedule Registry、Endpoint Registry 和
-Delivery Gateway 背后；第一阶段不需要修改 Store 接口或具体 Provider。
+第二阶段已完成第一条生产纵向链路：
+
+- Catalog revision 2 只暴露 `browser.search`、`browser.automation`、
+  `document.information` 和 `document.processing`；
+- 每条消息执行前都由 Fast Router 对照能力树分类，输出使用严格、工具中立的契约；
+- Workflow Registry 精确解析版本化协议，Dispatcher 持久化路由与返回上下文，
+  Tool Exposure 只物化所选 Workflow 已注册的固定工具；
+- 浏览器和文档的审批/登录恢复复用已持久化的路由与 Workflow 身份，不重新分类消息；
+- 只有 `unmatched` 进入过渡 ReAct。已知路由过期、非法、阻塞或执行失败时，
+  明确返回 `WorkflowResult`，绝不回退。
+
+Reminder 调度、Endpoint/Provider 抽象和结果投递属于并行迁移，不在本纵向切片中，
+此处也不修改 Store 接口或 Connector 具体实现。
 
 ## 架构决策
 
@@ -231,28 +241,17 @@ Catalog 是版本化的用户可见产品能力树：
 
 ```text
 capability
-  conversation
-    answer
-
   browser
     search
     automation
 
-  file
-    discover
-    read
-    create
-    edit
-    transform
-    delete
-
-  message
-    send
-    schedule
+  document
+    information
+    processing
 ```
 
-文字、图片、音频和文件不会成为模态分支。图片可以作为 Conversation 输入；语音
-请求可以通过 Transcript 路由到 Browser Search；文件根据用户请求的操作路由。
+文字、图片、音频和文件不会成为模态分支，而是 Message Part。例如语音请求可通过
+Transcript 路由到 Browser Search，文件引用可成为 Document Workflow 的类型化 Slot。
 
 每个内部节点只定义子节点和路由描述。每个叶子只标识一个 Workflow 协议。
 Catalog 不定义工具。
@@ -279,6 +278,18 @@ Router 不能返回工具名、Workflow 步骤、审批决策或新能力 ID。�
 
 Workflow Registry 将能力叶子映射到版本化 Workflow 协议。Dispatcher 持久化
 新 Run 并调用该 Workflow，不重新解释消息。
+
+当前版本采用严格的一对一映射：
+
+| 能力叶子 | Workflow | 固定工具边界 |
+|---|---|---|
+| `browser.search` | `browser.search@1` | `web.search`、`browser.read` |
+| `browser.automation` | `browser.automation@1` | 已注册的浏览器状态、标签页、导航、检查、截图、等待与交互工具 |
+| `document.information` | `document.information@1` | `files.search`、`files.read`、`pdf.extract_text` |
+| `document.processing` | `document.processing@1` | 已注册的文档信息、写入、Office/PDF 转换与受治理删除工具 |
+
+工具名来自 ToolHub 注册元数据，不由 Router 输出。Dispatcher 不寻找“近似匹配”的
+Workflow；旧 Workflow ID 会关闭失败，不能被重新解释为以上叶子。
 
 在总架构层，Workflow 只定义以下边界：
 
@@ -327,7 +338,7 @@ ReturnRoute
 Result Presenter 可以格式化内容，但不能改变执行状态或调用工具。用户可见文字、
 图片、语音/音频和文件都必须作为 Message Part 返回。
 
-显式 `message.send` 与普通 Workflow 结果都会创建 `DeliveryRequest` 并进入
+在目标架构中，显式发送与普通 Workflow 结果返回都会创建 `DeliveryRequest` 并进入
 Delivery Gateway。
 
 Delivery Gateway 解析目标 Endpoint，只在两种路径间选择：
@@ -356,7 +367,7 @@ Web 或第三方输入
 
 ```text
 用户消息
-  -> 路由到 message.schedule
+  -> 通过 Message Control Plane 创建 Schedule
   -> 保存 Schedule(message payload, trigger, ReturnRoute, authorization)
 
 Timer 触发
@@ -373,8 +384,8 @@ Timer 触发
 - `literal`：原样发送已保存的多模态内容；
 - `request`：将已保存内容作为新的 Agent 请求重新路由。
 
-因此定时可以复用于浏览器、文件、对话、未来能力，以及直接文字/图片/音频/文件
-投递。
+因此定时可以复用于浏览器、文档、未来能力，以及直接文字/图片/音频/文件投递，
+不需要在领域 Workflow 中加入 Timer 专用逻辑。
 
 ## 基础设施平面
 

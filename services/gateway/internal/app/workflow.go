@@ -10,8 +10,10 @@ const (
 type IntentOperation string
 
 const (
-	IntentOperationSearch IntentOperation = "search"
-	IntentOperationRead   IntentOperation = "read"
+	IntentOperationSearch   IntentOperation = "search"
+	IntentOperationRead     IntentOperation = "read"
+	IntentOperationAutomate IntentOperation = "automate"
+	IntentOperationProcess  IntentOperation = "process"
 )
 
 type TargetKind string
@@ -95,13 +97,22 @@ type WorkflowNodeStatus string
 type ArgumentBindingSource string
 
 const (
+	WorkflowBrowserSearch       WorkflowID = "browser.search"
+	WorkflowBrowserAutomation   WorkflowID = "browser.automation"
+	WorkflowDocumentInformation WorkflowID = "document.information"
+	WorkflowDocumentProcessing  WorkflowID = "document.processing"
+
+	// Legacy identities remain exact so persisted state is never silently
+	// reinterpreted as a different contract during migration.
 	WorkflowWebPublicResearch WorkflowID = "web.public_research"
 	WorkflowWebExplicitURL    WorkflowID = "web.explicit_url_read"
 	WorkflowWorkspaceSearch   WorkflowID = "workspace.file_search"
 	WorkflowWorkspaceRead     WorkflowID = "workspace.file_read"
 
-	ToolEffectExternalRead  ToolEffect = "external.read"
-	ToolEffectWorkspaceRead ToolEffect = "workspace.read"
+	ToolEffectExternalRead     ToolEffect = "external.read"
+	ToolEffectExternalInteract ToolEffect = "external.interact"
+	ToolEffectWorkspaceRead    ToolEffect = "workspace.read"
+	ToolEffectWorkspaceWrite   ToolEffect = "workspace.write"
 
 	OutcomeAdapterGeneric         ToolOutcomeAdapter = "generic"
 	OutcomeAdapterWebSearch       ToolOutcomeAdapter = "web.search"
@@ -207,6 +218,7 @@ type ResourceRef struct {
 type ToolOutcome struct {
 	ID         string          `json:"id"`
 	ToolCallID string          `json:"tool_call_id"`
+	Tool       string          `json:"tool"`
 	NodeID     WorkflowNodeID  `json:"node_id"`
 	Status     string          `json:"status"`
 	Signals    []OutcomeSignal `json:"signals,omitempty"`
@@ -296,6 +308,8 @@ type WorkflowNodeState struct {
 
 type WorkflowState struct {
 	SchemaVersion int                                  `json:"schema_version"`
+	Route         RouteDecision                        `json:"route"`
+	ReturnRoute   ReturnRoute                          `json:"return_route"`
 	Intent        IntentEnvelope                       `json:"intent"`
 	Plan          WorkflowPlan                         `json:"plan"`
 	PlanDigest    string                               `json:"plan_digest"`

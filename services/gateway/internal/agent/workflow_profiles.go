@@ -13,80 +13,87 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 )
 
-var errWorkflowDirectoryAmbiguous = errors.New("workflow directory requires an explicit bounded selection")
+type browserSearchProfile struct{}
 
-type webPublicResearchProfile struct{}
-
-func (webPublicResearchProfile) ID() app.WorkflowID { return app.WorkflowWebPublicResearch }
-func (webPublicResearchProfile) Revision() int      { return 1 }
-func (webPublicResearchProfile) Match(intent app.IntentEnvelope) bool {
-	return matchesSingleIntent(intent, app.IntentDomainWeb, app.IntentOperationSearch, app.TargetKindNone, app.DataScopePublic)
-}
-
-func (webPublicResearchProfile) Recognize(sourceTurnID, content string) (app.IntentEnvelope, bool) {
-	lower := strings.ToLower(content)
-	if hasUnmigratedDomainSignal(lower) || len(extractURLs(content)) != 0 || !shouldSearchWeb(lower) ||
-		shouldLookupWeather(lower) || shouldUseBrowserAutomation(lower) {
-		return app.IntentEnvelope{}, false
+func (browserSearchProfile) ID() app.WorkflowID           { return app.WorkflowBrowserSearch }
+func (browserSearchProfile) Revision() int                { return 1 }
+func (browserSearchProfile) Capability() app.CapabilityID { return app.CapabilityBrowserSearch }
+func (p browserSearchProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+	operation := app.IntentOperationSearch
+	target := app.TargetRef{Kind: app.TargetKindNone}
+	initialScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
+		Name: string(app.CapabilityBrowserSearch), Qualifiers: map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationDiscover},
+	}}}
+	bindings := []app.ArgumentBinding(nil)
+	transitions := []app.ScopeTransition(nil)
+	if route.Slots.Operation == app.RouteOperationRead && route.Slots.TargetKind == "url" && strings.TrimSpace(route.Slots.TargetRef) != "" {
+		operation = app.IntentOperationRead
+		target = app.TargetRef{Kind: app.TargetKindExplicitURL, Ref: route.Slots.TargetRef}
+		initialScope = app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
+			Name: string(app.CapabilityBrowserSearch), Qualifiers: map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationRead},
+		}}}
+		if len(route.Slots.TargetRefs) <= 1 {
+			bindings = []app.ArgumentBinding{{
+				Capability: string(app.CapabilityBrowserSearch), Argument: "url", ResourceKind: "url",
+				Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindExplicitURL},
+			}}
+		} else {
+			readScope := initialScope
+			transitions = []app.ScopeTransition{{
+				ID: "next_source", On: app.TransitionPredicate{Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}},
+				Replace: &readScope, MaxActivations: len(route.Slots.TargetRefs) - 1,
+			}}
+		}
 	}
-	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationSearch, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopePublic)
-	if webSourceEvidenceRequested(lower) {
+	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, operation, target, app.DataScopePublic)
+	if webSourceEvidenceRequested(strings.ToLower(route.Slots.Query)) && operation == app.IntentOperationSearch {
 		intent.Constraints.EvidenceDepth = app.EvidenceDepthSource
+		readScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
+			Name: string(app.CapabilityBrowserSearch), Qualifiers: map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationRead},
+		}}}
+		transitions = []app.ScopeTransition{{
+			ID:      "source_page",
+			On:      app.TransitionPredicate{OutcomeSignals: []app.OutcomeSignal{app.OutcomeSignalSourcePageAvailable}, Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}},
+			Replace: &readScope, MaxActivations: 1,
+		}}
+		bindings = []app.ArgumentBinding{{
+			Capability: string(app.CapabilityBrowserSearch), Argument: "url", ResourceKind: "url", Source: app.ArgumentBindingOutcomeRef,
+		}}
 	}
-	return intent, true
-}
-
-func (p webPublicResearchProfile) Resolve(intent app.IntentEnvelope) (app.WorkflowPlan, error) {
-	objective, err := singleProfileObjective(intent, app.IntentDomainWeb, app.IntentOperationSearch)
-	if err != nil {
-		return app.WorkflowPlan{}, err
-	}
-	nodeID := app.WorkflowNodeID("research")
-	pageScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: "web.page.read"}}}
-	return app.WorkflowPlan{
-		SchemaVersion:   1,
-		ProfileID:       p.ID(),
-		ProfileRevision: p.Revision(),
-		SkillIDs:        []string{"web_search"},
-		InitialNodeIDs:  []app.WorkflowNodeID{nodeID},
-		Completion:      app.CompletionEvidence,
+	objective := intent.Objectives[0]
+	nodeID := app.WorkflowNodeID("browser_search")
+	plan := app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"web_search"},
+		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID:           nodeID,
-			Goal:         app.NodeGoal{ObjectiveIDs: []string{objective.ID}, Summary: "Answer with sufficient public Web evidence", Completion: app.CompletionEvidence},
-			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: "web.discovery"}}},
-			Transitions: []app.ScopeTransition{{
-				ID: "source_page",
-				On: app.TransitionPredicate{
-					OutcomeSignals: []app.OutcomeSignal{app.OutcomeSignalSourcePageAvailable},
-					Assessments:    []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence},
-				},
-				Replace:        &pageScope,
-				MaxActivations: 1,
-			}},
-			ArgumentBindings: []app.ArgumentBinding{{
-				Capability: "web.page.read", Argument: "url", ResourceKind: "url", Source: app.ArgumentBindingOutcomeRef,
-			}},
-			AllowedRisks: []app.RiskLevel{app.RiskRead},
-			MaxAttempts:  2,
+			Goal:         app.NodeGoal{ObjectiveIDs: []string{objective.ID}, Summary: "Answer from bounded public Internet evidence", Completion: app.CompletionEvidence},
+			InitialScope: initialScope, Transitions: transitions, ArgumentBindings: bindings,
+			AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 2,
 		}},
-	}, nil
+	}
+	return intent, plan, nil
 }
 
-func (webPublicResearchProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
+func (browserSearchProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
 	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalAuthenticationRequired) {
-		assessment.Status = app.AssessmentBlocked
-		assessment.ReasonCode = "authentication_required"
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "authentication_required"
 		return assessment
 	}
 	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
-		assessment.Status = app.AssessmentComplete
-		assessment.ReasonCode = "source_page_content_available"
+		if targets := state.Route.Slots.TargetRefs; len(targets) > 1 {
+			node := state.Nodes[outcome.NodeID]
+			if len(node.AppliedOutcomeIDs)+1 < len(targets) {
+				assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "additional_source_required"
+				return assessment
+			}
+		}
+		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "source_page_content_available"
 		return assessment
 	}
 	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalNoResults) {
-		assessment.Status = app.AssessmentBlocked
-		assessment.ReasonCode = "discovery_returned_no_results"
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "discovery_returned_no_results"
 		return assessment
 	}
 	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalResultsAvailable) {
@@ -95,217 +102,182 @@ func (webPublicResearchProfile) Assess(state *app.WorkflowState, outcome app.Too
 			assessment.Signals = []app.OutcomeSignal{app.OutcomeSignalSourcePageAvailable}
 			assessment.ReasonCode = "source_page_required"
 		} else {
-			assessment.Status = app.AssessmentComplete
-			assessment.ReasonCode = "discovery_evidence_sufficient"
+			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "discovery_evidence_sufficient"
 		}
 		return assessment
 	}
-	assessment.Status = app.AssessmentBlocked
-	assessment.ReasonCode = "required_evidence_unavailable"
+	assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "required_web_evidence_unavailable"
 	return assessment
 }
 
-func (webPublicResearchProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	return workflowHint(state, "search", "web", "public", "", "Resolved from the stable public Web research profile.")
+func (browserSearchProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+	return workflowHint(state, "search", "web", "public", "", "Dispatched by the browser.search workflow contract.")
 }
 
-func (webPublicResearchProfile) TransitionInstruction(outcome app.ToolOutcome, assessment app.NodeAssessment) string {
+func (browserSearchProfile) TransitionInstruction(outcome app.ToolOutcome, assessment app.NodeAssessment) string {
 	for _, ref := range outcome.Refs {
 		if ref.Kind == "url" {
-			return fmt.Sprintf("workflow_requirement: %s. The frozen profile requires source-page evidence. Use the materialized capability with source URL: %s", assessment.ReasonCode, ref.Ref)
+			return fmt.Sprintf("workflow_requirement: %s. Read the governed source URL: %s", assessment.ReasonCode, ref.Ref)
 		}
 	}
-	return "workflow_requirement: the frozen profile requires source-page evidence, but no governed URL reference is available"
+	return "workflow_requirement: source-page evidence is required but no governed URL is available"
 }
 
-type webExplicitURLProfile struct{}
+type browserAutomationProfile struct{}
 
-func (webExplicitURLProfile) ID() app.WorkflowID { return app.WorkflowWebExplicitURL }
-func (webExplicitURLProfile) Revision() int      { return 1 }
-func (webExplicitURLProfile) Match(intent app.IntentEnvelope) bool {
-	return matchesSingleIntent(intent, app.IntentDomainWeb, app.IntentOperationRead, app.TargetKindExplicitURL, app.DataScopePublic)
-}
-
-func (webExplicitURLProfile) Recognize(sourceTurnID, content string) (app.IntentEnvelope, bool) {
-	lower := strings.ToLower(content)
-	urls := extractURLs(content)
-	if len(urls) != 1 || shouldUseBrowserAutomation(lower) || shouldUseLiveBrowserForURL(content, lower) {
-		return app.IntentEnvelope{}, false
+func (browserAutomationProfile) ID() app.WorkflowID           { return app.WorkflowBrowserAutomation }
+func (browserAutomationProfile) Revision() int                { return 1 }
+func (browserAutomationProfile) Capability() app.CapabilityID { return app.CapabilityBrowserAutomation }
+func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+	target := app.TargetRef{Kind: app.TargetKindNone}
+	if route.Slots.TargetKind == "url" && route.Slots.TargetRef != "" {
+		target = app.TargetRef{Kind: app.TargetKindExplicitURL, Ref: route.Slots.TargetRef}
 	}
-	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationRead, app.TargetRef{Kind: app.TargetKindExplicitURL, Ref: urls[0]}, app.DataScopePublic)
-	if webSourceEvidenceRequested(lower) {
-		intent.Constraints.EvidenceDepth = app.EvidenceDepthSource
-	}
-	return intent, true
-}
-
-func (p webExplicitURLProfile) Resolve(intent app.IntentEnvelope) (app.WorkflowPlan, error) {
-	objective, err := singleProfileObjective(intent, app.IntentDomainWeb, app.IntentOperationRead)
-	if err != nil || objective.Target.Kind != app.TargetKindExplicitURL || objective.Target.Ref == "" {
-		return app.WorkflowPlan{}, errors.New("explicit URL read requires a deterministic URL target")
-	}
-	nodeID := app.WorkflowNodeID("read")
-	return app.WorkflowPlan{
-		SchemaVersion:   1,
-		ProfileID:       p.ID(),
-		ProfileRevision: p.Revision(),
-		SkillIDs:        []string{"browser_automation"},
-		InitialNodeIDs:  []app.WorkflowNodeID{nodeID},
-		Completion:      app.CompletionEvidence,
+	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationAutomate, target, app.DataScopePublic)
+	nodeID := app.WorkflowNodeID("browser_automation")
+	automationScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: string(app.CapabilityBrowserAutomation)}}}
+	return intent, app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"browser_automation"},
+		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID:           nodeID,
-			Goal:         app.NodeGoal{ObjectiveIDs: []string{objective.ID}, Summary: "Answer from the supplied public URL", Completion: app.CompletionEvidence},
-			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: "web.page.read"}}},
-			ArgumentBindings: []app.ArgumentBinding{{
-				Capability: "web.page.read", Argument: "url", ResourceKind: "url", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindExplicitURL},
+			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Perform the bounded browser interaction requested by the owner", Completion: app.CompletionEvidence},
+			InitialScope: automationScope,
+			Transitions: []app.ScopeTransition{{
+				ID: "continue_interaction", On: app.TransitionPredicate{Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}},
+				Replace: &automationScope, MaxActivations: 5,
 			}},
-			AllowedRisks: []app.RiskLevel{app.RiskRead},
-			MaxAttempts:  2,
+			AllowedRisks: []app.RiskLevel{app.RiskRead, app.RiskDraft, app.RiskReversible}, MaxAttempts: 6,
 		}},
 	}, nil
 }
-
-func (webExplicitURLProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
-	assessment := baseNodeAssessment(outcome)
-	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalAuthenticationRequired) {
-		assessment.Status = app.AssessmentBlocked
-		assessment.ReasonCode = "authentication_required"
-	} else if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
-		assessment.Status = app.AssessmentComplete
-		assessment.ReasonCode = "explicit_page_content_available"
-	} else {
-		assessment.Status = app.AssessmentBlocked
-		assessment.ReasonCode = "required_evidence_unavailable"
+func (browserAutomationProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
+	assessment := terminalGenericAssessment(outcome, "browser_automation_completed", "browser_automation_failed")
+	query := strings.ToLower(state.Route.Slots.Query)
+	needsScreenshot := containsAny(query, "screenshot", "截图")
+	if assessment.Status == app.AssessmentComplete && needsScreenshot && outcome.Tool != "browser.screenshot" {
+		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "browser_screenshot_required"
 	}
 	return assessment
 }
-
-func (webExplicitURLProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	return workflowHint(state, "inspect", "web", "public", "autonomous", "Resolved from the stable explicit URL read profile.")
+func (browserAutomationProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+	hint := workflowHint(state, "browse", "web", "public", "collaborative", "Dispatched by the browser.automation workflow contract.")
+	query := state.Route.Slots.Query
+	if shouldUseAuthenticatedBrowserSession(query, strings.ToLower(query)) {
+		hint.EvidenceNeed = "personal_data"
+		hint.DataScope = "owner"
+		hint.ModelLaneHint = "deep"
+	}
+	return hint
 }
-
-func (webExplicitURLProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
+func (browserAutomationProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
 }
 
-type workspaceFileSearchProfile struct{}
+type documentInformationProfile struct{}
 
-func (workspaceFileSearchProfile) ID() app.WorkflowID { return app.WorkflowWorkspaceSearch }
-func (workspaceFileSearchProfile) Revision() int      { return 1 }
-func (workspaceFileSearchProfile) Match(intent app.IntentEnvelope) bool {
-	return matchesSingleIntent(intent, app.IntentDomainWorkspace, app.IntentOperationSearch, app.TargetKindNone, app.DataScopeWorkspace)
+func (documentInformationProfile) ID() app.WorkflowID { return app.WorkflowDocumentInformation }
+func (documentInformationProfile) Revision() int      { return 1 }
+func (documentInformationProfile) Capability() app.CapabilityID {
+	return app.CapabilityDocumentInformation
 }
-
-func (workspaceFileSearchProfile) Recognize(sourceTurnID, content string) (app.IntentEnvelope, bool) {
-	lower := strings.ToLower(content)
-	explicitWorkspace := containsAny(lower, "workspace", "project files", "local files", "工作区", "项目文件", "本地文件")
-	if len(extractURLs(content)) != 0 || len(extractPaths(content)) != 0 || workspaceMutationRequested(lower) ||
-		containsEnglishSemanticTerm(lower, "knowledge", "rag", "image", "images", "screenshot", "screenshots") || containsAny(lower, "知识库", "文档库", "图片", "截图") ||
-		domainSpecificSearch(lower) || isCodeTask(lower) || shouldUseBrowserAutomation(lower) ||
-		(shouldSearchWeb(lower) && !explicitWorkspace) ||
-		!containsAny(lower, "search", "find", "locate", "搜索", "查找", "找出", "定位") {
-		return app.IntentEnvelope{}, false
+func (p documentInformationProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+	operation := app.IntentOperationSearch
+	target := app.TargetRef{Kind: app.TargetKindNone}
+	bindings := []app.ArgumentBinding(nil)
+	if route.Slots.Operation == app.RouteOperationRead && route.Slots.TargetKind == "workspace_path" && route.Slots.TargetRef != "" {
+		operation = app.IntentOperationRead
+		target = app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
+		bindings = []app.ArgumentBinding{{
+			Capability: string(app.CapabilityDocumentInformation), Argument: "path", ResourceKind: "path",
+			Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindWorkspacePath},
+		}}
 	}
-	return singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, app.IntentOperationSearch, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopeWorkspace), true
-}
-
-func (p workspaceFileSearchProfile) Resolve(intent app.IntentEnvelope) (app.WorkflowPlan, error) {
-	objective, err := singleProfileObjective(intent, app.IntentDomainWorkspace, app.IntentOperationSearch)
-	if err != nil {
-		return app.WorkflowPlan{}, err
-	}
-	nodeID := app.WorkflowNodeID("search")
-	return app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"local_files"},
+	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, operation, target, app.DataScopeWorkspace)
+	nodeID := app.WorkflowNodeID("document_information")
+	return intent, app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"local_files", "document_assistant"},
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
-			ID: nodeID, Goal: app.NodeGoal{ObjectiveIDs: []string{objective.ID}, Summary: "Find matching files in the configured workspace", Completion: app.CompletionEvidence},
-			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: "workspace.file.search"}}},
-			AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+			ID:               nodeID,
+			Goal:             app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Discover or read governed document information", Completion: app.CompletionEvidence},
+			InitialScope:     app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: string(app.CapabilityDocumentInformation)}}},
+			ArgumentBindings: bindings, AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 2,
 		}},
 	}, nil
 }
-
-func (workspaceFileSearchProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
+func (documentInformationProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
-	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalResultsAvailable) {
-		assessment.Status = app.AssessmentComplete
-		assessment.ReasonCode = "workspace_matches_available"
-	} else if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalNoResults) {
-		assessment.Status = app.AssessmentComplete
-		assessment.ReasonCode = "workspace_search_completed_without_matches"
-	} else {
-		assessment.Status = app.AssessmentBlocked
-		assessment.ReasonCode = "workspace_search_failed"
+	switch {
+	case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable), containsOutcomeSignal(outcome.Signals, app.OutcomeSignalResultsAvailable), containsOutcomeSignal(outcome.Signals, app.OutcomeSignalNoResults):
+		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "document_information_available"
+	default:
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "document_information_failed"
 	}
 	return assessment
 }
-
-func (workspaceFileSearchProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	return workflowHint(state, "search", "workspace", "workspace", "", "Resolved from the stable workspace file-search profile.")
+func (documentInformationProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+	return workflowHint(state, "inspect", "workspace", "workspace", "", "Dispatched by the document.information workflow contract.")
 }
-
-func (workspaceFileSearchProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
+func (documentInformationProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
 }
 
-type workspaceFileReadProfile struct{}
+type documentProcessingProfile struct{}
 
-func (workspaceFileReadProfile) ID() app.WorkflowID { return app.WorkflowWorkspaceRead }
-func (workspaceFileReadProfile) Revision() int      { return 1 }
-func (workspaceFileReadProfile) Match(intent app.IntentEnvelope) bool {
-	return matchesSingleIntent(intent, app.IntentDomainWorkspace, app.IntentOperationRead, app.TargetKindWorkspacePath, app.DataScopeWorkspace)
+func (documentProcessingProfile) ID() app.WorkflowID { return app.WorkflowDocumentProcessing }
+func (documentProcessingProfile) Revision() int      { return 1 }
+func (documentProcessingProfile) Capability() app.CapabilityID {
+	return app.CapabilityDocumentProcessing
 }
-
-func (workspaceFileReadProfile) Recognize(sourceTurnID, content string) (app.IntentEnvelope, bool) {
-	lower := strings.ToLower(content)
-	paths := extractPaths(content)
-	if len(extractURLs(content)) != 0 || len(paths) != 1 || workspaceMutationRequested(lower) ||
-		containsEnglishSemanticTerm(lower, "image", "images", "photo", "photos", "screenshot", "screenshots", "ocr") || containsAny(lower, "图片", "照片", "截图", "看图") ||
-		(!containsEnglishSemanticTerm(lower, "read", "summarize", "inspect", "explain") && !containsAny(lower, "读取", "阅读", "总结", "概括", "查看内容")) {
-		return app.IntentEnvelope{}, false
+func (p documentProcessingProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+	target := app.TargetRef{Kind: app.TargetKindNone}
+	if route.Slots.TargetKind == "workspace_path" && route.Slots.TargetRef != "" {
+		target = app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
 	}
-	return singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, app.IntentOperationRead, app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: paths[0]}, app.DataScopeWorkspace), true
-}
-
-func (p workspaceFileReadProfile) Resolve(intent app.IntentEnvelope) (app.WorkflowPlan, error) {
-	objective, err := singleProfileObjective(intent, app.IntentDomainWorkspace, app.IntentOperationRead)
-	if err != nil || objective.Target.Kind != app.TargetKindWorkspacePath || objective.Target.Ref == "" {
-		return app.WorkflowPlan{}, errors.New("workspace file read requires one deterministic path target")
-	}
-	nodeID := app.WorkflowNodeID("read")
-	return app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"local_files"},
+	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, app.IntentOperationProcess, target, app.DataScopeWorkspace)
+	nodeID := app.WorkflowNodeID("document_processing")
+	processingScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{
+		{Name: string(app.CapabilityDocumentInformation)},
+		{Name: string(app.CapabilityDocumentProcessing)},
+	}}
+	return intent, app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"local_files", "document_assistant"},
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
-			ID: nodeID, Goal: app.NodeGoal{ObjectiveIDs: []string{objective.ID}, Summary: "Read the explicitly named workspace file", Completion: app.CompletionEvidence},
-			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: "workspace.file.read"}}},
-			ArgumentBindings: []app.ArgumentBinding{{
-				Capability: "workspace.file.read", Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindWorkspacePath},
+			ID:           nodeID,
+			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Create, edit, transform, or delete a governed document", Completion: app.CompletionEvidence},
+			InitialScope: processingScope,
+			Transitions: []app.ScopeTransition{{
+				ID: "continue_processing", On: app.TransitionPredicate{Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}},
+				Replace: &processingScope, MaxActivations: 5,
 			}},
-			AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+			AllowedRisks: []app.RiskLevel{app.RiskRead, app.RiskDraft, app.RiskReversible, app.RiskDangerous}, MaxAttempts: 6,
 		}},
 	}, nil
 }
-
-func (workspaceFileReadProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
-	assessment := baseNodeAssessment(outcome)
-	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
-		assessment.Status = app.AssessmentComplete
-		assessment.ReasonCode = "workspace_file_content_available"
-	} else {
-		assessment.Status = app.AssessmentBlocked
-		assessment.ReasonCode = "workspace_file_content_unavailable"
+func (documentProcessingProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
+	assessment := terminalGenericAssessment(outcome, "document_processing_completed", "document_processing_failed")
+	if assessment.Status == app.AssessmentComplete && (outcome.Tool == "files.search" || outcome.Tool == "files.read" || outcome.Tool == "pdf.extract_text") {
+		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "document_mutation_required"
 	}
 	return assessment
 }
-
-func (workspaceFileReadProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	return workflowHint(state, "summarize", "workspace", "workspace", "", "Resolved from the stable workspace file-read profile.")
+func (documentProcessingProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+	return workflowHint(state, "modify", "workspace", "workspace", "", "Dispatched by the document.processing workflow contract.")
+}
+func (documentProcessingProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
+	return ""
 }
 
-func (workspaceFileReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
-	return ""
+func terminalGenericAssessment(outcome app.ToolOutcome, completedReason, failedReason string) app.NodeAssessment {
+	assessment := baseNodeAssessment(outcome)
+	if outcome.Status == "completed" || outcome.Status == "completed_after_approval" {
+		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, completedReason
+	} else {
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, failedReason
+	}
+	return assessment
 }
 
 func singleObjectiveIntent(sourceTurnID string, domain app.IntentDomain, operation app.IntentOperation, target app.TargetRef, scope app.DataScope) app.IntentEnvelope {
@@ -317,18 +289,6 @@ func singleObjectiveIntent(sourceTurnID string, domain app.IntentDomain, operati
 	}
 }
 
-func singleProfileObjective(intent app.IntentEnvelope, domain app.IntentDomain, operation app.IntentOperation) (app.Objective, error) {
-	if len(intent.Objectives) != 1 || intent.Objectives[0].Domain != domain || intent.Objectives[0].Operation != operation {
-		return app.Objective{}, errors.New("intent does not match the workflow profile")
-	}
-	return intent.Objectives[0], nil
-}
-
-func matchesSingleIntent(intent app.IntentEnvelope, domain app.IntentDomain, operation app.IntentOperation, targetKind app.TargetKind, dataScope app.DataScope) bool {
-	return len(intent.Objectives) == 1 && intent.Objectives[0].Domain == domain && intent.Objectives[0].Operation == operation &&
-		intent.Objectives[0].Target.Kind == targetKind && intent.Constraints.DataScope == dataScope && intent.Resolution.Status == app.IntentResolved
-}
-
 func baseNodeAssessment(outcome app.ToolOutcome) app.NodeAssessment {
 	return app.NodeAssessment{OutcomeID: outcome.ID, NodeID: outcome.NodeID}
 }
@@ -338,20 +298,17 @@ func workspaceMutationRequested(lower string) bool {
 		containsAny(lower, "编辑", "修改", "写入", "创建", "删除", "移除", "补丁", "重命名", "移动", "完善")
 }
 
-func newWorkflowState(intent app.IntentEnvelope, plan app.WorkflowPlan) *app.WorkflowState {
+func newWorkflowState(route app.RouteDecision, returnRoute app.ReturnRoute, intent app.IntentEnvelope, plan app.WorkflowPlan) *app.WorkflowState {
 	nodes := make(map[app.WorkflowNodeID]app.WorkflowNodeState, len(plan.Nodes))
 	for _, node := range plan.Nodes {
 		status := app.WorkflowNodePending
 		if containsWorkflowNodeID(plan.InitialNodeIDs, node.ID) {
 			status = app.WorkflowNodeActive
 		}
-		nodes[node.ID] = app.WorkflowNodeState{
-			Status: status, CurrentScope: node.InitialScope, ScopeRevision: 1,
-			TransitionActivations: map[app.TransitionID]int{},
-		}
+		nodes[node.ID] = app.WorkflowNodeState{Status: status, CurrentScope: node.InitialScope, ScopeRevision: 1, TransitionActivations: map[app.TransitionID]int{}}
 	}
 	return &app.WorkflowState{
-		SchemaVersion: 1, Intent: intent, Plan: plan, PlanDigest: workflowPlanDigest(plan), Status: app.WorkflowStatusRunning,
+		SchemaVersion: 1, Route: route, ReturnRoute: returnRoute, Intent: intent, Plan: plan, PlanDigest: workflowPlanDigest(plan), Status: app.WorkflowStatusRunning,
 		ActiveNodeIDs: append([]app.WorkflowNodeID(nil), plan.InitialNodeIDs...), Nodes: nodes,
 	}
 }
@@ -366,7 +323,7 @@ func workflowHint(state *app.WorkflowState, taskType, evidenceNeed, dataScope, b
 	nodeID := state.ActiveNodeIDs[0]
 	nodeState := state.Nodes[nodeID]
 	return workflowExecutionHint{
-		TaskType: taskType, EvidenceNeed: evidenceNeed, DataScope: dataScope, ToolMode: "read_only", BrowserMode: browserMode,
+		TaskType: taskType, EvidenceNeed: evidenceNeed, DataScope: dataScope, ToolMode: "workflow_bounded", BrowserMode: browserMode,
 		RequiresToolEvidence: true, EstimatedRisk: app.RiskRead, ModelLaneHint: "fast", Reason: reason,
 		WorkflowID: state.Plan.ProfileID, WorkflowNodeID: nodeID, ScopeRevision: nodeState.ScopeRevision,
 	}
@@ -387,7 +344,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	state := run.Workflow.Nodes[hint.WorkflowNodeID]
 	view, err := r.exposure.Search(ctx, app.ExposureRequest{
 		RunID: run.ID, WorkflowID: run.Workflow.Plan.ProfileID, NodeID: hint.WorkflowNodeID,
-		ScopeRevision: state.ScopeRevision, ActorRef: actorRef, Limit: 8,
+		ScopeRevision: state.ScopeRevision, ActorRef: actorRef, Limit: 32,
 	})
 	if err != nil {
 		return nil, err
@@ -396,20 +353,16 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if len(view.Entries) == 0 {
 		return nil, errors.New("no registered tool satisfies the active workflow scope")
 	}
-	entry, automatic, err := r.selectDirectoryEntry(ctx, run, view)
-	if err != nil {
-		return nil, err
-	}
+	entryIDs := directoryEntryIDs(view.Entries)
 	exposure, err := r.exposure.Materialize(ctx, app.MaterializeRequest{
 		ViewID: view.ViewID, RunID: run.ID, WorkflowID: view.WorkflowID, NodeID: view.NodeID,
-		ScopeRevision: view.ScopeRevision, EntryIDs: []app.ToolDirectoryEntryID{entry.ID}, ActorRef: actorRef,
+		ScopeRevision: view.ScopeRevision, EntryIDs: entryIDs, ActorRef: actorRef,
 	})
 	if err != nil {
 		return nil, err
 	}
 	hint.ScopeRevision = view.ScopeRevision
-	hint.Capability = entry.Capability.Name
-	r.auditDirectorySelection(run, view, entry, automatic, exposure.Definitions)
+	r.auditFixedWorkflowExposure(run, view, exposure.Definitions)
 	return exposure.Definitions, nil
 }
 
@@ -420,12 +373,9 @@ func (r Runtime) auditDirectorySearch(run app.AgentRun, view app.DirectoryView) 
 	}})
 }
 
-func (r Runtime) auditDirectorySelection(run app.AgentRun, view app.DirectoryView, entry app.ToolDirectoryEntry, automatic bool, definitions []app.ToolDefinition) {
-	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.directory.selected", Summary: "Selected a bounded directory entry", Fields: map[string]any{
-		"view_id": view.ViewID, "entry_id": entry.ID, "automatic": automatic,
-	}})
-	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.materialized", Summary: "Materialized concrete ToolDefinitions", Fields: map[string]any{
-		"view_id": view.ViewID, "tools": visibleToolNames(definitions),
+func (r Runtime) auditFixedWorkflowExposure(run app.AgentRun, view app.DirectoryView, definitions []app.ToolDefinition) {
+	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.fixed", Summary: "Materialized the workflow's fixed tool boundary", Fields: map[string]any{
+		"workflow_id": view.WorkflowID, "view_id": view.ViewID, "entry_ids": directoryEntryIDs(view.Entries), "tools": visibleToolNames(definitions),
 	}})
 }
 

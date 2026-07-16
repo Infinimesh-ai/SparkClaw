@@ -34,10 +34,12 @@ type Runtime struct {
 }
 
 type Result struct {
-	Run       app.AgentRun   `json:"run"`
-	Message   app.Message    `json:"message"`
-	ToolCalls []app.ToolCall `json:"tool_calls"`
-	Approvals []app.Approval `json:"approvals"`
+	Run            app.AgentRun        `json:"run"`
+	Message        app.Message         `json:"message"`
+	ToolCalls      []app.ToolCall      `json:"tool_calls"`
+	Approvals      []app.Approval      `json:"approvals"`
+	RouteDecision  *app.RouteDecision  `json:"route_decision,omitempty"`
+	WorkflowResult *app.WorkflowResult `json:"workflow_result,omitempty"`
 }
 
 type StreamEvent = modelrouter.ModelStreamEvent
@@ -182,63 +184,31 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
 	}
 
-	recognized, authoritativeWorkflow, routingErr := r.classifyIntent(ctx, sessionID, run.ID, userMessage.ID, agentContent)
+	route, routingErr := r.routeCapability(ctx, sessionID, run.ID, agentContent)
 	if routingErr != nil {
 		return r.blockWorkflowSetup(ctx, run, visibleContent, routingErr), nil
 	}
+	if route.Status == app.RouteClarify || route.Status == app.RouteBlocked {
+		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
+	}
+	authoritativeWorkflow := route.Status == app.RouteMatched
 	var hint TaskHint
 	var relevantSkills []skills.Skill
 	var visibleTools []app.ToolDefinition
 	var activeProfile workflowProfile
 	if authoritativeWorkflow {
-		var plan app.WorkflowPlan
-		var err error
-		activeProfile, plan, err = r.profiles.Resolve(recognized)
+		dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, envelope.ReturnRoute, userMessage.ID)
 		if err != nil {
-			return r.blockWorkflowSetup(ctx, run, visibleContent, err), nil
+			result := r.blockWorkflowSetup(ctx, run, visibleContent, err)
+			result.RouteDecision = &route
+			result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, envelope.ReturnRoute, result.Message.Content)
+			return result, nil
 		}
-		run.Workflow = newWorkflowState(recognized.Intent, plan)
-		run.State = "routing"
-		r.store.SaveRun(run)
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID,
-			RunID:     run.ID,
-			Actor:     "runtime",
-			Type:      "workflow.resolved",
-			Summary:   "Resolved stable intent into a frozen workflow plan",
-			Fields: map[string]any{
-				"workflow_id":       plan.ProfileID,
-				"profile_revision":  plan.ProfileRevision,
-				"plan_digest":       run.Workflow.PlanDigest,
-				"active_node_ids":   run.Workflow.ActiveNodeIDs,
-				"completion":        plan.Completion,
-				"procedural_skills": plan.SkillIDs,
-			},
-		})
-		workflowHint := activeProfile.Hint(run.Workflow)
-		relevantSkills = r.exactWorkflowSkills(plan.SkillIDs)
-		visibleTools, err = r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(sessionID), &workflowHint)
-		if err != nil {
-			return r.blockWorkflowSetup(ctx, run, visibleContent, err), nil
-		}
-		hint = workflowHint.taskHint()
-		if refreshed, ok := r.store.GetRun(run.ID); ok {
-			run = refreshed
-		}
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID,
-			RunID:     run.ID,
-			Actor:     "gateway",
-			Type:      "gateway.dispatch",
-			Summary:   "Dispatched run from stable semantic intent",
-			Fields: map[string]any{
-				"workflow_id":     plan.ProfileID,
-				"node_id":         hint.WorkflowNodeID,
-				"scope_revision":  hint.ScopeRevision,
-				"capability":      hint.Capability,
-				"model_lane_hint": hint.ModelLaneHint,
-			},
-		})
+		run = dispatch.Run
+		activeProfile = dispatch.Profile
+		hint = dispatch.Hint
+		relevantSkills = dispatch.Skills
+		visibleTools = dispatch.Tools
 	} else {
 		hint = r.generateTaskHint(ctx, sessionID, run.ID, agentContent)
 		r.store.AddAudit(app.AuditEvent{
@@ -366,7 +336,13 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		CreatedAt: now,
 	})
 	r.writeTrace(ctx, run, reactResult.Chat, allToolCalls, allApprovals, feedback, &episode)
-	return Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}, nil
+	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route}
+	if authoritativeWorkflow {
+		result.WorkflowResult = workflowResultForRun(run, route, envelope.ReturnRoute, run.Summary)
+	} else {
+		result.WorkflowResult = workflowResultForUnmatched(run, route, envelope.ReturnRoute, run.Summary)
+	}
+	return result, nil
 }
 
 func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
@@ -378,12 +354,18 @@ func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
 			break
 		}
 	}
-	return Result{
+	result := Result{
 		Run:       run,
 		Message:   message,
 		ToolCalls: toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID),
 		Approvals: approvalsForRun(r.store.ListApprovals(""), run.ID),
 	}
+	if run.Workflow != nil {
+		route := run.Workflow.Route
+		result.RouteDecision = &route
+		result.WorkflowResult = workflowResultForRun(run, route, run.Workflow.ReturnRoute, message.Content)
+	}
+	return result
 }
 
 func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID string) (Result, bool, error) {
@@ -403,6 +385,9 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	seedObservations := observationsForResume(seedCalls)
 	if len(seedCalls) == 0 || !hasReActModelCall(r.store.ListModelCalls(sessionID, run.ID)) {
 		return Result{}, false, nil
+	}
+	if run.Workflow != nil {
+		return r.resumeMatchedWorkflowAfterApproval(ctx, run, content, seedCalls)
 	}
 	if result, ok := r.completeRunAfterTerminalApprovedAction(ctx, sessionID, run, content, seedCalls); ok {
 		return result, true, nil

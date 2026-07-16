@@ -504,7 +504,7 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_sessions_total 1",
 		"sparkclaw_messages_total 2",
 		"sparkclaw_agent_runs_total 1",
-		"sparkclaw_model_calls_total 4",
+		"sparkclaw_model_calls_total 5",
 		"sparkclaw_model_call_errors_total 0",
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
 		"sparkclaw_memory_candidates_total 1",
@@ -2541,7 +2541,7 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	if len(decoded.ToolCalls) == 0 {
 		t.Fatal("trace did not include tool calls")
 	}
-	if !hasServerTestModelCall(decoded.ModelCalls, "intent_classification", "fast") ||
+	if !hasServerTestModelCall(decoded.ModelCalls, "capability_routing", "fast") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "fast") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)

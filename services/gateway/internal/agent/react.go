@@ -84,10 +84,21 @@ func (r Runtime) reactBudget() reactRunBudget {
 }
 
 func (r Runtime) runReActLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition) reactRunResult {
-	return r.runReActLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, nil, nil)
+	return r.runBoundedToolLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, nil, nil)
 }
 
 func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
+	return r.runBoundedToolLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
+}
+
+func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
+	return r.runBoundedToolLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
+}
+
+// runBoundedToolLoopWithSeed is a shared model/tool execution primitive. The
+// caller determines semantics: unmatched routing uses the ReAct fallback,
+// while matched workflows invoke it only within their persisted fixed scope.
+func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
 	result := reactRunResult{Observations: append([]string(nil), seedObservations...)}
 	completedSoFar := append([]app.ToolCall(nil), seedCalls...)
 	contextSnapshot := r.buildAgentContextSnapshot(sessionID, run.ID, content)
@@ -256,6 +267,14 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 			ScopeRevision:  hint.ScopeRevision,
 			Capability:     hint.Capability,
 		}
+		if hint.WorkflowID != "" {
+			capability, err := r.materializedWorkflowCapability(run.ID, hint.WorkflowNodeID, hint.ScopeRevision, parsed.Action.Tool)
+			if err != nil {
+				result.FinalAnswer = err.Error()
+				return result
+			}
+			plan.Capability = capability
+		}
 		plan = enrichPlanWithWebFreshness(content, plan)
 		plan = enrichPlanWithBrowserMode(hint, plan)
 		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
@@ -278,7 +297,7 @@ func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run
 		} else if !toolCallAdvancedRun(call, observation) {
 			noProgressActions++
 		}
-		if hint.WorkflowID == "" {
+		if hint.WorkflowID == "" || hint.WorkflowID == app.WorkflowBrowserAutomation {
 			if block, ok := r.recordBrowserLoginBlockFromToolCall(sessionID, run.ID, content, plan, call); ok {
 				result.BrowserLoginBlock = &block
 				result.FinalAnswer = browserLoginBlockedMessage(block)

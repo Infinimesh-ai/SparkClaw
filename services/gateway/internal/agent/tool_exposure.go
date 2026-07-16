@@ -88,8 +88,8 @@ func (e *toolExposureEngine) Search(_ context.Context, request app.ExposureReque
 		return entries[i].RelevanceRank > entries[j].RelevanceRank
 	})
 	limit := request.Limit
-	if limit <= 0 || limit > 16 {
-		limit = 8
+	if limit <= 0 || limit > 32 {
+		limit = 16
 	}
 	if len(entries) > limit {
 		entries = entries[:limit]

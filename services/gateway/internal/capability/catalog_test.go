@@ -13,17 +13,10 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := [][]app.CapabilityID{
-		{"conversation", "conversation.answer"},
 		{"browser", "browser.search"},
 		{"browser", "browser.automation"},
-		{"file", "file.discover"},
-		{"file", "file.read"},
-		{"file", "file.create"},
-		{"file", "file.edit"},
-		{"file", "file.transform"},
-		{"file", "file.delete"},
-		{"message", "message.send"},
-		{"message", "message.schedule"},
+		{"document", "document.information"},
+		{"document", "document.processing"},
 	}
 	for _, path := range paths {
 		leaf, err := catalog.ResolveLeaf(path)
@@ -41,7 +34,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 
 func TestCatalogRejectsInvalidPathEdges(t *testing.T) {
 	catalog := MustDefaultCatalog()
-	_, err := catalog.ResolveLeaf([]app.CapabilityID{"browser", "file.read"})
+	_, err := catalog.ResolveLeaf([]app.CapabilityID{"browser", "document.information"})
 	if err == nil || !strings.Contains(err.Error(), "is not registered") {
 		t.Fatalf("expected invalid edge error, got %v", err)
 	}
@@ -58,12 +51,13 @@ func TestCatalogValidatesFastRouteDecisionAgainstRevisionAndEdges(t *testing.T) 
 		Status:          app.RouteMatched,
 		CatalogRevision: catalog.Revision(),
 		CapabilityPath:  []app.CapabilityID{"browser", "browser.search"},
+		Slots:           app.RouteSlots{Operation: app.RouteOperationSearch},
 		Confidence:      0.92,
 	}
 	if err := catalog.ValidateDecision(decision); err != nil {
 		t.Fatal(err)
 	}
-	decision.CapabilityPath = []app.CapabilityID{"browser", "file.read"}
+	decision.CapabilityPath = []app.CapabilityID{"browser", "document.information"}
 	if err := catalog.ValidateDecision(decision); err == nil || !strings.Contains(err.Error(), "is not registered") {
 		t.Fatalf("expected edge validation error, got %v", err)
 	}
@@ -72,6 +66,17 @@ func TestCatalogValidatesFastRouteDecisionAgainstRevisionAndEdges(t *testing.T) 
 	decision.CatalogRevision = "stale"
 	if err := catalog.ValidateDecision(decision); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("expected revision validation error, got %v", err)
+	}
+}
+
+func TestCatalogRejectsOperationOutsideLeafSlotContract(t *testing.T) {
+	catalog := MustDefaultCatalog()
+	err := catalog.ValidateDecision(app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", "browser.search"}, Slots: app.RouteSlots{Operation: app.RouteOperationDelete},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not valid") {
+		t.Fatalf("expected typed operation rejection, got %v", err)
 	}
 }
 

@@ -52,6 +52,31 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 	return nil
 }
 
+func (r Runtime) materializedWorkflowCapability(runID string, nodeID app.WorkflowNodeID, scopeRevision int, toolName string) (string, error) {
+	run, ok := r.store.GetRun(runID)
+	if !ok || run.Workflow == nil {
+		return "", errors.New("workflow state is unavailable for tool selection")
+	}
+	state, ok := run.Workflow.Nodes[nodeID]
+	if !ok || state.Status != app.WorkflowNodeActive || state.ScopeRevision != scopeRevision {
+		return "", errors.New("workflow tool selection is outside the active scope")
+	}
+	definition, ok := r.tools.Definition(toolName)
+	if !ok {
+		return "", errors.New("workflow selected an unregistered tool")
+	}
+	for _, descriptor := range definition.Capabilities {
+		if !matchesAnyRequirement(descriptor, state.CurrentScope.Requirements) {
+			continue
+		}
+		entryID := directoryEntryID(definition, descriptor)
+		if containsDirectoryEntryID(state.SelectedEntries, entryID) {
+			return descriptor.Name, nil
+		}
+	}
+	return "", errors.New("workflow selected a tool outside its fixed capability boundary")
+}
+
 func containsDirectoryEntryID(values []app.ToolDirectoryEntryID, expected app.ToolDirectoryEntryID) bool {
 	for _, value := range values {
 		if value == expected {
@@ -136,14 +161,18 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 }
 
 func (r Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition) reactRunResult {
+	return r.runWorkflowWithSeed(ctx, sessionID, run, content, profile, hint, relevantSkills, visibleTools, nil, nil)
+}
+
+func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
 	actorRef := r.workflowActorRef(sessionID)
-	allCalls := []app.ToolCall{}
+	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
-	allObservations := []string{}
+	allObservations := append([]string(nil), seedObservations...)
 	latest := reactRunResult{}
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
-		stageResult := r.runReActLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, allCalls, allObservations)
+		stageResult := r.runWorkflowModelStep(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, allCalls, allObservations)
 		allCalls = append(allCalls, stageResult.ToolCalls...)
 		allApprovals = append(allApprovals, stageResult.Approvals...)
 		allObservations = stageResult.Observations

@@ -8,7 +8,8 @@ Workflow 专项设计。
 
 ## 实施状态
 
-第一阶段先建立后续迁移依赖的稳定契约：
+首批实施阶段已经建立后续 Workflow 迁移所依赖的稳定契约，以及消息控制与投递
+Runtime：
 
 - 渠道无关的 `MessageEnvelope`、多媒体 `MessageContent`、
   `RouteDecision`、`WorkflowResult` 与投递契约位于 `internal/app`；
@@ -17,10 +18,17 @@ Workflow 专项设计。
 - `internal/capability` 持有带版本的默认能力树，逐层拒绝过期、虚构或父子边
   不合法的 Fast 路由结果；
 - 当前 Agent 入口使用规范化后的路由文本投影，并审计消息契约版本与能力目录版本。
+- `internal/messagecontrol` 在现有状态之上解析 Owner 绑定的 Web/第三方 Endpoint、
+  版本化 literal/request Schedule 与 ReturnRoute；
+- `internal/delivery` 持有 Delivery Gateway 与 Provider Registry，Adapter 发送前
+  必须整体预检有序 `MessageContent`；
+- 微信与 Telegram 作为 Provider Registry 下的注册 Adapter，核心投递只按
+  Endpoint 类型分流；
+- Timer Polling 只 Claim 并入队到期 Schedule，固定 Worker 在 Poll Loop 外发布
+  request Envelope 或投递 literal Payload。
 
-现有 Workflow 执行、提醒调度和 Connector 通知投递仍是兼容实现。下一阶段会把
-它们迁移到 Workflow Registry、Schedule Registry、Endpoint Registry 和
-Delivery Gateway 背后；第一阶段不需要修改 Store 接口或具体 Provider。
+旧 Reminder 记录仍可读取，并会投影为 literal Schedule。扩展点、持久化兼容及
+剩余集成工作见[消息控制与投递迁移](message-control-delivery-migration.md)。
 
 ## 架构决策
 

@@ -10,7 +10,8 @@ designs.
 
 ## Implementation Status
 
-Phase 1 establishes the contracts that later migrations depend on:
+The first implementation slices now establish the contracts and the Message
+Control/Delivery runtime that later Workflow migrations depend on:
 
 - channel-neutral `MessageEnvelope`, multimodal `MessageContent`,
   `RouteDecision`, `WorkflowResult`, and delivery contracts live in
@@ -21,12 +22,19 @@ Phase 1 establishes the contracts that later migrations depend on:
   stale, invented, or invalid Fast routing paths edge by edge;
 - the current Agent entry point consumes the normalized routing projection and
   audits the envelope schema and capability catalog revision.
+- `internal/messagecontrol` resolves owner-bound Web and third-party Endpoints,
+  versioned literal/request Schedules, and ReturnRoutes over existing state;
+- `internal/delivery` owns the Delivery Gateway and Provider Registry. It
+  preflights the complete ordered `MessageContent` before an adapter can send;
+- Weixin and Telegram are registered adapters below that Provider Registry.
+  Core delivery branches only on Endpoint kind;
+- Timer polling only claims and enqueues due Schedules. Fixed workers publish
+  request envelopes or send literal payloads outside the polling loop.
 
-Current Workflow execution, reminder scheduling, and connector notification
-delivery remain compatibility implementations. Their migration behind the
-Workflow Registry, Schedule Registry, Endpoint Registry, and Delivery Gateway
-is the next architecture phase; the Phase 1 contracts do not require changing
-the Store interface or concrete providers.
+Legacy Reminder records remain readable and are projected as literal
+Schedules. See [Message Control and Delivery Migration](message-control-delivery-migration.md)
+for extension points, persistence compatibility, and remaining integration
+work.
 
 ## Architecture Decision
 

@@ -10,7 +10,8 @@ designs.
 
 ## Implementation Status
 
-Phase 1 established the contracts that later migrations depend on:
+The first implementation slices establish the shared contracts, the initial
+Router/Workflow vertical slice, and the Message Control/Delivery runtime:
 
 - channel-neutral `MessageEnvelope`, multimodal `MessageContent`,
   `RouteDecision`, `WorkflowResult`, and delivery contracts live in
@@ -36,10 +37,19 @@ Phase 2 completes the first production vertical slice:
 - only `unmatched` enters the transitional ReAct path. A known route that is
   stale, invalid, blocked, or fails execution returns an explicit
   `WorkflowResult` and never falls back.
+- `internal/messagecontrol` resolves owner-bound Web and third-party Endpoints,
+  versioned literal/request Schedules, and ReturnRoutes over existing state;
+- `internal/delivery` owns the Delivery Gateway and Provider Registry. It
+  preflights the complete ordered `MessageContent` before an adapter can send;
+- Weixin and Telegram are registered adapters below that Provider Registry.
+  Core delivery branches only on Endpoint kind;
+- Timer polling only claims and enqueues due Schedules. Fixed workers publish
+  request envelopes or send literal payloads outside the polling loop.
 
-Reminder scheduling, Endpoint/Provider abstraction, and result delivery are
-separate parallel migrations. They remain outside this vertical slice and do
-not require changes to the Store interface or connector implementations here.
+Legacy Reminder records remain readable and are projected as literal
+Schedules. See [Message Control and Delivery Migration](message-control-delivery-migration.md)
+for extension points, persistence compatibility, and remaining integration
+work.
 
 ## Architecture Decision
 

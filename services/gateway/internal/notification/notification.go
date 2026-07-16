@@ -15,11 +15,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
@@ -198,10 +200,11 @@ func (a WebAdapter) Send(ctx context.Context, notification Notification) (Result
 }
 
 type WeixinAdapter struct {
-	channel string
-	cfg     config.NotificationChannelConfig
-	store   store.Store
-	client  *http.Client
+	channel   string
+	cfg       config.NotificationChannelConfig
+	store     store.Store
+	client    *http.Client
+	resources delivery.ResourceResolver
 }
 
 func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, stores ...store.Store) *WeixinAdapter {
@@ -210,11 +213,84 @@ func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig, stor
 		st = stores[0]
 	}
 	return &WeixinAdapter{
-		channel: channel,
-		cfg:     cfg,
-		store:   st,
-		client:  &http.Client{Timeout: 15 * time.Second},
+		channel:   channel,
+		cfg:       cfg,
+		store:     st,
+		client:    &http.Client{Timeout: 15 * time.Second},
+		resources: delivery.NewStoreResourceResolver(st),
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (a *WeixinAdapter) Key() string { return a.channel }
+
+func (a *WeixinAdapter) Capabilities() delivery.Capabilities {
+	return delivery.Capabilities{Parts: map[app.MessagePartKind]bool{
+		app.MessagePartText: true, app.MessagePartImage: true, app.MessagePartFile: true,
+	}}
+}
+
+func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
+	if a.store == nil {
+		return a.deliveryFailure(endpoint, request, "weixin binding store is unavailable", "blocked")
+	}
+	binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef))
+	if !ok || binding.Status != "active" || strings.ToLower(strings.TrimSpace(binding.Channel)) != strings.ToLower(strings.TrimSpace(a.channel)) {
+		return a.deliveryFailure(endpoint, request, "weixin binding is unavailable", "blocked")
+	}
+	prepared, err := delivery.PrepareParts(ctx, request.Content, a.resources)
+	if err != nil {
+		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
+	}
+	attemptedAt := time.Now().UTC()
+	providerRef := "openclaw-weixin-compatible"
+	for _, item := range prepared {
+		notice := Notification{
+			Channel:          a.channel,
+			BindingID:        binding.ID,
+			BaseURL:          binding.BaseURL,
+			Recipient:        firstNonEmpty(endpoint.Address, binding.ExternalChatID, binding.ExternalUserID),
+			RecipientBinding: firstNonEmpty(endpoint.ThreadRef, endpoint.ContextRef, binding.ExternalThreadID, binding.ContextToken),
+			CredentialRef:    binding.CredentialRef,
+			MessageText:      firstNonEmpty(item.Part.Text, item.Part.Caption),
+			DedupeKey:        request.IdempotencyKey + ":" + item.Part.ID,
+		}
+		var result Result
+		switch item.Part.Kind {
+		case app.MessagePartText:
+			result, err = a.Send(ctx, notice)
+		case app.MessagePartImage:
+			notice.ImagePath = item.Path
+			result, err = a.SendImage(ctx, notice)
+		case app.MessagePartFile:
+			notice.FilePath = item.Path
+			notice.FileName = firstNonEmpty(item.Part.Name, filepath.Base(item.Path))
+			result, err = a.SendFile(ctx, notice)
+		default:
+			err = fmt.Errorf("content kind %q is not supported", item.Part.Kind)
+		}
+		if err != nil {
+			return a.deliveryFailure(endpoint, request, firstNonEmpty(result.Error, err.Error()), firstNonEmpty(result.RetryState, "blocked"))
+		}
+		if result.Provider != "" {
+			providerRef = result.Provider
+		}
+	}
+	deliveredAt := time.Now().UTC()
+	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}, nil
+}
+
+func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {
+	err := delivery.DeliveryError{Message: message, State: retryState}
+	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}, err
 }
 
 func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Result, error) {

@@ -69,29 +69,30 @@ type Approval struct {
 }
 
 type Reminder struct {
-	ID               string     `json:"id"`
-	SessionID        string     `json:"session_id,omitempty"`
-	RunID            string     `json:"run_id,omitempty"`
-	Text             string     `json:"text"`
-	TextSummary      string     `json:"text_summary"`
-	DueTime          time.Time  `json:"due_time"`
-	Timezone         string     `json:"timezone"`
-	Channel          string     `json:"channel"`
-	Recipient        string     `json:"recipient"`
-	RecipientBinding string     `json:"recipient_binding,omitempty"`
-	BindingID        string     `json:"binding_id,omitempty"`
-	CredentialRef    string     `json:"credential_ref,omitempty"`
-	BaseURL          string     `json:"base_url,omitempty"`
-	Recurrence       string     `json:"recurrence,omitempty"`
-	DedupeKey        string     `json:"dedupe_key,omitempty"`
-	Status           string     `json:"status"`
-	LastDeliveryID   string     `json:"last_delivery_id,omitempty"`
-	LastError        string     `json:"last_error,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	SentAt           *time.Time `json:"sent_at,omitempty"`
-	CanceledAt       *time.Time `json:"canceled_at,omitempty"`
-	DeliveryAttempt  int        `json:"delivery_attempt"`
+	ID               string        `json:"id"`
+	SessionID        string        `json:"session_id,omitempty"`
+	RunID            string        `json:"run_id,omitempty"`
+	Text             string        `json:"text"`
+	TextSummary      string        `json:"text_summary"`
+	DueTime          time.Time     `json:"due_time"`
+	Timezone         string        `json:"timezone"`
+	Channel          string        `json:"channel"`
+	Recipient        string        `json:"recipient"`
+	RecipientBinding string        `json:"recipient_binding,omitempty"`
+	BindingID        string        `json:"binding_id,omitempty"`
+	CredentialRef    string        `json:"credential_ref,omitempty"`
+	BaseURL          string        `json:"base_url,omitempty"`
+	Recurrence       string        `json:"recurrence,omitempty"`
+	DedupeKey        string        `json:"dedupe_key,omitempty"`
+	Status           string        `json:"status"`
+	LastDeliveryID   string        `json:"last_delivery_id,omitempty"`
+	LastError        string        `json:"last_error,omitempty"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	SentAt           *time.Time    `json:"sent_at,omitempty"`
+	CanceledAt       *time.Time    `json:"canceled_at,omitempty"`
+	DeliveryAttempt  int           `json:"delivery_attempt"`
+	ScheduleSpec     *ScheduleSpec `json:"schedule_spec,omitempty"`
 }
 
 type ReminderFilter struct {

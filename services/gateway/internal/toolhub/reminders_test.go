@@ -14,12 +14,13 @@ func TestRemindersCreateListCancel(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	hub := New(cfg, st)
+	session := st.CreateSession("Reminder test")
 
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text":     "带伞",
 		"due_time": "2026-07-01T09:00:00+08:00",
 		"timezone": "Asia/Shanghai",
-	}, "s1", "r1")
+	}, session.ID, "r1")
 	if err != nil {
 		t.Fatalf("create reminder: %v", err)
 	}
@@ -32,7 +33,7 @@ func TestRemindersCreateListCancel(t *testing.T) {
 		t.Fatalf("web-origin reminder should default to web, got %#v", out)
 	}
 
-	listed, err := hub.Execute(t.Context(), "reminders.list", map[string]any{"status": "pending"}, "s1", "r1")
+	listed, err := hub.Execute(t.Context(), "reminders.list", map[string]any{"status": "pending"}, session.ID, "r1")
 	if err != nil {
 		t.Fatalf("list reminders: %v", err)
 	}
@@ -41,13 +42,33 @@ func TestRemindersCreateListCancel(t *testing.T) {
 		t.Fatalf("expected one reminder, got %#v", listOut)
 	}
 
-	canceled, err := hub.Execute(t.Context(), "reminders.cancel", map[string]any{"reminder_id": id}, "s1", "r1")
+	canceled, err := hub.Execute(t.Context(), "reminders.cancel", map[string]any{"reminder_id": id}, session.ID, "r1")
 	if err != nil {
 		t.Fatalf("cancel reminder: %v", err)
 	}
 	cancelOut := canceled.Output.(map[string]any)
 	if cancelOut["status"] != "canceled" {
 		t.Fatalf("expected canceled reminder, got %#v", cancelOut)
+	}
+}
+
+func TestRemindersCreatePersistsRequestSchedule(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSession("Scheduled browser request")
+	hub := New(config.Default(), st)
+	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
+		"text": "search tomorrow's weather", "due_time": "2026-07-18T09:00:00+08:00",
+		"payload_mode": "request", "expected_capability": "browser.search",
+	}, session.ID, "run_schedule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reminder, ok := st.GetReminder(created.Output.(map[string]any)["reminder_id"].(string))
+	if !ok || reminder.ScheduleSpec == nil {
+		t.Fatalf("request schedule was not persisted: %#v", reminder)
+	}
+	if reminder.ScheduleSpec.Payload.Mode != app.SchedulePayloadRequest || reminder.ScheduleSpec.ExpectedCapabilityPath[0] != "browser.search" {
+		t.Fatalf("unexpected request schedule: %#v", reminder.ScheduleSpec)
 	}
 }
 

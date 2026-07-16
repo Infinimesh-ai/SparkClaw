@@ -12,6 +12,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connector"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -22,6 +24,8 @@ import (
 type connectorAssembly struct {
 	registry    *connector.Registry
 	credentials credential.CredentialVault
+	endpoints   *messagecontrol.EndpointRegistry
+	delivery    *delivery.Gateway
 }
 
 func newConnectorAssembly(
@@ -43,6 +47,7 @@ func newConnectorAssembly(
 	}
 
 	registry := connector.NewRegistry(cfg, st)
+	telegramNotifications := telegram.NewNotificationAdapter(st, vault, telegramConfig)
 	telegramService := telegram.NewService(
 		st,
 		telegramConfig,
@@ -52,7 +57,8 @@ func newConnectorAssembly(
 	if err := registry.Register(connector.Registration{
 		Channel:      "telegram",
 		Binding:      binding.NewTelegramAdapter("telegram", telegramConfig, vault),
-		Notification: telegram.NewNotificationAdapter(st, vault, telegramConfig),
+		Notification: telegramNotifications,
+		Provider:     telegramNotifications,
 		Runtime:      telegramService,
 		CancelBinding: func(record app.NotificationBinding) {
 			telegramService.CancelBinding(record.ID)
@@ -65,16 +71,26 @@ func newConnectorAssembly(
 	weixinSyncer := weixin.NewSyncer(st).
 		WithConfig(cfg).
 		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg))
+	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
 	if err := registry.Register(connector.Registration{
 		Channel:      "weixin",
 		Binding:      newWeixinBindingAdapter("weixin", weixinConfig),
-		Notification: notification.NewWeixinAdapter("weixin", weixinConfig, st),
+		Notification: weixinNotifications,
+		Provider:     weixinNotifications,
 		Runtime:      weixinSyncer,
 	}); err != nil {
 		return nil, fmt.Errorf("register Weixin connector: %w", err)
 	}
 
-	return &connectorAssembly{registry: registry, credentials: vault}, nil
+	providers, err := registry.ProviderRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("assemble delivery providers: %w", err)
+	}
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	return &connectorAssembly{
+		registry: registry, credentials: vault, endpoints: endpoints,
+		delivery: delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{}),
+	}, nil
 }
 
 func newWeixinBindingAdapter(channel string, cfg config.NotificationChannelConfig) binding.Adapter {

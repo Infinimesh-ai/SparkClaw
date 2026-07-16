@@ -9,6 +9,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -80,6 +81,36 @@ func TestRouterRequiresExplicitWeixinRecipientContextAndCredential(t *testing.T)
 	}
 	if gotContextToken != "ctx-token" {
 		t.Fatalf("expected context token, got %q", gotContextToken)
+	}
+}
+
+func TestWeixinProviderRejectsUnsupportedAudioBeforeExternalSend(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	st := store.NewMemoryStore()
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_audio", Channel: "weixin", Status: "active", ExternalUserID: "wx-user", ContextToken: "ctx", BaseURL: server.URL})
+	provider := NewWeixinAdapter("weixin", config.NotificationChannelConfig{Enabled: true, BaseURL: server.URL, Token: "token"}, st)
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	request := app.DeliveryRequest{
+		SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_audio", IdempotencyKey: "audio", Target: app.EndpointID(binding.ID),
+		Content: app.MessageContent{Parts: []app.MessagePart{
+			{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "do not partially send"},
+			{ID: "voice", Kind: app.MessagePartAudio, Disposition: app.MessageDispositionVoiceNote, ArtifactID: "voice"},
+		}},
+	}
+	_, err := providers.Deliver(t.Context(), app.MessageEndpoint{ID: app.EndpointID(binding.ID), Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "weixin", BindingRef: binding.ID}, request)
+	if err == nil {
+		t.Fatal("expected unsupported audio to fail")
+	}
+	if calls != 0 {
+		t.Fatalf("provider sent a partial payload before capability failure: calls=%d", calls)
 	}
 }
 

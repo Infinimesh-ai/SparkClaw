@@ -228,3 +228,35 @@ CREATE INDEX IF NOT EXISTS idx_eval_runs_started ON eval_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_created ON artifact_objects(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_run ON artifact_objects(run_id);
 CREATE INDEX IF NOT EXISTS idx_episode_summaries_session_created ON episode_summaries(session_id, created_at DESC);
+
+-- Message Control compatibility: Reminder rows are the durable backing for
+-- versioned schedules while existing APIs migrate to Schedule Registry.
+CREATE TABLE IF NOT EXISTS reminders (
+  id TEXT PRIMARY KEY,
+  session_id TEXT,
+  run_id TEXT,
+  text TEXT NOT NULL,
+  text_summary TEXT NOT NULL,
+  due_time TIMESTAMPTZ NOT NULL,
+  timezone TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  recipient TEXT NOT NULL DEFAULT '',
+  recipient_binding TEXT NOT NULL DEFAULT '',
+  binding_id TEXT NOT NULL DEFAULT '',
+  credential_ref TEXT NOT NULL DEFAULT '',
+  base_url TEXT NOT NULL DEFAULT '',
+  recurrence TEXT NOT NULL DEFAULT '',
+  dedupe_key TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  last_delivery_id TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  canceled_at TIMESTAMPTZ,
+  delivery_attempt INTEGER NOT NULL DEFAULT 0,
+  schedule_spec JSONB
+);
+
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS schedule_spec JSONB;
+CREATE INDEX IF NOT EXISTS reminders_status_due_time_idx ON reminders (status, due_time);

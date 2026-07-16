@@ -24,6 +24,10 @@ type blockingPublisher struct {
 	received chan app.MessageEnvelope
 }
 
+type contextPublisher struct{}
+
+func (contextPublisher) Publish(ctx context.Context, _ app.MessageEnvelope) error { return ctx.Err() }
+
 func (p blockingPublisher) Publish(ctx context.Context, envelope app.MessageEnvelope) error {
 	p.received <- envelope
 	<-ctx.Done()
@@ -79,6 +83,34 @@ func TestTimerRunKeepsPollingWhileScheduledRequestsAreSlow(t *testing.T) {
 	cancel()
 	<-done
 	t.Fatal("poll loop stopped claiming schedules while all workflow workers were busy")
+}
+
+func TestCanceledScheduledRequestRemainsLeasedForRecovery(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSession("Canceled timer")
+	schedules := messagecontrol.NewScheduleRegistry(st)
+	routes := messagecontrol.NewReturnRouteResolver(messagecontrol.NewEndpointRegistry(st))
+	now := time.Now().UTC()
+	schedule := app.MessageSchedule{
+		ID: "sched_canceled", SessionID: session.ID, DueTime: now.Add(-time.Minute), Timezone: "UTC", DedupeKey: "canceled", Status: "pending", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
+		Spec: app.ScheduleSpec{
+			SchemaVersion: app.ScheduleSpecSchemaVersion, OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+			Payload:       app.SchedulePayload{Mode: app.SchedulePayloadRequest, Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "later"}}}},
+			ReturnRoute:   app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: messagecontrol.WebEndpointID(session.ID)},
+			Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID},
+		},
+	}
+	if _, err := schedules.Save(t.Context(), schedule); err != nil {
+		t.Fatal(err)
+	}
+	scheduler := NewMessageScheduler(st, schedules, routes, nil, contextPublisher{})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	scheduler.Tick(ctx)
+	reminder, _ := st.GetReminder(string(schedule.ID))
+	if reminder.Status != "sending" || len(st.ListReminderDeliveries(reminder.ID)) != 0 {
+		t.Fatalf("canceled work should remain leased without a terminal delivery: %#v", reminder)
+	}
 }
 
 func TestSchedulerRecordsFailureWhenChannelDisabled(t *testing.T) {

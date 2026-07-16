@@ -16,7 +16,7 @@ import (
 
 const (
 	tickBatchLimit = 50
-	sendingLease   = 2 * time.Minute
+	sendingLease   = 6 * time.Minute
 	retryBaseDelay = time.Minute
 	retryMaxDelay  = 30 * time.Minute
 	pollInterval   = 10 * time.Second
@@ -146,6 +146,12 @@ func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) a
 	}
 	if deliveryRecord.Status == "sent" && deliveryRecord.SentAt.IsZero() {
 		deliveryRecord.SentAt = s.now().UTC()
+	}
+	if deliveryRecord.Status == "failed" && ctx.Err() != nil {
+		// Process shutdown or job timeout leaves the claim recoverable after the
+		// lease instead of turning infrastructure cancellation into a terminal
+		// business failure.
+		return deliveryRecord
 	}
 	deliveryRecord = s.store.SaveReminderDelivery(deliveryRecord)
 	s.rearm(string(schedule.ID), deliveryRecord)

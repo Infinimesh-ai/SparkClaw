@@ -28,7 +28,7 @@ func NewScheduleRegistry(st scheduleStore) *ScheduleRegistry {
 	return &ScheduleRegistry{store: st}
 }
 
-func (r *ScheduleRegistry) Save(_ context.Context, schedule app.MessageSchedule) (app.MessageSchedule, error) {
+func (r *ScheduleRegistry) Save(ctx context.Context, schedule app.MessageSchedule) (app.MessageSchedule, error) {
 	if r == nil || r.store == nil {
 		return app.MessageSchedule{}, errors.New("schedule registry is unavailable")
 	}
@@ -36,7 +36,7 @@ func (r *ScheduleRegistry) Save(_ context.Context, schedule app.MessageSchedule)
 		return app.MessageSchedule{}, err
 	}
 	if schedule.Spec.ReturnRoute.Mode != app.ReturnNowhere {
-		endpoint, deliver, err := NewReturnRouteResolver(NewEndpointRegistry(r.store)).Resolve(context.Background(), schedule.Spec.ReturnRoute)
+		endpoint, deliver, err := NewReturnRouteResolver(NewEndpointRegistry(r.store)).Resolve(ctx, schedule.Spec.ReturnRoute)
 		if err != nil || !deliver {
 			return app.MessageSchedule{}, firstError(err, errors.New("schedule return endpoint is unavailable"))
 		}

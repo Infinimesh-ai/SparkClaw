@@ -217,18 +217,17 @@ bash scripts/run-eval.sh
 
 ## 11. 执行台账
 
-在所有者确认执行前，本表保持未开始状态。
+所有者已于 2026-07-17 确认执行。在两个来源任务都提交必需交接字段前，本台账只记录冻结基点、来源任务身份和预期交接证据，不根据进行中的 worktree 推测来源分支或提交。
 
 | 项目 | 值 |
 |---|---|
-| 所有者确认 | 待确认 |
+| 所有者确认 | 已于 2026-07-17 授权三个可见 worktree 执行 |
 | 主 worktree WIP 保存 | 已单独授权；不是冻结功能基点 |
-| 冻结基点 SHA | 待确认 |
-| 任务 1 可见任务/worktree | 未创建 |
-| 任务 2 可见任务/worktree | 未创建 |
-| 任务 3 可见任务/worktree | 未创建 |
-| 任务 1 提交集 | 待提供 |
-| 任务 2 提交集 | 待提供 |
+| 冻结基点 | `codex/web-outbound-parallel-base` 的 `f9b6e804c1caec067d58bb81ade4d793c8e116aa` |
+| 任务 1 来源任务 | `threadId=019f6e2c-ad06-7713-851f-cb5448a49acf`，`hostId=local` |
+| 任务 1 必需交接 | 待提供：洁净 worktree、精确 branch、精确 commit SHA/提交集和验证结果 |
+| 任务 2 来源任务 | `threadId=019f6e2c-ad05-76e3-94de-f9c21dcc760b`，`hostId=local` |
+| 任务 2 必需交接 | 待提供：洁净 worktree、精确 branch、精确 commit SHA/提交集和验证结果 |
 | 任务 1 merge commit | 待生成 |
 | 任务 2 merge commit | 待生成 |
 | 最终验证 | 待执行 |

@@ -318,18 +318,20 @@ screenshots when browser tooling is available.
 
 ## 11. Execution Ledger
 
-This table remains empty until the owner approves execution.
+Execution was approved on 2026-07-17. Until both source tasks provide their
+required handoff fields, this ledger records only the frozen base, source task
+identities, and the expected handoff evidence. No source branch or commit is
+inferred from an in-progress worktree.
 
 | Item | Value |
 |---|---|
-| Approved by owner | Pending |
+| Approved by owner | Approved for the three visible worktrees on 2026-07-17 |
 | Primary WIP preservation | Separately authorized; not the frozen feature base |
-| Frozen base SHA | Pending |
-| Task 1 visible task/worktree | Not created |
-| Task 2 visible task/worktree | Not created |
-| Task 3 visible task/worktree | Not created |
-| Task 1 commit set | Pending |
-| Task 2 commit set | Pending |
+| Frozen base | `codex/web-outbound-parallel-base` at `f9b6e804c1caec067d58bb81ade4d793c8e116aa` |
+| Task 1 source task | `threadId=019f6e2c-ad06-7713-851f-cb5448a49acf`, `hostId=local` |
+| Task 1 required handoff | Pending: clean worktree, exact branch, exact commit SHA/set, and validation results |
+| Task 2 source task | `threadId=019f6e2c-ad05-76e3-94de-f9c21dcc760b`, `hostId=local` |
+| Task 2 required handoff | Pending: clean worktree, exact branch, exact commit SHA/set, and validation results |
 | Task 1 merge commit | Pending |
 | Task 2 merge commit | Pending |
 | Final validation | Pending |

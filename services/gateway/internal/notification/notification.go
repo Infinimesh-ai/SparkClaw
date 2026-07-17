@@ -215,7 +215,7 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 				}
 				partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: remaining.Part.ID, Status: "not_attempted", Representation: remainingRepresentation, ErrorCode: code})
 			}
-			return a.deliveryFailure(endpoint, request, code, "weixin delivery failed", state, partReceipts)
+			return a.deliveryFailure(endpoint, request, code, weixinDeliveryMessage(request.Origin, result.Error), state, partReceipts)
 		}
 		if result.Provider != "" {
 			providerRef = result.Provider
@@ -234,13 +234,23 @@ func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request ap
 		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 		}
-		if request.Origin != app.DeliveryOriginSourceReply {
+		if request.Origin == app.DeliveryOriginSourceReply {
+			if !notificationBindingHasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "weixin binding lacks ordinary message scope", "blocked")
+			}
+		} else {
 			actorID := firstNonEmpty(binding.ActorID, binding.OwnerID)
 			if binding.OwnerID != request.OwnerID || actorID != request.ActorID {
 				return app.NotificationBinding{}, delivery.NewError(delivery.CodeCrossUserDenied, "weixin binding is outside the actor scope", "blocked")
 			}
-			if !notificationBindingHasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
-				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "weixin binding lacks ordinary message scope", "blocked")
+			expectedScope := app.BindingScopeMessageSendSelf
+			scopeDescription := "ordinary message"
+			if request.Origin == app.DeliveryOriginSchedule {
+				expectedScope = app.BindingScopeReminderSendSelf
+				scopeDescription = "reminder"
+			}
+			if !notificationBindingAllowsScope(binding.Scopes, expectedScope, request.Origin) {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "weixin binding lacks "+scopeDescription+" scope", "blocked")
 			}
 		}
 		return binding, nil
@@ -283,6 +293,24 @@ func notificationBindingHasScope(scopes []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func notificationBindingAllowsScope(scopes []string, expected string, origin app.DeliveryOrigin) bool {
+	return notificationBindingHasScope(scopes, expected) || (origin == app.DeliveryOriginSchedule && len(scopes) == 0)
+}
+
+func weixinDeliveryMessage(origin app.DeliveryOrigin, message string) string {
+	if origin == app.DeliveryOriginSchedule {
+		switch message {
+		case "weixin recipient binding is not configured",
+			"weixin context token is not configured",
+			"openclaw-weixin baseUrl is not configured",
+			"openclaw-weixin token is not configured",
+			"notification message cannot be empty":
+			return message
+		}
+	}
+	return "weixin delivery failed"
 }
 
 func weixinDeliveryFailure(err error, retryState string) (string, string) {

@@ -119,12 +119,22 @@ func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, requ
 		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 		}
-		if request.Origin != app.DeliveryOriginSourceReply {
+		if request.Origin == app.DeliveryOriginSourceReply {
+			if !bindingHasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "telegram binding lacks ordinary message scope", "blocked")
+			}
+		} else {
 			if binding.OwnerID != request.OwnerID || firstNonEmpty(binding.ActorID, binding.OwnerID) != request.ActorID {
 				return app.NotificationBinding{}, delivery.NewError(delivery.CodeCrossUserDenied, "telegram binding is outside the actor scope", "blocked")
 			}
-			if !bindingHasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
-				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "telegram binding lacks ordinary message scope", "blocked")
+			expectedScope := app.BindingScopeMessageSendSelf
+			scopeDescription := "ordinary message"
+			if request.Origin == app.DeliveryOriginSchedule {
+				expectedScope = app.BindingScopeReminderSendSelf
+				scopeDescription = "reminder"
+			}
+			if !bindingAllowsScope(binding.Scopes, expectedScope, request.Origin) {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "telegram binding lacks "+scopeDescription+" scope", "blocked")
 			}
 		}
 		return binding, nil
@@ -213,6 +223,10 @@ func bindingHasScope(scopes []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func bindingAllowsScope(scopes []string, expected string, origin app.DeliveryOrigin) bool {
+	return bindingHasScope(scopes, expected) || (origin == app.DeliveryOriginSchedule && len(scopes) == 0)
 }
 
 func firstNonEmpty(values ...string) string {

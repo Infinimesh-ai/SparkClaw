@@ -121,6 +121,21 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 	}
 }
 
+func TestBindingScopeCompatibilityIsReminderOnly(t *testing.T) {
+	if bindingAllowsScope(nil, app.BindingScopeMessageSendSelf, app.DeliveryOriginWebDirect) {
+		t.Fatal("legacy empty scopes granted ordinary direct-send authority")
+	}
+	if !bindingAllowsScope(nil, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("legacy empty scopes lost reminder compatibility")
+	}
+	if bindingAllowsScope([]string{app.BindingScopeMessageSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("ordinary message scope granted reminder authority")
+	}
+	if !bindingAllowsScope([]string{app.BindingScopeReminderSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("explicit reminder scope was rejected")
+	}
+}
+
 func TestNotificationAdapterSanitizesProviderFailure(t *testing.T) {
 	token := "123456:AA-provider-echo-secret"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

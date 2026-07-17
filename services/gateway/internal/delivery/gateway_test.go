@@ -68,6 +68,10 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 	if got.ID != "chat-source" || got.Address != "chat-a" || got.ThreadRef != "thread-a" || got.ContextRef != "context-a" {
 		t.Fatalf("source reply crossed an exact endpoint boundary: %#v", got)
 	}
+	request.OwnerID = "owner-b"
+	if _, err := NewGateway(endpoints, providers, LocalWebDelivery{}).Deliver(t.Context(), request); err == nil || len(fake.endpoints) != 1 {
+		t.Fatalf("source reply crossed its authorized owner: endpoints=%#v err=%v", fake.endpoints, err)
+	}
 }
 
 func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {

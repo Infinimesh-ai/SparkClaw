@@ -130,7 +130,7 @@ func requestAuthorizedForEndpoint(request app.DeliveryRequest, endpoint app.Mess
 		return false
 	}
 	if request.Origin == app.DeliveryOriginSourceReply {
-		return endpoint.SourceActorID == request.ActorID
+		return endpoint.OwnerID == request.OwnerID && endpoint.SourceActorID == request.ActorID
 	}
 	return endpoint.OwnerID == request.OwnerID && endpoint.ActorID == request.ActorID
 }

@@ -162,8 +162,8 @@ func (s *Scheduler) deliverLiteral(ctx context.Context, schedule app.MessageSche
 	request := app.DeliveryRequest{
 		SchemaVersion: app.DeliveryRequestSchemaVersion,
 		ID:            app.DeliveryID(record.ID), IdempotencyKey: dedupeKey, ResultID: string(schedule.ID), Target: endpoint.ID,
-		OwnerID: schedule.Spec.OwnerID, Authorization: schedule.Spec.Authorization,
-		Content: schedule.Spec.Payload.Content, CreatedAt: s.now().UTC(),
+		OwnerID: schedule.Spec.OwnerID, ActorID: schedule.Spec.ActorID, Authorization: schedule.Spec.Authorization,
+		Content: schedule.Spec.Payload.Content, Origin: app.DeliveryOriginSchedule, CreatedAt: s.now().UTC(),
 	}
 	receipt, err := s.gateway.Deliver(ctx, request)
 	if receipt.DeliveryID != "" {

@@ -114,6 +114,21 @@ func TestWeixinProviderPreflightsAudioFallbackBeforeExternalSend(t *testing.T) {
 	}
 }
 
+func TestWeixinBindingScopeCompatibilityIsReminderOnly(t *testing.T) {
+	if notificationBindingAllowsScope(nil, app.BindingScopeMessageSendSelf, app.DeliveryOriginWebDirect) {
+		t.Fatal("legacy empty scopes granted ordinary direct-send authority")
+	}
+	if !notificationBindingAllowsScope(nil, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("legacy empty scopes lost reminder compatibility")
+	}
+	if notificationBindingAllowsScope([]string{app.BindingScopeMessageSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("ordinary message scope granted reminder authority")
+	}
+	if !notificationBindingAllowsScope([]string{app.BindingScopeReminderSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("explicit reminder scope was rejected")
+	}
+}
+
 func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 	st := store.NewMemoryStore()
 	st.SaveCredentialSecret(app.CredentialSecret{

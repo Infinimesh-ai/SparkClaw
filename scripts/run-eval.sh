@@ -28,7 +28,7 @@ cleanup() {
     kill "$FIXTURE_PID" >/dev/null 2>&1 || true
     wait "$FIXTURE_PID" >/dev/null 2>&1 || true
   fi
-  rm -f "$ROOT/data/workspaces/eval_patch_target.txt" "$ROOT/data/workspaces/go.mod" "$ROOT/data/workspaces/golden-read-target.txt" "$ROOT/data/workspaces/golden-search-target.txt" "$ROOT/data/workspaces/golden-cross-a.txt" "$ROOT/data/workspaces/golden-cross-b.txt" "$ROOT/data/workspaces/golden-draft.md" "$ROOT/data/workspaces/golden-delete-target.txt"
+  rm -f "$ROOT/data/workspaces/eval_patch_target.txt" "$ROOT/data/workspaces/go.mod" "$ROOT/data/workspaces/missing-before-restore.txt" "$ROOT/data/workspaces/golden-read-target.txt" "$ROOT/data/workspaces/golden-search-target.txt" "$ROOT/data/workspaces/golden-cross-a.txt" "$ROOT/data/workspaces/golden-cross-b.txt" "$ROOT/data/workspaces/golden-draft.md" "$ROOT/data/workspaces/golden-delete-target.txt"
   rm -rf "$ROOT/data/workspaces/.sparkclaw"
   rm -rf "$TMP_DIR"
 }
@@ -54,7 +54,7 @@ echo "browser_fixture_bind=$BROWSER_FIXTURE_BIND"
 echo "golden_cases=$GOLDEN_CASE_COUNT"
 echo "expect_real_models=$SPARKCLAW_EXPECT_REAL_MODELS"
 
-rm -f data/workspaces/eval_patch_target.txt data/workspaces/go.mod data/workspaces/golden-read-target.txt data/workspaces/golden-search-target.txt data/workspaces/golden-cross-a.txt data/workspaces/golden-cross-b.txt data/workspaces/golden-draft.md data/workspaces/golden-delete-target.txt
+rm -f data/workspaces/eval_patch_target.txt data/workspaces/go.mod data/workspaces/missing-before-restore.txt data/workspaces/golden-read-target.txt data/workspaces/golden-search-target.txt data/workspaces/golden-cross-a.txt data/workspaces/golden-cross-b.txt data/workspaces/golden-draft.md data/workspaces/golden-delete-target.txt
 rm -rf data/workspaces/.sparkclaw
 
 python3 -m http.server "$BROWSER_FIXTURE_PORT" \
@@ -173,6 +173,9 @@ policy_read_status="$(curl -sS -o "$TMP_DIR/policy-read-approval.json" -w '%{htt
 policy_write_status="$(curl -sS -o "$TMP_DIR/policy-write-denied.json" -w '%{http_code}' -X POST "$GATEWAY_URL/api/tools/files.write_draft/invoke" \
   -H 'Content-Type: application/json' \
   -d "{\"session_id\":\"$SESSION_ID\",\"args\":{\"path\":\"policy-denied.md\",\"content\":\"denied\"}}")"
+cat > data/workspaces/missing-before-restore.txt <<'EOF'
+Policy refresh preflight target.
+EOF
 policy_agent_read_status="$(curl -sS -o "$TMP_DIR/policy-agent-read-approval.json" -w '%{http_code}' -X POST "$GATEWAY_URL/api/sessions/$SESSION_ID/messages" \
   -H 'Content-Type: application/json' \
   -d '{"content":"Read missing-before-restore.txt"}')"
@@ -637,10 +640,7 @@ require(any(call["status"] == "completed" for call in file_read_calls), "agent f
 require(any(call.get("result", {}).get("untrusted") is True for call in file_read_calls), "agent files.read did not mark content untrusted")
 require(any(call.get("observation_summary") and "Observation bytes=" in call.get("observation_summary", "") for call in file_read_calls), "agent files.read missing compressed observation summary")
 browser_calls = [call for call in calls if call["tool"] == "browser.read"]
-require(browser_calls, "browser.read tool did not run")
-require(all(call["risk"] == "read" and call["status"] == "completed" for call in browser_calls), "browser.read did not complete as a read tool")
-require(any(call.get("result", {}).get("untrusted_external_content") is True for call in browser_calls), "browser.read did not mark content as untrusted external data")
-require(any(call.get("result", {}).get("snapshot_ref") for call in browser_calls), "browser.read did not archive raw snapshot")
+require(not browser_calls, "browser.internet_search r1 exposed browser.read")
 require(any(call["tool"] == "memory.write_candidate" and call["risk"] == "draft" for call in calls), "memory.write_candidate did not run")
 guard_model_calls = [call for call in model_calls if call.get("operation") == "guard" and call.get("lane") == "guard"]
 require(guard_model_calls, "guard model lane did not record model-call telemetry")
@@ -652,7 +652,6 @@ require(blocked_messages, "guard block did not return an assistant explanation")
 blocked_run_ids = {message.get("run_id") for message in blocked_messages}
 require(not any(call.get("run_id") in blocked_run_ids for call in calls), "guard-blocked request executed a tool")
 require(not any(approval.get("run_id") in blocked_run_ids for approval in approvals), "guard-blocked request created an approval")
-require(any(call["tool"] == "browser.read" and call.get("observation_ref") for call in calls), "completed browser.read missing observation_ref")
 require(any(candidate["status"] == "pending" for candidate in session_candidates), "memory candidate was not pending")
 shell_calls = [call for call in calls if call["tool"] == "shell.exec_sandboxed"]
 require(shell_calls, "shell.exec_sandboxed call missing")
@@ -709,26 +708,28 @@ assistant_messages = [
     for message in messages
     if message.get("role") == "assistant"
 ]
+
+def assistant_after_user(predicate):
+    for index, message in enumerate(messages):
+        if message.get("role") != "user" or not predicate(message.get("content", "")):
+            continue
+        for following in messages[index + 1:]:
+            if following.get("role") == "assistant":
+                return following.get("content", "")
+    return ""
+
 require(any(
     "files.read_no_final" in content
     and "golden-read-target.txt" in content
     for content in assistant_messages
 ), "file read fallback did not identify the missing final answer and observed file")
-file_search_answers = [
-    content for content in assistant_messages if "File search results:" in content
+legacy_search_answer = assistant_after_user(lambda content: content == "Search for SparkClaw in the workspace")
+require(legacy_search_answer and "File search results:" not in legacy_search_answer, "document.read r1 fabricated a legacy file-search answer")
+legacy_browser_answers = [
+    assistant_after_user(lambda content: content.startswith("Read http://") and content.endswith(" with browser.read")),
+    assistant_after_user(lambda content: content.startswith("Compare browser research http://")),
 ]
-require(file_search_answers, "file search assistant answer was not grounded in local results")
-require(any(
-    "golden-search-target.txt" in content
-    and "Grounded file search should cite this local preview" in content
-    for content in file_search_answers
-), "file search assistant answer missing path or preview")
-require(any(
-    "browser.read_no_final" in content
-    and "/alpha.html" in content
-    and "/beta.html" in content
-    for content in assistant_messages
-), "browser comparison fallback did not identify both observed sources")
+require(all(content and "browser.read_no_final" not in content for content in legacy_browser_answers), "browser.internet_search r1 fabricated a legacy page-read answer")
 shell_answers = [
     content for content in assistant_messages if "Sandboxed shell result:" in content
 ]
@@ -891,7 +892,6 @@ require(trace_meta.get("tool_call_count", 0) > 0 and trace_meta.get("model_call_
 require(trace_meta.get("artifact_uri"), "trace metadata missing artifact uri")
 require(any(item.get("kind") == "trace" and item.get("run_id") == trace_run_id and item.get("uri") == trace_meta.get("artifact_uri") for item in artifacts_before_eval.get("artifacts", [])), "artifact catalog missing trace artifact")
 require(any(item.get("kind") == "tool_observation" and item.get("run_id") == trace_run_id for item in artifacts_before_eval.get("artifacts", [])), "artifact catalog missing tool observation artifact")
-require(any(item.get("kind") == "browser_snapshot" for item in artifacts_before_eval.get("artifacts", [])), "artifact catalog missing browser raw snapshot")
 require("sparkclaw_model_calls_total " in metrics, "metrics missing model call total")
 require("sparkclaw_model_call_tokens_total " in metrics, "metrics missing model call token total")
 require(accepted["candidate"]["status"] == "accepted", "memory candidate was not accepted")

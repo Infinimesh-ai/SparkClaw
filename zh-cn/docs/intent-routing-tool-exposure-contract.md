@@ -118,13 +118,21 @@ Outcome adapter 由注册元数据选择，不使用按工具名分发的 router
 
 已应用 outcome ID 和每条 transition 的激活次数都要持久化。重复 outcome 是 no-op；未声明 signal 或次数耗尽必须明确 blocked。每个 revision 上，可见性都继续小于授权范围。
 
-## 当前已迁移目录项
+## 当前阶段 Exposure View
 
-| Capability | 边界 | Definition |
+下表只是当前 Workflow 注册快照，不是全局工具 allowlist。未来 branch 可以增加已注册 stage 与 scope，不修改 `Search` 或 `Materialize` 控制流。
+
+| Workflow stage | 活动 capability 边界 | 可物化 Definition |
 |---|---|---|
-| `web.discovery` | URL 未知时查找公共来源，不执行页面交互 | `web.search` |
-| `web.page.read` | 读取已知或已选 URL 获取来源证据，不执行可见交互 | `browser.read` |
-| `workspace.file.search` | 在已配置 Workspace root 内搜索文件名与有界文本，不包含修改或知识索引语义 | `files.search` |
-| `workspace.file.read` | 读取一个确定性 Workspace path，不包含发现或修改 | `files.read` |
+| `browser.internet_search/search_info` | 只通过已配置 Info provider 联网发现，不读取页面、不实时交互 | `web.search` |
+| `browser.automation/scan_tabs` | 只列出受管浏览器 tab | `browser.list_tabs` |
+| `browser.automation/focus_existing` | 只聚焦持久化 tab outcome 中选定的精确 page ID | `browser.focus` |
+| `browser.automation/open_new` | 只打开冻结的精确 URL | `browser.open` |
+| `document.read/inspect_type` | 确定性 path 和类型预检 | 不向 Agent 暴露工具；未来注册 type inspector 时它可以是唯一 entry |
+| `document.read/read_by_type` | 按检测格式读取精确 path | 只暴露兼容 file/document/PDF reader 注册 |
+| `document.edit/inspect_type` | 确定性 input/output path 和类型预检 | 不向 Agent 暴露工具；未来注册 type inspector 时它可以是唯一 entry |
+| `document.edit/edit_by_type` | 使用请求 operation 编辑检测格式 | 只暴露兼容 DOCX、XLSX、PPTX 或 PDF editor 注册 |
 
-已迁移 Web 与 Workspace 切片不读取 TaskHint candidate、Skill allow/deny 清单、fallback 工具清单或 observation 字符串扩展。明确 URL 与 path 参数执行前必须通过冻结 `ArgumentBinding` 校验。未迁移领域只是旧路径的过渡调用者，不能成为迁移 Workflow 失败后的 fallback。
+迁移到另一行时替换 view，绝不合并各行。搜索结果不暴露 page reader；tab 扫描不会同时暴露 focus 和 open；文档读取不暴露 editor，文档编辑不暴露其他格式的工具族。
+
+这些已迁移切片不使用 TaskHint candidate、Skill allow/deny 清单、fallback 工具清单或 observation 字符串扩展决定可见性。旧上下文组装只作为输入 evidence 保留。明确 URL 与 path 参数执行前必须通过冻结 `ArgumentBinding` 校验。未迁移领域只是旧路径的过渡调用者，不能成为迁移 Workflow 失败后的 fallback。

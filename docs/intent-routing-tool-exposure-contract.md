@@ -155,17 +155,31 @@ duplicate outcome is a no-op; an undeclared signal or exhausted transition
 blocks explicitly. Visibility remains narrower than authorization at every
 revision.
 
-## Current Migrated Entries
+## Current-stage Exposure Views
 
-| Capability | Boundary | Definition |
+The table is a snapshot of current Workflow registrations, not a global tool
+allowlist. Future branches add registered stages and scopes without changing
+`Search` or `Materialize` control flow.
+
+| Workflow stage | Active capability boundary | Materializable definition(s) |
 |---|---|---|
-| `web.discovery` | Find public sources when the URL is unknown; no page interaction | `web.search` |
-| `web.page.read` | Read a known or selected URL for source evidence; no visible interaction | `browser.read` |
-| `workspace.file.search` | Search names and bounded text inside configured workspace roots; no mutation or knowledge-index semantics | `files.search` |
-| `workspace.file.read` | Read one deterministic workspace path; no discovery or mutation | `files.read` |
+| `browser.internet_search/search_info` | Internet discovery through configured Info provider; no page read or live interaction | `web.search` |
+| `browser.automation/scan_tabs` | List managed browser tabs only | `browser.list_tabs` |
+| `browser.automation/focus_existing` | Focus the exact page ID selected from the persisted tab outcome | `browser.focus` |
+| `browser.automation/open_new` | Open the exact frozen URL only | `browser.open` |
+| `document.read/inspect_type` | Deterministic path and type preflight | no Agent tool; a future registered type inspector may be the sole entry |
+| `document.read/read_by_type` | Read the exact path with the detected format | only the compatible file/document/PDF reader registration |
+| `document.edit/inspect_type` | Deterministic input/output path and type preflight | no Agent tool; a future registered type inspector may be the sole entry |
+| `document.edit/edit_by_type` | Edit the detected format for the requested operation | only compatible DOCX, XLSX, PPTX, or PDF editor registrations |
 
-Migrated Web and workspace slices never consult TaskHint candidates, Skill
-allow/deny lists, fallback tool lists, or observation-string expansion.
-Explicit URL and path arguments are checked against frozen `ArgumentBinding`
-rules before execution. Unmigrated domains are transitional callers of the old
-path, not fallback routes for a failed migrated workflow.
+Moving to another row replaces the view; it never unions rows. Search results
+do not expose page readers. Tab scanning does not expose focus and open
+together. Document read never exposes editors, and document edit never exposes
+another format's tool family.
+
+These migrated slices never consult TaskHint candidates, Skill allow/deny
+lists, fallback tool lists, or observation-string expansion for visibility.
+Legacy context assembly remains available as input evidence only. Exact URL and
+path arguments are checked against frozen `ArgumentBinding` rules before
+execution. Unmigrated domains are transitional callers of the old path, not
+fallback routes for a failed migrated Workflow.

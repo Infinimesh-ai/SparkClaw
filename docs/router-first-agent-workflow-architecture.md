@@ -10,8 +10,7 @@ designs.
 
 ## Implementation Status
 
-The first implementation slices establish the shared contracts, the initial
-Router/Workflow vertical slice, and the Message Control/Delivery runtime:
+Phase 1 establishes the contracts that later migrations depend on:
 
 - channel-neutral `MessageEnvelope`, multimodal `MessageContent`,
   `RouteDecision`, `WorkflowResult`, and delivery contracts live in
@@ -20,36 +19,14 @@ Router/Workflow vertical slice, and the Message Control/Delivery runtime:
   into that message contract before Guard or intent handling;
 - `internal/capability` owns the versioned default capability tree and rejects
   stale, invented, or invalid Fast routing paths edge by edge;
-- the Agent entry point consumes the normalized routing projection and audits
-  the envelope schema and capability catalog revision.
+- the current Agent entry point consumes the normalized routing projection and
+  audits the envelope schema and capability catalog revision.
 
-Phase 2 completes the first production vertical slice:
-
-- Catalog revision 2 exposes exactly `browser.search`,
-  `browser.automation`, `document.information`, and `document.processing`;
-- every message is classified by the Fast router against that tree before
-  execution, with a strict tool-neutral response schema;
-- the Workflow Registry resolves an exact versioned contract, the Dispatcher
-  persists the route and return context, and Tool Exposure materializes only
-  the selected Workflow's registered tools;
-- browser and document approval/login resumes reuse the persisted route and
-  Workflow identity rather than classifying the message again;
-- only `unmatched` enters the transitional ReAct path. A known route that is
-  stale, invalid, blocked, or fails execution returns an explicit
-  `WorkflowResult` and never falls back.
-- `internal/messagecontrol` resolves owner-bound Web and third-party Endpoints,
-  versioned literal/request Schedules, and ReturnRoutes over existing state;
-- `internal/delivery` owns the Delivery Gateway and Provider Registry. It
-  preflights the complete ordered `MessageContent` before an adapter can send;
-- Weixin and Telegram are registered adapters below that Provider Registry.
-  Core delivery branches only on Endpoint kind;
-- Timer polling only claims and enqueues due Schedules. Fixed workers publish
-  request envelopes or send literal payloads outside the polling loop.
-
-Legacy Reminder records remain readable and are projected as literal
-Schedules. See [Message Control and Delivery Migration](message-control-delivery-migration.md)
-for extension points, persistence compatibility, and remaining integration
-work.
+Current Workflow execution, reminder scheduling, and connector notification
+delivery remain compatibility implementations. Their migration behind the
+Workflow Registry, Schedule Registry, Endpoint Registry, and Delivery Gateway
+is the next architecture phase; the Phase 1 contracts do not require changing
+the Store interface or concrete providers.
 
 ## Architecture Decision
 
@@ -270,23 +247,32 @@ nowhere.
 
 ### Capability Catalog
 
-The catalog is a versioned tree of user-visible product capabilities:
+The catalog is a versioned, registration-driven tree of user-visible product
+capabilities. The following is only the current-stage registration snapshot,
+not a closed enum or permanent product taxonomy:
 
 ```text
 capability
   browser
-    search
+    internet_search
     automation
-
   document
-    information
-    processing
+    read
+    edit
 ```
 
-Text, image, audio, and file do not appear as modality branches. They are
-message parts. For example, an audio request can route to browser search
-through its transcript, while a file reference can be a typed slot for a
-document Workflow.
+The Router core never embeds this shape. Each node registration declares its
+stable ID, parent ID, branch/leaf kind, routing description, revision, and, for
+a leaf, one Workflow reference. Registry validation rejects missing parents,
+cycles, duplicate IDs, invalid leaf/Workflow references, and paths containing
+unregistered edges. The current four leaves are default registrations only.
+Adding a future branch or leaf changes registration data and adds its Workflow;
+it does not add a core Router switch, a synchronized name list, or a new
+hard-coded traversal path.
+
+Text, image, audio, and file do not appear as modality branches. An image can
+be input to conversation, an audio request can route to browser search through
+its transcript, and a file can route according to the requested operation.
 
 Each internal node defines only its children and routing description. Each
 leaf identifies a Workflow contract. The catalog does not define tools.
@@ -316,19 +302,6 @@ The Workflow Registry maps a capability leaf to a versioned Workflow contract.
 The Dispatcher persists a new run and invokes that Workflow. It does not
 reinterpret the message.
 
-The current revision uses an exact one-to-one mapping:
-
-| Capability leaf | Workflow | Fixed tool boundary |
-|---|---|---|
-| `browser.search` | `browser.search@1` | `web.search`, `browser.read` |
-| `browser.automation` | `browser.automation@1` | registered browser status, tab, navigation, inspection, screenshot, wait, and interaction tools |
-| `document.information` | `document.information@1` | `files.search`, `files.read`, `pdf.extract_text` |
-| `document.processing` | `document.processing@1` | registered document information, write, Office/PDF transform, and governed delete tools |
-
-Tool names are ToolHub registration metadata, not router output. The
-Dispatcher does not search for a “close enough” Workflow, and legacy Workflow
-IDs fail closed instead of being reinterpreted as one of these leaves.
-
 At the overall architecture level, a Workflow is only this boundary:
 
 ```text
@@ -341,6 +314,21 @@ Workflow graph shape, step types, internal model calls, argument binding,
 parallelism, retry, compensation, and completion rules are deliberately
 deferred to Workflow-level designs. They may evolve without changing the
 overall architecture as long as the boundary remains stable.
+
+For the current four Workflow registrations, every stage owns a frozen
+capability scope. Tool Exposure materializes only tools matching the active
+stage. On transition, the previous stage's tool definitions are removed,
+`ScopeRevision` advances, and stale tool calls are rejected. Tools from earlier
+or later stages never accumulate in the Agent request. The initial Workflow
+shapes are defined in the
+[Workflow Profile Catalog](intent-routing-workflow-domain-profiles.md); future
+profiles may add different stages without changing Router traversal.
+
+Context assembly is not migrated in this phase. Existing conversation history,
+owner context, attachments, and compact context formatting continue through
+the legacy assembler. The Workflow layer adds route, active-stage, and scope
+bindings around that assembled context. Legacy candidate-tool or Skill lists
+must not regain tool-visibility authority for migrated Workflows.
 
 ### ReAct Fallback
 
@@ -381,8 +369,9 @@ The Result Presenter may format content but cannot change execution status or
 call tools. User-visible text, images, voice/audio, and files must be present as
 Message Parts.
 
-In the target architecture, explicit sends and normal Workflow result returns
-both create a `DeliveryRequest` and enter the Delivery Gateway.
+An explicit Message Control send command and a normal Workflow result return
+both create a `DeliveryRequest` and enter the Delivery Gateway. Delivery is
+orthogonal to the business capability tree.
 
 The Delivery Gateway resolves the target Endpoint and chooses only between:
 
@@ -411,7 +400,7 @@ Web or third-party input
 
 ```text
 User message
-  -> create a Schedule through the Message Control Plane
+  -> route to message.schedule
   -> store Schedule(message payload, trigger, ReturnRoute, authorization)
 
 Timer fires
@@ -428,9 +417,8 @@ Scheduled payloads have two modes:
 - `literal`: send the stored multimodal content unchanged;
 - `request`: route the stored content as a new Agent request.
 
-This makes scheduling reusable for browser, document, future capabilities,
-and direct text/image/audio/file delivery without adding timer-specific logic
-to a domain Workflow.
+This makes scheduling reusable for browser, file, conversation, future
+capabilities, and direct text/image/audio/file delivery.
 
 ## Foundation Plane
 
@@ -482,7 +470,7 @@ layers.
 
 | Extension | Required architecture work |
 |---|---|
-| New business capability | add a catalog leaf and registered Workflow contract |
+| New business capability | register any required branch/leaf nodes and one Workflow contract per leaf; Router core remains unchanged |
 | New third-party platform | add one Provider adapter and Endpoint capability declaration |
 | New message content kind | extend MessageContent plus ingress, Web rendering, Provider conformance, and delivery negotiation |
 | New scheduled behavior | extend Schedule control contracts, not domain Workflows |
@@ -509,7 +497,11 @@ The overall architecture is valid when:
 
 - every source creates the same normalized message contract;
 - the capability tree is the only Fast routing vocabulary;
+- the tree shape comes from validated registrations and the current four
+  leaves are not hard-coded into Router control flow;
 - every matched leaf resolves one Workflow contract;
+- each active Workflow stage exposes only its declared tool scope and clears
+  the prior stage on transition;
 - Workflow internals cannot widen their declared execution boundary;
 - ReAct is reached only by unmatched messages;
 - explicit sends and Workflow results share one delivery path;

@@ -8,8 +8,7 @@ Workflow 专项设计。
 
 ## 实施状态
 
-首批实施阶段已经建立共享稳定契约、Router/Workflow 初始纵向链路，以及消息控制与
-投递 Runtime：
+第一阶段先建立后续迁移依赖的稳定契约：
 
 - 渠道无关的 `MessageEnvelope`、多媒体 `MessageContent`、
   `RouteDecision`、`WorkflowResult` 与投递契约位于 `internal/app`；
@@ -17,29 +16,11 @@ Workflow 专项设计。
   规范化为统一消息契约；
 - `internal/capability` 持有带版本的默认能力树，逐层拒绝过期、虚构或父子边
   不合法的 Fast 路由结果；
-- Agent 入口使用规范化后的路由文本投影，并审计消息契约版本与能力目录版本。
+- 当前 Agent 入口使用规范化后的路由文本投影，并审计消息契约版本与能力目录版本。
 
-第二阶段已完成第一条生产纵向链路：
-
-- Catalog revision 2 只暴露 `browser.search`、`browser.automation`、
-  `document.information` 和 `document.processing`；
-- 每条消息执行前都由 Fast Router 对照能力树分类，输出使用严格、工具中立的契约；
-- Workflow Registry 精确解析版本化协议，Dispatcher 持久化路由与返回上下文，
-  Tool Exposure 只物化所选 Workflow 已注册的固定工具；
-- 浏览器和文档的审批/登录恢复复用已持久化的路由与 Workflow 身份，不重新分类消息；
-- 只有 `unmatched` 进入过渡 ReAct。已知路由过期、非法、阻塞或执行失败时，
-  明确返回 `WorkflowResult`，绝不回退。
-- `internal/messagecontrol` 在现有状态之上解析 Owner 绑定的 Web/第三方 Endpoint、
-  版本化 literal/request Schedule 与 ReturnRoute；
-- `internal/delivery` 持有 Delivery Gateway 与 Provider Registry，Adapter 发送前
-  必须整体预检有序 `MessageContent`；
-- 微信与 Telegram 作为 Provider Registry 下的注册 Adapter，核心投递只按
-  Endpoint 类型分流；
-- Timer Polling 只 Claim 并入队到期 Schedule，固定 Worker 在 Poll Loop 外发布
-  request Envelope 或投递 literal Payload。
-
-旧 Reminder 记录仍可读取，并会投影为 literal Schedule。扩展点、持久化兼容及
-剩余集成工作见[消息控制与投递迁移](message-control-delivery-migration.md)。
+现有 Workflow 执行、提醒调度和 Connector 通知投递仍是兼容实现。下一阶段会把
+它们迁移到 Workflow Registry、Schedule Registry、Endpoint Registry 和
+Delivery Gateway 背后；第一阶段不需要修改 Store 接口或具体 Provider。
 
 ## 架构决策
 
@@ -246,21 +227,22 @@ Return Route Resolver 决定结果返回来源 Web Endpoint、来源第三方 En
 
 ### Capability Catalog
 
-Catalog 是版本化的用户可见产品能力树：
+Catalog 是版本化、由注册驱动的用户可见产品能力树。下面只是当前阶段的注册快照，不是封闭 enum 或永久产品分类：
 
 ```text
 capability
   browser
-    search
+    internet_search
     automation
-
   document
-    information
-    processing
+    read
+    edit
 ```
 
-文字、图片、音频和文件不会成为模态分支，而是 Message Part。例如语音请求可通过
-Transcript 路由到 Browser Search，文件引用可成为 Document Workflow 的类型化 Slot。
+Router 核心不得内嵌该结构。每个节点注册声明稳定 ID、parent ID、branch/leaf 类型、路由描述、revision；叶子还声明唯一 Workflow reference。Registry 校验并拒绝 parent 缺失、环、重复 ID、非法 leaf/Workflow reference 和包含未注册 edge 的 path。当前四个叶子只是默认注册。未来新增分支或叶子只修改注册数据并增加对应 Workflow，不得增加 Router 核心 switch、需要同步的名称列表或写死的遍历路径。
+
+文字、图片、音频和文件不会成为模态分支。图片可以作为 Conversation 输入；语音
+请求可以通过 Transcript 路由到 Browser Search；文件根据用户请求的操作路由。
 
 每个内部节点只定义子节点和路由描述。每个叶子只标识一个 Workflow 协议。
 Catalog 不定义工具。
@@ -288,18 +270,6 @@ Router 不能返回工具名、Workflow 步骤、审批决策或新能力 ID。�
 Workflow Registry 将能力叶子映射到版本化 Workflow 协议。Dispatcher 持久化
 新 Run 并调用该 Workflow，不重新解释消息。
 
-当前版本采用严格的一对一映射：
-
-| 能力叶子 | Workflow | 固定工具边界 |
-|---|---|---|
-| `browser.search` | `browser.search@1` | `web.search`、`browser.read` |
-| `browser.automation` | `browser.automation@1` | 已注册的浏览器状态、标签页、导航、检查、截图、等待与交互工具 |
-| `document.information` | `document.information@1` | `files.search`、`files.read`、`pdf.extract_text` |
-| `document.processing` | `document.processing@1` | 已注册的文档信息、写入、Office/PDF 转换与受治理删除工具 |
-
-工具名来自 ToolHub 注册元数据，不由 Router 输出。Dispatcher 不寻找“近似匹配”的
-Workflow；旧 Workflow ID 会关闭失败，不能被重新解释为以上叶子。
-
 在总架构层，Workflow 只定义以下边界：
 
 ```text
@@ -310,6 +280,10 @@ Workflow；旧 Workflow ID 会关闭失败，不能被重新解释为以上叶�
 
 Workflow 图结构、步骤类型、内部模型调用、参数绑定、并行、重试、补偿和完成规则
 全部延后到 Workflow 专项设计。只要边界稳定，它们可以独立演进而不改变总架构。
+
+当前四个 Workflow 注册中的每个阶段都拥有冻结 capability scope。Tool Exposure 只物化与活动阶段匹配的工具；阶段迁移时清除上一阶段 ToolDefinition、增加 `ScopeRevision` 并拒绝过期 tool call。前后阶段工具绝不能在 Agent 请求中累积。初始 Workflow 形态见[工作流 Profile 目录](intent-routing-workflow-domain-profiles.md)；未来 Profile 可以增加不同阶段，不改变 Router 遍历。
+
+本阶段不迁移上下文组装。既有会话历史、owner context、附件和压缩上下文格式继续使用旧 assembler；Workflow 层只在该上下文外围增加 route、活动阶段和 scope binding。旧 candidate-tool 或 Skill 列表不得重新取得已迁移 Workflow 的工具可见性权威。
 
 ### ReAct Fallback
 
@@ -347,8 +321,7 @@ ReturnRoute
 Result Presenter 可以格式化内容，但不能改变执行状态或调用工具。用户可见文字、
 图片、语音/音频和文件都必须作为 Message Part 返回。
 
-在目标架构中，显式发送与普通 Workflow 结果返回都会创建 `DeliveryRequest` 并进入
-Delivery Gateway。
+显式 Message Control 发送命令与普通 Workflow 结果都会创建 `DeliveryRequest` 并进入 Delivery Gateway。投递与业务能力树正交。
 
 Delivery Gateway 解析目标 Endpoint，只在两种路径间选择：
 
@@ -376,7 +349,7 @@ Web 或第三方输入
 
 ```text
 用户消息
-  -> 通过 Message Control Plane 创建 Schedule
+  -> 路由到 message.schedule
   -> 保存 Schedule(message payload, trigger, ReturnRoute, authorization)
 
 Timer 触发
@@ -393,8 +366,8 @@ Timer 触发
 - `literal`：原样发送已保存的多模态内容；
 - `request`：将已保存内容作为新的 Agent 请求重新路由。
 
-因此定时可以复用于浏览器、文档、未来能力，以及直接文字/图片/音频/文件投递，
-不需要在领域 Workflow 中加入 Timer 专用逻辑。
+因此定时可以复用于浏览器、文件、对话、未来能力，以及直接文字/图片/音频/文件
+投递。
 
 ## 基础设施平面
 
@@ -440,7 +413,7 @@ Infrastructure    -> 实现 Storage、Queue、Artifact、Secret、Telemetry 端�
 
 | 扩展 | 总架构要求 |
 |---|---|
-| 新业务能力 | 增加 Catalog 叶子和注册 Workflow 协议 |
+| 新业务能力 | 注册所需 branch/leaf 节点并为每个 leaf 注册一个 Workflow；Router 核心保持不变 |
 | 新第三方平台 | 增加一个 Provider Adapter 和 Endpoint Capability 声明 |
 | 新消息内容类型 | 扩展 MessageContent、入站、Web 渲染、Provider Conformance 与投递协商 |
 | 新定时行为 | 扩展 Schedule 控制协议，不修改领域 Workflow |
@@ -465,7 +438,9 @@ Infrastructure    -> 实现 Storage、Queue、Artifact、Secret、Telemetry 端�
 
 - 每种来源都创建同一种归一化消息协议；
 - 能力树是 Fast 的唯一可路由词汇；
+- Tree 结构来自已验证注册，当前四个叶子不得写入 Router 控制流；
 - 每个匹配叶子都解析到一个 Workflow 协议；
+- 每个活动 Workflow 阶段只暴露其声明的工具 scope，迁移时清除上一阶段；
 - Workflow 内部不能扩大声明的执行边界；
 - 只有未匹配消息可以进入 ReAct；
 - 显式发送与 Workflow 结果共用一条投递链；

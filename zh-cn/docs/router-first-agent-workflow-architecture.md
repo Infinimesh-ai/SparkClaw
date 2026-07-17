@@ -227,29 +227,19 @@ Return Route Resolver 决定结果返回来源 Web Endpoint、来源第三方 En
 
 ### Capability Catalog
 
-Catalog 是版本化的用户可见产品能力树：
+Catalog 是版本化、由注册驱动的用户可见产品能力树。下面只是当前阶段的注册快照，不是封闭 enum 或永久产品分类：
 
 ```text
 capability
-  conversation
-    answer
-
   browser
-    search
+    internet_search
     automation
-
-  file
-    discover
+  document
     read
-    create
     edit
-    transform
-    delete
-
-  message
-    send
-    schedule
 ```
+
+Router 核心不得内嵌该结构。每个节点注册声明稳定 ID、parent ID、branch/leaf 类型、路由描述、revision；叶子还声明唯一 Workflow reference。Registry 校验并拒绝 parent 缺失、环、重复 ID、非法 leaf/Workflow reference 和包含未注册 edge 的 path。当前四个叶子只是默认注册。未来新增分支或叶子只修改注册数据并增加对应 Workflow，不得增加 Router 核心 switch、需要同步的名称列表或写死的遍历路径。
 
 文字、图片、音频和文件不会成为模态分支。图片可以作为 Conversation 输入；语音
 请求可以通过 Transcript 路由到 Browser Search；文件根据用户请求的操作路由。
@@ -291,6 +281,10 @@ Workflow Registry 将能力叶子映射到版本化 Workflow 协议。Dispatcher
 Workflow 图结构、步骤类型、内部模型调用、参数绑定、并行、重试、补偿和完成规则
 全部延后到 Workflow 专项设计。只要边界稳定，它们可以独立演进而不改变总架构。
 
+当前四个 Workflow 注册中的每个阶段都拥有冻结 capability scope。Tool Exposure 只物化与活动阶段匹配的工具；阶段迁移时清除上一阶段 ToolDefinition、增加 `ScopeRevision` 并拒绝过期 tool call。前后阶段工具绝不能在 Agent 请求中累积。初始 Workflow 形态见[工作流 Profile 目录](intent-routing-workflow-domain-profiles.md)；未来 Profile 可以增加不同阶段，不改变 Router 遍历。
+
+本阶段不迁移上下文组装。既有会话历史、owner context、附件和压缩上下文格式继续使用旧 assembler；Workflow 层只在该上下文外围增加 route、活动阶段和 scope binding。旧 candidate-tool 或 Skill 列表不得重新取得已迁移 Workflow 的工具可见性权威。
+
 ### ReAct Fallback
 
 ReAct 只接收路由状态为 `unmatched` 的消息，并拥有独立固定的能力与 Policy 边界。
@@ -327,8 +321,7 @@ ReturnRoute
 Result Presenter 可以格式化内容，但不能改变执行状态或调用工具。用户可见文字、
 图片、语音/音频和文件都必须作为 Message Part 返回。
 
-显式 `message.send` 与普通 Workflow 结果都会创建 `DeliveryRequest` 并进入
-Delivery Gateway。
+显式 Message Control 发送命令与普通 Workflow 结果都会创建 `DeliveryRequest` 并进入 Delivery Gateway。投递与业务能力树正交。
 
 Delivery Gateway 解析目标 Endpoint，只在两种路径间选择：
 
@@ -420,7 +413,7 @@ Infrastructure    -> 实现 Storage、Queue、Artifact、Secret、Telemetry 端�
 
 | 扩展 | 总架构要求 |
 |---|---|
-| 新业务能力 | 增加 Catalog 叶子和注册 Workflow 协议 |
+| 新业务能力 | 注册所需 branch/leaf 节点并为每个 leaf 注册一个 Workflow；Router 核心保持不变 |
 | 新第三方平台 | 增加一个 Provider Adapter 和 Endpoint Capability 声明 |
 | 新消息内容类型 | 扩展 MessageContent、入站、Web 渲染、Provider Conformance 与投递协商 |
 | 新定时行为 | 扩展 Schedule 控制协议，不修改领域 Workflow |
@@ -445,7 +438,9 @@ Infrastructure    -> 实现 Storage、Queue、Artifact、Secret、Telemetry 端�
 
 - 每种来源都创建同一种归一化消息协议；
 - 能力树是 Fast 的唯一可路由词汇；
+- Tree 结构来自已验证注册，当前四个叶子不得写入 Router 控制流；
 - 每个匹配叶子都解析到一个 Workflow 协议；
+- 每个活动 Workflow 阶段只暴露其声明的工具 scope，迁移时清除上一阶段；
 - Workflow 内部不能扩大声明的执行边界；
 - 只有未匹配消息可以进入 ReAct；
 - 显式发送与 Workflow 结果共用一条投递链；

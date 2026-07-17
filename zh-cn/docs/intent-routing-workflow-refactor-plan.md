@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/intent-routing-workflow-refactor-plan.md) | 简体中文
 
-截至 2026-07-16：共享 Runtime 基础已经实现。公共 Web 调研、明确 URL 读取、Workspace 文件搜索和明确路径文件读取已经成为权威 Workflow Profile。其他领域在完成各自纵向迁移前，暂时继续使用旧 TaskHint 路径。
+截至 2026-07-17 的设计状态：共享 Runtime 基础已经存在，下一目标是由注册驱动的 capability tree；当前快照只包含浏览器联网搜索、浏览器自动化、文档读取和文档编辑。这个四叶快照不是固定 enum。既有 Web/workspace Profile 是迁移输入，必须在不重新引入 Router switch 的前提下收敛到这些注册 Workflow。本阶段上下文组装继续使用旧链路。
 
 ## 结论
 
@@ -86,7 +86,7 @@ type Objective struct {
 }
 ```
 
-Fast 返回稳定 envelope，并可归一化证据深度和澄清状态。当前已迁移窄切片中，确定性 support gate 也会冻结 domain 与 operation；后续更宽 classifier 只能在与确定性 fact 兼容的已注册 Profile 之间选择。Normalizer 强制以下规则：
+Fast 返回稳定 envelope，并可归一化证据深度和澄清状态。当前目标窄切片中，确定性 support gate 也会冻结 domain 与 operation；后续更宽 classifier 只能在与确定性 fact 兼容的已注册 Profile 之间选择。Normalizer 强制以下规则：
 
 - 明确 URL、Workspace 路径、附件 ref、actor 和 source turn 来自确定性事实，模型不能发明或修改；
 - authorization provenance 与 `Explicit` 不能由检索结果或引用文本产生；
@@ -98,7 +98,7 @@ Fast 返回稳定 envelope，并可归一化证据深度和澄清状态。当前
 
 ## Workflow Profile 合同
 
-Profile 使用稳定 ID 与 revision 以代码注册：
+Profile 使用稳定 ID 与 revision 注册。实现可以由代码定义，但存在何种 Profile 和 tree leaf 由 Registry 决定，不由 Router switch 决定：
 
 ```go
 type WorkflowProfile interface {
@@ -174,32 +174,28 @@ ToolHub registration 负责选择 outcome adapter。Adapter 只输出类型化 s
 
 Outcome ID 与 transition activation count 会持久化；重复 outcome 是 no-op。未知 signal、耗尽 transition、缺少 ref 或 digest 不一致都必须 block，不能扩大 exposure。
 
-## 当前权威 Profile
+## 当前阶段目标 Profile
 
-| Profile | Initial capability | 有界行为 |
+| 注册 leaf/Profile | Stage 顺序 | 工具暴露边界 |
 |---|---|---|
-| `web.public_research` r1 | `web.discovery` | 要求 source evidence 时最多一次替换为 `web.page.read`；URL 必须来自 discovery outcome。 |
-| `web.explicit_url_read` r1 | `web.page.read` | URL 必须等于确定性 intent target。 |
-| `workspace.file_search` r1 | `workspace.file.search` | 仅搜索、read risk，不接管 mutation 或 image 专用请求。 |
-| `workspace.file_read` r1 | `workspace.file.read` | Path 必须等于确定性 Workspace target。 |
+| `browser.internet_search` r1 | `search_info -> complete` | 只暴露由已配置 Infinimesh Info 支持的 `web.search`，返回类型化结果，不扩展 page read。 |
+| `browser.automation` r1 | `scan_tabs -> focus_existing/open_new -> complete` | 先只暴露 `browser.list_tabs`；再根据精确 URL 是否存在，只暴露 `browser.focus` 或 `browser.open`。 |
+| `document.read` r1 | `inspect_type -> read_by_type -> complete` | 类型检查由确定性逻辑完成；随后只暴露绑定精确 path 的兼容 reader。 |
+| `document.edit` r1 | `inspect_type -> edit_by_type -> complete` | 类型检查由确定性逻辑完成；随后只暴露格式与 operation 兼容的 editor，并返回 output copy。 |
 
-这些 Profile 不读取 TaskHint candidate tool 或 Skill allow/deny 清单，流程型 Skill 由冻结 Plan 精确选择。Workspace 文档修改、图片检查、代码、浏览器交互、提醒、记忆和命令请求，在完成各自纵向切片前继续使用旧路径。
+这些是默认 Registry entry，不是 Runtime 内嵌 branch。未来分支注册新 node、decision case 和 Workflow contract，核心路由和遍历代码保持不变。
+
+每次 transition 都替换 active Exposure view。上一阶段 ToolDefinition 被清除、`ScopeRevision` 增加，旧 selection 或 call 失败。Agent 永远看不到 scan、focus/open、read、edit 或未来阶段工具的并集。
+
+对于“搜索 SparkClaw”，Fast 选择已注册 `browser/internet_search` path。Workflow 只暴露 Info-backed `web.search`，执行冻结 query 并返回结果；Revision 1 不在搜索后增加 `browser.read`。
+
+对于“打开 https://example.com”，浏览器自动化 Workflow 先只暴露 `browser.list_tabs`，确定性比较规范化 tab URL 和冻结 target。精确匹配时激活只含 `browser.focus` 的 view；没有匹配时激活只含 `browser.open` 的 view。
+
+## 旧上下文组装
+
+会话历史、owner context、当前用户文本、附件和压缩上下文格式继续使用既有 assembler。本方案不引入新的 context graph 或逐 Workflow context builder。新 Runtime 只在旧 assembled content 外围绑定 route、active stage 和 Exposure metadata。已迁移 Profile 忽略旧 tool/Skill candidate list，避免复用 context 时扩大阶段可见性。
 
 邮件、日历和 Workspace Knowledge/RAG 不再是本方案的迁移目标；见[暂缓能力](deferred-email-calendar-knowledge.md)。
-
-## Web Search 链路示例
-
-对于“查找 SparkClaw 并读取官方原文”：
-
-1. Fact extraction 没有发现明确 URL。Fast 输出 `web/search`、public data 和 source evidence depth；Normalizer 不允许添加 target 或工具。
-2. Registry 匹配 `web.public_research`，冻结 initial scope 为 `web.discovery` 的节点，并声明一次可替换为 `web.page.read` 的 transition。
-3. Exposure 找到注册的 `web.search` 实现，只物化它的 schema。
-4. Search 返回 `results_available`、`source_page_available` 和受治理 URL ref。因为请求了 source depth，Profile assessment 返回 `needs_more_evidence`。
-5. Runtime 应用冻结 transition，增加 scope revision，清除旧目录选择并重新 Search。
-6. Exposure 物化 `browser.read`。Runtime 只接受已持久化 search outcome ref 中的 URL。
-7. `content_available` 完成节点。URL 缺失、exposure 失败、auth、状态过期或无关 URL 都会 block，不会回退到更宽路由。
-
-明确 URL 请求直接从第 6 步开始，并绑定确定性 URL，不暴露 discovery 或 live browser interaction。
 
 ## 迁移步骤
 
@@ -216,21 +212,23 @@ Outcome ID 与 transition activation count 会持久化；重复 outcome 是 no-
 
 建议顺序：
 
-1. Browser open/read/interaction 与人工登录接管。
-2. 带输出验证的 document mutation。
-3. Memory candidate/sensitive write。
-4. Reminder CRUD 与 connector delivery。
-5. Code patch、test、command execution 和剩余组合。
-6. 最后一个领域迁移后，删除 TaskHint 工具权威、Skill allow/deny visibility 和 legacy expansion。
+1. 通用动态 Catalog 注册与 edge/leaf 校验。
+2. `browser.internet_search`，只返回 Info 结果。
+3. `browser.automation`，隔离 list-tabs 与 focus/open 阶段。
+4. `document.read`，检查类型后只暴露兼容 reader。
+5. `document.edit`，检查类型后只暴露兼容 editor。
+6. 后续 branch 独立注册；仅在完整迁移其纵向切片后删除对应旧工具权威。
 
 ## 不可破坏的 Invariant
 
 - Fast 输出不包含实现选择。
+- Capability branch 和 leaf 来自 Registry 数据，当前四个 leaf 不得写死在 Fast、Runtime 或验证 switch 中。
 - Profile 匹配必须唯一，否则 fail closed。
 - 冻结 Plan 必须经过校验、版本化、hash 和持久化。
 - Core exposure/runtime 不得出现按 Workflow ID 路由的 switch。
 - Search 只能排序 eligible registration，不能扩大 scope。
 - Materialize 只接受最新有界 view。
+- Active stage 只暴露自身 scope；transition 清除上一阶段工具 definition，不做并集。
 - 每个 call 绑定 workflow、node、scope revision、capability，并在需要时绑定精确资源。
 - Skill 不能授予、拒绝、并入或删减工具。
 - Outcome 只能激活已声明 transition，不能注入工具。

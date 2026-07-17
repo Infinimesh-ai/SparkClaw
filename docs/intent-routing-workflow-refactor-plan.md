@@ -2,10 +2,13 @@
 
 > Language: English | [简体中文](../zh-cn/docs/intent-routing-workflow-refactor-plan.md)
 
-Status as of 2026-07-16: the shared runtime foundation is implemented. Public
-Web research, explicit URL reading, workspace file search, and explicit-path
-workspace reads are authoritative Workflow Profiles. Other domains still use
-the legacy TaskHint path until they are migrated as complete vertical slices.
+Design status as of 2026-07-17: the shared runtime foundation exists, and the
+next target is a registration-driven capability tree whose current snapshot
+contains browser Internet search, browser automation, document read, and
+document edit. This four-leaf snapshot is not a fixed enum. Existing
+Web/workspace profiles are migration input and must be reconciled into these
+registered Workflows without reintroducing Router switches. Context assembly
+remains on the legacy path in this phase.
 
 ## Decision
 
@@ -104,7 +107,7 @@ type Objective struct {
 ```
 
 Fast returns the stable envelope and may normalize evidence depth and
-clarification state. For the current narrow migrated slices, the deterministic
+clarification state. For the current narrow target slices, the deterministic
 support gate also fixes domain and operation; a later broader classifier may
 choose them only among fact-compatible registered profiles. Normalization owns
 these non-negotiable rules:
@@ -123,7 +126,9 @@ the same registry and plan validation.
 
 ## Workflow Profile Contract
 
-Profiles are code-defined and registered by stable ID and revision:
+Profiles are registered by stable ID and revision. Implementations may be
+code-defined, but the Registry, not a Router switch, owns which profiles and
+tree leaves exist:
 
 ```go
 type WorkflowProfile interface {
@@ -224,47 +229,45 @@ Outcome IDs and transition activation counts are persisted. Duplicate outcomes
 are no-ops. An unknown signal, exhausted transition, missing ref, or digest
 mismatch blocks instead of widening exposure.
 
-## Current Authoritative Profiles
+## Current-stage Target Profiles
 
-| Profile | Initial capability | Bounded behavior |
+| Registered leaf/Profile | Stage sequence | Tool exposure boundary |
 |---|---|---|
-| `web.public_research` r1 | `web.discovery` | May replace with `web.page.read` once for requested source evidence; URL must come from discovery outcome. |
-| `web.explicit_url_read` r1 | `web.page.read` | URL must equal the deterministic intent target. |
-| `workspace.file_search` r1 | `workspace.file.search` | Search-only, read risk, no mutation or image specialization. |
-| `workspace.file_read` r1 | `workspace.file.read` | Path must equal the deterministic workspace target. |
+| `browser.internet_search` r1 | `search_info -> complete` | Expose only `web.search` backed by configured Infinimesh Info; return its typed result without page-read expansion. |
+| `browser.automation` r1 | `scan_tabs -> focus_existing/open_new -> complete` | First only `browser.list_tabs`; then only `browser.focus` for an exact existing URL or `browser.open` for an absent URL. |
+| `document.read` r1 | `inspect_type -> read_by_type -> complete` | Type inspection is deterministic; then expose only the compatible reader bound to the exact path. |
+| `document.edit` r1 | `inspect_type -> edit_by_type -> complete` | Type inspection is deterministic; then expose only format- and operation-compatible editors and return the output copy. |
 
-These profiles bypass TaskHint candidate tools and Skill allow/deny lists. Their
-procedural Skills are selected exactly by the frozen plan. Workspace document
-mutation, image inspection, code, browser interaction, reminder, memory, and
-command requests remain on the legacy path
-until their own full profile slice lands.
+These are default Registry entries, not branches embedded in Runtime. Future
+branches register new nodes, decision cases, and Workflow contracts. Core
+routing and traversal code remains unchanged.
+
+Each transition replaces the active Exposure view. The previous stage's
+ToolDefinitions are cleared, `ScopeRevision` advances, and stale selections or
+calls fail. The Agent never sees the union of scan, focus/open, read, edit, or
+future-stage tools.
+
+For “search SparkClaw”, Fast selects the registered
+`browser/internet_search` path. The Workflow exposes only the Info-backed
+`web.search`, executes the frozen query, and returns that result. Revision 1
+does not add `browser.read` after search.
+
+For “open https://example.com”, the browser automation Workflow first exposes
+only `browser.list_tabs`. It deterministically compares normalized tab URLs to
+the frozen target. An exact match activates a view containing only
+`browser.focus`; no match activates a view containing only `browser.open`.
+
+## Legacy Context Assembly
+
+Conversation history, owner context, current user text, attachments, and
+compact context formatting continue to use the existing assembler. This plan
+does not introduce a new context graph or per-Workflow context builder. The
+new Runtime binds route, active stage, and Exposure metadata around the legacy
+assembled content. Legacy tool/Skill candidate lists are ignored for migrated
+profiles so context reuse cannot widen stage visibility.
 
 Email, calendar, and workspace knowledge/RAG are not migration targets in this
 plan; see [Deferred Capabilities](deferred-email-calendar-knowledge.md).
-
-## Web Search Example
-
-For “search SparkClaw and read the official source”:
-
-1. Fact extraction finds no explicit URL. Fast emits `web/search`, public data,
-   source evidence depth; normalization cannot add a target or tool.
-2. Registry matches `web.public_research` and freezes a node whose initial
-   scope is `web.discovery`; a declared transition can replace it with
-   `web.page.read` once.
-3. Exposure finds the registered `web.search` implementation and materializes
-   only its schema.
-4. Search returns `results_available`, `source_page_available`, and governed
-   URL refs. The profile assesses `needs_more_evidence` because source depth was
-   requested.
-5. Runtime applies the frozen transition, increments scope revision, clears the
-   old directory selection, and searches again.
-6. Exposure materializes `browser.read`. Runtime accepts only a URL in the
-   persisted search outcome refs.
-7. `content_available` completes the node. Missing URL, failed exposure, auth,
-   stale state, or unrelated URL blocks; none falls back to a broader route.
-
-An explicit URL request starts directly at step 6 with the deterministic URL.
-It does not expose discovery or live browser interaction.
 
 ## Migration Procedure
 
@@ -287,22 +290,26 @@ Migrate one semantic domain slice end to end:
 
 The preferred order is:
 
-1. Browser open/read/interaction and human login handoff.
-2. Document mutation with output verification.
-3. Memory candidate/sensitive write.
-4. Reminder CRUD and connector delivery.
-5. Code patch, tests, command execution, and remaining compositions.
-6. Delete TaskHint tool ownership, Skill allow/deny visibility, and legacy
-   expansion after the final domain migrates.
+1. Generic dynamic catalog registration and edge/leaf validation.
+2. `browser.internet_search` with Info-only result return.
+3. `browser.automation` with list-tabs then focus/open stage isolation.
+4. `document.read` with type inspection and compatible reader exposure.
+5. `document.edit` with type inspection and compatible editor exposure.
+6. Register future branches independently, then remove remaining legacy tool
+   authority only after their complete slices migrate.
 
 ## Non-Negotiable Invariants
 
 - Fast output contains no realization choices.
+- Capability branches and leaves come from Registry data; the current four
+  leaves are not hard-coded into Fast, Runtime, or validation switches.
 - Profile matching is unique or fails closed.
 - A frozen plan is validated, versioned, hashed, and persisted.
 - Core exposure and runtime contain no workflow-ID routing switch.
 - Search ranks only eligible registered entries and cannot widen scope.
 - Materialize accepts only the latest bounded view.
+- An active stage exposes only its own scope; transitions clear prior tool
+  definitions rather than unioning them.
 - Every call is bound to workflow, node, scope revision, capability, and exact
   governed resource where required.
 - Skills cannot grant, deny, union, or subtract tools.

@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/intent-routing-workflow-domain-profiles.md) | 简体中文
 
-截至 2026-07-16：`web.public_research`、`web.explicit_url_read`、`workspace.file_search` 与 `workspace.file_read` revision 1 已实现；其余条目是[意图路由与工作流工具暴露重构方案](intent-routing-workflow-refactor-plan.md)的有序迁移目录。随着决策语料与迁移证据落地，可以增加或修订 Profile。意图、Policy 与持久化契约以主方案为准；目录检索与 schema 物化以[工具暴露契约](intent-routing-tool-exposure-contract.md)为准。
+截至 2026-07-17 的设计状态：当前阶段目标在两个 branch 下注册四个 leaf，分别为浏览器联网搜索、浏览器自动化、文档读取和文档编辑。这只是注册快照，不是固定分类。后续可以增加 Profile 或整个 branch，而不修改 Router 控制流。下文原有 Web/workspace 条目只保留为未来或过渡示例，不属于当前目标树。意图、Policy 与持久化契约以主方案为准；逐阶段目录检索与 schema 物化以[工具暴露契约](intent-routing-tool-exposure-contract.md)为准。
 
 ## Profile 注册与组合
 
@@ -22,7 +22,123 @@ Profile 不规定具体工具顺序。每个 Profile 条目声明：
 
 Tool Exposure 只在当前 scope 内检索逻辑目录。唯一明确目录项可以自动物化；多个合理条目只以精简描述供有界选择。完成选择后才出现完整 ToolDefinition。
 
-## 领域矩阵
+## 当前阶段注册树
+
+```text
+capability
+  browser
+    internet_search -> browser.internet_search r1
+    automation      -> browser.automation r1
+  document
+    read            -> document.read r1
+    edit            -> document.edit r1
+```
+
+树由 node 和 Workflow 注册组装。测试校验 identity、parent-child edge、环和 leaf Workflow reference，不断言这四个 leaf 永远是唯一合法分支。新增 branch 修改注册 catalog 和 decision corpus，不修改 Router switch。
+
+任一时刻只有一个 Workflow stage 处于 active。Tool Exposure 接收该 stage 的 scope，只物化匹配 definition。阶段迁移会清除上一 Exposure view、增加 `ScopeRevision` 并拒绝旧 view 的调用；stage scope 绝不累积。
+
+### 浏览器联网搜索：`browser.internet_search` r1
+
+意图：连接互联网搜索并返回搜索结果。
+
+```text
+stage search_info
+  只暴露：web.discovery
+  物化：使用已配置 Infinimesh Info provider 的 web.search
+  使用冻结 query 执行
+
+results_available 或 no_results
+  -> 返回类型化搜索结果
+  -> complete
+
+provider 不可用、超时、结果非法
+  -> 使用类型化原因 blocked/failed
+```
+
+Revision 1 不迁移到 `browser.read`，不打开可见 tab，也不执行浏览器自动化；这些行为需要后续已注册 Workflow 或显式 composition。
+
+### 浏览器自动化：`browser.automation` r1
+
+意图：在受管浏览器中打开或聚焦一个已明确的目标 URL。
+
+```text
+前置条件
+  target URL 确定且已冻结，否则 clarify
+
+stage scan_tabs
+  只暴露：browser.list_tabs
+  持久化类型化 page ID 和规范化 URL
+
+存在精确 target URL
+  -> stage focus_existing
+  -> 只暴露绑定匹配 page ID 的 browser.focus
+
+不存在精确 target URL
+  -> stage open_new
+  -> 只暴露绑定冻结 target URL 的 browser.open
+
+focus_completed 或 open_completed
+  -> 返回浏览器结果
+  -> complete
+```
+
+Revision 1 不暴露 navigate、click、type、select、page read 或 Web search。后续浏览器 branch 或 Workflow revision 可以通过注册增加这些行为，无需修改当前 Router 算法。
+
+### 文档读取：`document.read` r1
+
+意图：检查一个受治理文件的内容并返回结果。
+
+```text
+preflight inspect_type
+  解析精确受治理 path
+  检测 extension/MIME/signature 并拒绝不一致
+  不向 Agent 暴露工具（或只暴露未来注册的 type-inspector）
+
+stage read_by_type
+  只暴露与检测类型和精确 path 兼容的 reader
+  纯文本/代码 -> 有界文件 reader
+  DOCX/XLSX/PPTX -> 格式兼容的文档 reader backend
+  PDF -> PDF 文本 reader
+
+content_available
+  -> 返回类型化内容与 reference
+  -> complete
+```
+
+Read stage 不可见搜索、编辑、图片检查或无关格式工具。Path 缺失或类型不支持时 clarify 或 block，不扩大 exposure。
+
+### 文档编辑：`document.edit` r1
+
+意图：编辑一个受治理文档并返回新结果。
+
+```text
+preflight inspect_type
+  解析精确受治理 input path 和 output-copy path
+  检测 extension/MIME/signature 并拒绝不一致
+  不向 Agent 暴露工具（或只暴露未来注册的 type-inspector）
+
+stage edit_by_type
+  只暴露与检测格式和请求 operation 匹配的 editor
+  DOCX -> 兼容 DOCX editor entry
+  XLSX -> 兼容 XLSX editor entry
+  PPTX -> 兼容 PPTX editor entry
+  PDF -> 兼容 PDF transform entry
+
+edit_completed
+  -> 返回类型化 output artifact 和 operation result
+  -> complete
+```
+
+Revision 1 写入 output copy，并在类型化编辑成功后结束。后续 revision 可以注册独立验证阶段，但当前不能静默插入。其他格式或 operation 的工具保持不可见。
+
+## 旧上下文组装边界
+
+这些 Workflow 继续使用既有 context assembler 组装会话历史、owner context、当前用户文本、附件和压缩上下文格式。本阶段不引入新的 context graph、reducer 或逐 Workflow prompt assembly。Route identity、active stage、冻结资源和 Exposure binding 只包在旧组装上下文外围。
+
+旧 context 可以提供 evidence，但其中的 candidate-tool 和 Skill 列表不是可见性权威；只有 active stage 的 Tool Exposure view 能进入 Agent。
+
+## 未来扩展矩阵（非当前注册）
 
 | 领域 | 代表性目标 | 自适应状态 |
 |---|---|---|
@@ -36,7 +152,7 @@ Tool Exposure 只在当前 scope 内检索逻辑目录。唯一明确目录项�
 | Reminder | 创建/列出/更新/取消 | 到期时间、时区、渠道、绑定 |
 | Code/Command | 检查、补丁、执行 | 证据、sandbox、回滚、审批 |
 
-## 代表性 Profile
+## 未来或过渡 Profile 示例
 
 ### 公共 Web 调研
 

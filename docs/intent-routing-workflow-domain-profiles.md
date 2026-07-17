@@ -2,14 +2,15 @@
 
 > Language: English | [简体中文](../zh-cn/docs/intent-routing-workflow-domain-profiles.md)
 
-Status as of 2026-07-16: `web.public_research`, `web.explicit_url_read`,
-`workspace.file_search`, and `workspace.file_read` revision 1 are implemented.
-Remaining entries are the ordered migration catalog for the architecture in
-the [Intent Routing and Workflow Tool Exposure Refactor Plan](intent-routing-workflow-refactor-plan.md).
-Profiles may be added or refined as decision-corpus and migration evidence
-lands. The main plan remains authoritative for intent, Policy, and persistence;
-the [Tool Exposure Contract](intent-routing-tool-exposure-contract.md) is
-authoritative for directory search and schema materialization.
+Design status as of 2026-07-17: the current-stage target registers four leaves
+under two branches: browser Internet search, browser automation, document read,
+and document edit. This is a registration snapshot, not a fixed taxonomy.
+Profiles and whole branches may be added later without changing Router control
+flow. Earlier Web/workspace entries below are retained only as future or
+transitional examples, not as the current target tree. The main plan remains
+authoritative for intent, Policy, and persistence; the
+[Tool Exposure Contract](intent-routing-tool-exposure-contract.md) is
+authoritative for per-stage directory search and schema materialization.
 
 ## Profile Registry And Composition
 
@@ -41,7 +42,143 @@ clear entry may be materialized automatically; multiple plausible entries are
 shown as compact descriptions for bounded selection. Complete ToolDefinitions
 appear only after selection.
 
-## Domain Matrix
+## Current-stage Registered Tree
+
+```text
+capability
+  browser
+    internet_search -> browser.internet_search r1
+    automation      -> browser.automation r1
+  document
+    read            -> document.read r1
+    edit            -> document.edit r1
+```
+
+The tree is assembled through node and Workflow registrations. Tests validate
+identity, parent-child edges, cycles, and leaf Workflow references; they do not
+assert that these are the only legal branches forever. Adding a branch changes
+the registered catalog and decision corpus, not a Router switch.
+
+At any instant, only one Workflow stage is active. Tool Exposure receives that
+stage's scope and materializes only matching definitions. A transition clears
+the prior Exposure view, advances `ScopeRevision`, and rejects calls from the
+old view. Stage scopes never accumulate.
+
+### Browser Internet Search: `browser.internet_search` r1
+
+Intent: search the Internet and return the search result.
+
+```text
+stage search_info
+  expose only: web.discovery
+  materialize: web.search using the configured Infinimesh Info provider
+  execute with the frozen query
+
+results_available OR no_results
+  -> return the typed search result
+  -> complete
+
+provider unavailable, timeout, invalid result
+  -> blocked/failed with a typed reason
+```
+
+Revision 1 does not transition into `browser.read`, open a visible tab, or
+perform browser automation. Those would require a later registered Workflow or
+explicit composition.
+
+### Browser Automation: `browser.automation` r1
+
+Intent: open/focus an explicitly known target URL in the managed browser.
+
+```text
+precondition
+  target URL is deterministic and frozen; otherwise clarify
+
+stage scan_tabs
+  expose only: browser.list_tabs
+  persist typed page IDs and normalized URLs
+
+exact target URL exists
+  -> stage focus_existing
+  -> expose only: browser.focus bound to the matched page ID
+
+exact target URL does not exist
+  -> stage open_new
+  -> expose only: browser.open bound to the frozen target URL
+
+focus_completed OR open_completed
+  -> return the browser result
+  -> complete
+```
+
+Revision 1 does not expose navigate, click, type, select, page read, or Web
+search. Later browser branches or Workflow revisions can add those behaviors
+through registration without modifying the current Router algorithm.
+
+### Document Read: `document.read` r1
+
+Intent: inspect the contents of one governed file and return the result.
+
+```text
+preflight inspect_type
+  resolve the exact governed path
+  detect extension/MIME/signature and reject mismatches
+  expose no Agent tool (or only a future registered type-inspector)
+
+stage read_by_type
+  expose only the reader compatible with the detected type and exact path
+  plain text/code -> bounded file reader
+  DOCX/XLSX/PPTX -> format-compatible document reader backend
+  PDF -> PDF text reader
+
+content_available
+  -> return typed content and references
+  -> complete
+```
+
+No search, edit, image inspection, or unrelated format tool is visible in the
+read stage. A missing path or unsupported type clarifies or blocks; it does not
+widen exposure.
+
+### Document Edit: `document.edit` r1
+
+Intent: edit one governed document and return the new result.
+
+```text
+preflight inspect_type
+  resolve the exact governed input path and output-copy path
+  detect extension/MIME/signature and reject mismatches
+  expose no Agent tool (or only a future registered type-inspector)
+
+stage edit_by_type
+  expose only editors matching detected format and requested operation
+  DOCX -> compatible DOCX editor entries
+  XLSX -> compatible XLSX editor entries
+  PPTX -> compatible PPTX editor entries
+  PDF -> compatible PDF transform entry
+
+edit_completed
+  -> return the typed output artifact and operation result
+  -> complete
+```
+
+Revision 1 writes an output copy and stops on typed edit success. A separate
+verification stage may be registered in a later revision; it is not silently
+inserted now. Tools for other formats or operations remain invisible.
+
+## Legacy Context Assembly Boundary
+
+These Workflows reuse the existing context assembler for conversation history,
+owner context, current user text, attachments, and compact context formatting.
+This phase does not introduce a new context graph, reducer, or per-Workflow
+prompt-assembly system. Route identity, active stage, frozen resources, and
+Exposure bindings are added around the legacy assembled context.
+
+Legacy context may supply evidence, but its candidate-tool and Skill lists are
+not a visibility authority. Only the active stage's Tool Exposure view reaches
+the Agent.
+
+## Future Expansion Matrix (Not Current Registrations)
 
 | Domain | Representative goal | Adaptive state |
 |---|---|---|
@@ -55,7 +192,7 @@ appear only after selection.
 | Reminder | create/list/update/cancel | due time, timezone, channel, binding |
 | Code/Command | inspect, patch, execute | evidence, sandbox, rollback, approval |
 
-## Representative Profiles
+## Future Or Transitional Profile Examples
 
 ### Public Web research
 

@@ -44,14 +44,18 @@
 
 实现 WebChat 到所选第三方端点的完整结构化链路，同时保持既有第三方入站行为。每个统一 Part（`text`、`image`、`audio`、`file`）都必须先预检，再完成投递或明确拒绝；不得从 Markdown 猜测 Part，也不得静默丢失 Part。
 
+接收态和发送态使用独立的持久化生命周期。Binding 表示软件账号；任务 1 必须公开按当前 actor 限定的精确收件 endpoint，绝不能把 binding ID 当成多用户场景下的模糊目标。
+
 ### 主要所有权
 
 - `services/gateway/internal/app/message_architecture.go` 中的投递和 endpoint 契约；
 - `messageplane/`、`messagecontrol/`、`delivery/`；
 - `connector/`、`notification/`、`telegram/`、`weixin/` 中的渠道投递实现；
 - Gateway 端点发现、artifact 解析、直接投递 handler、类型化错误、幂等和审计；
+- actor 范围内的收件 endpoint catalog 和确定性精确地址查询支持；
 - `store/` 的投递持久化，memory/file/PostgreSQL 三个后端、file `Snapshot` 和迁移；
-- WebChat API、第三方发送模式、多 Part 上传、目标选择、审核、回执和重试状态；
+- WebChat API、第三方发送模式、多 Part 上传、独立的软件/收件人选择、审核、回执和重试状态；
+- WebChat 消息/投递历史中的 receive/send 方向和精确软件/用户/账号 endpoint 标签；
 - 聚焦的渠道、Gateway、Store 和前端测试。
 
 ### 排除项
@@ -71,14 +75,23 @@
 
 收紧中间链路，使普通 Agent 对话稳定遵循 `MessageEnvelope -> RouteDecision -> WorkflowProfile -> WorkflowResult`；用户在 Web 的直接外发保持为绕过 Agent 路由的显式投递命令。两条路径可以共享 Delivery Gateway 契约，但不能共享或伪造语义 Workflow 状态。
 
+Capability tree 由注册驱动。当前阶段快照只有 `browser/internet_search`、`browser/automation`、`document/read` 和 `document/edit`，该列表不得成为 Router switch 或封闭 enum。未来 branch 通过注册新增 node 和 Workflow，不修改核心遍历。
+
+外部投递与业务能力树正交。任务 2 在业务 route 旁归一化 delivery directive，把精确 endpoint 选择交给按 actor 限定的确定性 resolver，在目标缺失或有歧义时澄清，并在外发审批前冻结一个 endpoint；不得增加 `message.send` capability 叶子。
+
 ### 主要所有权
 
 - `services/gateway/internal/capability/`；
+- 通用 catalog node 注册、parent/edge/cycle/leaf 校验和动态路由描述；
 - `services/gateway/internal/agent/intent_router.go`；
 - `services/gateway/internal/agent/workflow_*.go` 及聚焦测试；
 - Agent 侧类型化 `WorkflowResult` 的创建与恢复；
 - success、clarify、blocked、approval、resume、failure 各状态中的 return route、owner、authorization、causation 和幂等元数据；
 - 结构化 Workflow 输出 Part 和 reference，不从 Assistant 展示文本解析投递资源；
+- 类型化目标解析状态，覆盖 Web 默认、source reply、缺少软件、缺少收件人、有歧义、精确匹配和目标不可用；
+- 当前四个 Workflow 实现：只返回 Info 搜索结果、扫描 tab 后精确 focus/open、按类型读取文档、按类型编辑文档；
+- 严格逐 stage Tool Exposure，transition 替换上一 view，绝不跨阶段合并工具；
+- 复用旧会话/context assembler，同时忽略旧 tool/Skill candidate 的可见性权威；
 - 证明 Web 直接投递 API 不调用 Agent Runtime、不创建伪 Workflow 的回归测试。
 
 ### 排除项
@@ -86,7 +99,9 @@
 - 不实现渠道 API、凭据、轮询、媒体上传、绑定、Gateway HTTP、Store 后端、迁移或 WebChat UI；
 - 冻结基点后不修改任务 1 所有的消息和投递契约；需要不兼容改动时向任务 1 提交书面交接；
 - 不增加 provider/tool 名称分支、平行 capability 列表，也不允许权威匹配 Profile 回退到旧 TaskHint；
-- 除非所有者单独批准扩大范围，本版本不增加用户可见的 Agent 驱动 `message.send` Workflow。
+- 不允许模型选择 endpoint ID、用 display name 授权、根据历史目标猜测，或在精确目标解析与审批前调用渠道。
+- 本轮不重写 context assembly，不增加 context graph 或逐 Workflow context builder；
+- 不推测性暴露 `browser.read`、navigate/click/type/select、文件搜索、编辑验证阶段或超出当前简单流程的工具。
 
 ### 必需交接
 
@@ -122,6 +137,8 @@
 6. Store 接口新增必须同时落入 memory、file、PostgreSQL 和 `Snapshot`，拒绝不完整的可选 type assertion。
 7. Web 直接外发是 owner 显式操作，不调用 Agent Runtime，不创建 `RouteDecision` 或 `WorkflowState`。
 8. Agent WorkflowResult 与 Web 直接外发只在类型化 Delivery Gateway 汇合，并保留不同的授权和审计来源。
+9. 第三方 binding 是凭据/账号边界，不是收件人；一个 endpoint 必须精确标识一个 user/chat/thread。
+10. 收件人澄清和外发审批是两个独立门禁；唯一候选只跳过澄清。
 
 ## 8. 合并顺序与门禁
 
@@ -149,9 +166,22 @@
 |---|---|
 | 既有 Web Agent 对话 | 流式对话、工具、审批和会话历史不变。 |
 | Web 直接外发 | 直接调用 Delivery Gateway，不创建 Agent run、RouteDecision、WorkflowState 或 model call。 |
+| Web/Agent 请求无第三方发送意图 | 即使存在第三方历史或 endpoint，也返回当前 Web endpoint。 |
+| 请求指定软件和用户 | 解析一个已授权精确 endpoint，冻结到 Message Control/ReturnRoute 状态后请求发送审批。 |
+| Agent 指定软件但无用户，只有一个候选 | 展示唯一收件人，不询问“发给谁”，直接进入发送审批。 |
+| Agent 指定软件但无用户，存在多个候选 | 询问发给谁，渠道调用次数为零。 |
+| 多个 endpoint 使用相同 display name | 必须选择精确账号/chat，display name 不能授权投递。 |
+| Capability tree 扩展 | 测试注册的新 branch/leaf 无需修改 Router 核心或名称 switch 即可路由和校验。 |
+| 浏览器联网搜索 | 只暴露 Info-backed `web.search`，其类型化结果直接完成 Workflow，不读取页面。 |
+| 浏览器自动化，目标 tab 已存在 | 首先只可见 `browser.list_tabs`，随后只可见精确 page ID 的 `browser.focus`。 |
+| 浏览器自动化，目标 tab 不存在 | 首先只可见 `browser.list_tabs`，随后只可见冻结 URL 的 `browser.open`。 |
+| 文档读取 | 类型预检不暴露宽工具集；读取阶段只看到兼容且绑定精确 path 的 reader。 |
+| 文档编辑 | 类型预检不暴露宽工具集；编辑阶段只看到格式/operation 兼容 editor，并返回 output copy。 |
+| 旧上下文组装 | 既有 history/owner/attachment context 保持字节或语义兼容，同时 stage Exposure 保持唯一权威。 |
 | Telegram 端点 | 文本、图片、普通音频、语音消息音频和文件遵循设计中的原生/降级映射。 |
 | 微信端点 | 文本和图片使用原生 item；音频/语音和普通文件通过明确提示的文件表现完整保留字节。 |
 | 第三方入站回复 | 入站只标准化一次，owner/auth/return route 穿过 Workflow 后返回源端点。 |
+| 跨用户 endpoint 尝试 | 在 artifact 访问和渠道调用前隐藏候选或拒绝。 |
 | 审批与恢复 | 恢复后的 WorkflowResult 保留原 return route，不向其他 endpoint 泄漏投递权限。 |
 | 仅提醒绑定 | owner 授予 `message_send_self` 前不出现在直接发送 endpoint 中。 |
 | 已撤销或过期绑定 | 即使 Web 缓存过期状态也无法发送，Gateway 在渠道调用前返回类型化错误。 |

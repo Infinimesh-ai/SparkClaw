@@ -247,29 +247,28 @@ nowhere.
 
 ### Capability Catalog
 
-The catalog is a versioned tree of user-visible product capabilities:
+The catalog is a versioned, registration-driven tree of user-visible product
+capabilities. The following is only the current-stage registration snapshot,
+not a closed enum or permanent product taxonomy:
 
 ```text
 capability
-  conversation
-    answer
-
   browser
-    search
+    internet_search
     automation
-
-  file
-    discover
+  document
     read
-    create
     edit
-    transform
-    delete
-
-  message
-    send
-    schedule
 ```
+
+The Router core never embeds this shape. Each node registration declares its
+stable ID, parent ID, branch/leaf kind, routing description, revision, and, for
+a leaf, one Workflow reference. Registry validation rejects missing parents,
+cycles, duplicate IDs, invalid leaf/Workflow references, and paths containing
+unregistered edges. The current four leaves are default registrations only.
+Adding a future branch or leaf changes registration data and adds its Workflow;
+it does not add a core Router switch, a synchronized name list, or a new
+hard-coded traversal path.
 
 Text, image, audio, and file do not appear as modality branches. An image can
 be input to conversation, an audio request can route to browser search through
@@ -316,6 +315,21 @@ parallelism, retry, compensation, and completion rules are deliberately
 deferred to Workflow-level designs. They may evolve without changing the
 overall architecture as long as the boundary remains stable.
 
+For the current four Workflow registrations, every stage owns a frozen
+capability scope. Tool Exposure materializes only tools matching the active
+stage. On transition, the previous stage's tool definitions are removed,
+`ScopeRevision` advances, and stale tool calls are rejected. Tools from earlier
+or later stages never accumulate in the Agent request. The initial Workflow
+shapes are defined in the
+[Workflow Profile Catalog](intent-routing-workflow-domain-profiles.md); future
+profiles may add different stages without changing Router traversal.
+
+Context assembly is not migrated in this phase. Existing conversation history,
+owner context, attachments, and compact context formatting continue through
+the legacy assembler. The Workflow layer adds route, active-stage, and scope
+bindings around that assembled context. Legacy candidate-tool or Skill lists
+must not regain tool-visibility authority for migrated Workflows.
+
 ### ReAct Fallback
 
 ReAct receives only messages whose routing status is `unmatched`. It has a
@@ -355,8 +369,9 @@ The Result Presenter may format content but cannot change execution status or
 call tools. User-visible text, images, voice/audio, and files must be present as
 Message Parts.
 
-Explicit `message.send` and normal Workflow result return both create a
-`DeliveryRequest` and enter the Delivery Gateway.
+An explicit Message Control send command and a normal Workflow result return
+both create a `DeliveryRequest` and enter the Delivery Gateway. Delivery is
+orthogonal to the business capability tree.
 
 The Delivery Gateway resolves the target Endpoint and chooses only between:
 
@@ -455,7 +470,7 @@ layers.
 
 | Extension | Required architecture work |
 |---|---|
-| New business capability | add a catalog leaf and registered Workflow contract |
+| New business capability | register any required branch/leaf nodes and one Workflow contract per leaf; Router core remains unchanged |
 | New third-party platform | add one Provider adapter and Endpoint capability declaration |
 | New message content kind | extend MessageContent plus ingress, Web rendering, Provider conformance, and delivery negotiation |
 | New scheduled behavior | extend Schedule control contracts, not domain Workflows |
@@ -482,7 +497,11 @@ The overall architecture is valid when:
 
 - every source creates the same normalized message contract;
 - the capability tree is the only Fast routing vocabulary;
+- the tree shape comes from validated registrations and the current four
+  leaves are not hard-coded into Router control flow;
 - every matched leaf resolves one Workflow contract;
+- each active Workflow stage exposes only its declared tool scope and clears
+  the prior stage on transition;
 - Workflow internals cannot widen their declared execution boundary;
 - ReAct is reached only by unmatched messages;
 - explicit sends and Workflow results share one delivery path;

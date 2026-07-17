@@ -71,6 +71,10 @@ canonical part (`text`, `image`, `audio`, `file`) must be preflighted and either
 delivered or rejected explicitly; no part may be inferred from Markdown or
 silently dropped.
 
+Receive and send state are separate persisted lifecycles. A binding represents
+a software account; Task 1 must expose exact recipient endpoints scoped by the
+current actor and must never use a binding ID as an ambiguous multi-user target.
+
 ### Primary ownership
 
 - `services/gateway/internal/app/message_architecture.go` delivery and endpoint
@@ -82,10 +86,14 @@ silently dropped.
   `weixin/` provider delivery implementations;
 - Gateway endpoint discovery, artifact resolution, direct delivery handlers,
   typed errors, idempotency, and audit surfaces;
+- actor-scoped recipient endpoint catalog and deterministic exact-address
+  lookup support;
 - delivery persistence in `store/`, all three backends, the file `Snapshot`,
   and PostgreSQL migration coverage;
 - WebChat API types/client, external-send composer mode, multi-part upload,
-  destination selection, review, receipt, and retry states;
+  separate software/recipient selection, review, receipt, and retry states;
+- WebChat message/delivery history labels for receive/send direction and exact
+  software/recipient/account endpoint identity;
 - focused provider, Gateway, store, and frontend tests.
 
 ### Exclusions
@@ -115,9 +123,23 @@ the owner's direct Web external send remains an explicit delivery command that
 bypasses Agent routing. The two paths may share the Delivery Gateway contract,
 but they must not share or fabricate semantic workflow state.
 
+The capability tree is registration-driven. Its current-stage snapshot has
+only `browser/internet_search`, `browser/automation`, `document/read`, and
+`document/edit`; this list must not become a Router switch or closed enum.
+Future branches register new nodes and Workflows without changing core
+traversal.
+
+External delivery remains orthogonal to the business capability tree. Task 2
+normalizes a delivery directive beside the business route, delegates exact
+endpoint selection to the deterministic actor-scoped resolver, clarifies
+missing or ambiguous targets, and freezes one endpoint before external-send
+approval. It must not add a `message.send` capability leaf.
+
 ### Primary ownership
 
 - `services/gateway/internal/capability/`;
+- generic catalog node registration, parent/edge/cycle/leaf validation, and
+  dynamically supplied routing descriptions;
 - `services/gateway/internal/agent/intent_router.go`;
 - `services/gateway/internal/agent/workflow_*.go` and their focused tests;
 - Agent-side creation and resumption of typed `WorkflowResult` values;
@@ -125,6 +147,14 @@ but they must not share or fabricate semantic workflow state.
   success, clarify, blocked, approval, resume, and failure states;
 - structured workflow output parts and references, without parsing Assistant
   display text to discover delivery resources;
+- typed target-resolution states covering Web default, source reply, missing
+  software, missing recipient, ambiguity, exact match, and unavailable target;
+- current four Workflow implementations: Info-only search result, tab scan then
+  exact focus/open, type-aware document read, and type-aware document edit;
+- strict stage-scoped Tool Exposure that replaces the prior view on transition
+  and never unions tools across stages;
+- reuse of the legacy conversation/context assembler, with legacy tool/Skill
+  candidates ignored as visibility authority;
 - regression tests proving the direct Web delivery API does not invoke the
   Agent Runtime or create a fake workflow.
 
@@ -137,8 +167,12 @@ but they must not share or fabricate semantic workflow state.
   handoff;
 - no new provider-name or tool-name switch, parallel capability list, or
   fallback from an authoritative matched profile into legacy TaskHint routing;
-- no new user-visible Agent-driven `message.send` workflow in this release
-  unless the owner separately approves that scope expansion.
+- no model-selected endpoint IDs, display-name authorization, prior-target
+  guessing, or provider calls before exact target resolution and approval.
+- no context-assembly rewrite, new context graph, or per-Workflow context
+  builder in this pass;
+- no speculative `browser.read`, navigate/click/type/select, file search,
+  edit verification stage, or tool exposure beyond the current simple flows.
 
 ### Required handoff
 
@@ -195,6 +229,10 @@ result may later merge into `main`.
    create `RouteDecision`, or create `WorkflowState`.
 8. Agent Workflow results and direct Web sends converge only at the typed
    Delivery Gateway and retain distinct authorization/audit provenance.
+9. A third-party binding is a credential/account boundary, not a recipient.
+   One endpoint must identify one exact user/chat/thread.
+10. Recipient clarification and external-send approval are separate gates;
+    sole-candidate resolution skips only clarification.
 
 ## 8. Merge Order And Gates
 
@@ -224,9 +262,22 @@ stops the sequence; later commits are not merged on top of a known failure.
 |---|---|
 | Existing Web Agent chat | Streaming chat, tools, approvals, and session history remain unchanged. |
 | Web direct send | Calls Delivery Gateway directly and creates no Agent run, route decision, workflow state, or model call. |
+| Web/Agent request without external-send intent | Returns to the current Web endpoint even when third-party history or endpoints exist. |
+| Request names software and user | Resolves one authorized exact endpoint, freezes it in Message Control/ReturnRoute state, then requests send approval. |
+| Agent names software but no user; one candidate | Shows the sole recipient and proceeds to send approval without a recipient question. |
+| Agent names software but no user; multiple candidates | Clarifies who should receive the message and performs no provider call. |
+| Same display name on multiple endpoints | Requires selection of exact account/chat; display name never authorizes delivery. |
+| Capability-tree extension | A test-only branch/leaf registration routes and validates without changing Router core code or a name switch. |
+| Browser Internet search | Only Info-backed `web.search` is exposed; its typed result completes the Workflow without page reading. |
+| Browser automation, target tab exists | Only `browser.list_tabs` is visible first; then only `browser.focus` for the exact matched page ID. |
+| Browser automation, target tab absent | Only `browser.list_tabs` is visible first; then only `browser.open` for the frozen URL. |
+| Document read | Type preflight exposes no broad tool set; the read stage sees only the compatible exact-path reader. |
+| Document edit | Type preflight exposes no broad tool set; the edit stage sees only compatible format/operation editors and returns the output copy. |
+| Legacy context assembly | Existing history/owner/attachment context remains byte/semantics compatible while stage Exposure stays authoritative. |
 | Telegram endpoint | Text, image, ordinary audio, voice-note audio, and file follow the documented native/fallback mapping. |
 | Weixin endpoint | Text and image use native items; audio/voice and general files retain bytes through an explicitly disclosed file representation. |
 | Third-party inbound reply | Ingress is normalized once, owner/auth/return route survive workflow execution, and the result returns to the source endpoint. |
+| Cross-user endpoint attempt | Candidate is invisible or denied before artifact access and provider calls. |
 | Approval and resume | Resumed WorkflowResult retains its original return route and never leaks delivery authority to another endpoint. |
 | Reminder-only binding | Does not appear as a direct-send endpoint until the owner grants `message_send_self`. |
 | Revoked or stale binding | Cached Web state cannot send; Gateway returns a typed binding error before provider calls. |

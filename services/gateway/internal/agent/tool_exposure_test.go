@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 		t.Fatalf("unexpected directory view: %#v", view)
 	}
 	entry := view.Entries[0]
-	if entry.Capability.Name != string(app.CapabilityBrowserSearch) || entry.Capability.Qualifiers[app.CapabilityQualifierOperation] != app.CapabilityOperationDiscover || entry.Summary == "" {
+	if entry.Capability.Name != app.ToolCapabilityWebDiscovery || entry.Capability.Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo || entry.Summary == "" {
 		t.Fatalf("unexpected directory entry: %#v", entry)
 	}
 	if run, ok := st.GetRun(request.RunID); !ok || run.Workflow.Nodes[request.NodeID].LastDirectory.ViewID != view.ViewID {
@@ -115,6 +116,96 @@ func TestCapabilityQualifierMatchingUsesRequirementSubset(t *testing.T) {
 	}
 }
 
+func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		pages     []any
+		wantTool  string
+		wantStage string
+	}{
+		{name: "exact target exists", pages: []any{map[string]any{"id": "page-7", "url": "https://example.com/"}}, wantTool: "browser.focus", wantStage: "focus_existing"},
+		{name: "exact target absent", pages: []any{map[string]any{"id": "page-8", "url": "https://other.example/"}}, wantTool: "browser.open", wantStage: "open_new"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Tools.BrowserAutomation.Enabled = true
+			st := store.NewMemoryStore()
+			hub := toolhub.New(cfg, st)
+			defer hub.Close()
+			engine := newToolExposureEngine(st, hub, policy.New(cfg))
+			profile := browserAutomationProfile{}
+			route := app.RouteDecision{
+				SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: "test",
+				CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation},
+				Slots:          app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com/"},
+				Facts:          map[string]string{"url": "https://example.com/"},
+			}
+			intent, plan, err := profile.Resolve(route, "turn")
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := newWorkflowState(route, app.ReturnRoute{}, intent, plan)
+			runID := "run_browser_stage_" + strings.ReplaceAll(test.name, " ", "_")
+			st.SaveRun(app.AgentRun{ID: runID, SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
+			nodeID := plan.InitialNodeIDs[0]
+			request := app.ExposureRequest{RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 1, ActorRef: "owner"}
+			initial, err := engine.Search(context.Background(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(initial.Entries) != 1 || initial.Entries[0].Capability.Name != app.ToolCapabilityBrowserListTabs {
+				t.Fatalf("scan stage exposed the wrong capability: %#v", initial.Entries)
+			}
+			if _, err := engine.Materialize(context.Background(), app.MaterializeRequest{
+				ViewID: initial.ViewID, RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 1,
+				EntryIDs: []app.ToolDirectoryEntryID{initial.Entries[0].ID}, ActorRef: "owner",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			definition, _ := hub.Definition("browser.list_tabs")
+			call := app.ToolCall{ID: "tc_tabs", Tool: definition.Name, Status: "completed", Result: map[string]any{"pages": test.pages}, WorkflowNodeID: nodeID}
+			outcome, err := adaptWorkflowOutcome(definition, call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, _ := st.GetRun(runID)
+			assessment := profile.Assess(stored.Workflow, outcome)
+			if _, err := applyWorkflowOutcome(&stored, outcome, assessment); err != nil {
+				t.Fatal(err)
+			}
+			st.SaveRun(stored)
+			if node := stored.Workflow.Nodes[nodeID]; node.ScopeRevision != 2 || node.Stage != test.wantStage || node.LastDirectory != nil || len(node.SelectedEntries) != 0 {
+				t.Fatalf("stage transition did not clear the old exposure view: %#v", node)
+			}
+			_, err = engine.Materialize(context.Background(), app.MaterializeRequest{
+				ViewID: initial.ViewID, RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 1,
+				EntryIDs: []app.ToolDirectoryEntryID{initial.Entries[0].ID}, ActorRef: "owner",
+			})
+			if !errors.Is(err, errExposureWorkflowMismatch) {
+				t.Fatalf("old scope revision remained callable: %v", err)
+			}
+			request.ScopeRevision = 2
+			next, err := engine.Search(context.Background(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(next.Entries) != 1 {
+				t.Fatalf("next stage exposed a tool union: %#v", next.Entries)
+			}
+			exposure, err := engine.Materialize(context.Background(), app.MaterializeRequest{
+				ViewID: next.ViewID, RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 2,
+				EntryIDs: []app.ToolDirectoryEntryID{next.Entries[0].ID}, ActorRef: "owner",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(exposure.Definitions) != 1 || exposure.Definitions[0].Name != test.wantTool {
+				t.Fatalf("next stage exposed the wrong exact tool: %#v", visibleToolNames(exposure.Definitions))
+			}
+		})
+	}
+}
+
 func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.MemoryStore, *toolExposureEngine, app.ExposureRequest) {
 	t.Helper()
 	cfg := config.Default()
@@ -125,17 +216,18 @@ func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.Mem
 	st := store.NewMemoryStore()
 	hub := toolhub.New(cfg, st)
 	engine := newToolExposureEngine(st, hub, policy.New(cfg))
-	nodeID := app.WorkflowNodeID("browser_search")
+	nodeID := app.WorkflowNodeID("search_info")
 	plan := app.WorkflowPlan{
 		SchemaVersion:   1,
-		ProfileID:       app.WorkflowBrowserSearch,
+		ProfileID:       app.WorkflowBrowserInternetSearch,
 		ProfileRevision: 1,
 		InitialNodeIDs:  []app.WorkflowNodeID{nodeID},
 		Completion:      app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID:           nodeID,
+			InitialStage: "search_info",
 			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "discover public web evidence", Completion: app.CompletionEvidence},
-			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: string(app.CapabilityBrowserSearch), Qualifiers: map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationDiscover}}}},
+			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityWebDiscovery, Qualifiers: map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}}}},
 			AllowedRisks: []app.RiskLevel{app.RiskRead},
 			MaxAttempts:  2,
 		}},
@@ -154,6 +246,7 @@ func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.Mem
 			Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
 				nodeID: {
 					Status:                app.WorkflowNodeActive,
+					Stage:                 "search_info",
 					CurrentScope:          plan.Nodes[0].InitialScope,
 					ScopeRevision:         1,
 					TransitionActivations: map[app.TransitionID]int{},
@@ -163,7 +256,7 @@ func newWebExposureFixture(t *testing.T, cfgOverride *config.Config) (*store.Mem
 	})
 	return st, engine, app.ExposureRequest{
 		RunID:         "run_web_exposure",
-		WorkflowID:    app.WorkflowBrowserSearch,
+		WorkflowID:    app.WorkflowBrowserInternetSearch,
 		NodeID:        nodeID,
 		ScopeRevision: 1,
 		ActorRef:      "owner",

@@ -21,16 +21,17 @@ import (
 )
 
 type Runtime struct {
-	store        store.Store
-	tools        *toolhub.ToolHub
-	policy       policy.Engine
-	models       modelrouter.Router
-	traces       *trace.Writer
-	skills       skills.Registry
-	artifacts    artifact.Store
-	exposure     *toolExposureEngine
-	profiles     workflowProfileRegistry
-	capabilities capability.Catalog
+	store          store.Store
+	tools          *toolhub.ToolHub
+	policy         policy.Engine
+	models         modelrouter.Router
+	traces         *trace.Writer
+	skills         skills.Registry
+	artifacts      artifact.Store
+	exposure       *toolExposureEngine
+	profiles       workflowProfileRegistry
+	capabilities   capability.Catalog
+	messageControl MessageControlRouter
 }
 
 type Result struct {
@@ -209,20 +210,51 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		}, nil
 	}
 
-	route, routingErr := r.routeCapability(ctx, sessionID, run.ID, agentContent)
+	routing, routingErr := r.routeIntentWithOwnerText(ctx, sessionID, run.ID, agentContent, visibleContent)
 	if routingErr != nil {
-		route = app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
+		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
 		run.MessageContext.Route = route
-		result := r.blockWorkflowSetup(ctx, run, visibleContent, routingErr)
-		result.Run.MessageContext = run.MessageContext
-		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, envelope.ReturnRoute, result.Message.Content)
-		return result, nil
+		r.store.SaveRun(run)
+		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
+	}
+	route := routing.Route
+	deliverySelection, returnRoute, controlErr := r.resolveMessageControl(ctx, sessionID, routing.Delivery, envelope)
+	if controlErr != nil {
+		blocked := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: controlErr.Error()}
+		run.MessageContext.Route = blocked
+		r.store.SaveRun(run)
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID, RunID: run.ID, Actor: "message_control", Type: "message.control.blocked",
+			Summary: "Typed delivery directive could not be resolved",
+			Fields: map[string]any{
+				"explicit_external": routing.Delivery.ExplicitExternal, "requested_provider_key": routing.Delivery.RequestedProviderKey,
+				"recipient_present": strings.TrimSpace(routing.Delivery.RequestedRecipientText) != "", "reason": controlErr.Error(),
+			},
+		})
+		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, blocked), nil
+	}
+	run.MessageContext.ReturnRoute = returnRoute
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID, RunID: run.ID, Actor: "message_control", Type: "message.control.routed",
+		Summary: string(deliverySelection.Status),
+		Fields: map[string]any{
+			"status": deliverySelection.Status, "resolution_rule": deliverySelection.ResolutionRule,
+			"candidate_count": len(deliverySelection.CandidateEndpointIDs), "resolved_endpoint_id": deliverySelection.ResolvedEndpointID,
+			"explicit_external": routing.Delivery.ExplicitExternal, "requested_provider_key": routing.Delivery.RequestedProviderKey,
+			"recipient_present": strings.TrimSpace(routing.Delivery.RequestedRecipientText) != "",
+			"owner_id":          envelope.OwnerID, "actor_id": envelope.ActorID, "envelope_id": envelope.ID,
+			"idempotency_key": envelope.IdempotencyKey, "correlation_id": envelope.CorrelationID, "causation_id": envelope.CausationID,
+		},
+	})
+	if controlRoute, terminal := messageControlTerminalRoute(deliverySelection, r.capabilities.Revision()); terminal {
+		run.MessageContext.Route = controlRoute
+		r.store.SaveRun(run)
+		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, controlRoute), nil
 	}
 	run.MessageContext.Route = route
 	r.store.SaveRun(run)
 	if route.Status == app.RouteClarify || route.Status == app.RouteBlocked {
-		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
+		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route), nil
 	}
 	authoritativeWorkflow := route.Status == app.RouteMatched
 	var hint TaskHint
@@ -230,11 +262,11 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	var visibleTools []app.ToolDefinition
 	var activeProfile workflowProfile
 	if authoritativeWorkflow {
-		dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, envelope.ReturnRoute, userMessage.ID)
+		dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, returnRoute, userMessage.ID)
 		if err != nil {
 			result := r.blockWorkflowSetup(ctx, run, visibleContent, err)
 			result.RouteDecision = &route
-			result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, envelope.ReturnRoute, result.Message.Content)
+			result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content)
 			return result, nil
 		}
 		run = dispatch.Run
@@ -354,6 +386,11 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 			})
 		}
 	}
+	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
+		approvals = append(approvals, approval)
+		currentToolCalls = append(currentToolCalls, call)
+	}
 	r.store.SaveRun(run)
 	allToolCalls := currentToolCalls
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
@@ -371,9 +408,9 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	r.writeTrace(ctx, run, reactResult.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route}
 	if authoritativeWorkflow {
-		result.WorkflowResult = r.workflowResultForRun(run, route, envelope.ReturnRoute, run.Summary)
+		result.WorkflowResult = r.workflowResultForRun(run, route, returnRoute, run.Summary)
 	} else {
-		result.WorkflowResult = r.workflowResultForUnmatched(run, route, envelope.ReturnRoute, run.Summary)
+		result.WorkflowResult = r.workflowResultForUnmatched(run, route, returnRoute, run.Summary)
 	}
 	return result, nil
 }
@@ -419,6 +456,9 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	}
 	if approvalsStillPending(r.store.ListApprovals("pending"), runID) {
 		return Result{}, false, nil
+	}
+	if result, handled, err := r.resumeExternalSendApproval(ctx, run); handled || err != nil {
+		return result, handled, err
 	}
 	content := originalUserMessageForRun(r.store.ListMessages(sessionID), run)
 	if strings.TrimSpace(content) == "" {
@@ -522,6 +562,11 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, content, run.Summary, currentToolCalls)
+	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
+		approvals = append(approvals, approval)
+		currentToolCalls = append(currentToolCalls, call)
+	}
 	r.store.SaveRun(run)
 
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
@@ -562,6 +607,10 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	run.State = "completed"
 	run.CompletedAt = &now
 	run.Summary = summary
+	queuedCall, queuedApproval, queued := r.queueExternalSendApproval(&run)
+	if queued {
+		currentToolCalls = append(currentToolCalls, queuedCall)
+	}
 	r.store.SaveRun(run)
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
 	feedback := r.store.ListRunFeedback(run.ID)
@@ -586,6 +635,10 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
+	if queued {
+		result.ToolCalls = append(result.ToolCalls, queuedCall)
+		result.Approvals = append(result.Approvals, queuedApproval)
+	}
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route

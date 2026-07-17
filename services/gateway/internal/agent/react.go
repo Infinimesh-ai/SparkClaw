@@ -136,7 +136,10 @@ func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID strin
 		stepNumber := attempts
 		run.State = "react_step"
 		r.store.SaveRun(run)
-		stepVisibleTools := r.visibleToolDefinitionsForStep(visibleTools, hint, result.Observations)
+		stepVisibleTools := visibleTools
+		if hint.WorkflowID == "" {
+			stepVisibleTools = r.visibleToolDefinitionsForStep(visibleTools, hint, result.Observations)
+		}
 		if !sameToolNames(visibleToolNames(stepVisibleTools), visibleToolNames(visibleTools)) {
 			r.store.AddAudit(app.AuditEvent{
 				SessionID: sessionID,
@@ -155,6 +158,9 @@ func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID strin
 		}
 		system := contextualSystemPromptForReAct(content, contextSnapshot.Episodes, relevantSkills, hint, stepVisibleTools, result.Observations, contextText)
 		user := reactStepUserPrompt(content, stepNumber, result.Observations)
+		if hint.WorkflowID != "" {
+			user += "\nModel-visible tools this workflow stage: " + strings.Join(visibleToolNames(stepVisibleTools), ",")
+		}
 		system, user = r.compressReActPromptIfNeeded(sessionID, run.ID, stepNumber, hint, content, contextSnapshot.Episodes, relevantSkills, stepVisibleTools, result.Observations, compactContextText, system, user)
 		task := modelrouter.Task{
 			Message:        content,

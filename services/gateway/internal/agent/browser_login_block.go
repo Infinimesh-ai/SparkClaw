@@ -559,6 +559,10 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 			run.ModelLane = streamedChat.Lane
 		}
 	}
+	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
+		approvals = append(approvals, approval)
+	}
 	r.store.SaveRun(run)
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(goal, run, toolCalls, approvals, run.Summary, now)
@@ -729,6 +733,9 @@ func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.Ag
 		if streamed, _, streamErr := r.streamFinalAnswer(ctx, goal, run, run.Summary, toolCalls, emit); streamErr == nil && strings.TrimSpace(streamed) != "" {
 			run.Summary = streamed
 		}
+	}
+	if call, _, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
 	}
 	r.store.SaveRun(run)
 	approvals := approvalsForRun(r.store.ListApprovals(""), run.ID)

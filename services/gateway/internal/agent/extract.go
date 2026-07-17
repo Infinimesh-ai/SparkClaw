@@ -158,7 +158,7 @@ func extractURL(content string) string {
 }
 
 func extractURLs(content string) []string {
-	matches := regexp.MustCompile(`(?i)(?:https?://|www\.)[^\s<>"')]+`).FindAllString(content, -1)
+	matches := regexp.MustCompile(`(?i)(?:https?://|www\.)[^\s<>"')，。！？；、]+`).FindAllString(content, -1)
 	seen := map[string]bool{}
 	out := []string{}
 	for _, match := range matches {

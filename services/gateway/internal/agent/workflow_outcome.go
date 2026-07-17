@@ -15,6 +15,10 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterWebPage:         adaptWebPageWorkflowOutcome,
 	app.OutcomeAdapterWorkspaceSearch: adaptWorkspaceSearchOutcome,
 	app.OutcomeAdapterWorkspaceRead:   adaptWorkspaceReadOutcome,
+	app.OutcomeAdapterBrowserTabs:     adaptBrowserTabsOutcome,
+	app.OutcomeAdapterBrowserFocus:    adaptBrowserFocusOutcome,
+	app.OutcomeAdapterBrowserOpen:     adaptBrowserOpenOutcome,
+	app.OutcomeAdapterDocumentEdit:    adaptDocumentEditOutcome,
 }
 
 func adaptWorkflowOutcome(definition app.ToolDefinition, call app.ToolCall) (app.ToolOutcome, error) {
@@ -108,6 +112,59 @@ func adaptWorkspaceReadOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 	return outcome
 }
 
+func adaptBrowserTabsOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		return outcome
+	}
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalTabsScanned}
+	output, _ := anyMap(call.Result)
+	for _, raw := range anySlice(output["pages"]) {
+		page, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		pageID := firstNonEmptyString(page["page_id"], page["id"], page["pageId"])
+		pageURL := normalizeBrowserURL(firstNonEmptyString(page["url"], page["final_url"]))
+		if pageID == "" || pageURL == "" {
+			continue
+		}
+		outcome.Refs = append(outcome.Refs, app.ResourceRef{
+			Kind: "browser_tab", Ref: pageID, Provenance: call.ID, Attributes: map[string]string{"url": pageURL},
+		})
+	}
+	return outcome
+}
+
+func adaptBrowserFocusOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalFocusCompleted}
+	}
+	return outcome
+}
+
+func adaptBrowserOpenOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalOpenCompleted}
+	}
+	return outcome
+}
+
+func adaptDocumentEditOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		return outcome
+	}
+	output, _ := anyMap(call.Result)
+	if outputPath := strings.TrimSpace(stringValue(output["output_path"])); outputPath != "" && outputPath != "<nil>" {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalEditCompleted}
+		outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: outputPath, Provenance: call.ID}}
+	}
+	return outcome
+}
+
 func applyWorkflowOutcome(run *app.AgentRun, outcome app.ToolOutcome, assessment app.NodeAssessment) (bool, error) {
 	if run.Workflow == nil || workflowPlanDigest(run.Workflow.Plan) != run.Workflow.PlanDigest {
 		return false, errors.New("persisted workflow plan digest mismatch")
@@ -132,7 +189,11 @@ func applyWorkflowOutcome(run *app.AgentRun, outcome app.ToolOutcome, assessment
 	state.Attempts++
 	state.AppliedOutcomeIDs = append(state.AppliedOutcomeIDs, outcome.ID)
 	state.ToolCallIDs = appendUniqueString(state.ToolCallIDs, outcome.ToolCallID)
-	state.OutcomeRefs = appendUniqueResourceRefs(state.OutcomeRefs, outcome.Refs...)
+	selectedRefs := outcome.Refs
+	if assessment.SelectedRefs != nil {
+		selectedRefs = assessment.SelectedRefs
+	}
+	state.OutcomeRefs = appendUniqueResourceRefs(state.OutcomeRefs, selectedRefs...)
 	state.LastAssessment = &assessment
 	if assessment.Status == app.AssessmentComplete {
 		state.Status = app.WorkflowNodeSucceeded
@@ -167,6 +228,7 @@ func applyWorkflowOutcome(run *app.AgentRun, outcome app.ToolOutcome, assessment
 		}
 		state.TransitionActivations[transition.ID]++
 		state.ScopeRevision++
+		state.Stage = transition.NextStage
 		state.LastDirectory = nil
 		state.SelectedEntries = nil
 		run.Workflow.Nodes[outcome.NodeID] = state

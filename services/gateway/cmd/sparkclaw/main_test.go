@@ -228,6 +228,22 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 		t.Fatalf("unexpected all-enabled readiness: %#v", ready)
 	}
 
+	endpointRaw := readTestEndpoint(t, ts.URL+"/api/delivery-endpoints")
+	var endpointPayload struct {
+		Endpoints []json.RawMessage `json:"endpoints"`
+	}
+	if err := json.Unmarshal(endpointRaw, &endpointPayload); err != nil || endpointPayload.Endpoints == nil {
+		t.Fatalf("production assembly did not enable delivery endpoints: payload=%s err=%v", endpointRaw, err)
+	}
+	deliveryResponse, err := http.Post(ts.URL+"/api/deliveries", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliveryResponse.Body.Close()
+	if deliveryResponse.StatusCode != http.StatusBadRequest {
+		t.Fatalf("production assembly did not enable direct delivery: status=%d", deliveryResponse.StatusCode)
+	}
+
 	configRaw := readTestEndpoint(t, ts.URL+"/api/config")
 	var publicConfig struct {
 		Speech struct {

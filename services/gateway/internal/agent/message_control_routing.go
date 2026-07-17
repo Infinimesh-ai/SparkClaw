@@ -10,16 +10,16 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-type TargetResolutionStatus string
+type TargetResolutionStatus = app.TargetResolutionStatus
 
 const (
-	TargetDefaultWeb     TargetResolutionStatus = "default_web"
-	TargetSourceReply    TargetResolutionStatus = "source_reply"
-	TargetNeedsChannel   TargetResolutionStatus = "needs_channel"
-	TargetNeedsRecipient TargetResolutionStatus = "needs_recipient"
-	TargetAmbiguous      TargetResolutionStatus = "ambiguous"
-	TargetResolved       TargetResolutionStatus = "resolved"
-	TargetUnavailable    TargetResolutionStatus = "unavailable"
+	TargetDefaultWeb     = app.TargetDefaultWeb
+	TargetSourceReply    = app.TargetSourceReply
+	TargetNeedsChannel   = app.TargetNeedsChannel
+	TargetNeedsRecipient = app.TargetNeedsRecipient
+	TargetAmbiguous      = app.TargetAmbiguous
+	TargetResolved       = app.TargetResolved
+	TargetUnavailable    = app.TargetUnavailable
 )
 
 type DeliveryDirective struct {
@@ -28,14 +28,7 @@ type DeliveryDirective struct {
 	RequestedRecipientText string `json:"requested_recipient_text,omitempty"`
 }
 
-type DeliveryTargetSelection struct {
-	Status                 TargetResolutionStatus `json:"status"`
-	RequestedProviderKey   string                 `json:"requested_provider_key,omitempty"`
-	RequestedRecipientText string                 `json:"requested_recipient_text,omitempty"`
-	CandidateEndpointIDs   []app.EndpointID       `json:"candidate_endpoint_ids,omitempty"`
-	ResolvedEndpointID     app.EndpointID         `json:"resolved_endpoint_id,omitempty"`
-	ResolutionRule         string                 `json:"resolution_rule"`
-}
+type DeliveryTargetSelection = app.DeliveryTargetSelection
 
 type MessageControlRouteRequest struct {
 	SessionID     string                   `json:"session_id"`

@@ -28,7 +28,13 @@ func newGatewayServices(
 	traces *trace.Writer,
 	transcriber speech.Transcriber,
 ) (*gatewayServices, error) {
-	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber)
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	runtime = runtime.WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
+	connectors, err := newConnectorAssembly(cfg, st, runtime, transcriber, endpoints)
+	if err != nil {
+		return nil, err
+	}
+	providers, err := connectors.registry.ProviderRegistry()
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +57,7 @@ func newGatewayServices(
 			gateway.WithCredentialVault(connectors.credentials),
 			gateway.WithBindingRouter(connectors.registry.BindingRouter()),
 			gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
+			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 		),
 		connectors:        connectors,
 		reminderScheduler: reminderScheduler,

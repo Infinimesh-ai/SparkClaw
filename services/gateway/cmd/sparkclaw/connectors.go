@@ -33,7 +33,11 @@ func newConnectorAssembly(
 	st store.Store,
 	runtime connectorruntime.AgentRuntime,
 	transcriber speech.Transcriber,
+	endpoints *messagecontrol.EndpointRegistry,
 ) (*connectorAssembly, error) {
+	if endpoints == nil {
+		return nil, fmt.Errorf("assemble connectors: endpoint registry is required")
+	}
 	telegramConfig := cfg.Tools.Notifications.Channels["telegram"]
 	vault := credential.New(st, credential.Options{
 		Key:        cfg.State.CredentialKey,
@@ -51,7 +55,6 @@ func newConnectorAssembly(
 	if err != nil {
 		return nil, fmt.Errorf("assemble delivery providers: %w", err)
 	}
-	endpoints := messagecontrol.NewEndpointRegistry(st)
 	routes := messagecontrol.NewReturnRouteResolver(endpoints)
 	deliveryGateway := delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{})
 	resultDeliverer := delivery.NewWorkflowResultDeliverer(routes, deliveryGateway)

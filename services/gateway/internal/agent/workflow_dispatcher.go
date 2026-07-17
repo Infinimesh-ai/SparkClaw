@@ -99,6 +99,11 @@ func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app
 	if strings.TrimSpace(run.Summary) == "" {
 		run.Summary = "The matched workflow completed after its approved action."
 	}
+	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
+		workflowExecution.ToolCalls = append(workflowExecution.ToolCalls, call)
+		workflowExecution.Approvals = append(workflowExecution.Approvals, approval)
+		currentToolCalls = append(currentToolCalls, call)
+	}
 	r.store.SaveRun(run)
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
 	feedback := r.store.ListRunFeedback(run.ID)
@@ -210,7 +215,7 @@ func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision,
 	if status == app.WorkflowResultFailed || status == app.WorkflowResultBlocked {
 		result.Error = &app.WorkflowResultError{Code: "workflow_" + string(status), Message: summary}
 	}
-	return result
+	return r.protectExternalSendResult(run, result)
 }
 
 func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.MessageContent {
@@ -308,13 +313,14 @@ func (r Runtime) workflowResultForDispatchFailure(run app.AgentRun, route app.Ro
 		workflow = *leaf.Workflow
 	}
 	ownerID, authorization := r.workflowResultIdentity(run)
-	return &app.WorkflowResult{
+	result := &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
 		OwnerID: ownerID, Authorization: authorization,
 		Status: app.WorkflowResultFailed, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...), Workflow: workflow,
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
 		ReturnRoute: returnRoute, Error: &app.WorkflowResultError{Code: "workflow_dispatch_failed", Message: summary},
 	}
+	return r.protectExternalSendResult(run, result)
 }
 
 func (r Runtime) workflowResultForTerminalRoute(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
@@ -325,7 +331,7 @@ func (r Runtime) workflowResultForTerminalRoute(run app.AgentRun, route app.Rout
 		workflowID = "router.clarify"
 	}
 	ownerID, authorization := r.workflowResultIdentity(run)
-	return &app.WorkflowResult{
+	result := &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
 		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...),
@@ -333,6 +339,7 @@ func (r Runtime) workflowResultForTerminalRoute(run app.AgentRun, route app.Rout
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
 		ReturnRoute: returnRoute,
 	}
+	return r.protectExternalSendResult(run, result)
 }
 
 func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
@@ -343,13 +350,14 @@ func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDec
 		status = app.WorkflowResultBlocked
 	}
 	ownerID, authorization := r.workflowResultIdentity(run)
-	return &app.WorkflowResult{
+	result := &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
 		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: nil, Workflow: app.WorkflowContractRef{ID: "react.unmatched", Revision: 1},
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
 		ReturnRoute: returnRoute,
 	}
+	return r.protectExternalSendResult(run, result)
 }
 
 func (r Runtime) workflowResultIdentity(run app.AgentRun) (string, app.MessageAuthorization) {

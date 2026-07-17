@@ -193,6 +193,8 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		Fields: map[string]any{
 			"status": deliverySelection.Status, "resolution_rule": deliverySelection.ResolutionRule,
 			"candidate_count": len(deliverySelection.CandidateEndpointIDs), "resolved_endpoint_id": deliverySelection.ResolvedEndpointID,
+			"owner_id": envelope.OwnerID, "actor_id": envelope.ActorID, "envelope_id": envelope.ID,
+			"idempotency_key": envelope.IdempotencyKey, "correlation_id": envelope.CorrelationID, "causation_id": envelope.CausationID,
 		},
 	})
 	guard, guardErr := r.classifyWithGuard(ctx, sessionID, run.ID, agentContent)
@@ -375,6 +377,11 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 			})
 		}
 	}
+	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
+		approvals = append(approvals, approval)
+		currentToolCalls = append(currentToolCalls, call)
+	}
 	r.store.SaveRun(run)
 	allToolCalls := currentToolCalls
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
@@ -440,6 +447,9 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	}
 	if approvalsStillPending(r.store.ListApprovals("pending"), runID) {
 		return Result{}, false, nil
+	}
+	if result, handled, err := r.resumeExternalSendApproval(ctx, run); handled || err != nil {
+		return result, handled, err
 	}
 	content := originalUserMessageForRun(r.store.ListMessages(sessionID), run)
 	if strings.TrimSpace(content) == "" {
@@ -543,6 +553,11 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, content, run.Summary, currentToolCalls)
+	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
+		approvals = append(approvals, approval)
+		currentToolCalls = append(currentToolCalls, call)
+	}
 	r.store.SaveRun(run)
 
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
@@ -583,6 +598,10 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	run.State = "completed"
 	run.CompletedAt = &now
 	run.Summary = summary
+	queuedCall, queuedApproval, queued := r.queueExternalSendApproval(&run)
+	if queued {
+		currentToolCalls = append(currentToolCalls, queuedCall)
+	}
 	r.store.SaveRun(run)
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
 	feedback := r.store.ListRunFeedback(run.ID)
@@ -607,6 +626,10 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
+	if queued {
+		result.ToolCalls = append(result.ToolCalls, queuedCall)
+		result.Approvals = append(result.Approvals, queuedApproval)
+	}
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route

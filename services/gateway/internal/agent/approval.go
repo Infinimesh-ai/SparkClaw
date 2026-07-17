@@ -85,6 +85,12 @@ func (r Runtime) CompleteRunIfApprovalsResolved(runID string) {
 		}
 	}
 	now := time.Now().UTC()
+	if approval := r.externalSendApprovalForRun(runID); approval != nil && approval.Status == "rejected" {
+		run.State = "blocked"
+		run.CompletedAt = &now
+		r.store.SaveRun(run)
+		return
+	}
 	run.State = "completed"
 	run.CompletedAt = &now
 	r.store.SaveRun(run)

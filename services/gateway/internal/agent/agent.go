@@ -21,16 +21,17 @@ import (
 )
 
 type Runtime struct {
-	store        store.Store
-	tools        *toolhub.ToolHub
-	policy       policy.Engine
-	models       modelrouter.Router
-	traces       *trace.Writer
-	skills       skills.Registry
-	artifacts    artifact.Store
-	exposure     *toolExposureEngine
-	profiles     workflowProfileRegistry
-	capabilities capability.Catalog
+	store          store.Store
+	tools          *toolhub.ToolHub
+	policy         policy.Engine
+	models         modelrouter.Router
+	traces         *trace.Writer
+	skills         skills.Registry
+	artifacts      artifact.Store
+	exposure       *toolExposureEngine
+	profiles       workflowProfileRegistry
+	capabilities   capability.Catalog
+	messageControl MessageControlRouter
 }
 
 type Result struct {
@@ -144,6 +145,10 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		return Result{}, fmt.Errorf("normalize message ingress: %w", err)
 	}
 	agentContent := messageplane.RoutingProjection(envelope)
+	deliverySelection, returnRoute, err := r.resolveMessageControl(ctx, agentContent, envelope)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve message control route: %w", err)
+	}
 	userMessage := r.store.AddMessage(message)
 	if result, handled, err := r.resumeBrowserLoginBlock(ctx, sessionID, visibleContent, emit); handled || err != nil {
 		return result, err
@@ -156,7 +161,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		Risk:      classifyRisk(agentContent),
 		StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{
-			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: envelope.ReturnRoute,
+			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: returnRoute,
 		},
 	}
 	if run.ID == "" {
@@ -173,10 +178,21 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 			"envelope_id":      envelope.ID,
 			"schema_version":   envelope.SchemaVersion,
 			"source_kind":      envelope.Source.Kind,
-			"return_mode":      envelope.ReturnRoute.Mode,
+			"return_mode":      returnRoute.Mode,
 			"content_kinds":    messageplane.ContentKinds(envelope.Content),
 			"part_count":       len(envelope.Content.Parts),
 			"catalog_revision": r.capabilities.Revision(),
+		},
+	})
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		RunID:     run.ID,
+		Actor:     "message_control",
+		Type:      "message.control.routed",
+		Summary:   string(deliverySelection.Status),
+		Fields: map[string]any{
+			"status": deliverySelection.Status, "resolution_rule": deliverySelection.ResolutionRule,
+			"candidate_count": len(deliverySelection.CandidateEndpointIDs), "resolved_endpoint_id": deliverySelection.ResolvedEndpointID,
 		},
 	})
 	guard, guardErr := r.classifyWithGuard(ctx, sessionID, run.ID, agentContent)
@@ -205,8 +221,13 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		r.store.SaveRun(run)
 		return Result{
 			Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}, RouteDecision: &route,
-			WorkflowResult: r.workflowResultForTerminalRoute(run, route, envelope.ReturnRoute, run.Summary),
+			WorkflowResult: r.workflowResultForTerminalRoute(run, route, returnRoute, run.Summary),
 		}, nil
+	}
+	if route, terminal := messageControlTerminalRoute(deliverySelection, r.capabilities.Revision()); terminal {
+		run.MessageContext.Route = route
+		r.store.SaveRun(run)
+		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route), nil
 	}
 
 	route, routingErr := r.routeCapability(ctx, sessionID, run.ID, agentContent)
@@ -216,13 +237,13 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		result := r.blockWorkflowSetup(ctx, run, visibleContent, routingErr)
 		result.Run.MessageContext = run.MessageContext
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, envelope.ReturnRoute, result.Message.Content)
+		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content)
 		return result, nil
 	}
 	run.MessageContext.Route = route
 	r.store.SaveRun(run)
 	if route.Status == app.RouteClarify || route.Status == app.RouteBlocked {
-		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
+		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route), nil
 	}
 	authoritativeWorkflow := route.Status == app.RouteMatched
 	var hint TaskHint
@@ -230,11 +251,11 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	var visibleTools []app.ToolDefinition
 	var activeProfile workflowProfile
 	if authoritativeWorkflow {
-		dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, envelope.ReturnRoute, userMessage.ID)
+		dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, returnRoute, userMessage.ID)
 		if err != nil {
 			result := r.blockWorkflowSetup(ctx, run, visibleContent, err)
 			result.RouteDecision = &route
-			result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, envelope.ReturnRoute, result.Message.Content)
+			result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content)
 			return result, nil
 		}
 		run = dispatch.Run
@@ -371,9 +392,9 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	r.writeTrace(ctx, run, reactResult.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route}
 	if authoritativeWorkflow {
-		result.WorkflowResult = r.workflowResultForRun(run, route, envelope.ReturnRoute, run.Summary)
+		result.WorkflowResult = r.workflowResultForRun(run, route, returnRoute, run.Summary)
 	} else {
-		result.WorkflowResult = r.workflowResultForUnmatched(run, route, envelope.ReturnRoute, run.Summary)
+		result.WorkflowResult = r.workflowResultForUnmatched(run, route, returnRoute, run.Summary)
 	}
 	return result, nil
 }

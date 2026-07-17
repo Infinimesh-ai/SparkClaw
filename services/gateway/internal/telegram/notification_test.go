@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -62,6 +65,77 @@ func TestNotificationAdapterUsesBoundEncryptedCredential(t *testing.T) {
 	stored, ok := st.GetCredentialSecret(ref)
 	if !ok || strings.Contains(stored.Value, token) {
 		t.Fatalf("credential was not encrypted at rest: %#v", stored)
+	}
+}
+
+func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
+	calls := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, filepath.Base(r.URL.Path))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":99,"type":"private"},"date":1}}`))
+	}))
+	defer server.Close()
+
+	st := store.NewMemoryStore()
+	vault := credential.New(st, credential.Options{Key: telegramCredentialTestKey(9)})
+	ref, err := vault.Seal(t.Context(), "telegram-bot-token", []byte("123456:AA-multimedia"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_multimedia", Channel: "telegram", Status: "active", ExternalChatID: "99", CredentialRef: ref, BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
+	parts := []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "hello"}}
+	for _, item := range []struct {
+		id, name, content string
+		kind              app.MessagePartKind
+		disposition       app.MessagePartDisposition
+	}{
+		{id: "image", name: "image.png", content: "image", kind: app.MessagePartImage, disposition: app.MessageDispositionAttachment},
+		{id: "audio", name: "audio.mp3", content: "audio", kind: app.MessagePartAudio, disposition: app.MessageDispositionAttachment},
+		{id: "voice", name: "voice.ogg", content: "voice", kind: app.MessagePartAudio, disposition: app.MessageDispositionVoiceNote},
+		{id: "file", name: "report.txt", content: "file", kind: app.MessagePartFile, disposition: app.MessageDispositionAttachment},
+	} {
+		path := filepath.Join(t.TempDir(), item.name)
+		if err := os.WriteFile(path, []byte(item.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		st.SaveArtifactObject(app.ArtifactObject{ID: item.id, Path: path, Key: item.name})
+		parts = append(parts, app.MessagePart{ID: item.id, Kind: item.kind, Disposition: item.disposition, ArtifactID: item.id, Name: item.name})
+	}
+	adapter := NewNotificationAdapter(st, vault, config.Default().Tools.Notifications.Channels["telegram"])
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(adapter); err != nil {
+		t.Fatal(err)
+	}
+	request := app.DeliveryRequest{SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_multimedia", IdempotencyKey: "multi", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Origin: app.DeliveryOriginWebDirect, Target: app.EndpointID(binding.ID), Content: app.MessageContent{Parts: parts}}
+	receipt, err := providers.Deliver(t.Context(), app.MessageEndpoint{ID: app.EndpointID(binding.ID), Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "telegram", BindingRef: binding.ID}, request)
+	if err != nil || receipt.Status != app.DeliverySucceeded {
+		t.Fatalf("deliver: receipt=%#v err=%v", receipt, err)
+	}
+	want := []string{"sendMessage", "sendPhoto", "sendDocument", "sendVoice", "sendDocument"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected ordered provider calls: got=%v want=%v", calls, want)
+	}
+	if len(receipt.PartReceipts) != len(parts) || receipt.PartReceipts[2].Representation != "file_fallback" || receipt.PartReceipts[3].Representation != "native" {
+		t.Fatalf("unexpected per-part receipt mapping: %#v", receipt.PartReceipts)
+	}
+}
+
+func TestBindingScopeCompatibilityIsReminderOnly(t *testing.T) {
+	if bindingAllowsScope(nil, app.BindingScopeMessageSendSelf, app.DeliveryOriginWebDirect) {
+		t.Fatal("legacy empty scopes granted ordinary direct-send authority")
+	}
+	if !bindingAllowsScope(nil, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("legacy empty scopes lost reminder compatibility")
+	}
+	if bindingAllowsScope([]string{app.BindingScopeMessageSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("ordinary message scope granted reminder authority")
+	}
+	if !bindingAllowsScope([]string{app.BindingScopeReminderSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("explicit reminder scope was rejected")
+	}
+	if !bindingAllowsSourceReply(nil) || bindingAllowsSourceReply([]string{app.BindingScopeReminderSendSelf}) || !bindingAllowsSourceReply([]string{app.BindingScopeMessageSendSelf}) {
+		t.Fatal("source reply scope compatibility expanded beyond legacy or ordinary-message authority")
 	}
 }
 

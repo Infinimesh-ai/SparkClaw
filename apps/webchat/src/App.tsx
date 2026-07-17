@@ -19,6 +19,7 @@ import {
   Library,
   ListChecks,
   Mail,
+  MessageSquare,
   MemoryStick,
   Pencil,
   Plus,
@@ -36,7 +37,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { api, apiToken, clearAPIToken, documentFileURL, saveAPIToken, sessionEventsURL, workspaceScreenshotURL } from "./api/client";
+import { APIError, api, apiToken, clearAPIToken, documentFileURL, saveAPIToken, sessionEventsURL, workspaceScreenshotURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Copy as CopyText, Language } from "./i18n";
 import {
@@ -56,6 +57,12 @@ import {
   ToolTimelinePanel,
   TracePanel
 } from "./components/panels";
+import {
+  DeliveryHistory,
+  DeliveryReceiptSummary,
+  DeliveryReviewDialog,
+  ExternalPartTray
+} from "./components/delivery";
 import { VoiceInputButton, VoiceInputStatus } from "./components/VoiceInputButton";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor, VoiceInputState } from "./hooks/useVoiceInput";
@@ -75,17 +82,31 @@ import {
 import type { DocumentUsage } from "./lib/format";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
 import { notificationBindingErrorMessage } from "./lib/bindingError";
+import {
+  deliveryDraftParts,
+  deliveryPartFromAttachment,
+  emptyExternalDeliveryDraft,
+  endpointsForSoftware,
+  moveDeliveryPart,
+  selectDeliverySoftware,
+  validateDeliveryDraft
+} from "./lib/deliveryDraft";
+import type { ExternalDeliveryDraft } from "./lib/deliveryDraft";
 import type {
   Approval,
   ArtifactObject,
   AuditEvent,
   Client,
+  DeliveryEndpoint,
+  DeliveryPart,
   EpisodeSummary,
   EvalRun,
   Memory,
   MemoryCandidate,
   Message,
   MessageAttachment,
+  MessageDelivery,
+  MessageHistoryItem,
   ModelCall,
   NotificationBinding,
   OwnerProfile,
@@ -100,6 +121,7 @@ import type {
 } from "./api/types";
 
 type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings";
+type ComposerMode = "agent" | "external";
 
 
 export function App() {
@@ -134,6 +156,14 @@ export function App() {
   const [documentUsage, setDocumentUsage] = useState<Record<string, DocumentUsage>>(() => loadDocumentUsage());
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
+  const [composerModesBySession, setComposerModesBySession] = useState<Record<string, ComposerMode>>({});
+  const [externalDraftsBySession, setExternalDraftsBySession] = useState<Record<string, ExternalDeliveryDraft>>({});
+  const [deliveryIdempotencyBySession, setDeliveryIdempotencyBySession] = useState<Record<string, string>>({});
+  const [deliveryEndpoints, setDeliveryEndpoints] = useState<DeliveryEndpoint[]>([]);
+  const [messageHistory, setMessageHistory] = useState<MessageHistoryItem[]>([]);
+  const [lastDeliveriesBySession, setLastDeliveriesBySession] = useState<Record<string, MessageDelivery>>({});
+  const [deliveryReviewOpen, setDeliveryReviewOpen] = useState(false);
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [isComposingInput, setIsComposingInput] = useState(false);
   const [compositionEndedAt, setCompositionEndedAt] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -184,6 +214,23 @@ export function App() {
     setTraceList(traces.traces ?? []);
   }, []);
 
+  const refreshDeliverySurface = useCallback(async () => {
+    const [endpointResult, historyResult] = await Promise.allSettled([
+      api.deliveryEndpoints(),
+      api.messageHistory()
+    ]);
+    if (endpointResult.status === "fulfilled") {
+      setDeliveryEndpoints(endpointResult.value.endpoints ?? []);
+    } else {
+      setDeliveryEndpoints([]);
+    }
+    if (historyResult.status === "fulfilled") {
+      setMessageHistory(historyResult.value.messages ?? []);
+    } else {
+      setMessageHistory([]);
+    }
+  }, []);
+
   const refreshSession = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
     const [messageList, callList, modelCallList, auditList, episodeList] = await Promise.all([
@@ -207,7 +254,7 @@ export function App() {
     async function boot() {
       try {
         setError("");
-        const [sessionList] = await Promise.all([api.sessions(), refreshGlobal()]);
+        const [sessionList] = await Promise.all([api.sessions(), refreshGlobal(), refreshDeliverySurface()]);
         if (cancelled) return;
         let next = sessionList.sessions[0];
         if (!next) {
@@ -224,7 +271,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [refreshGlobal, refreshSession]);
+  }, [refreshDeliverySurface, refreshGlobal, refreshSession]);
 
   useEffect(() => {
     if (!activeSession) return;
@@ -236,6 +283,7 @@ export function App() {
         refreshQueued = false;
         void refreshSession(activeSession);
         void refreshGlobal();
+        void refreshDeliverySurface();
       }, 80);
     };
     let events: EventSource | null = null;
@@ -258,13 +306,14 @@ export function App() {
       if (activeMessageStreamRef.current !== activeSession) {
         void refreshSession(activeSession);
         void refreshGlobal();
+        void refreshDeliverySurface();
       }
     }, 5000);
     return () => {
       window.clearInterval(id);
       events?.close();
     };
-  }, [activeSession, refreshGlobal, refreshSession]);
+  }, [activeSession, refreshDeliverySurface, refreshGlobal, refreshSession]);
 
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
@@ -277,8 +326,23 @@ export function App() {
     [notificationBindings]
   );
   const active = sessions.find((session) => session.id === activeSession);
+  const activeComposerMode = activeSession ? composerModesBySession[activeSession] ?? "agent" : "agent";
   const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";
   const activeAttachments = activeSession ? attachmentsBySession[activeSession] ?? [] : [];
+  const activeExternalDraft = activeSession
+    ? externalDraftsBySession[activeSession] ?? emptyExternalDeliveryDraft()
+    : emptyExternalDeliveryDraft();
+  const deliverySoftware = useMemo(
+    () => Array.from(new Map(deliveryEndpoints.map((endpoint) => [endpoint.channel, endpoint.software_display_name])).entries()),
+    [deliveryEndpoints]
+  );
+  const activeDeliveryCandidates = useMemo(
+    () => endpointsForSoftware(deliveryEndpoints, activeExternalDraft.software),
+    [activeExternalDraft.software, deliveryEndpoints]
+  );
+  const activeDeliveryEndpoint = deliveryEndpoints.find((endpoint) => endpoint.id === activeExternalDraft.endpointId);
+  const activeDeliveryValidation = validateDeliveryDraft(activeExternalDraft, activeDeliveryEndpoint);
+  const activeLastDelivery = activeSession ? lastDeliveriesBySession[activeSession] ?? null : null;
   const sortedAvailableDocuments = useMemo(
     () => sortDocumentsByUsage(availableDocuments, documentUsage),
     [availableDocuments, documentUsage]
@@ -309,7 +373,7 @@ export function App() {
     speech: ready?.speech ?? null,
     sessionId: activeSession,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || !activeSession,
+    externallyDisabled: busy || activeComposerMode !== "agent" || !activeSession,
     onTranscript: applyVoiceTranscript
   });
   const voiceLabel = voiceInputLabel(voice.state, voice.errorCode, voice.errorDetail, text);
@@ -323,6 +387,7 @@ export function App() {
       setActiveSession(session.id);
       setMessages([]);
       setAttachmentsBySession((current) => ({ ...current, [session.id]: [] }));
+      setExternalDraftsBySession((current) => ({ ...current, [session.id]: emptyExternalDeliveryDraft() }));
       setToolCalls([]);
       setModelCalls([]);
       setAuditEvents([]);
@@ -330,6 +395,110 @@ export function App() {
       setTab("timeline");
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.createSession);
+    }
+  }
+
+  function setComposerMode(mode: ComposerMode) {
+    if (!activeSession) return;
+    setComposerModesBySession((current) => ({ ...current, [activeSession]: mode }));
+    setDeliveryReviewOpen(false);
+    if (mode === "external") {
+      void refreshDeliverySurface();
+    }
+  }
+
+  function updateExternalDraft(update: (draft: ExternalDeliveryDraft) => ExternalDeliveryDraft) {
+    if (!activeSession) return;
+    setExternalDraftsBySession((current) => ({
+      ...current,
+      [activeSession]: update(current[activeSession] ?? emptyExternalDeliveryDraft())
+    }));
+    setDeliveryIdempotencyBySession((current) => {
+      const next = { ...current };
+      delete next[activeSession];
+      return next;
+    });
+  }
+
+  function updateExternalPart(id: string, update: Partial<DeliveryPart>) {
+    updateExternalDraft((draft) => ({
+      ...draft,
+      parts: draft.parts.map((part) => (part.id === id ? { ...part, ...update } : part))
+    }));
+  }
+
+  function openDeliveryReview() {
+    if (!activeSession || !activeDeliveryValidation.valid || !activeDeliveryEndpoint) return;
+    setDeliveryIdempotencyBySession((current) => ({
+      ...current,
+      [activeSession]: current[activeSession] || `web-${crypto.randomUUID()}`
+    }));
+    setDeliveryReviewOpen(true);
+  }
+
+  async function confirmExternalDelivery() {
+    if (!activeSession || !activeDeliveryEndpoint || !activeDeliveryValidation.valid || deliveryBusy) return;
+    const idempotencyKey = deliveryIdempotencyBySession[activeSession];
+    if (!idempotencyKey) return;
+    try {
+      setDeliveryBusy(true);
+      setError("");
+      const delivery = await api.createDelivery(
+        activeDeliveryEndpoint.id,
+        idempotencyKey,
+        deliveryDraftParts(activeExternalDraft)
+      );
+      setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: delivery }));
+      setExternalDraftsBySession((current) => ({
+        ...current,
+        [activeSession]: { ...activeExternalDraft, text: "", parts: [] }
+      }));
+      setDeliveryIdempotencyBySession((current) => {
+        const next = { ...current };
+        delete next[activeSession];
+        return next;
+      });
+      setDeliveryReviewOpen(false);
+      await refreshDeliverySurface();
+    } catch (err) {
+      const failed = err instanceof APIError && err.details && typeof err.details === "object"
+        ? (err.details as { delivery?: MessageDelivery }).delivery
+        : undefined;
+      if (failed) {
+        setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: failed }));
+        setDeliveryReviewOpen(false);
+        await refreshDeliverySurface();
+      }
+      setError(err instanceof Error ? err.message : text.errors.message);
+    } finally {
+      setDeliveryBusy(false);
+    }
+  }
+
+  async function retryExternalDelivery() {
+    if (!activeSession || !activeLastDelivery || deliveryBusy) return;
+    try {
+      setDeliveryBusy(true);
+      setError("");
+      const delivery = await api.retryDelivery(activeLastDelivery.id);
+      setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: delivery }));
+      if (delivery.status === "sent") {
+        setExternalDraftsBySession((current) => ({
+          ...current,
+          [activeSession]: { ...(current[activeSession] ?? emptyExternalDeliveryDraft()), text: "", parts: [] }
+        }));
+        setDeliveryIdempotencyBySession((current) => omitSession(current, activeSession));
+      }
+      await refreshDeliverySurface();
+    } catch (err) {
+      const failed = err instanceof APIError && err.details && typeof err.details === "object"
+        ? (err.details as { delivery?: MessageDelivery }).delivery
+        : undefined;
+      if (failed) setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: failed }));
+      setError(err instanceof Error ? err.message : text.errors.message);
+      await refreshDeliverySurface();
+    } finally {
+      setDeliveryBusy(false);
     }
   }
 
@@ -421,7 +590,11 @@ export function App() {
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (isComposingInput || Date.now() - compositionEndedAt < 80) return;
-    void send();
+    if (activeComposerMode === "external") {
+      openDeliveryReview();
+    } else {
+      void send();
+    }
   }
 
   async function uploadDocument(file: File | null) {
@@ -442,7 +615,14 @@ export function App() {
         sha256: result.media?.sha256,
         source: isImageContentType(result.artifact?.content_type || file.type) ? "web_upload" : undefined
       };
-      setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
+      if (activeComposerMode === "external") {
+        updateExternalDraft((draft) => ({
+          ...draft,
+          parts: [...draft.parts, deliveryPartFromAttachment(`part-${crypto.randomUUID()}`, attachment)]
+        }));
+      } else {
+        setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
+      }
       await refreshGlobal();
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.upload);
@@ -480,7 +660,14 @@ export function App() {
       content_type: document.content_type,
       bytes: document.bytes
     };
-    setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
+    if (activeComposerMode === "external") {
+      updateExternalDraft((draft) => ({
+        ...draft,
+        parts: [...draft.parts, deliveryPartFromAttachment(`part-${crypto.randomUUID()}`, attachment)]
+      }));
+    } else {
+      setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
+    }
     setDocumentUsage((current) => {
       const previous = current[document.key] ?? { count: 0, last_used_at: "" };
       const next = {
@@ -541,6 +728,12 @@ export function App() {
         delete nextDrafts[id];
         return nextDrafts;
       });
+      setAttachmentsBySession((current) => omitSession(current, id));
+      setComposerModesBySession((current) => omitSession(current, id));
+      setExternalDraftsBySession((current) => omitSession(current, id));
+      setDeliveryIdempotencyBySession((current) => omitSession(current, id));
+      setLastDeliveriesBySession((current) => omitSession(current, id));
+      setDeliveryReviewOpen(false);
       setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
       setActiveSession(next.id);
       cancelRenameSession();
@@ -560,7 +753,11 @@ export function App() {
       return;
     }
     event.preventDefault();
-    void send();
+    if (activeComposerMode === "external") {
+      openDeliveryReview();
+    } else {
+      void send();
+    }
   }
 
   async function resolveApproval(id: string, accepted: boolean) {
@@ -654,10 +851,10 @@ export function App() {
     }
   }
 
-  async function startNotificationBinding(channel: string, botToken = "") {
+  async function startNotificationBinding(channel: string, botToken = "", scopes = ["reminder_send_self"]) {
     try {
       setError("");
-      const binding = await api.startNotificationBinding(channel, botToken);
+      const binding = await api.startNotificationBinding(channel, botToken, scopes);
       setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
       if (channel === "telegram") {
         setRuntimeConfig(await api.config());
@@ -762,7 +959,7 @@ export function App() {
   }
 
   async function bootstrappedRefresh() {
-    const [sessionList] = await Promise.all([api.sessions(), refreshGlobal()]);
+    const [sessionList] = await Promise.all([api.sessions(), refreshGlobal(), refreshDeliverySurface()]);
     let next = sessionList.sessions[0];
     if (!next) next = await api.createSession();
     setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
@@ -842,6 +1039,7 @@ export function App() {
                     className="sessionSelect"
                     onClick={() => {
                       setActiveSession(session.id);
+                      setDeliveryReviewOpen(false);
                       setTab("timeline");
                       void refreshSession(session.id);
                     }}
@@ -875,7 +1073,7 @@ export function App() {
               <Bot size={14} />
               {ready?.ok ? text.nav.ready : text.nav.offline}
             </span>
-            <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), refreshSession(activeSession)])} title={text.common.refresh}>
+            <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), refreshDeliverySurface(), refreshSession(activeSession)])} title={text.common.refresh}>
               <RefreshCw size={18} />
             </button>
           </div>
@@ -909,7 +1107,9 @@ export function App() {
 
         <section className="chatColumn">
           <div className="messageList">
-            {messages.length === 0 ? (
+            {activeComposerMode === "external" ? (
+              <DeliveryHistory items={messageHistory} text={text} language={language} />
+            ) : messages.length === 0 ? (
               <div className="emptyState">
                 <Activity size={25} />
                 <span>{text.chat.emptyTitle}</span>
@@ -928,14 +1128,69 @@ export function App() {
             )}
           </div>
           <div className="composerDock">
-            <div className="starterRow">
-              {text.starters.map((prompt) => (
-                <button key={prompt} onClick={() => void send(prompt, activeSession)} disabled={busy}>
-                  {prompt}
+            <div className="composerToolbar">
+              <div className="composerMode" role="group" aria-label={text.nav.mode}>
+                <button type="button" className={activeComposerMode === "agent" ? "selected" : ""} onClick={() => setComposerMode("agent")}>
+                  <MessageSquare size={15} />
+                  <span>{text.chat.agentMode}</span>
                 </button>
-              ))}
+                <button type="button" className={activeComposerMode === "external" ? "selected" : ""} onClick={() => setComposerMode("external")}>
+                  <Send size={15} />
+                  <span>{text.chat.externalMode}</span>
+                </button>
+              </div>
             </div>
-            {activeAttachments.length > 0 && (
+            {activeComposerMode === "agent" && (
+              <div className="starterRow">
+                {text.starters.map((prompt) => (
+                  <button key={prompt} onClick={() => void send(prompt, activeSession)} disabled={busy}>
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            )}
+            {activeComposerMode === "external" && (
+              <>
+                <DeliveryReceiptSummary
+                  delivery={activeLastDelivery}
+                  retrying={deliveryBusy}
+                  text={text}
+                  onRetry={() => void retryExternalDelivery()}
+                />
+                <div className="deliveryTargetSelectors">
+                  <label>
+                    <span>{text.chat.software}</span>
+                    <select
+                      value={activeExternalDraft.software}
+                      onChange={(event) => updateExternalDraft((draft) => selectDeliverySoftware(draft, event.target.value, deliveryEndpoints))}
+                      disabled={deliveryBusy || deliveryEndpoints.length === 0}
+                    >
+                      <option value="">{text.chat.chooseSoftware}</option>
+                      {deliverySoftware.map(([channel, label]) => (
+                        <option key={channel} value={channel}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>{text.chat.recipient}</span>
+                    <select
+                      value={activeExternalDraft.endpointId}
+                      onChange={(event) => updateExternalDraft((draft) => ({ ...draft, endpointId: event.target.value }))}
+                      disabled={deliveryBusy || !activeExternalDraft.software || activeDeliveryCandidates.length === 0}
+                    >
+                      <option value="">{activeDeliveryCandidates.length === 0 ? text.chat.noDeliveryEndpoints : text.chat.chooseRecipient}</option>
+                      {activeDeliveryCandidates.map((endpoint) => (
+                        <option key={endpoint.id} value={endpoint.id}>
+                          {endpoint.recipient.display_name} · {endpoint.account_display_name}
+                          {endpoint.conversation_label ? ` · ${endpoint.conversation_label}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </>
+            )}
+            {activeComposerMode === "agent" && activeAttachments.length > 0 && (
               <div className="attachmentTray">
                 {activeAttachments.map((attachment) => (
                   <div className="attachmentChip" key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}>
@@ -964,18 +1219,32 @@ export function App() {
                 ))}
               </div>
             )}
-            <form className="composer" onSubmit={onSubmit}>
+            {activeComposerMode === "external" && (
+              <ExternalPartTray
+                parts={activeExternalDraft.parts}
+                fallbackPartIds={activeDeliveryValidation.fallbackPartIds}
+                supportsCaption={activeDeliveryEndpoint?.capabilities.supports_caption === true}
+                text={text}
+                onChange={updateExternalPart}
+                onMove={(index, offset) => updateExternalDraft((draft) => ({ ...draft, parts: moveDeliveryPart(draft.parts, index, offset) }))}
+                onRemove={(id) => updateExternalDraft((draft) => ({ ...draft, parts: draft.parts.filter((part) => part.id !== id) }))}
+              />
+            )}
+            {activeComposerMode === "external" && activeDeliveryValidation.error && (
+              <span className="deliveryValidation">{deliveryValidationMessage(activeDeliveryValidation.error, text)}</span>
+            )}
+            <form className={`composer ${activeComposerMode}`} onSubmit={onSubmit}>
               <input
                 ref={uploadInputRef}
                 className="documentUploadInput"
                 type="file"
-                accept=".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"
+                accept={activeComposerMode === "agent" ? ".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" : undefined}
                 onChange={(event) => void uploadDocument(event.target.files?.[0] ?? null)}
               />
               <button
                 className="uploadButton"
                 type="button"
-                disabled={busy || uploadingDocument || !activeSession}
+                disabled={busy || deliveryBusy || uploadingDocument || !activeSession}
                 title={uploadingDocument ? text.chat.uploading : text.chat.upload}
                 onClick={() => uploadInputRef.current?.click()}
               >
@@ -984,33 +1253,39 @@ export function App() {
               <button
                 className="uploadButton"
                 type="button"
-                disabled={busy || choosingDocument || !activeSession}
+                disabled={busy || deliveryBusy || choosingDocument || !activeSession}
                 title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile}
                 onClick={() => void openDocumentPicker()}
               >
                 <FileSearch size={18} />
               </button>
-              <VoiceInputButton
-                state={voice.state}
-                disabled={voice.disabled}
-                title={voiceTitle}
-                onClick={() => {
-                  const input = composerInputRef.current;
-                  voice.toggle({
-                    sessionId: activeSession,
-                    draft: activeInput,
-                    selectionStart: input?.selectionStart ?? activeInput.length,
-                    selectionEnd: input?.selectionEnd ?? activeInput.length
-                  });
-                }}
-              />
+              {activeComposerMode === "agent" && (
+                <VoiceInputButton
+                  state={voice.state}
+                  disabled={voice.disabled}
+                  title={voiceTitle}
+                  onClick={() => {
+                    const input = composerInputRef.current;
+                    voice.toggle({
+                      sessionId: activeSession,
+                      draft: activeInput,
+                      selectionStart: input?.selectionStart ?? activeInput.length,
+                      selectionEnd: input?.selectionEnd ?? activeInput.length
+                    });
+                  }}
+                />
+              )}
               <textarea
                 ref={composerInputRef}
-                value={activeInput}
+                value={activeComposerMode === "external" ? activeExternalDraft.text : activeInput}
                 onChange={(event) => {
                   if (!activeSession) return;
                   const value = event.target.value;
-                  setDraftsBySession((current) => ({ ...current, [activeSession]: value }));
+                  if (activeComposerMode === "external") {
+                    updateExternalDraft((draft) => ({ ...draft, text: value }));
+                  } else {
+                    setDraftsBySession((current) => ({ ...current, [activeSession]: value }));
+                  }
                 }}
                 onKeyDown={onComposerKeyDown}
                 onCompositionStart={() => setIsComposingInput(true)}
@@ -1018,13 +1293,23 @@ export function App() {
                   setIsComposingInput(false);
                   setCompositionEndedAt(Date.now());
                 }}
-                placeholder={text.chat.placeholder}
-                disabled={busy}
+                placeholder={activeComposerMode === "external" ? text.chat.externalPlaceholder : text.chat.placeholder}
+                disabled={busy || deliveryBusy}
               />
-              <button className="sendButton" disabled={busy || voice.active || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}>
+              <button
+                className="sendButton"
+                disabled={
+                  activeComposerMode === "external"
+                    ? deliveryBusy || !activeDeliveryValidation.valid
+                    : busy || voice.active || (!activeInput.trim() && activeAttachments.length === 0)
+                }
+                title={activeComposerMode === "external" ? text.chat.reviewSend : text.chat.send}
+              >
                 <Send size={18} />
               </button>
-              <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} label={voiceLabel} />
+              {activeComposerMode === "agent" && (
+                <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} label={voiceLabel} />
+              )}
             </form>
           </div>
           {documentPickerOpen && (
@@ -1066,6 +1351,17 @@ export function App() {
                 )}
               </div>
             </div>
+          )}
+          {deliveryReviewOpen && activeDeliveryEndpoint && activeDeliveryValidation.valid && (
+            <DeliveryReviewDialog
+              endpoint={activeDeliveryEndpoint}
+              draft={activeExternalDraft}
+              validation={activeDeliveryValidation}
+              busy={deliveryBusy}
+              text={text}
+              onCancel={() => setDeliveryReviewOpen(false)}
+              onConfirm={() => void confirmExternalDelivery()}
+            />
           )}
         </section>
       </section>
@@ -1158,7 +1454,7 @@ export function App() {
             language={language}
             onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
             onRevokeClient={(id) => revokeClient(id)}
-            onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
+            onStartNotificationBinding={(channel, botToken, scopes) => startNotificationBinding(channel, botToken, scopes)}
             onRefreshNotificationBinding={(id) => refreshNotificationBinding(id)}
             onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
             onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
@@ -1209,4 +1505,27 @@ function voiceInputLabel(state: VoiceInputState, errorCode: string, errorDetail:
     default:
       return state === "error" ? errorDetail || text.chat.voiceFailed : text.chat.voiceUnavailable;
   }
+}
+
+function deliveryValidationMessage(error: string, text: CopyText) {
+  switch (error) {
+    case "recipient_required":
+      return text.chat.recipientRequired;
+    case "content_required":
+      return text.chat.contentRequired;
+    case "part_unsupported":
+      return text.chat.partUnsupported;
+    case "too_many_parts":
+      return text.chat.tooManyParts;
+    case "payload_too_large":
+      return text.chat.payloadTooLarge;
+    default:
+      return "";
+  }
+}
+
+function omitSession<T>(current: Record<string, T>, sessionId: string) {
+  const next = { ...current };
+  delete next[sessionId];
+  return next;
 }

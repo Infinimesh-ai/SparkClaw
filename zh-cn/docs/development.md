@@ -28,7 +28,7 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Intent/Profile/Tool Exposure 重构 | 按领域推进；Web 与 Workspace read/search 已权威迁移 | Profile Registry、Plan 校验、Exposure 与资源边界测试 |
+| Router-first 能力 Workflow | 浏览器搜索/自动化和文档信息/处理已迁移 | Catalog、精确 Registry/Dispatcher、固定工具暴露与四条端到端测试 |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
 | Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
@@ -42,6 +42,7 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 | Infinimesh Info `web.search` provider | Complete，opt-in | Contract/fault tests、redacted public config、credential-gated live smoke |
 | WebChat 与 Gateway speech transcription | Complete，opt-in | Speech/Gateway tests、voice frontend tests、live ASR smoke evidence |
 | 消息连接器 Registry 与 Telegram 多 Bot binding | Complete，opt-in | Provider-neutral registry、credential 隔离、binding、worker、media、reminder 与 WebChat tests |
+| 消息控制、定时消息与结果投递 | Router-first 垂直切片已完成 | 持久化入口/返回上下文、Endpoint/Schedule Registry、有界 Timer Worker、唯一 WorkflowResult 投递链路、Provider 能力预检、[迁移指南](message-control-delivery-migration.md) |
 
 ## 标准验证
 
@@ -124,19 +125,19 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 | `reversible` | 需要 approval；必须保存 recovery metadata。 |
 | `dangerous` | 需要 approval；必须记录 reason、resources 和 execution result。 |
 
-## 使用 Intent 与 Workflow Profile
+## 使用能力路由与 Workflow
 
-完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个语义切片时：
+完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个能力叶子时：
 
-1. Fast 输出保持工具中立，Normalizer 冻结确定性 fact。
-2. 增加唯一类型化 Profile match、版本化 resolver、assessment 与 completion behavior。
-3. 让 Registry 在持久化前拒绝非法 identity、graph、scope、transition、dependency 与 argument binding。
-4. 通过 ToolHub registration 增加 capability 和 outcome adapter。
-5. 在冻结 Plan 中绑定受治理 URL/path/record 参数。
-6. 删除同一意图的 TaskHint candidate 与 Skill visibility 清单。
-7. 用端到端测试证明迁移路由经过 Tool Exposure，且没有产生 legacy routing audit。
+1. 在版本化 Capability Catalog 中增加叶子与允许的类型化 Operation，并只引用一个精确 Workflow 协议。
+2. Fast 输出保持工具中立，拒绝未知 JSON 字段，Normalizer 冻结确定性 URL/path Fact。
+3. 注册一个精确版本化 Workflow Profile。Registry 只能使用已校验的叶子身份解析，不能重新解释消息。
+4. 为所有允许工具增加固定 Capability Metadata 与 Outcome Adapter；Tool Exposure 只能物化该 Scope。
+5. 在 Profile 中声明允许的 Transition、Risk 与受治理参数绑定，并持久化 Route 供审批/登录恢复使用。
+6. 删除同一功能的 TaskHint Candidate 与旧 Workflow 分支。
+7. 增加从生产入口执行真实 Tool Adapter 的端到端测试，断言 `WorkflowResult`，并证明没有 Legacy Routing Audit。
 
-Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 switch 来选择 scope、资源、assessment 或下一步，应把行为移入 Profile、Plan binding 或 outcome adapter。
+Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 Switch 来选择 Scope、资源、Assessment 或下一步，应把行为移入 Profile、Plan Binding、ToolHub Registration 或 Outcome Adapter。只有 `RouteDecision.Status == unmatched` 可以进入 ReAct。
 
 ## 使用 Models
 

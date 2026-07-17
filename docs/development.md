@@ -28,7 +28,7 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Intent/Profile/Tool Exposure refactor | In progress by domain; Web and workspace read/search authoritative | Profile registry, plan validation, exposure and resource-boundary tests |
+| Router-first capability workflows | Browser search/automation and document information/processing migrated | Catalog, exact Registry/Dispatcher, fixed tool exposure and four end-to-end tests |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
 | Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
@@ -42,6 +42,7 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 | Infinimesh Info `web.search` provider | Complete, opt-in | Contract/fault tests, redacted public config, credential-gated live smoke |
 | WebChat and Gateway speech transcription | Complete, opt-in | Speech/Gateway tests, voice frontend tests, live ASR smoke evidence |
 | Messaging connector Registry and Telegram multi-Bot binding | Complete, opt-in | Provider-neutral registry, credential isolation, binding, worker, media, reminder and WebChat tests |
+| Message Control, scheduled messages, and result delivery | Complete for the router-first vertical slice | Persisted ingress/return context, Endpoint/Schedule registries, bounded Timer workers, one WorkflowResult delivery path, Provider capability preflight, [migration guide](message-control-delivery-migration.md) |
 
 ## Standard Verification
 
@@ -129,26 +130,29 @@ Current risk expectations:
 | `reversible` | Requires approval; must store recovery metadata. |
 | `dangerous` | Requires approval; must record reason, resources and execution result. |
 
-## Working With Intent And Workflow Profiles
+## Working With Capability Routing And Workflows
 
 Follow the [routing refactor plan](intent-routing-workflow-refactor-plan.md) for
-the full contract. For each migrated semantic slice:
+the full contract. For each migrated capability leaf:
 
-1. Keep Fast output tool-neutral and freeze deterministic facts in the
-   normalizer.
-2. Add one unique typed profile match, a versioned resolver, assessment, and
-   completion behavior.
-3. Let Registry validation reject invalid identity, graph, scope, transition,
-   dependency, and argument-binding contracts before persistence.
-4. Add capabilities and outcome adapters through ToolHub registration.
-5. Bind governed URL/path/record arguments in the frozen plan.
-6. Remove the same intent's TaskHint candidates and Skill visibility lists.
-7. Prove end to end that the migrated route used Tool Exposure and did not use
-   legacy routing audits.
+1. Add the leaf and allowed typed operations to the versioned Capability
+   Catalog, with one exact Workflow contract reference.
+2. Keep Fast output tool-neutral, reject unknown JSON fields, and freeze
+   deterministic URL/path facts in the normalizer.
+3. Register one exact versioned Workflow Profile. Registry resolution must use
+   the validated leaf identity and must not reinterpret the message.
+4. Add fixed capability metadata and outcome adapters to every permitted
+   ToolHub registration. Tool Exposure must materialize only that scope.
+5. Declare allowed transitions, risks, and governed argument bindings in the
+   profile, then persist the route for approval/login resume.
+6. Remove the same feature's TaskHint candidates and legacy Workflow branch.
+7. Add a production-entry end-to-end test that executes a real tool adapter,
+   asserts the `WorkflowResult`, and proves no legacy routing audit occurred.
 
 Core runtime code must remain profile-neutral. If a change requires a switch on
-workflow ID or tool name to select a scope, resource, assessment, or next step,
-move that behavior into a Profile, plan binding, or outcome adapter.
+Workflow ID or tool name to select a scope, resource, assessment, or next step,
+move that behavior into a Profile, plan binding, ToolHub registration, or
+outcome adapter. Only `RouteDecision.Status == unmatched` may enter ReAct.
 
 ## Working With Models
 

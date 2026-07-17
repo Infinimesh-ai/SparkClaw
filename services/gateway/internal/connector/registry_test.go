@@ -9,8 +9,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type registryBindingAdapter struct{}
@@ -27,14 +25,6 @@ func (registryBindingAdapter) Poll(context.Context, app.NotificationBinding) (bi
 	return binding.PollResult{Status: "active"}, nil
 }
 func (registryBindingAdapter) Cancel(context.Context, app.NotificationBinding) error { return nil }
-
-type registryNotificationAdapter struct {
-	channel string
-}
-
-func (a registryNotificationAdapter) Send(_ context.Context, request notification.Notification) (notification.Result, error) {
-	return notification.Result{Channel: a.channel, Status: "sent", Recipient: request.Recipient}, nil
-}
 
 type registryRuntime struct {
 	starts atomic.Int32
@@ -54,16 +44,14 @@ func TestRegistryBuildsCapabilityRoutersAndRunsEnabledConnectors(t *testing.T) {
 		"alpha": {Enabled: true, Provider: "alpha-v1"},
 		"beta":  {Enabled: false, Provider: "beta-v1"},
 	}
-	st := store.NewMemoryStore()
-	registry := NewRegistry(cfg, st)
+	registry := NewRegistry(cfg)
 	alphaRuntime := &registryRuntime{ready: make(chan struct{})}
 	betaRuntime := &registryRuntime{ready: make(chan struct{})}
 	var canceled string
 	if err := registry.Register(Registration{
-		Channel:      " Alpha ",
-		Binding:      registryBindingAdapter{},
-		Notification: registryNotificationAdapter{channel: "alpha"},
-		Runtime:      alphaRuntime,
+		Channel: " Alpha ",
+		Binding: registryBindingAdapter{},
+		Runtime: alphaRuntime,
 		CancelBinding: func(record app.NotificationBinding) {
 			canceled = record.ID
 		},
@@ -71,10 +59,7 @@ func TestRegistryBuildsCapabilityRoutersAndRunsEnabledConnectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := registry.Register(Registration{
-		Channel:      "beta",
-		Binding:      registryBindingAdapter{},
-		Notification: registryNotificationAdapter{channel: "beta"},
-		Runtime:      betaRuntime,
+		Channel: "beta", Binding: registryBindingAdapter{}, Runtime: betaRuntime,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -87,14 +72,6 @@ func TestRegistryBuildsCapabilityRoutersAndRunsEnabledConnectors(t *testing.T) {
 	beta := bindingRouter.Capability("beta", nil)
 	if !beta.Available || beta.OperatorEnabled || beta.Startable || beta.DisabledReason != binding.CodeOperatorDisabled {
 		t.Fatalf("unexpected disabled capability: %#v", beta)
-	}
-
-	notificationRouter := registry.NotificationRouter()
-	if result, err := notificationRouter.Send(context.Background(), notification.Notification{Channel: "alpha", Recipient: "owner"}); err != nil || result.Status != "sent" {
-		t.Fatalf("enabled notification failed: result=%#v err=%v", result, err)
-	}
-	if _, err := notificationRouter.Send(context.Background(), notification.Notification{Channel: "beta"}); err == nil {
-		t.Fatal("disabled notification adapter was registered")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -119,7 +96,7 @@ func TestRegistryRejectsInvalidAndDuplicateChannels(t *testing.T) {
 	cfg.Tools.Notifications.Channels = map[string]config.NotificationChannelConfig{
 		"alpha": {Enabled: true},
 	}
-	registry := NewRegistry(cfg, store.NewMemoryStore())
+	registry := NewRegistry(cfg)
 	if err := registry.Register(Registration{}); err == nil {
 		t.Fatal("empty channel was accepted")
 	}

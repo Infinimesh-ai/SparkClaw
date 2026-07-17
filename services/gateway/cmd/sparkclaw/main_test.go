@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -137,7 +138,8 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 				ExternalUserID: "7",
 				ExternalChatID: "9",
 			}
-			dispatcher := telegram.NewDispatcher(st, runtime, cfg).WithClient(bot)
+			binding = st.SaveNotificationBinding(binding)
+			dispatcher := telegram.NewDispatcher(st, runtime, cfg).WithClient(bot).WithResultDeliverer(recordingMainResultDeliverer{bot: bot})
 			err = dispatcher.HandleUpdate(context.Background(), binding, telegram.Update{
 				UpdateID: 1,
 				Message: &telegram.Message{
@@ -153,6 +155,19 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 			}
 		})
 	}
+}
+
+type recordingMainResultDeliverer struct{ bot *recordingTelegramBot }
+
+func (d recordingMainResultDeliverer) DeliverWorkflowResult(ctx context.Context, result app.WorkflowResult) (app.DeliveryReceipt, error) {
+	for _, part := range result.Content.Parts {
+		if part.Kind == app.MessagePartText && strings.TrimSpace(part.Text) != "" {
+			_, err := d.bot.SendMessage(ctx, 9, 0, part.Text, nil)
+			now := time.Now().UTC()
+			return app.DeliveryReceipt{DeliveryID: "test_delivery", EndpointID: result.ReturnRoute.SourceEndpointID, Status: app.DeliverySucceeded, AttemptedAt: now, DeliveredAt: &now}, err
+		}
+	}
+	return app.DeliveryReceipt{}, errors.New("workflow result has no text part")
 }
 
 func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
@@ -195,7 +210,7 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if services.server == nil || services.connectors == nil || services.connectors.registry == nil || services.reminderScheduler == nil {
+	if services.server == nil || services.connectors == nil || services.connectors.registry == nil || services.connectors.endpoints == nil || services.connectors.delivery == nil || services.reminderScheduler == nil {
 		t.Fatalf("optional service assembly is incomplete: %#v", services)
 	}
 	ts := httptest.NewServer(services.server.Handler())
@@ -211,6 +226,22 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	}
 	if ready.StateBackend != "file" || !ready.Speech.Enabled || !ready.Speech.Ready {
 		t.Fatalf("unexpected all-enabled readiness: %#v", ready)
+	}
+
+	endpointRaw := readTestEndpoint(t, ts.URL+"/api/delivery-endpoints")
+	var endpointPayload struct {
+		Endpoints []json.RawMessage `json:"endpoints"`
+	}
+	if err := json.Unmarshal(endpointRaw, &endpointPayload); err != nil || endpointPayload.Endpoints == nil {
+		t.Fatalf("production assembly did not enable delivery endpoints: payload=%s err=%v", endpointRaw, err)
+	}
+	deliveryResponse, err := http.Post(ts.URL+"/api/deliveries", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliveryResponse.Body.Close()
+	if deliveryResponse.StatusCode != http.StatusBadRequest {
+		t.Fatalf("production assembly did not enable direct delivery: status=%d", deliveryResponse.StatusCode)
 	}
 
 	configRaw := readTestEndpoint(t, ts.URL+"/api/config")

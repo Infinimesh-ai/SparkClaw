@@ -504,7 +504,7 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_sessions_total 1",
 		"sparkclaw_messages_total 2",
 		"sparkclaw_agent_runs_total 1",
-		"sparkclaw_model_calls_total 4",
+		"sparkclaw_model_calls_total 5",
 		"sparkclaw_model_call_errors_total 0",
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
 		"sparkclaw_memory_candidates_total 1",
@@ -1813,6 +1813,9 @@ func TestToolPolicyEditorPersistsAndUpdatesRuntimePolicy(t *testing.T) {
 	if writeResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("files.write_draft should be denied after policy update, got %d", writeResp.StatusCode)
 	}
+	if err := os.WriteFile(filepath.Join(root, "missing.txt"), []byte("policy test file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	agentReadResult := sendTestMessageResult(t, ts.URL, sessionID, "Read missing.txt")
 	toolCalls, ok := agentReadResult["tool_calls"].([]any)
 	if !ok || len(toolCalls) != 1 {
@@ -2508,7 +2511,10 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	defer ts.Close()
 
 	sessionID := createTestSession(t, ts.URL)
-	sendTestMessage(t, ts.URL, sessionID, "Search for missing-token")
+	if err := os.WriteFile(filepath.Join(root, "project-note.txt"), []byte("missing-token trace evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sendTestMessage(t, ts.URL, sessionID, "Read project-note.txt")
 	runs := st.ListRuns(sessionID)
 	if len(runs) == 0 {
 		t.Fatal("run was not saved")
@@ -2541,7 +2547,7 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	if len(decoded.ToolCalls) == 0 {
 		t.Fatal("trace did not include tool calls")
 	}
-	if !hasServerTestModelCall(decoded.ModelCalls, "intent_classification", "fast") ||
+	if !hasServerTestModelCall(decoded.ModelCalls, "capability_routing", "fast") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "fast") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)

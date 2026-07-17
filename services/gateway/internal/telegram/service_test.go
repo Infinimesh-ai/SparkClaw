@@ -207,14 +207,19 @@ func TestServiceDispatchesFirstOrdinaryMessageAfterClaim(t *testing.T) {
 	})
 	runtime := &recordingRuntime{}
 	bot := &fakeBotAPI{}
-	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, runtime, cfg)).
+	deliverer := &recordingWorkflowResultDeliverer{}
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, runtime, cfg).WithResultDeliverer(deliverer)).
 		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return bot, nil })
 
 	update := Update{UpdateID: 1, Message: telegramTextMessage(1, 42, 42, "hello from phone")}
 	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, update))
 	stored, _ := st.GetNotificationBinding(binding.ID)
-	if stored.ExternalUserID != "42" || stored.ExternalChatID != "42" || runtime.callCount() != 1 || bot.sentCount() != 1 {
-		t.Fatalf("first ordinary message was not claimed and dispatched: binding=%#v calls=%d replies=%d", stored, runtime.callCount(), bot.sentCount())
+	if stored.ExternalUserID != "42" || stored.ExternalChatID != "42" || runtime.callCount() != 1 || deliverer.callCount() != 1 || bot.sentCount() != 0 {
+		t.Fatalf("first ordinary message did not use exactly one result delivery: binding=%#v calls=%d deliveries=%d direct_replies=%d", stored, runtime.callCount(), deliverer.callCount(), bot.sentCount())
+	}
+	ingress := runtime.lastIngress()
+	if ingress.Source.Kind != app.MessageSourceThirdPartyDevice || ingress.Source.EndpointID == "" || strings.HasPrefix(string(ingress.Source.EndpointID), "session:") || ingress.Source.NativeMessageID == "" || ingress.OwnerID != app.DefaultOwnerID || ingress.ReturnRoute.SourceEndpointID != ingress.Source.EndpointID {
+		t.Fatalf("Telegram ingress did not preserve the external endpoint identity: %#v", ingress)
 	}
 }
 
@@ -368,7 +373,7 @@ func TestServiceOrdersSameChatAndBoundsGlobalWorkers(t *testing.T) {
 	bindingB := st.SaveNotificationBinding(activeTelegramBinding("bind_b", 2, 202))
 	runtime := newBlockingRuntime()
 	bot := &fakeBotAPI{}
-	service := NewService(st, channel, nil, NewDispatcher(st, runtime, cfg)).
+	service := NewService(st, channel, nil, NewDispatcher(st, runtime, cfg).WithResultDeliverer(&recordingWorkflowResultDeliverer{})).
 		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return bot, nil })
 	a1 := saveInboxFixture(t, st, bindingA.ID, Update{UpdateID: 1, Message: telegramTextMessage(1, 1, 101, "a1")})
 	a2 := saveInboxFixture(t, st, bindingA.ID, Update{UpdateID: 2, Message: telegramTextMessage(2, 1, 101, "a2")})
@@ -444,6 +449,25 @@ type fakeBotAPI struct {
 	callbackCalls int
 }
 
+type recordingWorkflowResultDeliverer struct {
+	mu      sync.Mutex
+	results []app.WorkflowResult
+}
+
+func (d *recordingWorkflowResultDeliverer) DeliverWorkflowResult(_ context.Context, result app.WorkflowResult) (app.DeliveryReceipt, error) {
+	d.mu.Lock()
+	d.results = append(d.results, result)
+	d.mu.Unlock()
+	now := time.Now().UTC()
+	return app.DeliveryReceipt{DeliveryID: app.DeliveryID("test_delivery"), EndpointID: result.ReturnRoute.SourceEndpointID, Status: app.DeliverySucceeded, AttemptedAt: now, DeliveredAt: &now}, nil
+}
+
+func (d *recordingWorkflowResultDeliverer) callCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.results)
+}
+
 func (b *fakeBotAPI) GetMe(context.Context) (User, error) {
 	return User{ID: 1, IsBot: true, Username: "bot"}, nil
 }
@@ -512,8 +536,19 @@ func (b *fakeBotAPI) callbacks() int {
 }
 
 type recordingRuntime struct {
-	mu    sync.Mutex
-	calls []string
+	mu        sync.Mutex
+	calls     []string
+	ingresses []app.MessageIngressContext
+}
+
+func (r *recordingRuntime) HandleMessageWithIngress(_ context.Context, _, _, runID, content string, _ []agent.MessageAttachment, ingress app.MessageIngressContext) (agent.Result, error) {
+	r.mu.Lock()
+	r.ingresses = append(r.ingresses, ingress)
+	r.mu.Unlock()
+	result := r.record(content)
+	result.Run.ID = runID
+	result.Message.RunID = runID
+	return result, nil
 }
 
 func (r *recordingRuntime) HandleMessageWithAttachments(_ context.Context, _, content string, _ []agent.MessageAttachment) (agent.Result, error) {
@@ -542,6 +577,14 @@ func (r *recordingRuntime) callCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.calls)
+}
+func (r *recordingRuntime) lastIngress() app.MessageIngressContext {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.ingresses) == 0 {
+		return app.MessageIngressContext{}
+	}
+	return r.ingresses[len(r.ingresses)-1]
 }
 
 type blockingRuntime struct {

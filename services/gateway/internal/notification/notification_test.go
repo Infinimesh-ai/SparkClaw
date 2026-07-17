@@ -9,10 +9,11 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestRouterRequiresExplicitWeixinRecipientContextAndCredential(t *testing.T) {
+func TestWeixinSendRequiresExplicitRecipientContextAndCredential(t *testing.T) {
 	var gotAuth string
 	var gotRecipient string
 	var gotContextToken string
@@ -57,8 +58,7 @@ func TestRouterRequiresExplicitWeixinRecipientContextAndCredential(t *testing.T)
 		Provider: "openclaw-weixin-qr",
 		BaseURL:  ts.URL,
 	}
-	router := NewRouter(cfg, st)
-	result, err := router.Send(t.Context(), Notification{
+	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st).Send(t.Context(), Notification{
 		Channel:          "weixin",
 		Recipient:        "wx-user-1",
 		RecipientBinding: "ctx-token",
@@ -83,7 +83,56 @@ func TestRouterRequiresExplicitWeixinRecipientContextAndCredential(t *testing.T)
 	}
 }
 
-func TestRouterDoesNotUseDefaultBindingWhenWeixinRecipientMissing(t *testing.T) {
+func TestWeixinProviderPreflightsAudioFallbackBeforeExternalSend(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	st := store.NewMemoryStore()
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_audio", Channel: "weixin", Status: "active", ExternalUserID: "wx-user", ContextToken: "ctx", BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
+	provider := NewWeixinAdapter("weixin", config.NotificationChannelConfig{Enabled: true, BaseURL: server.URL, Token: "token"}, st)
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	request := app.DeliveryRequest{
+		SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_audio", IdempotencyKey: "audio", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+		Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Origin: app.DeliveryOriginWebDirect, Target: app.EndpointID(binding.ID),
+		Content: app.MessageContent{Parts: []app.MessagePart{
+			{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "do not partially send"},
+			{ID: "voice", Kind: app.MessagePartAudio, Disposition: app.MessageDispositionVoiceNote, ArtifactID: "voice"},
+		}},
+	}
+	_, err := providers.Deliver(t.Context(), app.MessageEndpoint{ID: app.EndpointID(binding.ID), Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "weixin", BindingRef: binding.ID}, request)
+	if err == nil || delivery.ErrorCode(err) != delivery.CodeArtifactInvalid {
+		t.Fatalf("expected missing audio artifact to fail preflight, got %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("provider sent a partial payload before capability failure: calls=%d", calls)
+	}
+}
+
+func TestWeixinBindingScopeCompatibilityIsReminderOnly(t *testing.T) {
+	if notificationBindingAllowsScope(nil, app.BindingScopeMessageSendSelf, app.DeliveryOriginWebDirect) {
+		t.Fatal("legacy empty scopes granted ordinary direct-send authority")
+	}
+	if !notificationBindingAllowsScope(nil, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("legacy empty scopes lost reminder compatibility")
+	}
+	if notificationBindingAllowsScope([]string{app.BindingScopeMessageSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("ordinary message scope granted reminder authority")
+	}
+	if !notificationBindingAllowsScope([]string{app.BindingScopeReminderSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
+		t.Fatal("explicit reminder scope was rejected")
+	}
+	if !notificationBindingAllowsSourceReply(nil) || notificationBindingAllowsSourceReply([]string{app.BindingScopeReminderSendSelf}) || !notificationBindingAllowsSourceReply([]string{app.BindingScopeMessageSendSelf}) {
+		t.Fatal("source reply scope compatibility expanded beyond legacy or ordinary-message authority")
+	}
+}
+
+func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {
 	st := store.NewMemoryStore()
 	st.SaveCredentialSecret(app.CredentialSecret{
 		Ref:   "provider:openclaw-weixin-qr:bind_1",
@@ -108,8 +157,7 @@ func TestRouterDoesNotUseDefaultBindingWhenWeixinRecipientMissing(t *testing.T) 
 		Provider: "openclaw-weixin-qr",
 		BaseURL:  "http://127.0.0.1:1",
 	}
-	router := NewRouter(cfg, st)
-	result, err := router.Send(t.Context(), Notification{
+	result, err := NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st).Send(t.Context(), Notification{
 		Channel:          "weixin",
 		RecipientBinding: "ctx-token",
 		CredentialRef:    "provider:openclaw-weixin-qr:bind_1",

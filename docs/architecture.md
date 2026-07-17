@@ -72,7 +72,15 @@ Speech is an optional, disabled-by-default OpenAI-compatible transcription bound
 
 ### Messaging Connector Registry
 
-`connector.Registry` is the in-process composition boundary for third-party messaging software. A connector registers only the capabilities it implements: owner binding, outbound notification, an optional `connectorruntime.Runtime`, and binding cancellation. Gateway, reminder delivery, and process startup consume those contracts without selecting Telegram or Weixin by name. `remindertarget.Resolver` selects an outbound binding from normalized binding/session fields, so ToolHub also remains provider-neutral. Protocol-specific polling, media handling, authorization, acknowledgement, target validation, and sends remain inside each provider package.
+`connector.Registry` is the in-process composition boundary for third-party messaging software. A connector registers only the capabilities it implements: owner binding, one outbound `delivery.Provider`, an optional inbound `connectorruntime.Runtime`, and binding cancellation. The same live Provider Registry is shared by ordinary Agent results and scheduled messages; future explicit-send surfaces must enter through `RequestForMessage` and the same Gateway. Gateway, Message Control, and the Agent Runtime do not select Telegram or Weixin by name. Protocol-specific polling, media handling, credentials, acknowledgement, address validation, and sends remain inside each provider package.
+
+### Message Ingress And Result Delivery
+
+Web, third-party devices, and Timer events enter through the same provider-neutral message boundary. `MessageEnvelope` records source Endpoint, native message/thread identity, owner authorization, ordered `MessageContent` parts, and `ReturnRoute`. Text, image, audio, and file are message-part kinds rather than Agent capabilities. The normalized owner, authorization, route decision, and return route are persisted on `AgentRun`, so idempotent replay and approval/browser-login resume keep the original identity and destination.
+
+Every terminal route produces a channel-neutral `WorkflowResult`. Matched Workflow failures remain explicit results; only an `unmatched` route may use the transitional ReAct fallback. `WorkflowResult -> DeliveryRequest -> Delivery Gateway` is the single ordinary outbound path. The Gateway resolves the Endpoint, checks owner authorization, negotiates the whole multimedia payload before the first send, and dispatches through the registered Provider or Web port. Provider control messages such as typing and approval buttons stay local to the connector and are not a second result path.
+
+Timer is a message source, not a reminder-only feature. A `ScheduleSpec` stores either literal content or a request to execute later, plus authorization and return routing. Polling only claims due work; a bounded worker pool runs the request and returns its result through the same Delivery Gateway.
 
 ### Telegram
 
@@ -84,17 +92,17 @@ Infinimesh Info is the optional production provider for `web.search`. Credential
 
 ### Agent Runtime
 
-The runtime handles user messages through a bounded loop:
+The runtime handles messages through a bounded router-first loop:
 
-1. Create an agent run and record the user message.
-2. Ask the guard lane for a safety verdict.
-3. Plan tool calls or direct answer behavior.
-4. Route fast/deep model calls as needed.
-5. Execute read/draft tools immediately when policy allows.
-6. Queue reversible/dangerous actions for approval.
-7. Attempt bounded repairs for narrow failures.
-8. Produce a grounded final answer from observations, approvals and model output.
-9. Persist trace snapshots, audit events and artifact references.
+1. Normalize source, multimedia content, owner authorization, and return route.
+2. Create an Agent Run and persist its message context.
+3. Ask the guard lane for a safety verdict.
+4. Ask the Fast router for a strict capability-tree decision.
+5. Dispatch a matched leaf to its exact Workflow and fixed tool scope.
+6. Use transitional ReAct only when the route is explicitly `unmatched`.
+7. Pause and resume the same Workflow for approval or browser login.
+8. Produce one `WorkflowResult`, including declared file/image outputs.
+9. Persist traces and return the result through the resolved Endpoint.
 
 Guard `block` verdicts stop before tool planning and should not create tool calls or approvals.
 
@@ -113,27 +121,32 @@ Default lanes:
 | `guard` | pre-tool safety classification |
 | `mock` | deterministic offline tests and golden evals |
 
-### Intent And Workflow Runtime
+### Capability Routing And Workflow Runtime
 
-Fast classification outputs only a stable semantic `IntentEnvelope` and cannot
-emit tools, Skills, workflow IDs, risk, or model lanes. Deterministic URL/path
-facts and authorization provenance are frozen during normalization. The
-`WorkflowProfileRegistry` routes the normalized envelope, validates a
-versioned `WorkflowPlan`, and persists its digest and node state.
+The Fast router outputs only a strict `RouteDecision`: status, catalog
+revision, registered capability path, typed slots, confidence, reason, and
+deterministic facts. It cannot emit tools, Skills, Workflow IDs, risk, model
+lanes, or arbitrary fields. Deterministic URL/path facts are frozen during
+normalization, and the catalog validates every path edge and leaf operation.
 
-`ToolExposure.Search/Materialize` is the only model-visibility authority for
-migrated profiles. It derives the active capability scope from persisted state,
-registered ToolHub metadata, risk constraints, and Policy; TaskHint candidates,
-Skill lists, and outcomes cannot widen it. Outcome adapters produce typed
-facts, while the active profile assesses completion or activates only a
-predeclared transition. Frozen argument bindings constrain exact URLs and
-workspace paths before execution.
+Catalog revision 2 has four production leaves: `browser.search`,
+`browser.automation`, `document.information`, and `document.processing`.
+`WorkflowProfileRegistry.Resolve` maps each leaf to its exact revision 1
+Workflow; it performs no intent matching. The Dispatcher persists the
+`RouteDecision`, `ReturnRoute`, validated plan digest, and node state.
 
-Revision 1 profiles are authoritative for public Web research, explicit URL
-reads, workspace file search, and explicit-path file reads. Missing capability,
-stale state, invalid plan, or resource mismatch blocks and never falls back to
-TaskHint. Unmigrated domains continue on the transitional TaskHint path until
-their complete vertical slice lands. See the
+ToolHub capability metadata is the model-visibility authority. Tool Exposure
+materializes the complete fixed scope for the selected Workflow, subject to
+Policy; TaskHint candidates, Skill lists, and outcomes cannot widen it.
+Outcome adapters produce typed facts, while the active profile assesses
+completion or activates only a predeclared transition. Approval and browser
+login resumes use the persisted route and exact Workflow scope.
+
+Missing capability, stale state, invalid plan, resource mismatch, and matched
+execution failure block or fail explicitly and never fall back. Only a router
+status of `unmatched` enters the transitional ReAct path for domains not yet
+migrated. Legacy Web/workspace Workflow IDs are retained only as persisted
+identifiers and fail closed. See the
 [refactor plan](intent-routing-workflow-refactor-plan.md),
 [exposure contract](intent-routing-tool-exposure-contract.md), and
 [profile catalog](intent-routing-workflow-domain-profiles.md).
@@ -189,6 +202,11 @@ The durable product vocabulary is:
 - `Session`
 - `Message`
 - `AgentRun`
+- `MessageEnvelope`
+- `MessageEndpoint`
+- `MessageSchedule`
+- `WorkflowResult`
+- `DeliveryRequest`
 - `WorkflowState`
 - `ToolCall`
 - `Approval`

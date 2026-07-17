@@ -381,10 +381,18 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 
 	resumeCalls := []app.ToolCall{}
 	resumeApprovals := []app.Approval{}
-	tabCall, tabApproval, tabObservation := r.runToolPlan(ctx, sessionID, run.ID, toolPlan{
+	tabPlan := toolPlan{
 		Name: "browser.list_tabs",
 		Args: visibleBrowserResumeArgs(block, "browser_login_block_resume"),
-	})
+	}
+	if run.Workflow != nil {
+		var err error
+		tabPlan, err = r.bindPersistedWorkflowToolPlan(run, tabPlan)
+		if err != nil {
+			return r.blockPersistedWorkflowResume(ctx, run, goal, err), true, nil
+		}
+	}
+	tabCall, tabApproval, tabObservation := r.runToolPlan(ctx, sessionID, run.ID, tabPlan)
 	resumeCalls = append(resumeCalls, tabCall)
 	if tabApproval != nil {
 		resumeApprovals = append(resumeApprovals, *tabApproval)
@@ -438,6 +446,13 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	resumePlan := toolPlan{Name: block.ResumeTool, Args: browserLoginResumeArgs(block)}
 	if resumePlan.Name == "" {
 		resumePlan.Name = "browser.read"
+	}
+	if run.Workflow != nil {
+		var err error
+		resumePlan, err = r.bindPersistedWorkflowToolPlan(run, resumePlan)
+		if err != nil {
+			return r.blockPersistedWorkflowResume(ctx, run, goal, err), true, nil
+		}
 	}
 	readCall, readApproval, readObservation := r.runToolPlan(ctx, sessionID, run.ID, resumePlan)
 	resumeCalls = append(resumeCalls, readCall)
@@ -499,6 +514,9 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		Summary:   block.SiteOrigin,
 		Fields:    browserLoginBlockRuntimeFields(block, map[string]any{"tool_call_id": readCall.ID}),
 	})
+	if run.Workflow != nil {
+		return r.finishMatchedBrowserLoginResume(ctx, run, goal, readCall, emit), true, nil
+	}
 
 	seedCalls := completedToolCallsForResume(toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID))
 	seedObservations := observationsForResume(seedCalls)
@@ -541,6 +559,10 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 			run.ModelLane = streamedChat.Lane
 		}
 	}
+	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
+		approvals = append(approvals, approval)
+	}
 	r.store.SaveRun(run)
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(goal, run, toolCalls, approvals, run.Summary, now)
@@ -565,7 +587,7 @@ func (r Runtime) reopenBrowserLoginBlock(ctx context.Context, sessionID string, 
 		block.LoginHandoffURL = target
 	}
 	if target != "" {
-		openCall, approval, _ := r.runToolPlan(ctx, sessionID, run.ID, toolPlan{
+		openPlan := toolPlan{
 			Name: "browser.open",
 			Args: map[string]any{
 				"url":                target,
@@ -576,7 +598,15 @@ func (r Runtime) reopenBrowserLoginBlock(ctx context.Context, sessionID string, 
 				"owner_id":           block.OwnerID,
 				"browser_profile_id": block.BrowserProfileID,
 			},
-		})
+		}
+		if run.Workflow != nil {
+			var err error
+			openPlan, err = r.bindPersistedWorkflowToolPlan(run, openPlan)
+			if err != nil {
+				return r.blockPersistedWorkflowResume(ctx, run, block.OriginalGoal, err), true, nil
+			}
+		}
+		openCall, approval, _ := r.runToolPlan(ctx, sessionID, run.ID, openPlan)
 		calls = append(calls, openCall)
 		if approval != nil {
 			approvals = append(approvals, *approval)
@@ -629,7 +659,96 @@ func (r Runtime) finishBrowserLoginBlockedRun(ctx context.Context, run app.Agent
 	if len(approvals) == 0 {
 		approvals = allApprovals
 	}
-	return Result{Run: run, Message: assistant, ToolCalls: calls, Approvals: approvals}
+	result := Result{Run: run, Message: assistant, ToolCalls: calls, Approvals: approvals}
+	if run.Workflow != nil {
+		route := run.Workflow.Route
+		result.RouteDecision = &route
+		result.WorkflowResult = r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, summary)
+	}
+	return result
+}
+
+func (r Runtime) bindPersistedWorkflowToolPlan(run app.AgentRun, plan toolPlan) (toolPlan, error) {
+	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 {
+		return toolPlan{}, errors.New("browser resume requires one active persisted workflow node")
+	}
+	nodeID := run.Workflow.ActiveNodeIDs[0]
+	state := run.Workflow.Nodes[nodeID]
+	capability, err := r.materializedWorkflowCapability(run.ID, nodeID, state.ScopeRevision, plan.Name)
+	if err != nil {
+		return toolPlan{}, err
+	}
+	plan.WorkflowID = run.Workflow.Plan.ProfileID
+	plan.WorkflowNodeID = nodeID
+	plan.ScopeRevision = state.ScopeRevision
+	plan.Capability = capability
+	return plan, nil
+}
+
+func (r Runtime) blockPersistedWorkflowResume(ctx context.Context, run app.AgentRun, goal string, err error) Result {
+	result := r.blockWorkflowSetup(ctx, run, goal, err)
+	if run.Workflow != nil {
+		route := run.Workflow.Route
+		result.RouteDecision = &route
+		result.WorkflowResult = r.workflowResultForRun(result.Run, route, run.Workflow.ReturnRoute, result.Message.Content)
+	}
+	return result
+}
+
+func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.AgentRun, goal string, readCall app.ToolCall, emit StreamHandler) Result {
+	profile, err := r.profiles.Get(run.Workflow.Plan.ProfileID)
+	if err != nil {
+		return r.blockPersistedWorkflowResume(ctx, run, goal, err)
+	}
+	definition, ok := r.tools.Definition(readCall.Tool)
+	if !ok {
+		return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("browser resume tool is no longer registered"))
+	}
+	outcome, err := adaptWorkflowOutcome(definition, readCall)
+	if err != nil {
+		return r.blockPersistedWorkflowResume(ctx, run, goal, err)
+	}
+	assessment := profile.Assess(run.Workflow, outcome)
+	_, applyErr := applyWorkflowOutcome(&run, outcome, assessment)
+	if applyErr != nil && assessment.Status != app.AssessmentBlocked {
+		return r.blockPersistedWorkflowResume(ctx, run, goal, applyErr)
+	}
+	r.store.SaveRun(run)
+	r.auditWorkflowOutcome(run, outcome, assessment, false, applyErr)
+
+	now := time.Now().UTC()
+	if run.Workflow.Status == app.WorkflowStatusSucceeded {
+		run.State = "completed"
+		run.CompletedAt = &now
+	} else {
+		run.State = "blocked"
+		run.CompletedAt = &now
+	}
+	toolCalls := toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID)
+	run.Summary = r.applyGroundedSummary(run.SessionID, run.ID, goal, "", toolCalls)
+	if strings.TrimSpace(run.Summary) == "" {
+		run.Summary = "The browser workflow resumed after login and completed its bounded read."
+	}
+	if emit != nil && run.State == "completed" {
+		if streamed, _, streamErr := r.streamFinalAnswer(ctx, goal, run, run.Summary, toolCalls, emit); streamErr == nil && strings.TrimSpace(streamed) != "" {
+			run.Summary = streamed
+		}
+	}
+	if call, _, queued := r.queueExternalSendApproval(&run); queued {
+		toolCalls = append(toolCalls, call)
+	}
+	r.store.SaveRun(run)
+	approvals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	feedback := r.store.ListRunFeedback(run.ID)
+	episode := summarizeEpisode(goal, run, toolCalls, approvals, run.Summary, now)
+	r.store.SaveEpisodeSummary(episode)
+	assistant := r.store.AddMessage(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
+	r.writeTrace(ctx, run, modelrouter.ChatResult{}, toolCalls, approvals, feedback, &episode)
+	route := run.Workflow.Route
+	return Result{
+		Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route,
+		WorkflowResult: r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
+	}
 }
 
 func browserLoginReplyIntent(reply string) string {

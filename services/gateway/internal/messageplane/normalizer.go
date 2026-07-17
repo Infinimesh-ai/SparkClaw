@@ -10,14 +10,17 @@ import (
 )
 
 type Ingress struct {
-	Session       app.Session
-	Message       app.Message
-	SourceKind    app.MessageSourceKind
-	Adapter       string
-	EndpointID    app.EndpointID
-	ScheduleID    app.ScheduleID
-	ReturnRoute   *app.ReturnRoute
-	Authorization app.MessageAuthorization
+	Session         app.Session
+	Message         app.Message
+	OwnerID         string
+	SourceKind      app.MessageSourceKind
+	Adapter         string
+	EndpointID      app.EndpointID
+	NativeMessageID string
+	NativeThreadRef string
+	ScheduleID      app.ScheduleID
+	ReturnRoute     *app.ReturnRoute
+	Authorization   app.MessageAuthorization
 }
 
 func Normalize(ingress Ingress) (app.MessageEnvelope, error) {
@@ -45,7 +48,13 @@ func Normalize(ingress Ingress) (app.MessageEnvelope, error) {
 	} else if endpointID != "" {
 		returnRoute = app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpointID}
 	}
-	ownerID := strings.TrimSpace(ingress.Session.OwnerID)
+	ownerID := strings.TrimSpace(ingress.OwnerID)
+	if ownerID != "" && strings.TrimSpace(ingress.Session.OwnerID) != "" && ownerID != strings.TrimSpace(ingress.Session.OwnerID) {
+		return app.MessageEnvelope{}, errors.New("ingress owner does not match the linked session owner")
+	}
+	if ownerID == "" {
+		ownerID = strings.TrimSpace(ingress.Session.OwnerID)
+	}
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
@@ -66,7 +75,8 @@ func Normalize(ingress Ingress) (app.MessageEnvelope, error) {
 			Kind:            sourceKind,
 			Adapter:         adapter,
 			EndpointID:      endpointID,
-			NativeMessageID: ingress.Message.ID,
+			NativeMessageID: firstNonEmpty(ingress.NativeMessageID, ingress.Message.ID),
+			NativeThreadRef: strings.TrimSpace(ingress.NativeThreadRef),
 			ScheduleID:      ingress.ScheduleID,
 		},
 		OwnerID:       ownerID,
@@ -80,6 +90,15 @@ func Normalize(ingress Ingress) (app.MessageEnvelope, error) {
 		return app.MessageEnvelope{}, err
 	}
 	return envelope, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func ValidateEnvelope(envelope app.MessageEnvelope) error {

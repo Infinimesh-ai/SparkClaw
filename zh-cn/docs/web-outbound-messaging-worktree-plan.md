@@ -217,18 +217,24 @@ bash scripts/run-eval.sh
 
 ## 11. 执行台账
 
-在所有者确认执行前，本表保持未开始状态。
+所有者已于 2026-07-17 确认执行并完成集成。任务 3 在合并前独立核验了每个来源的提交图、diff 所有权、worktree 洁净度、生成 artifact、秘密扫描和验证证据；上文已批准的设计语义保持不变。
 
 | 项目 | 值 |
 |---|---|
-| 所有者确认 | 待确认 |
+| 所有者确认 | 已于 2026-07-17 授权三个可见 worktree 执行 |
 | 主 worktree WIP 保存 | 已单独授权；不是冻结功能基点 |
-| 冻结基点 SHA | 待确认 |
-| 任务 1 可见任务/worktree | 未创建 |
-| 任务 2 可见任务/worktree | 未创建 |
-| 任务 3 可见任务/worktree | 未创建 |
-| 任务 1 提交集 | 待提供 |
-| 任务 2 提交集 | 待提供 |
-| 任务 1 merge commit | 待生成 |
-| 任务 2 merge commit | 待生成 |
-| 最终验证 | 待执行 |
+| 冻结基点 | `codex/web-outbound-parallel-base` 的 `f9b6e804c1caec067d58bb81ade4d793c8e116aa` |
+| 任务 1 来源任务 | `threadId=019f6e2c-ad06-7713-851f-cb5448a49acf`，`hostId=local`；分支 `codex/web-outbound-message-io`；洁净 HEAD `497435a9d854376fd80841fe0b5ce9becc353a2d` |
+| 任务 1 提交集 | `60c57d54cf318bae4b39ad23a91d7ea1aecec3ca`、`2dfacb30c4bad7747dda1582b2e1e948b12258b3`、`ccd13c3c83a05c69805e42910d07f8b53c52f56b`、`72c7454f37f0181676725149b862fa0d7a873900`、`8208ef2606677a032e2e68850e4b42c862312352`、`d8648288762ec8507b4599635d8ee7d16cbec884`、`497435a9d854376fd80841fe0b5ce9becc353a2d` |
+| 任务 1 来源验证 | Gateway build/vet/test 与受影响 uncached 包通过；WebChat direct `tsc -b`、11 个 Vitest、Vite build、doctor、隔离 43/43 eval、桌面 1440x900 与移动 390x844 视觉检查通过；来源 worktree 洁净，仅忽略依赖缓存 |
+| 任务 2 来源任务 | `threadId=019f6e2c-ad05-76e3-94de-f9c21dcc760b`，`hostId=local`；分支 `codex/web-outbound-task2-routing-workflows`；洁净 HEAD `802370b4808ecafe1d0c60975825b3c7f97097b4` |
+| 任务 2 提交集 | `ae1678b47c13da44c6b1b95fea88b31d43305fbe`、`f86129c04e251ebda12a03e3ecbb3428e902b5e3`、`6b2eeaf95bfaa445a4a5de8486fdf3c7d9803c27`、`00e7c5deed99190213f13f9b7d856257e7d86695`、`802370b4808ecafe1d0c60975825b3c7f97097b4` |
+| 任务 2 来源验证 | 受影响与全量 uncached Go build/vet/test 通过；doctor 仅有端口占用提示；隔离 43/43 eval 通过；typed directive grounding、发送审批/拒绝/replay、动态注册、阶段曝光和 legacy context 测试通过；来源 worktree 洁净，仅忽略依赖缓存 |
+| 任务 1 merge commit | `accc5eaf7e632278b73605ad24e8ead634d47df7`（`--no-ff`；父提交为 `e687b87be088a47e2052e2e0ffdc3c1e11b67163` 和任务 1 HEAD） |
+| 任务 1 合并后验证 | Go build/vet 与八个受影响 uncached 包通过；WebChat direct `tsc -b`、11 个 Vitest 和 Vite production build 通过；merge diff、secret/artifact gate 通过 |
+| 任务 2 merge commit | `93ff4ca7e03d90f190c325717e0e77dcbfac601b`（`--no-ff`；父提交为任务 1 merge 和任务 2 HEAD） |
+| 任务 2 冲突与验证 | 唯一 `web_workflow_test.go` 冲突保留任务 2 的 typed document result，并机械适配任务 1 的统一 Delivery Gateway 断言；build/vet 和 agent/capability/toolhub/modelrouter/gateway uncached 测试通过 |
+| 集成提交 | `ac98afcd1cb066b32dd8a934583583a1b30e034a`；统一 canonical `app.DeliveryTargetSelection`、typed Router-to-resolver adapter、共享 runtime 装配和 Gateway delivery 接线 |
+| 最终验证 | Gateway `go build ./...`、`go vet ./...`、`go test ./... -count=1` 通过；WebChat direct Node 24 `tsc -b`、11 个 Vitest、Vite production build 通过；doctor 通过；隔离端口 18889 mock eval 43/43 与扩展检查通过 |
+| 文档、Compose 与安全 | 中英文镜像及本地链接验证通过；使用 `docker/env/sparkclaw.example.env` 渲染默认 Compose 通过；`git diff --check`、提交 trailer、secret、生成 artifact 和 listener cleanup gate 通过 |
+| 残余风险 | 未提供 `SPARKCLAW_TEST_POSTGRES_DSN`，因此 live PostgreSQL 集成测试跳过，但 PostgreSQL 代码编译且 memory/file 后端通过；未使用真实 Telegram/Weixin 凭据；桌面 npm wrapper 有已知 SIGKILL，因此使用等价 direct Node 阶段并通过；18789/18790 属于既有进程，eval 使用隔离 18889 |

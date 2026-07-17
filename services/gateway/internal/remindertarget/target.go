@@ -10,6 +10,7 @@ import (
 )
 
 type Target struct {
+	EndpointID       app.EndpointID
 	Recipient        string
 	RecipientBinding string
 	BindingID        string
@@ -71,6 +72,7 @@ func (r *Resolver) Resolve(channel, sessionID, requestedRecipient string) (Targe
 
 func targetFromSession(session app.ExternalChatSession, binding app.NotificationBinding) Target {
 	return Target{
+		EndpointID:       app.EndpointID(session.ID),
 		Recipient:        firstNonEmpty(session.ExternalChatID, session.ExternalUserID),
 		RecipientBinding: firstNonEmpty(session.ExternalThreadID, session.LastContextToken),
 		BindingID:        strings.TrimSpace(binding.ID),
@@ -81,6 +83,7 @@ func targetFromSession(session app.ExternalChatSession, binding app.Notification
 
 func targetFromBinding(binding app.NotificationBinding) Target {
 	return Target{
+		EndpointID:       app.EndpointID(binding.ID),
 		Recipient:        firstNonEmpty(binding.ExternalChatID, binding.ExternalUserID),
 		RecipientBinding: firstNonEmpty(binding.ExternalThreadID, binding.ContextToken),
 		BindingID:        strings.TrimSpace(binding.ID),

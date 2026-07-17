@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -11,29 +12,35 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 )
 
 type Registration struct {
 	Channel       string
 	Binding       binding.Adapter
-	Notification  notification.Adapter
+	Provider      delivery.Provider
 	Runtime       connectorruntime.Runtime
 	CancelBinding func(app.NotificationBinding)
 }
 
-type Registry struct {
-	cfg           config.Config
-	store         store.Store
-	registrations map[string]Registration
+func (r *Registry) ProviderRegistry() (*delivery.ProviderRegistry, error) {
+	if r == nil || r.providers == nil {
+		return nil, errors.New("connector provider registry is unavailable")
+	}
+	return r.providers, nil
 }
 
-func NewRegistry(cfg config.Config, st store.Store) *Registry {
+type Registry struct {
+	cfg           config.Config
+	registrations map[string]Registration
+	providers     *delivery.ProviderRegistry
+}
+
+func NewRegistry(cfg config.Config) *Registry {
 	return &Registry{
 		cfg:           cfg,
-		store:         st,
 		registrations: map[string]Registration{},
+		providers:     delivery.NewProviderRegistry(),
 	}
 }
 
@@ -48,6 +55,15 @@ func (r *Registry) Register(registration Registration) error {
 	if _, exists := r.registrations[channel]; exists {
 		return errors.New("connector channel is already registered")
 	}
+	channelCfg := r.cfg.Tools.Notifications.Channels[channel]
+	if channelCfg.Enabled && registration.Provider != nil {
+		if normalizeChannel(registration.Provider.Key()) != channel {
+			return fmt.Errorf("connector channel %q does not match delivery provider key %q", channel, registration.Provider.Key())
+		}
+		if err := r.providers.Register(registration.Provider); err != nil {
+			return err
+		}
+	}
 	registration.Channel = channel
 	r.registrations[channel] = registration
 	return nil
@@ -59,18 +75,6 @@ func (r *Registry) BindingRouter() binding.Router {
 		registration := r.registrations[channel]
 		if registration.Binding != nil {
 			router = router.WithAdapter(channel, registration.Binding)
-		}
-	}
-	return router
-}
-
-func (r *Registry) NotificationRouter() notification.Router {
-	router := notification.NewBaseRouter(r.store)
-	for _, channel := range r.channels() {
-		registration := r.registrations[channel]
-		channelCfg := r.cfg.Tools.Notifications.Channels[channel]
-		if channelCfg.Enabled && registration.Notification != nil {
-			router = router.WithAdapter(channel, registration.Notification)
 		}
 	}
 	return router

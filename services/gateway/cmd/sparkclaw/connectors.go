@@ -12,6 +12,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connector"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -22,6 +24,8 @@ import (
 type connectorAssembly struct {
 	registry    *connector.Registry
 	credentials credential.CredentialVault
+	endpoints   *messagecontrol.EndpointRegistry
+	delivery    *delivery.Gateway
 }
 
 func newConnectorAssembly(
@@ -29,7 +33,11 @@ func newConnectorAssembly(
 	st store.Store,
 	runtime connectorruntime.AgentRuntime,
 	transcriber speech.Transcriber,
+	endpoints *messagecontrol.EndpointRegistry,
 ) (*connectorAssembly, error) {
+	if endpoints == nil {
+		return nil, fmt.Errorf("assemble connectors: endpoint registry is required")
+	}
 	telegramConfig := cfg.Tools.Notifications.Channels["telegram"]
 	vault := credential.New(st, credential.Options{
 		Key:        cfg.State.CredentialKey,
@@ -42,18 +50,26 @@ func newConnectorAssembly(
 		}
 	}
 
-	registry := connector.NewRegistry(cfg, st)
+	registry := connector.NewRegistry(cfg)
+	providers, err := registry.ProviderRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("assemble delivery providers: %w", err)
+	}
+	routes := messagecontrol.NewReturnRouteResolver(endpoints)
+	deliveryGateway := delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{})
+	resultDeliverer := delivery.NewWorkflowResultDeliverer(routes, deliveryGateway)
+	telegramNotifications := telegram.NewNotificationAdapter(st, vault, telegramConfig)
 	telegramService := telegram.NewService(
 		st,
 		telegramConfig,
 		vault,
-		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}),
+		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}).WithResultDeliverer(resultDeliverer),
 	)
 	if err := registry.Register(connector.Registration{
-		Channel:      "telegram",
-		Binding:      binding.NewTelegramAdapter("telegram", telegramConfig, vault),
-		Notification: telegram.NewNotificationAdapter(st, vault, telegramConfig),
-		Runtime:      telegramService,
+		Channel:  "telegram",
+		Binding:  binding.NewTelegramAdapter("telegram", telegramConfig, vault),
+		Provider: telegramNotifications,
+		Runtime:  telegramService,
 		CancelBinding: func(record app.NotificationBinding) {
 			telegramService.CancelBinding(record.ID)
 		},
@@ -64,17 +80,21 @@ func newConnectorAssembly(
 	weixinConfig := cfg.Tools.Notifications.Channels["weixin"]
 	weixinSyncer := weixin.NewSyncer(st).
 		WithConfig(cfg).
-		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg))
+		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(resultDeliverer))
+	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
 	if err := registry.Register(connector.Registration{
-		Channel:      "weixin",
-		Binding:      newWeixinBindingAdapter("weixin", weixinConfig),
-		Notification: notification.NewWeixinAdapter("weixin", weixinConfig, st),
-		Runtime:      weixinSyncer,
+		Channel:  "weixin",
+		Binding:  newWeixinBindingAdapter("weixin", weixinConfig),
+		Provider: weixinNotifications,
+		Runtime:  weixinSyncer,
 	}); err != nil {
 		return nil, fmt.Errorf("register Weixin connector: %w", err)
 	}
 
-	return &connectorAssembly{registry: registry, credentials: vault}, nil
+	return &connectorAssembly{
+		registry: registry, credentials: vault, endpoints: endpoints,
+		delivery: deliveryGateway,
+	}, nil
 }
 
 func newWeixinBindingAdapter(channel string, cfg config.NotificationChannelConfig) binding.Adapter {

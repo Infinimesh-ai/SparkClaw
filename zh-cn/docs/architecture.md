@@ -72,7 +72,15 @@ Speech 是可选且默认关闭的 OpenAI-compatible transcription boundary。Ga
 
 ### 消息连接器注册层
 
-`connector.Registry` 是第三方消息软件的进程内 composition boundary。连接器只注册自己实现的能力：owner binding、outbound notification、可选的 `connectorruntime.Runtime` 和 binding cancellation。Gateway、提醒投递和进程启动只消费这些契约，不按名称选择 Telegram 或微信。`remindertarget.Resolver` 根据统一的 binding/session 字段选择外发 binding，因此 ToolHub 也不依赖 provider。协议专用的 polling、media handling、authorization、acknowledgement、目标校验和发送仍留在各 provider package。
+`connector.Registry` 是第三方消息软件的进程内 composition boundary。连接器只注册自己实现的能力：owner binding、一个 outbound `delivery.Provider`、可选的 inbound `connectorruntime.Runtime` 和 binding cancellation。普通 Agent 结果与定时消息共用同一个 Provider Registry；未来显式发送 Surface 必须通过 `RequestForMessage` 进入同一个 Gateway。Gateway、Message Control 和 Agent Runtime 都不按名称选择 Telegram 或微信。协议专用的 polling、media handling、credential、acknowledgement、地址校验与发送仍留在各 provider package。
+
+### 消息入口与结果投递
+
+Web、第三方设备和 Timer Event 都通过同一个 Provider-neutral 消息边界进入。`MessageEnvelope` 记录来源 Endpoint、原生消息/Thread Identity、Owner Authorization、有序 `MessageContent` Part 和 `ReturnRoute`。文字、图片、音频与文件是消息 Part 类型，不是 Agent Capability。归一化后的 Owner、Authorization、Route Decision 和 Return Route 会持久化到 `AgentRun`，因此幂等重放以及审批/浏览器登录恢复都保留原始身份和返回目标。
+
+每条终态路由都生成 Channel-neutral `WorkflowResult`。已匹配 Workflow 的失败仍是明确结果；只有 `unmatched` 路由可以进入过渡 ReAct。`WorkflowResult -> DeliveryRequest -> Delivery Gateway` 是普通结果唯一的外发链路。Gateway 解析 Endpoint、校验 Owner Authorization、在首次发送前协商整包多媒体能力，再交给已注册 Provider 或 Web 端口。Typing、审批按钮等 Provider Control Message 仍由 Connector 自己处理，但不构成第二条结果链路。
+
+Timer 是一种消息来源，不是只会发送提醒文字的功能。`ScheduleSpec` 保存 Literal Content 或稍后执行的 Request，并携带 Authorization 与 Return Route。Poll Loop 只 Claim 到期任务；有界 Worker Pool 执行 Request，结果仍通过同一个 Delivery Gateway 返回。
 
 ### Telegram
 
@@ -84,17 +92,17 @@ Infinimesh Info 是 `web.search` 的可选 production provider。Credential 从 
 
 ### Agent Runtime
 
-Runtime 通过有界循环处理用户消息：
+Runtime 通过有界的 Router-first 循环处理消息：
 
-1. 创建 agent run 并记录用户消息。
-2. 请求 guard lane 给出 safety verdict。
-3. 规划 tool calls 或 direct answer。
-4. 按需路由 fast/deep model calls。
-5. 在 policy 允许时立即执行 read/draft tools。
-6. 将 reversible/dangerous actions 加入 approval queue。
-7. 对 narrow failures 做有界 repair。
-8. 基于 observations、approvals 和 model output 生成 grounded final answer。
-9. 持久化 trace snapshots、audit events 和 artifact references。
+1. 归一化来源、多媒体 Content、Owner Authorization 和 Return Route。
+2. 创建 Agent Run 并持久化 Message Context。
+3. 请求 Guard Lane 给出 Safety Verdict。
+4. 请求 Fast Router 给出严格的能力树决策。
+5. 把已匹配叶子派发到精确 Workflow 与固定 Tool Scope。
+6. 仅在路由明确为 `unmatched` 时使用过渡 ReAct。
+7. 审批或浏览器登录时暂停并恢复同一个 Workflow。
+8. 生成唯一 `WorkflowResult`，包含已声明的文件/图片输出。
+9. 持久化 Trace，并通过已解析 Endpoint 返回结果。
 
 Guard `block` verdict 会在 tool planning 前停止，不应创建 tool calls 或 approvals。
 
@@ -113,13 +121,15 @@ Model Router 支持 deterministic mock mode、OpenAI-compatible chat completions
 | `guard` | pre-tool safety classification |
 | `mock` | deterministic offline tests 和 golden evals |
 
-### 意图与 Workflow Runtime
+### 能力路由与 Workflow Runtime
 
-Fast classifier 只输出稳定语义 `IntentEnvelope`，不能输出工具、Skill、Workflow ID、风险或模型 lane。确定性 URL/path fact 与 authorization provenance 在归一化时冻结。`WorkflowProfileRegistry` 对归一化 envelope 路由，校验版本化 `WorkflowPlan`，并持久化 digest 与 node state。
+Fast Router 只输出严格 `RouteDecision`：状态、Catalog Revision、已注册能力路径、类型化 Slot、Confidence、Reason 和确定性 Fact。它不能输出工具、Skill、Workflow ID、风险、模型 Lane 或任意字段。确定性 URL/path Fact 在归一化时冻结，Catalog 校验路径每条边和叶子 Operation。
 
-`ToolExposure.Search/Materialize` 是已迁移 Profile 唯一的模型可见性权威。它根据持久化活动 capability scope、ToolHub 注册元数据、risk constraint 与 Policy 计算结果；TaskHint candidate、Skill 清单和 outcome 均不能扩大 scope。Outcome adapter 产生类型化事实，活动 Profile 判断完成或只激活预先声明的 transition。冻结 argument binding 在执行前限制精确 URL 与 Workspace path。
+Catalog revision 2 有四个生产叶子：`browser.search`、`browser.automation`、`document.information` 和 `document.processing`。`WorkflowProfileRegistry.Resolve` 把每个叶子精确映射到 revision 1 Workflow，不再执行意图匹配。Dispatcher 持久化 `RouteDecision`、`ReturnRoute`、已校验 Plan Digest 与 Node State。
 
-Revision 1 Profile 已对公共 Web 调研、明确 URL 读取、Workspace 文件搜索和明确路径文件读取保持权威。Capability 缺失、状态过期、Plan 非法或资源不匹配时必须 blocked，不能回退 TaskHint。未迁移领域在完整纵向切片落地前继续使用过渡 TaskHint 路径。详细说明见[重构方案](intent-routing-workflow-refactor-plan.md)、[工具暴露契约](intent-routing-tool-exposure-contract.md)和[Profile 目录](intent-routing-workflow-domain-profiles.md)。
+ToolHub Capability Metadata 是模型可见性权威。Tool Exposure 在 Policy 约束下物化所选 Workflow 的完整固定 Scope；TaskHint Candidate、Skill 清单和 Outcome 不能扩权。Outcome Adapter 产生类型化 Fact，活动 Profile 判断完成或只激活预先声明的 Transition。审批和浏览器登录恢复使用已持久化路由与精确 Workflow Scope。
+
+Capability 缺失、状态过期、Plan 非法、资源不匹配和已匹配执行失败时必须明确 Block 或 Fail，不能回退。只有 Router 状态为 `unmatched` 时，未迁移领域才进入过渡 ReAct。旧 Web/Workspace Workflow ID 仅作为持久化标识保留，并关闭失败。详细说明见[重构方案](intent-routing-workflow-refactor-plan.md)、[工具暴露契约](intent-routing-tool-exposure-contract.md)和[Profile 目录](intent-routing-workflow-domain-profiles.md)。
 
 ### ToolHub
 
@@ -172,6 +182,11 @@ Connector secret 使用独立的 AES-256-GCM credential vault。默认 file back
 - `Session`
 - `Message`
 - `AgentRun`
+- `MessageEnvelope`
+- `MessageEndpoint`
+- `MessageSchedule`
+- `WorkflowResult`
+- `DeliveryRequest`
 - `WorkflowState`
 - `ToolCall`
 - `Approval`

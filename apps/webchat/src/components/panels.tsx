@@ -821,7 +821,7 @@ export function SettingsPanel({
   language: Language;
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
   onRevokeClient: (id: string) => Promise<void>;
-  onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
+  onStartNotificationBinding: (channel: string, botToken?: string, scopes?: string[]) => Promise<void>;
   onRefreshNotificationBinding: (id: string) => Promise<NotificationBinding>;
   onRevokeNotificationBinding: (id: string) => Promise<void>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
@@ -838,6 +838,8 @@ export function SettingsPanel({
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [revokingClient, setRevokingClient] = useState("");
   const [bindingBusy, setBindingBusy] = useState(false);
+  const [reminderScope, setReminderScope] = useState(true);
+  const [messageScope, setMessageScope] = useState(false);
   const [bindingError, setBindingError] = useState("");
   const [telegramToken, setTelegramToken] = useState("");
 
@@ -964,7 +966,9 @@ export function SettingsPanel({
     setBindingBusy(true);
     setBindingError("");
     try {
-      await onStartNotificationBinding(channel, botToken);
+      const scopes = [reminderScope ? "reminder_send_self" : "", messageScope ? "message_send_self" : ""].filter(Boolean);
+      if (scopes.length === 0) return;
+      await onStartNotificationBinding(channel, botToken, scopes);
       if (channel === "telegram") {
         setTelegramToken("");
       }
@@ -1013,7 +1017,7 @@ export function SettingsPanel({
     const channelConfig = notificationChannels[channel];
     const startable = isTelegram ? channelConfig?.startable === true : channelConfig?.enabled !== false;
     const tokenEditable = isTelegram && channelConfig?.available === true && channelConfig?.operator_enabled === true && channelConfig?.startable === true;
-    const startDisabled = bindingBusy || !startable || (isTelegram && !telegramToken.trim());
+    const startDisabled = bindingBusy || !startable || (!reminderScope && !messageScope) || (isTelegram && !telegramToken.trim());
     const capabilityNote = isTelegram
       ? notificationCapabilityLabel(channelConfig?.disabled_reason ?? "", channelConfig?.binding_status ?? "", text)
       : channelConfig?.enabled === false ? text.settings.bindingOperatorDisabled : channelConfig?.provider;
@@ -1031,6 +1035,16 @@ export function SettingsPanel({
           </div>
         </div>
         {capabilityNote && <span className="muted bindingCapability">{capabilityNote}</span>}
+        <div className="bindingScopeSelector">
+          <label>
+            <input type="checkbox" checked={reminderScope} onChange={(event) => setReminderScope(event.target.checked)} disabled={bindingBusy} />
+            <span>{text.settings.reminderScope}</span>
+          </label>
+          <label>
+            <input type="checkbox" checked={messageScope} onChange={(event) => setMessageScope(event.target.checked)} disabled={bindingBusy} />
+            <span>{text.settings.messageScope}</span>
+          </label>
+        </div>
         {isTelegram && (
           <label className="inputGroup compact telegramTokenInput">
             <span>{text.settings.telegramToken}</span>

@@ -34,6 +34,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
@@ -55,6 +57,10 @@ type Server struct {
 	speech        speech.Transcriber
 	credentials   credential.CredentialVault
 	cancelBinding func(app.NotificationBinding)
+	delivery      *delivery.Gateway
+	endpoints     *messagecontrol.EndpointRegistry
+	providers     *delivery.ProviderRegistry
+	deliveryMu    sync.Mutex
 	bindingsSet   bool
 	mux           *http.ServeMux
 	started       time.Time
@@ -89,6 +95,14 @@ func WithBindingRouter(router binding.Router) Option {
 func WithNotificationBindingCancellation(cancel func(app.NotificationBinding)) Option {
 	return func(server *Server) {
 		server.cancelBinding = cancel
+	}
+}
+
+func WithMessageDelivery(endpoints *messagecontrol.EndpointRegistry, providers *delivery.ProviderRegistry, gateway *delivery.Gateway) Option {
+	return func(server *Server) {
+		server.endpoints = endpoints
+		server.providers = providers
+		server.delivery = gateway
 	}
 }
 
@@ -158,6 +172,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
 	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
 	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)
+	s.mux.HandleFunc("GET /api/delivery-endpoints", s.listDeliveryEndpoints)
+	s.mux.HandleFunc("GET /api/deliveries", s.listDeliveries)
+	s.mux.HandleFunc("POST /api/deliveries", s.createDelivery)
+	s.mux.HandleFunc("GET /api/deliveries/{id}", s.getDelivery)
+	s.mux.HandleFunc("POST /api/deliveries/{id}/retry", s.retryDelivery)
+	s.mux.HandleFunc("GET /api/message-history", s.listMessageHistory)
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
 	s.mux.HandleFunc("POST /api/sessions", s.createSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
@@ -594,6 +614,8 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	}
 	client := app.Client{
 		ID:        app.NewID("client"),
+		OwnerID:   app.DefaultOwnerID,
+		ActorID:   app.DefaultOwnerID,
 		Name:      clientName,
 		TokenHash: hashSecret(token),
 		CreatedAt: time.Now().UTC(),
@@ -612,8 +634,19 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request) {
 	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	principal := principalForRequest(r)
+	visible := []app.NotificationBinding{}
+	for _, binding := range s.store.ListNotificationBindings(channel, status) {
+		actorID := strings.TrimSpace(binding.ActorID)
+		if actorID == "" {
+			actorID = binding.OwnerID
+		}
+		if binding.OwnerID == principal.OwnerID && actorID == principal.ActorID {
+			visible = append(visible, binding)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"bindings": publicNotificationBindings(s.store.ListNotificationBindings(channel, status)),
+		"bindings": publicNotificationBindings(visible),
 	})
 }
 
@@ -645,9 +678,11 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		input.Scopes = []string{"reminder_send_self"}
 	}
 	now := time.Now().UTC()
+	principal := principalForRequest(r)
 	pendingBinding := app.NotificationBinding{
 		ID:                app.NewID("bind"),
-		OwnerID:           app.DefaultOwnerID,
+		OwnerID:           principal.OwnerID,
+		ActorID:           principal.ActorID,
 		Channel:           channel,
 		Status:            "waiting_scan",
 		DefaultForChannel: input.DefaultForChannel,
@@ -678,7 +713,8 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) {
 	bindingID := strings.TrimSpace(r.PathValue("id"))
 	binding, ok := s.store.GetNotificationBinding(bindingID)
-	if !ok {
+	principal := principalForRequest(r)
+	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
 		return
 	}
@@ -729,7 +765,8 @@ func (s *Server) hasActiveDefaultNotificationBinding(channel, exceptID string) b
 func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Request) {
 	bindingID := strings.TrimSpace(r.PathValue("id"))
 	binding, ok := s.store.GetNotificationBinding(bindingID)
-	if !ok {
+	principal := principalForRequest(r)
+	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
 		return
 	}
@@ -1980,20 +2017,25 @@ func withCORS(next http.Handler) http.Handler {
 
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.authRequired() || s.isPublicRoute(r) {
+		if s.isPublicRoute(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if !s.authRequired() {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, defaultRequestPrincipal())))
 			return
 		}
 		got := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		if s.isPairingBootstrapRequest(r) && got == "" {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, defaultRequestPrincipal())))
 			return
 		}
-		if got == "" || !s.validBearerToken(got) {
+		principal, ok := s.authenticateBearer(got)
+		if got == "" || !ok {
 			writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, principal)))
 	})
 }
 
@@ -2038,17 +2080,49 @@ func (s *Server) isPairingBootstrapRequest(r *http.Request) bool {
 }
 
 func (s *Server) validBearerToken(token string) bool {
+	_, ok := s.authenticateBearer(token)
+	return ok
+}
+
+func (s *Server) authenticateBearer(token string) (requestPrincipal, bool) {
 	if configured := strings.TrimSpace(s.cfg.Gateway.APIToken); configured != "" {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(configured)) == 1 {
-			return true
+			return defaultRequestPrincipal(), true
 		}
 	}
 	client, ok := s.store.FindClientByTokenHash(hashSecret(token))
 	if !ok {
-		return false
+		return requestPrincipal{}, false
 	}
 	s.store.TouchClient(client.ID)
-	return true
+	ownerID := strings.TrimSpace(client.OwnerID)
+	if ownerID == "" {
+		ownerID = app.DefaultOwnerID
+	}
+	actorID := strings.TrimSpace(client.ActorID)
+	if actorID == "" {
+		actorID = ownerID
+	}
+	return requestPrincipal{OwnerID: ownerID, ActorID: actorID, ClientID: client.ID}, true
+}
+
+type requestPrincipalContextKey struct{}
+
+type requestPrincipal struct {
+	OwnerID  string
+	ActorID  string
+	ClientID string
+}
+
+func defaultRequestPrincipal() requestPrincipal {
+	return requestPrincipal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}
+}
+
+func principalForRequest(r *http.Request) requestPrincipal {
+	if principal, ok := r.Context().Value(requestPrincipalContextKey{}).(requestPrincipal); ok && principal.OwnerID != "" && principal.ActorID != "" {
+		return principal
+	}
+	return defaultRequestPrincipal()
 }
 
 func readJSON(r *http.Request, dst any) error {
@@ -2440,6 +2514,13 @@ func configuredStatus(value string) string {
 		return ""
 	}
 	return "configured"
+}
+
+func firstEndpointActor(binding app.NotificationBinding) string {
+	if actorID := strings.TrimSpace(binding.ActorID); actorID != "" {
+		return actorID
+	}
+	return strings.TrimSpace(binding.OwnerID)
 }
 
 func stateEncryptionStatus(value string) string {

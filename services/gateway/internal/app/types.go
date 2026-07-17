@@ -69,29 +69,30 @@ type Approval struct {
 }
 
 type Reminder struct {
-	ID               string     `json:"id"`
-	SessionID        string     `json:"session_id,omitempty"`
-	RunID            string     `json:"run_id,omitempty"`
-	Text             string     `json:"text"`
-	TextSummary      string     `json:"text_summary"`
-	DueTime          time.Time  `json:"due_time"`
-	Timezone         string     `json:"timezone"`
-	Channel          string     `json:"channel"`
-	Recipient        string     `json:"recipient"`
-	RecipientBinding string     `json:"recipient_binding,omitempty"`
-	BindingID        string     `json:"binding_id,omitempty"`
-	CredentialRef    string     `json:"credential_ref,omitempty"`
-	BaseURL          string     `json:"base_url,omitempty"`
-	Recurrence       string     `json:"recurrence,omitempty"`
-	DedupeKey        string     `json:"dedupe_key,omitempty"`
-	Status           string     `json:"status"`
-	LastDeliveryID   string     `json:"last_delivery_id,omitempty"`
-	LastError        string     `json:"last_error,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	SentAt           *time.Time `json:"sent_at,omitempty"`
-	CanceledAt       *time.Time `json:"canceled_at,omitempty"`
-	DeliveryAttempt  int        `json:"delivery_attempt"`
+	ID               string        `json:"id"`
+	SessionID        string        `json:"session_id,omitempty"`
+	RunID            string        `json:"run_id,omitempty"`
+	Text             string        `json:"text"`
+	TextSummary      string        `json:"text_summary"`
+	DueTime          time.Time     `json:"due_time"`
+	Timezone         string        `json:"timezone"`
+	Channel          string        `json:"channel"`
+	Recipient        string        `json:"recipient"`
+	RecipientBinding string        `json:"recipient_binding,omitempty"`
+	BindingID        string        `json:"binding_id,omitempty"`
+	CredentialRef    string        `json:"credential_ref,omitempty"`
+	BaseURL          string        `json:"base_url,omitempty"`
+	Recurrence       string        `json:"recurrence,omitempty"`
+	DedupeKey        string        `json:"dedupe_key,omitempty"`
+	Status           string        `json:"status"`
+	LastDeliveryID   string        `json:"last_delivery_id,omitempty"`
+	LastError        string        `json:"last_error,omitempty"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	SentAt           *time.Time    `json:"sent_at,omitempty"`
+	CanceledAt       *time.Time    `json:"canceled_at,omitempty"`
+	DeliveryAttempt  int           `json:"delivery_attempt"`
+	ScheduleSpec     *ScheduleSpec `json:"schedule_spec,omitempty"`
 }
 
 type ReminderFilter struct {
@@ -119,6 +120,7 @@ type ReminderDelivery struct {
 type NotificationBinding struct {
 	ID                string     `json:"id"`
 	OwnerID           string     `json:"owner_id"`
+	ActorID           string     `json:"actor_id,omitempty"`
 	Channel           string     `json:"channel"`
 	Provider          string     `json:"provider"`
 	Status            string     `json:"status"`
@@ -145,22 +147,24 @@ type NotificationBinding struct {
 }
 
 type ExternalChatSession struct {
-	ID               string    `json:"id"`
-	OwnerID          string    `json:"owner_id,omitempty"`
-	WorkspaceRoot    string    `json:"workspace_root,omitempty"`
-	BindingID        string    `json:"binding_id"`
-	Channel          string    `json:"channel"`
-	Provider         string    `json:"provider"`
-	ExternalUserID   string    `json:"external_user_id,omitempty"`
-	ExternalChatID   string    `json:"external_chat_id,omitempty"`
-	ExternalThreadID string    `json:"external_thread_id,omitempty"`
-	DisplayName      string    `json:"display_name,omitempty"`
-	LinkedSessionID  string    `json:"linked_session_id,omitempty"`
-	Status           string    `json:"status"`
-	ProviderCursor   string    `json:"provider_cursor,omitempty"`
-	LastContextToken string    `json:"last_context_token,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                string    `json:"id"`
+	OwnerID           string    `json:"owner_id,omitempty"`
+	AuthorizedOwnerID string    `json:"authorized_owner_id,omitempty"`
+	AuthorizedActorID string    `json:"authorized_actor_id,omitempty"`
+	WorkspaceRoot     string    `json:"workspace_root,omitempty"`
+	BindingID         string    `json:"binding_id"`
+	Channel           string    `json:"channel"`
+	Provider          string    `json:"provider"`
+	ExternalUserID    string    `json:"external_user_id,omitempty"`
+	ExternalChatID    string    `json:"external_chat_id,omitempty"`
+	ExternalThreadID  string    `json:"external_thread_id,omitempty"`
+	DisplayName       string    `json:"display_name,omitempty"`
+	LinkedSessionID   string    `json:"linked_session_id,omitempty"`
+	Status            string    `json:"status"`
+	ProviderCursor    string    `json:"provider_cursor,omitempty"`
+	LastContextToken  string    `json:"last_context_token,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type ExternalChatMessage struct {
@@ -355,6 +359,8 @@ type Session struct {
 
 type Client struct {
 	ID         string     `json:"id"`
+	OwnerID    string     `json:"owner_id,omitempty"`
+	ActorID    string     `json:"actor_id,omitempty"`
 	Name       string     `json:"name"`
 	TokenHash  string     `json:"-"`
 	CreatedAt  time.Time  `json:"created_at"`
@@ -411,15 +417,16 @@ type VerifierDecision struct {
 }
 
 type AgentRun struct {
-	ID          string         `json:"id"`
-	SessionID   string         `json:"session_id"`
-	State       string         `json:"state"`
-	ModelLane   string         `json:"model_lane"`
-	Risk        RiskLevel      `json:"risk"`
-	StartedAt   time.Time      `json:"started_at"`
-	CompletedAt *time.Time     `json:"completed_at,omitempty"`
-	Summary     string         `json:"summary,omitempty"`
-	Workflow    *WorkflowState `json:"workflow,omitempty"`
+	ID             string             `json:"id"`
+	SessionID      string             `json:"session_id"`
+	State          string             `json:"state"`
+	ModelLane      string             `json:"model_lane"`
+	Risk           RiskLevel          `json:"risk"`
+	StartedAt      time.Time          `json:"started_at"`
+	CompletedAt    *time.Time         `json:"completed_at,omitempty"`
+	Summary        string             `json:"summary,omitempty"`
+	MessageContext *MessageRunContext `json:"message_context,omitempty"`
+	Workflow       *WorkflowState     `json:"workflow,omitempty"`
 }
 
 type ModelCall struct {

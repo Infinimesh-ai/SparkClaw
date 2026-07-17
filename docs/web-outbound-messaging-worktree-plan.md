@@ -318,18 +318,27 @@ screenshots when browser tooling is available.
 
 ## 11. Execution Ledger
 
-This table remains empty until the owner approves execution.
+Execution was approved and integrated on 2026-07-17. Task 3 independently
+verified each source commit graph, diff ownership, worktree cleanliness,
+generated-artifact state, secret scan, and validation evidence before merging.
+The approved design semantics above remain unchanged.
 
 | Item | Value |
 |---|---|
-| Approved by owner | Pending |
+| Approved by owner | Approved for the three visible worktrees on 2026-07-17 |
 | Primary WIP preservation | Separately authorized; not the frozen feature base |
-| Frozen base SHA | Pending |
-| Task 1 visible task/worktree | Not created |
-| Task 2 visible task/worktree | Not created |
-| Task 3 visible task/worktree | Not created |
-| Task 1 commit set | Pending |
-| Task 2 commit set | Pending |
-| Task 1 merge commit | Pending |
-| Task 2 merge commit | Pending |
-| Final validation | Pending |
+| Frozen base | `codex/web-outbound-parallel-base` at `f9b6e804c1caec067d58bb81ade4d793c8e116aa` |
+| Task 1 source task | `threadId=019f6e2c-ad06-7713-851f-cb5448a49acf`, `hostId=local`; branch `codex/web-outbound-message-io`; clean HEAD `497435a9d854376fd80841fe0b5ce9becc353a2d` |
+| Task 1 commit set | `60c57d54cf318bae4b39ad23a91d7ea1aecec3ca`, `2dfacb30c4bad7747dda1582b2e1e948b12258b3`, `ccd13c3c83a05c69805e42910d07f8b53c52f56b`, `72c7454f37f0181676725149b862fa0d7a873900`, `8208ef2606677a032e2e68850e4b42c862312352`, `d8648288762ec8507b4599635d8ee7d16cbec884`, `497435a9d854376fd80841fe0b5ce9becc353a2d` |
+| Task 1 source validation | Gateway build/vet/test and affected uncached packages passed; WebChat direct `tsc -b`, 11 Vitest tests, Vite build, doctor, isolated 43/43 eval, desktop 1440x900 and mobile 390x844 visual checks passed; source worktree was clean with only dependency caches ignored |
+| Task 2 source task | `threadId=019f6e2c-ad05-76e3-94de-f9c21dcc760b`, `hostId=local`; branch `codex/web-outbound-task2-routing-workflows`; clean HEAD `802370b4808ecafe1d0c60975825b3c7f97097b4` |
+| Task 2 commit set | `ae1678b47c13da44c6b1b95fea88b31d43305fbe`, `f86129c04e251ebda12a03e3ecbb3428e902b5e3`, `6b2eeaf95bfaa445a4a5de8486fdf3c7d9803c27`, `00e7c5deed99190213f13f9b7d856257e7d86695`, `802370b4808ecafe1d0c60975825b3c7f97097b4` |
+| Task 2 source validation | Affected and full uncached Go build/vet/test passed; doctor passed with only occupied-port warnings; isolated 43/43 eval passed; typed-directive grounding, send approval/rejection/replay, dynamic registration, stage exposure, and legacy-context tests passed; source worktree was clean with only dependency caches ignored |
+| Task 1 merge commit | `accc5eaf7e632278b73605ad24e8ead634d47df7` (`--no-ff`; parents `e687b87be088a47e2052e2e0ffdc3c1e11b67163` and Task 1 HEAD) |
+| Task 1 post-merge validation | Go build/vet plus eight affected uncached packages passed; WebChat direct `tsc -b`, 11 Vitest tests, and Vite production build passed; merge diff and secret/artifact gates passed |
+| Task 2 merge commit | `93ff4ca7e03d90f190c325717e0e77dcbfac601b` (`--no-ff`; parents Task 1 merge and Task 2 HEAD) |
+| Task 2 conflict and validation | One `web_workflow_test.go` conflict retained Task 2's typed document result and mechanically adapted Task 1's unified Delivery Gateway assertion; build/vet and agent/capability/toolhub/modelrouter/gateway uncached tests passed |
+| Integration commit | `ac98afcd1cb066b32dd8a934583583a1b30e034a`; canonical `app.DeliveryTargetSelection`, typed Router-to-resolver adapter, shared runtime assembly, and Gateway delivery wiring |
+| Final validation | Gateway `go build ./...`, `go vet ./...`, and `go test ./... -count=1` passed; WebChat direct Node 24 `tsc -b`, 11 Vitest tests, and Vite production build passed; doctor passed; isolated port 18889 mock eval passed 43/43 plus extended checks |
+| Documentation, Compose, and security | English/Chinese mirror and local-link validation passed; default Compose rendered with `docker/env/sparkclaw.example.env`; `git diff --check`, commit-trailer, secret, generated-artifact, and listener cleanup gates passed |
+| Residual risks | `SPARKCLAW_TEST_POSTGRES_DSN` was absent, so live PostgreSQL integration tests were skipped while PostgreSQL code compiled and memory/file backends passed; no real Telegram/Weixin credentials were used; desktop npm wrapper commands were avoided because of the known SIGKILL issue and equivalent direct Node stages passed; ports 18789/18790 belonged to existing processes, so eval used isolated 18889 |

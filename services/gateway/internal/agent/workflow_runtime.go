@@ -27,14 +27,19 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 	}
 
 	matchedEntry := app.ToolDirectoryEntryID("")
+	matchedCapability := app.CapabilityDescriptor{}
 	for _, capability := range definition.Capabilities {
 		if capability.Name == plan.Capability && matchesAnyRequirement(capability, state.CurrentScope.Requirements) {
 			matchedEntry = directoryEntryID(definition, capability)
+			matchedCapability = capability
 			break
 		}
 	}
 	if matchedEntry == "" || !containsDirectoryEntryID(state.SelectedEntries, matchedEntry) {
 		return errors.New("tool call was not materialized for the active workflow scope")
+	}
+	if !qualifierBoundArgumentsAllowed(definition, matchedCapability, plan.Args) {
+		return errors.New("tool arguments contradict the materialized capability qualifiers")
 	}
 
 	node, ok := workflowPlanNode(run.Workflow.Plan, plan.WorkflowNodeID)
@@ -45,11 +50,49 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 		if binding.Capability != plan.Capability {
 			continue
 		}
-		if !workflowArgumentAllowed(binding, node, run.Workflow.Intent, state, plan.Args) {
+		if !workflowArgumentAllowed(binding, node, run.Workflow.Intent, run.Workflow.Route, state, plan.Args) {
 			return errors.New("tool arguments are outside the frozen workflow resource boundary")
 		}
 	}
 	return nil
+}
+
+func qualifierBoundArgumentsAllowed(definition app.ToolDefinition, capability app.CapabilityDescriptor, args map[string]any) bool {
+	properties, _ := definition.InputSchema["properties"].(map[string]any)
+	for qualifier, expected := range capability.Qualifiers {
+		if _, declared := properties[qualifier]; !declared {
+			continue
+		}
+		if strings.TrimSpace(stringValue(args[qualifier])) != expected {
+			return false
+		}
+	}
+	return true
+}
+
+func (r Runtime) materializedWorkflowCapability(runID string, nodeID app.WorkflowNodeID, scopeRevision int, toolName string) (string, error) {
+	run, ok := r.store.GetRun(runID)
+	if !ok || run.Workflow == nil {
+		return "", errors.New("workflow state is unavailable for tool selection")
+	}
+	state, ok := run.Workflow.Nodes[nodeID]
+	if !ok || state.Status != app.WorkflowNodeActive || state.ScopeRevision != scopeRevision {
+		return "", errors.New("workflow tool selection is outside the active scope")
+	}
+	definition, ok := r.tools.Definition(toolName)
+	if !ok {
+		return "", errors.New("workflow selected an unregistered tool")
+	}
+	for _, descriptor := range definition.Capabilities {
+		if !matchesAnyRequirement(descriptor, state.CurrentScope.Requirements) {
+			continue
+		}
+		entryID := directoryEntryID(definition, descriptor)
+		if containsDirectoryEntryID(state.SelectedEntries, entryID) {
+			return descriptor.Name, nil
+		}
+	}
+	return "", errors.New("workflow selected a tool outside its fixed capability boundary")
 }
 
 func containsDirectoryEntryID(values []app.ToolDirectoryEntryID, expected app.ToolDirectoryEntryID) bool {
@@ -61,7 +104,7 @@ func containsDirectoryEntryID(values []app.ToolDirectoryEntryID, expected app.To
 	return false
 }
 
-func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode, intent app.IntentEnvelope, state app.WorkflowNodeState, args map[string]any) bool {
+func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode, intent app.IntentEnvelope, route app.RouteDecision, state app.WorkflowNodeState, args map[string]any) bool {
 	requested := strings.TrimSpace(stringValue(args[binding.Argument]))
 	if requested == "" || requested == "<nil>" {
 		return false
@@ -83,11 +126,31 @@ func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode,
 				allowed = append(allowed, ref.Ref)
 			}
 		}
+	case app.ArgumentBindingRouteSlot:
+		switch binding.SourceKey {
+		case "query":
+			allowed = append(allowed, route.Slots.Query)
+		case "target_ref":
+			allowed = append(allowed, route.Slots.TargetRef)
+		case "output_ref":
+			allowed = append(allowed, route.Slots.OutputRef)
+		default:
+			return false
+		}
+	case app.ArgumentBindingRouteFact:
+		allowed = append(allowed, route.Facts[binding.SourceKey])
 	default:
 		return false
 	}
 	for _, candidate := range allowed {
-		if requested == strings.TrimSpace(candidate) {
+		candidate = strings.TrimSpace(candidate)
+		if binding.ResourceKind == "url" {
+			if normalizeBrowserURL(requested) == normalizeBrowserURL(candidate) {
+				return true
+			}
+			continue
+		}
+		if requested == candidate {
 			return true
 		}
 	}
@@ -136,14 +199,18 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 }
 
 func (r Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition) reactRunResult {
+	return r.runWorkflowWithSeed(ctx, sessionID, run, content, profile, hint, relevantSkills, visibleTools, nil, nil)
+}
+
+func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
 	actorRef := r.workflowActorRef(sessionID)
-	allCalls := []app.ToolCall{}
+	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
-	allObservations := []string{}
+	allObservations := append([]string(nil), seedObservations...)
 	latest := reactRunResult{}
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
-		stageResult := r.runReActLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, allCalls, allObservations)
+		stageResult := r.runWorkflowModelStep(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, allCalls, allObservations)
 		allCalls = append(allCalls, stageResult.ToolCalls...)
 		allApprovals = append(allApprovals, stageResult.Approvals...)
 		allObservations = stageResult.Observations

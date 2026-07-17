@@ -3,19 +3,37 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 )
 
 type workflowProfile interface {
 	ID() app.WorkflowID
 	Revision() int
-	Recognize(sourceTurnID, content string) (app.IntentEnvelope, bool)
-	Match(app.IntentEnvelope) bool
-	Resolve(app.IntentEnvelope) (app.WorkflowPlan, error)
+	Capability() app.CapabilityID
+	Recognize(workflowRecognitionContext) (workflowRecognition, bool)
+	Resolve(app.RouteDecision, string) (app.IntentEnvelope, app.WorkflowPlan, error)
+	Prepare(*app.WorkflowState) (app.TransitionID, bool, error)
 	Assess(*app.WorkflowState, app.ToolOutcome) app.NodeAssessment
 	Hint(*app.WorkflowState) workflowExecutionHint
 	TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string
+}
+
+type workflowRecognitionContext struct {
+	SourceTurnID  string
+	Content       string
+	Snapshot      agentContextSnapshot
+	WorkspaceRoot string
+}
+
+type workflowRecognition struct {
+	Status     app.RouteStatus
+	Slots      app.RouteSlots
+	Facts      map[string]string
+	Confidence float64
+	Reason     string
 }
 
 type workflowExecutionHint struct {
@@ -52,69 +70,45 @@ func (hint workflowExecutionHint) taskHint() TaskHint {
 	}
 }
 
-func (r workflowProfileRegistry) Route(intent app.IntentEnvelope) (workflowProfile, bool, error) {
-	var matched workflowProfile
-	for _, profile := range r.ordered {
-		if !profile.Match(intent) {
-			continue
-		}
-		if matched != nil {
-			return nil, true, fmt.Errorf("stable intent matches ambiguous workflow profiles %q and %q", matched.ID(), profile.ID())
-		}
-		matched = profile
-	}
-	return matched, matched != nil, nil
-}
-
 type workflowProfileRegistry struct {
-	ordered []workflowProfile
-	byID    map[app.WorkflowID]workflowProfile
+	byCapability map[app.CapabilityID]workflowProfile
+	byID         map[app.WorkflowID]workflowProfile
 }
 
-type recognizedWorkflow struct {
+type resolvedWorkflow struct {
 	Profile workflowProfile
 	Intent  app.IntentEnvelope
+	Plan    app.WorkflowPlan
 }
 
 func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegistry {
 	registry := workflowProfileRegistry{
-		ordered: append([]workflowProfile(nil), profiles...),
-		byID:    make(map[app.WorkflowID]workflowProfile, len(profiles)),
+		byCapability: make(map[app.CapabilityID]workflowProfile, len(profiles)),
+		byID:         make(map[app.WorkflowID]workflowProfile, len(profiles)),
 	}
 	for _, profile := range profiles {
-		if profile == nil || profile.ID() == "" || profile.Revision() <= 0 {
+		if profile == nil || profile.ID() == "" || profile.Revision() <= 0 || profile.Capability() == "" {
 			panic("workflow profile registration is incomplete")
 		}
 		if _, exists := registry.byID[profile.ID()]; exists {
 			panic("duplicate workflow profile registration: " + string(profile.ID()))
 		}
+		if _, exists := registry.byCapability[profile.Capability()]; exists {
+			panic("duplicate workflow capability registration: " + string(profile.Capability()))
+		}
 		registry.byID[profile.ID()] = profile
+		registry.byCapability[profile.Capability()] = profile
 	}
 	return registry
 }
 
 func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	return newWorkflowProfileRegistry(
-		webPublicResearchProfile{},
-		webExplicitURLProfile{},
-		workspaceFileSearchProfile{},
-		workspaceFileReadProfile{},
+		browserInternetSearchProfile{},
+		browserAutomationProfile{},
+		documentReadProfile{},
+		documentEditProfile{},
 	)
-}
-
-func (r workflowProfileRegistry) Recognize(sourceTurnID, content string) (recognizedWorkflow, bool, error) {
-	var matched recognizedWorkflow
-	for _, profile := range r.ordered {
-		intent, ok := profile.Recognize(sourceTurnID, content)
-		if !ok {
-			continue
-		}
-		if matched.Profile != nil {
-			return recognizedWorkflow{}, true, fmt.Errorf("ambiguous workflow profiles %q and %q", matched.Profile.ID(), profile.ID())
-		}
-		matched = recognizedWorkflow{Profile: profile, Intent: intent}
-	}
-	return matched, matched.Profile != nil, nil
 }
 
 func (r workflowProfileRegistry) Get(id app.WorkflowID) (workflowProfile, error) {
@@ -125,20 +119,77 @@ func (r workflowProfileRegistry) Get(id app.WorkflowID) (workflowProfile, error)
 	return profile, nil
 }
 
-func (r workflowProfileRegistry) Resolve(recognized recognizedWorkflow) (workflowProfile, app.WorkflowPlan, error) {
-	if recognized.Profile == nil {
-		return nil, app.WorkflowPlan{}, errors.New("recognized workflow has no profile")
+func (r workflowProfileRegistry) Recognize(catalog capability.Catalog, input workflowRecognitionContext) (app.RouteDecision, error) {
+	matches := make([]app.RouteDecision, 0, 1)
+	profileIDs := make([]string, 0, len(r.byID))
+	for id := range r.byID {
+		profileIDs = append(profileIDs, string(id))
 	}
-	profile, err := r.Get(recognized.Profile.ID())
+	sort.Strings(profileIDs)
+	for _, profileID := range profileIDs {
+		profile := r.byID[app.WorkflowID(profileID)]
+		recognition, ok := profile.Recognize(input)
+		if !ok {
+			continue
+		}
+		path, err := catalog.PathTo(profile.Capability())
+		if err != nil {
+			return app.RouteDecision{}, fmt.Errorf("registered workflow %q has no catalog leaf: %w", profile.ID(), err)
+		}
+		status := recognition.Status
+		if status == "" {
+			status = app.RouteMatched
+		}
+		decision := app.RouteDecision{
+			SchemaVersion: app.RouteDecisionSchemaVersion, Status: status, CatalogRevision: catalog.Revision(),
+			CapabilityPath: path, Slots: recognition.Slots, Facts: cloneStringMap(recognition.Facts),
+			Confidence: recognition.Confidence, Reason: recognition.Reason,
+		}
+		if err := catalog.ValidateDecision(decision); err != nil {
+			return app.RouteDecision{}, fmt.Errorf("workflow %q recognition is invalid: %w", profile.ID(), err)
+		}
+		matches = append(matches, decision)
+	}
+	if len(matches) == 0 {
+		return app.RouteDecision{
+			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: catalog.Revision(),
+			Confidence: 0.8, Reason: "No registered capability profile matched the request.",
+		}, nil
+	}
+	if len(matches) > 1 {
+		return app.RouteDecision{
+			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteClarify, CatalogRevision: catalog.Revision(),
+			Confidence: 0.5, Reason: "More than one registered capability profile matched the request.",
+		}, nil
+	}
+	return matches[0], nil
+}
+
+func (r workflowProfileRegistry) Resolve(catalog capability.Catalog, decision app.RouteDecision, sourceTurnID string) (resolvedWorkflow, error) {
+	if err := catalog.ValidateDecision(decision); err != nil {
+		return resolvedWorkflow{}, err
+	}
+	leafID, err := routeLeaf(decision)
 	if err != nil {
-		return nil, app.WorkflowPlan{}, err
+		return resolvedWorkflow{}, err
 	}
-	plan, err := profile.Resolve(recognized.Intent)
+	leaf, err := catalog.ResolveLeaf(decision.CapabilityPath)
+	if err != nil || leaf.Workflow == nil {
+		return resolvedWorkflow{}, errors.New("matched capability leaf has no workflow contract")
+	}
+	profile, ok := r.byCapability[leafID]
+	if !ok {
+		return resolvedWorkflow{}, fmt.Errorf("capability %q has no registered workflow", leafID)
+	}
+	if leaf.Workflow.ID != profile.ID() || leaf.Workflow.Revision != profile.Revision() {
+		return resolvedWorkflow{}, fmt.Errorf("capability %q workflow contract does not match its registry entry", leafID)
+	}
+	intent, plan, err := profile.Resolve(decision, sourceTurnID)
 	if err != nil {
-		return nil, app.WorkflowPlan{}, err
+		return resolvedWorkflow{}, err
 	}
-	if err := validateWorkflowPlan(recognized.Intent, profile, plan); err != nil {
-		return nil, app.WorkflowPlan{}, err
+	if err := validateWorkflowPlan(intent, profile, plan); err != nil {
+		return resolvedWorkflow{}, err
 	}
-	return profile, plan, nil
+	return resolvedWorkflow{Profile: profile, Intent: intent, Plan: plan}, nil
 }

@@ -17,11 +17,26 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
+
+func newWeixinTestResultDeliverer(t *testing.T, st store.Store, cfg config.Config) connectorruntime.ResultDeliverer {
+	t.Helper()
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st)); err != nil {
+		t.Fatal(err)
+	}
+	gateway := delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{})
+	return delivery.NewWorkflowResultDeliverer(messagecontrol.NewReturnRouteResolver(endpoints), gateway)
+}
 
 func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 	var gotAuth string
@@ -181,7 +196,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context())
@@ -210,6 +225,10 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	linkedSession, ok := st.GetSession(chatSession.LinkedSessionID)
 	if !ok || linkedSession.Source != "weixin" || !linkedSession.Hidden {
 		t.Fatalf("linked session should be hidden weixin session: %#v", linkedSession)
+	}
+	runs := st.ListRuns(chatSession.LinkedSessionID)
+	if len(runs) != 1 || runs[0].MessageContext == nil || runs[0].MessageContext.OwnerID != chatSession.OwnerID || runs[0].MessageContext.ReturnRoute.SourceEndpointID != app.EndpointID(chatSession.ID) || runs[0].MessageContext.Route.Status != app.RouteUnmatched {
+		t.Fatalf("weixin run did not persist the external endpoint route context: %#v", runs)
 	}
 	for _, session := range st.ListSessions() {
 		if session.ID == chatSession.LinkedSessionID {
@@ -300,7 +319,7 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context())
@@ -341,7 +360,7 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	}
 }
 
-func TestSyncerDispatchesSingleMediaMarkdownAsImage(t *testing.T) {
+func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 	var sawUpload bool
 	var sentTextItems int
 	var sentImageItems int
@@ -454,20 +473,20 @@ func TestSyncerDispatchesSingleMediaMarkdownAsImage(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"])
+	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"]).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 	syncer.Tick(t.Context())
 	syncer.Wait()
 
-	if !sawUpload {
-		t.Fatal("expected generated weather card to be uploaded as image")
+	if sawUpload {
+		t.Fatal("Markdown text must not bypass the structured MessagePart contract")
 	}
-	if sentImageItems != 1 || sentTextItems != 0 {
-		t.Fatalf("expected one image item and no text items, got image=%d text=%d", sentImageItems, sentTextItems)
+	if sentImageItems != 0 || sentTextItems != 1 {
+		t.Fatalf("expected Markdown to remain one text part, got image=%d text=%d", sentImageItems, sentTextItems)
 	}
 	if sentContext != "ctx-1" {
-		t.Fatalf("image reply should use inbound context token, got %q", sentContext)
+		t.Fatalf("reply should use inbound context token, got %q", sentContext)
 	}
 }
 
@@ -560,7 +579,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context())
@@ -672,7 +691,7 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 		})
 	}
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 
 	syncer.Tick(t.Context())
@@ -747,7 +766,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 	}
 	st.SaveNotificationBinding(binding)
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
-	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
+	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	inbound := InboundMessage{
 		Binding:      binding,

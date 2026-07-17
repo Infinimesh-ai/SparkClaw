@@ -45,12 +45,16 @@ CREATE INDEX IF NOT EXISTS owners_external_ref_idx ON owners(source, external_re
 
 CREATE TABLE IF NOT EXISTS clients (
   id TEXT PRIMARY KEY,
+	owner_id TEXT NOT NULL DEFAULT 'owner',
+	actor_id TEXT NOT NULL DEFAULT 'owner',
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at TIMESTAMPTZ,
   revoked_at TIMESTAMPTZ
 );
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT 'owner';
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS actor_id TEXT NOT NULL DEFAULT 'owner';
 
 CREATE TABLE IF NOT EXISTS pairing_codes (
   id TEXT PRIMARY KEY,
@@ -90,12 +94,14 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   model_lane TEXT NOT NULL,
   risk_level TEXT NOT NULL,
   summary TEXT,
-  workflow_state JSONB,
+	workflow_state JSONB,
+	message_context JSONB,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
 );
 
 ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS workflow_state JSONB;
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS message_context JSONB;
 
 CREATE TABLE IF NOT EXISTS run_feedback (
   id TEXT PRIMARY KEY,
@@ -198,6 +204,7 @@ ALTER TABLE reminders ADD COLUMN IF NOT EXISTS recipient_binding TEXT NOT NULL D
 ALTER TABLE reminders ADD COLUMN IF NOT EXISTS binding_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE reminders ADD COLUMN IF NOT EXISTS credential_ref TEXT NOT NULL DEFAULT '';
 ALTER TABLE reminders ADD COLUMN IF NOT EXISTS base_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS schedule_spec JSONB;
 
 CREATE INDEX IF NOT EXISTS reminders_status_due_time_idx ON reminders (status, due_time);
 
@@ -221,6 +228,7 @@ CREATE INDEX IF NOT EXISTS reminder_deliveries_reminder_id_idx ON reminder_deliv
 CREATE TABLE IF NOT EXISTS notification_bindings (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,
+	actor_id TEXT NOT NULL DEFAULT '',
   channel TEXT NOT NULL,
   provider TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -245,6 +253,8 @@ CREATE TABLE IF NOT EXISTS notification_bindings (
   revoked_at TIMESTAMPTZ,
   last_error TEXT NOT NULL DEFAULT ''
 );
+
+ALTER TABLE notification_bindings ADD COLUMN IF NOT EXISTS actor_id TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS notification_bindings_channel_status_idx ON notification_bindings (channel, status);
 
@@ -301,6 +311,8 @@ CREATE INDEX IF NOT EXISTS weixin_chat_messages_chat_created_idx ON weixin_chat_
 CREATE TABLE IF NOT EXISTS external_chat_sessions (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL DEFAULT '',
+	authorized_owner_id TEXT NOT NULL DEFAULT '',
+	authorized_actor_id TEXT NOT NULL DEFAULT '',
   workspace_root TEXT NOT NULL DEFAULT '',
   binding_id TEXT NOT NULL,
   channel TEXT NOT NULL,
@@ -316,6 +328,9 @@ CREATE TABLE IF NOT EXISTS external_chat_sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE external_chat_sessions ADD COLUMN IF NOT EXISTS authorized_owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE external_chat_sessions ADD COLUMN IF NOT EXISTS authorized_actor_id TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS external_chat_sessions_binding_chat_idx
   ON external_chat_sessions(binding_id, external_chat_id, external_thread_id);
@@ -343,6 +358,36 @@ CREATE INDEX IF NOT EXISTS external_chat_messages_external_idx
   ON external_chat_messages(chat_session_id, external_message_id);
 CREATE INDEX IF NOT EXISTS external_chat_messages_chat_created_idx
   ON external_chat_messages(chat_session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS message_receive_records (
+	id TEXT PRIMARY KEY,
+	owner_id TEXT NOT NULL,
+	actor_id TEXT NOT NULL,
+	source_endpoint_id TEXT NOT NULL DEFAULT '',
+	native_message_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	record JSONB NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(source_endpoint_id, native_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS message_receive_owner_actor_idx
+	ON message_receive_records(owner_id, actor_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS message_delivery_records (
+	id TEXT PRIMARY KEY,
+	owner_id TEXT NOT NULL,
+	actor_id TEXT NOT NULL,
+	idempotency_key TEXT NOT NULL,
+	content_digest TEXT NOT NULL,
+	status TEXT NOT NULL,
+	record JSONB NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(owner_id, actor_id, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS message_delivery_owner_actor_idx
+	ON message_delivery_records(owner_id, actor_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS channel_inbox_updates (
   id TEXT PRIMARY KEY,
@@ -702,23 +747,31 @@ func (s *PostgresStore) SaveClient(client app.Client) {
 	if client.CreatedAt.IsZero() {
 		client.CreatedAt = time.Now().UTC()
 	}
+	if strings.TrimSpace(client.OwnerID) == "" {
+		client.OwnerID = app.DefaultOwnerID
+	}
+	if strings.TrimSpace(client.ActorID) == "" {
+		client.ActorID = client.OwnerID
+	}
 	ctx := context.Background()
 	_, _ = s.db.Exec(ctx, `
-		INSERT INTO clients (id, name, token_hash, created_at, last_seen_at, revoked_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO clients (id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (id) DO UPDATE SET
+			owner_id = EXCLUDED.owner_id,
+			actor_id = EXCLUDED.actor_id,
 			name = EXCLUDED.name,
 			token_hash = EXCLUDED.token_hash,
 			last_seen_at = EXCLUDED.last_seen_at,
 			revoked_at = EXCLUDED.revoked_at
-	`, client.ID, client.Name, client.TokenHash, client.CreatedAt, client.LastSeenAt, client.RevokedAt)
+	`, client.ID, client.OwnerID, client.ActorID, client.Name, client.TokenHash, client.CreatedAt, client.LastSeenAt, client.RevokedAt)
 	s.appendAudit(ctx, "client.saved", "", "", "gateway", client.Name, map[string]any{"client_id": client.ID})
 	s.appendEvent(ctx, "client.saved", "", "", client)
 }
 
 func (s *PostgresStore) GetClient(id string) (app.Client, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, name, token_hash, created_at, last_seen_at, revoked_at
+		SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
 		FROM clients
 		WHERE id = $1
 	`, id)
@@ -728,7 +781,7 @@ func (s *PostgresStore) GetClient(id string) (app.Client, bool) {
 
 func (s *PostgresStore) ListClients() []app.Client {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, name, token_hash, created_at, last_seen_at, revoked_at
+		SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
 		FROM clients
 		ORDER BY created_at DESC
 	`)
@@ -746,7 +799,7 @@ func (s *PostgresStore) RevokeClient(id string) (app.Client, error) {
 		UPDATE clients
 		SET revoked_at = $2
 		WHERE id = $1
-		RETURNING id, name, token_hash, created_at, last_seen_at, revoked_at
+		RETURNING id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
 	`, id, now)
 	client, err := scanClient(row)
 	if err != nil {
@@ -762,7 +815,7 @@ func (s *PostgresStore) RevokeClient(id string) (app.Client, error) {
 
 func (s *PostgresStore) FindClientByTokenHash(tokenHash string) (app.Client, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, name, token_hash, created_at, last_seen_at, revoked_at
+		SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
 		FROM clients
 		WHERE token_hash = $1 AND revoked_at IS NULL
 	`, tokenHash)
@@ -1100,24 +1153,26 @@ func (s *PostgresStore) SaveRun(run app.AgentRun) {
 		run.StartedAt = time.Now().UTC()
 	}
 	workflowState := optionalJSON(run.Workflow)
+	messageContext := optionalJSON(run.MessageContext)
 	_, _ = s.db.Exec(ctx, `
-		INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level, summary, workflow_state, started_at, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level, summary, workflow_state, message_context, started_at, completed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE SET
 			state = EXCLUDED.state,
 			model_lane = EXCLUDED.model_lane,
 			risk_level = EXCLUDED.risk_level,
 			summary = EXCLUDED.summary,
 			workflow_state = EXCLUDED.workflow_state,
+			message_context = EXCLUDED.message_context,
 			started_at = EXCLUDED.started_at,
 			completed_at = EXCLUDED.completed_at
-	`, run.ID, run.SessionID, run.State, run.ModelLane, string(run.Risk), run.Summary, workflowState, run.StartedAt, run.CompletedAt)
+	`, run.ID, run.SessionID, run.State, run.ModelLane, string(run.Risk), run.Summary, workflowState, messageContext, run.StartedAt, run.CompletedAt)
 	s.appendEvent(ctx, "run."+run.State, run.SessionID, run.ID, run)
 }
 
 func (s *PostgresStore) GetRun(id string) (app.AgentRun, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state
+		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state, message_context
 		FROM agent_runs
 		WHERE id = $1
 	`, id)
@@ -1127,7 +1182,7 @@ func (s *PostgresStore) GetRun(id string) (app.AgentRun, bool) {
 
 func (s *PostgresStore) ListRuns(sessionID string) []app.AgentRun {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state
+		SELECT id, session_id, state, model_lane, risk_level, started_at, completed_at, coalesce(summary, ''), workflow_state, message_context
 		FROM agent_runs
 		WHERE $1 = '' OR session_id = $1
 		ORDER BY started_at DESC
@@ -1369,9 +1424,9 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 		INSERT INTO reminders (
 			id, session_id, run_id, text, text_summary, due_time, timezone, channel, recipient,
 			recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status,
-			last_delivery_id, last_error, created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			last_delivery_id, last_error, created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 		)
-		VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+		VALUES ($1, nullif($2, ''), nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		ON CONFLICT (id) DO UPDATE SET
 			text = EXCLUDED.text,
 			text_summary = EXCLUDED.text_summary,
@@ -1391,10 +1446,11 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 			updated_at = EXCLUDED.updated_at,
 			sent_at = EXCLUDED.sent_at,
 			canceled_at = EXCLUDED.canceled_at,
-			delivery_attempt = EXCLUDED.delivery_attempt
+			delivery_attempt = EXCLUDED.delivery_attempt,
+			schedule_spec = EXCLUDED.schedule_spec
 	`, reminder.ID, reminder.SessionID, reminder.RunID, reminder.Text, reminder.TextSummary, reminder.DueTime, reminder.Timezone, reminder.Channel, reminder.Recipient,
 		reminder.RecipientBinding, reminder.BindingID, reminder.CredentialRef, reminder.BaseURL, reminder.Recurrence, reminder.DedupeKey, reminder.Status, reminder.LastDeliveryID, reminder.LastError, reminder.CreatedAt, reminder.UpdatedAt,
-		reminder.SentAt, reminder.CanceledAt, reminder.DeliveryAttempt)
+		reminder.SentAt, reminder.CanceledAt, reminder.DeliveryAttempt, mustJSON(reminder.ScheduleSpec))
 	s.appendAudit(ctx, "reminder."+reminder.Status, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, map[string]any{
 		"reminder_id": reminder.ID,
 		"due_time":    reminder.DueTime.UTC().Format(time.RFC3339),
@@ -1408,7 +1464,7 @@ func (s *PostgresStore) GetReminder(id string) (app.Reminder, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
-			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 		FROM reminders
 		WHERE id = $1
 	`, id)
@@ -1431,7 +1487,7 @@ func (s *PostgresStore) ListReminders(filter app.ReminderFilter) []app.Reminder 
 	rows, err := s.db.Query(context.Background(), `
 		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
-			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 		FROM reminders
 		WHERE ($1 = '' OR status = $1)
 			AND ($2::timestamptz IS NULL OR due_time >= $2::timestamptz)
@@ -1463,7 +1519,7 @@ func (s *PostgresStore) ClaimDueReminders(now, staleBefore time.Time, limit int)
 		)
 		RETURNING id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
 			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
-			created_at, updated_at, sent_at, canceled_at, delivery_attempt
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
 	`, now.UTC(), staleBefore.UTC(), limit)
 	if err != nil {
 		return []app.Reminder{}
@@ -1544,6 +1600,9 @@ func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding)
 	if binding.OwnerID == "" {
 		binding.OwnerID = app.DefaultOwnerID
 	}
+	if binding.ActorID == "" {
+		binding.ActorID = binding.OwnerID
+	}
 	if binding.CreatedAt.IsZero() {
 		binding.CreatedAt = now
 	}
@@ -1561,12 +1620,14 @@ func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding)
 	}
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO notification_bindings (
-			id, owner_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
+			id, owner_id, actor_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
 			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
 			created_at, updated_at, expires_at, revoked_at, last_error
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 		ON CONFLICT (id) DO UPDATE SET
+			owner_id = EXCLUDED.owner_id,
+			actor_id = EXCLUDED.actor_id,
 			provider = EXCLUDED.provider,
 			status = EXCLUDED.status,
 			display_name = EXCLUDED.display_name,
@@ -1588,7 +1649,7 @@ func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding)
 			expires_at = EXCLUDED.expires_at,
 			revoked_at = EXCLUDED.revoked_at,
 			last_error = EXCLUDED.last_error
-	`, binding.ID, binding.OwnerID, binding.Channel, binding.Provider, binding.Status, binding.DisplayName,
+	`, binding.ID, binding.OwnerID, binding.ActorID, binding.Channel, binding.Provider, binding.Status, binding.DisplayName,
 		binding.ExternalUserID, binding.ExternalChatID, binding.ExternalThreadID, binding.AccountID, binding.CredentialRef, binding.BaseURL, binding.ProviderSessionID,
 		binding.ProviderState, binding.ContextToken, binding.ProviderCursor, binding.QRCodeURL, binding.QRCodeImage, binding.DefaultForChannel, mustJSON(binding.Scopes), binding.CreatedAt, binding.UpdatedAt,
 		binding.ExpiresAt, binding.RevokedAt, binding.LastError)
@@ -1604,7 +1665,7 @@ func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding)
 
 func (s *PostgresStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
+		SELECT id, owner_id, actor_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
 			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
 			created_at, updated_at, expires_at, revoked_at, last_error
 		FROM notification_bindings
@@ -1616,7 +1677,7 @@ func (s *PostgresStore) GetNotificationBinding(id string) (app.NotificationBindi
 
 func (s *PostgresStore) ListNotificationBindings(channel, status string) []app.NotificationBinding {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, owner_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
+		SELECT id, owner_id, actor_id, channel, provider, status, display_name, external_user_id, external_chat_id, external_thread_id, account_id,
 			credential_ref, base_url, provider_session_id, provider_state, context_token, provider_cursor, qr_code_url, qr_code_image, default_for_channel, scopes,
 			created_at, updated_at, expires_at, revoked_at, last_error
 		FROM notification_bindings
@@ -1657,6 +1718,18 @@ func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession)
 	if session.ExternalChatID == "" {
 		session.ExternalChatID = session.ExternalUserID
 	}
+	if strings.TrimSpace(session.AuthorizedOwnerID) == "" {
+		if binding, ok := s.GetNotificationBinding(session.BindingID); ok {
+			session.AuthorizedOwnerID = binding.OwnerID
+			session.AuthorizedActorID = binding.ActorID
+		}
+		if session.AuthorizedOwnerID == "" {
+			session.AuthorizedOwnerID = session.OwnerID
+		}
+	}
+	if strings.TrimSpace(session.AuthorizedActorID) == "" {
+		session.AuthorizedActorID = session.AuthorizedOwnerID
+	}
 	if session.Status == "" {
 		session.Status = "active"
 	}
@@ -1666,13 +1739,15 @@ func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession)
 	session.UpdatedAt = now
 	_, _ = s.db.Exec(context.Background(), `
 		INSERT INTO external_chat_sessions (
-			id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+			id, owner_id, authorized_owner_id, authorized_actor_id, workspace_root, binding_id, channel, provider, external_user_id,
 			external_chat_id, external_thread_id, display_name, linked_session_id, status,
 			provider_cursor, last_context_token, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (id) DO UPDATE SET
 			owner_id = EXCLUDED.owner_id,
+			authorized_owner_id = EXCLUDED.authorized_owner_id,
+			authorized_actor_id = EXCLUDED.authorized_actor_id,
 			workspace_root = EXCLUDED.workspace_root,
 			binding_id = EXCLUDED.binding_id,
 			channel = EXCLUDED.channel,
@@ -1686,7 +1761,7 @@ func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession)
 			provider_cursor = EXCLUDED.provider_cursor,
 			last_context_token = EXCLUDED.last_context_token,
 			updated_at = EXCLUDED.updated_at
-	`, session.ID, session.OwnerID, session.WorkspaceRoot, session.BindingID, session.Channel, session.Provider,
+	`, session.ID, session.OwnerID, session.AuthorizedOwnerID, session.AuthorizedActorID, session.WorkspaceRoot, session.BindingID, session.Channel, session.Provider,
 		session.ExternalUserID, session.ExternalChatID, session.ExternalThreadID, session.DisplayName,
 		session.LinkedSessionID, session.Status, session.ProviderCursor, session.LastContextToken,
 		session.CreatedAt, session.UpdatedAt)
@@ -1714,7 +1789,7 @@ func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession)
 
 func (s *PostgresStore) GetExternalChatSession(id string) (app.ExternalChatSession, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+		SELECT id, owner_id, authorized_owner_id, authorized_actor_id, workspace_root, binding_id, channel, provider, external_user_id,
 		       external_chat_id, external_thread_id, display_name, linked_session_id, status,
 		       provider_cursor, last_context_token, created_at, updated_at
 		FROM external_chat_sessions
@@ -1724,9 +1799,25 @@ func (s *PostgresStore) GetExternalChatSession(id string) (app.ExternalChatSessi
 	return session, err == nil
 }
 
+func (s *PostgresStore) ListExternalChatSessions(channel, status string) []app.ExternalChatSession {
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, owner_id, authorized_owner_id, authorized_actor_id, workspace_root, binding_id, channel, provider, external_user_id,
+		       external_chat_id, external_thread_id, display_name, linked_session_id, status,
+		       provider_cursor, last_context_token, created_at, updated_at
+		FROM external_chat_sessions
+		WHERE ($1 = '' OR channel = $1) AND ($2 = '' OR status = $2)
+		ORDER BY updated_at DESC
+	`, channel, status)
+	if err != nil {
+		return []app.ExternalChatSession{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanExternalChatSession)
+}
+
 func (s *PostgresStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+		SELECT id, owner_id, authorized_owner_id, authorized_actor_id, workspace_root, binding_id, channel, provider, external_user_id,
 		       external_chat_id, external_thread_id, display_name, linked_session_id, status,
 		       provider_cursor, last_context_token, created_at, updated_at
 		FROM external_chat_sessions
@@ -1740,7 +1831,7 @@ func (s *PostgresStore) FindExternalChatSession(bindingID, externalChatID, exter
 
 func (s *PostgresStore) FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
+		SELECT id, owner_id, authorized_owner_id, authorized_actor_id, workspace_root, binding_id, channel, provider, external_user_id,
 		       external_chat_id, external_thread_id, display_name, linked_session_id, status,
 		       provider_cursor, last_context_token, created_at, updated_at
 		FROM external_chat_sessions
@@ -1856,6 +1947,152 @@ func (s *PostgresStore) ListExternalChatMessages(chatSessionID string, limit int
 	}
 	defer rows.Close()
 	return collectRows(rows, scanExternalChatMessage)
+}
+
+func (s *PostgresStore) SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord {
+	now := time.Now().UTC()
+	if record.ID == "" {
+		record.ID = app.NewID("recv")
+	}
+	if record.Direction == "" {
+		record.Direction = app.MessageDirectionReceive
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	if len(record.Transitions) == 0 || record.Transitions[len(record.Transitions)-1].Status != record.Status {
+		record.Transitions = append(record.Transitions, app.MessageLifecycleTransition{Status: record.Status, At: now})
+	}
+	if existing, ok := s.FindMessageReceive(record.SourceEndpointID, record.NativeMessageID); ok && existing.ID != record.ID {
+		record.ID = existing.ID
+		record.CreatedAt = existing.CreatedAt
+		record.Transitions = append(existing.Transitions, app.MessageLifecycleTransition{Status: record.Status, At: now})
+	}
+	_, _ = s.db.Exec(context.Background(), `
+		INSERT INTO message_receive_records (id, owner_id, actor_id, source_endpoint_id, native_message_id, status, record, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (id) DO UPDATE SET
+			owner_id = EXCLUDED.owner_id,
+			actor_id = EXCLUDED.actor_id,
+			source_endpoint_id = EXCLUDED.source_endpoint_id,
+			native_message_id = EXCLUDED.native_message_id,
+			status = EXCLUDED.status,
+			record = EXCLUDED.record,
+			updated_at = EXCLUDED.updated_at
+	`, record.ID, record.OwnerID, record.ActorID, record.SourceEndpointID, record.NativeMessageID, record.Status, mustJSON(record), record.UpdatedAt)
+	return record
+}
+
+func (s *PostgresStore) GetMessageReceive(id string) (app.MessageReceiveRecord, bool) {
+	return s.queryMessageReceive(`SELECT record FROM message_receive_records WHERE id = $1`, id)
+}
+
+func (s *PostgresStore) FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool) {
+	return s.queryMessageReceive(`SELECT record FROM message_receive_records WHERE source_endpoint_id = $1 AND native_message_id = $2`, sourceEndpointID, nativeMessageID)
+}
+
+func (s *PostgresStore) queryMessageReceive(query string, args ...any) (app.MessageReceiveRecord, bool) {
+	var raw []byte
+	if err := s.db.QueryRow(context.Background(), query, args...).Scan(&raw); err != nil {
+		return app.MessageReceiveRecord{}, false
+	}
+	var record app.MessageReceiveRecord
+	if json.Unmarshal(raw, &record) != nil {
+		return app.MessageReceiveRecord{}, false
+	}
+	return record, true
+}
+
+func (s *PostgresStore) ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(context.Background(), `
+		SELECT record FROM message_receive_records
+		WHERE ($1 = '' OR owner_id = $1) AND ($2 = '' OR actor_id = $2)
+		ORDER BY updated_at DESC LIMIT $3
+	`, ownerID, actorID, limit)
+	if err != nil {
+		return []app.MessageReceiveRecord{}
+	}
+	defer rows.Close()
+	out := []app.MessageReceiveRecord{}
+	for rows.Next() {
+		var raw []byte
+		var record app.MessageReceiveRecord
+		if rows.Scan(&raw) == nil && json.Unmarshal(raw, &record) == nil {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+func (s *PostgresStore) SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord {
+	now := time.Now().UTC()
+	if record.ID == "" {
+		record.ID = app.DeliveryID(app.NewID("del"))
+	}
+	if record.Direction == "" {
+		record.Direction = app.MessageDirectionSend
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	_, _ = s.db.Exec(context.Background(), `
+		INSERT INTO message_delivery_records (id, owner_id, actor_id, idempotency_key, content_digest, status, record, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (id) DO UPDATE SET
+			status = EXCLUDED.status,
+			record = EXCLUDED.record,
+			updated_at = EXCLUDED.updated_at
+	`, record.ID, record.OwnerID, record.ActorID, record.Request.IdempotencyKey, record.ContentDigest, record.Status, mustJSON(record), record.UpdatedAt)
+	return record
+}
+
+func (s *PostgresStore) GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool) {
+	return s.queryMessageDelivery(`SELECT record FROM message_delivery_records WHERE id = $1`, id)
+}
+
+func (s *PostgresStore) FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool) {
+	return s.queryMessageDelivery(`SELECT record FROM message_delivery_records WHERE owner_id = $1 AND actor_id = $2 AND idempotency_key = $3`, ownerID, actorID, idempotencyKey)
+}
+
+func (s *PostgresStore) queryMessageDelivery(query string, args ...any) (app.MessageDeliveryRecord, bool) {
+	var raw []byte
+	if err := s.db.QueryRow(context.Background(), query, args...).Scan(&raw); err != nil {
+		return app.MessageDeliveryRecord{}, false
+	}
+	var record app.MessageDeliveryRecord
+	if json.Unmarshal(raw, &record) != nil {
+		return app.MessageDeliveryRecord{}, false
+	}
+	return record, true
+}
+
+func (s *PostgresStore) ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(context.Background(), `
+		SELECT record FROM message_delivery_records
+		WHERE ($1 = '' OR owner_id = $1) AND ($2 = '' OR actor_id = $2)
+		ORDER BY updated_at DESC LIMIT $3
+	`, ownerID, actorID, limit)
+	if err != nil {
+		return []app.MessageDeliveryRecord{}
+	}
+	defer rows.Close()
+	out := []app.MessageDeliveryRecord{}
+	for rows.Next() {
+		var raw []byte
+		var record app.MessageDeliveryRecord
+		if rows.Scan(&raw) == nil && json.Unmarshal(raw, &record) == nil {
+			out = append(out, record)
+		}
+	}
+	return out
 }
 
 func (s *PostgresStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {
@@ -2672,7 +2909,7 @@ func scanSession(row scanner) (app.Session, error) {
 
 func scanClient(row scanner) (app.Client, error) {
 	var client app.Client
-	err := row.Scan(&client.ID, &client.Name, &client.TokenHash, &client.CreatedAt, &client.LastSeenAt, &client.RevokedAt)
+	err := row.Scan(&client.ID, &client.OwnerID, &client.ActorID, &client.Name, &client.TokenHash, &client.CreatedAt, &client.LastSeenAt, &client.RevokedAt)
 	return client, err
 }
 
@@ -2714,6 +2951,8 @@ func scanExternalChatSession(row scanner) (app.ExternalChatSession, error) {
 	err := row.Scan(
 		&session.ID,
 		&session.OwnerID,
+		&session.AuthorizedOwnerID,
+		&session.AuthorizedActorID,
 		&session.WorkspaceRoot,
 		&session.BindingID,
 		&session.Channel,
@@ -2794,7 +3033,8 @@ func scanRun(row scanner) (app.AgentRun, error) {
 	var run app.AgentRun
 	var risk string
 	var workflowState []byte
-	err := row.Scan(&run.ID, &run.SessionID, &run.State, &run.ModelLane, &risk, &run.StartedAt, &run.CompletedAt, &run.Summary, &workflowState)
+	var messageContext []byte
+	err := row.Scan(&run.ID, &run.SessionID, &run.State, &run.ModelLane, &risk, &run.StartedAt, &run.CompletedAt, &run.Summary, &workflowState, &messageContext)
 	if err != nil {
 		return app.AgentRun{}, err
 	}
@@ -2805,6 +3045,13 @@ func scanRun(row scanner) (app.AgentRun, error) {
 			return app.AgentRun{}, fmt.Errorf("decode workflow state: %w", err)
 		}
 		run.Workflow = &workflow
+	}
+	if len(messageContext) > 0 {
+		var context app.MessageRunContext
+		if err := json.Unmarshal(messageContext, &context); err != nil {
+			return app.AgentRun{}, fmt.Errorf("decode message run context: %w", err)
+		}
+		run.MessageContext = &context
 	}
 	return run, nil
 }
@@ -2869,11 +3116,18 @@ func scanApproval(row scanner) (app.Approval, error) {
 
 func scanReminder(row scanner) (app.Reminder, error) {
 	var reminder app.Reminder
+	var scheduleSpec []byte
 	err := row.Scan(&reminder.ID, &reminder.SessionID, &reminder.RunID, &reminder.Text, &reminder.TextSummary,
 		&reminder.DueTime, &reminder.Timezone, &reminder.Channel, &reminder.Recipient, &reminder.RecipientBinding,
 		&reminder.BindingID, &reminder.CredentialRef, &reminder.BaseURL, &reminder.Recurrence,
 		&reminder.DedupeKey, &reminder.Status, &reminder.LastDeliveryID, &reminder.LastError,
-		&reminder.CreatedAt, &reminder.UpdatedAt, &reminder.SentAt, &reminder.CanceledAt, &reminder.DeliveryAttempt)
+		&reminder.CreatedAt, &reminder.UpdatedAt, &reminder.SentAt, &reminder.CanceledAt, &reminder.DeliveryAttempt, &scheduleSpec)
+	if err == nil && len(scheduleSpec) > 0 && string(scheduleSpec) != "null" {
+		var spec app.ScheduleSpec
+		if json.Unmarshal(scheduleSpec, &spec) == nil && spec.SchemaVersion != 0 {
+			reminder.ScheduleSpec = &spec
+		}
+	}
 	return reminder, err
 }
 
@@ -2888,7 +3142,7 @@ func scanReminderDelivery(row scanner) (app.ReminderDelivery, error) {
 func scanNotificationBinding(row scanner) (app.NotificationBinding, error) {
 	var binding app.NotificationBinding
 	var scopes []byte
-	err := row.Scan(&binding.ID, &binding.OwnerID, &binding.Channel, &binding.Provider, &binding.Status,
+	err := row.Scan(&binding.ID, &binding.OwnerID, &binding.ActorID, &binding.Channel, &binding.Provider, &binding.Status,
 		&binding.DisplayName, &binding.ExternalUserID, &binding.ExternalChatID, &binding.ExternalThreadID, &binding.AccountID, &binding.CredentialRef,
 		&binding.BaseURL, &binding.ProviderSessionID, &binding.ProviderState, &binding.ContextToken,
 		&binding.ProviderCursor, &binding.QRCodeURL, &binding.QRCodeImage, &binding.DefaultForChannel,

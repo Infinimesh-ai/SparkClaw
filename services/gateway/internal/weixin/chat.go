@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,9 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -24,6 +27,13 @@ type Dispatcher struct {
 	runtime           connectorruntime.AgentBridge
 	cfg               config.NotificationChannelConfig
 	workspaceBaseRoot string
+	results           connectorruntime.ResultDeliverer
+}
+
+func (d *Dispatcher) WithResultDeliverer(deliverer connectorruntime.ResultDeliverer) *Dispatcher {
+	copy := *d
+	copy.results = deliverer
+	return &copy
 }
 
 type InboundMessage struct {
@@ -35,6 +45,7 @@ type InboundMessage struct {
 	ExternalID     string
 	ProviderCursor string
 	CreatedAt      time.Time
+	ReceiveRecord  app.MessageReceiveRecord
 }
 
 func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.NotificationChannelConfig) *Dispatcher {
@@ -60,6 +71,16 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if externalID == "" {
 		externalID = stableInboundID(inbound)
 	}
+	receives := messagecontrol.NewReceiveLifecycle(d.store)
+	receive := inbound.ReceiveRecord
+	if receive.ID == "" {
+		endpoint, err := messagecontrol.NewEndpointRegistry(d.store).Get(ctx, app.EndpointID(chatSession.ID))
+		if err != nil {
+			return err
+		}
+		receive, _ = receives.Begin(endpoint, externalID)
+		receive = receives.Advance(receive, "authorized", "", "")
+	}
 	// A message whose previous dispatch failed may be delivered again by the
 	// provider (the cursor is only advanced after successful dispatch); reuse
 	// its record so the retry does not duplicate the chat history.
@@ -74,11 +95,23 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if receivedAt.IsZero() {
 		receivedAt = time.Now().UTC()
 	}
+	receive = receives.Advance(receive, "normalized", "", "")
 	if text != "" && len(inbound.Attachments) == 0 && isClearConversationRequest(text) {
-		return d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
+		err := d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
+		status := "processed"
+		if err != nil {
+			status = "failed"
+		}
+		receives.Advance(receive, status, "", "")
+		return err
 	}
 	if text != "" && len(inbound.Attachments) == 0 {
 		if handled, err := d.handleApprovalReply(ctx, inbound, chatSession, externalID, text, receivedAt); handled || err != nil {
+			status := "processed"
+			if err != nil {
+				status = "failed"
+			}
+			receives.Advance(receive, status, "", "")
 			return err
 		}
 	}
@@ -121,7 +154,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 			outbound.Status = sendResult.Status
 		}
 		d.store.SaveExternalChatMessage(outbound)
-		_ = inboundMsg
+		receives.Advance(receive, "processed", inboundMsg.ID, "")
 		return sendErr
 	}
 	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
@@ -139,6 +172,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	processing := inboundMsg
 	processing.Status = "processing"
 	processing = d.store.SaveExternalChatMessage(processing)
+	receive = receives.Advance(receive, "routed", inboundMsg.ID, "")
 	recipient := d.replyRecipient(inbound)
 	if _, err := notification.SendWeixinTyping(ctx, d.store, d.cfg,
 		recipient,
@@ -161,50 +195,32 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		}
 	}()
 
+	ingress := weixinIngress(inbound, chatSession, externalID)
 	result, err := d.runtime.Handle(ctx, connectorruntime.AgentRequest{
 		SessionID:   chatSession.LinkedSessionID,
+		MessageID:   stableWeixinAgentID("message", inbound.Binding.ID, externalID),
+		RunID:       stableWeixinAgentID("run", inbound.Binding.ID, externalID),
 		Text:        text,
 		Attachments: inbound.Attachments,
+		Ingress:     &ingress,
 	})
 	if err != nil {
 		processing.Status = "failed"
 		processing.Error = err.Error()
 		d.store.SaveExternalChatMessage(processing)
+		receives.Advance(receive, "failed", inboundMsg.ID, "")
 		return err
 	}
 	processing.LinkedRunID = result.Run.ID
 	processing.Status = "processed"
 	processing = d.store.SaveExternalChatMessage(processing)
+	receives.Advance(receive, "processed", inboundMsg.ID, result.Run.ID)
 
-	answer := strings.TrimSpace(result.Message.Content)
 	if len(result.Approvals) > 0 {
-		answer = weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1])
+		answer := weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1])
+		return d.sendControlResult(ctx, inbound, chatSession, answer, result.Run.ID)
 	}
-	if answer == "" {
-		answer = "我已经收到，但这次没有生成可发送的回复。"
-	}
-	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, result.Run.ID)
-	outbound := app.ExternalChatMessage{
-		ChatSessionID: chatSession.ID,
-		BindingID:     inbound.Binding.ID,
-		Direction:     "outbound",
-		Role:          "assistant",
-		Content:       answer,
-		ContextToken:  inbound.ContextToken,
-		LinkedRunID:   result.Run.ID,
-		Status:        "sent",
-	}
-	if sendErr != nil {
-		outbound.Status = "failed"
-		outbound.Error = sendErr.Error()
-	} else if sendResult.Status != "" {
-		outbound.Status = sendResult.Status
-	}
-	d.store.SaveExternalChatMessage(outbound)
-	if sendErr != nil {
-		return sendErr
-	}
-	return nil
+	return d.deliverAgentResult(ctx, result, ingress)
 }
 
 func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) error {
@@ -344,11 +360,11 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		if result, resumed, err := d.runtime.ResumeRunAfterApproval(ctx, approval.SessionID, approval.RunID); err != nil {
 			return true, err
 		} else if resumed {
-			answer := strings.TrimSpace(result.Message.Content)
-			if answer == "" {
-				answer = "已确认并继续执行。"
+			if len(result.Approvals) > 0 {
+				return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1]), result.Run.ID, "")
 			}
-			return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, result.Run.ID, "")
+			ingress := weixinIngress(inbound, chatSession, "approval:"+approval.ID)
+			return true, d.deliverAgentResult(ctx, result, ingress)
 		}
 		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 		if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
@@ -372,6 +388,51 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
 	answer := "已取消，本次需要确认的操作没有执行。"
 	return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, resolved.RunID, "")
+}
+
+func (d *Dispatcher) deliverAgentResult(ctx context.Context, result agent.Result, ingress app.MessageIngressContext) error {
+	if d.results == nil {
+		return errors.New("weixin workflow result delivery is unavailable")
+	}
+	workflowResult, err := connectorruntime.WorkflowResultFromAgentResult(result, ingress)
+	if err != nil {
+		return err
+	}
+	_, err = d.results.DeliverWorkflowResult(ctx, workflowResult)
+	return err
+}
+
+func (d *Dispatcher) sendControlResult(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, answer, runID string) error {
+	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, runID)
+	outbound := app.ExternalChatMessage{
+		ChatSessionID: chatSession.ID, BindingID: inbound.Binding.ID, Direction: "outbound", Role: "assistant",
+		Content: answer, ContextToken: inbound.ContextToken, LinkedRunID: runID, Status: "sent",
+	}
+	if sendErr != nil {
+		outbound.Status, outbound.Error = "failed", sendErr.Error()
+	} else if sendResult.Status != "" {
+		outbound.Status = sendResult.Status
+	}
+	d.store.SaveExternalChatMessage(outbound)
+	return sendErr
+}
+
+func weixinIngress(inbound InboundMessage, chatSession app.ExternalChatSession, nativeMessageID string) app.MessageIngressContext {
+	ownerID := firstNonEmpty(chatSession.OwnerID, inbound.Binding.OwnerID, app.DefaultOwnerID)
+	endpointID := app.EndpointID(chatSession.ID)
+	return app.MessageIngressContext{
+		Source: app.MessageSourceContext{
+			Kind: app.MessageSourceThirdPartyDevice, Adapter: strings.ToLower(strings.TrimSpace(inbound.Binding.Channel)),
+			EndpointID: endpointID, NativeMessageID: nativeMessageID, NativeThreadRef: inbound.ContextToken,
+		},
+		OwnerID: ownerID, Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: append([]string(nil), inbound.Binding.Scopes...)},
+		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpointID},
+	}
+}
+
+func stableWeixinAgentID(prefix, bindingID, externalID string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(bindingID) + "\x00" + strings.TrimSpace(externalID)))
+	return prefix + "_wx_" + hex.EncodeToString(sum[:])[:32]
 }
 
 func (d *Dispatcher) sendApprovalReplyResult(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time, answer, runID, inboundStatus string) error {

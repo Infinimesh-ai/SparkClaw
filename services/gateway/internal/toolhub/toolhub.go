@@ -792,15 +792,17 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "reminders.create",
-			Description: "Create a local scheduled self reminder. Default to the current external chat channel, otherwise web. For Web-originated Telegram or Weixin reminders, include a recipient matching one active binding when multiple bindings exist.",
+			Description: "Create a scheduled message. literal sends the configured content at the due time; request publishes the content back through Agent routing before returning its result. Default to the current external chat endpoint, otherwise web.",
 			InputSchema: schema("object", []string{"text", "due_time"}, map[string]any{
-				"text":       stringSchema(),
-				"due_time":   stringSchema(),
-				"timezone":   stringSchema(),
-				"channel":    stringSchema(),
-				"recipient":  stringSchema(),
-				"recurrence": stringSchema(),
-				"dedupe_key": stringSchema(),
+				"text":                stringSchema(),
+				"due_time":            stringSchema(),
+				"timezone":            stringSchema(),
+				"channel":             stringSchema(),
+				"recipient":           stringSchema(),
+				"recurrence":          stringSchema(),
+				"dedupe_key":          stringSchema(),
+				"payload_mode":        map[string]any{"type": "string", "enum": []string{"literal", "request"}},
+				"expected_capability": stringSchema(),
 			}),
 			OutputSchema:     reminderOutputSchema(),
 			Risk:             app.RiskReversible,
@@ -882,6 +884,7 @@ func reminderOutputSchema() map[string]any {
 		"canceled_at":      stringSchema(),
 		"last_delivery_id": stringSchema(),
 		"last_error":       stringSchema(),
+		"payload_mode":     stringSchema(),
 	})
 }
 

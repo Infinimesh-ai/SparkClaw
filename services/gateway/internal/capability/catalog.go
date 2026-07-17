@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-16.v1"
+	DefaultCatalogRevision = "2026-07-17.v3"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -27,6 +27,21 @@ type Node struct {
 	Kind        NodeKind                 `json:"kind"`
 	Description string                   `json:"description"`
 	Workflow    *app.WorkflowContractRef `json:"workflow,omitempty"`
+	Route       *RouteContract           `json:"route,omitempty"`
+}
+
+type RouteContract struct {
+	Operations    []app.RouteOperation `json:"operations"`
+	TargetKinds   []string             `json:"target_kinds,omitempty"`
+	RequireQuery  bool                 `json:"require_query,omitempty"`
+	RequireTarget bool                 `json:"require_target,omitempty"`
+	RequiredFacts []string             `json:"required_facts,omitempty"`
+}
+
+type RouteOption struct {
+	Path        []app.CapabilityID `json:"path"`
+	Description string             `json:"description"`
+	Contract    RouteContract      `json:"contract"`
 }
 
 type Catalog struct {
@@ -92,27 +107,26 @@ func DefaultCatalog() (Catalog, error) {
 	branch := func(id, parent, description string) Node {
 		return Node{ID: app.CapabilityID(id), ParentID: app.CapabilityID(parent), Kind: NodeBranch, Description: description}
 	}
-	leaf := func(id, parent, description string) Node {
+	leaf := func(id, parent, description string, route RouteContract) Node {
 		workflow := app.WorkflowContractRef{ID: app.WorkflowID(id), Revision: 1}
-		return Node{ID: app.CapabilityID(id), ParentID: app.CapabilityID(parent), Kind: NodeLeaf, Description: description, Workflow: &workflow}
+		return Node{ID: app.CapabilityID(id), ParentID: app.CapabilityID(parent), Kind: NodeLeaf, Description: description, Workflow: &workflow, Route: &route}
 	}
 	return NewCatalog(DefaultCatalogRevision, []Node{
 		branch(string(RootID), "", "Registered user-visible product capabilities."),
-		branch("conversation", string(RootID), "Answer or discuss without a more specific product operation."),
-		leaf("conversation.answer", "conversation", "Answer a user message."),
-		branch("browser", string(RootID), "Work with public or interactive browser resources."),
-		leaf("browser.search", "browser", "Search public information sources."),
-		leaf("browser.automation", "browser", "Interact with pages and browser sessions."),
-		branch("file", string(RootID), "Work with governed files in the user's workspace."),
-		leaf("file.discover", "file", "Discover files and workspace structure."),
-		leaf("file.read", "file", "Read or inspect file content."),
-		leaf("file.create", "file", "Create a new file or document."),
-		leaf("file.edit", "file", "Edit an existing file or document."),
-		leaf("file.transform", "file", "Convert or transform file content."),
-		leaf("file.delete", "file", "Delete a file subject to policy."),
-		branch("message", string(RootID), "Send content now or arrange future message creation."),
-		leaf("message.send", "message", "Send multimodal content to an endpoint."),
-		leaf("message.schedule", "message", "Create or change a scheduled message."),
+		branch("browser", string(RootID), "Use public Internet search or a managed browser session."),
+		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Search the Internet and return the configured Info provider result.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationSearch}, RequireQuery: true,
+		}),
+		leaf(string(app.CapabilityBrowserAutomation), "browser", "Open or focus an explicitly known URL in the managed browser.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url"}, RequireTarget: true, RequiredFacts: []string{"url"},
+		}),
+		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
+		leaf(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
+		}),
+		leaf(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
+		}),
 	})
 }
 
@@ -142,6 +156,42 @@ func (c Catalog) Children(id app.CapabilityID) []Node {
 	return children
 }
 
+func (c Catalog) RouteOptions() []RouteOption {
+	options := make([]RouteOption, 0)
+	for _, node := range c.nodes {
+		if node.Kind != NodeLeaf || node.Route == nil {
+			continue
+		}
+		path, err := c.PathTo(node.ID)
+		if err != nil {
+			continue
+		}
+		options = append(options, RouteOption{Path: path, Description: node.Description, Contract: cloneRouteContract(*node.Route)})
+	}
+	slices.SortFunc(options, func(left, right RouteOption) int {
+		return strings.Compare(pathKey(left.Path), pathKey(right.Path))
+	})
+	return options
+}
+
+func (c Catalog) PathTo(id app.CapabilityID) ([]app.CapabilityID, error) {
+	node, ok := c.nodes[id]
+	if !ok {
+		return nil, fmt.Errorf("capability %q is not registered", id)
+	}
+	path := []app.CapabilityID{}
+	for node.ID != RootID {
+		path = append(path, node.ID)
+		parent, ok := c.nodes[node.ParentID]
+		if !ok {
+			return nil, fmt.Errorf("capability %q is not connected to root %q", id, RootID)
+		}
+		node = parent
+	}
+	slices.Reverse(path)
+	return path, nil
+}
+
 func (c Catalog) ResolveLeaf(path []app.CapabilityID) (Node, error) {
 	node, err := c.resolvePath(path)
 	if err != nil {
@@ -165,8 +215,11 @@ func (c Catalog) ValidateDecision(decision app.RouteDecision) error {
 	}
 	switch decision.Status {
 	case app.RouteMatched:
-		_, err := c.ResolveLeaf(decision.CapabilityPath)
-		return err
+		leaf, err := c.ResolveLeaf(decision.CapabilityPath)
+		if err != nil {
+			return err
+		}
+		return validateMatchedSlots(leaf, decision)
 	case app.RouteClarify, app.RouteBlocked:
 		if len(decision.CapabilityPath) == 0 {
 			return nil
@@ -181,6 +234,32 @@ func (c Catalog) ValidateDecision(decision app.RouteDecision) error {
 	default:
 		return fmt.Errorf("unsupported route status %q", decision.Status)
 	}
+}
+
+func validateMatchedSlots(leaf Node, decision app.RouteDecision) error {
+	if leaf.Route == nil {
+		return fmt.Errorf("capability %q has no typed slot contract", leaf.ID)
+	}
+	contract := leaf.Route
+	slots := decision.Slots
+	if !slices.Contains(contract.Operations, slots.Operation) {
+		return fmt.Errorf("operation %q is not valid for capability %q", slots.Operation, leaf.ID)
+	}
+	if slots.TargetKind != "" && !slices.Contains(contract.TargetKinds, slots.TargetKind) {
+		return fmt.Errorf("target kind %q is not valid for capability %q", slots.TargetKind, leaf.ID)
+	}
+	if contract.RequireQuery && strings.TrimSpace(slots.Query) == "" {
+		return fmt.Errorf("capability %q requires a query", leaf.ID)
+	}
+	if contract.RequireTarget && (strings.TrimSpace(slots.TargetKind) == "" || strings.TrimSpace(slots.TargetRef) == "") {
+		return fmt.Errorf("capability %q requires a deterministic target", leaf.ID)
+	}
+	for _, fact := range contract.RequiredFacts {
+		if strings.TrimSpace(decision.Facts[fact]) == "" {
+			return fmt.Errorf("capability %q requires deterministic fact %q", leaf.ID, fact)
+		}
+	}
+	return nil
 }
 
 func (c Catalog) resolvePath(path []app.CapabilityID) (Node, error) {
@@ -213,7 +292,7 @@ func validateNodeShape(node Node) error {
 	}
 	switch node.Kind {
 	case NodeBranch:
-		if node.Workflow != nil {
+		if node.Workflow != nil || node.Route != nil {
 			return fmt.Errorf("capability branch %q cannot select a workflow", node.ID)
 		}
 	case NodeLeaf:
@@ -222,6 +301,12 @@ func validateNodeShape(node Node) error {
 		}
 		if node.Workflow == nil || strings.TrimSpace(string(node.Workflow.ID)) == "" || node.Workflow.Revision < 1 {
 			return fmt.Errorf("capability leaf %q requires a versioned workflow contract", node.ID)
+		}
+		if node.Route == nil || len(node.Route.Operations) == 0 {
+			return fmt.Errorf("capability leaf %q requires a typed route contract", node.ID)
+		}
+		if node.Route.RequireTarget && len(node.Route.TargetKinds) == 0 {
+			return fmt.Errorf("capability leaf %q requires registered target kinds", node.ID)
 		}
 	default:
 		return fmt.Errorf("capability %q has invalid kind %q", node.ID, node.Kind)
@@ -251,5 +336,24 @@ func cloneNode(node Node) Node {
 		workflow := *node.Workflow
 		node.Workflow = &workflow
 	}
+	if node.Route != nil {
+		route := cloneRouteContract(*node.Route)
+		node.Route = &route
+	}
 	return node
+}
+
+func cloneRouteContract(route RouteContract) RouteContract {
+	route.Operations = append([]app.RouteOperation(nil), route.Operations...)
+	route.TargetKinds = append([]string(nil), route.TargetKinds...)
+	route.RequiredFacts = append([]string(nil), route.RequiredFacts...)
+	return route
+}
+
+func pathKey(path []app.CapabilityID) string {
+	parts := make([]string, len(path))
+	for index, id := range path {
+		parts[index] = string(id)
+	}
+	return strings.Join(parts, "/")
 }

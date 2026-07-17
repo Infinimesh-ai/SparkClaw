@@ -120,6 +120,7 @@ type ReminderDelivery struct {
 type NotificationBinding struct {
 	ID                string     `json:"id"`
 	OwnerID           string     `json:"owner_id"`
+	ActorID           string     `json:"actor_id,omitempty"`
 	Channel           string     `json:"channel"`
 	Provider          string     `json:"provider"`
 	Status            string     `json:"status"`
@@ -146,22 +147,24 @@ type NotificationBinding struct {
 }
 
 type ExternalChatSession struct {
-	ID               string    `json:"id"`
-	OwnerID          string    `json:"owner_id,omitempty"`
-	WorkspaceRoot    string    `json:"workspace_root,omitempty"`
-	BindingID        string    `json:"binding_id"`
-	Channel          string    `json:"channel"`
-	Provider         string    `json:"provider"`
-	ExternalUserID   string    `json:"external_user_id,omitempty"`
-	ExternalChatID   string    `json:"external_chat_id,omitempty"`
-	ExternalThreadID string    `json:"external_thread_id,omitempty"`
-	DisplayName      string    `json:"display_name,omitempty"`
-	LinkedSessionID  string    `json:"linked_session_id,omitempty"`
-	Status           string    `json:"status"`
-	ProviderCursor   string    `json:"provider_cursor,omitempty"`
-	LastContextToken string    `json:"last_context_token,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                string    `json:"id"`
+	OwnerID           string    `json:"owner_id,omitempty"`
+	AuthorizedOwnerID string    `json:"authorized_owner_id,omitempty"`
+	AuthorizedActorID string    `json:"authorized_actor_id,omitempty"`
+	WorkspaceRoot     string    `json:"workspace_root,omitempty"`
+	BindingID         string    `json:"binding_id"`
+	Channel           string    `json:"channel"`
+	Provider          string    `json:"provider"`
+	ExternalUserID    string    `json:"external_user_id,omitempty"`
+	ExternalChatID    string    `json:"external_chat_id,omitempty"`
+	ExternalThreadID  string    `json:"external_thread_id,omitempty"`
+	DisplayName       string    `json:"display_name,omitempty"`
+	LinkedSessionID   string    `json:"linked_session_id,omitempty"`
+	Status            string    `json:"status"`
+	ProviderCursor    string    `json:"provider_cursor,omitempty"`
+	LastContextToken  string    `json:"last_context_token,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type ExternalChatMessage struct {
@@ -356,6 +359,8 @@ type Session struct {
 
 type Client struct {
 	ID         string     `json:"id"`
+	OwnerID    string     `json:"owner_id,omitempty"`
+	ActorID    string     `json:"actor_id,omitempty"`
 	Name       string     `json:"name"`
 	TokenHash  string     `json:"-"`
 	CreatedAt  time.Time  `json:"created_at"`

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -14,6 +16,7 @@ type endpointStore interface {
 	GetNotificationBinding(string) (app.NotificationBinding, bool)
 	GetReminder(string) (app.Reminder, bool)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
+	ListExternalChatSessions(string, string) []app.ExternalChatSession
 }
 
 type EndpointRegistry struct {
@@ -57,6 +60,7 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 		return app.MessageEndpoint{
 			ID:        id,
 			OwnerID:   ownerID,
+			ActorID:   ownerID,
 			Kind:      app.EndpointKindWeb,
 			SessionID: session.ID,
 			Status:    app.EndpointActive,
@@ -82,29 +86,17 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 			kind, providerKey = app.EndpointKindWeb, ""
 		}
 		return app.MessageEndpoint{
-			ID: id, OwnerID: ownerID, Kind: kind, ProviderKey: providerKey,
+			ID: id, OwnerID: ownerID, ActorID: ownerID, Kind: kind, ProviderKey: providerKey,
 			BindingRef: reminder.BindingID, Address: reminder.Recipient,
 			ThreadRef: reminder.RecipientBinding, ContextRef: reminder.RecipientBinding,
 			SessionID: reminder.SessionID, Status: app.EndpointActive,
 			CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
 		}, nil
 	}
-	binding, ok := r.store.GetNotificationBinding(value)
-	if !ok {
-		if chat, chatOK := r.store.GetExternalChatSession(value); chatOK && chat.Status == "active" {
-			binding, bindingOK := r.store.GetNotificationBinding(chat.BindingID)
-			if !bindingOK || binding.Status != "active" {
-				return app.MessageEndpoint{}, fmt.Errorf("third-party endpoint %q is unavailable", value)
-			}
-			ownerID := firstEndpointValue(chat.OwnerID, binding.OwnerID, app.DefaultOwnerID)
-			return app.MessageEndpoint{
-				ID: id, OwnerID: ownerID, Kind: app.EndpointKindThirdPartyDevice,
-				ProviderKey: strings.ToLower(strings.TrimSpace(chat.Channel)), BindingRef: binding.ID,
-				Address: firstEndpointValue(chat.ExternalChatID, chat.ExternalUserID), ThreadRef: chat.ExternalThreadID, ContextRef: chat.LastContextToken,
-				SessionID: chat.LinkedSessionID, Status: app.EndpointActive, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
-			}, nil
-		}
+	if chat, chatOK := r.store.GetExternalChatSession(value); chatOK {
+		return r.endpointForChat(id, chat)
 	}
+	binding, ok := r.store.GetNotificationBinding(value)
 	if !ok || strings.TrimSpace(binding.Status) != string(app.EndpointActive) {
 		return app.MessageEndpoint{}, fmt.Errorf("third-party endpoint %q is unavailable", value)
 	}
@@ -117,18 +109,241 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 		ownerID = app.DefaultOwnerID
 	}
 	return app.MessageEndpoint{
-		ID:          id,
-		OwnerID:     ownerID,
-		Kind:        app.EndpointKindThirdPartyDevice,
-		ProviderKey: providerKey,
-		BindingRef:  binding.ID,
-		Address:     firstEndpointValue(binding.ExternalChatID, binding.ExternalUserID),
-		ThreadRef:   binding.ExternalThreadID,
-		ContextRef:  binding.ContextToken,
-		Status:      app.EndpointActive,
-		CreatedAt:   binding.CreatedAt,
-		UpdatedAt:   binding.UpdatedAt,
+		ID:            id,
+		OwnerID:       ownerID,
+		ActorID:       firstEndpointValue(binding.ActorID, ownerID),
+		SourceActorID: ownerID,
+		Kind:          app.EndpointKindThirdPartyDevice,
+		ProviderKey:   providerKey,
+		BindingRef:    binding.ID,
+		Address:       firstEndpointValue(binding.ExternalChatID, binding.ExternalUserID),
+		ThreadRef:     binding.ExternalThreadID,
+		ContextRef:    binding.ContextToken,
+		Status:        app.EndpointActive,
+		CreatedAt:     binding.CreatedAt,
+		UpdatedAt:     binding.UpdatedAt,
 	}, nil
+}
+
+func (r *EndpointRegistry) endpointForChat(id app.EndpointID, chat app.ExternalChatSession) (app.MessageEndpoint, error) {
+	if chat.Status != string(app.EndpointActive) {
+		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery endpoint is inactive")
+	}
+	binding, ok := r.store.GetNotificationBinding(chat.BindingID)
+	if !ok || !bindingUsable(binding, time.Now().UTC()) {
+		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery binding is unavailable")
+	}
+	providerKey := strings.ToLower(firstEndpointValue(chat.Channel, binding.Channel))
+	externalUser := strings.TrimSpace(chat.ExternalUserID)
+	externalChat := strings.TrimSpace(chat.ExternalChatID)
+	if externalUser == "" || externalChat == "" || providerKey == "" {
+		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery endpoint is incomplete")
+	}
+	ownerID := firstEndpointValue(chat.AuthorizedOwnerID, binding.OwnerID)
+	actorID := firstEndpointValue(chat.AuthorizedActorID, binding.ActorID, ownerID)
+	if ownerID == "" || actorID == "" {
+		return app.MessageEndpoint{}, newTargetError(CodeCrossUserDenied, "delivery endpoint authorization is incomplete")
+	}
+	accountName := firstEndpointValue(binding.DisplayName, binding.AccountID, providerKey)
+	recipientName := firstEndpointValue(chat.DisplayName, "Recipient")
+	conversation := accountName
+	if chat.ExternalThreadID != "" {
+		conversation += " / thread"
+	}
+	return app.MessageEndpoint{
+		ID: id, OwnerID: ownerID, ActorID: actorID, SourceActorID: firstEndpointValue(chat.OwnerID, actorID),
+		Kind: app.EndpointKindThirdPartyDevice, ProviderKey: providerKey, BindingRef: binding.ID,
+		ExternalUserRef: externalUser, Address: externalChat, ThreadRef: chat.ExternalThreadID,
+		ContextRef: chat.LastContextToken, SessionID: chat.LinkedSessionID,
+		SoftwareDisplayName: softwareDisplayName(providerKey), AccountDisplayName: accountName,
+		RecipientDisplayName: recipientName, ConversationLabel: conversation,
+		Status: app.EndpointActive, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
+	}, nil
+}
+
+func (r *EndpointRegistry) List(ctx context.Context, ownerID, actorID string) ([]app.MessageEndpoint, error) {
+	if r == nil || r.store == nil {
+		return nil, errors.New("endpoint registry is unavailable")
+	}
+	ownerID = strings.TrimSpace(ownerID)
+	actorID = strings.TrimSpace(actorID)
+	if ownerID == "" || actorID == "" {
+		return nil, newTargetError(CodeCrossUserDenied, "delivery owner and actor are required")
+	}
+	endpoints := []app.MessageEndpoint{}
+	for _, chat := range r.store.ListExternalChatSessions("", string(app.EndpointActive)) {
+		binding, ok := r.store.GetNotificationBinding(chat.BindingID)
+		if !ok || !bindingUsable(binding, time.Now().UTC()) || !hasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+			continue
+		}
+		endpoint, err := r.endpointForChat(app.EndpointID(chat.ID), chat)
+		if err != nil || endpoint.OwnerID != ownerID || endpoint.ActorID != actorID {
+			continue
+		}
+		endpoints = append(endpoints, endpoint)
+	}
+	slices.SortFunc(endpoints, func(a, b app.MessageEndpoint) int {
+		if byProvider := strings.Compare(a.ProviderKey, b.ProviderKey); byProvider != 0 {
+			return byProvider
+		}
+		if byRecipient := strings.Compare(strings.ToLower(a.RecipientDisplayName), strings.ToLower(b.RecipientDisplayName)); byRecipient != 0 {
+			return byRecipient
+		}
+		return strings.Compare(string(a.ID), string(b.ID))
+	})
+	return endpoints, nil
+}
+
+type TargetRequest struct {
+	OwnerID          string
+	ActorID          string
+	ExternalIntent   bool
+	WebSessionID     string
+	SourceEndpointID app.EndpointID
+	ProviderKey      string
+	RecipientText    string
+}
+
+func (r *EndpointRegistry) ResolveTarget(ctx context.Context, request TargetRequest) (app.DeliveryTargetSelection, error) {
+	if request.SourceEndpointID != "" {
+		endpoint, err := r.Get(ctx, request.SourceEndpointID)
+		if err != nil {
+			return app.DeliveryTargetSelection{Status: app.TargetUnavailable, ResolutionRule: "frozen_source_unavailable"}, err
+		}
+		if endpoint.SourceActorID != strings.TrimSpace(request.ActorID) {
+			return app.DeliveryTargetSelection{Status: app.TargetUnavailable, ResolutionRule: "frozen_source_actor_mismatch"}, newTargetError(CodeCrossUserDenied, "source endpoint does not belong to the actor")
+		}
+		return app.DeliveryTargetSelection{Status: app.TargetSourceReply, ResolvedEndpointID: endpoint.ID, ResolutionRule: "frozen_source_endpoint"}, nil
+	}
+	if !request.ExternalIntent {
+		id := WebEndpointID(request.WebSessionID)
+		endpoint, err := r.Get(ctx, id)
+		if err != nil || endpoint.OwnerID != strings.TrimSpace(request.OwnerID) {
+			return app.DeliveryTargetSelection{Status: app.TargetUnavailable, ResolutionRule: "current_web_session_unavailable"}, newTargetError(CodeCrossUserDenied, "current Web session is unavailable")
+		}
+		return app.DeliveryTargetSelection{Status: app.TargetDefaultWeb, ResolvedEndpointID: id, ResolutionRule: "current_web_session"}, nil
+	}
+	provider := strings.ToLower(strings.TrimSpace(request.ProviderKey))
+	selection := app.DeliveryTargetSelection{
+		RequestedProviderKey: provider, RequestedRecipientText: strings.TrimSpace(request.RecipientText),
+	}
+	if provider == "" {
+		selection.Status, selection.ResolutionRule = app.TargetNeedsChannel, "explicit_external_channel_required"
+		return selection, nil
+	}
+	all, err := r.List(ctx, request.OwnerID, request.ActorID)
+	if err != nil {
+		return selection, err
+	}
+	candidates := []app.MessageEndpoint{}
+	for _, endpoint := range all {
+		if strings.EqualFold(endpoint.ProviderKey, provider) || strings.EqualFold(endpoint.SoftwareDisplayName, provider) {
+			candidates = append(candidates, endpoint)
+		}
+	}
+	recipient := strings.TrimSpace(request.RecipientText)
+	if recipient != "" {
+		matched := candidates[:0]
+		for _, endpoint := range candidates {
+			if endpointMatchesRecipient(endpoint, recipient) {
+				matched = append(matched, endpoint)
+			}
+		}
+		candidates = matched
+	}
+	for _, endpoint := range candidates {
+		selection.CandidateEndpointIDs = append(selection.CandidateEndpointIDs, endpoint.ID)
+	}
+	switch len(candidates) {
+	case 0:
+		selection.Status = app.TargetUnavailable
+		if recipient == "" {
+			selection.ResolutionRule = "software_has_no_eligible_endpoint"
+		} else {
+			selection.ResolutionRule = "recipient_not_found"
+		}
+	case 1:
+		selection.Status, selection.ResolvedEndpointID = app.TargetResolved, candidates[0].ID
+		if recipient == "" {
+			selection.ResolutionRule = "sole_endpoint_in_explicit_software"
+		} else {
+			selection.ResolutionRule = "exact_recipient_match"
+		}
+	default:
+		if recipient == "" {
+			selection.Status, selection.ResolutionRule = app.TargetNeedsRecipient, "software_has_multiple_endpoints"
+		} else {
+			selection.Status, selection.ResolutionRule = app.TargetAmbiguous, "recipient_matches_multiple_endpoints"
+		}
+	}
+	return selection, nil
+}
+
+func (r *EndpointRegistry) GetForDirectSend(ctx context.Context, id app.EndpointID, ownerID, actorID string) (app.MessageEndpoint, error) {
+	endpoint, err := r.Get(ctx, id)
+	if err != nil {
+		return app.MessageEndpoint{}, err
+	}
+	if endpoint.Kind != app.EndpointKindThirdPartyDevice || endpoint.OwnerID != strings.TrimSpace(ownerID) || endpoint.ActorID != strings.TrimSpace(actorID) {
+		return app.MessageEndpoint{}, newTargetError(CodeCrossUserDenied, "delivery endpoint is outside the actor scope")
+	}
+	binding, ok := r.store.GetNotificationBinding(endpoint.BindingRef)
+	if !ok || !bindingUsable(binding, time.Now().UTC()) {
+		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery binding is unavailable")
+	}
+	if !hasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+		return app.MessageEndpoint{}, newTargetError(CodeScopeDenied, "delivery binding lacks ordinary message scope")
+	}
+	return endpoint, nil
+}
+
+const (
+	CodeBindingUnavailable = "delivery_binding_unavailable"
+	CodeScopeDenied        = "delivery_scope_denied"
+	CodeCrossUserDenied    = "delivery_cross_user_denied"
+)
+
+type TargetError struct {
+	Code    string
+	Message string
+}
+
+func (e *TargetError) Error() string     { return e.Message }
+func (e *TargetError) ErrorCode() string { return e.Code }
+
+func newTargetError(code, message string) error { return &TargetError{Code: code, Message: message} }
+
+func bindingUsable(binding app.NotificationBinding, now time.Time) bool {
+	return binding.Status == string(app.EndpointActive) && binding.RevokedAt == nil && (binding.ExpiresAt == nil || binding.ExpiresAt.After(now))
+}
+
+func hasScope(scopes []string, expected string) bool {
+	for _, scope := range scopes {
+		if strings.TrimSpace(scope) == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func endpointMatchesRecipient(endpoint app.MessageEndpoint, recipient string) bool {
+	return strings.EqualFold(string(endpoint.ID), recipient) ||
+		strings.EqualFold(endpoint.RecipientDisplayName, recipient) ||
+		strings.EqualFold(endpoint.ConversationLabel, recipient)
+}
+
+func softwareDisplayName(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "telegram":
+		return "Telegram"
+	case "weixin":
+		return "Weixin"
+	default:
+		if provider == "" {
+			return "Messaging"
+		}
+		return strings.ToUpper(provider[:1]) + provider[1:]
+	}
 }
 
 func firstEndpointValue(values ...string) string {

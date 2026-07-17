@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
@@ -281,8 +282,22 @@ func (s *Syncer) processBatch(ctx context.Context, batch inboundBatch) {
 			ProviderCursor: batch.Cursor,
 			CreatedAt:      msg.CreatedAt,
 		}
+		if strings.TrimSpace(inbound.ExternalID) == "" {
+			inbound.ExternalID = stableInboundID(inbound)
+		}
 		chatSession := s.dispatcher.ensureChatSession(inbound)
-		attemptKey := binding.ID + "\x00" + msg.ExternalID
+		endpoint, endpointErr := messagecontrol.NewEndpointRegistry(s.store).Get(ctx, app.EndpointID(chatSession.ID))
+		if endpointErr != nil {
+			slog.Warn("weixin inbound source endpoint rejected", "binding_id", binding.ID, "code", messagecontrol.CodeBindingUnavailable)
+			continue
+		}
+		receives := messagecontrol.NewReceiveLifecycle(s.store)
+		receive, fresh := receives.Begin(endpoint, inbound.ExternalID)
+		if !fresh {
+			continue
+		}
+		inbound.ReceiveRecord = receives.Advance(receive, "authorized", "", "")
+		attemptKey := binding.ID + "\x00" + inbound.ExternalID
 		inbound.Text = extractInboundText(msg.Items)
 		inbound.Attachments = s.downloadInboundAttachments(ctx, binding, msg.Items, chatSession.LinkedSessionID, msg.ExternalID)
 		if inbound.Text == "" && len(inbound.Attachments) == 0 {

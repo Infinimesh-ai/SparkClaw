@@ -28,6 +28,8 @@ type MemoryStore struct {
 	notificationBindings map[string]app.NotificationBinding
 	externalChatSessions map[string]app.ExternalChatSession
 	externalChatMessages map[string]app.ExternalChatMessage
+	messageReceives      map[string]app.MessageReceiveRecord
+	messageDeliveries    map[string]app.MessageDeliveryRecord
 	channelInboxUpdates  map[string]app.ChannelInboxUpdate
 	credentialSecrets    map[string]app.CredentialSecret
 	browserAuthRecords   map[string]app.BrowserAuthRecord
@@ -59,6 +61,8 @@ func NewMemoryStore() *MemoryStore {
 		notificationBindings: map[string]app.NotificationBinding{},
 		externalChatSessions: map[string]app.ExternalChatSession{},
 		externalChatMessages: map[string]app.ExternalChatMessage{},
+		messageReceives:      map[string]app.MessageReceiveRecord{},
+		messageDeliveries:    map[string]app.MessageDeliveryRecord{},
 		channelInboxUpdates:  map[string]app.ChannelInboxUpdate{},
 		credentialSecrets:    map[string]app.CredentialSecret{},
 		browserAuthRecords:   map[string]app.BrowserAuthRecord{},
@@ -93,6 +97,8 @@ func (s *MemoryStore) snapshot() Snapshot {
 		NotificationBindings: cloneMap(s.notificationBindings),
 		ExternalChatSessions: cloneMap(s.externalChatSessions),
 		ExternalChatMessages: cloneMap(s.externalChatMessages),
+		MessageReceives:      cloneMap(s.messageReceives),
+		MessageDeliveries:    cloneMap(s.messageDeliveries),
 		ChannelInboxUpdates:  cloneMap(s.channelInboxUpdates),
 		CredentialSecrets:    cloneMap(s.credentialSecrets),
 		BrowserAuthRecords:   cloneMap(s.browserAuthRecords),
@@ -112,6 +118,15 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	defer s.mu.Unlock()
 	s.sessions = ensureMap(snapshot.Sessions)
 	s.clients = ensureMap(snapshot.Clients)
+	for id, client := range s.clients {
+		if strings.TrimSpace(client.OwnerID) == "" {
+			client.OwnerID = app.DefaultOwnerID
+		}
+		if strings.TrimSpace(client.ActorID) == "" {
+			client.ActorID = client.OwnerID
+		}
+		s.clients[id] = client
+	}
 	s.ownerProfile = normalizeOwnerProfile(snapshot.OwnerProfile)
 	s.ownerProfiles = ensureOwnerProfileMap(snapshot.OwnerProfiles, s.ownerProfile)
 	s.pairingCodes = ensureMap(snapshot.PairingCodes)
@@ -124,6 +139,15 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.reminders = ensureMap(snapshot.Reminders)
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
 	s.notificationBindings = ensureMap(snapshot.NotificationBindings)
+	for id, binding := range s.notificationBindings {
+		if strings.TrimSpace(binding.OwnerID) == "" {
+			binding.OwnerID = app.DefaultOwnerID
+		}
+		if strings.TrimSpace(binding.ActorID) == "" {
+			binding.ActorID = binding.OwnerID
+		}
+		s.notificationBindings[id] = binding
+	}
 	s.externalChatSessions = ensureMap(snapshot.ExternalChatSessions)
 	for id, session := range snapshot.WeixinChatSessions {
 		if _, exists := s.externalChatSessions[id]; !exists {
@@ -131,6 +155,8 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		}
 	}
 	s.externalChatMessages = ensureMap(snapshot.ExternalChatMessages)
+	s.messageReceives = ensureMap(snapshot.MessageReceives)
+	s.messageDeliveries = ensureMap(snapshot.MessageDeliveries)
 	for id, message := range snapshot.WeixinChatMessages {
 		if _, exists := s.externalChatMessages[id]; !exists {
 			s.externalChatMessages[id] = message
@@ -142,6 +168,18 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		}
 		if session.ExternalChatID == "" {
 			session.ExternalChatID = session.ExternalUserID
+		}
+		if strings.TrimSpace(session.AuthorizedOwnerID) == "" {
+			if binding, ok := s.notificationBindings[session.BindingID]; ok {
+				session.AuthorizedOwnerID = binding.OwnerID
+				session.AuthorizedActorID = binding.ActorID
+			}
+			if session.AuthorizedOwnerID == "" {
+				session.AuthorizedOwnerID = session.OwnerID
+			}
+		}
+		if strings.TrimSpace(session.AuthorizedActorID) == "" {
+			session.AuthorizedActorID = session.AuthorizedOwnerID
 		}
 		s.externalChatSessions[id] = session
 	}
@@ -376,6 +414,12 @@ func (s *MemoryStore) SaveClient(client app.Client) {
 	}
 	if client.CreatedAt.IsZero() {
 		client.CreatedAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(client.OwnerID) == "" {
+		client.OwnerID = app.DefaultOwnerID
+	}
+	if strings.TrimSpace(client.ActorID) == "" {
+		client.ActorID = client.OwnerID
 	}
 	s.clients[client.ID] = client
 	s.appendAuditLocked("client.saved", "", "", "gateway", client.Name, map[string]any{"client_id": client.ID})
@@ -987,6 +1031,9 @@ func (s *MemoryStore) SaveNotificationBinding(binding app.NotificationBinding) a
 	if binding.OwnerID == "" {
 		binding.OwnerID = app.DefaultOwnerID
 	}
+	if binding.ActorID == "" {
+		binding.ActorID = binding.OwnerID
+	}
 	if binding.CreatedAt.IsZero() {
 		binding.CreatedAt = now
 	}
@@ -1078,6 +1125,18 @@ func (s *MemoryStore) SaveExternalChatSession(session app.ExternalChatSession) a
 	if session.ExternalChatID == "" {
 		session.ExternalChatID = session.ExternalUserID
 	}
+	if strings.TrimSpace(session.AuthorizedOwnerID) == "" {
+		if binding, ok := s.notificationBindings[session.BindingID]; ok {
+			session.AuthorizedOwnerID = binding.OwnerID
+			session.AuthorizedActorID = binding.ActorID
+		}
+		if session.AuthorizedOwnerID == "" {
+			session.AuthorizedOwnerID = session.OwnerID
+		}
+	}
+	if strings.TrimSpace(session.AuthorizedActorID) == "" {
+		session.AuthorizedActorID = session.AuthorizedOwnerID
+	}
 	if session.Status == "" {
 		session.Status = "active"
 	}
@@ -1116,6 +1175,27 @@ func (s *MemoryStore) GetExternalChatSession(id string) (app.ExternalChatSession
 	defer s.mu.RUnlock()
 	session, ok := s.externalChatSessions[id]
 	return session, ok
+}
+
+func (s *MemoryStore) ListExternalChatSessions(channel, status string) []app.ExternalChatSession {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	status = strings.TrimSpace(status)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []app.ExternalChatSession{}
+	for _, session := range s.externalChatSessions {
+		if channel != "" && strings.ToLower(strings.TrimSpace(session.Channel)) != channel {
+			continue
+		}
+		if status != "" && session.Status != status {
+			continue
+		}
+		out = append(out, session)
+	}
+	slices.SortFunc(out, func(a, b app.ExternalChatSession) int {
+		return b.UpdatedAt.Compare(a.UpdatedAt)
+	})
+	return out
 }
 
 func (s *MemoryStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
@@ -1208,6 +1288,138 @@ func (s *MemoryStore) ListExternalChatMessages(chatSessionID string, limit int) 
 	})
 	if limit > 0 && len(out) > limit {
 		return out[len(out)-limit:]
+	}
+	return out
+}
+
+func (s *MemoryStore) SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	for _, existing := range s.messageReceives {
+		if record.SourceEndpointID == "" || strings.TrimSpace(record.NativeMessageID) == "" {
+			break
+		}
+		if existing.SourceEndpointID == record.SourceEndpointID && existing.NativeMessageID == record.NativeMessageID && existing.ID != record.ID {
+			record.ID = existing.ID
+			record.CreatedAt = existing.CreatedAt
+			record.Transitions = append([]app.MessageLifecycleTransition(nil), existing.Transitions...)
+			break
+		}
+	}
+	if record.ID == "" {
+		record.ID = app.NewID("recv")
+	}
+	if record.Direction == "" {
+		record.Direction = app.MessageDirectionReceive
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	if len(record.Transitions) == 0 || record.Transitions[len(record.Transitions)-1].Status != record.Status {
+		record.Transitions = append(record.Transitions, app.MessageLifecycleTransition{Status: record.Status, At: now})
+	}
+	s.messageReceives[record.ID] = record
+	s.appendAuditLocked("message.receive."+record.Status, "", record.LinkedRunID, "gateway", record.ProviderKey, map[string]any{
+		"receive_id": record.ID, "endpoint_id": record.SourceEndpointID,
+	})
+	return record
+}
+
+func (s *MemoryStore) GetMessageReceive(id string) (app.MessageReceiveRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	record, ok := s.messageReceives[id]
+	return record, ok
+}
+
+func (s *MemoryStore) FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, record := range s.messageReceives {
+		if record.SourceEndpointID == sourceEndpointID && record.NativeMessageID == nativeMessageID {
+			return record, true
+		}
+	}
+	return app.MessageReceiveRecord{}, false
+}
+
+func (s *MemoryStore) ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []app.MessageReceiveRecord{}
+	for _, record := range s.messageReceives {
+		if ownerID != "" && record.OwnerID != ownerID {
+			continue
+		}
+		if actorID != "" && record.ActorID != actorID {
+			continue
+		}
+		out = append(out, record)
+	}
+	slices.SortFunc(out, func(a, b app.MessageReceiveRecord) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func (s *MemoryStore) SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	if record.ID == "" {
+		record.ID = app.DeliveryID(app.NewID("del"))
+	}
+	if record.Direction == "" {
+		record.Direction = app.MessageDirectionSend
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.messageDeliveries[string(record.ID)] = record
+	s.appendAuditLocked("message.send."+string(record.Status), "", record.Request.RunID, record.ActorID, record.SoftwareDisplayName, map[string]any{
+		"delivery_id": record.ID, "endpoint_id": record.Request.Target, "origin": record.Origin,
+	})
+	return record
+}
+
+func (s *MemoryStore) GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	record, ok := s.messageDeliveries[string(id)]
+	return record, ok
+}
+
+func (s *MemoryStore) FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, record := range s.messageDeliveries {
+		if record.OwnerID == ownerID && record.ActorID == actorID && record.Request.IdempotencyKey == idempotencyKey {
+			return record, true
+		}
+	}
+	return app.MessageDeliveryRecord{}, false
+}
+
+func (s *MemoryStore) ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []app.MessageDeliveryRecord{}
+	for _, record := range s.messageDeliveries {
+		if ownerID != "" && record.OwnerID != ownerID {
+			continue
+		}
+		if actorID != "" && record.ActorID != actorID {
+			continue
+		}
+		out = append(out, record)
+	}
+	slices.SortFunc(out, func(a, b app.MessageDeliveryRecord) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out
 }

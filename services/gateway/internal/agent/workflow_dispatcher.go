@@ -129,6 +129,9 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 		return matchedWorkflowDispatch{}, err
 	}
 	run.Workflow = newWorkflowState(route, returnRoute, resolved.Intent, resolved.Plan)
+	if err := prepareWorkflowState(resolved.Profile, run.Workflow); err != nil {
+		return matchedWorkflowDispatch{}, err
+	}
 	run.State = "routing"
 	r.store.SaveRun(run)
 	r.store.AddAudit(app.AuditEvent{

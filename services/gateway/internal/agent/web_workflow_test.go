@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -54,11 +54,12 @@ func TestBrowserSearchRouteDispatchesRealWebSearchWorkflow(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `Search online for SparkClaw architecture
-MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"SparkClaw architecture"}}`)
+MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"Search online for SparkClaw architecture"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserSearch, app.WorkflowBrowserSearch, "web.search")
+	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserInternetSearch, app.WorkflowBrowserInternetSearch,
+		[]string{"web.search"}, []string{app.ToolCapabilityWebDiscovery})
 }
 
 func TestBrowserAutomationRouteDispatchesRealAutomationAdapter(t *testing.T) {
@@ -68,12 +69,12 @@ func TestBrowserAutomationRouteDispatchesRealAutomationAdapter(t *testing.T) {
 	})
 	defer closeRuntime()
 
-	result, err := runtime.HandleMessage(context.Background(), session.ID, `Use browser automation to open https://example.com and interact with the page
-MOCK_REACT_RESPONSE:{"type":"action","tool":"browser.open","arguments":{"url":"https://example.com"}}`)
+	result, err := runtime.HandleMessage(context.Background(), session.ID, "Use browser automation to open https://example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserAutomation, app.WorkflowBrowserAutomation, "browser.open")
+	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserAutomation, app.WorkflowBrowserAutomation,
+		[]string{"browser.list_tabs", "browser.open"}, []string{app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserOpen})
 }
 
 func TestDocumentInformationRouteDispatchesRealFileRead(t *testing.T) {
@@ -89,79 +90,59 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"no
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityDocumentInformation, app.WorkflowDocumentInformation, "files.read")
+	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityDocumentRead, app.WorkflowDocumentRead,
+		[]string{"files.read"}, []string{app.ToolCapabilityDocumentRead})
 }
 
-func TestDocumentProcessingRouteDispatchesRealDraftWriter(t *testing.T) {
-	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		writeTestOfficePackage(t, filepath.Join(cfg.root, "note.docx"), "word/document.xml")
+	})
 	defer closeRuntime()
 
-	result, err := runtime.HandleMessage(context.Background(), session.ID, `Create a document draft with the requested content
-MOCK_REACT_RESPONSE:{"type":"action","tool":"files.write_draft","arguments":{"path":"workflow-draft.txt","content":"created by document.processing"}}`)
+	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn_document_edit", "Replace a paragraph in note.docx", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityDocumentProcessing, app.WorkflowDocumentProcessing, "files.write_draft")
-	calls := toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID)
-	writtenPath := stringValue(calls[0].Result.(map[string]any)["path"])
-	if _, err := os.Stat(writtenPath); err != nil {
-		t.Fatalf("document processing did not write the draft at %q: %v", writtenPath, err)
+	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
+		route.Facts["document_format"] != app.DocumentFormatDOCX || route.Facts["document_operation"] != "replace_paragraph" ||
+		route.Facts["output_path"] != "note-sparkclaw-edit.docx" {
+		t.Fatalf("document edit preflight did not freeze format, operation, and output copy: %#v", route)
 	}
-	if result.WorkflowResult == nil || len(result.WorkflowResult.Content.Parts) != 2 {
-		t.Fatalf("document processing did not expose its declared file output: %#v", result.WorkflowResult)
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn_document_edit")
+	if err != nil {
+		t.Fatal(err)
 	}
-	filePart := result.WorkflowResult.Content.Parts[1]
-	if filePart.Kind != app.MessagePartFile || filePart.Resource == nil || filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "workflow-draft.txt" {
+	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "docx.replace_paragraph" {
+		t.Fatalf("document edit stage exposed the wrong editor set: %#v", visibleToolNames(dispatch.Tools))
+	}
+	definition, ok := runtime.tools.Definition("docx.replace_paragraph")
+	if !ok {
+		t.Fatal("docx editor definition is unavailable")
+	}
+	call := app.ToolCall{
+		ID: "tc_document_edit", SessionID: session.ID, RunID: dispatch.Run.ID, Tool: definition.Name, Status: "completed", Result: map[string]any{"output_path": "note-sparkclaw-edit.docx"},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 2, Capability: app.ToolCapabilityDocumentEdit,
+	}
+	st.SaveToolCall(call)
+	outcome, err := adaptWorkflowOutcome(definition, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment := dispatch.Profile.Assess(dispatch.Run.Workflow, outcome)
+	if _, err := applyWorkflowOutcome(&dispatch.Run, outcome, assessment); err != nil {
+		t.Fatal(err)
+	}
+	dispatch.Run.State = "completed"
+	result := runtime.workflowResultForRun(dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
+	if result == nil || result.Status != app.WorkflowResultSucceeded || len(result.Content.Parts) != 2 {
+		t.Fatalf("document edit did not return its output copy: %#v", result)
+	}
+	filePart := result.Content.Parts[1]
+	if filePart.Kind != app.MessagePartFile || filePart.Resource == nil || filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "note-sparkclaw-edit.docx" {
 		t.Fatalf("unexpected document output part: %#v", filePart)
 	}
-
-	endpoint := app.MessageEndpoint{ID: "endpoint_fake", OwnerID: result.WorkflowResult.OwnerID, Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "fake", Status: app.EndpointActive}
-	routes := fixedWorkflowResultEndpoint{endpoint: endpoint}
-	provider := &capturingWorkflowResultProvider{}
-	providers := delivery.NewProviderRegistry()
-	if err := providers.Register(provider); err != nil {
-		t.Fatal(err)
-	}
-	workflowResult := *result.WorkflowResult
-	workflowResult.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: endpoint.ID}
-	request, deliverResult, err := delivery.RequestFromWorkflowResult(t.Context(), workflowResult, routes)
-	if err != nil || !deliverResult {
-		t.Fatalf("build document delivery request: deliver=%t err=%v", deliverResult, err)
-	}
-	if _, err := delivery.NewGateway(routes, providers, nil).Deliver(t.Context(), request); err != nil {
-		t.Fatal(err)
-	}
-	if provider.calls != 1 || len(provider.content.Parts) != 2 || provider.content.Parts[1].Kind != app.MessagePartFile {
-		t.Fatalf("document result did not reach the provider exactly once: calls=%d content=%#v", provider.calls, provider.content)
-	}
-}
-
-type fixedWorkflowResultEndpoint struct{ endpoint app.MessageEndpoint }
-
-func (r fixedWorkflowResultEndpoint) Get(context.Context, app.EndpointID) (app.MessageEndpoint, error) {
-	return r.endpoint, nil
-}
-
-func (r fixedWorkflowResultEndpoint) Resolve(context.Context, app.ReturnRoute) (app.MessageEndpoint, bool, error) {
-	return r.endpoint, true, nil
-}
-
-type capturingWorkflowResultProvider struct {
-	calls   int
-	content app.MessageContent
-}
-
-func (*capturingWorkflowResultProvider) Key() string { return "fake" }
-func (*capturingWorkflowResultProvider) Capabilities() delivery.Capabilities {
-	return delivery.Capabilities{Parts: map[app.MessagePartKind]bool{
-		app.MessagePartText: true, app.MessagePartFile: true,
-	}}
-}
-func (p *capturingWorkflowResultProvider) Deliver(_ context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	p.calls++
-	p.content = request.Content
-	now := time.Now().UTC()
-	return app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, AttemptedAt: now, DeliveredAt: &now}, nil
 }
 
 func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
@@ -215,7 +196,7 @@ func TestMatchedDispatchFailureReturnsFailedWorkflowResultWithoutFallback(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || result.RouteDecision.CapabilityPath[1] != app.CapabilityBrowserSearch {
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || result.RouteDecision.CapabilityPath[1] != app.CapabilityBrowserInternetSearch {
 		t.Fatalf("known request lost its matched route: %#v", result.RouteDecision)
 	}
 	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultFailed || result.WorkflowResult.Workflow.ID != app.WorkflowBrowserSearch {
@@ -236,7 +217,7 @@ func TestExistingTerminalRouteKeepsItsWorkflowIdentity(t *testing.T) {
 	}{
 		{status: app.RouteClarify, path: []app.CapabilityID{"document"}, want: "router.clarify"},
 		{status: app.RouteBlocked, path: []app.CapabilityID{"browser"}, want: "router.blocked"},
-		{status: app.RouteMatched, path: []app.CapabilityID{"browser", app.CapabilityBrowserSearch}, want: app.WorkflowBrowserSearch},
+		{status: app.RouteMatched, path: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch}, want: app.WorkflowBrowserInternetSearch},
 	} {
 		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: test.status, CatalogRevision: runtime.capabilities.Revision(), CapabilityPath: test.path}
 		run := app.AgentRun{
@@ -280,23 +261,55 @@ func newWorkflowE2ERuntime(t *testing.T, customize func(*testRuntimeConfig)) (Ru
 	return runtime, st, session, func() { _ = tools.Close() }
 }
 
-func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, sessionID string, capabilityID app.CapabilityID, workflowID app.WorkflowID, toolName string) {
+func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, sessionID string, capabilityID app.CapabilityID, workflowID app.WorkflowID, toolNames, semanticCapabilities []string) {
 	t.Helper()
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || len(result.RouteDecision.CapabilityPath) != 2 || result.RouteDecision.CapabilityPath[1] != capabilityID {
 		t.Fatalf("message did not reach expected capability leaf: %#v", result.RouteDecision)
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileID != workflowID || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
-		t.Fatalf("workflow did not complete under expected contract: %#v", result.Run.Workflow)
+		var assessment *app.NodeAssessment
+		if result.Run.Workflow != nil && len(result.Run.Workflow.ActiveNodeIDs) == 1 {
+			node := result.Run.Workflow.Nodes[result.Run.Workflow.ActiveNodeIDs[0]]
+			assessment = node.LastAssessment
+		}
+		t.Fatalf("workflow did not complete under expected contract: workflow=%#v assessment=%#v calls=%#v", result.Run.Workflow, assessment, toolCallsForRun(st.ListToolCalls(sessionID), result.Run.ID))
 	}
 	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultSucceeded || result.WorkflowResult.Workflow.ID != workflowID || result.WorkflowResult.CapabilityPath[1] != capabilityID {
 		t.Fatalf("missing successful WorkflowResult: %#v", result.WorkflowResult)
 	}
 	calls := toolCallsForRun(st.ListToolCalls(sessionID), result.Run.ID)
-	if len(calls) != 1 || calls[0].Tool != toolName || calls[0].WorkflowID != workflowID || calls[0].Capability != string(capabilityID) {
+	if len(calls) != len(toolNames) || len(toolNames) != len(semanticCapabilities) {
 		t.Fatalf("workflow did not execute the expected registered tool: %#v", calls)
+	}
+	for index := range calls {
+		if calls[index].Tool != toolNames[index] || calls[index].WorkflowID != workflowID || calls[index].Capability != semanticCapabilities[index] {
+			t.Fatalf("workflow call %d escaped its stage capability: %#v", index, calls[index])
+		}
 	}
 	assertNoLegacyRoutingAudit(t, st.ListAudit(sessionID))
 	if !hasAgentAuditType(st.ListAudit(sessionID), "workflow.dispatched") || !hasAgentAuditType(st.ListAudit(sessionID), "tools.exposure.fixed") {
 		t.Fatalf("workflow dispatcher/exposure audit missing: %#v", st.ListAudit(sessionID))
+	}
+}
+
+func writeTestOfficePackage(t *testing.T, path, sentinel string) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	entry, err := archive.Create(sentinel)
+	if err == nil {
+		_, err = entry.Write([]byte("test package"))
+	}
+	if closeErr := archive.Close(); err == nil {
+		err = closeErr
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
 	}
 }

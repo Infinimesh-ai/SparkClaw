@@ -15,12 +15,16 @@ import (
 
 func (r Runtime) routeCapability(ctx context.Context, sessionID, runID, content string) (app.RouteDecision, error) {
 	contextSnapshot := r.buildAgentContextSnapshot(sessionID, runID, content)
-	fallback := r.deterministicCapabilityRouteWithContext(content, contextSnapshot)
+	fallback, err := r.recognizeCapabilityRoute(sessionID, runID, content, contextSnapshot)
+	if err != nil {
+		return app.RouteDecision{}, err
+	}
 	fallbackJSON, _ := json.Marshal(fallback)
+	routeOptionsJSON, _ := json.Marshal(r.capabilities.RouteOptions())
 	system := strings.Join([]string{
 		"Route one SparkClaw request through the registered capability tree.",
 		"Return one compact JSON object only. Unknown fields are rejected.",
-		"Allowed paths are [browser,browser.search], [browser,browser.automation], [document,document.information], and [document,document.processing].",
+		"The registered route directory is: " + string(routeOptionsJSON),
 		"Allowed statuses are matched, clarify, unmatched, and blocked.",
 		"Slots are typed semantic fields only: operation, query, target_kind, target_ref, output_ref, and format.",
 		"Never name tools, workflow steps, Skills, model lanes, risk, Policy, or approval decisions.",
@@ -42,7 +46,7 @@ func (r Runtime) routeCapability(ctx context.Context, sessionID, runID, content 
 	source := "deterministic_fallback"
 	if chatErr == nil {
 		if candidate, err := parseRouteDecision(chat.Content); err == nil {
-			candidate = r.normalizeFastRoute(candidate, fallback, content)
+			candidate = r.normalizeFastRoute(candidate, fallback)
 			if err := r.capabilities.ValidateDecision(candidate); err == nil {
 				decision = candidate
 				source = "fast_model"
@@ -86,35 +90,15 @@ func parseRouteDecision(content string) (app.RouteDecision, error) {
 	return decision, nil
 }
 
-func (r Runtime) normalizeFastRoute(candidate, fallback app.RouteDecision, content string) app.RouteDecision {
-	candidate.SchemaVersion = app.RouteDecisionSchemaVersion
-	candidate.CatalogRevision = r.capabilities.Revision()
-	candidate.Facts = cloneStringMap(fallback.Facts)
-	if candidate.Confidence < 0 || candidate.Confidence > 1 {
-		candidate.Confidence = fallback.Confidence
+func (r Runtime) normalizeFastRoute(candidate, fallback app.RouteDecision) app.RouteDecision {
+	// The current narrow support gate freezes path, operation, URL/path facts,
+	// and target bindings. Fast may add confidence only; it cannot invent a
+	// supported branch or reinterpret deterministic resources.
+	normalized := fallback
+	if candidate.Confidence >= 0 && candidate.Confidence <= 1 {
+		normalized.Confidence = candidate.Confidence
 	}
-	defaults := semanticSlotsForRoute(candidate.CapabilityPath, content, candidate.Facts)
-	if candidate.Slots.Operation == "" {
-		candidate.Slots.Operation = defaults.Operation
-	}
-	if strings.TrimSpace(candidate.Slots.Query) == "" {
-		candidate.Slots.Query = defaults.Query
-	}
-	if len(candidate.Slots.TargetRefs) == 0 {
-		candidate.Slots.TargetRefs = append([]string(nil), defaults.TargetRefs...)
-	}
-	if target := candidate.Facts["url"]; target != "" {
-		candidate.Slots.TargetKind = "url"
-		candidate.Slots.TargetRef = target
-	} else if target := candidate.Facts["path"]; target != "" {
-		candidate.Slots.TargetKind = "workspace_path"
-		candidate.Slots.TargetRef = target
-	}
-	if candidate.Status == app.RouteUnmatched {
-		candidate.CapabilityPath = nil
-		candidate.Slots = app.RouteSlots{}
-	}
-	return candidate
+	return normalized
 }
 
 func (r Runtime) deterministicCapabilityRoute(content string) app.RouteDecision {
@@ -122,70 +106,30 @@ func (r Runtime) deterministicCapabilityRoute(content string) app.RouteDecision 
 }
 
 func (r Runtime) deterministicCapabilityRouteWithContext(content string, snapshot agentContextSnapshot) app.RouteDecision {
-	content = semanticRoutingContent(content)
-	lower := strings.ToLower(content)
-	path := []app.CapabilityID(nil)
-	status := app.RouteUnmatched
-	reason := "No registered browser or document capability matched."
-
-	switch {
-	case shouldUseBrowserAutomation(lower) || shouldUseLiveBrowserForURL(content, lower):
-		status = app.RouteMatched
-		path = []app.CapabilityID{"browser", "browser.automation"}
-		reason = "The request requires interactive browser state or page controls."
-	case documentProcessingRequested(content, lower):
-		status = app.RouteMatched
-		path = []app.CapabilityID{"document", "document.processing"}
-		reason = "The request creates, edits, transforms, or deletes a governed document."
-	case snapshot.HasRecentDocumentContext() && documentFollowupOperationRequested(lower):
-		status = app.RouteMatched
-		path = []app.CapabilityID{"document", "document.processing"}
-		reason = "The request continues processing the governed document from recent session context."
-	case documentInformationRequested(content, lower):
-		status = app.RouteMatched
-		path = []app.CapabilityID{"document", "document.information"}
-		reason = "The request discovers or reads workspace document information."
-	case len(extractURLs(content)) > 0 || shouldSearchWeb(lower):
-		status = app.RouteMatched
-		path = []app.CapabilityID{"browser", "browser.search"}
-		reason = "The request discovers or reads public Internet information."
+	decision, err := r.recognizeCapabilityRoute("", "", content, snapshot)
+	if err == nil {
+		return decision
 	}
-
-	facts := deterministicRouteFacts(content)
-	if facts["path"] == "" && snapshot.HasRecentDocumentContext() {
-		facts["path"] = recentDocumentContextPath(snapshot)
-		if facts["path"] == "" {
-			delete(facts, "path")
-		}
-	}
-	return app.RouteDecision{
-		SchemaVersion:   app.RouteDecisionSchemaVersion,
-		Status:          status,
-		CatalogRevision: r.capabilities.Revision(),
-		CapabilityPath:  path,
-		Slots:           semanticSlotsForRoute(path, content, facts),
-		Confidence:      0.8,
-		Facts:           facts,
-		Reason:          reason,
-	}
+	return app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: err.Error()}
 }
 
-func documentFollowupOperationRequested(lower string) bool {
-	return workspaceMutationRequested(lower) || containsEnglishSemanticTerm(lower, "replace", "change", "update", "delete", "insert", "append", "edit", "improve") ||
-		containsAny(lower, "改", "修改", "替换", "删除", "插入", "新增", "添加", "润色", "优化", "完善", "补充", "扩写")
-}
-
-func recentDocumentContextPath(snapshot agentContextSnapshot) string {
-	for index := len(snapshot.ToolResults) - 1; index >= 0; index-- {
-		call := snapshot.ToolResults[index]
-		for _, value := range []string{stringValue(call.Arguments["output_path"]), stringValue(call.Arguments["path"])} {
-			value = strings.TrimSpace(value)
-			if value != "" && value != "<nil>" {
-				return value
-			}
+func (r Runtime) recognizeCapabilityRoute(sessionID, sourceTurnID, content string, snapshot agentContextSnapshot) (app.RouteDecision, error) {
+	profiles := r.profiles
+	if len(profiles.byID) == 0 {
+		profiles = defaultWorkflowProfileRegistry()
+	}
+	workspaceRoot := ""
+	if r.store != nil {
+		if session, ok := r.store.GetSession(sessionID); ok {
+			workspaceRoot = session.WorkspaceRoot
 		}
 	}
-	return ""
+	if strings.TrimSpace(workspaceRoot) == "" && r.tools != nil {
+		workspaceRoot = r.tools.Config().Workspaces.DefaultRoot
+	}
+	return profiles.Recognize(r.capabilities, workflowRecognitionContext{
+		SourceTurnID: sourceTurnID, Content: content, Snapshot: snapshot, WorkspaceRoot: workspaceRoot,
+	})
 }
 
 func semanticRoutingContent(content string) string {
@@ -199,55 +143,6 @@ func semanticRoutingContent(content string) string {
 		out = append(out, line)
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
-}
-
-func deterministicRouteFacts(content string) map[string]string {
-	facts := map[string]string{}
-	if urls := extractURLs(content); len(urls) == 1 {
-		facts["url"] = urls[0]
-	}
-	if paths := extractPaths(content); len(paths) == 1 {
-		facts["path"] = paths[0]
-	}
-	return facts
-}
-
-func semanticSlotsForRoute(path []app.CapabilityID, content string, facts map[string]string) app.RouteSlots {
-	slots := app.RouteSlots{Query: strings.TrimSpace(content)}
-	if len(path) != 2 {
-		return slots
-	}
-	lower := strings.ToLower(content)
-	switch path[1] {
-	case "browser.search":
-		slots.Operation = app.RouteOperationSearch
-		if urls := extractURLs(content); len(urls) > 0 {
-			slots.Operation = app.RouteOperationRead
-			slots.TargetKind = "url"
-			slots.TargetRef = urls[0]
-			slots.TargetRefs = append([]string(nil), urls...)
-		}
-	case "browser.automation":
-		slots.Operation = browserAutomationOperation(lower)
-		if facts["url"] != "" {
-			slots.TargetKind = "url"
-			slots.TargetRef = facts["url"]
-		}
-	case "document.information":
-		slots.Operation = app.RouteOperationSearch
-		if facts["path"] != "" {
-			slots.Operation = app.RouteOperationRead
-			slots.TargetKind = "workspace_path"
-			slots.TargetRef = facts["path"]
-		}
-	case "document.processing":
-		slots.Operation = documentProcessingOperation(lower)
-		if facts["path"] != "" {
-			slots.TargetKind = "workspace_path"
-			slots.TargetRef = facts["path"]
-		}
-	}
-	return slots
 }
 
 func documentInformationRequested(content, lower string) bool {
@@ -264,42 +159,6 @@ func documentInformationRequested(content, lower string) bool {
 	return documentNoun && informationVerb
 }
 
-func documentProcessingRequested(content, lower string) bool {
-	officeDocumentSignal := containsEnglishSemanticTerm(lower, "document", "documents", "pdf", "docx", "xlsx", "pptx", "spreadsheet", "presentation") ||
-		containsAny(lower, "文档", "表格", "幻灯片", "演示文稿") || strings.Contains(lower, ".pdf") || strings.Contains(lower, ".docx") || strings.Contains(lower, ".xlsx") || strings.Contains(lower, ".pptx")
-	if isTerminalTask(content) || isCodeTask(content) && !officeDocumentSignal {
-		return false
-	}
-	documentNoun := officeDocumentSignal || containsEnglishSemanticTerm(lower, "file", "files") || containsAny(lower, "文件")
-	return documentNoun && (workspaceMutationRequested(lower) || containsEnglishSemanticTerm(lower, "convert", "transform", "merge", "split", "rotate") || containsAny(lower, "转换", "合并", "拆分", "旋转"))
-}
-
-func browserAutomationOperation(lower string) app.RouteOperation {
-	switch {
-	case containsEnglishSemanticTerm(lower, "open") || containsAny(lower, "打开"):
-		return app.RouteOperationOpen
-	case containsEnglishSemanticTerm(lower, "navigate", "visit") || containsAny(lower, "访问", "跳转"):
-		return app.RouteOperationNavigate
-	case containsEnglishSemanticTerm(lower, "snapshot", "screenshot", "inspect") || containsAny(lower, "快照", "截图", "查看页面", "页面结构", "网页结构"):
-		return app.RouteOperationInspect
-	default:
-		return app.RouteOperationInteract
-	}
-}
-
-func documentProcessingOperation(lower string) app.RouteOperation {
-	switch {
-	case containsEnglishSemanticTerm(lower, "delete", "remove") || containsAny(lower, "删除", "移除"):
-		return app.RouteOperationDelete
-	case containsEnglishSemanticTerm(lower, "create", "write") || containsAny(lower, "创建", "新建", "写入"):
-		return app.RouteOperationCreate
-	case containsEnglishSemanticTerm(lower, "convert", "transform", "merge", "split", "rotate") || containsAny(lower, "转换", "合并", "拆分", "旋转"):
-		return app.RouteOperationTransform
-	default:
-		return app.RouteOperationEdit
-	}
-}
-
 func cloneStringMap(value map[string]string) map[string]string {
 	if len(value) == 0 {
 		return nil
@@ -312,7 +171,7 @@ func cloneStringMap(value map[string]string) map[string]string {
 }
 
 func routeLeaf(decision app.RouteDecision) (app.CapabilityID, error) {
-	if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 {
+	if decision.Status != app.RouteMatched || len(decision.CapabilityPath) == 0 {
 		return "", fmt.Errorf("route status %q does not select a capability leaf", decision.Status)
 	}
 	return decision.CapabilityPath[len(decision.CapabilityPath)-1], nil
@@ -340,11 +199,4 @@ func containsEnglishSemanticTerm(content string, terms ...string) bool {
 
 func isSemanticWordByte(value byte) bool {
 	return value >= 'a' && value <= 'z' || value >= '0' && value <= '9' || value == '_'
-}
-
-func webSourceEvidenceRequested(lower string) bool {
-	return containsAny(lower,
-		"source page", "source-level", "official page", "official source", "original text", "verify from", "citation from",
-		"来源页", "来源页面", "官方页面", "官方原文", "原文", "逐页核实", "核验来源", "打开来源", "读取来源",
-	)
 }

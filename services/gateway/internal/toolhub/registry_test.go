@@ -53,18 +53,32 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 			capabilityCounts[capability.Name]++
 		}
 	}
-	for _, capability := range []app.CapabilityID{
-		app.CapabilityBrowserSearch,
-		app.CapabilityBrowserAutomation,
-		app.CapabilityDocumentInformation,
-		app.CapabilityDocumentProcessing,
+	for _, capability := range []string{
+		app.ToolCapabilityWebDiscovery,
+		app.ToolCapabilityBrowserListTabs,
+		app.ToolCapabilityBrowserFocus,
+		app.ToolCapabilityBrowserOpen,
+		app.ToolCapabilityDocumentRead,
+		app.ToolCapabilityDocumentEdit,
 	} {
-		if capabilityCounts[string(capability)] == 0 {
+		if capabilityCounts[capability] == 0 {
 			t.Fatalf("workflow capability %q has no registered tools: %#v", capability, capabilityCounts)
 		}
 	}
 	deleteDefinition, ok := hub.Definition("file.delete")
-	if !ok || len(deleteDefinition.Capabilities) != 1 || deleteDefinition.Capabilities[0].Name != string(app.CapabilityDocumentProcessing) {
-		t.Fatalf("file.delete was not migrated into document.processing: %#v", deleteDefinition)
+	if !ok || len(deleteDefinition.Capabilities) != 1 || deleteDefinition.Capabilities[0].Name == app.ToolCapabilityDocumentEdit {
+		t.Fatalf("file.delete entered document.edit r1: %#v", deleteDefinition)
+	}
+	for _, name := range []string{"browser.read", "browser.navigate", "browser.click", "browser.type", "browser.select"} {
+		definition, ok := hub.Definition(name)
+		if !ok {
+			t.Fatalf("legacy tool %q is unavailable", name)
+		}
+		for _, descriptor := range definition.Capabilities {
+			if descriptor.Name == app.ToolCapabilityWebDiscovery || descriptor.Name == app.ToolCapabilityBrowserListTabs ||
+				descriptor.Name == app.ToolCapabilityBrowserFocus || descriptor.Name == app.ToolCapabilityBrowserOpen {
+				t.Fatalf("legacy tool %q entered a current browser r1 scope: %#v", name, definition.Capabilities)
+			}
+		}
 	}
 }

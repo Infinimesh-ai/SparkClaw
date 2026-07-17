@@ -1813,6 +1813,9 @@ func TestToolPolicyEditorPersistsAndUpdatesRuntimePolicy(t *testing.T) {
 	if writeResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("files.write_draft should be denied after policy update, got %d", writeResp.StatusCode)
 	}
+	if err := os.WriteFile(filepath.Join(root, "missing.txt"), []byte("policy test file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	agentReadResult := sendTestMessageResult(t, ts.URL, sessionID, "Read missing.txt")
 	toolCalls, ok := agentReadResult["tool_calls"].([]any)
 	if !ok || len(toolCalls) != 1 {
@@ -2508,7 +2511,10 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	defer ts.Close()
 
 	sessionID := createTestSession(t, ts.URL)
-	sendTestMessage(t, ts.URL, sessionID, "Search for missing-token")
+	if err := os.WriteFile(filepath.Join(root, "project-note.txt"), []byte("missing-token trace evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sendTestMessage(t, ts.URL, sessionID, "Read project-note.txt")
 	runs := st.ListRuns(sessionID)
 	if len(runs) == 0 {
 		t.Fatal("run was not saved")

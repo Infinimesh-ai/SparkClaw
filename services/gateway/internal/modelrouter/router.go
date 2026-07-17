@@ -1094,6 +1094,17 @@ func mockReActResponse(user string) string {
 	goal := mockReActGoal(user)
 	lowerGoal := strings.ToLower(goal)
 	lowerPrompt := strings.ToLower(user)
+	switch {
+	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: browser.list_tabs") && !strings.Contains(lowerPrompt, "browser.list_tabs observation"):
+		return mockReActAction("browser.list_tabs", map[string]any{})
+	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: browser.focus") && !strings.Contains(lowerPrompt, "browser.focus observation"):
+		return mockReActAction("browser.focus", map[string]any{"page_id": mockWorkflowPageID(user)})
+	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: browser.open") && !strings.Contains(lowerPrompt, "browser.open observation"):
+		urls := mockURLs(goal)
+		if len(urls) > 0 {
+			return mockReActAction("browser.open", map[string]any{"url": urls[0]})
+		}
+	}
 	if strings.Contains(lowerPrompt, "previous observation summaries") {
 		if strings.Contains(lowerPrompt, "workflow_requirement: source_page_required") && !strings.Contains(lowerPrompt, "browser.read observation") {
 			urls := mockURLs(user)
@@ -1164,6 +1175,19 @@ func mockReActResponse(user string) string {
 	default:
 		return `{"type":"final","answer":"I can answer this directly from the current conversation."}`
 	}
+}
+
+func mockWorkflowPageID(prompt string) string {
+	marker := "page_id="
+	index := strings.LastIndex(prompt, marker)
+	if index < 0 {
+		return "1"
+	}
+	value := prompt[index+len(marker):]
+	if end := strings.IndexAny(value, " \t\r\n,;}"); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
 }
 
 func mockReActAction(tool string, args map[string]any) string {

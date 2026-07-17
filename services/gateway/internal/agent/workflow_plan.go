@@ -28,13 +28,17 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 	}
 	nodes := make(map[app.WorkflowNodeID]app.WorkflowNode, len(plan.Nodes))
 	for _, node := range plan.Nodes {
-		if node.ID == "" || node.MaxAttempts <= 0 || len(node.Goal.ObjectiveIDs) == 0 || node.Goal.Completion == "" || len(node.AllowedRisks) == 0 {
+		if node.ID == "" || strings.TrimSpace(node.InitialStage) == "" || node.MaxAttempts <= 0 || len(node.Goal.ObjectiveIDs) == 0 || node.Goal.Completion == "" || len(node.AllowedRisks) == 0 {
 			return fmt.Errorf("workflow node %q contract is incomplete", node.ID)
 		}
 		if _, exists := nodes[node.ID]; exists {
 			return fmt.Errorf("workflow node ID %q is duplicated", node.ID)
 		}
-		if err := validateCapabilityScope(node.InitialScope); err != nil {
+		allowEmptyInitialScope := false
+		for _, transition := range node.Transitions {
+			allowEmptyInitialScope = allowEmptyInitialScope || transition.Deterministic
+		}
+		if err := validateCapabilityScope(node.InitialScope, allowEmptyInitialScope); err != nil {
 			return fmt.Errorf("workflow node %q initial scope: %w", node.ID, err)
 		}
 		for _, objectiveID := range node.Goal.ObjectiveIDs {
@@ -80,8 +84,8 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 	return nil
 }
 
-func validateCapabilityScope(scope app.CapabilityScope) error {
-	if len(scope.Requirements) == 0 {
+func validateCapabilityScope(scope app.CapabilityScope, allowEmpty bool) error {
+	if len(scope.Requirements) == 0 && !allowEmpty {
 		return errors.New("at least one capability requirement is required")
 	}
 	for _, requirement := range scope.Requirements {
@@ -95,21 +99,24 @@ func validateCapabilityScope(scope app.CapabilityScope) error {
 func validateNodeTransitions(node app.WorkflowNode) error {
 	seen := map[app.TransitionID]bool{}
 	for _, transition := range node.Transitions {
-		if transition.ID == "" || seen[transition.ID] || transition.MaxActivations <= 0 {
+		if transition.ID == "" || strings.TrimSpace(transition.NextStage) == "" || seen[transition.ID] || transition.MaxActivations <= 0 {
 			return fmt.Errorf("workflow node %q has an invalid transition %q", node.ID, transition.ID)
 		}
 		seen[transition.ID] = true
-		if len(transition.On.OutcomeSignals) == 0 && len(transition.On.Assessments) == 0 {
+		if !transition.Deterministic && len(transition.On.OutcomeSignals) == 0 && len(transition.On.Assessments) == 0 {
 			return fmt.Errorf("workflow node %q transition %q has no predicate", node.ID, transition.ID)
+		}
+		if transition.Deterministic && (len(transition.On.OutcomeSignals) != 0 || len(transition.On.Assessments) != 0) {
+			return fmt.Errorf("workflow node %q deterministic transition %q cannot have an outcome predicate", node.ID, transition.ID)
 		}
 		if transition.Replace != nil && len(transition.Add) != 0 {
 			return fmt.Errorf("workflow node %q transition %q cannot add and replace scope together", node.ID, transition.ID)
 		}
 		if transition.Replace != nil {
-			if err := validateCapabilityScope(*transition.Replace); err != nil {
+			if err := validateCapabilityScope(*transition.Replace, false); err != nil {
 				return fmt.Errorf("workflow node %q transition %q replacement scope: %w", node.ID, transition.ID, err)
 			}
-		} else if err := validateCapabilityScope(app.CapabilityScope{Requirements: transition.Add}); err != nil {
+		} else if err := validateCapabilityScope(app.CapabilityScope{Requirements: transition.Add}, false); err != nil {
 			return fmt.Errorf("workflow node %q transition %q additive scope: %w", node.ID, transition.ID, err)
 		}
 	}
@@ -119,11 +126,15 @@ func validateNodeTransitions(node app.WorkflowNode) error {
 func validateNodeBindings(node app.WorkflowNode) error {
 	for _, binding := range node.ArgumentBindings {
 		if binding.Capability == "" || binding.Argument == "" || binding.ResourceKind == "" ||
-			(binding.Source != app.ArgumentBindingIntentTarget && binding.Source != app.ArgumentBindingOutcomeRef) {
+			(binding.Source != app.ArgumentBindingIntentTarget && binding.Source != app.ArgumentBindingOutcomeRef &&
+				binding.Source != app.ArgumentBindingRouteSlot && binding.Source != app.ArgumentBindingRouteFact) {
 			return fmt.Errorf("workflow node %q has an incomplete argument binding", node.ID)
 		}
 		if binding.Source == app.ArgumentBindingIntentTarget && len(binding.TargetKinds) == 0 {
 			return fmt.Errorf("workflow node %q intent-target binding requires target kinds", node.ID)
+		}
+		if (binding.Source == app.ArgumentBindingRouteSlot || binding.Source == app.ArgumentBindingRouteFact) && strings.TrimSpace(binding.SourceKey) == "" {
+			return fmt.Errorf("workflow node %q route binding requires a source key", node.ID)
 		}
 		if !nodeCanRequireCapability(node, binding.Capability) {
 			return fmt.Errorf("workflow node %q binds capability %q outside its frozen scopes", node.ID, binding.Capability)

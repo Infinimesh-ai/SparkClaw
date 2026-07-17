@@ -1,5 +1,11 @@
 package app
 
+const (
+	CapabilityBrowserInternetSearch CapabilityID = "browser.internet_search"
+	CapabilityDocumentRead          CapabilityID = "document.read"
+	CapabilityDocumentEdit          CapabilityID = "document.edit"
+)
+
 type IntentDomain string
 
 const (
@@ -99,28 +105,56 @@ type WorkflowNodeStatus string
 type ArgumentBindingSource string
 
 const (
-	WorkflowBrowserSearch       WorkflowID = "browser.search"
-	WorkflowBrowserAutomation   WorkflowID = "browser.automation"
-	WorkflowDocumentInformation WorkflowID = "document.information"
-	WorkflowDocumentProcessing  WorkflowID = "document.processing"
+	WorkflowBrowserInternetSearch WorkflowID = "browser.internet_search"
+	WorkflowBrowserAutomation     WorkflowID = "browser.automation"
+	WorkflowDocumentRead          WorkflowID = "document.read"
+	WorkflowDocumentEdit          WorkflowID = "document.edit"
+
+	WorkflowBrowserSearch       = WorkflowBrowserInternetSearch
+	WorkflowDocumentInformation = WorkflowDocumentRead
+	WorkflowDocumentProcessing  = WorkflowDocumentEdit
 
 	// Legacy identities remain exact so persisted state is never silently
 	// reinterpreted as a different contract during migration.
-	WorkflowWebPublicResearch WorkflowID = "web.public_research"
-	WorkflowWebExplicitURL    WorkflowID = "web.explicit_url_read"
-	WorkflowWorkspaceSearch   WorkflowID = "workspace.file_search"
-	WorkflowWorkspaceRead     WorkflowID = "workspace.file_read"
+	WorkflowLegacyBrowserSearch       WorkflowID = "browser.search"
+	WorkflowLegacyDocumentInformation WorkflowID = "document.information"
+	WorkflowLegacyDocumentProcessing  WorkflowID = "document.processing"
+	WorkflowWebPublicResearch         WorkflowID = "web.public_research"
+	WorkflowWebExplicitURL            WorkflowID = "web.explicit_url_read"
+	WorkflowWorkspaceSearch           WorkflowID = "workspace.file_search"
+	WorkflowWorkspaceRead             WorkflowID = "workspace.file_read"
 
 	ToolEffectExternalRead     ToolEffect = "external.read"
 	ToolEffectExternalInteract ToolEffect = "external.interact"
 	ToolEffectWorkspaceRead    ToolEffect = "workspace.read"
 	ToolEffectWorkspaceWrite   ToolEffect = "workspace.write"
 
+	ToolCapabilityWebDiscovery    = "web.discovery"
+	ToolCapabilityBrowserListTabs = "browser.tab.list"
+	ToolCapabilityBrowserFocus    = "browser.tab.focus"
+	ToolCapabilityBrowserOpen     = "browser.tab.open"
+	ToolCapabilityDocumentRead    = "document.read"
+	ToolCapabilityDocumentEdit    = "document.edit"
+
+	CapabilityQualifierFormat   = "format"
+	CapabilityQualifierProvider = "provider"
+
+	CapabilityProviderInfo = "info"
+	DocumentFormatText     = "text"
+	DocumentFormatDOCX     = "docx"
+	DocumentFormatXLSX     = "xlsx"
+	DocumentFormatPPTX     = "pptx"
+	DocumentFormatPDF      = "pdf"
+
 	OutcomeAdapterGeneric         ToolOutcomeAdapter = "generic"
 	OutcomeAdapterWebSearch       ToolOutcomeAdapter = "web.search"
 	OutcomeAdapterWebPage         ToolOutcomeAdapter = "web.page"
 	OutcomeAdapterWorkspaceSearch ToolOutcomeAdapter = "workspace.search"
 	OutcomeAdapterWorkspaceRead   ToolOutcomeAdapter = "workspace.read"
+	OutcomeAdapterBrowserTabs     ToolOutcomeAdapter = "browser.tabs"
+	OutcomeAdapterBrowserFocus    ToolOutcomeAdapter = "browser.focus"
+	OutcomeAdapterBrowserOpen     ToolOutcomeAdapter = "browser.open"
+	OutcomeAdapterDocumentEdit    ToolOutcomeAdapter = "document.edit"
 
 	OutcomeSignalResultsAvailable       OutcomeSignal = "results_available"
 	OutcomeSignalNoResults              OutcomeSignal = "no_results"
@@ -128,6 +162,12 @@ const (
 	OutcomeSignalSourcePageAvailable    OutcomeSignal = "source_page_available"
 	OutcomeSignalStructureRequired      OutcomeSignal = "structure_required"
 	OutcomeSignalAuthenticationRequired OutcomeSignal = "authentication_required"
+	OutcomeSignalTabsScanned            OutcomeSignal = "tabs_scanned"
+	OutcomeSignalTargetTabExists        OutcomeSignal = "target_tab_exists"
+	OutcomeSignalTargetTabMissing       OutcomeSignal = "target_tab_missing"
+	OutcomeSignalFocusCompleted         OutcomeSignal = "focus_completed"
+	OutcomeSignalOpenCompleted          OutcomeSignal = "open_completed"
+	OutcomeSignalEditCompleted          OutcomeSignal = "edit_completed"
 
 	AssessmentComplete          AssessmentStatus = "complete"
 	AssessmentNeedsMoreEvidence AssessmentStatus = "needs_more_evidence"
@@ -146,6 +186,8 @@ const (
 
 	ArgumentBindingIntentTarget ArgumentBindingSource = "intent_target"
 	ArgumentBindingOutcomeRef   ArgumentBindingSource = "outcome_ref"
+	ArgumentBindingRouteSlot    ArgumentBindingSource = "route_slot"
+	ArgumentBindingRouteFact    ArgumentBindingSource = "route_fact"
 )
 
 type CapabilityRequirement struct {
@@ -177,6 +219,8 @@ type TransitionPredicate struct {
 type ScopeTransition struct {
 	ID             TransitionID            `json:"id"`
 	On             TransitionPredicate     `json:"on"`
+	Deterministic  bool                    `json:"deterministic,omitempty"`
+	NextStage      string                  `json:"next_stage"`
 	Add            []CapabilityRequirement `json:"add"`
 	Replace        *CapabilityScope        `json:"replace,omitempty"`
 	MaxActivations int                     `json:"max_activations"`
@@ -187,11 +231,13 @@ type ArgumentBinding struct {
 	Argument     string                `json:"argument"`
 	ResourceKind string                `json:"resource_kind"`
 	Source       ArgumentBindingSource `json:"source"`
+	SourceKey    string                `json:"source_key,omitempty"`
 	TargetKinds  []TargetKind          `json:"target_kinds,omitempty"`
 }
 
 type WorkflowNode struct {
 	ID               WorkflowNodeID    `json:"id"`
+	InitialStage     string            `json:"initial_stage"`
 	DependsOn        []WorkflowNodeID  `json:"depends_on,omitempty"`
 	Goal             NodeGoal          `json:"goal"`
 	InitialScope     CapabilityScope   `json:"initial_scope"`
@@ -212,9 +258,10 @@ type WorkflowPlan struct {
 }
 
 type ResourceRef struct {
-	Kind       string `json:"kind"`
-	Ref        string `json:"ref"`
-	Provenance string `json:"provenance"`
+	Kind       string            `json:"kind"`
+	Ref        string            `json:"ref"`
+	Provenance string            `json:"provenance"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 type ToolOutcome struct {
@@ -229,11 +276,12 @@ type ToolOutcome struct {
 }
 
 type NodeAssessment struct {
-	OutcomeID  string           `json:"outcome_id"`
-	NodeID     WorkflowNodeID   `json:"node_id"`
-	Status     AssessmentStatus `json:"status"`
-	Signals    []OutcomeSignal  `json:"signals,omitempty"`
-	ReasonCode string           `json:"reason_code,omitempty"`
+	OutcomeID    string           `json:"outcome_id"`
+	NodeID       WorkflowNodeID   `json:"node_id"`
+	Status       AssessmentStatus `json:"status"`
+	Signals      []OutcomeSignal  `json:"signals,omitempty"`
+	SelectedRefs []ResourceRef    `json:"selected_refs,omitempty"`
+	ReasonCode   string           `json:"reason_code,omitempty"`
 }
 
 type DirectoryViewRef struct {
@@ -296,6 +344,7 @@ type ExposureView struct {
 
 type WorkflowNodeState struct {
 	Status                WorkflowNodeStatus     `json:"status"`
+	Stage                 string                 `json:"stage"`
 	Attempts              int                    `json:"attempts"`
 	CurrentScope          CapabilityScope        `json:"current_scope"`
 	ScopeRevision         int                    `json:"scope_revision"`

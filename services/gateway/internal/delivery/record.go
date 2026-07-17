@@ -26,6 +26,9 @@ func RecordExternalDelivery(st externalDeliveryStore, endpoint app.MessageEndpoi
 	status := "sent"
 	if receipt.Status != app.DeliverySucceeded {
 		status = "failed"
+		if receipt.Status == app.DeliveryPartiallySent {
+			status = "partially_sent"
+		}
 	}
 	createdAt := receipt.AttemptedAt
 	if createdAt.IsZero() {

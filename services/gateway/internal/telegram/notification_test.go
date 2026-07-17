@@ -83,7 +83,7 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_multimedia", Channel: "telegram", Status: "active", ExternalChatID: "99", CredentialRef: ref, BaseURL: server.URL})
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_multimedia", Channel: "telegram", Status: "active", ExternalChatID: "99", CredentialRef: ref, BaseURL: server.URL, Scopes: []string{app.BindingScopeMessageSendSelf}})
 	parts := []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "hello"}}
 	for _, item := range []struct {
 		id, name, content string
@@ -91,6 +91,7 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 		disposition       app.MessagePartDisposition
 	}{
 		{id: "image", name: "image.png", content: "image", kind: app.MessagePartImage, disposition: app.MessageDispositionAttachment},
+		{id: "audio", name: "audio.mp3", content: "audio", kind: app.MessagePartAudio, disposition: app.MessageDispositionAttachment},
 		{id: "voice", name: "voice.ogg", content: "voice", kind: app.MessagePartAudio, disposition: app.MessageDispositionVoiceNote},
 		{id: "file", name: "report.txt", content: "file", kind: app.MessagePartFile, disposition: app.MessageDispositionAttachment},
 	} {
@@ -106,14 +107,17 @@ func TestNotificationProviderDeliversEveryMultimediaPart(t *testing.T) {
 	if err := providers.Register(adapter); err != nil {
 		t.Fatal(err)
 	}
-	request := app.DeliveryRequest{SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_multimedia", IdempotencyKey: "multi", Target: app.EndpointID(binding.ID), Content: app.MessageContent{Parts: parts}}
+	request := app.DeliveryRequest{SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_multimedia", IdempotencyKey: "multi", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Origin: app.DeliveryOriginWebDirect, Target: app.EndpointID(binding.ID), Content: app.MessageContent{Parts: parts}}
 	receipt, err := providers.Deliver(t.Context(), app.MessageEndpoint{ID: app.EndpointID(binding.ID), Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "telegram", BindingRef: binding.ID}, request)
 	if err != nil || receipt.Status != app.DeliverySucceeded {
 		t.Fatalf("deliver: receipt=%#v err=%v", receipt, err)
 	}
-	want := []string{"sendMessage", "sendPhoto", "sendVoice", "sendDocument"}
+	want := []string{"sendMessage", "sendPhoto", "sendDocument", "sendVoice", "sendDocument"}
 	if strings.Join(calls, ",") != strings.Join(want, ",") {
 		t.Fatalf("unexpected ordered provider calls: got=%v want=%v", calls, want)
+	}
+	if len(receipt.PartReceipts) != len(parts) || receipt.PartReceipts[2].Representation != "file_fallback" || receipt.PartReceipts[3].Representation != "native" {
+		t.Fatalf("unexpected per-part receipt mapping: %#v", receipt.PartReceipts)
 	}
 }
 

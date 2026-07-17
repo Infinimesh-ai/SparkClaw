@@ -31,21 +31,22 @@ func NewNotificationAdapter(st store.Store, vault credential.CredentialVault, cf
 
 func (a *NotificationAdapter) Key() string { return "telegram" }
 
-func (a *NotificationAdapter) Capabilities() delivery.Capabilities {
-	return delivery.Capabilities{
-		Parts: map[app.MessagePartKind]bool{
-			app.MessagePartText: true, app.MessagePartImage: true, app.MessagePartAudio: true, app.MessagePartFile: true,
-		},
-		AudioDispositions: map[app.MessagePartDisposition]bool{
-			app.MessageDispositionVoiceNote: true, app.MessageDispositionAttachment: true,
-		},
+func (a *NotificationAdapter) Capabilities() app.DeliveryCapabilities {
+	return app.DeliveryCapabilities{
+		Kinds:             []app.MessagePartKind{app.MessagePartText, app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile},
+		Dispositions:      []app.MessagePartDisposition{app.MessageDispositionInline, app.MessageDispositionAttachment, app.MessageDispositionVoiceNote},
+		FileFallbackKinds: []app.MessagePartKind{app.MessagePartImage, app.MessagePartAudio},
+		NativeVoiceTypes:  []string{"audio/ogg", "audio/opus"},
+		MaxParts:          8, MaxTotalBytes: 25 << 20,
+		MaxBytesByKind:  map[app.MessagePartKind]int64{app.MessagePartImage: 25 << 20, app.MessagePartAudio: 25 << 20, app.MessagePartFile: 25 << 20},
+		SupportsCaption: true, SupportsNativeVoice: true, SupportsFileFallback: true,
 	}
 }
 
 func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	binding, ok := a.deliveryBinding(endpoint, request)
-	if !ok {
-		return a.deliveryFailure(endpoint, request, "telegram binding is unavailable", "blocked")
+	binding, err := a.deliveryBinding(endpoint, request)
+	if err != nil {
+		return a.deliveryFailure(endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
 	}
 	resources := delivery.ResourceResolver(a.resources)
 	if endpoint.SessionID != "" {
@@ -53,18 +54,18 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 	}
 	prepared, err := delivery.PrepareParts(ctx, request.Content, resources)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
+		return a.deliveryFailure(endpoint, request, delivery.CodeArtifactInvalid, "telegram delivery resource is invalid", "blocked", nil)
 	}
 	chatID, threadID, err := telegramDeliveryAddress(endpoint, binding)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
+		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, err.Error(), "blocked", nil)
 	}
 	if a.vault == nil {
-		return a.deliveryFailure(endpoint, request, "telegram credential vault is unavailable", "blocked")
+		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "telegram credential is unavailable", "blocked", nil)
 	}
 	token, err := a.vault.Open(ctx, binding.CredentialRef)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, "telegram credential is unavailable", "blocked")
+		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "telegram credential is unavailable", "blocked", nil)
 	}
 	defer clear(token)
 	baseURL := strings.TrimRight(strings.TrimSpace(binding.BaseURL), "/")
@@ -72,57 +73,74 @@ func (a *NotificationAdapter) Deliver(ctx context.Context, endpoint app.MessageE
 		baseURL = strings.TrimRight(strings.TrimSpace(a.cfg.BaseURL), "/")
 	}
 	if baseURL == "" {
-		return a.deliveryFailure(endpoint, request, "telegram base URL is unavailable", "blocked")
+		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "telegram provider is unavailable", "blocked", nil)
 	}
 	client := NewClient(baseURL, string(token), &http.Client{Timeout: 15 * time.Second})
 	attemptedAt := time.Now().UTC()
-	for _, item := range prepared {
+	partReceipts := make([]app.PartDeliveryReceipt, 0, len(prepared))
+	for index, item := range prepared {
 		caption := strings.TrimSpace(item.Part.Caption)
+		representation := "native"
+		var sent Message
 		switch item.Part.Kind {
 		case app.MessagePartText:
-			_, err = client.SendMessage(ctx, chatID, threadID, strings.TrimSpace(item.Part.Text), nil)
+			sent, err = client.SendMessage(ctx, chatID, threadID, strings.TrimSpace(item.Part.Text), nil)
 		case app.MessagePartImage:
-			_, err = client.SendPhoto(ctx, chatID, threadID, item.Path, caption)
+			sent, err = client.SendPhoto(ctx, chatID, threadID, item.Path, caption)
 		case app.MessagePartAudio:
-			if item.Part.Disposition == app.MessageDispositionVoiceNote {
-				_, err = client.SendVoice(ctx, chatID, threadID, item.Path, caption)
+			if item.Part.Disposition == app.MessageDispositionVoiceNote && telegramNativeVoice(item.Part, item.Path) {
+				sent, err = client.SendVoice(ctx, chatID, threadID, item.Path, caption)
 			} else {
-				_, err = client.SendDocument(ctx, chatID, threadID, item.Path, firstNonEmpty(item.Part.Name, filepath.Base(item.Path)), caption)
+				representation = "file_fallback"
+				sent, err = client.SendDocument(ctx, chatID, threadID, item.Path, firstNonEmpty(item.Part.Name, filepath.Base(item.Path)), caption)
 			}
 		case app.MessagePartFile:
-			_, err = client.SendDocument(ctx, chatID, threadID, item.Path, firstNonEmpty(item.Part.Name, filepath.Base(item.Path)), caption)
+			sent, err = client.SendDocument(ctx, chatID, threadID, item.Path, firstNonEmpty(item.Part.Name, filepath.Base(item.Path)), caption)
 		}
 		if err != nil {
-			state := "blocked"
-			if telegramNotificationRetryable(err) {
-				state = "retryable"
+			code, state := telegramDeliveryFailure(err)
+			partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: item.Part.ID, Status: "failed", Representation: representation, ErrorCode: code})
+			for _, remaining := range prepared[index+1:] {
+				partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: remaining.Part.ID, Status: "not_attempted", Representation: telegramRepresentation(remaining), ErrorCode: code})
 			}
-			return a.deliveryFailure(endpoint, request, "telegram delivery failed", state)
+			return a.deliveryFailure(endpoint, request, code, "telegram delivery failed", state, partReceipts)
 		}
+		partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: item.Part.ID, Status: "sent", Representation: representation, ProviderRef: strconv.FormatInt(sent.MessageID, 10)})
 	}
 	deliveredAt := time.Now().UTC()
-	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: "telegram-bot-api", AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: "telegram-bot-api", Attempt: 1, PartReceipts: partReceipts, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
 	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
 	return receipt, nil
 }
 
-func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, bool) {
+func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
 	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
 		binding.Status == "active" && binding.Channel == a.Key() {
-		return binding, true
+		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
+			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
+		}
+		if request.Origin != app.DeliveryOriginSourceReply {
+			if binding.OwnerID != request.OwnerID || firstNonEmpty(binding.ActorID, binding.OwnerID) != request.ActorID {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeCrossUserDenied, "telegram binding is outside the actor scope", "blocked")
+			}
+			if !bindingHasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "telegram binding lacks ordinary message scope", "blocked")
+			}
+		}
+		return binding, nil
 	}
 	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
-		return app.NotificationBinding{}, false
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 	}
 	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
 	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), a.Key()) {
-		return app.NotificationBinding{}, false
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 	}
 	return app.NotificationBinding{
 		ID: reminder.BindingID, OwnerID: request.OwnerID, Channel: a.Key(), Status: "active",
 		ExternalChatID: reminder.Recipient, ExternalThreadID: reminder.RecipientBinding,
 		CredentialRef: reminder.CredentialRef, BaseURL: reminder.BaseURL,
-	}, true
+	}, nil
 }
 
 func telegramDeliveryAddress(endpoint app.MessageEndpoint, binding app.NotificationBinding) (int64, int64, error) {
@@ -140,11 +158,61 @@ func telegramDeliveryAddress(endpoint app.MessageEndpoint, binding app.Notificat
 	return chatID, threadID, nil
 }
 
-func (a *NotificationAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {
-	err := delivery.DeliveryError{Message: message, State: retryState}
-	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}
+func (a *NotificationAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
+	err := delivery.DeliveryError{Code: code, Message: message, State: retryState}
+	status := app.DeliveryFailed
+	for _, part := range parts {
+		if part.Status == "sent" {
+			status = app.DeliveryPartiallySent
+			break
+		}
+	}
+	if code == delivery.CodeOutcomeUnknown && status != app.DeliveryPartiallySent {
+		status = app.DeliveryOutcomeUnknown
+	}
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: status, Error: message, ErrorCode: code, RetryState: retryState, Attempt: 1, PartReceipts: parts, AttemptedAt: time.Now().UTC()}
 	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
 	return receipt, err
+}
+
+func telegramNativeVoice(part app.MessagePart, path string) bool {
+	contentType := strings.ToLower(strings.TrimSpace(part.ContentType))
+	if contentType == "audio/ogg" || contentType == "audio/opus" {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(firstNonEmpty(part.Name, path))) {
+	case ".ogg", ".oga", ".opus":
+		return true
+	default:
+		return false
+	}
+}
+
+func telegramRepresentation(item delivery.PreparedPart) string {
+	if item.Part.Kind == app.MessagePartAudio && item.Part.Disposition == app.MessageDispositionVoiceNote && !telegramNativeVoice(item.Part, item.Path) {
+		return "file_fallback"
+	}
+	return "native"
+}
+
+func telegramDeliveryFailure(err error) (string, string) {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return delivery.CodeOutcomeUnknown, "unsafe"
+	}
+	if telegramNotificationRetryable(err) {
+		return delivery.CodeProviderRetryable, "retryable"
+	}
+	return delivery.CodeBindingUnavailable, "blocked"
+}
+
+func bindingHasScope(scopes []string, expected string) bool {
+	for _, scope := range scopes {
+		if strings.TrimSpace(scope) == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(values ...string) string {

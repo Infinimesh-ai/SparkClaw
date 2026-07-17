@@ -35,15 +35,15 @@ func (g *Gateway) Deliver(ctx context.Context, request app.DeliveryRequest) (app
 	if request.SchemaVersion != app.DeliveryRequestSchemaVersion || request.ID == "" || request.Target == "" || strings.TrimSpace(request.IdempotencyKey) == "" {
 		return app.DeliveryReceipt{}, errors.New("delivery request identity, target, and supported schema are required")
 	}
-	if strings.TrimSpace(request.OwnerID) == "" || strings.TrimSpace(request.Authorization.PrincipalID) == "" || request.OwnerID != request.Authorization.PrincipalID {
-		return app.DeliveryReceipt{}, errors.New("delivery owner and matching authorization principal are required")
+	if strings.TrimSpace(request.OwnerID) == "" || strings.TrimSpace(request.ActorID) == "" || request.Authorization.PrincipalID != request.ActorID {
+		return app.DeliveryReceipt{}, NewError(CodeCrossUserDenied, "delivery owner and actor authorization are required", "blocked")
 	}
 	endpoint, err := g.endpoints.Get(ctx, request.Target)
 	if err != nil {
 		return failedReceipt(app.MessageEndpoint{ID: request.Target}, request, err.Error()), err
 	}
-	if endpoint.OwnerID != request.OwnerID {
-		err := errors.New("delivery endpoint does not belong to the authorized owner")
+	if !requestAuthorizedForEndpoint(request, endpoint) {
+		err := NewError(CodeCrossUserDenied, "delivery endpoint does not belong to the authorized actor", "blocked")
 		return failedReceipt(endpoint, request, err.Error()), err
 	}
 	switch endpoint.Kind {
@@ -68,12 +68,14 @@ type LocalWebDelivery struct{}
 func (LocalWebDelivery) Deliver(_ context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	now := time.Now().UTC()
 	return app.DeliveryReceipt{
-		DeliveryID:  request.ID,
-		EndpointID:  endpoint.ID,
-		Status:      app.DeliverySucceeded,
-		ProviderRef: "web-local",
-		AttemptedAt: now,
-		DeliveredAt: &now,
+		DeliveryID:   request.ID,
+		EndpointID:   endpoint.ID,
+		Status:       app.DeliverySucceeded,
+		ProviderRef:  "web-local",
+		Attempt:      1,
+		PartReceipts: successfulPartReceipts(request.Content, "web-local"),
+		AttemptedAt:  now,
+		DeliveredAt:  &now,
 	}, nil
 }
 
@@ -89,9 +91,54 @@ func failedReceipt(endpoint app.MessageEndpoint, request app.DeliveryRequest, me
 }
 
 type DeliveryError struct {
+	Code    string
 	Message string
 	State   string
 }
 
 func (e DeliveryError) Error() string      { return e.Message }
 func (e DeliveryError) RetryState() string { return e.State }
+func (e DeliveryError) ErrorCode() string  { return e.Code }
+func (e DeliveryError) Retryable() bool    { return e.State == "retryable" }
+
+const (
+	CodeBindingUnavailable  = "delivery_binding_unavailable"
+	CodeScopeDenied         = "delivery_scope_denied"
+	CodeCrossUserDenied     = "delivery_cross_user_denied"
+	CodePartUnsupported     = "delivery_part_unsupported"
+	CodePayloadTooLarge     = "delivery_payload_too_large"
+	CodeArtifactInvalid     = "delivery_artifact_invalid"
+	CodeIdempotencyConflict = "delivery_idempotency_conflict"
+	CodeProviderRetryable   = "delivery_provider_retryable"
+	CodeOutcomeUnknown      = "delivery_outcome_unknown"
+)
+
+func NewError(code, message, retryState string) error {
+	return DeliveryError{Code: code, Message: message, State: retryState}
+}
+
+func ErrorCode(err error) string {
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
+	}
+	return ""
+}
+
+func requestAuthorizedForEndpoint(request app.DeliveryRequest, endpoint app.MessageEndpoint) bool {
+	if request.Authorization.PrincipalID != request.ActorID || request.ActorID == "" {
+		return false
+	}
+	if request.Origin == app.DeliveryOriginSourceReply {
+		return endpoint.SourceActorID == request.ActorID
+	}
+	return endpoint.OwnerID == request.OwnerID && endpoint.ActorID == request.ActorID
+}
+
+func successfulPartReceipts(content app.MessageContent, providerRef string) []app.PartDeliveryReceipt {
+	receipts := make([]app.PartDeliveryReceipt, 0, len(content.Parts))
+	for _, part := range content.Parts {
+		receipts = append(receipts, app.PartDeliveryReceipt{PartID: part.ID, Status: "sent", Representation: "native", ProviderRef: providerRef})
+	}
+	return receipts
+}

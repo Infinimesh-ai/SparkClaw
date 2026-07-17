@@ -12,12 +12,12 @@ import (
 
 type recordingProvider struct {
 	key      string
-	caps     Capabilities
+	caps     app.DeliveryCapabilities
 	requests []app.DeliveryRequest
 }
 
-func (p *recordingProvider) Key() string                { return p.key }
-func (p *recordingProvider) Capabilities() Capabilities { return p.caps }
+func (p *recordingProvider) Key() string                            { return p.key }
+func (p *recordingProvider) Capabilities() app.DeliveryCapabilities { return p.caps }
 func (p *recordingProvider) Deliver(_ context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	p.requests = append(p.requests, request)
 	now := time.Now().UTC()
@@ -29,9 +29,9 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_fake", Channel: "fake", Provider: "anything", Status: "active"})
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := NewProviderRegistry()
-	fake := &recordingProvider{key: "fake", caps: Capabilities{
-		Parts:             map[app.MessagePartKind]bool{app.MessagePartText: true, app.MessagePartImage: true, app.MessagePartAudio: true, app.MessagePartFile: true},
-		AudioDispositions: map[app.MessagePartDisposition]bool{app.MessageDispositionVoiceNote: true, app.MessageDispositionAttachment: true},
+	fake := &recordingProvider{key: "fake", caps: app.DeliveryCapabilities{
+		Kinds:        []app.MessagePartKind{app.MessagePartText, app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile},
+		Dispositions: []app.MessagePartDisposition{app.MessageDispositionInline, app.MessageDispositionVoiceNote, app.MessageDispositionAttachment},
 	}}
 	if err := providers.Register(fake); err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 		{ID: "voice", Kind: app.MessagePartAudio, Disposition: app.MessageDispositionVoiceNote, ArtifactID: "voice"},
 		{ID: "file", Kind: app.MessagePartFile, Disposition: app.MessageDispositionAttachment, ArtifactID: "file"},
 	}}
-	request := app.DeliveryRequest{SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_fake", IdempotencyKey: "once", OwnerID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Target: app.EndpointID(binding.ID), Content: content, CreatedAt: time.Now().UTC()}
+	request := app.DeliveryRequest{SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_fake", IdempotencyKey: "once", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Target: app.EndpointID(binding.ID), Content: content, CreatedAt: time.Now().UTC()}
 	receipt, err := NewGateway(endpoints, providers, LocalWebDelivery{}).Deliver(t.Context(), request)
 	if err != nil || receipt.Status != app.DeliverySucceeded {
 		t.Fatalf("deliver: receipt=%#v err=%v", receipt, err)
@@ -57,13 +57,13 @@ func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_text", Channel: "text-only", Status: "active"})
 	endpoints := messagecontrol.NewEndpointRegistry(st)
 	providers := NewProviderRegistry()
-	fake := &recordingProvider{key: "text-only", caps: Capabilities{Parts: map[app.MessagePartKind]bool{app.MessagePartText: true}}}
+	fake := &recordingProvider{key: "text-only", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
 	if err := providers.Register(fake); err != nil {
 		t.Fatal(err)
 	}
 	request := app.DeliveryRequest{
 		SchemaVersion: app.DeliveryRequestSchemaVersion,
-		ID:            "del_unsupported", IdempotencyKey: "once", OwnerID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Target: app.EndpointID(binding.ID), CreatedAt: time.Now().UTC(),
+		ID:            "del_unsupported", IdempotencyKey: "once", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Target: app.EndpointID(binding.ID), CreatedAt: time.Now().UTC(),
 		Content: app.MessageContent{Parts: []app.MessagePart{
 			{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "must not send"},
 			{ID: "audio", Kind: app.MessagePartAudio, Disposition: app.MessageDispositionVoiceNote, ArtifactID: "audio"},
@@ -102,13 +102,13 @@ func TestGatewayRejectsEndpointOwnedByAnotherPrincipal(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_other", OwnerID: "owner-b", Channel: "fake", Status: "active"})
 	providers := NewProviderRegistry()
-	fake := &recordingProvider{key: "fake", caps: Capabilities{Parts: map[app.MessagePartKind]bool{app.MessagePartText: true}}}
+	fake := &recordingProvider{key: "fake", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
 	if err := providers.Register(fake); err != nil {
 		t.Fatal(err)
 	}
 	request := app.DeliveryRequest{
 		SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_cross_owner", IdempotencyKey: "cross-owner",
-		OwnerID: "owner-a", Authorization: app.MessageAuthorization{PrincipalID: "owner-a"}, Target: app.EndpointID(binding.ID),
+		OwnerID: "owner-a", ActorID: "owner-a", Authorization: app.MessageAuthorization{PrincipalID: "owner-a"}, Target: app.EndpointID(binding.ID),
 		Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "private"}}},
 	}
 	_, err := NewGateway(messagecontrol.NewEndpointRegistry(st), providers, LocalWebDelivery{}).Deliver(t.Context(), request)

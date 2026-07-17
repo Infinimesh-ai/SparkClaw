@@ -60,10 +60,11 @@ func TestWorkflowRegistryRejectsStaleInventedAndUnmatchedRoutes(t *testing.T) {
 
 func TestRouteDecisionParserRejectsToolAndWorkflowFields(t *testing.T) {
 	for _, raw := range []string{
-		`{"schema_version":1,"status":"matched","catalog_revision":"revision","capability_path":["browser","browser.internet_search"],"tool":"web.search"}`,
-		`{"schema_version":1,"status":"matched","catalog_revision":"revision","capability_path":["browser","browser.internet_search"],"workflow_id":"browser.internet_search"}`,
+		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"revision","capability_path":["browser","browser.internet_search"],"tool":"web.search"},"delivery":{"explicit_external":false}}`,
+		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"revision","capability_path":["browser","browser.internet_search"],"workflow_id":"browser.internet_search"},"delivery":{"explicit_external":false}}`,
+		`{"route":{"schema_version":1,"status":"unmatched","catalog_revision":"revision"},"delivery":{"explicit_external":true,"endpoint_id":"endpoint_model_chosen"}}`,
 	} {
-		if _, err := parseRouteDecision(raw); err == nil {
+		if _, err := parseIntentRoutingOutput(raw); err == nil {
 			t.Fatalf("forbidden routing field was accepted: %s", raw)
 		}
 	}

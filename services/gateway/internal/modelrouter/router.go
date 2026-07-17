@@ -1047,8 +1047,10 @@ func mockResponse(lane, user string) string {
 	if injected := mockInjectedResponse(user, "MOCK_DIRECTORY_SELECTION_RESPONSE:"); injected != "" {
 		return injected
 	}
-	if injected := mockInjectedResponse(user, "MOCK_INTENT_RESPONSE:"); injected != "" {
-		return injected
+	if strings.Contains(user, "Deterministic route and authority-safe delivery fallback:") {
+		if injected := mockInjectedResponse(user, "MOCK_INTENT_RESPONSE:"); injected != "" {
+			return injected
+		}
 	}
 	if injected := mockInjectedResponse(user, "MOCK_TASK_HINT_RESPONSE:"); injected != "" {
 		return injected

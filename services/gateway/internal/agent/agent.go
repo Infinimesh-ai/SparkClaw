@@ -145,10 +145,6 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		return Result{}, fmt.Errorf("normalize message ingress: %w", err)
 	}
 	agentContent := messageplane.RoutingProjection(envelope)
-	deliverySelection, returnRoute, err := r.resolveMessageControl(ctx, agentContent, envelope)
-	if err != nil {
-		return Result{}, fmt.Errorf("resolve message control route: %w", err)
-	}
 	userMessage := r.store.AddMessage(message)
 	if result, handled, err := r.resumeBrowserLoginBlock(ctx, sessionID, visibleContent, emit); handled || err != nil {
 		return result, err
@@ -161,7 +157,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		Risk:      classifyRisk(agentContent),
 		StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{
-			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: returnRoute,
+			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: envelope.ReturnRoute,
 		},
 	}
 	if run.ID == "" {
@@ -178,23 +174,10 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 			"envelope_id":      envelope.ID,
 			"schema_version":   envelope.SchemaVersion,
 			"source_kind":      envelope.Source.Kind,
-			"return_mode":      returnRoute.Mode,
+			"return_mode":      envelope.ReturnRoute.Mode,
 			"content_kinds":    messageplane.ContentKinds(envelope.Content),
 			"part_count":       len(envelope.Content.Parts),
 			"catalog_revision": r.capabilities.Revision(),
-		},
-	})
-	r.store.AddAudit(app.AuditEvent{
-		SessionID: sessionID,
-		RunID:     run.ID,
-		Actor:     "message_control",
-		Type:      "message.control.routed",
-		Summary:   string(deliverySelection.Status),
-		Fields: map[string]any{
-			"status": deliverySelection.Status, "resolution_rule": deliverySelection.ResolutionRule,
-			"candidate_count": len(deliverySelection.CandidateEndpointIDs), "resolved_endpoint_id": deliverySelection.ResolvedEndpointID,
-			"owner_id": envelope.OwnerID, "actor_id": envelope.ActorID, "envelope_id": envelope.ID,
-			"idempotency_key": envelope.IdempotencyKey, "correlation_id": envelope.CorrelationID, "causation_id": envelope.CausationID,
 		},
 	})
 	guard, guardErr := r.classifyWithGuard(ctx, sessionID, run.ID, agentContent)
@@ -223,24 +206,50 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		r.store.SaveRun(run)
 		return Result{
 			Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}, RouteDecision: &route,
-			WorkflowResult: r.workflowResultForTerminalRoute(run, route, returnRoute, run.Summary),
+			WorkflowResult: r.workflowResultForTerminalRoute(run, route, envelope.ReturnRoute, run.Summary),
 		}, nil
 	}
-	if route, terminal := messageControlTerminalRoute(deliverySelection, r.capabilities.Revision()); terminal {
+
+	routing, routingErr := r.routeIntentWithOwnerText(ctx, sessionID, run.ID, agentContent, visibleContent)
+	if routingErr != nil {
+		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
 		run.MessageContext.Route = route
 		r.store.SaveRun(run)
-		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route), nil
+		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
 	}
-
-	route, routingErr := r.routeCapability(ctx, sessionID, run.ID, agentContent)
-	if routingErr != nil {
-		route = app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
-		run.MessageContext.Route = route
-		result := r.blockWorkflowSetup(ctx, run, visibleContent, routingErr)
-		result.Run.MessageContext = run.MessageContext
-		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content)
-		return result, nil
+	route := routing.Route
+	deliverySelection, returnRoute, controlErr := r.resolveMessageControl(ctx, sessionID, routing.Delivery, envelope)
+	if controlErr != nil {
+		blocked := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: controlErr.Error()}
+		run.MessageContext.Route = blocked
+		r.store.SaveRun(run)
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID, RunID: run.ID, Actor: "message_control", Type: "message.control.blocked",
+			Summary: "Typed delivery directive could not be resolved",
+			Fields: map[string]any{
+				"explicit_external": routing.Delivery.ExplicitExternal, "requested_provider_key": routing.Delivery.RequestedProviderKey,
+				"recipient_present": strings.TrimSpace(routing.Delivery.RequestedRecipientText) != "", "reason": controlErr.Error(),
+			},
+		})
+		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, blocked), nil
+	}
+	run.MessageContext.ReturnRoute = returnRoute
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID, RunID: run.ID, Actor: "message_control", Type: "message.control.routed",
+		Summary: string(deliverySelection.Status),
+		Fields: map[string]any{
+			"status": deliverySelection.Status, "resolution_rule": deliverySelection.ResolutionRule,
+			"candidate_count": len(deliverySelection.CandidateEndpointIDs), "resolved_endpoint_id": deliverySelection.ResolvedEndpointID,
+			"explicit_external": routing.Delivery.ExplicitExternal, "requested_provider_key": routing.Delivery.RequestedProviderKey,
+			"recipient_present": strings.TrimSpace(routing.Delivery.RequestedRecipientText) != "",
+			"owner_id":          envelope.OwnerID, "actor_id": envelope.ActorID, "envelope_id": envelope.ID,
+			"idempotency_key": envelope.IdempotencyKey, "correlation_id": envelope.CorrelationID, "causation_id": envelope.CausationID,
+		},
+	})
+	if controlRoute, terminal := messageControlTerminalRoute(deliverySelection, r.capabilities.Revision()); terminal {
+		run.MessageContext.Route = controlRoute
+		r.store.SaveRun(run)
+		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, controlRoute), nil
 	}
 	run.MessageContext.Route = route
 	r.store.SaveRun(run)

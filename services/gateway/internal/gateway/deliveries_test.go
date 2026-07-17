@@ -173,6 +173,26 @@ func TestDeliveryAPIRejectsCrossOwnerArtifactBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestDeliveryAPIRejectsBindingTargetBeforeArtifactOrProvider(t *testing.T) {
+	ts, _, provider, endpointID, _ := newDeliveryTestServer(t, 0)
+	rejected := postJSON(t, ts.URL+"/api/deliveries", map[string]any{
+		"target": "bind-direct", "idempotency_key": "web-key-binding", "confirmed": true,
+		"content": map[string]any{"parts": []map[string]any{{"id": "file", "kind": "file", "disposition": "attachment", "artifact_id": "missing-artifact"}}},
+	})
+	rejectedRaw := readResponse(t, rejected)
+	if rejected.StatusCode != http.StatusConflict || !strings.Contains(string(rejectedRaw), delivery.CodeBindingUnavailable) || len(provider.calls) != 0 {
+		t.Fatalf("binding target crossed direct-send preflight: status=%d calls=%d body=%s", rejected.StatusCode, len(provider.calls), rejectedRaw)
+	}
+	accepted := postJSON(t, ts.URL+"/api/deliveries", map[string]any{
+		"target": endpointID, "idempotency_key": "web-key-exact", "confirmed": true,
+		"content": map[string]any{"parts": []map[string]any{{"id": "text", "kind": "text", "disposition": "inline", "text": "exact"}}},
+	})
+	acceptedRaw := readResponse(t, accepted)
+	if accepted.StatusCode != http.StatusCreated || len(provider.calls) != 1 || provider.calls[0].Target != endpointID {
+		t.Fatalf("exact endpoint did not pass direct-send preflight: status=%d calls=%#v body=%s", accepted.StatusCode, provider.calls, acceptedRaw)
+	}
+}
+
 func newDeliveryTestServer(t *testing.T, partialOn int) (*httptest.Server, *store.MemoryStore, *gatewayDeliveryProvider, app.EndpointID, []string) {
 	t.Helper()
 	root := t.TempDir()

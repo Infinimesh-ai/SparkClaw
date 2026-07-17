@@ -120,7 +120,7 @@ func (a *NotificationAdapter) deliveryBinding(endpoint app.MessageEndpoint, requ
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "telegram binding is unavailable", "blocked")
 		}
 		if request.Origin == app.DeliveryOriginSourceReply {
-			if !bindingHasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+			if !bindingAllowsSourceReply(binding.Scopes) {
 				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "telegram binding lacks ordinary message scope", "blocked")
 			}
 		} else {
@@ -227,6 +227,10 @@ func bindingHasScope(scopes []string, expected string) bool {
 
 func bindingAllowsScope(scopes []string, expected string, origin app.DeliveryOrigin) bool {
 	return bindingHasScope(scopes, expected) || (origin == app.DeliveryOriginSchedule && len(scopes) == 0)
+}
+
+func bindingAllowsSourceReply(scopes []string) bool {
+	return len(scopes) == 0 || bindingHasScope(scopes, app.BindingScopeMessageSendSelf)
 }
 
 func firstNonEmpty(values ...string) string {

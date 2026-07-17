@@ -134,6 +134,9 @@ func TestBindingScopeCompatibilityIsReminderOnly(t *testing.T) {
 	if !bindingAllowsScope([]string{app.BindingScopeReminderSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
 		t.Fatal("explicit reminder scope was rejected")
 	}
+	if !bindingAllowsSourceReply(nil) || bindingAllowsSourceReply([]string{app.BindingScopeReminderSendSelf}) || !bindingAllowsSourceReply([]string{app.BindingScopeMessageSendSelf}) {
+		t.Fatal("source reply scope compatibility expanded beyond legacy or ordinary-message authority")
+	}
 }
 
 func TestNotificationAdapterSanitizesProviderFailure(t *testing.T) {

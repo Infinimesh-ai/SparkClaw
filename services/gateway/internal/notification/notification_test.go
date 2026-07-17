@@ -127,6 +127,9 @@ func TestWeixinBindingScopeCompatibilityIsReminderOnly(t *testing.T) {
 	if !notificationBindingAllowsScope([]string{app.BindingScopeReminderSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
 		t.Fatal("explicit reminder scope was rejected")
 	}
+	if !notificationBindingAllowsSourceReply(nil) || notificationBindingAllowsSourceReply([]string{app.BindingScopeReminderSendSelf}) || !notificationBindingAllowsSourceReply([]string{app.BindingScopeMessageSendSelf}) {
+		t.Fatal("source reply scope compatibility expanded beyond legacy or ordinary-message authority")
+	}
 }
 
 func TestWeixinSendDoesNotUseDefaultBindingWhenRecipientMissing(t *testing.T) {

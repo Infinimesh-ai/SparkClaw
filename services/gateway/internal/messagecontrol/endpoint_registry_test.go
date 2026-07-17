@@ -112,6 +112,22 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 	}
 }
 
+func TestEndpointRegistryDirectSendRejectsBindingFallback(t *testing.T) {
+	st := store.NewMemoryStore()
+	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
+	registry := NewEndpointRegistry(st)
+
+	_, err := registry.GetForDirectSend(t.Context(), "bind-a", "owner-a", "actor-a")
+	var targetErr *TargetError
+	if !errors.As(err, &targetErr) || targetErr.Code != CodeBindingUnavailable {
+		t.Fatalf("binding ID was accepted as a direct recipient: %v", err)
+	}
+	endpoint, err := registry.GetForDirectSend(t.Context(), "chat-a", "owner-a", "actor-a")
+	if err != nil || endpoint.ID != "chat-a" || endpoint.BindingRef != "bind-a" || endpoint.ExternalUserRef != "user-1" || endpoint.Address != "chat-1" {
+		t.Fatalf("exact chat endpoint was rejected: endpoint=%#v err=%v", endpoint, err)
+	}
+}
+
 func saveEndpointFixture(st *store.MemoryStore, bindingID, chatID, ownerID, actorID, channel, displayName, externalUserID, externalChatID string, scopes []string) {
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID: bindingID, OwnerID: ownerID, ActorID: actorID, Channel: channel, Provider: channel + "-provider",

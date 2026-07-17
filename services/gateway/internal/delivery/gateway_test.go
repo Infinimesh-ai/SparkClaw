@@ -46,7 +46,7 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 	routes := messagecontrol.NewReturnRouteResolver(endpoints)
 	content := app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "reply"}}}
 	request, deliver, err := RequestFromWorkflowResult(t.Context(), app.WorkflowResult{
-		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "result-source", OwnerID: "owner-a",
+		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "result-source", OwnerID: "external-actor-a",
 		Authorization: app.MessageAuthorization{PrincipalID: "external-actor-a"}, Content: content,
 		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: "chat-source"},
 	}, routes)

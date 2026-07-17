@@ -279,13 +279,24 @@ func (r *EndpointRegistry) ResolveTarget(ctx context.Context, request TargetRequ
 	return selection, nil
 }
 
-func (r *EndpointRegistry) GetForDirectSend(ctx context.Context, id app.EndpointID, ownerID, actorID string) (app.MessageEndpoint, error) {
-	endpoint, err := r.Get(ctx, id)
+func (r *EndpointRegistry) GetForDirectSend(_ context.Context, id app.EndpointID, ownerID, actorID string) (app.MessageEndpoint, error) {
+	if r == nil || r.store == nil {
+		return app.MessageEndpoint{}, errors.New("endpoint registry is unavailable")
+	}
+	value := strings.TrimSpace(string(id))
+	chat, ok := r.store.GetExternalChatSession(value)
+	if !ok {
+		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "direct delivery requires an exact recipient endpoint")
+	}
+	endpoint, err := r.endpointForChat(id, chat)
 	if err != nil {
 		return app.MessageEndpoint{}, err
 	}
 	if endpoint.Kind != app.EndpointKindThirdPartyDevice || endpoint.OwnerID != strings.TrimSpace(ownerID) || endpoint.ActorID != strings.TrimSpace(actorID) {
 		return app.MessageEndpoint{}, newTargetError(CodeCrossUserDenied, "delivery endpoint is outside the actor scope")
+	}
+	if endpoint.BindingRef == "" || endpoint.ProviderKey == "" || endpoint.ExternalUserRef == "" || endpoint.Address == "" {
+		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "direct delivery endpoint is incomplete")
 	}
 	binding, ok := r.store.GetNotificationBinding(endpoint.BindingRef)
 	if !ok || !bindingUsable(binding, time.Now().UTC()) {

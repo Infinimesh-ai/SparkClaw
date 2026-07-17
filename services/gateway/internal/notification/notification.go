@@ -235,7 +235,7 @@ func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request ap
 			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 		}
 		if request.Origin == app.DeliveryOriginSourceReply {
-			if !notificationBindingHasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+			if !notificationBindingAllowsSourceReply(binding.Scopes) {
 				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "weixin binding lacks ordinary message scope", "blocked")
 			}
 		} else {
@@ -297,6 +297,10 @@ func notificationBindingHasScope(scopes []string, expected string) bool {
 
 func notificationBindingAllowsScope(scopes []string, expected string, origin app.DeliveryOrigin) bool {
 	return notificationBindingHasScope(scopes, expected) || (origin == app.DeliveryOriginSchedule && len(scopes) == 0)
+}
+
+func notificationBindingAllowsSourceReply(scopes []string) bool {
+	return len(scopes) == 0 || notificationBindingHasScope(scopes, app.BindingScopeMessageSendSelf)
 }
 
 func weixinDeliveryMessage(origin app.DeliveryOrigin, message string) string {

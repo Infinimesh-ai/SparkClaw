@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -101,6 +102,15 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	}
 
 	externalID := inboundMessageExternalID(message)
+	endpoint, err := messagecontrol.NewEndpointRegistry(d.store).Get(ctx, app.EndpointID(chatSession.ID))
+	if err != nil {
+		return err
+	}
+	receives := messagecontrol.NewReceiveLifecycle(d.store)
+	receive, freshReceive := receives.Begin(endpoint, externalID)
+	if freshReceive {
+		receive = receives.Advance(receive, "authorized", "", "")
+	}
 	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
 		switch existing.Status {
 		case "processed":
@@ -111,13 +121,15 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	}
 	if approval, ok := d.pendingApproval(chatSession.LinkedSessionID); ok {
 		if decision, parsed := parseApprovalDecision(text); parsed {
-			d.saveInbound(chatSession, binding, externalID, text, "received", approval.RunID)
+			inbound := d.saveInbound(chatSession, binding, externalID, text, "received", approval.RunID)
+			receives.Advance(receive, "processed", inbound.ID, approval.RunID)
 			return d.resolveApproval(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, approval, decision, "Telegram text reply")
 		}
 	}
 
 	attachments, voiceText, err := d.messageAttachments(ctx, chatSession, message)
 	if err != nil {
+		receives.Advance(receive, "failed", "", "")
 		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID,
 			attachmentErrorMessage(err), "attachment-error:"+externalID, "", nil)
 	}
@@ -127,11 +139,13 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 		text += "\n\nVoice transcript: " + strings.TrimSpace(voiceText)
 	}
 	if text == "" && len(attachments) == 0 {
+		receives.Advance(receive, "rejected", "", "")
 		return nil
 	}
+	receive = receives.Advance(receive, "normalized", "", "")
 	if text == "" {
 		contextText := attachmentContext(attachments)
-		d.saveInbound(chatSession, binding, externalID, contextText, "needs_user_instruction", "")
+		inbound := d.saveInbound(chatSession, binding, externalID, contextText, "needs_user_instruction", "")
 		d.store.AddMessage(app.Message{
 			ID:          stableTelegramID("message", binding.ID, externalID),
 			SessionID:   chatSession.LinkedSessionID,
@@ -140,12 +154,14 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 			Attachments: attachments,
 			CreatedAt:   telegramMessageTime(message),
 		})
+		receives.Advance(receive, "processed", inbound.ID, "")
 		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID,
 			"I received the attachment. Tell me whether to read, summarize, extract, modify, or inspect it.", "attachment-help:"+externalID, "", nil)
 	}
 
 	runID := stableTelegramID("run", binding.ID, externalID)
 	inbound := d.saveInbound(chatSession, binding, externalID, text, "processing", runID)
+	receive = receives.Advance(receive, "routed", inbound.ID, runID)
 	_ = d.client.SendChatAction(ctx, message.Chat.ID, message.MessageThreadID, "typing")
 	ingress := telegramIngress(binding, chatSession, externalID, message.MessageThreadID)
 	result, err := d.runtime.Handle(ctx, connectorruntime.AgentRequest{
@@ -160,11 +176,13 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 		inbound.Status = "failed"
 		inbound.Error = connectorErrorCode(err)
 		d.store.SaveExternalChatMessage(inbound)
+		receives.Advance(receive, "failed", inbound.ID, runID)
 		return err
 	}
 	inbound.Status = "processed"
 	inbound.LinkedRunID = result.Run.ID
 	d.store.SaveExternalChatMessage(inbound)
+	receives.Advance(receive, "processed", inbound.ID, result.Run.ID)
 	if len(result.Approvals) > 0 {
 		approval := result.Approvals[len(result.Approvals)-1]
 		return d.sendAndRecord(ctx, binding, chatSession, message.Chat.ID, message.MessageThreadID, approvalPrompt(approval), result.Run.ID, result.Run.ID, approvalKeyboard(approval.ID))

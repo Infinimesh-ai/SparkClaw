@@ -115,7 +115,7 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"files.write_draft","arguments":{"pa
 		t.Fatalf("unexpected document output part: %#v", filePart)
 	}
 
-	endpoint := app.MessageEndpoint{ID: "endpoint_fake", OwnerID: result.WorkflowResult.OwnerID, Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "fake", Status: app.EndpointActive}
+	endpoint := app.MessageEndpoint{ID: "endpoint_fake", OwnerID: result.WorkflowResult.OwnerID, ActorID: result.WorkflowResult.Authorization.PrincipalID, Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "fake", Status: app.EndpointActive}
 	routes := fixedWorkflowResultEndpoint{endpoint: endpoint}
 	provider := &capturingWorkflowResultProvider{}
 	providers := delivery.NewProviderRegistry()
@@ -152,10 +152,8 @@ type capturingWorkflowResultProvider struct {
 }
 
 func (*capturingWorkflowResultProvider) Key() string { return "fake" }
-func (*capturingWorkflowResultProvider) Capabilities() delivery.Capabilities {
-	return delivery.Capabilities{Parts: map[app.MessagePartKind]bool{
-		app.MessagePartText: true, app.MessagePartFile: true,
-	}}
+func (*capturingWorkflowResultProvider) Capabilities() app.DeliveryCapabilities {
+	return app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText, app.MessagePartFile}}
 }
 func (p *capturingWorkflowResultProvider) Deliver(_ context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	p.calls++

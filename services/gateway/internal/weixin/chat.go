@@ -17,6 +17,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -44,6 +45,7 @@ type InboundMessage struct {
 	ExternalID     string
 	ProviderCursor string
 	CreatedAt      time.Time
+	ReceiveRecord  app.MessageReceiveRecord
 }
 
 func NewDispatcher(st store.Store, runtime connectorruntime.AgentRuntime, cfg config.NotificationChannelConfig) *Dispatcher {
@@ -69,6 +71,16 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if externalID == "" {
 		externalID = stableInboundID(inbound)
 	}
+	receives := messagecontrol.NewReceiveLifecycle(d.store)
+	receive := inbound.ReceiveRecord
+	if receive.ID == "" {
+		endpoint, err := messagecontrol.NewEndpointRegistry(d.store).Get(ctx, app.EndpointID(chatSession.ID))
+		if err != nil {
+			return err
+		}
+		receive, _ = receives.Begin(endpoint, externalID)
+		receive = receives.Advance(receive, "authorized", "", "")
+	}
 	// A message whose previous dispatch failed may be delivered again by the
 	// provider (the cursor is only advanced after successful dispatch); reuse
 	// its record so the retry does not duplicate the chat history.
@@ -83,11 +95,23 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if receivedAt.IsZero() {
 		receivedAt = time.Now().UTC()
 	}
+	receive = receives.Advance(receive, "normalized", "", "")
 	if text != "" && len(inbound.Attachments) == 0 && isClearConversationRequest(text) {
-		return d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
+		err := d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
+		status := "processed"
+		if err != nil {
+			status = "failed"
+		}
+		receives.Advance(receive, status, "", "")
+		return err
 	}
 	if text != "" && len(inbound.Attachments) == 0 {
 		if handled, err := d.handleApprovalReply(ctx, inbound, chatSession, externalID, text, receivedAt); handled || err != nil {
+			status := "processed"
+			if err != nil {
+				status = "failed"
+			}
+			receives.Advance(receive, status, "", "")
 			return err
 		}
 	}
@@ -130,7 +154,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 			outbound.Status = sendResult.Status
 		}
 		d.store.SaveExternalChatMessage(outbound)
-		_ = inboundMsg
+		receives.Advance(receive, "processed", inboundMsg.ID, "")
 		return sendErr
 	}
 	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
@@ -148,6 +172,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	processing := inboundMsg
 	processing.Status = "processing"
 	processing = d.store.SaveExternalChatMessage(processing)
+	receive = receives.Advance(receive, "routed", inboundMsg.ID, "")
 	recipient := d.replyRecipient(inbound)
 	if _, err := notification.SendWeixinTyping(ctx, d.store, d.cfg,
 		recipient,
@@ -183,11 +208,13 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		processing.Status = "failed"
 		processing.Error = err.Error()
 		d.store.SaveExternalChatMessage(processing)
+		receives.Advance(receive, "failed", inboundMsg.ID, "")
 		return err
 	}
 	processing.LinkedRunID = result.Run.ID
 	processing.Status = "processed"
 	processing = d.store.SaveExternalChatMessage(processing)
+	receives.Advance(receive, "processed", inboundMsg.ID, result.Run.ID)
 
 	if len(result.Approvals) > 0 {
 		answer := weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1])

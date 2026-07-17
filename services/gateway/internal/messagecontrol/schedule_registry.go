@@ -18,6 +18,7 @@ type scheduleStore interface {
 	GetSession(string) (app.Session, bool)
 	GetNotificationBinding(string) (app.NotificationBinding, bool)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
+	ListExternalChatSessions(string, string) []app.ExternalChatSession
 }
 
 type ScheduleRegistry struct {

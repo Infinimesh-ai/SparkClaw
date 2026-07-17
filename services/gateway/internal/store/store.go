@@ -55,12 +55,21 @@ type Store interface {
 	RevokeNotificationBinding(id string) (app.NotificationBinding, error)
 	SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession
 	GetExternalChatSession(id string) (app.ExternalChatSession, bool)
+	ListExternalChatSessions(channel, status string) []app.ExternalChatSession
 	FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool)
 	FindExternalChatSessionByLinkedSessionID(sessionID string) (app.ExternalChatSession, bool)
 	SaveExternalChatMessage(message app.ExternalChatMessage) app.ExternalChatMessage
 	GetExternalChatMessage(id string) (app.ExternalChatMessage, bool)
 	FindExternalChatMessageByExternalID(chatSessionID, externalMessageID string) (app.ExternalChatMessage, bool)
 	ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage
+	SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord
+	GetMessageReceive(id string) (app.MessageReceiveRecord, bool)
+	FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool)
+	ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord
+	SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord
+	GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool)
+	FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool)
+	ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord
 	SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate
 	GetChannelInboxUpdate(id string) (app.ChannelInboxUpdate, bool)
 	FindChannelInboxUpdate(bindingID, externalID string) (app.ChannelInboxUpdate, bool)

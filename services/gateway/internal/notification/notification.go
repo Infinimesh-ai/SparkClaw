@@ -142,19 +142,28 @@ func firstNonEmpty(values ...string) string {
 
 func (a *WeixinAdapter) Key() string { return a.channel }
 
-func (a *WeixinAdapter) Capabilities() delivery.Capabilities {
-	return delivery.Capabilities{Parts: map[app.MessagePartKind]bool{
-		app.MessagePartText: true, app.MessagePartImage: true, app.MessagePartFile: true,
-	}}
+func (a *WeixinAdapter) Capabilities() app.DeliveryCapabilities {
+	return app.DeliveryCapabilities{
+		Kinds:             []app.MessagePartKind{app.MessagePartText, app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile},
+		Dispositions:      []app.MessagePartDisposition{app.MessageDispositionInline, app.MessageDispositionAttachment, app.MessageDispositionVoiceNote},
+		FileFallbackKinds: []app.MessagePartKind{app.MessagePartAudio},
+		MaxParts:          8, MaxTotalBytes: maxWeixinOutboundFileBytes,
+		MaxBytesByKind: map[app.MessagePartKind]int64{
+			app.MessagePartImage: maxWeixinOutboundImageBytes,
+			app.MessagePartAudio: maxWeixinOutboundFileBytes,
+			app.MessagePartFile:  maxWeixinOutboundFileBytes,
+		},
+		SupportsCaption: true, SupportsFileFallback: true,
+	}
 }
 
 func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
 	if a.store == nil {
-		return a.deliveryFailure(endpoint, request, "weixin binding store is unavailable", "blocked")
+		return a.deliveryFailure(endpoint, request, delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked", nil)
 	}
-	binding, ok := a.deliveryBinding(endpoint, request)
-	if !ok {
-		return a.deliveryFailure(endpoint, request, "weixin binding is unavailable", "blocked")
+	binding, err := a.deliveryBinding(endpoint, request)
+	if err != nil {
+		return a.deliveryFailure(endpoint, request, delivery.ErrorCode(err), err.Error(), "blocked", nil)
 	}
 	resources := delivery.ResourceResolver(a.resources)
 	if endpoint.SessionID != "" {
@@ -162,11 +171,12 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 	}
 	prepared, err := delivery.PrepareParts(ctx, request.Content, resources)
 	if err != nil {
-		return a.deliveryFailure(endpoint, request, err.Error(), "blocked")
+		return a.deliveryFailure(endpoint, request, delivery.CodeArtifactInvalid, "weixin delivery resource is invalid", "blocked", nil)
 	}
 	attemptedAt := time.Now().UTC()
 	providerRef := "openclaw-weixin-compatible"
-	for _, item := range prepared {
+	partReceipts := make([]app.PartDeliveryReceipt, 0, len(prepared))
+	for index, item := range prepared {
 		notice := Notification{
 			Channel:          a.channel,
 			BindingID:        binding.ID,
@@ -178,13 +188,17 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 			DedupeKey:        request.IdempotencyKey + ":" + item.Part.ID,
 		}
 		var result Result
+		representation := "native"
 		switch item.Part.Kind {
 		case app.MessagePartText:
 			result, err = a.Send(ctx, notice)
 		case app.MessagePartImage:
 			notice.ImagePath = item.Path
 			result, err = a.SendImage(ctx, notice)
-		case app.MessagePartFile:
+		case app.MessagePartAudio, app.MessagePartFile:
+			if item.Part.Kind == app.MessagePartAudio {
+				representation = "file_fallback"
+			}
 			notice.FilePath = item.Path
 			notice.FileName = firstNonEmpty(item.Part.Name, filepath.Base(item.Path))
 			result, err = a.SendFile(ctx, notice)
@@ -192,42 +206,126 @@ func (a *WeixinAdapter) Deliver(ctx context.Context, endpoint app.MessageEndpoin
 			err = fmt.Errorf("content kind %q is not supported", item.Part.Kind)
 		}
 		if err != nil {
-			return a.deliveryFailure(endpoint, request, firstNonEmpty(result.Error, err.Error()), firstNonEmpty(result.RetryState, "blocked"))
+			code, state := weixinDeliveryFailure(err, result.RetryState)
+			partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: item.Part.ID, Status: "failed", Representation: representation, ErrorCode: code})
+			for _, remaining := range prepared[index+1:] {
+				remainingRepresentation := "native"
+				if remaining.Part.Kind == app.MessagePartAudio {
+					remainingRepresentation = "file_fallback"
+				}
+				partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: remaining.Part.ID, Status: "not_attempted", Representation: remainingRepresentation, ErrorCode: code})
+			}
+			return a.deliveryFailure(endpoint, request, code, weixinDeliveryMessage(request.Origin, result.Error), state, partReceipts)
 		}
 		if result.Provider != "" {
 			providerRef = result.Provider
 		}
+		partReceipts = append(partReceipts, app.PartDeliveryReceipt{PartID: item.Part.ID, Status: "sent", Representation: representation, ProviderRef: result.DeliveryID})
 	}
 	deliveredAt := time.Now().UTC()
-	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliverySucceeded, ProviderRef: providerRef, Attempt: 1, PartReceipts: partReceipts, AttemptedAt: attemptedAt, DeliveredAt: &deliveredAt}
 	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
 	return receipt, nil
 }
 
-func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, bool) {
+func (a *WeixinAdapter) deliveryBinding(endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.NotificationBinding, error) {
 	if binding, ok := a.store.GetNotificationBinding(strings.TrimSpace(endpoint.BindingRef)); ok &&
 		binding.Status == "active" && strings.EqualFold(strings.TrimSpace(binding.Channel), strings.TrimSpace(a.channel)) {
-		return binding, true
+		if binding.RevokedAt != nil || (binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
+			return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
+		}
+		if request.Origin == app.DeliveryOriginSourceReply {
+			if !notificationBindingAllowsSourceReply(binding.Scopes) {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "weixin binding lacks ordinary message scope", "blocked")
+			}
+		} else {
+			actorID := firstNonEmpty(binding.ActorID, binding.OwnerID)
+			if binding.OwnerID != request.OwnerID || actorID != request.ActorID {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeCrossUserDenied, "weixin binding is outside the actor scope", "blocked")
+			}
+			expectedScope := app.BindingScopeMessageSendSelf
+			scopeDescription := "ordinary message"
+			if request.Origin == app.DeliveryOriginSchedule {
+				expectedScope = app.BindingScopeReminderSendSelf
+				scopeDescription = "reminder"
+			}
+			if !notificationBindingAllowsScope(binding.Scopes, expectedScope, request.Origin) {
+				return app.NotificationBinding{}, delivery.NewError(delivery.CodeScopeDenied, "weixin binding lacks "+scopeDescription+" scope", "blocked")
+			}
+		}
+		return binding, nil
 	}
 	if !strings.HasPrefix(string(endpoint.ID), "legacy-schedule:") {
-		return app.NotificationBinding{}, false
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 	}
 	reminder, ok := a.store.GetReminder(strings.TrimSpace(request.ResultID))
 	if !ok || !strings.EqualFold(strings.TrimSpace(reminder.Channel), strings.TrimSpace(a.channel)) {
-		return app.NotificationBinding{}, false
+		return app.NotificationBinding{}, delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked")
 	}
 	return app.NotificationBinding{
 		ID: reminder.BindingID, OwnerID: request.OwnerID, Channel: reminder.Channel, Status: "active",
 		ExternalUserID: reminder.Recipient, ContextToken: reminder.RecipientBinding,
 		CredentialRef: reminder.CredentialRef, BaseURL: reminder.BaseURL,
-	}, true
+	}, nil
 }
 
-func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, message, retryState string) (app.DeliveryReceipt, error) {
-	err := delivery.DeliveryError{Message: message, State: retryState}
-	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed, Error: message, RetryState: retryState, AttemptedAt: time.Now().UTC()}
+func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request app.DeliveryRequest, code, message, retryState string, parts []app.PartDeliveryReceipt) (app.DeliveryReceipt, error) {
+	err := delivery.DeliveryError{Code: code, Message: message, State: retryState}
+	status := app.DeliveryFailed
+	for _, part := range parts {
+		if part.Status == "sent" {
+			status = app.DeliveryPartiallySent
+			break
+		}
+	}
+	if code == delivery.CodeOutcomeUnknown && status != app.DeliveryPartiallySent {
+		status = app.DeliveryOutcomeUnknown
+	}
+	receipt := app.DeliveryReceipt{DeliveryID: request.ID, EndpointID: endpoint.ID, Status: status, Error: message, ErrorCode: code, RetryState: retryState, Attempt: 1, PartReceipts: parts, AttemptedAt: time.Now().UTC()}
 	delivery.RecordExternalDelivery(a.store, endpoint, request, receipt)
 	return receipt, err
+}
+
+func notificationBindingHasScope(scopes []string, expected string) bool {
+	for _, scope := range scopes {
+		if strings.TrimSpace(scope) == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func notificationBindingAllowsScope(scopes []string, expected string, origin app.DeliveryOrigin) bool {
+	return notificationBindingHasScope(scopes, expected) || (origin == app.DeliveryOriginSchedule && len(scopes) == 0)
+}
+
+func notificationBindingAllowsSourceReply(scopes []string) bool {
+	return len(scopes) == 0 || notificationBindingHasScope(scopes, app.BindingScopeMessageSendSelf)
+}
+
+func weixinDeliveryMessage(origin app.DeliveryOrigin, message string) string {
+	if origin == app.DeliveryOriginSchedule {
+		switch message {
+		case "weixin recipient binding is not configured",
+			"weixin context token is not configured",
+			"openclaw-weixin baseUrl is not configured",
+			"openclaw-weixin token is not configured",
+			"notification message cannot be empty":
+			return message
+		}
+	}
+	return "weixin delivery failed"
+}
+
+func weixinDeliveryFailure(err error, retryState string) (string, string) {
+	var netErr interface{ Timeout() bool }
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return delivery.CodeOutcomeUnknown, "unsafe"
+	}
+	if retryState == "retryable" {
+		return delivery.CodeProviderRetryable, "retryable"
+	}
+	return delivery.CodeBindingUnavailable, "blocked"
 }
 
 func (a *WeixinAdapter) Send(ctx context.Context, notification Notification) (Result, error) {

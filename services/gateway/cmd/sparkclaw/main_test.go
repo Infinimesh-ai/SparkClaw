@@ -138,6 +138,7 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 				ExternalUserID: "7",
 				ExternalChatID: "9",
 			}
+			binding = st.SaveNotificationBinding(binding)
 			dispatcher := telegram.NewDispatcher(st, runtime, cfg).WithClient(bot).WithResultDeliverer(recordingMainResultDeliverer{bot: bot})
 			err = dispatcher.HandleUpdate(context.Background(), binding, telegram.Update{
 				UpdateID: 1,

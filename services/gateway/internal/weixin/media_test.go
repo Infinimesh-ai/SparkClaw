@@ -220,6 +220,7 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	defer ts.Close()
 
 	st := store.NewMemoryStore()
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "bind_1", OwnerID: app.DefaultOwnerID, Channel: "weixin", Status: "active", ExternalUserID: "wx-user", BaseURL: ts.URL})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{
 		Enabled:  true,
 		Provider: "openclaw-weixin-qr",
@@ -227,13 +228,7 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 		Token:    "bot-token",
 	})
 	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
-		Binding: app.NotificationBinding{
-			ID:             "bind_1",
-			Channel:        "weixin",
-			Provider:       "openclaw-weixin-qr",
-			ExternalUserID: "wx-user",
-			BaseURL:        ts.URL,
-		},
+		Binding:      binding,
 		FromUserID:   "wx-user",
 		ContextToken: "ctx-1",
 		ExternalID:   "msg-attachment-only",
@@ -303,6 +298,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 		LinkedSessionID: oldSession.ID,
 		Status:          "active",
 	})
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	dispatcher := NewDispatcher(st, agent.Runtime{}, config.NotificationChannelConfig{
 		Enabled:  true,
 		Provider: "openclaw-weixin-qr",
@@ -311,7 +307,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	})
 
 	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
-		Binding:      app.NotificationBinding{ID: chatSession.BindingID, ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL},
+		Binding:      binding,
 		FromUserID:   chatSession.ExternalUserID,
 		ContextToken: "ctx-clear",
 		ExternalID:   "clear-msg",
@@ -368,6 +364,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
 	chatSession := st.SaveWeixinChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval", Risk: app.RiskReversible, Status: "approval_pending", StartedAt: time.Now().UTC()}
@@ -382,7 +379,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
 	dispatcher.cfg = config.NotificationChannelConfig{Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: ts.URL, Token: "bot-token"}
 	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
-		Binding:      app.NotificationBinding{ID: chatSession.BindingID, ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL},
+		Binding:      binding,
 		FromUserID:   chatSession.ExternalUserID,
 		ContextToken: "ctx-1",
 		ExternalID:   "approve-msg",
@@ -431,6 +428,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
 	chatSession := st.SaveWeixinChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
+	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
 	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "docx.replace_paragraph", Risk: app.RiskReversible, Status: "approval_pending", StartedAt: time.Now().UTC()}
@@ -445,7 +443,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg)
 	dispatcher.cfg = config.NotificationChannelConfig{Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: ts.URL, Token: "bot-token"}
 	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
-		Binding:      app.NotificationBinding{ID: chatSession.BindingID, ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL},
+		Binding:      binding,
 		FromUserID:   chatSession.ExternalUserID,
 		ContextToken: "ctx-1",
 		ExternalID:   "reject-msg",

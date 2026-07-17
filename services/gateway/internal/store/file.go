@@ -34,35 +34,37 @@ type FileStoreOptions struct {
 }
 
 type Snapshot struct {
-	Sessions             map[string]app.Session             `json:"sessions"`
-	Clients              map[string]app.Client              `json:"clients"`
-	OwnerProfile         app.OwnerProfile                   `json:"owner_profile"`
-	OwnerProfiles        map[string]app.OwnerProfile        `json:"owner_profiles,omitempty"`
-	PairingCodes         map[string]app.PairingCode         `json:"pairing_codes"`
-	Messages             map[string][]app.Message           `json:"messages"`
-	RunFeedback          map[string][]app.RunFeedback       `json:"run_feedback"`
-	Runs                 map[string]app.AgentRun            `json:"runs"`
-	ModelCalls           map[string]app.ModelCall           `json:"model_calls"`
-	ToolCalls            map[string]app.ToolCall            `json:"tool_calls"`
-	Approvals            map[string]app.Approval            `json:"approvals"`
-	Reminders            map[string]app.Reminder            `json:"reminders"`
-	ReminderDelivery     map[string]app.ReminderDelivery    `json:"reminder_delivery"`
-	NotificationBindings map[string]app.NotificationBinding `json:"notification_bindings"`
-	ExternalChatSessions map[string]app.ExternalChatSession `json:"external_chat_sessions,omitempty"`
-	ExternalChatMessages map[string]app.ExternalChatMessage `json:"external_chat_messages,omitempty"`
-	ChannelInboxUpdates  map[string]app.ChannelInboxUpdate  `json:"channel_inbox_updates,omitempty"`
-	WeixinChatSessions   map[string]app.WeixinChatSession   `json:"weixin_chat_sessions,omitempty"`
-	WeixinChatMessages   map[string]app.WeixinChatMessage   `json:"weixin_chat_messages,omitempty"`
-	CredentialSecrets    map[string]app.CredentialSecret    `json:"credential_secrets"`
-	BrowserAuthRecords   map[string]app.BrowserAuthRecord   `json:"browser_auth_records,omitempty"`
-	BrowserLoginBlocks   map[string]app.BrowserLoginBlock   `json:"browser_login_blocks,omitempty"`
-	Memories             map[string]app.Memory              `json:"memories"`
-	MemoryCandidates     map[string]app.MemoryCandidate     `json:"memory_candidates"`
-	AuditEvents          []app.AuditEvent                   `json:"audit_events"`
-	Events               []app.Event                        `json:"events"`
-	EvalRuns             map[string]app.EvalRun             `json:"eval_runs"`
-	ArtifactObjects      map[string]app.ArtifactObject      `json:"artifact_objects"`
-	EpisodeSummaries     map[string]app.EpisodeSummary      `json:"episode_summaries"`
+	Sessions             map[string]app.Session               `json:"sessions"`
+	Clients              map[string]app.Client                `json:"clients"`
+	OwnerProfile         app.OwnerProfile                     `json:"owner_profile"`
+	OwnerProfiles        map[string]app.OwnerProfile          `json:"owner_profiles,omitempty"`
+	PairingCodes         map[string]app.PairingCode           `json:"pairing_codes"`
+	Messages             map[string][]app.Message             `json:"messages"`
+	RunFeedback          map[string][]app.RunFeedback         `json:"run_feedback"`
+	Runs                 map[string]app.AgentRun              `json:"runs"`
+	ModelCalls           map[string]app.ModelCall             `json:"model_calls"`
+	ToolCalls            map[string]app.ToolCall              `json:"tool_calls"`
+	Approvals            map[string]app.Approval              `json:"approvals"`
+	Reminders            map[string]app.Reminder              `json:"reminders"`
+	ReminderDelivery     map[string]app.ReminderDelivery      `json:"reminder_delivery"`
+	NotificationBindings map[string]app.NotificationBinding   `json:"notification_bindings"`
+	ExternalChatSessions map[string]app.ExternalChatSession   `json:"external_chat_sessions,omitempty"`
+	ExternalChatMessages map[string]app.ExternalChatMessage   `json:"external_chat_messages,omitempty"`
+	MessageReceives      map[string]app.MessageReceiveRecord  `json:"message_receives,omitempty"`
+	MessageDeliveries    map[string]app.MessageDeliveryRecord `json:"message_deliveries,omitempty"`
+	ChannelInboxUpdates  map[string]app.ChannelInboxUpdate    `json:"channel_inbox_updates,omitempty"`
+	WeixinChatSessions   map[string]app.WeixinChatSession     `json:"weixin_chat_sessions,omitempty"`
+	WeixinChatMessages   map[string]app.WeixinChatMessage     `json:"weixin_chat_messages,omitempty"`
+	CredentialSecrets    map[string]app.CredentialSecret      `json:"credential_secrets"`
+	BrowserAuthRecords   map[string]app.BrowserAuthRecord     `json:"browser_auth_records,omitempty"`
+	BrowserLoginBlocks   map[string]app.BrowserLoginBlock     `json:"browser_login_blocks,omitempty"`
+	Memories             map[string]app.Memory                `json:"memories"`
+	MemoryCandidates     map[string]app.MemoryCandidate       `json:"memory_candidates"`
+	AuditEvents          []app.AuditEvent                     `json:"audit_events"`
+	Events               []app.Event                          `json:"events"`
+	EvalRuns             map[string]app.EvalRun               `json:"eval_runs"`
+	ArtifactObjects      map[string]app.ArtifactObject        `json:"artifact_objects"`
+	EpisodeSummaries     map[string]app.EpisodeSummary        `json:"episode_summaries"`
 }
 
 func NewFileStore(path string) (*FileStore, error) {
@@ -345,6 +347,10 @@ func (s *FileStore) GetExternalChatSession(id string) (app.ExternalChatSession, 
 	return s.inner.GetExternalChatSession(id)
 }
 
+func (s *FileStore) ListExternalChatSessions(channel, status string) []app.ExternalChatSession {
+	return s.inner.ListExternalChatSessions(channel, status)
+}
+
 func (s *FileStore) FindExternalChatSession(bindingID, externalChatID, externalThreadID string) (app.ExternalChatSession, bool) {
 	return s.inner.FindExternalChatSession(bindingID, externalChatID, externalThreadID)
 }
@@ -369,6 +375,42 @@ func (s *FileStore) FindExternalChatMessageByExternalID(chatSessionID, externalM
 
 func (s *FileStore) ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage {
 	return s.inner.ListExternalChatMessages(chatSessionID, limit)
+}
+
+func (s *FileStore) SaveMessageReceive(record app.MessageReceiveRecord) app.MessageReceiveRecord {
+	out := s.inner.SaveMessageReceive(record)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetMessageReceive(id string) (app.MessageReceiveRecord, bool) {
+	return s.inner.GetMessageReceive(id)
+}
+
+func (s *FileStore) FindMessageReceive(sourceEndpointID app.EndpointID, nativeMessageID string) (app.MessageReceiveRecord, bool) {
+	return s.inner.FindMessageReceive(sourceEndpointID, nativeMessageID)
+}
+
+func (s *FileStore) ListMessageReceives(ownerID, actorID string, limit int) []app.MessageReceiveRecord {
+	return s.inner.ListMessageReceives(ownerID, actorID, limit)
+}
+
+func (s *FileStore) SaveMessageDelivery(record app.MessageDeliveryRecord) app.MessageDeliveryRecord {
+	out := s.inner.SaveMessageDelivery(record)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetMessageDelivery(id app.DeliveryID) (app.MessageDeliveryRecord, bool) {
+	return s.inner.GetMessageDelivery(id)
+}
+
+func (s *FileStore) FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey string) (app.MessageDeliveryRecord, bool) {
+	return s.inner.FindMessageDeliveryByIdempotency(ownerID, actorID, idempotencyKey)
+}
+
+func (s *FileStore) ListMessageDeliveries(ownerID, actorID string, limit int) []app.MessageDeliveryRecord {
+	return s.inner.ListMessageDeliveries(ownerID, actorID, limit)
 }
 
 func (s *FileStore) SaveChannelInboxUpdate(update app.ChannelInboxUpdate) app.ChannelInboxUpdate {

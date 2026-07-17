@@ -6,7 +6,12 @@ const (
 	MessageEnvelopeSchemaVersion = 1
 	RouteDecisionSchemaVersion   = 1
 	WorkflowResultSchemaVersion  = 1
-	DeliveryRequestSchemaVersion = 1
+	DeliveryRequestSchemaVersion = 2
+)
+
+const (
+	BindingScopeReminderSendSelf = "reminder_send_self"
+	BindingScopeMessageSendSelf  = "message_send_self"
 )
 
 type MessageSourceKind string
@@ -57,6 +62,13 @@ type EndpointKind string
 const (
 	EndpointKindWeb              EndpointKind = "web"
 	EndpointKindThirdPartyDevice EndpointKind = "third_party_device"
+)
+
+type MessageDirection string
+
+const (
+	MessageDirectionReceive MessageDirection = "receive"
+	MessageDirectionSend    MessageDirection = "send"
 )
 
 type ReturnMode string
@@ -238,27 +250,136 @@ type DeliveryRequest struct {
 	ResultID       string               `json:"result_id,omitempty"`
 	RunID          string               `json:"run_id,omitempty"`
 	OwnerID        string               `json:"owner_id"`
+	ActorID        string               `json:"actor_id"`
 	Authorization  MessageAuthorization `json:"authorization"`
 	Target         EndpointID           `json:"target"`
 	Content        MessageContent       `json:"content"`
+	Origin         DeliveryOrigin       `json:"origin"`
+	ApprovalSource string               `json:"approval_source,omitempty"`
+	ContentDigest  string               `json:"content_digest,omitempty"`
 	CreatedAt      time.Time            `json:"created_at"`
+}
+
+type DeliveryOrigin string
+
+const (
+	DeliveryOriginWebDirect     DeliveryOrigin = "web_direct"
+	DeliveryOriginAgentWorkflow DeliveryOrigin = "agent_workflow"
+	DeliveryOriginSourceReply   DeliveryOrigin = "source_reply"
+	DeliveryOriginSchedule      DeliveryOrigin = "schedule"
+)
+
+type DeliveryCapabilities struct {
+	Kinds                []MessagePartKind         `json:"kinds"`
+	Dispositions         []MessagePartDisposition  `json:"dispositions"`
+	FileFallbackKinds    []MessagePartKind         `json:"file_fallback_kinds,omitempty"`
+	NativeVoiceTypes     []string                  `json:"native_voice_types,omitempty"`
+	MaxParts             int                       `json:"max_parts"`
+	MaxTotalBytes        int64                     `json:"max_total_bytes"`
+	MaxBytesByKind       map[MessagePartKind]int64 `json:"max_bytes_by_kind,omitempty"`
+	SupportsCaption      bool                      `json:"supports_caption"`
+	SupportsNativeVoice  bool                      `json:"supports_native_voice"`
+	SupportsFileFallback bool                      `json:"supports_file_fallback"`
 }
 
 type DeliveryStatus string
 
 const (
-	DeliveryPending   DeliveryStatus = "pending"
-	DeliverySucceeded DeliveryStatus = "succeeded"
-	DeliveryFailed    DeliveryStatus = "failed"
+	DeliveryDraft            DeliveryStatus = "draft"
+	DeliveryTargetResolved   DeliveryStatus = "target_resolved"
+	DeliveryAwaitingApproval DeliveryStatus = "awaiting_send_approval"
+	DeliveryApproved         DeliveryStatus = "approved"
+	DeliverySending          DeliveryStatus = "sending"
+	DeliveryPending          DeliveryStatus = "pending"
+	DeliverySucceeded        DeliveryStatus = "sent"
+	DeliveryPartiallySent    DeliveryStatus = "partially_sent"
+	DeliveryFailed           DeliveryStatus = "failed"
+	DeliveryOutcomeUnknown   DeliveryStatus = "outcome_unknown"
 )
 
+type PartDeliveryReceipt struct {
+	PartID         string `json:"part_id"`
+	Status         string `json:"status"`
+	Representation string `json:"representation"`
+	ProviderRef    string `json:"provider_ref,omitempty"`
+	ErrorCode      string `json:"error_code,omitempty"`
+}
+
 type DeliveryReceipt struct {
-	DeliveryID  DeliveryID     `json:"delivery_id"`
-	EndpointID  EndpointID     `json:"endpoint_id"`
-	Status      DeliveryStatus `json:"status"`
-	ProviderRef string         `json:"provider_ref,omitempty"`
-	Error       string         `json:"error,omitempty"`
-	RetryState  string         `json:"retry_state,omitempty"`
-	AttemptedAt time.Time      `json:"attempted_at"`
-	DeliveredAt *time.Time     `json:"delivered_at,omitempty"`
+	DeliveryID   DeliveryID            `json:"delivery_id"`
+	EndpointID   EndpointID            `json:"endpoint_id"`
+	Status       DeliveryStatus        `json:"status"`
+	ProviderRef  string                `json:"provider_ref,omitempty"`
+	Error        string                `json:"error,omitempty"`
+	ErrorCode    string                `json:"error_code,omitempty"`
+	RetryState   string                `json:"retry_state,omitempty"`
+	Attempt      int                   `json:"attempt"`
+	PartReceipts []PartDeliveryReceipt `json:"part_receipts,omitempty"`
+	AttemptedAt  time.Time             `json:"attempted_at"`
+	DeliveredAt  *time.Time            `json:"delivered_at,omitempty"`
+}
+
+type TargetResolutionStatus string
+
+const (
+	TargetDefaultWeb     TargetResolutionStatus = "default_web"
+	TargetSourceReply    TargetResolutionStatus = "source_reply"
+	TargetNeedsChannel   TargetResolutionStatus = "needs_channel"
+	TargetNeedsRecipient TargetResolutionStatus = "needs_recipient"
+	TargetAmbiguous      TargetResolutionStatus = "ambiguous"
+	TargetResolved       TargetResolutionStatus = "resolved"
+	TargetUnavailable    TargetResolutionStatus = "unavailable"
+)
+
+type DeliveryTargetSelection struct {
+	Status                 TargetResolutionStatus `json:"status"`
+	RequestedProviderKey   string                 `json:"requested_provider_key,omitempty"`
+	RequestedRecipientText string                 `json:"requested_recipient_text,omitempty"`
+	CandidateEndpointIDs   []EndpointID           `json:"candidate_endpoint_ids,omitempty"`
+	ResolvedEndpointID     EndpointID             `json:"resolved_endpoint_id,omitempty"`
+	ResolutionRule         string                 `json:"resolution_rule"`
+}
+
+type MessageLifecycleTransition struct {
+	Status string    `json:"status"`
+	At     time.Time `json:"at"`
+}
+
+type MessageReceiveRecord struct {
+	ID                   string                       `json:"id"`
+	Direction            MessageDirection             `json:"direction"`
+	OwnerID              string                       `json:"owner_id"`
+	ActorID              string                       `json:"actor_id"`
+	ProviderKey          string                       `json:"provider_key"`
+	SourceEndpointID     EndpointID                   `json:"source_endpoint_id,omitempty"`
+	NativeMessageID      string                       `json:"native_message_id"`
+	Status               string                       `json:"status"`
+	Transitions          []MessageLifecycleTransition `json:"transitions"`
+	LinkedMessageID      string                       `json:"linked_message_id,omitempty"`
+	LinkedRunID          string                       `json:"linked_run_id,omitempty"`
+	SoftwareDisplayName  string                       `json:"software_display_name,omitempty"`
+	RecipientDisplayName string                       `json:"recipient_display_name,omitempty"`
+	AccountDisplayName   string                       `json:"account_display_name,omitempty"`
+	CreatedAt            time.Time                    `json:"created_at"`
+	UpdatedAt            time.Time                    `json:"updated_at"`
+}
+
+type MessageDeliveryRecord struct {
+	ID                   DeliveryID              `json:"id"`
+	Direction            MessageDirection        `json:"direction"`
+	OwnerID              string                  `json:"owner_id"`
+	ActorID              string                  `json:"actor_id"`
+	Origin               DeliveryOrigin          `json:"origin"`
+	Request              DeliveryRequest         `json:"request"`
+	TargetSelection      DeliveryTargetSelection `json:"target_selection"`
+	Status               DeliveryStatus          `json:"status"`
+	ApprovalSource       string                  `json:"approval_source,omitempty"`
+	ContentDigest        string                  `json:"content_digest"`
+	Receipt              *DeliveryReceipt        `json:"receipt,omitempty"`
+	Attempts             int                     `json:"attempts"`
+	SoftwareDisplayName  string                  `json:"software_display_name,omitempty"`
+	RecipientDisplayName string                  `json:"recipient_display_name,omitempty"`
+	AccountDisplayName   string                  `json:"account_display_name,omitempty"`
+	CreatedAt            time.Time               `json:"created_at"`
+	UpdatedAt            time.Time               `json:"updated_at"`
 }

@@ -18,6 +18,10 @@ func RequestFromWorkflowResult(ctx context.Context, result app.WorkflowResult, r
 	}
 	request, deliver, err := RequestForMessage(ctx, result.ID, result.OwnerID, result.Authorization, result.Content, result.ReturnRoute, routes)
 	request.RunID = result.RunID
+	request.Origin = app.DeliveryOriginAgentWorkflow
+	if result.ReturnRoute.Mode == app.ReturnToSource {
+		request.Origin = app.DeliveryOriginSourceReply
+	}
 	return request, deliver, err
 }
 
@@ -58,9 +62,11 @@ func RequestForMessage(ctx context.Context, sourceID, ownerID string, authorizat
 		IdempotencyKey: sourceID + ":" + string(endpoint.ID),
 		ResultID:       sourceID,
 		OwnerID:        ownerID,
+		ActorID:        authorization.PrincipalID,
 		Authorization:  authorization,
 		Target:         endpoint.ID,
 		Content:        content,
+		Origin:         app.DeliveryOriginAgentWorkflow,
 		CreatedAt:      now,
 	}, true, nil
 }

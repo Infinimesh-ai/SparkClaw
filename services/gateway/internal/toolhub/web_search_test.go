@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,65 +27,19 @@ func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestWebSearchToolExecutesParallelFreeAdapter(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		switch body["method"] {
-		case "initialize":
-			w.Header().Set("Mcp-Session-Id", "sess_toolhub")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      body["id"],
-				"result":  map[string]any{"protocolVersion": "2025-06-18"},
-			})
-		case "notifications/initialized":
-			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "result": map[string]any{}})
-		case "tools/call":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      body["id"],
-				"result": map[string]any{
-					"structuredContent": map[string]any{
-						"results": []map[string]any{{
-							"title":    "SparkClaw Search",
-							"url":      "https://example.test/sparkclaw",
-							"excerpts": []string{"SparkClaw search evidence."},
-						}},
-					},
-				},
-			})
-		default:
-			t.Fatalf("unexpected MCP method: %#v", body)
-		}
-	}))
-	defer server.Close()
-
+func TestWebSearchToolRejectsLegacyProvider(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.Web.Search.Enabled = true
 	cfg.Tools.Web.Search.Provider = "parallel-free"
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.BaseURL = server.URL
 	hub := New(cfg, store.NewMemoryStore())
 
-	result, err := hub.Execute(context.Background(), "web.search", map[string]any{"query": "sparkclaw search"}, "s", "run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := result.Output.(map[string]any)
-	if out["provider"] != "parallel-free" || out["answer"] == "" || out["count"] != 1 || out["untrusted"] != true {
-		t.Fatalf("unexpected web search output: %#v", out)
+	_, err := hub.Execute(context.Background(), "web.search", map[string]any{"query": "sparkclaw search"}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "unsupported web search provider") {
+		t.Fatalf("legacy provider should fail explicitly, got %v", err)
 	}
 }
 
 func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
-	var parallelHits atomic.Int32
-	parallelTrap := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		parallelHits.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer parallelTrap.Close()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -132,7 +86,6 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 	info.DeviceAttestation = "device-attestation"
 	info.LicenseProof = "license-proof"
 	info.MaxAttempts = 1
-	cfg.Plugins.Entries.Parallel.Config.WebSearch.BaseURL = parallelTrap.URL
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "web.search", map[string]any{"query": "sparkclaw search"}, "s", "run")
@@ -146,8 +99,5 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 	citations, ok := out["citations"].([]string)
 	if !ok || len(citations) != 1 || citations[0] != "https://example.test/official" {
 		t.Fatalf("unexpected citations: %#v", out["citations"])
-	}
-	if parallelHits.Load() != 0 {
-		t.Fatal("infinimesh info provider called the Parallel endpoint")
 	}
 }

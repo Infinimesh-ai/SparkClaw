@@ -2,9 +2,6 @@ package binding
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +34,10 @@ const (
 	CodeBindingInProgress    = "binding_in_progress"
 	CodeBindingActive        = "binding_active"
 	CodeInvalidBotToken      = "invalid_bot_token"
+	CodeTelegramRateLimited  = "telegram_rate_limited"
+	CodeTelegramUnavailable  = "telegram_unavailable"
 	CodeTelegramUnreachable  = "telegram_unreachable"
+	CodeTelegramVerifyFailed = "telegram_verification_failed"
 )
 
 type BindingError struct {
@@ -55,9 +55,15 @@ func (e *BindingError) Error() string {
 	case CodeBindingActive:
 		return "an active binding already exists"
 	case CodeInvalidBotToken:
-		return "Telegram rejected the bot token"
+		return "Telegram rejected the bot token; copy a fresh token from BotFather and try again"
+	case CodeTelegramRateLimited:
+		return "Telegram rate-limited bot token verification; try again later"
+	case CodeTelegramUnavailable:
+		return "Telegram Bot API is temporarily unavailable; try again later"
 	case CodeTelegramUnreachable:
-		return "Telegram could not be reached"
+		return "Telegram Bot API could not be reached; check the network or proxy and try again"
+	case CodeTelegramVerifyFailed:
+		return "Telegram returned an unexpected response while checking the bot token"
 	default:
 		return "notification binding failed"
 	}
@@ -68,6 +74,13 @@ func (e *BindingError) ErrorCode() string {
 		return ""
 	}
 	return e.Code
+}
+
+func (e *BindingError) Retryable() bool {
+	if e == nil {
+		return false
+	}
+	return e.Code == CodeTelegramRateLimited || e.Code == CodeTelegramUnavailable || e.Code == CodeTelegramUnreachable
 }
 
 type ConnectorCapability struct {
@@ -255,18 +268,10 @@ func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBin
 	client := telegram.NewClient(a.cfg.BaseURL, string(token), nil)
 	bot, err := client.GetMe(ctx)
 	if err != nil {
-		var apiErr *telegram.APIError
-		if errors.As(err, &apiErr) && (apiErr.Code == http.StatusUnauthorized || apiErr.Code == http.StatusNotFound) {
-			return app.NotificationBinding{}, &BindingError{Code: CodeInvalidBotToken}
-		}
-		return app.NotificationBinding{}, &BindingError{Code: CodeTelegramUnreachable}
+		return app.NotificationBinding{}, classifyTelegramVerificationError(err)
 	}
 	if !bot.IsBot || strings.TrimSpace(bot.Username) == "" {
 		return app.NotificationBinding{}, &BindingError{Code: CodeInvalidBotToken}
-	}
-	challenge, challengeHash, err := newActivationChallenge()
-	if err != nil {
-		return app.NotificationBinding{}, &credential.Error{Code: credential.CodeSealFailed}
 	}
 	credentialRef, err := a.vault.Seal(ctx, "telegram-bot-token", token)
 	if err != nil {
@@ -279,32 +284,58 @@ func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBin
 	if binding.CreatedAt.IsZero() {
 		binding.CreatedAt = now
 	}
-	activationURL := url.URL{Scheme: "https", Host: "t.me", Path: "/" + strings.TrimPrefix(bot.Username, "@")}
-	query := activationURL.Query()
-	query.Set("start", challenge)
-	activationURL.RawQuery = query.Encode()
-	expires := now.Add(30 * time.Minute)
 	binding.Channel = a.channel
 	binding.Provider = "telegram-bot-api"
-	binding.Status = "waiting_confirm"
+	binding.Status = "active"
 	binding.DisplayName = "@" + strings.TrimPrefix(bot.Username, "@")
 	binding.AccountID = strconv.FormatInt(bot.ID, 10)
 	binding.CredentialRef = credentialRef
 	binding.BaseURL = a.cfg.BaseURL
-	binding.ProviderState = challengeHash
-	binding.QRCodeURL = activationURL.String()
+	binding.ProviderState = ""
+	binding.QRCodeURL = ""
 	binding.QRCodeImage = ""
+	binding.ExternalUserID = ""
+	binding.ExternalChatID = ""
+	binding.ExternalThreadID = ""
+	binding.ContextToken = ""
+	binding.DefaultForChannel = false
 	binding.Scopes = normalizeScopes(binding.Scopes)
-	binding.ExpiresAt = &expires
+	binding.ExpiresAt = nil
+	binding.LastError = ""
 	binding.UpdatedAt = now
 	return binding, nil
 }
 
+func classifyTelegramVerificationError(err error) *BindingError {
+	var responseErr *telegram.ResponseError
+	if errors.As(err, &responseErr) {
+		switch {
+		case responseErr.StatusCode == http.StatusTooManyRequests:
+			return &BindingError{Code: CodeTelegramRateLimited}
+		case responseErr.StatusCode == http.StatusRequestTimeout || responseErr.StatusCode >= 500:
+			return &BindingError{Code: CodeTelegramUnavailable}
+		default:
+			return &BindingError{Code: CodeTelegramVerifyFailed}
+		}
+	}
+	var apiErr *telegram.APIError
+	if !errors.As(err, &apiErr) {
+		return &BindingError{Code: CodeTelegramUnreachable}
+	}
+	switch {
+	case apiErr.Code == http.StatusTooManyRequests:
+		return &BindingError{Code: CodeTelegramRateLimited}
+	case apiErr.Code == http.StatusRequestTimeout || apiErr.Code >= 500:
+		return &BindingError{Code: CodeTelegramUnavailable}
+	case apiErr.Code >= 400 && apiErr.Code < 500:
+		return &BindingError{Code: CodeInvalidBotToken}
+	default:
+		return &BindingError{Code: CodeTelegramVerifyFailed}
+	}
+}
+
 func (a *TelegramAdapter) Poll(ctx context.Context, binding app.NotificationBinding) (PollResult, error) {
 	_ = ctx
-	if binding.ExpiresAt != nil && time.Now().UTC().After(*binding.ExpiresAt) && binding.Status == "waiting_confirm" {
-		return PollResult{Status: "expired", LastError: "Telegram binding activation expired"}, nil
-	}
 	return PollResult{Status: binding.Status}, nil
 }
 
@@ -677,14 +708,4 @@ func validTelegramToken(token []byte) bool {
 		return false
 	}
 	return !strings.ContainsAny(string(token), " \t\r\n")
-}
-
-func newActivationChallenge() (string, string, error) {
-	raw := make([]byte, 24)
-	if _, err := rand.Read(raw); err != nil {
-		return "", "", err
-	}
-	challenge := base64.RawURLEncoding.EncodeToString(raw)
-	hash := sha256.Sum256([]byte(challenge))
-	return challenge, fmt.Sprintf("sha256:%x", hash[:]), nil
 }

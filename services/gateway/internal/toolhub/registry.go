@@ -3,6 +3,7 @@ package toolhub
 import (
 	"context"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
@@ -15,8 +16,11 @@ type toolExecutor func(h *ToolHub, ctx context.Context, name string, args map[st
 // two lists cannot drift apart silently.
 type toolRegistration struct {
 	// enabled gates the tool on config; nil means always available.
-	enabled func(cfg config.Config) bool
-	run     toolExecutor
+	enabled        func(cfg config.Config) bool
+	run            toolExecutor
+	capabilities   []app.CapabilityDescriptor
+	outcomeAdapter app.ToolOutcomeAdapter
+	directory      app.ToolDirectoryMetadata
 }
 
 // Adapters that lift the common handler signatures into toolExecutor.
@@ -69,8 +73,36 @@ func browserAutomationPassthrough() toolExecutor {
 // toolRegistry maps tool name -> execution + availability. Adding a tool means
 // one entry here plus its definition in defaultDefinitions().
 var toolRegistry = map[string]toolRegistration{
-	"files.search":              {run: ctxArgs((*ToolHub).filesSearch)},
-	"files.read":                {run: ctxArgs((*ToolHub).filesRead)},
+	"files.search": {
+		run: ctxArgs((*ToolHub).filesSearch),
+		capabilities: []app.CapabilityDescriptor{{
+			Name: "workspace.file.search",
+		}},
+		outcomeAdapter: app.OutcomeAdapterWorkspaceSearch,
+		directory: app.ToolDirectoryMetadata{
+			Summary:      "Search file names and bounded text content in the configured workspace.",
+			WhenToUse:    "Use when the owner asks to find local workspace files and no exact path is known.",
+			WhenNotToUse: "Do not use for public Web search, knowledge-index search, or file mutation.",
+			InputKinds:   []app.TargetKind{app.TargetKindNone},
+			OutputKinds:  []app.OutputKind{app.OutputKindText},
+			Effects:      []app.ToolEffect{app.ToolEffectWorkspaceRead},
+		},
+	},
+	"files.read": {
+		run: ctxArgs((*ToolHub).filesRead),
+		capabilities: []app.CapabilityDescriptor{{
+			Name: "workspace.file.read",
+		}},
+		outcomeAdapter: app.OutcomeAdapterWorkspaceRead,
+		directory: app.ToolDirectoryMetadata{
+			Summary:      "Read one explicitly identified file inside the configured workspace.",
+			WhenToUse:    "Use when the workflow has a deterministic workspace path target.",
+			WhenNotToUse: "Do not use to discover unknown files or modify file content.",
+			InputKinds:   []app.TargetKind{app.TargetKindWorkspacePath},
+			OutputKinds:  []app.OutputKind{app.OutputKindText},
+			Effects:      []app.ToolEffect{app.ToolEffectWorkspaceRead},
+		},
+	},
 	"images.inspect":            {run: ctxArgs((*ToolHub).imageInspect)},
 	"media.render_weather_card": {run: ctxArgsSessionRun((*ToolHub).renderWeatherCard)},
 	"files.write_draft":         {run: ctxArgs((*ToolHub).filesWriteDraft)},
@@ -94,12 +126,36 @@ var toolRegistry = map[string]toolRegistration{
 	"memory.write_candidate":    {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
 	"memory.propose":            {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
 	"memory.write_sensitive":    {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
-	"knowledge.index_workspace": {run: ctxArgsSessionRun((*ToolHub).knowledgeIndexWorkspace)},
-	"knowledge.search":          {run: ctxArgsSessionRun((*ToolHub).knowledgeSearch)},
-	"browser.read":              {run: ctxArgsSessionRun((*ToolHub).browserRead)},
+	"browser.read": {
+		run: ctxArgsSessionRun((*ToolHub).browserRead),
+		capabilities: []app.CapabilityDescriptor{{
+			Name: "web.page.read",
+		}},
+		outcomeAdapter: app.OutcomeAdapterWebPage,
+		directory: app.ToolDirectoryMetadata{
+			Summary:      "Read a known public URL and extract source-page evidence.",
+			WhenToUse:    "Use when the target URL is known or a workflow assessment requires source-page evidence.",
+			WhenNotToUse: "Do not use for public discovery, visible tab opening, or page interaction.",
+			InputKinds:   []app.TargetKind{app.TargetKindExplicitURL},
+			OutputKinds:  []app.OutputKind{app.OutputKindText},
+			Effects:      []app.ToolEffect{app.ToolEffectExternalRead},
+		},
+	},
 	"web.search": {
 		enabled: func(cfg config.Config) bool { return cfg.Tools.Web.Search.Enabled },
 		run:     ctxArgs((*ToolHub).webSearchTool),
+		capabilities: []app.CapabilityDescriptor{{
+			Name: "web.discovery",
+		}},
+		outcomeAdapter: app.OutcomeAdapterWebSearch,
+		directory: app.ToolDirectoryMetadata{
+			Summary:      "Discover public web sources when the target URL is unknown.",
+			WhenToUse:    "Use for public search, freshness checks, and source discovery.",
+			WhenNotToUse: "Do not use when a specific URL is already known or for source-page verification.",
+			InputKinds:   []app.TargetKind{app.TargetKindNone},
+			OutputKinds:  []app.OutputKind{app.OutputKindText},
+			Effects:      []app.ToolEffect{app.ToolEffectExternalRead},
+		},
 	},
 	"browser.status": {
 		enabled: browserAutomationEnabled,
@@ -107,29 +163,22 @@ var toolRegistry = map[string]toolRegistration{
 			return h.browserAutomationHealth(ctx, args)
 		},
 	},
-	"browser.list_tabs":      {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.open":           {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.focus":          {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.close":          {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.navigate":       {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.snapshot":       {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.screenshot":     {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.wait":           {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.click":          {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.type":           {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"browser.select":         {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
-	"email.search":           {run: ctxArgs((*ToolHub).emailSearch)},
-	"email.read_thread":      {run: ctxArgs((*ToolHub).emailReadThread)},
-	"email.draft_reply":      {run: ctxArgs((*ToolHub).emailDraftReply)},
-	"email.send":             {run: ctxArgs((*ToolHub).emailSend)},
-	"calendar.read":          {run: ctxArgs((*ToolHub).calendarRead)},
-	"calendar.propose_event": {run: ctxArgs((*ToolHub).calendarProposeEvent)},
-	"calendar.create":        {run: ctxArgs((*ToolHub).calendarCreate)},
-	"reminders.create":       {enabled: remindersEnabled, run: argsSessionRun((*ToolHub).remindersCreate)},
-	"reminders.list":         {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersList)},
-	"reminders.update":       {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersUpdate)},
-	"reminders.cancel":       {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersCancel)},
-	"code.apply_patch":       {run: ctxArgs((*ToolHub).codeApplyPatch)},
-	"shell.exec_sandboxed":   {run: ctxArgs((*ToolHub).shellExecSandboxed)},
-	"notify.ask_approval":    {run: argsSessionRun((*ToolHub).notifyAskApproval)},
+	"browser.list_tabs":    {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.open":         {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.focus":        {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.close":        {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.navigate":     {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.snapshot":     {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.screenshot":   {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.wait":         {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.click":        {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.type":         {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"browser.select":       {enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
+	"reminders.create":     {enabled: remindersEnabled, run: argsSessionRun((*ToolHub).remindersCreate)},
+	"reminders.list":       {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersList)},
+	"reminders.update":     {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersUpdate)},
+	"reminders.cancel":     {enabled: remindersEnabled, run: argsSession((*ToolHub).remindersCancel)},
+	"code.apply_patch":     {run: ctxArgs((*ToolHub).codeApplyPatch)},
+	"shell.exec_sandboxed": {run: ctxArgs((*ToolHub).shellExecSandboxed)},
+	"notify.ask_approval":  {run: argsSessionRun((*ToolHub).notifyAskApproval)},
 }

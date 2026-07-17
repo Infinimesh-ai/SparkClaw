@@ -2,13 +2,12 @@ package telegram
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -141,63 +140,193 @@ func TestServiceRejectsUnknownUserBeforeDownloadOrAgent(t *testing.T) {
 	}
 }
 
-func TestServiceActivationRequiresMatchingPrivateChallenge(t *testing.T) {
+func TestServiceClaimsFirstFreshPrivateMessage(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	challenge := "activation-challenge-value"
+	createdAt := time.Now().UTC()
 	binding := app.NotificationBinding{
 		ID:                "bind_activation",
 		OwnerID:           app.DefaultOwnerID,
 		Channel:           "telegram",
 		Provider:          "telegram-bot-api",
-		Status:            "waiting_confirm",
+		Status:            "active",
 		CredentialRef:     "cred",
-		ProviderState:     activationHash(challenge),
 		DefaultForChannel: false,
+		CreatedAt:         createdAt,
+		UpdatedAt:         createdAt,
 	}
-	expires := time.Now().UTC().Add(time.Minute)
-	binding.ExpiresAt = &expires
 	binding = st.SaveNotificationBinding(binding)
 	bot := &fakeBotAPI{}
-	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg)).
+	runtime := &recordingRuntime{}
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, runtime, cfg)).
 		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return bot, nil })
 
-	invalid := Update{UpdateID: 1, Message: telegramTextMessage(1, 11, 11, "/start wrong")}
-	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, invalid))
+	stale := Update{UpdateID: 1, Message: telegramTextMessage(1, 10, 10, "old message")}
+	stale.Message.Date = createdAt.Add(-2 * time.Minute).Unix()
+	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, stale))
+	group := Update{UpdateID: 2, Message: telegramTextMessage(2, 20, -20, "/start")}
+	group.Message.Chat.Type = "group"
+	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, group))
 	stored, _ := st.GetNotificationBinding(binding.ID)
-	if stored.Status != "waiting_confirm" || bot.sentCount() != 0 {
-		t.Fatalf("invalid challenge activated binding: %#v", stored)
+	if stored.ExternalUserID != "" || stored.ExternalChatID != "" || bot.sentCount() != 0 || runtime.callCount() != 0 {
+		t.Fatalf("stale or non-private message claimed binding: binding=%#v replies=%d calls=%d", stored, bot.sentCount(), runtime.callCount())
 	}
 
-	valid := Update{UpdateID: 2, Message: telegramTextMessage(2, 11, 11, "/start "+challenge)}
-	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, valid))
+	fresh := Update{UpdateID: 3, Message: telegramTextMessage(3, 11, 11, "/start")}
+	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, fresh))
 	stored, _ = st.GetNotificationBinding(binding.ID)
-	if stored.Status != "active" || stored.ExternalUserID != "11" || stored.ExternalChatID != "11" || stored.ProviderState != "" || stored.ExpiresAt != nil {
-		t.Fatalf("valid challenge did not activate binding: %#v", stored)
+	if stored.Status != "active" || stored.ExternalUserID != "11" || stored.ExternalChatID != "11" || stored.ContextToken != "11" || !stored.DefaultForChannel {
+		t.Fatalf("fresh private message did not claim binding: %#v", stored)
 	}
-	if bot.sentCount() != 1 {
-		t.Fatalf("activation welcome count = %d", bot.sentCount())
+	if bot.sentCount() != 1 || runtime.callCount() != 0 || !strings.Contains(bot.sentMessages()[0], "connected") {
+		t.Fatalf("plain /start should only acknowledge the claim: replies=%#v calls=%d", bot.sentMessages(), runtime.callCount())
+	}
+	unknown := Update{UpdateID: 4, Message: telegramTextMessage(4, 12, 12, "hello")}
+	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, unknown))
+	if bot.sentCount() != 1 || runtime.callCount() != 0 {
+		t.Fatalf("another chat crossed claimed binding: replies=%d calls=%d", bot.sentCount(), runtime.callCount())
+	}
+	if !hasAuditType(st.ListAudit(""), "telegram.binding.claimed") {
+		t.Fatalf("binding claim was not audited: %#v", st.ListAudit(""))
 	}
 }
 
-func TestServiceActivatesMultipleBotsForDifferentUsers(t *testing.T) {
+func TestServiceDispatchesFirstOrdinaryMessageAfterClaim(t *testing.T) {
 	cfg := telegramTestConfig(t)
 	st := store.NewMemoryStore()
-	expires := time.Now().UTC().Add(time.Minute)
-	newBinding := func(id, challenge, credentialRef string) app.NotificationBinding {
+	now := time.Now().UTC()
+	binding := st.SaveNotificationBinding(app.NotificationBinding{
+		ID:            "bind_first_message",
+		OwnerID:       app.DefaultOwnerID,
+		Channel:       "telegram",
+		Provider:      "telegram-bot-api",
+		Status:        "active",
+		CredentialRef: "cred",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	runtime := &recordingRuntime{}
+	bot := &fakeBotAPI{}
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, runtime, cfg)).
+		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return bot, nil })
+
+	update := Update{UpdateID: 1, Message: telegramTextMessage(1, 42, 42, "hello from phone")}
+	service.processInbox(context.Background(), saveInboxFixture(t, st, binding.ID, update))
+	stored, _ := st.GetNotificationBinding(binding.ID)
+	if stored.ExternalUserID != "42" || stored.ExternalChatID != "42" || runtime.callCount() != 1 || bot.sentCount() != 1 {
+		t.Fatalf("first ordinary message was not claimed and dispatched: binding=%#v calls=%d replies=%d", stored, runtime.callCount(), bot.sentCount())
+	}
+}
+
+func TestServiceClaimBindingAllowsOnlyOneConcurrentChat(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	st := store.NewMemoryStore()
+	now := time.Now().UTC()
+	binding := st.SaveNotificationBinding(app.NotificationBinding{
+		ID:            "bind_race",
+		OwnerID:       app.DefaultOwnerID,
+		Channel:       "telegram",
+		Provider:      "telegram-bot-api",
+		Status:        "active",
+		CredentialRef: "cred",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
+	updates := []Update{
+		{UpdateID: 1, Message: telegramTextMessage(1, 101, 1001, "/start")},
+		{UpdateID: 2, Message: telegramTextMessage(2, 202, 2002, "/start")},
+	}
+	claimed := make(chan bool, len(updates))
+	var wg sync.WaitGroup
+	for _, update := range updates {
+		update := update
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, authorized, claimedNow := service.claimBinding(binding.ID, update)
+			claimed <- authorized && claimedNow
+		}()
+	}
+	wg.Wait()
+	close(claimed)
+	winners := 0
+	for won := range claimed {
+		if won {
+			winners++
+		}
+	}
+	stored, _ := st.GetNotificationBinding(binding.ID)
+	if winners != 1 || (stored.ExternalUserID != "101" && stored.ExternalUserID != "202") {
+		t.Fatalf("concurrent claim winners=%d binding=%#v", winners, stored)
+	}
+}
+
+func TestServiceCursorUpdatePreservesConcurrentClaim(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	st := store.NewMemoryStore()
+	now := time.Now().UTC()
+	staleSnapshot := st.SaveNotificationBinding(app.NotificationBinding{
+		ID:            "bind_cursor_claim",
+		OwnerID:       app.DefaultOwnerID,
+		Channel:       "telegram",
+		Provider:      "telegram-bot-api",
+		Status:        "active",
+		CredentialRef: "cred",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
+	_, authorized, claimed := service.claimBinding(staleSnapshot.ID, Update{
+		UpdateID: 1,
+		Message:  telegramTextMessage(1, 77, 77, "/start"),
+	})
+	if !authorized || !claimed {
+		t.Fatal("fixture claim failed")
+	}
+	service.saveBindingCursor(staleSnapshot, 2)
+	stored, _ := st.GetNotificationBinding(staleSnapshot.ID)
+	if stored.ProviderCursor != "2" || stored.ExternalUserID != "77" || stored.ExternalChatID != "77" {
+		t.Fatalf("cursor update overwrote recipient claim: %#v", stored)
+	}
+}
+
+func TestServiceMigratesLegacyChallengeBindings(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	st := store.NewMemoryStore()
+	expires := time.Now().UTC().Add(-time.Minute)
+	for _, fixture := range []app.NotificationBinding{
+		{ID: "bind_waiting", Channel: "telegram", Provider: "telegram-bot-api", Status: "waiting_confirm", CredentialRef: "cred_waiting", ProviderState: "sha256:legacy", QRCodeURL: "https://t.me/bot?start=legacy", DefaultForChannel: true, ExpiresAt: &expires},
+		{ID: "bind_expired", Channel: "telegram", Provider: "telegram-bot-api", Status: "expired", CredentialRef: "cred_expired", LastError: "expired", ExpiresAt: &expires},
+	} {
+		st.SaveNotificationBinding(fixture)
+	}
+	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, NewDispatcher(st, &recordingRuntime{}, cfg))
+	service.migrateLegacyDirectBindings()
+	for _, id := range []string{"bind_waiting", "bind_expired"} {
+		binding, _ := st.GetNotificationBinding(id)
+		if binding.Status != "active" || binding.ProviderState != "" || binding.QRCodeURL != "" || binding.ExpiresAt != nil || binding.LastError != "" || binding.DefaultForChannel {
+			t.Fatalf("legacy binding %s was not migrated: %#v", id, binding)
+		}
+	}
+}
+
+func TestServiceClaimsMultipleBotsForDifferentUsers(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	st := store.NewMemoryStore()
+	newBinding := func(id, credentialRef string) app.NotificationBinding {
 		return st.SaveNotificationBinding(app.NotificationBinding{
 			ID:            id,
 			OwnerID:       app.DefaultOwnerID,
 			Channel:       "telegram",
 			Provider:      "telegram-bot-api",
-			Status:        "waiting_confirm",
+			Status:        "active",
 			CredentialRef: credentialRef,
-			ProviderState: activationHash(challenge),
-			ExpiresAt:     &expires,
+			CreatedAt:     time.Now().UTC(),
 		})
 	}
-	bindingA := newBinding("bind_user_a", "challenge-a", "cred_bot_a")
-	bindingB := newBinding("bind_user_b", "challenge-b", "cred_bot_b")
+	bindingA := newBinding("bind_user_a", "cred_bot_a")
+	bindingB := newBinding("bind_user_b", "cred_bot_b")
 	bots := map[string]*fakeBotAPI{
 		bindingA.ID: {},
 		bindingB.ID: {},
@@ -209,11 +338,11 @@ func TestServiceActivatesMultipleBotsForDifferentUsers(t *testing.T) {
 
 	service.processInbox(context.Background(), saveInboxFixture(t, st, bindingA.ID, Update{
 		UpdateID: 1,
-		Message:  telegramTextMessage(1, 101, 1001, "/start challenge-a"),
+		Message:  telegramTextMessage(1, 101, 1001, "/start"),
 	}))
 	service.processInbox(context.Background(), saveInboxFixture(t, st, bindingB.ID, Update{
 		UpdateID: 2,
-		Message:  telegramTextMessage(2, 202, 2002, "/start challenge-b"),
+		Message:  telegramTextMessage(2, 202, 2002, "/start"),
 	}))
 
 	activatedA, _ := st.GetNotificationBinding(bindingA.ID)
@@ -365,6 +494,11 @@ func (b *fakeBotAPI) sentCount() int {
 	defer b.mu.Unlock()
 	return len(b.sent)
 }
+func (b *fakeBotAPI) sentMessages() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.sent...)
+}
 func (b *fakeBotAPI) fileCalls() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -499,14 +633,13 @@ func saveInboxFixture(t *testing.T, st store.Store, bindingID string, update Upd
 	return st.SaveChannelInboxUpdate(app.ChannelInboxUpdate{BindingID: bindingID, Channel: "telegram", ExternalID: stringID(update.UpdateID), ChatKey: bindingID + ":" + stringID(chatID) + ":" + stringID(threadID), Payload: raw, Status: "pending"})
 }
 
-func activationHash(challenge string) string {
-	_, hash, _ := newActivationChallengeForTest(challenge)
-	return hash
-}
-
-func newActivationChallengeForTest(challenge string) (string, string, error) {
-	sum := sha256.Sum256([]byte(challenge))
-	return challenge, fmt.Sprintf("sha256:%x", sum[:]), nil
+func hasAuditType(events []app.AuditEvent, eventType string) bool {
+	for _, event := range events {
+		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForInboxStatus(t *testing.T, st store.Store, id, status string) {

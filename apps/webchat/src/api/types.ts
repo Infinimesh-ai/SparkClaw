@@ -311,10 +311,6 @@ export type PublicConfig = {
     encryption_key: string;
     encryption_key_file: string;
   };
-  adapters: {
-    email: { backend: string; base_url: string; token: string };
-    calendar: { backend: string; base_url: string; token: string };
-  };
   memory: {
     enabled: boolean;
     write_policy: string;

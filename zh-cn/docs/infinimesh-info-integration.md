@@ -240,18 +240,17 @@ Citation ID 通过 `sources[].id` 解析，按响应顺序去重，并转换成 
 
 ## 旧引擎迁移
 
-迁移必须按门禁推进：
+生产 smoke 测试通过后，迁移已按门禁完成：
 
 1. 新增并 contract-test `internal/infinimeshinfo` 与 `websearch` 映射。
 2. 显式选择 `infinimesh-info`，不得加入 provider 自动 fallback。
 3. 使用凭据门控测试访问 `https://info.infinimesh.cn`，完成
    issue -> reserve -> query -> mapping。
-4. 只有 smoke 成功后，才删除 `parallel_free.go`、对应测试、Parallel plugin 配置、
-   Parallel 环境变量和 Parallel 公开配置字段。
+4. smoke 成功后，已删除旧 adapter 与测试、plugin 配置、环境变量和公开配置字段。
 5. 将 `infinimesh-info` 设为 `web.search` 唯一支持 provider 并更新默认值/测试。
    配置旧 provider 时必须得到明确启动或调用错误，绝不静默转换。
 
-这是用户可见行为变化：启用 `web.search` 后需要三个 Infinimesh Info 凭据；云端
+这是用户可见行为变化：启用 `web.search` 需要三个 Infinimesh Info 凭据；云端
 失败会直接暴露，不再回退到免费搜索。
 
 ## 测试与验收标准

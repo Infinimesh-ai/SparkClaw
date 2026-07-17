@@ -21,7 +21,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/personaldata"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/sandbox"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -35,8 +34,6 @@ type ToolHub struct {
 	models    modelrouter.Router
 	runner    sandbox.Runner
 	artifacts artifact.Store
-	email     personaldata.EmailAdapter
-	cal       personaldata.CalendarAdapter
 	reminders *remindertarget.Resolver
 	webSearch websearch.Adapter
 	browser   browserautomation.Adapter
@@ -54,8 +51,6 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		models:    modelrouter.New(cfg),
 		runner:    sandbox.NewRunner(cfg),
 		artifacts: artifact.NewStore(cfg.Storage),
-		email:     personaldata.NewEmailAdapter(cfg.Adapters.Email, cfg.Workspaces.DefaultRoot),
-		cal:       personaldata.NewCalendarAdapter(cfg.Adapters.Calendar, cfg.Workspaces.DefaultRoot),
 		reminders: remindertarget.NewResolver(st),
 		webSearch: websearch.NewAdapter(cfg),
 		browser:   browserautomation.NewAdapter(cfg),
@@ -70,6 +65,9 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		if reg.enabled != nil && !reg.enabled(cfg) {
 			continue
 		}
+		def.Capabilities = append([]app.CapabilityDescriptor(nil), reg.capabilities...)
+		def.OutcomeAdapter = reg.outcomeAdapter
+		def.Directory = reg.directory
 		h.defs[def.Name] = def
 	}
 	return h
@@ -601,75 +599,6 @@ func defaultDefinitions() []app.ToolDefinition {
 			Audit:            "always",
 		},
 		{
-			Name:        "knowledge.index_workspace",
-			Description: "Build a local keyword chunk index for text files inside an allowed workspace.",
-			InputSchema: schema("object", []string{}, map[string]any{
-				"root":       map[string]any{"type": "string"},
-				"max_files":  map[string]any{"type": "number"},
-				"max_bytes":  map[string]any{"type": "number"},
-				"chunk_size": map[string]any{"type": "number"},
-			}),
-			OutputSchema: objectSchema([]string{"status", "index_kind", "path", "root", "files", "chunks", "built_at"}, map[string]any{
-				"status":                  stringSchema(),
-				"index_kind":              stringSchema(),
-				"path":                    stringSchema(),
-				"root":                    stringSchema(),
-				"files":                   integerSchema(),
-				"chunks":                  integerSchema(),
-				"built_at":                stringSchema(),
-				"artifact_archive":        objectValueSchema(),
-				"index_object_key":        stringSchema(),
-				"index_object_uri":        stringSchema(),
-				"artifact_archive_errors": stringArraySchema(),
-				"document_store":          objectValueSchema(),
-				"document_store_error":    stringSchema(),
-				"embedding_error":         stringSchema(),
-			}),
-			Risk:             app.RiskDraft,
-			RequiresApproval: false,
-			Idempotent:       false,
-			TimeoutMS:        8000,
-			Sandbox:          "optional",
-			Audit:            "always",
-		},
-		{
-			Name:        "knowledge.search",
-			Description: "Search the local knowledge index and return evidence snippets with stable file-and-line citations.",
-			InputSchema: schema("object", []string{"query"}, map[string]any{
-				"query":             map[string]any{"type": "string"},
-				"max_results":       map[string]any{"type": "number"},
-				"rewrite_query":     map[string]any{"type": "boolean"},
-				"context_max_bytes": map[string]any{"type": "number"},
-			}),
-			OutputSchema: objectSchema([]string{"query", "original_query", "rewritten_query", "index_kind", "index_path", "built_at", "count", "candidate_count", "results", "citations", "backend", "evidence_context"}, map[string]any{
-				"query":                  stringSchema(),
-				"original_query":         stringSchema(),
-				"rewritten_query":        stringSchema(),
-				"query_terms":            stringArraySchema(),
-				"index_kind":             stringSchema(),
-				"index_path":             stringSchema(),
-				"built_at":               stringSchema(),
-				"count":                  integerSchema(),
-				"candidate_count":        integerSchema(),
-				"rerank_candidate_count": integerSchema(),
-				"results":                arraySchema(objectValueSchema()),
-				"citations":              stringArraySchema(),
-				"backend":                stringSchema(),
-				"evidence_context":       stringSchema(),
-				"context_compression":    objectValueSchema(),
-				"embedding_model":        stringSchema(),
-				"embedding_error":        stringSchema(),
-				"reranker_model":         stringSchema(),
-				"reranker_error":         stringSchema(),
-			}),
-			Risk:             app.RiskRead,
-			RequiresApproval: false,
-			Idempotent:       true,
-			TimeoutMS:        3000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
-		{
 			Name:        "browser.read",
 			Description: "Read a public HTTP(S) page through the mode-safe browser access path, extracting rendered HTML with Readability when a browser session is selected. Use browser.snapshot separately when page structure or controls are needed.",
 			InputSchema: schema("object", []string{"url"}, map[string]any{
@@ -797,152 +726,6 @@ func defaultDefinitions() []app.ToolDefinition {
 		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, true, []string{"uid"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.type", "Type or fill text into a clear element ref or current focus.", app.RiskDraft, true, []string{"text"}, []string{"uid"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.select", "Select a dropdown or select-like value using a clear element ref.", app.RiskDraft, true, []string{"uid", "value"}, []string{"value"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		{
-			Name:        "email.search",
-			Description: "Search local mock email threads without external account access.",
-			InputSchema: schema("object", []string{"query"}, map[string]any{
-				"query":       map[string]any{"type": "string"},
-				"max_results": map[string]any{"type": "number"},
-			}),
-			OutputSchema: objectSchema([]string{"query", "count", "results", "adapter"}, map[string]any{
-				"query":   stringSchema(),
-				"count":   integerSchema(),
-				"results": arraySchema(objectValueSchema()),
-				"adapter": stringSchema(),
-			}),
-			Risk:             app.RiskRead,
-			RequiresApproval: false,
-			Idempotent:       true,
-			TimeoutMS:        2000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
-		{
-			Name:        "email.read_thread",
-			Description: "Read one local mock email thread as untrusted external content.",
-			InputSchema: schema("object", []string{"thread_id"}, map[string]any{
-				"thread_id": map[string]any{"type": "string"},
-			}),
-			OutputSchema: objectSchema([]string{"thread", "adapter", "untrusted_external_content"}, map[string]any{
-				"thread":                     objectValueSchema(),
-				"adapter":                    stringSchema(),
-				"untrusted_external_content": booleanSchema(),
-			}),
-			Risk:             app.RiskRead,
-			RequiresApproval: false,
-			Idempotent:       true,
-			TimeoutMS:        2000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
-		{
-			Name:        "email.draft_reply",
-			Description: "Write a local draft reply file. This never sends email.",
-			InputSchema: schema("object", []string{"body"}, map[string]any{
-				"thread_id": map[string]any{"type": "string"},
-				"body":      map[string]any{"type": "string"},
-			}),
-			OutputSchema: objectSchema([]string{"path", "bytes", "status", "thread_id"}, map[string]any{
-				"path":      stringSchema(),
-				"bytes":     integerSchema(),
-				"status":    stringSchema(),
-				"thread_id": stringSchema(),
-			}),
-			Risk:             app.RiskDraft,
-			RequiresApproval: false,
-			Idempotent:       false,
-			TimeoutMS:        2000,
-			Sandbox:          "optional",
-			Audit:            "always",
-		},
-		{
-			Name:        "email.send",
-			Description: "Send an email through the configured adapter only after explicit owner approval.",
-			InputSchema: schema("object", []string{"to", "subject", "body"}, map[string]any{
-				"thread_id": map[string]any{"type": "string"},
-				"to":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1},
-				"subject":   map[string]any{"type": "string"},
-				"body":      map[string]any{"type": "string"},
-			}),
-			OutputSchema: objectSchema([]string{"status", "send", "thread_id", "adapter"}, map[string]any{
-				"status":    stringSchema(),
-				"send":      objectValueSchema(),
-				"thread_id": stringSchema(),
-				"adapter":   stringSchema(),
-			}),
-			Risk:             app.RiskDangerous,
-			RequiresApproval: true,
-			Idempotent:       false,
-			TimeoutMS:        5000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
-		{
-			Name:        "calendar.read",
-			Description: "Read local mock calendar events.",
-			InputSchema: schema("object", []string{}, map[string]any{
-				"from": map[string]any{"type": "string"},
-				"to":   map[string]any{"type": "string"},
-			}),
-			OutputSchema: objectSchema([]string{"count", "events", "adapter"}, map[string]any{
-				"count":   integerSchema(),
-				"events":  arraySchema(objectValueSchema()),
-				"adapter": stringSchema(),
-			}),
-			Risk:             app.RiskRead,
-			RequiresApproval: false,
-			Idempotent:       true,
-			TimeoutMS:        2000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
-		{
-			Name:        "calendar.propose_event",
-			Description: "Write a local calendar event proposal. This never creates an external event.",
-			InputSchema: schema("object", []string{"title", "start", "end"}, map[string]any{
-				"title":     map[string]any{"type": "string"},
-				"start":     map[string]any{"type": "string"},
-				"end":       map[string]any{"type": "string"},
-				"location":  map[string]any{"type": "string"},
-				"attendees": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"notes":     map[string]any{"type": "string"},
-			}),
-			OutputSchema: objectSchema([]string{"path", "bytes", "status", "proposal"}, map[string]any{
-				"path":     stringSchema(),
-				"bytes":    integerSchema(),
-				"status":   stringSchema(),
-				"proposal": objectValueSchema(),
-			}),
-			Risk:             app.RiskDraft,
-			RequiresApproval: false,
-			Idempotent:       false,
-			TimeoutMS:        2000,
-			Sandbox:          "optional",
-			Audit:            "always",
-		},
-		{
-			Name:        "calendar.create",
-			Description: "Create a calendar event through the configured adapter only after explicit owner approval.",
-			InputSchema: schema("object", []string{"title", "start", "end"}, map[string]any{
-				"title":     map[string]any{"type": "string"},
-				"start":     map[string]any{"type": "string"},
-				"end":       map[string]any{"type": "string"},
-				"location":  map[string]any{"type": "string"},
-				"attendees": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"notes":     map[string]any{"type": "string"},
-			}),
-			OutputSchema: objectSchema([]string{"status", "event", "adapter"}, map[string]any{
-				"status":  stringSchema(),
-				"event":   objectValueSchema(),
-				"adapter": stringSchema(),
-			}),
-			Risk:             app.RiskDangerous,
-			RequiresApproval: true,
-			Idempotent:       false,
-			TimeoutMS:        5000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
 		{
 			Name:        "shell.exec_sandboxed",
 			Description: "Request sandboxed shell execution. MVP queues this for approval and does not execute automatically.",

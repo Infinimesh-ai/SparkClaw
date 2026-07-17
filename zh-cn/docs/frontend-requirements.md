@@ -137,7 +137,7 @@ SparkClaw WebChat 应当是本地优先 Agent Runtime 的 owner 工作台，不�
 - 当前 session 下发送非空消息。
 - 消息处理中展示 busy state。
 - 发送后刷新 messages、tools、approvals、traces、status。
-- 提供 starter prompts：文件搜索、browser.read、邮件搜索、日历读取、记忆提议、沙箱命令。
+- 提供 starter prompts：文件搜索、browser.read、记忆提议、沙箱命令。
 - assistant message 有 `run_id` 时支持反馈：有用、无用、修正答案。
 
 后端接口：

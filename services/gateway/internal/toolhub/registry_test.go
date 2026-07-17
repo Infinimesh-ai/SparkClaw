@@ -1,6 +1,11 @@
 package toolhub
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+)
 
 // Every declared tool definition must have an executor, and every executor
 // should correspond to a declared definition, so the two tables cannot drift.
@@ -15,6 +20,28 @@ func TestToolRegistryMatchesDefinitions(t *testing.T) {
 	for name := range toolRegistry {
 		if !defs[name] {
 			t.Errorf("toolRegistry entry %q has no definition in defaultDefinitions", name)
+		}
+	}
+}
+
+func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.Web.Search.Enabled = true
+	hub := New(cfg, store.NewMemoryStore())
+
+	for _, name := range []string{"web.search", "browser.read", "files.search", "files.read"} {
+		def, ok := hub.Definition(name)
+		if !ok {
+			t.Fatalf("migrated tool %q is not registered", name)
+		}
+		if len(def.Capabilities) != 1 || def.Capabilities[0].Name == "" {
+			t.Fatalf("migrated tool %q has incomplete capabilities: %#v", name, def.Capabilities)
+		}
+		if def.OutcomeAdapter == "" {
+			t.Fatalf("migrated tool %q has no outcome adapter", name)
+		}
+		if def.Directory.Summary == "" || def.Directory.WhenToUse == "" || len(def.Directory.Effects) == 0 {
+			t.Fatalf("migrated tool %q has incomplete directory metadata: %#v", name, def.Directory)
 		}
 	}
 }

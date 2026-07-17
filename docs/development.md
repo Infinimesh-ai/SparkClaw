@@ -28,10 +28,12 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
+| Intent/Profile/Tool Exposure refactor | In progress by domain; Web and workspace read/search authoritative | Profile registry, plan validation, exposure and resource-boundary tests |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
-| Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/email/calendar golden cases |
+| Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
-| File, browser, email, calendar, memory, knowledge, code and notify workflows | Complete | Unit tests plus 58-case eval |
+| File, browser, memory, code and notify workflows | Complete | Unit tests plus 43-case eval |
+| Email, calendar and workspace knowledge/RAG | Deferred; prototypes removed | [Deferred capability record](deferred-email-calendar-knowledge.md) |
 | Skills registry boundary | Complete | Registry tests and `/api/skills`; skills do not bypass policy |
 | WebChat workbench | Complete | TypeScript/Vite build |
 | Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
@@ -84,18 +86,16 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 
 ## Golden Eval Coverage
 
-`scripts/run-eval.sh` currently expects 58 golden cases. It covers:
+`scripts/run-eval.sh` currently expects 43 golden cases. It covers:
 
 - direct `/chat` profile selection
 - config, tool, skill, owner, client, auth and rate-limit surfaces
 - file search/read/write/delete and multi-file grounded answers
 - browser read, multi-source comparison, raw snapshots and prompt-injection handling
 - memory candidates, sensitive-memory rejection, approval-gated sensitive writes, editing and export
-- email search/thread/draft/send and calendar read/propose/create
 - approval modification, approval-pending run lifecycle and post-approval trace refresh
 - shell and code patch approval, rollback artifacts and sandbox command queueing
 - model-call telemetry and fast/deep/repair lane selection
-- knowledge indexing/search, citations, query rewrite metadata and missing-index repair
 - smoke/chaos eval persistence, failure archives and eval history
 
 When adding user-visible behavior, prefer adding a focused unit test plus a golden case that exercises the real API path.
@@ -105,13 +105,20 @@ When adding user-visible behavior, prefer adding a focused unit test plus a gold
 For a new tool:
 
 1. Define input and output structures.
-2. Register the tool in ToolHub with a risk level.
-3. Validate successful outputs.
+2. Register execution, risk, semantic capabilities, trusted directory metadata,
+   effects, and the outcome adapter together in ToolHub.
+3. Validate successful outputs and typed `ToolOutcome` adaptation.
 4. Add policy defaults if it can mutate, send, delete, execute or expose sensitive data.
 5. Add audit events and trace observation summaries.
 6. Archive full observations if they can be large or useful later.
 7. Add unit tests and at least one golden/smoke eval path.
 8. Update [Architecture](architecture.md) if the tool changes the product boundary.
+
+A registered capability does not become model-visible by itself. A migrated
+Workflow Profile must include that capability in a frozen active scope, and
+`ToolExposure.Search/Materialize` must admit and materialize its registration.
+Do not add a parallel tool-name list to TaskHint, Skill metadata, or Agent
+Runtime.
 
 Current risk expectations:
 
@@ -121,6 +128,27 @@ Current risk expectations:
 | `draft` | May produce local drafts/candidates without external side effects. |
 | `reversible` | Requires approval; must store recovery metadata. |
 | `dangerous` | Requires approval; must record reason, resources and execution result. |
+
+## Working With Intent And Workflow Profiles
+
+Follow the [routing refactor plan](intent-routing-workflow-refactor-plan.md) for
+the full contract. For each migrated semantic slice:
+
+1. Keep Fast output tool-neutral and freeze deterministic facts in the
+   normalizer.
+2. Add one unique typed profile match, a versioned resolver, assessment, and
+   completion behavior.
+3. Let Registry validation reject invalid identity, graph, scope, transition,
+   dependency, and argument-binding contracts before persistence.
+4. Add capabilities and outcome adapters through ToolHub registration.
+5. Bind governed URL/path/record arguments in the frozen plan.
+6. Remove the same intent's TaskHint candidates and Skill visibility lists.
+7. Prove end to end that the migrated route used Tool Exposure and did not use
+   legacy routing audits.
+
+Core runtime code must remain profile-neutral. If a change requires a switch on
+workflow ID or tool name to select a scope, resource, assessment, or next step,
+move that behavior into a Profile, plan binding, or outcome adapter.
 
 ## Working With Models
 
@@ -204,7 +232,7 @@ Useful next work that is not required for the current MVP:
 
 - longer DGX Spark soak loops
 - smaller-context and no-MTP residency matrix for simultaneous fast/deep serving
-- external email/calendar account bridges
+- design-first reintroduction of deferred capabilities after the gates in [Deferred Capabilities](deferred-email-calendar-knowledge.md) are met
 - connector hardening and user-facing account setup
 - LoRA/QLoRA or distillation after trace cleaning
 - GGUF/Ollama/llama.cpp compatibility profile validation

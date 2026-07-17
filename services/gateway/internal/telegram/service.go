@@ -2,11 +2,8 @@ package telegram
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sort"
 	"strconv"
@@ -75,6 +72,7 @@ func (s *Service) Run(ctx context.Context) error {
 	if s.store == nil || s.dispatcher == nil || s.clientFactory == nil {
 		return errors.New("Telegram service dependencies are incomplete")
 	}
+	s.migrateLegacyDirectBindings()
 	s.recoverExpiredLeases(time.Now().UTC())
 	go s.workerLoop(ctx)
 	s.pollLoop(ctx)
@@ -239,16 +237,22 @@ func (s *Service) processInbox(ctx context.Context, inbox app.ChannelInboxUpdate
 		return
 	}
 	client, err := s.clientFactory(ctx, binding)
-	if err == nil {
-		if binding.Status == "waiting_confirm" {
-			err = s.activateBinding(ctx, client, binding, update)
-		} else if binding.Status == "active" {
-			if s.authorized(binding, update) {
+	if err == nil && binding.Status == "active" {
+		claimedNow := false
+		authorized := s.authorized(binding, update)
+		if binding.ExternalUserID == "" || binding.ExternalChatID == "" {
+			binding, authorized, claimedNow = s.claimBinding(binding.ID, update)
+		}
+		if authorized {
+			if claimedNow && isStartCommand(update) {
+				message := update.Message
+				_, err = client.SendMessage(ctx, message.Chat.ID, message.MessageThreadID, bindingConnectedMessage(message.From.LanguageCode), nil)
+			} else {
 				err = s.dispatcher.WithClient(client).HandleUpdate(ctx, binding, update)
 			}
-		} else {
-			err = NewConnectorError(CodeBindingUnavailable, false, nil)
 		}
+	} else if err == nil {
+		err = NewConnectorError(CodeBindingUnavailable, false, nil)
 	}
 	if err != nil {
 		if ctx.Err() != nil {
@@ -342,29 +346,24 @@ func (s *Service) failInbox(inbox app.ChannelInboxUpdate, err error) {
 	s.store.SaveChannelInboxUpdate(inbox)
 }
 
-func (s *Service) activateBinding(ctx context.Context, client BotAPI, binding app.NotificationBinding, update Update) error {
+func (s *Service) claimBinding(bindingID string, update Update) (app.NotificationBinding, bool, bool) {
 	message := update.Message
 	if message == nil || message.From == nil || message.Chat.Type != "private" {
-		return nil
+		return app.NotificationBinding{}, false, false
 	}
-	challenge, ok := startChallenge(message.Text)
-	if !ok || !matchesActivationChallenge(binding.ProviderState, challenge) {
-		s.store.AddAudit(app.AuditEvent{
-			Actor:   "telegram",
-			Type:    "telegram.binding.rejected",
-			Summary: "Rejected invalid Telegram activation challenge",
-			Fields:  map[string]any{"binding_id": binding.ID},
-		})
-		return nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	binding, ok := s.store.GetNotificationBinding(bindingID)
+	if !ok || binding.Status != "active" {
+		return app.NotificationBinding{}, false, false
+	}
+	if binding.ExternalUserID != "" || binding.ExternalChatID != "" {
+		return binding, s.authorized(binding, update), false
+	}
+	if message.Date > 0 && !binding.CreatedAt.IsZero() && time.Unix(message.Date, 0).Before(binding.CreatedAt.Add(-30*time.Second)) {
+		return binding, false, false
 	}
 	now := time.Now().UTC()
-	if binding.ExpiresAt != nil && now.After(*binding.ExpiresAt) {
-		binding.Status = "expired"
-		binding.LastError = "Telegram binding activation expired"
-		binding.UpdatedAt = now
-		s.store.SaveNotificationBinding(binding)
-		return nil
-	}
 	binding.Status = "active"
 	binding.ExternalUserID = strconv.FormatInt(message.From.ID, 10)
 	binding.ExternalChatID = strconv.FormatInt(message.Chat.ID, 10)
@@ -379,9 +378,21 @@ func (s *Service) activateBinding(ctx context.Context, client BotAPI, binding ap
 	if !hasDefaultActiveBinding(s.store, binding.ID) {
 		binding.DefaultForChannel = true
 	}
-	s.store.SaveNotificationBinding(binding)
-	_, err := client.SendMessage(ctx, message.Chat.ID, message.MessageThreadID, "Telegram Bot is connected to SparkClaw.", nil)
-	return err
+	binding = s.store.SaveNotificationBinding(binding)
+	s.store.AddAudit(app.AuditEvent{
+		Actor:   "telegram",
+		Type:    "telegram.binding.claimed",
+		Summary: "Claimed Telegram binding from a private chat",
+		Fields:  map[string]any{"binding_id": binding.ID},
+	})
+	return binding, true, true
+}
+
+func bindingConnectedMessage(languageCode string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(languageCode)), "zh") {
+		return "Telegram Bot 已连接到 SparkClaw。"
+	}
+	return "Telegram Bot is connected to SparkClaw."
 }
 
 func (s *Service) authorized(binding app.NotificationBinding, update Update) bool {
@@ -402,20 +413,35 @@ func (s *Service) authorized(binding app.NotificationBinding, update Update) boo
 }
 
 func (s *Service) pollingBindings() []app.NotificationBinding {
-	bindings := append(s.store.ListNotificationBindings("telegram", "waiting_confirm"), s.store.ListNotificationBindings("telegram", "active")...)
+	return s.store.ListNotificationBindings("telegram", "active")
+}
+
+func (s *Service) migrateLegacyDirectBindings() {
 	now := time.Now().UTC()
-	out := make([]app.NotificationBinding, 0, len(bindings))
-	for _, binding := range bindings {
-		if binding.Status == "waiting_confirm" && binding.ExpiresAt != nil && now.After(*binding.ExpiresAt) {
-			binding.Status = "expired"
-			binding.LastError = "Telegram binding activation expired"
+	for _, status := range []string{"waiting_confirm", "expired"} {
+		for _, binding := range s.store.ListNotificationBindings("telegram", status) {
+			if strings.TrimSpace(binding.CredentialRef) == "" {
+				continue
+			}
+			binding.Status = "active"
+			binding.ProviderState = ""
+			binding.QRCodeURL = ""
+			binding.QRCodeImage = ""
+			binding.ExpiresAt = nil
+			binding.LastError = ""
+			if binding.ExternalUserID == "" || binding.ExternalChatID == "" {
+				binding.DefaultForChannel = false
+			}
 			binding.UpdatedAt = now
 			s.store.SaveNotificationBinding(binding)
-			continue
+			s.store.AddAudit(app.AuditEvent{
+				Actor:   "system",
+				Type:    "telegram.binding.direct_mode_migrated",
+				Summary: "Migrated Telegram binding to direct chat claim mode",
+				Fields:  map[string]any{"binding_id": binding.ID, "previous_status": status},
+			})
 		}
-		out = append(out, binding)
 	}
-	return out
 }
 
 func (s *Service) vaultClient(ctx context.Context, binding app.NotificationBinding) (BotAPI, error) {
@@ -455,12 +481,15 @@ func (s *Service) inboxDepth() int {
 }
 
 func (s *Service) saveBindingCursor(binding app.NotificationBinding, offset int64) {
-	if bindingCursor(binding) >= offset {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.store.GetNotificationBinding(binding.ID)
+	if !ok || bindingCursor(current) >= offset {
 		return
 	}
-	binding.ProviderCursor = strconv.FormatInt(offset, 10)
-	binding.UpdatedAt = time.Now().UTC()
-	s.store.SaveNotificationBinding(binding)
+	current.ProviderCursor = strconv.FormatInt(offset, 10)
+	current.UpdatedAt = time.Now().UTC()
+	s.store.SaveNotificationBinding(current)
 }
 
 func (s *Service) signalWorker() {
@@ -500,21 +529,12 @@ func hasDefaultActiveBinding(st store.Store, exceptID string) bool {
 	return false
 }
 
-func startChallenge(text string) (string, bool) {
-	fields := strings.Fields(strings.TrimSpace(text))
-	if len(fields) != 2 || strings.ToLower(strings.SplitN(fields[0], "@", 2)[0]) != "/start" {
-		return "", false
-	}
-	return fields[1], true
-}
-
-func matchesActivationChallenge(storedHash, challenge string) bool {
-	if !strings.HasPrefix(storedHash, "sha256:") || challenge == "" {
+func isStartCommand(update Update) bool {
+	if update.Message == nil {
 		return false
 	}
-	want := strings.TrimPrefix(storedHash, "sha256:")
-	actual := fmt.Sprintf("%x", sha256.Sum256([]byte(challenge)))
-	return len(want) == len(actual) && subtle.ConstantTimeCompare([]byte(want), []byte(actual)) == 1
+	fields := strings.Fields(strings.TrimSpace(update.Message.Text))
+	return len(fields) > 0 && strings.ToLower(strings.SplitN(fields[0], "@", 2)[0]) == "/start"
 }
 
 func updateChat(update Update) (int64, int64) {

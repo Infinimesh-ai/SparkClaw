@@ -22,13 +22,14 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - Go Gateway API：健康检查、ready 检查、direct chat、sessions、messages、events、tools、approvals、memories、traces、artifacts、eval reports、feedback、client pairing、token auth 和 rate limiting。
 - Agent Runtime：guard review、由 Gateway 控制的 fast/deep routing、有界 repair、schema repair、grounded final answer 和 trace snapshot。
 - 单机 `dual-light-v1` 模型 profile 已在 NVIDIA GB10 上验证：`fast` 与 `deep` chat lanes 加上 embedding/reranker 可以同时常驻，并使用显式 context、KV cache 和 sequence caps。
-- ToolHub：为文件、memory、knowledge/RAG、browser read、email、calendar、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
-- approval-first policy：file deletion、shell execution、patch application、email send、calendar create 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
-- file、browser、email、calendar observation 都被当作 untrusted data，并在进入回答前被摘要。
+- ToolHub：为文件、memory、browser access、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
+- approval-first policy：file deletion、shell execution、patch application 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
+- file、browser 和 external adapter observation 都被当作 untrusted data，并在进入回答前被摘要。
+- 邮件、日历和 Workspace Knowledge/RAG 在具备完整产品设计前明确暂缓；见[暂缓能力说明](docs/deferred-email-calendar-knowledge.md)。
 - 本地 file-backed state，PostgreSQL 18/pgvector 持久化 sessions、tool calls、approvals、evals、document chunks，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
-- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner、vLLM fast/deep/embedding/reranker endpoints，以及 58-case real-model golden eval。
+- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding/reranker endpoints。历史运行使用 58 个 case；移除仅有原型的能力后，当前活动矩阵为 43 个 case。
 
 已知运行边界：
 
@@ -47,7 +48,8 @@ sudo -n env SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
   docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d --build
 ```
 
-打开 [http://127.0.0.1:18790](http://127.0.0.1:18790)。
+本机打开 [http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的其他设备
+使用 `http://<主机局域网-IP>:18790`。
 
 运行健康检查和 golden eval：
 
@@ -106,7 +108,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-当前 golden eval 覆盖 58 个 case，验证 direct chat、config/tool/skill visibility、auth/rate-limit surfaces、grounded file/browser/email/calendar answers、approval lifecycle、memory review、sensitive-memory handling、knowledge indexing/search、prompt-injection chaos、repair paths、trace refresh、artifact catalog、model-call telemetry 和 eval history。
+当前 golden eval 覆盖 43 个 case，验证 direct chat、config/tool/skill visibility、auth/rate-limit surfaces、grounded file/browser answers、approval lifecycle、memory review、sensitive-memory handling、prompt-injection chaos、trace refresh、artifact catalog、model-call telemetry 和 eval history。
 
 ## 开源
 

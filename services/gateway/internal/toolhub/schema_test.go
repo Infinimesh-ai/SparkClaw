@@ -21,39 +21,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestValidateInputChecksRequiredTypesAndArrayItems(t *testing.T) {
-	hub := New(config.Default(), store.NewMemoryStore())
-
-	if err := hub.Validate("email.send", map[string]any{
-		"to":      []any{"owner@example.test"},
-		"subject": "SparkClaw checklist",
-		"body":    "Ready.",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := hub.Validate("email.send", map[string]any{
-		"to":      []any{},
-		"subject": "SparkClaw checklist",
-		"body":    "Ready.",
-	}); err == nil || !strings.Contains(err.Error(), "arguments.to must have at least 1 item") {
-		t.Fatalf("expected minItems validation error, got %v", err)
-	}
-	if err := hub.Validate("email.send", map[string]any{
-		"to":      []any{"owner@example.test", 42},
-		"subject": "SparkClaw checklist",
-		"body":    "Ready.",
-	}); err == nil || !strings.Contains(err.Error(), "arguments.to[1] must be string") {
-		t.Fatalf("expected item type validation error, got %v", err)
-	}
-	if err := hub.Validate("email.send", map[string]any{
-		"to":      []any{"owner@example.test"},
-		"subject": 99,
-		"body":    "Ready.",
-	}); err == nil || !strings.Contains(err.Error(), "arguments.subject must be string") {
-		t.Fatalf("expected subject type validation error, got %v", err)
-	}
-}
-
 func TestValidateInputSupportsJSONDecodedSchemaForms(t *testing.T) {
 	def := app.ToolDefinition{
 		Name: "test.schema",

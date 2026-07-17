@@ -30,7 +30,9 @@ cp docker/env/sparkclaw.example.env .env
 | `compat` | Gateway 连接外部 OpenAI-compatible endpoints。 |
 | `models-local` | PostgreSQL 18/pgvector、MinIO、sandbox-runner、Gateway、WebChat 和可选 vLLM lanes。 |
 
-所有 host ports 默认绑定 localhost。Containers 通过私有 `sparkclaw_internal` network 通信。
+WebChat 的 host port `18790` 默认绑定 `0.0.0.0`，允许局域网访问。Gateway、模型、
+状态服务和 sandbox runner 仍绑定 localhost。Containers 通过私有
+`sparkclaw_internal` network 通信。
 
 ## Minimal Local Runtime
 
@@ -49,7 +51,8 @@ curl -fsS http://127.0.0.1:18789/readyz
 bash scripts/doctor.sh
 ```
 
-打开 WebChat：[http://127.0.0.1:18790](http://127.0.0.1:18790)。
+本机打开 WebChat：[http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的
+其他设备使用 `http://<主机局域网-IP>:18790`。
 
 对 Dockerized Gateway 运行 golden eval：
 
@@ -70,6 +73,9 @@ npm install
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 npm --workspace @sparkclaw/webchat run dev
 ```
+
+Host WebChat dev server 同样监听 `0.0.0.0:18790`，并把 API 请求代理到仅监听
+loopback 的 Gateway。
 
 本地 token auth：
 
@@ -107,7 +113,7 @@ SPARKCLAW_STATE_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?ss
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
-Gateway 启动时会应用核心 schema。项目标准 data service image 是 PostgreSQL 18 with pgvector。如果 pgvector 可用，document chunks 会使用按 model/dimension 过滤的 vector search，并为默认 embedding lane 建 1024 维 HNSW cosine index。如果使用没有 pgvector 的普通 Postgres，embedding 也会以 JSON 形式存储，hybrid scoring 在 Gateway 内执行。
+Gateway 启动时会应用当前核心 schema。项目标准 data service image 仍保留 PostgreSQL 18 with pgvector，但 Workspace Knowledge/RAG 暂缓期间，Gateway 不再创建或查询 Document Chunk/Vector Schema。
 
 ## Artifact Storage
 
@@ -149,27 +155,6 @@ go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 
 如果 runner 访问 host Docker socket，且 host 与 container 看到的 workspace path 不同，需要设置 `SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT` 和 `SPARKCLAW_SANDBOX_CONTAINER_WORKSPACE_ROOT`。
 
-## Email And Calendar Adapters
-
-默认 adapters 是本地 file fixtures。连接 bridge services：
-
-```bash
-SPARKCLAW_EMAIL_ADAPTER_BACKEND=http \
-SPARKCLAW_EMAIL_ADAPTER_URL=http://127.0.0.1:18910 \
-SPARKCLAW_CALENDAR_ADAPTER_BACKEND=http \
-SPARKCLAW_CALENDAR_ADAPTER_URL=http://127.0.0.1:18911 \
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-```
-
-期望 HTTP endpoints：
-
-- `GET /email/search`
-- `GET /email/threads/{id}`
-- `POST /email/send`
-- `GET /calendar/events`
-- `POST /calendar/events`
-
-Drafting 和 event proposals 在 owner approve send/create action 前仍然保持本地。
 
 ## DGX Spark Data Services
 
@@ -285,7 +270,7 @@ BROWSER_FIXTURE_BIND=0.0.0.0 \
 bash scripts/run-eval.sh
 ```
 
-已验证 real-model run 完成 58 个 golden cases。benchmark rows 和运行说明见 [model_baseline.md](../benchmarks/model_baseline.md)。
+历史已验证 real-model run 完成 58 个 golden cases。当前活动矩阵为 43 个 case，模型栈发生变化后应重新运行。benchmark rows 和运行说明见 [model_baseline.md](../benchmarks/model_baseline.md)。
 
 ## Backup And Restore
 
@@ -326,9 +311,10 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 
 ## Secure Defaults
 
-- host ports 绑定到 `127.0.0.1`。
+- 只把 WebChat 暴露在 `0.0.0.0:18790`；Gateway 和其他服务端口仍绑定
+  `127.0.0.1`。
+- 在局域网或共享机器上开放 WebChat 前设置 `SPARKCLAW_API_TOKEN`。
 - Gateway 仅在本地开发时允许无认证。
-- 共享机器上设置 `SPARKCLAW_API_TOKEN`。
 - dangerous 和 reversible tools 保持 approval-gated。
 - shell execution 保持 sandboxed 且 network-disabled。
 - browser/email/file observations 视为 untrusted。

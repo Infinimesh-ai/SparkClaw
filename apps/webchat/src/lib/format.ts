@@ -19,12 +19,6 @@ export function profileLabel(profile: PublicConfig["model"]["fast"], text: Copy)
   return `${profile.name} · ${model} · ${profile.context_tokens.toLocaleString()} ${text.units.ctx}${maxTokens}${profile.mtp ? " · MTP" : ""}`;
 }
 
-export function adapterLabel(adapter: { backend: string; base_url: string; token: string }, text: Copy) {
-  const target = adapter.base_url || text.settings.localFiles;
-  const token = adapter.token ? text.common.tokenConfigured : text.common.noToken;
-  return `${adapter.backend} · ${target} · ${token}`;
-}
-
 export function rateLimitLabel(limit: { enabled: boolean; requests_per_minute: number; burst: number } | undefined, text: Copy) {
   if (!limit?.enabled) return text.common.disabled;
   return `${limit.requests_per_minute}/min · burst ${limit.burst}`;

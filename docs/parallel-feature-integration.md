@@ -163,7 +163,7 @@ Integration-only commits:
 | Compose config | Passed with `docker/env/sparkclaw.example.env` |
 | Docs mirror and local links | Passed for 31 project Markdown files; generated local tool paths excluded |
 | WebChat layout | Production build and responsive CSS/DOM review passed. Live desktop/mobile screenshots were not captured because the bundled in-app browser plugin failed during initialization while redefining its protected `process` global. |
-| Broad legacy golden eval | Not used as the final gate after scope was narrowed. Its detailed email, calendar, and knowledge cases describe features that are not concretely expanded in this integration. |
+| Broad legacy golden eval | Not used as the final gate after scope was narrowed. Prototype-only domains are excluded from the active matrix; see [Deferred Capabilities](deferred-email-calendar-knowledge.md). |
 
 The browser-plugin initialization issue and the deferred broad legacy eval are residual
 validation risks, not merge conflicts or known regressions in the three integrated
@@ -202,8 +202,8 @@ docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
 Mock validation for this integration is the focused `cmd/sparkclaw` and config matrix
-covering the three merged features. Detailed email, calendar, and knowledge golden
-cases are deferred until those product areas have concrete expansion plans.
+covering the three merged features. Prototype-only domains are excluded from the
+active matrix until their documented reintroduction gates are met.
 
 The final matrix additionally includes:
 

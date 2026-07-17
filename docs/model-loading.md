@@ -63,13 +63,13 @@ The preferred compromise is `deep` priority:
 - Keep `deep` at the largest context that fits reliably.
 - Reduce `fast` to 32K or 64K.
 - Keep both MTP and DFlash-style optimizations off.
-- Measure startup, idle residency, a warmed request, a long-context request and the 58-case golden eval before promoting the profile.
+- Measure startup, idle residency, a warmed request, a long-context request and the active 43-case golden eval before promoting the profile.
 
 This gives SparkClaw a responsive local `fast` lane while preserving the main value of `deep`: harder reasoning over larger evidence windows.
 
 First accepted finding: `dual-light-v1` fits as a single-machine full product residency profile after auxiliary KV caps are made explicit. Warmed `fast` runs around 48-50 tok/s and warmed `deep` runs around 7.3 tok/s. A chat-only control, with embedding and reranker stopped, left `deep` throughput essentially unchanged, so the slower `deep` lane is treated as the dense-model quality/stability trade-off rather than a residency failure. The auxiliary models need small explicit KV budgets when they are started after both chat lanes: embedding at 32K failed, embedding at 8K with 2G KV started and returned warm requests around 28.5 ms.
 
-The acceptance standard for this single-user profile is integrated task performance, not concurrency. On 2026-05-25, `dual-light-v1` passed the 58-case real-model golden eval with fast, deep, embedding and reranker resident through an external Gateway. That makes it the current accepted single-machine dual-model profile while further tuning focuses on quality regressions, startup ergonomics and first-request warmup.
+The acceptance standard for this single-user profile is integrated task performance, not concurrency. On 2026-05-25, `dual-light-v1` passed the historical 58-case real-model golden eval with fast, deep, embedding and reranker resident through an external Gateway. That makes it the current accepted single-machine dual-model profile while further tuning focuses on quality regressions, startup ergonomics and first-request warmup. The active 43-case matrix still requires a fresh real-model run when model-stack behavior changes.
 
 ### Dual-Light Test Loop
 

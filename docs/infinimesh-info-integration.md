@@ -271,20 +271,19 @@ inventing facts.
 
 ## Legacy Engine Migration
 
-Migration is intentionally gated:
+Migration completed after the production smoke test passed:
 
 1. Add and contract-test `internal/infinimeshinfo` and the `websearch` mapping.
 2. Select `infinimesh-info` explicitly; do not add automatic provider fallback.
 3. Run the credential-gated smoke test against
    `https://info.infinimesh.cn`, covering issue -> reserve -> query -> mapping.
-4. Only after that smoke succeeds, remove `parallel_free.go`, its tests, the
-   Parallel plugin config, Parallel environment variables, and Parallel safe
-   config fields.
+4. After that smoke succeeded, the legacy adapter and tests, plugin config,
+   environment variables, and safe config fields were removed.
 5. Make `infinimesh-info` the sole supported `web.search` provider and update
    defaults/tests. A configured legacy provider becomes an explicit startup or
    invocation error; it is never translated silently.
 
-This is a user-visible behavior change: enabling `web.search` now requires all
+This is a user-visible behavior change: enabling `web.search` requires all
 three Infinimesh Info credentials, and a cloud failure is surfaced instead of
 falling back to free search.
 

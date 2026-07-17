@@ -74,6 +74,7 @@ import {
 } from "./lib/format";
 import type { DocumentUsage } from "./lib/format";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
+import { notificationBindingErrorMessage } from "./lib/bindingError";
 import type {
   Approval,
   ArtifactObject,
@@ -173,7 +174,7 @@ export function App() {
     setRuntimeConfig(configStatus);
     setOwnerProfile(owner);
     setClients(clientList.clients ?? []);
-    setNotificationBindings((current) => preserveEphemeralBindingData(bindingList.bindings ?? [], current));
+    setNotificationBindings(bindingList.bindings ?? []);
     setApprovals(approvalList.approvals);
     setCandidates(candidateList.memory_candidates);
     setMemories(memoryList.memories);
@@ -665,18 +666,17 @@ export function App() {
       }
       setTab("settings");
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.binding);
-      throw err;
+      const message = notificationBindingErrorMessage(err, text);
+      setError(message);
+      throw new Error(message);
     }
   }
 
   async function refreshNotificationBinding(id: string) {
     const binding = await api.notificationBinding(id);
-    setNotificationBindings((current) => preserveEphemeralBindingData(
-      [binding, ...current.filter((item) => item.id !== binding.id)],
-      current
-    ));
-    if (!isBindingPending(binding.status)) {
+    setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
+    const awaitingTelegramMessage = binding.channel === "telegram" && binding.status === "active" && !binding.external_user_id && !binding.context_token;
+    if (!isBindingPending(binding.status) && !awaitingTelegramMessage) {
       await refreshGlobal();
     }
     return binding;
@@ -1209,15 +1209,4 @@ function voiceInputLabel(state: VoiceInputState, errorCode: string, errorDetail:
     default:
       return state === "error" ? errorDetail || text.chat.voiceFailed : text.chat.voiceUnavailable;
   }
-}
-
-function preserveEphemeralBindingData(incoming: NotificationBinding[], current: NotificationBinding[]) {
-  const previousByID = new Map(current.map((binding) => [binding.id, binding]));
-  return incoming.map((binding) => {
-    const previous = previousByID.get(binding.id);
-    if (binding.channel === "telegram" && isBindingPending(binding.status) && !binding.qr_code_url && previous?.qr_code_url) {
-      return { ...binding, qr_code_url: previous.qr_code_url };
-    }
-    return binding;
-  });
 }

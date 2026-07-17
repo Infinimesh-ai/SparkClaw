@@ -11,15 +11,14 @@ SparkClaw is a local-first personal agent runtime for DGX Spark-class machines. 
 - local files and workspace search
 - code inspection and approval-gated patching
 - browser-backed web access for public search, page reading and live page interaction
-- email search, thread reading, draft replies and approval-gated sends
-- calendar reading, proposals and approval-gated event creation
 - personal memory candidates and approval-gated sensitive memory
-- local knowledge/RAG over workspace documents
 - optional microphone and Telegram voice transcription through one bounded speech adapter
 - optional owner-authorized Telegram messaging with multiple encrypted Bot bindings
 - optional Infinimesh Info search with one-shot query tokens and cited untrusted evidence
 
 SparkClaw deliberately avoids broad autonomous operation, public SaaS exposure, silent external sends/creates/deletes, hidden tool execution and custom fine-tuned model release claims that are not backed by eval evidence.
+
+Email, calendar and workspace knowledge/RAG are outside the active product boundary until complete designs exist. Their removed prototype surfaces and reintroduction gates are recorded in [Deferred Email, Calendar, and Knowledge Capabilities](deferred-email-calendar-knowledge.md).
 
 ## Principles
 
@@ -45,7 +44,7 @@ WebChat
       -> Evaluator
 
 ToolHub adapters:
-  files, knowledge, memory, browser, Infinimesh Info, email, calendar, shell, code, notify
+  files, memory, browser, Infinimesh Info, shell, code, notify
 
 Optional input/connectors:
   speech transcription
@@ -77,7 +76,7 @@ Speech is an optional, disabled-by-default OpenAI-compatible transcription bound
 
 ### Telegram
 
-Telegram is an optional, disabled-by-default owner-authorized connector. Multiple Bot bindings may coexist, including bindings activated by different external Telegram users. Each Bot token is verified before use and sealed separately through the credential vault; file and PostgreSQL state store ciphertext envelopes rather than plaintext tokens. Each binding has its own activation challenge, cursor, inbox identity, and private-chat authorization. Long polling, inbox persistence, per-chat ordering, retries and outbound delivery are bounded. Authorized private chats can send text, supported attachments and voice notes; voice delegates to the shared speech transcriber and does not create a second ASR client.
+Telegram is an optional, disabled-by-default owner-authorized connector. Multiple Bot bindings may coexist, including bindings claimed by different external Telegram users. Each Bot token is verified before use and sealed separately through the credential vault; file and PostgreSQL state store ciphertext envelopes rather than plaintext tokens. A verified Bot becomes active with no recipient, then the first fresh private message atomically claims its user and chat; historical updates and group messages cannot claim it. Each binding has its own cursor, inbox identity, and private-chat authorization. Long polling, inbox persistence, per-chat ordering, retries and outbound delivery are bounded. Authorized private chats can send text, supported attachments and voice notes; voice delegates to the shared speech transcriber and does not create a second ASR client.
 
 ### Infinimesh Info
 
@@ -93,7 +92,7 @@ The runtime handles user messages through a bounded loop:
 4. Route fast/deep model calls as needed.
 5. Execute read/draft tools immediately when policy allows.
 6. Queue reversible/dangerous actions for approval.
-7. Attempt bounded repairs for narrow failures such as missing knowledge indexes or simple schema omissions.
+7. Attempt bounded repairs for narrow failures.
 8. Produce a grounded final answer from observations, approvals and model output.
 9. Persist trace snapshots, audit events and artifact references.
 
@@ -114,6 +113,31 @@ Default lanes:
 | `guard` | pre-tool safety classification |
 | `mock` | deterministic offline tests and golden evals |
 
+### Intent And Workflow Runtime
+
+Fast classification outputs only a stable semantic `IntentEnvelope` and cannot
+emit tools, Skills, workflow IDs, risk, or model lanes. Deterministic URL/path
+facts and authorization provenance are frozen during normalization. The
+`WorkflowProfileRegistry` routes the normalized envelope, validates a
+versioned `WorkflowPlan`, and persists its digest and node state.
+
+`ToolExposure.Search/Materialize` is the only model-visibility authority for
+migrated profiles. It derives the active capability scope from persisted state,
+registered ToolHub metadata, risk constraints, and Policy; TaskHint candidates,
+Skill lists, and outcomes cannot widen it. Outcome adapters produce typed
+facts, while the active profile assesses completion or activates only a
+predeclared transition. Frozen argument bindings constrain exact URLs and
+workspace paths before execution.
+
+Revision 1 profiles are authoritative for public Web research, explicit URL
+reads, workspace file search, and explicit-path file reads. Missing capability,
+stale state, invalid plan, or resource mismatch blocks and never falls back to
+TaskHint. Unmigrated domains continue on the transitional TaskHint path until
+their complete vertical slice lands. See the
+[refactor plan](intent-routing-workflow-refactor-plan.md),
+[exposure contract](intent-routing-tool-exposure-contract.md), and
+[profile catalog](intent-routing-workflow-domain-profiles.md).
+
 ### ToolHub
 
 ToolHub registers bounded tools and validates successful outputs against declared contracts. Current tools:
@@ -122,10 +146,7 @@ ToolHub registers bounded tools and validates successful outputs against declare
 |---|---|
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
-| Knowledge | `knowledge.index_workspace`, `knowledge.search` |
 | Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
-| Email | `email.search`, `email.read_thread`, `email.draft_reply`, `email.send` |
-| Calendar | `calendar.read`, `calendar.propose_event`, `calendar.create` |
 | Code/shell | `shell.exec_sandboxed`, `code.apply_patch` |
 | Approval/notify | `notify.ask_approval` |
 
@@ -140,7 +161,7 @@ Examples:
 - `file.delete` moves files to `.sparkclaw/trash` with a manifest instead of permanently deleting them.
 - `code.apply_patch` stores the original patch, file backups, a manifest and inverse rollback patch under `.sparkclaw/`.
 - `shell.exec_sandboxed` executes through the sandbox runner with Docker `--network none`.
-- `email.send`, `calendar.create` and `memory.write_sensitive` execute only after approval.
+- `memory.write_sensitive` executes only after approval.
 
 ### State And Artifacts
 
@@ -148,14 +169,14 @@ State backends:
 
 - `file`: default local state at `data/memory/gateway-state.json`.
 - `memory`: throwaway process-local state.
-- `postgres`: durable sessions, runs, tool calls, approvals, evals, artifacts, documents and document chunks.
+- `postgres`: durable sessions, runs, tool calls, approvals, evals and artifacts.
 
 Artifact backends:
 
 - filesystem object store under `data/artifacts/{bucket}/...`
 - S3-compatible object store such as MinIO
 
-Traces are written to `data/traces` and also reference artifact URIs. Tool observations are archived as `observations/{run_id}/{tool_call_id}.json`. Browser reads archive raw `browser_snapshot` objects. Knowledge indexing archives source document snapshots and generated indexes. Memory exports and eval failure archives also go through the artifact boundary.
+Traces are written to `data/traces` and also reference artifact URIs. Tool observations are archived as `observations/{run_id}/{tool_call_id}.json`. Browser reads archive raw `browser_snapshot` objects. Memory exports and eval failure archives also go through the artifact boundary.
 
 Trace JSON is redacted with configured logging and memory redact patterns before it is written.
 
@@ -168,6 +189,7 @@ The durable product vocabulary is:
 - `Session`
 - `Message`
 - `AgentRun`
+- `WorkflowState`
 - `ToolCall`
 - `Approval`
 - `Memory`
@@ -175,36 +197,30 @@ The durable product vocabulary is:
 - `AuditEvent`
 - `Event`
 - `Artifact`
-- `Document`
-- `DocumentChunk`
 - `EvalRun`
 
 The portable schema notes under `packages/` document stable names for future service splits and SDKs, while the Go Gateway is the authoritative implementation today.
 
-## Memory And RAG
+## Memory
 
 Long-term memory follows candidate-then-confirm. Sensitive patterns such as `api_key`, `password`, `token` or `ssh_key` are rejected on the normal candidate path unless sensitive memory is explicitly enabled; approved sensitive memory uses `memory.write_sensitive`.
 
-Workspace knowledge indexing builds a local keyword index and, when PostgreSQL is enabled, persists documents and chunks. pgvector is used when available, with embedding model/dimension metadata and a 1024-dimensional HNSW cosine index for the default embedding lane; otherwise SparkClaw keeps JSON vectors and performs hybrid scoring in Gateway. `knowledge.search` exposes original query, rewritten query, candidate counts, reranked results, citations and byte-bounded evidence context for grounded answers.
-
 ## External Connector Trust Boundary
 
-External/browser/email/file observations are untrusted content. They can be quoted, summarized or used as evidence, but instructions inside those observations are not runtime commands.
+External/browser/file observations are untrusted content. They can be quoted, summarized or used as evidence, but instructions inside those observations are not runtime commands.
 
 Browser web access uses `web.search` for discovery and `browser.read` for read-only source-page extraction. Browser automation launches configured Chromium with a SparkClaw-owned persistent profile: ordinary work is headless, while login/captcha/2FA/payment and similar human-only steps temporarily switch the same profile to visible Chromium. Visible and hidden processes never own the profile concurrently. Login state remains inside Chromium rather than being exported as JavaScript cookies, and continuation uses the selected post-login URL even when its origin differs from the original page. `browser.read` waits for rendered DOM state, captures rendered HTML, and passes that HTML through Readability before returning article text. Structure snapshots are an on-demand follow-up when body extraction is insufficient or page controls matter. The focused roadmap is maintained in [Browser Automation Improvement Plan](browser-automation-improvement.md), with profile lifecycle details in [Managed Shared Chromium Profile](managed-persistent-browser-profile.md). Browser observations refuse loopback/private literal hosts by default where URL fetching is involved, archive rendered HTML/raw responses or screenshots, and stay untrusted evidence. Local fixture hosts such as `127.0.0.1` or `host.docker.internal` must be explicitly allowlisted. The runtime must stop for human-only verification and must not invent logged-in evidence.
 
 Authenticated data belonging to the current owner is an allowed local-first read boundary, not an automatic refusal condition. Authenticated browsing is represented in the typed `TaskHint` contract as `evidence_need=personal_data`, `data_scope=owner`, `browser_mode=collaborative`, and `requires_tool_evidence=true`; routing does not enumerate account-data categories. The runtime may use the managed profile and visible login handoff, but it must not ask the owner to paste passwords, cookies, tokens, or verification codes into chat. Third-party data access, credential disclosure, external transmission, and mutating account actions remain subject to their normal policy and approval boundaries.
 
-Email and calendar use adapter boundaries. The default `file` adapters read fixtures under `.sparkclaw/mock/` and write mock outbox/event logs. `http` adapters can connect to account-bridge services while preserving Gateway policy and approvals.
-
-Infinimesh results and Telegram inbound content follow the same untrusted-observation rule. Each Telegram binding is restricted to the external user and private chat that completed its activation challenge; multiple bindings do not share authorization or credentials. Infinimesh requests never include private local context. Credentials, raw authorization material and transcript text are excluded from public status and error strings.
+Infinimesh results and Telegram inbound content follow the same untrusted-observation rule. Each Telegram binding is restricted to the external user and private chat that won its one-time first-message claim; multiple bindings do not share authorization or credentials. Infinimesh requests never include private local context. Credentials, raw authorization material and transcript text are excluded from public status and error strings.
 
 ## Ports
 
 | Service | Port | Default bind |
 |---|---:|---|
 | Gateway | 18789 | `127.0.0.1` |
-| WebChat | 18790 | `127.0.0.1` |
+| WebChat | 18790 | `0.0.0.0` |
 | Sandbox runner | 18889 | `127.0.0.1` |
 | Fast model | 8001 | `127.0.0.1` |
 | Deep model | 8002 | `127.0.0.1` |

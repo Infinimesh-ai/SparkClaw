@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,6 +45,10 @@ func TestClientGetUpdatesAndDoesNotExposeTokenInErrors(t *testing.T) {
 	if strings.Contains(err.Error(), token) {
 		t.Fatalf("error leaked token: %v", err)
 	}
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Temporary() {
+		t.Fatalf("transport error lost retry semantics: %#v", err)
+	}
 }
 
 func TestClientReturnsTelegramRetryAfter(t *testing.T) {
@@ -61,6 +66,33 @@ func TestClientReturnsTelegramRetryAfter(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), token) {
 		t.Fatalf("API error leaked token: %v", err)
+	}
+}
+
+func TestClientPreservesHTTPStatusForNonJSONErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("upstream unavailable"))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, "123:non-json-canary", server.Client()).GetMe(context.Background())
+	var responseErr *ResponseError
+	if !errors.As(err, &responseErr) || responseErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected non-JSON API error: %#v", err)
+	}
+}
+
+func TestClientTypesUnexpectedSuccessfulResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not-json"))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, "123:unexpected-response-canary", server.Client()).GetMe(context.Background())
+	var responseErr *ResponseError
+	if !errors.As(err, &responseErr) || responseErr.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected successful-response error: %#v", err)
 	}
 }
 

@@ -15,16 +15,19 @@ const (
 )
 
 type ToolDefinition struct {
-	Name             string         `json:"name"`
-	Description      string         `json:"description"`
-	InputSchema      map[string]any `json:"input_schema"`
-	OutputSchema     map[string]any `json:"output_schema,omitempty"`
-	Risk             RiskLevel      `json:"risk"`
-	RequiresApproval bool           `json:"requires_approval"`
-	Idempotent       bool           `json:"idempotent"`
-	TimeoutMS        int            `json:"timeout_ms"`
-	Sandbox          string         `json:"sandbox"`
-	Audit            string         `json:"audit"`
+	Name             string                 `json:"name"`
+	Description      string                 `json:"description"`
+	InputSchema      map[string]any         `json:"input_schema"`
+	OutputSchema     map[string]any         `json:"output_schema,omitempty"`
+	Risk             RiskLevel              `json:"risk"`
+	RequiresApproval bool                   `json:"requires_approval"`
+	Idempotent       bool                   `json:"idempotent"`
+	TimeoutMS        int                    `json:"timeout_ms"`
+	Sandbox          string                 `json:"sandbox"`
+	Audit            string                 `json:"audit"`
+	Capabilities     []CapabilityDescriptor `json:"capabilities,omitempty"`
+	OutcomeAdapter   ToolOutcomeAdapter     `json:"outcome_adapter,omitempty"`
+	Directory        ToolDirectoryMetadata  `json:"directory,omitempty"`
 }
 
 type ToolCall struct {
@@ -42,6 +45,10 @@ type ToolCall struct {
 	CompletedAt        *time.Time     `json:"completed_at,omitempty"`
 	ObservationRef     string         `json:"observation_ref,omitempty"`
 	ObservationSummary string         `json:"observation_summary,omitempty"`
+	WorkflowID         WorkflowID     `json:"workflow_id,omitempty"`
+	WorkflowNodeID     WorkflowNodeID `json:"workflow_node_id,omitempty"`
+	ScopeRevision      int            `json:"scope_revision,omitempty"`
+	Capability         string         `json:"capability,omitempty"`
 }
 
 type Approval struct {
@@ -404,14 +411,15 @@ type VerifierDecision struct {
 }
 
 type AgentRun struct {
-	ID          string     `json:"id"`
-	SessionID   string     `json:"session_id"`
-	State       string     `json:"state"`
-	ModelLane   string     `json:"model_lane"`
-	Risk        RiskLevel  `json:"risk"`
-	StartedAt   time.Time  `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	Summary     string     `json:"summary,omitempty"`
+	ID          string         `json:"id"`
+	SessionID   string         `json:"session_id"`
+	State       string         `json:"state"`
+	ModelLane   string         `json:"model_lane"`
+	Risk        RiskLevel      `json:"risk"`
+	StartedAt   time.Time      `json:"started_at"`
+	CompletedAt *time.Time     `json:"completed_at,omitempty"`
+	Summary     string         `json:"summary,omitempty"`
+	Workflow    *WorkflowState `json:"workflow,omitempty"`
 }
 
 type ModelCall struct {
@@ -496,65 +504,6 @@ type ArtifactObject struct {
 	ContentType string    `json:"content_type"`
 	Bytes       int       `json:"bytes"`
 	CreatedAt   time.Time `json:"created_at"`
-}
-
-type Document struct {
-	ID          string    `json:"id"`
-	Source      string    `json:"source"`
-	Root        string    `json:"root"`
-	Path        string    `json:"path"`
-	RelPath     string    `json:"rel_path"`
-	ObjectKey   string    `json:"object_key,omitempty"`
-	ContentHash string    `json:"content_hash"`
-	Bytes       int       `json:"bytes"`
-	IndexedAt   time.Time `json:"indexed_at"`
-}
-
-type DocumentChunk struct {
-	ID             string    `json:"id"`
-	DocumentID     string    `json:"document_id"`
-	Source         string    `json:"source"`
-	Root           string    `json:"root"`
-	Path           string    `json:"path"`
-	RelPath        string    `json:"rel_path"`
-	StartLine      int       `json:"start_line"`
-	EndLine        int       `json:"end_line"`
-	Text           string    `json:"text"`
-	Terms          []string  `json:"terms"`
-	ContentHash    string    `json:"content_hash"`
-	Embedding      []float32 `json:"embedding,omitempty"`
-	EmbeddingModel string    `json:"embedding_model,omitempty"`
-	EmbeddingDim   int       `json:"embedding_dim,omitempty"`
-	IndexedAt      time.Time `json:"indexed_at"`
-}
-
-type DocumentChunkHit struct {
-	Path           string   `json:"path"`
-	RelPath        string   `json:"rel_path"`
-	StartLine      int      `json:"start_line"`
-	EndLine        int      `json:"end_line"`
-	Citation       string   `json:"citation"`
-	Score          float64  `json:"score"`
-	KeywordScore   int      `json:"keyword_score"`
-	VectorScore    float64  `json:"vector_score,omitempty"`
-	RerankScore    float64  `json:"rerank_score,omitempty"`
-	RerankerModel  string   `json:"reranker_model,omitempty"`
-	Snippet        string   `json:"snippet"`
-	Terms          []string `json:"terms"`
-	EmbeddingModel string   `json:"embedding_model,omitempty"`
-	EmbeddingDim   int      `json:"embedding_dim,omitempty"`
-	Backend        string   `json:"backend"`
-}
-
-type DocumentIndexSummary struct {
-	Backend        string    `json:"backend"`
-	Root           string    `json:"root"`
-	Documents      int       `json:"documents"`
-	Chunks         int       `json:"chunks"`
-	VectorEnabled  bool      `json:"vector_enabled"`
-	EmbeddingModel string    `json:"embedding_model,omitempty"`
-	EmbeddingDim   int       `json:"embedding_dim,omitempty"`
-	IndexedAt      time.Time `json:"indexed_at"`
 }
 
 type TraceMetadata struct {

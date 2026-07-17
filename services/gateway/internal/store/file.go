@@ -63,8 +63,6 @@ type Snapshot struct {
 	EvalRuns             map[string]app.EvalRun             `json:"eval_runs"`
 	ArtifactObjects      map[string]app.ArtifactObject      `json:"artifact_objects"`
 	EpisodeSummaries     map[string]app.EpisodeSummary      `json:"episode_summaries"`
-	Documents            map[string]app.Document            `json:"documents,omitempty"`
-	DocumentChunks       map[string]app.DocumentChunk       `json:"document_chunks,omitempty"`
 }
 
 func NewFileStore(path string) (*FileStore, error) {

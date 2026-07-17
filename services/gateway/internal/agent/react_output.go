@@ -1,18 +1,24 @@
 package agent
 
+import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+
 type TaskHint struct {
-	TaskType             string   `json:"task_type"`
-	EvidenceNeed         string   `json:"evidence_need"`
-	DataScope            string   `json:"data_scope,omitempty"`
-	ToolMode             string   `json:"tool_mode"`
-	BrowserMode          string   `json:"browser_mode,omitempty"`
-	RequiresToolEvidence bool     `json:"requires_tool_evidence,omitempty"`
-	EstimatedRisk        string   `json:"estimated_risk"`
-	ModelLaneHint        string   `json:"model_lane_hint"`
-	CandidateSkills      []string `json:"candidate_skills"`
-	CandidateTools       []string `json:"candidate_tools"`
-	NeedsClarification   bool     `json:"needs_clarification"`
-	Reason               string   `json:"reason"`
+	TaskType             string             `json:"task_type"`
+	EvidenceNeed         string             `json:"evidence_need"`
+	DataScope            string             `json:"data_scope,omitempty"`
+	ToolMode             string             `json:"tool_mode"`
+	BrowserMode          string             `json:"browser_mode,omitempty"`
+	RequiresToolEvidence bool               `json:"requires_tool_evidence,omitempty"`
+	EstimatedRisk        string             `json:"estimated_risk"`
+	ModelLaneHint        string             `json:"model_lane_hint"`
+	CandidateSkills      []string           `json:"candidate_skills"`
+	CandidateTools       []string           `json:"candidate_tools"`
+	NeedsClarification   bool               `json:"needs_clarification"`
+	Reason               string             `json:"reason"`
+	WorkflowID           app.WorkflowID     `json:"-"`
+	WorkflowNodeID       app.WorkflowNodeID `json:"-"`
+	ScopeRevision        int                `json:"-"`
+	Capability           string             `json:"-"`
 }
 
 type reactAction struct {

@@ -3,9 +3,7 @@ package websearch
 import (
 	"context"
 	"errors"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
@@ -40,6 +38,16 @@ type Item struct {
 	PublishedAt string `json:"published_at"`
 }
 
+func clampInt(value, minValue, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
 func NewAdapter(cfg config.Config) Adapter {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Tools.Web.Search.Provider))
 	switch provider {
@@ -49,19 +57,9 @@ func NewAdapter(cfg config.Config) Adapter {
 			return disabledAdapter{reason: err.Error()}
 		}
 		return adapter
-	case "parallel-free":
-		return NewParallelFreeAdapter(cfg.Plugins.Entries.Parallel.Config.WebSearch, &http.Client{Timeout: webSearchHTTPTimeout(cfg)})
 	default:
 		return disabledAdapter{reason: "unsupported web search provider: " + provider}
 	}
-}
-
-func webSearchHTTPTimeout(cfg config.Config) time.Duration {
-	seconds := cfg.Model.HTTPTimeoutSeconds
-	if seconds <= 0 || seconds > 120 {
-		seconds = 30
-	}
-	return time.Duration(seconds) * time.Second
 }
 
 type disabledAdapter struct {

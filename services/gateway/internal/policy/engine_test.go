@@ -17,3 +17,20 @@ func TestPolicyApprovalRequiredTools(t *testing.T) {
 		t.Fatalf("expected approval-required draft tool, got %#v", decision)
 	}
 }
+
+func TestMayExposeIsStaticAndExecutionRemainsArgumentAware(t *testing.T) {
+	cfg := config.Default()
+	cfg.Security.ApprovalRequiredTools = []string{"file.delete"}
+	engine := New(cfg)
+	def := app.ToolDefinition{Name: "file.delete", Risk: app.RiskReversible}
+
+	exposure := engine.MayExpose(def, ExposureContext{ActorRef: "owner", Workflow: "workspace.delete", NodeID: "delete"})
+	if !exposure.Allowed || exposure.RequiresApproval || len(exposure.Resources) != 0 {
+		t.Fatalf("static exposure must not make an execution decision: %#v", exposure)
+	}
+
+	execution := engine.Decide(def, map[string]any{"path": "notes.txt"})
+	if !execution.Allowed || !execution.RequiresApproval || len(execution.Resources) != 1 {
+		t.Fatalf("execution decision did not use exact arguments: %#v", execution)
+	}
+}

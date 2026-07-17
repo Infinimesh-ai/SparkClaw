@@ -14,7 +14,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
@@ -192,22 +191,14 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	backend := &recordingSpeechTranscriber{status: speech.Status{
 		Enabled: true, Ready: true, State: speech.StateReady, Backend: "openai-http", Model: "sparkclaw-asr",
 	}}
-	connectors, err := newConnectorAssembly(cfg, st, runtime, backend)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, backend)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := gateway.NewWithTrace(
-		cfg,
-		st,
-		tools,
-		runtime,
-		traces,
-		gateway.WithSpeechTranscriber(backend),
-		gateway.WithCredentialVault(connectors.credentials),
-		gateway.WithBindingRouter(connectors.registry.BindingRouter()),
-		gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
-	)
-	ts := httptest.NewServer(server.Handler())
+	if services.server == nil || services.connectors == nil || services.connectors.registry == nil || services.reminderScheduler == nil {
+		t.Fatalf("optional service assembly is incomplete: %#v", services)
+	}
+	ts := httptest.NewServer(services.server.Handler())
 	defer ts.Close()
 
 	readyRaw := readTestEndpoint(t, ts.URL+"/readyz")

@@ -84,22 +84,7 @@ type PluginsConfig struct {
 }
 
 type PluginEntriesConfig struct {
-	Parallel       ParallelPluginConfig       `json:"parallel"`
 	InfinimeshInfo InfinimeshInfoPluginConfig `json:"infinimeshInfo"`
-}
-
-type ParallelPluginConfig struct {
-	Config ParallelProviderConfig `json:"config"`
-}
-
-type ParallelProviderConfig struct {
-	WebSearch ParallelWebSearchConfig `json:"webSearch"`
-}
-
-type ParallelWebSearchConfig struct {
-	APIKey     string `json:"apiKey,omitempty"`
-	BaseURL    string `json:"baseUrl,omitempty"`
-	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 type InfinimeshInfoPluginConfig struct {
@@ -204,15 +189,7 @@ type SandboxConfig struct {
 }
 
 type AdapterConfig struct {
-	Email             ServiceAdapterConfig           `json:"email"`
-	Calendar          ServiceAdapterConfig           `json:"calendar"`
 	BrowserAutomation BrowserAutomationAdapterConfig `json:"browserAutomation"`
-}
-
-type ServiceAdapterConfig struct {
-	Backend string `json:"backend"`
-	BaseURL string `json:"base_url"`
-	Token   string `json:"token,omitempty"`
 }
 
 type BrowserAutomationAdapterConfig struct {
@@ -221,15 +198,6 @@ type BrowserAutomationAdapterConfig struct {
 	TimeoutMS          int      `json:"timeoutMs"`
 	ChromiumExecutable string   `json:"chromiumExecutable"`
 	ProfileDir         string   `json:"profileDir"`
-}
-
-func (c ServiceAdapterConfig) IsHTTP() bool {
-	switch strings.ToLower(strings.TrimSpace(c.Backend)) {
-	case "http", "remote", "service":
-		return true
-	default:
-		return false
-	}
 }
 
 type WorkspaceConfig struct {
@@ -564,15 +532,6 @@ func Default() Config {
 		},
 		Plugins: PluginsConfig{
 			Entries: PluginEntriesConfig{
-				Parallel: ParallelPluginConfig{
-					Config: ParallelProviderConfig{
-						WebSearch: ParallelWebSearchConfig{
-							APIKey:     "",
-							BaseURL:    "https://search.parallel.ai/mcp",
-							MaxResults: 5,
-						},
-					},
-				},
 				InfinimeshInfo: InfinimeshInfoPluginConfig{
 					Config: InfinimeshInfoConfig{
 						BaseURL:               "https://info.infinimesh.cn",
@@ -634,7 +593,6 @@ func Default() Config {
 			DangerousToolsRequireDeepVerification: true,
 			DeniedTools: []string{
 				"host_shell.exec",
-				"email.send.auto",
 				"file.delete.permanent",
 				"browser.submit_form.auto",
 			},
@@ -652,12 +610,6 @@ func Default() Config {
 			HostAccess:      "forbidden",
 		},
 		Adapters: AdapterConfig{
-			Email: ServiceAdapterConfig{
-				Backend: "file",
-			},
-			Calendar: ServiceAdapterConfig{
-				Backend: "file",
-			},
 			BrowserAutomation: BrowserAutomationAdapterConfig{
 				MCPCommand: "npx",
 				MCPArgs:    []string{"-y", "chrome-devtools-mcp@latest"},
@@ -1040,20 +992,6 @@ func applyEnv(cfg *Config) {
 			cfg.Tools.Notifications.Channels["telegram"] = ch
 		}
 	}
-	if v := os.Getenv("SPARKCLAW_PARALLEL_API_KEY"); v != "" {
-		cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = v
-	}
-	if v := os.Getenv("PARALLEL_API_KEY"); v != "" && cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey == "" {
-		cfg.Plugins.Entries.Parallel.Config.WebSearch.APIKey = v
-	}
-	if v := os.Getenv("SPARKCLAW_PARALLEL_BASE_URL"); v != "" {
-		cfg.Plugins.Entries.Parallel.Config.WebSearch.BaseURL = v
-	}
-	if v := os.Getenv("SPARKCLAW_PARALLEL_MAX_RESULTS"); v != "" {
-		if maxResults, err := strconv.Atoi(v); err == nil {
-			cfg.Plugins.Entries.Parallel.Config.WebSearch.MaxResults = maxResults
-		}
-	}
 	info := &cfg.Plugins.Entries.InfinimeshInfo.Config
 	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_BASE_URL"); v != "" {
 		info.BaseURL = v
@@ -1107,24 +1045,6 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_TOOLS_POLICY_PATH"); v != "" {
 		cfg.Security.ToolPolicyPath = v
-	}
-	if v := os.Getenv("SPARKCLAW_EMAIL_ADAPTER_BACKEND"); v != "" {
-		cfg.Adapters.Email.Backend = v
-	}
-	if v := os.Getenv("SPARKCLAW_EMAIL_ADAPTER_URL"); v != "" {
-		cfg.Adapters.Email.BaseURL = v
-	}
-	if v := os.Getenv("SPARKCLAW_EMAIL_ADAPTER_TOKEN"); v != "" {
-		cfg.Adapters.Email.Token = v
-	}
-	if v := os.Getenv("SPARKCLAW_CALENDAR_ADAPTER_BACKEND"); v != "" {
-		cfg.Adapters.Calendar.Backend = v
-	}
-	if v := os.Getenv("SPARKCLAW_CALENDAR_ADAPTER_URL"); v != "" {
-		cfg.Adapters.Calendar.BaseURL = v
-	}
-	if v := os.Getenv("SPARKCLAW_CALENDAR_ADAPTER_TOKEN"); v != "" {
-		cfg.Adapters.Calendar.Token = v
 	}
 	if v := os.Getenv("SPARKCLAW_SANDBOX_BACKEND"); v != "" {
 		cfg.Sandbox.Backend = v

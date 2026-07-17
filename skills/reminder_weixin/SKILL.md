@@ -33,8 +33,6 @@ denied_tools:
   - weixin.send_message
   - weixin.get_updates
   - weixin.read_conversation
-  - email.send
-  - calendar.create
   - shell.exec_sandboxed
 activation:
   keywords: ["reminder", "remind", "alarm", "notify", "定时", "提醒", "闹钟", "通知", "到时候", "明天提醒", "微信提醒", "vx提醒", "给微信发送", "发到微信", "微信发送", "发到vx"]
@@ -46,7 +44,7 @@ If the user says a future time plus "send to Weixin/vx", such as "一分钟后�
 
 Boundary:
 1. SparkClaw Gateway owns reminder understanding, reminder storage, scheduling, policy, approval, trace, and retry state.
-2. The notification channel layer is extensible. The first provider is a Weixin delivery outlet, but future providers may include vx, local notifications, app push, email notifications, or SparkClaw custom protocols.
+2. The notification channel layer is extensible. The first provider is a Weixin delivery outlet, but future providers may include vx, local notifications, app push, or SparkClaw custom protocols.
 3. The Web channel is the default delivery outlet for ordinary WebChat reminders.
 4. The Weixin channel is only a notification delivery outlet for reminders. It is not the main chat interface and must not be treated as a general Weixin conversation reader or sender.
 5. Reminder tools must depend on a stable notification channel contract, not on one concrete provider implementation.

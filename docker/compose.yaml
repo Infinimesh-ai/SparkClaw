@@ -35,10 +35,6 @@ services:
       SPARKCLAW_S3_REGION: ${SPARKCLAW_S3_REGION:-us-east-1}
       SPARKCLAW_S3_ACCESS_KEY: ${SPARKCLAW_S3_ACCESS_KEY:-sparkclaw}
       SPARKCLAW_S3_SECRET_KEY: ${SPARKCLAW_S3_SECRET_KEY:-sparkclaw-local}
-      SPARKCLAW_EMAIL_ADAPTER_BACKEND: ${SPARKCLAW_EMAIL_ADAPTER_BACKEND:-file}
-      SPARKCLAW_EMAIL_ADAPTER_URL: ${SPARKCLAW_EMAIL_ADAPTER_URL:-}
-      SPARKCLAW_CALENDAR_ADAPTER_BACKEND: ${SPARKCLAW_CALENDAR_ADAPTER_BACKEND:-file}
-      SPARKCLAW_CALENDAR_ADAPTER_URL: ${SPARKCLAW_CALENDAR_ADAPTER_URL:-}
       SPARKCLAW_STATE_BACKEND: ${SPARKCLAW_STATE_BACKEND:-file}
       SPARKCLAW_STATE_DSN: ${SPARKCLAW_STATE_DSN:-postgres://sparkclaw:sparkclaw@postgres:5432/sparkclaw?sslmode=disable}
       SPARKCLAW_CREDENTIAL_KEY: ${SPARKCLAW_CREDENTIAL_KEY:-}
@@ -145,7 +141,7 @@ services:
       context: ..
       dockerfile: docker/images/webchat.Dockerfile
     ports:
-      - "127.0.0.1:18790:18790"
+      - "${SPARKCLAW_WEBCHAT_BIND:-0.0.0.0}:18790:18790"
     depends_on:
       gateway:
         condition: service_healthy

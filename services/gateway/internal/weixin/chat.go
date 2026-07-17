@@ -508,10 +508,6 @@ func approvalActionText(approval app.Approval) string {
 		return "应用代码补丁"
 	case "file.delete":
 		return "删除文件到回收区"
-	case "email.send":
-		return "发送邮件"
-	case "calendar.create":
-		return "创建日历事件"
 	case "memory.write_sensitive":
 		return "写入敏感记忆"
 	default:

@@ -117,6 +117,95 @@ export type MessageAttachment = {
   understanding_summary?: string;
 };
 
+export type MessagePartKind = "text" | "image" | "audio" | "file";
+export type MessagePartDisposition = "inline" | "attachment" | "voice_note";
+
+export type DeliveryCapabilities = {
+  kinds: MessagePartKind[];
+  dispositions: MessagePartDisposition[];
+  file_fallback_kinds?: MessagePartKind[];
+  native_voice_types?: string[];
+  max_parts: number;
+  max_total_bytes: number;
+  max_bytes_by_kind?: Partial<Record<MessagePartKind, number>>;
+  supports_caption: boolean;
+  supports_native_voice: boolean;
+  supports_file_fallback: boolean;
+};
+
+export type DeliveryEndpoint = {
+  id: string;
+  channel: string;
+  software_display_name: string;
+  account_display_name: string;
+  conversation_label?: string;
+  recipient: { id: string; display_name: string };
+  capabilities: DeliveryCapabilities;
+};
+
+export type DeliveryPart = {
+  id: string;
+  kind: MessagePartKind;
+  disposition: MessagePartDisposition;
+  text?: string;
+  artifact_id?: string;
+  name?: string;
+  content_type?: string;
+  bytes?: number;
+  caption?: string;
+};
+
+export type PartDeliveryReceipt = {
+  part_id: string;
+  status: "sent" | "failed" | "not_attempted";
+  representation: "native" | "file_fallback";
+  provider_ref?: string;
+  error_code?: string;
+};
+
+export type DeliveryReceipt = {
+  delivery_id: string;
+  endpoint_id: string;
+  status: DeliveryStatus;
+  provider_ref?: string;
+  error?: string;
+  error_code?: string;
+  retry_state?: string;
+  attempt: number;
+  part_receipts?: PartDeliveryReceipt[];
+  attempted_at: string;
+  delivered_at?: string;
+};
+
+export type DeliveryStatus = "draft" | "target_resolved" | "awaiting_send_approval" | "approved" | "sending" | "pending" | "sent" | "partially_sent" | "failed" | "outcome_unknown";
+
+export type MessageDelivery = {
+  id: string;
+  direction: "send";
+  origin: "web_direct" | "agent_workflow" | "source_reply" | "schedule";
+  status: DeliveryStatus;
+  target: string;
+  software_display_name: string;
+  recipient_display_name: string;
+  account_display_name: string;
+  content: { parts: DeliveryPart[] };
+  receipt?: DeliveryReceipt;
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MessageHistoryItem = {
+  id: string;
+  direction: "receive" | "send";
+  status: string;
+  software_display_name: string;
+  recipient_display_name: string;
+  account_display_name: string;
+  content?: string;
+  created_at: string;
+};
+
 export type ModelStreamEvent = {
   type: string;
   session_id?: string;

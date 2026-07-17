@@ -6,12 +6,16 @@ import type {
   ApprovalResolution,
   Client,
   DocumentUploadResult,
+  DeliveryEndpoint,
+  DeliveryPart,
   EpisodeSummary,
   EvalRun,
   Memory,
   MemoryCandidate,
   MemoryExportArchive,
   Message,
+  MessageDelivery,
+  MessageHistoryItem,
   MessageAttachment,
   ModelStreamEvent,
   ModelCall,
@@ -36,12 +40,14 @@ export class APIError extends Error {
   readonly status: number;
   readonly code: string;
   readonly retryable: boolean;
+  readonly details: unknown;
 
-  constructor(status: number, message: string, code = "", retryable = false) {
+  constructor(status: number, message: string, code = "", retryable = false, details?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
     this.retryable = retryable;
+    this.details = details;
   }
 }
 
@@ -75,7 +81,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       response.status,
       typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
       typeof body.code === "string" ? body.code : "",
-      body.retryable === true
+      body.retryable === true,
+      body
     );
   }
   return response.json() as Promise<T>;
@@ -199,13 +206,22 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
-  startNotificationBinding: (channel = "weixin", botToken = "") =>
+  startNotificationBinding: (channel = "weixin", botToken = "", scopes = ["reminder_send_self"]) =>
     request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
       method: "POST",
-      body: JSON.stringify({ default_for_channel: false, scopes: ["reminder_send_self"], bot_token: botToken })
+      body: JSON.stringify({ default_for_channel: false, scopes, bot_token: botToken })
     }),
   notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
+  deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),
+  deliveries: () => request<{ deliveries: MessageDelivery[] }>("/api/deliveries"),
+  createDelivery: (target: string, idempotencyKey: string, parts: DeliveryPart[]) =>
+    request<MessageDelivery>("/api/deliveries", {
+      method: "POST",
+      body: JSON.stringify({ target, idempotency_key: idempotencyKey, confirmed: true, content: { parts } })
+    }),
+  retryDelivery: (id: string) => request<MessageDelivery>(`/api/deliveries/${id}/retry`, { method: "POST", body: JSON.stringify({ confirmed: true }) }),
+  messageHistory: () => request<{ messages: MessageHistoryItem[] }>("/api/message-history"),
   updateToolPolicy: (deny: string[], approvalRequired: string[]) =>
     request<PublicConfig["tool_policy"]>("/api/tool-policy", {
       method: "POST",

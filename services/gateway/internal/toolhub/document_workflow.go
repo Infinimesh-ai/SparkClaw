@@ -173,10 +173,16 @@ func applyPDFTransform(ctx context.Context, operation string, request document.A
 		return document.ApplyResult{}, err
 	}
 	changed := len(request.Matches)
+	outputPaths := []string{request.Edit.OutputPath}
 	if operation == "split" {
 		changed = len(request.Document.Pages)
+		outputPaths = outputStringArray(out["outputs"])
 	}
-	return document.ApplyResult{OutputPath: request.Edit.OutputPath, Changed: changed, Details: out}, nil
+	primaryOutput := request.Edit.OutputPath
+	if len(outputPaths) > 0 {
+		primaryOutput = outputPaths[0]
+	}
+	return document.ApplyResult{OutputPath: primaryOutput, OutputPaths: outputPaths, Changed: changed, Details: out}, nil
 }
 
 func (h *ToolHub) readDocumentWorkflow(ctx context.Context, path string, maxBytes int) (document.ReadResult, error) {
@@ -209,6 +215,9 @@ func documentChangeOutput(result document.EditResult, status string) map[string]
 		"output_path": result.OutputPath, "bytes": fileSize(result.OutputPath), "changes": result.Changed,
 		"change_summary": changeSummary, "untrusted": true,
 	}
+	if len(result.OutputPaths) > 0 {
+		out["outputs"] = append([]string(nil), result.OutputPaths...)
+	}
 	for key, value := range result.Details {
 		if _, exists := out[key]; !exists {
 			out[key] = value
@@ -220,7 +229,7 @@ func documentChangeOutput(result document.EditResult, status string) map[string]
 			out[key] = intArg(result.Details, key, 0)
 		}
 	}
-	if _, exists := result.Details["outputs"]; exists {
+	if _, exists := result.Details["outputs"]; exists && len(result.OutputPaths) == 0 {
 		out["outputs"] = outputStringArray(result.Details["outputs"])
 	}
 	if _, exists := result.Details["inputs"]; exists {

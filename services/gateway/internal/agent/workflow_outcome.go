@@ -159,9 +159,16 @@ func adaptDocumentEditOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 		return outcome
 	}
 	output, _ := anyMap(call.Result)
+	for _, raw := range anySlice(output["outputs"]) {
+		if outputPath := strings.TrimSpace(stringValue(raw)); outputPath != "" && outputPath != "<nil>" {
+			outcome.Refs = appendUniqueResourceRefs(outcome.Refs, app.ResourceRef{Kind: "path", Ref: outputPath, Provenance: call.ID})
+		}
+	}
 	if outputPath := strings.TrimSpace(stringValue(output["output_path"])); outputPath != "" && outputPath != "<nil>" {
+		outcome.Refs = appendUniqueResourceRefs(outcome.Refs, app.ResourceRef{Kind: "path", Ref: outputPath, Provenance: call.ID})
+	}
+	if len(outcome.Refs) > 0 {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalEditCompleted}
-		outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: outputPath, Provenance: call.ID}}
 	}
 	return outcome
 }

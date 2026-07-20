@@ -1353,6 +1353,18 @@ func TestToolResultAdapterFailsProjectionWhenFrozenQueryDiffers(t *testing.T) {
 	}
 }
 
+func TestDocumentEditOutcomeProjectsEveryTypedOutputResource(t *testing.T) {
+	call := app.ToolCall{ID: "tc_split", Tool: "pdf.transform", Status: "completed", Result: map[string]any{
+		"output_path": "outputs/split-page-1.pdf",
+		"outputs":     []string{"outputs/split-page-1.pdf", "outputs/split-page-2.pdf"},
+	}}
+	outcome := adaptDocumentEditOutcome(call, "node_edit")
+	if len(outcome.Signals) != 1 || outcome.Signals[0] != app.OutcomeSignalEditCompleted || len(outcome.Refs) != 2 ||
+		outcome.Refs[0].Ref != "outputs/split-page-1.pdf" || outcome.Refs[1].Ref != "outputs/split-page-2.pdf" {
+		t.Fatalf("document edit did not project all typed outputs: %#v", outcome)
+	}
+}
+
 func TestToolResultAdapterDoesNotFallbackForNonInfoWebSearchOutput(t *testing.T) {
 	call := app.ToolCall{ID: "tc_web_provider", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "frozen route query"}}
 	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: map[string]any{

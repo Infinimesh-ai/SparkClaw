@@ -61,6 +61,36 @@ func TestLocateDistinguishesMissingAmbiguousAndExplicitMultiple(t *testing.T) {
 	}
 }
 
+func TestLocateRowAndSlideReturnOneStableEntity(t *testing.T) {
+	row := map[string]any{"index": 2, "cells": []any{
+		map[string]any{"address": "A2", "value": "alpha"},
+		map[string]any{"address": "B2", "value": "beta"},
+	}}
+	sheet := map[string]any{"name": "Data", "index": 1, "rows": []any{row}}
+	xlsx, err := Normalize(Metadata{Path: "/workspace/book.xlsx", Relative: "book.xlsx", Format: "xlsx"}, "small_file_v1", "alpha beta", map[string]any{"sheets": []any{sheet}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowMatches, err := Locate(xlsx, LocatorRequest{Kind: LocatorRow, Sheet: "Data", Row: 2, AllowMultiple: true})
+	rows := mapSlice(xlsx.Sheets[0]["rows"])
+	if err != nil || len(rowMatches) != 1 || rowMatches[0].Kind != LocatorRow || rowMatches[0].BlockID != stringValue(rows[0]["id"]) {
+		t.Fatalf("row locator did not return its stable row entity: matches=%#v err=%v", rowMatches, err)
+	}
+
+	slide := map[string]any{"index": 1, "items": []any{
+		map[string]any{"shape_index": 1, "type": "text", "text": "title"},
+		map[string]any{"shape_index": 2, "type": "text", "text": "body"},
+	}}
+	pptx, err := Normalize(Metadata{Path: "/workspace/deck.pptx", Relative: "deck.pptx", Format: "pptx"}, "small_file_v1", "title body", map[string]any{"slides": []any{slide}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideMatches, err := Locate(pptx, LocatorRequest{Kind: LocatorSlide, SlideIndex: 1, AllowMultiple: true})
+	if err != nil || len(slideMatches) != 1 || slideMatches[0].Kind != LocatorSlide || slideMatches[0].BlockID != stringValue(pptx.Slides[0]["id"]) {
+		t.Fatalf("slide locator did not return its stable slide entity: matches=%#v err=%v", slideMatches, err)
+	}
+}
+
 func TestPipelineDefersOversizedResourcesWithoutCallingParser(t *testing.T) {
 	called := false
 	strategy := NewSmallFileStrategy(map[string]Parser{
@@ -116,7 +146,12 @@ func TestPipelineRejectsAdapterTruncationAndPreservesOriginalOnEdit(t *testing.T
 			return ApplyResult{OutputPath: request.Edit.OutputPath, Changed: 1}, nil
 		}),
 	})
-	pipeline := NewPipeline(InspectorFunc(func(context.Context, string, string) (Metadata, error) { return metadata, nil }), strategy)
+	pipeline := NewPipeline(InspectorFunc(func(_ context.Context, _ string, path string) (Metadata, error) {
+		if path == outputPath {
+			return Metadata{Path: outputPath, Relative: "note-edited.docx", Format: "docx", Size: 7}, nil
+		}
+		return metadata, nil
+	}), strategy)
 	result, err := pipeline.Edit(context.Background(), EditRequest{
 		Root: root, Path: inputPath, OutputPath: outputPath, Operation: "replace_text",
 		Target: LocatorRequest{Kind: LocatorExactText, Text: "target"},
@@ -128,4 +163,70 @@ func TestPipelineRejectsAdapterTruncationAndPreservesOriginalOnEdit(t *testing.T
 	if string(original) != "original" || result.ChangeSummary.OriginalUnchanged != true || result.ChangeSummary.Changed != 1 {
 		t.Fatalf("edit did not preserve the original and audit summary: original=%q result=%#v", original, result)
 	}
+}
+
+func TestPipelineFailsClosedForInvalidApplyResults(t *testing.T) {
+	newPipeline := func(t *testing.T, editor EditorFunc) (*Pipeline, string, string) {
+		t.Helper()
+		root := t.TempDir()
+		inputPath := filepath.Join(root, "note.txt")
+		outputPath := filepath.Join(root, "note-edited.txt")
+		if err := os.WriteFile(inputPath, []byte("target"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		strategy := NewSmallFileStrategy(map[string]Parser{
+			"text": ParserFunc(func(_ context.Context, metadata Metadata, _ int) (AdapterReadResult, error) {
+				content, err := os.ReadFile(metadata.Path)
+				return AdapterReadResult{Content: string(content), Document: map[string]any{"blocks": []any{
+					map[string]any{"text": "target", "location": map[string]any{"path": "document.p[1]"}},
+				}}}, err
+			}),
+		}, map[string]Editor{EditorKey("text", "replace_text"): editor})
+		return NewPipeline(InspectorFunc(InspectFile), strategy), inputPath, outputPath
+	}
+
+	t.Run("zero change removes output", func(t *testing.T) {
+		pipeline, inputPath, outputPath := newPipeline(t, func(_ context.Context, request ApplyRequest) (ApplyResult, error) {
+			if err := os.WriteFile(request.Edit.OutputPath, []byte("updated"), 0o644); err != nil {
+				return ApplyResult{}, err
+			}
+			return ApplyResult{OutputPath: request.Edit.OutputPath}, nil
+		})
+		_, err := pipeline.Edit(context.Background(), EditRequest{Root: filepath.Dir(inputPath), Path: inputPath, OutputPath: outputPath, Operation: "replace_text", Target: LocatorRequest{Kind: LocatorExactText, Text: "target"}})
+		if !IsErrorCode(err, CodeParseFailed) {
+			t.Fatalf("zero-change editor did not fail closed: %v", err)
+		}
+		if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("zero-change output was not removed: %v", statErr)
+		}
+	})
+
+	t.Run("missing output is rejected", func(t *testing.T) {
+		pipeline, inputPath, outputPath := newPipeline(t, func(_ context.Context, request ApplyRequest) (ApplyResult, error) {
+			return ApplyResult{OutputPath: request.Edit.OutputPath, Changed: 1}, nil
+		})
+		_, err := pipeline.Edit(context.Background(), EditRequest{Root: filepath.Dir(inputPath), Path: inputPath, OutputPath: outputPath, Operation: "replace_text", Target: LocatorRequest{Kind: LocatorExactText, Text: "target"}})
+		if !IsErrorCode(err, CodeResourceInvalid) {
+			t.Fatalf("missing editor output did not fail closed: %v", err)
+		}
+	})
+
+	t.Run("input mutation invalidates and cleans output", func(t *testing.T) {
+		pipeline, inputPath, outputPath := newPipeline(t, func(_ context.Context, request ApplyRequest) (ApplyResult, error) {
+			if err := os.WriteFile(request.Edit.OutputPath, []byte("updated"), 0o644); err != nil {
+				return ApplyResult{}, err
+			}
+			if err := os.WriteFile(request.Metadata.Path, []byte("mutated"), 0o644); err != nil {
+				return ApplyResult{}, err
+			}
+			return ApplyResult{OutputPath: request.Edit.OutputPath, Changed: 1}, nil
+		})
+		_, err := pipeline.Edit(context.Background(), EditRequest{Root: filepath.Dir(inputPath), Path: inputPath, OutputPath: outputPath, Operation: "replace_text", Target: LocatorRequest{Kind: LocatorExactText, Text: "target"}})
+		if !IsErrorCode(err, CodeResourceInvalid) {
+			t.Fatalf("input mutation was not detected after apply: %v", err)
+		}
+		if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("invalid edit output was not removed: %v", statErr)
+		}
+	})
 }

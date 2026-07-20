@@ -1292,6 +1292,9 @@ func TestPDFTransformToolsWriteNewVersions(t *testing.T) {
 						t.Fatalf("split output missing: %v", err)
 					}
 				}
+				if out["output_path"] != outputs[0] {
+					t.Fatalf("split primary output must name an existing typed resource: %#v", out)
+				}
 				return
 			}
 			outputPath := out["output_path"].(string)

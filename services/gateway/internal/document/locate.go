@@ -62,22 +62,15 @@ func Locate(document Representation, request LocatorRequest) ([]Match, error) {
 			}
 		}
 	case LocatorRow:
-		for _, block := range document.Blocks {
-			if equalFoldValue(block.Location["sheet"], request.Sheet) && intValue(block.Location["row_index"]) == request.Row && request.Row > 0 {
-				matches = append(matches, matchFromBlock(block))
-			}
+		if rowID := namedRowEntityID(document.Sheets, request.Sheet, request.Row); rowID != "" {
+			matches = append(matches, Match{BlockID: rowID, Kind: LocatorRow, Location: map[string]any{"sheet": request.Sheet, "row_index": request.Row, "path": fmt.Sprintf("workbook.sheet[%s].row[%d]", request.Sheet, request.Row)}})
 		}
 	case LocatorSheet:
 		if sheetID := namedEntityID(document.Sheets, request.Sheet); sheetID != "" {
 			matches = append(matches, Match{BlockID: sheetID, Kind: LocatorSheet, Location: map[string]any{"sheet": request.Sheet, "path": fmt.Sprintf("workbook.sheet[%s]", request.Sheet)}})
 		}
 	case LocatorSlide:
-		for _, block := range document.Blocks {
-			if intValue(block.Location["slide_index"]) == request.SlideIndex && request.SlideIndex > 0 {
-				matches = append(matches, matchFromBlock(block))
-			}
-		}
-		if len(matches) == 0 && hasEntityIndex(document.Slides, request.SlideIndex) {
+		if hasEntityIndex(document.Slides, request.SlideIndex) {
 			matches = append(matches, Match{BlockID: entityID(document.Slides, request.SlideIndex), Kind: LocatorSlide, Location: map[string]any{"slide_index": request.SlideIndex, "path": fmt.Sprintf("presentation.slide[%d]", request.SlideIndex)}})
 		}
 	case LocatorPages:
@@ -134,6 +127,19 @@ func namedEntityID(values []map[string]any, expected string) string {
 		if strings.EqualFold(strings.TrimSpace(stringValue(item["name"])), strings.TrimSpace(expected)) {
 			return stringValue(item["id"])
 		}
+	}
+	return ""
+}
+
+func namedRowEntityID(sheets []map[string]any, sheetName string, rowIndex int) string {
+	if rowIndex <= 0 {
+		return ""
+	}
+	for _, sheet := range sheets {
+		if !strings.EqualFold(strings.TrimSpace(stringValue(sheet["name"])), strings.TrimSpace(sheetName)) {
+			continue
+		}
+		return entityID(mapSlice(sheet["rows"]), rowIndex)
 	}
 	return ""
 }

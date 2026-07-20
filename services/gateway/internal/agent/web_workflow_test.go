@@ -247,6 +247,90 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`
 	}
 }
 
+func TestCurrentGoldPriceRouteCompletesThroughBoundedInfoEvidence(t *testing.T) {
+	const goal = "现在的金价是多少"
+	requestedQuery := ""
+	info := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/info/tokens/issue":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"epoch":           time.Now().UTC().Format("2006-01-02"),
+				"issued_tokens":   []map[string]any{{"type": "info.basic", "token_mode": "internal_opaque", "token": "gold-token", "expires_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339)}},
+				"quota_remaining": map[string]int{"info.basic": 9},
+			})
+		case "/v1/info/query":
+			var request struct {
+				Query string `json:"query"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			requestedQuery = request.Query
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"request_id": r.Header.Get("X-Request-Id"), "status": "ok",
+				"answer_context": map[string]any{
+					"summary":   strings.Repeat("当前金价以交易市场实时行情为准。", 200) + "RAW-GOLD-TAIL-MUST-STAY-PERSISTED",
+					"key_facts": []map[string]any{{"claim": "现货黄金当前报价可由实时市场来源核验", "sources": []string{"src-gold"}}},
+				},
+				"sources": []map[string]any{{
+					"id": "src-gold", "title": "Gold market source", "url": "https://example.com/gold", "source_type": "market_data",
+					"snippets": []string{"现货黄金当前报价与更新时间。"},
+				}},
+				"citations": []string{"https://example.com/gold"},
+				"usage":     map[string]any{"cost_credits": 1, "token_type": "info.basic"},
+			})
+		default:
+			t.Fatalf("unexpected Infinimesh path: %s", r.URL.Path)
+		}
+	}))
+	defer info.Close()
+
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		cfg.config.Tools.Web.Search.Enabled = true
+		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
+		infoCfg.BaseURL = info.URL
+		infoCfg.EntitlementProof = "entitlement-proof"
+		infoCfg.DeviceAttestation = "device-attestation"
+		infoCfg.LicenseProof = "license-proof"
+		infoCfg.MaxAttempts = 1
+	})
+	defer closeRuntime()
+	candidate := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model paraphrase"}, Confidence: 0.97,
+	}
+	routing, err := runtime.routeIntent(context.Background(), session.ID, "run_gold_route", mockIntentRoute(t, goal, candidate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := app.AgentRun{ID: "run_gold_workflow", SessionID: session.ID, State: "received", StartedAt: time.Now().UTC()}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, routing.Route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn_gold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
+MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"现在的金价是多少"}}`, dispatch.Profile, dispatch.Hint, dispatch.Skills, dispatch.Tools)
+	run, ok := st.GetRun(run.ID)
+	if !ok || run.Workflow == nil || run.Workflow.Status != app.WorkflowStatusSucceeded || run.Workflow.Plan.ProfileID != app.WorkflowBrowserInternetSearch {
+		t.Fatalf("gold route did not complete its fixed search Workflow: %#v", run.Workflow)
+	}
+	calls := toolCallsForRun(st.ListToolCalls(session.ID), run.ID)
+	if requestedQuery != goal || routing.Route.Slots.Query != goal || len(calls) != 1 || calls[0].Tool != "web.search" || calls[0].Capability != app.ToolCapabilityWebDiscovery {
+		t.Fatalf("gold search did not preserve its frozen route query: route=%#v provider_query=%q calls=%#v", routing.Route, requestedQuery, calls)
+	}
+	var observation toolResultMessage
+	if err := json.Unmarshal([]byte(calls[0].ObservationSummary), &observation); err != nil {
+		t.Fatalf("gold evidence observation is not typed JSON: %v", err)
+	}
+	if len(observation.Evidence) != 1 || observation.Evidence[0].Kind != "info.evidence_projection" ||
+		!strings.Contains(observation.Evidence[0].Text, "fact:0") || !strings.Contains(observation.Evidence[0].Text, "source:0:snippet:0") ||
+		strings.Contains(calls[0].ObservationSummary, "RAW-GOLD-TAIL-MUST-STAY-PERSISTED") {
+		t.Fatalf("gold search did not produce the minimal bounded evidence projection: %#v", observation)
+	}
+}
+
 func TestBrowserAutomationRouteDispatchesRealAutomationAdapter(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		cfg.config.Tools.BrowserAutomation.Enabled = true

@@ -185,9 +185,10 @@ type ApplyRequest struct {
 }
 
 type ApplyResult struct {
-	OutputPath string
-	Changed    int
-	Details    map[string]any
+	OutputPath  string
+	OutputPaths []string
+	Changed     int
+	Details     map[string]any
 }
 
 type Editor interface {
@@ -213,14 +214,15 @@ type ReadResult struct {
 }
 
 type ChangeSummary struct {
-	DocumentID        string  `json:"document_id"`
-	Operation         string  `json:"operation"`
-	InputPath         string  `json:"input_path"`
-	OutputPath        string  `json:"output_path"`
-	OriginalUnchanged bool    `json:"original_unchanged"`
-	Matched           int     `json:"matched"`
-	Changed           int     `json:"changed"`
-	Targets           []Match `json:"targets"`
+	DocumentID        string   `json:"document_id"`
+	Operation         string   `json:"operation"`
+	InputPath         string   `json:"input_path"`
+	OutputPath        string   `json:"output_path"`
+	OutputPaths       []string `json:"output_paths,omitempty"`
+	OriginalUnchanged bool     `json:"original_unchanged"`
+	Matched           int      `json:"matched"`
+	Changed           int      `json:"changed"`
+	Targets           []Match  `json:"targets"`
 }
 
 func (s ChangeSummary) Map() (map[string]any, error) {
@@ -239,6 +241,7 @@ type EditResult struct {
 	Metadata      Metadata
 	Document      Representation
 	OutputPath    string
+	OutputPaths   []string
 	Changed       int
 	Details       map[string]any
 	ChangeSummary ChangeSummary
@@ -317,19 +320,121 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 	}
 	applied, err := strategy.Apply(ctx, ApplyRequest{Metadata: metadata, Document: read.Document, Matches: matches, Edit: request})
 	if err != nil {
-		_ = os.Remove(request.OutputPath)
+		cleanupOutputPaths(request.Root, metadata.Path, []string{request.OutputPath})
 		return EditResult{}, err
 	}
+	outputPaths := normalizedOutputPaths(request.Root, applied)
 	if applied.Changed <= 0 {
+		cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
 		return EditResult{}, &PipelineError{Code: CodeParseFailed, Stage: StageApply, Format: metadata.Format, Detail: "editor reported no applied changes"}
 	}
+	if len(outputPaths) == 0 {
+		cleanupOutputPaths(request.Root, metadata.Path, []string{request.OutputPath})
+		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: metadata.Format, Detail: "editor reported no output resources"}
+	}
+	for _, outputPath := range outputPaths {
+		if err := p.validateProducedOutput(ctx, request.Root, metadata, outputPath); err != nil {
+			cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
+			return EditResult{}, err
+		}
+	}
+	current, err = p.inspector.Inspect(ctx, request.Root, request.Path)
+	if err != nil || current.Size != metadata.Size || current.SHA256 != metadata.SHA256 {
+		cleanupOutputPaths(request.Root, metadata.Path, outputPaths)
+		if err != nil {
+			return EditResult{}, err
+		}
+		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: metadata.Format, Detail: "input document changed while the edit was applied"}
+	}
+	primaryOutput := strings.TrimSpace(applied.OutputPath)
+	if !containsPath(outputPaths, primaryOutput) {
+		primaryOutput = outputPaths[0]
+	}
 	return EditResult{
-		Metadata: read.Metadata, Document: read.Document, OutputPath: applied.OutputPath, Changed: applied.Changed, Details: applied.Details,
+		Metadata: read.Metadata, Document: read.Document, OutputPath: primaryOutput, OutputPaths: outputPaths, Changed: applied.Changed, Details: applied.Details,
 		ChangeSummary: ChangeSummary{
-			DocumentID: read.Document.ID, Operation: request.Operation, InputPath: metadata.Path, OutputPath: applied.OutputPath,
+			DocumentID: read.Document.ID, Operation: request.Operation, InputPath: metadata.Path, OutputPath: primaryOutput, OutputPaths: outputPaths,
 			OriginalUnchanged: true, Matched: len(matches), Changed: applied.Changed, Targets: matches,
 		},
 	}, nil
+}
+
+func normalizedOutputPaths(root string, applied ApplyResult) []string {
+	values := append([]string(nil), applied.OutputPaths...)
+	if len(values) == 0 && strings.TrimSpace(applied.OutputPath) != "" {
+		values = append(values, applied.OutputPath)
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		path := strings.TrimSpace(value)
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		path, err := filepath.Abs(path)
+		if err != nil || containsPath(out, path) {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
+func (p *Pipeline) validateProducedOutput(ctx context.Context, root string, input Metadata, outputPath string) error {
+	rootAbs, rootErr := filepath.Abs(root)
+	outputAbs, outputErr := filepath.Abs(outputPath)
+	if rootErr != nil || outputErr != nil || outputAbs == rootAbs || !strings.HasPrefix(outputAbs, rootAbs+string(os.PathSeparator)) || outputAbs == input.Path {
+		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output escaped the frozen workspace or replaced the input"}
+	}
+	info, err := os.Lstat(outputAbs)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output is missing or is not a regular file"}
+	}
+	metadata, err := p.inspector.Inspect(ctx, root, outputAbs)
+	if err != nil {
+		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output failed format inspection"}
+	}
+	inspectedPath, _ := filepath.Abs(metadata.Path)
+	if inspectedPath != outputAbs || metadata.Format != input.Format {
+		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output does not match the frozen document format"}
+	}
+	return nil
+}
+
+func cleanupOutputPaths(root, inputPath string, paths []string) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return
+	}
+	inputAbs, _ := filepath.Abs(inputPath)
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(rootAbs, path)
+		}
+		path, err = filepath.Abs(path)
+		if err == nil && path != inputAbs && strings.HasPrefix(path, rootAbs+string(os.PathSeparator)) {
+			_ = os.Remove(path)
+		}
+	}
+}
+
+func containsPath(paths []string, candidate string) bool {
+	if strings.TrimSpace(candidate) == "" {
+		return false
+	}
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	for _, path := range paths {
+		pathAbs, pathErr := filepath.Abs(path)
+		if pathErr == nil && pathAbs == candidateAbs {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Pipeline) inspectAndSelect(ctx context.Context, root, path string) (Metadata, Strategy, error) {

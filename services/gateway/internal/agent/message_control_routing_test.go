@@ -490,6 +490,8 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 	})
 	dispatch.Run.State = "approval_pending"
 	st.SaveRun(dispatch.Run)
+	frozenRoute := dispatch.Run.Workflow.Route
+	frozenPlanDigest := dispatch.Run.Workflow.PlanDigest
 	pendingSend, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, run.ID)
 	if err != nil || !resumed || pendingSend.Run.State != "approval_pending" || len(pendingSend.Approvals) != 1 {
 		t.Fatalf("business approval did not advance to distinct send approval: resumed=%v result=%#v err=%v", resumed, pendingSend, err)
@@ -501,6 +503,10 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 	before := pendingSend.WorkflowResult
 	if before == nil || len(before.Content.Parts) != 2 || before.Content.Parts[1].Kind != app.MessagePartFile {
 		t.Fatalf("pre-approval structured content is incomplete: %#v", before)
+	}
+	if pendingSend.Run.Workflow == nil || !reflect.DeepEqual(pendingSend.Run.Workflow.Route, frozenRoute) || pendingSend.Run.Workflow.PlanDigest != frozenPlanDigest ||
+		pendingSend.Run.Workflow.Route.Slots.TargetRef != "note.docx" || pendingSend.Run.Workflow.Route.Slots.OutputRef != "note-sparkclaw-edit.docx" {
+		t.Fatalf("business approval resume changed the frozen document route or resources: %#v", pendingSend.Run.Workflow)
 	}
 	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *before, exactOnlyReturnRouteResolver{}); err != nil || deliverable {
 		t.Fatalf("structured pre-approval result was deliverable: deliverable=%v err=%v", deliverable, err)
@@ -519,6 +525,9 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 	if after.WorkflowResult.ReturnRoute != returnRoute || after.WorkflowResult.ID != before.ID ||
 		!reflect.DeepEqual(after.WorkflowResult.Content, before.Content) || !reflect.DeepEqual(after.WorkflowResult.References, before.References) {
 		t.Fatalf("structured workflow result changed across send approval: before=%#v after=%#v", before, after.WorkflowResult)
+	}
+	if after.Run.Workflow == nil || !reflect.DeepEqual(after.Run.Workflow.Route, frozenRoute) || after.Run.Workflow.PlanDigest != frozenPlanDigest {
+		t.Fatalf("send approval resume changed the frozen document Workflow: %#v", after.Run.Workflow)
 	}
 	request, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *after.WorkflowResult, exactOnlyReturnRouteResolver{})
 	if err != nil || !deliverable || request.Target != returnRoute.EndpointID || request.IdempotencyKey != after.WorkflowResult.ID+":"+string(returnRoute.EndpointID) {

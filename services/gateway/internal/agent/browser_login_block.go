@@ -378,6 +378,10 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	run.State = "reacting"
 	run.CompletedAt = nil
 	r.store.SaveRun(run)
+	interruptedWorkflowCallID := ""
+	if run.Workflow != nil {
+		interruptedWorkflowCallID = block.LastToolCallID
+	}
 
 	resumeCalls := []app.ToolCall{}
 	resumeApprovals := []app.Approval{}
@@ -385,13 +389,8 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		Name: "browser.list_tabs",
 		Args: visibleBrowserResumeArgs(block, "browser_login_block_resume"),
 	}
-	if run.Workflow != nil {
-		var err error
-		tabPlan, err = r.bindPersistedWorkflowToolPlan(run, tabPlan)
-		if err != nil {
-			return r.blockPersistedWorkflowResume(ctx, run, goal, err), true, nil
-		}
-	}
+	// Tab discovery and the authenticated read are Runtime login preflight.
+	// They must not consume or replace the persisted Workflow stage scope.
 	tabCall, tabApproval, tabObservation := r.runToolPlan(ctx, sessionID, run.ID, tabPlan)
 	resumeCalls = append(resumeCalls, tabCall)
 	if tabApproval != nil {
@@ -448,11 +447,11 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		resumePlan.Name = "browser.read"
 	}
 	if run.Workflow != nil {
-		var err error
-		resumePlan, err = r.bindPersistedWorkflowToolPlan(run, resumePlan)
-		if err != nil {
-			return r.blockPersistedWorkflowResume(ctx, run, goal, err), true, nil
+		frozenTarget := normalizeBrowserURL(run.Workflow.Route.Slots.TargetRef)
+		if frozenTarget == "" {
+			return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("browser resume lost the frozen workflow target")), true, nil
 		}
+		resumePlan.Args["url"] = frozenTarget
 	}
 	readCall, readApproval, readObservation := r.runToolPlan(ctx, sessionID, run.ID, resumePlan)
 	resumeCalls = append(resumeCalls, readCall)
@@ -515,7 +514,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		Fields:    browserLoginBlockRuntimeFields(block, map[string]any{"tool_call_id": readCall.ID}),
 	})
 	if run.Workflow != nil {
-		return r.finishMatchedBrowserLoginResume(ctx, run, goal, readCall, emit), true, nil
+		return r.finishMatchedBrowserLoginResume(ctx, run, goal, interruptedWorkflowCallID, emit), true, nil
 	}
 
 	seedCalls := completedToolCallsForResume(toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID))
@@ -695,26 +694,30 @@ func (r Runtime) blockPersistedWorkflowResume(ctx context.Context, run app.Agent
 	return result
 }
 
-func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.AgentRun, goal string, readCall app.ToolCall, emit StreamHandler) Result {
+func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.AgentRun, goal, interruptedCallID string, emit StreamHandler) Result {
 	profile, err := r.profiles.Get(run.Workflow.Plan.ProfileID)
 	if err != nil {
 		return r.blockPersistedWorkflowResume(ctx, run, goal, err)
 	}
-	definition, ok := r.tools.Definition(readCall.Tool)
-	if !ok {
-		return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("browser resume tool is no longer registered"))
+	interruptedCall, ok := r.store.GetToolCall(interruptedCallID)
+	if !ok || interruptedCall.RunID != run.ID || interruptedCall.WorkflowID != run.Workflow.Plan.ProfileID {
+		return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("browser resume could not recover the interrupted workflow tool call"))
 	}
-	outcome, err := adaptWorkflowOutcome(definition, readCall)
+	definition, ok := r.tools.Definition(interruptedCall.Tool)
+	if !ok {
+		return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("interrupted browser workflow tool is no longer registered"))
+	}
+	outcome, err := adaptWorkflowOutcome(definition, interruptedCall)
 	if err != nil {
 		return r.blockPersistedWorkflowResume(ctx, run, goal, err)
 	}
 	assessment := profile.Assess(run.Workflow, outcome)
-	_, applyErr := applyWorkflowOutcome(&run, outcome, assessment)
+	changed, applyErr := applyWorkflowOutcome(&run, outcome, assessment)
 	if applyErr != nil && assessment.Status != app.AssessmentBlocked {
 		return r.blockPersistedWorkflowResume(ctx, run, goal, applyErr)
 	}
 	r.store.SaveRun(run)
-	r.auditWorkflowOutcome(run, outcome, assessment, false, applyErr)
+	r.auditWorkflowOutcome(run, outcome, assessment, changed, applyErr)
 
 	now := time.Now().UTC()
 	if run.Workflow.Status == app.WorkflowStatusSucceeded {

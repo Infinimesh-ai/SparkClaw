@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -515,6 +516,11 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 	if first.Run.State != "browser_login_blocked" || first.Run.CompletedAt != nil {
 		t.Fatalf("visible browser login handoff should pause the original run, got %#v", first.Run)
 	}
+	if first.Run.Workflow == nil {
+		t.Fatal("visible browser login handoff lost its persisted Workflow")
+	}
+	frozenRoute := first.Run.Workflow.Route
+	frozenPlanDigest := first.Run.Workflow.PlanDigest
 	block, ok := st.FindActiveBrowserLoginBlock(session.ID)
 	if !ok {
 		t.Fatalf("expected active browser login block from browser.open result")
@@ -527,12 +533,18 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 	}
 
 	adapter.readCalls = 1
+	adapter.selectedTabURL = "https://example.com/protected"
 	second, err := runtime.HandleMessage(context.Background(), session.ID, "登录完成")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if second.Run.ID != first.Run.ID {
 		t.Fatalf("login completion should resume original run: first=%s second=%s", first.Run.ID, second.Run.ID)
+	}
+	if second.Run.Workflow == nil || second.RouteDecision == nil || !reflect.DeepEqual(second.Run.Workflow.Route, frozenRoute) ||
+		!reflect.DeepEqual(*second.RouteDecision, frozenRoute) || second.Run.Workflow.PlanDigest != frozenPlanDigest ||
+		adapter.lastReadURL != "https://example.com/protected" {
+		t.Fatalf("login resume changed the frozen route, plan, or URL: before=%#v after=%#v read_url=%q", frozenRoute, second.Run.Workflow, adapter.lastReadURL)
 	}
 	if adapter.listTabsCalls == 0 {
 		t.Fatalf("login completion should inspect visible tabs before resuming")

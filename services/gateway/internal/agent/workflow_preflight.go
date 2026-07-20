@@ -1,16 +1,15 @@
 package agent
 
 import (
-	"archive/zip"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 type documentPreflight struct {
@@ -154,7 +153,7 @@ func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (docu
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return documentPreflight{}, errors.New("document path must be a regular non-symlink file")
 	}
-	format, err := detectDocumentFormat(candidate)
+	format, err := document.DetectFormat(candidate)
 	if err != nil {
 		return documentPreflight{}, err
 	}
@@ -178,49 +177,6 @@ func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (docu
 		}
 	}
 	return result, nil
-}
-
-func detectDocumentFormat(path string) (string, error) {
-	extension := strings.ToLower(filepath.Ext(path))
-	switch extension {
-	case ".pdf":
-		raw, err := readDocumentPrefix(path, 8)
-		if err != nil || len(raw) < 5 || string(raw[:5]) != "%PDF-" {
-			return "", errors.New("PDF extension and signature do not match")
-		}
-		return app.DocumentFormatPDF, nil
-	case ".docx", ".xlsx", ".pptx":
-		archive, err := zip.OpenReader(path)
-		if err != nil {
-			return "", errors.New("Office extension and ZIP signature do not match")
-		}
-		defer archive.Close()
-		required := map[string]string{".docx": "word/document.xml", ".xlsx": "xl/workbook.xml", ".pptx": "ppt/presentation.xml"}[extension]
-		for _, file := range archive.File {
-			if file.Name == required {
-				return strings.TrimPrefix(extension, "."), nil
-			}
-		}
-		return "", errors.New("Office extension and package type do not match")
-	default:
-		raw, err := readDocumentPrefix(path, 4096)
-		if err != nil {
-			return "", errors.New("document cannot be read for type inspection")
-		}
-		if strings.IndexByte(string(raw), 0) >= 0 {
-			return "", fmt.Errorf("unsupported document extension %q", extension)
-		}
-		return app.DocumentFormatText, nil
-	}
-}
-
-func readDocumentPrefix(path string, limit int64) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	return io.ReadAll(io.LimitReader(file, limit))
 }
 
 func documentOperationForContent(format, lower string) string {

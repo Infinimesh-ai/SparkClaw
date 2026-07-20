@@ -12,6 +12,16 @@ max_bytes = int(req.get("max_bytes") or 20000)
 def trim(text):
     return " ".join(str(text or "").split())
 
+extracted_bytes = 0
+
+def append_line(lines, text):
+    global extracted_bytes
+    extracted_bytes += len(text.encode("utf-8")) + (1 if lines else 0)
+    if extracted_bytes > max_bytes:
+        print(json.dumps({"content":"", "truncated":True, "extracted_bytes":extracted_bytes}))
+        sys.exit(0)
+    lines.append(text)
+
 try:
     document = docx.Document(req["path"])
     paragraphs = []
@@ -40,7 +50,7 @@ try:
         item = {"index": index, "text": text, "style": style, "location": location}
         paragraphs.append(item)
         blocks.append({"text": text, "style": style, "location": location})
-        lines.append(text)
+        append_line(lines, text)
 
     for table_index, table in enumerate(document.tables, start=1):
         rows = []
@@ -66,7 +76,7 @@ try:
                         "path": "document.table[%d].row[%d].cell[%d].p[%d]" % (table_index, row_index, cell_index, cell_paragraph_index),
                     }
                     blocks.append({"text": text, "style": "", "location": location})
-                    lines.append(text)
+                    append_line(lines, text)
                 row_values.append("\n".join(cell_texts))
             rows.append(row_values)
         tables.append({"index": table_index, "rows": rows})
@@ -79,6 +89,7 @@ try:
     print(json.dumps({
         "content": content,
         "truncated": truncated,
+        "extracted_bytes": extracted_bytes,
         "document": {
             "schema_version": "document_read_v1",
             "format": "docx",

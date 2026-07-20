@@ -25,13 +25,18 @@ try:
         reader = PdfReader(req["path"])
         pages = []
         chunks = []
+        extracted_bytes = 0
         for index, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
+            extracted_bytes += len(text.encode("utf-8")) + (2 if chunks else 0)
+            if extracted_bytes > int(req.get("max_bytes") or 20000):
+                print(json.dumps({"content":"", "truncated":True, "extracted_bytes":extracted_bytes, "scanned_unsupported":False}))
+                sys.exit(0)
             pages.append({"index": index, "text": text.strip()})
             chunks.append(text)
         text = "\n\n".join(chunks).strip()
         if not text:
-            out = {"content":"","truncated":False,"scanned_unsupported":True}
+            out = {"content":"","truncated":False,"extracted_bytes":0,"scanned_unsupported":True}
             if op == "read":
                 out["document"] = {"schema_version":"document_read_v1","format":"pdf","pages":pages,"stats":{"pages":len(pages)}}
             print(json.dumps(out))
@@ -41,7 +46,7 @@ try:
         truncated = len(raw) > max_bytes
         if truncated:
             text = raw[:max_bytes].decode("utf-8", errors="ignore")
-        out = {"content":text,"truncated":truncated,"scanned_unsupported":False}
+        out = {"content":text,"truncated":truncated,"extracted_bytes":extracted_bytes,"scanned_unsupported":False}
         if op == "read":
             out["document"] = {"schema_version":"document_read_v1","format":"pdf","pages":pages,"stats":{"pages":len(pages)}}
         print(json.dumps(out))

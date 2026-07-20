@@ -135,7 +135,7 @@ func documentReadRegistration(run toolExecutor, formats []string, summary string
 	registration := workflowRegistration(
 		toolRegistration{run: run}, app.ToolCapabilityDocumentRead,
 		map[string]string{app.CapabilityQualifierFormat: formats[0]}, app.OutcomeAdapterWorkspaceRead,
-		summary, "Use only for the preflighted exact path and detected format in document.read.", "Do not use for search or mutation.", app.ToolEffectWorkspaceRead,
+		summary, "Use only for the preflighted exact path and detected format in document.read; the adapter runs inspect, complete read, and stable structuring.", "Do not use for search, mutation, or oversized documents without a registered strategy.", app.ToolEffectWorkspaceRead,
 	)
 	registration.capabilities = registration.capabilities[:0]
 	for _, format := range formats {
@@ -150,7 +150,7 @@ func documentEditRegistration(run toolExecutor, format, operation, summary strin
 	registration := workflowRegistration(
 		toolRegistration{run: run}, app.ToolCapabilityDocumentEdit,
 		map[string]string{app.CapabilityQualifierFormat: format, app.CapabilityQualifierOperation: operation}, app.OutcomeAdapterDocumentEdit,
-		summary, "Use only for the preflighted format, operation, input path, and output copy.", "Do not use for another format, read-only work, or verification.", app.ToolEffectWorkspaceWrite,
+		summary, "Use only for the preflighted format, operation, input path, and output copy; the adapter runs read, structure, locate, constrain, and apply in order.", "Do not use for another format, read-only work, or an unlocated target.", app.ToolEffectWorkspaceWrite,
 	)
 	registration.directory.OutputKinds = []app.OutputKind{app.OutputKindFile}
 	return registration

@@ -9,7 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-func attachSmallDocumentPipeline(document map[string]any, relPath, format, content string, truncated bool, maxBytes int) {
+func attachSmallDocumentPipeline(document map[string]any, relPath, format, content string, maxBytes int) {
 	if document == nil {
 		return
 	}
@@ -25,14 +25,10 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 		"structure_quality": structureQualityForDocument(document, format),
 		"complexity":        complexityForTokenEstimate(tokenEstimate),
 	}
-	strategyReason := "document fits current full-read path"
-	if truncated {
-		strategyReason = "document content exceeded max_bytes; full answer requires a larger read budget or future range strategy"
-	}
 	strategy := map[string]any{
 		"strategy":     string(app.DocumentStrategySmallDirect),
 		"context_mode": string(app.DocumentContextFullText),
-		"reason":       strategyReason,
+		"reason":       "document fits current complete small-file path",
 		"limits": map[string]any{
 			"max_input_tokens": tokenEstimate,
 			"max_chunks":       0,
@@ -54,7 +50,7 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 		"items":          smallDocumentContextItems(relPath, format, content),
 		"citations":      smallDocumentCitations(document),
 		"token_estimate": tokenEstimate,
-		"warnings":       smallDocumentWarnings(truncated),
+		"warnings":       []string{},
 	}
 	telemetry := map[string]any{
 		"document_id":    relPath,
@@ -66,7 +62,7 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 	}
 	document["pipeline"] = map[string]any{
 		"document_id":    relPath,
-		"status":         pipelineStatusForTruncation(truncated),
+		"status":         string(app.DocumentProcessingSucceeded),
 		"profile":        profile,
 		"strategy":       strategy,
 		"index":          index,
@@ -132,13 +128,6 @@ func complexityForTokenEstimate(tokens int) string {
 	}
 }
 
-func pipelineStatusForTruncation(truncated bool) string {
-	if truncated {
-		return string(app.DocumentProcessingPartial)
-	}
-	return string(app.DocumentProcessingSucceeded)
-}
-
 func smallDocumentContextItems(relPath, format, content string) []map[string]any {
 	items := []map[string]any{{
 		"type": "document_metadata",
@@ -186,13 +175,6 @@ func blockIDFromLocation(location map[string]any, fallback int) string {
 		return "block_" + documentStringValue(index)
 	}
 	return "block_" + documentStringValue(fallback)
-}
-
-func smallDocumentWarnings(truncated bool) []string {
-	if !truncated {
-		return []string{}
-	}
-	return []string{"content truncated by max_bytes; do not claim full-document coverage"}
 }
 
 func documentAnyMap(value any) (map[string]any, bool) {

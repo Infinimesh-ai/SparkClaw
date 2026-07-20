@@ -11,121 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 type textReplacement struct {
 	Find    string `json:"find"`
 	Replace string `json:"replace"`
-}
-
-type replacementDetail struct {
-	Find  string `json:"find"`
-	Count int    `json:"count"`
-}
-
-func isStructuredDocumentPath(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".docx", ".pptx", ".xlsx", ".pdf":
-		return true
-	default:
-		return false
-	}
-}
-
-func (h *ToolHub) readStructuredDocument(ctx context.Context, path string, maxBytes int) (Result, error) {
-	ext := strings.ToLower(filepath.Ext(path))
-	var out map[string]any
-	var err error
-	switch ext {
-	case ".docx":
-		out, err = runOfficeReadAdapter(ctx, ext, map[string]any{
-			"path":      path,
-			"max_bytes": maxBytes,
-		})
-	case ".pptx", ".xlsx":
-		out, err = runOfficeReadAdapter(ctx, ext, map[string]any{
-			"path":      path,
-			"max_bytes": maxBytes,
-		})
-	case ".pdf":
-		out, err = runPDFPython(ctx, map[string]any{
-			"operation": "read",
-			"path":      path,
-			"max_bytes": maxBytes,
-		})
-	default:
-		err = fmt.Errorf("unsupported structured document extension %s", ext)
-	}
-	if err != nil {
-		return Result{}, err
-	}
-	content := stringArg(out, "content", "")
-	truncated := boolArg(out, "truncated", false)
-	document, ok := out["document"].(map[string]any)
-	if !ok || document == nil {
-		document = map[string]any{}
-	}
-	document["format"] = strings.TrimPrefix(ext, ".")
-	if strings.TrimSpace(stringArg(document, "schema_version", "")) == "" {
-		document["schema_version"] = "document_read_v1"
-	}
-	format := strings.TrimPrefix(ext, ".")
-	relPath := h.workspaceRelPath(path)
-	normalizeDocumentReadEnvelope(document, format, truncated, maxBytes)
-	attachEvidenceBlocks(document, relPath, format)
-	attachSmallDocumentPipeline(document, relPath, format, content, truncated, maxBytes)
-	output := map[string]any{
-		"path":         path,
-		"rel_path":     relPath,
-		"already_read": true,
-		"kind":         format,
-		"content":      content,
-		"bytes":        len([]byte(content)),
-		"max_bytes":    maxBytes,
-		"truncated":    truncated,
-		"untrusted":    true,
-		"document":     document,
-	}
-	return Result{Output: output}, nil
-}
-
-func normalizeDocumentReadEnvelope(document map[string]any, format string, truncated bool, maxBytes int) {
-	document["format"] = format
-	if strings.TrimSpace(stringArg(document, "schema_version", "")) == "" {
-		document["schema_version"] = "document_read_v1"
-	}
-	if _, ok := document["blocks"]; !ok {
-		document["blocks"] = []any{}
-	}
-	if _, ok := document["content_scope"]; !ok {
-		document["content_scope"] = map[string]any{
-			"kind":     "full_document",
-			"complete": !truncated,
-		}
-	}
-	if _, ok := document["strategy"]; !ok {
-		mode := "full"
-		reason := "adapter_full_read"
-		if truncated {
-			mode = "byte_limited"
-			reason = "max_bytes_exceeded"
-		}
-		document["strategy"] = map[string]any{
-			"mode":       mode,
-			"reason":     reason,
-			"complete":   !truncated,
-			"max_bytes":  maxBytes,
-			"extensible": true,
-		}
-	}
-	stats, ok := document["stats"].(map[string]any)
-	if !ok || stats == nil {
-		stats = map[string]any{}
-		document["stats"] = stats
-	}
-	if _, ok := stats["complete"]; !ok {
-		stats["complete"] = !truncated
-	}
 }
 
 func (h *ToolHub) officeReplaceText(ctx context.Context, args map[string]any) (Result, error) {
@@ -137,45 +29,27 @@ func (h *ToolHub) officeReplaceText(ctx context.Context, args map[string]any) (R
 	if err != nil {
 		return Result{}, err
 	}
-	if inputPath == outputPath {
-		return Result{}, errors.New("output_path must not overwrite the input file")
-	}
 	replacements, err := replacementArgs(args["replacements"])
 	if err != nil {
 		return Result{}, err
 	}
-	ext := strings.ToLower(filepath.Ext(inputPath))
-	if ext != ".docx" && ext != ".xlsx" && ext != ".pptx" {
-		return Result{}, errors.New("office.replace_text supports only .docx, .xlsx, and .pptx")
+	expected := intArg(args, "expected_replacements", 0)
+	targets := make([]document.LocatorRequest, 0, len(replacements))
+	for _, replacement := range replacements {
+		targets = append(targets, document.LocatorRequest{
+			Kind: document.LocatorExactText, Text: replacement.Find, AllowMultiple: expected > 0,
+		})
 	}
-	if strings.ToLower(filepath.Ext(outputPath)) != ext {
-		return Result{}, fmt.Errorf("output_path must use %s extension", ext)
-	}
-	out, err := runOfficeAdapter(ctx, ext, map[string]any{
-		"path":         inputPath,
-		"output_path":  outputPath,
-		"replacements": replacements,
+	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
+		Path: inputPath, OutputPath: outputPath, Operation: "replace_text", Targets: targets, ExpectedMatches: expected,
+		Arguments: map[string]any{"replacements": replacements}, MaxBytes: document.SmallExtractedMaxBytes,
 	})
 	if err != nil {
 		return Result{}, err
 	}
-	total := intArg(out, "replacements", 0)
-	expected := intArg(args, "expected_replacements", 0)
-	if expected > 0 && expected != total {
-		return Result{}, fmt.Errorf("expected %d replacements, got %d", expected, total)
-	}
-	if total == 0 {
-		return Result{}, errors.New("no replacements were made")
-	}
-	return Result{Output: map[string]any{
-		"status":       "office_version_written",
-		"path":         inputPath,
-		"output_path":  outputPath,
-		"replacements": total,
-		"bytes":        intArg(out, "bytes", fileSize(outputPath)),
-		"details":      out["details"],
-		"untrusted":    true,
-	}}, nil
+	output := documentChangeOutput(result, "office_version_written")
+	output["replacements"] = result.Changed
+	return Result{Output: output}, nil
 }
 
 func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args map[string]any) (Result, error) {
@@ -183,58 +57,22 @@ func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args 
 	if err != nil {
 		return Result{}, err
 	}
-	if strings.ToLower(filepath.Ext(inputPath)) != ".docx" {
-		return Result{}, errors.New(operation + " supports only .docx files")
-	}
 	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
 	if err != nil {
 		return Result{}, err
 	}
-	if inputPath == outputPath {
-		return Result{}, errors.New("output_path must not overwrite the input file")
-	}
-	if strings.ToLower(filepath.Ext(outputPath)) != ".docx" {
-		return Result{}, errors.New("output_path must use .docx extension")
-	}
 	if operation == "replace_paragraph" && strings.TrimSpace(stringArg(args, "old_text", "")) == "" && strings.TrimSpace(stringArg(args, "source_hash", "")) == "" {
 		return Result{}, errors.New("docx.replace_paragraph requires old_text or source_hash preflight evidence")
 	}
-	request := map[string]any{
-		"operation":       operation,
-		"path":            inputPath,
-		"output_path":     outputPath,
-		"paragraph_index": intArg(args, "paragraph_index", 0),
-		"position":        stringArg(args, "position", ""),
-		"old_text":        stringArg(args, "old_text", ""),
-		"source_hash":     stringArg(args, "source_hash", ""),
-		"text":            stringArg(args, "text", ""),
-		"style":           args["style"],
-		"location":        args["location"],
-	}
-	out, err := runDocxStructureAdapter(ctx, request)
+	target := docxEditTarget(operation, args)
+	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
+		Path: inputPath, OutputPath: outputPath, Operation: operation, Target: target,
+		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
+	})
 	if err != nil {
 		return Result{}, err
 	}
-	output := map[string]any{
-		"status":          stringArg(out, "status", "docx_version_written"),
-		"operation":       operation,
-		"path":            inputPath,
-		"output_path":     outputPath,
-		"bytes":           intArg(out, "bytes", fileSize(outputPath)),
-		"paragraph_index": intArg(out, "paragraph_index", intArg(args, "paragraph_index", 0)),
-		"position":        stringArg(out, "position", stringArg(args, "position", "")),
-		"before":          stringArg(out, "before", ""),
-		"source_hash":     stringArg(out, "source_hash", ""),
-		"text":            stringArg(out, "text", stringArg(args, "text", "")),
-		"style":           objectOrEmpty(out["style"]),
-		"untrusted":       true,
-	}
-	if location, ok := out["location"].(map[string]any); ok {
-		output["location"] = location
-	} else if location, ok := args["location"].(map[string]any); ok {
-		output["location"] = location
-	}
-	return Result{Output: output}, nil
+	return Result{Output: documentChangeOutput(result, "docx_version_written")}, nil
 }
 
 func (h *ToolHub) pptxSlideEdit(ctx context.Context, operation string, args map[string]any) (Result, error) {
@@ -242,46 +80,22 @@ func (h *ToolHub) pptxSlideEdit(ctx context.Context, operation string, args map[
 	if err != nil {
 		return Result{}, err
 	}
-	if strings.ToLower(filepath.Ext(inputPath)) != ".pptx" {
-		return Result{}, errors.New(operation + " supports only .pptx files")
-	}
 	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
 	if err != nil {
 		return Result{}, err
 	}
-	if inputPath == outputPath {
-		return Result{}, errors.New("output_path must not overwrite the input file")
+	target := document.LocatorRequest{Kind: document.LocatorDocument}
+	if operation != "add_slide" {
+		target = document.LocatorRequest{Kind: document.LocatorSlide, SlideIndex: intArg(args, "slide_index", 0), AllowMultiple: true}
 	}
-	if strings.ToLower(filepath.Ext(outputPath)) != ".pptx" {
-		return Result{}, errors.New("output_path must use .pptx extension")
-	}
-	request := map[string]any{
-		"operation":    operation,
-		"path":         inputPath,
-		"output_path":  outputPath,
-		"slide_index":  intArg(args, "slide_index", 0),
-		"layout_index": intArg(args, "layout_index", 0),
-		"title":        stringArg(args, "title", ""),
-		"body":         stringArg(args, "body", ""),
-	}
-	out, err := runPptxSlideAdapter(ctx, request)
+	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
+		Path: inputPath, OutputPath: outputPath, Operation: operation, Target: target,
+		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
+	})
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Output: map[string]any{
-		"status":               stringArg(out, "status", "pptx_version_written"),
-		"operation":            operation,
-		"path":                 inputPath,
-		"output_path":          outputPath,
-		"bytes":                intArg(out, "bytes", fileSize(outputPath)),
-		"slides":               intArg(out, "slides", 0),
-		"slide_index":          intArg(out, "slide_index", intArg(args, "slide_index", 0)),
-		"inserted_slide_index": intArg(out, "inserted_slide_index", 0),
-		"layout_index":         intArg(out, "layout_index", intArg(args, "layout_index", 0)),
-		"title":                stringArg(out, "title", stringArg(args, "title", "")),
-		"body":                 stringArg(out, "body", stringArg(args, "body", "")),
-		"untrusted":            true,
-	}}, nil
+	return Result{Output: documentChangeOutput(result, "pptx_version_written")}, nil
 }
 
 func (h *ToolHub) xlsxStructureEdit(ctx context.Context, operation string, args map[string]any) (Result, error) {
@@ -289,53 +103,19 @@ func (h *ToolHub) xlsxStructureEdit(ctx context.Context, operation string, args 
 	if err != nil {
 		return Result{}, err
 	}
-	if strings.ToLower(filepath.Ext(inputPath)) != ".xlsx" {
-		return Result{}, errors.New(operation + " supports only .xlsx files")
-	}
 	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
 	if err != nil {
 		return Result{}, err
 	}
-	if inputPath == outputPath {
-		return Result{}, errors.New("output_path must not overwrite the input file")
-	}
-	if strings.ToLower(filepath.Ext(outputPath)) != ".xlsx" {
-		return Result{}, errors.New("output_path must use .xlsx extension")
-	}
-	request := map[string]any{
-		"operation":   operation,
-		"path":        inputPath,
-		"output_path": outputPath,
-		"sheet":       stringArg(args, "sheet", ""),
-		"cell":        stringArg(args, "cell", ""),
-		"row":         intArg(args, "row", 0),
-		"position":    stringArg(args, "position", ""),
-		"value":       args["value"],
-		"values":      args["values"],
-	}
-	out, err := runXlsxStructureAdapter(ctx, request)
+	target := xlsxEditTarget(operation, args)
+	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
+		Path: inputPath, OutputPath: outputPath, Operation: operation, Target: target,
+		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
+	})
 	if err != nil {
 		return Result{}, err
 	}
-	output := map[string]any{
-		"status":       stringArg(out, "status", "xlsx_version_written"),
-		"operation":    operation,
-		"path":         inputPath,
-		"output_path":  outputPath,
-		"bytes":        intArg(out, "bytes", fileSize(outputPath)),
-		"sheet":        stringArg(out, "sheet", stringArg(args, "sheet", "")),
-		"cell":         stringArg(out, "cell", stringArg(args, "cell", "")),
-		"row":          intArg(out, "row", intArg(args, "row", 0)),
-		"inserted_row": intArg(out, "inserted_row", 0),
-		"untrusted":    true,
-	}
-	if value, ok := out["value"]; ok {
-		output["value"] = value
-	}
-	if values, ok := out["values"]; ok {
-		output["values"] = values
-	}
-	return Result{Output: output}, nil
+	return Result{Output: documentChangeOutput(result, "xlsx_version_written")}, nil
 }
 
 func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Result, error) {
@@ -343,30 +123,26 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Resu
 	if err != nil {
 		return Result{}, err
 	}
-	if strings.ToLower(filepath.Ext(path)) != ".pdf" {
-		return Result{}, errors.New("pdf.extract_text supports only .pdf files")
+	maxBytes := intArg(args, "max_bytes", document.SmallExtractedMaxBytes)
+	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
+		maxBytes = document.SmallExtractedMaxBytes
 	}
-	maxBytes := intArg(args, "max_bytes", 20000)
-	if maxBytes <= 0 || maxBytes > 200000 {
-		maxBytes = 20000
-	}
-	out, err := runPDFPython(ctx, map[string]any{
-		"operation": "extract_text",
-		"path":      path,
-		"max_bytes": maxBytes,
-	})
+	read, err := h.readDocumentWorkflow(ctx, path, maxBytes)
 	if err != nil {
 		return Result{}, err
 	}
-	content := stringArg(out, "content", "")
-	truncated := boolArg(out, "truncated", false)
+	structured, err := read.Document.Map()
+	if err != nil {
+		return Result{}, err
+	}
 	return Result{Output: map[string]any{
 		"path":                path,
-		"content":             content,
-		"bytes":               len([]byte(content)),
-		"truncated":           truncated,
+		"content":             read.Content,
+		"bytes":               len([]byte(read.Content)),
+		"truncated":           false,
 		"untrusted":           true,
-		"scanned_unsupported": boolArg(out, "scanned_unsupported", false),
+		"scanned_unsupported": false,
+		"document":            structured,
 	}}, nil
 }
 
@@ -376,16 +152,6 @@ func (h *ToolHub) pdfTransform(ctx context.Context, args map[string]any) (Result
 	if err != nil {
 		return Result{}, err
 	}
-	if strings.ToLower(filepath.Ext(outputPath)) != ".pdf" {
-		return Result{}, errors.New("output_path must use .pdf extension")
-	}
-	request := map[string]any{
-		"operation":   operation,
-		"output_path": outputPath,
-		"pages":       args["pages"],
-		"rotation":    args["rotation"],
-		"text":        args["text"],
-	}
 	if operation == "merge" {
 		inputs, err := resolveStringPaths(h, args["inputs"])
 		if err != nil {
@@ -394,34 +160,82 @@ func (h *ToolHub) pdfTransform(ctx context.Context, args map[string]any) (Result
 		if len(inputs) < 2 {
 			return Result{}, errors.New("merge requires at least two inputs")
 		}
-		request["inputs"] = inputs
-	} else {
-		path, err := h.resolvePath(stringArg(args, "path", ""))
+		for _, input := range inputs {
+			if input == outputPath {
+				return Result{}, errors.New("output_path must not overwrite an input file")
+			}
+		}
+		if _, err := os.Lstat(outputPath); err == nil {
+			return Result{}, errors.New("output_path already exists")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return Result{}, errors.New("output_path is unavailable")
+		}
+		out, err := runPDFPython(ctx, map[string]any{"operation": operation, "output_path": outputPath, "inputs": inputs})
 		if err != nil {
 			return Result{}, err
 		}
-		if strings.ToLower(filepath.Ext(path)) != ".pdf" {
-			return Result{}, errors.New("pdf.transform path must be a .pdf file")
-		}
-		if path == outputPath {
-			return Result{}, errors.New("output_path must not overwrite the input file")
-		}
-		request["path"] = path
+		return Result{Output: map[string]any{
+			"status": stringArg(out, "status", "pdf_version_written"), "operation": operation, "inputs": inputs,
+			"output_path": outputPath, "bytes": intArg(out, "bytes", fileSize(outputPath)), "pages": intArg(out, "pages", 0),
+		}}, nil
 	}
-	out, err := runPDFPython(ctx, request)
+	path, err := h.resolvePath(stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Output: map[string]any{
-		"status":      stringArg(out, "status", "pdf_version_written"),
-		"operation":   operation,
-		"path":        stringArg(out, "path", ""),
-		"inputs":      outputStringArray(out["inputs"]),
-		"output_path": outputPath,
-		"outputs":     outputStringArray(out["outputs"]),
-		"bytes":       intArg(out, "bytes", fileSize(outputPath)),
-		"pages":       intArg(out, "pages", 0),
-	}}, nil
+	target := document.LocatorRequest{Kind: document.LocatorDocument}
+	if operation != "split" {
+		target = document.LocatorRequest{Kind: document.LocatorPages, PageIndexes: intList(args["pages"]), AllowMultiple: true}
+	}
+	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
+		Path: path, OutputPath: outputPath, Operation: operation, Target: target,
+		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Output: documentChangeOutput(result, "pdf_version_written")}, nil
+}
+
+func docxEditTarget(operation string, args map[string]any) document.LocatorRequest {
+	if position := stringArg(args, "position", ""); operation == "insert_paragraph" && (position == "start" || position == "end") {
+		return document.LocatorRequest{Kind: document.LocatorDocument}
+	}
+	if location, ok := args["location"].(map[string]any); ok {
+		if path := stringArg(location, "path", ""); path != "" {
+			return document.LocatorRequest{Kind: document.LocatorBlock, LocationPath: path}
+		}
+	}
+	if index := intArg(args, "paragraph_index", 0); index > 0 {
+		return document.LocatorRequest{Kind: document.LocatorParagraph, ParagraphIndex: index}
+	}
+	return document.LocatorRequest{Kind: document.LocatorExactText, Text: stringArg(args, "old_text", "")}
+}
+
+func xlsxEditTarget(operation string, args map[string]any) document.LocatorRequest {
+	sheet := stringArg(args, "sheet", "")
+	switch operation {
+	case "update_cell":
+		return document.LocatorRequest{Kind: document.LocatorCell, Sheet: sheet, Cell: stringArg(args, "cell", "")}
+	case "append_row":
+		return document.LocatorRequest{Kind: document.LocatorSheet, Sheet: sheet}
+	default:
+		return document.LocatorRequest{Kind: document.LocatorRow, Sheet: sheet, Row: intArg(args, "row", 0), AllowMultiple: true}
+	}
+}
+
+func intList(value any) []int {
+	items, ok := arrayItems(value)
+	if !ok {
+		return nil
+	}
+	out := make([]int, 0, len(items))
+	for _, item := range items {
+		if number, ok := numberValue(item); ok {
+			out = append(out, int(number))
+		}
+	}
+	return out
 }
 
 func (h *ToolHub) resolveNewOutputPath(path string) (string, error) {
@@ -497,13 +311,6 @@ func outputStringArray(value any) []string {
 	return out
 }
 
-func objectOrEmpty(value any) map[string]any {
-	if object, ok := value.(map[string]any); ok && object != nil {
-		return object
-	}
-	return map[string]any{}
-}
-
 // documentAdapterTimeout bounds a single document subprocess so a hung
 // node/python process cannot pin the request forever when the caller's
 // context carries no deadline of its own.
@@ -553,32 +360,6 @@ func runSubprocessAdapter(ctx context.Context, request map[string]any, makeCmd f
 		return nil, errors.New(errText)
 	}
 	return out, nil
-}
-
-func runOfficeAdapter(ctx context.Context, ext string, request map[string]any) (map[string]any, error) {
-	switch ext {
-	case ".docx":
-		return runPythonAdapter(ctx, docxAdapterScript, request)
-	case ".pptx":
-		return runPythonAdapter(ctx, pptxAdapterScript, request)
-	case ".xlsx":
-		return runNodeAdapter(ctx, xlsxAdapterScript, request)
-	default:
-		return nil, fmt.Errorf("unsupported office extension %s", ext)
-	}
-}
-
-func runOfficeReadAdapter(ctx context.Context, ext string, request map[string]any) (map[string]any, error) {
-	switch ext {
-	case ".docx":
-		return runPythonAdapter(ctx, docxReadAdapterScript, request)
-	case ".pptx":
-		return runPythonAdapter(ctx, pptxReadAdapterScript, request)
-	case ".xlsx":
-		return runNodeAdapter(ctx, xlsxReadAdapterScript, request)
-	default:
-		return nil, fmt.Errorf("unsupported office extension %s", ext)
-	}
 }
 
 func runDocxStructureAdapter(ctx context.Context, request map[string]any) (map[string]any, error) {

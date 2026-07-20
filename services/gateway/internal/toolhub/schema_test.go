@@ -18,6 +18,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -501,24 +502,12 @@ func TestFilesReadReturnsFullTextUntilMaxBytes(t *testing.T) {
 	if textIndex["index_status"] != "skipped" {
 		t.Fatalf("small text read should skip retrieval index: %#v", textIndex)
 	}
-	limited, err := hub.Execute(context.Background(), "files.read", map[string]any{
+	_, err = hub.Execute(context.Background(), "files.read", map[string]any{
 		"path":      "large.txt",
 		"max_bytes": 80,
 	}, "s", "run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	limitedOut := limited.Output.(map[string]any)
-	if limitedOut["truncated"] != true || len([]byte(limitedOut["content"].(string))) > 80 {
-		t.Fatalf("expected max_bytes truncation only, got %#v", limitedOut)
-	}
-	limitedStrategy := limitedOut["document"].(map[string]any)["strategy"].(map[string]any)
-	if limitedStrategy["mode"] != "byte_limited" || limitedStrategy["complete"] != false {
-		t.Fatalf("limited text read should report byte-limited strategy: %#v", limitedStrategy)
-	}
-	limitedPipeline := limitedOut["document"].(map[string]any)["pipeline"].(map[string]any)
-	if limitedPipeline["status"] != "partial" {
-		t.Fatalf("limited text read should mark pipeline partial: %#v", limitedPipeline)
+	if !document.IsErrorCode(err, document.CodeStrategyDeferred) || !strings.Contains(err.Error(), "limit=80") {
+		t.Fatalf("limited small-file read must defer instead of truncating, got %v", err)
 	}
 }
 
@@ -942,8 +931,8 @@ func TestDocxParagraphToolRejectsOutOfRangeParagraph(t *testing.T) {
 		"paragraph_index": 99,
 		"output_path":     "outputs/deleted.docx",
 	}, "s", "run")
-	if err == nil || !strings.Contains(err.Error(), "paragraph_index out of range") {
-		t.Fatalf("expected paragraph range error, got %v", err)
+	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
+		t.Fatalf("expected typed paragraph target error, got %v", err)
 	}
 }
 
@@ -1194,8 +1183,8 @@ func TestXlsxStructureToolRejectsMissingSheet(t *testing.T) {
 		"value":       "x",
 		"output_path": "outputs/missing.xlsx",
 	}, "s", "run")
-	if err == nil || !strings.Contains(err.Error(), "sheet not found") {
-		t.Fatalf("expected missing sheet error, got %v", err)
+	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
+		t.Fatalf("expected typed missing-sheet target error, got %v", err)
 	}
 }
 
@@ -1327,8 +1316,8 @@ func TestPDFTransformRejectsOutOfRangePage(t *testing.T) {
 		"pages":       []any{2},
 		"output_path": "outputs/bad.pdf",
 	}, "s", "run")
-	if err == nil || !strings.Contains(err.Error(), "page out of range") {
-		t.Fatalf("expected page range error, got %v", err)
+	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
+		t.Fatalf("expected typed page target error, got %v", err)
 	}
 }
 

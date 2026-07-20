@@ -12,6 +12,16 @@ max_bytes = int(req.get("max_bytes") or 20000)
 def trim(text):
     return " ".join(str(text or "").split())
 
+extracted_bytes = 0
+
+def append_line(lines, text):
+    global extracted_bytes
+    extracted_bytes += len(text.encode("utf-8")) + (1 if lines else 0)
+    if extracted_bytes > max_bytes:
+        print(json.dumps({"content":"", "truncated":True, "extracted_bytes":extracted_bytes}))
+        sys.exit(0)
+    lines.append(text)
+
 try:
     prs = Presentation(req["path"])
     slides = []
@@ -32,13 +42,13 @@ try:
                 items.append({"shape_index": shape_index, "type": "table", "rows": rows})
         slides.append({"index": s_index, "items": items})
         if items:
-            lines.append("Slide %d:" % s_index)
+            append_line(lines, "Slide %d:" % s_index)
             for item in items:
                 if item["type"] == "text":
-                    lines.append(item["text"])
+                    append_line(lines, item["text"])
                 elif item["type"] == "table":
                     for row in item["rows"]:
-                        lines.append("\t".join(row["cells"]))
+                        append_line(lines, "\t".join(row["cells"]))
     content = "\n".join(lines).strip()
     raw = content.encode("utf-8")
     truncated = len(raw) > max_bytes
@@ -47,6 +57,7 @@ try:
     print(json.dumps({
         "content": content,
         "truncated": truncated,
+        "extracted_bytes": extracted_bytes,
         "document": {
             "schema_version": "document_read_v1",
             "format": "pptx",

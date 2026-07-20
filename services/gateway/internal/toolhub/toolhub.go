@@ -20,6 +20,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/sandbox"
@@ -37,6 +38,7 @@ type ToolHub struct {
 	reminders *remindertarget.Resolver
 	webSearch websearch.Adapter
 	browser   browserautomation.Adapter
+	documents *document.Pipeline
 }
 
 type Result struct {
@@ -55,6 +57,7 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		webSearch: websearch.NewAdapter(cfg),
 		browser:   browserautomation.NewAdapter(cfg),
 	}
+	h.documents = newDocumentPipeline()
 	for _, def := range defaultDefinitions() {
 		reg, ok := toolRegistry[def.Name]
 		if !ok {
@@ -208,20 +211,21 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "files.read",
-			Description: "Read a workspace file through the unified document read contract. Adapters may use different strategies internally, but return content plus a document envelope with format, strategy, locations, and stats.",
+			Description: "Inspect and completely parse one small workspace document into stable blocks and format-specific locations. Oversized documents return an explicit deferred error instead of truncated content.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":      map[string]any{"type": "string"},
 				"max_bytes": map[string]any{"type": "number"},
 			}),
-			OutputSchema: objectSchema([]string{"path", "kind", "content", "bytes", "truncated", "untrusted"}, map[string]any{
-				"path":      stringSchema(),
-				"kind":      stringSchema(),
-				"content":   stringSchema(),
-				"bytes":     integerSchema(),
-				"max_bytes": integerSchema(),
-				"truncated": booleanSchema(),
-				"untrusted": booleanSchema(),
-				"document":  objectValueSchema(),
+			OutputSchema: objectSchema([]string{"path", "kind", "content", "bytes", "source_bytes", "max_bytes", "truncated", "untrusted", "document"}, map[string]any{
+				"path":         stringSchema(),
+				"kind":         stringSchema(),
+				"content":      stringSchema(),
+				"bytes":        integerSchema(),
+				"source_bytes": integerSchema(),
+				"max_bytes":    integerSchema(),
+				"truncated":    booleanSchema(),
+				"untrusted":    booleanSchema(),
+				"document":     objectValueSchema(),
 			}),
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
@@ -350,14 +354,15 @@ func defaultDefinitions() []app.ToolDefinition {
 				}),
 				"expected_replacements": map[string]any{"type": "number"},
 			}),
-			OutputSchema: objectSchema([]string{"status", "path", "output_path", "replacements", "bytes", "untrusted"}, map[string]any{
-				"status":       stringSchema(),
-				"path":         stringSchema(),
-				"output_path":  stringSchema(),
-				"replacements": integerSchema(),
-				"bytes":        integerSchema(),
-				"details":      arraySchema(objectValueSchema()),
-				"untrusted":    booleanSchema(),
+			OutputSchema: objectSchema([]string{"status", "path", "output_path", "replacements", "bytes", "change_summary", "untrusted"}, map[string]any{
+				"status":         stringSchema(),
+				"path":           stringSchema(),
+				"output_path":    stringSchema(),
+				"replacements":   integerSchema(),
+				"bytes":          integerSchema(),
+				"details":        arraySchema(objectValueSchema()),
+				"change_summary": objectValueSchema(),
+				"untrusted":      booleanSchema(),
 			}),
 			Risk:             app.RiskReversible,
 			RequiresApproval: true,
@@ -458,13 +463,14 @@ func defaultDefinitions() []app.ToolDefinition {
 				"path":      stringSchema(),
 				"max_bytes": map[string]any{"type": "number"},
 			}),
-			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "scanned_unsupported"}, map[string]any{
+			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "scanned_unsupported", "document"}, map[string]any{
 				"path":                stringSchema(),
 				"content":             stringSchema(),
 				"bytes":               integerSchema(),
 				"truncated":           booleanSchema(),
 				"untrusted":           booleanSchema(),
 				"scanned_unsupported": booleanSchema(),
+				"document":            objectValueSchema(),
 			}),
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
@@ -485,14 +491,15 @@ func defaultDefinitions() []app.ToolDefinition {
 				"output_path": stringSchema(),
 			}),
 			OutputSchema: objectSchema([]string{"status", "operation", "output_path", "bytes"}, map[string]any{
-				"status":      stringSchema(),
-				"operation":   stringSchema(),
-				"path":        stringSchema(),
-				"inputs":      stringArraySchema(),
-				"output_path": stringSchema(),
-				"outputs":     stringArraySchema(),
-				"bytes":       integerSchema(),
-				"pages":       integerSchema(),
+				"status":         stringSchema(),
+				"operation":      stringSchema(),
+				"path":           stringSchema(),
+				"inputs":         stringArraySchema(),
+				"output_path":    stringSchema(),
+				"outputs":        stringArraySchema(),
+				"bytes":          integerSchema(),
+				"pages":          integerSchema(),
+				"change_summary": objectValueSchema(),
 			}),
 			Risk:             app.RiskReversible,
 			RequiresApproval: true,
@@ -935,7 +942,7 @@ func docxToolDefinition(name, description string, required []string, input map[s
 		Name:        name,
 		Description: description,
 		InputSchema: schema("object", required, input),
-		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "untrusted"}, map[string]any{
+		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "change_summary", "untrusted"}, map[string]any{
 			"status":          stringSchema(),
 			"operation":       stringSchema(),
 			"path":            stringSchema(),
@@ -946,6 +953,7 @@ func docxToolDefinition(name, description string, required []string, input map[s
 			"text":            stringSchema(),
 			"style":           objectValueSchema(),
 			"location":        objectValueSchema(),
+			"change_summary":  objectValueSchema(),
 			"untrusted":       booleanSchema(),
 		}),
 		Risk:             app.RiskReversible,
@@ -962,7 +970,7 @@ func pptxToolDefinition(name, description string, required []string, input map[s
 		Name:        name,
 		Description: description,
 		InputSchema: schema("object", required, input),
-		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "slides", "untrusted"}, map[string]any{
+		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "slides", "change_summary", "untrusted"}, map[string]any{
 			"status":               stringSchema(),
 			"operation":            stringSchema(),
 			"path":                 stringSchema(),
@@ -974,6 +982,7 @@ func pptxToolDefinition(name, description string, required []string, input map[s
 			"layout_index":         integerSchema(),
 			"title":                stringSchema(),
 			"body":                 stringSchema(),
+			"change_summary":       objectValueSchema(),
 			"untrusted":            booleanSchema(),
 		}),
 		Risk:             app.RiskReversible,
@@ -990,19 +999,20 @@ func xlsxToolDefinition(name, description string, required []string, input map[s
 		Name:        name,
 		Description: description,
 		InputSchema: schema("object", required, input),
-		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "sheet", "untrusted"}, map[string]any{
-			"status":       stringSchema(),
-			"operation":    stringSchema(),
-			"path":         stringSchema(),
-			"output_path":  stringSchema(),
-			"bytes":        integerSchema(),
-			"sheet":        stringSchema(),
-			"cell":         stringSchema(),
-			"row":          integerSchema(),
-			"inserted_row": integerSchema(),
-			"value":        scalarValueSchema(),
-			"values":       arraySchema(scalarValueSchema()),
-			"untrusted":    booleanSchema(),
+		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "sheet", "change_summary", "untrusted"}, map[string]any{
+			"status":         stringSchema(),
+			"operation":      stringSchema(),
+			"path":           stringSchema(),
+			"output_path":    stringSchema(),
+			"bytes":          integerSchema(),
+			"sheet":          stringSchema(),
+			"cell":           stringSchema(),
+			"row":            integerSchema(),
+			"inserted_row":   integerSchema(),
+			"value":          scalarValueSchema(),
+			"values":         arraySchema(scalarValueSchema()),
+			"change_summary": objectValueSchema(),
+			"untrusted":      booleanSchema(),
 		}),
 		Risk:             app.RiskReversible,
 		RequiresApproval: true,
@@ -1469,46 +1479,16 @@ func (h *ToolHub) filesRead(ctx context.Context, args map[string]any) (Result, e
 	if err != nil {
 		return Result{}, err
 	}
-	structured := isStructuredDocumentPath(path)
-	defaultMaxBytes := 200000
-	if structured && strings.ToLower(filepath.Ext(path)) != ".docx" {
-		defaultMaxBytes = 20000
+	maxBytes := intArg(args, "max_bytes", document.SmallExtractedMaxBytes)
+	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
+		maxBytes = document.SmallExtractedMaxBytes
 	}
-	maxBytes := intArg(args, "max_bytes", defaultMaxBytes)
-	if maxBytes <= 0 || maxBytes > 200000 {
-		maxBytes = defaultMaxBytes
-	}
-	select {
-	case <-ctx.Done():
-		return Result{}, ctx.Err()
-	default:
-	}
-	if structured {
-		return h.readStructuredDocument(ctx, path, maxBytes)
-	}
-	raw, err := os.ReadFile(path)
+	read, err := h.readDocumentWorkflow(ctx, path, maxBytes)
 	if err != nil {
 		return Result{}, err
 	}
-	truncated := len(raw) > maxBytes
-	if truncated {
-		raw = raw[:maxBytes]
-	}
-	relPath := h.workspaceRelPath(path)
-	document := textDocumentReadEnvelope(string(raw), truncated, maxBytes)
-	attachSmallDocumentPipeline(document, relPath, "text", string(raw), truncated, maxBytes)
-	return Result{Output: map[string]any{
-		"path":         path,
-		"rel_path":     relPath,
-		"already_read": true,
-		"kind":         "text",
-		"content":      string(raw),
-		"bytes":        len(raw),
-		"max_bytes":    maxBytes,
-		"truncated":    truncated,
-		"untrusted":    true,
-		"document":     document,
-	}}, nil
+	output, err := documentReadOutput(read, maxBytes)
+	return Result{Output: output}, err
 }
 
 func textDocumentReadEnvelope(content string, truncated bool, maxBytes int) map[string]any {

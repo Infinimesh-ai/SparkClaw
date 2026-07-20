@@ -2,6 +2,9 @@ package document
 
 import (
 	"archive/zip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +14,22 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
+
+var formatExtensions = map[string]string{
+	app.DocumentFormatText: ".txt",
+	app.DocumentFormatDOCX: ".docx",
+	app.DocumentFormatXLSX: ".xlsx",
+	app.DocumentFormatPPTX: ".pptx",
+	app.DocumentFormatPDF:  ".pdf",
+}
+
+var formatContentTypes = map[string]string{
+	app.DocumentFormatText: "text/plain; charset=utf-8",
+	app.DocumentFormatDOCX: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	app.DocumentFormatXLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	app.DocumentFormatPPTX: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	app.DocumentFormatPDF:  "application/pdf",
+}
 
 // DetectFormat verifies signature-bearing formats before returning the
 // canonical format used by document Workflow profiles and ToolHub.
@@ -46,6 +65,98 @@ func DetectFormat(path string) (string, error) {
 		}
 		return app.DocumentFormatText, nil
 	}
+}
+
+// InspectFile performs the resource and type stage shared by every document
+// strategy. It deliberately returns metadata for oversized files so strategy
+// selection can report an explicit deferred state.
+func InspectFile(ctx context.Context, root, path string) (Metadata, error) {
+	select {
+	case <-ctx.Done():
+		return Metadata{}, ctx.Err()
+	default:
+	}
+	if strings.TrimSpace(root) == "" {
+		return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Detail: "workspace root is invalid"}
+	}
+	rootAbs, err := filepath.Abs(strings.TrimSpace(root))
+	if err != nil {
+		return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Detail: "workspace root is invalid"}
+	}
+	pathAbs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil || pathAbs == rootAbs || !strings.HasPrefix(pathAbs, rootAbs+string(os.PathSeparator)) {
+		return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Detail: "document path escapes the workspace"}
+	}
+	relative, err := filepath.Rel(rootAbs, pathAbs)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Detail: "document path escapes the workspace"}
+	}
+	current := rootAbs
+	for _, component := range strings.Split(relative, string(os.PathSeparator)) {
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if statErr != nil {
+			return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Detail: "document path is unavailable"}
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Detail: "document path must not traverse symlinks"}
+		}
+	}
+	info, err := os.Lstat(pathAbs)
+	if err != nil || !info.Mode().IsRegular() {
+		return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Detail: "document path must be a regular non-symlink file"}
+	}
+	format, err := DetectFormat(pathAbs)
+	if err != nil {
+		return Metadata{}, &PipelineError{Code: CodeFormatUnsupported, Stage: StageInspect, Detail: err.Error()}
+	}
+	metadata := Metadata{
+		Path: pathAbs, Relative: filepath.ToSlash(relative), Format: format, ContentType: ContentTypeForFormat(format),
+		Size: info.Size(), ModifiedAt: info.ModTime().UTC(),
+	}
+	if metadata.Size <= SmallFileMaxBytes {
+		metadata.SHA256, err = fileSHA256(ctx, pathAbs)
+		if err != nil {
+			return Metadata{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageInspect, Format: format, Detail: "document hash could not be computed"}
+		}
+	}
+	return metadata, nil
+}
+
+func fileSHA256(ctx context.Context, path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	buffer := make([]byte, 64*1024)
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		read, readErr := file.Read(buffer)
+		if read > 0 {
+			_, _ = hash.Write(buffer[:read])
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", readErr
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func ExtensionForFormat(format string) string {
+	return formatExtensions[strings.ToLower(strings.TrimSpace(format))]
+}
+
+func ContentTypeForFormat(format string) string {
+	return formatContentTypes[strings.ToLower(strings.TrimSpace(format))]
 }
 
 func readPrefix(path string, limit int64) ([]byte, error) {

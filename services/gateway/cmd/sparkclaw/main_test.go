@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -280,6 +282,45 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 		if strings.Contains(string(configRaw), secret) || strings.Contains(string(readyRaw), secret) {
 			t.Fatalf("public status leaked integration secret")
 		}
+	}
+}
+
+func TestDefaultFileBackendProductionEntryReadsStructuredDocument(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("production entry evidence"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.State.Backend = ""
+	cfg.State.Path = filepath.Join(root, "gateway-state.json")
+	cfg.Workspaces.DefaultRoot = workspace
+	cfg.Workspaces.Allowlist = []string{workspace}
+
+	st, err := newStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closer, ok := st.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+	session := st.CreateSessionWithScope("document production entry", app.DefaultOwnerID, workspace, "web", false)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	result, err := tools.Execute(context.Background(), "files.read", map[string]any{"path": "note.txt"}, session.ID, "run_document")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.Output.(map[string]any)
+	documentOutput := output["document"].(map[string]any)
+	if output["truncated"] != false || documentOutput["representation_version"] != "structured_document_v1" || documentOutput["id"] == "" {
+		t.Fatalf("default file backend did not execute the structured document path: %#v", output)
+	}
+	if _, err := os.Stat(cfg.State.Path); err != nil {
+		t.Fatalf("default file backend did not persist production state: %v", err)
 	}
 }
 

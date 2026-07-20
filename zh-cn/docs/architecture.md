@@ -156,8 +156,8 @@ Risk levels 为 `read`、`draft`、`reversible` 和 `dangerous`。Read/draft too
 1. 检查受治理的普通文件，校验带签名的格式，并记录大小、媒体类型、修改时间和 SHA-256 元数据；
 2. 按规范化后的已检测格式选择注册 parser；
 3. 把完整解析结果规范化为 `structured_document_v1`，为 document、block、paragraph、section、sheet、row、cell、slide 和 page 生成稳定 ID，并保留来源位置与必要格式元数据；
-4. 解析用户要求的文本或结构位置，对未找到、歧义或命中数不符的结果明确失败；
-5. 只对受约束目标生成新输出副本，并返回可审计的 `change_summary`，证明原件未被修改。
+4. 解析用户要求的文本或结构位置，对未找到、歧义或命中数不符的结果明确失败；row 和 slide locator 选择一个稳定结构实体，而不是展开成子 block；
+5. 只对受约束目标生成一个或多个新输出副本，检查每个已报告输出并重新计算输入哈希，再返回带 `output_paths` 的可审计 `change_summary`，证明原件未被修改。无效或零变更结果会清理已生成的输出副本。
 
 当前 `small_file_v1` 策略接受最大 8 MiB 的源文件和最大 200,000 bytes 的完整抽取表示。读取支持 text、DOCX、XLSX、PPTX 和文本型 PDF；修改支持已注册的 DOCX、XLSX、PPTX 与 PDF 副本操作。超过任一阈值会返回类型化 `strategy_deferred`；不支持的格式和 locator 返回各自的类型化错误。Adapter 不得截断后报告成功。
 

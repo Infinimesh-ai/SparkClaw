@@ -154,14 +154,16 @@ stage edit_by_type
   PPTX -> 兼容 PPTX editor entry
   PDF -> 兼容 PDF transform entry
   editor 内部重新 inspect -> read -> structure -> locate -> constrain
+  row/slide 结构目标 -> 一个稳定实体，而不是全部子 block
   只 apply 到不存在的新 output copy
+  校验每个类型化输出 -> 重新计算冻结输入哈希 -> 失败时清理
 
 edit_completed
-  -> 返回类型化 output artifact 和 operation result
+  -> 返回全部类型化 output artifact 和 operation result
   -> complete
 ```
 
-Revision 1 返回可审计 `change_summary`，写入 output copy，并在类型化编辑成功后结束。目标未找到、歧义或命中数不符时在 mutation 前 block。后续 revision 可以注册独立验证阶段，但当前不能静默插入。其他格式或 operation 的工具保持不可见。
+Revision 1 返回可审计 `change_summary`，写入一个或多个 output copy，并且只有在每个类型化输出都存在且输入哈希未变化后才结束。目标未找到、歧义或命中数不符时在 mutation 前 block。后续 revision 可以注册独立验证阶段，但当前不能静默插入。其他格式或 operation 的工具保持不可见。
 
 ## 旧上下文组装边界
 

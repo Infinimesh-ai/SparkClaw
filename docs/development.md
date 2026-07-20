@@ -179,9 +179,12 @@ successful small-document result.
 
 Every reader must produce stable location IDs in `structured_document_v1`.
 Every editor must consume located targets, reject missing, ambiguous, or
-count-mismatched targets, write a non-existing output copy, and return
-`change_summary`. Keep subprocesses behind the bounded document adapters and
-treat all parsed content as untrusted.
+count-mismatched targets, write non-existing output copies, and return every
+produced path through the typed result rather than adapter-specific details.
+The Pipeline validates each output, re-hashes the input, and only then returns
+`change_summary`; invalid or zero-change results clean up generated copies.
+Keep subprocesses behind the bounded document adapters and treat all parsed
+content as untrusted.
 
 Run the document setup before tests:
 

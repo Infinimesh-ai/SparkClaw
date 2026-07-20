@@ -147,7 +147,7 @@ Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID �
 
 当前唯一实现的策略是 `small_file_v1`：源文件最大 8 MiB，完整抽取内容最大 200,000 bytes。更大资源必须返回类型化 `strategy_deferred`，直到另一个 `document.Strategy` 实现分块、流式、索引或惰性访问。截断内容绝不能成为成功的小文档结果。
 
-每个 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并返回 `change_summary`。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
+每个 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并通过类型化结果返回全部输出 path，而不能只放在 adapter-specific details 中。Pipeline 会校验每个输出、重新计算输入哈希，然后才返回 `change_summary`；无效或零变更结果会清理生成的副本。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
 
 测试前先安装文档运行时：
 

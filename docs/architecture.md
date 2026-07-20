@@ -189,9 +189,12 @@ when the underlying strategy changes:
    document, block, paragraph, section, sheet, row, cell, slide, and page IDs
    plus source locations and necessary format metadata;
 4. resolve the requested text or structural location and reject missing,
-   ambiguous, or unexpected match counts;
-5. apply only the constrained mutation to a new output path and return an
-   auditable `change_summary` proving that the original remained unchanged.
+   ambiguous, or unexpected match counts; row and slide locators select one
+   stable structural entity rather than expanding into their child blocks;
+5. apply only the constrained mutation to one or more new output paths,
+   inspect every reported output, re-hash the input, and return an auditable
+   `change_summary` with `output_paths` proving that the original remained
+   unchanged. Invalid or zero-change results remove generated output copies.
 
 The current `small_file_v1` strategy accepts source files up to 8 MiB and a
 complete extracted representation up to 200,000 bytes. It supports text,

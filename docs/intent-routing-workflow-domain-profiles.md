@@ -201,16 +201,19 @@ stage edit_by_type
   PPTX -> compatible PPTX editor entries
   PDF -> compatible PDF transform entry
   editor internally re-inspects -> reads -> structures -> locates -> constrains
-  apply only to a non-existing output copy
+  structural row/slide targets -> one stable entity, not all child blocks
+  apply only to non-existing output copies
+  validate each typed output -> re-hash the frozen input -> clean up on failure
 
 edit_completed
-  -> return the typed output artifact and operation result
+  -> return every typed output artifact and operation result
   -> complete
 ```
 
-Revision 1 returns an auditable `change_summary`, writes an output copy, and
-stops on typed edit success. Missing, ambiguous, and unexpected target counts
-block before mutation. A separate
+Revision 1 returns an auditable `change_summary`, writes one or more output
+copies, and stops only after every typed output exists and the input hash is
+unchanged. Missing, ambiguous, and unexpected target counts block before
+mutation. A separate
 verification stage may be registered in a later revision; it is not silently
 inserted now. Tools for other formats or operations remain invisible.
 

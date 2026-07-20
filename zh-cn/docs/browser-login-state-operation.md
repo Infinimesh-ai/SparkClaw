@@ -18,7 +18,8 @@
 - 登录、验证码、短信、2FA、授权、支付或其他人工步骤会创建 `BrowserLoginBlock`，并把
   同一个 Profile 切换到可见 Chromium。
 - 同一 session 中用户的下一条消息用于恢复被阻塞的原 run，不是新目标。
-- 登录后使用当前选中可见页面的实际 URL 作为恢复目标。
+- 登录后把当前选中可见页面的实际 URL 记录为 handoff 目标。已持久化 Workflow 保留原 route
+  和 resource；selected 页面只用于建立认证状态，受治理读取仍使用冻结的 `TargetRef`。
 - 已认证页面可以与原始页面处于不同 origin。
 - 普通自动化继续前，使用同一个 Profile 切回 headless Chromium。
 - 浏览器凭据始终保留在 Chromium Profile 中；Gateway 不导出、注入或保存 Cookie/storage。
@@ -51,7 +52,8 @@ type BrowserLoginBlock struct {
 ```
 
 `OriginalGoal` 和原始 URL 保持不变，用作任务上下文。登录完成后可以用实际页面更新
-`LoginHandoffURL`、`ResumeArgs.url` 和 `SiteOrigin`。
+`LoginHandoffURL`、`ResumeArgs.url` 和 `SiteOrigin`。这些 handoff 字段不能替换已持久化
+Workflow 的 route、plan digest 或冻结 resource binding。
 
 ## 首次登录或登录失效
 
@@ -79,8 +81,9 @@ Runtime 不能把原 run 标记为完成，也不能让用户重复说明目标�
 5. 使用登录后的 URL 更新 block 和 resume arguments。
 6. 停止可见 Chromium，等待共享 Profile 释放。
 7. 使用同一个 Profile 启动 headless Chromium。
-8. 读取登录后的 URL。
-9. 页面已认证时 resolve block，并继续原 ReAct run。
+8. 未匹配任务读取登录后的 URL；已匹配任务读取持久化 Workflow 的冻结 target。Tab discovery
+   和认证检查属于 Runtime preflight，不消耗 Workflow scope。
+9. 页面已认证时 resolve block，并把登录前被中断的 tool outcome 应用到原持久化 Workflow。
 10. 页面仍是登录或验证墙时，重新切回可见模式并保持 block waiting。
 
 Runtime 必须复用已有的 selected 交接标签页，不能因为登录前后 origin 不同就再打开一个可见
@@ -217,6 +220,8 @@ HttpOnly Cookie、Cookie 属性、IndexedDB、Service Worker 和跨域 SSO 状�
 - WebVPN/SSO 跨 origin 跳转会更新恢复 URL，不产生 origin mismatch。
 - 可见 Chromium 停止后才启动 headless Chromium。
 - headless Chromium 复用 Profile 登录态并继续原 run。
+- 已匹配 Workflow 的登录恢复保留 route、plan digest 和冻结 resource；Runtime 登录 preflight
+  不生成替代 Workflow outcome。
 - 类 QQ 邮箱 SPA fixture 在 Profile 已持久化、邮箱应用壳可用，但隐藏/style 内容仍含密码或
   登录字符串时，必须保持 authenticated。
 - 只有文件夹解锁或账户设置密码框、但没有登录 form 的页面不能创建 login block。

@@ -21,8 +21,10 @@ for new login continuations.
   Chromium.
 - The user's next message in the same session resumes the blocked run; it is not
   treated as a new goal.
-- After login, SparkClaw uses the selected visible page's current URL as the
-  resume target.
+- After login, SparkClaw records the selected visible page's current URL as the
+  handoff target. A persisted Workflow keeps its original route and resource;
+  the selected page establishes authentication state, while the governed read
+  still uses the frozen `TargetRef`.
 - The authenticated page may be on a different origin from the original page.
 - SparkClaw switches the same profile back to headless Chromium before ordinary
   automated work continues.
@@ -58,7 +60,8 @@ type BrowserLoginBlock struct {
 
 `OriginalGoal` and the original URL remain unchanged for task context.
 `LoginHandoffURL`, `ResumeArgs.url`, and `SiteOrigin` may be updated to the
-actual authenticated page after login.
+actual authenticated page after login. Those handoff fields do not replace a
+persisted Workflow's route, plan digest, or frozen resource binding.
 
 ## First Login Or Expired Login
 
@@ -89,9 +92,11 @@ When the user replies with text such as `login completed`, `logged in`,
 5. Update the block and resume arguments to the selected post-login URL.
 6. Stop visible Chromium and wait for the shared profile to be released.
 7. Start headless Chromium with the same profile.
-8. Read the post-login URL.
-9. If the page is authenticated, resolve the block and continue the original
-   ReAct run.
+8. Read the post-login URL for an unmatched task, or the persisted Workflow's
+   frozen target for a matched task. Tab discovery and this authentication
+   check remain Runtime preflight and do not consume Workflow scope.
+9. If the page is authenticated, resolve the block and apply the interrupted
+   tool outcome to the original persisted Workflow.
 10. If a login or verification wall remains, return the profile to visible mode
     and keep the block waiting.
 
@@ -265,6 +270,9 @@ Never include cookies, tokens, storage values, or the raw profile path.
 - Visible Chromium stops before headless Chromium starts.
 - Headless Chromium reuses the profile login state and continues the original
   run.
+- Matched Workflow login resume preserves the route, plan digest, and frozen
+  resource; Runtime login preflight does not create a replacement Workflow
+  outcome.
 - A QQ-Mail-shaped SPA fixture with persisted profile state, a usable mailbox
   application shell, and unrelated password/login strings in hidden or style
   content remains authenticated.

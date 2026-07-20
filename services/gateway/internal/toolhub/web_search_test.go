@@ -11,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
 
 func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
@@ -93,8 +94,12 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := result.Output.(map[string]any)
-	if out["provider"] != "infinimesh-info" || out["answer"] != "Infinimesh summary" || out["count"] != 1 || out["untrusted"] != true {
+	if out["provider"] != "infinimesh-info" || out["request_id"] == "" || out["summary"] != "Infinimesh summary" || out["answer"] != "Infinimesh summary" || out["count"] != 1 || out["retrieved_at"] == "" || out["untrusted"] != true {
 		t.Fatalf("unexpected web search output: %#v", out)
+	}
+	facts, ok := out["key_facts"].([]websearch.KeyFact)
+	if !ok || len(facts) != 1 || facts[0].ID != "fact:0" {
+		t.Fatalf("fixed Info key facts were not preserved: %#v", out["key_facts"])
 	}
 	citations, ok := out["citations"].([]string)
 	if !ok || len(citations) != 1 || citations[0] != "https://example.test/official" {

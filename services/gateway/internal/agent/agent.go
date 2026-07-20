@@ -1136,7 +1136,7 @@ func (r Runtime) toolResultObservationBudget(tool string) (int, int) {
 }
 
 func enrichPlanWithWebFreshness(goal string, plan toolPlan) toolPlan {
-	if plan.Name != "web.search" || !goalNeedsFreshWeb(goal) {
+	if plan.WorkflowID != "" || plan.Name != "web.search" || !goalNeedsFreshWeb(goal) {
 		return plan
 	}
 	query := strings.TrimSpace(stringValue(plan.Args["query"]))

@@ -246,16 +246,21 @@ future, separately reviewed change.
 The `internal/websearch` adapter maps a successful agent-context response as
 follows:
 
-| Infinimesh Info | Existing `web.search` output |
+| Infinimesh Info | `web.search` output |
 |---|---|
-| `answer_context.summary` | `answer` |
+| `request_id` | `request_id` |
+| `answer_context.summary` | `summary` and the backward-compatible `answer` |
+| `answer_context.key_facts[]` | `key_facts[]` with stable `fact:N` IDs |
+| `sources[].id` and bounded response order | `results[].id` and `results[].evidence_index` |
 | `sources[].title` | `results[].title` |
 | `sources[].url` | `results[].url` |
-| bounded join of `sources[].snippets` | `results[].snippet` |
+| individually bounded `sources[].snippets` | `results[].snippets[]` plus the backward-compatible joined `results[].snippet` |
 | `sources[].source_type` | `results[].source` |
 | `sources[].published_at` | `results[].published_at` |
+| `sources[].retrieved_at` | `results[].retrieved_at` |
 | URLs referenced by `answer_context.key_facts[].sources` | `citations` |
 | response source count | `count` |
+| local completion time for the fixed response | `retrieved_at` |
 | client elapsed time | `took_ms` |
 | constant `infinimesh-info` | `provider` |
 | constant `true` | `untrusted` |
@@ -268,6 +273,18 @@ do not crash the adapter; they are omitted subject to the requested result
 limit. An empty summary is allowed only when valid source evidence exists, in
 which case the adapter builds a short evidence-oriented answer without
 inventing facts.
+
+The complete bounded tool result remains available to workflow outcome
+adapters and the raw observation archive. Before a later model step, the
+presenter builds a separate typed evidence projection from the frozen route
+query. That projection contains only a bounded relevant summary excerpt,
+selected key facts, selected source snippets with stable `summary:0`, `fact:N`,
+and `source:N:snippet:M` refs, citations, the Info request ID, and an untrusted
+marker. It has a hard byte limit and reports absent fixed-response components
+or a query mismatch through `status`, `missing_components`, and
+`failure_code`; it never asks Info for a different response shape or infers
+missing structured values. Observation text stays evidence and cannot supply
+tools, next steps, or runtime instructions.
 
 ## Legacy Engine Migration
 

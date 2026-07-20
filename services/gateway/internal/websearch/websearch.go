@@ -19,23 +19,38 @@ type Request struct {
 }
 
 type Result struct {
-	Query     string   `json:"query"`
-	Answer    string   `json:"answer"`
-	Provider  string   `json:"provider"`
-	Model     string   `json:"model,omitempty"`
-	Count     int      `json:"count"`
-	Results   []Item   `json:"results"`
-	Citations []string `json:"citations,omitempty"`
-	TookMS    int64    `json:"took_ms,omitempty"`
-	Untrusted bool     `json:"untrusted"`
+	RequestID   string    `json:"request_id"`
+	Query       string    `json:"query"`
+	Summary     string    `json:"summary"`
+	Answer      string    `json:"answer"`
+	Provider    string    `json:"provider"`
+	Model       string    `json:"model,omitempty"`
+	Count       int       `json:"count"`
+	Results     []Item    `json:"results"`
+	KeyFacts    []KeyFact `json:"key_facts"`
+	Citations   []string  `json:"citations,omitempty"`
+	RetrievedAt string    `json:"retrieved_at"`
+	TookMS      int64     `json:"took_ms,omitempty"`
+	Untrusted   bool      `json:"untrusted"`
 }
 
 type Item struct {
-	Title       string `json:"title"`
-	URL         string `json:"url"`
-	Snippet     string `json:"snippet"`
-	Source      string `json:"source"`
-	PublishedAt string `json:"published_at"`
+	EvidenceIndex int      `json:"evidence_index"`
+	ID            string   `json:"id,omitempty"`
+	Title         string   `json:"title"`
+	URL           string   `json:"url"`
+	Snippet       string   `json:"snippet"`
+	Snippets      []string `json:"snippets"`
+	Source        string   `json:"source"`
+	PublishedAt   string   `json:"published_at"`
+	RetrievedAt   string   `json:"retrieved_at,omitempty"`
+}
+
+type KeyFact struct {
+	ID         string   `json:"id"`
+	Claim      string   `json:"claim"`
+	Confidence string   `json:"confidence,omitempty"`
+	Sources    []string `json:"sources,omitempty"`
 }
 
 func clampInt(value, minValue, maxValue int) int {
@@ -51,7 +66,7 @@ func clampInt(value, minValue, maxValue int) int {
 func NewAdapter(cfg config.Config) Adapter {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Tools.Web.Search.Provider))
 	switch provider {
-	case "", "infinimesh-info":
+	case "", InfoProviderName:
 		adapter, err := NewInfinimeshInfoAdapter(cfg.Plugins.Entries.InfinimeshInfo.Config, nil)
 		if err != nil {
 			return disabledAdapter{reason: err.Error()}

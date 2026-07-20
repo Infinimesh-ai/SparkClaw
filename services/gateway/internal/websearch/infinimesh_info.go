@@ -3,6 +3,7 @@ package websearch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +17,7 @@ import (
 const (
 	maxInfinimeshInfoResults = 40
 	maxSourceSnippetBytes    = 1200
+	InfoProviderName         = infinimeshinfo.ProviderName
 )
 
 type InfinimeshInfoAdapter struct {
@@ -70,7 +72,8 @@ func (a InfinimeshInfoAdapter) Search(ctx context.Context, request Request) (Res
 		return Result{}, err
 	}
 	items, sourceURLs := infinimeshSources(response.Sources, maxResults)
-	answer := strings.TrimSpace(response.AnswerContext.Summary)
+	summary := strings.TrimSpace(response.AnswerContext.Summary)
+	answer := summary
 	if answer == "" {
 		answer = evidenceAnswer(items)
 	}
@@ -78,14 +81,18 @@ func (a InfinimeshInfoAdapter) Search(ctx context.Context, request Request) (Res
 		return Result{}, errors.New("infinimesh info returned no answer or usable sources")
 	}
 	return Result{
-		Query:     query,
-		Answer:    answer,
-		Provider:  infinimeshinfo.ProviderName,
-		Count:     len(items),
-		Results:   items,
-		Citations: infinimeshCitations(response.AnswerContext, response.Sources, sourceURLs),
-		TookMS:    time.Since(start).Milliseconds(),
-		Untrusted: true,
+		RequestID:   response.RequestID,
+		Query:       query,
+		Summary:     summary,
+		Answer:      answer,
+		Provider:    InfoProviderName,
+		Count:       len(items),
+		Results:     items,
+		KeyFacts:    infinimeshKeyFacts(response.AnswerContext.KeyFacts),
+		Citations:   infinimeshCitations(response.AnswerContext, response.Sources, sourceURLs),
+		RetrievedAt: time.Now().UTC().Format(time.RFC3339),
+		TookMS:      time.Since(start).Milliseconds(),
+		Untrusted:   true,
 	}, nil
 }
 
@@ -113,7 +120,7 @@ func infinimeshFreshness(query, requested string) string {
 func infinimeshSources(sources []infinimeshinfo.Source, limit int) ([]Item, map[string]string) {
 	items := make([]Item, 0, minInt(limit, len(sources)))
 	urlsByID := map[string]string{}
-	for _, source := range sources {
+	for sourceIndex, source := range sources {
 		if len(items) >= limit {
 			break
 		}
@@ -121,11 +128,15 @@ func infinimeshSources(sources []infinimeshinfo.Source, limit int) ([]Item, map[
 			continue
 		}
 		item := Item{
-			Title:       strings.TrimSpace(source.Title),
-			URL:         strings.TrimSpace(source.URL),
-			Snippet:     boundedSnippet(source.Snippets, maxSourceSnippetBytes),
-			Source:      strings.TrimSpace(source.SourceType),
-			PublishedAt: strings.TrimSpace(source.PublishedAt),
+			EvidenceIndex: sourceIndex,
+			ID:            strings.TrimSpace(source.ID),
+			Title:         strings.TrimSpace(source.Title),
+			URL:           strings.TrimSpace(source.URL),
+			Snippet:       boundedSnippet(source.Snippets, maxSourceSnippetBytes),
+			Snippets:      boundedSourceSnippets(source.Snippets, maxSourceSnippetBytes),
+			Source:        strings.TrimSpace(source.SourceType),
+			PublishedAt:   strings.TrimSpace(source.PublishedAt),
+			RetrievedAt:   strings.TrimSpace(source.RetrievedAt),
 		}
 		if item.Title == "" {
 			item.Title = item.URL
@@ -136,6 +147,42 @@ func infinimeshSources(sources []infinimeshinfo.Source, limit int) ([]Item, map[
 		}
 	}
 	return items, urlsByID
+}
+
+func infinimeshKeyFacts(facts []infinimeshinfo.KeyFact) []KeyFact {
+	out := make([]KeyFact, 0, len(facts))
+	for factIndex, fact := range facts {
+		claim := strings.TrimSpace(fact.Claim)
+		if claim == "" {
+			continue
+		}
+		out = append(out, KeyFact{
+			ID:         fmt.Sprintf("fact:%d", factIndex),
+			Claim:      claim,
+			Confidence: strings.TrimSpace(fact.Confidence),
+			Sources:    append([]string(nil), fact.Sources...),
+		})
+	}
+	return out
+}
+
+func boundedSourceSnippets(snippets []string, maxBytes int) []string {
+	out := []string{}
+	remaining := maxBytes
+	for _, snippet := range snippets {
+		snippet = strings.TrimSpace(snippet)
+		if snippet == "" || remaining <= 0 {
+			continue
+		}
+		if len(snippet) > remaining {
+			snippet = truncateUTF8(snippet, remaining)
+		}
+		if snippet != "" {
+			out = append(out, snippet)
+			remaining -= len(snippet)
+		}
+	}
+	return out
 }
 
 func infinimeshCitations(answer infinimeshinfo.AnswerContext, sources []infinimeshinfo.Source, urlsByID map[string]string) []string {

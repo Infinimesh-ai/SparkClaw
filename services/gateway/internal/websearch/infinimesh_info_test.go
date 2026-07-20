@@ -41,9 +41,9 @@ func TestInfinimeshInfoAdapterMapsSummarySourcesAndCitations(t *testing.T) {
 					"key_facts": []map[string]any{{"claim": "fact", "sources": []string{"src-2", "src-1"}}},
 				},
 				"sources": []map[string]any{
+					{"id": "bad", "title": "Bad", "url": "file:///private", "snippets": []string{"ignored"}},
 					{"id": "src-1", "title": "First", "url": "https://example.test/first", "source_type": "official_documentation", "published_at": "2026-07-13T00:00:00Z", "snippets": []string{"first", "evidence"}},
 					{"id": "src-2", "title": "Second", "url": "https://example.test/second", "source_type": "news", "snippets": []string{"second evidence"}},
-					{"id": "bad", "title": "Bad", "url": "file:///private", "snippets": []string{"ignored"}},
 				},
 				"usage": map[string]any{"cost_credits": 1, "token_type": "info.basic"},
 			})
@@ -60,11 +60,14 @@ func TestInfinimeshInfoAdapterMapsSummarySourcesAndCitations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if freshness != "high" || result.Query != "最新 SparkClaw 信息" || result.Answer != "Mapped answer" || result.Provider != "infinimesh-info" || !result.Untrusted {
+	if freshness != "high" || result.RequestID == "" || result.Query != "最新 SparkClaw 信息" || result.Summary != "Mapped answer" || result.Answer != "Mapped answer" || result.Provider != "infinimesh-info" || !result.Untrusted {
 		t.Fatalf("unexpected mapped result: %#v", result)
 	}
-	if result.Count != 2 || len(result.Results) != 2 || result.Results[0].Snippet != "first evidence" || result.Results[0].Source != "official_documentation" {
+	if result.Count != 2 || len(result.Results) != 2 || result.Results[0].EvidenceIndex != 1 || result.Results[0].ID != "src-1" || result.Results[0].Snippet != "first evidence" || len(result.Results[0].Snippets) != 2 || result.Results[0].Source != "official_documentation" {
 		t.Fatalf("unexpected source mapping: %#v", result.Results)
+	}
+	if len(result.KeyFacts) != 1 || result.KeyFacts[0].ID != "fact:0" || result.KeyFacts[0].Claim != "fact" || result.RetrievedAt == "" {
+		t.Fatalf("fixed Info evidence metadata was not preserved: %#v", result)
 	}
 	if len(result.Citations) != 2 || result.Citations[0] != "https://example.test/first" || result.Citations[1] != "https://example.test/second" {
 		t.Fatalf("unexpected citation mapping: %#v", result.Citations)
@@ -103,6 +106,9 @@ func TestInfinimeshInfoAdapterUsesSourceEvidenceWhenSummaryIsEmpty(t *testing.T)
 	}
 	if result.Answer != "Evidence text" {
 		t.Fatalf("unexpected evidence answer: %q", result.Answer)
+	}
+	if result.Summary != "" || len(result.Results) != 1 || len(result.Results[0].Snippets) != 1 {
+		t.Fatalf("missing fixed summary must stay explicit while source evidence remains available: %#v", result)
 	}
 }
 

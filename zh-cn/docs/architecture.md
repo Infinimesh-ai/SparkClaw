@@ -140,6 +140,7 @@ ToolHub 注册有边界的工具，并校验成功输出是否符合声明 contr
 | Area | Tools |
 |---|---|
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
+| Documents | `office.replace_text`、`docx.*`、`xlsx.*`、`pptx.*`、`pdf.extract_text`、`pdf.transform` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
 | Weather | `media.render_weather_card` |
@@ -147,6 +148,20 @@ ToolHub 注册有边界的工具，并校验成功输出是否符合声明 contr
 | Approval/notify | `notify.ask_approval` |
 
 Risk levels 为 `read`、`draft`、`reversible` 和 `dangerous`。Read/draft tools 在 policy 允许时可以运行。Reversible 和 dangerous tools 在 MVP 中需要 approval。
+
+### 文档 Workflow
+
+无论底层策略如何变化，`document.read` 与 `document.edit` 都保持同一份固定编排合同：
+
+1. 检查受治理的普通文件，校验带签名的格式，并记录大小、媒体类型、修改时间和 SHA-256 元数据；
+2. 按规范化后的已检测格式选择注册 parser；
+3. 把完整解析结果规范化为 `structured_document_v1`，为 document、block、paragraph、section、sheet、row、cell、slide 和 page 生成稳定 ID，并保留来源位置与必要格式元数据；
+4. 解析用户要求的文本或结构位置，对未找到、歧义或命中数不符的结果明确失败；
+5. 只对受约束目标生成新输出副本，并返回可审计的 `change_summary`，证明原件未被修改。
+
+当前 `small_file_v1` 策略接受最大 8 MiB 的源文件和最大 200,000 bytes 的完整抽取表示。读取支持 text、DOCX、XLSX、PPTX 和文本型 PDF；修改支持已注册的 DOCX、XLSX、PPTX 与 PDF 副本操作。超过任一阈值会返回类型化 `strategy_deferred`；不支持的格式和 locator 返回各自的类型化错误。Adapter 不得截断后报告成功。
+
+`internal/document.Pipeline` 负责固定阶段顺序，strategy 负责 parser/editor registry。后续分块、流式、索引或惰性策略实现相同的 `Strategy` interface，Profile 和 Runtime 不按策略分支。ToolHub registration 仍是唯一模型可见 capability 边界，文档内容始终是不可信证据。结构化结果沿用现有 ToolCall observation 和 ArtifactStore 归档；本次小文件实现不引入 optional DocumentStore capability。
 
 ### Policy And Approval
 

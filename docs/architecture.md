@@ -168,6 +168,7 @@ ToolHub registers bounded tools and validates successful outputs against declare
 | Area | Tools |
 |---|---|
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
+| Documents | `office.replace_text`, `docx.*`, `xlsx.*`, `pptx.*`, `pdf.extract_text`, `pdf.transform` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
 | Weather | `media.render_weather_card` |
@@ -175,6 +176,37 @@ ToolHub registers bounded tools and validates successful outputs against declare
 | Approval/notify | `notify.ask_approval` |
 
 Risk levels are `read`, `draft`, `reversible` and `dangerous`. Read/draft tools can run when policy allows. Reversible and dangerous tools require approval in the MVP.
+
+### Document Workflow
+
+`document.read` and `document.edit` keep one fixed orchestration contract even
+when the underlying strategy changes:
+
+1. inspect the governed regular file, verify signature-bearing formats, and
+   record size, media type, modification time, and SHA-256 metadata;
+2. select a registered parser by canonical detected format;
+3. normalize the complete parse into `structured_document_v1`, with stable
+   document, block, paragraph, section, sheet, row, cell, slide, and page IDs
+   plus source locations and necessary format metadata;
+4. resolve the requested text or structural location and reject missing,
+   ambiguous, or unexpected match counts;
+5. apply only the constrained mutation to a new output path and return an
+   auditable `change_summary` proving that the original remained unchanged.
+
+The current `small_file_v1` strategy accepts source files up to 8 MiB and a
+complete extracted representation up to 200,000 bytes. It supports text,
+DOCX, XLSX, PPTX, and text PDFs for reads, and the registered DOCX, XLSX,
+PPTX, and PDF copy-edit operations. Exceeding either limit returns typed
+`strategy_deferred`; unsupported formats and locators return their own typed
+errors. Adapters must never truncate and report success.
+
+`internal/document.Pipeline` owns the stage order, while strategies own parser
+and editor registries. A future chunked, streaming, indexed, or lazy strategy
+implements the same `Strategy` interface; profiles and Runtime do not branch on
+that choice. ToolHub registration remains the sole model-visible capability
+boundary, and document content remains untrusted evidence. Structured results
+flow through existing ToolCall observation and ArtifactStore archiving; this
+small-file slice does not introduce an optional DocumentStore capability.
 
 ### Policy And Approval
 

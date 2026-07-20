@@ -120,6 +120,7 @@ Revision 1 不暴露 navigate、click、type、select、page read 或 Web search
 preflight inspect_type
   解析精确受治理 path
   检测 extension/MIME/signature 并拒绝不一致
+  记录源文件大小，对没有可用策略的资源明确拒绝或 deferred
   不向 Agent 暴露工具（或只暴露未来注册的 type-inspector）
 
 stage read_by_type
@@ -127,13 +128,14 @@ stage read_by_type
   纯文本/代码 -> 有界文件 reader
   DOCX/XLSX/PPTX -> 格式兼容的文档 reader backend
   PDF -> PDF 文本 reader
+  reader -> 完整解析 -> 生成带稳定位置的 structured_document_v1
 
 content_available
   -> 返回类型化内容与 reference
   -> complete
 ```
 
-Read stage 不可见搜索、编辑、图片检查或无关格式工具。Path 缺失或类型不支持时 clarify 或 block，不扩大 exposure。
+Read stage 不可见搜索、编辑、图片检查或无关格式工具。Path 缺失或类型不支持时 clarify 或 block，不扩大 exposure。当前小文件策略最多接受 8 MiB 源数据和 200,000 bytes 完整抽取内容。更大输入返回类型化 `strategy_deferred`，绝不以截断成功结束。
 
 ### 文档编辑：`document.edit` r1
 
@@ -151,13 +153,15 @@ stage edit_by_type
   XLSX -> 兼容 XLSX editor entry
   PPTX -> 兼容 PPTX editor entry
   PDF -> 兼容 PDF transform entry
+  editor 内部重新 inspect -> read -> structure -> locate -> constrain
+  只 apply 到不存在的新 output copy
 
 edit_completed
   -> 返回类型化 output artifact 和 operation result
   -> complete
 ```
 
-Revision 1 写入 output copy，并在类型化编辑成功后结束。后续 revision 可以注册独立验证阶段，但当前不能静默插入。其他格式或 operation 的工具保持不可见。
+Revision 1 返回可审计 `change_summary`，写入 output copy，并在类型化编辑成功后结束。目标未找到、歧义或命中数不符时在 mutation 前 block。后续 revision 可以注册独立验证阶段，但当前不能静默插入。其他格式或 operation 的工具保持不可见。
 
 ## 旧上下文组装边界
 

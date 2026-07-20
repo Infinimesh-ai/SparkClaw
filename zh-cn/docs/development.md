@@ -141,6 +141,22 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 
 Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 Switch 来选择 Scope、资源、Assessment 或下一步，应把行为移入 Profile、Plan Binding、ToolHub Registration 或 Outcome Adapter。只有 `RouteDecision.Status == unmatched` 可以进入 ReAct。
 
+### 扩展文档处理
+
+文档 Workflow 的阶段顺序由 `internal/document.Pipeline` 负责，而不是由格式 adapter 或模型 prompt 决定。新增格式时，在 ToolHub 注册一个规范 parser，并按需注册带 operation qualifier 的 editor。除签名感知 detector 和 registration composition 外，不要增加 extension switch。
+
+当前唯一实现的策略是 `small_file_v1`：源文件最大 8 MiB，完整抽取内容最大 200,000 bytes。更大资源必须返回类型化 `strategy_deferred`，直到另一个 `document.Strategy` 实现分块、流式、索引或惰性访问。截断内容绝不能成为成功的小文档结果。
+
+每个 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并返回 `change_summary`。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
+
+测试前先安装文档运行时：
+
+```bash
+npm run setup:document-tools
+cd services/gateway
+go test ./internal/document ./internal/toolhub ./internal/agent ./cmd/sparkclaw
+```
+
 ## 使用 Models
 
 确定性开发和 eval 使用 mock mode。DGX Spark 或兼容 OpenAI-style endpoints 使用 external mode。

@@ -163,6 +163,7 @@ Intent: inspect the contents of one governed file and return the result.
 preflight inspect_type
   resolve the exact governed path
   detect extension/MIME/signature and reject mismatches
+  record source size and reject/defer unavailable strategies explicitly
   expose no Agent tool (or only a future registered type-inspector)
 
 stage read_by_type
@@ -170,6 +171,7 @@ stage read_by_type
   plain text/code -> bounded file reader
   DOCX/XLSX/PPTX -> format-compatible document reader backend
   PDF -> PDF text reader
+  reader -> complete parse -> stable structured_document_v1 locations
 
 content_available
   -> return typed content and references
@@ -178,7 +180,9 @@ content_available
 
 No search, edit, image inspection, or unrelated format tool is visible in the
 read stage. A missing path or unsupported type clarifies or blocks; it does not
-widen exposure.
+widen exposure. The current small-file strategy accepts at most 8 MiB of source
+data and 200,000 bytes of complete extracted content. Larger input returns
+typed `strategy_deferred`, never a truncated success.
 
 ### Document Edit: `document.edit` r1
 
@@ -196,13 +200,17 @@ stage edit_by_type
   XLSX -> compatible XLSX editor entries
   PPTX -> compatible PPTX editor entries
   PDF -> compatible PDF transform entry
+  editor internally re-inspects -> reads -> structures -> locates -> constrains
+  apply only to a non-existing output copy
 
 edit_completed
   -> return the typed output artifact and operation result
   -> complete
 ```
 
-Revision 1 writes an output copy and stops on typed edit success. A separate
+Revision 1 returns an auditable `change_summary`, writes an output copy, and
+stops on typed edit success. Missing, ambiguous, and unexpected target counts
+block before mutation. A separate
 verification stage may be registered in a later revision; it is not silently
 inserted now. Tools for other formats or operations remain invisible.
 

@@ -163,6 +163,34 @@ Workflow ID or tool name to select a scope, resource, assessment, or next step,
 move that behavior into a Profile, plan binding, ToolHub registration, or
 outcome adapter. Only `RouteDecision.Status == unmatched` may enter ReAct.
 
+### Extending Document Processing
+
+The document Workflow order is owned by `internal/document.Pipeline`, not by a
+format adapter or model prompt. New format support registers one canonical
+parser and, where applicable, operation-qualified editors in ToolHub. Do not
+add extension switches outside the signature-aware detector and registration
+composition.
+
+The only implemented strategy is `small_file_v1`: 8 MiB maximum source size
+and 200,000 bytes maximum complete extracted content. A larger resource must
+return typed `strategy_deferred` until another `document.Strategy` implements
+chunked, streaming, indexed, or lazy access. Truncated content is never a
+successful small-document result.
+
+Every reader must produce stable location IDs in `structured_document_v1`.
+Every editor must consume located targets, reject missing, ambiguous, or
+count-mismatched targets, write a non-existing output copy, and return
+`change_summary`. Keep subprocesses behind the bounded document adapters and
+treat all parsed content as untrusted.
+
+Run the document setup before tests:
+
+```bash
+npm run setup:document-tools
+cd services/gateway
+go test ./internal/document ./internal/toolhub ./internal/agent ./cmd/sparkclaw
+```
+
 ## Working With Models
 
 Use mock mode for deterministic development and evals. Use external mode for DGX Spark or compatible OpenAI-style endpoints.

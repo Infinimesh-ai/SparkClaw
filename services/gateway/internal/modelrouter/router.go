@@ -1051,6 +1051,7 @@ func mockResponse(lane, user string) string {
 		if injected := mockInjectedResponse(user, "MOCK_INTENT_RESPONSE:"); injected != "" {
 			return injected
 		}
+		return `{"route":{},"delivery":{"explicit_external":false}}`
 	}
 	if injected := mockInjectedResponse(user, "MOCK_TASK_HINT_RESPONSE:"); injected != "" {
 		return injected

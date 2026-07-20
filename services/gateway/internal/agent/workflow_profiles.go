@@ -27,14 +27,14 @@ func (browserInternetSearchProfile) Recognize(input workflowRecognitionContext) 
 		return workflowRecognition{}, false
 	}
 	return workflowRecognition{
-		Slots: app.RouteSlots{Operation: app.RouteOperationSearch, Query: content}, Confidence: 0.9,
+		Slots: app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: content}, Confidence: 0.9,
 		Reason: "The request asks for an Internet search result.",
 	}, true
 }
 
 func internetSearchIntent(lower string) bool {
-	return containsEnglishSemanticTerm(lower, "web", "internet", "online", "news", "latest", "today", "current") ||
-		containsAny(lower, "联网", "网上", "互联网", "新闻", "最新", "今天", "查一下", "查询一下")
+	return containsEnglishSemanticTerm(lower, "web", "internet", "online") ||
+		containsAny(lower, "联网", "网上", "互联网", "查一下", "查询一下")
 }
 func (p browserInternetSearchProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationSearch, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopePublic)
@@ -72,6 +72,57 @@ func (browserInternetSearchProfile) Hint(state *app.WorkflowState) workflowExecu
 	return workflowHint(state, "search", "web", "public", "", "Dispatched by the browser.internet_search workflow contract.")
 }
 func (browserInternetSearchProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
+	return ""
+}
+
+type browserWeatherProfile struct{}
+
+func (browserWeatherProfile) ID() app.WorkflowID           { return app.WorkflowBrowserWeather }
+func (browserWeatherProfile) Revision() int                { return 1 }
+func (browserWeatherProfile) Capability() app.CapabilityID { return app.CapabilityBrowserWeather }
+func (browserWeatherProfile) Recognize(workflowRecognitionContext) (workflowRecognition, bool) {
+	// Weather is a semantic Fast decision. The deterministic fallback has no
+	// keyword taxonomy for locations, alerts, news, or comparisons.
+	return workflowRecognition{}, false
+}
+func (p browserWeatherProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationRender, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopePublic)
+	intent.Objectives[0].Output = app.OutputKindImage
+	nodeID := app.WorkflowNodeID("render_weather_card")
+	return intent, app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"weather_lookup"},
+		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
+		Nodes: []app.WorkflowNode{{
+			ID: nodeID, InitialStage: "render_weather_card",
+			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Return one current single-location weather card", Completion: app.CompletionEvidence},
+			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityWeatherCard}}},
+			ArgumentBindings: []app.ArgumentBinding{{
+				Capability: app.ToolCapabilityWeatherCard, Argument: "location", ResourceKind: "location",
+				Source: app.ArgumentBindingRouteSlot, SourceKey: "location",
+			}},
+			AllowedRisks: []app.RiskLevel{app.RiskDraft}, MaxAttempts: 1,
+		}},
+	}, nil
+}
+func (browserWeatherProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
+	return "", false, nil
+}
+func (browserWeatherProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
+	assessment := baseNodeAssessment(outcome)
+	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalArtifactAvailable) {
+		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "weather_card_available"
+	} else {
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "weather_card_failed"
+	}
+	return assessment
+}
+func (browserWeatherProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+	hint := workflowHint(state, "render", "web", "public", "", "Dispatched by the browser.weather workflow contract.")
+	hint.EstimatedRisk = app.RiskDraft
+	hint.ModelLaneHint = "deep"
+	return hint
+}
+func (browserWeatherProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
 }
 

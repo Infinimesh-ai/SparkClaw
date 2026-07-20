@@ -177,6 +177,7 @@ type RouteOperation string
 
 const (
 	RouteOperationSearch    RouteOperation = "search"
+	RouteOperationRender    RouteOperation = "render"
 	RouteOperationRead      RouteOperation = "read"
 	RouteOperationOpen      RouteOperation = "open"
 	RouteOperationNavigate  RouteOperation = "navigate"
@@ -188,16 +189,30 @@ const (
 	RouteOperationDelete    RouteOperation = "delete"
 )
 
+type RouteFactScope string
+
+const (
+	RouteFactScopeCurrentInternet RouteFactScope = "current_internet_state"
+	RouteFactScopeWeatherSnapshot RouteFactScope = "weather_snapshot"
+)
+
 // RouteSlots are semantic inputs only. They deliberately cannot identify a
 // tool, workflow step, risk level, policy decision, or model lane.
 type RouteSlots struct {
 	Operation  RouteOperation `json:"operation,omitempty"`
+	FactScope  RouteFactScope `json:"fact_scope,omitempty"`
 	Query      string         `json:"query,omitempty"`
+	Location   string         `json:"location,omitempty"`
 	TargetKind string         `json:"target_kind,omitempty"`
 	TargetRef  string         `json:"target_ref,omitempty"`
 	TargetRefs []string       `json:"target_refs,omitempty"`
 	OutputRef  string         `json:"output_ref,omitempty"`
 	Format     string         `json:"format,omitempty"`
+}
+
+func (slots RouteSlots) Empty() bool {
+	return slots.Operation == "" && slots.FactScope == "" && slots.Query == "" && slots.Location == "" &&
+		slots.TargetKind == "" && slots.TargetRef == "" && len(slots.TargetRefs) == 0 && slots.OutputRef == "" && slots.Format == ""
 }
 
 type WorkflowContractRef struct {

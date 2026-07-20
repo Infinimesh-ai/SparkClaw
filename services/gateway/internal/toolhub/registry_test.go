@@ -55,6 +55,7 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	}
 	for _, capability := range []string{
 		app.ToolCapabilityWebDiscovery,
+		app.ToolCapabilityWeatherCard,
 		app.ToolCapabilityBrowserListTabs,
 		app.ToolCapabilityBrowserFocus,
 		app.ToolCapabilityBrowserOpen,
@@ -64,6 +65,10 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 		if capabilityCounts[capability] == 0 {
 			t.Fatalf("workflow capability %q has no registered tools: %#v", capability, capabilityCounts)
 		}
+	}
+	weather, ok := hub.Definition("media.render_weather_card")
+	if !ok || weather.OutcomeAdapter != app.OutcomeAdapterWeatherCard || len(weather.Directory.OutputKinds) != 1 || weather.Directory.OutputKinds[0] != app.OutputKindImage {
+		t.Fatalf("weather card registration is outside its typed workflow boundary: %#v", weather)
 	}
 	deleteDefinition, ok := hub.Definition("file.delete")
 	if !ok || len(deleteDefinition.Capabilities) != 1 || deleteDefinition.Capabilities[0].Name == app.ToolCapabilityDocumentEdit {

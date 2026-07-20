@@ -4,10 +4,12 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +21,149 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
+
+func TestFastRouterMapsCurrentInternetFactsToOneSearchLeaf(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	for index, goal := range []string{
+		"现在的金价是多少",
+		"人民币兑美元实时汇率",
+		"上证指数现在多少点",
+		"刚结束的比赛比分是多少",
+		"今天有什么重大新闻",
+	} {
+		candidate := app.RouteDecision{
+			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(),
+			CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch},
+			Slots:          app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model paraphrase"},
+			Confidence:     0.95,
+		}
+		routing, err := runtime.routeIntent(context.Background(), session.ID, fmt.Sprintf("run_live_fact_%d", index), mockIntentRoute(t, goal, candidate))
+		if err != nil {
+			t.Fatalf("route %q: %v", goal, err)
+		}
+		if routing.Route.CapabilityPath[1] != app.CapabilityBrowserInternetSearch || routing.Route.Slots.Query != goal || routing.Route.Slots.FactScope != app.RouteFactScopeCurrentInternet {
+			t.Fatalf("current fact did not normalize to browser.internet_search: goal=%q route=%#v", goal, routing.Route)
+		}
+		resolved, err := runtime.profiles.Resolve(runtime.capabilities, routing.Route, "turn")
+		if err != nil || resolved.Profile.ID() != app.WorkflowBrowserInternetSearch {
+			t.Fatalf("current fact did not resolve the exact search Workflow: goal=%q resolved=%#v err=%v", goal, resolved, err)
+		}
+	}
+}
+
+func TestFastRouterLeavesStaticCommonKnowledgeUnmatched(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	goal := "法国的首都是什么"
+	candidate := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: runtime.capabilities.Revision(),
+		Confidence: 0.96, Reason: "The answer is stable common knowledge and does not require current Internet state.",
+	}
+	content := mockIntentRoute(t, goal, candidate) + `
+MOCK_REACT_RESPONSE:{"type":"final","answer":"巴黎。"}`
+	result, err := runtime.HandleMessage(context.Background(), session.ID, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
+		t.Fatalf("static common knowledge was forced into a Workflow: %#v", result)
+	}
+	for _, call := range toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID) {
+		if call.Tool == "web.search" {
+			t.Fatalf("static common knowledge forced an Internet search: %#v", call)
+		}
+	}
+}
+
+func TestFastRouterKeepsWeatherCardBoundaryNarrow(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	tests := []struct {
+		goal     string
+		location string
+		leaf     app.CapabilityID
+		workflow app.WorkflowID
+	}{
+		{goal: "杭州今天天气怎么样", location: "杭州", leaf: app.CapabilityBrowserWeather, workflow: app.WorkflowBrowserWeather},
+		{goal: "杭州暴雨预警有什么最新消息", leaf: app.CapabilityBrowserInternetSearch, workflow: app.WorkflowBrowserInternetSearch},
+		{goal: "比较杭州和上海今天的天气", leaf: app.CapabilityBrowserInternetSearch, workflow: app.WorkflowBrowserInternetSearch},
+	}
+	for index, test := range tests {
+		slots := app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model paraphrase"}
+		if test.leaf == app.CapabilityBrowserWeather {
+			slots = app.RouteSlots{Operation: app.RouteOperationRender, FactScope: app.RouteFactScopeWeatherSnapshot, Location: test.location}
+		}
+		candidate := app.RouteDecision{
+			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(),
+			CapabilityPath: []app.CapabilityID{"browser", test.leaf}, Slots: slots, Confidence: 0.94,
+		}
+		routing, err := runtime.routeIntent(context.Background(), session.ID, fmt.Sprintf("run_weather_boundary_%d", index), mockIntentRoute(t, test.goal, candidate))
+		if err != nil {
+			t.Fatalf("route %q: %v", test.goal, err)
+		}
+		resolved, err := runtime.profiles.Resolve(runtime.capabilities, routing.Route, "turn")
+		if err != nil || resolved.Profile.ID() != test.workflow {
+			t.Fatalf("weather boundary selected the wrong Workflow: goal=%q route=%#v resolved=%#v err=%v", test.goal, routing.Route, resolved, err)
+		}
+	}
+}
+
+func TestBrowserWeatherDispatchesOnlyWeatherCardCapability(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	route := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationRender, FactScope: app.RouteFactScopeWeatherSnapshot, Location: "杭州"},
+	}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{ID: "run_weather", SessionID: session.ID, StartedAt: time.Now().UTC()}, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "media.render_weather_card" || dispatch.Hint.Capability != app.ToolCapabilityWeatherCard {
+		t.Fatalf("browser.weather exposed the wrong Workflow capability: %#v", dispatch)
+	}
+}
+
+func TestInvalidFastRouteBlocksWithoutWrongWorkflowOrReActFallback(t *testing.T) {
+	for _, raw := range []string{
+		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"REVISION","capability_path":["browser","browser.gold_price"],"slots":{"operation":"search","fact_scope":"current_internet_state","query":"gold"}},"delivery":{"explicit_external":false}}`,
+		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"REVISION","capability_path":["browser","browser.internet_search"],"slots":{"operation":"search","fact_scope":"current_internet_state","query":"gold"},"tool":"web.search"},"delivery":{"explicit_external":false}}`,
+	} {
+		runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+		content := "现在的金价是多少\nMOCK_INTENT_RESPONSE:" + strings.ReplaceAll(raw, "REVISION", runtime.capabilities.Revision())
+		result, err := runtime.HandleMessage(context.Background(), session.ID, content)
+		closeRuntime()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil || len(result.ToolCalls) != 0 || hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+			t.Fatalf("invalid Fast route degraded into another Workflow: %#v", result)
+		}
+	}
+}
+
+func TestIntentRoutingPromptDefinesLiveFactAndWeatherSemantics(t *testing.T) {
+	prompt := intentRoutingSystemPrompt("[]")
+	for _, expected := range []string{
+		"current gold prices", "exchange rates", "stock or index quotes", "current match results",
+		"Stable common knowledge", "browser.weather", "Weather alerts", "multi-location comparisons", "tool", "workflow",
+	} {
+		if !strings.Contains(strings.ToLower(prompt), strings.ToLower(expected)) {
+			t.Fatalf("intent routing prompt is missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
+func mockIntentRoute(t *testing.T, goal string, route app.RouteDecision) string {
+	t.Helper()
+	raw, err := json.Marshal(IntentRoutingOutput{Route: route})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return goal + "\nMOCK_INTENT_RESPONSE:" + string(raw)
+}
 
 func TestBrowserSearchRouteDispatchesRealWebSearchWorkflow(t *testing.T) {
 	info := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

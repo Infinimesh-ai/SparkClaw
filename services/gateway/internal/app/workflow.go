@@ -2,6 +2,7 @@ package app
 
 const (
 	CapabilityBrowserInternetSearch CapabilityID = "browser.internet_search"
+	CapabilityBrowserWeather        CapabilityID = "browser.weather"
 	CapabilityDocumentRead          CapabilityID = "document.read"
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
 )
@@ -17,6 +18,7 @@ type IntentOperation string
 
 const (
 	IntentOperationSearch   IntentOperation = "search"
+	IntentOperationRender   IntentOperation = "render"
 	IntentOperationRead     IntentOperation = "read"
 	IntentOperationAutomate IntentOperation = "automate"
 	IntentOperationProcess  IntentOperation = "process"
@@ -106,6 +108,7 @@ type ArgumentBindingSource string
 
 const (
 	WorkflowBrowserInternetSearch WorkflowID = "browser.internet_search"
+	WorkflowBrowserWeather        WorkflowID = "browser.weather"
 	WorkflowBrowserAutomation     WorkflowID = "browser.automation"
 	WorkflowDocumentRead          WorkflowID = "document.read"
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
@@ -130,6 +133,7 @@ const (
 	ToolEffectWorkspaceWrite   ToolEffect = "workspace.write"
 
 	ToolCapabilityWebDiscovery    = "web.discovery"
+	ToolCapabilityWeatherCard     = "weather.card.render"
 	ToolCapabilityBrowserListTabs = "browser.tab.list"
 	ToolCapabilityBrowserFocus    = "browser.tab.focus"
 	ToolCapabilityBrowserOpen     = "browser.tab.open"
@@ -155,6 +159,7 @@ const (
 	OutcomeAdapterBrowserFocus    ToolOutcomeAdapter = "browser.focus"
 	OutcomeAdapterBrowserOpen     ToolOutcomeAdapter = "browser.open"
 	OutcomeAdapterDocumentEdit    ToolOutcomeAdapter = "document.edit"
+	OutcomeAdapterWeatherCard     ToolOutcomeAdapter = "weather.card"
 
 	OutcomeSignalResultsAvailable       OutcomeSignal = "results_available"
 	OutcomeSignalNoResults              OutcomeSignal = "no_results"
@@ -168,6 +173,7 @@ const (
 	OutcomeSignalFocusCompleted         OutcomeSignal = "focus_completed"
 	OutcomeSignalOpenCompleted          OutcomeSignal = "open_completed"
 	OutcomeSignalEditCompleted          OutcomeSignal = "edit_completed"
+	OutcomeSignalArtifactAvailable      OutcomeSignal = "artifact_available"
 
 	AssessmentComplete          AssessmentStatus = "complete"
 	AssessmentNeedsMoreEvidence AssessmentStatus = "needs_more_evidence"

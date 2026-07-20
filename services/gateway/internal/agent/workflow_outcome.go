@@ -19,6 +19,7 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterBrowserFocus:    adaptBrowserFocusOutcome,
 	app.OutcomeAdapterBrowserOpen:     adaptBrowserOpenOutcome,
 	app.OutcomeAdapterDocumentEdit:    adaptDocumentEditOutcome,
+	app.OutcomeAdapterWeatherCard:     adaptWeatherCardOutcome,
 }
 
 func adaptWorkflowOutcome(definition app.ToolDefinition, call app.ToolCall) (app.ToolOutcome, error) {
@@ -161,6 +162,14 @@ func adaptDocumentEditOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 	if outputPath := strings.TrimSpace(stringValue(output["output_path"])); outputPath != "" && outputPath != "<nil>" {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalEditCompleted}
 		outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: outputPath, Provenance: call.ID}}
+	}
+	return outcome
+}
+
+func adaptWeatherCardOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if toolCallCompleted(call) && len(outcome.Refs) == 1 && outcome.Refs[0].Kind == "path" {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalArtifactAvailable}
 	}
 	return outcome
 }

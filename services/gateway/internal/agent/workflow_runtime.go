@@ -130,6 +130,8 @@ func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode,
 		switch binding.SourceKey {
 		case "query":
 			allowed = append(allowed, route.Slots.Query)
+		case "location":
+			allowed = append(allowed, route.Slots.Location)
 		case "target_ref":
 			allowed = append(allowed, route.Slots.TargetRef)
 		case "output_ref":

@@ -24,7 +24,8 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 		decision app.RouteDecision
 		want     app.WorkflowID
 	}{
-		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch}, Slots: app.RouteSlots{Operation: app.RouteOperationSearch, Query: "test"}}, app.WorkflowBrowserInternetSearch},
+		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch}, Slots: app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "test"}}, app.WorkflowBrowserInternetSearch},
+		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather}, Slots: app.RouteSlots{Operation: app.RouteOperationRender, FactScope: app.RouteFactScopeWeatherSnapshot, Location: "杭州"}}, app.WorkflowBrowserWeather},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation}, Slots: app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com/"}, Facts: map[string]string{"url": "https://example.com/"}}, app.WorkflowBrowserAutomation},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentRead}, Slots: app.RouteSlots{Operation: app.RouteOperationRead, TargetKind: "workspace_path", TargetRef: "test.txt"}, Facts: map[string]string{"path": "test.txt", "document_format": app.DocumentFormatText}}, app.WorkflowDocumentRead},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentEdit}, Slots: app.RouteSlots{Operation: app.RouteOperationEdit, TargetKind: "workspace_path", TargetRef: "test.docx"}, Facts: map[string]string{"path": "test.docx", "output_path": "test-sparkclaw-edit.docx", "document_format": app.DocumentFormatDOCX, "document_operation": "replace_paragraph"}}, app.WorkflowDocumentEdit},
@@ -82,9 +83,57 @@ func TestFastRouteCannotRewriteDeterministicFacts(t *testing.T) {
 	candidate := fallback
 	candidate.Facts = map[string]string{"url": "https://attacker.example/rewritten"}
 	candidate.Slots.TargetRef = "https://attacker.example/rewritten"
-	normalized := runtime.normalizeFastRoute(candidate, fallback)
+	normalized, err := runtime.normalizeFastRoute(candidate, fallback, "open https://example.com/allowed")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if normalized.Facts["url"] != fallback.Facts["url"] || normalized.Slots.TargetRef != fallback.Facts["url"] {
 		t.Fatalf("Fast route rewrote deterministic URL: %#v", normalized)
+	}
+}
+
+func TestFastRouteCanSelectToolNeutralSemanticLeafButCannotRewriteQuery(t *testing.T) {
+	catalog := capability.MustDefaultCatalog()
+	runtime := Runtime{capabilities: catalog}
+	fallback := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: catalog.Revision(),
+		Confidence: 0.8, Reason: "no deterministic profile matched",
+	}
+	candidate := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model-rewritten query"},
+		Confidence:     0.95,
+	}
+	ownerText := "现在的金价是多少"
+	normalized, err := runtime.normalizeFastRoute(candidate, fallback, ownerText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.CapabilityPath[1] != app.CapabilityBrowserInternetSearch || normalized.Slots.Query != ownerText || normalized.Slots.FactScope != app.RouteFactScopeCurrentInternet {
+		t.Fatalf("Fast semantic route was not normalized into the registered live-fact leaf: %#v", normalized)
+	}
+}
+
+func TestFastRouteCannotInventWeatherLocationOrResourceLeaf(t *testing.T) {
+	catalog := capability.MustDefaultCatalog()
+	runtime := Runtime{capabilities: catalog}
+	fallback := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: catalog.Revision()}
+	weather := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationRender, FactScope: app.RouteFactScopeWeatherSnapshot, Location: "上海"},
+	}
+	if _, err := runtime.normalizeFastRoute(weather, fallback, "杭州今天天气怎么样"); err == nil || !strings.Contains(err.Error(), "not grounded") {
+		t.Fatalf("Fast invented a weather location: %v", err)
+	}
+	automation := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com"}, Facts: map[string]string{"url": "https://example.com"},
+	}
+	if _, err := runtime.normalizeFastRoute(automation, fallback, "open the site"); err == nil || !strings.Contains(err.Error(), "deterministic") {
+		t.Fatalf("Fast invented a resource-bound route: %v", err)
 	}
 }
 

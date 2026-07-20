@@ -31,19 +31,7 @@ func (r Runtime) routeIntentWithOwnerText(ctx context.Context, sessionID, runID,
 	fallback := IntentRoutingOutput{Route: fallbackRoute}
 	fallbackJSON, _ := json.Marshal(fallback)
 	routeOptionsJSON, _ := json.Marshal(r.capabilities.RouteOptions())
-	system := strings.Join([]string{
-		"Route one SparkClaw request through the registered capability tree and normalize any external-delivery directive beside it.",
-		"Return one compact JSON object only. Unknown fields are rejected.",
-		"The top-level object has exactly route and delivery fields.",
-		"The registered route directory is: " + string(routeOptionsJSON),
-		"route uses statuses matched, clarify, unmatched, and blocked.",
-		"Slots are typed semantic fields only: operation, query, target_kind, target_ref, output_ref, and format.",
-		"delivery has exactly explicit_external, requested_provider_key, and requested_recipient_text.",
-		"Set explicit_external only when the owner explicitly asks to send through third-party software. Copy the requested software and recipient text without inventing either.",
-		"Never emit endpoint IDs, binding IDs, credentials, native user/chat IDs, or provider-specific fields.",
-		"Never name tools, workflow steps, Skills, model lanes, risk, Policy, or approval decisions.",
-		"Facts are deterministic input facts. Keep the supplied facts unchanged.",
-	}, "\n")
+	system := intentRoutingSystemPrompt(string(routeOptionsJSON))
 	user := strings.Join([]string{
 		"Catalog revision: " + r.capabilities.Revision(),
 		"Owner message:\n" + ownerText,
@@ -62,14 +50,14 @@ func (r Runtime) routeIntentWithOwnerText(ctx context.Context, sessionID, runID,
 	explicitSignal := hasExplicitExternalSendSignal(ownerText)
 	if chatErr == nil {
 		if candidate, parseErr := parseIntentRoutingOutput(chat.Content); parseErr == nil {
-			if normalized, normalizeErr := r.normalizeIntentRoutingOutput(candidate, fallback, ownerText); normalizeErr == nil {
-				decision = normalized
-				source = "fast_model"
-			} else if explicitSignal {
+			normalized, normalizeErr := r.normalizeIntentRoutingOutput(candidate, fallback, ownerText)
+			if normalizeErr != nil {
 				return IntentRoutingOutput{}, normalizeErr
 			}
-		} else if explicitSignal {
-			return IntentRoutingOutput{}, fmt.Errorf("explicit external delivery requires valid typed routing output: %w", parseErr)
+			decision = normalized
+			source = "fast_model"
+		} else if explicitSignal || isUnknownIntentRoutingField(parseErr) {
+			return IntentRoutingOutput{}, fmt.Errorf("typed routing output is invalid: %w", parseErr)
 		}
 	} else if explicitSignal {
 		return IntentRoutingOutput{}, fmt.Errorf("explicit external delivery routing failed: %w", chatErr)
@@ -94,6 +82,26 @@ func (r Runtime) routeIntentWithOwnerText(ctx context.Context, sessionID, runID,
 	return decision, nil
 }
 
+func intentRoutingSystemPrompt(routeOptionsJSON string) string {
+	return strings.Join([]string{
+		"Route one SparkClaw request through the registered capability tree and normalize any external-delivery directive beside it.",
+		"Return one compact JSON object only. Unknown fields are rejected.",
+		"The top-level object has exactly route and delivery fields.",
+		"The registered route directory is: " + routeOptionsJSON,
+		"route uses statuses matched, clarify, unmatched, and blocked.",
+		"Slots are typed semantic fields only: operation, fact_scope, query, location, target_kind, target_ref, target_refs, output_ref, and format.",
+		"Use fact_scope=current_internet_state only for read-only facts whose correct answer depends on current Internet state. Examples include current gold prices, exchange rates, stock or index quotes, immediate news, current match results, and currently published schedules.",
+		"Stable common knowledge that does not depend on current external state remains unmatched; do not force it into Internet search.",
+		"Use fact_scope=weather_snapshot and browser.weather only for one explicit location's current conditions or short forecast card. Weather alerts, weather news, historical research, and multi-location comparisons use browser.internet_search with fact_scope=current_internet_state.",
+		"For browser.internet_search, leave location and resource fields empty. For browser.weather, copy only the explicit location and leave query and resource fields empty.",
+		"delivery has exactly explicit_external, requested_provider_key, and requested_recipient_text.",
+		"Set explicit_external only when the owner explicitly asks to send through third-party software. Copy the requested software and recipient text without inventing either.",
+		"Never emit endpoint IDs, binding IDs, credentials, native user/chat IDs, or provider-specific fields.",
+		"Never name tools, workflow steps, Skills, model lanes, risk, Policy, or approval decisions.",
+		"Facts are deterministic input facts. Keep the supplied facts unchanged.",
+	}, "\n")
+}
+
 func (r Runtime) routeCapability(ctx context.Context, sessionID, runID, content string) (app.RouteDecision, error) {
 	decision, err := r.routeIntent(ctx, sessionID, runID, content)
 	return decision.Route, err
@@ -113,9 +121,17 @@ func parseIntentRoutingOutput(content string) (IntentRoutingOutput, error) {
 	return decision, nil
 }
 
+func isUnknownIntentRoutingField(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "json: unknown field ")
+}
+
 func (r Runtime) normalizeIntentRoutingOutput(candidate, fallback IntentRoutingOutput, content string) (IntentRoutingOutput, error) {
 	normalized := fallback
-	normalized.Route = r.normalizeFastRoute(candidate.Route, fallback.Route)
+	var err error
+	normalized.Route, err = r.normalizeFastRoute(candidate.Route, fallback.Route, content)
+	if err != nil {
+		return IntentRoutingOutput{}, err
+	}
 	directive, err := normalizeDeliveryDirective(candidate.Delivery)
 	if err != nil {
 		return IntentRoutingOutput{}, err
@@ -285,15 +301,64 @@ func trimDeliveryEvidence(value string) string {
 	return strings.Trim(strings.TrimSpace(value), " \t\n\r.,!?;:，。！？；：\"'“”‘’")
 }
 
-func (r Runtime) normalizeFastRoute(candidate, fallback app.RouteDecision) app.RouteDecision {
-	// The current narrow support gate freezes path, operation, URL/path facts,
-	// and target bindings. Fast may add confidence only; it cannot invent a
-	// supported branch or reinterpret deterministic resources.
-	normalized := fallback
-	if candidate.Confidence >= 0 && candidate.Confidence <= 1 {
-		normalized.Confidence = candidate.Confidence
+func (r Runtime) normalizeFastRoute(candidate, fallback app.RouteDecision, content string) (app.RouteDecision, error) {
+	if emptyRouteDecision(candidate) {
+		return fallback, nil
 	}
-	return normalized
+	if fallback.Status != app.RouteUnmatched {
+		normalized := fallback
+		if candidate.Confidence >= 0 && candidate.Confidence <= 1 {
+			normalized.Confidence = candidate.Confidence
+		}
+		return normalized, nil
+	}
+	if candidate.Status != app.RouteMatched {
+		if err := r.capabilities.ValidateDecision(candidate); err != nil {
+			return app.RouteDecision{}, err
+		}
+		return candidate, nil
+	}
+	leaf, err := r.capabilities.ResolveLeaf(candidate.CapabilityPath)
+	if err != nil || leaf.Route == nil {
+		return app.RouteDecision{}, errors.New("Fast selected an unregistered capability leaf")
+	}
+	contract := leaf.Route
+	if contract.RequireTarget || len(contract.RequiredFacts) != 0 {
+		return app.RouteDecision{}, errors.New("Fast cannot invent a deterministic resource-bound route")
+	}
+	if len(candidate.Facts) != 0 || candidate.Slots.TargetKind != "" || candidate.Slots.TargetRef != "" || len(candidate.Slots.TargetRefs) != 0 ||
+		candidate.Slots.OutputRef != "" || candidate.Slots.Format != "" {
+		return app.RouteDecision{}, errors.New("Fast route contains unsupported resource fields")
+	}
+	if contract.RequireQuery {
+		if candidate.Slots.Location != "" {
+			return app.RouteDecision{}, errors.New("Internet search route cannot contain a location slot")
+		}
+		candidate.Slots.Query = strings.TrimSpace(content)
+	} else if candidate.Slots.Query != "" {
+		return app.RouteDecision{}, errors.New("Fast route contains an unsupported query slot")
+	}
+	if contract.RequireLocation {
+		candidate.Slots.Location = strings.TrimSpace(candidate.Slots.Location)
+		if !slotGroundedInOwnerText(content, candidate.Slots.Location) {
+			return app.RouteDecision{}, errors.New("weather location is not grounded in the current owner message")
+		}
+	} else if candidate.Slots.Location != "" {
+		return app.RouteDecision{}, errors.New("Fast route contains an unsupported location slot")
+	}
+	if err := r.capabilities.ValidateDecision(candidate); err != nil {
+		return app.RouteDecision{}, err
+	}
+	return candidate, nil
+}
+
+func emptyRouteDecision(decision app.RouteDecision) bool {
+	return decision.SchemaVersion == 0 && decision.Status == "" && decision.CatalogRevision == "" && len(decision.CapabilityPath) == 0 &&
+		decision.Slots.Empty() && decision.Confidence == 0 && len(decision.Facts) == 0 && strings.TrimSpace(decision.Reason) == ""
+}
+
+func slotGroundedInOwnerText(content, slot string) bool {
+	return deliverySlotGrounded(content, slot)
 }
 
 func (r Runtime) deterministicCapabilityRoute(content string) app.RouteDecision {

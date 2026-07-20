@@ -2854,7 +2854,10 @@ func TestNormalizeTaskHintKeepsBrowserAutomationOverModelWebBrowsing(t *testing.
 	fallback := runtime.deterministicCapabilityRoute("打开https://www.apple.com.cn/，帮我找到最新的MacBook界面")
 	candidate := fallback
 	candidate.CapabilityPath = []app.CapabilityID{"browser", app.CapabilityBrowserSearch}
-	normalized := runtime.normalizeFastRoute(candidate, fallback)
+	normalized, err := runtime.normalizeFastRoute(candidate, fallback, "打开https://www.apple.com.cn/，帮我找到最新的MacBook界面")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if normalized.CapabilityPath[1] != app.CapabilityBrowserAutomation {
 		t.Fatalf("Fast routing must not override deterministic browser automation: %#v", normalized)
 	}

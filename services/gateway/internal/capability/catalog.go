@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-17.v3"
+	DefaultCatalogRevision = "2026-07-20.v4"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -31,11 +31,13 @@ type Node struct {
 }
 
 type RouteContract struct {
-	Operations    []app.RouteOperation `json:"operations"`
-	TargetKinds   []string             `json:"target_kinds,omitempty"`
-	RequireQuery  bool                 `json:"require_query,omitempty"`
-	RequireTarget bool                 `json:"require_target,omitempty"`
-	RequiredFacts []string             `json:"required_facts,omitempty"`
+	Operations      []app.RouteOperation `json:"operations"`
+	FactScopes      []app.RouteFactScope `json:"fact_scopes,omitempty"`
+	TargetKinds     []string             `json:"target_kinds,omitempty"`
+	RequireQuery    bool                 `json:"require_query,omitempty"`
+	RequireLocation bool                 `json:"require_location,omitempty"`
+	RequireTarget   bool                 `json:"require_target,omitempty"`
+	RequiredFacts   []string             `json:"required_facts,omitempty"`
 }
 
 type RouteOption struct {
@@ -113,9 +115,12 @@ func DefaultCatalog() (Catalog, error) {
 	}
 	return NewCatalog(DefaultCatalogRevision, []Node{
 		branch(string(RootID), "", "Registered user-visible product capabilities."),
-		branch("browser", string(RootID), "Use public Internet search or a managed browser session."),
-		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Search the Internet and return the configured Info provider result.", RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationSearch}, RequireQuery: true,
+		branch("browser", string(RootID), "Use current Internet facts, a single-location weather card, or a managed browser session."),
+		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationSearch}, FactScopes: []app.RouteFactScope{app.RouteFactScopeCurrentInternet}, RequireQuery: true,
+		}),
+		leaf(string(app.CapabilityBrowserWeather), "browser", "Render one weather card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRender}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, RequireLocation: true,
 		}),
 		leaf(string(app.CapabilityBrowserAutomation), "browser", "Open or focus an explicitly known URL in the managed browser.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url"}, RequireTarget: true, RequiredFacts: []string{"url"},
@@ -230,6 +235,9 @@ func (c Catalog) ValidateDecision(decision app.RouteDecision) error {
 		if len(decision.CapabilityPath) != 0 {
 			return errors.New("unmatched route decision cannot contain a capability path")
 		}
+		if !decision.Slots.Empty() || len(decision.Facts) != 0 {
+			return errors.New("unmatched route decision cannot contain semantic slots or facts")
+		}
 		return nil
 	default:
 		return fmt.Errorf("unsupported route status %q", decision.Status)
@@ -245,11 +253,20 @@ func validateMatchedSlots(leaf Node, decision app.RouteDecision) error {
 	if !slices.Contains(contract.Operations, slots.Operation) {
 		return fmt.Errorf("operation %q is not valid for capability %q", slots.Operation, leaf.ID)
 	}
+	if (slots.FactScope != "" || len(contract.FactScopes) > 0) && !slices.Contains(contract.FactScopes, slots.FactScope) {
+		return fmt.Errorf("fact scope %q is not valid for capability %q", slots.FactScope, leaf.ID)
+	}
+	if slots.Location != "" && !contract.RequireLocation {
+		return fmt.Errorf("location is not valid for capability %q", leaf.ID)
+	}
 	if slots.TargetKind != "" && !slices.Contains(contract.TargetKinds, slots.TargetKind) {
 		return fmt.Errorf("target kind %q is not valid for capability %q", slots.TargetKind, leaf.ID)
 	}
 	if contract.RequireQuery && strings.TrimSpace(slots.Query) == "" {
 		return fmt.Errorf("capability %q requires a query", leaf.ID)
+	}
+	if contract.RequireLocation && strings.TrimSpace(slots.Location) == "" {
+		return fmt.Errorf("capability %q requires a location", leaf.ID)
 	}
 	if contract.RequireTarget && (strings.TrimSpace(slots.TargetKind) == "" || strings.TrimSpace(slots.TargetRef) == "") {
 		return fmt.Errorf("capability %q requires a deterministic target", leaf.ID)
@@ -345,6 +362,7 @@ func cloneNode(node Node) Node {
 
 func cloneRouteContract(route RouteContract) RouteContract {
 	route.Operations = append([]app.RouteOperation(nil), route.Operations...)
+	route.FactScopes = append([]app.RouteFactScope(nil), route.FactScopes...)
 	route.TargetKinds = append([]string(nil), route.TargetKinds...)
 	route.RequiredFacts = append([]string(nil), route.RequiredFacts...)
 	return route

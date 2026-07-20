@@ -105,6 +105,7 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	return newWorkflowProfileRegistry(
 		browserInternetSearchProfile{},
+		browserWeatherProfile{},
 		browserAutomationProfile{},
 		documentReadProfile{},
 		documentEditProfile{},

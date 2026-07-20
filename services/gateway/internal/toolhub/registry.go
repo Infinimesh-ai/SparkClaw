@@ -108,6 +108,17 @@ func browserScreenshotRegistration() toolRegistration {
 	return registration
 }
 
+func weatherCardRegistration() toolRegistration {
+	registration := workflowRegistration(
+		toolRegistration{run: ctxArgsSessionRun((*ToolHub).renderWeatherCard)}, app.ToolCapabilityWeatherCard, nil, app.OutcomeAdapterWeatherCard,
+		"Look up current weather for one location and render the result as a PNG card.",
+		"Use only in browser.weather for one explicit location's current conditions or short forecast.",
+		"Do not use for alerts, news, historical research, or multi-location comparisons.", app.ToolEffectExternalRead, app.ToolEffectWorkspaceWrite,
+	)
+	registration.directory.OutputKinds = []app.OutputKind{app.OutputKindImage}
+	return registration
+}
+
 func browserReadRegistration() toolRegistration {
 	registration := workflowRegistration(
 		toolRegistration{run: ctxArgsSessionRun((*ToolHub).browserRead)}, "web.page.read",
@@ -177,7 +188,7 @@ var toolRegistry = map[string]toolRegistration{
 		"Read one explicitly identified file inside the configured workspace.",
 	),
 	"images.inspect":            {run: ctxArgs((*ToolHub).imageInspect)},
-	"media.render_weather_card": {run: ctxArgsSessionRun((*ToolHub).renderWeatherCard)},
+	"media.render_weather_card": weatherCardRegistration(),
 	"files.write_draft":         legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
 	"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
 	"office.replace_text":       officeReplaceRegistration(),

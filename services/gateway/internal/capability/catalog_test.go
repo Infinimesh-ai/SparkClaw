@@ -14,6 +14,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 	}
 	paths := [][]app.CapabilityID{
 		{"browser", "browser.internet_search"},
+		{"browser", "browser.weather"},
 		{"browser", "browser.automation"},
 		{"document", "document.read"},
 		{"document", "document.edit"},
@@ -51,7 +52,7 @@ func TestCatalogValidatesFastRouteDecisionAgainstRevisionAndEdges(t *testing.T) 
 		Status:          app.RouteMatched,
 		CatalogRevision: catalog.Revision(),
 		CapabilityPath:  []app.CapabilityID{"browser", "browser.internet_search"},
-		Slots:           app.RouteSlots{Operation: app.RouteOperationSearch, Query: "test"},
+		Slots:           app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "test"},
 		Confidence:      0.92,
 	}
 	if err := catalog.ValidateDecision(decision); err != nil {
@@ -73,7 +74,7 @@ func TestCatalogRejectsOperationOutsideLeafSlotContract(t *testing.T) {
 	catalog := MustDefaultCatalog()
 	err := catalog.ValidateDecision(app.RouteDecision{
 		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
-		CapabilityPath: []app.CapabilityID{"browser", "browser.internet_search"}, Slots: app.RouteSlots{Operation: app.RouteOperationDelete, Query: "test"},
+		CapabilityPath: []app.CapabilityID{"browser", "browser.internet_search"}, Slots: app.RouteSlots{Operation: app.RouteOperationDelete, FactScope: app.RouteFactScopeCurrentInternet, Query: "test"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "not valid") {
 		t.Fatalf("expected typed operation rejection, got %v", err)
@@ -90,6 +91,52 @@ func TestCatalogRejectsUnmatchedDecisionWithInventedPath(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot contain") {
 		t.Fatalf("expected unmatched path rejection, got %v", err)
+	}
+}
+
+func TestCatalogSeparatesCurrentInternetFactsFromWeatherCards(t *testing.T) {
+	catalog := MustDefaultCatalog()
+	search := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "current gold price"},
+	}
+	if err := catalog.ValidateDecision(search); err != nil {
+		t.Fatal(err)
+	}
+	weather := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationRender, FactScope: app.RouteFactScopeWeatherSnapshot, Location: "杭州"},
+	}
+	if err := catalog.ValidateDecision(weather); err != nil {
+		t.Fatal(err)
+	}
+	weather.Slots.FactScope = app.RouteFactScopeCurrentInternet
+	if err := catalog.ValidateDecision(weather); err == nil || !strings.Contains(err.Error(), "fact scope") {
+		t.Fatalf("weather accepted the Internet-search fact scope: %v", err)
+	}
+	search.Slots.FactScope = ""
+	if err := catalog.ValidateDecision(search); err == nil || !strings.Contains(err.Error(), "fact scope") {
+		t.Fatalf("search accepted a missing current-Internet fact scope: %v", err)
+	}
+}
+
+func TestCurrentInternetCatalogDescriptionOwnsLiveFactsWithoutVerticalLeaves(t *testing.T) {
+	catalog := MustDefaultCatalog()
+	search, ok := catalog.Node(app.CapabilityBrowserInternetSearch)
+	if !ok {
+		t.Fatal("browser.internet_search is missing")
+	}
+	for _, example := range []string{"gold prices", "exchange rates", "stock or index quotes", "current sports results"} {
+		if !strings.Contains(search.Description, example) {
+			t.Fatalf("Internet search description is missing %q: %s", example, search.Description)
+		}
+	}
+	for _, forbiddenLeaf := range []app.CapabilityID{"browser.gold_price", "browser.exchange_rate", "browser.stock_quote", "browser.sports_result"} {
+		if _, exists := catalog.Node(forbiddenLeaf); exists {
+			t.Fatalf("live fact category became a vertical leaf: %q", forbiddenLeaf)
+		}
 	}
 }
 

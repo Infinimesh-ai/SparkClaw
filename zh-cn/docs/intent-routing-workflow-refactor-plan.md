@@ -90,6 +90,8 @@ Fast 返回稳定 envelope，并可归一化证据深度和澄清状态。当前
 
 - 明确 URL、Workspace 路径、附件 ref、actor 和 source turn 来自确定性事实，模型不能发明或修改；
 - authorization provenance 与 `Explicit` 不能由检索结果或引用文本产生；
+- `fact_scope=current_internet_state` 是语义而不是工具选择：它覆盖所有依赖当前互联网状态的只读事实，静态常识保持 unmatched；
+- `fact_scope=weather_snapshot` 要求一个从 owner message 校验的地点，并且只选择专用天气卡片 leaf；预警、新闻、历史和比较仍属于当前互联网搜索；
 - 不支持的 enum、target 组合和无法解析的 Profile 必须 fail closed；
 - Fast 输出归一化后必须再次经过 Registry 路由；
 - audit 只保存脱敏语义投影，不保存原始 URL 或路径。
@@ -178,7 +180,8 @@ Outcome ID 与 transition activation count 会持久化；重复 outcome 是 no-
 
 | 注册 leaf/Profile | Stage 顺序 | 工具暴露边界 |
 |---|---|---|
-| `browser.internet_search` r1 | `search_info -> complete` | 只暴露由已配置 Infinimesh Info 支持的 `web.search`，返回类型化结果，不扩展 page read。 |
+| `browser.internet_search` r1 | `search_info -> complete` | 对所有依赖当前互联网状态的只读事实，只暴露由已配置 Infinimesh Info 支持的 `web.search`，返回类型化结果，不扩展 page read。 |
+| `browser.weather` r1 | `render_weather_card -> complete` | 对一个已校验地点的当前天气或短期预报，只暴露 `media.render_weather_card`；预警、新闻、历史和比较仍属于联网搜索。 |
 | `browser.automation` r1 | `scan_tabs -> focus_existing/open_new -> complete` | 先只暴露 `browser.list_tabs`；再根据精确 URL 是否存在，只暴露 `browser.focus` 或 `browser.open`。 |
 | `document.read` r1 | `inspect_type -> read_by_type -> complete` | 类型检查由确定性逻辑完成；随后只暴露绑定精确 path 的兼容 reader。 |
 | `document.edit` r1 | `inspect_type -> edit_by_type -> complete` | 类型检查由确定性逻辑完成；随后只暴露格式与 operation 兼容的 editor，并返回 output copy。 |
@@ -187,7 +190,9 @@ Outcome ID 与 transition activation count 会持久化；重复 outcome 是 no-
 
 每次 transition 都替换 active Exposure view。上一阶段 ToolDefinition 被清除、`ScopeRevision` 增加，旧 selection 或 call 失败。Agent 永远看不到 scan、focus/open、read、edit 或未来阶段工具的并集。
 
-对于“搜索 SparkClaw”，Fast 选择已注册 `browser/internet_search` path。Workflow 只暴露 Info-backed `web.search`，执行冻结 query 并返回结果；Revision 1 不在搜索后增加 `browser.read`。
+对于“现在金价是多少”，Fast 选择已注册 `browser/internet_search` path。Workflow 只暴露 Info-backed `web.search`，执行冻结 query 并返回结果；Revision 1 不在搜索后增加 `browser.read`。
+
+对于“杭州今天天气怎么样”，Fast 使用 `fact_scope=weather_snapshot` 和已校验地点选择 `browser/weather`，Workflow 只暴露天气卡片能力。天气预警、新闻或比较则选择 `browser/internet_search`。
 
 对于“打开 https://example.com”，浏览器自动化 Workflow 先只暴露 `browser.list_tabs`，确定性比较规范化 tab URL 和冻结 target。精确匹配时激活只含 `browser.focus` 的 view；没有匹配时激活只含 `browser.open` 的 view。
 
@@ -214,15 +219,16 @@ Outcome ID 与 transition activation count 会持久化；重复 outcome 是 no-
 
 1. 通用动态 Catalog 注册与 edge/leaf 校验。
 2. `browser.internet_search`，只返回 Info 结果。
-3. `browser.automation`，隔离 list-tabs 与 focus/open 阶段。
-4. `document.read`，检查类型后只暴露兼容 reader。
-5. `document.edit`，检查类型后只暴露兼容 editor。
-6. 后续 branch 独立注册；仅在完整迁移其纵向切片后删除对应旧工具权威。
+3. `browser.weather`，绑定一个已校验地点并且只暴露天气卡片。
+4. `browser.automation`，隔离 list-tabs 与 focus/open 阶段。
+5. `document.read`，检查类型后只暴露兼容 reader。
+6. `document.edit`，检查类型后只暴露兼容 editor。
+7. 后续 branch 独立注册；仅在完整迁移其纵向切片后删除对应旧工具权威。
 
 ## 不可破坏的 Invariant
 
 - Fast 输出不包含实现选择。
-- Capability branch 和 leaf 来自 Registry 数据，当前四个 leaf 不得写死在 Fast、Runtime 或验证 switch 中。
+- Capability branch 和 leaf 来自 Registry 数据，当前五个 leaf 不得写死在 Fast、Runtime 或验证 switch 中。
 - Profile 匹配必须唯一，否则 fail closed。
 - 冻结 Plan 必须经过校验、版本化、hash 和持久化。
 - Core exposure/runtime 不得出现按 Workflow ID 路由的 switch。

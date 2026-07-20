@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/intent-routing-workflow-domain-profiles.md) | 简体中文
 
-截至 2026-07-17 的设计状态：当前阶段目标在两个 branch 下注册四个 leaf，分别为浏览器联网搜索、浏览器自动化、文档读取和文档编辑。这只是注册快照，不是固定分类。后续可以增加 Profile 或整个 branch，而不修改 Router 控制流。下文原有 Web/workspace 条目只保留为未来或过渡示例，不属于当前目标树。意图、Policy 与持久化契约以主方案为准；逐阶段目录检索与 schema 物化以[工具暴露契约](intent-routing-tool-exposure-contract.md)为准。
+截至 2026-07-20 的设计状态：当前阶段目标在两个 branch 下注册五个 leaf，分别为浏览器联网搜索、单地点天气卡片、浏览器自动化、文档读取和文档编辑。这只是注册快照，不是固定分类。后续可以增加 Profile 或整个 branch，而不修改 Router 控制流。下文原有 Web/workspace 条目只保留为未来或过渡示例，不属于当前目标树。意图、Policy 与持久化契约以主方案为准；逐阶段目录检索与 schema 物化以[工具暴露契约](intent-routing-tool-exposure-contract.md)为准。
 
 ## Profile 注册与组合
 
@@ -28,19 +28,20 @@ Tool Exposure 只在当前 scope 内检索逻辑目录。唯一明确目录项�
 capability
   browser
     internet_search -> browser.internet_search r1
+    weather         -> browser.weather r1
     automation      -> browser.automation r1
   document
     read            -> document.read r1
     edit            -> document.edit r1
 ```
 
-树由 node 和 Workflow 注册组装。测试校验 identity、parent-child edge、环和 leaf Workflow reference，不断言这四个 leaf 永远是唯一合法分支。新增 branch 修改注册 catalog 和 decision corpus，不修改 Router switch。
+树由 node 和 Workflow 注册组装。测试校验 identity、parent-child edge、环和 leaf Workflow reference，不断言这五个 leaf 永远是唯一合法注册。新增 branch 修改注册 catalog 和 decision corpus，不修改 Router switch。
 
 任一时刻只有一个 Workflow stage 处于 active。Tool Exposure 接收该 stage 的 scope，只物化匹配 definition。阶段迁移会清除上一 Exposure view、增加 `ScopeRevision` 并拒绝旧 view 的调用；stage scope 绝不累积。
 
 ### 浏览器联网搜索：`browser.internet_search` r1
 
-意图：连接互联网搜索并返回搜索结果。
+意图：查询正确答案依赖当前互联网状态的只读事实，并返回搜索结果。这包括当前金价、汇率、股票或指数行情、即时新闻、当前比赛结果和当前发布的日程。这些只是同一语义 leaf 内的例子，不是独立的垂直能力。
 
 ```text
 stage search_info
@@ -57,6 +58,32 @@ provider 不可用、超时、结果非法
 ```
 
 Revision 1 不迁移到 `browser.read`，不打开可见 tab，也不执行浏览器自动化；这些行为需要后续已注册 Workflow 或显式 composition。
+
+不依赖当前外部状态的静态常识保持 `unmatched`，Fast 不能强制联网。天气预警、天气新闻、历史天气调研和多地点比较使用该搜索 leaf。搜索绑定 `fact_scope=current_internet_state`，并在 Workflow 派发前把当前 owner message 冻结为 query。
+
+### 浏览器天气卡片：`browser.weather` r1
+
+意图：把一个明确地点的当前天气或短期预报渲染为专用天气卡片。
+
+```text
+前置条件
+  fact_scope = weather_snapshot
+  从当前 owner message 复制并校验唯一地点
+
+stage render_weather_card
+  只暴露：weather.card.render
+  物化：media.render_weather_card
+  绑定冻结的精确地点
+
+artifact_available
+  -> 返回 PNG 天气卡片
+  -> complete
+
+地点缺失、查询失败或 artifact 缺失
+  -> clarify，或使用类型化原因 blocked/failed
+```
+
+该 leaf 不覆盖天气预警、新闻、历史调研或多地点比较；这些请求依赖更广的当前互联网证据，路由到 `browser.internet_search`。它也不暴露 `web.search`、page read 或浏览器交互。
 
 ### 浏览器自动化：`browser.automation` r1
 
@@ -147,7 +174,7 @@ Revision 1 写入 output copy，并在类型化编辑成功后结束。后续 re
 | Browser | 读取、打开、检查、交互 | 呈现方式、tab、结构、登录接管 |
 | Files | 查找、读取、回答 | workspace root 与受治理路径 |
 | Document | 读取、定位、编辑、验证 | 格式、anchor、输出副本、覆盖范围 |
-| Image/Weather | 检查或渲染 | 媒体来源、artifact、输出模态 |
+| Image | 检查或转换 | 媒体来源、artifact、输出模态 |
 | Memory | 搜索或提议 | 敏感度、candidate review |
 | Reminder | 创建/列出/更新/取消 | 到期时间、时区、渠道、绑定 |
 | Code/Command | 检查、补丁、执行 | 证据、sandbox、回滚、审批 |

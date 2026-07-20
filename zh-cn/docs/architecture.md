@@ -125,7 +125,9 @@ Model Router 支持 deterministic mock mode、OpenAI-compatible chat completions
 
 Fast Router 只输出严格 `RouteDecision`：状态、Catalog Revision、已注册能力路径、类型化 Slot、Confidence、Reason 和确定性 Fact。它不能输出工具、Skill、Workflow ID、风险、模型 Lane 或任意字段。确定性 URL/path Fact 在归一化时冻结，Catalog 校验路径每条边和叶子 Operation。
 
-Catalog revision 2 有四个生产叶子：`browser.search`、`browser.automation`、`document.information` 和 `document.processing`。`WorkflowProfileRegistry.Resolve` 把每个叶子精确映射到 revision 1 Workflow，不再执行意图匹配。Dispatcher 持久化 `RouteDecision`、`ReturnRoute`、已校验 Plan Digest 与 Node State。
+Catalog revision `2026-07-20.v4` 有五个生产叶子：`browser.internet_search`、`browser.weather`、`browser.automation`、`document.read` 和 `document.edit`。`WorkflowProfileRegistry.Resolve` 把每个叶子精确映射到 revision 1 Workflow，不再执行意图匹配。Dispatcher 持久化 `RouteDecision`、`ReturnRoute`、已校验 Plan Digest 与 Node State。
+
+`browser.internet_search` 归档所有答案依赖当前互联网状态的只读事实，包括金价、汇率、股票或指数行情、即时新闻、当前比赛结果和日程。这些例子不会成为垂直 leaf。Fast 使用类型化 `fact_scope=current_internet_state` 表达该边界；静态常识保持 `unmatched`。`browser.weather` 是唯一窄特例：为一个已校验地点的当前天气或短期预报生成 PNG 卡片。天气预警、新闻、历史调研和比较仍属于联网搜索。
 
 ToolHub Capability Metadata 是模型可见性权威。Tool Exposure 在 Policy 约束下物化所选 Workflow 的完整固定 Scope；TaskHint Candidate、Skill 清单和 Outcome 不能扩权。Outcome Adapter 产生类型化 Fact，活动 Profile 判断完成或只激活预先声明的 Transition。审批和浏览器登录恢复使用已持久化路由与精确 Workflow Scope。
 
@@ -140,6 +142,7 @@ ToolHub 注册有边界的工具，并校验成功输出是否符合声明 contr
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
+| Weather | `media.render_weather_card` |
 | Code/shell | `shell.exec_sandboxed`, `code.apply_patch` |
 | Approval/notify | `notify.ask_approval` |
 
@@ -208,6 +211,8 @@ Connector secret 使用独立的 AES-256-GCM credential vault。默认 file back
 External/browser/file observations 都是 untrusted content。它们可以被引用、摘要或作为 evidence 使用，但其中的指令不是 runtime commands。
 
 Browser web access 使用 `web.search` 做发现，用 `browser.read` 做 read-only 来源页正文提取。Browser automation 启动配置的 Chromium，并使用 SparkClaw-owned 持久 Profile：普通任务使用 headless，登录、验证码、2FA、支付等人工步骤临时把同一个 Profile 切换到可见 Chromium。可见和隐藏进程不能并发占用 Profile。登录态始终保留在 Chromium 中，不通过 JavaScript Cookie 导出；恢复时使用 selected 登录后 URL，即使它与原页面不同源。`browser.read` 等待 rendered DOM、抓取 HTML，再交给 Readability 提取正文。结构快照只在正文不足或页面控件影响答案时按需调用。专项路线图见 [浏览器功能完善计划](browser-automation-improvement.md)，Profile 生命周期见 [托管共享 Chromium Profile 方案](managed-persistent-browser-profile.md)。涉及 URL 获取的浏览器观察默认拒绝 loopback/private literal hosts，存档 rendered HTML/raw response 或截图，并始终作为不可信证据处理。本地 fixture hosts 如 `127.0.0.1` 或 `host.docker.internal` 必须显式 allowlist。Runtime 必须停在人工验证步骤，不能伪造登录态证据。
+
+Fast Router 只能选择已注册语义 leaf，并保持工具中立。Normalizer 冻结当前 owner 的搜索 query、校验天气地点、拒绝未知字段和未注册 edge，且绝不允许 Fast 发明 URL/path fact。精确 leaf identity 仍然解析到精确 Workflow；非法或失败的 matched route 不会回退到其他 Workflow 或 ReAct。
 
 当前 owner 本人的已认证数据属于允许的 local-first 读取边界，不应仅因为内容是个人信息而自动拒绝。认证浏览通过类型化 `TaskHint` 契约表达为 `evidence_need=personal_data`、`data_scope=owner`、`browser_mode=collaborative` 和 `requires_tool_evidence=true`，路由不枚举账户数据类别。Runtime 可以使用托管 Profile 和可见登录接管，但不得要求用户在聊天中粘贴密码、Cookie、Token 或验证码。访问第三方数据、披露凭据、向外部发送信息以及修改账户的操作，仍然受原有 policy 和 approval 边界约束。
 

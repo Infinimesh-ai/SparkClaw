@@ -28,7 +28,7 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Router-first 能力 Workflow | 浏览器搜索/自动化和文档信息/处理已迁移 | Catalog、精确 Registry/Dispatcher、固定工具暴露与四条端到端测试 |
+| Router-first 能力 Workflow | 浏览器联网搜索/天气/自动化和文档读取/编辑已迁移 | Catalog、精确 Registry/Dispatcher、固定工具暴露、端到端测试与语义边界回归 |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
 | Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
@@ -136,6 +136,8 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 5. 在 Profile 中声明允许的 Transition、Risk 与受治理参数绑定，并持久化 Route 供审批/登录恢复使用。
 6. 删除同一功能的 TaskHint Candidate 与旧 Workflow 分支。
 7. 增加从生产入口执行真实 Tool Adapter 的端到端测试，断言 `WorkflowResult`，并证明没有 Legacy Routing Audit。
+
+当前状态事实使用一个类型化语义边界。正确答案依赖实时互联网的只读事实使用 `fact_scope=current_internet_state`，包括价格、汇率、股票/指数行情、即时新闻、比赛结果和日程；静态常识保持 unmatched。不要为每类事实增加 leaf、关键词 switch 或工具名称列表。唯一的窄特例是 `browser.weather`，只处理一个已校验地点的当前天气或短期预报卡片；天气预警、新闻、历史和比较仍属于 `browser.internet_search`。
 
 Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 Switch 来选择 Scope、资源、Assessment 或下一步，应把行为移入 Profile、Plan Binding、ToolHub Registration 或 Outcome Adapter。只有 `RouteDecision.Status == unmatched` 可以进入 ReAct。
 

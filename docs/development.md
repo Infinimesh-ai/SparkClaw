@@ -28,7 +28,7 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Router-first capability workflows | Browser search/automation and document information/processing migrated | Catalog, exact Registry/Dispatcher, fixed tool exposure and four end-to-end tests |
+| Router-first capability workflows | Browser Internet search/weather/automation and document read/edit migrated | Catalog, exact Registry/Dispatcher, fixed tool exposure, end-to-end tests and semantic boundary regressions |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
 | Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
@@ -148,6 +148,15 @@ the full contract. For each migrated capability leaf:
 6. Remove the same feature's TaskHint candidates and legacy Workflow branch.
 7. Add a production-entry end-to-end test that executes a real tool adapter,
    asserts the `WorkflowResult`, and proves no legacy routing audit occurred.
+
+Current-state facts use one typed semantic boundary. Set
+`fact_scope=current_internet_state` for read-only facts whose correct answer
+depends on the live Internet, including prices, exchange rates, stock/index
+quotes, immediate news, match results, and schedules. Keep stable common
+knowledge unmatched. Do not add one leaf, keyword switch, or tool-name list per
+fact category. The only narrow specialization is `browser.weather` for one
+grounded location's current conditions or short forecast card; weather alerts,
+news, history, and comparisons remain `browser.internet_search`.
 
 Core runtime code must remain profile-neutral. If a change requires a switch on
 Workflow ID or tool name to select a scope, resource, assessment, or next step,

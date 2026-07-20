@@ -255,6 +255,7 @@ not a closed enum or permanent product taxonomy:
 capability
   browser
     internet_search
+    weather
     automation
   document
     read
@@ -265,7 +266,7 @@ The Router core never embeds this shape. Each node registration declares its
 stable ID, parent ID, branch/leaf kind, routing description, revision, and, for
 a leaf, one Workflow reference. Registry validation rejects missing parents,
 cycles, duplicate IDs, invalid leaf/Workflow references, and paths containing
-unregistered edges. The current four leaves are default registrations only.
+unregistered edges. The current five leaves are default registrations only.
 Adding a future branch or leaf changes registration data and adds its Workflow;
 it does not add a core Router switch, a synchronized name list, or a new
 hard-coded traversal path.
@@ -296,6 +297,21 @@ The Router cannot return tool names, Workflow steps, approval decisions, or
 new capability IDs. Ambiguity or missing required information produces a
 clarification result.
 
+The typed `fact_scope` separates current-state evidence from stable knowledge.
+`current_internet_state` covers all read-only facts whose answer depends on the
+live Internet, including prices, exchange rates, market quotes, immediate news,
+current match results, and schedules. It does not enumerate those examples as
+leaf IDs. `weather_snapshot` is narrower: one grounded location's current
+conditions or short forecast card. Weather alerts, news, history, and
+comparisons remain `current_internet_state`; stable common knowledge remains
+`unmatched`.
+
+Fast may select only a registered non-resource leaf when the deterministic
+fallback is unmatched. Normalization freezes the current owner message as a
+search query, grounds a weather location in that message, and rejects Fast-made
+URLs, paths, target facts, stale catalog revisions, unknown fields, or invented
+edges. Deterministically recognized URL/path work always wins over Fast output.
+
 ### Workflow Registry And Dispatcher
 
 The Workflow Registry maps a capability leaf to a versioned Workflow contract.
@@ -315,7 +331,7 @@ parallelism, retry, compensation, and completion rules are deliberately
 deferred to Workflow-level designs. They may evolve without changing the
 overall architecture as long as the boundary remains stable.
 
-For the current four Workflow registrations, every stage owns a frozen
+For the current five Workflow registrations, every stage owns a frozen
 capability scope. Tool Exposure materializes only tools matching the active
 stage. On transition, the previous stage's tool definitions are removed,
 `ScopeRevision` advances, and stale tool calls are rejected. Tools from earlier
@@ -497,7 +513,7 @@ The overall architecture is valid when:
 
 - every source creates the same normalized message contract;
 - the capability tree is the only Fast routing vocabulary;
-- the tree shape comes from validated registrations and the current four
+- the tree shape comes from validated registrations and the current five
   leaves are not hard-coded into Router control flow;
 - every matched leaf resolves one Workflow contract;
 - each active Workflow stage exposes only its declared tool scope and clears

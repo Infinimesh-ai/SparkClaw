@@ -163,7 +163,8 @@ allowlist. Future branches add registered stages and scopes without changing
 
 | Workflow stage | Active capability boundary | Materializable definition(s) |
 |---|---|---|
-| `browser.internet_search/search_info` | Internet discovery through configured Info provider; no page read or live interaction | `web.search` |
+| `browser.internet_search/search_info` | Read-only facts that depend on current Internet state through the configured Info provider; no page read or live interaction | `web.search` |
+| `browser.weather/render_weather_card` | One grounded location's current conditions or short forecast; no alerts, news, history, or comparison research | `media.render_weather_card` |
 | `browser.automation/scan_tabs` | List managed browser tabs only | `browser.list_tabs` |
 | `browser.automation/focus_existing` | Focus the exact page ID selected from the persisted tab outcome | `browser.focus` |
 | `browser.automation/open_new` | Open the exact frozen URL only | `browser.open` |
@@ -173,9 +174,10 @@ allowlist. Future branches add registered stages and scopes without changing
 | `document.edit/edit_by_type` | Edit the detected format for the requested operation | only compatible DOCX, XLSX, PPTX, or PDF editor registrations |
 
 Moving to another row replaces the view; it never unions rows. Search results
-do not expose page readers. Tab scanning does not expose focus and open
-together. Document read never exposes editors, and document edit never exposes
-another format's tool family.
+do not expose page readers. Weather-card execution does not expose Internet
+search, and alert/news/comparison requests never expose the weather-card tool.
+Tab scanning does not expose focus and open together. Document read never
+exposes editors, and document edit never exposes another format's tool family.
 
 These migrated slices never consult TaskHint candidates, Skill allow/deny
 lists, fallback tool lists, or observation-string expansion for visibility.

@@ -116,6 +116,12 @@ these non-negotiable rules:
   from deterministic facts and cannot be invented or changed by the model;
 - authorization provenance and `Explicit` cannot be created from retrieved or
   quoted text;
+- `fact_scope=current_internet_state` is semantic, not a tool choice: it covers
+  every read-only fact that requires current Internet state, while stable common
+  knowledge remains unmatched;
+- `fact_scope=weather_snapshot` requires one owner-grounded location and selects
+  only the dedicated weather-card leaf; alerts, news, history, and comparisons
+  remain current-Internet search;
 - unsupported enums, target combinations, and unresolved profiles fail closed;
 - the final envelope is routed again through the registry after Fast output;
 - audit stores a redacted semantic projection, not raw URL/path content.
@@ -233,7 +239,8 @@ mismatch blocks instead of widening exposure.
 
 | Registered leaf/Profile | Stage sequence | Tool exposure boundary |
 |---|---|---|
-| `browser.internet_search` r1 | `search_info -> complete` | Expose only `web.search` backed by configured Infinimesh Info; return its typed result without page-read expansion. |
+| `browser.internet_search` r1 | `search_info -> complete` | For any read-only fact that depends on current Internet state, expose only `web.search` backed by configured Infinimesh Info; return its typed result without page-read expansion. |
+| `browser.weather` r1 | `render_weather_card -> complete` | For one grounded location's current conditions or short forecast, expose only `media.render_weather_card`; alerts, news, history, and comparisons remain Internet search. |
 | `browser.automation` r1 | `scan_tabs -> focus_existing/open_new -> complete` | First only `browser.list_tabs`; then only `browser.focus` for an exact existing URL or `browser.open` for an absent URL. |
 | `document.read` r1 | `inspect_type -> read_by_type -> complete` | Type inspection is deterministic; then expose only the compatible reader bound to the exact path. |
 | `document.edit` r1 | `inspect_type -> edit_by_type -> complete` | Type inspection is deterministic; then expose only format- and operation-compatible editors and return the output copy. |
@@ -247,10 +254,15 @@ ToolDefinitions are cleared, `ScopeRevision` advances, and stale selections or
 calls fail. The Agent never sees the union of scan, focus/open, read, edit, or
 future-stage tools.
 
-For “search SparkClaw”, Fast selects the registered
+For “what is the current gold price?”, Fast selects the registered
 `browser/internet_search` path. The Workflow exposes only the Info-backed
 `web.search`, executes the frozen query, and returns that result. Revision 1
 does not add `browser.read` after search.
+
+For “what is today's weather in Hangzhou?”, Fast selects `browser/weather`
+with `fact_scope=weather_snapshot` and the grounded location. The Workflow
+exposes only the weather-card capability. A weather warning, news request, or
+comparison instead selects `browser/internet_search`.
 
 For “open https://example.com”, the browser automation Workflow first exposes
 only `browser.list_tabs`. It deterministically compares normalized tab URLs to
@@ -292,16 +304,17 @@ The preferred order is:
 
 1. Generic dynamic catalog registration and edge/leaf validation.
 2. `browser.internet_search` with Info-only result return.
-3. `browser.automation` with list-tabs then focus/open stage isolation.
-4. `document.read` with type inspection and compatible reader exposure.
-5. `document.edit` with type inspection and compatible editor exposure.
-6. Register future branches independently, then remove remaining legacy tool
+3. `browser.weather` with a single grounded location and weather-card-only exposure.
+4. `browser.automation` with list-tabs then focus/open stage isolation.
+5. `document.read` with type inspection and compatible reader exposure.
+6. `document.edit` with type inspection and compatible editor exposure.
+7. Register future branches independently, then remove remaining legacy tool
    authority only after their complete slices migrate.
 
 ## Non-Negotiable Invariants
 
 - Fast output contains no realization choices.
-- Capability branches and leaves come from Registry data; the current four
+- Capability branches and leaves come from Registry data; the current five
   leaves are not hard-coded into Fast, Runtime, or validation switches.
 - Profile matching is unique or fails closed.
 - A frozen plan is validated, versioned, hashed, and persisted.

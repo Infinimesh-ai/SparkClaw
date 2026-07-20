@@ -2,9 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/intent-routing-workflow-domain-profiles.md)
 
-Design status as of 2026-07-17: the current-stage target registers four leaves
-under two branches: browser Internet search, browser automation, document read,
-and document edit. This is a registration snapshot, not a fixed taxonomy.
+Design status as of 2026-07-20: the current-stage target registers five leaves
+under two branches: browser Internet search, single-location weather card,
+browser automation, document read, and document edit. This is a registration
+snapshot, not a fixed taxonomy.
 Profiles and whole branches may be added later without changing Router control
 flow. Earlier Web/workspace entries below are retained only as future or
 transitional examples, not as the current target tree. The main plan remains
@@ -48,6 +49,7 @@ appear only after selection.
 capability
   browser
     internet_search -> browser.internet_search r1
+    weather         -> browser.weather r1
     automation      -> browser.automation r1
   document
     read            -> document.read r1
@@ -56,7 +58,7 @@ capability
 
 The tree is assembled through node and Workflow registrations. Tests validate
 identity, parent-child edges, cycles, and leaf Workflow references; they do not
-assert that these are the only legal branches forever. Adding a branch changes
+assert that these five leaves are the only legal registrations forever. Adding a branch changes
 the registered catalog and decision corpus, not a Router switch.
 
 At any instant, only one Workflow stage is active. Tool Exposure receives that
@@ -66,7 +68,11 @@ old view. Stage scopes never accumulate.
 
 ### Browser Internet Search: `browser.internet_search` r1
 
-Intent: search the Internet and return the search result.
+Intent: retrieve a read-only fact whose correct answer depends on current
+Internet state and return the search result. This includes current gold prices,
+exchange rates, stock or index quotes, immediate news, current match results,
+and currently published schedules. These are examples inside one semantic leaf,
+not separate vertical capabilities.
 
 ```text
 stage search_info
@@ -85,6 +91,40 @@ provider unavailable, timeout, invalid result
 Revision 1 does not transition into `browser.read`, open a visible tab, or
 perform browser automation. Those would require a later registered Workflow or
 explicit composition.
+
+Stable common knowledge that does not depend on current external state remains
+`unmatched`; Fast must not force it online. Weather alerts, weather news,
+historical weather research, and multi-location comparisons use this search
+leaf. Search binds `fact_scope=current_internet_state` and freezes the current
+owner message as the query before Workflow dispatch.
+
+### Browser Weather Card: `browser.weather` r1
+
+Intent: render current conditions or a short forecast for one explicit
+location as the dedicated weather card.
+
+```text
+precondition
+  fact_scope = weather_snapshot
+  exactly one location is copied from and grounded in the current owner message
+
+stage render_weather_card
+  expose only: weather.card.render
+  materialize: media.render_weather_card
+  bind the exact frozen location
+
+artifact_available
+  -> return the PNG weather card
+  -> complete
+
+missing location, lookup failure, or missing artifact
+  -> clarify or blocked/failed with a typed reason
+```
+
+This leaf does not cover weather alerts, news, historical research, or
+multi-location comparisons; those depend on broader current Internet evidence
+and route to `browser.internet_search`. It also does not expose `web.search`,
+page reading, or browser interaction.
 
 ### Browser Automation: `browser.automation` r1
 
@@ -187,7 +227,7 @@ the Agent.
 | Browser | read, open, inspect, interact | presentation, tab, structure, login handoff |
 | Files | find, read, answer | workspace root and governed paths |
 | Document | read, locate, edit, verify | format, anchors, output copy, coverage |
-| Image/Weather | inspect or render | media source, artifact, output modality |
+| Image | inspect or transform | media source, artifact, output modality |
 | Memory | search or propose | sensitivity, candidate review |
 | Reminder | create/list/update/cancel | due time, timezone, channel, binding |
 | Code/Command | inspect, patch, execute | evidence, sandbox, rollback, approval |

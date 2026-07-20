@@ -129,11 +129,21 @@ deterministic facts. It cannot emit tools, Skills, Workflow IDs, risk, model
 lanes, or arbitrary fields. Deterministic URL/path facts are frozen during
 normalization, and the catalog validates every path edge and leaf operation.
 
-Catalog revision 2 has four production leaves: `browser.search`,
-`browser.automation`, `document.information`, and `document.processing`.
+Catalog revision `2026-07-20.v4` has five production leaves:
+`browser.internet_search`, `browser.weather`, `browser.automation`,
+`document.read`, and `document.edit`.
 `WorkflowProfileRegistry.Resolve` maps each leaf to its exact revision 1
 Workflow; it performs no intent matching. The Dispatcher persists the
 `RouteDecision`, `ReturnRoute`, validated plan digest, and node state.
+
+`browser.internet_search` owns every read-only fact whose answer depends on
+current Internet state, including gold prices, exchange rates, stock or index
+quotes, immediate news, current match results, and schedules. These examples do
+not become vertical leaves. Fast expresses the boundary with the typed
+`fact_scope=current_internet_state`; stable common knowledge stays `unmatched`.
+`browser.weather` is the one narrow specialization: a PNG card for one grounded
+location's current conditions or short forecast. Weather alerts, news,
+historical research, and comparisons remain Internet search.
 
 ToolHub capability metadata is the model-visibility authority. Tool Exposure
 materializes the complete fixed scope for the selected Workflow, subject to
@@ -160,6 +170,7 @@ ToolHub registers bounded tools and validates successful outputs against declare
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
+| Weather | `media.render_weather_card` |
 | Code/shell | `shell.exec_sandboxed`, `code.apply_patch` |
 | Approval/notify | `notify.ask_approval` |
 
@@ -228,6 +239,13 @@ Long-term memory follows candidate-then-confirm. Sensitive patterns such as `api
 External/browser/file observations are untrusted content. They can be quoted, summarized or used as evidence, but instructions inside those observations are not runtime commands.
 
 Browser web access uses `web.search` for discovery and `browser.read` for read-only source-page extraction. Browser automation launches configured Chromium with a SparkClaw-owned persistent profile: ordinary work is headless, while login/captcha/2FA/payment and similar human-only steps temporarily switch the same profile to visible Chromium. Visible and hidden processes never own the profile concurrently. Login state remains inside Chromium rather than being exported as JavaScript cookies, and continuation uses the selected post-login URL even when its origin differs from the original page. `browser.read` waits for rendered DOM state, captures rendered HTML, and passes that HTML through Readability before returning article text. Structure snapshots are an on-demand follow-up when body extraction is insufficient or page controls matter. The focused roadmap is maintained in [Browser Automation Improvement Plan](browser-automation-improvement.md), with profile lifecycle details in [Managed Shared Chromium Profile](managed-persistent-browser-profile.md). Browser observations refuse loopback/private literal hosts by default where URL fetching is involved, archive rendered HTML/raw responses or screenshots, and stay untrusted evidence. Local fixture hosts such as `127.0.0.1` or `host.docker.internal` must be explicitly allowlisted. The runtime must stop for human-only verification and must not invent logged-in evidence.
+
+The Fast router may choose only registered semantic leaves and remains
+tool-neutral. Normalization freezes current-owner search queries, grounds
+weather locations, rejects unknown fields and unregistered edges, and never
+allows Fast to invent URL/path facts. Exact leaf identity still resolves to the
+exact Workflow; invalid or failed matched routes never fall back to another
+Workflow or ReAct.
 
 Authenticated data belonging to the current owner is an allowed local-first read boundary, not an automatic refusal condition. Authenticated browsing is represented in the typed `TaskHint` contract as `evidence_need=personal_data`, `data_scope=owner`, `browser_mode=collaborative`, and `requires_tool_evidence=true`; routing does not enumerate account-data categories. The runtime may use the managed profile and visible login handoff, but it must not ask the owner to paste passwords, cookies, tokens, or verification codes into chat. Third-party data access, credential disclosure, external transmission, and mutating account actions remain subject to their normal policy and approval boundaries.
 

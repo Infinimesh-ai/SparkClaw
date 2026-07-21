@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/intent-routing-workflow-refactor-plan.md) | 简体中文
 
-截至 2026-07-17 的设计状态：共享 Runtime 基础已经存在，下一目标是由注册驱动的 capability tree；当前快照只包含浏览器联网搜索、浏览器自动化、文档读取和文档编辑。这个四叶快照不是固定 enum。既有 Web/workspace Profile 是迁移输入，必须在不重新引入 Router switch 的前提下收敛到这些注册 Workflow。本阶段上下文组装继续使用旧链路。
+截至 2026-07-17 的设计状态：共享 Runtime 基础已经存在，下一目标是由注册驱动的 capability tree；当前快照包含浏览器联网搜索、浏览器天气、浏览器自动化、文档读取和文档编辑。这个五叶快照不是固定 enum。既有 Web/workspace Profile 是迁移输入，必须在不重新引入 Router switch 的前提下收敛到这些注册 Workflow。本阶段上下文组装继续使用旧链路。
 
 ## 结论
 
@@ -15,7 +15,7 @@ SparkClaw 保留 Fast 意图分类，但把它严格限制为输出稳定语义�
 3. `ToolExposure.Search/Materialize` 是把活动 capability scope 转为模型可见 ToolDefinition 的唯一权威位置。
 4. 类型化 `ToolOutcome` 和 Profile assessment 只能推进或扩展冻结 Plan 中已经声明的 transition。
 
-Skill 只提供流程指导。Policy 与精确参数授权在执行时继续保持权威。ReAct 从当前物化的定义中选择动作，但不决定 capability 是否可达。
+对于已迁移 Capability，版本化 Workflow Profile 与持久化 Active Scope 是流程规程来源；Plan 不包含 Skill ID，模型 Prompt 也不加载 Skill 文本。过渡 Skill 只保留给尚未迁移的 ReAct 领域。Policy 与精确参数授权在执行时继续保持权威；ReAct 只能从旧路径的可见定义中选择动作，不能决定已迁移 Capability 是否可达。
 
 这是渐进替换，不是永久双路由。已迁移意图遇到 capability 缺失、目录过期或执行阻塞时必须记录 blocker，不能回退 TaskHint。
 

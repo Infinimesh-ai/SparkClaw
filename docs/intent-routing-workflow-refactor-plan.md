@@ -4,8 +4,8 @@
 
 Design status as of 2026-07-17: the shared runtime foundation exists, and the
 next target is a registration-driven capability tree whose current snapshot
-contains browser Internet search, browser automation, document read, and
-document edit. This four-leaf snapshot is not a fixed enum. Existing
+contains browser Internet search, browser weather, browser automation, document
+read, and document edit. This five-leaf snapshot is not a fixed enum. Existing
 Web/workspace profiles are migration input and must be reconciled into these
 registered Workflows without reintroducing Router switches. Context assembly
 remains on the legacy path in this phase.
@@ -27,9 +27,12 @@ Execution has four ownership boundaries:
 4. Typed `ToolOutcome` and profile-specific assessment may advance or expand
    only transitions already present in the frozen plan.
 
-Skills provide procedure only. Policy and exact-argument authorization remain
-authoritative at execution time. ReAct chooses an action from the currently
-materialized definitions; it does not determine reachability.
+For migrated capabilities, the versioned Workflow Profile and persisted active
+scope provide the procedure; plans contain no Skill IDs and model prompts load
+no Skill text. Transitional Skills remain only for unmigrated ReAct domains.
+Policy and exact-argument authorization remain authoritative at execution time.
+ReAct chooses an action from its legacy visible definitions; it does not
+determine migrated capability reachability.
 
 This is an incremental replacement, not a permanent dual-routing design. A
 migrated intent never falls back to TaskHint because a capability is missing,

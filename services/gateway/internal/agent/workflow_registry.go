@@ -9,6 +9,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 )
 
+const workflowExecutionModelLane = "deep"
+
 type workflowProfile interface {
 	ID() app.WorkflowID
 	Revision() int
@@ -24,6 +26,7 @@ type workflowProfile interface {
 type workflowRecognitionContext struct {
 	SourceTurnID  string
 	Content       string
+	Resources     []app.MessagePart
 	Snapshot      agentContextSnapshot
 	WorkspaceRoot string
 }
@@ -107,6 +110,7 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		browserInternetSearchProfile{},
 		browserWeatherProfile{},
 		browserAutomationProfile{},
+		browserInteractionProfile{},
 		documentReadProfile{},
 		documentEditProfile{},
 	)

@@ -72,10 +72,14 @@ func (a InfinimeshInfoAdapter) Search(ctx context.Context, request Request) (Res
 		return Result{}, err
 	}
 	items, sourceURLs := infinimeshSources(response.Sources, maxResults)
+	keyFacts := infinimeshKeyFacts(response.AnswerContext.KeyFacts)
 	summary := strings.TrimSpace(response.AnswerContext.Summary)
 	answer := summary
 	if answer == "" {
 		answer = evidenceAnswer(items)
+	}
+	if answer == "" {
+		answer = keyFactAnswer(keyFacts)
 	}
 	if answer == "" {
 		return Result{}, errors.New("infinimesh info returned no answer or usable sources")
@@ -88,7 +92,7 @@ func (a InfinimeshInfoAdapter) Search(ctx context.Context, request Request) (Res
 		Provider:    InfoProviderName,
 		Count:       len(items),
 		Results:     items,
-		KeyFacts:    infinimeshKeyFacts(response.AnswerContext.KeyFacts),
+		KeyFacts:    keyFacts,
 		Citations:   infinimeshCitations(response.AnswerContext, response.Sources, sourceURLs),
 		RetrievedAt: time.Now().UTC().Format(time.RFC3339),
 		TookMS:      time.Since(start).Milliseconds(),
@@ -128,15 +132,16 @@ func infinimeshSources(sources []infinimeshinfo.Source, limit int) ([]Item, map[
 			continue
 		}
 		item := Item{
-			EvidenceIndex: sourceIndex,
-			ID:            strings.TrimSpace(source.ID),
-			Title:         strings.TrimSpace(source.Title),
-			URL:           strings.TrimSpace(source.URL),
-			Snippet:       boundedSnippet(source.Snippets, maxSourceSnippetBytes),
-			Snippets:      boundedSourceSnippets(source.Snippets, maxSourceSnippetBytes),
-			Source:        strings.TrimSpace(source.SourceType),
-			PublishedAt:   strings.TrimSpace(source.PublishedAt),
-			RetrievedAt:   strings.TrimSpace(source.RetrievedAt),
+			EvidenceIndex:  sourceIndex,
+			ID:             strings.TrimSpace(source.ID),
+			Title:          strings.TrimSpace(source.Title),
+			URL:            strings.TrimSpace(source.URL),
+			Snippet:        boundedSnippet(source.Snippets, maxSourceSnippetBytes),
+			Snippets:       boundedSourceSnippets(source.Snippets, maxSourceSnippetBytes),
+			Source:         strings.TrimSpace(source.SourceType),
+			PublishedAt:    strings.TrimSpace(source.PublishedAt),
+			RetrievedAt:    strings.TrimSpace(source.RetrievedAt),
+			AuthorityScore: source.AuthorityScore,
 		}
 		if item.Title == "" {
 			item.Title = item.URL
@@ -293,6 +298,16 @@ func evidenceAnswer(items []Item) string {
 		}
 		if text != "" {
 			lines = append(lines, text)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func keyFactAnswer(facts []KeyFact) string {
+	lines := make([]string, 0, len(facts))
+	for _, fact := range facts {
+		if claim := strings.TrimSpace(fact.Claim); claim != "" {
+			lines = append(lines, claim)
 		}
 	}
 	return strings.Join(lines, "\n")

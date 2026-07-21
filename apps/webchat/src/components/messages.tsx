@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Bot, Check, Download, FileSearch, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
-import { apiToken, documentFileURL, workspaceScreenshotURL } from "../api/client";
+import { apiToken, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
 import type { Message, MessageAttachment } from "../api/types";
 import type { Copy, Language } from "../i18n";
@@ -49,9 +49,9 @@ export function MessageBubble({
         <span>{message.role === "user" ? text.chat.you : text.chat.assistant}</span>
         <time>{formatTime(message.created_at, language)}</time>
       </div>
-      {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} text={text} />}
+      {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} sessionId={message.session_id} text={text} />}
       {streamStatuses.length > 0 && <StreamStatusList statuses={streamStatuses} />}
-      <MessageContent content={message.content} text={text} />
+      <MessageContent content={message.content} sessionId={message.session_id} text={text} />
       {message.role === "assistant" && message.run_id && (
         <div className="feedbackBar">
           <button onClick={() => void submit("up")} disabled={saving} title={text.chat.helpful}>
@@ -76,7 +76,7 @@ export function MessageBubble({
   );
 }
 
-export function MessageAttachments({ attachments, text }: { attachments: MessageAttachment[]; text: Copy }) {
+export function MessageAttachments({ attachments, sessionId, text }: { attachments: MessageAttachment[]; sessionId: string; text: Copy }) {
   return (
     <div className="messageAttachments">
       {attachments.map((attachment) => (
@@ -86,9 +86,9 @@ export function MessageAttachments({ attachments, text }: { attachments: Message
             className="messageAttachment image"
             type="button"
             title={text.chat.openAttachment}
-            onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+            onClick={() => void openDocumentFile(attachment.rel_path, sessionId).catch(() => undefined)}
           >
-            <img src={documentFileURL(attachment.rel_path)} alt={attachment.name || attachment.rel_path} />
+            <WorkspaceFileImage path={attachment.rel_path} sessionId={sessionId} alt={attachment.name || attachment.rel_path} />
             <span>{attachment.name || attachment.rel_path}</span>
           </button>
         ) : (
@@ -97,7 +97,7 @@ export function MessageAttachments({ attachments, text }: { attachments: Message
             className="messageAttachment"
             type="button"
             title={text.chat.openAttachment}
-            onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+            onClick={() => void openDocumentFile(attachment.rel_path, sessionId).catch(() => undefined)}
           >
             <FileSearch size={15} />
             <span>{attachment.name || attachment.rel_path}</span>
@@ -189,11 +189,11 @@ export function attachmentOnlyPrompt(language: Language) {
   return language === "zh" ? "请处理我发送的附件。" : "Please work with the attached file.";
 }
 
-export function MessageContent({ content, text }: { content: string; text: Copy }) {
+export function MessageContent({ content, sessionId, text }: { content: string; sessionId: string; text: Copy }) {
   const documentResult = parseDocumentResultContent(content);
-  if (documentResult) return <WorkspaceDocumentResult path={documentResult.path} label={documentResult.label || text.chat.modifiedFile} text={text} />;
+  if (documentResult) return <WorkspaceDocumentResult path={documentResult.path} sessionId={sessionId} label={documentResult.label || text.chat.modifiedFile} text={text} />;
   const mediaImage = parseSingleMediaImageContent(content);
-  if (mediaImage) return <WorkspaceMediaImage path={mediaImage.path} alt={mediaImage.alt} />;
+  if (mediaImage) return <WorkspaceMediaImage path={mediaImage.path} sessionId={sessionId} alt={mediaImage.alt} />;
   const screenshot = parseScreenshotContent(content);
   if (!screenshot) return <RenderedMessageText content={content} />;
   return (
@@ -205,14 +205,14 @@ export function MessageContent({ content, text }: { content: string; text: Copy 
   );
 }
 
-export function WorkspaceDocumentResult({ path, label, text }: { path: string; label: string; text: Copy }) {
+export function WorkspaceDocumentResult({ path, sessionId, label, text }: { path: string; sessionId: string; label: string; text: Copy }) {
   const fileName = path.split("/").pop() || path;
   return (
     <div className="messageContent">
       <button
         className="messageDocumentResult"
         type="button"
-        onClick={() => window.open(documentFileURL(path), "_blank", "noopener,noreferrer")}
+        onClick={() => void openDocumentFile(path, sessionId).catch(() => undefined)}
         title={text.chat.openFile}
       >
         <FileSearch size={18} />
@@ -226,19 +226,46 @@ export function WorkspaceDocumentResult({ path, label, text }: { path: string; l
   );
 }
 
-export function WorkspaceMediaImage({ path, alt }: { path: string; alt: string }) {
+export function WorkspaceMediaImage({ path, sessionId, alt }: { path: string; sessionId: string; alt: string }) {
   return (
     <div className="messageContent mediaOnly">
       <button
         className="messageMediaImageButton"
         type="button"
-        onClick={() => window.open(documentFileURL(path), "_blank", "noopener,noreferrer")}
+        onClick={() => void openDocumentFile(path, sessionId).catch(() => undefined)}
         title={alt || path}
       >
-        <img className="messageMediaImage" src={documentFileURL(path)} alt={alt || "media image"} />
+        <WorkspaceFileImage className="messageMediaImage" path={path} sessionId={sessionId} alt={alt || "media image"} />
       </button>
     </div>
   );
+}
+
+export function WorkspaceFileImage({ path, sessionId, alt, className = "" }: { path: string; sessionId: string; alt: string; className?: string }) {
+  const [src, setSrc] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    let objectURL = "";
+    fetchDocumentFile(path, sessionId, controller.signal)
+      .then((blob) => {
+        if (cancelled) return;
+        objectURL = URL.createObjectURL(blob);
+        setSrc(objectURL);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSrc("");
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (objectURL) URL.revokeObjectURL(objectURL);
+    };
+  }, [path, sessionId]);
+
+  if (!src) return <span className={`workspaceImagePlaceholder ${className}`} aria-hidden="true" />;
+  return <img className={className || undefined} src={src} alt={alt} />;
 }
 
 export function parseSingleMediaImageContent(content: string): { alt: string; path: string } | null {
@@ -435,4 +462,3 @@ export function renderPlainMessageText(text: string, keyPrefix: string) {
     </Fragment>
   ));
 }
-

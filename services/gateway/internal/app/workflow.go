@@ -3,6 +3,7 @@ package app
 const (
 	CapabilityBrowserInternetSearch CapabilityID = "browser.internet_search"
 	CapabilityBrowserWeather        CapabilityID = "browser.weather"
+	CapabilityBrowserInteraction    CapabilityID = "browser.interaction"
 	CapabilityDocumentRead          CapabilityID = "document.read"
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
 )
@@ -27,9 +28,11 @@ const (
 type TargetKind string
 
 const (
-	TargetKindNone          TargetKind = "none"
-	TargetKindExplicitURL   TargetKind = "explicit_url"
-	TargetKindWorkspacePath TargetKind = "workspace_path"
+	TargetKindNone              TargetKind = "none"
+	TargetKindExplicitURL       TargetKind = "explicit_url"
+	TargetKindBrowserCurrentTab TargetKind = "browser_current_tab"
+	TargetKindWorkspacePath     TargetKind = "workspace_path"
+	TargetKindLocation          TargetKind = "location"
 )
 
 type OutputKind string
@@ -105,11 +108,13 @@ type CompletionRule string
 type WorkflowStatus string
 type WorkflowNodeStatus string
 type ArgumentBindingSource string
+type WorkflowResultProjection string
 
 const (
 	WorkflowBrowserInternetSearch WorkflowID = "browser.internet_search"
 	WorkflowBrowserWeather        WorkflowID = "browser.weather"
 	WorkflowBrowserAutomation     WorkflowID = "browser.automation"
+	WorkflowBrowserInteraction    WorkflowID = "browser.interaction"
 	WorkflowDocumentRead          WorkflowID = "document.read"
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
 
@@ -129,16 +134,25 @@ const (
 
 	ToolEffectExternalRead     ToolEffect = "external.read"
 	ToolEffectExternalInteract ToolEffect = "external.interact"
+	ToolEffectLocalCompute     ToolEffect = "local.compute"
 	ToolEffectWorkspaceRead    ToolEffect = "workspace.read"
 	ToolEffectWorkspaceWrite   ToolEffect = "workspace.write"
 
-	ToolCapabilityWebDiscovery    = "web.discovery"
-	ToolCapabilityWeatherCard     = "weather.card.render"
-	ToolCapabilityBrowserListTabs = "browser.tab.list"
-	ToolCapabilityBrowserFocus    = "browser.tab.focus"
-	ToolCapabilityBrowserOpen     = "browser.tab.open"
-	ToolCapabilityDocumentRead    = "document.read"
-	ToolCapabilityDocumentEdit    = "document.edit"
+	ToolCapabilityWebDiscovery     = "web.discovery"
+	ToolCapabilityInfoQuestion     = "info.question.read"
+	ToolCapabilityWeatherStructure = "weather.payload.structure"
+	ToolCapabilityWeatherRender    = "weather.card.render"
+	ToolCapabilityBrowserListTabs  = "browser.tab.list"
+	ToolCapabilityBrowserFocus     = "browser.tab.focus"
+	ToolCapabilityBrowserOpen      = "browser.tab.open"
+	ToolCapabilityBrowserHealth    = "browser.health.read"
+	ToolCapabilityBrowserNavigate  = "browser.tab.navigate"
+	ToolCapabilityBrowserSnapshot  = "browser.page.snapshot"
+	ToolCapabilityBrowserWait      = "browser.page.wait"
+	ToolCapabilityBrowserClick     = "browser.element.click"
+	ToolCapabilityBrowserVerify    = "browser.interaction.verify"
+	ToolCapabilityDocumentRead     = "document.read"
+	ToolCapabilityDocumentEdit     = "document.edit"
 
 	CapabilityQualifierFormat   = "format"
 	CapabilityQualifierProvider = "provider"
@@ -152,28 +166,55 @@ const (
 
 	OutcomeAdapterGeneric         ToolOutcomeAdapter = "generic"
 	OutcomeAdapterWebSearch       ToolOutcomeAdapter = "web.search"
+	OutcomeAdapterInfoAnswer      ToolOutcomeAdapter = "info.answer"
+	OutcomeAdapterWeatherPayload  ToolOutcomeAdapter = "weather.payload"
+	OutcomeAdapterWeatherCard     ToolOutcomeAdapter = "weather.card"
 	OutcomeAdapterWebPage         ToolOutcomeAdapter = "web.page"
 	OutcomeAdapterWorkspaceSearch ToolOutcomeAdapter = "workspace.search"
 	OutcomeAdapterWorkspaceRead   ToolOutcomeAdapter = "workspace.read"
 	OutcomeAdapterBrowserTabs     ToolOutcomeAdapter = "browser.tabs"
+	OutcomeAdapterBrowserHealth   ToolOutcomeAdapter = "browser.health"
 	OutcomeAdapterBrowserFocus    ToolOutcomeAdapter = "browser.focus"
 	OutcomeAdapterBrowserOpen     ToolOutcomeAdapter = "browser.open"
+	OutcomeAdapterBrowserNavigate ToolOutcomeAdapter = "browser.navigate"
+	OutcomeAdapterBrowserSnapshot ToolOutcomeAdapter = "browser.snapshot"
+	OutcomeAdapterBrowserWait     ToolOutcomeAdapter = "browser.wait"
+	OutcomeAdapterBrowserClick    ToolOutcomeAdapter = "browser.click"
+	OutcomeAdapterBrowserVerify   ToolOutcomeAdapter = "browser.verify"
 	OutcomeAdapterDocumentEdit    ToolOutcomeAdapter = "document.edit"
-	OutcomeAdapterWeatherCard     ToolOutcomeAdapter = "weather.card"
 
-	OutcomeSignalResultsAvailable       OutcomeSignal = "results_available"
-	OutcomeSignalNoResults              OutcomeSignal = "no_results"
-	OutcomeSignalContentAvailable       OutcomeSignal = "content_available"
-	OutcomeSignalSourcePageAvailable    OutcomeSignal = "source_page_available"
-	OutcomeSignalStructureRequired      OutcomeSignal = "structure_required"
-	OutcomeSignalAuthenticationRequired OutcomeSignal = "authentication_required"
-	OutcomeSignalTabsScanned            OutcomeSignal = "tabs_scanned"
-	OutcomeSignalTargetTabExists        OutcomeSignal = "target_tab_exists"
-	OutcomeSignalTargetTabMissing       OutcomeSignal = "target_tab_missing"
-	OutcomeSignalFocusCompleted         OutcomeSignal = "focus_completed"
-	OutcomeSignalOpenCompleted          OutcomeSignal = "open_completed"
-	OutcomeSignalEditCompleted          OutcomeSignal = "edit_completed"
-	OutcomeSignalArtifactAvailable      OutcomeSignal = "artifact_available"
+	OutcomeSignalResultsAvailable                OutcomeSignal = "results_available"
+	OutcomeSignalInfoAnswerAvailable             OutcomeSignal = "info_answer_available"
+	OutcomeSignalWeatherPayloadAvailable         OutcomeSignal = "weather_payload_available"
+	OutcomeSignalWeatherCardAvailable            OutcomeSignal = "weather_card_available"
+	OutcomeSignalNoResults                       OutcomeSignal = "no_results"
+	OutcomeSignalContentAvailable                OutcomeSignal = "content_available"
+	OutcomeSignalSourcePageAvailable             OutcomeSignal = "source_page_available"
+	OutcomeSignalStructureRequired               OutcomeSignal = "structure_required"
+	OutcomeSignalAuthenticationRequired          OutcomeSignal = "authentication_required"
+	OutcomeSignalTabsScanned                     OutcomeSignal = "tabs_scanned"
+	OutcomeSignalTargetTabExists                 OutcomeSignal = "target_tab_exists"
+	OutcomeSignalTargetTabMissing                OutcomeSignal = "target_tab_missing"
+	OutcomeSignalFocusCompleted                  OutcomeSignal = "focus_completed"
+	OutcomeSignalOpenCompleted                   OutcomeSignal = "open_completed"
+	OutcomeSignalBrowserHealthy                  OutcomeSignal = "browser_healthy"
+	OutcomeSignalBrowserUnavailable              OutcomeSignal = "browser_unavailable"
+	OutcomeSignalTargetTabBlank                  OutcomeSignal = "target_tab_blank"
+	OutcomeSignalNavigateCompleted               OutcomeSignal = "navigate_completed"
+	OutcomeSignalSnapshotAvailable               OutcomeSignal = "snapshot_available"
+	OutcomeSignalSnapshotTruncated               OutcomeSignal = "snapshot_truncated"
+	OutcomeSignalSnapshotStale                   OutcomeSignal = "snapshot_stale"
+	OutcomeSignalClickCompleted                  OutcomeSignal = "click_completed"
+	OutcomeSignalWaitCompleted                   OutcomeSignal = "wait_completed"
+	OutcomeSignalInteractionProgress             OutcomeSignal = "interaction_progress"
+	OutcomeSignalInteractionVerificationRequired OutcomeSignal = "interaction_verification_required"
+	OutcomeSignalInteractionGoalSatisfied        OutcomeSignal = "interaction_goal_satisfied"
+	OutcomeSignalInteractionLoopDetected         OutcomeSignal = "interaction_loop_detected"
+	OutcomeSignalInteractionAttemptLimit         OutcomeSignal = "interaction_attempt_limit"
+	OutcomeSignalInteractionVerificationFailed   OutcomeSignal = "interaction_verification_failed"
+	OutcomeSignalUnsafeClickTarget               OutcomeSignal = "unsafe_click_target"
+	OutcomeSignalEditCompleted                   OutcomeSignal = "edit_completed"
+	OutcomeSignalArtifactAvailable               OutcomeSignal = "artifact_available"
 
 	AssessmentComplete          AssessmentStatus = "complete"
 	AssessmentNeedsMoreEvidence AssessmentStatus = "needs_more_evidence"
@@ -194,6 +235,9 @@ const (
 	ArgumentBindingOutcomeRef   ArgumentBindingSource = "outcome_ref"
 	ArgumentBindingRouteSlot    ArgumentBindingSource = "route_slot"
 	ArgumentBindingRouteFact    ArgumentBindingSource = "route_fact"
+
+	WorkflowResultTextAndOutputs WorkflowResultProjection = "text_and_outputs"
+	WorkflowResultOutputsOnly    WorkflowResultProjection = "outputs_only"
 )
 
 type CapabilityRequirement struct {
@@ -207,8 +251,14 @@ type CapabilityDescriptor struct {
 }
 
 type CapabilityScope struct {
-	Requirements  []CapabilityRequirement `json:"requirements"`
-	DeniedEffects []ToolEffect            `json:"denied_effects,omitempty"`
+	Requirements   []CapabilityRequirement `json:"requirements"`
+	DeniedEffects  []ToolEffect            `json:"denied_effects,omitempty"`
+	MaterializeAll bool                    `json:"materialize_all,omitempty"`
+}
+
+type StageCapabilityRule struct {
+	Stage        string   `json:"stage"`
+	Capabilities []string `json:"capabilities"`
 }
 
 type NodeGoal struct {
@@ -242,25 +292,26 @@ type ArgumentBinding struct {
 }
 
 type WorkflowNode struct {
-	ID               WorkflowNodeID    `json:"id"`
-	InitialStage     string            `json:"initial_stage"`
-	DependsOn        []WorkflowNodeID  `json:"depends_on,omitempty"`
-	Goal             NodeGoal          `json:"goal"`
-	InitialScope     CapabilityScope   `json:"initial_scope"`
-	Transitions      []ScopeTransition `json:"transitions,omitempty"`
-	ArgumentBindings []ArgumentBinding `json:"argument_bindings,omitempty"`
-	AllowedRisks     []RiskLevel       `json:"allowed_risks"`
-	MaxAttempts      int               `json:"max_attempts"`
+	ID                WorkflowNodeID        `json:"id"`
+	InitialStage      string                `json:"initial_stage"`
+	DependsOn         []WorkflowNodeID      `json:"depends_on,omitempty"`
+	Goal              NodeGoal              `json:"goal"`
+	InitialScope      CapabilityScope       `json:"initial_scope"`
+	Transitions       []ScopeTransition     `json:"transitions,omitempty"`
+	ArgumentBindings  []ArgumentBinding     `json:"argument_bindings,omitempty"`
+	StageCapabilities []StageCapabilityRule `json:"stage_capabilities,omitempty"`
+	AllowedRisks      []RiskLevel           `json:"allowed_risks"`
+	MaxAttempts       int                   `json:"max_attempts"`
 }
 
 type WorkflowPlan struct {
-	SchemaVersion   int              `json:"schema_version"`
-	ProfileID       WorkflowID       `json:"profile_id"`
-	ProfileRevision int              `json:"profile_revision"`
-	SkillIDs        []string         `json:"skill_ids,omitempty"`
-	InitialNodeIDs  []WorkflowNodeID `json:"initial_node_ids"`
-	Nodes           []WorkflowNode   `json:"nodes"`
-	Completion      CompletionRule   `json:"completion"`
+	SchemaVersion    int                      `json:"schema_version"`
+	ProfileID        WorkflowID               `json:"profile_id"`
+	ProfileRevision  int                      `json:"profile_revision"`
+	InitialNodeIDs   []WorkflowNodeID         `json:"initial_node_ids"`
+	Nodes            []WorkflowNode           `json:"nodes"`
+	Completion       CompletionRule           `json:"completion"`
+	ResultProjection WorkflowResultProjection `json:"result_projection,omitempty"`
 }
 
 type ResourceRef struct {

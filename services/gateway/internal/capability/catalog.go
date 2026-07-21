@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-20.v4"
+	DefaultCatalogRevision = "2026-07-21.v5"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -119,11 +119,15 @@ func DefaultCatalog() (Catalog, error) {
 		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSearch}, FactScopes: []app.RouteFactScope{app.RouteFactScopeCurrentInternet}, RequireQuery: true,
 		}),
-		leaf(string(app.CapabilityBrowserWeather), "browser", "Render one weather card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationRender}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, RequireLocation: true,
+		leaf(string(app.CapabilityBrowserWeather), "browser", "Query current weather through Info and render one card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRead}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, TargetKinds: []string{string(app.TargetKindLocation)},
+			RequireQuery: true, RequireLocation: true, RequireTarget: true, RequiredFacts: []string{"location_source"},
 		}),
 		leaf(string(app.CapabilityBrowserAutomation), "browser", "Open or focus an explicitly known URL in the managed browser.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url"}, RequireTarget: true, RequiredFacts: []string{"url"},
+		}),
+		leaf(string(app.CapabilityBrowserInteraction), "browser", "Inspect a managed Chromium page and perform up to three verified clicks for one frozen interaction goal.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationInteract}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab)}, RequireQuery: true, RequireTarget: true,
 		}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
 		leaf(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type.", RouteContract{

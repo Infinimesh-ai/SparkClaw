@@ -818,9 +818,15 @@ button:disabled {
 .messageMediaImage {
   display: block;
   width: 100%;
-  height: auto;
+  aspect-ratio: 3 / 4;
+  object-fit: contain;
   border-radius: 8px;
   border: 1px solid var(--border-strong);
+}
+
+.workspaceImagePlaceholder {
+  display: block;
+  background: var(--surface-muted);
 }
 
 .messageAttachments {
@@ -850,7 +856,8 @@ button:disabled {
   padding: 6px;
 }
 
-.messageAttachment.image img {
+.messageAttachment.image img,
+.messageAttachment.image .workspaceImagePlaceholder {
   width: 120px;
   height: 84px;
   object-fit: cover;
@@ -1378,7 +1385,8 @@ button:disabled {
   padding: 6px 8px;
 }
 
-.attachmentOpen.image img {
+.attachmentOpen.image img,
+.attachmentOpen.image .workspaceImagePlaceholder {
   width: 36px;
   height: 28px;
   object-fit: cover;

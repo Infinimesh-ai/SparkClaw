@@ -193,11 +193,10 @@ type AdapterConfig struct {
 }
 
 type BrowserAutomationAdapterConfig struct {
-	MCPCommand         string   `json:"mcpCommand"`
-	MCPArgs            []string `json:"mcpArgs"`
-	TimeoutMS          int      `json:"timeoutMs"`
-	ChromiumExecutable string   `json:"chromiumExecutable"`
-	ProfileDir         string   `json:"profileDir"`
+	NodeCommand        string `json:"nodeCommand"`
+	TimeoutMS          int    `json:"timeoutMs"`
+	ChromiumExecutable string `json:"chromiumExecutable"`
+	ProfileDir         string `json:"profileDir"`
 }
 
 type WorkspaceConfig struct {
@@ -555,7 +554,7 @@ func Default() Config {
 			},
 			BrowserAutomation: BrowserAutomationToolConfig{
 				Enabled:  false,
-				Provider: "chromium-devtools-mcp",
+				Provider: "microsoft-playwright",
 				Profile:  "default",
 			},
 			Reminders: RemindersToolConfig{
@@ -611,10 +610,9 @@ func Default() Config {
 		},
 		Adapters: AdapterConfig{
 			BrowserAutomation: BrowserAutomationAdapterConfig{
-				MCPCommand: "npx",
-				MCPArgs:    []string{"-y", "chrome-devtools-mcp@latest"},
-				TimeoutMS:  15000,
-				ProfileDir: "./data/browser-profiles",
+				NodeCommand: "node",
+				TimeoutMS:   30000,
+				ProfileDir:  "./data/browser-profiles",
 			},
 		},
 		Memory: MemoryConfig{
@@ -886,11 +884,8 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_PROFILE"); v != "" {
 		cfg.Tools.BrowserAutomation.Profile = v
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_MCP_COMMAND"); v != "" {
-		cfg.Adapters.BrowserAutomation.MCPCommand = v
-	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_MCP_ARGS"); v != "" {
-		cfg.Adapters.BrowserAutomation.MCPArgs = splitCSV(v)
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_NODE_COMMAND"); v != "" {
+		cfg.Adapters.BrowserAutomation.NodeCommand = v
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS"); v != "" {
 		if timeoutMS, err := strconv.Atoi(v); err == nil {

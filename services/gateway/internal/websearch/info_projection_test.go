@@ -39,7 +39,7 @@ func TestProjectInfoEvidenceSelectsBoundedQueryRelevantFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw) > 1800 || strings.Contains(string(raw), strings.Repeat("无关背景。", 20)) || strings.Contains(string(raw), "UNRELATED-SOURCE-CONTENT") {
+	if len(raw) > 1800 || strings.Contains(string(raw), strings.Repeat("无关背景。", 60)) || strings.Contains(string(raw), "UNRELATED-SOURCE-CONTENT") {
 		t.Fatalf("projection was not bounded to task-relevant evidence (%d bytes): %s", len(raw), raw)
 	}
 }
@@ -59,6 +59,38 @@ func TestProjectInfoEvidenceMarksFixedResponseGapsWithoutInference(t *testing.T)
 	}
 	if len(projection.Facts) != 0 || len(projection.Sources) != 0 {
 		t.Fatalf("missing structured evidence must not be inferred: %#v", projection)
+	}
+}
+
+func TestCompleteInfoEvidenceDirectoryDoesNotTreatStatusSummaryAsAnswer(t *testing.T) {
+	query := "杭州天气 2026-07-20"
+	directory := CompleteInfoEvidenceDirectory(Result{
+		RequestID: "info-request-weather", Query: query,
+		Summary:  "Synthesized 8 citation-backed fact(s) from 8 public source(s).",
+		Provider: InfoProviderName,
+		KeyFacts: []KeyFact{
+			{ID: "fact:0", Claim: "杭州当前天气为多云，气温31°C。", Sources: []string{"src-weather"}},
+		},
+		Results: []Item{
+			{EvidenceIndex: 0, ID: "src-weather", URL: "https://example.test/weather", Snippets: []string{"杭州今日最低气温27°C，最高气温34°C。"}},
+		},
+		Citations: []string{"https://example.test/weather"}, Untrusted: true,
+	})
+
+	index := InfoEvidenceTextIndex(directory)
+	if directory.Status != InfoProjectionComplete || index["summary:0"] == "" ||
+		index["fact:0"] != "杭州当前天气为多云，气温31°C。" ||
+		index["source:0:snippet:0"] != "杭州今日最低气温27°C，最高气温34°C。" {
+		t.Fatalf("structured Info evidence was not preserved beside the status summary: %#v index=%#v", directory, index)
+	}
+}
+
+func TestRelevantEvidenceExcerptSelectsDenseWeatherWindowInsteadOfHeading(t *testing.T) {
+	text := "查询天气\n" + strings.Repeat("导航菜单与城市列表。", 80) +
+		"杭州当前天气多云，当前温度31°C，今日最低温度27°C，最高温度35°C，未来小时18:00多云30°C。"
+	excerpt, truncated := relevantEvidenceExcerpt(text, infoProjectionTerms("杭州当前天气、温度、最低最高温度和未来小时"), 360)
+	if !truncated || !strings.Contains(excerpt, "当前温度31°C") || !strings.Contains(excerpt, "未来小时18:00") || excerpt == "查询天气" {
+		t.Fatalf("projection selected a low-information heading instead of the dense weather evidence: %q", excerpt)
 	}
 }
 

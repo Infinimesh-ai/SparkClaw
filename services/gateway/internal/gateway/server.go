@@ -2402,9 +2402,8 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 	return map[string]any{
 		"browserAutomation": map[string]any{
-			"mcp_command":    cfg.BrowserAutomation.MCPCommand,
-			"mcp_args_count": len(cfg.BrowserAutomation.MCPArgs),
-			"timeout_ms":     cfg.BrowserAutomation.TimeoutMS,
+			"node_command": cfg.BrowserAutomation.NodeCommand,
+			"timeout_ms":   cfg.BrowserAutomation.TimeoutMS,
 		},
 	}
 }

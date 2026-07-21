@@ -55,10 +55,18 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	}
 	for _, capability := range []string{
 		app.ToolCapabilityWebDiscovery,
-		app.ToolCapabilityWeatherCard,
+		app.ToolCapabilityInfoQuestion,
+		app.ToolCapabilityWeatherStructure,
+		app.ToolCapabilityWeatherRender,
 		app.ToolCapabilityBrowserListTabs,
 		app.ToolCapabilityBrowserFocus,
 		app.ToolCapabilityBrowserOpen,
+		app.ToolCapabilityBrowserHealth,
+		app.ToolCapabilityBrowserNavigate,
+		app.ToolCapabilityBrowserSnapshot,
+		app.ToolCapabilityBrowserWait,
+		app.ToolCapabilityBrowserClick,
+		app.ToolCapabilityBrowserVerify,
 		app.ToolCapabilityDocumentRead,
 		app.ToolCapabilityDocumentEdit,
 	} {
@@ -74,7 +82,7 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	if !ok || len(deleteDefinition.Capabilities) != 1 || deleteDefinition.Capabilities[0].Name == app.ToolCapabilityDocumentEdit {
 		t.Fatalf("file.delete entered document.edit r1: %#v", deleteDefinition)
 	}
-	for _, name := range []string{"browser.read", "browser.navigate", "browser.click", "browser.type", "browser.select"} {
+	for _, name := range []string{"browser.read", "browser.type", "browser.select"} {
 		definition, ok := hub.Definition(name)
 		if !ok {
 			t.Fatalf("legacy tool %q is unavailable", name)

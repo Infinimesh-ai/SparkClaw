@@ -91,7 +91,7 @@
     },
     "browserAutomation": {
       "enabled": false,
-      "provider": "chromium-devtools-mcp",
+      "provider": "microsoft-playwright",
       "profile": "default"
     },
     "reminders": {
@@ -152,9 +152,8 @@
   },
   "adapters": {
     "browserAutomation": {
-      "mcpCommand": "npx",
-      "mcpArgs": ["-y", "chrome-devtools-mcp@latest"],
-      "timeoutMs": 15000,
+      "nodeCommand": "node",
+      "timeoutMs": 30000,
       "chromiumExecutable": "",
       "profileDir": "./data/browser-profiles"
     }

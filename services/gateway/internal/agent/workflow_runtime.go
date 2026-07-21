@@ -8,7 +8,6 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 )
 
 func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definition app.ToolDefinition) error {
@@ -46,6 +45,9 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 	if !ok {
 		return errors.New("active workflow node is missing from the frozen plan")
 	}
+	if !workflowStageAllowsCapability(node, state.Stage, plan.Capability) {
+		return errors.New("tool call is not valid in the active workflow stage")
+	}
 	for _, binding := range node.ArgumentBindings {
 		if binding.Capability != plan.Capability {
 			continue
@@ -55,6 +57,53 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 		}
 	}
 	return nil
+}
+
+func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) toolPlan {
+	if plan.WorkflowID == "" {
+		return plan
+	}
+	run, ok := r.store.GetRun(runID)
+	if !ok || run.Workflow == nil || run.Workflow.Plan.ProfileID != plan.WorkflowID {
+		return plan
+	}
+	state, ok := run.Workflow.Nodes[plan.WorkflowNodeID]
+	if !ok || state.Status != app.WorkflowNodeActive || state.ScopeRevision != plan.ScopeRevision {
+		return plan
+	}
+	node, ok := workflowPlanNode(run.Workflow.Plan, plan.WorkflowNodeID)
+	if !ok {
+		return plan
+	}
+	args := map[string]any{}
+	for key, value := range plan.Args {
+		args[key] = value
+	}
+	changed := false
+	for _, binding := range node.ArgumentBindings {
+		if binding.Capability != plan.Capability || !materializedWorkflowResourceKind(binding.ResourceKind) {
+			continue
+		}
+		values := workflowBoundArgumentValues(binding, node, run.Workflow.Intent, run.Workflow.Route, state)
+		if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+			continue
+		}
+		args[binding.Argument] = values[0]
+		changed = true
+	}
+	if changed {
+		plan.Args = args
+	}
+	return plan
+}
+
+func materializedWorkflowResourceKind(kind string) bool {
+	switch kind {
+	case "query", "location", "info_answer", "weather_payload", "browser_page":
+		return true
+	default:
+		return false
+	}
 }
 
 func qualifierBoundArgumentsAllowed(definition app.ToolDefinition, capability app.CapabilityDescriptor, args map[string]any) bool {
@@ -109,6 +158,22 @@ func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode,
 	if requested == "" || requested == "<nil>" {
 		return false
 	}
+	for _, candidate := range workflowBoundArgumentValues(binding, node, intent, route, state) {
+		candidate = strings.TrimSpace(candidate)
+		if binding.ResourceKind == "url" {
+			if normalizeBrowserURL(requested) == normalizeBrowserURL(candidate) {
+				return true
+			}
+			continue
+		}
+		if requested == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowBoundArgumentValues(binding app.ArgumentBinding, node app.WorkflowNode, intent app.IntentEnvelope, route app.RouteDecision, state app.WorkflowNodeState) []string {
 	allowed := []string{}
 	switch binding.Source {
 	case app.ArgumentBindingIntentTarget:
@@ -137,26 +202,28 @@ func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode,
 		case "output_ref":
 			allowed = append(allowed, route.Slots.OutputRef)
 		default:
-			return false
+			return nil
 		}
 	case app.ArgumentBindingRouteFact:
 		allowed = append(allowed, route.Facts[binding.SourceKey])
 	default:
-		return false
+		return nil
 	}
-	for _, candidate := range allowed {
-		candidate = strings.TrimSpace(candidate)
-		if binding.ResourceKind == "url" {
-			if normalizeBrowserURL(requested) == normalizeBrowserURL(candidate) {
-				return true
-			}
+	return uniqueWorkflowArgumentValues(allowed)
+}
+
+func uniqueWorkflowArgumentValues(values []string) []string {
+	unique := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
 			continue
 		}
-		if requested == candidate {
-			return true
-		}
+		seen[value] = true
+		unique = append(unique, value)
 	}
-	return false
+	return unique
 }
 
 func containsTargetKind(values []app.TargetKind, expected app.TargetKind) bool {
@@ -200,11 +267,11 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 }
 
-func (r Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition) reactRunResult {
-	return r.runWorkflowWithSeed(ctx, sessionID, run, content, profile, hint, relevantSkills, visibleTools, nil, nil)
+func (r Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition) reactRunResult {
+	return r.runWorkflowWithSeed(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil)
 }
 
-func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
+func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
 	actorRef := r.workflowActorRef(sessionID)
 	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
@@ -212,7 +279,7 @@ func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run 
 	latest := reactRunResult{}
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
-		stageResult := r.runWorkflowModelStep(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, allCalls, allObservations)
+		stageResult := r.runWorkflowModelStep(ctx, sessionID, run, content, hint, visibleTools, allCalls, allObservations)
 		allCalls = append(allCalls, stageResult.ToolCalls...)
 		allApprovals = append(allApprovals, stageResult.Approvals...)
 		allObservations = stageResult.Observations
@@ -354,8 +421,8 @@ func workflowStageLimit(plan app.WorkflowPlan) int {
 	if limit <= 0 {
 		return 1
 	}
-	if limit > 16 {
-		return 16
+	if limit > 32 {
+		return 32
 	}
 	return limit
 }

@@ -29,12 +29,14 @@ mutually exclusive presentations:
 | `visible` | headed Chromium | visible | password, captcha, SMS, 2FA, permission, payment, or other human-only verification |
 
 The visible and hidden processes never own the profile concurrently. Switching
-presentation means stopping the current Chromium/MCP process, waiting for it to
-release the profile, and starting Chromium again with the same profile.
+presentation means stopping the current Playwright driver and Chromium context,
+waiting for them to release the profile, and starting Chromium again with the
+same profile.
 
 ## Product Contract
 
-1. Both presentations launch the same configured Chromium executable.
+1. Both presentations launch the same Playwright-managed Chromium revision, or
+   the same explicitly configured custom Chromium executable.
 2. Both presentations use the same SparkClaw-owned persistent profile for the
    selected owner and logical browser profile.
 3. Normal browser work stays hidden. SparkClaw shows Chromium only when a human
@@ -71,42 +73,40 @@ Requirements:
 - Create profile directories with owner-only permissions where supported.
 - Do not expose the real path in model-visible observations or chat.
 - Do not archive, copy, or commit a live profile.
-- Keep the Chromium executable identical across visible and hidden launches.
+- Keep the resolved Chromium executable identical across visible and hidden launches.
 
 The complete profile directory is sensitive local state even though SparkClaw
 does not extract individual secrets from it.
 
 ## Launch Contract
 
-The adapter owns `--executablePath` and `--userDataDir`; model/tool arguments
-cannot override them.
+The adapter owns browser resolution and Playwright's `userDataDir`; model/tool
+arguments cannot override them. The default omits `executablePath` so
+Playwright uses its installed, version-matched Chromium. An explicit
+`chromiumExecutable` config sets one validated override for both presentations.
 
 ```text
 hidden:
-  chrome-devtools-mcp@<validated-version>
-  --executablePath=<configured Chromium>
-  --userDataDir=<resolved shared profile>
-  --headless
-  --viewport=1365x768
-  --no-usage-statistics
+  chromium.launchPersistentContext(<resolved shared profile>, {
+    headless: true,
+    viewport: { width: 1365, height: 768 }
+  })
 
 visible verification:
-  chrome-devtools-mcp@<validated-version>
-  --executablePath=<same configured Chromium>
-  --userDataDir=<same resolved shared profile>
-  --chromeArg=<handoff URL when starting a fresh visible session>
-  --no-usage-statistics
+  chromium.launchPersistentContext(<same resolved shared profile>, {
+    headless: false,
+    viewport: null
+  })
 ```
 
-Shared-profile launches must not use `--isolated`, `--autoConnect`,
-`--browserUrl`, `--wsEndpoint`, or a user-supplied data directory.
-When a fresh Chromium session is opened for a known target, the adapter passes
-that target as a Chromium startup hint. Because Chrome DevTools MCP may still
-initialize its selected page as `about:blank`, the adapter immediately
-navigates that same page instead of calling `new_page`, then removes stale blank
-pages. The user must not receive a separate durable `about:blank` tab before the
-requested page. An already-running session may still use `new_page` for an
-explicit new-tab request.
+When `chromiumExecutable` is explicitly configured, both option objects above
+also contain the same validated `executablePath`.
+
+Shared-profile launches must not use `connectOverCDP`, a remote-debugging port,
+a WebSocket endpoint, or a user-supplied data directory. When a fresh context
+contains only Playwright's initial `about:blank` page, the adapter reuses that
+page for the first requested URL. An already-running context creates a new page
+for an explicit new-tab request.
 
 ## Runtime Flow
 
@@ -159,9 +159,9 @@ must not require that this URL share an origin with the original URL.
 
 ## Lifecycle Rules
 
-- At most one Chromium/MCP process may own a shared profile.
+- At most one Playwright driver and Chromium context may own a shared profile.
 - Mode transitions run under the adapter lock and have bounded timeouts.
-- Stopping a session waits for the MCP process and its Chromium child to exit
+- Stopping a session waits for the Playwright driver and Chromium child to exit
   before starting the next presentation.
 - Gateway shutdown closes whichever presentation is active.
 - A locked profile returns an explicit busy/start error; SparkClaw never deletes

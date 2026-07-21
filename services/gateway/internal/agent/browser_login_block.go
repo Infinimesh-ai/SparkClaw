@@ -356,7 +356,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	}
 	goal := strings.TrimSpace(block.OriginalGoal)
 	if goal == "" {
-		goal = originalUserMessageForRun(r.store.ListMessages(sessionID), run)
+		goal = requestContentForRun(r.store.ListMessages(sessionID), run)
 	}
 	if goal == "" {
 		goal = userReply
@@ -644,13 +644,11 @@ func (r Runtime) finishBrowserLoginBlockedRun(ctx context.Context, run app.Agent
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(block.OriginalGoal, run, allToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{
-		SessionID: run.SessionID,
-		RunID:     run.ID,
-		Role:      "assistant",
-		Content:   run.Summary,
-		CreatedAt: now,
-	})
+	var workflowResult *app.WorkflowResult
+	if run.Workflow != nil {
+		workflowResult = r.workflowResultForRun(run, run.Workflow.Route, run.Workflow.ReturnRoute, summary)
+	}
+	assistant := r.store.AddMessage(workflowResultMessage(run, workflowResult, run.Summary, now))
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, allToolCalls, allApprovals, feedback, &episode)
 	if len(calls) == 0 {
 		calls = allToolCalls
@@ -662,7 +660,7 @@ func (r Runtime) finishBrowserLoginBlockedRun(ctx context.Context, run app.Agent
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, summary)
+		result.WorkflowResult = workflowResult
 	}
 	return result
 }
@@ -745,12 +743,13 @@ func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.Ag
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(goal, run, toolCalls, approvals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
-	r.writeTrace(ctx, run, modelrouter.ChatResult{}, toolCalls, approvals, feedback, &episode)
 	route := run.Workflow.Route
+	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
+	assistant := r.store.AddMessage(workflowResultMessage(run, workflowResult, run.Summary, now))
+	r.writeTrace(ctx, run, modelrouter.ChatResult{}, toolCalls, approvals, feedback, &episode)
 	return Result{
 		Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route,
-		WorkflowResult: r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
+		WorkflowResult: workflowResult,
 	}
 }
 

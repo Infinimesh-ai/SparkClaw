@@ -2,7 +2,7 @@
 
 > 语言： [English](../../docs/browser-automation-improvement.md) | 简体中文
 
-本文档专门规划 SparkClaw 的 browser-backed web access 完善方向。整体架构仍以 [架构](architecture.md) 为准；浏览器读取和交互的路线图放在本文档维护。浏览器呈现模式的编码约束见 [浏览器模式代码编写指南](browser-modes-coding-guide.md)，隐藏真实浏览器里程碑见 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md)。
+本文档专门规划 SparkClaw 的 browser-backed web access 完善方向。整体架构仍以 [架构](architecture.md) 为准；浏览器读取和交互的路线图放在本文档维护。浏览器呈现模式的编码约束见 [浏览器模式代码编写指南](browser-modes-coding-guide.md)，隐藏真实浏览器里程碑见 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md)，已实现的 router-first snapshot/click 闭环见 [浏览器页面交互 Workflow](browser-interaction-workflow-proposal.md)。
 
 ## 目标
 
@@ -39,8 +39,8 @@
 对于直接 URL 或搜索结果中的来源页，首轮读取只做获得正文所需的工作。当选择浏览器 session 路径时，使用：
 
 ```text
-ChromeDevTools MCP new_page
-  -> 等待页面加载和渲染状态
+Playwright page.goto
+  -> 等待 DOMContentLoaded 与有界 Render Settle
   -> evaluate_script
        - 适度滚动，触发常规懒加载
        - 收集 document.documentElement.outerHTML
@@ -104,19 +104,22 @@ browser.snapshot
 | `browser.snapshot` | 查看页面结构、控件、refs/uids、内部链接和非正文页面元素。 |
 | `browser.click` | 激活最新 snapshot 中一个明确 ref/uid。 |
 | `browser.navigate` | 在保留浏览器上下文的前提下进入已知 URL。 |
+| `browser.verify` | 把一次点击绑定到前后结构化 snapshot，并返回成功、进展、循环或次数耗尽证据。 |
 | `browser.screenshot` | 用户要求截图或 snapshot 文本不足时做视觉确认。 |
 
 ## 实现状态
 
-目标 browser-read 实现通过 ChromeDevTools MCP 启动配置的 Chromium。普通读取使用 headless Chromium；登录交接临时把同一个持久 Profile 切换到可见 Chromium，并从 selected 登录后 URL 恢复。
+Browser-read 实现通过 Microsoft Playwright `launchPersistentContext` 启动其安装且版本匹配的 Chromium（或一个显式 Custom Override）。普通读取使用 headless Chromium；登录交接临时把同一个持久 Profile 切换到可见 Chromium，并从 selected 登录后 URL 恢复。传输层迁移契约见 [Playwright 浏览器自动化迁移方案](playwright-browser-automation-migration.md)。
 
-默认 `browser.read` 路径已经不再把结构快照作为每一次浏览器会话读取的固定步骤。显式页面结构检查仍然使用 `browser.snapshot`，并映射到 ChromeDevTools MCP 的 `take_snapshot`。
+默认 `browser.read` 路径已经不再把结构快照作为每一次浏览器会话读取的固定步骤。显式页面结构检查仍使用 `browser.snapshot`。在 `browser.interaction` revision 1 中，它返回有边界的结构化控件投影，包括 page/snapshot identity、语义 fingerprint、状态 digest，以及一次成功动作后立即失效的 ref。
+
+`browser.interaction` revision 1 已与保持不变的“仅打开/聚焦” `browser.automation` revision 1 并列实现。它检查健康状态，尽可能复用托管 tab，在整个运行期间暴露固定的 status/tab/navigation/snapshot/wait/click/verify 工具集并强制 Stage 顺序，最多允许三次无需 approval 的点击，而且每次完成或继续点击前都必须取得点击后 snapshot 并完成验证。
 
 剩余工作：
 
 - 实现 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md) 中定义的共享 Chromium Profile 生命周期。
 - 从登录恢复中移除 Cookie 导出/origin equality，并复用 selected 登录后 URL。
-- 改进 snapshot 之后的后续选择质量，尤其是如何选择最安全的单个内部链接或展开控件。
+- 当排名前 24 个控件不足时，扩展结构化 snapshot 的候选分页/滚动能力。
 - 登录和反爬处理保持为显式的后续扩展。
 
 ## 实施阶段
@@ -134,10 +137,11 @@ browser.snapshot
    - 添加或复用 `readability_status`、`readability_length`、`browser_html_truncated`、`auth_challenge_detected` 和 `needs_structure_snapshot`。
    - 让 runtime observation adapter 清楚暴露这些信号。
 
-4. 增加有界后续行为。部分完成。
-   - 由 ReAct 在诊断显示首轮正文不足时决定 `browser.snapshot -> browser.click/navigate -> browser.read`。
-   - 暂不把多次点击隐藏在单个工具调用里，确保行为容易追踪。
-   - 当前 runtime 行为：当 `browser.read` observation 包含 `needs_structure_snapshot=true` 时，下一步 ReAct 可以看到 `browser.snapshot`、`browser.navigate` 和 `browser.wait`；出现 snapshot observation 后，也可以看到需要 approval 的 `browser.click`。
+4. 增加有界后续行为。明确点击请求已完成。
+   - `browser.interaction` 每个 Workflow Stage 只执行一个可追踪的模型动作，不会把多次点击隐藏在单个工具调用里。
+   - 完整固定工具集跨轮次保持模型可见，但持久化 Stage 只允许对应的健康检查、tab 解析、snapshot、click、点击后观察或 verification。
+   - 每次 click 使用最新结构化 ref，在本有界 Workflow 中无需 approval，并强制跟随新的 snapshot 和 `browser.verify`。重复状态或第三次仍未完成时直接失败。
+   - Readability 驱动的 `browser.read` follow-up 继续作为独立读取路径，不会扩大 click Workflow。
 
 5. 预留登录和反爬扩展。
    - 浏览器 profile/session 配置保持显式。
@@ -158,9 +162,12 @@ browser.snapshot
 - 单测证明启用 browser automation 时，`browser.read` 使用浏览器会话 HTML 和 Readability。
 - 单测证明自主 hidden `browser.read` 不调用会打开可见页面的 browser-session provider。
 - 单测证明默认 `browser.read` 不调用 `take_snapshot`。
-- 单测或 adapter 测试证明显式 snapshot 仍映射到 ChromeDevTools MCP `take_snapshot`。
+- 单测或 Adapter 测试证明显式 Snapshot 生成 Playwright Accessibility Evidence，并且 Ref 可被 Locator Action 使用。
+- 单测覆盖同一 run 的 snapshot/click 绑定、循环检测、三次点击上限、无 approval 路由和 Stage Capability Gate。
+- 真实 Playwright Chromium 冒烟覆盖结构化 snapshot identity、旧 ref 拒绝且不丢失会话、click、点击后 snapshot 关联、wait 和 screenshot。
 - `go test ./services/gateway/internal/browserautomation -count=1`
 - `go test ./services/gateway/internal/toolhub -count=1`
 - `go test ./services/gateway/internal/agent -count=1`
+- `SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 go test ./services/gateway/internal/browserautomation -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1`
 - `go test ./services/gateway/...`
 - `git diff --check`

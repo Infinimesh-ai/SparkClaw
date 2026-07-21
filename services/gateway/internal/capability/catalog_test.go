@@ -16,6 +16,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		{"browser", "browser.internet_search"},
 		{"browser", "browser.weather"},
 		{"browser", "browser.automation"},
+		{"browser", "browser.interaction"},
 		{"document", "document.read"},
 		{"document", "document.edit"},
 	}
@@ -30,6 +31,23 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 	}
 	if catalog.Revision() != DefaultCatalogRevision {
 		t.Fatalf("revision = %q", catalog.Revision())
+	}
+}
+
+func TestCatalogValidatesWeatherLocationContract(t *testing.T) {
+	catalog := MustDefaultCatalog()
+	decision := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: "今天杭州天气", TargetKind: string(app.TargetKindLocation), TargetRef: "杭州", Location: "杭州", Format: "image"},
+		Facts:          map[string]string{"location_source": "current_turn"},
+	}
+	if err := catalog.ValidateDecision(decision); err != nil {
+		t.Fatal(err)
+	}
+	decision.Slots.TargetRef = ""
+	if err := catalog.ValidateDecision(decision); err == nil || !strings.Contains(err.Error(), "requires a deterministic target") {
+		t.Fatalf("expected missing weather location rejection, got %v", err)
 	}
 }
 
@@ -107,7 +125,8 @@ func TestCatalogSeparatesCurrentInternetFactsFromWeatherCards(t *testing.T) {
 	weather := app.RouteDecision{
 		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
 		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather},
-		Slots:          app.RouteSlots{Operation: app.RouteOperationRender, FactScope: app.RouteFactScopeWeatherSnapshot, Location: "杭州"},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: "今天杭州天气", TargetKind: string(app.TargetKindLocation), TargetRef: "杭州", Location: "杭州"},
+		Facts:          map[string]string{"location_source": "current_turn"},
 	}
 	if err := catalog.ValidateDecision(weather); err != nil {
 		t.Fatal(err)

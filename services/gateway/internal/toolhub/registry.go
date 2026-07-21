@@ -64,6 +64,10 @@ func browserAutomationEnabled(cfg config.Config) bool {
 	return cfg.Tools.BrowserAutomation.Enabled
 }
 
+func infoQueryEnabled(cfg config.Config) bool {
+	return cfg.Tools.Web.Search.Enabled
+}
+
 func browserAutomationPassthrough() toolExecutor {
 	return func(h *ToolHub, ctx context.Context, name string, args map[string]any, sessionID, _ string) (Result, error) {
 		return h.browserAutomationTool(ctx, name, args, sessionID)
@@ -83,7 +87,16 @@ func browserAutomationRegistration(capability string, adapter app.ToolOutcomeAda
 	return workflowRegistration(
 		toolRegistration{enabled: browserAutomationEnabled, run: browserAutomationPassthrough()},
 		capability, nil, adapter,
-		summary, "Use only inside the browser.automation workflow.", "Do not use for public discovery or local document work.", riskEffect,
+		summary, "Use only inside a registered managed-browser Workflow.", "Do not use for public discovery or local document work.", riskEffect,
+	)
+}
+
+func browserInteractionClickRegistration() toolRegistration {
+	return workflowRegistration(
+		toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).clickBrowserInteraction)},
+		app.ToolCapabilityBrowserClick, nil, app.OutcomeAdapterBrowserClick,
+		"Click a referenced page control.", "Use only inside browser.interaction after a current structured snapshot.",
+		"Do not use for unsafe consequential controls or outside a registered managed-browser Workflow.", app.ToolEffectExternalInteract,
 	)
 }
 
@@ -108,12 +121,13 @@ func browserScreenshotRegistration() toolRegistration {
 	return registration
 }
 
-func weatherCardRegistration() toolRegistration {
+func weatherRenderRegistration() toolRegistration {
 	registration := workflowRegistration(
-		toolRegistration{run: ctxArgsSessionRun((*ToolHub).renderWeatherCard)}, app.ToolCapabilityWeatherCard, nil, app.OutcomeAdapterWeatherCard,
-		"Look up current weather for one location and render the result as a PNG card.",
-		"Use only in browser.weather for one explicit location's current conditions or short forecast.",
-		"Do not use for alerts, news, historical research, or multi-location comparisons.", app.ToolEffectExternalRead, app.ToolEffectWorkspaceWrite,
+		toolRegistration{run: ctxArgsSessionRun((*ToolHub).renderWeatherCard)}, app.ToolCapabilityWeatherRender,
+		nil, app.OutcomeAdapterWeatherCard,
+		"Render one validated weather payload into a persisted PNG card.",
+		"Use only after the browser.weather workflow has produced a weather payload reference.",
+		"Do not perform weather lookup or accept model-authored weather fields.", app.ToolEffectWorkspaceWrite,
 	)
 	registration.directory.OutputKinds = []app.OutputKind{app.OutputKindImage}
 	return registration
@@ -187,8 +201,13 @@ var toolRegistry = map[string]toolRegistration{
 	"files.read": documentReadRegistration(ctxArgs((*ToolHub).filesRead), []string{app.DocumentFormatText, app.DocumentFormatDOCX, app.DocumentFormatXLSX, app.DocumentFormatPPTX},
 		"Read one explicitly identified file inside the configured workspace.",
 	),
-	"images.inspect":            {run: ctxArgs((*ToolHub).imageInspect)},
-	"media.render_weather_card": weatherCardRegistration(),
+	"images.inspect": {run: ctxArgs((*ToolHub).imageInspect)},
+	"weather.structure_payload": workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).structureWeatherPayload)}, app.ToolCapabilityWeatherStructure,
+		nil, app.OutcomeAdapterWeatherPayload,
+		"Validate and persist weather fields extracted from the bound Info evidence directory.",
+		"Use only in the structuring stage of browser.weather.",
+		"Do not infer missing weather facts; record every unavailable requested category in missing_fields and consume only the bound Info evidence directory.", app.ToolEffectLocalCompute),
+	"media.render_weather_card": weatherRenderRegistration(),
 	"files.write_draft":         legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
 	"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
 	"office.replace_text":       officeReplaceRegistration(),
@@ -212,23 +231,34 @@ var toolRegistry = map[string]toolRegistration{
 	"memory.propose":         {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
 	"memory.write_sensitive": {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
 	"browser.read":           browserReadRegistration(),
-	"web.search": workflowRegistration(toolRegistration{enabled: func(cfg config.Config) bool { return cfg.Tools.Web.Search.Enabled }, run: ctxArgs((*ToolHub).webSearchTool)}, app.ToolCapabilityWebDiscovery,
+	"web.search": workflowRegistration(toolRegistration{enabled: infoQueryEnabled, run: ctxArgs((*ToolHub).webSearchTool)}, app.ToolCapabilityWebDiscovery,
 		map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWebSearch,
 		"Discover public web sources when the target URL is unknown.",
 		"Use for public search, freshness checks, and source discovery.",
 		"Do not use when a specific URL is already known or for source-page verification.", app.ToolEffectExternalRead),
+	"info.query": workflowRegistration(toolRegistration{enabled: infoQueryEnabled, run: ctxArgs((*ToolHub).infoQuery)}, app.ToolCapabilityInfoQuestion,
+		map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterInfoAnswer,
+		"Submit one frozen public question directly to Infinimesh Info and preserve its answer evidence.",
+		"Use only as the first stage of a workflow that explicitly requires Info answer evidence.",
+		"Do not rewrite the query or use it as generic browser discovery.", app.ToolEffectExternalRead),
 	"browser.status": workflowRegistration(toolRegistration{enabled: browserAutomationEnabled, run: func(h *ToolHub, ctx context.Context, _ string, args map[string]any, _, _ string) (Result, error) {
 		return h.browserAutomationHealth(ctx, args)
-	}}, "browser.legacy", nil, app.OutcomeAdapterGeneric, "Check browser automation availability.", "Use before interaction when provider health is unknown.", "Do not use for public search.", app.ToolEffectExternalRead),
-	"browser.list_tabs":    browserAutomationRegistration(app.ToolCapabilityBrowserListTabs, app.OutcomeAdapterBrowserTabs, "List tabs in the managed browser session.", app.ToolEffectExternalRead),
-	"browser.open":         browserAutomationRegistration(app.ToolCapabilityBrowserOpen, app.OutcomeAdapterBrowserOpen, "Open a URL in a managed browser tab.", app.ToolEffectExternalRead),
-	"browser.focus":        browserAutomationRegistration(app.ToolCapabilityBrowserFocus, app.OutcomeAdapterBrowserFocus, "Focus a managed browser tab.", app.ToolEffectExternalRead),
-	"browser.close":        browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Close a managed browser tab.", app.ToolEffectExternalInteract),
-	"browser.navigate":     browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Navigate a managed browser tab.", app.ToolEffectExternalRead),
-	"browser.snapshot":     browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Capture structured browser page state.", app.ToolEffectExternalRead),
-	"browser.screenshot":   browserScreenshotRegistration(),
-	"browser.wait":         browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Wait for observable browser state.", app.ToolEffectExternalRead),
-	"browser.click":        browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Click a referenced page control.", app.ToolEffectExternalInteract),
+	}}, app.ToolCapabilityBrowserHealth, nil, app.OutcomeAdapterBrowserHealth, "Check browser automation availability.", "Use before interaction when provider health is unknown.", "Do not use for public search.", app.ToolEffectExternalRead),
+	"browser.list_tabs":  browserAutomationRegistration(app.ToolCapabilityBrowserListTabs, app.OutcomeAdapterBrowserTabs, "List tabs in the managed browser session.", app.ToolEffectExternalRead),
+	"browser.open":       browserAutomationRegistration(app.ToolCapabilityBrowserOpen, app.OutcomeAdapterBrowserOpen, "Open a URL in a managed browser tab.", app.ToolEffectExternalRead),
+	"browser.focus":      browserAutomationRegistration(app.ToolCapabilityBrowserFocus, app.OutcomeAdapterBrowserFocus, "Focus a managed browser tab.", app.ToolEffectExternalRead),
+	"browser.close":      browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Close a managed browser tab.", app.ToolEffectExternalInteract),
+	"browser.navigate":   browserAutomationRegistration(app.ToolCapabilityBrowserNavigate, app.OutcomeAdapterBrowserNavigate, "Navigate a managed browser tab.", app.ToolEffectExternalRead),
+	"browser.snapshot":   browserAutomationRegistration(app.ToolCapabilityBrowserSnapshot, app.OutcomeAdapterBrowserSnapshot, "Capture structured browser page state.", app.ToolEffectExternalRead),
+	"browser.screenshot": browserScreenshotRegistration(),
+	"browser.wait":       browserAutomationRegistration(app.ToolCapabilityBrowserWait, app.OutcomeAdapterBrowserWait, "Wait for observable browser state.", app.ToolEffectExternalRead),
+	"browser.click":      browserInteractionClickRegistration(),
+	"browser.verify": workflowRegistration(
+		toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).verifyBrowserInteraction)},
+		app.ToolCapabilityBrowserVerify, nil, app.OutcomeAdapterBrowserVerify,
+		"Verify one browser click against its before/after snapshots.",
+		"Use after every browser.interaction click and post-click snapshot.",
+		"Do not use without one bound click and two snapshots from the current run.", app.ToolEffectLocalCompute),
 	"browser.type":         browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Type into a referenced page control.", app.ToolEffectExternalInteract),
 	"browser.select":       browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Select a value in a referenced page control.", app.ToolEffectExternalInteract),
 	"reminders.create":     {enabled: remindersEnabled, run: argsSessionRun((*ToolHub).remindersCreate)},

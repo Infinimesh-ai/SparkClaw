@@ -2,6 +2,8 @@
 
 [简体中文](../zh-cn/docs/integration-agent-development-manual.zh-CN.md)
 
+> 状态说明：本文保留历史实现细节。浏览器、公开搜索、天气和文档能力现已迁移到无 Skill 的版本化 Workflow；当前可用边界以 [Workflow 能力矩阵](workflow-capabilities.md) 为准，文中对应 Legacy TaskHint/ReAct 与 Skill 描述不再代表现状。
+
 ## 1. 对比基线
 
 本地项目基于 GitHub 仓库：
@@ -818,15 +820,16 @@ browser.select
 ```text
 services/gateway/internal/toolhub/browser_automation.go
 services/gateway/internal/browserautomation/adapter.go
-services/gateway/internal/browserautomation/mcp_stdio.go
+services/gateway/internal/browserautomation/playwright_stdio.go
+services/gateway/internal/browserautomation/scripts/playwright_driver.cjs
 ```
 
 实现方式：
 
 - ToolHub 注册一组 `browser.*` 自动化工具。
 - `browserautomation.Adapter` 抽象浏览器控制接口。
-- `mcp_stdio.go` 通过 stdio 启动 Chrome DevTools MCP。
-- `browserAutomationTool` 把 SparkClaw 工具名映射到 MCP 工具调用。
+- `playwright_stdio.go` 通过 stdio 启动嵌入式 Microsoft Playwright Driver。
+- `browserAutomationTool` 把 SparkClaw 工具名映射到 Playwright Driver 操作。
 - `browser.read` 在启用 browser automation 时优先通过真实浏览器会话读取页面，首轮只要求打开页面、等待渲染、用 `evaluate_script` 抓取 DOM/HTML，再在 ToolHub 外部交给 `@mozilla/readability` 解析正文。
 - `browser.snapshot` 返回页面结构和可点击元素引用。
 - `browser.screenshot` 返回截图，并通过 artifact 附加截图对象。
@@ -839,7 +842,7 @@ services/gateway/internal/browserautomation/mcp_stdio.go
 
 ```text
 browser.read
-  -> ChromeDevTools MCP new_page 进入页面
+  -> Playwright page.goto 进入页面
   -> evaluate_script 等待渲染并读取 DOM/HTML
   -> ToolHub 外部用 @mozilla/readability 提取正文
   -> 如果正文为空、明显过短、疑似登录拦截或需要非正文结构，再调用 browser.snapshot
@@ -855,15 +858,14 @@ browser.read
 "tools": {
   "browserAutomation": {
     "enabled": false,
-    "provider": "chromium-devtools-mcp",
+    "provider": "microsoft-playwright",
     "profile": "default"
   }
 },
 "adapters": {
   "browserAutomation": {
-    "mcpCommand": "npx",
-    "mcpArgs": ["-y", "chrome-devtools-mcp@latest"],
-    "timeoutMs": 15000,
+    "nodeCommand": "node",
+    "timeoutMs": 30000,
     "chromiumExecutable": "",
     "profileDir": "./data/browser-profiles"
   }
@@ -1559,7 +1561,7 @@ RuntimeConfig
   },
   "browserAutomation": {
     "enabled": false,
-    "provider": "chromium-devtools-mcp",
+    "provider": "microsoft-playwright",
     "profile": "default"
   }
 }

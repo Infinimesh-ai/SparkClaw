@@ -223,7 +223,7 @@ func TestBrowserReadScenarioFallbackUsesDirectHTTPWithExplicitMetadata(t *testin
 
 func TestBrowserReadScenarioRealHiddenProviderSmoke(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
-		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real hidden ChromeDevTools MCP smoke test")
+		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real hidden Playwright Chromium smoke test")
 	}
 	server := newBrowserScenarioFixtureServer(t)
 	defer server.Close()
@@ -232,6 +232,7 @@ func TestBrowserReadScenarioRealHiddenProviderSmoke(t *testing.T) {
 	cfg.Tools.BrowserAutomation.Enabled = true
 	cfg.Security.BrowserReadAllowHosts = []string{"127.0.0.1"}
 	cfg.Storage.ArtifactDir = t.TempDir()
+	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
 	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	hub := New(cfg, store.NewMemoryStore())
 	t.Cleanup(func() {

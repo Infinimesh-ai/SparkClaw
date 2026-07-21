@@ -271,32 +271,8 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
-		{
-			Name:        "media.render_weather_card",
-			Description: "Look up weather from Open-Meteo and render it into a PNG weather card saved under workspace media/. Return the media path as the final Markdown image when a user wants weather as an image.",
-			InputSchema: strictObjectSchema([]string{"location"}, map[string]any{
-				"location": stringSchema(),
-			}),
-			OutputSchema: objectSchema([]string{"status", "media_path", "path", "content_type", "bytes", "width", "height", "summary", "untrusted"}, map[string]any{
-				"status":       stringSchema(),
-				"media_path":   stringSchema(),
-				"path":         stringSchema(),
-				"uri":          stringSchema(),
-				"content_type": stringSchema(),
-				"bytes":        integerSchema(),
-				"width":        integerSchema(),
-				"height":       integerSchema(),
-				"sha256":       stringSchema(),
-				"summary":      stringSchema(),
-				"untrusted":    booleanSchema(),
-			}),
-			Risk:             app.RiskDraft,
-			RequiresApproval: false,
-			Idempotent:       false,
-			TimeoutMS:        5000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
+		weatherStructureDefinition(),
+		weatherRenderDefinition(),
 		{
 			Name:        "files.write_draft",
 			Description: "Write a draft file inside the configured workspace draft folder.",
@@ -725,16 +701,43 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
-		browserAutomationDefinition("browser.status", "Check whether the Chrome DevTools MCP browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.list_tabs", "List browser tabs/pages visible through Chrome DevTools MCP.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.open", "Open a URL in a new Chrome page/tab through Chrome DevTools MCP.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		infoQueryDefinition(),
+		browserAutomationDefinition("browser.status", "Check whether the Microsoft Playwright browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.list_tabs", "List tabs/pages in the managed Playwright Chromium context.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.open", "Open a URL in a managed Playwright Chromium page/tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.focus", "Focus/select a browser page/tab by stable page identifier.", app.RiskRead, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.close", "Close a browser page/tab by stable page identifier.", app.RiskReversible, true, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.snapshot", "Take a structured page snapshot for reading and stable element refs.", app.RiskRead, false, nil, []string{"url", "browser_page_ref", "verbose", "filePath"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, []string{"page_id"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.snapshot", "Take a structured page snapshot for reading and stable element refs.", app.RiskRead, false, nil, []string{"page_id", "interaction_goal", "url", "browser_page_ref", "verbose", "filePath"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.screenshot", "Take a browser screenshot for visual confirmation.", app.RiskRead, false, nil, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.wait", "Wait for visible text or observable page state before continuing.", app.RiskRead, false, []string{"text"}, nil, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, true, []string{"uid"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.wait", "Wait for visible text or observable page state before continuing.", app.RiskRead, false, nil, []string{"page_id", "text"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, false, []string{"uid"}, []string{"page_id", "snapshot_id", "expected_effect"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		{
+			Name:        "browser.verify",
+			Description: "Verify a browser click from its before/after structured snapshots and record success or bounded progress.",
+			InputSchema: schema("object", []string{"before_snapshot_id", "after_snapshot_id", "element_ref", "verdict", "reason"}, map[string]any{
+				"before_snapshot_id": stringSchema(),
+				"after_snapshot_id":  stringSchema(),
+				"element_ref":        stringSchema(),
+				"verdict":            map[string]any{"type": "string", "enum": []any{"success", "progress", "failure"}},
+				"reason":             stringSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"schema_version", "status", "code", "before_snapshot_id", "after_snapshot_id", "state_changed", "goal_satisfied", "reason"}, map[string]any{
+				"schema_version":     integerSchema(),
+				"status":             stringSchema(),
+				"code":               stringSchema(),
+				"before_snapshot_id": stringSchema(),
+				"after_snapshot_id":  stringSchema(),
+				"state_changed":      booleanSchema(),
+				"goal_satisfied":     booleanSchema(),
+				"reason":             stringSchema(),
+				"before_digest":      stringSchema(),
+				"after_digest":       stringSchema(),
+				"click_count":        integerSchema(),
+			}),
+			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
+			TimeoutMS: 5000, Sandbox: "forbidden", Audit: "always",
+		},
 		browserAutomationDefinition("browser.type", "Type or fill text into a clear element ref or current focus.", app.RiskDraft, true, []string{"text"}, []string{"uid"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.select", "Select a dropdown or select-like value using a clear element ref.", app.RiskDraft, true, []string{"uid", "value"}, []string{"value"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		{
@@ -1045,7 +1048,7 @@ func browserAutomationDefinition(name, description string, risk app.RiskLevel, a
 		Risk:             risk,
 		RequiresApproval: approval,
 		Idempotent:       risk == app.RiskRead,
-		TimeoutMS:        15000,
+		TimeoutMS:        30000,
 		Sandbox:          "forbidden",
 		Audit:            "always",
 	}
@@ -1060,7 +1063,7 @@ func browserAutomationInputProperties(required []string, extra []string) map[str
 		switch field {
 		case "page_id":
 			out[field] = map[string]any{"type": []any{"string", "number"}}
-		case "uid", "url", "text", "value", "mode", "target_kind", "reason", "browser_mode", "presentation", "browser_page_ref", "filePath":
+		case "uid", "url", "text", "value", "mode", "target_kind", "reason", "browser_mode", "presentation", "browser_page_ref", "filePath", "snapshot_id", "expected_effect", "interaction_goal":
 			out[field] = stringSchema()
 		case "focused", "current_focus", "rich_text", "surface_visible", "disable_hidden_browser", "visible_browser", "verbose":
 			out[field] = booleanSchema()

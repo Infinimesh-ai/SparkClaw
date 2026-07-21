@@ -12,14 +12,12 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 )
 
 type matchedWorkflowDispatch struct {
 	Run     app.AgentRun
 	Profile workflowProfile
 	Hint    TaskHint
-	Skills  []skills.Skill
 	Tools   []app.ToolDefinition
 }
 
@@ -71,7 +69,7 @@ func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app
 		run.CompletedAt = nil
 		r.store.SaveRun(run)
 		workflowExecution = r.runWorkflowWithSeed(
-			ctx, run.SessionID, run, content, profile, hint.taskHint(), r.exactWorkflowSkills(run.Workflow.Plan.SkillIDs), visibleTools,
+			ctx, run.SessionID, run, content, profile, hint.taskHint(), visibleTools,
 			seedCalls, observationsForResume(seedCalls),
 		)
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
@@ -109,13 +107,14 @@ func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(content, run, currentToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
+	route := run.Workflow.Route
+	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
+	assistant := r.store.AddMessage(workflowResultMessage(run, workflowResult, run.Summary, now))
 	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.resumed_after_approval", Summary: string(run.Workflow.Status)})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
-	route := run.Workflow.Route
 	return Result{
 		Run: run, Message: assistant, ToolCalls: workflowExecution.ToolCalls, Approvals: workflowExecution.Approvals, RouteDecision: &route,
-		WorkflowResult: r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
+		WorkflowResult: workflowResult,
 	}, true, nil
 }
 
@@ -149,7 +148,6 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 		},
 	})
 	workflowHint := resolved.Profile.Hint(run.Workflow)
-	relevantSkills := r.exactWorkflowSkills(resolved.Plan.SkillIDs)
 	visibleTools, err := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run.SessionID), &workflowHint)
 	if err != nil {
 		return matchedWorkflowDispatch{}, err
@@ -165,7 +163,7 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 			"scope_revision": workflowHint.ScopeRevision, "tools": visibleToolNames(visibleTools),
 		},
 	})
-	return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile, Hint: workflowHint.taskHint(), Skills: relevantSkills, Tools: visibleTools}, nil
+	return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile, Hint: workflowHint.taskHint(), Tools: visibleTools}, nil
 }
 
 func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, goal string, returnRoute app.ReturnRoute, route app.RouteDecision) Result {
@@ -222,7 +220,11 @@ func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.Mes
 	if strings.TrimSpace(summary) == "" {
 		summary = "The workflow completed successfully."
 	}
-	parts := []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}
+	parts := []app.MessagePart{}
+	outputsOnly := run.Workflow != nil && run.Workflow.Status == app.WorkflowStatusSucceeded && run.Workflow.Plan.ResultProjection == app.WorkflowResultOutputsOnly
+	if !outputsOnly {
+		parts = append(parts, app.MessagePart{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary})
+	}
 	if run.Workflow == nil {
 		return app.MessageContent{Parts: parts}
 	}
@@ -262,15 +264,25 @@ func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.Mes
 			Name:     name, ContentType: contentType,
 		})
 	}
+	if len(parts) == 0 {
+		parts = append(parts, app.MessagePart{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary})
+	}
 	return app.MessageContent{Parts: parts}
 }
 
 func (r Runtime) workflowOutputResourceRef(sessionID string, ref app.ResourceRef) (app.ResourceRef, bool) {
 	session, ok := r.store.GetSession(sessionID)
-	if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
+	if !ok {
 		return app.ResourceRef{}, false
 	}
-	root, err := filepath.Abs(session.WorkspaceRoot)
+	workspaceRoot := strings.TrimSpace(session.WorkspaceRoot)
+	if workspaceRoot == "" && r.tools != nil {
+		workspaceRoot = strings.TrimSpace(r.tools.Config().Workspaces.DefaultRoot)
+	}
+	if workspaceRoot == "" {
+		return app.ResourceRef{}, false
+	}
+	root, err := filepath.Abs(workspaceRoot)
 	if err != nil {
 		return app.ResourceRef{}, false
 	}

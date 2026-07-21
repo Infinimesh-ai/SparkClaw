@@ -2,7 +2,9 @@ package agent
 
 import (
 	"fmt"
+	"html"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -61,9 +63,6 @@ func toolNamesForAudit(calls []app.ToolCall) []string {
 }
 
 func fallbackToolCandidatesForAudit(hint TaskHint) []string {
-	if strictCandidateToolsForHint(hint) {
-		return []string{}
-	}
 	return fallbackToolsForHint(hint)
 }
 
@@ -139,7 +138,7 @@ func groundedWeatherCardSummary(calls []app.ToolCall) (string, bool) {
 		if mediaPath == "" || !strings.HasPrefix(filepath.ToSlash(mediaPath), "media/") {
 			continue
 		}
-		return "![天气卡片](" + filepath.ToSlash(mediaPath) + ")", true
+		return "天气卡片已生成。", true
 	}
 	return "", false
 }
@@ -158,7 +157,7 @@ func groundedWeatherFailureSummary(calls []app.ToolCall) (string, bool) {
 		}
 		reason := strings.TrimSpace(call.Error)
 		if reason == "" {
-			reason = "Open-Meteo weather lookup failed"
+			reason = "Info weather evidence or card rendering failed"
 		}
 		return "天气查询失败：" + reason, true
 	}
@@ -334,11 +333,61 @@ func failureNextStepHint(goal string, call app.ToolCall) string {
 }
 
 func groundedBrowserAutomationSummary(goal, fallback string, calls []app.ToolCall) (string, bool) {
+	if verification, ok := browserInteractionVerificationAnswerFromCalls(calls); ok {
+		return verification, true
+	}
+	if failure, ok := browserInteractionFailureAnswerFromCalls(calls); ok {
+		return failure, true
+	}
 	if tabs, ok := browserTabsAnswerFromCalls(calls); ok {
 		return tabs, true
 	}
 	if screenshot, ok := browserScreenshotAnswerFromCalls(goal, fallback, calls); ok {
 		return screenshot, true
+	}
+	return "", false
+}
+
+func browserInteractionFailureAnswerFromCalls(calls []app.ToolCall) (string, bool) {
+	for index := len(calls) - 1; index >= 0; index-- {
+		call := calls[index]
+		if call.Tool != "browser.click" || call.Status == "completed" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(call.Error), "unsafe click target") {
+			return "页面交互已阻止：目标点击可能产生不允许的后果。", true
+		}
+	}
+	return "", false
+}
+
+func browserInteractionVerificationAnswerFromCalls(calls []app.ToolCall) (string, bool) {
+	for index := len(calls) - 1; index >= 0; index-- {
+		call := calls[index]
+		if call.Tool != "browser.verify" || !toolCallCompleted(call) {
+			continue
+		}
+		result, ok := anyMap(call.Result)
+		if !ok {
+			continue
+		}
+		status := strings.TrimSpace(stringValue(result["status"]))
+		code := strings.TrimSpace(stringValue(result["code"]))
+		if status == "succeeded" && boolValue(result["goal_satisfied"]) {
+			return "已完成页面点击，并通过点击后 snapshot 验证。", true
+		}
+		if status == "failed" {
+			message := map[string]string{
+				"interaction_loop_detected":       "页面交互陷入循环",
+				"interaction_attempt_limit":       "已达到三次点击上限",
+				"interaction_verification_failed": "点击后的页面变化不符合预期",
+				"unsafe_click_target":             "目标点击可能产生不允许的后果",
+			}[code]
+			if message == "" {
+				message = "页面点击验证失败"
+			}
+			return message + "。", true
+		}
 	}
 	return "", false
 }
@@ -456,7 +505,7 @@ func asksForBrowserScreenshot(goal string) bool {
 
 func isBrowserAutomationPlan(name string) bool {
 	switch name {
-	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.type", "browser.select":
+	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.verify", "browser.type", "browser.select":
 		return true
 	default:
 		return false
@@ -644,6 +693,9 @@ func webSearchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) 
 		}
 		answer := strings.TrimSpace(stringValue(result["answer"]))
 		count := intLikeValue(result["count"])
+		if structured, usable := structuredInfoSearchAnswer(call, result); usable && (answer == "" || answer == "<nil>" || infoProviderStatusSummary(answer)) {
+			return structured, true
+		}
 		if answer != "" && answer != "<nil>" {
 			return answer, true
 		}
@@ -655,6 +707,69 @@ func webSearchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) 
 		}
 	}
 	return "", false
+}
+
+var infoHTMLTagPattern = regexp.MustCompile(`(?i)</?[a-z][^>]*>`)
+
+func structuredInfoSearchAnswer(call app.ToolCall, result map[string]any) (string, bool) {
+	projection, ok := infoEvidenceProjection(call, result, 4096)
+	if !ok || projection.Status == "failed" {
+		return "", false
+	}
+	items := make([]string, 0, 3)
+	for _, fact := range projection.Facts {
+		text := cleanInfoEvidenceForUser(fact.Claim)
+		if text == "" || infoProviderStatusSummary(text) {
+			continue
+		}
+		items = append(items, trimForEpisode(text, 600))
+		if len(items) == 3 {
+			break
+		}
+	}
+	if len(items) == 0 {
+		for _, source := range projection.Sources {
+			for _, snippet := range source.Snippets {
+				text := cleanInfoEvidenceForUser(snippet.Text)
+				if text == "" {
+					continue
+				}
+				items = append(items, trimForEpisode(text, 600))
+				if len(items) == 3 {
+					break
+				}
+			}
+			if len(items) == 3 {
+				break
+			}
+		}
+	}
+	if len(items) == 0 {
+		return "", false
+	}
+	lines := []string{"联网搜索结果："}
+	for _, item := range items {
+		lines = append(lines, "- "+item)
+	}
+	if citations := projection.Citations; len(citations) > 0 {
+		if len(citations) > 3 {
+			citations = citations[:3]
+		}
+		lines = append(lines, "来源："+strings.Join(citations, "，"))
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+func cleanInfoEvidenceForUser(value string) string {
+	value = html.UnescapeString(value)
+	value = infoHTMLTagPattern.ReplaceAllString(value, " ")
+	value = strings.NewReplacer("\\", "", "**", "", "__", "", "`", "").Replace(value)
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func infoProviderStatusSummary(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(lower, "synthesized ") && strings.Contains(lower, "citation-backed fact") && strings.Contains(lower, "public source")
 }
 
 func cleanUserFinalAnswer(answer string) string {

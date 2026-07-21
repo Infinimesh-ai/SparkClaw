@@ -8,13 +8,13 @@ import (
 )
 
 const (
-	InfoProjectionSchemaVersion = 1
+	InfoProjectionSchemaVersion = 3
 	MaxInfoProjectionBytes      = 8192
 	defaultInfoProjectionBytes  = 2400
 	minInfoProjectionBytes      = 512
 	maxProjectedSummaryBytes    = 560
-	maxProjectedFactBytes       = 360
-	maxProjectedSnippetBytes    = 320
+	maxProjectedFactBytes       = 720
+	maxProjectedSnippetBytes    = 720
 )
 
 const (
@@ -56,9 +56,111 @@ type InfoEvidenceSource struct {
 	ID              string             `json:"id,omitempty"`
 	Title           string             `json:"title,omitempty"`
 	URL             string             `json:"url,omitempty"`
+	SourceType      string             `json:"source_type,omitempty"`
 	PublishedAt     string             `json:"published_at,omitempty"`
+	RetrievedAt     string             `json:"retrieved_at,omitempty"`
+	AuthorityScore  float64            `json:"authority_score,omitempty"`
 	Snippets        []InfoEvidenceText `json:"snippets"`
 	OmittedSnippets int                `json:"omitted_snippets,omitempty"`
+}
+
+// CompleteInfoEvidenceDirectory preserves every mapped Info evidence item and
+// assigns the same stable refs used by bounded projections and validators.
+// The adapter has already bounded response and snippet sizes before this step.
+func CompleteInfoEvidenceDirectory(result Result) InfoEvidenceProjection {
+	projection := InfoEvidenceProjection{
+		SchemaVersion: InfoProjectionSchemaVersion,
+		RequestID:     strings.TrimSpace(result.RequestID),
+		Query:         strings.TrimSpace(result.Query),
+		Untrusted:     result.Untrusted,
+	}
+	if !result.Untrusted {
+		projection.Status = InfoProjectionFailed
+		projection.MissingComponents = []string{"untrusted_marker"}
+		projection.FailureCode = "trust_boundary_missing"
+		return projection
+	}
+	if summary := strings.TrimSpace(result.Summary); summary != "" {
+		projection.Summary = &InfoEvidenceText{Ref: "summary:0", Text: summary}
+	}
+	for factIndex, fact := range result.KeyFacts {
+		claim := strings.TrimSpace(fact.Claim)
+		if claim == "" {
+			continue
+		}
+		ref := strings.TrimSpace(fact.ID)
+		if ref == "" {
+			ref = "fact:" + itoa(factIndex)
+		}
+		projection.Facts = append(projection.Facts, InfoEvidenceFact{
+			Ref: ref, Claim: claim, Confidence: strings.TrimSpace(fact.Confidence),
+			SourceIDs: append([]string(nil), fact.Sources...),
+		})
+	}
+	for _, source := range result.Results {
+		projected := InfoEvidenceSource{
+			Index: source.EvidenceIndex, ID: strings.TrimSpace(source.ID), Title: strings.TrimSpace(source.Title),
+			URL: strings.TrimSpace(source.URL), SourceType: strings.TrimSpace(source.Source),
+			PublishedAt: strings.TrimSpace(source.PublishedAt), RetrievedAt: strings.TrimSpace(source.RetrievedAt),
+			AuthorityScore: source.AuthorityScore,
+		}
+		snippets := source.Snippets
+		if len(snippets) == 0 && strings.TrimSpace(source.Snippet) != "" {
+			snippets = []string{source.Snippet}
+		}
+		for snippetIndex, snippet := range snippets {
+			if snippet = strings.TrimSpace(snippet); snippet != "" {
+				projected.Snippets = append(projected.Snippets, InfoEvidenceText{
+					Ref:  "source:" + itoa(source.EvidenceIndex) + ":snippet:" + itoa(snippetIndex),
+					Text: snippet,
+				})
+			}
+		}
+		if len(projected.Snippets) > 0 {
+			projection.Sources = append(projection.Sources, projected)
+		}
+	}
+	projection.Citations = uniqueInfoCitations(result.Citations)
+	return finalizeInfoProjection(projection, result, false)
+}
+
+func InfoEvidenceProjectionHasEvidence(projection InfoEvidenceProjection) bool {
+	return infoProjectionHasEvidence(projection)
+}
+
+func InfoEvidenceTextIndex(projection InfoEvidenceProjection) map[string]string {
+	index := map[string]string{}
+	if projection.Summary != nil {
+		if ref, value := strings.TrimSpace(projection.Summary.Ref), strings.TrimSpace(projection.Summary.Text); ref != "" && value != "" {
+			index[ref] = value
+		}
+	}
+	for _, fact := range projection.Facts {
+		if ref, value := strings.TrimSpace(fact.Ref), strings.TrimSpace(fact.Claim); ref != "" && value != "" {
+			index[ref] = value
+		}
+	}
+	for _, source := range projection.Sources {
+		for _, snippet := range source.Snippets {
+			if ref, value := strings.TrimSpace(snippet.Ref), strings.TrimSpace(snippet.Text); ref != "" && value != "" {
+				index[ref] = value
+			}
+		}
+	}
+	return index
+}
+
+func uniqueInfoCitations(citations []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, citation := range citations {
+		citation = strings.TrimSpace(citation)
+		if citation != "" && !seen[citation] {
+			seen[citation] = true
+			out = append(out, citation)
+		}
+	}
+	return out
 }
 
 // ProjectInfoEvidence selects a bounded evidence directory for the frozen
@@ -72,9 +174,12 @@ func ProjectInfoEvidence(result Result, frozenQuery string, maxBytes int) InfoEv
 	}
 
 	terms := infoProjectionTerms(projection.Query)
+	summaryLimit := projectionExcerptLimit(maxBytes, 4, maxProjectedSummaryBytes)
+	factLimit := projectionExcerptLimit(maxBytes, 5, maxProjectedFactBytes)
+	snippetLimit := projectionExcerptLimit(maxBytes, 5, maxProjectedSnippetBytes)
 	capacityOmitted := false
 	if summary := strings.TrimSpace(result.Summary); summary != "" {
-		text, truncated := relevantEvidenceExcerpt(summary, terms, maxProjectedSummaryBytes)
+		text, truncated := relevantEvidenceExcerpt(summary, terms, summaryLimit)
 		candidate := projection
 		candidate.Summary = &InfoEvidenceText{Ref: "summary:0", Text: text, Truncated: truncated}
 		if infoProjectionFits(candidate, maxBytes) {
@@ -86,7 +191,7 @@ func ProjectInfoEvidence(result Result, frozenQuery string, maxBytes int) InfoEv
 
 	facts := rankedInfoFacts(result.KeyFacts, terms)
 	for _, fact := range facts {
-		claim, truncated := relevantEvidenceExcerpt(fact.Claim, terms, maxProjectedFactBytes)
+		claim, truncated := relevantEvidenceExcerpt(fact.Claim, terms, factLimit)
 		if claim == "" {
 			continue
 		}
@@ -114,7 +219,7 @@ func ProjectInfoEvidence(result Result, frozenQuery string, maxBytes int) InfoEv
 
 	sources := rankedInfoSources(result.Results, projectedSourceIDs(projection.Facts), result.Citations, terms)
 	for _, source := range sources {
-		projected := projectInfoSource(source, terms)
+		projected := projectInfoSource(source, terms, snippetLimit)
 		if len(projected.Snippets) == 0 {
 			continue
 		}
@@ -195,6 +300,14 @@ func normalizeProjectionLimit(maxBytes int) int {
 		return MaxInfoProjectionBytes
 	}
 	return maxBytes
+}
+
+func projectionExcerptLimit(maxBytes, divisor, capBytes int) int {
+	limit := maxBytes / divisor
+	if limit > capBytes {
+		return capBytes
+	}
+	return limit
 }
 
 func finalizeInfoProjection(projection InfoEvidenceProjection, result Result, capacityOmitted bool) InfoEvidenceProjection {
@@ -387,7 +500,7 @@ func projectedSourceIDs(facts []InfoEvidenceFact) map[string]bool {
 	return out
 }
 
-func projectInfoSource(source Item, terms []string) InfoEvidenceSource {
+func projectInfoSource(source Item, terms []string, maxSnippetBytes int) InfoEvidenceSource {
 	snippets := source.Snippets
 	if len(snippets) == 0 && strings.TrimSpace(source.Snippet) != "" {
 		snippets = []string{source.Snippet}
@@ -411,10 +524,12 @@ func projectInfoSource(source Item, terms []string) InfoEvidenceSource {
 	})
 	out := InfoEvidenceSource{
 		Index: source.EvidenceIndex, ID: strings.TrimSpace(source.ID), Title: strings.TrimSpace(source.Title),
-		URL: strings.TrimSpace(source.URL), PublishedAt: strings.TrimSpace(source.PublishedAt),
+		URL: strings.TrimSpace(source.URL), SourceType: strings.TrimSpace(source.Source),
+		PublishedAt: strings.TrimSpace(source.PublishedAt), RetrievedAt: strings.TrimSpace(source.RetrievedAt),
+		AuthorityScore: source.AuthorityScore,
 	}
 	for _, snippet := range ranked {
-		text, truncated := relevantEvidenceExcerpt(snippet.text, terms, maxProjectedSnippetBytes)
+		text, truncated := relevantEvidenceExcerpt(snippet.text, terms, maxSnippetBytes)
 		out.Snippets = append(out.Snippets, InfoEvidenceText{
 			Ref:  "source:" + itoa(source.EvidenceIndex) + ":snippet:" + itoa(snippet.index),
 			Text: text, Truncated: truncated,
@@ -506,21 +621,32 @@ func relevantEvidenceExcerpt(text string, terms []string, maxBytes int) (string,
 		return text, false
 	}
 	lower := strings.ToLower(text)
-	match := -1
+	bestFocus := 0
+	bestScore := -1
 	for _, term := range terms {
-		if index := strings.Index(lower, term); index >= 0 && (match < 0 || index < match) {
-			match = index
+		for offset := 0; offset < len(lower); {
+			match := strings.Index(lower[offset:], term)
+			if match < 0 {
+				break
+			}
+			match += offset
+			start, end := evidenceWindowBounds(text, match, maxBytes)
+			score := infoEvidenceScore(text[start:end], terms)
+			if score > bestScore {
+				bestFocus = match
+				bestScore = score
+			}
+			offset = match + len(term)
 		}
 	}
-	if match >= 0 {
-		start, end := evidenceSentenceBounds(text, match)
-		if sentence := strings.TrimSpace(text[start:end]); sentence != "" && len(sentence) <= maxBytes {
-			return sentence, true
-		}
-	}
-	start := 0
-	if match > maxBytes/4 {
-		start = match - maxBytes/4
+	start, end := evidenceWindowBounds(text, bestFocus, maxBytes)
+	return strings.TrimSpace(text[start:end]), true
+}
+
+func evidenceWindowBounds(text string, focus, maxBytes int) (int, int) {
+	start := focus - maxBytes/3
+	if start < 0 {
+		start = 0
 	}
 	for start < len(text) && !utf8.RuneStart(text[start]) {
 		start++
@@ -535,34 +661,6 @@ func relevantEvidenceExcerpt(text string, terms []string, maxBytes int) (string,
 	}
 	for end > start && end < len(text) && !utf8.RuneStart(text[end]) {
 		end--
-	}
-	return strings.TrimSpace(text[start:end]), true
-}
-
-func evidenceSentenceBounds(text string, match int) (int, int) {
-	start := match
-	for start > 0 {
-		_, size := utf8.DecodeLastRuneInString(text[:start])
-		if size <= 0 {
-			break
-		}
-		previous := start - size
-		r, _ := utf8.DecodeRuneInString(text[previous:start])
-		if strings.ContainsRune(".!?。！？\n；;", r) {
-			break
-		}
-		start = previous
-	}
-	end := match
-	for end < len(text) {
-		r, size := utf8.DecodeRuneInString(text[end:])
-		if size <= 0 {
-			break
-		}
-		end += size
-		if strings.ContainsRune(".!?。！？\n；;", r) {
-			break
-		}
 	}
 	return start, end
 }

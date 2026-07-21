@@ -3,6 +3,7 @@ package toolhub
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,11 +21,17 @@ func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
 	if _, ok := disabled.Definition("web.search"); ok {
 		t.Fatal("web.search should not register when disabled")
 	}
+	if _, ok := disabled.Definition("info.query"); ok {
+		t.Fatal("info.query should not register when Info search is disabled")
+	}
 
 	cfg.Tools.Web.Search.Enabled = true
 	enabled := New(cfg, store.NewMemoryStore())
 	if _, ok := enabled.Definition("web.search"); !ok {
 		t.Fatal("web.search should register when enabled")
+	}
+	if _, ok := enabled.Definition("info.query"); !ok {
+		t.Fatal("info.query should register when Info search is enabled")
 	}
 }
 
@@ -97,12 +104,20 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 	if out["provider"] != "infinimesh-info" || out["request_id"] == "" || out["summary"] != "Infinimesh summary" || out["answer"] != "Infinimesh summary" || out["count"] != 1 || out["retrieved_at"] == "" || out["untrusted"] != true {
 		t.Fatalf("unexpected web search output: %#v", out)
 	}
-	facts, ok := out["key_facts"].([]websearch.KeyFact)
-	if !ok || len(facts) != 1 || facts[0].ID != "fact:0" {
-		t.Fatalf("fixed Info key facts were not preserved: %#v", out["key_facts"])
+	if facts := out["key_facts"].([]websearch.KeyFact); len(facts) != 1 || facts[0].Claim != "claim" {
+		t.Fatalf("web search did not preserve Info key facts: %#v", out)
 	}
-	citations, ok := out["citations"].([]string)
-	if !ok || len(citations) != 1 || citations[0] != "https://example.test/official" {
-		t.Fatalf("unexpected citations: %#v", out["citations"])
+	if sources := out["results"].([]websearch.Item); len(sources) != 1 || sources[0].Snippets[0] != "bounded evidence" {
+		t.Fatalf("web search did not preserve Info source snippets: %#v", out)
+	}
+
+	infoResult, err := hub.Execute(context.Background(), "info.query", map[string]any{"query": "杭州天气"}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	infoOut := infoResult.Output.(map[string]any)
+	if strings.TrimSpace(fmt.Sprint(infoOut["request_id"])) == "" || infoOut["summary"] != "Infinimesh summary" ||
+		len(infoOut["key_facts"].([]websearch.KeyFact)) != 1 || len(infoOut["sources"].([]websearch.Item)) != 1 {
+		t.Fatalf("direct Info query did not expose structured evidence: %#v", infoOut)
 	}
 }

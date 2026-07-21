@@ -18,6 +18,9 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 	if plan.SchemaVersion <= 0 || plan.Completion == "" || len(plan.Nodes) == 0 || len(plan.InitialNodeIDs) == 0 {
 		return errors.New("workflow plan contract is incomplete")
 	}
+	if plan.ResultProjection != "" && plan.ResultProjection != app.WorkflowResultTextAndOutputs && plan.ResultProjection != app.WorkflowResultOutputsOnly {
+		return errors.New("workflow plan has an unsupported result projection")
+	}
 
 	objectives := make(map[string]bool, len(intent.Objectives))
 	for _, objective := range intent.Objectives {
@@ -52,6 +55,9 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 		if err := validateNodeBindings(node); err != nil {
 			return err
 		}
+		if err := validateStageCapabilityRules(node); err != nil {
+			return err
+		}
 		nodes[node.ID] = node
 	}
 
@@ -82,6 +88,48 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 		return errors.New("workflow node dependency graph contains a cycle")
 	}
 	return nil
+}
+
+func validateStageCapabilityRules(node app.WorkflowNode) error {
+	if len(node.StageCapabilities) == 0 {
+		return nil
+	}
+	knownStages := map[string]bool{node.InitialStage: true}
+	for _, transition := range node.Transitions {
+		knownStages[transition.NextStage] = true
+	}
+	seen := map[string]bool{}
+	for _, rule := range node.StageCapabilities {
+		stage := strings.TrimSpace(rule.Stage)
+		if stage == "" || seen[stage] || !knownStages[stage] || len(rule.Capabilities) == 0 {
+			return fmt.Errorf("workflow node %q has an invalid stage capability rule for %q", node.ID, rule.Stage)
+		}
+		seen[stage] = true
+		for _, capability := range rule.Capabilities {
+			if strings.TrimSpace(capability) == "" || !nodeCanRequireCapability(node, capability) {
+				return fmt.Errorf("workflow node %q stage %q allows capability %q outside its frozen scopes", node.ID, stage, capability)
+			}
+		}
+	}
+	for stage := range knownStages {
+		if !seen[stage] {
+			return fmt.Errorf("workflow node %q has no capability rule for stage %q", node.ID, stage)
+		}
+	}
+	return nil
+}
+
+func workflowStageAllowsCapability(node app.WorkflowNode, stage, capability string) bool {
+	if len(node.StageCapabilities) == 0 {
+		return true
+	}
+	for _, rule := range node.StageCapabilities {
+		if rule.Stage != stage {
+			continue
+		}
+		return containsString(rule.Capabilities, capability)
+	}
+	return false
 }
 
 func validateCapabilityScope(scope app.CapabilityScope, allowEmpty bool) error {

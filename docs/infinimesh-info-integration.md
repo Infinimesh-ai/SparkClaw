@@ -249,42 +249,33 @@ follows:
 | Infinimesh Info | `web.search` output |
 |---|---|
 | `request_id` | `request_id` |
-| `answer_context.summary` | `summary` and the backward-compatible `answer` |
-| `answer_context.key_facts[]` | `key_facts[]` with stable `fact:N` IDs |
-| `sources[].id` and bounded response order | `results[].id` and `results[].evidence_index` |
-| `sources[].title` | `results[].title` |
-| `sources[].url` | `results[].url` |
-| individually bounded `sources[].snippets` | `results[].snippets[]` plus the backward-compatible joined `results[].snippet` |
-| `sources[].source_type` | `results[].source` |
-| `sources[].published_at` | `results[].published_at` |
-| `sources[].retrieved_at` | `results[].retrieved_at` |
-| URLs referenced by `answer_context.key_facts[].sources` | `citations` |
-| response source count | `count` |
+| `answer_context.summary` | trimmed `summary`; also the preferred backward-compatible `answer` text |
+| non-empty `answer_context.key_facts[].claim` | `key_facts[]` with stable `fact:N` IDs, confidence, and source IDs |
+| public HTTP(S) `sources[]` | `results[]` and `count`, including stable source indexes, metadata, and bounded snippets |
+| `answer_context.citations[]` and fact source IDs | normalized public URLs in `citations[]` |
 | local completion time for the fixed response | `retrieved_at` |
 | client elapsed time | `took_ms` |
 | constant `infinimesh-info` | `provider` |
 | constant `true` | `untrusted` |
 
-Citation IDs are resolved against `sources[].id`, deduplicated in response
-order, and converted to source URLs because the existing SparkClaw citation
-contract is `[]string`. If the response contains no referenced IDs, citations
-fall back to all valid source URLs. Invalid URLs or incomplete source entries
-do not crash the adapter; they are omitted subject to the requested result
-limit. An empty summary is allowed only when valid source evidence exists, in
-which case the adapter builds a short evidence-oriented answer without
-inventing facts.
+The adapter requires at least one usable evidence component: a trimmed summary,
+a non-empty key fact, or a snippet from a public source. For backward-compatible
+plain answer text it prefers the summary, then source snippets, then key facts.
+A status-style summary such as a synthesized-fact count remains metadata-like
+evidence and does not suppress the mapped facts or source snippets. The direct
+`info.query` tool returns `request_id`, `query`, `summary`, `provider`,
+`key_facts`, `sources`, `citations`, `retrieved_at`, `took_ms`, and `untrusted`.
 
-The complete bounded tool result remains available to workflow outcome
-adapters and the raw observation archive. Before a later model step, the
-presenter builds a separate typed evidence projection from the frozen route
-query. That projection contains only a bounded relevant summary excerpt,
-selected key facts, selected source snippets with stable `summary:0`, `fact:N`,
-and `source:N:snippet:M` refs, citations, the Info request ID, and an untrusted
-marker. It has a hard byte limit and reports absent fixed-response components
-or a query mismatch through `status`, `missing_components`, and
-`failure_code`; it never asks Info for a different response shape or infers
-missing structured values. Observation text stays evidence and cannot supply
-tools, next steps, or runtime instructions.
+Before a later model step, the presenter builds a typed projection from the
+frozen route query. Generic search selects bounded, query-relevant summary,
+fact, source-snippet, and citation evidence under stable `summary:0`, `fact:N`,
+and `source:N:snippet:M` refs. It has a hard byte limit and reports absent fixed
+components, capacity omission, or query mismatch through `status`,
+`missing_components`, and `failure_code`. Direct weather extraction uses the
+same bounded projection contract while retaining the complete mapped result in
+the tool archive for deterministic field validation. Observation text stays
+untrusted evidence and cannot supply tools,
+next steps, or runtime instructions.
 
 ## Legacy Engine Migration
 

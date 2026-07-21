@@ -36,7 +36,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 在已验证的 GB10 机器上，full 128K context 且启用 MTP 时，fast 和 deep chat lanes 应视为不能同时常驻，除非降低 context、MTP 或 GPU memory utilization 后重新测量。
 - 当前接受的单机双 lane profile 是 `dual-light-v1`：fast 使用 32K context + 8G KV cache，deep 使用 64K context + 12G KV cache，二者都关闭 MTP。Deep 是稠密模型，慢是预期内；验收标准是任务稳定性和产品综合体验，而不是单独追求 deep throughput。
 - 决定调用哪个 chat lane 的是 Gateway，不是 `fast` 模型本身。代码、terminal、危险、repair 或显式 deep/review 请求会走 `deep`；常规有边界任务走 `fast`。只有 fast 调用失败时，才会把 deep 作为 fallback。
-- `skills/` 下的 skill package 是运行时 workflow 描述，后续会持续升级；它们不是项目文档的事实来源。
+- `skills/` 下只保留尚未迁移领域的过渡 ReAct procedure。已迁移 Workflow 不再加载 Skill；当前能力以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
 
 ## 快速开始
 
@@ -68,7 +68,12 @@ browser allowlist 只用于确定性的本地 fixture。正常运行中，`brows
 
 ```bash
 npm install
+npm run setup:browser
 ```
+
+第二条命令安装与固定 Playwright Runtime 版本匹配的本地 Chromium。只有部署环境必须
+使用单独管理且兼容的 Executable 时，才设置
+`adapters.browserAutomation.chromiumExecutable`。
 
 分别启动 Gateway 和 WebChat：
 
@@ -165,7 +170,7 @@ eval/golden/               Golden task definitions
 benchmarks/                DGX Spark model baseline evidence
 docs/                      Current project architecture, deployment and development docs
 packages/                  Portable protocol, policy and tool-schema notes
-skills/                    Runtime workflow skill packages
+skills/                    尚未迁移领域的过渡 ReAct skill packages
 zh-cn/                     Chinese documentation mirror
 ```
 

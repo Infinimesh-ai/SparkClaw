@@ -100,6 +100,48 @@ export type AgentResult = {
   message: Message;
   tool_calls: ToolCall[];
   approvals: Approval[];
+  workflow_result?: WorkflowResult;
+};
+
+export type ResourceRef = {
+  kind: string;
+  ref: string;
+  provenance: string;
+  attributes?: Record<string, string>;
+};
+
+export type WorkflowMessagePart = {
+  id: string;
+  kind: MessagePartKind;
+  disposition: MessagePartDisposition;
+  text?: string;
+  artifact_id?: string;
+  resource?: ResourceRef;
+  name?: string;
+  content_type?: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+  sha256?: string;
+  caption?: string;
+  derived_from_part_id?: string;
+};
+
+export type WorkflowResult = {
+  schema_version: number;
+  id: string;
+  run_id: string;
+  owner_id: string;
+  authorization: { principal_id: string; scope?: string[] };
+  status: "succeeded" | "waiting" | "blocked" | "failed";
+  capability_path: string[];
+  workflow: { id: string; revision: number };
+  data?: Record<string, unknown>;
+  content: { parts: WorkflowMessagePart[] };
+  references?: ResourceRef[];
+  return_route: { mode: "source" | "endpoint" | "none"; source_endpoint_id?: string; endpoint_id?: string };
+  resume?: { kind: string; token?: string; data?: Record<string, unknown> };
+  error?: { code: string; message: string; retryable?: boolean };
 };
 
 export type MessageAttachment = {

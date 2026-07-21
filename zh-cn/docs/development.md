@@ -15,7 +15,7 @@ scripts/                   Doctor, eval, model serving and benchmark scripts
 eval/golden/               Golden task definitions and fixtures
 benchmarks/                DGX Spark model evidence
 packages/                  Portable protocol, policy and tool-schema notes
-skills/                    Runtime skill packages, intentionally evolving
+skills/                    尚未迁移领域的过渡 ReAct skills
 docs/                      Current project documentation
 zh-cn/                     Chinese documentation mirror
 ```
@@ -28,18 +28,18 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Router-first 能力 Workflow | 浏览器联网搜索/天气/自动化和文档读取/编辑已迁移 | Catalog、精确 Registry/Dispatcher、固定工具暴露、端到端测试与语义边界回归 |
+| Router-first 能力 Workflow | 浏览器联网搜索/天气/自动化和文档读取/编辑已迁移 | Catalog revision 4、精确 Registry/Dispatcher、固定工具暴露、生产入口端到端测试与语义边界回归 |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
 | Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
 | File、browser、memory、code 和 notify workflow | Complete | Unit tests plus 43-case eval |
 | 邮件、日历和 Workspace Knowledge/RAG | 已暂缓；原型已移除 | [暂缓能力记录](deferred-email-calendar-knowledge.md) |
-| Skills registry boundary | Complete | Registry tests and `/api/skills`; skills do not bypass policy |
+| 过渡 Skills Registry | 仅用于尚未迁移的 ReAct 领域 | Registry tests 和 `/api/skills`；已迁移 Workflow 的 Skill 包已删除 |
 | WebChat workbench | Complete | TypeScript/Vite build |
 | Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
 | Docker profiles and local deployment | Complete | Compose config, image builds, doctor script |
 | DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
-| Infinimesh Info `web.search` provider | Complete，opt-in | Contract/fault tests、redacted public config、credential-gated live smoke |
+| Infinimesh Info `web.search` 与直接 `info.query` provider | Complete，opt-in | Contract/fault tests、保留证据的天气 Workflow fixture、redacted public config、credential-gated live smoke |
 | WebChat 与 Gateway speech transcription | Complete，opt-in | Speech/Gateway tests、voice frontend tests、live ASR smoke evidence |
 | 消息连接器 Registry 与 Telegram 多 Bot binding | Complete，opt-in | Provider-neutral registry、credential 隔离、binding、worker、media、reminder 与 WebChat tests |
 | 消息控制、定时消息与结果投递 | Router-first 垂直切片已完成 | 持久化入口/返回上下文、Endpoint/Schedule Registry、有界 Timer Worker、唯一 WorkflowResult 投递链路、Provider 能力预检、[迁移指南](message-control-delivery-migration.md) |
@@ -52,7 +52,7 @@ Host checks：
 
 ```bash
 npm --workspace @sparkclaw/webchat run build
-npm --workspace @sparkclaw/webchat run test:voice
+npm --workspace @sparkclaw/webchat run test
 go test ./services/gateway/...
 bash scripts/doctor.sh
 bash scripts/run-eval.sh
@@ -92,7 +92,7 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 - direct `/chat` profile selection
 - config、tool、skill、owner、client、auth 和 rate-limit surfaces
 - file search/read/write/delete 和 multi-file grounded answers
-- browser read、multi-source comparison、raw snapshots 和 prompt-injection handling
+- browser read、multi-source comparison、结构化交互 snapshot、验证点击闭环、过期 ref 和 prompt-injection handling
 - memory candidates、sensitive-memory rejection、approval-gated sensitive writes、editing 和 export
 - approval modification、approval-pending run lifecycle 和 post-approval trace refresh
 - shell 和 code patch approval、rollback artifacts 和 sandbox command queueing
@@ -100,6 +100,14 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 - smoke/chaos eval persistence、failure archives 和 eval history
 
 添加 user-visible behavior 时，优先添加聚焦单元测试，以及一个覆盖真实 API path 的 golden case。
+
+真实托管 Chromium 交互冒烟测试：
+
+```bash
+SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 \
+go test ./services/gateway/internal/browserautomation \
+  -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1
+```
 
 ## 使用 Tools
 
@@ -114,7 +122,7 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 7. 添加 unit tests 和至少一个 golden/smoke eval path。
 8. 如果改变产品边界，更新 [架构](architecture.md)。
 
-注册 capability 不会自动让模型看到工具。已迁移 Workflow Profile 必须把 capability 放入冻结活动 scope，且 `ToolExposure.Search/Materialize` 必须接纳并物化对应 registration。不要在 TaskHint、Skill metadata 或 Agent Runtime 中增加平行工具名清单。
+注册 capability 不会自动让模型看到工具。已迁移 Workflow Profile 必须把 capability 放入冻结活动 scope，且 `ToolExposure.Search/Materialize` 必须接纳并物化对应 registration。Workflow Plan 不得保存 Skill ID，Workflow 模型 Prompt 也不得加载 Skill 文本。不要在 TaskHint、Skill metadata 或 Agent Runtime 中增加平行工具名清单。
 
 当前 risk expectations：
 
@@ -127,19 +135,23 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 
 ## 使用能力路由与 Workflow
 
-完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个能力叶子时：
+当前用户可见边界见 [Workflow 能力矩阵](workflow-capabilities.md)，完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个能力叶子时：
 
 1. 在版本化 Capability Catalog 中增加叶子与允许的类型化 Operation，并只引用一个精确 Workflow 协议。
 2. Fast 输出保持工具中立，拒绝未知 JSON 字段，Normalizer 冻结确定性 URL/path Fact。
 3. 注册一个精确版本化 Workflow Profile。Registry 只能使用已校验的叶子身份解析，不能重新解释消息。
 4. 为所有允许工具增加固定 Capability Metadata 与 Outcome Adapter；Tool Exposure 只能物化该 Scope。
 5. 在 Profile 中声明允许的 Transition、Risk 与受治理参数绑定，并持久化 Route 供审批/登录恢复使用。
-6. 删除同一功能的 TaskHint Candidate 与旧 Workflow 分支。
+6. 删除同一功能的 TaskHint Candidate、旧 ReAct 暴露和 Skill 包；保留 Workflow 正在使用或等待后续迁移的 ToolHub Registration。
 7. 增加从生产入口执行真实 Tool Adapter 的端到端测试，断言 `WorkflowResult`，并证明没有 Legacy Routing Audit。
 
 当前状态事实使用一个类型化语义边界。正确答案依赖实时互联网的只读事实使用 `fact_scope=current_internet_state`，包括价格、汇率、股票/指数行情、即时新闻、比赛结果和日程；静态常识保持 unmatched。不要为每类事实增加 leaf、关键词 switch 或工具名称列表。唯一的窄特例是 `browser.weather`，只处理一个已校验地点的当前天气或短期预报卡片；天气预警、新闻、历史和比较仍属于 `browser.internet_search`。
 
 Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 Switch 来选择 Scope、资源、Assessment 或下一步，应把行为移入 Profile、Plan Binding、ToolHub Registration 或 Outcome Adapter。只有 `RouteDecision.Status == unmatched` 可以进入 ReAct。
+
+### 扩展天气处理
+
+天气迁移是多阶段 Workflow 的参考模式。`browser.weather` 在派发前冻结规范化 query 和有依据的 location；依次只暴露 `info.query`、`weather.structure_payload` 和 `media.render_weather_card`；中间值只通过受治理 outcome ref 传递。Deep 模型接收已映射 Info 证据中与 query 相关的有界投影，其中使用稳定的 `summary:0`、`fact:N` 和 `source:N:snippet:M` ref。结构化工具必须拒绝没有对应证据项精确原文子串支持的字段，并回到完整持久化 Info 结果校验引用与原文；每类请求数据要么包含有依据的值，要么写入明确的 `missing_fields`。缺失数据按“暂无数据”渲染，不能推测补齐，也不会因此阻塞卡片；渲染器必须保持无网络访问。详见[天气 Workflow 实施记录](browser-weather-workflow-migration-plan.md)。
 
 ### 扩展文档处理
 

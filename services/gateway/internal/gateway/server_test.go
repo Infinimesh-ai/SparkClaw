@@ -251,6 +251,55 @@ func TestUploadImageSavesUnderMedia(t *testing.T) {
 	}
 }
 
+func TestDocumentFileUsesAuthenticatedSessionWorkspace(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	cfg.Gateway.APIToken = "secret-token"
+	st := store.NewMemoryStore()
+	userRoot := filepath.Join(root, "users", "owner-a")
+	session := st.CreateSessionWithScope("weather", "owner-a", userRoot, "webchat", false)
+	mediaPath := filepath.Join(userRoot, "media", "weather-card.png")
+	if err := os.MkdirAll(filepath.Dir(mediaPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mediaPath, []byte("session weather image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())
+	defer ts.Close()
+
+	url := ts.URL + "/api/documents/file?path=media%2Fweather-card.png&session_id=" + session.ID
+	unauthorized, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthorized.Body.Close()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("document file without token returned %d", unauthorized.StatusCode)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer secret-token")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || string(raw) != "session weather image" {
+		t.Fatalf("authenticated session file returned %d: %q", resp.StatusCode, raw)
+	}
+}
+
 func TestAvailableDocumentsIncludesUploadsAndMedia(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
@@ -504,7 +553,7 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_sessions_total 1",
 		"sparkclaw_messages_total 2",
 		"sparkclaw_agent_runs_total 1",
-		"sparkclaw_model_calls_total 5",
+		"sparkclaw_model_calls_total 6",
 		"sparkclaw_model_call_errors_total 0",
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
 		"sparkclaw_memory_candidates_total 1",
@@ -2547,8 +2596,9 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	if len(decoded.ToolCalls) == 0 {
 		t.Fatal("trace did not include tool calls")
 	}
-	if !hasServerTestModelCall(decoded.ModelCalls, "capability_routing", "fast") ||
-		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "fast") ||
+	if !hasServerTestModelCall(decoded.ModelCalls, "request_normalization", "fast") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "capability_routing", "fast") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "deep") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)
 	}

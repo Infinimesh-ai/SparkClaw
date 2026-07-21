@@ -221,36 +221,29 @@ SparkClaw 只向 `/v1/info/tokens/issue` 发送 entitlement proof、device attes
 | Infinimesh Info | `web.search` 输出 |
 |---|---|
 | `request_id` | `request_id` |
-| `answer_context.summary` | `summary` 及向后兼容的 `answer` |
-| `answer_context.key_facts[]` | 带稳定 `fact:N` ID 的 `key_facts[]` |
-| `sources[].id` 与有界响应顺序 | `results[].id` 与 `results[].evidence_index` |
-| `sources[].title` | `results[].title` |
-| `sources[].url` | `results[].url` |
-| 逐条有界的 `sources[].snippets` | `results[].snippets[]` 及向后兼容的拼接字段 `results[].snippet` |
-| `sources[].source_type` | `results[].source` |
-| `sources[].published_at` | `results[].published_at` |
-| `sources[].retrieved_at` | `results[].retrieved_at` |
-| `answer_context.key_facts[].sources` 引用的 URL | `citations` |
-| 响应 source 数量 | `count` |
+| `answer_context.summary` | 去除首尾空白后的 `summary`，并优先作为向后兼容的 `answer` 文本 |
+| 非空 `answer_context.key_facts[].claim` | 带稳定 `fact:N` ID、confidence 与 source ID 的 `key_facts[]` |
+| 公共 HTTP(S) `sources[]` | `results[]` 与 `count`，包含稳定 source index、元数据和有界 snippet |
+| `answer_context.citations[]` 与 fact source ID | `citations[]` 中规范化后的公共 URL |
 | 固定响应在本地完成的时间 | `retrieved_at` |
 | 客户端耗时 | `took_ms` |
 | 常量 `infinimesh-info` | `provider` |
 | 常量 `true` | `untrusted` |
 
-Citation ID 通过 `sources[].id` 解析，按响应顺序去重，并转换成 source URL，因为
-现有 SparkClaw citation 契约为 `[]string`。若响应没有被引用的 ID，则 citations
-回退为全部有效 source URL。无效 URL 或不完整 source 不得导致 adapter 崩溃；它们
-在请求结果上限内被忽略。只有存在有效来源证据时才允许 summary 为空，此时 adapter
-可生成简短的证据导向 answer，但不得编造事实。
+Adapter 要求至少存在一个可用证据组件：去除首尾空白后的 summary、非空 key fact，或
+公共 source 的 snippet。为兼容纯文本 `answer`，优先使用 summary，其次使用 source snippet，
+最后使用 key fact。类似“已合成若干事实”的状态型 summary 仍作为元数据式证据保留，但不
+会遮蔽已映射的 fact 或 source snippet。直接 `info.query` 返回 `request_id`、`query`、
+`summary`、`provider`、`key_facts`、`sources`、`citations`、`retrieved_at`、`took_ms`
+和 `untrusted`。
 
-完整的有界工具结果仍供 Workflow outcome adapter 与 raw observation 归档使用。进入
-后续模型步骤前，presenter 使用已冻结的 route query 单独建立类型化证据投影。该投影
-只包含有界的相关 summary 片段、选中的 key fact、带稳定 `summary:0`、`fact:N`、
-`source:N:snippet:M` ref 的选中 source snippet、citation、Info request ID 与 untrusted
-标记。投影有硬性字节上限，并通过 `status`、`missing_components` 与 `failure_code`
-显式报告固定响应组件缺失或 query 不匹配；它不会要求 Info 返回另一种结构，也不会
-推断缺失的结构化值。Observation 文本始终只是证据，不能提供 tool、next step 或
-runtime instruction。
+进入后续模型步骤前，presenter 使用已冻结的 route query 建立类型化投影。该投影只包含
+与 query 相关且有界的 summary、fact、source snippet 与 citation，并使用稳定的
+`summary:0`、`fact:N` 和 `source:N:snippet:M` ref。投影有硬性字节上限，并通过
+`status`、`missing_components` 与 `failure_code` 显式报告固定组件缺失、容量省略或
+query 不匹配。天气直接提取使用同一有界投影契约，同时把完整的已映射结果保留在工具
+存档中，供确定性字段校验使用。Observation 文本始终只是非可信证据，不能提供 tool、
+next step 或 runtime instruction。
 
 ## 旧引擎迁移
 

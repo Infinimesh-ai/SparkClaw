@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 )
 
 type browserInternetSearchProfile struct{}
@@ -20,10 +19,8 @@ func (browserInternetSearchProfile) Capability() app.CapabilityID {
 	return app.CapabilityBrowserInternetSearch
 }
 func (browserInternetSearchProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	content := semanticRoutingContent(input.Content)
-	lower := strings.ToLower(content)
-	if strings.TrimSpace(content) == "" || len(extractURLs(content)) != 0 || shouldUseBrowserAutomation(lower) ||
-		containsAny(lower, "current page", "current tab", "当前页面", "当前标签", "chrome") || !internetSearchIntent(lower) {
+	content, ok := browserInternetSearchQuery(input.Content)
+	if !ok {
 		return workflowRecognition{}, false
 	}
 	return workflowRecognition{
@@ -32,15 +29,25 @@ func (browserInternetSearchProfile) Recognize(input workflowRecognitionContext) 
 	}, true
 }
 
+func browserInternetSearchQuery(content string) (string, bool) {
+	content = semanticRoutingContent(content)
+	lower := strings.ToLower(content)
+	if strings.TrimSpace(content) == "" || len(extractURLs(content)) != 0 || shouldUseBrowserAutomation(lower) ||
+		containsAny(lower, "current page", "current tab", "当前页面", "当前标签", "chrome") || ordinaryWeatherRequest(content) || (!internetSearchIntent(lower) && !weatherResearchRequest(lower)) {
+		return "", false
+	}
+	return content, true
+}
+
 func internetSearchIntent(lower string) bool {
-	return containsEnglishSemanticTerm(lower, "web", "internet", "online") ||
-		containsAny(lower, "联网", "网上", "互联网", "查一下", "查询一下")
+	return containsEnglishSemanticTerm(lower, "web", "internet", "online", "news", "latest", "today", "current") ||
+		containsAny(lower, "联网", "网上", "互联网", "新闻", "最新", "今天", "今日", "查一下", "查询一下")
 }
 func (p browserInternetSearchProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationSearch, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopePublic)
 	nodeID := app.WorkflowNodeID("search_info")
 	return intent, app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"web_search"},
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID: nodeID, InitialStage: "search_info",
@@ -75,57 +82,6 @@ func (browserInternetSearchProfile) TransitionInstruction(app.ToolOutcome, app.N
 	return ""
 }
 
-type browserWeatherProfile struct{}
-
-func (browserWeatherProfile) ID() app.WorkflowID           { return app.WorkflowBrowserWeather }
-func (browserWeatherProfile) Revision() int                { return 1 }
-func (browserWeatherProfile) Capability() app.CapabilityID { return app.CapabilityBrowserWeather }
-func (browserWeatherProfile) Recognize(workflowRecognitionContext) (workflowRecognition, bool) {
-	// Weather is a semantic Fast decision. The deterministic fallback has no
-	// keyword taxonomy for locations, alerts, news, or comparisons.
-	return workflowRecognition{}, false
-}
-func (p browserWeatherProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
-	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationRender, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopePublic)
-	intent.Objectives[0].Output = app.OutputKindImage
-	nodeID := app.WorkflowNodeID("render_weather_card")
-	return intent, app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"weather_lookup"},
-		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
-		Nodes: []app.WorkflowNode{{
-			ID: nodeID, InitialStage: "render_weather_card",
-			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Return one current single-location weather card", Completion: app.CompletionEvidence},
-			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityWeatherCard}}},
-			ArgumentBindings: []app.ArgumentBinding{{
-				Capability: app.ToolCapabilityWeatherCard, Argument: "location", ResourceKind: "location",
-				Source: app.ArgumentBindingRouteSlot, SourceKey: "location",
-			}},
-			AllowedRisks: []app.RiskLevel{app.RiskDraft}, MaxAttempts: 1,
-		}},
-	}, nil
-}
-func (browserWeatherProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
-}
-func (browserWeatherProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
-	assessment := baseNodeAssessment(outcome)
-	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalArtifactAvailable) {
-		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "weather_card_available"
-	} else {
-		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "weather_card_failed"
-	}
-	return assessment
-}
-func (browserWeatherProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	hint := workflowHint(state, "render", "web", "public", "", "Dispatched by the browser.weather workflow contract.")
-	hint.EstimatedRisk = app.RiskDraft
-	hint.ModelLaneHint = "deep"
-	return hint
-}
-func (browserWeatherProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
-	return ""
-}
-
 type browserAutomationProfile struct{}
 
 func (browserAutomationProfile) ID() app.WorkflowID           { return app.WorkflowBrowserAutomation }
@@ -141,14 +97,29 @@ func (browserAutomationProfile) Recognize(input workflowRecognitionContext) (wor
 	if !wantsOpen || unsupportedInteraction {
 		return workflowRecognition{}, false
 	}
-	if len(urls) != 1 {
+	if len(urls) > 1 {
 		return workflowRecognition{Status: app.RouteClarify, Confidence: 0.7, Reason: "Browser automation revision 1 requires one explicit target URL."}, true
 	}
-	target := normalizeBrowserURL(urls[0])
+	target := ""
+	facts := map[string]string{}
+	reason := "The request asks to open or focus one explicit browser URL."
+	if len(urls) == 1 {
+		target = normalizeBrowserURL(urls[0])
+	} else if destination, ok := matchRegisteredBrowserDestination(content); ok {
+		if registeredBrowserDestinationHasInteractionGoal(content, destination) {
+			return workflowRecognition{}, false
+		}
+		target = normalizeBrowserURL(destination.Destination.URL)
+		facts["browser_destination"] = destination.Destination.ID
+		reason = "The request names a registered browser destination whose URL is frozen by the runtime."
+	} else {
+		return workflowRecognition{Status: app.RouteClarify, Confidence: 0.7, Reason: "Browser automation revision 1 requires one explicit or registered target URL."}, true
+	}
+	facts["url"] = target
 	return workflowRecognition{
 		Slots: app.RouteSlots{Operation: app.RouteOperationOpen, Query: content, TargetKind: "url", TargetRef: target},
-		Facts: map[string]string{"url": target}, Confidence: 0.95,
-		Reason: "The request asks to open or focus one explicit browser URL.",
+		Facts: facts, Confidence: 0.95,
+		Reason: reason,
 	}, true
 }
 func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
@@ -158,7 +129,7 @@ func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID 
 	focusScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityBrowserFocus}}}
 	openScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityBrowserOpen}}}
 	return intent, app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"browser_automation"},
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID: nodeID, InitialStage: "scan_tabs",
@@ -230,7 +201,7 @@ func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 		Name: app.ToolCapabilityDocumentRead, Qualifiers: map[string]string{app.CapabilityQualifierFormat: route.Facts["document_format"]},
 	}}}
 	return intent, app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"local_files", "document_assistant"},
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID: nodeID, InitialStage: "inspect_type",
@@ -279,7 +250,7 @@ func (p documentEditProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 		},
 	}}}
 	return intent, app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(), SkillIDs: []string{"local_files", "document_assistant"},
+		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID: nodeID, InitialStage: "inspect_type",
@@ -404,24 +375,13 @@ func workflowHint(state *app.WorkflowState, taskType, evidenceNeed, dataScope, b
 	nodeState := state.Nodes[nodeID]
 	hint := workflowExecutionHint{
 		TaskType: taskType, EvidenceNeed: evidenceNeed, DataScope: dataScope, ToolMode: "workflow_bounded", BrowserMode: browserMode,
-		RequiresToolEvidence: true, EstimatedRisk: app.RiskRead, ModelLaneHint: "fast", Reason: reason,
+		RequiresToolEvidence: true, EstimatedRisk: app.RiskRead, ModelLaneHint: workflowExecutionModelLane, Reason: reason,
 		WorkflowID: state.Plan.ProfileID, WorkflowNodeID: nodeID, ScopeRevision: nodeState.ScopeRevision,
 	}
 	if len(nodeState.CurrentScope.Requirements) > 0 {
 		hint.Capability = nodeState.CurrentScope.Requirements[0].Name
 	}
 	return hint
-}
-
-func (r Runtime) exactWorkflowSkills(skillIDs []string) []skills.Skill {
-	out := make([]skills.Skill, 0, len(skillIDs))
-	for _, skillID := range skillIDs {
-		skill, ok, err := r.skills.Get(skillID)
-		if err == nil && ok {
-			out = append(out, skill)
-		}
-	}
-	return out
 }
 
 func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.AgentRun, actorRef string, hint *workflowExecutionHint) ([]app.ToolDefinition, error) {
@@ -437,10 +397,13 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if len(view.Entries) == 0 {
 		return nil, errors.New("no registered tool satisfies the active workflow scope")
 	}
-	if len(view.Entries) != 1 {
+	if len(view.Entries) != 1 && !state.CurrentScope.MaterializeAll {
 		return nil, errors.New("active workflow scope requires bounded directory selection")
 	}
-	entryIDs := []app.ToolDirectoryEntryID{view.Entries[0].ID}
+	entryIDs := make([]app.ToolDirectoryEntryID, 0, len(view.Entries))
+	for _, entry := range view.Entries {
+		entryIDs = append(entryIDs, entry.ID)
+	}
 	exposure, err := r.exposure.Materialize(ctx, app.MaterializeRequest{
 		ViewID: view.ViewID, RunID: run.ID, WorkflowID: view.WorkflowID, NodeID: view.NodeID,
 		ScopeRevision: view.ScopeRevision, EntryIDs: entryIDs, ActorRef: actorRef,

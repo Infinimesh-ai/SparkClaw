@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-automation-improvement.md)
 
-This document is the focused plan for improving SparkClaw's browser-backed web access. The architecture overview remains in [Architecture](architecture.md); this file owns the browser read and interaction roadmap. Browser presentation modes are specified in [Browser Modes Coding Guide](browser-modes-coding-guide.md), and the hidden real-browser milestone is specified in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md).
+This document is the focused plan for improving SparkClaw's browser-backed web access. The architecture overview remains in [Architecture](architecture.md); this file owns the browser read and interaction roadmap. Browser presentation modes are specified in [Browser Modes Coding Guide](browser-modes-coding-guide.md), the hidden real-browser milestone is specified in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md), and the implemented router-first snapshot/click loop is specified in [Browser Interaction Workflow](browser-interaction-workflow-proposal.md).
 
 ## Goal
 
@@ -39,8 +39,8 @@ web.search discovers candidate URLs when needed
 For a direct URL or a search result source page, the first read should do only the work needed to get readable page content. When the selected read path is a browser session, use:
 
 ```text
-ChromeDevTools MCP new_page
-  -> wait for page load/render state
+Playwright page.goto
+  -> wait for DOMContentLoaded and a bounded render settle
   -> evaluate_script
        - scroll enough to trigger normal lazy loading
        - collect document.documentElement.outerHTML
@@ -104,19 +104,22 @@ The loop must stay bounded. If one retry does not reveal useful content, return 
 | `browser.snapshot` | Inspect page structure, controls, refs/uids, internal links and non-body affordances. |
 | `browser.click` | Activate one clear ref/uid from the latest snapshot. |
 | `browser.navigate` | Move the current browser session to a known URL while preserving context. |
+| `browser.verify` | Bind one click to its before/after structured snapshots and return success, progress, loop, or attempt-limit evidence. |
 | `browser.screenshot` | Visual verification when requested or when snapshot text is insufficient. |
 
 ## Implementation Status
 
-The target browser-read implementation launches configured Chromium through ChromeDevTools MCP. Ordinary reads use headless Chromium; login handoff temporarily switches the same persistent profile to visible Chromium and resumes from the selected post-login URL.
+The browser-read implementation launches Playwright's installed, version-matched Chromium (or one explicit custom override) through `launchPersistentContext`. Ordinary reads use headless Chromium; login handoff temporarily switches the same persistent profile to visible Chromium and resumes from the selected post-login URL. The transport migration contract is [Playwright Browser Automation Migration](playwright-browser-automation-migration.md).
 
-The default `browser.read` path no longer takes a structure snapshot as part of every browser-session read. Explicit page-structure inspection still uses `browser.snapshot`, which maps to ChromeDevTools MCP `take_snapshot`.
+The default `browser.read` path no longer takes a structure snapshot as part of every browser-session read. Explicit page-structure inspection still uses `browser.snapshot`. For `browser.interaction` revision 1, it returns a bounded structured control projection with page/snapshot identity, semantic fingerprints, state digests, and refs that are invalidated after one successful action.
+
+`browser.interaction` revision 1 is implemented alongside the unchanged open/focus-only `browser.automation` revision 1. It checks health, reuses a managed tab when possible, exposes its fixed status/tab/navigation/snapshot/wait/click/verify tool set for the whole run, enforces stage order, allows at most three approval-free clicks, and requires a post-click snapshot plus verification before completion or another click.
 
 Remaining work:
 
 - Implement the shared Chromium profile lifecycle described in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md).
 - Remove cookie export/origin equality from login continuation and reuse the selected post-login URL.
-- Improve follow-up selection quality after `browser.snapshot`, especially choosing the safest single internal link or expand control.
+- Extend structured snapshot candidate paging/scrolling when the top 24 ranked controls are insufficient.
 - Keep login and anti-bot handling as explicit future extensions.
 
 ## Implementation Phases
@@ -134,10 +137,11 @@ Remaining work:
    - Add or reuse fields such as `readability_status`, `readability_length`, `browser_html_truncated`, `auth_challenge_detected` and `needs_structure_snapshot`.
    - Teach the runtime observation adapter to expose these signals clearly.
 
-4. Add bounded follow-up behavior. Partly done.
-   - Let ReAct decide `browser.snapshot -> browser.click/navigate -> browser.read` when diagnostics say the first read is incomplete.
-   - Avoid hidden multi-click browsing inside a single tool call until the behavior is easy to trace.
-   - Current runtime behavior: when a `browser.read` observation includes `needs_structure_snapshot=true`, the next ReAct step can see `browser.snapshot`, `browser.navigate` and `browser.wait`; after a snapshot observation, it can also see approval-gated `browser.click`.
+4. Add bounded follow-up behavior. Done for explicit click requests.
+   - `browser.interaction` runs one traceable model action per Workflow stage; it does not hide multiple clicks inside one tool call.
+   - The complete fixed tool set remains model-visible across rounds, while the persisted stage allows only health, tab resolution, snapshot, click, post-click observation, or verification as appropriate.
+   - Each click uses the latest structured ref, needs no approval in this bounded Workflow, and is followed by a new snapshot and `browser.verify`. Repeated state and the third unfinished click fail directly.
+   - Readability-driven `browser.read` follow-up remains a separate read path and does not widen the click Workflow.
 
 5. Prepare login and anti-bot extensions.
    - Keep browser profile/session configuration explicit.
@@ -158,9 +162,12 @@ Minimum validation for this change set:
 - Unit test that `browser.read` uses browser session HTML and Readability when automation is enabled.
 - Unit test that autonomous hidden `browser.read` does not call a visible browser-session provider.
 - Unit test that the default browser read does not call `take_snapshot`.
-- Unit test or adapter test that explicit snapshot operations still map to ChromeDevTools MCP `take_snapshot`.
+- Unit or adapter test that explicit snapshots produce Playwright accessibility evidence and refs accepted by Locator actions.
+- Unit tests for same-run snapshot/click binding, loop detection, three-click attempt limit, no-approval routing, and stage capability enforcement.
+- Real Playwright Chromium smoke test for structured snapshot identity, stale-ref rejection without session loss, click, post-click snapshot linkage, wait, and screenshot.
 - `go test ./services/gateway/internal/browserautomation -count=1`
 - `go test ./services/gateway/internal/toolhub -count=1`
 - `go test ./services/gateway/internal/agent -count=1`
+- `SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 go test ./services/gateway/internal/browserautomation -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1`
 - `go test ./services/gateway/...`
 - `git diff --check`

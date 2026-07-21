@@ -35,15 +35,16 @@ type Result struct {
 }
 
 type Item struct {
-	EvidenceIndex int      `json:"evidence_index"`
-	ID            string   `json:"id,omitempty"`
-	Title         string   `json:"title"`
-	URL           string   `json:"url"`
-	Snippet       string   `json:"snippet"`
-	Snippets      []string `json:"snippets"`
-	Source        string   `json:"source"`
-	PublishedAt   string   `json:"published_at"`
-	RetrievedAt   string   `json:"retrieved_at,omitempty"`
+	EvidenceIndex  int      `json:"evidence_index"`
+	ID             string   `json:"id,omitempty"`
+	Title          string   `json:"title"`
+	URL            string   `json:"url"`
+	Snippet        string   `json:"snippet"`
+	Snippets       []string `json:"snippets"`
+	Source         string   `json:"source"`
+	PublishedAt    string   `json:"published_at"`
+	RetrievedAt    string   `json:"retrieved_at,omitempty"`
+	AuthorityScore float64  `json:"authority_score,omitempty"`
 }
 
 type KeyFact struct {

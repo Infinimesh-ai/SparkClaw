@@ -308,6 +308,22 @@ func TestBrowserReadAutonomousAuthChallengeStartsVisibleHandoff(t *testing.T) {
 	}
 }
 
+func TestBrowserReadDoesNotStartLoginHandoffWhenAutomationIsDisabled(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = false
+	adapter := &authFlowBrowserAdapter{}
+	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(adapter)
+	state := &browserAuthRunState{OwnerID: "owner", BrowserProfileID: "default"}
+	out := map[string]any{"final_url": "https://example.com/login"}
+	hub.openBrowserLoginHandoff(context.Background(), out, state, map[string]any{}, browserModeMetadata{}, "session", "run")
+	if adapter.callTool != "" {
+		t.Fatalf("disabled browser automation unexpectedly started %q", adapter.callTool)
+	}
+	if out["login_handoff_error"] != "browser automation adapter unavailable" {
+		t.Fatalf("disabled handoff did not return an explicit error: %#v", out)
+	}
+}
+
 func TestBrowserReadCompletedHandoffUsesSharedProfileWithoutCredentialCopy(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.BrowserAutomation.Enabled = true

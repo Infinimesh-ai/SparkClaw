@@ -12,14 +12,79 @@ type workflowOutcomeAdapter func(app.ToolCall, app.WorkflowNodeID) app.ToolOutco
 var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterGeneric:         adaptGenericWorkflowOutcome,
 	app.OutcomeAdapterWebSearch:       adaptWebSearchWorkflowOutcome,
+	app.OutcomeAdapterInfoAnswer:      adaptInfoAnswerWorkflowOutcome,
+	app.OutcomeAdapterWeatherPayload:  adaptWeatherPayloadWorkflowOutcome,
+	app.OutcomeAdapterWeatherCard:     adaptWeatherCardWorkflowOutcome,
 	app.OutcomeAdapterWebPage:         adaptWebPageWorkflowOutcome,
 	app.OutcomeAdapterWorkspaceSearch: adaptWorkspaceSearchOutcome,
 	app.OutcomeAdapterWorkspaceRead:   adaptWorkspaceReadOutcome,
+	app.OutcomeAdapterBrowserHealth:   adaptBrowserHealthOutcome,
 	app.OutcomeAdapterBrowserTabs:     adaptBrowserTabsOutcome,
 	app.OutcomeAdapterBrowserFocus:    adaptBrowserFocusOutcome,
 	app.OutcomeAdapterBrowserOpen:     adaptBrowserOpenOutcome,
+	app.OutcomeAdapterBrowserNavigate: adaptBrowserNavigateOutcome,
+	app.OutcomeAdapterBrowserSnapshot: adaptBrowserSnapshotOutcome,
+	app.OutcomeAdapterBrowserWait:     adaptBrowserWaitOutcome,
+	app.OutcomeAdapterBrowserClick:    adaptBrowserClickOutcome,
+	app.OutcomeAdapterBrowserVerify:   adaptBrowserVerifyOutcome,
 	app.OutcomeAdapterDocumentEdit:    adaptDocumentEditOutcome,
-	app.OutcomeAdapterWeatherCard:     adaptWeatherCardOutcome,
+}
+
+func adaptInfoAnswerWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	output, ok := anyMap(call.Result)
+	if ok && toolCallCompleted(call) && infoAnswerHasEvidence(output) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInfoAnswerAvailable}
+		outcome.Refs = []app.ResourceRef{{Kind: "info_answer", Ref: call.ID, Provenance: call.ID}}
+	}
+	return outcome
+}
+
+func infoAnswerHasEvidence(output map[string]any) bool {
+	if value := strings.TrimSpace(stringValue(output["summary"])); value != "" && value != "<nil>" {
+		return true
+	}
+	for _, raw := range anySlice(output["key_facts"]) {
+		if fact, ok := anyMap(raw); ok {
+			if claim := strings.TrimSpace(stringValue(fact["claim"])); claim != "" && claim != "<nil>" {
+				return true
+			}
+		}
+	}
+	for _, raw := range anySlice(output["sources"]) {
+		source, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		if snippet := strings.TrimSpace(stringValue(source["snippet"])); snippet != "" && snippet != "<nil>" {
+			return true
+		}
+		for _, snippet := range stringSliceValue(source["snippets"]) {
+			if strings.TrimSpace(snippet) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func adaptWeatherPayloadWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	output, ok := anyMap(call.Result)
+	if ok && toolCallCompleted(call) && intLikeValue(output["schema_version"]) > 0 && strings.TrimSpace(stringValue(output["location"])) != "" {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalWeatherPayloadAvailable}
+		outcome.Refs = []app.ResourceRef{{Kind: "weather_payload", Ref: call.ID, Provenance: call.ID}}
+	}
+	return outcome
+}
+
+func adaptWeatherCardWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	output, ok := anyMap(call.Result)
+	if ok && toolCallCompleted(call) && strings.TrimSpace(stringValue(output["media_path"])) != "" {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalWeatherCardAvailable}
+	}
+	return outcome
 }
 
 func adaptWorkflowOutcome(definition app.ToolDefinition, call app.ToolCall) (app.ToolOutcome, error) {
@@ -51,7 +116,7 @@ func adaptWebSearchWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	output, _ := anyMap(call.Result)
 	refs := webSearchResourceRefs(output, call.ID)
-	if webSearchResultCount(output) > 0 || len(refs) > 0 {
+	if webSearchResultCount(output) > 0 || len(refs) > 0 || webSearchHasAnswer(output) {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
 		if len(refs) > 0 {
 			outcome.Signals = append(outcome.Signals, app.OutcomeSignalSourcePageAvailable)
@@ -61,6 +126,16 @@ func adaptWebSearchWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNoResults}
 	}
 	return outcome
+}
+
+func webSearchHasAnswer(output map[string]any) bool {
+	for _, key := range []string{"summary", "answer"} {
+		value := strings.TrimSpace(stringValue(output[key]))
+		if value != "" && value != "<nil>" {
+			return true
+		}
+	}
+	return false
 }
 
 func adaptWebPageWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -119,8 +194,7 @@ func adaptBrowserTabsOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 		return outcome
 	}
 	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalTabsScanned}
-	output, _ := anyMap(call.Result)
-	for _, raw := range anySlice(output["pages"]) {
+	for _, raw := range browserOutcomePages(call.Result) {
 		page, ok := anyMap(raw)
 		if !ok {
 			continue
@@ -130,9 +204,26 @@ func adaptBrowserTabsOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 		if pageID == "" || pageURL == "" {
 			continue
 		}
-		outcome.Refs = append(outcome.Refs, app.ResourceRef{
-			Kind: "browser_tab", Ref: pageID, Provenance: call.ID, Attributes: map[string]string{"url": pageURL},
-		})
+		attributes := map[string]string{"url": pageURL}
+		if boolValue(page["selected"]) {
+			attributes["selected"] = "true"
+		}
+		outcome.Refs = append(outcome.Refs, app.ResourceRef{Kind: "browser_tab", Ref: pageID, Provenance: call.ID, Attributes: attributes})
+	}
+	return outcome
+}
+
+func adaptBrowserHealthOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserUnavailable}
+		return outcome
+	}
+	payload := browserOutcomePayload(call.Result)
+	if boolValue(payload["ok"]) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserHealthy}
+	} else {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserUnavailable}
 	}
 	return outcome
 }
@@ -141,6 +232,7 @@ func adaptBrowserFocusOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if toolCallCompleted(call) {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalFocusCompleted}
+		outcome.Refs = browserPageRefs(call.Result, call.ID)
 	}
 	return outcome
 }
@@ -149,8 +241,176 @@ func adaptBrowserOpenOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if toolCallCompleted(call) {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalOpenCompleted}
+		outcome.Refs = browserPageRefs(call.Result, call.ID)
 	}
 	return outcome
+}
+
+func adaptBrowserNavigateOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNavigateCompleted}
+		payload := browserOutcomePayload(call.Result)
+		pageID := firstNonEmptyString(payload["page_id"], call.Arguments["page_id"])
+		if pageID != "" {
+			outcome.Refs = []app.ResourceRef{{Kind: "browser_page", Ref: pageID, Provenance: call.ID, Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(payload["url"]))}}}
+		}
+	}
+	return outcome
+}
+
+func adaptBrowserWaitOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalWaitCompleted}
+	}
+	return outcome
+}
+
+func adaptBrowserSnapshotOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		return outcome
+	}
+	snapshot, ok := browserSnapshotPayload(call.Result)
+	if !ok {
+		return outcome
+	}
+	snapshotID := strings.TrimSpace(stringValue(snapshot["snapshot_id"]))
+	pageID := strings.TrimSpace(stringValue(snapshot["page_id"]))
+	if snapshotID == "" || pageID == "" {
+		return outcome
+	}
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotAvailable}
+	if boolValue(snapshot["truncated"]) {
+		outcome.Signals = append(outcome.Signals, app.OutcomeSignalSnapshotTruncated)
+	}
+	common := map[string]string{
+		"page_id": pageID, "digest": strings.TrimSpace(stringValue(snapshot["digest"])),
+		"previous_snapshot_id": strings.TrimSpace(stringValue(snapshot["previous_snapshot_id"])),
+		"repeated":             strings.TrimSpace(stringValue(snapshot["repeated"])),
+	}
+	outcome.Refs = append(outcome.Refs,
+		app.ResourceRef{Kind: "browser_page", Ref: pageID, Provenance: call.ID, Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(snapshot["url"]))}},
+		app.ResourceRef{Kind: "browser_snapshot", Ref: snapshotID, Provenance: call.ID, Attributes: common},
+	)
+	for _, raw := range anySlice(firstPresent(snapshot, "controls", "refs")) {
+		control, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		ref := firstNonEmptyString(control["ref"], control["element_ref"])
+		if ref == "" {
+			continue
+		}
+		attributes := map[string]string{
+			"snapshot_id": snapshotID,
+			"page_id":     pageID,
+			"role":        firstNonEmptyString(control["role"]),
+			"name":        firstNonEmptyString(control["accessible_name"], control["name"]),
+			"container":   firstNonEmptyString(control["container"]),
+			"fingerprint": firstNonEmptyString(control["fingerprint"]),
+		}
+		outcome.Refs = append(outcome.Refs, app.ResourceRef{Kind: "browser_element", Ref: ref, Provenance: call.ID, Attributes: attributes})
+	}
+	return outcome
+}
+
+func adaptBrowserClickOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		lowerError := strings.ToLower(call.Error)
+		if strings.Contains(lowerError, "unsafe click target") {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
+		} else if strings.Contains(lowerError, "stale") || strings.Contains(lowerError, "snapshot") {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotStale}
+		}
+		return outcome
+	}
+	payload := browserOutcomePayload(call.Result)
+	ref := firstNonEmptyString(payload["clicked"], call.Arguments["uid"])
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalClickCompleted}
+	outcome.Refs = []app.ResourceRef{{Kind: "browser_click", Ref: ref, Provenance: call.ID, Attributes: map[string]string{
+		"snapshot_id":     firstNonEmptyString(payload["snapshot_id"], call.Arguments["snapshot_id"]),
+		"page_id":         firstNonEmptyString(payload["page_id"], call.Arguments["page_id"]),
+		"expected_effect": firstNonEmptyString(call.Arguments["expected_effect"]),
+	}}}
+	return outcome
+}
+
+func adaptBrowserVerifyOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
+		return outcome
+	}
+	payload, _ := anyMap(call.Result)
+	status := strings.TrimSpace(stringValue(payload["status"]))
+	code := strings.TrimSpace(stringValue(payload["code"]))
+	switch {
+	case status == "succeeded" && boolValue(payload["goal_satisfied"]):
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionGoalSatisfied}
+	case status == "progress":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionProgress}
+	case code == "interaction_loop_detected":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionLoopDetected}
+	case code == "interaction_attempt_limit":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionAttemptLimit}
+	case code == "unsafe_click_target":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
+	default:
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
+	}
+	outcome.Refs = []app.ResourceRef{{Kind: "browser_verification", Ref: call.ID, Provenance: call.ID, Attributes: map[string]string{
+		"status": status, "code": code, "reason": strings.TrimSpace(stringValue(payload["reason"])),
+		"after_snapshot_id": strings.TrimSpace(stringValue(payload["after_snapshot_id"])),
+	}}}
+	return outcome
+}
+
+func browserOutcomePayload(value any) map[string]any {
+	outer, ok := anyMap(value)
+	if !ok {
+		return map[string]any{}
+	}
+	if nested, ok := anyMap(outer["output"]); ok {
+		return nested
+	}
+	return outer
+}
+
+func browserSnapshotPayload(value any) (map[string]any, bool) {
+	payload := browserOutcomePayload(value)
+	if snapshot, ok := anyMap(payload["snapshot"]); ok {
+		return snapshot, true
+	}
+	if value := strings.TrimSpace(stringValue(payload["snapshot_id"])); value != "" && value != "<nil>" {
+		return payload, true
+	}
+	return nil, false
+}
+
+func browserOutcomePages(value any) []any {
+	outer, _ := anyMap(value)
+	if pages := anySlice(outer["pages"]); len(pages) > 0 {
+		return pages
+	}
+	return anySlice(browserOutcomePayload(value)["pages"])
+}
+
+func browserPageRefs(value any, provenance string) []app.ResourceRef {
+	refs := []app.ResourceRef{}
+	for _, raw := range browserOutcomePages(value) {
+		page, ok := anyMap(raw)
+		if !ok || !boolValue(page["selected"]) {
+			continue
+		}
+		pageID := firstNonEmptyString(page["page_id"], page["id"], page["pageId"])
+		if pageID != "" {
+			refs = append(refs, app.ResourceRef{Kind: "browser_page", Ref: pageID, Provenance: provenance, Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(page["url"]))}})
+		}
+	}
+	return refs
 }
 
 func adaptDocumentEditOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -169,14 +429,6 @@ func adaptDocumentEditOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 	}
 	if len(outcome.Refs) > 0 {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalEditCompleted}
-	}
-	return outcome
-}
-
-func adaptWeatherCardOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
-	outcome := adaptGenericWorkflowOutcome(call, nodeID)
-	if toolCallCompleted(call) && len(outcome.Refs) == 1 && outcome.Refs[0].Kind == "path" {
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalArtifactAvailable}
 	}
 	return outcome
 }

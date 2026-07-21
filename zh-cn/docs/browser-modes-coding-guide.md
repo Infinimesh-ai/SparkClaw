@@ -2,6 +2,8 @@
 
 > 语言： [English](../../docs/browser-modes-coding-guide.md) | 简体中文
 
+> 历史设计说明：本文起源于旧 TaskHint/Skill 浏览器方案。当前无 Skill 的生产集合是 `browser.internet_search`、`browser.weather`、`browser.automation` 和 `browser.interaction`，详见 [Workflow 能力矩阵](workflow-capabilities.md)。本文中的 URL 读取、截图、type/select 和登录态浏览器能力尚未进入当前 Revision 1 Workflow；有边界且逐次验证的点击仅由 `browser.interaction` r1 实现。
+
 本文档定义 SparkClaw 如何实现两种浏览器运行模式：自主模式和协作模式。浏览器读取路线图见 [浏览器功能完善计划](browser-automation-improvement.md)，隐藏真实浏览器里程碑见 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md)。
 
 ## 产品契约
@@ -22,7 +24,7 @@ SparkClaw 将公开网络搜索与浏览器能力分开。浏览器能力有两�
 |---|---|---|---|
 | `""`（搜索专用） | 用户查询公开信息，且没有提供 URL 或要求页面操作。 | 不创建或访问浏览器页面。 | `web.search`。 |
 | `autonomous` | 用户要读取、核实、总结或比较明确的 URL/页面。 | 对用户隐藏/后台执行。 | `browser.read`、按需 `browser.snapshot`、按需 `browser.navigate`。 |
-| `collaborative` | 用户要实时页面操作或共享浏览器状态。 | 默认隐藏；人工验证或明确展示时可见。 | `browser.status`、`browser.list_tabs`、`browser.open`、`browser.navigate`、`browser.snapshot`、`browser.screenshot`、需要 approval 的 `browser.click/type/select`。 |
+| `collaborative` | 用户要实时页面操作或共享浏览器状态。 | 默认隐藏；人工验证或明确展示时可见。 | `browser.status`、`browser.list_tabs`、`browser.open`、`browser.navigate`、`browser.snapshot`、有边界的 `browser.click`、`browser.verify`；截图和未来需审批的 type/select 流程保持独立。 |
 
 两者差异在于用户意图和交互 policy，而不是浏览器所有权。两种模式使用同一个托管 Chromium Profile，只在流程需要时切换 headless 和 visible presentation。
 
@@ -92,13 +94,13 @@ type TaskHint struct {
 - 对用户提供的 URL，初始可见工具通常只有 `browser.read`。
 - 不要因为加载了 browser skill 就暴露 `browser.open`、`browser.screenshot`、`browser.type` 或 `browser.select`。
 - 当 `browser.read` 返回 `needs_structure_snapshot=true` 后，可以暴露 `browser.snapshot`、`browser.navigate` 和 `browser.wait`。
-- 只有在 snapshot observation 提供明确 ref/uid 后，才可以暴露 `browser.click`，且仍受 approval policy 管控。
+- `browser.click` 只有在 `browser.interaction` revision 1 内、结构化 snapshot 提供已绑定 ref 后才免 approval；不能在该固定 Workflow 之外把它暴露为通用逃生路径。
 - 最终回答应引用/描述证据，而不是描述 UI 步骤。
 
 协作模式：
 
 - 根据用户请求暴露 live browser tools：`browser.status`、`browser.list_tabs`、`browser.open`、`browser.navigate`、`browser.snapshot`、`browser.screenshot`、`browser.wait`。
-- 只有当 `ToolMode`/risk 允许且 policy 可以审批时，才暴露 `browser.click`、`browser.type`、`browser.select`。
+- `browser.type` 与 `browser.select` 仍不属于当前浏览器 Workflow revision。后续 Profile 必须显式声明它们的 risk、approval、Stage 与验证契约。
 - 对“打开/展示这个 URL”优先用 `browser.open`；当用户要求使用当前标签页/session 时用 `browser.navigate`。
 - 对播放请求，先 open/navigate，再 snapshot，若存在明确播放控件且 policy 允许，再点击一个明确控件。
 - 截图请求必须在 final 前调用 `browser.screenshot`，除非被阻塞。
@@ -118,14 +120,14 @@ type TaskHint struct {
 实现要求：
 
 - 自主读取和普通协作操作使用选中持久 Profile 的 headless Chromium。
-- visible presentation 使用同一个 Chromium executable 和 Profile，并且只能在 headless 进程停止并释放 Profile 后启动。
-- ChromeDevTools MCP 继续作为传输层，但 adapter-owned `--executablePath` 必须指向 Chromium。
-- 共享 Profile 启动使用 `--userDataDir`，不能使用 `--isolated`。
+- visible presentation 使用同一个已解析 Chromium Executable 和 Profile，并且只能在 headless 进程停止并释放 Profile 后启动。
+- Microsoft Playwright 作为传输层，默认使用其安装的 Chromium；只有显式且已校验的 Override 才设置 Adapter-owned `executablePath`。
+- 共享 Profile 通过 `launchPersistentContext(userDataDir, ...)` 启动，不能使用 CDP Attachment。
 - 登录完成后切回 headless Chromium，并从 selected 登录后 URL 恢复，不要求 origin 相同。
 - Cookie/storage 导出和个人 Chrome 附着不属于本模式契约。
-- `visible_browser`、`presentation`、owner/profile metadata 和登录恢复标记等
-  SparkClaw-only 字段在 MCP 调用前必须移除。
-- 公开 string 或 number `page_id` 在 `select_page` 和 `close_page` 前转换为 MCP 的数值
+- `visible_browser`、`presentation`、Owner/Profile Metadata 和登录恢复标记等
+  SparkClaw-only 字段在 Playwright Driver 调用前必须移除。
+- 公开 String 或 Number `page_id` 在 Focus 和 Close 前转换为 Playwright Session 的数值
   `pageId`。
 
 ## Runtime 行为
@@ -151,20 +153,20 @@ TaskHint(browser_mode=autonomous)
   -> 带来源和限制说明的 final answer
 ```
 
-协作流程：
+协作点击流程：
 
 ```text
-TaskHint(browser_mode=collaborative)
+Workflow(browser.interaction r1, browser_mode=collaborative)
   -> 必要时 browser.status/list_tabs
   -> browser.open 或 browser.navigate
-  -> browser.snapshot 查看结构/refs
-  -> 需要视觉确认或截图时 browser.screenshot
-  -> 对明确控件执行需要 approval 的 click/type/select
-  -> 页面变化后再次 browser.read 或 snapshot
+  -> browser.snapshot 获取结构化控件和已绑定 refs
+  -> 在冻结目标内对一个明确控件执行无需 approval 的 browser.click
+  -> browser.snapshot 和 browser.verify
+  -> 只有验证确认有进展时才能继续，最多三次点击
   -> final answer 描述可见状态/已完成事项
 ```
 
-Runtime 不能把多个协作交互隐藏在 `browser.read` 内部。多步可见操作必须留在 ReAct 中，这样 trace、approval 和用户可见进度都可检查。
+Runtime 不能把多个协作交互隐藏在 `browser.read` 或单个 browser tool call 内部。多步点击必须留在持久化 Workflow 中，使 Stage Gate、trace、snapshot identity 和 verification 都可检查。截图选点与 type/select 不属于 revision 1。
 
 ## Audit 和 Trace 字段
 

@@ -21,9 +21,10 @@ type documentPreflight struct {
 func recognizeDocumentRoute(input workflowRecognitionContext, edit bool) (workflowRecognition, bool) {
 	content := semanticRoutingContent(input.Content)
 	lower := strings.ToLower(content)
+	resourcePaths := attachedWorkspaceDocumentPaths(input.Resources)
 	wantsEdit := workspaceMutationRequested(lower) || containsEnglishSemanticTerm(lower, "replace", "update", "change", "insert", "append", "transform", "rotate", "split") ||
 		containsAny(lower, "替换", "更新", "改为", "插入", "追加", "转换", "旋转", "拆分")
-	wantsRead := documentInformationRequested(content, lower) && !wantsEdit
+	wantsRead := (documentInformationRequested(content, lower) || len(resourcePaths) > 0 && (documentReadIntent(lower) || strings.TrimSpace(content) == "")) && !wantsEdit
 	if edit && !wantsEdit || !edit && !wantsRead {
 		return workflowRecognition{}, false
 	}
@@ -31,6 +32,9 @@ func recognizeDocumentRoute(input workflowRecognitionContext, edit bool) (workfl
 		return workflowRecognition{}, false
 	}
 	paths := extractPaths(content)
+	if len(paths) == 0 {
+		paths = resourcePaths
+	}
 	if len(paths) == 0 && edit {
 		if recentPath := recentDocumentContextPath(input.Snapshot); recentPath != "" {
 			paths = []string{recentPath}
@@ -80,6 +84,22 @@ func recognizeDocumentRoute(input workflowRecognitionContext, edit bool) (workfl
 		Facts: facts, Confidence: 0.95,
 		Reason: "The request targets one preflighted governed document.",
 	}, true
+}
+
+func attachedWorkspaceDocumentPaths(resources []app.MessagePart) []string {
+	paths := make([]string, 0, len(resources))
+	seen := map[string]bool{}
+	for _, resource := range resources {
+		if resource.Kind != app.MessagePartFile || resource.Resource == nil || resource.Resource.Kind != "workspace_file" {
+			continue
+		}
+		ref := strings.TrimSpace(resource.Resource.Ref)
+		if ref != "" && !seen[ref] {
+			seen[ref] = true
+			paths = append(paths, ref)
+		}
+	}
+	return paths
 }
 
 func unsupportedDocumentEditIntent(lower string) bool {

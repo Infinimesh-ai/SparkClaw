@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-modes-coding-guide.md)
 
+> Historical design note: this guide began with the former TaskHint/Skill browser design. The current Skill-free production set is `browser.internet_search`, `browser.weather`, `browser.automation`, and `browser.interaction`, as documented in the [Workflow capability matrix](workflow-capabilities.md). URL reading, screenshots, type/select, and authenticated browsing in this guide are not current revision 1 Workflow features; bounded verified clicks are implemented only by `browser.interaction` r1.
+
 This document defines how SparkClaw should implement two browser operating modes: autonomous mode and collaborative mode. It complements the browser read roadmap in [Browser Automation Improvement Plan](browser-automation-improvement.md) and the hidden real-browser milestone in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md).
 
 ## Product Contract
@@ -22,7 +24,7 @@ Both modes still treat browser content as untrusted external content. Both modes
 |---|---|---|---|
 | `""` (search-only) | User wants public information and supplied no URL or page operation. | No browser is created or visited. | `web.search`. |
 | `autonomous` | User wants an explicit URL/page read, verification, summary or comparison. | Hidden/background from the user. | `browser.read`, conditional `browser.snapshot`, conditional `browser.navigate`. |
-| `collaborative` | User wants live page operation or shared browser state. | Hidden by default; visible for human verification or explicit display. | `browser.status`, `browser.list_tabs`, `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, approval-gated `browser.click/type/select`. |
+| `collaborative` | User wants live page operation or shared browser state. | Hidden by default; visible for human verification or explicit display. | `browser.status`, `browser.list_tabs`, `browser.open`, `browser.navigate`, `browser.snapshot`, bounded `browser.click`, `browser.verify`; screenshots and future approved type/select flows stay separate. |
 
 The difference is user intent and interaction policy, not browser ownership. Both modes use the same managed Chromium profile. Presentation switches between headless and visible Chromium only when the workflow requires it.
 
@@ -92,13 +94,13 @@ Autonomous mode:
 - Initial visible tools should normally contain `browser.read` for the supplied URL.
 - Do not expose `browser.open`, `browser.screenshot`, `browser.type` or `browser.select` just because the browser skill is loaded.
 - `browser.snapshot`, `browser.navigate` and `browser.wait` may be exposed after `browser.read` returns `needs_structure_snapshot=true`.
-- `browser.click` may be exposed only after a snapshot observation provides a clear ref/uid, and existing approval policy still applies.
+- `browser.click` is approval-free only inside `browser.interaction` revision 1 after a structured snapshot provides a bound ref. Outside that fixed Workflow it must not be exposed as a generic escape path.
 - Final answers should cite/describe evidence, not UI steps.
 
 Collaborative mode:
 
 - Expose live browser tools appropriate for the user request: `browser.status`, `browser.list_tabs`, `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`.
-- Expose `browser.click`, `browser.type` and `browser.select` only when `ToolMode`/risk permits and policy approval is available.
+- `browser.type` and `browser.select` remain outside current browser Workflow revisions. A future profile must declare their risk, approval, stage, and verification contracts explicitly.
 - Prefer `browser.open` for "open/show this URL" and `browser.navigate` when the user asks to use the current tab/session.
 - For playback requests, open/navigate first, take a snapshot, then click one clear play control if present and permitted.
 - Screenshot requests must call `browser.screenshot` before final unless blocked.
@@ -118,15 +120,15 @@ The adapter should receive mode metadata on browser calls that create or operate
 Implementation expectations:
 
 - Autonomous reads and ordinary collaborative operations use headless Chromium with the selected persistent profile.
-- Visible presentation uses the same Chromium executable and profile, after the headless process has stopped and released the profile.
-- ChromeDevTools MCP remains the transport, but adapter-owned `--executablePath` must point to Chromium.
-- Shared-profile launches use `--userDataDir` and must not use `--isolated`.
+- Visible presentation uses the same resolved Chromium executable and profile, after the headless process has stopped and released the profile.
+- Microsoft Playwright is the transport. It uses its installed Chromium by default; adapter-owned `executablePath` is present only for an explicit validated override.
+- Shared-profile launches use `launchPersistentContext(userDataDir, ...)` and must not use CDP attachment.
 - Login completion switches back to headless Chromium and resumes from the selected post-login URL, without requiring origin equality.
 - Cookie/storage export and personal Chrome attachment are not part of this mode contract.
 - SparkClaw-only fields such as `visible_browser`, `presentation`, owner/profile
-  metadata, and login continuation flags are stripped before MCP tool calls.
-- Public string or number `page_id` values are normalized to the numeric MCP
-  `pageId` field for `select_page` and `close_page`.
+  metadata, and login continuation flags are stripped before Playwright Driver calls.
+- Public string or number `page_id` values are normalized to the numeric
+  Playwright session `pageId` for focus and close operations.
 
 ## Runtime Behavior
 
@@ -151,20 +153,20 @@ TaskHint(browser_mode=autonomous)
   -> final answer with sources and limitations
 ```
 
-Collaborative flow:
+Collaborative click flow:
 
 ```text
-TaskHint(browser_mode=collaborative)
+Workflow(browser.interaction r1, browser_mode=collaborative)
   -> browser.status/list_tabs when needed
   -> browser.open or browser.navigate
-  -> browser.snapshot for structure/refs
-  -> browser.screenshot when visual confirmation or screenshot is requested
-  -> approval-gated click/type/select for clear controls
-  -> browser.read or snapshot again after page changes
+  -> browser.snapshot for structured controls and bound refs
+  -> approval-free browser.click for one clear control under the frozen goal
+  -> browser.snapshot and browser.verify
+  -> repeat only after verified progress, up to three clicks
   -> final answer describing what is visible/done
 ```
 
-The runtime must not hide multiple collaborative interactions inside `browser.read`. Multi-step visible operation belongs in ReAct so traces, approvals and user-visible progress remain inspectable.
+The runtime must not hide multiple collaborative interactions inside `browser.read` or one browser tool call. Multi-step click operation belongs in the persisted Workflow so stage gates, traces, snapshot identity, and verification remain inspectable. Screenshot selection and type/select are outside revision 1.
 
 ## Audit And Trace Fields
 

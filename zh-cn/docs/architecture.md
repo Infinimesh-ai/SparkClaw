@@ -130,7 +130,7 @@ Fast Router 只输出严格 `RouteDecision`：状态、Catalog Revision、已注
 
 Request Normalization 与 Capability Routing 始终使用 Fast Lane。已匹配 Capability 派发后，该持久化 Workflow 内的每个模型步骤都使用 Deep Lane，包括后续 Stage 和 Approval Resume。该 Lane 边界只改变模型选择；Workflow/ReAct 的 Context 构造、ToolResult Message、Observation 顺序、压缩和 Grounding 继续复用原有执行流程。只有明确为 `unmatched` 的请求继续使用该请求由 TaskHint/ReAct 选择的过渡 Lane。
 
-Catalog revision `2026-07-21.v5` 有六个生产叶子：`browser.internet_search`、`browser.weather`、`browser.automation`、`browser.interaction`、`document.read` 和 `document.edit`。`WorkflowProfileRegistry.Resolve` 把每个叶子精确映射到 revision 1 Workflow，不再执行意图匹配。Dispatcher 持久化 `RouteDecision`、`ReturnRoute`、已校验 Plan Digest 与 Node State。
+Catalog revision `2026-07-21.v5` 有六个生产叶子：`browser.internet_search`、`browser.weather`、`browser.automation`、`browser.interaction`、`document.read` 和 `document.edit`。`WorkflowProfileRegistry.Resolve` 把 `document.edit` 映射到 revision 2，其余叶子映射到 revision 1，不再执行意图匹配。Dispatcher 持久化 `RouteDecision`、`ReturnRoute`、已校验 Plan Digest 与 Node State。
 
 `browser.internet_search` 归档所有答案依赖当前互联网状态的只读事实，包括金价、汇率、股票或指数行情、即时新闻、当前比赛结果和日程。这些例子不会成为垂直 leaf。Fast 使用类型化 `fact_scope=current_internet_state` 表达该边界；静态常识保持 `unmatched`。
 
@@ -149,7 +149,7 @@ ToolHub 注册有边界的工具，并校验成功输出是否符合声明 contr
 | Area | Tools |
 |---|---|
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
-| Documents | `office.replace_text`、`docx.*`、`xlsx.*`、`pptx.*`、`pdf.extract_text`、`pdf.transform` |
+| Documents | `text.replace_text`、`office.replace_text`、`docx.*`、`xlsx.*`、`pptx.*`、`pdf.extract_text`、`pdf.transform` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Browser 与 Info | `web.search`, `info.query`, `weather.structure_payload`, `media.render_weather_card`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.verify`, `browser.type`, `browser.select` |
 | Code/shell | `shell.exec_sandboxed`, `code.apply_patch` |
@@ -161,15 +161,19 @@ Risk levels 为 `read`、`draft`、`reversible` 和 `dangerous`。Read/draft too
 
 无论底层策略如何变化，`document.read` 与 `document.edit` 都保持同一份固定编排合同：
 
-1. 检查受治理的普通文件，校验带签名的格式，并记录大小、媒体类型、修改时间和 SHA-256 元数据；
-2. 按规范化后的已检测格式选择注册 parser；
-3. 把完整解析结果规范化为 `structured_document_v1`，为 document、block、paragraph、section、sheet、row、cell、slide 和 page 生成稳定 ID，并保留来源位置与必要格式元数据；
-4. 解析用户要求的文本或结构位置，对未找到、歧义或命中数不符的结果明确失败；row 和 slide locator 选择一个稳定结构实体，而不是展开成子 block；
-5. 只对受约束目标生成一个或多个新输出副本，检查每个已报告输出并重新计算输入哈希，再返回带 `output_paths` 的可审计 `change_summary`，证明原件未被修改。无效或零变更结果会清理已生成的输出副本。
+明确的内容读取、图片分析和总结请求进入 `document.read`。只要检测到对现有受治理文档内容的变更，就统一进入 `document.edit` revision 2，Router 不再把追加、插入、删除、行、单元格、段落、幻灯片或页面词语映射为具体 operation。结构化读取完成后，Runtime 只搜索检测格式对应的已注册 editor entry，并选择一个精确、带 operation qualifier 的 capability。不支持的 operation 在此明确 block，不能降级成只读结果，也不能被强制套用到其他 editor。文件新建、删除、重命名和移动仍位于内容编辑边界之外。
 
-当前 `small_file_v1` 策略接受最大 8 MiB 的源文件和最大 200,000 bytes 的完整抽取表示。读取支持 text、DOCX、XLSX、PPTX 和文本型 PDF；修改支持已注册的 DOCX、XLSX、PPTX 与 PDF 副本操作。超过任一阈值会返回类型化 `strategy_deferred`；不支持的格式和 locator 返回各自的类型化错误。Adapter 不得截断后报告成功。
+1. 解析唯一权威附件真实路径，检查受治理的普通文件，校验带签名的格式，并记录大小、媒体类型、修改时间和 SHA-256 元数据；
+2. 按规范化后的已检测格式选择注册 reader；直接 PNG/JPEG/GIF/WebP 分析只选择 `images.inspect` 和 Fast 多模态模型，结构化文档则选择对应 parser；
+3. 把完整解析结果规范化为 `structured_document_v1`，为 document、block、paragraph、section、sheet、row、cell、slide 和 page 生成稳定 ID，并保留来源位置与必要格式元数据；parser 可见的 assets、annotations、layout、extensions、coverage 和编辑策略保存在可选的 `document_enrichment_v1` envelope 中；
+4. 按来源关系和 SHA-256 登记每个高层库可见的嵌入图片，把二进制写入 ArtifactStore，并且只对显式目标图片或有界的全文视觉理解调用 Fast 多模态模型；
+5. 解析用户要求的文本或结构位置（例如 `document.p[25]`），对未找到、歧义或命中数不符的结果明确失败；row 和 slide locator 选择一个稳定结构实体，而不是展开成子 block；XLSX 的内容末尾插入以结构化结果中的最高非空行为准，仅带格式的空白行不能移动编辑位置或产生空洞；
+6. 形成有边界的修改参数，并在任何 reversible editor 执行前持久化可恢复 Policy approval；
+7. 只对受约束目标生成一个或多个新输出副本，通过同一 parser 完整重读每个输出，校验请求的修改后值和 operation-specific 内容差异，比较 parser 可见的 evidence-only 指纹，再重新计算输入哈希并返回带 `output_paths` 的可审计 `change_summary`，证明原件未被修改。`WorkflowResult` 提升该摘要，并通过统一 content interface 返回新文件。Web 投影把修改后的文档返回为文件附件，把图片返回为完整 inline image part；受治理 path 只保留在 reference 与审计数据中，不再作为可见成功文本。保真不匹配、无效输出或零变更都会清理生成的副本；成功摘要区分已验证的高层保真与未知的包级保真。
 
-`internal/document.Pipeline` 负责固定阶段顺序，strategy 负责 parser/editor registry。后续分块、流式、索引或惰性策略实现相同的 `Strategy` interface，Profile 和 Runtime 不按策略分支。ToolHub registration 仍是唯一模型可见 capability 边界，文档内容始终是不可信证据。结构化结果沿用现有 ToolCall observation 和 ArtifactStore 归档；本次小文件实现不引入 optional DocumentStore capability。
+当前 `small_file_v1` 策略接受最大 8 MiB 的源文件和最大 200,000 bytes 的完整抽取表示。读取支持 text、DOCX、XLSX、PPTX 和文本型 PDF；修改支持已注册的纯文本/Markdown、DOCX、XLSX、PPTX 与 PDF 副本操作。直接图片读取仍处于同一个 `document.read` Workflow，但使用 `images.inspect` 的 12 MiB 原图限制，不经过 `small_file_v1`。超过相应阈值会返回类型化错误；不支持的格式和 locator 返回各自的类型化错误。Adapter 不得截断后报告成功。
+
+`internal/document.Pipeline` 负责固定阶段顺序，strategy 负责 parser/editor registry。其活动 `DocumentEnricher` registry 当前在规范化后运行 Fast 图片语义实现；后续包清单富化器沿用同一边界。后续分块、流式、索引或惰性策略实现相同的 `Strategy` interface，Profile 和 Runtime 不按策略分支。ToolHub registration 仍是唯一模型可见 capability 边界，文档内容始终是不可信证据。结构化结果沿用现有 ToolCall observation 和 ArtifactStore 归档；本次小文件实现不引入 optional DocumentStore capability。
 
 ### Policy And Approval
 

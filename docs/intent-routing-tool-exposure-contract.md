@@ -169,15 +169,18 @@ allowlist. Future branches add registered stages and scopes without changing
 | `browser.automation/focus_existing` | Focus the exact page ID selected from the persisted tab outcome | `browser.focus` |
 | `browser.automation/open_new` | Open the exact frozen URL only | `browser.open` |
 | `document.read/inspect_type` | Deterministic path and type preflight | no Agent tool; a future registered type inspector may be the sole entry |
-| `document.read/read_by_type` | Read the exact path with the detected format | only the compatible file/document/PDF reader registration |
-| `document.edit/inspect_type` | Deterministic input/output path and type preflight | no Agent tool; a future registered type inspector may be the sole entry |
-| `document.edit/edit_by_type` | Edit the detected format for the requested operation | only compatible DOCX, XLSX, PPTX, or PDF editor registrations |
+| `document.read/read_by_type` | Read the exact path with the detected format | only the compatible file/document/PDF/image reader registration |
+| `document.edit/read_for_edit` | Read the authoritative frozen path using the detected format | only the compatible file/document/PDF reader registration |
+| `document.edit/edit_by_type` | Select and apply the requested operation only after structured evidence, bounded by detected format | compatible text, DOCX, XLSX, PPTX, or PDF editor entries; one exact entry is materialized |
 
 Moving to another row replaces the view; it never unions rows. Search results
 do not expose page readers. Weather-card execution does not expose Internet
 search, and alert/news/comparison requests never expose the weather-card tool.
 Tab scanning does not expose focus and open together. Document read never
-exposes editors, and document edit never exposes another format's tool family.
+exposes editors. Document edit replaces its reader view with a format-bounded
+editor directory, selects one exact operation-qualified entry from the owner's
+request plus structured evidence, and never exposes another format's tool
+family. Router output does not freeze the concrete editor operation.
 
 These migrated slices never consult TaskHint candidates, Skill allow/deny
 lists, fallback tool lists, or observation-string expansion for visibility.

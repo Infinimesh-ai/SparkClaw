@@ -295,7 +295,7 @@ func isDocumentMutationTool(tool string) bool {
 		return true
 	}
 	switch tool {
-	case "office.replace_text", "pdf.transform":
+	case "text.replace_text", "office.replace_text", "pdf.transform":
 		return true
 	default:
 		return false
@@ -607,8 +607,8 @@ func browserReadFallbackFailure(calls []app.ToolCall) string {
 func isActionOrModificationGoal(goal string) bool {
 	lower := strings.ToLower(goal)
 	return containsAny(lower,
-		"modify", "edit", "replace", "delete", "remove", "write", "create", "update", "change",
-		"修改", "编辑", "替换", "删除", "删掉", "移除", "写入", "生成", "创建", "改成", "换成",
+		"modify", "edit", "replace", "delete", "remove", "write", "create", "update", "change", "send", "forward", "deliver",
+		"修改", "编辑", "替换", "删除", "删掉", "移除", "写入", "生成", "创建", "改成", "换成", "发送", "发给", "发到", "转发", "投递", "传给",
 	)
 }
 

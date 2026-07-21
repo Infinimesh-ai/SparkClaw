@@ -25,7 +25,11 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve %v: %v", path, err)
 		}
-		if leaf.Workflow == nil || app.CapabilityID(leaf.Workflow.ID) != leaf.ID || leaf.Workflow.Revision != 1 {
+		wantRevision := 1
+		if leaf.ID == app.CapabilityDocumentEdit {
+			wantRevision = 2
+		}
+		if leaf.Workflow == nil || app.CapabilityID(leaf.Workflow.ID) != leaf.ID || leaf.Workflow.Revision != wantRevision {
 			t.Fatalf("leaf %q has invalid workflow contract: %#v", leaf.ID, leaf.Workflow)
 		}
 	}

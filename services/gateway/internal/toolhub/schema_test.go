@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -81,6 +82,9 @@ func TestImagesInspectUsesMockMultimodalModel(t *testing.T) {
 	}
 	if output["status"] != "completed" || output["content_type"] != "image/png" || output["mock"] != true {
 		t.Fatalf("unexpected image inspection output: %#v", output)
+	}
+	if output["lane"] != "fast" {
+		t.Fatalf("image inspection must use only the Fast model in the first phase: %#v", output)
 	}
 	if output["width"] != 1 || output["height"] != 1 {
 		t.Fatalf("expected 1x1 dimensions, got %#v x %#v", output["width"], output["height"])
@@ -1361,6 +1365,21 @@ func TestPptxSlideToolsWriteNewVersions(t *testing.T) {
 			wantText:   "Added slide",
 		},
 		{
+			tool: "pptx.update_slide",
+			args: map[string]any{
+				"path":        "deck.pptx",
+				"slide_index": 2,
+				"updates": []any{map[string]any{
+					"shape_index": 2,
+					"old_text":    "Second body",
+					"text":        "Expanded second body",
+				}},
+				"output_path": "outputs/updated.pptx",
+			},
+			wantSlides: 2,
+			wantText:   "Expanded second body",
+		},
+		{
 			tool: "pptx.duplicate_slide",
 			args: map[string]any{
 				"path":        "deck.pptx",
@@ -1417,6 +1436,166 @@ func TestPptxSlideToolsWriteNewVersions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPptxUpdateSlideRejectsStaleShapeEvidence(t *testing.T) {
+	root := t.TempDir()
+	writePptxFixture(t, root, "deck.pptx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "deck.pptx", "slide_index": 2, "output_path": "outputs/stale.pptx",
+		"updates": []any{map[string]any{"shape_index": 2, "old_text": "Invented body", "text": "Updated body"}},
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "old_text does not match slide shape 2") {
+		t.Fatalf("expected stale PPTX shape evidence error, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "outputs", "stale.pptx")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed PPTX update left an output copy: %v", statErr)
+	}
+}
+
+func TestPptxUpdateSlideExpandsLongTextWithoutShrinkingFont(t *testing.T) {
+	root := t.TempDir()
+	writePptxSingleLineFixture(t, root, "single-line.pptx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "single-line.pptx", "slide_index": 1, "output_path": "outputs/fitted.pptx",
+		"updates": []any{map[string]any{
+			"shape_index": 1,
+			"old_text":    "应用层协议",
+			"text":        "HTTP、DNS、SMTP、FTP；处理用户可见的数据格式与交互逻辑。",
+		}},
+	}, "s", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if intArg(out, "fitted_shapes", -1) != 0 || intArg(out, "layout_adjusted_shapes", 0) != 1 || stringArg(out, "layout_policy", "") != "coordinated" {
+		t.Fatalf("long single-line text was not safely expanded: %#v", out)
+	}
+	outputPath := stringArg(out, "output_path", "")
+	pythonScript := `
+from pptx import Presentation
+prs = Presentation(__import__("sys").argv[1])
+shape = prs.slides[0].shapes[0]
+tf = shape.text_frame
+print(tf.paragraphs[0].runs[0].font.size.pt, tf.word_wrap, shape.width)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, outputPath)
+	inspection, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("inspect fitted PPTX: %v\n%s", err, inspection)
+	}
+	var size float64
+	var wordWrap string
+	var width int
+	if _, err := fmt.Sscan(string(inspection), &size, &wordWrap, &width); err != nil {
+		t.Fatalf("parse fitted PPTX inspection %q: %v", inspection, err)
+	}
+	if size != 18 || wordWrap != "False" || width <= 6*914400 {
+		t.Fatalf("unexpected expanded text properties: size=%v word_wrap=%s width=%d", size, wordWrap, width)
+	}
+}
+
+func TestPptxUpdateSlideCoordinatesPeerBandsAndReportsLayoutChecks(t *testing.T) {
+	root := t.TempDir()
+	writePptxBandFixture(t, root, "bands.pptx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "bands.pptx", "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/bands.pptx",
+		"updates": []any{
+			map[string]any{"shape_index": 3, "old_text": "读取内容", "text": "完整读取演示文稿内容并保留结构证据"},
+			map[string]any{"shape_index": 6, "old_text": "定位内容", "text": "使用稳定的页面与形状索引定位修改目标"},
+			map[string]any{"shape_index": 9, "old_text": "修改内容", "text": "生成新版本并校验原始文件保持不变"},
+		},
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	if intArg(out, "layout_adjusted_shapes", 0) != 6 || intArg(out, "companion_groups_used", 0) != 3 {
+		t.Fatalf("peer band layout was not coordinated: %#v", out)
+	}
+	checks := out["layout_checks"].(map[string]any)
+	if checks["updated_text_fits"] != true || checks["canvas_bounds"] != true || checks["companion_non_overlap"] != true || checks["peer_font_uniform"] != true {
+		t.Fatalf("layout checks are incomplete: %#v", checks)
+	}
+	summary := out["change_summary"].(map[string]any)
+	if summary["layout_policy"] != "coordinated" || intArg(summary, "layout_adjusted_shapes", 0) != 6 || summary["original_unchanged"] != true {
+		t.Fatalf("change summary omitted coordinated layout evidence: %#v", summary)
+	}
+	if len(documentAnySlice(summary["preservation_warnings"])) == 0 {
+		t.Fatalf("page marker warning was not surfaced in change_summary: %#v", summary)
+	}
+	outputPath := stringArg(out, "output_path", "")
+	pythonScript := `
+from pptx import Presentation
+prs = Presentation(__import__("sys").argv[1])
+slide = prs.slides[0]
+for background_index, body_index in ((0, 2), (3, 5), (6, 8)):
+    background = slide.shapes[background_index]
+    body = slide.shapes[body_index]
+    size = body.text_frame.paragraphs[0].runs[0].font.size.pt
+    print(background.left + background.width, body.left, body.width, size, body.text_frame.word_wrap)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, outputPath)
+	inspection, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("inspect coordinated PPTX: %v\n%s", err, inspection)
+	}
+	lines := strings.Split(strings.TrimSpace(string(inspection)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("unexpected coordinated inspection: %q", inspection)
+	}
+	width := 0
+	for _, line := range lines {
+		var backgroundRight, bodyLeft, bodyWidth int
+		var size float64
+		var wordWrap string
+		if _, err := fmt.Sscan(line, &backgroundRight, &bodyLeft, &bodyWidth, &size, &wordWrap); err != nil {
+			t.Fatalf("parse coordinated inspection %q: %v", line, err)
+		}
+		if backgroundRight > bodyLeft || size != 16.5 || wordWrap != "False" || (width != 0 && width != bodyWidth) {
+			t.Fatalf("peer band geometry or typography is inconsistent: %q", line)
+		}
+		width = bodyWidth
+	}
+}
+
+func TestPptxUpdateSlideRejectsUnreadablyLongText(t *testing.T) {
+	root := t.TempDir()
+	writePptxSingleLineFixture(t, root, "single-line.pptx")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "single-line.pptx", "slide_index": 1, "output_path": "outputs/unreadable.pptx",
+		"updates": []any{map[string]any{
+			"shape_index": 1,
+			"old_text":    "应用层协议",
+			"text":        strings.Repeat("过长内容", 50),
+		}},
+	}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "updated text is too long for its slide shape") {
+		t.Fatalf("expected unreadable text rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "outputs", "unreadable.pptx")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("unreadable PPTX update left an output copy: %v", statErr)
 	}
 }
 
@@ -1481,6 +1660,7 @@ func TestXlsxStructureToolsWriteNewVersions(t *testing.T) {
 		tool     string
 		args     map[string]any
 		contains []string
+		wantRow  int
 	}{
 		{
 			tool: "xlsx.update_cell",
@@ -1535,6 +1715,7 @@ func TestXlsxStructureToolsWriteNewVersions(t *testing.T) {
 				"output_path": "outputs/appended.xlsx",
 			},
 			contains: []string{"Appended", "55", "Done"},
+			wantRow:  4,
 		},
 	}
 	for _, tc := range cases {
@@ -1544,6 +1725,9 @@ func TestXlsxStructureToolsWriteNewVersions(t *testing.T) {
 				t.Fatal(err)
 			}
 			out := result.Output.(map[string]any)
+			if tc.wantRow > 0 && intArg(out, "row", 0) != tc.wantRow {
+				t.Fatalf("appended XLSX row ignored the structured content boundary: got=%#v want=%d", out["row"], tc.wantRow)
+			}
 			outputPath := out["output_path"].(string)
 			if outputPath == filepath.Join(root, "book.xlsx") {
 				t.Fatalf("tool overwrote input: %#v", out)
@@ -1779,6 +1963,64 @@ prs.save(root / name)
 	}
 }
 
+func writePptxSingleLineFixture(t *testing.T, root, name string) {
+	t.Helper()
+	pythonScript := `
+from pathlib import Path
+from pptx import Presentation
+from pptx.util import Inches, Pt
+root = Path(__import__("sys").argv[1])
+name = __import__("sys").argv[2]
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+shape = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(0.35))
+run = shape.text_frame.paragraphs[0].add_run()
+run.text = "应用层协议"
+run.font.size = Pt(18)
+prs.save(root / name)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create single-line pptx fixture: %v\n%s", err, out)
+	}
+}
+
+func writePptxBandFixture(t *testing.T, root, name string) {
+	t.Helper()
+	pythonScript := `
+from pathlib import Path
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE
+from pptx.util import Inches, Pt
+root = Path(__import__("sys").argv[1])
+name = __import__("sys").argv[2]
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+rows = ((2.0, "读取", "读取内容", (22, 101, 52)), (3.0, "定位", "定位内容", (3, 105, 161)), (4.0, "修改", "修改内容", (180, 83, 9)))
+for top, label_text, body_text, color in rows:
+    band = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(1.5), Inches(top), Inches(4.5), Inches(.6))
+    band.fill.solid()
+    band.fill.fore_color.rgb = RGBColor(*color)
+    band.line.fill.background()
+    label = slide.shapes.add_textbox(Inches(1.7), Inches(top + .08), Inches(1.2), Inches(.35))
+    label_run = label.text_frame.paragraphs[0].add_run()
+    label_run.text = label_text
+    label_run.font.size = Pt(16.5)
+    body = slide.shapes.add_textbox(Inches(3.2), Inches(top + .08), Inches(5), Inches(.35))
+    body_run = body.text_frame.paragraphs[0].add_run()
+    body_run.text = body_text
+    body_run.font.size = Pt(16.5)
+marker = slide.shapes.add_textbox(Inches(8.5), Inches(6.8), Inches(1), Inches(.3))
+marker.text_frame.paragraphs[0].add_run().text = "课程 · 2/4"
+prs.save(root / name)
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create band pptx fixture: %v\n%s", err, out)
+	}
+}
+
 func writeXlsxFixture(t *testing.T, root, name string) {
 	t.Helper()
 	nodeScript := `
@@ -1791,6 +2033,7 @@ const ExcelJS = require("exceljs");
   sheet.addRow(["Name", "Score", "Status"]);
   sheet.addRow(["Alice", 88, "Ready"]);
   sheet.addRow(["Bob", 92, "Done"]);
+  sheet.getCell("B10").font = { italic: true };
   await workbook.xlsx.writeFile(root + "/" + name);
 })().catch(error => {
   console.error(error && error.stack || error);

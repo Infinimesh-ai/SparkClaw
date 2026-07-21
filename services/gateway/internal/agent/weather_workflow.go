@@ -19,6 +19,9 @@ type browserWeatherProfile struct{}
 func (browserWeatherProfile) ID() app.WorkflowID           { return app.WorkflowBrowserWeather }
 func (browserWeatherProfile) Revision() int                { return 1 }
 func (browserWeatherProfile) Capability() app.CapabilityID { return app.CapabilityBrowserWeather }
+func (browserWeatherProfile) Finalization() workflowFinalizationMode {
+	return workflowFinalizationGrounded
+}
 
 func (browserWeatherProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
 	content := semanticRoutingContent(input.Content)

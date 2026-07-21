@@ -73,8 +73,8 @@ func taskHintRoutingPrompt() string {
 		"- Direct conversation, greetings, simple explanations from current conversation: task_type=general_chat or answer, evidence_need=none, tool_mode=none, model_lane_hint=fast.",
 		"- Browser and document requests cannot reach TaskHint; they belong to registered Workflows.",
 		"- Unmigrated code/command questions may use coding_helper within the fallback boundary.",
-		"- Uploaded image, screenshot, photo, OCR-from-image, 看图/图片/照片/截图 questions: evidence_need=workspace, tool_mode=read_only, model_lane_hint=deep, candidate_skills=[image_assistant], candidate_tools=[images.inspect].",
-		"- Sending an uploaded/generated/downloaded image to Weixin/vx/微信/手机: evidence_need=workspace, tool_mode=action_required, model_lane_hint=deep, candidate_skills=[image_assistant,reminder_weixin]. Return a single final Markdown media link; channel dispatch is handled outside Runtime.",
+		"- Uploaded image, screenshot, photo, OCR-from-image, 看图/图片/照片/截图 questions: evidence_need=workspace, tool_mode=read_only, model_lane_hint=fast, candidate_skills=[image_assistant], candidate_tools=[images.inspect].",
+		"- Sending an uploaded/generated/downloaded image to Weixin/vx/微信/手机: evidence_need=workspace, tool_mode=action_required, model_lane_hint=fast, candidate_skills=[image_assistant,reminder_weixin]. Return a single final Markdown media link; channel dispatch is handled outside Runtime.",
 		"- Reminders/alarms: candidate_skills=[reminder_weixin], use reminders.* tools. If the user does not explicitly request Weixin/vx and the current session is not a Weixin chat, default to channel=web. Web-originated Weixin reminders must identify exactly one bound Weixin user before creating the reminder.",
 		"- Terminal/test/command/code patch requests: model_lane_hint=deep, tool_mode=action_required, use shell.exec_sandboxed or code.apply_patch.",
 		"- Choose model_lane_hint=fast for ordinary chat and read-only lightweight lookups; choose deep for approvals, commands, code changes, dangerous/reversible actions, or multi-step reasoning.",
@@ -203,7 +203,7 @@ func heuristicTaskHint(content string) TaskHint {
 		hint.EvidenceNeed = "workspace"
 		hint.ToolMode = "read_only"
 		hint.EstimatedRisk = string(app.RiskRead)
-		hint.ModelLaneHint = "deep"
+		hint.ModelLaneHint = "fast"
 		hint.CandidateSkills = []string{"image_assistant"}
 		hint.CandidateTools = []string{"images.inspect"}
 		hint.Reason = "The user asked about an uploaded image or image path."

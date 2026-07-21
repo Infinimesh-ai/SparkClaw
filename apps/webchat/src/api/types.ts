@@ -86,23 +86,6 @@ export type Memory = {
   created_at: string;
 };
 
-export type AgentResult = {
-  run: {
-    id: string;
-    session_id: string;
-    state: string;
-    model_lane: string;
-    risk: RiskLevel;
-    started_at: string;
-    completed_at?: string;
-    summary?: string;
-  };
-  message: Message;
-  tool_calls: ToolCall[];
-  approvals: Approval[];
-  workflow_result?: WorkflowResult;
-};
-
 export type ResourceRef = {
   kind: string;
   ref: string;
@@ -142,6 +125,23 @@ export type WorkflowResult = {
   return_route: { mode: "source" | "endpoint" | "none"; source_endpoint_id?: string; endpoint_id?: string };
   resume?: { kind: string; token?: string; data?: Record<string, unknown> };
   error?: { code: string; message: string; retryable?: boolean };
+};
+
+export type AgentResult = {
+  run: {
+    id: string;
+    session_id: string;
+    state: string;
+    model_lane: string;
+    risk: RiskLevel;
+    started_at: string;
+    completed_at?: string;
+    summary?: string;
+  };
+  message: Message;
+  tool_calls: ToolCall[];
+  approvals: Approval[];
+  workflow_result?: WorkflowResult | null;
 };
 
 export type MessageAttachment = {
@@ -274,6 +274,7 @@ export type SessionEvent = {
 export type ApprovalResolution = {
   approval: Approval;
   tool_call?: ToolCall | null;
+  workflow_result?: WorkflowResult | null;
 };
 
 export type ReadyStatus = {

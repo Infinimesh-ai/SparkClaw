@@ -200,20 +200,60 @@ parser and, where applicable, operation-qualified editors in ToolHub. Do not
 add extension switches outside the signature-aware detector and registration
 composition.
 
+High-level routing classifies only whether an existing document is being read
+or changed. Direct image analysis is a read format under the same
+`document.read` Workflow. It must not map natural-language insert, delete, append, row, cell,
+paragraph, slide, or page phrases to concrete editor operations. Every content
+change enters `document.edit` r2 with the detected format; after the structured
+read, bounded directory selection chooses one compatible operation-qualified
+registration. An unsupported change blocks there instead of being coerced into
+another editor.
+
 The only implemented strategy is `small_file_v1`: 8 MiB maximum source size
 and 200,000 bytes maximum complete extracted content. A larger resource must
 return typed `strategy_deferred` until another `document.Strategy` implements
 chunked, streaming, indexed, or lazy access. Truncated content is never a
 successful small-document result.
 
-Every reader must produce stable location IDs in `structured_document_v1`.
+Every structured-document reader must produce stable location IDs in
+`structured_document_v1`. The direct image reader instead returns a bounded
+semantic result with dimensions and Fast-model provenance through
+`images.inspect`; its source limit is 12 MiB.
+High-level parsers may add the optional `document_enrichment_v1` envelope for
+assets, annotations, layout, extensions, coverage, and category policy. DOCX,
+XLSX, PPTX, and text-PDF readers register parser-visible embedded images with
+source relationships and SHA-256 identities. Image bytes go to ArtifactStore,
+never the ToolCall JSON or prompt. `files.read` defaults to targeted image
+analysis, accepts stable `image_target_paths`, and uses only the Fast model;
+`image_analysis=all` is reserved for explicit full-document visual
+understanding. The implemented limits are 4 targeted or 8 full-document unique
+images, two concurrent calls, 30 seconds per image, a 120-second enrichment
+stage, 512 output tokens, and 4,000 characters of combined image context.
+
 Every editor must consume located targets, reject missing, ambiguous, or
 count-mismatched targets, write non-existing output copies, and return every
 produced path through the typed result rather than adapter-specific details.
-The Pipeline validates each output, re-hashes the input, and only then returns
-`change_summary`; invalid or zero-change results clean up generated copies.
+An XLSX append derives its row anchor from the highest populated row in that
+structured representation. It must not use a library's physical used range or
+`rowCount`, because formatting-only blank cells can extend both and create
+visible gaps before the appended content.
+The Pipeline completely re-reads every output through the same parser, verifies
+the expected after-value and unchanged non-target content, compares known
+asset/annotation/layout fingerprints, re-hashes the input, and only then
+returns `change_summary`. A mismatch removes generated copies and returns
+`preservation_mismatch`. The summary reports
+`high_level_preservation=verified` and `package_preservation=unknown`; the
+latter remains unknown until OOXML/PDF package-level checks exist. Invalid or
+zero-change results also clean up generated copies.
 Keep subprocesses behind the bounded document adapters and treat all parsed
 content as untrusted.
+
+Paths remain internal governed references, not user-facing success text. A
+successful document mutation projects each output as a downloadable file
+attachment on the assistant message. Image outputs use `kind=image` with
+`disposition=inline` and WebChat renders the complete image at its natural
+aspect ratio instead of an attachment thumbnail. The same projection applies
+after approval resume and to persisted message history.
 
 Run the document setup before tests:
 

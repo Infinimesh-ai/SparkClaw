@@ -525,6 +525,7 @@ export function App() {
         ...current,
         [assistantMessageId]: [{ id: "waiting", type: "waiting", text: text.chat.waiting }]
       }));
+      let receivedDelta = false;
       await api.sendMessageStream(sessionId, trimmed || attachmentOnlyPrompt(language), attachments, {
         onEvent: (event, data) => {
           const status = streamStatusFromEvent(event, data, text);
@@ -535,6 +536,7 @@ export function App() {
           }));
         },
         onTextDelta: (delta) => {
+          receivedDelta = true;
           setStreamStatusesByMessage((current) => {
             const next = { ...current };
             next[assistantMessageId] = (next[assistantMessageId] ?? []).filter((status) => status.id !== "waiting");
@@ -546,7 +548,11 @@ export function App() {
         },
         onFinal: (result) => {
           setMessages((current) =>
-            current.map((message) => (message.id === assistantMessageId ? result.message : message))
+            current.map((message) => {
+              if (message.id !== assistantMessageId) return message;
+              if (!receivedDelta || (result.message.attachments?.length ?? 0) > 0) return result.message;
+              return message;
+            })
           );
         },
         onError: (streamError) => {

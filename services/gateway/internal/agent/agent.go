@@ -432,10 +432,13 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	} else {
 		workflowResult = r.workflowResultForUnmatched(run, route, returnRoute, run.Summary)
 	}
-	assistantMessage := app.Message{SessionID: sessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now}
-	if authoritativeWorkflow {
-		assistantMessage = workflowResultMessage(run, workflowResult, run.Summary, now)
-	}
+	assistantMessage := r.messageWithWorkflowResult(app.Message{
+		SessionID: sessionID,
+		RunID:     run.ID,
+		Role:      "assistant",
+		Content:   run.Summary,
+		CreatedAt: now,
+	}, workflowResult)
 	assistant := r.store.AddMessage(assistantMessage)
 	r.writeTrace(ctx, run, reactResult.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}
@@ -473,6 +476,7 @@ func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
 			result.WorkflowResult = r.workflowResultForDispatchFailure(run, route, run.MessageContext.ReturnRoute, message.Content)
 		}
 	}
+	result.Message = r.messageWithWorkflowResult(result.Message, result.WorkflowResult)
 	return result
 }
 
@@ -600,19 +604,29 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(content, run, currentToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{
+	var workflowResult *app.WorkflowResult
+	if run.MessageContext != nil {
+		route := run.MessageContext.Route
+		workflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+	}
+	presentationResult := workflowResult
+	if presentationResult == nil {
+		presentationResult = &app.WorkflowResult{Content: r.workflowResultContentFromToolCalls(run, run.Summary)}
+	}
+	assistantMessage := r.messageWithWorkflowResult(app.Message{
 		SessionID: sessionID,
 		RunID:     run.ID,
 		Role:      "assistant",
 		Content:   run.Summary,
 		CreatedAt: now,
-	})
+	}, presentationResult)
+	assistant := r.store.AddMessage(assistantMessage)
 	r.writeTrace(ctx, run, reactResult.Chat, currentToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+		result.WorkflowResult = workflowResult
 	}
 	return result, true, nil
 }
@@ -643,13 +657,23 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(content, run, currentToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{
+	var workflowResult *app.WorkflowResult
+	if run.MessageContext != nil {
+		route := run.MessageContext.Route
+		workflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+	}
+	presentationResult := workflowResult
+	if presentationResult == nil {
+		presentationResult = &app.WorkflowResult{Content: r.workflowResultContentFromToolCalls(run, run.Summary)}
+	}
+	assistantMessage := r.messageWithWorkflowResult(app.Message{
 		SessionID: sessionID,
 		RunID:     run.ID,
 		Role:      "assistant",
 		Content:   run.Summary,
 		CreatedAt: now,
-	})
+	}, presentationResult)
+	assistant := r.store.AddMessage(assistantMessage)
 	r.store.AddAudit(app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     run.ID,
@@ -669,7 +693,7 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, run.Summary)
+		result.WorkflowResult = workflowResult
 	}
 	return result, true
 }
@@ -1049,6 +1073,9 @@ type toolPlan struct {
 func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan toolPlan) (app.ToolCall, *app.Approval, string) {
 	plan = r.materializeWorkflowBoundArguments(runID, plan)
 	def, ok := r.tools.Definition(plan.Name)
+	if ok {
+		plan.Args = r.bindWorkflowToolArguments(runID, plan)
+	}
 	now := time.Now().UTC()
 	call := app.ToolCall{
 		ID:             app.NewID("tc"),

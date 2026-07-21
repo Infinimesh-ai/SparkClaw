@@ -149,7 +149,7 @@ func documentReadRegistration(run toolExecutor, formats []string, summary string
 	registration := workflowRegistration(
 		toolRegistration{run: run}, app.ToolCapabilityDocumentRead,
 		map[string]string{app.CapabilityQualifierFormat: formats[0]}, app.OutcomeAdapterWorkspaceRead,
-		summary, "Use only for the preflighted exact path and detected format in document.read; the adapter runs inspect, complete read, and stable structuring.", "Do not use for search, mutation, or oversized documents without a registered strategy.", app.ToolEffectWorkspaceRead,
+		summary, "Use only for the preflighted exact path and detected format in a document read stage; the adapter performs the complete format-specific read and returns bounded evidence.", "Do not use for search, mutation, or oversized documents without a registered strategy.", app.ToolEffectWorkspaceRead,
 	)
 	registration.capabilities = registration.capabilities[:0]
 	for _, format := range formats {
@@ -172,6 +172,8 @@ func documentEditRegistration(run toolExecutor, format, operation, summary strin
 
 func officeReplaceRegistration() toolRegistration {
 	registration := documentEditRegistration(ctxArgs((*ToolHub).officeReplaceText), app.DocumentFormatDOCX, "replace_text", "Replace bounded text and write an Office output copy.")
+	registration.directory.WhenToUse = "Use only for explicit old/new text pairs that appear as bounded structured text blocks."
+	registration.directory.WhenNotToUse = "Do not use for whole-slide improvement, slide-scoped rewriting, or text synthesized by concatenating multiple shapes; use a structure editor for those changes."
 	registration.capabilities = []app.CapabilityDescriptor{
 		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatDOCX, app.CapabilityQualifierOperation: "replace_text"}},
 		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatXLSX, app.CapabilityQualifierOperation: "replace_text"}},
@@ -201,7 +203,8 @@ var toolRegistry = map[string]toolRegistration{
 	"files.read": documentReadRegistration(ctxArgs((*ToolHub).filesRead), []string{app.DocumentFormatText, app.DocumentFormatDOCX, app.DocumentFormatXLSX, app.DocumentFormatPPTX},
 		"Read one explicitly identified file inside the configured workspace.",
 	),
-	"images.inspect": {run: ctxArgs((*ToolHub).imageInspect)},
+	"images.inspect": documentReadRegistration(ctxArgs((*ToolHub).imageInspect), []string{app.DocumentFormatImage},
+		"Inspect one explicitly identified image with the Fast multimodal model."),
 	"weather.structure_payload": workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).structureWeatherPayload)}, app.ToolCapabilityWeatherStructure,
 		nil, app.OutcomeAdapterWeatherPayload,
 		"Validate and persist weather fields extracted from the bound Info evidence directory.",
@@ -210,12 +213,14 @@ var toolRegistry = map[string]toolRegistration{
 	"media.render_weather_card": weatherRenderRegistration(),
 	"files.write_draft":         legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
 	"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
+	"text.replace_text":         documentEditRegistration(ctxArgs((*ToolHub).textReplaceText), app.DocumentFormatText, "replace_text", "Replace bounded text and write a new plain-text output copy."),
 	"office.replace_text":       officeReplaceRegistration(),
 	"docx.replace_paragraph":    documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "replace_paragraph"), app.DocumentFormatDOCX, "replace_paragraph", "Replace one DOCX paragraph and write a new document."),
 	"docx.insert_paragraph":     documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "insert_paragraph"), app.DocumentFormatDOCX, "insert_paragraph", "Insert one DOCX paragraph and write a new document."),
 	"docx.delete_paragraph":     documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "delete_paragraph"), app.DocumentFormatDOCX, "delete_paragraph", "Delete one DOCX paragraph and write a new document."),
 	"docx.set_text_style":       documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "set_text_style"), app.DocumentFormatDOCX, "set_text_style", "Apply a bounded DOCX paragraph style and write a new document."),
 	"pptx.add_slide":            documentEditRegistration(structureOp((*ToolHub).pptxSlideEdit, "add_slide"), app.DocumentFormatPPTX, "add_slide", "Add one PPTX slide and write a new presentation."),
+	"pptx.update_slide":         documentEditRegistration(structureOp((*ToolHub).pptxSlideEdit, "update_slide"), app.DocumentFormatPPTX, "update_slide", "Improve one existing PPTX slide through evidence-bound text-shape updates with preserve or coordinated layout policy."),
 	"pptx.duplicate_slide":      documentEditRegistration(structureOp((*ToolHub).pptxSlideEdit, "duplicate_slide"), app.DocumentFormatPPTX, "duplicate_slide", "Duplicate one PPTX slide and write a new presentation."),
 	"pptx.delete_slide":         documentEditRegistration(structureOp((*ToolHub).pptxSlideEdit, "delete_slide"), app.DocumentFormatPPTX, "delete_slide", "Delete one PPTX slide and write a new presentation."),
 	"xlsx.update_cell":          documentEditRegistration(structureOp((*ToolHub).xlsxStructureEdit, "update_cell"), app.DocumentFormatXLSX, "update_cell", "Update one XLSX cell and write a new workbook."),

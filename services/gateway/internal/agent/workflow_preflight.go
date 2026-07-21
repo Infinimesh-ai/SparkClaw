@@ -22,16 +22,16 @@ func recognizeDocumentRoute(input workflowRecognitionContext, edit bool) (workfl
 	content := semanticRoutingContent(input.Content)
 	lower := strings.ToLower(content)
 	resourcePaths := attachedWorkspaceDocumentPaths(input.Resources)
-	wantsEdit := workspaceMutationRequested(lower) || containsEnglishSemanticTerm(lower, "replace", "update", "change", "insert", "append", "transform", "rotate", "split") ||
-		containsAny(lower, "替换", "更新", "改为", "插入", "追加", "转换", "旋转", "拆分")
-	wantsRead := (documentInformationRequested(content, lower) || len(resourcePaths) > 0 && (documentReadIntent(lower) || strings.TrimSpace(content) == "")) && !wantsEdit
+	wantsEdit := documentContentMutationRequested(lower)
+	wantsRead := (documentInformationRequested(content, lower) || len(resourcePaths) > 0 &&
+		(documentReadIntent(lower) || strings.TrimSpace(content) == "" || attachedWorkspaceImageCanFinalize(input.Resources, content))) && !wantsEdit
 	if edit && !wantsEdit || !edit && !wantsRead {
 		return workflowRecognition{}, false
 	}
 	if edit && unsupportedDocumentEditIntent(lower) {
 		return workflowRecognition{}, false
 	}
-	paths := extractPaths(content)
+	paths := documentRoutePaths(content)
 	if len(paths) == 0 {
 		paths = resourcePaths
 	}
@@ -51,7 +51,7 @@ func recognizeDocumentRoute(input workflowRecognitionContext, edit bool) (workfl
 	}
 	preflight, err := preflightDocumentPath(input.WorkspaceRoot, paths[0], edit)
 	if err != nil {
-		if edit && strings.Contains(err.Error(), "read-only in revision 1") {
+		if edit && strings.Contains(err.Error(), "read-only") {
 			return workflowRecognition{}, false
 		}
 		return workflowRecognition{
@@ -59,21 +59,16 @@ func recognizeDocumentRoute(input workflowRecognitionContext, edit bool) (workfl
 			Reason: "Document preflight failed: " + err.Error(),
 		}, true
 	}
+	if preflight.Format == app.DocumentFormatImage && (hasExplicitExternalSendSignal(content) || !imageInspectCanFinalize(content)) {
+		return workflowRecognition{}, false
+	}
 	operation := app.RouteOperationRead
 	facts := map[string]string{"path": preflight.InputRef, "document_format": preflight.Format}
 	if edit {
 		operation = app.RouteOperationEdit
-		documentOperation := documentOperationForContent(preflight.Format, lower)
-		if documentOperation == "" {
-			return workflowRecognition{
-				Status: app.RouteClarify, Confidence: 0.8,
-				Reason: "The requested document edit operation is not specific enough for revision 1.",
-			}, true
-		}
 		if preflight.Format == app.DocumentFormatPDF {
 			operation = app.RouteOperationTransform
 		}
-		facts["document_operation"] = documentOperation
 		facts["output_path"] = preflight.OutputRef
 	}
 	return workflowRecognition{
@@ -90,7 +85,7 @@ func attachedWorkspaceDocumentPaths(resources []app.MessagePart) []string {
 	paths := make([]string, 0, len(resources))
 	seen := map[string]bool{}
 	for _, resource := range resources {
-		if resource.Kind != app.MessagePartFile || resource.Resource == nil || resource.Resource.Kind != "workspace_file" {
+		if (resource.Kind != app.MessagePartFile && resource.Kind != app.MessagePartImage) || resource.Resource == nil || resource.Resource.Kind != "workspace_file" {
 			continue
 		}
 		ref := strings.TrimSpace(resource.Resource.Ref)
@@ -102,14 +97,39 @@ func attachedWorkspaceDocumentPaths(resources []app.MessagePart) []string {
 	return paths
 }
 
+func attachedWorkspaceImageCanFinalize(resources []app.MessagePart, content string) bool {
+	if !imageInspectCanFinalize(content) {
+		return false
+	}
+	for _, resource := range resources {
+		if resource.Kind == app.MessagePartImage && resource.Resource != nil && resource.Resource.Kind == "workspace_file" && strings.TrimSpace(resource.Resource.Ref) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func documentContentMutationRequested(lower string) bool {
+	return containsEnglishSemanticTerm(lower,
+		"edit", "modify", "replace", "update", "change", "insert", "append", "add", "delete", "remove",
+		"revise", "improve", "polish", "rewrite", "fill", "correct", "adjust", "transform", "rotate", "split",
+	) || containsAny(lower,
+		"编辑", "修改", "替换", "更新", "改为", "插入", "追加", "新增", "添加", "增加", "删除", "移除",
+		"完善", "润色", "改写", "补充", "填写", "填入", "调整", "修订", "修正", "转换", "旋转", "拆分",
+	)
+}
+
 func unsupportedDocumentEditIntent(lower string) bool {
 	createOrWrite := containsEnglishSemanticTerm(lower, "create", "write", "new") || containsAny(lower, "创建", "新建", "写入")
-	if createOrWrite && !containsEnglishSemanticTerm(lower, "slide") && !containsAny(lower, "幻灯片") {
+	explicitEdit := containsEnglishSemanticTerm(lower, "edit", "modify", "replace", "update", "change", "revise", "improve", "polish") ||
+		containsAny(lower, "编辑", "修改", "替换", "更新", "改为", "完善", "润色")
+	if createOrWrite && !explicitEdit && !containsEnglishSemanticTerm(lower, "slide") && !containsAny(lower, "幻灯片") {
 		return true
 	}
 	deleteOrRemove := containsEnglishSemanticTerm(lower, "delete", "remove") || containsAny(lower, "删除", "移除")
-	return deleteOrRemove && !containsEnglishSemanticTerm(lower, "paragraph", "row", "slide", "page") &&
-		!containsAny(lower, "段落", "行", "幻灯片", "页面")
+	contentTarget := containsEnglishSemanticTerm(lower, "content", "text", "paragraph", "row", "cell", "slide", "page", "chart", "image") ||
+		containsAny(lower, "内容", "正文", "文字", "文本", "段落", "行", "单元格", "幻灯片", "页面", "图表", "图片")
+	return deleteOrRemove && !contentTarget
 }
 
 func documentReadIntent(lower string) bool {
@@ -128,6 +148,42 @@ func recentDocumentContextPath(snapshot agentContextSnapshot) string {
 		}
 	}
 	return ""
+}
+
+func documentRoutePaths(content string) []string {
+	if paths := attachmentPathsFromRoutingProjection(content); len(paths) > 0 {
+		return paths
+	}
+	return extractPaths(content)
+}
+
+func attachmentPathsFromRoutingProjection(content string) []string {
+	const header = "Attached files for this user turn:"
+	index := strings.LastIndex(content, header)
+	if index < 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	paths := []string{}
+	for _, line := range strings.Split(content[index+len(header):], "\n") {
+		pathIndex := strings.Index(line, " path=")
+		if pathIndex < 0 {
+			continue
+		}
+		value := line[pathIndex+len(" path="):]
+		for _, suffix := range []string{" content_type=", " bytes=", " size=", " sha256=", " media_kind="} {
+			if suffixIndex := strings.Index(value, suffix); suffixIndex >= 0 {
+				value = value[:suffixIndex]
+			}
+		}
+		value = filepath.Clean(strings.TrimSpace(value))
+		if value == "" || value == "." || seen[value] {
+			continue
+		}
+		seen[value] = true
+		paths = append(paths, value)
+	}
+	return paths
 }
 
 func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (documentPreflight, error) {
@@ -183,8 +239,8 @@ func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (docu
 	}
 	result := documentPreflight{InputRef: filepath.ToSlash(relative), Format: format}
 	if edit {
-		if format != app.DocumentFormatDOCX && format != app.DocumentFormatXLSX && format != app.DocumentFormatPPTX && format != app.DocumentFormatPDF {
-			return documentPreflight{}, fmt.Errorf("document format %q is read-only in revision 1", format)
+		if format != app.DocumentFormatText && format != app.DocumentFormatDOCX && format != app.DocumentFormatXLSX && format != app.DocumentFormatPPTX && format != app.DocumentFormatPDF {
+			return documentPreflight{}, fmt.Errorf("document format %q is read-only", format)
 		}
 		extension := filepath.Ext(relative)
 		base := strings.TrimSuffix(filepath.Base(relative), extension) + "-sparkclaw-edit" + extension
@@ -197,58 +253,6 @@ func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (docu
 		}
 	}
 	return result, nil
-}
-
-func documentOperationForContent(format, lower string) string {
-	switch format {
-	case app.DocumentFormatDOCX:
-		switch {
-		case containsEnglishSemanticTerm(lower, "insert") || containsAny(lower, "插入", "新增段落"):
-			return "insert_paragraph"
-		case containsEnglishSemanticTerm(lower, "delete", "remove") || containsAny(lower, "删除段落"):
-			return "delete_paragraph"
-		case containsEnglishSemanticTerm(lower, "style", "bold") || containsAny(lower, "样式", "加粗"):
-			return "set_text_style"
-		case containsEnglishSemanticTerm(lower, "replace") || containsAny(lower, "替换"):
-			return "replace_paragraph"
-		}
-	case app.DocumentFormatXLSX:
-		switch {
-		case containsEnglishSemanticTerm(lower, "append") || containsAny(lower, "追加"):
-			return "append_row"
-		case containsEnglishSemanticTerm(lower, "insert") || containsAny(lower, "插入行"):
-			return "insert_row"
-		case containsEnglishSemanticTerm(lower, "delete", "remove") || containsAny(lower, "删除行"):
-			return "delete_row"
-		case containsEnglishSemanticTerm(lower, "row") || containsAny(lower, "整行", "这一行"):
-			return "update_row"
-		case containsEnglishSemanticTerm(lower, "cell", "update", "change", "edit", "modify") || containsAny(lower, "单元格", "修改", "改为", "更新"):
-			return "update_cell"
-		}
-	case app.DocumentFormatPPTX:
-		switch {
-		case containsEnglishSemanticTerm(lower, "add", "insert") || containsAny(lower, "新增幻灯片", "添加幻灯片"):
-			return "add_slide"
-		case containsEnglishSemanticTerm(lower, "duplicate", "copy") || containsAny(lower, "复制幻灯片"):
-			return "duplicate_slide"
-		case containsEnglishSemanticTerm(lower, "delete", "remove") || containsAny(lower, "删除幻灯片"):
-			return "delete_slide"
-		case containsEnglishSemanticTerm(lower, "replace") || containsAny(lower, "替换"):
-			return "replace_text"
-		}
-	case app.DocumentFormatPDF:
-		switch {
-		case containsEnglishSemanticTerm(lower, "rotate") || containsAny(lower, "旋转"):
-			return "rotate_pages"
-		case containsEnglishSemanticTerm(lower, "extract") || containsAny(lower, "提取页面"):
-			return "extract_pages"
-		case containsEnglishSemanticTerm(lower, "delete", "remove") || containsAny(lower, "删除页面"):
-			return "delete_pages"
-		case containsEnglishSemanticTerm(lower, "split") || containsAny(lower, "拆分"):
-			return "split"
-		}
-	}
-	return ""
 }
 
 func normalizeBrowserURL(raw string) string {

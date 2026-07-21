@@ -15,6 +15,9 @@ func (browserInteractionProfile) Revision() int      { return 1 }
 func (browserInteractionProfile) Capability() app.CapabilityID {
 	return app.CapabilityBrowserInteraction
 }
+func (browserInteractionProfile) Finalization() workflowFinalizationMode {
+	return workflowFinalizationGrounded
+}
 
 func (browserInteractionProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
 	content := semanticRoutingContent(input.Content)

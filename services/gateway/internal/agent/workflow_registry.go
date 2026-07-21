@@ -15,6 +15,7 @@ type workflowProfile interface {
 	ID() app.WorkflowID
 	Revision() int
 	Capability() app.CapabilityID
+	Finalization() workflowFinalizationMode
 	Recognize(workflowRecognitionContext) (workflowRecognition, bool)
 	Resolve(app.RouteDecision, string) (app.IntentEnvelope, app.WorkflowPlan, error)
 	Prepare(*app.WorkflowState) (app.TransitionID, bool, error)
@@ -22,6 +23,13 @@ type workflowProfile interface {
 	Hint(*app.WorkflowState) workflowExecutionHint
 	TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string
 }
+
+type workflowFinalizationMode string
+
+const (
+	workflowFinalizationGrounded workflowFinalizationMode = "grounded"
+	workflowFinalizationModel    workflowFinalizationMode = "model"
+)
 
 type workflowRecognitionContext struct {
 	SourceTurnID  string
@@ -90,7 +98,7 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 		byID:         make(map[app.WorkflowID]workflowProfile, len(profiles)),
 	}
 	for _, profile := range profiles {
-		if profile == nil || profile.ID() == "" || profile.Revision() <= 0 || profile.Capability() == "" {
+		if profile == nil || profile.ID() == "" || profile.Revision() <= 0 || profile.Capability() == "" || profile.Finalization() == "" {
 			panic("workflow profile registration is incomplete")
 		}
 		if _, exists := registry.byID[profile.ID()]; exists {

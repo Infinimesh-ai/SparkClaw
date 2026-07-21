@@ -163,6 +163,7 @@ const (
 	DocumentFormatXLSX     = "xlsx"
 	DocumentFormatPPTX     = "pptx"
 	DocumentFormatPDF      = "pdf"
+	DocumentFormatImage    = "image"
 
 	OutcomeAdapterGeneric         ToolOutcomeAdapter = "generic"
 	OutcomeAdapterWebSearch       ToolOutcomeAdapter = "web.search"

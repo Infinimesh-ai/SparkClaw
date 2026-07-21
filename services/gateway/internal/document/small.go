@@ -64,7 +64,7 @@ func (s *SmallFileStrategy) Read(ctx context.Context, metadata Metadata, request
 	if err != nil {
 		return ReadResult{}, &PipelineError{Code: CodeParseFailed, Stage: StageStructure, Format: metadata.Format, Detail: err.Error()}
 	}
-	return ReadResult{Metadata: metadata, Content: parsed.Content, Document: representation}, nil
+	return ReadResult{Metadata: metadata, Content: parsed.Content, Document: representation, Resources: parsed.Resources}, nil
 }
 
 func (s *SmallFileStrategy) Apply(ctx context.Context, request ApplyRequest) (ApplyResult, error) {

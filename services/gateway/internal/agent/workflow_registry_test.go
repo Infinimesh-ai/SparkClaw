@@ -29,7 +29,7 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation}, Slots: app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com/"}, Facts: map[string]string{"url": "https://example.com/"}}, app.WorkflowBrowserAutomation},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInteraction}, Slots: app.RouteSlots{Operation: app.RouteOperationInteract, Query: "click Next", TargetKind: string(app.TargetKindBrowserCurrentTab), TargetRef: "selected"}}, app.WorkflowBrowserInteraction},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentRead}, Slots: app.RouteSlots{Operation: app.RouteOperationRead, TargetKind: "workspace_path", TargetRef: "test.txt"}, Facts: map[string]string{"path": "test.txt", "document_format": app.DocumentFormatText}}, app.WorkflowDocumentRead},
-		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentEdit}, Slots: app.RouteSlots{Operation: app.RouteOperationEdit, TargetKind: "workspace_path", TargetRef: "test.docx"}, Facts: map[string]string{"path": "test.docx", "output_path": "test-sparkclaw-edit.docx", "document_format": app.DocumentFormatDOCX, "document_operation": "replace_paragraph"}}, app.WorkflowDocumentEdit},
+		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentEdit}, Slots: app.RouteSlots{Operation: app.RouteOperationEdit, TargetKind: "workspace_path", TargetRef: "test.docx"}, Facts: map[string]string{"path": "test.docx", "output_path": "test-sparkclaw-edit.docx", "document_format": app.DocumentFormatDOCX}}, app.WorkflowDocumentEdit},
 	}
 	for _, test := range tests {
 		test.decision.SchemaVersion = app.RouteDecisionSchemaVersion
@@ -39,7 +39,11 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve %v: %v", test.decision.CapabilityPath, err)
 		}
-		if resolved.Profile.ID() != test.want || resolved.Plan.ProfileID != test.want || resolved.Plan.ProfileRevision != 1 {
+		wantRevision := 1
+		if test.want == app.WorkflowDocumentEdit {
+			wantRevision = 2
+		}
+		if resolved.Profile.ID() != test.want || resolved.Plan.ProfileID != test.want || resolved.Plan.ProfileRevision != wantRevision {
 			t.Fatalf("leaf %v resolved wrong contract: %#v", test.decision.CapabilityPath, resolved)
 		}
 	}
@@ -188,6 +192,9 @@ type futureWorkflowProfile struct{}
 func (futureWorkflowProfile) ID() app.WorkflowID           { return "future.translate" }
 func (futureWorkflowProfile) Revision() int                { return 1 }
 func (futureWorkflowProfile) Capability() app.CapabilityID { return "future.translate" }
+func (futureWorkflowProfile) Finalization() workflowFinalizationMode {
+	return workflowFinalizationGrounded
+}
 func (futureWorkflowProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
 	if input.Content != "translate this" {
 		return workflowRecognition{}, false

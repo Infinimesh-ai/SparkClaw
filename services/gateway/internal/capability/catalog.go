@@ -109,9 +109,12 @@ func DefaultCatalog() (Catalog, error) {
 	branch := func(id, parent, description string) Node {
 		return Node{ID: app.CapabilityID(id), ParentID: app.CapabilityID(parent), Kind: NodeBranch, Description: description}
 	}
-	leaf := func(id, parent, description string, route RouteContract) Node {
-		workflow := app.WorkflowContractRef{ID: app.WorkflowID(id), Revision: 1}
+	leafRevision := func(id, parent, description string, revision int, route RouteContract) Node {
+		workflow := app.WorkflowContractRef{ID: app.WorkflowID(id), Revision: revision}
 		return Node{ID: app.CapabilityID(id), ParentID: app.CapabilityID(parent), Kind: NodeLeaf, Description: description, Workflow: &workflow, Route: &route}
+	}
+	leaf := func(id, parent, description string, route RouteContract) Node {
+		return leafRevision(id, parent, description, 1, route)
 	}
 	return NewCatalog(DefaultCatalogRevision, []Node{
 		branch(string(RootID), "", "Registered user-visible product capabilities."),
@@ -133,7 +136,7 @@ func DefaultCatalog() (Catalog, error) {
 		leaf(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
-		leaf(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", RouteContract{
+		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 	})

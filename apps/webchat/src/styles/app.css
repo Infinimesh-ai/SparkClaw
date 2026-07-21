@@ -807,7 +807,7 @@ button:disabled {
 
 .messageMediaImageButton {
   display: block;
-  width: min(100%, 360px);
+  width: min(100%, 720px);
   padding: 0;
   border: 0;
   border-radius: 8px;

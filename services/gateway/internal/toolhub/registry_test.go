@@ -78,6 +78,12 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	if !ok || weather.OutcomeAdapter != app.OutcomeAdapterWeatherCard || len(weather.Directory.OutputKinds) != 1 || weather.Directory.OutputKinds[0] != app.OutputKindImage {
 		t.Fatalf("weather card registration is outside its typed workflow boundary: %#v", weather)
 	}
+	imageInspect, ok := hub.Definition("images.inspect")
+	if !ok || imageInspect.OutcomeAdapter != app.OutcomeAdapterWorkspaceRead || len(imageInspect.Capabilities) != 1 ||
+		imageInspect.Capabilities[0].Name != app.ToolCapabilityDocumentRead ||
+		imageInspect.Capabilities[0].Qualifiers[app.CapabilityQualifierFormat] != app.DocumentFormatImage {
+		t.Fatalf("image inspection is outside the document.read format boundary: %#v", imageInspect)
+	}
 	deleteDefinition, ok := hub.Definition("file.delete")
 	if !ok || len(deleteDefinition.Capabilities) != 1 || deleteDefinition.Capabilities[0].Name == app.ToolCapabilityDocumentEdit {
 		t.Fatalf("file.delete entered document.edit r1: %#v", deleteDefinition)

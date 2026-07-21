@@ -49,9 +49,11 @@ export function MessageBubble({
         <span>{message.role === "user" ? text.chat.you : text.chat.assistant}</span>
         <time>{formatTime(message.created_at, language)}</time>
       </div>
-      {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} sessionId={message.session_id} text={text} />}
+      {message.attachments && message.attachments.length > 0 && (
+        <MessageAttachments attachments={message.attachments} sessionId={message.session_id} text={text} inlineOutputs={message.role === "assistant"} />
+      )}
       {streamStatuses.length > 0 && <StreamStatusList statuses={streamStatuses} />}
-      <MessageContent content={message.content} sessionId={message.session_id} text={text} />
+      {message.content.trim() && <MessageContent content={message.content} sessionId={message.session_id} text={text} />}
       {message.role === "assistant" && message.run_id && (
         <div className="feedbackBar">
           <button onClick={() => void submit("up")} disabled={saving} title={text.chat.helpful}>
@@ -76,35 +78,69 @@ export function MessageBubble({
   );
 }
 
-export function MessageAttachments({ attachments, sessionId, text }: { attachments: MessageAttachment[]; sessionId: string; text: Copy }) {
+export function MessageAttachments({
+  attachments,
+  sessionId,
+  text,
+  inlineOutputs = false
+}: {
+  attachments: MessageAttachment[];
+  sessionId: string;
+  text: Copy;
+  inlineOutputs?: boolean;
+}) {
+  const inlineImages = inlineOutputs ? attachments.filter(isImageAttachment) : [];
+  const outputFiles = inlineOutputs ? attachments.filter((attachment) => !isImageAttachment(attachment)) : [];
+  const ordinaryAttachments = inlineOutputs ? [] : attachments;
   return (
-    <div className="messageAttachments">
-      {attachments.map((attachment) => (
-        isImageAttachment(attachment) ? (
-          <button
-            key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
-            className="messageAttachment image"
-            type="button"
-            title={text.chat.openAttachment}
-            onClick={() => void openDocumentFile(attachment.rel_path, sessionId).catch(() => undefined)}
-          >
-            <WorkspaceFileImage path={attachment.rel_path} sessionId={sessionId} alt={attachment.name || attachment.rel_path} />
-            <span>{attachment.name || attachment.rel_path}</span>
-          </button>
-        ) : (
-          <button
-            key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
-            className="messageAttachment"
-            type="button"
-            title={text.chat.openAttachment}
-            onClick={() => void openDocumentFile(attachment.rel_path, sessionId).catch(() => undefined)}
-          >
-            <FileSearch size={15} />
-            <span>{attachment.name || attachment.rel_path}</span>
-          </button>
-        )
+    <>
+      {inlineImages.map((attachment) => (
+        <WorkspaceMediaImage
+          key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+          path={attachment.rel_path}
+          sessionId={sessionId}
+          alt={attachment.caption || attachment.name || attachment.rel_path}
+        />
       ))}
-    </div>
+      {outputFiles.map((attachment) => (
+        <WorkspaceDocumentResult
+          key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+          path={attachment.rel_path}
+          sessionId={sessionId}
+          label={text.chat.modifiedFile}
+          text={text}
+        />
+      ))}
+      {ordinaryAttachments.length > 0 && (
+        <div className="messageAttachments">
+          {ordinaryAttachments.map((attachment) => (
+            isImageAttachment(attachment) ? (
+              <button
+                key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+                className="messageAttachment image"
+                type="button"
+                title={text.chat.openAttachment}
+                onClick={() => void openDocumentFile(attachment.rel_path, sessionId).catch(() => undefined)}
+              >
+                <WorkspaceFileImage path={attachment.rel_path} sessionId={sessionId} alt={attachment.name || attachment.rel_path} />
+                <span>{attachment.name || attachment.rel_path}</span>
+              </button>
+            ) : (
+              <button
+                key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+                className="messageAttachment"
+                type="button"
+                title={text.chat.openAttachment}
+                onClick={() => void openDocumentFile(attachment.rel_path, sessionId).catch(() => undefined)}
+              >
+                <FileSearch size={15} />
+                <span>{attachment.name || attachment.rel_path}</span>
+              </button>
+            )
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

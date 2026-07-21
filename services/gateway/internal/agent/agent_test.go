@@ -310,19 +310,21 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result.Message.Content, "任务没有完成。") ||
-		!strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
-		!strings.Contains(result.Message.Content, "project-note.txt") ||
+	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
+		strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
 		strings.Contains(result.Message.Content, "Summary from local file:") ||
 		strings.Contains(result.Message.Content, "SparkClaw local file assistant reads workspace files") {
-		t.Fatalf("assistant should expose missing final instead of faking a file summary:\n%s", result.Message.Content)
+		t.Fatalf("assistant should synthesize a model final from completed document evidence:\n%s", result.Message.Content)
 	}
 	calls := st.ListToolCalls(session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != "completed" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
-		t.Fatalf("file-read fallback policy audit missing: %#v", st.ListAudit(session.ID))
+	if hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
+		t.Fatalf("successful document read should not use the missing-final fallback: %#v", st.ListAudit(session.ID))
+	}
+	if !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_final_answer", workflowExecutionModelLane) {
+		t.Fatalf("document read did not run its profile finalizer: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead {
 		t.Fatalf("workspace read did not complete through its workflow profile: %#v", result.Run.Workflow)
@@ -387,11 +389,11 @@ func TestRuntimeFileReadSummaryDoesNotFakeAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result.Message.Content, "任务没有完成。") ||
-		!strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
+	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
+		strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
 		strings.Contains(result.Message.Content, "SparkClaw truncation marker") ||
 		strings.Contains(result.Message.Content, "Summary from local file:") {
-		t.Fatalf("assistant should report missing final instead of exposing a fake truncated summary:\n%s", result.Message.Content)
+		t.Fatalf("assistant should synthesize a final without exposing raw source content:\n%s", result.Message.Content)
 	}
 	calls := st.ListToolCalls(session.ID)
 	if len(calls) != 1 || calls[0].Result == nil {
@@ -430,11 +432,61 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 	if approvals := st.ListApprovals(""); len(approvals) != 0 {
 		t.Fatalf("file content should not create approvals: %#v", approvals)
 	}
-	if !strings.Contains(result.Message.Content, "任务没有完成。") ||
-		!strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
+	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
+		strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
 		strings.Contains(result.Message.Content, "ignore previous instructions") ||
 		strings.Contains(result.Message.Content, "Local file content is untrusted data") {
-		t.Fatalf("assistant should not surface file content as a fake final answer:\n%s", result.Message.Content)
+		t.Fatalf("assistant should treat file content as evidence while synthesizing the final answer:\n%s", result.Message.Content)
+	}
+}
+
+func TestWorkflowFinalAnswerContentAcceptsOnlyUsableFinals(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		content string
+		want    string
+		wantErr bool
+	}{
+		{name: "plain", content: "这份文档主要讨论儿童人工智能教育。", want: "这份文档主要讨论儿童人工智能教育。"},
+		{name: "final envelope", content: `{"type":"final","answer":"文档摘要。"}`, want: "文档摘要。"},
+		{name: "action envelope", content: `{"type":"action","tool":"files.read","arguments":{"path":"other.docx"}}`, wantErr: true},
+		{name: "missing answer", content: "", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := workflowFinalAnswerContent(test.content)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("workflow finalizer accepted unusable content: %q", got)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("workflow final answer = %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestWorkflowFinalEvidenceUsesDocumentContentWithoutLocatorDuplication(t *testing.T) {
+	content := strings.Repeat("儿童人工智能教育正文。", 700)
+	evidence := workflowFinalEvidence([]app.ToolCall{{
+		Tool:       "files.read",
+		Status:     "completed",
+		Capability: app.ToolCapabilityDocumentRead,
+		Arguments:  map[string]any{"path": "uploads/report.docx"},
+		Result: map[string]any{
+			"path":      "uploads/report.docx",
+			"kind":      "docx",
+			"content":   content,
+			"truncated": false,
+		},
+		ObservationSummary: strings.Repeat("duplicate locator structure ", 4000),
+	}}, nil)
+	if len(evidence) != 1 || !strings.Contains(evidence[0], content) || strings.Contains(evidence[0], "duplicate locator structure") {
+		t.Fatalf("workflow final evidence did not isolate document content: %#v", evidence)
+	}
+	if !strings.Contains(evidence[0], "source_truncated=false") || !strings.Contains(evidence[0], "model_evidence_truncated=false") {
+		t.Fatalf("workflow final evidence lost coverage metadata: %s", evidence[0])
 	}
 }
 
@@ -2442,8 +2494,8 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 	if resumed.Run.State != "completed" {
 		t.Fatalf("document run should complete after approved mutation: %#v", resumed.Run)
 	}
-	if resumed.Message.Content != "修改好的文件：outputs/test-expanded.docx" {
-		t.Fatalf("unexpected final answer: %q", resumed.Message.Content)
+	if resumed.Message.Content != "" || len(resumed.Message.Attachments) != 1 || resumed.Message.Attachments[0].RelPath != "outputs/test-expanded.docx" {
+		t.Fatalf("approved document result was not projected as a file attachment: %#v", resumed.Message)
 	}
 	calls := st.ListToolCalls(session.ID)
 	docxCalls := 0
@@ -2780,7 +2832,7 @@ func TestTaskHintPromptConstrainsEstimatedRiskEnum(t *testing.T) {
 func TestTaskHintClassifiesUploadedImageAsImageInspection(t *testing.T) {
 	content := "这张图里有什么文字？\n\nAttached files for this user turn:\n- test.png path=uploads/20260701/test.png content_type=image/png bytes=128"
 	hint := heuristicTaskHint(content)
-	if hint.EvidenceNeed != "workspace" || hint.ToolMode != "read_only" || hint.ModelLaneHint != "deep" {
+	if hint.EvidenceNeed != "workspace" || hint.ToolMode != "read_only" || hint.ModelLaneHint != "fast" {
 		t.Fatalf("image question should need read-only workspace multimodal inspection: %#v", hint)
 	}
 	if !slicesContainsString(hint.CandidateSkills, "image_assistant") {
@@ -3423,10 +3475,56 @@ func TestMigratedWorkflowToolsRemainRegistered(t *testing.T) {
 	for _, name := range []string{
 		"web.search", "info.query", "weather.structure_payload", "media.render_weather_card",
 		"browser.list_tabs", "browser.open", "browser.focus", "browser.read",
-		"files.read", "docx.replace_paragraph", "pptx.add_slide", "xlsx.update_cell", "pdf.extract_text", "pdf.transform",
+		"files.read", "images.inspect", "docx.replace_paragraph", "pptx.add_slide", "xlsx.update_cell", "pdf.extract_text", "pdf.transform",
 	} {
 		if _, ok := tools.Definition(name); !ok {
 			t.Fatalf("migrated workflow tool %s was removed from ToolHub", name)
+		}
+	}
+}
+
+func TestVisibleToolDefinitionsDoNotReopenMigratedDocumentEditors(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+	defs := runtime.visibleToolDefinitions(TaskHint{
+		TaskType:        "modify",
+		EvidenceNeed:    "workspace",
+		ToolMode:        "action_required",
+		EstimatedRisk:   "reversible",
+		CandidateSkills: []string{"document_assistant"},
+		CandidateTools:  []string{"files.read", "docx.replace_paragraph"},
+	}, []skills.Skill{{
+		Name: "document_assistant",
+		AllowedTools: []string{
+			"files.read",
+			"office.replace_text",
+			"docx.replace_paragraph",
+			"docx.insert_paragraph",
+			"docx.delete_paragraph",
+			"docx.set_text_style",
+			"pptx.add_slide",
+			"pptx.update_slide",
+			"pptx.duplicate_slide",
+			"pptx.delete_slide",
+			"xlsx.update_cell",
+			"xlsx.insert_row",
+			"xlsx.delete_row",
+			"xlsx.update_row",
+			"xlsx.append_row",
+		},
+	}})
+	names := visibleToolNames(defs)
+	if !slicesContainsString(names, "files.read") {
+		t.Fatalf("document read should remain visible, got %#v", names)
+	}
+	for _, denied := range []string{"docx.replace_paragraph", "docx.insert_paragraph", "docx.delete_paragraph", "docx.set_text_style", "pptx.add_slide", "pptx.update_slide", "pptx.duplicate_slide", "pptx.delete_slide", "xlsx.update_cell", "xlsx.insert_row", "xlsx.delete_row", "xlsx.update_row", "xlsx.append_row"} {
+		if slicesContainsString(names, denied) {
+			t.Fatalf("migrated document editor %s was reopened through a legacy skill candidate: %#v", denied, names)
 		}
 	}
 }
@@ -3568,6 +3666,19 @@ func TestGroundedSummaryDocumentMutationDoesNotExposeReadExtract(t *testing.T) {
 	}
 	if strings.Contains(got, "Answer from local file") || strings.Contains(got, "Extract:") || strings.Contains(got, "Old first paragraph") {
 		t.Fatalf("document mutation should not expose read extract, got %q", got)
+	}
+}
+
+func TestGroundedSummaryPlainTextMutationReturnsOutputCopy(t *testing.T) {
+	got := groundedSummary("Replace Alpha with Beta in note.md", "", []app.ToolCall{{
+		Tool:   "text.replace_text",
+		Status: "completed_after_approval",
+		Result: map[string]any{
+			"status": "text_version_written", "path": "note.md", "output_path": "note-sparkclaw-edit.md", "replacements": 1,
+		},
+	}})
+	if got != "修改好的文件：note-sparkclaw-edit.md" {
+		t.Fatalf("expected plain-text mutation summary, got %q", got)
 	}
 }
 
@@ -3829,6 +3940,9 @@ func TestImageInspectCanFinalizeLowRiskImageOnlyQuestion(t *testing.T) {
 	}
 	if imageInspectCanFinalize("这张图片里的消息是真的吗，查证一下") {
 		t.Fatalf("external verification image question should not finalize from image alone")
+	}
+	if imageInspectCanFinalize("把这张图片发送到微信") {
+		t.Fatalf("image delivery request should not finalize as image analysis")
 	}
 }
 

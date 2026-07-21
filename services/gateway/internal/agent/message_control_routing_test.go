@@ -459,6 +459,7 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "docx.replace_paragraph", "replace_paragraph")
 	st.AddAudit(app.AuditEvent{
 		SessionID: session.ID, RunID: run.ID, Actor: "message_control", Type: "message.control.routed", Summary: string(TargetResolved),
 		Fields: map[string]any{
@@ -501,7 +502,7 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 		t.Fatalf("business and send approvals were not distinct: business_call=%s send=%#v", call.ID, approval)
 	}
 	before := pendingSend.WorkflowResult
-	if before == nil || len(before.Content.Parts) != 2 || before.Content.Parts[1].Kind != app.MessagePartFile {
+	if before == nil || len(before.Content.Parts) != 1 || before.Content.Parts[0].Kind != app.MessagePartFile || before.Content.Parts[0].Disposition != app.MessageDispositionAttachment {
 		t.Fatalf("pre-approval structured content is incomplete: %#v", before)
 	}
 	if pendingSend.Run.Workflow == nil || !reflect.DeepEqual(pendingSend.Run.Workflow.Route, frozenRoute) || pendingSend.Run.Workflow.PlanDigest != frozenPlanDigest ||

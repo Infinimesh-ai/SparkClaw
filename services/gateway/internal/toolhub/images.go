@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/color"
+	stddraw "image/draw"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/jpeg"
@@ -14,11 +16,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 )
 
 const maxImageInspectBytes = 12 << 20
 const maxImageInspectLongEdge = 2400
+const maxImageModelBytes = 4 << 20
 
 type preparedImageForModel struct {
 	Content        []byte
@@ -75,7 +81,7 @@ func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any) (Result
 		"Model input content type: " + imageForModel.ContentType,
 		"User question: " + question,
 	}, "\n")
-	chat, err := h.models.ChatWithImage(ctx, "deep", system, user, modelrouter.ImageInput{
+	chat, err := h.models.ChatWithImage(ctx, "fast", system, user, modelrouter.ImageInput{
 		Path:        path,
 		Content:     imageForModel.Content,
 		ContentType: imageForModel.ContentType,
@@ -108,13 +114,7 @@ func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any) (Result
 }
 
 func supportedImageContentType(contentType string) bool {
-	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
-	switch contentType {
-	case "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp":
-		return true
-	default:
-		return false
-	}
+	return document.IsSupportedImageContentType(contentType)
 }
 
 func imageDimensions(raw []byte) (int, int) {
@@ -145,7 +145,7 @@ func prepareImageForModel(raw []byte, contentType string) (preparedImageForModel
 	if height > longEdge {
 		longEdge = height
 	}
-	if longEdge <= maxImageInspectLongEdge {
+	if longEdge <= maxImageInspectLongEdge && len(raw) <= maxImageModelBytes {
 		out.ResizeNote = "Image was within the tested multimodal size budget; sent original bytes to the model."
 		return out, nil
 	}
@@ -155,18 +155,31 @@ func prepareImageForModel(raw []byte, contentType string) (preparedImageForModel
 		out.FallbackPolicy = "image.inspect_resize_decode_failed_original_sent"
 		return out, nil
 	}
-	newWidth, newHeight := scaledDimensions(width, height, maxImageInspectLongEdge)
-	resized := resizeNearest(decoded, newWidth, newHeight)
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: 86}); err != nil {
-		return preparedImageForModel{}, err
+	newWidth, newHeight := scaledDimensions(width, height, min(longEdge, maxImageInspectLongEdge))
+	var encoded []byte
+	for attempt := 0; attempt < 6; attempt++ {
+		resized := resizeHighQuality(decoded, newWidth, newHeight)
+		quality := max(62, 86-attempt*6)
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: quality}); err != nil {
+			return preparedImageForModel{}, err
+		}
+		encoded = buf.Bytes()
+		if len(encoded) <= maxImageModelBytes {
+			break
+		}
+		newWidth = max(1, newWidth*4/5)
+		newHeight = max(1, newHeight*4/5)
 	}
-	out.Content = buf.Bytes()
+	if len(encoded) > maxImageModelBytes {
+		return preparedImageForModel{}, errors.New("image could not be prepared within the Fast model input budget")
+	}
+	out.Content = encoded
 	out.ContentType = "image/jpeg"
 	out.Width = newWidth
 	out.Height = newHeight
 	out.Resized = true
-	out.ResizeNote = "Image long edge exceeded tested deep-model budget; resized copy was sent to the model while the original upload was preserved."
+	out.ResizeNote = "Image exceeded the tested Fast-model dimensions or byte budget; a high-quality resized copy was sent while the original was preserved."
 	return out, nil
 }
 
@@ -184,17 +197,11 @@ func scaledDimensions(width, height, maxLongEdge int) (int, int) {
 	return newWidth, newHeight
 }
 
-func resizeNearest(src image.Image, width, height int) *image.RGBA {
-	dst := image.NewRGBA(image.Rect(0, 0, width, height))
-	bounds := src.Bounds()
-	srcWidth := bounds.Dx()
-	srcHeight := bounds.Dy()
-	for y := 0; y < height; y++ {
-		srcY := bounds.Min.Y + y*srcHeight/height
-		for x := 0; x < width; x++ {
-			srcX := bounds.Min.X + x*srcWidth/width
-			dst.Set(x, y, src.At(srcX, srcY))
-		}
-	}
-	return dst
+func resizeHighQuality(src image.Image, width, height int) *image.RGBA {
+	scaled := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.CatmullRom.Scale(scaled, scaled.Bounds(), src, src.Bounds(), draw.Over, nil)
+	opaque := image.NewRGBA(scaled.Bounds())
+	stddraw.Draw(opaque, opaque.Bounds(), image.NewUniform(color.White), image.Point{}, stddraw.Src)
+	stddraw.Draw(opaque, opaque.Bounds(), scaled, image.Point{}, stddraw.Over)
+	return opaque
 }

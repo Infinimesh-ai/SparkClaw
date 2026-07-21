@@ -18,7 +18,7 @@
       "name": "sparkclaw-fast",
       "base_url": "https://sparkclaw.infinimesh.cloud/fast/v1",
       "model": "sparkclaw-fast",
-      "context_tokens": 12288,
+      "context_tokens": 8192,
       "mtp": true,
       "max_tokens": 1024
     },

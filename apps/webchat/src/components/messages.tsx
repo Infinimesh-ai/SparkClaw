@@ -49,9 +49,11 @@ export function MessageBubble({
         <span>{message.role === "user" ? text.chat.you : text.chat.assistant}</span>
         <time>{formatTime(message.created_at, language)}</time>
       </div>
-      {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} text={text} />}
+      {message.attachments && message.attachments.length > 0 && (
+        <MessageAttachments attachments={message.attachments} text={text} inlineOutputs={message.role === "assistant"} />
+      )}
       {streamStatuses.length > 0 && <StreamStatusList statuses={streamStatuses} />}
-      <MessageContent content={message.content} text={text} />
+      {message.content.trim() && <MessageContent content={message.content} text={text} />}
       {message.role === "assistant" && message.run_id && (
         <div className="feedbackBar">
           <button onClick={() => void submit("up")} disabled={saving} title={text.chat.helpful}>
@@ -76,35 +78,57 @@ export function MessageBubble({
   );
 }
 
-export function MessageAttachments({ attachments, text }: { attachments: MessageAttachment[]; text: Copy }) {
+export function MessageAttachments({ attachments, text, inlineOutputs = false }: { attachments: MessageAttachment[]; text: Copy; inlineOutputs?: boolean }) {
+  const inlineImages = inlineOutputs ? attachments.filter(isImageAttachment) : [];
+  const outputFiles = inlineOutputs ? attachments.filter((attachment) => !isImageAttachment(attachment)) : [];
+  const ordinaryAttachments = inlineOutputs ? [] : attachments;
   return (
-    <div className="messageAttachments">
-      {attachments.map((attachment) => (
-        isImageAttachment(attachment) ? (
-          <button
-            key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
-            className="messageAttachment image"
-            type="button"
-            title={text.chat.openAttachment}
-            onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
-          >
-            <img src={documentFileURL(attachment.rel_path)} alt={attachment.name || attachment.rel_path} />
-            <span>{attachment.name || attachment.rel_path}</span>
-          </button>
-        ) : (
-          <button
-            key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
-            className="messageAttachment"
-            type="button"
-            title={text.chat.openAttachment}
-            onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
-          >
-            <FileSearch size={15} />
-            <span>{attachment.name || attachment.rel_path}</span>
-          </button>
-        )
+    <>
+      {inlineImages.map((attachment) => (
+        <WorkspaceMediaImage
+          key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+          path={attachment.rel_path}
+          alt={attachment.caption || attachment.name || attachment.rel_path}
+        />
       ))}
-    </div>
+      {outputFiles.map((attachment) => (
+        <WorkspaceDocumentResult
+          key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+          path={attachment.rel_path}
+          label={text.chat.modifiedFile}
+          text={text}
+        />
+      ))}
+      {ordinaryAttachments.length > 0 && (
+        <div className="messageAttachments">
+          {ordinaryAttachments.map((attachment) => (
+            isImageAttachment(attachment) ? (
+              <button
+                key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+                className="messageAttachment image"
+                type="button"
+                title={text.chat.openAttachment}
+                onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+              >
+                <img src={documentFileURL(attachment.rel_path)} alt={attachment.name || attachment.rel_path} />
+                <span>{attachment.name || attachment.rel_path}</span>
+              </button>
+            ) : (
+              <button
+                key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}
+                className="messageAttachment"
+                type="button"
+                title={text.chat.openAttachment}
+                onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+              >
+                <FileSearch size={15} />
+                <span>{attachment.name || attachment.rel_path}</span>
+              </button>
+            )
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -435,4 +459,3 @@ export function renderPlainMessageText(text: string, keyPrefix: string) {
     </Fragment>
   ));
 }
-

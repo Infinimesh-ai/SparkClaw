@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -363,6 +366,28 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"no
 		[]string{"files.read"}, []string{app.ToolCapabilityDocumentRead})
 }
 
+func TestWebChatImageAttachmentRunsImageInspectWorkflow(t *testing.T) {
+	const relPath = "media/20260721/test.png"
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		path := filepath.Join(cfg.root, filepath.FromSlash(relPath))
+		writeTinyPNG(t, path)
+	})
+	defer closeRuntime()
+
+	result, err := runtime.HandleMessageWithAttachments(context.Background(), session.ID, `这张图片什么内容
+MOCK_REACT_RESPONSE:{"type":"action","tool":"images.inspect","arguments":{"path":"media/20260721/test.png"}}`, []MessageAttachment{{
+		Name: "test.png", RelPath: relPath, ContentType: "image/png", Bytes: 74, Width: 2, Height: 2, Source: "web_upload",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityDocumentRead, app.WorkflowDocumentRead,
+		[]string{"images.inspect"}, []string{app.ToolCapabilityDocumentRead})
+	if !strings.Contains(result.Message.Content, "Mock image inspection") {
+		t.Fatalf("image workflow did not return the grounded multimodal summary: %#v", result.Message)
+	}
+}
+
 func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		writeTestOfficePackage(t, filepath.Join(cfg.root, "note.docx"), "word/document.xml")
@@ -374,24 +399,31 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 		t.Fatal(err)
 	}
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
-		route.Facts["document_format"] != app.DocumentFormatDOCX || route.Facts["document_operation"] != "replace_paragraph" ||
+		route.Facts["document_format"] != app.DocumentFormatDOCX || route.Facts["document_operation"] != "" ||
 		route.Facts["output_path"] != "note-sparkclaw-edit.docx" {
-		t.Fatalf("document edit preflight did not freeze format, operation, and output copy: %#v", route)
+		t.Fatalf("document edit preflight did not freeze format and output copy only: %#v", route)
 	}
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn_document_edit")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
+		t.Fatalf("document edit did not begin with its reader: %#v", visibleToolNames(dispatch.Tools))
+	}
+	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "docx.replace_paragraph", "replace_paragraph")
 	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "docx.replace_paragraph" {
-		t.Fatalf("document edit stage exposed the wrong editor set: %#v", visibleToolNames(dispatch.Tools))
+		t.Fatalf("document edit stage exposed the wrong editor set after reading: %#v", visibleToolNames(dispatch.Tools))
 	}
 	definition, ok := runtime.tools.Definition("docx.replace_paragraph")
 	if !ok {
 		t.Fatal("docx editor definition is unavailable")
 	}
 	call := app.ToolCall{
-		ID: "tc_document_edit", SessionID: session.ID, RunID: dispatch.Run.ID, Tool: definition.Name, Status: "completed", Result: map[string]any{"output_path": "note-sparkclaw-edit.docx"},
+		ID: "tc_document_edit", SessionID: session.ID, RunID: dispatch.Run.ID, Tool: definition.Name, Status: "completed", Result: map[string]any{
+			"output_path":    "note-sparkclaw-edit.docx",
+			"change_summary": map[string]any{"operation": "replace_paragraph", "original_unchanged": true, "changed": 1},
+		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 2, Capability: app.ToolCapabilityDocumentEdit,
 	}
 	st.SaveToolCall(call)
@@ -405,12 +437,21 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	}
 	dispatch.Run.State = "completed"
 	result := runtime.workflowResultForRun(dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
-	if result == nil || result.Status != app.WorkflowResultSucceeded || len(result.Content.Parts) != 2 {
+	if result == nil || result.Status != app.WorkflowResultSucceeded || len(result.Content.Parts) != 1 {
 		t.Fatalf("document edit did not return its output copy: %#v", result)
 	}
-	filePart := result.Content.Parts[1]
-	if filePart.Kind != app.MessagePartFile || filePart.Resource == nil || filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "note-sparkclaw-edit.docx" {
+	if result.Data == nil || result.Data["change_summary"] == nil {
+		t.Fatalf("document edit result omitted change_summary: %#v", result.Data)
+	}
+	filePart := result.Content.Parts[0]
+	if filePart.Kind != app.MessagePartFile || filePart.Disposition != app.MessageDispositionAttachment || filePart.Resource == nil ||
+		filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "note-sparkclaw-edit.docx" {
 		t.Fatalf("unexpected document output part: %#v", filePart)
+	}
+	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "Modified file: note-sparkclaw-edit.docx"}, result)
+	if message.Content != "" || len(message.Attachments) != 1 || message.Attachments[0].RelPath != "note-sparkclaw-edit.docx" ||
+		message.Attachments[0].URI != "workspace://note-sparkclaw-edit.docx" {
+		t.Fatalf("document output was not projected as an assistant attachment: %#v", message)
 	}
 
 	endpoint := app.MessageEndpoint{ID: "endpoint_fake", OwnerID: result.OwnerID, ActorID: result.Authorization.PrincipalID, Kind: app.EndpointKindThirdPartyDevice, ProviderKey: "fake", Status: app.EndpointActive}
@@ -429,8 +470,34 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	if _, err := delivery.NewGateway(routes, providers, nil).Deliver(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
-	if provider.calls != 1 || len(provider.content.Parts) != 2 || provider.content.Parts[1].Kind != app.MessagePartFile {
+	if provider.calls != 1 || len(provider.content.Parts) != 1 || provider.content.Parts[0].Kind != app.MessagePartFile {
 		t.Fatalf("document result did not reach the provider exactly once: calls=%d content=%#v", provider.calls, provider.content)
+	}
+}
+
+func TestWorkflowImageOutputIsInlineAndProjectsWithoutAttachmentText(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	definition, ok := runtime.tools.Definition("media.render_weather_card")
+	if !ok {
+		t.Fatal("weather image definition is unavailable")
+	}
+	call := app.ToolCall{
+		ID: "tc_weather_image", SessionID: session.ID, RunID: "run_weather_image", Tool: definition.Name, Status: "completed",
+		Result: map[string]any{"path": filepath.Join(session.WorkspaceRoot, "media", "weather.png"), "content_type": "image/png", "bytes": 2048, "width": 1400, "height": 900, "summary": "杭州天气"},
+	}
+	st.SaveToolCall(call)
+	run := app.AgentRun{ID: call.RunID, SessionID: session.ID, Workflow: &app.WorkflowState{Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+		"render_weather_card": {OutcomeRefs: []app.ResourceRef{{Kind: "path", Ref: filepath.Join(session.WorkspaceRoot, "media", "weather.png"), Provenance: call.ID}}},
+	}}}
+	content := runtime.workflowResultContent(run, "图片已保存到 media/weather.png")
+	if len(content.Parts) != 1 || content.Parts[0].Kind != app.MessagePartImage || content.Parts[0].Disposition != app.MessageDispositionInline ||
+		content.Parts[0].Resource == nil || content.Parts[0].Resource.Ref != "media/weather.png" || content.Parts[0].Width != 1400 || content.Parts[0].Height != 900 {
+		t.Fatalf("image output was not returned as one complete inline part: %#v", content)
+	}
+	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "图片已保存到 media/weather.png"}, &app.WorkflowResult{Content: content})
+	if message.Content != "" || len(message.Attachments) != 1 || message.Attachments[0].RelPath != "media/weather.png" || message.Attachments[0].ContentType != "image/png" {
+		t.Fatalf("inline image was not projected into the assistant message: %#v", message)
 	}
 }
 
@@ -625,6 +692,26 @@ func writeTestOfficePackage(t *testing.T, path, sentinel string) {
 		err = closeErr
 	}
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeTinyPNG(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	canvas.Set(0, 0, color.RGBA{R: 255, A: 255})
+	if err := png.Encode(file, canvas); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -175,9 +175,16 @@ func (r Router) ChatWithProfile(ctx context.Context, profileName, system, user s
 }
 
 func (r Router) ChatWithImage(ctx context.Context, profileName, system, user string, image ImageInput) (ChatResult, error) {
+	return r.ChatWithImageMaxTokens(ctx, profileName, system, user, image, 0)
+}
+
+func (r Router) ChatWithImageMaxTokens(ctx context.Context, profileName, system, user string, image ImageInput, maxTokens int) (ChatResult, error) {
 	profile, err := r.Profile(profileName)
 	if err != nil {
 		return ChatResult{}, err
+	}
+	if maxTokens > 0 && (profile.MaxTokens <= 0 || maxTokens < profile.MaxTokens) {
+		profile.MaxTokens = maxTokens
 	}
 	return r.chatWithImageProfile(ctx, profile, system, user, image)
 }
@@ -1046,6 +1053,15 @@ func modelID(profile config.ModelProfile) string {
 func mockResponse(lane, user string) string {
 	if injected := mockInjectedResponse(user, "MOCK_DIRECTORY_SELECTION_RESPONSE:"); injected != "" {
 		return injected
+	}
+	if strings.Contains(user, "WORKFLOW_FINAL_ANSWER_REQUEST") {
+		if injected := mockInjectedResponse(user, "MOCK_WORKFLOW_FINAL_RESPONSE:"); injected != "" {
+			return injected
+		}
+		if strings.Contains(user, "images.inspect") {
+			return "Mock image inspection completed from the workflow evidence."
+		}
+		return "Mock workflow answer grounded in the completed document evidence."
 	}
 	if strings.Contains(user, "Deterministic route and authority-safe delivery fallback:") {
 		if injected := mockInjectedResponse(user, "MOCK_INTENT_RESPONSE:"); injected != "" {

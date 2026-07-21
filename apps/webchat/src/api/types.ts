@@ -86,6 +86,31 @@ export type Memory = {
   created_at: string;
 };
 
+export type WorkflowResult = {
+  schema_version: number;
+  id: string;
+  run_id: string;
+  owner_id: string;
+  status: "succeeded" | "waiting" | "blocked" | "failed";
+  workflow: { id: string; revision: number };
+  data?: Record<string, unknown>;
+  content: {
+    parts: Array<{
+      id: string;
+      kind: MessagePartKind;
+      disposition: MessagePartDisposition;
+      text?: string;
+      artifact_id?: string;
+      resource?: { kind: string; ref: string; provenance?: string };
+      name?: string;
+      content_type?: string;
+      bytes?: number;
+    }>;
+  };
+  references?: Array<{ kind: string; ref: string; provenance?: string }>;
+  error?: { code: string; message: string; retryable?: boolean };
+};
+
 export type AgentResult = {
   run: {
     id: string;
@@ -100,6 +125,7 @@ export type AgentResult = {
   message: Message;
   tool_calls: ToolCall[];
   approvals: Approval[];
+  workflow_result?: WorkflowResult | null;
 };
 
 export type MessageAttachment = {
@@ -232,6 +258,7 @@ export type SessionEvent = {
 export type ApprovalResolution = {
   approval: Approval;
   tool_call?: ToolCall | null;
+  workflow_result?: WorkflowResult | null;
 };
 
 export type ReadyStatus = {

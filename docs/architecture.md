@@ -129,11 +129,11 @@ deterministic facts. It cannot emit tools, Skills, Workflow IDs, risk, model
 lanes, or arbitrary fields. Deterministic URL/path facts are frozen during
 normalization, and the catalog validates every path edge and leaf operation.
 
-Catalog revision `2026-07-20.v4` has five production leaves:
+Catalog revision `2026-07-20.v5` has five production leaves:
 `browser.internet_search`, `browser.weather`, `browser.automation`,
 `document.read`, and `document.edit`.
-`WorkflowProfileRegistry.Resolve` maps each leaf to its exact revision 1
-Workflow; it performs no intent matching. The Dispatcher persists the
+`WorkflowProfileRegistry.Resolve` maps the first four leaves to revision 1 and
+`document.edit` to revision 2; it performs no intent matching. The Dispatcher persists the
 `RouteDecision`, `ReturnRoute`, validated plan digest, and node state.
 
 `browser.internet_search` owns every read-only fact whose answer depends on
@@ -168,7 +168,7 @@ ToolHub registers bounded tools and validates successful outputs against declare
 | Area | Tools |
 |---|---|
 | Files | `files.search`, `files.read`, `files.write_draft`, `file.delete` |
-| Documents | `office.replace_text`, `docx.*`, `xlsx.*`, `pptx.*`, `pdf.extract_text`, `pdf.transform` |
+| Documents | `text.replace_text`, `office.replace_text`, `docx.*`, `xlsx.*`, `pptx.*`, `pdf.extract_text`, `pdf.transform` |
 | Memory | `memory.search`, `memory.write_candidate`, `memory.propose`, `memory.write_sensitive` |
 | Browser | `web.search`, `browser.read`, `browser.status`, `browser.list_tabs`, `browser.open`, `browser.focus`, `browser.close`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.click`, `browser.type`, `browser.select` |
 | Weather | `media.render_weather_card` |
@@ -182,29 +182,65 @@ Risk levels are `read`, `draft`, `reversible` and `dangerous`. Read/draft tools 
 `document.read` and `document.edit` keep one fixed orchestration contract even
 when the underlying strategy changes:
 
-1. inspect the governed regular file, verify signature-bearing formats, and
+Explicit content reads, image analysis, and summaries route to `document.read`.
+Any detected
+mutation of an existing governed document routes to `document.edit` revision 2,
+without a router-side mapping to append, insert, delete, row, cell, paragraph,
+slide, or page operations. After structured reading, Runtime searches only the
+detected format's registered editor entries and selects one exact
+operation-qualified capability. Unsupported operations block there instead of
+degrading to a read-only result or being coerced into another editor. File
+creation, deletion, rename, and move remain outside this content-edit boundary.
+
+1. resolve one authoritative governed attachment path, inspect the regular
+   file, verify signature-bearing formats, and
    record size, media type, modification time, and SHA-256 metadata;
-2. select a registered parser by canonical detected format;
+2. select a registered reader by canonical detected format; direct
+   PNG/JPEG/GIF/WebP analysis selects only `images.inspect` and the Fast
+   multimodal model, while structured documents select their parser;
 3. normalize the complete parse into `structured_document_v1`, with stable
    document, block, paragraph, section, sheet, row, cell, slide, and page IDs
-   plus source locations and necessary format metadata;
-4. resolve the requested text or structural location and reject missing,
+   plus source locations and necessary format metadata; parser-visible assets,
+   annotations, layout, extensions, coverage, and edit policy live in the
+   optional `document_enrichment_v1` envelope;
+4. register every high-level embedded image by source relationship and SHA-256,
+   store bytes in ArtifactStore, and invoke only the Fast multimodal model for
+   explicitly targeted images or bounded full-document visual understanding;
+5. resolve the requested text or structural location (for example
+   `document.p[25]`) and reject missing,
    ambiguous, or unexpected match counts; row and slide locators select one
    stable structural entity rather than expanding into their child blocks;
-5. apply only the constrained mutation to one or more new output paths,
-   inspect every reported output, re-hash the input, and return an auditable
+   XLSX content-end insertion uses the highest populated structured row, so
+   formatting-only blank rows do not move the edit or introduce gaps;
+6. form the bounded edit arguments and persist a recoverable Policy approval
+   before any reversible editor executes;
+7. apply only the constrained mutation to one or more new output paths,
+   completely re-read every output, verify the requested after-value and
+   operation-specific content delta, compare parser-visible evidence-only
+   fingerprints, re-hash the input, and return an auditable
    `change_summary` with `output_paths` proving that the original remained
-   unchanged. Invalid or zero-change results remove generated output copies.
+   unchanged. `WorkflowResult` promotes this summary and returns the new file
+   through the same content interface. The Web projection returns modified
+   documents as file attachments and images as complete inline image parts;
+   governed paths stay in references and audit data rather than visible success
+   text. Preservation mismatches, invalid outputs, and zero-change results
+   remove generated output copies. Successful summaries distinguish verified
+   high-level preservation from unknown package-level preservation.
 
 The current `small_file_v1` strategy accepts source files up to 8 MiB and a
-complete extracted representation up to 200,000 bytes. It supports text,
-DOCX, XLSX, PPTX, and text PDFs for reads, and the registered DOCX, XLSX,
-PPTX, and PDF copy-edit operations. Exceeding either limit returns typed
+complete extracted representation up to 200,000 bytes. It reads text, DOCX,
+XLSX, PPTX, and text PDFs, and supports registered plain-text/Markdown, DOCX,
+XLSX, PPTX, and PDF copy-edit operations. Exceeding either limit returns typed
 `strategy_deferred`; unsupported formats and locators return their own typed
-errors. Adapters must never truncate and report success.
+errors. Direct image reads remain in the same `document.read` Workflow but use
+the `images.inspect` adapter's 12 MiB source limit instead of
+`small_file_v1`. Adapters must never truncate and report success.
 
 `internal/document.Pipeline` owns the stage order, while strategies own parser
-and editor registries. A future chunked, streaming, indexed, or lazy strategy
+and editor registries. Its active `DocumentEnricher` registry currently runs
+the Fast image-semantic implementation after normalization; future package
+inventory enrichers use the same boundary. A future chunked, streaming,
+indexed, or lazy strategy
 implements the same `Strategy` interface; profiles and Runtime do not branch on
 that choice. ToolHub registration remains the sole model-visible capability
 boundary, and document content remains untrusted evidence. Structured results

@@ -20,8 +20,8 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 		"token_estimate":    tokenEstimate,
 		"language":          detectDocumentLanguage(content),
 		"has_tables":        len(documentAnySlice(document["tables"])) > 0,
-		"has_images":        false,
-		"is_scanned":        false,
+		"has_images":        documentImageCount(document) > 0,
+		"is_scanned":        boolLikeDocumentStat(document, "scanned_unsupported"),
 		"structure_quality": structureQualityForDocument(document, format),
 		"complexity":        complexityForTokenEstimate(tokenEstimate),
 	}
@@ -46,11 +46,12 @@ func attachSmallDocumentPipeline(document map[string]any, relPath, format, conte
 		"reason": "small_direct uses full_text context without retrieval index",
 	}
 	context := map[string]any{
-		"mode":           string(app.DocumentContextFullText),
-		"items":          smallDocumentContextItems(relPath, format, content),
-		"citations":      smallDocumentCitations(document),
-		"token_estimate": tokenEstimate,
-		"warnings":       []string{},
+		"mode":             string(app.DocumentContextFullText),
+		"items":            smallDocumentContextItems(relPath, format, content, document),
+		"citations":        smallDocumentCitations(document),
+		"context_segments": smallDocumentContextSegments(relPath, content, document),
+		"token_estimate":   tokenEstimate,
+		"warnings":         []string{},
 	}
 	telemetry := map[string]any{
 		"document_id":    relPath,
@@ -107,6 +108,12 @@ func intLikeDocumentStat(document map[string]any, key string, fallback int) int 
 	return fallback
 }
 
+func boolLikeDocumentStat(document map[string]any, key string) bool {
+	stats, _ := documentAnyMap(document["stats"])
+	value, _ := stats[key].(bool)
+	return value
+}
+
 func structureQualityForDocument(document map[string]any, format string) string {
 	if len(documentAnySlice(document["blocks"])) > 0 || len(documentAnySlice(document["paragraphs"])) > 0 || len(documentAnySlice(document["pages"])) > 0 {
 		return "good"
@@ -128,7 +135,7 @@ func complexityForTokenEstimate(tokens int) string {
 	}
 }
 
-func smallDocumentContextItems(relPath, format, content string) []map[string]any {
+func smallDocumentContextItems(relPath, format, content string, document map[string]any) []map[string]any {
 	items := []map[string]any{{
 		"type": "document_metadata",
 		"text": "document=" + relPath + " format=" + format,
@@ -140,7 +147,96 @@ func smallDocumentContextItems(relPath, format, content string) []map[string]any
 			"score": 1,
 		})
 	}
+	for _, segment := range smallDocumentContextSegments(relPath, "", document) {
+		if segment["category"] == "content" {
+			continue
+		}
+		items = append(items, map[string]any{
+			"type": segment["category"], "anchor": segment["anchor"], "text": segment["text"],
+			"untrusted": segment["untrusted"], "provenance": segment["provenance"],
+		})
+	}
 	return items
+}
+
+func smallDocumentContextSegments(relPath, content string, document map[string]any) []map[string]any {
+	segments := []map[string]any{}
+	if strings.TrimSpace(content) != "" {
+		segments = append(segments, map[string]any{
+			"category": "content", "anchor": relPath, "text": content, "priority": 100, "untrusted": true,
+		})
+	}
+	enrichment, ok := documentAnyMap(document["enrichment"])
+	if !ok {
+		return segments
+	}
+	assets, _ := documentAnyMap(enrichment["assets"])
+	imageBudget := 4000
+	seenHashes := map[string]struct{}{}
+	for _, value := range documentAnySlice(assets["images"]) {
+		image, ok := documentAnyMap(value)
+		if !ok || imageBudget <= 0 {
+			continue
+		}
+		semantic, ok := documentAnyMap(image["semantic"])
+		if !ok || stringArg(semantic, "status", "") != "succeeded" {
+			continue
+		}
+		hash := stringArg(image, "sha256", "")
+		if _, exists := seenHashes[hash]; hash != "" && exists {
+			continue
+		}
+		seenHashes[hash] = struct{}{}
+		parts := []string{stringArg(semantic, "description", "")}
+		if relationship := stringArg(semantic, "relationship_to_text", ""); relationship != "" {
+			parts = append(parts, relationship)
+		}
+		if ocr := outputStringArray(semantic["ocr_text"]); len(ocr) > 0 {
+			parts = append(parts, "Visible text: "+strings.Join(ocr, " | "))
+		}
+		text := trimDocumentText(strings.Join(parts, " "), min(800, imageBudget))
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		location, _ := documentAnyMap(image["location"])
+		segments = append(segments, map[string]any{
+			"category": "image_semantic", "anchor": stringArg(location, "path", ""), "text": text, "priority": 80,
+			"provenance": stringArg(semantic, "model_call_id", ""), "untrusted": true,
+		})
+		imageBudget -= utf8.RuneCountInString(text)
+	}
+	annotations, _ := documentAnyMap(enrichment["annotations"])
+	annotationCount := 0
+	for _, category := range []string{"comments", "notes", "hyperlinks"} {
+		for _, value := range documentAnySlice(annotations[category]) {
+			annotation, ok := documentAnyMap(value)
+			if !ok || annotationCount >= 6 {
+				continue
+			}
+			text := trimDocumentText(stringArg(annotation, "text", ""), 300)
+			if text == "" {
+				continue
+			}
+			location, _ := documentAnyMap(annotation["location"])
+			segments = append(segments, map[string]any{
+				"category": "annotation", "anchor": stringArg(location, "path", ""), "text": text, "priority": 60, "untrusted": true,
+			})
+			annotationCount++
+		}
+	}
+	return segments
+}
+
+func documentImageCount(document map[string]any) int {
+	enrichment, ok := documentAnyMap(document["enrichment"])
+	if !ok {
+		return 0
+	}
+	assets, ok := documentAnyMap(enrichment["assets"])
+	if !ok {
+		return 0
+	}
+	return len(documentAnySlice(assets["images"]))
 }
 
 func smallDocumentCitations(document map[string]any) []map[string]any {

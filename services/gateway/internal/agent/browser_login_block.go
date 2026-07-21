@@ -745,12 +745,14 @@ func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.Ag
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(goal, run, toolCalls, approvals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
-	r.writeTrace(ctx, run, modelrouter.ChatResult{}, toolCalls, approvals, feedback, &episode)
 	route := run.Workflow.Route
+	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
+	assistantMessage := r.messageWithWorkflowResult(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now}, workflowResult)
+	assistant := r.store.AddMessage(assistantMessage)
+	r.writeTrace(ctx, run, modelrouter.ChatResult{}, toolCalls, approvals, feedback, &episode)
 	return Result{
 		Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route,
-		WorkflowResult: r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
+		WorkflowResult: workflowResult,
 	}
 }
 

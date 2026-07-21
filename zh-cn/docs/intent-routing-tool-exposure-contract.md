@@ -130,10 +130,10 @@ Outcome adapter 由注册元数据选择，不使用按工具名分发的 router
 | `browser.automation/focus_existing` | 只聚焦持久化 tab outcome 中选定的精确 page ID | `browser.focus` |
 | `browser.automation/open_new` | 只打开冻结的精确 URL | `browser.open` |
 | `document.read/inspect_type` | 确定性 path 和类型预检 | 不向 Agent 暴露工具；未来注册 type inspector 时它可以是唯一 entry |
-| `document.read/read_by_type` | 按检测格式读取精确 path | 只暴露兼容 file/document/PDF reader 注册 |
-| `document.edit/inspect_type` | 确定性 input/output path 和类型预检 | 不向 Agent 暴露工具；未来注册 type inspector 时它可以是唯一 entry |
-| `document.edit/edit_by_type` | 使用请求 operation 编辑检测格式 | 只暴露兼容 DOCX、XLSX、PPTX 或 PDF editor 注册 |
+| `document.read/read_by_type` | 按检测格式读取精确 path | 只暴露兼容 file/document/PDF/image reader 注册 |
+| `document.edit/read_for_edit` | 使用检测格式读取权威冻结 path | 只暴露兼容 file/document/PDF reader 注册 |
+| `document.edit/edit_by_type` | 获得结构化证据后，在检测格式边界内选择并执行请求 operation | 兼容纯文本、DOCX、XLSX、PPTX 或 PDF editor entry；只物化一个精确 entry |
 
-迁移到另一行时替换 view，绝不合并各行。搜索结果不暴露 page reader；天气卡片执行不暴露联网搜索，预警、新闻或比较请求也不暴露天气卡片工具；tab 扫描不会同时暴露 focus 和 open；文档读取不暴露 editor，文档编辑不暴露其他格式的工具族。
+迁移到另一行时替换 view，绝不合并各行。搜索结果不暴露 page reader；天气卡片执行不暴露联网搜索，预警、新闻或比较请求也不暴露天气卡片工具；tab 扫描不会同时暴露 focus 和 open；文档读取不暴露 editor；文档编辑会用受格式约束的 editor 目录替换 reader view，根据 owner 请求与结构化证据选择一个精确、带 operation qualifier 的 entry，且不暴露其他格式的工具族。Router 输出不冻结具体 editor operation。
 
 这些已迁移切片不使用 TaskHint candidate、Skill allow/deny 清单、fallback 工具清单或 observation 字符串扩展决定可见性。旧上下文组装只作为输入 evidence 保留。明确 URL 与 path 参数执行前必须通过冻结 `ArgumentBinding` 校验。未迁移领域只是旧路径的过渡调用者，不能成为迁移 Workflow 失败后的 fallback。

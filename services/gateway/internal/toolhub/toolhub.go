@@ -57,7 +57,7 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		webSearch: websearch.NewAdapter(cfg),
 		browser:   browserautomation.NewAdapter(cfg),
 	}
-	h.documents = newDocumentPipeline()
+	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {
 		reg, ok := toolRegistry[def.Name]
 		if !ok {
@@ -211,10 +211,14 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "files.read",
-			Description: "Inspect and completely parse one small workspace document into stable blocks and format-specific locations. Oversized documents return an explicit deferred error instead of truncated content.",
+			Description: "Inspect and completely parse one small workspace document into stable blocks, format-specific locations, and categorized high-level evidence. Embedded image semantics use only the Fast model when explicitly targeted or requested for the full document.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
-				"path":      map[string]any{"type": "string"},
-				"max_bytes": map[string]any{"type": "number"},
+				"path":               map[string]any{"type": "string"},
+				"max_bytes":          map[string]any{"type": "number"},
+				"image_analysis":     map[string]any{"type": "string", "enum": []string{"none", "targeted", "all"}},
+				"image_target_paths": stringArraySchema(),
+				"image_question":     stringSchema(),
+				"image_required":     booleanSchema(),
 			}),
 			OutputSchema: objectSchema([]string{"path", "kind", "content", "bytes", "source_bytes", "max_bytes", "truncated", "untrusted", "document"}, map[string]any{
 				"path":         stringSchema(),
@@ -230,13 +234,13 @@ func defaultDefinitions() []app.ToolDefinition {
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
 			Idempotent:       true,
-			TimeoutMS:        3000,
+			TimeoutMS:        125000,
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
 		{
 			Name:        "images.inspect",
-			Description: "Inspect an uploaded workspace image with the deep multimodal model. Use for image description, visible text extraction, and questions about attached images.",
+			Description: "Inspect an uploaded workspace image with the Fast multimodal model. Use for bounded image description, key visible text, diagrams, and chart trends.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":         stringSchema(),
 				"question":     stringSchema(),
@@ -339,6 +343,38 @@ func defaultDefinitions() []app.ToolDefinition {
 			Audit:            "always",
 		},
 		{
+			Name:        "text.replace_text",
+			Description: "Replace explicit text pairs in a governed plain-text file and write a new file without overwriting the original.",
+			InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
+				"path":        stringSchema(),
+				"output_path": stringSchema(),
+				"replacements": arraySchema(map[string]any{
+					"type":     "object",
+					"required": []string{"find", "replace"},
+					"properties": map[string]any{
+						"find":    stringSchema(),
+						"replace": stringSchema(),
+					},
+				}),
+				"expected_replacements": integerSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"status", "path", "output_path", "replacements", "bytes", "change_summary", "untrusted"}, map[string]any{
+				"status":         stringSchema(),
+				"path":           stringSchema(),
+				"output_path":    stringSchema(),
+				"replacements":   integerSchema(),
+				"bytes":          integerSchema(),
+				"change_summary": objectValueSchema(),
+				"untrusted":      booleanSchema(),
+			}),
+			Risk:             app.RiskReversible,
+			RequiresApproval: true,
+			Idempotent:       false,
+			TimeoutMS:        5000,
+			Sandbox:          "optional",
+			Audit:            "always",
+		},
+		{
 			Name:        "office.replace_text",
 			Description: "Replace explicit text pairs in a workspace docx/xlsx/pptx and write a new Office file without overwriting the original.",
 			InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
@@ -411,6 +447,19 @@ func defaultDefinitions() []app.ToolDefinition {
 			"title":        stringSchema(),
 			"body":         stringSchema(),
 			"output_path":  stringSchema(),
+		}),
+		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating selected text shapes from files.read evidence. Use layout_policy=coordinated for improvement work so high-confidence companion shapes and peer rows are adjusted together; use preserve for exact copy edits that must retain geometry. Never submit a whole slide as one replacement.", []string{"path", "slide_index", "updates", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"slide_index": integerSchema(),
+			"layout_policy": map[string]any{
+				"type": "string", "enum": []string{"preserve", "coordinated"},
+			},
+			"updates": arraySchema(strictObjectSchema([]string{"shape_index", "old_text", "text"}, map[string]any{
+				"shape_index": integerSchema(),
+				"old_text":    stringSchema(),
+				"text":        stringSchema(),
+			})),
+			"output_path": stringSchema(),
 		}),
 		pptxToolDefinition("pptx.duplicate_slide", "Duplicate one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
 			"path":        stringSchema(),
@@ -971,19 +1020,27 @@ func pptxToolDefinition(name, description string, required []string, input map[s
 		Description: description,
 		InputSchema: schema("object", required, input),
 		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "slides", "change_summary", "untrusted"}, map[string]any{
-			"status":               stringSchema(),
-			"operation":            stringSchema(),
-			"path":                 stringSchema(),
-			"output_path":          stringSchema(),
-			"bytes":                integerSchema(),
-			"slides":               integerSchema(),
-			"slide_index":          integerSchema(),
-			"inserted_slide_index": integerSchema(),
-			"layout_index":         integerSchema(),
-			"title":                stringSchema(),
-			"body":                 stringSchema(),
-			"change_summary":       objectValueSchema(),
-			"untrusted":            booleanSchema(),
+			"status":                        stringSchema(),
+			"operation":                     stringSchema(),
+			"path":                          stringSchema(),
+			"output_path":                   stringSchema(),
+			"bytes":                         integerSchema(),
+			"slides":                        integerSchema(),
+			"slide_index":                   integerSchema(),
+			"inserted_slide_index":          integerSchema(),
+			"layout_index":                  integerSchema(),
+			"title":                         stringSchema(),
+			"body":                          stringSchema(),
+			"updated_shapes":                integerSchema(),
+			"fitted_shapes":                 integerSchema(),
+			"layout_policy":                 stringSchema(),
+			"layout_adjusted_shapes":        integerSchema(),
+			"layout_adjusted_shape_indexes": arraySchema(integerSchema()),
+			"layout_changes":                arraySchema(objectValueSchema()),
+			"layout_checks":                 objectValueSchema(),
+			"warnings":                      stringArraySchema(),
+			"change_summary":                objectValueSchema(),
+			"untrusted":                     booleanSchema(),
 		}),
 		Risk:             app.RiskReversible,
 		RequiresApproval: true,
@@ -1483,7 +1540,12 @@ func (h *ToolHub) filesRead(ctx context.Context, args map[string]any) (Result, e
 	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
 		maxBytes = document.SmallExtractedMaxBytes
 	}
-	read, err := h.readDocumentWorkflow(ctx, path, maxBytes)
+	read, err := h.readDocumentWorkflow(ctx, path, maxBytes, document.EnrichmentOptions{
+		ImageAnalysis: stringArg(args, "image_analysis", "targeted"),
+		TargetPaths:   outputStringArray(args["image_target_paths"]),
+		Question:      stringArg(args, "image_question", ""),
+		Required:      boolArg(args, "image_required", false),
+	})
 	if err != nil {
 		return Result{}, err
 	}
@@ -1522,6 +1584,12 @@ func textDocumentReadEnvelope(content string, truncated bool, maxBytes int) map[
 		mode = "byte_limited"
 		reason = "max_bytes_exceeded"
 	}
+	newlineStyle := "lf"
+	if strings.Contains(content, "\r\n") {
+		newlineStyle = "crlf"
+	} else if strings.Contains(content, "\r") {
+		newlineStyle = "cr"
+	}
 	return map[string]any{
 		"schema_version": "document_read_v1",
 		"format":         "text",
@@ -1536,6 +1604,18 @@ func textDocumentReadEnvelope(content string, truncated bool, maxBytes int) map[
 		},
 		"blocks":          blocks,
 		"evidence_blocks": evidenceBlocks,
+		"enrichment": map[string]any{
+			"schema_version": document.EnrichmentSchemaVersion,
+			"assets":         map[string]any{"images": []any{}, "charts": []any{}, "embedded_objects": []any{}},
+			"annotations":    map[string]any{"comments": []any{}, "notes": []any{}, "hyperlinks": []any{}},
+			"layout": map[string]any{
+				"sections": []any{}, "page_settings": []any{map[string]any{
+					"encoding": "utf-8", "bom": strings.HasPrefix(content, "\ufeff"), "newline_style": newlineStyle,
+				}}, "slide_layouts": []any{}, "merged_ranges": []any{},
+			},
+			"extensions": map[string]any{"status": "deferred", "parts": []any{}},
+			"coverage":   map[string]any{"content": "complete", "assets": "complete", "annotations": "complete", "layout": "complete", "extensions": "deferred"},
+		},
 		"stats": map[string]any{
 			"blocks":   len(blocks),
 			"complete": !truncated,

@@ -150,6 +150,43 @@ func TestChatWithProfileUsesRequestedLaneWithoutFallback(t *testing.T) {
 	}
 }
 
+func TestChatWithImageMaxTokensBoundsFastResponse(t *testing.T) {
+	var requestedModel string
+	var requestedMaxTokens int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model     string `json:"model"`
+			MaxTokens int    `json:"max_tokens"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		requestedModel = body.Model
+		requestedMaxTokens = body.MaxTokens
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": `{\"description\":\"ok\"}`}}},
+		})
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Model.Fast.Model = "Qwen/Fast"
+	cfg.Model.Fast.MaxTokens = 1024
+	router := New(cfg)
+
+	result, err := router.ChatWithImageMaxTokens(t.Context(), "fast", "system", "inspect", ImageInput{
+		Content: []byte("image"), ContentType: "image/png",
+	}, 512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestedModel != "Qwen/Fast" || requestedMaxTokens != 512 || result.Lane != "fast" {
+		t.Fatalf("unexpected bounded image request: model=%q max=%d result=%#v", requestedModel, requestedMaxTokens, result)
+	}
+}
+
 func TestChooseModelUsesGatewayLaneHint(t *testing.T) {
 	cfg := config.Default()
 	cfg.Model.Fast.Name = "sparkclaw-fast"

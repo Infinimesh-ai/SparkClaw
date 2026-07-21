@@ -41,6 +41,7 @@ func Normalize(metadata Metadata, strategy, content string, raw map[string]any) 
 	representation.Pages = normalizePages(documentID, mapSlice(raw["pages"]))
 	representation.Sections = normalizeEntitySlice(documentID, "section", mapSlice(raw["sections"]), "index")
 	representation.Blocks = normalizeBlocks(documentID, mapSlice(raw["blocks"]))
+	representation.Enrichment = normalizeEnrichment(documentID, raw["enrichment"])
 
 	if len(representation.Blocks) == 0 {
 		switch metadata.Format {
@@ -223,8 +224,17 @@ func blocksFromSlides(documentID string, slides []map[string]any) []Block {
 			shapeIndex := intValue(item["shape_index"])
 			typ := stringValue(item["type"])
 			if typ == "text" {
-				location := map[string]any{"part": "presentation", "block_type": "shape_text", "slide_index": slideIndex, "shape_index": shapeIndex, "path": fmt.Sprintf("presentation.slide[%d].shape[%d]", slideIndex, shapeIndex)}
-				out = append(out, Block{ID: stableID("block", documentID+"\x00"+stringValue(location["path"])), Kind: "shape_text", Text: stringValue(item["text"]), Location: location})
+				path := firstString(item["path"], fmt.Sprintf("presentation.slide[%d].shape[%d]", slideIndex, shapeIndex))
+				location := map[string]any{"part": "presentation", "block_type": "shape_text", "slide_index": slideIndex, "shape_index": shapeIndex, "path": path}
+				if childIndex := intValue(item["group_child_index"]); childIndex > 0 {
+					location["group_child_index"] = childIndex
+					location["parent_group"] = item["parent_group"]
+				}
+				format := cloneMap(mapValue(item["layout"]))
+				if editable, exists := item["editable"]; exists {
+					format["editable"] = editable
+				}
+				out = append(out, Block{ID: stableID("block", documentID+"\x00"+path), Kind: "shape_text", Text: stringValue(item["text"]), Location: location, Format: format})
 			}
 			if typ == "table" {
 				for _, row := range mapSlice(item["rows"]) {

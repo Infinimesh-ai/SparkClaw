@@ -145,9 +145,15 @@ Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID �
 
 文档 Workflow 的阶段顺序由 `internal/document.Pipeline` 负责，而不是由格式 adapter 或模型 prompt 决定。新增格式时，在 ToolHub 注册一个规范 parser，并按需注册带 operation qualifier 的 editor。除签名感知 detector 和 registration composition 外，不要增加 extension switch。
 
+高层路由只判断现有文档是读取还是修改；直接图片分析作为读取格式进入同一个 `document.read` Workflow。不得把自然语言中的插入、删除、追加、行、单元格、段落、幻灯片或页面词语映射为具体 editor operation。所有内容修改都携带检测格式进入 `document.edit` r2；结构化读取完成后，再由有边界的目录选择确定一个兼容、带 operation qualifier 的注册项。不支持的修改必须在该阶段明确 block，不能被强制套用到其他 editor。
+
 当前唯一实现的策略是 `small_file_v1`：源文件最大 8 MiB，完整抽取内容最大 200,000 bytes。更大资源必须返回类型化 `strategy_deferred`，直到另一个 `document.Strategy` 实现分块、流式、索引或惰性访问。截断内容绝不能成为成功的小文档结果。
 
-每个 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并通过类型化结果返回全部输出 path，而不能只放在 adapter-specific details 中。Pipeline 会校验每个输出、重新计算输入哈希，然后才返回 `change_summary`；无效或零变更结果会清理生成的副本。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
+每个结构化文档 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。直接图片 reader 则通过 `images.inspect` 返回带尺寸和 Fast 模型来源的有界语义结果，原图限制为 12 MiB。高层 parser 可以增加可选的 `document_enrichment_v1` envelope，分别记录 assets、annotations、layout、extensions、coverage 和 category policy。DOCX、XLSX、PPTX 与文本型 PDF reader 会登记 parser 可见的嵌入图片，保存来源关系与 SHA-256 身份；图片二进制只写入 ArtifactStore，不进入 ToolCall JSON 或 prompt。`files.read` 默认使用目标模式，通过稳定的 `image_target_paths` 指定相关图片，并且只调用 Fast 模型；只有明确的全文视觉理解请求才使用 `image_analysis=all`。当前限制为目标模式最多 4 张、全文模式最多 8 张去重图片，并发 2，单图 30 秒，富化阶段总计 120 秒，输出上限 512 tokens，图片语义上下文合计最多 4,000 字符。
+
+每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并通过类型化结果返回全部输出 path，而不能只放在 adapter-specific details 中。XLSX 追加操作必须从该结构化表示中的最高非空行派生行锚点，不能使用库的物理 used range 或 `rowCount`，因为仅带格式的空白单元格会扩展二者并在新增内容前产生可见空洞。Pipeline 会通过同一 parser 完整重读每个输出，校验预期修改后值和未命中内容，比较已知的 asset、annotation 与 layout 指纹，再重新计算输入哈希。任何异常都会删除输出并返回 `preservation_mismatch`。成功摘要明确报告 `high_level_preservation=verified` 与 `package_preservation=unknown`；后者要等 OOXML/PDF 包级检查实现后才能升级。无效或零变更结果同样会清理副本。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
+
+Path 只作为内部受治理 reference 保留，不作为面向用户的成功文本。文档修改成功后，每个输出都投影为 assistant message 上可下载的文件附件。图片输出使用 `kind=image` 与 `disposition=inline`，WebChat 按自然宽高比完整展示图片，而不是显示附件缩略图。审批恢复和持久化消息历史使用同一投影规则。
 
 测试前先安装文档运行时：
 

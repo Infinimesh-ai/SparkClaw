@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,11 +25,12 @@ var formatExtensions = map[string]string{
 }
 
 var formatContentTypes = map[string]string{
-	app.DocumentFormatText: "text/plain; charset=utf-8",
-	app.DocumentFormatDOCX: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-	app.DocumentFormatXLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-	app.DocumentFormatPPTX: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-	app.DocumentFormatPDF:  "application/pdf",
+	app.DocumentFormatText:  "text/plain; charset=utf-8",
+	app.DocumentFormatDOCX:  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	app.DocumentFormatXLSX:  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	app.DocumentFormatPPTX:  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	app.DocumentFormatPDF:   "application/pdf",
+	app.DocumentFormatImage: "image/*",
 }
 
 // DetectFormat verifies signature-bearing formats before returning the
@@ -55,6 +57,11 @@ func DetectFormat(path string) (string, error) {
 			}
 		}
 		return "", errors.New("Office extension and package type do not match")
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		if _, err := detectSupportedImageContentType(path, extension); err != nil {
+			return "", err
+		}
+		return app.DocumentFormatImage, nil
 	default:
 		raw, err := readPrefix(path, 4096)
 		if err != nil {
@@ -110,8 +117,15 @@ func InspectFile(ctx context.Context, root, path string) (Metadata, error) {
 	if err != nil {
 		return Metadata{}, &PipelineError{Code: CodeFormatUnsupported, Stage: StageInspect, Detail: err.Error()}
 	}
+	contentType := ContentTypeForFormat(format)
+	if format == app.DocumentFormatImage {
+		contentType, err = detectSupportedImageContentType(pathAbs, strings.ToLower(filepath.Ext(pathAbs)))
+		if err != nil {
+			return Metadata{}, &PipelineError{Code: CodeFormatUnsupported, Stage: StageInspect, Format: format, Detail: err.Error()}
+		}
+	}
 	metadata := Metadata{
-		Path: pathAbs, Relative: filepath.ToSlash(relative), Format: format, ContentType: ContentTypeForFormat(format),
+		Path: pathAbs, Relative: filepath.ToSlash(relative), Format: format, ContentType: contentType,
 		Size: info.Size(), ModifiedAt: info.ModTime().UTC(),
 	}
 	if metadata.Size <= SmallFileMaxBytes {
@@ -157,6 +171,31 @@ func ExtensionForFormat(format string) string {
 
 func ContentTypeForFormat(format string) string {
 	return formatContentTypes[strings.ToLower(strings.TrimSpace(format))]
+}
+
+func IsSupportedImageContentType(contentType string) bool {
+	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	switch contentType {
+	case "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func detectSupportedImageContentType(path, extension string) (string, error) {
+	raw, err := readPrefix(path, 512)
+	if err != nil {
+		return "", errors.New("image cannot be read for type inspection")
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(raw), ";")[0]))
+	expected := map[string]string{
+		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+	}[strings.ToLower(strings.TrimSpace(extension))]
+	if expected == "" || contentType != expected || !IsSupportedImageContentType(contentType) {
+		return "", errors.New("image extension and signature do not match")
+	}
+	return contentType, nil
 }
 
 func readPrefix(path string, limit int64) ([]byte, error) {

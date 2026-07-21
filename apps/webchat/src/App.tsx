@@ -547,7 +547,11 @@ export function App() {
         },
         onFinal: (result) => {
           setMessages((current) =>
-            current.map((message) => (message.id === assistantMessageId && !receivedDelta ? result.message : message))
+            current.map((message) => {
+              if (message.id !== assistantMessageId) return message;
+              if (!receivedDelta || (result.message.attachments?.length ?? 0) > 0) return result.message;
+              return message;
+            })
           );
         },
         onError: (streamError) => {

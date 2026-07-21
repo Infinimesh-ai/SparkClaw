@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,9 @@ func TestDocumentWorkflowReadsEverySmallFormatIntoStableLocations(t *testing.T) 
 
 func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("Original text"), 0o640); err != nil {
+		t.Fatal(err)
+	}
 	writeDocxFixture(t, root, "note.docx", "Original sentence")
 	writeXlsxFixture(t, root, "book.xlsx")
 	writePptxFixture(t, root, "deck.pptx")
@@ -77,6 +81,10 @@ func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T
 		wantText    string
 		wantChanged int
 	}{
+		{
+			name: "text", input: "note.txt", output: "outputs/note.txt", tool: "text.replace_text", wantText: "Updated text", wantChanged: 1,
+			args: map[string]any{"replacements": []any{map[string]any{"find": "Original text", "replace": "Updated text"}}, "expected_replacements": 1},
+		},
 		{
 			name: "docx", input: "note.docx", output: "outputs/note.docx", tool: "office.replace_text", wantText: "Updated sentence", wantChanged: 1,
 			args: map[string]any{"replacements": []any{map[string]any{"find": "Original sentence", "replace": "Updated sentence"}}, "expected_replacements": 1},
@@ -124,6 +132,108 @@ func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T
 				t.Fatalf("edited copy is missing %q: %#v", test.wantText, read)
 			}
 		})
+	}
+}
+
+func TestDocumentWorkflowUpdatesStablePPTXSlideFromShapeEvidence(t *testing.T) {
+	root := t.TempDir()
+	writePptxFixture(t, root, "deck.pptx")
+	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
+
+	read := executeDocumentRead(t, hub, "deck.pptx")
+	structured := read["document"].(map[string]any)
+	slides := testAnySlice(structured["slides"])
+	items := testAnySlice(slides[1].(map[string]any)["items"])
+	bodyShape := items[1].(map[string]any)
+	if intArg(bodyShape, "shape_index", 0) != 2 || stringArg(bodyShape, "text", "") != "Second body" {
+		t.Fatalf("PPTX reader did not expose stable second-slide shape evidence: %#v", bodyShape)
+	}
+
+	inputPath := filepath.Join(root, "deck.pptx")
+	before, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "deck.pptx", "slide_index": 2, "output_path": "outputs/deck.pptx",
+		"updates": []any{map[string]any{
+			"shape_index": bodyShape["shape_index"], "old_text": bodyShape["text"], "text": "Expanded second body",
+		}},
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.Output.(map[string]any)
+	summary := output["change_summary"].(map[string]any)
+	if intArg(output, "slide_index", 0) != 2 || intArg(output, "updated_shapes", 0) != 1 ||
+		intArg(summary, "matched", 0) != 1 || intArg(summary, "changed", 0) != 1 || summary["original_unchanged"] != true {
+		t.Fatalf("PPTX slide update summary is incomplete: %#v", output)
+	}
+	after, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha256.Sum256(before) != sha256.Sum256(after) {
+		t.Fatal("PPTX slide update modified the original")
+	}
+	edited := executeDocumentRead(t, hub, "outputs/deck.pptx")
+	if !strings.Contains(edited["content"].(string), "Expanded second body") || strings.Contains(edited["content"].(string), "Second body\n") {
+		t.Fatalf("edited PPTX did not contain the constrained slide update: %#v", edited)
+	}
+}
+
+func TestDocumentWorkflowReplacesStableDOCXParagraph25(t *testing.T) {
+	root := t.TempDir()
+	paragraphs := make([]string, 25)
+	for index := range paragraphs {
+		paragraphs[index] = fmt.Sprintf("Paragraph %d", index+1)
+	}
+	paragraphs[24] = "Original reflection"
+	writeDocxFixture(t, root, "reflection.docx", strings.Join(paragraphs, "\n"))
+	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
+
+	read := executeDocumentRead(t, hub, "reflection.docx")
+	structured := read["document"].(map[string]any)
+	blocks := testAnySlice(structured["blocks"])
+	if len(blocks) != 25 {
+		t.Fatalf("expected 25 stable paragraph blocks, got %d", len(blocks))
+	}
+	location := blocks[24].(map[string]any)["location"].(map[string]any)
+	if location["path"] != "document.p[25]" || intArg(location, "paragraph_index", 0) != 25 {
+		t.Fatalf("paragraph 25 did not retain its stable locator: %#v", location)
+	}
+
+	inputPath := filepath.Join(root, "reflection.docx")
+	before, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
+		"path":        "reflection.docx",
+		"location":    location,
+		"old_text":    "Original reflection",
+		"source_hash": sourceHash("Original reflection"),
+		"text":        "Improved reflection",
+		"output_path": "outputs/reflection.docx",
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.Output.(map[string]any)
+	summary := output["change_summary"].(map[string]any)
+	if intArg(output, "paragraph_index", 0) != 25 || intArg(summary, "changed", 0) != 1 || summary["original_unchanged"] != true {
+		t.Fatalf("paragraph 25 edit summary is incomplete: %#v", output)
+	}
+	after, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha256.Sum256(before) != sha256.Sum256(after) {
+		t.Fatal("paragraph replacement modified the original DOCX")
+	}
+	edited := executeDocumentRead(t, hub, "outputs/reflection.docx")
+	if !strings.Contains(edited["content"].(string), "Improved reflection") {
+		t.Fatalf("edited DOCX is missing the paragraph 25 replacement: %#v", edited)
 	}
 }
 

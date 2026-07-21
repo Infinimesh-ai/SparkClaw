@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-func newDocumentPipeline() *document.Pipeline {
+func newDocumentPipeline(hub *ToolHub) *document.Pipeline {
 	parsers := map[string]document.Parser{
 		app.DocumentFormatText: document.ParserFunc(parseTextDocument),
 		app.DocumentFormatDOCX: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
@@ -27,6 +29,7 @@ func newDocumentPipeline() *document.Pipeline {
 		}),
 	}
 	editors := map[string]document.Editor{}
+	editors[document.EditorKey(app.DocumentFormatText, "replace_text")] = document.EditorFunc(applyTextReplacement)
 	for _, format := range []string{app.DocumentFormatDOCX, app.DocumentFormatXLSX, app.DocumentFormatPPTX} {
 		format := format
 		editors[document.EditorKey(format, "replace_text")] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
@@ -39,7 +42,7 @@ func newDocumentPipeline() *document.Pipeline {
 			return applyDOCXStructure(ctx, operation, request)
 		})
 	}
-	for _, operation := range []string{"add_slide", "duplicate_slide", "delete_slide"} {
+	for _, operation := range []string{"add_slide", "update_slide", "duplicate_slide", "delete_slide"} {
 		operation := operation
 		editors[document.EditorKey(app.DocumentFormatPPTX, operation)] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
 			return applyPPTXStructure(ctx, operation, request)
@@ -58,7 +61,55 @@ func newDocumentPipeline() *document.Pipeline {
 		})
 	}
 	strategy := document.NewSmallFileStrategy(parsers, editors)
-	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy)
+	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy).WithEnrichers(&fastDocumentImageEnricher{hub: hub})
+}
+
+func applyTextReplacement(_ context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
+	replacements, err := replacementArgs(request.Edit.Arguments["replacements"])
+	if err != nil {
+		return document.ApplyResult{}, err
+	}
+	raw, err := os.ReadFile(request.Metadata.Path)
+	if err != nil {
+		return document.ApplyResult{}, err
+	}
+	updated := string(raw)
+	changed := 0
+	for _, replacement := range replacements {
+		count := strings.Count(updated, replacement.Find)
+		updated = strings.ReplaceAll(updated, replacement.Find, replacement.Replace)
+		changed += count
+	}
+	if changed != len(request.Matches) {
+		return document.ApplyResult{}, &document.PipelineError{
+			Code: document.CodeMatchCountMismatch, Stage: document.StageApply, Format: request.Metadata.Format,
+			Detail: "text editor change count did not match the constrained target set",
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(request.Edit.OutputPath), 0o755); err != nil {
+		return document.ApplyResult{}, err
+	}
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Stat(request.Metadata.Path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	file, err := os.OpenFile(request.Edit.OutputPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return document.ApplyResult{}, err
+	}
+	if _, err = file.WriteString(updated); err != nil {
+		_ = file.Close()
+		_ = os.Remove(request.Edit.OutputPath)
+		return document.ApplyResult{}, err
+	}
+	if err = file.Close(); err != nil {
+		_ = os.Remove(request.Edit.OutputPath)
+		return document.ApplyResult{}, err
+	}
+	return document.ApplyResult{
+		OutputPath: request.Edit.OutputPath, Changed: changed,
+		Details: map[string]any{"status": "text_version_written", "operation": "replace_text", "replacements": changed, "bytes": len([]byte(updated))},
+	}, nil
 }
 
 type adapterReadFunc func(context.Context, map[string]any) (map[string]any, error)
@@ -70,9 +121,13 @@ func adapterDocumentParser(run adapterReadFunc) document.Parser {
 			return document.AdapterReadResult{}, err
 		}
 		structured, _ := out["document"].(map[string]any)
+		resources, err := decodeDocumentResources(out["resources"], structured)
+		if err != nil {
+			return document.AdapterReadResult{}, err
+		}
 		return document.AdapterReadResult{
 			Content: stringArg(out, "content", ""), ExtractedBytes: intArg(out, "extracted_bytes", 0),
-			Truncated: boolArg(out, "truncated", false), Document: structured,
+			Truncated: boolArg(out, "truncated", false), Document: structured, Resources: resources,
 		}, nil
 	})
 }
@@ -142,7 +197,8 @@ func applyPPTXStructure(ctx context.Context, operation string, request document.
 	out, err := runPptxSlideAdapter(ctx, map[string]any{
 		"operation": operation, "path": request.Metadata.Path, "output_path": request.Edit.OutputPath,
 		"slide_index": intArg(args, "slide_index", 0), "layout_index": intArg(args, "layout_index", 0),
-		"title": stringArg(args, "title", ""), "body": stringArg(args, "body", ""),
+		"title": stringArg(args, "title", ""), "body": stringArg(args, "body", ""), "updates": args["updates"],
+		"layout_policy": stringArg(args, "layout_policy", "coordinated"),
 	})
 	if err != nil {
 		return document.ApplyResult{}, err
@@ -152,15 +208,46 @@ func applyPPTXStructure(ctx context.Context, operation string, request document.
 
 func applyXLSXStructure(ctx context.Context, operation string, request document.ApplyRequest) (document.ApplyResult, error) {
 	args := request.Edit.Arguments
-	out, err := runXlsxStructureAdapter(ctx, map[string]any{
+	adapterRequest := map[string]any{
 		"operation": operation, "path": request.Metadata.Path, "output_path": request.Edit.OutputPath,
 		"sheet": stringArg(args, "sheet", ""), "cell": stringArg(args, "cell", ""), "row": intArg(args, "row", 0),
 		"position": stringArg(args, "position", ""), "value": args["value"], "values": args["values"],
-	})
+	}
+	if operation == "append_row" {
+		appendAfterRow, locateErr := lastStructuredXLSXRow(request.Document, stringArg(args, "sheet", ""))
+		if locateErr != nil {
+			return document.ApplyResult{}, locateErr
+		}
+		adapterRequest["append_after_row"] = appendAfterRow
+	}
+	out, err := runXlsxStructureAdapter(ctx, adapterRequest)
 	if err != nil {
 		return document.ApplyResult{}, err
 	}
 	return document.ApplyResult{OutputPath: request.Edit.OutputPath, Changed: 1, Details: out}, nil
+}
+
+func lastStructuredXLSXRow(representation document.Representation, sheetName string) (int, error) {
+	for _, sheet := range representation.Sheets {
+		if !strings.EqualFold(strings.TrimSpace(stringArg(sheet, "name", "")), strings.TrimSpace(sheetName)) {
+			continue
+		}
+		lastRow := 0
+		for _, rawRow := range documentAnySlice(sheet["rows"]) {
+			row, ok := documentAnyMap(rawRow)
+			if !ok {
+				continue
+			}
+			if rowIndex := intArg(row, "index", 0); rowIndex > lastRow {
+				lastRow = rowIndex
+			}
+		}
+		return lastRow, nil
+	}
+	return 0, &document.PipelineError{
+		Code: document.CodeTargetNotFound, Stage: document.StageLocate, Format: representation.Format,
+		Detail: "the requested XLSX sheet was not found in the structured document",
+	}
 }
 
 func applyPDFTransform(ctx context.Context, operation string, request document.ApplyRequest) (document.ApplyResult, error) {
@@ -185,8 +272,12 @@ func applyPDFTransform(ctx context.Context, operation string, request document.A
 	return document.ApplyResult{OutputPath: primaryOutput, OutputPaths: outputPaths, Changed: changed, Details: out}, nil
 }
 
-func (h *ToolHub) readDocumentWorkflow(ctx context.Context, path string, maxBytes int) (document.ReadResult, error) {
-	return h.documents.Read(ctx, document.ReadRequest{Root: h.cfg.Workspaces.DefaultRoot, Path: path, MaxBytes: maxBytes})
+func (h *ToolHub) readDocumentWorkflow(ctx context.Context, path string, maxBytes int, enrichment ...document.EnrichmentOptions) (document.ReadResult, error) {
+	options := document.EnrichmentOptions{ImageAnalysis: "none"}
+	if len(enrichment) > 0 {
+		options = enrichment[0]
+	}
+	return h.documents.Read(ctx, document.ReadRequest{Root: h.cfg.Workspaces.DefaultRoot, Path: path, MaxBytes: maxBytes, Enrichment: options})
 }
 
 func (h *ToolHub) editDocumentWorkflow(ctx context.Context, request document.EditRequest) (document.EditResult, error) {
@@ -224,7 +315,7 @@ func documentChangeOutput(result document.EditResult, status string) map[string]
 		}
 	}
 	out["bytes"] = intArg(result.Details, "bytes", fileSize(result.OutputPath))
-	for _, key := range []string{"paragraph_index", "slide_index", "inserted_slide_index", "layout_index", "slides", "row", "inserted_row", "pages", "replacements"} {
+	for _, key := range []string{"paragraph_index", "slide_index", "inserted_slide_index", "layout_index", "slides", "updated_shapes", "fitted_shapes", "layout_adjusted_shapes", "row", "inserted_row", "pages", "replacements"} {
 		if _, exists := result.Details[key]; exists {
 			out[key] = intArg(result.Details, key, 0)
 		}

@@ -9,10 +9,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 )
 
+const workflowExecutionModelLane = "deep"
+
 type workflowProfile interface {
 	ID() app.WorkflowID
 	Revision() int
 	Capability() app.CapabilityID
+	Finalization() workflowFinalizationMode
 	Recognize(workflowRecognitionContext) (workflowRecognition, bool)
 	Resolve(app.RouteDecision, string) (app.IntentEnvelope, app.WorkflowPlan, error)
 	Prepare(*app.WorkflowState) (app.TransitionID, bool, error)
@@ -21,9 +24,17 @@ type workflowProfile interface {
 	TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string
 }
 
+type workflowFinalizationMode string
+
+const (
+	workflowFinalizationGrounded workflowFinalizationMode = "grounded"
+	workflowFinalizationModel    workflowFinalizationMode = "model"
+)
+
 type workflowRecognitionContext struct {
 	SourceTurnID  string
 	Content       string
+	Resources     []app.MessagePart
 	Snapshot      agentContextSnapshot
 	WorkspaceRoot string
 }
@@ -87,7 +98,7 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 		byID:         make(map[app.WorkflowID]workflowProfile, len(profiles)),
 	}
 	for _, profile := range profiles {
-		if profile == nil || profile.ID() == "" || profile.Revision() <= 0 || profile.Capability() == "" {
+		if profile == nil || profile.ID() == "" || profile.Revision() <= 0 || profile.Capability() == "" || profile.Finalization() == "" {
 			panic("workflow profile registration is incomplete")
 		}
 		if _, exists := registry.byID[profile.ID()]; exists {
@@ -107,6 +118,7 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		browserInternetSearchProfile{},
 		browserWeatherProfile{},
 		browserAutomationProfile{},
+		browserInteractionProfile{},
 		documentReadProfile{},
 		documentEditProfile{},
 	)

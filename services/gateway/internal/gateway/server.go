@@ -1267,6 +1267,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	var call *app.ToolCall
+	var workflowResult *app.WorkflowResult
 	resumed := false
 	if status == "approved" {
 		executed, err := s.runtime.ExecuteApprovedToolCall(r.Context(), approval)
@@ -1275,11 +1276,12 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			return
 		}
 		call = &executed
-		if _, ok, err := s.runtime.ResumeRunAfterApproval(r.Context(), approval.SessionID, approval.RunID); err != nil {
+		if result, ok, err := s.runtime.ResumeRunAfterApproval(r.Context(), approval.SessionID, approval.RunID); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		} else if ok {
 			resumed = true
+			workflowResult = result.WorkflowResult
 		}
 	}
 	if status == "rejected" {
@@ -1296,7 +1298,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 	}
 	s.refreshTrace(r.Context(), approval.RunID)
-	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
+	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call, "workflow_result": workflowResult})
 }
 
 func (s *Server) findApproval(id string) (app.Approval, bool) {
@@ -2402,9 +2404,8 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 	return map[string]any{
 		"browserAutomation": map[string]any{
-			"mcp_command":    cfg.BrowserAutomation.MCPCommand,
-			"mcp_args_count": len(cfg.BrowserAutomation.MCPArgs),
-			"timeout_ms":     cfg.BrowserAutomation.TimeoutMS,
+			"node_command": cfg.BrowserAutomation.NodeCommand,
+			"timeout_ms":   cfg.BrowserAutomation.TimeoutMS,
 		},
 	}
 }

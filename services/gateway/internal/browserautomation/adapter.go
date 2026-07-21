@@ -13,8 +13,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
-const mcpProtocolVersion = "2025-06-18"
-
 type Adapter interface {
 	Call(ctx context.Context, tool string, args map[string]any) (Result, error)
 	ReadPage(ctx context.Context, url string, args map[string]any) (PageReadResult, error)
@@ -74,46 +72,45 @@ type PageReadResult struct {
 	Errors                map[string]any `json:"errors,omitempty"`
 }
 
-type ChromeDevToolsAdapter struct {
-	cfg           config.Config
-	mu            sync.Mutex
-	session       *stdioSession
-	hiddenSession *stdioSession
-	activeProfile string
+type PlaywrightAdapter struct {
+	cfg                config.Config
+	mu                 sync.Mutex
+	session            *playwrightSession
+	activeProfile      string
+	activePresentation string
 }
 
 func NewAdapter(cfg config.Config) Adapter {
-	return &ChromeDevToolsAdapter{cfg: cfg}
+	return &PlaywrightAdapter{cfg: cfg}
 }
 
-// Close shuts down the MCP subprocess (and the Chrome instance it manages) so
-// gateway shutdown does not orphan them.
-func (a *ChromeDevToolsAdapter) Close() error {
+// Close shuts down the Playwright driver and its Chromium child.
+func (a *PlaywrightAdapter) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.resetAllSessionsLocked()
+	a.resetSessionLocked()
 	return nil
 }
 
-func (a *ChromeDevToolsAdapter) Health(ctx context.Context) (Result, error) {
+func (a *PlaywrightAdapter) Health(ctx context.Context) (Result, error) {
 	started := time.Now()
-	tools, err := a.listTools(ctx)
+	out, hidden, err := a.health(ctx)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{
 		Tool:       "browser.status",
-		Output:     map[string]any{"ok": true, "tool_count": len(tools), "tools": tools},
+		Output:     out,
 		Untrusted:  true,
-		Provider:   "chromium-devtools-mcp",
+		Provider:   browserProviderName(hidden),
 		DurationMS: time.Since(started).Milliseconds(),
 	}, nil
 }
 
-func (a *ChromeDevToolsAdapter) Call(ctx context.Context, tool string, args map[string]any) (Result, error) {
+func (a *PlaywrightAdapter) Call(ctx context.Context, tool string, args map[string]any) (Result, error) {
 	started := time.Now()
 	metadata := browserModeMetadata(args, defaultBrowserModeForTool(tool))
-	if tool == "browser.snapshot" && shouldUseHiddenBrowserSession(metadata, args) {
+	if tool == "browser.snapshot" && shouldUseHiddenBrowserSession(metadata, args) && strings.TrimSpace(stringArg(args, "page_id")) == "" {
 		if strings.TrimSpace(stringArg(args, "url")) == "" {
 			return Result{}, errors.New("autonomous hidden browser.snapshot requires url or browser_page_ref")
 		}
@@ -130,9 +127,6 @@ func (a *ChromeDevToolsAdapter) Call(ctx context.Context, tool string, args map[
 		return Result{}, err
 	}
 	normalized := normalizeOutput(tool, out)
-	if err := mcpToolError(rawTool, normalized); err != nil {
-		return Result{}, err
-	}
 	if hidden {
 		normalized = a.withHiddenPageState(ctx, normalized, profileKey)
 	}
@@ -152,10 +146,8 @@ func (a *ChromeDevToolsAdapter) Call(ctx context.Context, tool string, args map[
 	}, nil
 }
 
-func (a *ChromeDevToolsAdapter) withHiddenPageState(ctx context.Context, output any, profileKey string) any {
-	pageState, err := a.callToolWithSession(ctx, true, profileKey, "evaluate_script", map[string]any{
-		"function": browserPageStateEvaluateFunction,
-	})
+func (a *PlaywrightAdapter) withHiddenPageState(ctx context.Context, output any, profileKey string) any {
+	pageState, err := a.callToolWithSession(ctx, true, profileKey, "page_state", nil)
 	normalized := map[string]any{}
 	if current, ok := output.(map[string]any); ok {
 		normalized = cloneArgs(current)
@@ -164,10 +156,6 @@ func (a *ChromeDevToolsAdapter) withHiddenPageState(ctx context.Context, output 
 	}
 	if err != nil {
 		normalized["hidden_page_state_error"] = err.Error()
-		return normalized
-	}
-	if toolErr := mcpToolError("evaluate_script", pageState); toolErr != nil {
-		normalized["hidden_page_state_error"] = toolErr.Error()
 		return normalized
 	}
 	normalized["hidden_page_state"] = pageState
@@ -179,7 +167,7 @@ func (a *ChromeDevToolsAdapter) withHiddenPageState(ctx context.Context, output 
 	return normalized
 }
 
-func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, args map[string]any) (PageReadResult, error) {
+func (a *PlaywrightAdapter) ReadPage(ctx context.Context, targetURL string, args map[string]any) (PageReadResult, error) {
 	started := time.Now()
 	metadata := browserModeMetadata(args, "autonomous")
 	hidden := shouldUseHiddenBrowserSession(metadata, args)
@@ -193,7 +181,7 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 	}
 	timeoutMS := intArg(args, "timeout_ms", a.cfg.Adapters.BrowserAutomation.TimeoutMS)
 	if timeoutMS <= 0 {
-		timeoutMS = 15000
+		timeoutMS = 30000
 	}
 	readCtx := ctx
 	cancel := func() {}
@@ -213,18 +201,11 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 		Presentation:   metadata.Presentation,
 		SurfaceVisible: metadata.SurfaceVisible,
 	}
-	tools, listErr := a.listToolsWithSession(readCtx, hidden, profileKey)
-	if listErr != nil {
-		result.Errors["tools/list"] = listErr.Error()
-	}
 	openOutput, err := a.callToolWithSession(readCtx, hidden, profileKey, "new_page", map[string]any{
 		"url":     targetURL,
 		"timeout": timeoutMS,
 	})
 	if err != nil {
-		return PageReadResult{}, err
-	}
-	if err := mcpToolError("new_page", openOutput); err != nil {
 		return PageReadResult{}, err
 	}
 	result.OpenOutput = openOutput
@@ -234,37 +215,31 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 	if maxChars <= 0 {
 		maxChars = 120000
 	}
-	if len(tools) > 0 && !containsToolName(tools, "evaluate_script") {
-		result.Errors["evaluate_script"] = "tool unavailable"
+	evaluateOutput, evalErr := a.callToolWithSession(readCtx, hidden, profileKey, "evaluate_script", map[string]any{
+		"function": browserReadEvaluateFunction(maxChars),
+	})
+	if evalErr != nil {
+		result.Errors["evaluate_script"] = evalErr.Error()
 	} else {
-		evaluateOutput, evalErr := a.callToolWithSession(readCtx, hidden, profileKey, "evaluate_script", map[string]any{
-			"function": browserReadEvaluateFunction(maxChars),
-		})
-		if evalErr != nil {
-			result.Errors["evaluate_script"] = evalErr.Error()
-		} else if err := mcpToolError("evaluate_script", evaluateOutput); err != nil {
-			result.Errors["evaluate_script"] = err.Error()
-		} else {
-			result.Actions = append(result.Actions, "evaluate_script")
-			result.EvaluateOutput = evaluateOutput
-			if payload := evaluatePayloadMap(evaluateOutput); payload != nil {
-				result.FinalURL = firstStringValue(payload, "url", "href")
-				result.Title = firstStringValue(payload, "title")
-				result.HTML = firstStringValue(payload, "html")
-				result.Text = firstStringValue(payload, "text", "innerText")
-				result.ContentType = firstStringValue(payload, "contentType", "content_type")
-				result.ReadyState = firstStringValue(payload, "readyState", "ready_state")
-				result.Lang = firstStringValue(payload, "lang")
-				result.Rendered = boolValue(payload["rendered"])
-				result.HTMLLength = intValue(payload["htmlLength"])
-				result.HTMLTruncated = boolValue(payload["htmlTruncated"])
-				result.TextLength = intValue(payload["textLength"])
-				result.ScrollHeight = intValue(payload["scrollHeight"])
-				result.AuthState = firstStringValue(payload, "authState", "auth_state")
-				result.AuthConfidence = firstStringValue(payload, "authConfidence", "auth_confidence")
-				result.AuthSignals = firstStringSliceValue(payload["authSignals"], payload["auth_signals"])
-				result.AuthChallengeDetected = boolValue(payload["authChallengeDetected"])
-			}
+		result.Actions = append(result.Actions, "evaluate_script")
+		result.EvaluateOutput = evaluateOutput
+		if payload := evaluatePayloadMap(evaluateOutput); payload != nil {
+			result.FinalURL = firstStringValue(payload, "url", "href")
+			result.Title = firstStringValue(payload, "title")
+			result.HTML = firstStringValue(payload, "html")
+			result.Text = firstStringValue(payload, "text", "innerText")
+			result.ContentType = firstStringValue(payload, "contentType", "content_type")
+			result.ReadyState = firstStringValue(payload, "readyState", "ready_state")
+			result.Lang = firstStringValue(payload, "lang")
+			result.Rendered = boolValue(payload["rendered"])
+			result.HTMLLength = intValue(payload["htmlLength"])
+			result.HTMLTruncated = boolValue(payload["htmlTruncated"])
+			result.TextLength = intValue(payload["textLength"])
+			result.ScrollHeight = intValue(payload["scrollHeight"])
+			result.AuthState = firstStringValue(payload, "authState", "auth_state")
+			result.AuthConfidence = firstStringValue(payload, "authConfidence", "auth_confidence")
+			result.AuthSignals = firstStringSliceValue(payload["authSignals"], payload["auth_signals"])
+			result.AuthChallengeDetected = boolValue(payload["authChallengeDetected"])
 		}
 	}
 
@@ -272,8 +247,6 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 		snapshotOutput, snapshotErr := a.callToolWithSession(readCtx, hidden, profileKey, "take_snapshot", map[string]any{})
 		if snapshotErr != nil {
 			result.Errors["take_snapshot"] = snapshotErr.Error()
-		} else if err := mcpToolError("take_snapshot", snapshotOutput); err != nil {
-			result.Errors["take_snapshot"] = err.Error()
 		} else {
 			result.Actions = append(result.Actions, "take_snapshot")
 			result.Snapshot = snapshotOutput
@@ -297,7 +270,7 @@ func (a *ChromeDevToolsAdapter) ReadPage(ctx context.Context, targetURL string, 
 	return result, nil
 }
 
-func (a *ChromeDevToolsAdapter) hiddenSnapshot(ctx context.Context, started time.Time, args map[string]any, metadata browserModeFields) (Result, error) {
+func (a *PlaywrightAdapter) hiddenSnapshot(ctx context.Context, started time.Time, args map[string]any, metadata browserModeFields) (Result, error) {
 	targetURL := strings.TrimSpace(stringArg(args, "url"))
 	if targetURL == "" {
 		return Result{}, errors.New("autonomous hidden browser.snapshot requires url")
@@ -391,9 +364,9 @@ func shouldUseHiddenAutomationTool(tool string, metadata browserModeFields, args
 
 func browserProviderName(hidden bool) string {
 	if hidden {
-		return "chromium-devtools-mcp-headless"
+		return "microsoft-playwright-headless"
 	}
-	return "chromium-devtools-mcp-visible"
+	return "microsoft-playwright-visible"
 }
 
 type browserModeFields struct {
@@ -433,15 +406,6 @@ func defaultBrowserModeForTool(tool string) string {
 	return "autonomous"
 }
 
-func containsToolName(tools []string, name string) bool {
-	for _, tool := range tools {
-		if tool == name {
-			return true
-		}
-	}
-	return false
-}
-
 func mapTool(tool string, args map[string]any) (string, map[string]any, error) {
 	args = cloneArgs(args)
 	switch tool {
@@ -471,7 +435,7 @@ func mapTool(tool string, args map[string]any) (string, map[string]any, error) {
 		}
 		return "fill", fillArgs(args), nil
 	case "browser.select":
-		return "fill", rawArgsForTool("fill", args), nil
+		return "select_option", rawArgsForTool("select_option", args), nil
 	default:
 		return "", nil, fmt.Errorf("unsupported browser automation tool %q", tool)
 	}
@@ -510,7 +474,7 @@ func browserPageIDArgs(args map[string]any, bringToFront bool) (map[string]any, 
 	raw = strings.TrimPrefix(strings.ToLower(raw), "page_")
 	pageID, err := strconv.Atoi(raw)
 	if err != nil {
-		return nil, fmt.Errorf("browser page_id %q must identify a numeric MCP page", raw)
+		return nil, fmt.Errorf("browser page_id %q must identify a numeric Playwright page", raw)
 	}
 	out := map[string]any{"pageId": pageID}
 	if bringToFront {
@@ -523,7 +487,7 @@ func rawArgsForTool(rawTool string, args map[string]any) map[string]any {
 	args = rawArgs(args)
 	switch rawTool {
 	case "take_snapshot":
-		return onlyArgs(args, "verbose", "filePath")
+		return onlyArgs(args, "page_id", "pageId", "interaction_goal", "verbose", "filePath")
 	default:
 		return args
 	}
@@ -578,18 +542,6 @@ func normalizeOutput(tool string, output any) any {
 	}
 	normalized["pages"] = []any{}
 	return normalized
-}
-
-func mcpToolError(rawTool string, output any) error {
-	result, ok := output.(map[string]any)
-	if !ok || !boolArg(result, "isError") {
-		return nil
-	}
-	text := contentText(result)
-	if strings.TrimSpace(text) == "" {
-		text = "tool returned isError=true"
-	}
-	return fmt.Errorf("%s failed: %s", rawTool, text)
 }
 
 func shouldUseTypeText(args map[string]any) bool {
@@ -786,12 +738,6 @@ const browserReadEvaluateFunctionTemplate = `async () => {
     authChallengeDetected
   };
 }`
-
-const browserPageStateEvaluateFunction = `() => ({
-  url: location.href,
-  title: document.title || "",
-  readyState: document.readyState
-})`
 
 func evaluatePayloadMap(output any) map[string]any {
 	if payload := mapValue(output); payload != nil {

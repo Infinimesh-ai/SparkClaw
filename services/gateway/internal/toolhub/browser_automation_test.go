@@ -32,6 +32,7 @@ func TestBrowserAutomationToolsRegisterOnlyWhenEnabled(t *testing.T) {
 		"browser.screenshot",
 		"browser.wait",
 		"browser.click",
+		"browser.verify",
 		"browser.type",
 		"browser.select",
 	} {
@@ -55,6 +56,10 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 		"browser.click":    {"uid": "button_1"},
 		"browser.type":     {"text": "hello"},
 		"browser.select":   {"uid": "select_1", "value": "A"},
+		"browser.verify": {
+			"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2", "element_ref": "element_1",
+			"verdict": "success", "reason": "target state changed",
+		},
 	}
 	for name, args := range valid {
 		if err := hub.Validate(name, args); err != nil {
@@ -65,7 +70,11 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 		t.Fatal("browser.click should require uid")
 	}
 	if err := hub.Validate("browser.focus", map[string]any{"page_id": 1}); err != nil {
-		t.Fatalf("browser.focus should accept numeric page ids from MCP output: %v", err)
+		t.Fatalf("browser.focus should accept numeric page ids from Playwright output: %v", err)
+	}
+	click, _ := hub.Definition("browser.click")
+	if click.RequiresApproval {
+		t.Fatal("browser.interaction clicks must not require approval")
 	}
 }
 

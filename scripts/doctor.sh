@@ -41,6 +41,8 @@ secret_configured() {
 
 check "node" node --version
 check "npm" npm --version
+check "playwright 1.61.1" node -e 'const version = require("playwright/package.json").version; if (version !== "1.61.1") throw new Error(`expected playwright 1.61.1, got ${version}`)'
+check "playwright chromium" node -e 'const fs = require("node:fs"); const { chromium } = require("playwright"); fs.accessSync(chromium.executablePath(), fs.constants.X_OK)'
 check "curl" curl --version
 check "docker" bash -lc "$DOCKER_BIN --version"
 check "docker compose" bash -lc "$DOCKER_BIN compose version"

@@ -93,6 +93,7 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - run: npm --workspace @sparkclaw/webchat run test
       - run: npm --workspace @sparkclaw/webchat run build
 
   gateway:

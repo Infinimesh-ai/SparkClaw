@@ -53,7 +53,7 @@ capability
     automation      -> browser.automation r1
   document
     read            -> document.read r1
-    edit            -> document.edit r1
+    edit            -> document.edit r2
 ```
 
 The tree is assembled through node and Workflow registrations. Tests validate
@@ -157,7 +157,8 @@ through registration without modifying the current Router algorithm.
 
 ### Document Read: `document.read` r1
 
-Intent: inspect the contents of one governed file and return the result.
+Intent: inspect the contents of one governed document or image and return the
+result.
 
 ```text
 preflight inspect_type
@@ -171,12 +172,20 @@ stage read_by_type
   plain text/code -> bounded file reader
   DOCX/XLSX/PPTX -> format-compatible document reader backend
   PDF -> PDF text reader
-  reader -> complete parse -> stable structured_document_v1 locations
+  PNG/JPEG/GIF/WebP -> Fast multimodal image reader
+  document reader -> complete parse -> stable structured_document_v1 locations
+  image reader -> bounded semantic summary with dimensions and model provenance
 
 content_available
   -> return typed content and references
   -> complete
 ```
+
+The read stage never exposes editors or readers for unrelated formats. Direct
+image analysis stays in `document.read` r1: image signature preflight selects
+only `images.inspect`, which retains its 12 MiB source limit and Fast-only
+model policy. The 8 MiB/200,000-byte `small_file_v1` limits continue to apply
+to structured document readers.
 
 No search, edit, image inspection, or unrelated format tool is visible in the
 read stage. A missing path or unsupported type clarifies or blocks; it does not
@@ -184,23 +193,40 @@ widen exposure. The current small-file strategy accepts at most 8 MiB of source
 data and 200,000 bytes of complete extracted content. Larger input returns
 typed `strategy_deferred`, never a truncated success.
 
-### Document Edit: `document.edit` r1
+### Document Edit: `document.edit` r2
 
 Intent: edit one governed document and return the new result.
+All detected mutations of an existing document's content enter this profile;
+explicit reads and summaries remain in `document.read`. Routing does not map
+natural-language edit phrases to concrete operations. If the requested
+format-specific operation has no registered editor, r2 still performs its
+governed structured read and then blocks explicitly instead of returning a
+read-only success or selecting an unrelated editor.
 
 ```text
-preflight inspect_type
-  resolve the exact governed input path and output-copy path
+deterministic preflight
+  resolve one authoritative governed attachment path and output-copy path
   detect extension/MIME/signature and reject mismatches
-  expose no Agent tool (or only a future registered type-inspector)
+
+stage read_for_edit
+  expose only the reader matching the detected format and frozen input path
+  parse the complete small document into structured_document_v1
+  preserve stable locators such as document.p[25], sheet/cell, slide, and page
+
+document_evidence_available
+  replace the read scope with the detected-format edit scope
+  select one exact operation-qualified editor entry from the request and evidence
+  form bounded edit arguments from the structured observation
 
 stage edit_by_type
-  expose only editors matching detected format and requested operation
+  materialize only the selected editor matching the detected format and requested operation
+  text/Markdown -> bounded text replacement entry
   DOCX -> compatible DOCX editor entries
   XLSX -> compatible XLSX editor entries
   PPTX -> compatible PPTX editor entries
   PDF -> compatible PDF transform entry
-  editor internally re-inspects -> reads -> structures -> locates -> constrains
+  Policy -> persist recoverable approval before reversible execution
+  editor re-inspects -> reads -> structures -> locates -> constrains
   structural row/slide targets -> one stable entity, not all child blocks
   apply only to non-existing output copies
   validate each typed output -> re-hash the frozen input -> clean up on failure
@@ -210,10 +236,11 @@ edit_completed
   -> complete
 ```
 
-Revision 1 returns an auditable `change_summary`, writes one or more output
+Revision 2 returns an auditable `change_summary`, writes one or more output
 copies, and stops only after every typed output exists and the input hash is
-unchanged. Missing, ambiguous, and unexpected target counts block before
-mutation. A separate
+unchanged. The unified `WorkflowResult` carries both `change_summary` and the
+new file. Missing, ambiguous, and unexpected target counts block before
+approval or mutation. A separate
 verification stage may be registered in a later revision; it is not silently
 inserted now. Tools for other formats or operations remain invisible.
 
@@ -375,8 +402,8 @@ node goal: modify a copy and verify the requested change
 initial scope: document.read
 
 format_and_anchor_resolved
-  -> add document.modify with exact format and operation qualifiers
-  -> directory selection chooses among only matching edit descriptions
+  -> add document.modify with the exact format qualifier
+  -> directory selection chooses one operation-qualified edit description
 
 edit_completed
   -> add document.read for the output copy
@@ -385,8 +412,9 @@ output_verified
   -> complete
 ```
 
-An XLSX cell edit cannot retrieve DOCX, PPTX, or PDF mutation entries. Uploaded
-originals remain immutable.
+An XLSX cell edit cannot retrieve DOCX, PPTX, or PDF mutation entries. Insert,
+delete, append, row, and cell requests share this same profile and differ only
+at post-read directory selection. Uploaded originals remain immutable.
 
 
 ### Reminder

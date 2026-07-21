@@ -57,7 +57,7 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		webSearch: websearch.NewAdapter(cfg),
 		browser:   browserautomation.NewAdapter(cfg),
 	}
-	h.documents = newDocumentPipeline()
+	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {
 		reg, ok := toolRegistry[def.Name]
 		if !ok {
@@ -211,10 +211,14 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "files.read",
-			Description: "Inspect and completely parse one small workspace document into stable blocks and format-specific locations. Oversized documents return an explicit deferred error instead of truncated content.",
+			Description: "Inspect and completely parse one small workspace document into stable blocks, format-specific locations, and categorized high-level evidence. Embedded image semantics use only the Fast model when explicitly targeted or requested for the full document.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
-				"path":      map[string]any{"type": "string"},
-				"max_bytes": map[string]any{"type": "number"},
+				"path":               map[string]any{"type": "string"},
+				"max_bytes":          map[string]any{"type": "number"},
+				"image_analysis":     map[string]any{"type": "string", "enum": []string{"none", "targeted", "all"}},
+				"image_target_paths": stringArraySchema(),
+				"image_question":     stringSchema(),
+				"image_required":     booleanSchema(),
 			}),
 			OutputSchema: objectSchema([]string{"path", "kind", "content", "bytes", "source_bytes", "max_bytes", "truncated", "untrusted", "document"}, map[string]any{
 				"path":         stringSchema(),
@@ -230,13 +234,13 @@ func defaultDefinitions() []app.ToolDefinition {
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
 			Idempotent:       true,
-			TimeoutMS:        3000,
+			TimeoutMS:        125000,
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
 		{
 			Name:        "images.inspect",
-			Description: "Inspect an uploaded workspace image with the deep multimodal model. Use for image description, visible text extraction, and questions about attached images.",
+			Description: "Inspect an uploaded workspace image with the Fast multimodal model. Use for bounded image description, key visible text, diagrams, and chart trends.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":         stringSchema(),
 				"question":     stringSchema(),
@@ -271,32 +275,8 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
-		{
-			Name:        "media.render_weather_card",
-			Description: "Look up weather from Open-Meteo and render it into a PNG weather card saved under workspace media/. Return the media path as the final Markdown image when a user wants weather as an image.",
-			InputSchema: strictObjectSchema([]string{"location"}, map[string]any{
-				"location": stringSchema(),
-			}),
-			OutputSchema: objectSchema([]string{"status", "media_path", "path", "content_type", "bytes", "width", "height", "summary", "untrusted"}, map[string]any{
-				"status":       stringSchema(),
-				"media_path":   stringSchema(),
-				"path":         stringSchema(),
-				"uri":          stringSchema(),
-				"content_type": stringSchema(),
-				"bytes":        integerSchema(),
-				"width":        integerSchema(),
-				"height":       integerSchema(),
-				"sha256":       stringSchema(),
-				"summary":      stringSchema(),
-				"untrusted":    booleanSchema(),
-			}),
-			Risk:             app.RiskDraft,
-			RequiresApproval: false,
-			Idempotent:       false,
-			TimeoutMS:        5000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
+		weatherStructureDefinition(),
+		weatherRenderDefinition(),
 		{
 			Name:        "files.write_draft",
 			Description: "Write a draft file inside the configured workspace draft folder.",
@@ -336,6 +316,38 @@ func defaultDefinitions() []app.ToolDefinition {
 			Idempotent:       false,
 			TimeoutMS:        3000,
 			Sandbox:          "required",
+			Audit:            "always",
+		},
+		{
+			Name:        "text.replace_text",
+			Description: "Replace explicit text pairs in a governed plain-text file and write a new file without overwriting the original.",
+			InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
+				"path":        stringSchema(),
+				"output_path": stringSchema(),
+				"replacements": arraySchema(map[string]any{
+					"type":     "object",
+					"required": []string{"find", "replace"},
+					"properties": map[string]any{
+						"find":    stringSchema(),
+						"replace": stringSchema(),
+					},
+				}),
+				"expected_replacements": integerSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"status", "path", "output_path", "replacements", "bytes", "change_summary", "untrusted"}, map[string]any{
+				"status":         stringSchema(),
+				"path":           stringSchema(),
+				"output_path":    stringSchema(),
+				"replacements":   integerSchema(),
+				"bytes":          integerSchema(),
+				"change_summary": objectValueSchema(),
+				"untrusted":      booleanSchema(),
+			}),
+			Risk:             app.RiskReversible,
+			RequiresApproval: true,
+			Idempotent:       false,
+			TimeoutMS:        5000,
+			Sandbox:          "optional",
 			Audit:            "always",
 		},
 		{
@@ -411,6 +423,19 @@ func defaultDefinitions() []app.ToolDefinition {
 			"title":        stringSchema(),
 			"body":         stringSchema(),
 			"output_path":  stringSchema(),
+		}),
+		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating selected text shapes from files.read evidence. Use layout_policy=coordinated for improvement work so high-confidence companion shapes and peer rows are adjusted together; use preserve for exact copy edits that must retain geometry. Never submit a whole slide as one replacement.", []string{"path", "slide_index", "updates", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"slide_index": integerSchema(),
+			"layout_policy": map[string]any{
+				"type": "string", "enum": []string{"preserve", "coordinated"},
+			},
+			"updates": arraySchema(strictObjectSchema([]string{"shape_index", "old_text", "text"}, map[string]any{
+				"shape_index": integerSchema(),
+				"old_text":    stringSchema(),
+				"text":        stringSchema(),
+			})),
+			"output_path": stringSchema(),
 		}),
 		pptxToolDefinition("pptx.duplicate_slide", "Duplicate one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
 			"path":        stringSchema(),
@@ -725,16 +750,43 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
-		browserAutomationDefinition("browser.status", "Check whether the Chrome DevTools MCP browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.list_tabs", "List browser tabs/pages visible through Chrome DevTools MCP.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.open", "Open a URL in a new Chrome page/tab through Chrome DevTools MCP.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		infoQueryDefinition(),
+		browserAutomationDefinition("browser.status", "Check whether the Microsoft Playwright browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.list_tabs", "List tabs/pages in the managed Playwright Chromium context.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.open", "Open a URL in a managed Playwright Chromium page/tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.focus", "Focus/select a browser page/tab by stable page identifier.", app.RiskRead, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.close", "Close a browser page/tab by stable page identifier.", app.RiskReversible, true, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.snapshot", "Take a structured page snapshot for reading and stable element refs.", app.RiskRead, false, nil, []string{"url", "browser_page_ref", "verbose", "filePath"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, []string{"page_id"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.snapshot", "Take a structured page snapshot for reading and stable element refs.", app.RiskRead, false, nil, []string{"page_id", "interaction_goal", "url", "browser_page_ref", "verbose", "filePath"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.screenshot", "Take a browser screenshot for visual confirmation.", app.RiskRead, false, nil, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.wait", "Wait for visible text or observable page state before continuing.", app.RiskRead, false, []string{"text"}, nil, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, true, []string{"uid"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.wait", "Wait for visible text or observable page state before continuing.", app.RiskRead, false, nil, []string{"page_id", "text"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, false, []string{"uid"}, []string{"page_id", "snapshot_id", "expected_effect"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		{
+			Name:        "browser.verify",
+			Description: "Verify a browser click from its before/after structured snapshots and record success or bounded progress.",
+			InputSchema: schema("object", []string{"before_snapshot_id", "after_snapshot_id", "element_ref", "verdict", "reason"}, map[string]any{
+				"before_snapshot_id": stringSchema(),
+				"after_snapshot_id":  stringSchema(),
+				"element_ref":        stringSchema(),
+				"verdict":            map[string]any{"type": "string", "enum": []any{"success", "progress", "failure"}},
+				"reason":             stringSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"schema_version", "status", "code", "before_snapshot_id", "after_snapshot_id", "state_changed", "goal_satisfied", "reason"}, map[string]any{
+				"schema_version":     integerSchema(),
+				"status":             stringSchema(),
+				"code":               stringSchema(),
+				"before_snapshot_id": stringSchema(),
+				"after_snapshot_id":  stringSchema(),
+				"state_changed":      booleanSchema(),
+				"goal_satisfied":     booleanSchema(),
+				"reason":             stringSchema(),
+				"before_digest":      stringSchema(),
+				"after_digest":       stringSchema(),
+				"click_count":        integerSchema(),
+			}),
+			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
+			TimeoutMS: 5000, Sandbox: "forbidden", Audit: "always",
+		},
 		browserAutomationDefinition("browser.type", "Type or fill text into a clear element ref or current focus.", app.RiskDraft, true, []string{"text"}, []string{"uid"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.select", "Select a dropdown or select-like value using a clear element ref.", app.RiskDraft, true, []string{"uid", "value"}, []string{"value"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		{
@@ -971,19 +1023,27 @@ func pptxToolDefinition(name, description string, required []string, input map[s
 		Description: description,
 		InputSchema: schema("object", required, input),
 		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "slides", "change_summary", "untrusted"}, map[string]any{
-			"status":               stringSchema(),
-			"operation":            stringSchema(),
-			"path":                 stringSchema(),
-			"output_path":          stringSchema(),
-			"bytes":                integerSchema(),
-			"slides":               integerSchema(),
-			"slide_index":          integerSchema(),
-			"inserted_slide_index": integerSchema(),
-			"layout_index":         integerSchema(),
-			"title":                stringSchema(),
-			"body":                 stringSchema(),
-			"change_summary":       objectValueSchema(),
-			"untrusted":            booleanSchema(),
+			"status":                        stringSchema(),
+			"operation":                     stringSchema(),
+			"path":                          stringSchema(),
+			"output_path":                   stringSchema(),
+			"bytes":                         integerSchema(),
+			"slides":                        integerSchema(),
+			"slide_index":                   integerSchema(),
+			"inserted_slide_index":          integerSchema(),
+			"layout_index":                  integerSchema(),
+			"title":                         stringSchema(),
+			"body":                          stringSchema(),
+			"updated_shapes":                integerSchema(),
+			"fitted_shapes":                 integerSchema(),
+			"layout_policy":                 stringSchema(),
+			"layout_adjusted_shapes":        integerSchema(),
+			"layout_adjusted_shape_indexes": arraySchema(integerSchema()),
+			"layout_changes":                arraySchema(objectValueSchema()),
+			"layout_checks":                 objectValueSchema(),
+			"warnings":                      stringArraySchema(),
+			"change_summary":                objectValueSchema(),
+			"untrusted":                     booleanSchema(),
 		}),
 		Risk:             app.RiskReversible,
 		RequiresApproval: true,
@@ -1045,7 +1105,7 @@ func browserAutomationDefinition(name, description string, risk app.RiskLevel, a
 		Risk:             risk,
 		RequiresApproval: approval,
 		Idempotent:       risk == app.RiskRead,
-		TimeoutMS:        15000,
+		TimeoutMS:        30000,
 		Sandbox:          "forbidden",
 		Audit:            "always",
 	}
@@ -1060,7 +1120,7 @@ func browserAutomationInputProperties(required []string, extra []string) map[str
 		switch field {
 		case "page_id":
 			out[field] = map[string]any{"type": []any{"string", "number"}}
-		case "uid", "url", "text", "value", "mode", "target_kind", "reason", "browser_mode", "presentation", "browser_page_ref", "filePath":
+		case "uid", "url", "text", "value", "mode", "target_kind", "reason", "browser_mode", "presentation", "browser_page_ref", "filePath", "snapshot_id", "expected_effect", "interaction_goal":
 			out[field] = stringSchema()
 		case "focused", "current_focus", "rich_text", "surface_visible", "disable_hidden_browser", "visible_browser", "verbose":
 			out[field] = booleanSchema()
@@ -1483,7 +1543,12 @@ func (h *ToolHub) filesRead(ctx context.Context, args map[string]any) (Result, e
 	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
 		maxBytes = document.SmallExtractedMaxBytes
 	}
-	read, err := h.readDocumentWorkflow(ctx, path, maxBytes)
+	read, err := h.readDocumentWorkflow(ctx, path, maxBytes, document.EnrichmentOptions{
+		ImageAnalysis: stringArg(args, "image_analysis", "targeted"),
+		TargetPaths:   outputStringArray(args["image_target_paths"]),
+		Question:      stringArg(args, "image_question", ""),
+		Required:      boolArg(args, "image_required", false),
+	})
 	if err != nil {
 		return Result{}, err
 	}
@@ -1522,6 +1587,12 @@ func textDocumentReadEnvelope(content string, truncated bool, maxBytes int) map[
 		mode = "byte_limited"
 		reason = "max_bytes_exceeded"
 	}
+	newlineStyle := "lf"
+	if strings.Contains(content, "\r\n") {
+		newlineStyle = "crlf"
+	} else if strings.Contains(content, "\r") {
+		newlineStyle = "cr"
+	}
 	return map[string]any{
 		"schema_version": "document_read_v1",
 		"format":         "text",
@@ -1536,6 +1607,18 @@ func textDocumentReadEnvelope(content string, truncated bool, maxBytes int) map[
 		},
 		"blocks":          blocks,
 		"evidence_blocks": evidenceBlocks,
+		"enrichment": map[string]any{
+			"schema_version": document.EnrichmentSchemaVersion,
+			"assets":         map[string]any{"images": []any{}, "charts": []any{}, "embedded_objects": []any{}},
+			"annotations":    map[string]any{"comments": []any{}, "notes": []any{}, "hyperlinks": []any{}},
+			"layout": map[string]any{
+				"sections": []any{}, "page_settings": []any{map[string]any{
+					"encoding": "utf-8", "bom": strings.HasPrefix(content, "\ufeff"), "newline_style": newlineStyle,
+				}}, "slide_layouts": []any{}, "merged_ranges": []any{},
+			},
+			"extensions": map[string]any{"status": "deferred", "parts": []any{}},
+			"coverage":   map[string]any{"content": "complete", "assets": "complete", "annotations": "complete", "layout": "complete", "extensions": "deferred"},
+		},
 		"stats": map[string]any{
 			"blocks":   len(blocks),
 			"complete": !truncated,

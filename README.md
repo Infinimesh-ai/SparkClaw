@@ -36,7 +36,7 @@ Known operating boundary:
 - On the validated GB10 machine, full 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
 - The accepted single-machine dual-lane profile is `dual-light-v1`: fast runs at 32K context with 8G KV cache, deep runs at 64K context with 12G KV cache, both with MTP off. Deep is intentionally slower because it is a dense model; the acceptance standard is task stability and overall product experience, not deep-lane throughput alone.
 - Gateway, not the `fast` model, decides which chat lane to call. It routes code, terminal, dangerous, repair or explicitly deep/review requests to `deep`; routine bounded work goes to `fast`, with deep fallback only if a fast call fails.
-- Skill packages under `skills/` are runtime workflow descriptions and will keep evolving; they are intentionally not the source of truth for product documentation.
+- Skill packages under `skills/` are transitional procedures for unmigrated ReAct domains only. Migrated Workflow capabilities do not load Skills; see the [Workflow capability matrix](docs/workflow-capabilities.md).
 
 ## Quick Start
 
@@ -68,7 +68,12 @@ Install JavaScript dependencies:
 
 ```bash
 npm install
+npm run setup:browser
 ```
+
+The second command installs the local Chromium revision matched to the pinned
+Playwright runtime. Set `adapters.browserAutomation.chromiumExecutable` only
+when the deployment must use a separately managed compatible executable.
 
 Run the Gateway and WebChat in separate terminals:
 
@@ -165,7 +170,7 @@ eval/golden/               Golden task definitions
 benchmarks/                DGX Spark model baseline evidence
 docs/                      Current project architecture, deployment and development docs
 packages/                  Portable protocol, policy and tool-schema notes
-skills/                    Runtime workflow skill packages
+skills/                    Transitional ReAct skill packages for unmigrated domains
 zh-cn/                     Chinese documentation mirror
 ```
 

@@ -32,7 +32,7 @@ capability
     automation      -> browser.automation r1
   document
     read            -> document.read r1
-    edit            -> document.edit r1
+    edit            -> document.edit r2
 ```
 
 树由 node 和 Workflow 注册组装。测试校验 identity、parent-child edge、环和 leaf Workflow reference，不断言这五个 leaf 永远是唯一合法注册。新增 branch 修改注册 catalog 和 decision corpus，不修改 Router switch。
@@ -114,7 +114,7 @@ Revision 1 不暴露 navigate、click、type、select、page read 或 Web search
 
 ### 文档读取：`document.read` r1
 
-意图：检查一个受治理文件的内容并返回结果。
+意图：检查一个受治理文档或图片的内容并返回结果。
 
 ```text
 preflight inspect_type
@@ -128,32 +128,46 @@ stage read_by_type
   纯文本/代码 -> 有界文件 reader
   DOCX/XLSX/PPTX -> 格式兼容的文档 reader backend
   PDF -> PDF 文本 reader
-  reader -> 完整解析 -> 生成带稳定位置的 structured_document_v1
+  PNG/JPEG/GIF/WebP -> Fast 多模态图片 reader
+  文档 reader -> 完整解析 -> 生成带稳定位置的 structured_document_v1
+  图片 reader -> 返回带尺寸和模型来源的有界语义摘要
 
 content_available
   -> 返回类型化内容与 reference
   -> complete
 ```
 
-Read stage 不可见搜索、编辑、图片检查或无关格式工具。Path 缺失或类型不支持时 clarify 或 block，不扩大 exposure。当前小文件策略最多接受 8 MiB 源数据和 200,000 bytes 完整抽取内容。更大输入返回类型化 `strategy_deferred`，绝不以截断成功结束。
+Read stage 不可见搜索、编辑或无关格式工具。直接图片分析仍属于 `document.read` r1：图片签名预检后只暴露 `images.inspect`，继续采用 12 MiB 原图限制和 Fast-only 模型策略。8 MiB 源数据与 200,000 bytes 完整抽取限制继续适用于结构化文档 reader；Path 缺失或类型不支持时 clarify 或 block，不扩大 exposure。
 
-### 文档编辑：`document.edit` r1
+### 文档编辑：`document.edit` r2
 
 意图：编辑一个受治理文档并返回新结果。
+所有对现有文档内容的已检测变更都进入该 Profile；明确读取和总结仍进入 `document.read`。路由不把自然语言修改词语映射为具体 operation。如果请求的格式专属 operation 没有已注册 editor，r2 仍先执行受治理的结构化读取，再明确 block，而不是返回只读成功或选择无关 editor。
 
 ```text
-preflight inspect_type
-  解析精确受治理 input path 和 output-copy path
+确定性 preflight
+  解析唯一权威受治理附件 path 和 output-copy path
   检测 extension/MIME/signature 并拒绝不一致
-  不向 Agent 暴露工具（或只暴露未来注册的 type-inspector）
+
+stage read_for_edit
+  只暴露与检测格式和冻结 input path 匹配的 reader
+  把完整小文档解析为 structured_document_v1
+  保留 document.p[25]、sheet/cell、slide 和 page 等稳定 locator
+
+document_evidence_available
+  用检测格式专属 edit scope 替换 read scope
+  根据请求与结构化证据选择一个精确、带 operation qualifier 的 editor entry
+  根据结构化 observation 形成有边界的修改参数
 
 stage edit_by_type
-  只暴露与检测格式和请求 operation 匹配的 editor
+  只物化与检测格式和请求 operation 匹配的已选 editor
+  纯文本/Markdown -> 有边界文本替换 entry
   DOCX -> 兼容 DOCX editor entry
   XLSX -> 兼容 XLSX editor entry
   PPTX -> 兼容 PPTX editor entry
   PDF -> 兼容 PDF transform entry
-  editor 内部重新 inspect -> read -> structure -> locate -> constrain
+  Policy -> 在 reversible execution 前持久化可恢复 approval
+  editor 重新 inspect -> read -> structure -> locate -> constrain
   row/slide 结构目标 -> 一个稳定实体，而不是全部子 block
   只 apply 到不存在的新 output copy
   校验每个类型化输出 -> 重新计算冻结输入哈希 -> 失败时清理
@@ -163,7 +177,7 @@ edit_completed
   -> complete
 ```
 
-Revision 1 返回可审计 `change_summary`，写入一个或多个 output copy，并且只有在每个类型化输出都存在且输入哈希未变化后才结束。目标未找到、歧义或命中数不符时在 mutation 前 block。后续 revision 可以注册独立验证阶段，但当前不能静默插入。其他格式或 operation 的工具保持不可见。
+Revision 2 返回可审计 `change_summary`，写入一个或多个 output copy，并且只有在每个类型化输出都存在且输入哈希未变化后才结束。统一 `WorkflowResult` 同时携带 `change_summary` 和新文件。目标未找到、歧义或命中数不符时在 approval 或 mutation 前 block。后续 revision 可以注册独立验证阶段，但当前不能静默插入。其他格式或 operation 的工具保持不可见。
 
 ## 旧上下文组装边界
 
@@ -301,8 +315,8 @@ authentication_required
 初始 scope：document.read
 
 format_and_anchor_resolved
-  -> 使用精确 format 与 operation qualifier 添加 document.modify
-  -> 目录选择只包含匹配的编辑描述
+  -> 使用精确 format qualifier 添加 document.modify
+  -> 目录选择一个带 operation qualifier 的编辑描述
 
 edit_completed
   -> 为输出副本添加 document.read
@@ -311,7 +325,7 @@ output_verified
   -> 完成
 ```
 
-XLSX 单元格编辑不能检索 DOCX、PPTX 或 PDF 修改条目。上传的原文件保持不可变。
+XLSX 单元格编辑不能检索 DOCX、PPTX 或 PDF 修改条目。插入、删除、追加、行和单元格请求共用同一个 Profile，仅在读取后的目录选择阶段产生区别。上传的原文件保持不可变。
 
 
 ### 提醒

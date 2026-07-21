@@ -55,6 +55,15 @@ process.stdin.on("end", async () => {
       row.commit();
     }
 
+    function rowHasContent(rowNumber) {
+      const row = sheet.getRow(rowNumber);
+      for (let column = 1; column <= row.cellCount; column += 1) {
+        const value = row.getCell(column).value;
+        if (value !== null && value !== undefined && value !== "") return true;
+      }
+      return false;
+    }
+
     function assertCell(address) {
       const cell = String(address || "").trim().toUpperCase();
       if (!/^[A-Z]+[1-9][0-9]*$/.test(cell)) throw new Error("cell must be a valid A1 address");
@@ -88,8 +97,13 @@ process.stdin.on("end", async () => {
       result.values = values;
     } else if (operation === "append_row") {
       const values = valuesArray(req.values);
-      const newRow = sheet.rowCount + 1;
-      sheet.addRow(values);
+      const appendAfterRow = Number(req.append_after_row);
+      if (!Number.isInteger(appendAfterRow) || appendAfterRow < 0) {
+        throw new Error("append_after_row must be a non-negative row anchor");
+      }
+      const newRow = appendAfterRow + 1;
+      if (rowHasContent(newRow)) throw new Error("append target row is not empty: " + newRow);
+      writeRow(newRow, values);
       result.row = newRow;
       result.values = values;
     } else {

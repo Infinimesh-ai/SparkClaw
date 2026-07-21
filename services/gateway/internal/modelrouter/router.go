@@ -175,9 +175,16 @@ func (r Router) ChatWithProfile(ctx context.Context, profileName, system, user s
 }
 
 func (r Router) ChatWithImage(ctx context.Context, profileName, system, user string, image ImageInput) (ChatResult, error) {
+	return r.ChatWithImageMaxTokens(ctx, profileName, system, user, image, 0)
+}
+
+func (r Router) ChatWithImageMaxTokens(ctx context.Context, profileName, system, user string, image ImageInput, maxTokens int) (ChatResult, error) {
 	profile, err := r.Profile(profileName)
 	if err != nil {
 		return ChatResult{}, err
+	}
+	if maxTokens > 0 && (profile.MaxTokens <= 0 || maxTokens < profile.MaxTokens) {
+		profile.MaxTokens = maxTokens
 	}
 	return r.chatWithImageProfile(ctx, profile, system, user, image)
 }
@@ -1044,8 +1051,34 @@ func modelID(profile config.ModelProfile) string {
 }
 
 func mockResponse(lane, user string) string {
+	if strings.Contains(user, "REQUEST_NORMALIZATION_INPUT") {
+		if injected := mockInjectedResponse(user, "MOCK_NORMALIZATION_RESPONSE:"); injected != "" {
+			return injected
+		}
+		if marker := strings.Index(user, "Original request JSON:\n"); marker >= 0 {
+			rest := user[marker+len("Original request JSON:\n"):]
+			if end := strings.IndexByte(rest, '\n'); end >= 0 {
+				rest = rest[:end]
+			}
+			var input map[string]string
+			if json.Unmarshal([]byte(rest), &input) == nil {
+				encoded, _ := json.Marshal(map[string]string{"canonical_request": input["request"]})
+				return string(encoded)
+			}
+		}
+		return `{"canonical_request":""}`
+	}
 	if injected := mockInjectedResponse(user, "MOCK_DIRECTORY_SELECTION_RESPONSE:"); injected != "" {
 		return injected
+	}
+	if strings.Contains(user, "WORKFLOW_FINAL_ANSWER_REQUEST") {
+		if injected := mockInjectedResponse(user, "MOCK_WORKFLOW_FINAL_RESPONSE:"); injected != "" {
+			return injected
+		}
+		if strings.Contains(user, "images.inspect") {
+			return "Mock image inspection completed from the workflow evidence."
+		}
+		return "Mock workflow answer grounded in the completed document evidence."
 	}
 	if strings.Contains(user, "Deterministic route and authority-safe delivery fallback:") {
 		if injected := mockInjectedResponse(user, "MOCK_INTENT_RESPONSE:"); injected != "" {
@@ -1055,6 +1088,23 @@ func mockResponse(lane, user string) string {
 	}
 	if injected := mockInjectedResponse(user, "MOCK_TASK_HINT_RESPONSE:"); injected != "" {
 		return injected
+	}
+	if strings.Contains(user, "REACT_OUTPUT_REQUEST") {
+		lower := strings.ToLower(user)
+		for _, stage := range []struct {
+			tool   string
+			marker string
+		}{
+			{"info.query", "MOCK_INFO_QUERY_RESPONSE:"},
+			{"weather.structure_payload", "MOCK_WEATHER_STRUCTURE_RESPONSE:"},
+			{"media.render_weather_card", "MOCK_WEATHER_RENDER_RESPONSE:"},
+		} {
+			if strings.Contains(lower, "model-visible tools this workflow stage: "+stage.tool) {
+				if injected := mockInjectedResponse(user, stage.marker); injected != "" {
+					return injected
+				}
+			}
+		}
 	}
 	if injected := mockInjectedResponse(user, "MOCK_REACT_RESPONSE:"); injected != "" {
 		return injected
@@ -1097,6 +1147,9 @@ func mockReActResponse(user string) string {
 	goal := mockReActGoal(user)
 	lowerGoal := strings.ToLower(goal)
 	lowerPrompt := strings.ToLower(user)
+	if stage := mockBrowserInteractionStage(lowerPrompt); stage != "" {
+		return mockBrowserInteractionAction(user, goal, stage)
+	}
 	switch {
 	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: browser.list_tabs") && !strings.Contains(lowerPrompt, "browser.list_tabs observation"):
 		return mockReActAction("browser.list_tabs", map[string]any{})
@@ -1178,6 +1231,122 @@ func mockReActResponse(user string) string {
 	default:
 		return `{"type":"final","answer":"I can answer this directly from the current conversation."}`
 	}
+}
+
+func mockBrowserInteractionStage(prompt string) string {
+	marker := "workflow_stage:"
+	index := strings.LastIndex(prompt, marker)
+	if index < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(prompt[index+len(marker):])
+	if end := strings.IndexAny(value, " .\t\r\n,;}"); end >= 0 {
+		value = value[:end]
+	}
+	switch value {
+	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new", "snapshot_before_action", "choose_and_click", "snapshot_after_action", "verify_action":
+		return value
+	default:
+		return ""
+	}
+}
+
+func mockBrowserInteractionAction(prompt, goal, stage string) string {
+	switch stage {
+	case "health_check":
+		return mockReActAction("browser.status", map[string]any{})
+	case "scan_tabs":
+		return mockReActAction("browser.list_tabs", map[string]any{})
+	case "focus_existing":
+		return mockReActAction("browser.focus", map[string]any{"page_id": mockWorkflowPageID(prompt)})
+	case "navigate_blank":
+		urls := mockURLs(goal)
+		if len(urls) > 0 {
+			return mockReActAction("browser.navigate", map[string]any{"page_id": mockWorkflowPageID(prompt), "url": urls[0]})
+		}
+	case "open_new":
+		urls := mockURLs(goal)
+		if len(urls) > 0 {
+			return mockReActAction("browser.open", map[string]any{"url": urls[0]})
+		}
+	case "snapshot_before_action", "snapshot_after_action":
+		return mockReActAction("browser.snapshot", map[string]any{})
+	case "choose_and_click":
+		snapshotID, pageID, elementRef := mockLatestBrowserSnapshot(prompt)
+		return mockReActAction("browser.click", map[string]any{
+			"page_id": pageID, "snapshot_id": snapshotID, "uid": elementRef,
+			"expected_effect": "Advance the frozen browser interaction goal.",
+		})
+	case "verify_action":
+		snapshotIDs := mockBrowserFieldValues(prompt, "snapshot_id")
+		beforeID, afterID := "snapshot_before", "snapshot_after"
+		if len(snapshotIDs) >= 2 {
+			beforeID, afterID = snapshotIDs[len(snapshotIDs)-2], snapshotIDs[len(snapshotIDs)-1]
+		}
+		clicked := mockLastBrowserFieldValue(prompt, "clicked")
+		if clicked == "" {
+			_, _, clicked = mockLatestBrowserSnapshot(prompt)
+		}
+		return mockReActAction("browser.verify", map[string]any{
+			"before_snapshot_id": beforeID, "after_snapshot_id": afterID,
+			"element_ref": clicked, "verdict": "success", "reason": "The requested click produced a verified page-state change.",
+		})
+	}
+	return `{"type":"final","answer":"The browser interaction workflow could not select its required next action."}`
+}
+
+func mockLatestBrowserSnapshot(prompt string) (string, string, string) {
+	normalized := strings.ReplaceAll(prompt, `\"`, `"`)
+	if !strings.Contains(normalized, `"schema_version":"browser_interaction_snapshot_v1"`) {
+		return "snapshot_missing", mockWorkflowPageID(prompt), "element_missing"
+	}
+	return mockLastBrowserFieldValue(normalized, "snapshot_id"), mockLastBrowserFieldValue(normalized, "page_id"), mockLastBrowserFieldValue(normalized, "ref")
+}
+
+func mockBrowserFieldValues(prompt, key string) []string {
+	normalized := strings.ReplaceAll(prompt, `\"`, `"`)
+	marker := `"` + key + `":"`
+	values := []string{}
+	seen := map[string]bool{}
+	for offset := 0; offset < len(normalized); {
+		index := strings.Index(normalized[offset:], marker)
+		if index < 0 {
+			break
+		}
+		index += offset + len(marker)
+		end := strings.IndexByte(normalized[index:], '"')
+		if end < 0 {
+			break
+		}
+		value := normalized[index : index+end]
+		if value != "" && !seen[value] {
+			seen[value] = true
+			values = append(values, value)
+		}
+		offset = index + end + 1
+	}
+	return values
+}
+
+func mockLastBrowserFieldValue(prompt, key string) string {
+	values := mockBrowserFieldValues(prompt, key)
+	if len(values) == 0 {
+		return ""
+	}
+	return values[len(values)-1]
+}
+
+func mockFieldAfter(value, key string) string {
+	marker := `"` + key + `":"`
+	index := strings.Index(value, marker)
+	if index < 0 {
+		return ""
+	}
+	value = value[index+len(marker):]
+	if end := strings.IndexByte(value, '"'); end >= 0 {
+		return value[:end]
+	}
+	return ""
 }
 
 func mockWorkflowPageID(prompt string) string {

@@ -21,6 +21,14 @@ type textReplacement struct {
 }
 
 func (h *ToolHub) officeReplaceText(ctx context.Context, args map[string]any) (Result, error) {
+	return h.replaceDocumentText(ctx, args, "office_version_written")
+}
+
+func (h *ToolHub) textReplaceText(ctx context.Context, args map[string]any) (Result, error) {
+	return h.replaceDocumentText(ctx, args, "text_version_written")
+}
+
+func (h *ToolHub) replaceDocumentText(ctx context.Context, args map[string]any, status string) (Result, error) {
 	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -42,12 +50,12 @@ func (h *ToolHub) officeReplaceText(ctx context.Context, args map[string]any) (R
 	}
 	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
 		Path: inputPath, OutputPath: outputPath, Operation: "replace_text", Targets: targets, ExpectedMatches: expected,
-		Arguments: map[string]any{"replacements": replacements}, MaxBytes: document.SmallExtractedMaxBytes,
+		Arguments: map[string]any{"replacements": args["replacements"]}, MaxBytes: document.SmallExtractedMaxBytes,
 	})
 	if err != nil {
 		return Result{}, err
 	}
-	output := documentChangeOutput(result, "office_version_written")
+	output := documentChangeOutput(result, status)
 	output["replacements"] = result.Changed
 	return Result{Output: output}, nil
 }
@@ -141,7 +149,7 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Resu
 		"bytes":               len([]byte(read.Content)),
 		"truncated":           false,
 		"untrusted":           true,
-		"scanned_unsupported": false,
+		"scanned_unsupported": boolArg(read.Document.Stats, "scanned_unsupported", false),
 		"document":            structured,
 	}}, nil
 }

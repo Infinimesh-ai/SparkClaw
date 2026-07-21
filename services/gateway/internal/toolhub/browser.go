@@ -249,7 +249,7 @@ func (h *ToolHub) finalizeBrowserAuthChallenge(ctx context.Context, out map[stri
 }
 
 func (h *ToolHub) openBrowserLoginHandoff(ctx context.Context, out map[string]any, state *browserAuthRunState, args map[string]any, metadata browserModeMetadata, sessionID, runID string) {
-	if h.browser == nil {
+	if h.browser == nil || !h.cfg.Tools.BrowserAutomation.Enabled {
 		state.HandoffError = "browser automation adapter unavailable"
 		out["login_handoff_error"] = state.HandoffError
 		return

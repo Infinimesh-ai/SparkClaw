@@ -1,10 +1,13 @@
 package browserautomation
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,10 +23,10 @@ func TestMapToolMapsBrowserTypeToFillByDefault(t *testing.T) {
 		t.Fatalf("browser.type should prefer fill by default, got %q", rawTool)
 	}
 	if rawArgs["value"] != "hello" {
-		t.Fatalf("browser.type should map public text arg to MCP fill value arg: %#v", rawArgs)
+		t.Fatalf("browser.type should map public text arg to Playwright fill value arg: %#v", rawArgs)
 	}
 	if _, ok := rawArgs["text"]; ok {
-		t.Fatalf("browser.type should not forward public text arg to MCP fill: %#v", rawArgs)
+		t.Fatalf("browser.type should not forward public text arg to Playwright fill: %#v", rawArgs)
 	}
 }
 
@@ -36,7 +39,7 @@ func TestMapToolMapsBrowserTypeToTypeTextForFocusedInputs(t *testing.T) {
 		t.Fatalf("browser.type should use type_text for chat/focused input, got %q", rawTool)
 	}
 	if _, ok := rawArgs["uid"]; ok {
-		t.Fatalf("browser.type should not forward uid to MCP type_text: %#v", rawArgs)
+		t.Fatalf("browser.type should not forward uid to focused Playwright typing: %#v", rawArgs)
 	}
 }
 
@@ -56,11 +59,11 @@ func TestMapToolMapsBrowserTypeWithRefToFillEvenWhenModeHintsTypeText(t *testing
 		t.Fatalf("browser.type should normalize ref/text to uid/value for fill: %#v", rawArgs)
 	}
 	if _, ok := rawArgs["ref"]; ok {
-		t.Fatalf("browser.type should not forward ref alias to MCP fill: %#v", rawArgs)
+		t.Fatalf("browser.type should not forward ref alias to Playwright fill: %#v", rawArgs)
 	}
 }
 
-func TestMapToolMapsNavigateToChromeDevToolsTool(t *testing.T) {
+func TestMapToolMapsNavigateToPlaywrightDriver(t *testing.T) {
 	rawTool, rawArgs, err := mapTool("browser.navigate", map[string]any{
 		"url":             "https://example.com",
 		"reason":          "test",
@@ -75,11 +78,11 @@ func TestMapToolMapsNavigateToChromeDevToolsTool(t *testing.T) {
 		t.Fatalf("browser.navigate should map to navigate_page, got %q", rawTool)
 	}
 	if _, ok := rawArgs["reason"]; ok {
-		t.Fatalf("browser.navigate should not forward SparkClaw-only reason to MCP: %#v", rawArgs)
+		t.Fatalf("browser.navigate should not forward SparkClaw-only reason to Playwright: %#v", rawArgs)
 	}
 	for _, metadata := range []string{"browser_mode", "presentation", "surface_visible"} {
 		if _, ok := rawArgs[metadata]; ok {
-			t.Fatalf("browser.navigate should not forward SparkClaw-only %s to MCP: %#v", metadata, rawArgs)
+			t.Fatalf("browser.navigate should not forward SparkClaw-only %s to Playwright: %#v", metadata, rawArgs)
 		}
 	}
 }
@@ -90,14 +93,14 @@ func TestMapToolNormalizesPageIDForFocusAndClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rawTool != "select_page" || rawArgs["pageId"] != 1 || rawArgs["bringToFront"] != true {
-		t.Fatalf("browser.focus should map string page_id to numeric MCP pageId: tool=%q args=%#v", rawTool, rawArgs)
+		t.Fatalf("browser.focus should map string page_id to numeric Playwright pageId: tool=%q args=%#v", rawTool, rawArgs)
 	}
 	rawTool, rawArgs, err = mapTool("browser.close", map[string]any{"page_id": "page_2"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rawTool != "close_page" || rawArgs["pageId"] != 2 {
-		t.Fatalf("browser.close should map prefixed page_id to numeric MCP pageId: tool=%q args=%#v", rawTool, rawArgs)
+		t.Fatalf("browser.close should map prefixed page_id to numeric Playwright pageId: tool=%q args=%#v", rawTool, rawArgs)
 	}
 }
 
@@ -114,16 +117,17 @@ func TestMapToolStripsSparkClawVisibilityHints(t *testing.T) {
 	}
 	for _, key := range []string{"visible_browser", "disable_hidden_browser", "presentation", "surface_visible"} {
 		if _, ok := rawArgs[key]; ok {
-			t.Fatalf("SparkClaw-only %s must not reach MCP: %#v", key, rawArgs)
+			t.Fatalf("SparkClaw-only %s must not reach Playwright: %#v", key, rawArgs)
 		}
 	}
 }
 
-func TestMapToolDoesNotForwardPageIDToSnapshot(t *testing.T) {
+func TestMapToolForwardsPageIDAndGoalToSnapshot(t *testing.T) {
 	rawTool, rawArgs, err := mapTool("browser.snapshot", map[string]any{
-		"page_id": "page_1",
-		"reason":  "inspect current page",
-		"verbose": true,
+		"page_id":          "page_1",
+		"interaction_goal": "click Next",
+		"reason":           "inspect current page",
+		"verbose":          true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -131,8 +135,8 @@ func TestMapToolDoesNotForwardPageIDToSnapshot(t *testing.T) {
 	if rawTool != "take_snapshot" {
 		t.Fatalf("browser.snapshot should map to take_snapshot, got %q", rawTool)
 	}
-	if _, ok := rawArgs["page_id"]; ok {
-		t.Fatalf("browser.snapshot should not forward page_id to take_snapshot: %#v", rawArgs)
+	if rawArgs["page_id"] != "page_1" || rawArgs["interaction_goal"] != "click Next" {
+		t.Fatalf("browser.snapshot should bind the requested managed page and goal: %#v", rawArgs)
 	}
 	if _, ok := rawArgs["reason"]; ok {
 		t.Fatalf("browser.snapshot should not forward reason to take_snapshot: %#v", rawArgs)
@@ -142,27 +146,9 @@ func TestMapToolDoesNotForwardPageIDToSnapshot(t *testing.T) {
 	}
 }
 
-func TestMCPToolErrorDetectsIsError(t *testing.T) {
-	err := mcpToolError("navigate_page", map[string]any{
-		"isError": true,
-		"content": []any{map[string]any{
-			"type": "text",
-			"text": "Unknown argument for tool",
-		}},
-	})
-	if err == nil || !strings.Contains(err.Error(), "Unknown argument") {
-		t.Fatalf("expected MCP isError to become error, got %v", err)
-	}
-}
-
-func TestNormalizeListTabsExtractsPagesFromMCPContentText(t *testing.T) {
+func TestNormalizeListTabsPreservesPlaywrightPages(t *testing.T) {
 	output := normalizeOutput("browser.list_tabs", map[string]any{
-		"content": []any{
-			map[string]any{
-				"type": "text",
-				"text": `{"pages":[{"page_id":"page_1","url":"https://example.com","title":"Example"}]}`,
-			},
-		},
+		"pages": []any{map[string]any{"page_id": "page_1", "url": "https://example.com", "title": "Example"}},
 	})
 	result, ok := output.(map[string]any)
 	if !ok {
@@ -174,25 +160,8 @@ func TestNormalizeListTabsExtractsPagesFromMCPContentText(t *testing.T) {
 	}
 }
 
-func TestNormalizeBrowserOpenExtractsPagesFromMCPContentText(t *testing.T) {
-	output := normalizeOutput("browser.open", map[string]any{
-		"content": []any{map[string]any{
-			"type": "text",
-			"text": "## Pages\n2: Example (https://example.com/) [selected]",
-		}},
-	})
-	result, ok := output.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map output, got %#v", output)
-	}
-	pages, ok := result["pages"].([]any)
-	if !ok || len(pages) != 1 {
-		t.Fatalf("browser.open should expose normalized pages: %#v", result)
-	}
-}
-
 func TestNormalizeListTabsReturnsEmptyPagesForNoOpenPages(t *testing.T) {
-	output := normalizeOutput("browser.list_tabs", map[string]any{"content": []any{}})
+	output := normalizeOutput("browser.list_tabs", map[string]any{"pages": []any{}})
 	result, ok := output.(map[string]any)
 	if !ok {
 		t.Fatalf("expected map output, got %#v", output)
@@ -226,7 +195,7 @@ func TestEvaluatePayloadMapExtractsRenderedPageFields(t *testing.T) {
 	}
 }
 
-func TestEvaluatePayloadMapExtractsFencedMCPJSON(t *testing.T) {
+func TestEvaluatePayloadMapExtractsFencedDriverJSON(t *testing.T) {
 	output := map[string]any{
 		"content": []any{
 			map[string]any{
@@ -237,7 +206,7 @@ func TestEvaluatePayloadMapExtractsFencedMCPJSON(t *testing.T) {
 	}
 	payload := evaluatePayloadMap(output)
 	if payload == nil {
-		t.Fatal("expected fenced MCP payload")
+		t.Fatal("expected fenced driver payload")
 	}
 	if firstStringValue(payload, "url") != "https://example.com/next" ||
 		firstStringValue(payload, "title") != "Next page" ||
@@ -258,13 +227,13 @@ func TestReadPageSnapshotRequestDefaultsFalse(t *testing.T) {
 	}
 }
 
-func TestBrowserReadEvaluateFunctionEmbedsMaxCharsWithoutMCPArgs(t *testing.T) {
+func TestBrowserReadEvaluateFunctionEmbedsMaxCharsWithoutExternalArgs(t *testing.T) {
 	fn := browserReadEvaluateFunction(120000)
 	if !strings.Contains(fn, "const limit = 120000;") {
 		t.Fatalf("browser read script should embed max chars limit:\n%s", fn)
 	}
 	if strings.Contains(fn, "maxChars") {
-		t.Fatalf("browser read script should not depend on MCP args as generic parameters:\n%s", fn)
+		t.Fatalf("browser read script should not depend on external args as generic parameters:\n%s", fn)
 	}
 	fallback := browserReadEvaluateFunction(0)
 	if !strings.Contains(fallback, "const limit = 120000;") {
@@ -304,94 +273,40 @@ func TestFirstStringSliceValue(t *testing.T) {
 	}
 }
 
-func TestSharedProfileMCPArgsAppendHiddenFlags(t *testing.T) {
-	args := sharedProfileMCPArgs([]string{"-y", "chrome-devtools-mcp@latest"}, true, "/opt/chromium", "/tmp/profile", "")
-	for _, want := range []string{"--headless", "--viewport=" + hiddenBrowserViewport, "--no-usage-statistics", "--executablePath=/opt/chromium", "--userDataDir=/tmp/profile"} {
-		if !containsString(args, want) {
-			t.Fatalf("shared profile MCP args missing %q: %#v", want, args)
+func TestEmbeddedDriverUsesPersistentPlaywrightWithoutCDP(t *testing.T) {
+	for _, required := range []string{"require(\"playwright\")", "launchPersistentContext", "page.goto", "locator.click", "locator.fill", "locator.selectOption", "ariaSnapshot"} {
+		if !strings.Contains(playwrightDriverScript, required) {
+			t.Fatalf("embedded Playwright driver is missing %q", required)
 		}
 	}
-	if containsString(args, "--isolated") {
-		t.Fatalf("shared profile must not use isolated browser state: %#v", args)
-	}
-}
-
-func TestSharedProfileMCPArgsPreserveConfiguredViewportAndUsageFlag(t *testing.T) {
-	args := sharedProfileMCPArgs([]string{
-		"-y",
-		"chrome-devtools-mcp@latest",
-		"--viewport=1280x720",
-		"--no-usage-statistics",
-	}, true, "/opt/chromium", "/tmp/profile", "")
-	for _, want := range []string{"--headless", "--no-usage-statistics"} {
-		if countString(args, want) != 1 {
-			t.Fatalf("shared profile MCP args should keep one %q: %#v", want, args)
-		}
-	}
-	if countPrefix(args, "--viewport") != 1 || !containsString(args, "--viewport=1280x720") {
-		t.Fatalf("hidden MCP args should preserve configured viewport: %#v", args)
-	}
-}
-
-func TestSharedProfileMCPArgsUseSameChromiumAndProfile(t *testing.T) {
-	base := []string{"-y", "chrome-devtools-mcp@latest"}
-	executable := "/opt/chromium/chromium"
-	profileDir := "/var/lib/sparkclaw/browser-profile"
-	visible := sharedProfileMCPArgs(base, false, executable, profileDir, "")
-	hidden := sharedProfileMCPArgs(base, true, executable, profileDir, "")
-	for _, args := range [][]string{visible, hidden} {
-		if !containsString(args, "--executablePath="+executable) || !containsString(args, "--userDataDir="+profileDir) {
-			t.Fatalf("shared profile args missing Chromium/profile: %#v", args)
-		}
-		if containsString(args, "--isolated") {
-			t.Fatalf("shared profile must not be isolated: %#v", args)
-		}
-	}
-	if containsString(visible, "--headless") {
-		t.Fatalf("visible verification must not be headless: %#v", visible)
-	}
-	if !containsString(hidden, "--headless") || !containsString(hidden, "--viewport="+hiddenBrowserViewport) {
-		t.Fatalf("hidden shared profile must be headless with stable viewport: %#v", hidden)
-	}
-}
-
-func TestSharedProfileMCPArgsRejectCallerOwnedBrowserState(t *testing.T) {
-	for _, args := range [][]string{
-		{"--isolated"},
-		{"--headless"},
-		{"--userDataDir=/tmp/user"},
-		{"--executablePath=/tmp/chrome"},
-		{"--browserUrl=http://127.0.0.1:9222"},
-		{"--autoConnect"},
-		{"--chromeArg=https://example.com"},
-	} {
-		if sharedProfileMCPArgsUnsafeFlag(args) == "" {
-			t.Fatalf("shared profile args should reject caller-owned launch state: %#v", args)
+	for _, forbidden := range []string{"connectOverCDP", "remote-debugging-port", "chrome-devtools-mcp"} {
+		if strings.Contains(playwrightDriverScript, forbidden) {
+			t.Fatalf("embedded Playwright driver must not contain %q", forbidden)
 		}
 	}
 }
 
-func TestSharedProfileMCPArgsLaunchKnownTargetWithoutAboutBlank(t *testing.T) {
-	args := sharedProfileMCPArgs(
-		[]string{"-y", "chrome-devtools-mcp@latest"},
-		false,
-		"/opt/chromium",
-		"/tmp/profile",
-		"https://example.com/target",
-	)
-	if !containsString(args, "--chromeArg=https://example.com/target") {
-		t.Fatalf("fresh browser session should launch the target URL directly: %#v", args)
+func TestResolvePlaywrightRuntimeDirFindsPinnedDependency(t *testing.T) {
+	dir, err := resolvePlaywrightRuntimeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "node_modules", "playwright", "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"version": "1.61.1"`) {
+		t.Fatalf("Playwright dependency is not pinned to 1.61.1: %s", raw)
 	}
 }
 
-func TestMCPPageEntriesRecognizeSelectedAndBlankPages(t *testing.T) {
-	output := map[string]any{"content": []any{map[string]any{
-		"type": "text",
-		"text": "## Pages\n1: about:blank\n2: Example (https://example.com/) [selected]",
-	}}}
-	entries := mcpPageEntries(output)
-	if len(entries) != 2 || entries[0].ID != 1 || entries[0].URL != "about:blank" || entries[1].ID != 2 || !entries[1].Selected {
-		t.Fatalf("unexpected MCP page entries: %#v", entries)
+func TestResolveChromiumExecutableUsesPlaywrightDefaultWhenUnset(t *testing.T) {
+	executable, err := resolveChromiumExecutable("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executable != "" {
+		t.Fatalf("unset custom executable should let Playwright resolve its matching Chromium, got %q", executable)
 	}
 }
 
@@ -408,12 +323,7 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	executable, err := resolveChromiumExecutable("")
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := config.Default()
-	cfg.Adapters.BrowserAutomation.ChromiumExecutable = executable
 	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
 	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
 	adapter := NewAdapter(cfg)
@@ -434,15 +344,15 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	if strings.Contains(strings.ToLower(result.Text), "about:blank") || !strings.Contains(result.Text, server.URL) {
 		t.Fatalf("visible open should reuse the startup page for the target: %q", result.Text)
 	}
-	entries := mcpPageEntries(result.Output)
 	selectedID := ""
-	for _, entry := range entries {
-		if entry.Selected {
-			selectedID = stringValue(entry.ID)
+	for _, raw := range result.Pages {
+		entry, ok := raw.(map[string]any)
+		if ok && boolValue(entry["selected"]) {
+			selectedID = stringValue(entry["page_id"])
 		}
 	}
 	if selectedID == "" {
-		t.Fatalf("visible open should return a selected page id: %#v", entries)
+		t.Fatalf("visible open should return a selected page id: %#v", result.Pages)
 	}
 	if _, err := adapter.Call(context.Background(), "browser.focus", map[string]any{
 		"page_id":            selectedID,
@@ -452,7 +362,7 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 		"owner_id":           "owner-test",
 		"browser_profile_id": "direct-open",
 	}); err != nil {
-		t.Fatalf("string page_id should map to MCP pageId: %v", err)
+		t.Fatalf("string page_id should map to Playwright pageId: %v", err)
 	}
 	page, err := adapter.ReadPage(context.Background(), server.URL+"/authenticated", map[string]any{
 		"browser_mode":       "autonomous",
@@ -468,6 +378,150 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	if page.AuthChallengeDetected {
 		t.Fatalf("authenticated page text must not be classified as a login wall: title=%q text=%q", page.Title, page.Text)
 	}
+}
+
+func TestRealPlaywrightSnapshotAndLocatorInteractions(t *testing.T) {
+	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
+		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real Playwright interaction smoke test")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<!doctype html><html><body>
+<label>Name <input aria-label="Name"></label>
+<label>Choice <select aria-label="Choice"><option value="A">A</option><option value="B">B</option></select></label>
+<button onclick="window.count=(window.count||0)+1; document.querySelector('#result').textContent=document.querySelector('input').value+' / '+document.querySelector('select').value+' / '+window.count">Increment</button>
+<div id="result">Waiting</div>
+</body></html>`))
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
+	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
+	adapter := NewAdapter(cfg)
+	t.Cleanup(func() { _ = adapter.Close() })
+	common := map[string]any{
+		"browser_mode":       "autonomous",
+		"presentation":       "hidden",
+		"surface_visible":    false,
+		"owner_id":           "owner-test",
+		"browser_profile_id": "locator-actions",
+	}
+	snapshotArgs := cloneArgs(common)
+	snapshotArgs["url"] = server.URL
+	if _, err := adapter.Call(context.Background(), "browser.snapshot", snapshotArgs); err != nil {
+		t.Fatal(err)
+	}
+	tabs, err := adapter.Call(context.Background(), "browser.list_tabs", common)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageID := ""
+	for _, raw := range tabs.Pages {
+		page, ok := raw.(map[string]any)
+		if ok && boolValue(page["selected"]) {
+			pageID = stringValue(page["page_id"])
+		}
+	}
+	if pageID == "" {
+		t.Fatalf("snapshot page was not selected: %#v", tabs.Pages)
+	}
+	interactionSnapshotArgs := cloneArgs(common)
+	interactionSnapshotArgs["page_id"] = pageID
+	interactionSnapshotArgs["interaction_goal"] = "Increment the counter"
+	interactionSnapshot, err := adapter.Call(context.Background(), "browser.snapshot", interactionSnapshotArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactionOutput, ok := interactionSnapshot.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("interaction snapshot output is not structured: %#v", interactionSnapshot.Output)
+	}
+	interactionPayload, ok := interactionOutput["snapshot"].(map[string]any)
+	if !ok || stringValue(interactionPayload["schema_version"]) != "browser_interaction_snapshot_v1" || stringValue(interactionPayload["page_id"]) != pageID {
+		t.Fatalf("interaction snapshot contract is incomplete: %#v", interactionOutput)
+	}
+	interactionSnapshotID := stringValue(interactionPayload["snapshot_id"])
+	if interactionSnapshotID == "" {
+		t.Fatalf("interaction snapshot identity is missing: %#v", interactionPayload)
+	}
+	nameRef := snapshotRefNamed(interactionSnapshot.Text, "Name")
+	choiceRef := snapshotRefNamed(interactionSnapshot.Text, "Choice")
+	buttonRef := snapshotRefNamed(interactionSnapshot.Text, "Increment")
+	if nameRef == "" || choiceRef == "" || buttonRef == "" {
+		t.Fatalf("snapshot did not expose stable refs: %q", interactionSnapshot.Text)
+	}
+	typeArgs := cloneArgs(common)
+	typeArgs["uid"], typeArgs["text"] = nameRef, "Alice"
+	if _, err := adapter.Call(context.Background(), "browser.type", typeArgs); err != nil {
+		t.Fatal(err)
+	}
+	selectArgs := cloneArgs(common)
+	selectArgs["uid"], selectArgs["value"] = choiceRef, "B"
+	if _, err := adapter.Call(context.Background(), "browser.select", selectArgs); err != nil {
+		t.Fatal(err)
+	}
+	clickArgs := cloneArgs(common)
+	clickArgs["uid"], clickArgs["page_id"], clickArgs["snapshot_id"] = buttonRef, pageID, interactionSnapshotID
+	if _, err := adapter.Call(context.Background(), "browser.click", clickArgs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Call(context.Background(), "browser.click", clickArgs); err == nil || !strings.Contains(strings.ToLower(err.Error()), "stale") {
+		t.Fatalf("a successful click did not invalidate its snapshot ref: %v", err)
+	}
+	postSnapshotArgs := cloneArgs(interactionSnapshotArgs)
+	postSnapshot, err := adapter.Call(context.Background(), "browser.snapshot", postSnapshotArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postOutput, ok := postSnapshot.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("post-click snapshot output is not structured: %#v", postSnapshot.Output)
+	}
+	postPayload, ok := postOutput["snapshot"].(map[string]any)
+	if !ok || stringValue(postPayload["previous_snapshot_id"]) != interactionSnapshotID ||
+		stringValue(postPayload["digest"]) == stringValue(interactionPayload["digest"]) || boolValue(postPayload["repeated"]) {
+		t.Fatalf("post-click snapshot did not prove a changed state: before=%#v after=%#v", interactionPayload, postPayload)
+	}
+	waitArgs := cloneArgs(common)
+	waitArgs["text"] = "Alice / B / 1"
+	if _, err := adapter.Call(context.Background(), "browser.wait", waitArgs); err != nil {
+		t.Fatalf("%v\npost-click snapshot:\n%s", err, postSnapshot.Text)
+	}
+	screenshot, err := adapter.Call(context.Background(), "browser.screenshot", common)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, ok := screenshot.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("screenshot output should be structured: %#v", screenshot.Output)
+	}
+	content, ok := output["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("screenshot should return one image part: %#v", output)
+	}
+	part, ok := content[0].(map[string]any)
+	if !ok || stringValue(part["mimeType"]) != "image/png" {
+		t.Fatalf("screenshot should return a PNG image part: %#v", content)
+	}
+	png, err := base64.StdEncoding.DecodeString(stringValue(part["data"]))
+	if err != nil || !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("screenshot payload is not a valid PNG header: err=%v bytes=%x", err, png)
+	}
+}
+
+func snapshotRefNamed(snapshot, name string) string {
+	want := `name="` + name + `"`
+	for _, line := range strings.Split(snapshot, "\n") {
+		if !strings.Contains(line, want) {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			if strings.HasPrefix(field, "ref=") {
+				return strings.TrimPrefix(field, "ref=")
+			}
+		}
+	}
+	return ""
 }
 
 func TestResolveSharedProfileDirSeparatesLogicalProfiles(t *testing.T) {

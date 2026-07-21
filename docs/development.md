@@ -15,7 +15,7 @@ scripts/                   Doctor, eval, model serving and benchmark scripts
 eval/golden/               Golden task definitions and fixtures
 benchmarks/                DGX Spark model evidence
 packages/                  Portable protocol, policy and tool-schema notes
-skills/                    Runtime skill packages, intentionally evolving
+skills/                    Transitional ReAct skills for unmigrated domains
 docs/                      Current project documentation
 zh-cn/                     Chinese documentation mirror
 ```
@@ -28,18 +28,18 @@ The MVP control plane and DGX Spark real-model closure are complete. Future work
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Router-first capability workflows | Browser Internet search/weather/automation and document read/edit migrated | Catalog, exact Registry/Dispatcher, fixed tool exposure, end-to-end tests and semantic boundary regressions |
+| Router-first capability workflows | Browser Internet search/weather/automation and document read/edit migrated | Catalog revision 4, exact Registry/Dispatcher, fixed tool exposure, production-entry end-to-end tests and semantic boundary regressions |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
 | Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
 | File, browser, memory, code and notify workflows | Complete | Unit tests plus 43-case eval |
 | Email, calendar and workspace knowledge/RAG | Deferred; prototypes removed | [Deferred capability record](deferred-email-calendar-knowledge.md) |
-| Skills registry boundary | Complete | Registry tests and `/api/skills`; skills do not bypass policy |
+| Transitional Skills registry | Unmigrated ReAct domains only | Registry tests and `/api/skills`; migrated Workflow packages are removed |
 | WebChat workbench | Complete | TypeScript/Vite build |
 | Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
 | Docker profiles and local deployment | Complete | Compose config, image builds, doctor script |
 | DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
-| Infinimesh Info `web.search` provider | Complete, opt-in | Contract/fault tests, redacted public config, credential-gated live smoke |
+| Infinimesh Info `web.search` and direct `info.query` provider | Complete, opt-in | Contract/fault tests, evidence-preserving weather Workflow fixture, redacted public config, credential-gated live smoke |
 | WebChat and Gateway speech transcription | Complete, opt-in | Speech/Gateway tests, voice frontend tests, live ASR smoke evidence |
 | Messaging connector Registry and Telegram multi-Bot binding | Complete, opt-in | Provider-neutral registry, credential isolation, binding, worker, media, reminder and WebChat tests |
 | Message Control, scheduled messages, and result delivery | Complete for the router-first vertical slice | Persisted ingress/return context, Endpoint/Schedule registries, bounded Timer workers, one WorkflowResult delivery path, Provider capability preflight, [migration guide](message-control-delivery-migration.md) |
@@ -52,7 +52,7 @@ Host checks:
 
 ```bash
 npm --workspace @sparkclaw/webchat run build
-npm --workspace @sparkclaw/webchat run test:voice
+npm --workspace @sparkclaw/webchat run test
 go test ./services/gateway/...
 bash scripts/doctor.sh
 bash scripts/run-eval.sh
@@ -92,7 +92,7 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 - direct `/chat` profile selection
 - config, tool, skill, owner, client, auth and rate-limit surfaces
 - file search/read/write/delete and multi-file grounded answers
-- browser read, multi-source comparison, raw snapshots and prompt-injection handling
+- browser read, multi-source comparison, structured interaction snapshots, verified click loops, stale refs and prompt-injection handling
 - memory candidates, sensitive-memory rejection, approval-gated sensitive writes, editing and export
 - approval modification, approval-pending run lifecycle and post-approval trace refresh
 - shell and code patch approval, rollback artifacts and sandbox command queueing
@@ -100,6 +100,14 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 - smoke/chaos eval persistence, failure archives and eval history
 
 When adding user-visible behavior, prefer adding a focused unit test plus a golden case that exercises the real API path.
+
+Real managed-Chromium interaction smoke test:
+
+```bash
+SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 \
+go test ./services/gateway/internal/browserautomation \
+  -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1
+```
 
 ## Working With Tools
 
@@ -118,8 +126,9 @@ For a new tool:
 A registered capability does not become model-visible by itself. A migrated
 Workflow Profile must include that capability in a frozen active scope, and
 `ToolExposure.Search/Materialize` must admit and materialize its registration.
-Do not add a parallel tool-name list to TaskHint, Skill metadata, or Agent
-Runtime.
+Workflow plans must not store Skill IDs and Workflow model prompts must not load
+Skill text. Do not add a parallel tool-name list to TaskHint, Skill metadata, or
+Agent Runtime.
 
 Current risk expectations:
 
@@ -132,8 +141,10 @@ Current risk expectations:
 
 ## Working With Capability Routing And Workflows
 
-Follow the [routing refactor plan](intent-routing-workflow-refactor-plan.md) for
-the full contract. For each migrated capability leaf:
+Use the [Workflow capability matrix](workflow-capabilities.md) for the current
+user-visible boundary and follow the
+[routing refactor plan](intent-routing-workflow-refactor-plan.md) for the full
+contract. For each migrated capability leaf:
 
 1. Add the leaf and allowed typed operations to the versioned Capability
    Catalog, with one exact Workflow contract reference.
@@ -145,7 +156,9 @@ the full contract. For each migrated capability leaf:
    ToolHub registration. Tool Exposure must materialize only that scope.
 5. Declare allowed transitions, risks, and governed argument bindings in the
    profile, then persist the route for approval/login resume.
-6. Remove the same feature's TaskHint candidates and legacy Workflow branch.
+6. Remove the same feature's TaskHint candidates, legacy ReAct exposure, and
+   Skill package. Keep its ToolHub registrations for the Workflow or later
+   migration.
 7. Add a production-entry end-to-end test that executes a real tool adapter,
    asserts the `WorkflowResult`, and proves no legacy routing audit occurred.
 
@@ -163,6 +176,22 @@ Workflow ID or tool name to select a scope, resource, assessment, or next step,
 move that behavior into a Profile, plan binding, ToolHub registration, or
 outcome adapter. Only `RouteDecision.Status == unmatched` may enter ReAct.
 
+### Extending Weather Processing
+
+The weather migration is the reference multi-stage pattern. `browser.weather`
+freezes the normalized query and grounded location before dispatch; exposes
+only `info.query`, `weather.structure_payload`, and
+`media.render_weather_card` in sequence; and carries intermediate values by
+governed outcome refs. The Deep model receives a bounded query-relevant projection
+of mapped Info evidence under stable `summary:0`, `fact:N`, and
+`source:N:snippet:M` refs. The structuring tool rejects fields without an exact
+substring from the referenced evidence item, validates them against the complete
+persisted Info result, and
+requires every requested data category to contain either supported values or an
+explicit `missing_fields` marker. Missing data renders as unavailable instead of
+being inferred or blocking the card; the renderer remains network-free. See the
+[weather Workflow implementation record](browser-weather-workflow-migration-plan.md).
+
 ### Extending Document Processing
 
 The document Workflow order is owned by `internal/document.Pipeline`, not by a
@@ -171,20 +200,60 @@ parser and, where applicable, operation-qualified editors in ToolHub. Do not
 add extension switches outside the signature-aware detector and registration
 composition.
 
+High-level routing classifies only whether an existing document is being read
+or changed. Direct image analysis is a read format under the same
+`document.read` Workflow. It must not map natural-language insert, delete, append, row, cell,
+paragraph, slide, or page phrases to concrete editor operations. Every content
+change enters `document.edit` r2 with the detected format; after the structured
+read, bounded directory selection chooses one compatible operation-qualified
+registration. An unsupported change blocks there instead of being coerced into
+another editor.
+
 The only implemented strategy is `small_file_v1`: 8 MiB maximum source size
 and 200,000 bytes maximum complete extracted content. A larger resource must
 return typed `strategy_deferred` until another `document.Strategy` implements
 chunked, streaming, indexed, or lazy access. Truncated content is never a
 successful small-document result.
 
-Every reader must produce stable location IDs in `structured_document_v1`.
+Every structured-document reader must produce stable location IDs in
+`structured_document_v1`. The direct image reader instead returns a bounded
+semantic result with dimensions and Fast-model provenance through
+`images.inspect`; its source limit is 12 MiB.
+High-level parsers may add the optional `document_enrichment_v1` envelope for
+assets, annotations, layout, extensions, coverage, and category policy. DOCX,
+XLSX, PPTX, and text-PDF readers register parser-visible embedded images with
+source relationships and SHA-256 identities. Image bytes go to ArtifactStore,
+never the ToolCall JSON or prompt. `files.read` defaults to targeted image
+analysis, accepts stable `image_target_paths`, and uses only the Fast model;
+`image_analysis=all` is reserved for explicit full-document visual
+understanding. The implemented limits are 4 targeted or 8 full-document unique
+images, two concurrent calls, 30 seconds per image, a 120-second enrichment
+stage, 512 output tokens, and 4,000 characters of combined image context.
+
 Every editor must consume located targets, reject missing, ambiguous, or
 count-mismatched targets, write non-existing output copies, and return every
 produced path through the typed result rather than adapter-specific details.
-The Pipeline validates each output, re-hashes the input, and only then returns
-`change_summary`; invalid or zero-change results clean up generated copies.
+An XLSX append derives its row anchor from the highest populated row in that
+structured representation. It must not use a library's physical used range or
+`rowCount`, because formatting-only blank cells can extend both and create
+visible gaps before the appended content.
+The Pipeline completely re-reads every output through the same parser, verifies
+the expected after-value and unchanged non-target content, compares known
+asset/annotation/layout fingerprints, re-hashes the input, and only then
+returns `change_summary`. A mismatch removes generated copies and returns
+`preservation_mismatch`. The summary reports
+`high_level_preservation=verified` and `package_preservation=unknown`; the
+latter remains unknown until OOXML/PDF package-level checks exist. Invalid or
+zero-change results also clean up generated copies.
 Keep subprocesses behind the bounded document adapters and treat all parsed
 content as untrusted.
+
+Paths remain internal governed references, not user-facing success text. A
+successful document mutation projects each output as a downloadable file
+attachment on the assistant message. Image outputs use `kind=image` with
+`disposition=inline` and WebChat renders the complete image at its natural
+aspect ratio instead of an attachment thumbnail. The same projection applies
+after approval resume and to persisted message history.
 
 Run the document setup before tests:
 

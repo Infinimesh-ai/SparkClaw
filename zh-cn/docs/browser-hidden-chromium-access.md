@@ -25,17 +25,18 @@ SparkClaw 的所有托管浏览器 surface 统一使用 Chromium：
 
 ## Provider 契约
 
-自动化传输仍使用 Chrome DevTools MCP package，但实际启动的是配置的 Chromium executable。
-Provider 名称和诊断应说明 Chromium，不能让人误以为 SparkClaw 连接了用户个人 Chrome。
+自动化传输使用 Microsoft Playwright，并通过 `launchPersistentContext` 启动其安装且版本
+匹配的本地 Chromium；Operator 仍可显式覆盖 Custom Executable。Provider 名称和诊断
+应说明 Playwright-managed Chromium，不能让人误以为 SparkClaw 连接了用户个人 Chrome。
+详见 [Playwright 浏览器自动化迁移方案](playwright-browser-automation-migration.md)。
 
 隐藏启动参数：
 
 ```text
---executablePath=<Chromium executable>
---userDataDir=<SparkClaw shared profile>
---headless
---viewport=1365x768
---no-usage-statistics
+executablePath=<默认省略；显式配置时使用已校验 Custom Override>
+userDataDir=<SparkClaw shared profile>
+headless=true
+viewport=1365x768
 ```
 
 隐藏共享 Profile provider 必须拒绝 `--isolated`、用户提供的 Profile 路径、浏览器端点和
@@ -90,7 +91,7 @@ Runtime 不比较登录后 origin 与原始 origin。
 
 ## 生命周期
 
-- 一个 Profile 只有一个 active Chromium/MCP 进程。
+- 一个 Profile 只有一个 Active Playwright Driver 与 Chromium Context。
 - visible/hidden 切换前关闭当前进程。
 - Gateway 关闭时由 `Close()` 停止当前进程。
 - 启动和停止都有 timeout。

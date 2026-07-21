@@ -192,6 +192,10 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 		State:     "running",
 		ModelLane: "fast",
 		Risk:      app.RiskRead,
+		MessageContext: &app.MessageRunContext{Request: app.RequestNormalization{
+			SchemaVersion: app.RequestNormalizationSchemaVersion,
+			Original:      "今天杭州天气", Canonical: "查询今天杭州天气 2026-07-17", Source: "fast_model",
+		}},
 		Workflow: &app.WorkflowState{
 			SchemaVersion: 1,
 			Plan: app.WorkflowPlan{
@@ -243,7 +247,7 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	gotRun, ok := reloaded.GetRun(run.ID)
-	if !ok || gotRun.Workflow == nil {
+	if !ok || gotRun.Workflow == nil || gotRun.MessageContext == nil || gotRun.MessageContext.Request.Canonical != "查询今天杭州天气 2026-07-17" {
 		t.Fatalf("workflow state did not reload: %#v ok=%v", gotRun, ok)
 	}
 	gotNode := gotRun.Workflow.Nodes["research"]

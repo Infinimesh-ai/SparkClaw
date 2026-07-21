@@ -37,7 +37,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { APIError, api, apiToken, clearAPIToken, documentFileURL, saveAPIToken, sessionEventsURL, workspaceScreenshotURL } from "./api/client";
+import { APIError, api, apiToken, clearAPIToken, openDocumentFile, saveAPIToken, sessionEventsURL, workspaceScreenshotURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Copy as CopyText, Language } from "./i18n";
 import {
@@ -45,6 +45,7 @@ import {
   isImageAttachment,
   isImageContentType,
   MessageBubble,
+  WorkspaceFileImage,
   streamStatusFromEvent,
   upsertStreamStatus
 } from "./components/messages";
@@ -547,7 +548,11 @@ export function App() {
         },
         onFinal: (result) => {
           setMessages((current) =>
-            current.map((message) => (message.id === assistantMessageId && !receivedDelta ? result.message : message))
+            current.map((message) => {
+              if (message.id !== assistantMessageId) return message;
+              if (!receivedDelta || (result.message.attachments?.length ?? 0) > 0) return result.message;
+              return message;
+            })
           );
         },
         onError: (streamError) => {
@@ -1198,10 +1203,10 @@ export function App() {
                       type="button"
                       className={`attachmentOpen ${isImageAttachment(attachment) ? "image" : ""}`}
                       title={text.chat.openAttachment}
-                      onClick={() => window.open(documentFileURL(attachment.rel_path), "_blank", "noopener,noreferrer")}
+                      onClick={() => void openDocumentFile(attachment.rel_path, activeSession).catch(() => undefined)}
                     >
                       {isImageAttachment(attachment) ? (
-                        <img src={documentFileURL(attachment.rel_path)} alt={attachment.name || attachment.rel_path} />
+                        <WorkspaceFileImage path={attachment.rel_path} sessionId={activeSession} alt={attachment.name || attachment.rel_path} />
                       ) : (
                         <FileSearch size={15} />
                       )}

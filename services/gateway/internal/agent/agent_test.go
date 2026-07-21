@@ -23,6 +23,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
 
 func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T) {
@@ -309,19 +310,21 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result.Message.Content, "任务没有完成。") ||
-		!strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
-		!strings.Contains(result.Message.Content, "project-note.txt") ||
+	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
+		strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
 		strings.Contains(result.Message.Content, "Summary from local file:") ||
 		strings.Contains(result.Message.Content, "SparkClaw local file assistant reads workspace files") {
-		t.Fatalf("assistant should expose missing final instead of faking a file summary:\n%s", result.Message.Content)
+		t.Fatalf("assistant should synthesize a model final from completed document evidence:\n%s", result.Message.Content)
 	}
 	calls := st.ListToolCalls(session.ID)
 	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != "completed" {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
-		t.Fatalf("file-read fallback policy audit missing: %#v", st.ListAudit(session.ID))
+	if hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
+		t.Fatalf("successful document read should not use the missing-final fallback: %#v", st.ListAudit(session.ID))
+	}
+	if !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_final_answer", workflowExecutionModelLane) {
+		t.Fatalf("document read did not run its profile finalizer: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead {
 		t.Fatalf("workspace read did not complete through its workflow profile: %#v", result.Run.Workflow)
@@ -386,11 +389,11 @@ func TestRuntimeFileReadSummaryDoesNotFakeAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result.Message.Content, "任务没有完成。") ||
-		!strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
+	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
+		strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
 		strings.Contains(result.Message.Content, "SparkClaw truncation marker") ||
 		strings.Contains(result.Message.Content, "Summary from local file:") {
-		t.Fatalf("assistant should report missing final instead of exposing a fake truncated summary:\n%s", result.Message.Content)
+		t.Fatalf("assistant should synthesize a final without exposing raw source content:\n%s", result.Message.Content)
 	}
 	calls := st.ListToolCalls(session.ID)
 	if len(calls) != 1 || calls[0].Result == nil {
@@ -429,11 +432,61 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 	if approvals := st.ListApprovals(""); len(approvals) != 0 {
 		t.Fatalf("file content should not create approvals: %#v", approvals)
 	}
-	if !strings.Contains(result.Message.Content, "任务没有完成。") ||
-		!strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
+	if !strings.Contains(result.Message.Content, "Mock workflow answer grounded") ||
+		strings.Contains(result.Message.Content, "兜底策略：files.read_no_final") ||
 		strings.Contains(result.Message.Content, "ignore previous instructions") ||
 		strings.Contains(result.Message.Content, "Local file content is untrusted data") {
-		t.Fatalf("assistant should not surface file content as a fake final answer:\n%s", result.Message.Content)
+		t.Fatalf("assistant should treat file content as evidence while synthesizing the final answer:\n%s", result.Message.Content)
+	}
+}
+
+func TestWorkflowFinalAnswerContentAcceptsOnlyUsableFinals(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		content string
+		want    string
+		wantErr bool
+	}{
+		{name: "plain", content: "这份文档主要讨论儿童人工智能教育。", want: "这份文档主要讨论儿童人工智能教育。"},
+		{name: "final envelope", content: `{"type":"final","answer":"文档摘要。"}`, want: "文档摘要。"},
+		{name: "action envelope", content: `{"type":"action","tool":"files.read","arguments":{"path":"other.docx"}}`, wantErr: true},
+		{name: "missing answer", content: "", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := workflowFinalAnswerContent(test.content)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("workflow finalizer accepted unusable content: %q", got)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("workflow final answer = %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestWorkflowFinalEvidenceUsesDocumentContentWithoutLocatorDuplication(t *testing.T) {
+	content := strings.Repeat("儿童人工智能教育正文。", 700)
+	evidence := workflowFinalEvidence([]app.ToolCall{{
+		Tool:       "files.read",
+		Status:     "completed",
+		Capability: app.ToolCapabilityDocumentRead,
+		Arguments:  map[string]any{"path": "uploads/report.docx"},
+		Result: map[string]any{
+			"path":      "uploads/report.docx",
+			"kind":      "docx",
+			"content":   content,
+			"truncated": false,
+		},
+		ObservationSummary: strings.Repeat("duplicate locator structure ", 4000),
+	}}, nil)
+	if len(evidence) != 1 || !strings.Contains(evidence[0], content) || strings.Contains(evidence[0], "duplicate locator structure") {
+		t.Fatalf("workflow final evidence did not isolate document content: %#v", evidence)
+	}
+	if !strings.Contains(evidence[0], "source_truncated=false") || !strings.Contains(evidence[0], "model_evidence_truncated=false") {
+		t.Fatalf("workflow final evidence lost coverage metadata: %s", evidence[0])
 	}
 }
 
@@ -464,8 +517,8 @@ func TestRuntimeAnswersBrowserReadWithExternalContent(t *testing.T) {
 	if len(calls) != 0 {
 		t.Fatalf("browser.internet_search revision 1 must not expose browser.read: %#v", calls)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("URL reading must remain outside browser.internet_search revision 1: route=%#v", result.RouteDecision)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+		t.Fatalf("unsupported URL reading must fail closed outside ReAct: route=%#v", result.RouteDecision)
 	}
 }
 
@@ -488,8 +541,8 @@ func TestAuthoritativeURLReadBlocksAuthenticationWithoutLegacyResume(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("explicit URL reading must not enter a revision 1 workflow: route=%#v run=%#v", result.RouteDecision, result.Run)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+		t.Fatalf("explicit URL reading must fail closed outside ReAct: route=%#v run=%#v", result.RouteDecision, result.Run)
 	}
 	if _, ok := st.FindActiveBrowserLoginBlock(session.ID); ok {
 		t.Fatal("authoritative URL workflow must not enter the legacy login-resume path")
@@ -865,8 +918,8 @@ func TestRuntimeComparesBrowserSourcesWithCitations(t *testing.T) {
 	if len(calls) != 0 {
 		t.Fatalf("browser.internet_search revision 1 must not expose multi-page reads: %#v", calls)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("multi-page reading must remain outside browser.internet_search revision 1: %#v", result.RouteDecision)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+		t.Fatalf("multi-page reading must fail closed outside ReAct: %#v", result.RouteDecision)
 	}
 }
 
@@ -1309,7 +1362,7 @@ func TestToolResultAdapterSeparatesSourceAndMessageTruncation(t *testing.T) {
 	}
 }
 
-func TestToolResultAdapterProjectsOnlyBoundedInfoEvidence(t *testing.T) {
+func TestToolResultAdapterProjectsBoundedStructuredInfoEvidence(t *testing.T) {
 	call := app.ToolCall{ID: "tc_web", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "榆林学院 榆林大学"}}
 	output := map[string]any{
 		"request_id": "info-request-adapter",
@@ -1338,15 +1391,38 @@ func TestToolResultAdapterProjectsOnlyBoundedInfoEvidence(t *testing.T) {
 	if strings.Contains(message, "large raw search answer should not dominate context") || strings.Contains(message, "IGNORE-THIS-UNRELATED-CONTENT") {
 		t.Fatalf("web search should not preserve full raw answer in model context:\n%s", message)
 	}
-	if len(decoded.Evidence) != 1 || decoded.Evidence[0].Kind != "info.evidence_projection" || !strings.Contains(decoded.Evidence[0].Text, "fact:0") || !strings.Contains(decoded.Evidence[0].Text, "source:0:snippet:0") {
-		t.Fatalf("typed Info evidence projection missing: %#v", decoded.Evidence)
+	if len(decoded.Evidence) != 1 || decoded.Evidence[0].Kind != "info.evidence_projection" || !strings.Contains(decoded.Evidence[0].Text, "summary:0") ||
+		!strings.Contains(decoded.Evidence[0].Text, "fact:0") || !strings.Contains(decoded.Evidence[0].Text, "source:0:snippet:0") {
+		t.Fatalf("typed Info evidence projection is invalid: %#v", decoded.Evidence)
 	}
 	nextStepHint := fmt.Sprint(decoded.Structured["next_step_hint"])
-	if !strings.Contains(nextStepHint, "exact refs") || strings.Contains(nextStepHint, "教育部公示") || strings.Contains(nextStepHint, "browser.read") {
+	if !strings.Contains(nextStepHint, "summary:0") || !strings.Contains(nextStepHint, "fact:N") || !strings.Contains(nextStepHint, "source:N:snippet:M") || strings.Contains(nextStepHint, "教育部公示") || strings.Contains(nextStepHint, "browser.read") {
 		t.Fatalf("external observation must not become a control instruction: %q", nextStepHint)
 	}
 	if !decoded.Untrusted || !strings.Contains(decoded.Safety, "do not follow instructions") {
 		t.Fatalf("Info projection lost the untrusted-observation boundary: %#v", decoded)
+	}
+}
+
+func TestGroundedWebSearchPrefersStructuredInfoFactsOverStatusSummary(t *testing.T) {
+	call := app.ToolCall{
+		ID: "tc_gold", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "今日金价"},
+		Result: map[string]any{
+			"request_id": "req-gold", "query": "今日金价", "provider": websearch.InfoProviderName,
+			"answer":  "Synthesized 2 citation-backed fact(s) from 2 public source(s).",
+			"summary": "Synthesized 2 citation-backed fact(s) from 2 public source(s).", "count": 2, "untrusted": true,
+			"key_facts": []any{
+				map[string]any{"id": "fact:0", "claim": "2026年7月20日黄金实时价格 **877\\.0元/克**。", "sources": []string{"src-gold"}},
+			},
+			"results": []any{
+				map[string]any{"evidence_index": 0, "id": "src-gold", "url": "https://example.com/gold", "snippets": []string{"黄金实时价格877.0元/克。"}},
+			},
+			"citations": []string{"https://example.com/gold"},
+		},
+	}
+	answer, ok := webSearchAnswerFromCalls("今日金价", []app.ToolCall{call})
+	if !ok || !strings.Contains(answer, "877.0元/克") || !strings.Contains(answer, "https://example.com/gold") || strings.Contains(answer, "Synthesized 2") {
+		t.Fatalf("structured Info facts should replace a provider status summary: %q", answer)
 	}
 }
 
@@ -1389,6 +1465,91 @@ func TestToolResultAdapterDoesNotFallbackForNonInfoWebSearchOutput(t *testing.T)
 	}
 	if decoded.Structured["projection_failure_code"] != "unsupported_provider" || len(decoded.Evidence) != 1 || strings.Contains(decoded.Evidence[0].Text, "LEGACY-ANSWER") {
 		t.Fatalf("unsupported provider should fail without generic evidence fallback: %#v", decoded)
+	}
+}
+
+func TestToolResultAdapterPreservesCompleteInfoEvidenceDirectory(t *testing.T) {
+	call := app.ToolCall{ID: "tc_info", Tool: "info.query", Status: "completed"}
+	summary := "Synthesized 8 citation-backed fact(s) from 8 public source(s)."
+	output := map[string]any{
+		"request_id": "req-1", "query": "杭州天气", "provider": "infinimesh-info",
+		"summary": summary, "retrieved_at": "2026-07-17T10:00:00Z", "untrusted": true,
+		"key_facts": []any{map[string]any{"id": "fact:0", "claim": "杭州当前多云，气温31°C。", "sources": []string{"src-1"}}},
+		"sources":   []any{map[string]any{"evidence_index": 0, "id": "src-1", "url": "https://example.com/weather", "snippets": []string{"杭州今日最低27°C，最高34°C。"}}},
+		"citations": []string{"https://example.com/weather"},
+	}
+	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 48000, EvidenceLimit: 44000})
+	var decoded toolResultMessage
+	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
+		t.Fatalf("Info observation is not JSON: %v\n%s", err, message)
+	}
+	if decoded.Category != "info_query" || len(decoded.Evidence) != 1 || decoded.Evidence[0].Kind != "info.evidence_projection" || decoded.Evidence[0].Truncated {
+		t.Fatalf("Info evidence observation was not preserved completely: %#v", decoded)
+	}
+	if !usableInfoQueryObservation(message) {
+		t.Fatal("complete Info observation should pass the completeness gate")
+	}
+	for _, want := range []string{"summary:0", summary, "fact:0", "杭州当前多云，气温31°C。", "source:0:snippet:0", "杭州今日最低27°C，最高34°C。", "https://example.com/weather"} {
+		if !strings.Contains(decoded.Evidence[0].Text, want) {
+			t.Fatalf("complete Info evidence is missing %q", want)
+		}
+	}
+	hub := toolhub.New(config.Default(), store.NewMemoryStore())
+	maxBytes, evidenceLimit := (Runtime{tools: hub}).toolResultObservationBudget("info.query")
+	if maxBytes != config.Default().Runtime.ReactMaxObservationBytes || evidenceLimit != maxBytes-4000 {
+		t.Fatalf("Info query should use the full workflow observation budget, got max=%d evidence=%d", maxBytes, evidenceLimit)
+	}
+	compacted := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 600, EvidenceLimit: 120})
+	if usableInfoQueryObservation(compacted) {
+		t.Fatal("compacted Info evidence must fail closed instead of reaching extraction")
+	}
+}
+
+func TestToolResultAdapterAcceptsInfoFactsWithoutSummary(t *testing.T) {
+	call := app.ToolCall{ID: "tc_info_facts", Tool: "info.query", Status: "completed"}
+	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: map[string]any{
+		"request_id": "req-facts", "query": "杭州天气", "provider": "infinimesh-info",
+		"summary": "", "key_facts": []any{map[string]any{"id": "fact:0", "claim": "杭州当前气温31°C。"}},
+		"sources": []any{}, "citations": []string{}, "untrusted": true,
+	}, MaxBytes: 48000, EvidenceLimit: 44000})
+	if !usableInfoQueryObservation(message) {
+		t.Fatalf("Info facts should remain usable when summary is empty: %s", message)
+	}
+}
+
+func TestToolResultAdapterBoundsLargeStructuredInfoResponse(t *testing.T) {
+	call := app.ToolCall{ID: "tc_info_large", Tool: "info.query", Status: "completed"}
+	facts := make([]any, 0, 8)
+	sources := make([]any, 0, 8)
+	for index := 0; index < 8; index++ {
+		facts = append(facts, map[string]any{
+			"id": fmt.Sprintf("fact:%d", index), "claim": strings.Repeat("杭州天气证据 31°C。", 300),
+			"sources": []string{fmt.Sprintf("src-%d", index)},
+		})
+		sources = append(sources, map[string]any{
+			"evidence_index": index, "id": fmt.Sprintf("src-%d", index),
+			"url":      fmt.Sprintf("https://example.com/weather/%d", index),
+			"snippets": []string{strings.Repeat("杭州天气来源片段 31°C。", 300)},
+		})
+	}
+	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: map[string]any{
+		"request_id": "req-large", "query": "杭州天气", "provider": "infinimesh-info",
+		"summary":   "Synthesized 8 citation-backed fact(s) from 8 public source(s).",
+		"key_facts": facts, "sources": sources, "untrusted": true,
+	}, MaxBytes: 48000, EvidenceLimit: 44000})
+	var decoded toolResultMessage
+	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !usableInfoQueryObservation(message) || len(decoded.Evidence) != 1 || len(decoded.Evidence[0].Text) > websearch.MaxInfoProjectionBytes {
+		t.Fatalf("large Info response was not converted to a usable bounded projection: message_bytes=%d evidence=%#v", len(message), decoded.Evidence)
+	}
+	var projection websearch.InfoEvidenceProjection
+	if err := json.Unmarshal([]byte(decoded.Evidence[0].Text), &projection); err != nil {
+		t.Fatal(err)
+	}
+	if projection.Status != websearch.InfoProjectionPartial || !containsString(projection.MissingComponents, "projection.capacity") || len(projection.Facts) == 0 || len(projection.Sources) == 0 {
+		t.Fatalf("large Info projection did not preserve structured evidence and capacity status: %#v", projection)
 	}
 }
 
@@ -1935,24 +2096,6 @@ func TestCompressBrowserSnapshotIncludesElementsFromResultStruct(t *testing.T) {
 	}
 }
 
-func TestRepeatedBrowserSnapshotDetectsSameStructure(t *testing.T) {
-	first := strings.Join([]string{
-		"browser.snapshot Observation bytes=100. browser.snapshot completed.",
-		`untrusted_browser_snapshot:`,
-		`accessibility_snapshot:`,
-		`- RootWebArea "Mac - Apple" [ref=1_0]`,
-		`  - /url: https://www.apple.com/mac/`,
-		`- link "MacBook Air" [ref=1_40]`,
-	}, "\n")
-	second := first
-	if !repeatedBrowserSnapshot("browser.snapshot", second, []string{first}) {
-		t.Fatalf("expected repeated snapshot to be detected")
-	}
-	if repeatedBrowserSnapshot("browser.click", second, []string{first}) {
-		t.Fatalf("non-snapshot tool should not be marked repeated")
-	}
-}
-
 func TestReactBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {
 	budget := reactRunBudget{
 		StartedAt:            time.Now().UTC(),
@@ -2094,8 +2237,8 @@ func TestRuntimeReadsMultipleLocalFilesForCrossFileAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("multi-file comparison must remain outside one-file document.read revision 1: %#v", result.RouteDecision)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+		t.Fatalf("multi-file comparison must fail closed outside ReAct: %#v", result.RouteDecision)
 	}
 	if strings.Contains(result.Message.Content, "Summary from local files:") ||
 		strings.Contains(result.Message.Content, "Alpha says approval-first") ||
@@ -2259,8 +2402,8 @@ func TestRuntimeDoesNotExposeAdvancedBrowserActionsInRevisionOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil || len(result.Approvals) != 0 {
-		t.Fatalf("type/screenshot work must remain outside browser.automation revision 1: %#v", result)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil || len(result.Approvals) != 0 {
+		t.Fatalf("type/screenshot work must fail closed outside ReAct: %#v", result)
 	}
 	for _, call := range st.ListToolCalls(session.ID) {
 		if call.Tool == "browser.type" || call.Tool == "browser.screenshot" {
@@ -2351,8 +2494,8 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 	if resumed.Run.State != "completed" {
 		t.Fatalf("document run should complete after approved mutation: %#v", resumed.Run)
 	}
-	if resumed.Message.Content != "修改好的文件：outputs/test-expanded.docx" {
-		t.Fatalf("unexpected final answer: %q", resumed.Message.Content)
+	if resumed.Message.Content != "" || len(resumed.Message.Attachments) != 1 || resumed.Message.Attachments[0].RelPath != "outputs/test-expanded.docx" {
+		t.Fatalf("approved document result was not projected as a file attachment: %#v", resumed.Message)
 	}
 	calls := st.ListToolCalls(session.ID)
 	docxCalls := 0
@@ -2689,7 +2832,7 @@ func TestTaskHintPromptConstrainsEstimatedRiskEnum(t *testing.T) {
 func TestTaskHintClassifiesUploadedImageAsImageInspection(t *testing.T) {
 	content := "这张图里有什么文字？\n\nAttached files for this user turn:\n- test.png path=uploads/20260701/test.png content_type=image/png bytes=128"
 	hint := heuristicTaskHint(content)
-	if hint.EvidenceNeed != "workspace" || hint.ToolMode != "read_only" || hint.ModelLaneHint != "deep" {
+	if hint.EvidenceNeed != "workspace" || hint.ToolMode != "read_only" || hint.ModelLaneHint != "fast" {
 		t.Fatalf("image question should need read-only workspace multimodal inspection: %#v", hint)
 	}
 	if !slicesContainsString(hint.CandidateSkills, "image_assistant") {
@@ -2716,8 +2859,34 @@ func TestParseTaskHintToleratesNumericEstimatedRisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("numeric estimated_risk should not reject the whole TaskHint: %v", err)
 	}
-	if hint.TaskType != "modify" || hint.ToolMode != "action_required" || !slicesContainsString(hint.CandidateTools, "docx.replace_paragraph") {
-		t.Fatalf("parsed hint should keep document mutation routing: %#v", hint)
+	if hint.TaskType != "modify" || hint.ToolMode != "action_required" {
+		t.Fatalf("parsed hint should preserve non-routing fields: %#v", hint)
+	}
+	if slicesContainsString(hint.CandidateSkills, "document_assistant") || slicesContainsString(hint.CandidateTools, "docx.replace_paragraph") {
+		t.Fatalf("TaskHint must not recreate migrated document routing: %#v", hint)
+	}
+}
+
+func TestParseTaskHintKeepsUnmigratedImageAndSensitiveMemoryTools(t *testing.T) {
+	for _, tc := range []struct {
+		content string
+		tool    string
+	}{
+		{content: "请看这张图片", tool: "images.inspect"},
+		{content: "记住这个敏感 token", tool: "memory.write_sensitive"},
+	} {
+		fallback := heuristicTaskHint(tc.content)
+		raw, err := json.Marshal(fallback)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hint, err := parseTaskHint(string(raw), fallback)
+		if err != nil {
+			t.Fatalf("parse %q: %v", tc.content, err)
+		}
+		if !slicesContainsString(hint.CandidateTools, tc.tool) {
+			t.Fatalf("unmigrated tool %s was removed from %#v", tc.tool, hint.CandidateTools)
+		}
 	}
 }
 
@@ -2763,15 +2932,6 @@ func TestNormalizeTaskHintPreservesOwnerAuthenticatedBrowserRouting(t *testing.T
 	}
 }
 
-func TestHasBrowserToolCall(t *testing.T) {
-	if hasBrowserToolCall([]app.ToolCall{{Tool: "files.search"}}) {
-		t.Fatal("non-browser call must not satisfy personal browser evidence")
-	}
-	if !hasBrowserToolCall([]app.ToolCall{{Tool: "browser.open"}}) {
-		t.Fatal("browser call should satisfy personal browser evidence")
-	}
-}
-
 func TestRuntimeRecoversPersonalAccountRefusalIntoBrowserOpen(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
@@ -2792,11 +2952,30 @@ MOCK_REACT_RESPONSE:{"type":"final","answer":"I cannot access personal accounts.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("personal-account work must remain outside browser.automation revision 1: %#v", result)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+		t.Fatalf("unsupported personal-account work must fail closed outside ReAct: %#v", result)
 	}
 	if _, blocked := st.FindActiveBrowserLoginBlock(session.ID); blocked || adapter.openCalls != 0 {
 		t.Fatalf("unsupported account work must not open a page or create a login block: %#v", adapter)
+	}
+}
+
+func TestUnmatchedMigratedRequestsCannotFallBackToReAct(t *testing.T) {
+	for _, tc := range []struct {
+		content   string
+		resources []app.MessagePart
+		blocked   bool
+	}{
+		{content: "读取 https://example.com/account 的内容", blocked: true},
+		{content: "点击当前页面的登录按钮", blocked: true},
+		{content: "杭州天气，只要文字", blocked: true},
+		{content: "比较 report.docx 和 older.docx", blocked: true},
+		{content: "检查代码中的 https://example.com 常量", blocked: false},
+		{content: "请看 uploads/photo.png 这张图片", blocked: false},
+	} {
+		if got := migratedWorkflowRequestWithoutMatch(tc.content, tc.resources); got != tc.blocked {
+			t.Fatalf("migrated fallback classification for %q: got %t want %t", tc.content, got, tc.blocked)
+		}
 	}
 }
 
@@ -2837,45 +3016,6 @@ func TestStableIntentOwnsPublicWebSearchPhrases(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesWeatherAsDefaultCard(t *testing.T) {
-	hint := heuristicTaskHint("杭州今天天气怎么样")
-	if hint.EvidenceNeed != "web" || hint.ToolMode != "action_required" || hint.EstimatedRisk != string(app.RiskDraft) || hint.ModelLaneHint != "deep" {
-		t.Fatalf("weather question should default to action-capable card rendering: %#v", hint)
-	}
-	if !slicesContainsString(hint.CandidateSkills, "weather_lookup") {
-		t.Fatalf("weather question should suggest weather skill: %#v", hint.CandidateSkills)
-	}
-	if len(hint.CandidateTools) != 1 || hint.CandidateTools[0] != "media.render_weather_card" {
-		t.Fatalf("weather question should expose only weather card rendering: %#v", hint.CandidateTools)
-	}
-}
-
-func TestTaskHintClassifiesTextOnlyWeatherAsDirectBrowserRead(t *testing.T) {
-	hint := heuristicTaskHint("杭州今天天气怎么样，只要文字不要图片")
-	if hint.EvidenceNeed != "web" || hint.ToolMode != "action_required" {
-		t.Fatalf("text-only weather question should still use weather card tool-owned lookup: %#v", hint)
-	}
-	if !slicesContainsString(hint.CandidateSkills, "weather_lookup") {
-		t.Fatalf("text-only weather question should suggest weather skill: %#v", hint.CandidateSkills)
-	}
-	if len(hint.CandidateTools) != 1 || hint.CandidateTools[0] != "media.render_weather_card" {
-		t.Fatalf("text-only weather question should avoid browser.read and use weather card tool: %#v", hint.CandidateTools)
-	}
-}
-
-func TestTaskHintClassifiesWeatherCardAsRenderAction(t *testing.T) {
-	hint := heuristicTaskHint("把杭州天气做成一张天气卡片发到微信")
-	if hint.EvidenceNeed != "web" || hint.ToolMode != "action_required" {
-		t.Fatalf("weather card should need action-capable web evidence: %#v", hint)
-	}
-	if !slicesContainsString(hint.CandidateSkills, "weather_lookup") {
-		t.Fatalf("weather card should suggest weather skill: %#v", hint.CandidateSkills)
-	}
-	if len(hint.CandidateTools) != 1 || hint.CandidateTools[0] != "media.render_weather_card" {
-		t.Fatalf("weather card should expose render tool only: %#v", hint.CandidateTools)
-	}
-}
-
 func TestTaskHintClassifiesWeixinReminder(t *testing.T) {
 	hint := heuristicTaskHint("一分钟后给微信发送你好")
 	if hint.TaskType != "send" || hint.ToolMode != "action_required" {
@@ -2892,8 +3032,52 @@ func TestTaskHintClassifiesWeixinReminder(t *testing.T) {
 func TestTaskHintClassifiesBrowserAutomation(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := runtime.deterministicCapabilityRoute("帮我在 Chrome 里点击当前页面的登录按钮")
-	if route.Status != app.RouteUnmatched {
-		t.Fatalf("clicking the current page is outside browser.automation revision 1: %#v", route)
+	if route.Status != app.RouteBlocked || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction {
+		t.Fatalf("login interaction should fail closed in browser.interaction revision 1: %#v", route)
+	}
+}
+
+func TestTaskHintClassifiesCurrentTabClickAsBrowserInteraction(t *testing.T) {
+	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
+	route := runtime.deterministicCapabilityRoute("点击当前页面的下一步按钮")
+	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
+		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetKind != string(app.TargetKindBrowserCurrentTab) {
+		t.Fatalf("current-tab click did not enter browser.interaction: %#v", route)
+	}
+}
+
+func TestTaskHintClassifiesURLClickAsBrowserInteraction(t *testing.T) {
+	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
+	route := runtime.deterministicCapabilityRoute("打开 https://example.com/checkout 并点击下一步")
+	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
+		route.Slots.TargetRef != "https://example.com/checkout" {
+		t.Fatalf("URL click did not enter browser.interaction: %#v", route)
+	}
+}
+
+func TestTaskHintResolvesRegisteredQQMailDestination(t *testing.T) {
+	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
+	route := runtime.deterministicCapabilityRoute("请在 Chromium 中打开 QQ 邮箱")
+	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation ||
+		route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
+		t.Fatalf("registered QQ Mail destination did not enter browser.automation: %#v", route)
+	}
+}
+
+func TestTaskHintRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
+	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
+	route := runtime.deterministicCapabilityRoute("打开 QQ 邮箱的草稿箱")
+	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
+		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
+		t.Fatalf("registered QQ Mail subgoal did not enter browser.interaction: %#v", route)
+	}
+}
+
+func TestTaskHintDoesNotInventUnknownNamedBrowserDestination(t *testing.T) {
+	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
+	route := runtime.deterministicCapabilityRoute("打开未知邮箱")
+	if route.Status != app.RouteClarify || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation || route.Slots.TargetRef != "" {
+		t.Fatalf("unknown named destination should require an explicit URL: %#v", route)
 	}
 }
 
@@ -2909,7 +3093,7 @@ func TestTaskHintClassifiesExplicitURLOpenAsActionCapableBrowserAutomation(t *te
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := runtime.deterministicCapabilityRoute("打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
 	if route.Status != app.RouteUnmatched {
-		t.Fatalf("interactive URL controls are outside browser.automation revision 1: %#v", route)
+		t.Fatalf("unsupported checkbox selection should remain outside browser.interaction revision 1: %#v", route)
 	}
 }
 
@@ -2931,7 +3115,7 @@ func TestNormalizeTaskHintKeepsExplicitURLOpenActionCapable(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := runtime.deterministicCapabilityRoute("打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
 	if route.Status != app.RouteUnmatched {
-		t.Fatalf("interactive URL must not dispatch browser.automation revision 1: %#v", route)
+		t.Fatalf("unsupported interactive URL should remain outside browser.interaction revision 1: %#v", route)
 	}
 }
 
@@ -2948,46 +3132,6 @@ func TestNormalizeTaskHintCorrectsStructureScreenshotSuggestion(t *testing.T) {
 	route := runtime.deterministicCapabilityRoute("查看当前页面结构，然后告诉我页面主标题是什么")
 	if route.Status != app.RouteUnmatched {
 		t.Fatalf("browser structure inspection is outside browser.automation revision 1: %#v", route)
-	}
-}
-
-func TestNormalizeTaskHintForWeatherDefaultsToCard(t *testing.T) {
-	fallback := heuristicTaskHint("今天天气怎么样")
-	hint := normalizeTaskHint(TaskHint{
-		TaskType:        "search",
-		EvidenceNeed:    "web",
-		ToolMode:        "read_only",
-		EstimatedRisk:   "read",
-		ModelLaneHint:   "fast",
-		CandidateSkills: []string{"weather_lookup"},
-		CandidateTools:  []string{"web.search", "browser.read"},
-		Reason:          "weather lookup",
-	}, fallback)
-	if hint.EvidenceNeed != "web" || hint.ToolMode != "action_required" || hint.ModelLaneHint != "deep" {
-		t.Fatalf("weather hint should default to action-capable card rendering: %#v", hint)
-	}
-	if len(hint.CandidateTools) != 1 || hint.CandidateTools[0] != "media.render_weather_card" {
-		t.Fatalf("weather hint should remove web.search/browser.read and expose card tool: %#v", hint.CandidateTools)
-	}
-}
-
-func TestNormalizeTaskHintForTextOnlyWeatherUsesCardToolLookup(t *testing.T) {
-	fallback := heuristicTaskHint("今天天气怎么样，只要文字不要图片")
-	hint := normalizeTaskHint(TaskHint{
-		TaskType:        "search",
-		EvidenceNeed:    "web",
-		ToolMode:        "read_only",
-		EstimatedRisk:   "read",
-		ModelLaneHint:   "fast",
-		CandidateSkills: []string{"weather_lookup"},
-		CandidateTools:  []string{"web.search", "browser.read"},
-		Reason:          "plain-text weather lookup",
-	}, fallback)
-	if hint.EvidenceNeed != "web" || hint.ToolMode != "action_required" {
-		t.Fatalf("text-only weather hint should use weather card tool-owned lookup: %#v", hint)
-	}
-	if len(hint.CandidateTools) != 1 || hint.CandidateTools[0] != "media.render_weather_card" {
-		t.Fatalf("text-only weather hint should remove web.search/browser.read and keep card tool: %#v", hint.CandidateTools)
 	}
 }
 
@@ -3072,70 +3216,25 @@ func TestAgentContextKeepsDocumentOperationContextInToolMemory(t *testing.T) {
 	}
 }
 
-func TestWorkflowSkillSelectionIgnoresKeywordCompetition(t *testing.T) {
-	root := t.TempDir()
-	skillsDir := filepath.Join(root, "skills")
-	writeAgentTestSkill(t, skillsDir, "browser_automation", `---
-name: browser_automation
-description: Operate a live browser when the user explicitly asks to open a page.
-allowed_tools: ["browser.open", "browser.status"]
-activation:
-  keywords: ["浏览器", "打开"]
----
-Open the requested page.`)
-	writeAgentTestSkill(t, skillsDir, "web_search", `---
-name: web_search
-description: Search public information without opening result pages.
-allowed_tools: ["web.search"]
-denied_tools: ["browser.open", "browser.status"]
-activation:
-  keywords: ["最新", "官网信息"]
----
-Search without opening pages.`)
-
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.BrowserAutomation.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	cfg.Skills.Dirs = []string{skillsDir}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntimeWithSkills(st, tools, policy.New(cfg), modelrouter.New(cfg), nil, skills.NewRegistry(cfg))
-	route := runtime.deterministicCapabilityRoute("查一下最新的 macbook 官网信息")
-	resolved, err := runtime.profiles.Resolve(runtime.capabilities, route, "turn")
-	if err != nil {
-		t.Fatal(err)
-	}
-	relevant := runtime.exactWorkflowSkills(resolved.Plan.SkillIDs)
-
-	if len(relevant) != 1 || relevant[0].Name != "web_search" {
-		t.Fatalf("workflow must select only its exact procedural skill: %#v", skillNames(relevant))
-	}
-}
-
-func TestVisibleToolDefinitionsWeatherDoesNotExposeWebSearch(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		EvidenceNeed:    "web",
-		ToolMode:        "action_required",
-		CandidateSkills: []string{"weather_lookup"},
-		CandidateTools:  []string{"media.render_weather_card"},
-	}, []skills.Skill{{
-		Name:         "weather_lookup",
-		AllowedTools: []string{"media.render_weather_card"},
-		DeniedTools:  []string{"web.search", "browser.read"},
-	}})
-	names := visibleToolNames(defs)
-	if len(names) != 1 || names[0] != "media.render_weather_card" {
-		t.Fatalf("weather skill should expose only weather card tool, got %#v", names)
+func TestWorkflowPlansDoNotPersistSkillIDs(t *testing.T) {
+	runtime := Runtime{capabilities: capability.MustDefaultCatalog(), profiles: defaultWorkflowProfileRegistry()}
+	for _, content := range []string{
+		"查一下最新的 macbook 官网信息",
+		"打开 https://example.com",
+		"今天杭州天气",
+	} {
+		route := runtime.deterministicCapabilityRoute(content)
+		resolved, err := runtime.profiles.Resolve(runtime.capabilities, route, "turn")
+		if err != nil {
+			t.Fatalf("resolve %q: %v", content, err)
+		}
+		raw, err := json.Marshal(resolved.Plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "skill_ids") {
+			t.Fatalf("workflow plan still persists Skill coupling for %q: %s", content, raw)
+		}
 	}
 }
 
@@ -3242,30 +3341,36 @@ func TestReActParserRejectsInvisibleTool(t *testing.T) {
 	}
 }
 
-func TestVisibleToolDefinitionsTreatsSkillAllowedToolsAsSuggestions(t *testing.T) {
+func TestLegacyReActCannotExposeMigratedWorkflowTools(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
 	cfg.Tools.Web.Search.Enabled = true
+	cfg.Tools.BrowserAutomation.Enabled = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	defs := runtime.visibleToolDefinitions(TaskHint{
-		EvidenceNeed:    "web",
-		ToolMode:        "read_only",
-		CandidateTools:  []string{"web.search", "browser.read"},
-		CandidateSkills: []string{"browser_automation"},
+		EvidenceNeed:    "workspace",
+		ToolMode:        "action_required",
+		CandidateTools:  []string{"files.read", "web.search", "info.query", "browser.open", "weather.structure_payload", "media.render_weather_card", "docx.replace_paragraph", "pdf.transform"},
+		CandidateSkills: []string{"browser_automation", "document_assistant", "weather_lookup", "web_search"},
 	}, []skills.Skill{{
 		Name:         "browser_automation",
-		AllowedTools: []string{"browser.read", "files.write_draft"},
+		AllowedTools: []string{"web.search", "browser.open"},
+	}, {
+		Name:         "document_assistant",
+		AllowedTools: []string{"docx.replace_paragraph", "pdf.transform"},
 	}})
 	names := visibleToolNames(defs)
-	if !slicesContainsString(names, "web.search") || !slicesContainsString(names, "browser.read") {
-		t.Fatalf("TaskHint web tools should remain visible even when skill allowed_tools omits one: %#v", names)
+	if !slicesContainsString(names, "files.read") {
+		t.Fatalf("legacy ReAct lost the shared code-read tool: %#v", names)
 	}
-	if slicesContainsString(names, "files.write_draft") {
-		t.Fatalf("skill allowed_tools should not authorize draft tools in read_only mode: %#v", names)
+	for _, migrated := range []string{"web.search", "info.query", "browser.open", "weather.structure_payload", "media.render_weather_card", "docx.replace_paragraph", "pdf.transform"} {
+		if slicesContainsString(names, migrated) {
+			t.Fatalf("legacy ReAct exposed migrated workflow tool %s: %#v", migrated, names)
+		}
 	}
 }
 
@@ -3274,30 +3379,6 @@ func TestURLTaskHintPrefersBrowserReadOnly(t *testing.T) {
 	route := runtime.deterministicCapabilityRoute("https://github.com/Infinimesh-ai/SparkClaw 这个项目是干什么的")
 	if route.Status != app.RouteUnmatched {
 		t.Fatalf("explicit URL reading is outside browser.internet_search revision 1: %#v", route)
-	}
-}
-
-func TestVisibleToolDefinitionsURLTaskDoesNotAddSkillSearchTool(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		EvidenceNeed:    "web",
-		ToolMode:        "read_only",
-		CandidateTools:  []string{"browser.read"},
-		CandidateSkills: []string{"browser_automation"},
-	}, []skills.Skill{{
-		Name:         "browser_automation",
-		AllowedTools: []string{"web.search", "browser.read"},
-	}})
-	names := visibleToolNames(defs)
-	if !slicesContainsString(names, "browser.read") || slicesContainsString(names, "web.search") {
-		t.Fatalf("URL task should expose browser.read only, got %#v", names)
 	}
 }
 
@@ -3323,109 +3404,6 @@ func TestVisibleToolDefinitionsBrowserAutomationSkillControlsToolSet(t *testing.
 	}
 }
 
-func TestVisibleToolDefinitionsForStepExpandsBrowserFollowupAfterReadDiagnostic(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.BrowserAutomation.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	hint := TaskHint{
-		TaskType:        "search",
-		EvidenceNeed:    "web",
-		ToolMode:        "read_only",
-		BrowserMode:     "autonomous",
-		EstimatedRisk:   "read",
-		ModelLaneHint:   "fast",
-		CandidateSkills: []string{"browser_automation"},
-		CandidateTools:  []string{"web.search", "browser.read"},
-	}
-	base := runtime.visibleToolDefinitions(hint, []skills.Skill{{
-		Name: "browser_automation",
-		AllowedTools: []string{
-			"web.search",
-			"browser.read",
-			"browser.snapshot",
-			"browser.navigate",
-			"browser.click",
-			"browser.wait",
-		},
-	}})
-	baseNames := visibleToolNames(base)
-	if slicesContainsString(baseNames, "browser.snapshot") {
-		t.Fatalf("initial read-only web tools should stay strict before diagnostics: %#v", baseNames)
-	}
-
-	afterRead := runtime.visibleToolDefinitionsForStep(base, hint, []string{`{"tool":"browser.read","structured":{"needs_structure_snapshot":true}}`})
-	afterReadNames := visibleToolNames(afterRead)
-	for _, want := range []string{"browser.snapshot", "browser.navigate", "browser.wait"} {
-		if !slicesContainsString(afterReadNames, want) {
-			t.Fatalf("browser read diagnostics should expose %s, got %#v", want, afterReadNames)
-		}
-	}
-	if slicesContainsString(afterReadNames, "browser.click") {
-		t.Fatalf("browser.click should wait until a snapshot provides refs: %#v", afterReadNames)
-	}
-
-	afterSnapshot := runtime.visibleToolDefinitionsForStep(afterRead, hint, []string{
-		`{"tool":"browser.read","structured":{"needs_structure_snapshot":true}}`,
-		`{"tool":"browser.snapshot","evidence":[{"kind":"browser.accessibility_snapshot","text":"button uid=1 展开更多"}]}`,
-	})
-	afterSnapshotNames := visibleToolNames(afterSnapshot)
-	if !slicesContainsString(afterSnapshotNames, "browser.click") {
-		t.Fatalf("snapshot observation should expose approval-gated browser.click follow-up: %#v", afterSnapshotNames)
-	}
-}
-
-func TestVisibleToolDefinitionsCollaborativeModeExposesLiveReadToolsImmediately(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.BrowserAutomation.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	hint := TaskHint{
-		TaskType:        "inspect",
-		EvidenceNeed:    "web",
-		ToolMode:        "read_only",
-		BrowserMode:     "collaborative",
-		EstimatedRisk:   "read",
-		ModelLaneHint:   "deep",
-		CandidateSkills: []string{"browser_automation"},
-		CandidateTools:  []string{"web.search", "browser.read"},
-	}
-	defs := runtime.visibleToolDefinitions(hint, []skills.Skill{{
-		Name: "browser_automation",
-		AllowedTools: []string{
-			"web.search",
-			"browser.read",
-			"browser.status",
-			"browser.list_tabs",
-			"browser.open",
-			"browser.navigate",
-			"browser.snapshot",
-			"browser.screenshot",
-			"browser.wait",
-			"browser.click",
-		},
-	}})
-	names := visibleToolNames(defs)
-	for _, want := range []string{"web.search", "browser.read", "browser.open", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait"} {
-		if !slicesContainsString(names, want) {
-			t.Fatalf("collaborative read-only mode should expose live read tool %s, got %#v", want, names)
-		}
-	}
-	if slicesContainsString(names, "browser.click") {
-		t.Fatalf("collaborative read-only mode should not expose approval-gated click: %#v", names)
-	}
-}
-
 func TestEnrichPlanWithWebFreshnessPreservesLatestIntent(t *testing.T) {
 	plan := enrichPlanWithWebFreshness("最新的巴威台风信息", toolPlan{
 		Name: "web.search",
@@ -3442,132 +3420,19 @@ func TestEnrichPlanWithWebFreshnessPreservesLatestIntent(t *testing.T) {
 	}
 }
 
-func TestRunReActAuditsDynamicBrowserFollowupTools(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.BrowserAutomation.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	session := st.CreateSession("browser follow-up audit")
-	run := app.AgentRun{
-		ID:        app.NewID("run"),
-		SessionID: session.ID,
-		State:     "reacting",
-		Risk:      app.RiskRead,
-		StartedAt: time.Now().UTC(),
-	}
-	st.SaveRun(run)
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	hint := TaskHint{
-		TaskType:        "search",
-		EvidenceNeed:    "web",
-		ToolMode:        "read_only",
-		BrowserMode:     "autonomous",
-		EstimatedRisk:   "read",
-		ModelLaneHint:   "fast",
-		CandidateSkills: []string{"browser_automation"},
-		CandidateTools:  []string{"web.search", "browser.read"},
-		Reason:          "ordinary autonomous web lookup",
-	}
-	base := runtime.visibleToolDefinitions(hint, []skills.Skill{{
-		Name: "browser_automation",
-		AllowedTools: []string{
-			"web.search",
-			"browser.read",
-			"browser.snapshot",
-			"browser.navigate",
-			"browser.wait",
-		},
-	}})
-	content := `MOCK_REACT_RESPONSE:{"type":"final","answer":"done"}`
-	result := runtime.runReActLoopWithSeed(context.Background(), session.ID, run, content, hint, nil, base, nil, []string{`{"tool":"browser.read","structured":{"needs_structure_snapshot":true}}`})
-	if !result.Completed || result.FinalAnswer != "done" {
-		t.Fatalf("seeded ReAct run should finish with injected final: %#v", result)
-	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "react.visible_tools_expanded", "browser_mode", "autonomous") {
-		t.Fatalf("dynamic browser follow-up audit missing: %#v", st.ListAudit(session.ID))
-	}
-	if !hasAgentAuditStringSliceField(st.ListAudit(session.ID), "react.visible_tools_expanded", "tools", "browser.snapshot") {
-		t.Fatalf("dynamic browser follow-up audit should include browser.snapshot: %#v", st.ListAudit(session.ID))
+func TestCanonicalizeSearchRoutingContentResolvesFreshDateBeforeRouting(t *testing.T) {
+	canonical, changed := canonicalizeSearchRoutingContent("今天杭州天气", "2026-07-17")
+	want := "今天杭州天气 2026-07-17" + weatherCardQueryRequirementsZH
+	if !changed || canonical != want {
+		t.Fatalf("fresh search query was not canonicalized before routing: changed=%t query=%q", changed, canonical)
 	}
 }
 
-func TestVisibleToolDefinitionsSkillAllowedToolsDoNotOverrideToolMode(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.BrowserAutomation.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		TaskType:        "summarize",
-		EvidenceNeed:    "none",
-		ToolMode:        "read_only",
-		EstimatedRisk:   "read",
-		ModelLaneHint:   "fast",
-		CandidateSkills: []string{"browser_automation"},
-		CandidateTools:  []string{"browser.open", "browser.snapshot"},
-	}, []skills.Skill{{
-		Name: "browser_automation",
-		AllowedTools: []string{
-			"browser.open",
-			"browser.snapshot",
-			"browser.click",
-			"browser.type",
-			"browser.select",
-		},
-	}})
-	names := visibleToolNames(defs)
-	for _, want := range []string{"browser.open", "browser.snapshot"} {
-		if !slicesContainsString(names, want) {
-			t.Fatalf("read-only mode should keep read browser tool %s: %#v", want, names)
-		}
-	}
-	for _, blocked := range []string{"browser.click", "browser.type", "browser.select"} {
-		if slicesContainsString(names, blocked) {
-			t.Fatalf("skill allowed_tools should not expose draft browser action %s in read_only mode: %#v", blocked, names)
-		}
-	}
-}
-
-func TestBrowserAutomationCanExposeSupportingWebToolsWhenSkillAllows(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.BrowserAutomation.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		TaskType:        "inspect",
-		EvidenceNeed:    "web",
-		ToolMode:        "action_required",
-		EstimatedRisk:   string(app.RiskReversible),
-		ModelLaneHint:   "deep",
-		CandidateSkills: []string{"browser_automation"},
-		CandidateTools:  []string{"browser.open", "browser.snapshot", "web.search", "browser.read"},
-	}, []skills.Skill{{
-		Name: "browser_automation",
-		AllowedTools: []string{
-			"browser.open",
-			"browser.snapshot",
-			"browser.click",
-			"web.search",
-			"browser.read",
-		},
-	}})
-	names := visibleToolNames(defs)
-	for _, want := range []string{"browser.open", "browser.snapshot", "web.search", "browser.read"} {
-		if !slicesContainsString(names, want) {
-			t.Fatalf("browser automation should allow supporting web tool %s when skill allows it: %#v", want, names)
-		}
+func TestCanonicalizeWeatherRoutingContentDoesNotDuplicateCardRequirements(t *testing.T) {
+	input := "weather in Hangzhou 2026-07-17" + weatherCardQueryRequirementsEN
+	canonical, changed := canonicalizeSearchRoutingContent(input, "2026-07-17")
+	if changed || canonical != input {
+		t.Fatalf("weather card requirements were duplicated: changed=%t query=%q", changed, canonical)
 	}
 }
 
@@ -3598,7 +3463,27 @@ func TestVisibleToolDefinitionsSkillDeniedToolsAreHidden(t *testing.T) {
 	}
 }
 
-func TestVisibleToolDefinitionsExposeDocxStructuredToolsForDocumentSkill(t *testing.T) {
+func TestMigratedWorkflowToolsRemainRegistered(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig()
+	cfg.Tools.Web.Search.Enabled = true
+	cfg.Tools.BrowserAutomation.Enabled = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	for _, name := range []string{
+		"web.search", "info.query", "weather.structure_payload", "media.render_weather_card",
+		"browser.list_tabs", "browser.open", "browser.focus", "browser.read",
+		"files.read", "images.inspect", "docx.replace_paragraph", "pptx.add_slide", "xlsx.update_cell", "pdf.extract_text", "pdf.transform",
+	} {
+		if _, ok := tools.Definition(name); !ok {
+			t.Fatalf("migrated workflow tool %s was removed from ToolHub", name)
+		}
+	}
+}
+
+func TestVisibleToolDefinitionsDoNotReopenMigratedDocumentEditors(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
 	cfg.Workspaces.DefaultRoot = root
@@ -3623,6 +3508,7 @@ func TestVisibleToolDefinitionsExposeDocxStructuredToolsForDocumentSkill(t *test
 			"docx.delete_paragraph",
 			"docx.set_text_style",
 			"pptx.add_slide",
+			"pptx.update_slide",
 			"pptx.duplicate_slide",
 			"pptx.delete_slide",
 			"xlsx.update_cell",
@@ -3633,9 +3519,12 @@ func TestVisibleToolDefinitionsExposeDocxStructuredToolsForDocumentSkill(t *test
 		},
 	}})
 	names := visibleToolNames(defs)
-	for _, want := range []string{"files.read", "docx.replace_paragraph", "docx.insert_paragraph", "docx.delete_paragraph", "docx.set_text_style", "pptx.add_slide", "pptx.duplicate_slide", "pptx.delete_slide", "xlsx.update_cell", "xlsx.insert_row", "xlsx.delete_row", "xlsx.update_row", "xlsx.append_row"} {
-		if !slicesContainsString(names, want) {
-			t.Fatalf("document skill should expose %s, got %#v", want, names)
+	if !slicesContainsString(names, "files.read") {
+		t.Fatalf("document read should remain visible, got %#v", names)
+	}
+	for _, denied := range []string{"docx.replace_paragraph", "docx.insert_paragraph", "docx.delete_paragraph", "docx.set_text_style", "pptx.add_slide", "pptx.update_slide", "pptx.duplicate_slide", "pptx.delete_slide", "xlsx.update_cell", "xlsx.insert_row", "xlsx.delete_row", "xlsx.update_row", "xlsx.append_row"} {
+		if slicesContainsString(names, denied) {
+			t.Fatalf("migrated document editor %s was reopened through a legacy skill candidate: %#v", denied, names)
 		}
 	}
 }
@@ -3777,6 +3666,19 @@ func TestGroundedSummaryDocumentMutationDoesNotExposeReadExtract(t *testing.T) {
 	}
 	if strings.Contains(got, "Answer from local file") || strings.Contains(got, "Extract:") || strings.Contains(got, "Old first paragraph") {
 		t.Fatalf("document mutation should not expose read extract, got %q", got)
+	}
+}
+
+func TestGroundedSummaryPlainTextMutationReturnsOutputCopy(t *testing.T) {
+	got := groundedSummary("Replace Alpha with Beta in note.md", "", []app.ToolCall{{
+		Tool:   "text.replace_text",
+		Status: "completed_after_approval",
+		Result: map[string]any{
+			"status": "text_version_written", "path": "note.md", "output_path": "note-sparkclaw-edit.md", "replacements": 1,
+		},
+	}})
+	if got != "修改好的文件：note-sparkclaw-edit.md" {
+		t.Fatalf("expected plain-text mutation summary, got %q", got)
 	}
 }
 
@@ -3952,7 +3854,7 @@ func TestGroundedSummaryUsesCompletedImageInspection(t *testing.T) {
 	}
 }
 
-func TestGroundedSummaryWeatherCardReturnsOnlyImage(t *testing.T) {
+func TestGroundedSummaryWeatherCardUsesNeutralCompletionText(t *testing.T) {
 	got := groundedSummary("杭州天气怎么样", "", []app.ToolCall{
 		{
 			Tool:   "media.render_weather_card",
@@ -3964,8 +3866,8 @@ func TestGroundedSummaryWeatherCardReturnsOnlyImage(t *testing.T) {
 			},
 		},
 	})
-	if got != "![天气卡片](media/20260702/weather_card_test.png)" {
-		t.Fatalf("weather card should be the only user-visible answer, got %q", got)
+	if got != "天气卡片已生成。" {
+		t.Fatalf("weather card summary should not encode a channel-specific image, got %q", got)
 	}
 }
 
@@ -3999,21 +3901,21 @@ func TestGroundedSummaryWeatherCardSuccessOverridesEarlierGuardFailure(t *testin
 			},
 		},
 	})
-	if got != "![天气卡片](media/20260703/weather_card_fixed.png)" {
+	if got != "天气卡片已生成。" {
 		t.Fatalf("later successful weather card should override earlier failure, got %q", got)
 	}
 }
 
-func TestGroundedSummaryWeatherCardFailureShowsOpenMeteoError(t *testing.T) {
+func TestGroundedSummaryWeatherCardFailureShowsInfoError(t *testing.T) {
 	got := groundedSummary("杭州天气怎么样", "", []app.ToolCall{
 		{
 			Tool:   "media.render_weather_card",
 			Status: "failed",
-			Error:  `Open-Meteo weather lookup failed for location "杭州"`,
+			Error:  `bound Info weather evidence failed validation for location "杭州"`,
 		},
 	})
-	if got != `天气查询失败：Open-Meteo weather lookup failed for location "杭州"` {
-		t.Fatalf("weather failure should expose explicit Open-Meteo error, got %q", got)
+	if got != `天气查询失败：bound Info weather evidence failed validation for location "杭州"` {
+		t.Fatalf("weather failure should expose explicit Info error, got %q", got)
 	}
 }
 
@@ -4038,6 +3940,9 @@ func TestImageInspectCanFinalizeLowRiskImageOnlyQuestion(t *testing.T) {
 	}
 	if imageInspectCanFinalize("这张图片里的消息是真的吗，查证一下") {
 		t.Fatalf("external verification image question should not finalize from image alone")
+	}
+	if imageInspectCanFinalize("把这张图片发送到微信") {
+		t.Fatalf("image delivery request should not finalize as image analysis")
 	}
 }
 

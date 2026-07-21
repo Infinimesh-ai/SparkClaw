@@ -201,7 +201,6 @@ func (e *toolExposureEngine) eligibleDefinitions(actorRef string, run app.AgentR
 		for _, capability := range definition.Capabilities {
 			if matchesAnyRequirement(capability, scope.Requirements) {
 				out = append(out, eligibleDefinition{definition: definition, capability: capability})
-				break
 			}
 		}
 	}
@@ -275,12 +274,18 @@ func directoryEntryID(definition app.ToolDefinition, capability app.CapabilityDe
 }
 
 func (e *toolExposureEngine) directoryRevision(eligible []eligibleDefinition) string {
-	definitions := make([]app.ToolDefinition, 0, len(eligible))
-	for _, item := range eligible {
-		definitions = append(definitions, item.definition)
+	type revisionEntry struct {
+		Definition app.ToolDefinition
+		Capability app.CapabilityDescriptor
 	}
-	sort.Slice(definitions, func(i, j int) bool { return definitions[i].Name < definitions[j].Name })
-	payload, _ := json.Marshal(definitions)
+	entries := make([]revisionEntry, 0, len(eligible))
+	for _, item := range eligible {
+		entries = append(entries, revisionEntry{Definition: item.definition, Capability: item.capability})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return directoryEntryID(entries[i].Definition, entries[i].Capability) < directoryEntryID(entries[j].Definition, entries[j].Capability)
+	})
+	payload, _ := json.Marshal(entries)
 	sum := sha256.Sum256(payload)
 	return "dir_" + hex.EncodeToString(sum[:12])
 }

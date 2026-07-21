@@ -24,12 +24,13 @@ directory。同一个目录只会以以下两种互斥形态之一运行：
 | `hidden` | headless Chromium | 无 | 普通搜索、读取、导航和认证后自动化 |
 | `visible` | headed Chromium | 可见 | 密码、验证码、短信、2FA、授权、支付或其他人工验证 |
 
-可见和隐藏进程不能并发占用同一个 Profile。切换形态时必须停止当前 Chromium/MCP 进程，
-等待 Profile 释放，再使用同一个 Profile 启动另一种形态。
+可见和隐藏进程不能并发占用同一个 Profile。切换形态时必须停止当前 Playwright Driver 与
+Chromium Context，等待 Profile 释放，再使用同一个 Profile 启动另一种形态。
 
 ## 产品契约
 
-1. 两种形态启动同一个已配置 Chromium executable。
+1. 两种形态启动同一个 Playwright-managed Chromium Revision，或同一个显式配置的
+   Custom Chromium Executable。
 2. 两种形态使用同一个 SparkClaw-owned 持久 Profile。
 3. 普通浏览器任务保持隐藏；只有需要人工验证或用户明确要求查看浏览器时才显示 Chromium。
 4. Cookie（包括 HttpOnly Cookie）、storage、IndexedDB、Service Worker 和浏览器 session
@@ -59,38 +60,36 @@ Profile 由 runtime 管理，并从可信标识生成：
 - 平台支持时使用仅 owner 可访问的目录权限。
 - 不在模型可见 observation 或聊天中暴露真实路径。
 - 不归档、复制或提交正在使用的 Profile。
-- 可见和隐藏启动必须使用同一个 Chromium executable。
+- 可见和隐藏启动必须使用同一个已解析 Chromium Executable。
 
 即使 SparkClaw 不提取单个 secret，完整 Profile 目录仍是敏感本地状态。
 
 ## 启动契约
 
-`--executablePath` 和 `--userDataDir` 由 adapter 管理，模型和工具参数不能覆盖。
+Browser 解析和 Playwright 的 `userDataDir` 由 Adapter 管理，模型和工具参数不能覆盖。
+默认不传 `executablePath`，由 Playwright 使用其安装且版本匹配的 Chromium；显式配置
+`chromiumExecutable` 时，两种 Presentation 使用同一个已校验 Override。
 
 ```text
 隐藏：
-  chrome-devtools-mcp@<validated-version>
-  --executablePath=<configured Chromium>
-  --userDataDir=<resolved shared profile>
-  --headless
-  --viewport=1365x768
-  --no-usage-statistics
+  chromium.launchPersistentContext(<resolved shared profile>, {
+    headless: true,
+    viewport: { width: 1365, height: 768 }
+  })
 
 可见验证：
-  chrome-devtools-mcp@<validated-version>
-  --executablePath=<same configured Chromium>
-  --userDataDir=<same resolved shared profile>
-  --chromeArg=<fresh visible session 的 handoff URL>
-  --no-usage-statistics
+  chromium.launchPersistentContext(<same resolved shared profile>, {
+    headless: false,
+    viewport: null
+  })
 ```
 
-共享 Profile 启动不能包含 `--isolated`、`--autoConnect`、`--browserUrl`、
-`--wsEndpoint` 或用户提供的 data directory。
-当新 Chromium session 已知目标 URL 时，adapter 把目标作为 Chromium startup hint。由于
-Chrome DevTools MCP 仍可能把 selected 页面初始化成 `about:blank`，adapter 必须立即在同一个
-页面调用 `navigate_page`，而不是再调用 `new_page`，并清理历史 blank 页面。用户不能在目标
-页面前得到一个独立且长期存在的 `about:blank` 标签页。只有已运行 session 的明确新标签页
-请求才使用 `new_page`。
+若显式配置 `chromiumExecutable`，上述两个 Option Object 还会包含同一条已校验
+`executablePath`。
+
+共享 Profile 启动不能使用 `connectOverCDP`、Remote Debugging Port、WebSocket Endpoint
+或用户提供的 Data Directory。新 Context 只有 Playwright 初始 `about:blank` Page 时，
+Adapter 复用该 Page 打开第一个目标 URL；已运行 Context 的明确新标签页请求才创建新 Page。
 
 ## Runtime 流程
 
@@ -137,9 +136,9 @@ Chrome DevTools MCP 仍可能把 selected 页面初始化成 `about:blank`，ada
 
 ## 生命周期规则
 
-- 一个共享 Profile 最多由一个 Chromium/MCP 进程占用。
+- 一个共享 Profile 最多由一个 Playwright Driver 与 Chromium Context 占用。
 - 模式转换在 adapter lock 下执行，并有明确 timeout。
-- 停止 session 后等待 MCP 和 Chromium child 退出，再启动另一种形态。
+- 停止 Session 后等待 Playwright Driver 和 Chromium Child 退出，再启动另一种形态。
 - Gateway 关闭时关闭当前存活的形态。
 - Profile 被占用时返回明确错误，不能删除 Chromium 锁文件强制恢复。
 - 不同逻辑 browser profile 使用不同目录和 coordinator。

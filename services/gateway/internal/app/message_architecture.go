@@ -3,11 +3,20 @@ package app
 import "time"
 
 const (
-	MessageEnvelopeSchemaVersion = 1
-	RouteDecisionSchemaVersion   = 1
-	WorkflowResultSchemaVersion  = 1
-	DeliveryRequestSchemaVersion = 2
+	MessageEnvelopeSchemaVersion      = 1
+	RequestNormalizationSchemaVersion = 1
+	RouteDecisionSchemaVersion        = 1
+	WorkflowResultSchemaVersion       = 1
+	DeliveryRequestSchemaVersion      = 2
 )
+
+type RequestNormalization struct {
+	SchemaVersion   int    `json:"schema_version"`
+	Original        string `json:"original"`
+	Canonical       string `json:"canonical"`
+	ResourceContext string `json:"resource_context,omitempty"`
+	Source          string `json:"source"`
+}
 
 const (
 	BindingScopeReminderSendSelf = "reminder_send_self"
@@ -170,6 +179,7 @@ type MessageRunContext struct {
 	OwnerID       string               `json:"owner_id"`
 	Authorization MessageAuthorization `json:"authorization"`
 	ReturnRoute   ReturnRoute          `json:"return_route"`
+	Request       RequestNormalization `json:"request"`
 	Route         RouteDecision        `json:"route"`
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ func TestDocumentReadPreflightDispatchesOnlyCompatibleReader(t *testing.T) {
 	writeTestOfficePackage(t, filepath.Join(root, "report.docx"), "word/document.xml")
 	writeTestOfficePackage(t, filepath.Join(root, "report.xlsx"), "xl/workbook.xml")
 	writeTestOfficePackage(t, filepath.Join(root, "report.pptx"), "ppt/presentation.xml")
+	writeTinyPNG(t, filepath.Join(root, "screen.png"))
 
 	for _, test := range []struct {
 		path, format, tool string
@@ -34,6 +36,7 @@ func TestDocumentReadPreflightDispatchesOnlyCompatibleReader(t *testing.T) {
 		{path: "report.xlsx", format: app.DocumentFormatXLSX, tool: "files.read"},
 		{path: "report.pptx", format: app.DocumentFormatPPTX, tool: "files.read"},
 		{path: "report.pdf", format: app.DocumentFormatPDF, tool: "pdf.extract_text"},
+		{path: "screen.png", format: app.DocumentFormatImage, tool: "images.inspect"},
 	} {
 		t.Run(test.format, func(t *testing.T) {
 			runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
@@ -62,8 +65,11 @@ func TestDocumentReadPreflightDispatchesOnlyCompatibleReader(t *testing.T) {
 	}
 }
 
-func TestDocumentEditPreflightDispatchesFormatAndOperationCompatibleEditor(t *testing.T) {
+func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("Original text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	writeTestOfficePackage(t, filepath.Join(root, "report.docx"), "word/document.xml")
 	writeTestOfficePackage(t, filepath.Join(root, "report.xlsx"), "xl/workbook.xml")
 	writeTestOfficePackage(t, filepath.Join(root, "report.pptx"), "ppt/presentation.xml")
@@ -74,39 +80,54 @@ func TestDocumentEditPreflightDispatchesFormatAndOperationCompatibleEditor(t *te
 	for _, test := range []struct {
 		request, format, operation, tool, output string
 	}{
+		{request: "Replace text in note.txt", format: app.DocumentFormatText, operation: "replace_text", tool: "text.replace_text", output: "note-sparkclaw-edit.txt"},
 		{request: "Replace a paragraph in report.docx", format: app.DocumentFormatDOCX, operation: "replace_paragraph", tool: "docx.replace_paragraph", output: "report-sparkclaw-edit.docx"},
 		{request: "Update a cell in report.xlsx", format: app.DocumentFormatXLSX, operation: "update_cell", tool: "xlsx.update_cell", output: "report-sparkclaw-edit.xlsx"},
+		{request: "Append a row to report.xlsx", format: app.DocumentFormatXLSX, operation: "append_row", tool: "xlsx.append_row", output: "report-sparkclaw-edit.xlsx"},
+		{request: "Insert a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "insert_row", tool: "xlsx.insert_row", output: "report-sparkclaw-edit.xlsx"},
+		{request: "Delete a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "delete_row", tool: "xlsx.delete_row", output: "report-sparkclaw-edit.xlsx"},
 		{request: "Replace text in report.pptx", format: app.DocumentFormatPPTX, operation: "replace_text", tool: "office.replace_text", output: "report-sparkclaw-edit.pptx"},
+		{request: "Improve slide 3 in report.pptx", format: app.DocumentFormatPPTX, operation: "update_slide", tool: "pptx.update_slide", output: "report-sparkclaw-edit.pptx"},
 		{request: "Rotate pages in report.pdf", format: app.DocumentFormatPDF, operation: "rotate_pages", tool: "pdf.transform", output: "report-sparkclaw-edit.pdf"},
 	} {
-		t.Run(test.format, func(t *testing.T) {
-			runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+		t.Run(test.format+"/"+test.operation, func(t *testing.T) {
+			runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 			defer closeRuntime()
 			route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", test.request, agentContextSnapshot{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
-				route.Facts["document_format"] != test.format || route.Facts["document_operation"] != test.operation || route.Facts["output_path"] != test.output {
-				t.Fatalf("edit preflight did not freeze its typed copy operation: %#v", route)
+				route.Facts["document_format"] != test.format || route.Facts["output_path"] != test.output || route.Facts["document_operation"] != "" {
+				t.Fatalf("edit preflight did not freeze only its format and copy resources: %#v", route)
 			}
 			run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 			dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
 			if err != nil {
 				t.Fatal(err)
 			}
+			reader := "files.read"
+			if test.format == app.DocumentFormatPDF {
+				reader = "pdf.extract_text"
+			}
+			if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != reader {
+				t.Fatalf("edit read stage exposed an incompatible reader: %#v", visibleToolNames(dispatch.Tools))
+			}
+			dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, test.tool, test.operation)
 			if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != test.tool {
 				t.Fatalf("edit stage exposed an incompatible editor: %#v", visibleToolNames(dispatch.Tools))
 			}
 			node := dispatch.Run.Workflow.Nodes["document_edit"]
-			if node.Stage != "edit_by_type" || node.ScopeRevision != 2 || len(node.CurrentScope.Requirements) != 1 {
+			if node.Stage != "edit_by_type" || node.ScopeRevision != 2 || len(node.CurrentScope.Requirements) != 1 ||
+				node.CurrentScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != test.format ||
+				node.CurrentScope.Requirements[0].Qualifiers[app.CapabilityQualifierOperation] != "" {
 				t.Fatalf("edit type transition was not frozen: %#v", node)
 			}
 		})
 	}
 }
 
-func TestDocumentPreflightRejectsExtensionSignatureMismatchAndTextEdit(t *testing.T) {
+func TestDocumentPreflightRejectsExtensionSignatureMismatchAndAllowsTextEdit(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "fake.pdf"), []byte("not a PDF"), 0o644); err != nil {
 		t.Fatal(err)
@@ -117,8 +138,8 @@ func TestDocumentPreflightRejectsExtensionSignatureMismatchAndTextEdit(t *testin
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("plain text"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := preflightDocumentPath(root, "note.txt", true); err == nil {
-		t.Fatal("text file entered document.edit revision 1")
+	if preflight, err := preflightDocumentPath(root, "note.txt", true); err != nil || preflight.Format != app.DocumentFormatText || preflight.OutputRef != "note-sparkclaw-edit.txt" {
+		t.Fatalf("text edit preflight failed: preflight=%#v err=%v", preflight, err)
 	}
 	outside := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outside, "outside.txt"), []byte("outside"), 0o600); err != nil {
@@ -142,7 +163,7 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 	if err := os.WriteFile(filepath.Join(root, "report.pdf"), []byte("%PDF-1.7\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
 	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "Rotate pages in report.pdf", agentContextSnapshot{})
 	if err != nil {
@@ -153,6 +174,7 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "pdf.transform", "rotate_pages")
 	definition, ok := runtime.tools.Definition("pdf.transform")
 	if !ok {
 		t.Fatal("pdf.transform is unavailable")
@@ -168,6 +190,225 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 	plan.Args["operation"] = "delete_pages"
 	if err := runtime.validateWorkflowToolPlan(dispatch.Run.ID, plan, definition); err == nil {
 		t.Fatal("PDF operation escaped the materialized rotate_pages qualifier")
+	}
+}
+
+func TestDocumentEditUsesSingleGovernedAttachmentPath(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "uploads", "report.docx")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestOfficePackage(t, path, "word/document.xml")
+	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+	projection := strings.Join([]string{
+		"修改并完善附件文档中五、心得与体会标题下的正文。必须依据结构化读取结果，仅定位并替换 document.p[25]，保持其他内容不变，写入新 DOCX 副本。", "", "Attached files for this user turn:",
+		"- original-display-name.docx path=uploads/report.docx content_type=application/vnd.openxmlformats-officedocument.wordprocessingml.document bytes=128 media_kind=file",
+	}, "\n")
+	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", projection, agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
+		route.Slots.TargetRef != "uploads/report.docx" || route.Facts["document_operation"] != "" {
+		t.Fatalf("attached document edit did not freeze its unique governed path: %#v", route)
+	}
+}
+
+func TestDocumentContentMutationRoutesToEditR2ThenSelectsXLSXEditor(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "uploads", "people.xlsx")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestOfficePackage(t, path, "xl/workbook.xml")
+	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+	projection := strings.Join([]string{
+		"文档末尾新增学号 3，姓名为张七的人", "", "Attached files for this user turn:",
+		"- people.xlsx path=uploads/people.xlsx content_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=6791",
+	}, "\n")
+	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", projection, agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
+		route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
+		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r2: %#v", route)
+	}
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.Profile.Revision() != 2 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
+		t.Fatalf("XLSX edit did not start in document.edit r2 read stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
+	}
+	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "xlsx.append_row", "append_row")
+	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "xlsx.append_row" {
+		t.Fatalf("XLSX content mutation exposed the wrong editor: %#v", visibleToolNames(dispatch.Tools))
+	}
+	if !hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_directory_selection", "fast") ||
+		!hasAgentAuditType(st.ListAudit(session.ID), "tools.directory.selected") {
+		t.Fatalf("XLSX editor was not selected through the bounded post-read directory step")
+	}
+}
+
+func TestXLSXMutationSynonymsDoNotFreezeConcreteOperations(t *testing.T) {
+	root := t.TempDir()
+	writeTestOfficePackage(t, filepath.Join(root, "people.xlsx"), "xl/workbook.xml")
+	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+
+	for _, request := range []string{
+		"在 people.xlsx 末尾新增学号 3 和姓名张七",
+		"给 people.xlsx 添加学号 4",
+		"在 people.xlsx 增加一行记录",
+		"在 people.xlsx 指定位置插入一行",
+		"删除 people.xlsx 中指定的一行",
+	} {
+		route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", request, agentContextSnapshot{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
+			route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
+			t.Fatalf("XLSX mutation synonym escaped generic document.edit r2 routing for %q: %#v", request, route)
+		}
+	}
+}
+
+func TestDocumentRoutingKeepsReadOnlyAndFileLifecycleOutsideEditR2(t *testing.T) {
+	root := t.TempDir()
+	writeTestOfficePackage(t, filepath.Join(root, "people.xlsx"), "xl/workbook.xml")
+	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+
+	read, err := runtime.recognizeCapabilityRoute(session.ID, "read", "读取 people.xlsx 的内容", agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Status != app.RouteMatched || read.CapabilityPath[1] != app.CapabilityDocumentRead {
+		t.Fatalf("read-only document request left document.read: %#v", read)
+	}
+	for _, request := range []string{"删除 people.xlsx", "新建 people.xlsx"} {
+		route, err := runtime.recognizeCapabilityRoute(session.ID, "lifecycle", request, agentContextSnapshot{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if route.Status == app.RouteMatched && len(route.CapabilityPath) > 1 && route.CapabilityPath[1] == app.CapabilityDocumentEdit {
+			t.Fatalf("file lifecycle request entered document.edit r2 for %q: %#v", request, route)
+		}
+	}
+}
+
+func TestImageAttachmentUsesDocumentReadOnlyForDirectAnalysis(t *testing.T) {
+	root := t.TempDir()
+	writeTinyPNG(t, filepath.Join(root, "media", "screen.png"))
+	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+	attachment := "\n\nAttached files for this user turn:\n- screen.png path=media/screen.png content_type=image/png bytes=74 media_kind=image"
+
+	direct, err := runtime.recognizeCapabilityRoute(session.ID, "direct", "这张图片什么内容"+attachment, agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.Status != app.RouteMatched || direct.CapabilityPath[1] != app.CapabilityDocumentRead || direct.Facts["document_format"] != app.DocumentFormatImage {
+		t.Fatalf("direct image analysis did not enter document.read: %#v", direct)
+	}
+	for _, request := range []string{"把这张图片发送到微信", "这张图片里的新闻是真的吗，帮我联网查证"} {
+		route, err := runtime.recognizeCapabilityRoute(session.ID, "other", request+attachment, agentContextSnapshot{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if route.Status == app.RouteMatched && len(route.CapabilityPath) > 1 && route.CapabilityPath[1] == app.CapabilityDocumentRead {
+			t.Fatalf("non-analysis image request entered document.read for %q: %#v", request, route)
+		}
+	}
+}
+
+func TestUnsupportedDocumentContentMutationStillRoutesToEditR2(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "report.pdf"), []byte("%PDF-1.7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "修改 report.pdf 中的文字内容", agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
+		route.Facts["document_format"] != app.DocumentFormatPDF || route.Facts["document_operation"] != "" {
+		t.Fatalf("unsupported PDF content mutation degraded outside document.edit r2: %#v", route)
+	}
+}
+
+func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.MemoryStore, dispatch matchedWorkflowDispatch, inputPath, selectedTool, selectedOperation string) (app.AgentRun, []app.ToolDefinition) {
+	t.Helper()
+	if len(dispatch.Tools) != 1 {
+		t.Fatalf("document edit read stage is not singular: %#v", visibleToolNames(dispatch.Tools))
+	}
+	definition := dispatch.Tools[0]
+	call := app.ToolCall{
+		ID: "tc_document_read_" + string(dispatch.Run.Workflow.Route.Slots.Format), SessionID: dispatch.Run.SessionID, RunID: dispatch.Run.ID,
+		Tool: definition.Name, Risk: app.RiskRead, Status: "completed", Arguments: map[string]any{"path": inputPath},
+		Result:     map[string]any{"path": inputPath, "rel_path": inputPath, "content": "structured evidence"},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
+	}
+	st.SaveToolCall(call)
+	outcome, err := adaptWorkflowOutcome(definition, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment := dispatch.Profile.Assess(dispatch.Run.Workflow, outcome)
+	changed, err := applyWorkflowOutcome(&dispatch.Run, outcome, assessment)
+	if err != nil || !changed {
+		t.Fatalf("document read did not activate edit stage: changed=%t assessment=%#v err=%v", changed, assessment, err)
+	}
+	selectedDefinition, ok := runtime.tools.Definition(selectedTool)
+	if !ok {
+		t.Fatalf("selected test editor %q is unavailable", selectedTool)
+	}
+	selectedEntry := app.ToolDirectoryEntryID("")
+	state := dispatch.Run.Workflow.Nodes["document_edit"]
+	for _, capability := range selectedDefinition.Capabilities {
+		if !matchesAnyRequirement(capability, state.CurrentScope.Requirements) ||
+			selectedOperation != "" && capability.Qualifiers[app.CapabilityQualifierOperation] != selectedOperation {
+			continue
+		}
+		selectedEntry = directoryEntryID(selectedDefinition, capability)
+		break
+	}
+	if selectedEntry == "" {
+		t.Fatalf("selected test editor %q operation %q is outside the edit scope", selectedTool, selectedOperation)
+	}
+	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_DIRECTORY_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	st.SaveRun(dispatch.Run)
+	hint := dispatch.Profile.Hint(dispatch.Run.Workflow)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run.SessionID), &hint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed, ok := st.GetRun(dispatch.Run.ID); ok {
+		dispatch.Run = refreshed
+	}
+	return dispatch.Run, tools
+}
+
+func TestParseWorkflowDirectorySelectionRejectsUnknownAndTrailingFields(t *testing.T) {
+	selection, err := parseWorkflowDirectorySelection(`{"entry_id":"entry_allowed"}`)
+	if err != nil || selection.EntryID != "entry_allowed" {
+		t.Fatalf("valid directory selection was rejected: selection=%#v err=%v", selection, err)
+	}
+	for _, raw := range []string{
+		`{"entry_id":"entry_allowed","tool":"xlsx.append_row"}`,
+		`{"entry_id":"entry_allowed"}{"entry_id":"entry_other"}`,
+	} {
+		if _, err := parseWorkflowDirectorySelection(raw); err == nil {
+			t.Fatalf("invalid directory selection was accepted: %s", raw)
+		}
 	}
 }
 

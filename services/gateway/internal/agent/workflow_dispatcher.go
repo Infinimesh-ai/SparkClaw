@@ -12,14 +12,12 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 )
 
 type matchedWorkflowDispatch struct {
 	Run     app.AgentRun
 	Profile workflowProfile
 	Hint    TaskHint
-	Skills  []skills.Skill
 	Tools   []app.ToolDefinition
 }
 
@@ -71,7 +69,7 @@ func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app
 		run.CompletedAt = nil
 		r.store.SaveRun(run)
 		workflowExecution = r.runWorkflowWithSeed(
-			ctx, run.SessionID, run, content, profile, hint.taskHint(), r.exactWorkflowSkills(run.Workflow.Plan.SkillIDs), visibleTools,
+			ctx, run.SessionID, run, content, profile, hint.taskHint(), visibleTools,
 			seedCalls, observationsForResume(seedCalls),
 		)
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
@@ -109,13 +107,15 @@ func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app
 	feedback := r.store.ListRunFeedback(run.ID)
 	episode := summarizeEpisode(content, run, currentToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
+	route := run.Workflow.Route
+	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
+	assistantMessage := r.messageWithWorkflowResult(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now}, workflowResult)
+	assistant := r.store.AddMessage(assistantMessage)
 	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.resumed_after_approval", Summary: string(run.Workflow.Status)})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
-	route := run.Workflow.Route
 	return Result{
 		Run: run, Message: assistant, ToolCalls: workflowExecution.ToolCalls, Approvals: workflowExecution.Approvals, RouteDecision: &route,
-		WorkflowResult: r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary),
+		WorkflowResult: workflowResult,
 	}, true, nil
 }
 
@@ -149,7 +149,6 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 		},
 	})
 	workflowHint := resolved.Profile.Hint(run.Workflow)
-	relevantSkills := r.exactWorkflowSkills(resolved.Plan.SkillIDs)
 	visibleTools, err := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run.SessionID), &workflowHint)
 	if err != nil {
 		return matchedWorkflowDispatch{}, err
@@ -165,7 +164,7 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 			"scope_revision": workflowHint.ScopeRevision, "tools": visibleToolNames(visibleTools),
 		},
 	})
-	return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile, Hint: workflowHint.taskHint(), Skills: relevantSkills, Tools: visibleTools}, nil
+	return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile, Hint: workflowHint.taskHint(), Tools: visibleTools}, nil
 }
 
 func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, goal string, returnRoute app.ReturnRoute, route app.RouteDecision) Result {
@@ -209,6 +208,7 @@ func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision,
 		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...),
 		Workflow:   app.WorkflowContractRef{ID: run.Workflow.Plan.ProfileID, Revision: run.Workflow.Plan.ProfileRevision},
+		Data:       r.workflowResultData(run),
 		Content:    r.workflowResultContent(run, summary),
 		References: workflowResourceRefs(run.Workflow), ReturnRoute: returnRoute,
 	}
@@ -218,13 +218,45 @@ func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision,
 	return r.protectExternalSendResult(run, result)
 }
 
-func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.MessageContent {
-	if strings.TrimSpace(summary) == "" {
-		summary = "The workflow completed successfully."
+func (r Runtime) workflowResultData(run app.AgentRun) map[string]any {
+	if run.Workflow == nil || r.tools == nil || r.store == nil {
+		return nil
 	}
-	parts := []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}
+	for _, ref := range workflowResourceRefs(run.Workflow) {
+		if strings.TrimSpace(ref.Provenance) == "" {
+			continue
+		}
+		call, ok := r.store.GetToolCall(ref.Provenance)
+		if !ok || !toolCallCompleted(call) {
+			continue
+		}
+		definition, ok := r.tools.Definition(call.Tool)
+		if !ok || definition.OutcomeAdapter != app.OutcomeAdapterDocumentEdit {
+			continue
+		}
+		output, ok := anyMap(call.Result)
+		if !ok {
+			continue
+		}
+		changeSummary, ok := anyMap(output["change_summary"])
+		if !ok || len(changeSummary) == 0 {
+			continue
+		}
+		data := map[string]any{"change_summary": changeSummary}
+		for _, key := range []string{"status", "operation", "output_path", "outputs"} {
+			if value, exists := output[key]; exists {
+				data[key] = value
+			}
+		}
+		return data
+	}
+	return nil
+}
+
+func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.MessageContent {
+	outputParts := []app.MessagePart{}
 	if run.Workflow == nil {
-		return app.MessageContent{Parts: parts}
+		return workflowResultTextContent(summary)
 	}
 	for refIndex, ref := range workflowResourceRefs(run.Workflow) {
 		if ref.Kind != "path" || strings.TrimSpace(ref.Ref) == "" || strings.TrimSpace(ref.Provenance) == "" {
@@ -234,43 +266,134 @@ func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.Mes
 		if !ok || !toolCallCompleted(call) {
 			continue
 		}
-		definition, ok := r.tools.Definition(call.Tool)
-		if !ok {
-			continue
+		if part, ok := r.workflowOutputPart(run.SessionID, call, ref, refIndex); ok {
+			outputParts = append(outputParts, part)
 		}
-		kind := app.MessagePartKind("")
-		switch {
-		case containsToolEffect(definition.Directory.Effects, app.ToolEffectWorkspaceWrite) && containsOutputKind(definition.Directory.OutputKinds, app.OutputKindFile):
-			kind = app.MessagePartFile
-		case containsOutputKind(definition.Directory.OutputKinds, app.OutputKindImage):
-			kind = app.MessagePartImage
-		default:
-			continue
-		}
-		resourceRef, ok := r.workflowOutputResourceRef(run.SessionID, ref)
-		if !ok {
-			continue
-		}
-		name := filepath.Base(filepath.Clean(resourceRef.Ref))
-		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-		parts = append(parts, app.MessagePart{
-			ID: fmt.Sprintf("%s:output:%d", call.ID, refIndex), Kind: kind, Disposition: app.MessageDispositionAttachment,
-			Resource: &resourceRef,
-			Name:     name, ContentType: contentType,
-		})
 	}
-	return app.MessageContent{Parts: parts}
+	if len(outputParts) > 0 {
+		return app.MessageContent{Parts: outputParts}
+	}
+	return workflowResultTextContent(summary)
+}
+
+func (r Runtime) workflowResultContentFromToolCalls(run app.AgentRun, summary string) app.MessageContent {
+	parts := []app.MessagePart{}
+	for _, call := range toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID) {
+		if !toolCallCompleted(call) {
+			continue
+		}
+		for index, ref := range toolCallOutputRefs(call, r.tools) {
+			if part, ok := r.workflowOutputPart(run.SessionID, call, ref, index); ok {
+				parts = append(parts, part)
+			}
+		}
+	}
+	if len(parts) > 0 {
+		return app.MessageContent{Parts: parts}
+	}
+	return workflowResultTextContent(summary)
+}
+
+func (r Runtime) workflowOutputPart(sessionID string, call app.ToolCall, ref app.ResourceRef, index int) (app.MessagePart, bool) {
+	definition, ok := r.tools.Definition(call.Tool)
+	if !ok {
+		return app.MessagePart{}, false
+	}
+	kind := app.MessagePartKind("")
+	switch {
+	case containsToolEffect(definition.Directory.Effects, app.ToolEffectWorkspaceWrite) && containsOutputKind(definition.Directory.OutputKinds, app.OutputKindFile):
+		kind = app.MessagePartFile
+	case containsOutputKind(definition.Directory.OutputKinds, app.OutputKindImage):
+		kind = app.MessagePartImage
+	default:
+		return app.MessagePart{}, false
+	}
+	resourceRef, ok := r.workflowOutputResourceRef(sessionID, ref)
+	if !ok {
+		return app.MessagePart{}, false
+	}
+	name := filepath.Base(filepath.Clean(resourceRef.Ref))
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	output, _ := anyMap(call.Result)
+	if declared := cleanOptionalString(output["content_type"]); declared != "" {
+		contentType = declared
+	}
+	disposition := app.MessageDispositionAttachment
+	if kind == app.MessagePartImage {
+		disposition = app.MessageDispositionInline
+	}
+	return app.MessagePart{
+		ID: fmt.Sprintf("%s:output:%d", call.ID, index), Kind: kind, Disposition: disposition,
+		Resource: &resourceRef,
+		Name:     name, ContentType: contentType, Bytes: intLikeValue(output["bytes"]),
+		Width: intLikeValue(output["width"]), Height: intLikeValue(output["height"]),
+		SHA256: cleanOptionalString(output["sha256"]), Caption: cleanOptionalString(output["summary"]),
+	}, true
+}
+
+func toolCallOutputRefs(call app.ToolCall, tools interface {
+	Definition(string) (app.ToolDefinition, bool)
+}) []app.ResourceRef {
+	definition, ok := tools.Definition(call.Tool)
+	if !ok || (!containsOutputKind(definition.Directory.OutputKinds, app.OutputKindFile) && !containsOutputKind(definition.Directory.OutputKinds, app.OutputKindImage)) {
+		return nil
+	}
+	output, ok := anyMap(call.Result)
+	if !ok {
+		return nil
+	}
+	paths := []string{}
+	for _, value := range anySlice(output["output_paths"]) {
+		paths = append(paths, cleanOptionalString(value))
+	}
+	for _, value := range anySlice(output["outputs"]) {
+		if item, ok := anyMap(value); ok {
+			paths = append(paths, firstNonEmptyString(item["output_path"], item["path"]))
+		}
+	}
+	paths = append(paths, firstNonEmptyString(output["output_path"], output["media_path"], output["screenshot_path"]))
+	if len(paths) == 0 || strings.TrimSpace(paths[len(paths)-1]) == "" {
+		if containsOutputKind(definition.Directory.OutputKinds, app.OutputKindImage) {
+			paths = append(paths, cleanOptionalString(output["path"]))
+		}
+	}
+	refs := []app.ResourceRef{}
+	for _, path := range uniqueNonEmpty(paths) {
+		refs = append(refs, app.ResourceRef{Kind: "path", Ref: path, Provenance: call.ID})
+	}
+	return refs
+}
+
+func workflowResultTextContent(summary string) app.MessageContent {
+	if strings.TrimSpace(summary) == "" {
+		summary = "The workflow completed successfully."
+	}
+	return app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}}
+}
+
+func (r Runtime) messageWithWorkflowResult(message app.Message, result *app.WorkflowResult) app.Message {
+	content, attachments := workflowResultMessagePayload(result, message.Content)
+	message.Content = content
+	message.Attachments = attachments
+	return message
 }
 
 func (r Runtime) workflowOutputResourceRef(sessionID string, ref app.ResourceRef) (app.ResourceRef, bool) {
 	session, ok := r.store.GetSession(sessionID)
-	if !ok || strings.TrimSpace(session.WorkspaceRoot) == "" {
+	if !ok {
 		return app.ResourceRef{}, false
 	}
-	root, err := filepath.Abs(session.WorkspaceRoot)
+	workspaceRoot := strings.TrimSpace(session.WorkspaceRoot)
+	if workspaceRoot == "" && r.tools != nil {
+		workspaceRoot = strings.TrimSpace(r.tools.Config().Workspaces.DefaultRoot)
+	}
+	if workspaceRoot == "" {
+		return app.ResourceRef{}, false
+	}
+	root, err := filepath.Abs(workspaceRoot)
 	if err != nil {
 		return app.ResourceRef{}, false
 	}
@@ -354,7 +477,7 @@ func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDec
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
 		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: nil, Workflow: app.WorkflowContractRef{ID: "react.unmatched", Revision: 1},
-		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
+		Content:     r.workflowResultContentFromToolCalls(run, summary),
 		ReturnRoute: returnRoute,
 	}
 	return r.protectExternalSendResult(run, result)

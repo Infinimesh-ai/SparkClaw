@@ -29,19 +29,19 @@ SparkClaw uses Chromium for every managed browser surface:
 
 ## Provider Contract
 
-The existing Chrome DevTools MCP package remains the automation transport, but
-the launched browser executable is configured Chromium. Provider names and
-diagnostics should describe Chromium, not imply that SparkClaw attached to the
-user's Chrome profile.
+Microsoft Playwright is the automation transport and launches its installed,
+version-matched local Chromium through `launchPersistentContext`. An explicit
+custom executable remains available as an operator override. Provider names
+and diagnostics describe Playwright-managed Chromium and do not imply
+attachment to the user's Chrome profile. See [Playwright Browser Automation Migration](playwright-browser-automation-migration.md).
 
 Hidden launch requirements:
 
 ```text
---executablePath=<Chromium executable>
---userDataDir=<SparkClaw shared profile>
---headless
---viewport=1365x768
---no-usage-statistics
+executablePath=<omitted by default; validated custom override when configured>
+userDataDir=<SparkClaw shared profile>
+headless=true
+viewport=1365x768
 ```
 
 The hidden shared-profile provider must reject `--isolated`, user-supplied
@@ -97,7 +97,7 @@ Visible Chromium is reserved for:
 
 ## Lifecycle
 
-- One profile has one active Chromium/MCP process.
+- One profile has one active Playwright Driver and Chromium context.
 - Switching visible/hidden closes the active process before starting another.
 - `Close()` shuts down the current process on Gateway shutdown.
 - Process startup and shutdown are bounded by timeouts.

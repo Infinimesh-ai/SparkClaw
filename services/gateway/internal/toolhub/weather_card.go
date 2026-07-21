@@ -5,17 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/png"
-	"io"
 	"math"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,6 +39,7 @@ type weatherCardData struct {
 	UpdatedAt   string
 	Condition   string
 	Temperature string
+	MissingData bool
 	FeelsLike   string
 	Humidity    string
 	Wind        string
@@ -79,19 +76,22 @@ type weatherCardFaces struct {
 }
 
 func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
-	location := strings.TrimSpace(stringArg(args, "location", ""))
-	if location == "" {
-		return Result{}, errors.New("weather card requires a location for Open-Meteo lookup")
+	_ = ctx
+	payloadRef := strings.TrimSpace(stringArg(args, "weather_payload_ref", ""))
+	if payloadRef == "" || h.store == nil {
+		return Result{}, errors.New("weather card requires a governed weather payload reference")
 	}
-	data, ok := h.openMeteoWeather(ctx, location)
-	if !ok {
-		return Result{}, fmt.Errorf("Open-Meteo weather lookup failed for location %q", location)
+	call, ok := h.store.GetToolCall(payloadRef)
+	if !ok || call.SessionID != sessionID || call.RunID != runID {
+		return Result{}, errors.New("weather payload reference is outside the current run")
 	}
+	payload, err := weatherPayloadFromCall(call)
+	if err != nil {
+		return Result{}, err
+	}
+	data := weatherCardDataFromPayload(payload)
 	if strings.TrimSpace(data.UpdatedAt) == "" {
 		data.UpdatedAt = weatherCardNow().Format("2006-01-02 15:04")
-	}
-	if strings.TrimSpace(data.Condition) == "" && strings.TrimSpace(data.Temperature) == "" {
-		return Result{}, fmt.Errorf("Open-Meteo weather lookup returned no current weather for location %q", location)
 	}
 	if strings.TrimSpace(data.Suggestion) == "" {
 		data.Suggestion = weatherSuggestion(data)
@@ -128,6 +128,7 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 		"media_path":   filepath.ToSlash(relPath),
 		"path":         absPath,
 		"uri":          object.URI,
+		"artifact_id":  object.ID,
 		"content_type": "image/png",
 		"bytes":        len(buf.Bytes()),
 		"width":        weatherCardWidth,
@@ -136,233 +137,6 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 		"summary":      fmt.Sprintf("%s天气卡片", data.Location),
 		"untrusted":    true,
 	}}, nil
-}
-
-func (h *ToolHub) openMeteoWeather(ctx context.Context, location string) (weatherCardData, bool) {
-	location = strings.TrimSpace(location)
-	if location == "" || location == "天气" {
-		return weatherCardData{}, false
-	}
-	lat, lon, ok := openMeteoCoordinates(ctx, location)
-	if !ok {
-		return weatherCardData{}, false
-	}
-	endpoint := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code,uv_index_max,precipitation_sum&timezone=Asia%%2FShanghai&forecast_days=1", lat, lon)
-	body, ok := fetchWeatherJSON(ctx, endpoint, 100000)
-	if !ok {
-		return weatherCardData{}, false
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return weatherCardData{}, false
-	}
-	data := weatherCardData{
-		Location: location,
-		Source:   "open-meteo",
-	}
-	if current, ok := decoded["current"].(map[string]any); ok {
-		if parsed, ok := parseOpenMeteoTime(weatherStringValue(current["time"])); ok {
-			data.UpdatedAt = parsed.Format("2006-01-02 15:04")
-		}
-		if temp, ok := floatValue(current["temperature_2m"]); ok {
-			data.Temperature = fmt.Sprintf("%.0f°C", temp)
-		}
-		if feels, ok := floatValue(current["apparent_temperature"]); ok {
-			data.FeelsLike = fmt.Sprintf("%.0f°C", feels)
-		}
-		if humidity, ok := floatValue(current["relative_humidity_2m"]); ok {
-			data.Humidity = fmt.Sprintf("%.0f%%", humidity)
-		}
-		if wind, ok := floatValue(current["wind_speed_10m"]); ok {
-			data.Wind = fmt.Sprintf("%.0f km/h", wind)
-		}
-		if precip, ok := floatValue(current["precipitation"]); ok {
-			data.Precip = fmt.Sprintf("%.1fmm", precip)
-		}
-		if code, ok := floatValue(current["weather_code"]); ok {
-			data.Condition = openMeteoCondition(int(code))
-		}
-	}
-	data.Forecast = openMeteoDailyForecast(decoded)
-	if len(data.Forecast) > 0 {
-		if uv := openMeteoDailyUV(decoded); uv != "" {
-			data.UV = uv
-		}
-	}
-	if hours, ok := openMeteoHourlyFromData(decoded); ok {
-		data.Hourly = hours
-	}
-	return data, strings.TrimSpace(data.Temperature) != "" && strings.TrimSpace(data.Condition) != ""
-}
-
-func openMeteoCoordinates(ctx context.Context, location string) (float64, float64, bool) {
-	endpoint := "https://geocoding-api.open-meteo.com/v1/search?name=" + url.QueryEscape(strings.TrimSpace(location)) + "&count=1&language=zh&format=json"
-	body, ok := fetchWeatherJSON(ctx, endpoint, 20000)
-	if !ok {
-		return 0, 0, false
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return 0, 0, false
-	}
-	results := arrayValue(decoded["results"])
-	if len(results) == 0 {
-		return 0, 0, false
-	}
-	first, ok := results[0].(map[string]any)
-	if !ok {
-		return 0, 0, false
-	}
-	lat, latOK := floatValue(first["latitude"])
-	lon, lonOK := floatValue(first["longitude"])
-	return lat, lon, latOK && lonOK
-}
-
-func openMeteoDailyForecast(decoded map[string]any) []weatherForecastDay {
-	daily, ok := decoded["daily"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	dates := stringArrayValue(daily["time"])
-	mins := numberArrayValue(daily["temperature_2m_min"])
-	maxes := numberArrayValue(daily["temperature_2m_max"])
-	codes := numberArrayValue(daily["weather_code"])
-	out := []weatherForecastDay{}
-	for i, date := range dates {
-		day := weatherForecastDay{Date: date}
-		if i < len(mins) {
-			day.MinTemp = fmt.Sprintf("%.0f°C", mins[i])
-		}
-		if i < len(maxes) {
-			day.MaxTemp = fmt.Sprintf("%.0f°C", maxes[i])
-		}
-		if i < len(codes) {
-			day.Condition = openMeteoCondition(int(codes[i]))
-		}
-		out = append(out, day)
-	}
-	return out
-}
-
-func openMeteoDailyUV(decoded map[string]any) string {
-	daily, ok := decoded["daily"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	uvs := numberArrayValue(daily["uv_index_max"])
-	if len(uvs) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%.0f", uvs[0])
-}
-
-func openMeteoHourly(ctx context.Context, lat, lon float64) ([]weatherForecastHour, bool) {
-	endpoint := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f&hourly=temperature_2m,weather_code&current=temperature_2m,weather_code&timezone=Asia%%2FShanghai&forecast_days=1", lat, lon)
-	body, ok := fetchWeatherJSON(ctx, endpoint, 100000)
-	if !ok {
-		return nil, false
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, false
-	}
-	return openMeteoHourlyFromData(decoded)
-}
-
-func openMeteoHourlyFromData(decoded map[string]any) ([]weatherForecastHour, bool) {
-	hourly, ok := decoded["hourly"].(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	times := stringArrayValue(hourly["time"])
-	temps := numberArrayValue(hourly["temperature_2m"])
-	codes := numberArrayValue(hourly["weather_code"])
-	if len(times) == 0 || len(temps) == 0 {
-		return nil, false
-	}
-	ref := weatherCardNow()
-	if current, ok := decoded["current"].(map[string]any); ok {
-		if parsed, ok := parseOpenMeteoTime(weatherStringValue(current["time"])); ok {
-			ref = parsed
-		}
-	}
-	out := []weatherForecastHour{}
-	for i, value := range times {
-		parsed, ok := parseOpenMeteoTime(value)
-		if !ok || !parsed.After(ref) {
-			continue
-		}
-		if i >= len(temps) {
-			continue
-		}
-		code := 0
-		if i < len(codes) {
-			code = int(codes[i])
-		}
-		out = append(out, weatherForecastHour{
-			Time:      parsed.Format("15:04"),
-			Temp:      fmt.Sprintf("%.0f°C", temps[i]),
-			Condition: openMeteoCondition(code),
-		})
-		if len(out) >= 5 {
-			break
-		}
-	}
-	return out, len(out) > 0
-}
-
-func fetchWeatherJSON(ctx context.Context, endpoint string, maxBytes int64) ([]byte, bool) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, false
-	}
-	req.Header.Set("User-Agent", "SparkClaw/0.1 weather-card")
-	client := &http.Client{Timeout: 6 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, false
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
-	if err != nil {
-		return nil, false
-	}
-	return body, true
-}
-
-func parseOpenMeteoTime(value string) (time.Time, bool) {
-	for _, layout := range []string{"2006-01-02T15:04", time.RFC3339} {
-		if parsed, err := time.ParseInLocation(layout, strings.TrimSpace(value), weatherCardLocation); err == nil {
-			return parsed.In(weatherCardLocation), true
-		}
-	}
-	return time.Time{}, false
-}
-
-func openMeteoCondition(code int) string {
-	switch code {
-	case 0:
-		return "晴"
-	case 1, 2:
-		return "晴转多云"
-	case 3:
-		return "多云"
-	case 45, 48:
-		return "雾"
-	case 51, 53, 55, 56, 57:
-		return "小雨"
-	case 61, 63, 65, 66, 67, 80, 81, 82:
-		return "有雨"
-	case 71, 73, 75, 77, 85, 86:
-		return "有雪"
-	case 95, 96, 99:
-		return "雷雨"
-	default:
-		return "多云"
-	}
 }
 
 func (h *ToolHub) writeMediaPNG(raw []byte, sessionID, prefix string) (string, string, error) {
@@ -465,8 +239,15 @@ func weatherSummaryLine(data weatherCardData, condition string) string {
 }
 
 func weatherTempRange(data weatherCardData) (string, string) {
-	if len(data.Forecast) > 0 {
-		day := data.Forecast[0]
+	date := weatherCardNow().Format("2006-01-02")
+	if reference, ok := weatherTimestamp(data.UpdatedAt); ok {
+		date = reference.In(weatherCardLocation).Format("2006-01-02")
+	}
+	for _, day := range data.Forecast {
+		dayDate, ok := weatherForecastDate(day.Date)
+		if !ok || dayDate != date {
+			continue
+		}
 		current, hasCurrent := weatherNumber(data.Temperature)
 		low, hasLow := weatherNumber(day.MinTemp)
 		high, hasHigh := weatherNumber(day.MaxTemp)
@@ -478,10 +259,18 @@ func weatherTempRange(data weatherCardData) (string, string) {
 		}
 		return displayTemperature(day.MinTemp), displayTemperature(day.MaxTemp)
 	}
-	if data.FeelsLike != "" {
-		return displayTemperature(data.Temperature), displayTemperature(data.FeelsLike)
-	}
 	return "", ""
+}
+
+func weatherForecastDate(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if parsed, ok := weatherTimestamp(value); ok {
+		return parsed.In(weatherCardLocation).Format("2006-01-02"), true
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02", value, weatherCardLocation); err == nil {
+		return parsed.Format("2006-01-02"), true
+	}
+	return "", false
 }
 
 func drawAlertPill(img *image.RGBA, faces weatherCardFaces, cx, cy int, text string) {
@@ -553,10 +342,15 @@ func upcomingHourlyForecast(hours []weatherForecastHour, updatedAt string, limit
 	if limit <= 0 || len(hours) == 0 {
 		return nil
 	}
+	referenceTime, hasReferenceTime := weatherTimestamp(updatedAt)
 	ref, hasRef := weatherReferenceMinute(updatedAt)
 	out := []weatherForecastHour{}
 	for _, hour := range hours {
-		if hasRef {
+		if forecastTime, ok := weatherTimestamp(hour.Time); ok && hasReferenceTime {
+			if !forecastTime.After(referenceTime) {
+				continue
+			}
+		} else if hasRef {
 			minute, ok := weatherHourMinute(hour.Time)
 			if ok && minute <= ref {
 				continue
@@ -578,6 +372,9 @@ func displayHourLabel(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
+	}
+	if parsed, ok := weatherTimestamp(value); ok {
+		return fmt.Sprintf("%d时", parsed.In(weatherCardLocation).Hour())
 	}
 	if strings.Contains(value, ":") {
 		fields := strings.Fields(value)
@@ -605,19 +402,17 @@ func weatherReferenceMinute(value string) (int, bool) {
 		now := weatherCardNow()
 		return now.Hour()*60 + now.Minute(), true
 	}
+	if parsed, ok := weatherTimestamp(value); ok {
+		local := parsed.In(weatherCardLocation)
+		return local.Hour()*60 + local.Minute(), true
+	}
 	for _, layout := range []string{
-		"2006-01-02 15:04",
-		"2006-01-02 3:04 PM",
 		"15:04",
 		"3:04 PM",
 	} {
 		if parsed, err := time.ParseInLocation(layout, value, weatherCardLocation); err == nil {
 			return parsed.Hour()*60 + parsed.Minute(), true
 		}
-	}
-	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-		local := parsed.In(weatherCardLocation)
-		return local.Hour()*60 + local.Minute(), true
 	}
 	fields := strings.Fields(value)
 	for i := len(fields) - 1; i >= 0; i-- {
@@ -626,6 +421,28 @@ func weatherReferenceMinute(value string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func weatherTimestamp(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.In(weatherCardLocation), true
+	}
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02 3:04 PM",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+	} {
+		if parsed, err := time.ParseInLocation(layout, value, weatherCardLocation); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func weatherHourMinute(value string) (int, bool) {
@@ -650,6 +467,9 @@ func weatherHourMinute(value string) (int, bool) {
 
 func drawSmallWeatherIcon(img *image.RGBA, cx, cy int, kind string) {
 	switch kind {
+	case "unknown":
+		drawCircle(img, cx, cy, 24, color.RGBA{222, 232, 244, 240})
+		drawCenteredText(img, basicfont.Face7x13, cx, cy+5, "?", color.RGBA{73, 100, 132, 255})
 	case "rain":
 		drawCircle(img, cx-10, cy, 16, color.RGBA{255, 255, 255, 245})
 		drawCircle(img, cx+8, cy-10, 21, color.RGBA{255, 255, 255, 245})
@@ -1024,7 +844,7 @@ func displayCondition(condition string) string {
 	lower := strings.ToLower(condition)
 	switch {
 	case condition == "":
-		return "天气"
+		return "暂无数据"
 	case strings.Contains(condition, "晴") || strings.Contains(lower, "sunny") || strings.Contains(lower, "clear"):
 		if strings.Contains(condition, "云") || strings.Contains(lower, "cloud") {
 			return "晴转多云"
@@ -1084,6 +904,9 @@ func mustWeatherCardLocation() *time.Location {
 }
 
 func classifyWeatherKind(data weatherCardData) string {
+	if strings.TrimSpace(data.Condition) == "" {
+		return "unknown"
+	}
 	text := strings.ToLower(data.Condition + " " + data.Precip + " " + data.Suggestion)
 	switch {
 	case strings.Contains(text, "snow") || strings.Contains(text, "雪"):
@@ -1101,6 +924,9 @@ func classifyWeatherKind(data weatherCardData) string {
 }
 
 func weatherAlert(data weatherCardData, kind string) (string, string) {
+	if data.MissingData {
+		return "数据暂缺", "Info 未返回完整实时数据，\n卡片仅展示已有结果"
+	}
 	temp, hasTemp := weatherNumber(data.Temperature)
 	feels, hasFeels := weatherNumber(data.FeelsLike)
 	hot := (hasTemp && temp >= 32) || (hasFeels && feels >= 34)
@@ -1154,6 +980,9 @@ func weatherRainWindow(data weatherCardData, kind string) (string, string) {
 }
 
 func weatherWarmTip(data weatherCardData, kind string) (string, string) {
+	if data.MissingData {
+		return "数据说明", "部分实时数据暂缺，\n未使用推测值补全"
+	}
 	temp, hasTemp := weatherNumber(data.Temperature)
 	feels, hasFeels := weatherNumber(data.FeelsLike)
 	uv, hasUV := weatherNumber(data.UV)
@@ -1217,6 +1046,9 @@ func weatherNumber(value string) (float64, bool) {
 }
 
 func weatherSuggestion(data weatherCardData) string {
+	if data.MissingData {
+		return "部分实时天气数据暂缺，卡片仅显示 Info 返回的内容。"
+	}
 	text := strings.ToLower(data.Condition + " " + data.Precip)
 	switch {
 	case strings.Contains(text, "rain") || strings.Contains(text, "雨"):
@@ -1228,89 +1060,6 @@ func weatherSuggestion(data weatherCardData) string {
 	default:
 		return "出门前再确认一次实时天气，按体感增减衣物。"
 	}
-}
-
-func arrayValue(v any) []any {
-	switch typed := v.(type) {
-	case []any:
-		return typed
-	default:
-		return nil
-	}
-}
-
-func weatherStringValue(value any) string {
-	switch typed := value.(type) {
-	case string:
-		return strings.TrimSpace(typed)
-	case float64:
-		return strings.TrimSpace(fmt.Sprintf("%.0f", typed))
-	case float32:
-		return strings.TrimSpace(fmt.Sprintf("%.0f", typed))
-	case int:
-		return fmt.Sprintf("%d", typed)
-	case int64:
-		return fmt.Sprintf("%d", typed)
-	case json.Number:
-		return typed.String()
-	default:
-		return ""
-	}
-}
-
-func stringArrayValue(value any) []string {
-	items := arrayValue(value)
-	out := []string{}
-	for _, item := range items {
-		text := strings.TrimSpace(weatherStringValue(item))
-		if text != "" {
-			out = append(out, text)
-		}
-	}
-	return out
-}
-
-func numberArrayValue(value any) []float64 {
-	items := arrayValue(value)
-	out := []float64{}
-	for _, item := range items {
-		if n, ok := floatValue(item); ok {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
-func floatValue(value any) (float64, bool) {
-	switch typed := value.(type) {
-	case float64:
-		return typed, true
-	case float32:
-		return float64(typed), true
-	case int:
-		return float64(typed), true
-	case int64:
-		return float64(typed), true
-	case json.Number:
-		n, err := typed.Float64()
-		return n, err == nil
-	case string:
-		n, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
-		return n, err == nil
-	default:
-		return 0, false
-	}
-}
-
-func withUnit(value, unit string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if strings.HasSuffix(value, unit) {
-		return value
-	}
-	return value + unit
 }
 
 func fallbackText(value, fallback string) string {

@@ -15,7 +15,7 @@ scripts/                   Doctor, eval, model serving and benchmark scripts
 eval/golden/               Golden task definitions and fixtures
 benchmarks/                DGX Spark model evidence
 packages/                  Portable protocol, policy and tool-schema notes
-skills/                    Runtime skill packages, intentionally evolving
+skills/                    尚未迁移领域的过渡 ReAct skills
 docs/                      Current project documentation
 zh-cn/                     Chinese documentation mirror
 ```
@@ -28,18 +28,18 @@ MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应�
 |---|---|---|
 | Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
 | Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Router-first 能力 Workflow | 浏览器联网搜索/天气/自动化和文档读取/编辑已迁移 | Catalog、精确 Registry/Dispatcher、固定工具暴露、端到端测试与语义边界回归 |
+| Router-first 能力 Workflow | 浏览器联网搜索/天气/自动化和文档读取/编辑已迁移 | Catalog revision 4、精确 Registry/Dispatcher、固定工具暴露、生产入口端到端测试与语义边界回归 |
 | ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
 | Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
 | Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
 | File、browser、memory、code 和 notify workflow | Complete | Unit tests plus 43-case eval |
 | 邮件、日历和 Workspace Knowledge/RAG | 已暂缓；原型已移除 | [暂缓能力记录](deferred-email-calendar-knowledge.md) |
-| Skills registry boundary | Complete | Registry tests and `/api/skills`; skills do not bypass policy |
+| 过渡 Skills Registry | 仅用于尚未迁移的 ReAct 领域 | Registry tests 和 `/api/skills`；已迁移 Workflow 的 Skill 包已删除 |
 | WebChat workbench | Complete | TypeScript/Vite build |
 | Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
 | Docker profiles and local deployment | Complete | Compose config, image builds, doctor script |
 | DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
-| Infinimesh Info `web.search` provider | Complete，opt-in | Contract/fault tests、redacted public config、credential-gated live smoke |
+| Infinimesh Info `web.search` 与直接 `info.query` provider | Complete，opt-in | Contract/fault tests、保留证据的天气 Workflow fixture、redacted public config、credential-gated live smoke |
 | WebChat 与 Gateway speech transcription | Complete，opt-in | Speech/Gateway tests、voice frontend tests、live ASR smoke evidence |
 | 消息连接器 Registry 与 Telegram 多 Bot binding | Complete，opt-in | Provider-neutral registry、credential 隔离、binding、worker、media、reminder 与 WebChat tests |
 | 消息控制、定时消息与结果投递 | Router-first 垂直切片已完成 | 持久化入口/返回上下文、Endpoint/Schedule Registry、有界 Timer Worker、唯一 WorkflowResult 投递链路、Provider 能力预检、[迁移指南](message-control-delivery-migration.md) |
@@ -52,7 +52,7 @@ Host checks：
 
 ```bash
 npm --workspace @sparkclaw/webchat run build
-npm --workspace @sparkclaw/webchat run test:voice
+npm --workspace @sparkclaw/webchat run test
 go test ./services/gateway/...
 bash scripts/doctor.sh
 bash scripts/run-eval.sh
@@ -92,7 +92,7 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 - direct `/chat` profile selection
 - config、tool、skill、owner、client、auth 和 rate-limit surfaces
 - file search/read/write/delete 和 multi-file grounded answers
-- browser read、multi-source comparison、raw snapshots 和 prompt-injection handling
+- browser read、multi-source comparison、结构化交互 snapshot、验证点击闭环、过期 ref 和 prompt-injection handling
 - memory candidates、sensitive-memory rejection、approval-gated sensitive writes、editing 和 export
 - approval modification、approval-pending run lifecycle 和 post-approval trace refresh
 - shell 和 code patch approval、rollback artifacts 和 sandbox command queueing
@@ -100,6 +100,14 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 - smoke/chaos eval persistence、failure archives 和 eval history
 
 添加 user-visible behavior 时，优先添加聚焦单元测试，以及一个覆盖真实 API path 的 golden case。
+
+真实托管 Chromium 交互冒烟测试：
+
+```bash
+SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 \
+go test ./services/gateway/internal/browserautomation \
+  -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1
+```
 
 ## 使用 Tools
 
@@ -114,7 +122,7 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 7. 添加 unit tests 和至少一个 golden/smoke eval path。
 8. 如果改变产品边界，更新 [架构](architecture.md)。
 
-注册 capability 不会自动让模型看到工具。已迁移 Workflow Profile 必须把 capability 放入冻结活动 scope，且 `ToolExposure.Search/Materialize` 必须接纳并物化对应 registration。不要在 TaskHint、Skill metadata 或 Agent Runtime 中增加平行工具名清单。
+注册 capability 不会自动让模型看到工具。已迁移 Workflow Profile 必须把 capability 放入冻结活动 scope，且 `ToolExposure.Search/Materialize` 必须接纳并物化对应 registration。Workflow Plan 不得保存 Skill ID，Workflow 模型 Prompt 也不得加载 Skill 文本。不要在 TaskHint、Skill metadata 或 Agent Runtime 中增加平行工具名清单。
 
 当前 risk expectations：
 
@@ -127,27 +135,37 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 
 ## 使用能力路由与 Workflow
 
-完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个能力叶子时：
+当前用户可见边界见 [Workflow 能力矩阵](workflow-capabilities.md)，完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个能力叶子时：
 
 1. 在版本化 Capability Catalog 中增加叶子与允许的类型化 Operation，并只引用一个精确 Workflow 协议。
 2. Fast 输出保持工具中立，拒绝未知 JSON 字段，Normalizer 冻结确定性 URL/path Fact。
 3. 注册一个精确版本化 Workflow Profile。Registry 只能使用已校验的叶子身份解析，不能重新解释消息。
 4. 为所有允许工具增加固定 Capability Metadata 与 Outcome Adapter；Tool Exposure 只能物化该 Scope。
 5. 在 Profile 中声明允许的 Transition、Risk 与受治理参数绑定，并持久化 Route 供审批/登录恢复使用。
-6. 删除同一功能的 TaskHint Candidate 与旧 Workflow 分支。
+6. 删除同一功能的 TaskHint Candidate、旧 ReAct 暴露和 Skill 包；保留 Workflow 正在使用或等待后续迁移的 ToolHub Registration。
 7. 增加从生产入口执行真实 Tool Adapter 的端到端测试，断言 `WorkflowResult`，并证明没有 Legacy Routing Audit。
 
 当前状态事实使用一个类型化语义边界。正确答案依赖实时互联网的只读事实使用 `fact_scope=current_internet_state`，包括价格、汇率、股票/指数行情、即时新闻、比赛结果和日程；静态常识保持 unmatched。不要为每类事实增加 leaf、关键词 switch 或工具名称列表。唯一的窄特例是 `browser.weather`，只处理一个已校验地点的当前天气或短期预报卡片；天气预警、新闻、历史和比较仍属于 `browser.internet_search`。
 
 Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 Switch 来选择 Scope、资源、Assessment 或下一步，应把行为移入 Profile、Plan Binding、ToolHub Registration 或 Outcome Adapter。只有 `RouteDecision.Status == unmatched` 可以进入 ReAct。
 
+### 扩展天气处理
+
+天气迁移是多阶段 Workflow 的参考模式。`browser.weather` 在派发前冻结规范化 query 和有依据的 location；依次只暴露 `info.query`、`weather.structure_payload` 和 `media.render_weather_card`；中间值只通过受治理 outcome ref 传递。Deep 模型接收已映射 Info 证据中与 query 相关的有界投影，其中使用稳定的 `summary:0`、`fact:N` 和 `source:N:snippet:M` ref。结构化工具必须拒绝没有对应证据项精确原文子串支持的字段，并回到完整持久化 Info 结果校验引用与原文；每类请求数据要么包含有依据的值，要么写入明确的 `missing_fields`。缺失数据按“暂无数据”渲染，不能推测补齐，也不会因此阻塞卡片；渲染器必须保持无网络访问。详见[天气 Workflow 实施记录](browser-weather-workflow-migration-plan.md)。
+
 ### 扩展文档处理
 
 文档 Workflow 的阶段顺序由 `internal/document.Pipeline` 负责，而不是由格式 adapter 或模型 prompt 决定。新增格式时，在 ToolHub 注册一个规范 parser，并按需注册带 operation qualifier 的 editor。除签名感知 detector 和 registration composition 外，不要增加 extension switch。
 
+高层路由只判断现有文档是读取还是修改；直接图片分析作为读取格式进入同一个 `document.read` Workflow。不得把自然语言中的插入、删除、追加、行、单元格、段落、幻灯片或页面词语映射为具体 editor operation。所有内容修改都携带检测格式进入 `document.edit` r2；结构化读取完成后，再由有边界的目录选择确定一个兼容、带 operation qualifier 的注册项。不支持的修改必须在该阶段明确 block，不能被强制套用到其他 editor。
+
 当前唯一实现的策略是 `small_file_v1`：源文件最大 8 MiB，完整抽取内容最大 200,000 bytes。更大资源必须返回类型化 `strategy_deferred`，直到另一个 `document.Strategy` 实现分块、流式、索引或惰性访问。截断内容绝不能成为成功的小文档结果。
 
-每个 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并通过类型化结果返回全部输出 path，而不能只放在 adapter-specific details 中。Pipeline 会校验每个输出、重新计算输入哈希，然后才返回 `change_summary`；无效或零变更结果会清理生成的副本。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
+每个结构化文档 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。直接图片 reader 则通过 `images.inspect` 返回带尺寸和 Fast 模型来源的有界语义结果，原图限制为 12 MiB。高层 parser 可以增加可选的 `document_enrichment_v1` envelope，分别记录 assets、annotations、layout、extensions、coverage 和 category policy。DOCX、XLSX、PPTX 与文本型 PDF reader 会登记 parser 可见的嵌入图片，保存来源关系与 SHA-256 身份；图片二进制只写入 ArtifactStore，不进入 ToolCall JSON 或 prompt。`files.read` 默认使用目标模式，通过稳定的 `image_target_paths` 指定相关图片，并且只调用 Fast 模型；只有明确的全文视觉理解请求才使用 `image_analysis=all`。当前限制为目标模式最多 4 张、全文模式最多 8 张去重图片，并发 2，单图 30 秒，富化阶段总计 120 秒，输出上限 512 tokens，图片语义上下文合计最多 4,000 字符。
+
+每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并通过类型化结果返回全部输出 path，而不能只放在 adapter-specific details 中。XLSX 追加操作必须从该结构化表示中的最高非空行派生行锚点，不能使用库的物理 used range 或 `rowCount`，因为仅带格式的空白单元格会扩展二者并在新增内容前产生可见空洞。Pipeline 会通过同一 parser 完整重读每个输出，校验预期修改后值和未命中内容，比较已知的 asset、annotation 与 layout 指纹，再重新计算输入哈希。任何异常都会删除输出并返回 `preservation_mismatch`。成功摘要明确报告 `high_level_preservation=verified` 与 `package_preservation=unknown`；后者要等 OOXML/PDF 包级检查实现后才能升级。无效或零变更结果同样会清理副本。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
+
+Path 只作为内部受治理 reference 保留，不作为面向用户的成功文本。文档修改成功后，每个输出都投影为 assistant message 上可下载的文件附件。图片输出使用 `kind=image` 与 `disposition=inline`，WebChat 按自然宽高比完整展示图片，而不是显示附件缩略图。审批恢复和持久化消息历史使用同一投影规则。
 
 测试前先安装文档运行时：
 

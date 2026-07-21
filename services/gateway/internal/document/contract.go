@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	SmallFileMaxBytes      int64 = 8 << 20
-	SmallExtractedMaxBytes       = 200_000
+	SmallFileMaxBytes       int64 = 8 << 20
+	SmallExtractedMaxBytes        = 200_000
+	EnrichmentSchemaVersion       = "document_enrichment_v1"
 )
 
 type Stage string
@@ -22,6 +23,7 @@ const (
 	StageInspect   Stage = "inspect"
 	StageRead      Stage = "read"
 	StageStructure Stage = "structure"
+	StageEnrich    Stage = "enrich"
 	StageLocate    Stage = "locate"
 	StageConstrain Stage = "constrain"
 	StageApply     Stage = "apply"
@@ -30,15 +32,17 @@ const (
 type ErrorCode string
 
 const (
-	CodeResourceInvalid     ErrorCode = "resource_invalid"
-	CodeFormatUnsupported   ErrorCode = "format_unsupported"
-	CodeStrategyDeferred    ErrorCode = "strategy_deferred"
-	CodeParseFailed         ErrorCode = "parse_failed"
-	CodeTargetNotFound      ErrorCode = "target_not_found"
-	CodeTargetAmbiguous     ErrorCode = "target_ambiguous"
-	CodeMatchCountMismatch  ErrorCode = "match_count_mismatch"
-	CodeMutationUnsupported ErrorCode = "mutation_unsupported"
-	CodeOutputConflict      ErrorCode = "output_conflict"
+	CodeResourceInvalid      ErrorCode = "resource_invalid"
+	CodeFormatUnsupported    ErrorCode = "format_unsupported"
+	CodeStrategyDeferred     ErrorCode = "strategy_deferred"
+	CodeParseFailed          ErrorCode = "parse_failed"
+	CodeTargetNotFound       ErrorCode = "target_not_found"
+	CodeTargetAmbiguous      ErrorCode = "target_ambiguous"
+	CodeMatchCountMismatch   ErrorCode = "match_count_mismatch"
+	CodeMutationUnsupported  ErrorCode = "mutation_unsupported"
+	CodeOutputConflict       ErrorCode = "output_conflict"
+	CodeEnrichmentFailed     ErrorCode = "enrichment_failed"
+	CodePreservationMismatch ErrorCode = "preservation_mismatch"
 )
 
 type PipelineError struct {
@@ -110,6 +114,7 @@ type Representation struct {
 	Slides                []map[string]any `json:"slides,omitempty"`
 	Sections              []map[string]any `json:"sections,omitempty"`
 	Pages                 []map[string]any `json:"pages,omitempty"`
+	Enrichment            map[string]any   `json:"enrichment,omitempty"`
 	Stats                 map[string]any   `json:"stats"`
 }
 
@@ -130,6 +135,40 @@ type AdapterReadResult struct {
 	ExtractedBytes int
 	Truncated      bool
 	Document       map[string]any
+	Resources      []Resource
+}
+
+type Resource struct {
+	Key         string
+	Kind        string
+	ContentType string
+	SHA256      string
+	Content     []byte
+}
+
+type EnrichmentOptions struct {
+	ImageAnalysis string   `json:"image_analysis,omitempty"`
+	TargetPaths   []string `json:"image_target_paths,omitempty"`
+	Question      string   `json:"image_question,omitempty"`
+	Required      bool     `json:"image_required,omitempty"`
+}
+
+type EnrichmentRequest struct {
+	Metadata  Metadata
+	Document  Representation
+	Resources []Resource
+	Options   EnrichmentOptions
+}
+
+type EnrichmentResult struct {
+	Enrichment map[string]any
+	Warnings   []string
+}
+
+type DocumentEnricher interface {
+	Name() string
+	Supports(format string, category string) bool
+	Enrich(context.Context, EnrichmentRequest) (EnrichmentResult, error)
 }
 
 type Parser interface {
@@ -202,27 +241,35 @@ func (f EditorFunc) Apply(ctx context.Context, request ApplyRequest) (ApplyResul
 }
 
 type ReadRequest struct {
-	Root     string
-	Path     string
-	MaxBytes int
+	Root       string
+	Path       string
+	MaxBytes   int
+	Enrichment EnrichmentOptions
 }
 
 type ReadResult struct {
-	Metadata Metadata
-	Content  string
-	Document Representation
+	Metadata  Metadata
+	Content   string
+	Document  Representation
+	Resources []Resource
 }
 
 type ChangeSummary struct {
-	DocumentID        string   `json:"document_id"`
-	Operation         string   `json:"operation"`
-	InputPath         string   `json:"input_path"`
-	OutputPath        string   `json:"output_path"`
-	OutputPaths       []string `json:"output_paths,omitempty"`
-	OriginalUnchanged bool     `json:"original_unchanged"`
-	Matched           int      `json:"matched"`
-	Changed           int      `json:"changed"`
-	Targets           []Match  `json:"targets"`
+	DocumentID            string         `json:"document_id"`
+	Operation             string         `json:"operation"`
+	InputPath             string         `json:"input_path"`
+	OutputPath            string         `json:"output_path"`
+	OutputPaths           []string       `json:"output_paths,omitempty"`
+	OriginalUnchanged     bool           `json:"original_unchanged"`
+	Matched               int            `json:"matched"`
+	Changed               int            `json:"changed"`
+	Targets               []Match        `json:"targets"`
+	HighLevelPreservation string         `json:"high_level_preservation"`
+	PackagePreservation   string         `json:"package_preservation"`
+	PreservationWarnings  []string       `json:"preservation_warnings,omitempty"`
+	LayoutPolicy          string         `json:"layout_policy,omitempty"`
+	LayoutAdjustedShapes  int            `json:"layout_adjusted_shapes,omitempty"`
+	LayoutChecks          map[string]any `json:"layout_checks,omitempty"`
 }
 
 func (s ChangeSummary) Map() (map[string]any, error) {
@@ -267,10 +314,18 @@ func (f InspectorFunc) Inspect(ctx context.Context, root, path string) (Metadata
 type Pipeline struct {
 	inspector  Inspector
 	strategies []Strategy
+	enrichers  []DocumentEnricher
 }
 
 func NewPipeline(inspector Inspector, strategies ...Strategy) *Pipeline {
 	return &Pipeline{inspector: inspector, strategies: append([]Strategy(nil), strategies...)}
+}
+
+func (p *Pipeline) WithEnrichers(enrichers ...DocumentEnricher) *Pipeline {
+	if p != nil {
+		p.enrichers = append([]DocumentEnricher(nil), enrichers...)
+	}
+	return p
 }
 
 func (p *Pipeline) Read(ctx context.Context, request ReadRequest) (ReadResult, error) {
@@ -278,7 +333,11 @@ func (p *Pipeline) Read(ctx context.Context, request ReadRequest) (ReadResult, e
 	if err != nil {
 		return ReadResult{}, err
 	}
-	return strategy.Read(ctx, metadata, request.MaxBytes)
+	read, err := strategy.Read(ctx, metadata, request.MaxBytes)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	return p.enrich(ctx, read, request.Enrichment)
 }
 
 func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, error) {
@@ -332,12 +391,21 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 		cleanupOutputPaths(request.Root, metadata.Path, []string{request.OutputPath})
 		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: metadata.Format, Detail: "editor reported no output resources"}
 	}
+	preservationWarnings := []string{}
 	for _, outputPath := range outputPaths {
-		if err := p.validateProducedOutput(ctx, request.Root, metadata, outputPath); err != nil {
+		outputRead, err := p.validateProducedOutput(ctx, request.Root, metadata, strategy, request.MaxBytes, outputPath)
+		if err != nil {
 			cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
 			return EditResult{}, err
 		}
+		report, err := ValidatePreservation(read.Document, outputRead.Document, request, matches, applied.Details)
+		if err != nil {
+			cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
+			return EditResult{}, err
+		}
+		preservationWarnings = append(preservationWarnings, report.Warnings...)
 	}
+	preservationWarnings = append(preservationWarnings, stringSlice(applied.Details["warnings"])...)
 	current, err = p.inspector.Inspect(ctx, request.Root, request.Path)
 	if err != nil || current.Size != metadata.Size || current.SHA256 != metadata.SHA256 {
 		cleanupOutputPaths(request.Root, metadata.Path, outputPaths)
@@ -355,6 +423,9 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 		ChangeSummary: ChangeSummary{
 			DocumentID: read.Document.ID, Operation: request.Operation, InputPath: metadata.Path, OutputPath: primaryOutput, OutputPaths: outputPaths,
 			OriginalUnchanged: true, Matched: len(matches), Changed: applied.Changed, Targets: matches,
+			HighLevelPreservation: "verified", PackagePreservation: "unknown", PreservationWarnings: uniqueStrings(preservationWarnings),
+			LayoutPolicy: stringValue(applied.Details["layout_policy"]), LayoutAdjustedShapes: intValue(applied.Details["layout_adjusted_shapes"]),
+			LayoutChecks: cloneMap(mapValue(applied.Details["layout_checks"])),
 		},
 	}, nil
 }
@@ -382,25 +453,29 @@ func normalizedOutputPaths(root string, applied ApplyResult) []string {
 	return out
 }
 
-func (p *Pipeline) validateProducedOutput(ctx context.Context, root string, input Metadata, outputPath string) error {
+func (p *Pipeline) validateProducedOutput(ctx context.Context, root string, input Metadata, strategy Strategy, maxBytes int, outputPath string) (ReadResult, error) {
 	rootAbs, rootErr := filepath.Abs(root)
 	outputAbs, outputErr := filepath.Abs(outputPath)
 	if rootErr != nil || outputErr != nil || outputAbs == rootAbs || !strings.HasPrefix(outputAbs, rootAbs+string(os.PathSeparator)) || outputAbs == input.Path {
-		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output escaped the frozen workspace or replaced the input"}
+		return ReadResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output escaped the frozen workspace or replaced the input"}
 	}
 	info, err := os.Lstat(outputAbs)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output is missing or is not a regular file"}
+		return ReadResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output is missing or is not a regular file"}
 	}
 	metadata, err := p.inspector.Inspect(ctx, root, outputAbs)
 	if err != nil {
-		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output failed format inspection"}
+		return ReadResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output failed format inspection"}
 	}
 	inspectedPath, _ := filepath.Abs(metadata.Path)
 	if inspectedPath != outputAbs || metadata.Format != input.Format {
-		return &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output does not match the frozen document format"}
+		return ReadResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output does not match the frozen document format"}
 	}
-	return nil
+	read, err := strategy.Read(ctx, metadata, maxBytes)
+	if err != nil {
+		return ReadResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: input.Format, Detail: "editor output could not be completely re-read: " + err.Error()}
+	}
+	return read, nil
 }
 
 func cleanupOutputPaths(root, inputPath string, paths []string) {
@@ -476,6 +551,9 @@ func validateOutputPath(root string, metadata Metadata, outputPath string) error
 		return &PipelineError{Code: CodeOutputConflict, Stage: StageConstrain, Format: metadata.Format, Detail: "output path must not overwrite the input file"}
 	}
 	wantedExtension := ExtensionForFormat(metadata.Format)
+	if metadata.Format == "text" {
+		wantedExtension = strings.ToLower(filepath.Ext(metadata.Path))
+	}
 	if wantedExtension == "" || strings.ToLower(filepath.Ext(outputAbs)) != wantedExtension {
 		return &PipelineError{Code: CodeOutputConflict, Stage: StageConstrain, Format: metadata.Format, Detail: "output path does not match the detected format"}
 	}

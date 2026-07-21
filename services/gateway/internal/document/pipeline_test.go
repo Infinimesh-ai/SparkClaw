@@ -230,3 +230,61 @@ func TestPipelineFailsClosedForInvalidApplyResults(t *testing.T) {
 		}
 	})
 }
+
+func TestPipelineRejectsEvidenceCategoryChangesAndRemovesOutput(t *testing.T) {
+	root := t.TempDir()
+	inputPath := filepath.Join(root, "note.docx")
+	outputPath := filepath.Join(root, "note-edited.docx")
+	if err := os.WriteFile(inputPath, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parser := ParserFunc(func(_ context.Context, metadata Metadata, _ int) (AdapterReadResult, error) {
+		text := "target"
+		imageHash := "stable-image"
+		if metadata.Path == outputPath {
+			text = "updated"
+			imageHash = "changed-image"
+		}
+		return AdapterReadResult{Content: text, Document: map[string]any{
+			"blocks": []any{map[string]any{"text": text, "location": map[string]any{"path": "document.p[1]"}}},
+			"enrichment": map[string]any{
+				"assets":      map[string]any{"images": []any{map[string]any{"kind": "image", "sha256": imageHash, "source": map[string]any{"relationship_id": "rId1", "part_name": "word/media/image1.png"}}}},
+				"annotations": map[string]any{}, "layout": map[string]any{},
+				"coverage": map[string]any{"content": "complete", "assets": "complete", "annotations": "complete", "layout": "complete", "extensions": "deferred"},
+			},
+		}}, nil
+	})
+	strategy := NewSmallFileStrategy(map[string]Parser{"docx": parser}, map[string]Editor{
+		EditorKey("docx", "replace_text"): EditorFunc(func(_ context.Context, request ApplyRequest) (ApplyResult, error) {
+			if err := os.WriteFile(request.Edit.OutputPath, []byte("updated"), 0o644); err != nil {
+				return ApplyResult{}, err
+			}
+			return ApplyResult{OutputPath: request.Edit.OutputPath, Changed: 1}, nil
+		}),
+	})
+	pipeline := NewPipeline(InspectorFunc(func(_ context.Context, _ string, path string) (Metadata, error) {
+		return Metadata{Path: path, Relative: filepath.Base(path), Format: "docx", Size: 8, SHA256: "stable"}, nil
+	}), strategy)
+	_, err := pipeline.Edit(context.Background(), EditRequest{
+		Root: root, Path: inputPath, OutputPath: outputPath, Operation: "replace_text",
+		Target:    LocatorRequest{Kind: LocatorExactText, Text: "target"},
+		Arguments: map[string]any{"replacements": []any{map[string]any{"find": "target", "replace": "updated"}}},
+	})
+	if !IsErrorCode(err, CodePreservationMismatch) {
+		t.Fatalf("unexpected evidence mutation did not fail closed: %v", err)
+	}
+	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("invalid output was not removed: %v", statErr)
+	}
+}
+
+func TestMergedRangeBeforeCoordinatesMapsStructuralRowChanges(t *testing.T) {
+	insert := EditRequest{Operation: "insert_row", Arguments: map[string]any{"row": 2, "position": "before"}}
+	if got := mergedRangeBeforeCoordinates("A3:B4", insert); got != "A2:B3" {
+		t.Fatalf("inserted-row range was not mapped to its original identity: %q", got)
+	}
+	deleteRequest := EditRequest{Operation: "delete_row", Arguments: map[string]any{"row": 2}}
+	if got := mergedRangeBeforeCoordinates("A2:B3", deleteRequest); got != "A3:B4" {
+		t.Fatalf("deleted-row range was not mapped to its original identity: %q", got)
+	}
+}

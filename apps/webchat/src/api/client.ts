@@ -169,10 +169,44 @@ export function workspaceScreenshotURL(path: string) {
   return new URL(route, new URL(API_BASE, window.location.origin)).toString();
 }
 
-export function documentFileURL(path: string) {
-  const route = `/api/documents/file?path=${encodeURIComponent(path)}`;
+export function documentFileURL(path: string, sessionId = "") {
+  const params = new URLSearchParams({ path });
+  if (sessionId) params.set("session_id", sessionId);
+  const route = `/api/documents/file?${params.toString()}`;
   if (!API_BASE) return route;
   return new URL(route, new URL(API_BASE, window.location.origin)).toString();
+}
+
+export async function fetchDocumentFile(path: string, sessionId = "", signal?: AbortSignal) {
+  const token = apiToken();
+  const response = await fetch(documentFileURL(path, sessionId), {
+    signal,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.blob();
+}
+
+export async function openDocumentFile(path: string, sessionId = "") {
+  const target = window.open("", "_blank");
+  try {
+    const blob = await fetchDocumentFile(path, sessionId);
+    const objectURL = URL.createObjectURL(blob);
+    if (target) {
+      target.opener = null;
+      target.location.href = objectURL;
+    } else {
+      const link = document.createElement("a");
+      link.href = objectURL;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.click();
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
+  } catch (error) {
+    target?.close();
+    throw error;
+  }
 }
 
 export const api = {

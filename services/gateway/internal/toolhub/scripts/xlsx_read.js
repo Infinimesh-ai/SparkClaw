@@ -1,4 +1,3 @@
-
 let ExcelJS;
 try {
   ExcelJS = require("exceljs");
@@ -18,6 +17,11 @@ process.stdin.on("end", async () => {
     await workbook.xlsx.readFile(req.path);
     const sheets = [];
     const lines = [];
+    const images = [];
+    const resources = [];
+    const comments = [];
+    const hyperlinks = [];
+    const mergedRanges = [];
     let extractedBytes = 0;
     const appendLine = (line) => {
       extractedBytes += Buffer.byteLength(line, "utf8") + (lines.length ? 1 : 0);
@@ -28,6 +32,30 @@ process.stdin.on("end", async () => {
       }
       lines.push(line);
     };
+    const styleHint = (cell) => ({
+      bold: Boolean(cell.font && cell.font.bold),
+      italic: Boolean(cell.font && cell.font.italic),
+      fill_type: String(cell.fill && cell.fill.type || ""),
+      horizontal_alignment: String(cell.alignment && cell.alignment.horizontal || ""),
+    });
+    const rangeAddress = (sheet, point) => {
+      if (!point) return "";
+      const row = Number(point.nativeRow ?? point.row ?? 0) + (point.nativeRow !== undefined ? 1 : 0);
+      const column = Number(point.nativeCol ?? point.col ?? 0) + (point.nativeCol !== undefined ? 1 : 0);
+      if (row <= 0 || column <= 0) return "";
+      return sheet.getCell(row, column).address;
+    };
+    const extensionContentType = (extension) => {
+      switch (String(extension || "").toLowerCase()) {
+        case "png": return "image/png";
+        case "jpg":
+        case "jpeg": return "image/jpeg";
+        case "gif": return "image/gif";
+        case "webp": return "image/webp";
+        default: return "application/octet-stream";
+      }
+    };
+
     workbook.eachSheet((sheet) => {
       const rows = [];
       appendLine("Sheet: " + sheet.name);
@@ -36,14 +64,75 @@ process.stdin.on("end", async () => {
         row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
           let value = cell.text;
           if (value === undefined || value === null) value = "";
-          cells.push({ address: cell.address, row: rowNumber, column: colNumber, value: String(value) });
+          const formula = cell.formula || (cell.value && typeof cell.value === "object" && cell.value.formula) || "";
+          const item = {
+            address: cell.address,
+            row: rowNumber,
+            column: colNumber,
+            value: String(value),
+            formula: String(formula || ""),
+            number_format: String(cell.numFmt || ""),
+            hidden: Boolean(row.hidden || sheet.getColumn(colNumber).hidden),
+            style_hint: styleHint(cell),
+          };
+          cells.push(item);
+          if (cell.note !== undefined && cell.note !== null) {
+            const noteText = typeof cell.note === "string" ? cell.note : String(cell.note.texts?.map(part => part.text || "").join("") || "");
+            comments.push({
+              kind: "comment",
+              text: noteText,
+              location: { sheet: sheet.name, cell: cell.address, path: `workbook.sheet[${sheet.name}].cell[${cell.address}]` },
+              source: { parser: "exceljs" },
+            });
+          }
+          if (cell.hyperlink) {
+            hyperlinks.push({
+              kind: "hyperlink",
+              text: String(value),
+              target: String(cell.hyperlink),
+              location: { sheet: sheet.name, cell: cell.address, path: `workbook.sheet[${sheet.name}].cell[${cell.address}]` },
+              source: { parser: "exceljs" },
+            });
+          }
         });
-        rows.push({ index: rowNumber, cells });
-        appendLine(cells.map(cell => cell.value).join("\\t"));
+        rows.push({ index: rowNumber, hidden: Boolean(row.hidden), height: Number(row.height || 0), cells });
+        appendLine(cells.map(cell => cell.value).join("\t"));
       });
-      sheets.push({ name: sheet.name, index: sheet.id, rows });
+
+      const sheetMerges = Array.isArray(sheet.model && sheet.model.merges) ? sheet.model.merges : [];
+      for (const address of sheetMerges) {
+        mergedRanges.push({ sheet: sheet.name, range: String(address), path: `workbook.sheet[${sheet.name}].merge[${address}]` });
+      }
+      const columns = [];
+      for (let index = 1; index <= sheet.columnCount; index += 1) {
+        const column = sheet.getColumn(index);
+        columns.push({ index, width: Number(column.width || 0), hidden: Boolean(column.hidden), outline_level: Number(column.outlineLevel || 0) });
+      }
+      sheets.push({ name: sheet.name, index: sheet.id, hidden: sheet.state !== "visible", state: sheet.state, rows, columns });
+
+      for (const placement of sheet.getImages()) {
+        const image = workbook.getImage(Number(placement.imageId));
+        if (!image || !image.buffer) continue;
+        const extension = String(image.extension || "").toLowerCase();
+        const contentType = extensionContentType(extension);
+        const resourceKey = `xl:${placement.imageId}:${extension}`;
+        const topLeft = rangeAddress(sheet, placement.range && placement.range.tl);
+        const bottomRight = rangeAddress(sheet, placement.range && placement.range.br);
+        const path = `workbook.sheet[${sheet.name}].image[${placement.imageId}]`;
+        images.push({
+          kind: "image",
+          resource_key: resourceKey,
+          parent_path: `workbook.sheet[${sheet.name}]`,
+          location: { sheet: sheet.name, sheet_index: sheet.id, image_id: Number(placement.imageId), top_left: topLeft, bottom_right: bottomRight, path },
+          source: { parser: "exceljs", relationship_id: String(placement.imageId), part_name: String(image.name || image.filename || "") },
+          content_type: contentType,
+        });
+        if (!resources.some(resource => resource.key === resourceKey)) {
+          resources.push({ key: resourceKey, kind: "image", content_type: contentType, data_base64: Buffer.from(image.buffer).toString("base64") });
+        }
+      }
     });
-    let content = lines.join("\\n").trim();
+    let content = lines.join("\n").trim();
     const bytes = Buffer.byteLength(content, "utf8");
     const truncated = bytes > maxBytes;
     if (truncated) {
@@ -53,11 +142,28 @@ process.stdin.on("end", async () => {
       content,
       truncated,
       extracted_bytes: extractedBytes,
+      resources,
       document: {
         schema_version: "document_read_v1",
         format: "xlsx",
+        source: "exceljs",
         sheets,
-        stats: { sheets: sheets.length, rows: sheets.reduce((sum, sheet) => sum + sheet.rows.length, 0) }
+        enrichment: {
+          schema_version: "document_enrichment_v1",
+          assets: { images, charts: [], embedded_objects: [] },
+          annotations: { comments, notes: [], hyperlinks },
+          layout: { sections: [], page_settings: [], slide_layouts: [], merged_ranges: mergedRanges },
+          extensions: { status: "deferred", parts: [] },
+          coverage: { content: "complete", assets: "partial", annotations: "complete", layout: "partial", extensions: "deferred" },
+        },
+        stats: {
+          sheets: sheets.length,
+          rows: sheets.reduce((sum, sheet) => sum + sheet.rows.length, 0),
+          images: images.length,
+          comments: comments.length,
+          hyperlinks: hyperlinks.length,
+          merged_ranges: mergedRanges.length,
+        }
       }
     }));
   } catch (error) {

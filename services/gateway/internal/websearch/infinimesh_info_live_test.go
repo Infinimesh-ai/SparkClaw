@@ -40,8 +40,8 @@ func TestInfinimeshInfoLiveSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Provider != "infinimesh-info" || !result.Untrusted || (strings.TrimSpace(result.Answer) == "" && len(result.Results) == 0) {
-		t.Fatal("Infinimesh Info live smoke returned no mapped evidence")
+	if result.Provider != "infinimesh-info" || !result.Untrusted || strings.TrimSpace(result.Summary) == "" || result.Answer != result.Summary {
+		t.Fatal("Infinimesh Info live smoke returned no mapped summary")
 	}
 }
 

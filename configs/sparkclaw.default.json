@@ -18,7 +18,7 @@
       "name": "sparkclaw-fast",
       "base_url": "https://sparkclaw.infinimesh.cloud/fast/v1",
       "model": "sparkclaw-fast",
-      "context_tokens": 12288,
+      "context_tokens": 8192,
       "mtp": true,
       "max_tokens": 1024
     },
@@ -91,7 +91,7 @@
     },
     "browserAutomation": {
       "enabled": false,
-      "provider": "chromium-devtools-mcp",
+      "provider": "microsoft-playwright",
       "profile": "default"
     },
     "reminders": {
@@ -152,9 +152,8 @@
   },
   "adapters": {
     "browserAutomation": {
-      "mcpCommand": "npx",
-      "mcpArgs": ["-y", "chrome-devtools-mcp@latest"],
-      "timeoutMs": 15000,
+      "nodeCommand": "node",
+      "timeoutMs": 30000,
       "chromiumExecutable": "",
       "profileDir": "./data/browser-profiles"
     }

@@ -72,10 +72,9 @@ func taskHintRoutingPrompt() string {
 		"- Enum values: estimated_risk must be one of the strings read, draft, reversible, dangerous. Do not use numeric risk levels.",
 		"- Direct conversation, greetings, simple explanations from current conversation: task_type=general_chat or answer, evidence_need=none, tool_mode=none, model_lane_hint=fast.",
 		"- Browser and document requests cannot reach TaskHint; they belong to registered Workflows.",
-		"- Weather questions: default to a weather card. Use candidate_skills=[weather_lookup], tool_mode=action_required, model_lane_hint=deep, candidate_tools=[media.render_weather_card]. If the user explicitly asks for plain text/no image/no card, answer briefly only when card rendering fails.",
 		"- Unmigrated code/command questions may use coding_helper within the fallback boundary.",
-		"- Uploaded image, screenshot, photo, OCR-from-image, 看图/图片/照片/截图 questions: evidence_need=workspace, tool_mode=read_only, model_lane_hint=deep, candidate_skills=[image_assistant], candidate_tools=[images.inspect].",
-		"- Sending an uploaded/generated/downloaded image to Weixin/vx/微信/手机: evidence_need=workspace, tool_mode=action_required, model_lane_hint=deep, candidate_skills=[image_assistant,reminder_weixin]. Return a single final Markdown media link; channel dispatch is handled outside Runtime.",
+		"- Uploaded image, screenshot, photo, OCR-from-image, 看图/图片/照片/截图 questions: evidence_need=workspace, tool_mode=read_only, model_lane_hint=fast, candidate_skills=[image_assistant], candidate_tools=[images.inspect].",
+		"- Sending an uploaded/generated/downloaded image to Weixin/vx/微信/手机: evidence_need=workspace, tool_mode=action_required, model_lane_hint=fast, candidate_skills=[image_assistant,reminder_weixin]. Return a single final Markdown media link; channel dispatch is handled outside Runtime.",
 		"- Reminders/alarms: candidate_skills=[reminder_weixin], use reminders.* tools. If the user does not explicitly request Weixin/vx and the current session is not a Weixin chat, default to channel=web. Web-originated Weixin reminders must identify exactly one bound Weixin user before creating the reminder.",
 		"- Terminal/test/command/code patch requests: model_lane_hint=deep, tool_mode=action_required, use shell.exec_sandboxed or code.apply_patch.",
 		"- Choose model_lane_hint=fast for ordinary chat and read-only lightweight lookups; choose deep for approvals, commands, code changes, dangerous/reversible actions, or multi-step reasoning.",
@@ -169,107 +168,16 @@ func normalizeTaskHint(hint, fallback TaskHint) TaskHint {
 	if hint.EvidenceNeed != "none" && hint.ToolMode == "none" {
 		hint.ToolMode = "read_only"
 	}
-	if containsString(hint.CandidateSkills, "weather_lookup") || containsString(fallback.CandidateSkills, "weather_lookup") {
-		hint.EvidenceNeed = "web"
-		hint.CandidateSkills = append(hint.CandidateSkills, "weather_lookup")
-		if weatherWantsTextOnly(fallback) || weatherWantsTextOnly(hint) {
-			hint.ToolMode = "action_required"
-			hint.EstimatedRisk = string(app.RiskDraft)
-			hint.ModelLaneHint = "deep"
-			hint.CandidateTools = []string{"media.render_weather_card"}
-		} else {
-			hint.ToolMode = "action_required"
-			hint.EstimatedRisk = string(app.RiskDraft)
-			hint.ModelLaneHint = "deep"
-			hint.CandidateTools = []string{"media.render_weather_card"}
-		}
-	}
-	if fallbackNeedsBrowserStructure(fallback) {
-		hint.TaskType = "inspect"
-		hint.EvidenceNeed = "web"
-		hint.ToolMode = "action_required"
-		hint.BrowserMode = "collaborative"
-		hint.CandidateSkills = append(hint.CandidateSkills, "browser_automation")
-		hint.CandidateTools = append(filterStrings(hint.CandidateTools, func(tool string) bool {
-			return tool != "browser.screenshot"
-		}), "browser.snapshot")
-	}
-	if containsString(fallback.CandidateSkills, "browser_automation") {
-		hint.TaskType = fallback.TaskType
-		hint.EvidenceNeed = fallback.EvidenceNeed
-		hint.ToolMode = fallback.ToolMode
-		hint.BrowserMode = fallback.BrowserMode
-		hint.EstimatedRisk = fallback.EstimatedRisk
-		hint.ModelLaneHint = fallback.ModelLaneHint
-		hint.DataScope = fallback.DataScope
-		hint.RequiresToolEvidence = fallback.RequiresToolEvidence
-		hint.CandidateSkills = append(hint.CandidateSkills, "browser_automation")
-		hint.CandidateTools = append(fallback.CandidateTools, hint.CandidateTools...)
-		if fallback.DataScope == "owner" {
-			hint.Reason = fallback.Reason
-		}
-	}
-	hint.BrowserMode = normalizeBrowserModeForHint(hint, fallback)
+	hint.BrowserMode = ""
 	hint.CandidateSkills = normalizeCandidateSkills(hint.CandidateSkills, fallback)
-	hint.CandidateSkills = uniqueNonEmpty(hint.CandidateSkills)
 	hint.CandidateTools = normalizeCandidateTools(uniqueNonEmpty(hint.CandidateTools), fallback)
 	if len(hint.CandidateTools) == 0 {
-		hint.CandidateTools = fallback.CandidateTools
+		hint.CandidateTools = normalizeCandidateTools(fallback.CandidateTools, TaskHint{})
 	}
-	hint.CandidateTools = mergePreferredBrowserTool(hint.CandidateTools, fallback.CandidateTools)
 	if strings.TrimSpace(hint.Reason) == "" {
 		hint.Reason = fallback.Reason
 	}
 	return hint
-}
-
-func mergePreferredBrowserTool(tools, fallback []string) []string {
-	if len(fallback) == 0 {
-		return tools
-	}
-	preferred := fallback[0]
-	if preferred != "browser.open" && preferred != "browser.navigate" {
-		return tools
-	}
-	if !containsString(tools, preferred) {
-		tools = append([]string{preferred}, tools...)
-		return uniqueNonEmpty(tools)
-	}
-	return moveToolFirst(tools, preferred)
-}
-
-func normalizeBrowserModeForHint(hint, fallback TaskHint) string {
-	mode := strings.ToLower(strings.TrimSpace(hint.BrowserMode))
-	if mode == "autonomous" || mode == "collaborative" {
-		return mode
-	}
-	mode = strings.ToLower(strings.TrimSpace(fallback.BrowserMode))
-	if mode == "autonomous" || mode == "collaborative" {
-		return mode
-	}
-	if browserCollaborativeToolsPresent(hint.CandidateTools) || browserCollaborativeToolsPresent(fallback.CandidateTools) {
-		return "collaborative"
-	}
-	if hint.EvidenceNeed == "web" || fallback.EvidenceNeed == "web" {
-		return "autonomous"
-	}
-	return ""
-}
-
-func browserCollaborativeToolsPresent(tools []string) bool {
-	for _, tool := range tools {
-		switch tool {
-		case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.type", "browser.select":
-			if tool != "browser.read" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func fallbackNeedsBrowserStructure(fallback TaskHint) bool {
-	return containsString(fallback.CandidateTools, "browser.snapshot") && !containsString(fallback.CandidateTools, "browser.screenshot")
 }
 
 func heuristicTaskHint(content string) TaskHint {
@@ -295,32 +203,13 @@ func heuristicTaskHint(content string) TaskHint {
 		hint.EvidenceNeed = "workspace"
 		hint.ToolMode = "read_only"
 		hint.EstimatedRisk = string(app.RiskRead)
-		hint.ModelLaneHint = "deep"
+		hint.ModelLaneHint = "fast"
 		hint.CandidateSkills = []string{"image_assistant"}
 		hint.CandidateTools = []string{"images.inspect"}
 		hint.Reason = "The user asked about an uploaded image or image path."
 	}
 	if containsAny(lower, "summarize", "总结") && len(extractPaths(content)) > 0 {
 		hint.TaskType = "summarize"
-	}
-	if shouldLookupWeather(lower) {
-		hint.TaskType = "inspect"
-		hint.EvidenceNeed = "web"
-		hint.BrowserMode = "autonomous"
-		hint.CandidateSkills = []string{"weather_lookup"}
-		if shouldUseWeatherTextOnly(lower) {
-			hint.ToolMode = "action_required"
-			hint.EstimatedRisk = string(app.RiskDraft)
-			hint.ModelLaneHint = "deep"
-			hint.CandidateTools = []string{"media.render_weather_card"}
-			hint.Reason = "The user asked for weather data; render the default Open-Meteo weather card output."
-		} else {
-			hint.ToolMode = "action_required"
-			hint.EstimatedRisk = string(app.RiskDraft)
-			hint.ModelLaneHint = "deep"
-			hint.CandidateTools = []string{"media.render_weather_card"}
-			hint.Reason = "The user asked for weather data; render the default Open-Meteo weather card output."
-		}
 	}
 	if shouldUseReminder(lower) {
 		hint.TaskType = "send"
@@ -446,99 +335,11 @@ func shouldUseBrowserAutomation(lower string) bool {
 	)
 }
 
-func shouldUseLiveBrowserForURL(content, lower string) bool {
-	if len(extractURLs(content)) == 0 {
-		return false
-	}
-	if !containsAny(lower, "打开", "访问", "进入", "跳转", "登录", "登陆", "open", "go to", "log in", "login", "sign in") {
-		return false
-	}
-	return true
-}
-
-func shouldUseAuthenticatedBrowserSession(content, lower string) bool {
-	return len(extractURLs(content)) > 0 && containsAny(lower,
-		"登录", "登陆", "认证", "身份验证", "验证码", "单点登录", "统一认证",
-		"log in", "login", "logged in", "sign in", "authenticated", "authentication", "sso",
-	)
-}
-
-func requiresPersonalBrowserEvidence(hint TaskHint) bool {
-	return hint.RequiresToolEvidence &&
-		hint.DataScope == "owner" &&
-		hint.EvidenceNeed == "personal_data" &&
-		hint.BrowserMode == "collaborative" &&
-		(hint.WorkflowID == app.WorkflowBrowserAutomation || containsString(hint.CandidateSkills, "browser_automation"))
-}
-
-func moveToolFirst(tools []string, want string) []string {
-	out := []string{want}
-	for _, tool := range tools {
-		if tool != want {
-			out = append(out, tool)
-		}
-	}
-	return out
-}
-
-func asksForBrowserStructure(lower string) bool {
-	return containsAny(lower,
-		"page structure", "dom", "snapshot", "element refs", "page refs", "accessibility tree", "inspect page",
-		"页面结构", "网页结构", "查看结构", "结构", "控件", "元素", "页面元素", "查看页面", "查看网页",
-	)
-}
-
-func asksForBrowserScreenshotHint(lower string) bool {
-	return containsAny(lower, "screenshot", "screen shot", "capture screen", "截图", "截屏")
-}
-
-func filterStrings(values []string, keep func(string) bool) []string {
-	out := []string{}
-	for _, value := range values {
-		if keep(value) {
-			out = append(out, value)
-		}
-	}
-	return out
-}
-
-func shouldLookupWeather(lower string) bool {
-	return containsAny(lower,
-		"weather", "forecast", "temperature", "rain", "snow", "wind", "umbrella",
-		"天气", "气温", "温度", "预报", "下雨", "下雪", "刮风", "带伞", "空气质量",
-	)
-}
-
-func shouldRenderWeatherCard(lower string) bool {
-	return containsAny(lower,
-		"天气图", "天气图片", "天气卡片", "图片形式", "一张图", "图文", "发图",
-		"微信", "vx", "wechat", "weixin", "手机",
-		"weather card", "weather image",
-	)
-}
-
-func shouldUseWeatherTextOnly(lower string) bool {
-	return containsAny(lower,
-		"纯文字", "只要文字", "不要图片", "不用图片", "不要卡片", "不用卡片", "文字回答", "文字形式",
-		"text only", "plain text", "no image", "no card",
-	)
-}
-
-func weatherWantsTextOnly(hint TaskHint) bool {
-	return containsString(hint.CandidateTools, "browser.read") &&
-		!containsString(hint.CandidateTools, "media.render_weather_card") &&
-		(strings.Contains(strings.ToLower(hint.Reason), "plain-text") ||
-			strings.Contains(strings.ToLower(hint.Reason), "plain text") ||
-			strings.Contains(hint.Reason, "纯文字") ||
-			strings.Contains(hint.Reason, "不要图片") ||
-			strings.Contains(hint.Reason, "不要卡片"))
-}
-
 func shouldUseWeixinReminder(lower string) bool {
 	if !containsAny(lower, "微信", "vx", "wechat", "weixin") {
 		return false
 	}
-	if shouldLookupWeather(lower) {
+	if weatherIntent(lower) {
 		return false
 	}
 	if containsAny(lower,
@@ -552,7 +353,7 @@ func shouldUseWeixinReminder(lower string) bool {
 }
 
 func shouldUseReminder(lower string) bool {
-	if shouldLookupWeather(lower) {
+	if weatherIntent(lower) {
 		return false
 	}
 	return containsAny(lower,
@@ -588,47 +389,18 @@ func containsString(values []string, want string) bool {
 // candidateToolAliases maps each canonical ToolHub tool name to the alternate
 // spellings models emit for it. Unknown names are dropped by normalizeCandidateTools.
 var candidateToolAliases = map[string][]string{
-	"web.search":                {"web_search", "google_search", "bing_search", "search_web", "browser.search"},
-	"browser.read":              {"web.browser.read", "browser_read", "web.fetch", "fetch", "url.read"},
-	"browser.status":            {"chrome.status"},
-	"browser.list_tabs":         {"browser.tabs", "list_tabs", "list_pages", "chrome.list_pages"},
-	"browser.open":              {"browser.new_page", "new_page", "chrome.new_page"},
-	"browser.focus":             {"browser.select_page", "select_page", "chrome.select_page"},
-	"browser.close":             {"browser.close_page", "close_page", "chrome.close_page"},
-	"browser.navigate":          {"browser.navigate_page", "navigate_page", "chrome.navigate_page"},
-	"browser.snapshot":          {"browser.take_snapshot", "take_snapshot", "chrome.take_snapshot"},
-	"browser.screenshot":        {"browser.take_screenshot", "take_screenshot", "chrome.take_screenshot"},
-	"browser.wait":              {"browser.wait_for", "wait_for", "chrome.wait_for"},
-	"browser.click":             {"click", "chrome.click"},
-	"browser.type":              {"browser.type_text", "type_text", "browser.fill", "fill", "chrome.type_text", "chrome.fill"},
-	"browser.select":            {"select", "chrome.select"},
-	"files.search":              {"file.search", "workspace.search", "local_files.search"},
-	"files.read":                {"file.read", "workspace.read", "local_files.read"},
-	"files.write_draft":         {"file.write_draft"},
-	"office.replace_text":       {"office.replace", "docx.replace", "xlsx.replace", "pptx.replace"},
-	"docx.replace_paragraph":    {"docx.paragraph_replace"},
-	"docx.insert_paragraph":     {"docx.paragraph_insert"},
-	"docx.delete_paragraph":     {"docx.paragraph_delete"},
-	"docx.set_text_style":       {"docx.style", "docx.set_style"},
-	"pptx.add_slide":            {"pptx.slide_add"},
-	"pptx.duplicate_slide":      {"pptx.copy_slide", "pptx.slide_duplicate"},
-	"pptx.delete_slide":         {"pptx.remove_slide", "pptx.slide_delete"},
-	"xlsx.update_cell":          {"xlsx.cell_update"},
-	"xlsx.insert_row":           {"xlsx.row_insert"},
-	"xlsx.delete_row":           {"xlsx.remove_row", "xlsx.row_delete"},
-	"xlsx.update_row":           {"xlsx.replace_row", "xlsx.row_update"},
-	"xlsx.append_row":           {"xlsx.row_append"},
-	"pdf.extract_text":          {"pdf.read", "pdf.extract"},
-	"pdf.transform":             {"pdf.edit", "pdf.merge", "pdf.split"},
-	"memory.search":             {"memory_search"},
-	"memory.write_candidate":    {"memory.write", "memory_write"},
-	"reminders.create":          {"reminder.create", "reminder_create"},
-	"reminders.list":            {"reminder.list", "reminder_list"},
-	"reminders.update":          {"reminder.update", "reminder_update"},
-	"reminders.cancel":          {"reminder.cancel", "reminder_cancel"},
-	"shell.exec_sandboxed":      {"shell.exec", "terminal.exec"},
-	"code.apply_patch":          {"apply_patch"},
-	"media.render_weather_card": {"weather.card", "weather_card", "render_weather_card"},
+	"files.search":           {"file.search", "workspace.search", "local_files.search"},
+	"files.read":             {"file.read", "workspace.read", "local_files.read"},
+	"images.inspect":         {"image.inspect", "inspect_image"},
+	"memory.search":          {"memory_search"},
+	"memory.write_candidate": {"memory.write", "memory_write"},
+	"memory.write_sensitive": {"memory.sensitive_write"},
+	"reminders.create":       {"reminder.create", "reminder_create"},
+	"reminders.list":         {"reminder.list", "reminder_list"},
+	"reminders.update":       {"reminder.update", "reminder_update"},
+	"reminders.cancel":       {"reminder.cancel", "reminder_cancel"},
+	"shell.exec_sandboxed":   {"shell.exec", "terminal.exec"},
+	"code.apply_patch":       {"apply_patch"},
 }
 
 var canonicalCandidateTool = func() map[string]string {
@@ -652,9 +424,6 @@ func normalizeCandidateTools(values []string, fallback TaskHint) []string {
 			out = append(out, canonical)
 		}
 	}
-	if len(out) == 0 && fallback.EvidenceNeed == "web" && fallback.ToolMode != "none" {
-		out = append(out, fallback.CandidateTools...)
-	}
 	return uniqueNonEmpty(out)
 }
 
@@ -662,14 +431,17 @@ func normalizeCandidateSkills(values []string, fallback TaskHint) []string {
 	out := []string{}
 	for _, value := range values {
 		switch strings.ToLower(strings.TrimSpace(value)) {
-		case "browser_automation", "browser_control", "chrome_control", "ui_extraction", "page_interaction", "web_browsing", "browser_research":
-			out = append(out, "browser_automation")
-		case "local_files", "coding_helper", "weather_lookup", "personal_memory", "document_assistant", "reminder_weixin":
+		case "local_files", "coding_helper", "personal_memory", "reminder_weixin", "image_assistant":
 			out = append(out, strings.ToLower(strings.TrimSpace(value)))
 		}
 	}
 	if len(out) == 0 {
-		out = append(out, fallback.CandidateSkills...)
+		for _, value := range fallback.CandidateSkills {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "local_files", "coding_helper", "personal_memory", "reminder_weixin", "image_assistant":
+				out = append(out, strings.ToLower(strings.TrimSpace(value)))
+			}
+		}
 	}
 	return uniqueNonEmpty(out)
 }

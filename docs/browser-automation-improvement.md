@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-automation-improvement.md)
 
-This document is the focused plan for improving SparkClaw's browser-backed web access. The architecture overview remains in [Architecture](architecture.md); this file owns the browser read and interaction roadmap. Browser presentation modes are specified in [Browser Modes Coding Guide](browser-modes-coding-guide.md), the hidden real-browser milestone is specified in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md), and the implemented router-first snapshot/click loop is specified in [Browser Interaction Workflow](browser-interaction-workflow-proposal.md).
+This document is the focused plan for improving SparkClaw's browser-backed web access. The architecture overview remains in [Architecture](architecture.md); this file owns the browser read and interaction roadmap. Browser presentation modes are specified in [Browser Modes Coding Guide](browser-modes-coding-guide.md), the hidden real-browser milestone is specified in [Hidden Chromium Browser Access Plan](browser-hidden-chromium-access.md), the implemented router-first snapshot/click loop is specified in [Browser Interaction Workflow](browser-interaction-workflow-proposal.md), and the architecture-preserving snapshot reliability work is specified in [Browser Perception Reliability Optimization Design](browser-perception-reliability-design.md).
 
 ## Goal
 
@@ -164,10 +164,10 @@ Minimum validation for this change set:
 - Unit test that the default browser read does not call `take_snapshot`.
 - Unit or adapter test that explicit snapshots produce Playwright accessibility evidence and refs accepted by Locator actions.
 - Unit tests for same-run snapshot/click binding, loop detection, three-click attempt limit, no-approval routing, and stage capability enforcement.
-- Real Playwright Chromium smoke test for structured snapshot identity, stale-ref rejection without session loss, click, post-click snapshot linkage, wait, and screenshot.
+- Real Playwright Chromium smoke test for structured snapshot identity, stale-ref rejection without session loss, click, post-click snapshot linkage, wait, screenshot, and explicit tab cleanup.
 - `go test ./services/gateway/internal/browserautomation -count=1`
 - `go test ./services/gateway/internal/toolhub -count=1`
 - `go test ./services/gateway/internal/agent -count=1`
-- `SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 go test ./services/gateway/internal/browserautomation -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1`
+- `SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 go test ./services/gateway/internal/browserautomation -run TestRealChromiumSnapshotAndLocatorInteractions -count=1`
 - `go test ./services/gateway/...`
 - `git diff --check`

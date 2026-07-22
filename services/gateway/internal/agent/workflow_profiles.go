@@ -36,7 +36,7 @@ func browserInternetSearchQuery(content string) (string, bool) {
 	content = semanticRoutingContent(content)
 	lower := strings.ToLower(content)
 	if strings.TrimSpace(content) == "" || len(extractURLs(content)) != 0 || shouldUseBrowserAutomation(lower) ||
-		containsAny(lower, "current page", "current tab", "当前页面", "当前标签", "chrome") || ordinaryWeatherRequest(content) || (!internetSearchIntent(lower) && !weatherResearchRequest(lower)) {
+		containsAny(lower, "current page", "current tab", "当前页面", "当前标签", "chrome") || scheduleManagementIntent(lower) || ordinaryWeatherRequest(content) || (!internetSearchIntent(lower) && !weatherResearchRequest(lower)) {
 		return "", false
 	}
 	return content, true
@@ -407,7 +407,12 @@ func workflowHint(state *app.WorkflowState, taskType, evidenceNeed, dataScope, b
 		RequiresToolEvidence: true, EstimatedRisk: app.RiskRead, ModelLaneHint: workflowExecutionModelLane, Reason: reason,
 		WorkflowID: state.Plan.ProfileID, WorkflowNodeID: nodeID, ScopeRevision: nodeState.ScopeRevision,
 	}
-	if len(nodeState.CurrentScope.Requirements) > 0 {
+	if node, ok := workflowPlanNode(state.Plan, nodeID); ok {
+		if capabilities, gated := workflowStageCapabilityNames(node, nodeState.Stage); gated && len(capabilities) > 0 {
+			hint.Capability = capabilities[0]
+		}
+	}
+	if hint.Capability == "" && len(nodeState.CurrentScope.Requirements) > 0 {
 		hint.Capability = nodeState.CurrentScope.Requirements[0].Name
 	}
 	return hint
@@ -439,7 +444,62 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	}
 	hint.ScopeRevision = view.ScopeRevision
 	r.auditFixedWorkflowExposure(run, view, entryIDs, exposure.Definitions)
-	return exposure.Definitions, nil
+	visibleDefinitions, capabilities, err := workflowStageVisibleTools(run, hint.WorkflowNodeID, exposure.Definitions)
+	if err != nil {
+		return nil, err
+	}
+	r.auditWorkflowStageExposure(run, hint.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
+	return visibleDefinitions, nil
+}
+
+func workflowStageVisibleTools(run app.AgentRun, nodeID app.WorkflowNodeID, definitions []app.ToolDefinition) ([]app.ToolDefinition, []string, error) {
+	if run.Workflow == nil {
+		return nil, nil, errors.New("workflow state is unavailable while projecting stage tools")
+	}
+	node, ok := workflowPlanNode(run.Workflow.Plan, nodeID)
+	if !ok {
+		return nil, nil, errors.New("active workflow node is missing from the frozen plan")
+	}
+	state, ok := run.Workflow.Nodes[nodeID]
+	if !ok {
+		return nil, nil, errors.New("active workflow node state is unavailable")
+	}
+	capabilities, gated := workflowStageCapabilityNames(node, state.Stage)
+	if !gated {
+		return definitions, nil, nil
+	}
+	if len(capabilities) == 0 {
+		return nil, nil, errors.New("active workflow stage has no capability rule")
+	}
+	allowed := make(map[string]bool, len(capabilities))
+	for _, capability := range capabilities {
+		allowed[capability] = true
+	}
+	visible := make([]app.ToolDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		for _, capability := range definition.Capabilities {
+			if allowed[capability.Name] {
+				visible = append(visible, definition)
+				break
+			}
+		}
+	}
+	if len(visible) == 0 {
+		return nil, nil, errors.New("no materialized tool is valid in the active workflow stage")
+	}
+	return visible, capabilities, nil
+}
+
+func workflowStageCapabilityNames(node app.WorkflowNode, stage string) ([]string, bool) {
+	if len(node.StageCapabilities) == 0 {
+		return nil, false
+	}
+	for _, rule := range node.StageCapabilities {
+		if rule.Stage == stage {
+			return append([]string(nil), rule.Capabilities...), true
+		}
+	}
+	return nil, true
 }
 
 func (r Runtime) auditDirectorySearch(run app.AgentRun, view app.DirectoryView) {
@@ -452,6 +512,12 @@ func (r Runtime) auditDirectorySearch(run app.AgentRun, view app.DirectoryView) 
 func (r Runtime) auditFixedWorkflowExposure(run app.AgentRun, view app.DirectoryView, entryIDs []app.ToolDirectoryEntryID, definitions []app.ToolDefinition) {
 	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.fixed", Summary: "Materialized the workflow's fixed tool boundary", Fields: map[string]any{
 		"workflow_id": view.WorkflowID, "view_id": view.ViewID, "entry_ids": entryIDs, "tools": visibleToolNames(definitions),
+	}})
+}
+
+func (r Runtime) auditWorkflowStageExposure(run app.AgentRun, nodeID app.WorkflowNodeID, stage string, capabilities []string, definitions []app.ToolDefinition) {
+	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "runtime", Type: "tools.exposure.stage_filtered", Summary: "Projected the materialized tool boundary for the active workflow stage", Fields: map[string]any{
+		"workflow_id": run.Workflow.Plan.ProfileID, "node_id": nodeID, "stage": stage, "capabilities": capabilities, "tools": visibleToolNames(definitions),
 	}})
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -75,6 +76,25 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 	click, _ := hub.Definition("browser.click")
 	if click.RequiresApproval {
 		t.Fatal("browser.interaction clicks must not require approval")
+	}
+	closeTab, _ := hub.Definition("browser.close")
+	if closeTab.RequiresApproval || closeTab.Risk != app.RiskDraft {
+		t.Fatalf("workflow-owned tab cleanup should remain bounded and approval-free: %#v", closeTab)
+	}
+}
+
+func TestBrowserListTabsPreservesEmptyPagesArray(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(fakePageReadAdapter{})
+
+	result, err := hub.Execute(context.Background(), "browser.list_tabs", map[string]any{}, "", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, ok := result.Output.(browserautomation.Result)
+	if !ok || out.Pages == nil || len(out.Pages) != 0 {
+		t.Fatalf("zero-tab result must preserve pages as an empty array: %#v", result.Output)
 	}
 }
 

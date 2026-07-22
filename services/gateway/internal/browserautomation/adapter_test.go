@@ -310,13 +310,30 @@ func TestResolveChromiumExecutableUsesPlaywrightDefaultWhenUnset(t *testing.T) {
 	}
 }
 
+func TestHiddenTabLifecycleDoesNotProbeOrReopenAfterClose(t *testing.T) {
+	for _, tool := range []string{"browser.close", "browser.list_tabs"} {
+		if shouldAttachHiddenPageState(tool, true) {
+			t.Fatalf("%s must not probe page_state because that can create a replacement blank tab", tool)
+		}
+	}
+	if !shouldAttachHiddenPageState("browser.snapshot", true) {
+		t.Fatal("ordinary hidden browser actions should retain page-state metadata")
+	}
+	if shouldAttachHiddenPageState("browser.snapshot", false) {
+		t.Fatal("visible Chromium actions should not attach hidden page state")
+	}
+}
+
 func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
 		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real visible Chromium smoke test")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/authenticated" {
-			_, _ = w.Write([]byte("<!doctype html><title>Authenticated Portal</title><nav>退出登录</nav><main>电子资源导航 软件正版化（激活需登录SSLVPN）</main>"))
+			_, _ = w.Write([]byte(`<!doctype html><title>Authenticated Portal</title>
+<header><button>owner@example.com</button></header>
+<nav><a href="#inbox">Inbox</a><a href="#drafts">Drafts</a><a href="#sent">Sent</a></nav>
+<main>Authenticated application workspace with current records, account settings, navigation, and resource labels including software activation guidance.</main>`))
 			return
 		}
 		_, _ = w.Write([]byte("<!doctype html><title>Direct Target</title><main>DIRECT_VISIBLE_TARGET</main>"))
@@ -378,18 +395,33 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	if page.AuthChallengeDetected {
 		t.Fatalf("authenticated page text must not be classified as a login wall: title=%q text=%q", page.Title, page.Text)
 	}
+	if page.AuthState != "authenticated" || page.AuthConfidence != "application_continuity" {
+		t.Fatalf("authenticated application identity was not recognized: state=%q confidence=%q signals=%#v", page.AuthState, page.AuthConfidence, page.AuthSignals)
+	}
+	closeSelectedChromiumTab(t, adapter, map[string]any{
+		"browser_mode":       "autonomous",
+		"presentation":       "hidden",
+		"surface_visible":    false,
+		"owner_id":           "owner-test",
+		"browser_profile_id": "direct-open",
+	})
 }
 
-func TestRealPlaywrightSnapshotAndLocatorInteractions(t *testing.T) {
+func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
 		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real Playwright interaction smoke test")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<!doctype html><html><body>
+<header><div style="cursor:pointer">owner@example.com</div></header>
+<nav><div style="cursor:pointer" onclick="location.hash='drafts'"><span>Drafts</span></div></nav>
+<main>
 <label>Name <input aria-label="Name"></label>
 <label>Choice <select aria-label="Choice"><option value="A">A</option><option value="B">B</option></select></label>
 <button onclick="window.count=(window.count||0)+1; document.querySelector('#result').textContent=document.querySelector('input').value+' / '+document.querySelector('select').value+' / '+window.count">Increment</button>
 <div id="result">Waiting</div>
+<p>Authenticated application workspace with navigation, account identity, settings, and current records.</p>
+</main>
 </body></html>`))
 	}))
 	defer server.Close()
@@ -427,7 +459,7 @@ func TestRealPlaywrightSnapshotAndLocatorInteractions(t *testing.T) {
 	}
 	interactionSnapshotArgs := cloneArgs(common)
 	interactionSnapshotArgs["page_id"] = pageID
-	interactionSnapshotArgs["interaction_goal"] = "Increment the counter"
+	interactionSnapshotArgs["interaction_goal"] = "Open Drafts"
 	interactionSnapshot, err := adapter.Call(context.Background(), "browser.snapshot", interactionSnapshotArgs)
 	if err != nil {
 		t.Fatal(err)
@@ -440,15 +472,49 @@ func TestRealPlaywrightSnapshotAndLocatorInteractions(t *testing.T) {
 	if !ok || stringValue(interactionPayload["schema_version"]) != "browser_interaction_snapshot_v1" || stringValue(interactionPayload["page_id"]) != pageID {
 		t.Fatalf("interaction snapshot contract is incomplete: %#v", interactionOutput)
 	}
+	if stringValue(interactionOutput["browser_page_auth_state"]) != "authenticated" ||
+		stringValue(interactionOutput["browser_page_auth_confidence"]) != "application_continuity" {
+		t.Fatalf("authenticated application shell was not recognized: %#v", interactionOutput)
+	}
 	interactionSnapshotID := stringValue(interactionPayload["snapshot_id"])
 	if interactionSnapshotID == "" {
 		t.Fatalf("interaction snapshot identity is missing: %#v", interactionPayload)
 	}
-	nameRef := snapshotRefNamed(interactionSnapshot.Text, "Name")
-	choiceRef := snapshotRefNamed(interactionSnapshot.Text, "Choice")
-	buttonRef := snapshotRefNamed(interactionSnapshot.Text, "Increment")
-	if nameRef == "" || choiceRef == "" || buttonRef == "" {
-		t.Fatalf("snapshot did not expose stable refs: %q", interactionSnapshot.Text)
+	draftsRef := snapshotRefNamed(interactionSnapshot.Text, "Drafts")
+	if draftsRef == "" {
+		t.Fatalf("snapshot did not expose a stable pointer-derived Drafts ref: %q", interactionSnapshot.Text)
+	}
+	draftsClickArgs := cloneArgs(common)
+	draftsClickArgs["uid"], draftsClickArgs["page_id"], draftsClickArgs["snapshot_id"] = draftsRef, pageID, interactionSnapshotID
+	draftsClick, err := adapter.Call(context.Background(), "browser.click", draftsClickArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draftsClickOutput, ok := draftsClick.Output.(map[string]any)
+	if !ok || !strings.HasSuffix(stringValue(draftsClickOutput["url"]), "#drafts") {
+		t.Fatalf("pointer-derived Drafts ref clicked the wrong target: %#v", draftsClick.Output)
+	}
+
+	actionSnapshotArgs := cloneArgs(interactionSnapshotArgs)
+	actionSnapshotArgs["interaction_goal"] = "Increment the counter"
+	actionSnapshot, err := adapter.Call(context.Background(), "browser.snapshot", actionSnapshotArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionOutput, ok := actionSnapshot.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("post-Drafts snapshot output is not structured: %#v", actionSnapshot.Output)
+	}
+	actionPayload, ok := actionOutput["snapshot"].(map[string]any)
+	if !ok || stringValue(actionPayload["previous_snapshot_id"]) != interactionSnapshotID {
+		t.Fatalf("post-Drafts snapshot did not follow the pointer click: before=%#v after=%#v", interactionPayload, actionPayload)
+	}
+	actionSnapshotID := stringValue(actionPayload["snapshot_id"])
+	nameRef := snapshotRefNamed(actionSnapshot.Text, "Name")
+	choiceRef := snapshotRefNamed(actionSnapshot.Text, "Choice")
+	buttonRef := snapshotRefNamed(actionSnapshot.Text, "Increment")
+	if actionSnapshotID == "" || nameRef == "" || choiceRef == "" || buttonRef == "" {
+		t.Fatalf("post-Drafts snapshot did not expose stable action refs: %q", actionSnapshot.Text)
 	}
 	typeArgs := cloneArgs(common)
 	typeArgs["uid"], typeArgs["text"] = nameRef, "Alice"
@@ -461,14 +527,14 @@ func TestRealPlaywrightSnapshotAndLocatorInteractions(t *testing.T) {
 		t.Fatal(err)
 	}
 	clickArgs := cloneArgs(common)
-	clickArgs["uid"], clickArgs["page_id"], clickArgs["snapshot_id"] = buttonRef, pageID, interactionSnapshotID
+	clickArgs["uid"], clickArgs["page_id"], clickArgs["snapshot_id"] = buttonRef, pageID, actionSnapshotID
 	if _, err := adapter.Call(context.Background(), "browser.click", clickArgs); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := adapter.Call(context.Background(), "browser.click", clickArgs); err == nil || !strings.Contains(strings.ToLower(err.Error()), "stale") {
 		t.Fatalf("a successful click did not invalidate its snapshot ref: %v", err)
 	}
-	postSnapshotArgs := cloneArgs(interactionSnapshotArgs)
+	postSnapshotArgs := cloneArgs(actionSnapshotArgs)
 	postSnapshot, err := adapter.Call(context.Background(), "browser.snapshot", postSnapshotArgs)
 	if err != nil {
 		t.Fatal(err)
@@ -478,9 +544,9 @@ func TestRealPlaywrightSnapshotAndLocatorInteractions(t *testing.T) {
 		t.Fatalf("post-click snapshot output is not structured: %#v", postSnapshot.Output)
 	}
 	postPayload, ok := postOutput["snapshot"].(map[string]any)
-	if !ok || stringValue(postPayload["previous_snapshot_id"]) != interactionSnapshotID ||
-		stringValue(postPayload["digest"]) == stringValue(interactionPayload["digest"]) || boolValue(postPayload["repeated"]) {
-		t.Fatalf("post-click snapshot did not prove a changed state: before=%#v after=%#v", interactionPayload, postPayload)
+	if !ok || stringValue(postPayload["previous_snapshot_id"]) != actionSnapshotID ||
+		stringValue(postPayload["digest"]) == stringValue(actionPayload["digest"]) || boolValue(postPayload["repeated"]) {
+		t.Fatalf("post-click snapshot did not prove a changed state: before=%#v after=%#v", actionPayload, postPayload)
 	}
 	waitArgs := cloneArgs(common)
 	waitArgs["text"] = "Alice / B / 1"
@@ -506,6 +572,37 @@ func TestRealPlaywrightSnapshotAndLocatorInteractions(t *testing.T) {
 	png, err := base64.StdEncoding.DecodeString(stringValue(part["data"]))
 	if err != nil || !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
 		t.Fatalf("screenshot payload is not a valid PNG header: err=%v bytes=%x", err, png)
+	}
+	closeSelectedChromiumTab(t, adapter, common)
+}
+
+func closeSelectedChromiumTab(t *testing.T, adapter Adapter, common map[string]any) {
+	t.Helper()
+	tabs, err := adapter.Call(context.Background(), "browser.list_tabs", common)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageID := ""
+	for _, raw := range tabs.Pages {
+		page, ok := raw.(map[string]any)
+		if ok && boolValue(page["selected"]) {
+			pageID = stringValue(page["page_id"])
+		}
+	}
+	if pageID == "" {
+		t.Fatalf("Chromium cleanup could not identify the selected tab: %#v", tabs.Pages)
+	}
+	closeArgs := cloneArgs(common)
+	closeArgs["page_id"] = pageID
+	if _, err := adapter.Call(context.Background(), "browser.close", closeArgs); err != nil {
+		t.Fatalf("close Chromium tab %s: %v", pageID, err)
+	}
+	remaining, err := adapter.Call(context.Background(), "browser.list_tabs", common)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining.Pages) != 0 {
+		t.Fatalf("Chromium tab remained open after browser.close: %#v", remaining.Pages)
 	}
 }
 

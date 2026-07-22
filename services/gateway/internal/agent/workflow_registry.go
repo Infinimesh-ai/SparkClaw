@@ -121,6 +121,7 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		browserInteractionProfile{},
 		documentReadProfile{},
 		documentEditProfile{},
+		scheduleManageProfile{},
 	)
 }
 

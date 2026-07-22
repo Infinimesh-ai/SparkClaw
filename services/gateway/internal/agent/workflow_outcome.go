@@ -22,6 +22,7 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterBrowserTabs:     adaptBrowserTabsOutcome,
 	app.OutcomeAdapterBrowserFocus:    adaptBrowserFocusOutcome,
 	app.OutcomeAdapterBrowserOpen:     adaptBrowserOpenOutcome,
+	app.OutcomeAdapterBrowserClose:    adaptBrowserCloseOutcome,
 	app.OutcomeAdapterBrowserNavigate: adaptBrowserNavigateOutcome,
 	app.OutcomeAdapterBrowserSnapshot: adaptBrowserSnapshotOutcome,
 	app.OutcomeAdapterBrowserWait:     adaptBrowserWaitOutcome,
@@ -240,8 +241,20 @@ func adaptBrowserFocusOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 func adaptBrowserOpenOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if toolCallCompleted(call) {
+		if browserToolOutcomeRequiresAuthBlock(call) {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalAuthenticationRequired}
+			return outcome
+		}
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalOpenCompleted}
 		outcome.Refs = browserPageRefs(call.Result, call.ID)
+	}
+	return outcome
+}
+
+func adaptBrowserCloseOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalCloseCompleted}
 	}
 	return outcome
 }
@@ -249,6 +262,10 @@ func adaptBrowserOpenOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 func adaptBrowserNavigateOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if toolCallCompleted(call) {
+		if browserToolOutcomeRequiresAuthBlock(call) {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalAuthenticationRequired}
+			return outcome
+		}
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNavigateCompleted}
 		payload := browserOutcomePayload(call.Result)
 		pageID := firstNonEmptyString(payload["page_id"], call.Arguments["page_id"])
@@ -257,6 +274,14 @@ func adaptBrowserNavigateOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		}
 	}
 	return outcome
+}
+
+func browserToolOutcomeRequiresAuthBlock(call app.ToolCall) bool {
+	assessment := assessBrowserAuthentication(call, browserLoginToolFields(call))
+	if assessment.State == browserAuthChallenged {
+		return true
+	}
+	return assessment.State == browserAuthUnknown && containsString(assessment.Signals, "untrusted_auth_text")
 }
 
 func adaptBrowserWaitOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -306,6 +331,7 @@ func adaptBrowserSnapshotOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		attributes := map[string]string{
 			"snapshot_id": snapshotID,
 			"page_id":     pageID,
+			"short_ref":   firstNonEmptyString(control["short_ref"]),
 			"role":        firstNonEmptyString(control["role"]),
 			"name":        firstNonEmptyString(control["accessible_name"], control["name"]),
 			"container":   firstNonEmptyString(control["container"]),

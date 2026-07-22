@@ -87,8 +87,24 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 		args[key] = value
 	}
 	changed := false
+	if plan.WorkflowID == app.WorkflowBrowserInteraction && plan.Capability == app.ToolCapabilityBrowserVerify {
+		if verdict, ok := canonicalBrowserVerificationVerdict(stringValue(args["verdict"])); ok && verdict != stringValue(args["verdict"]) {
+			args["verdict"] = verdict
+			changed = true
+		}
+	}
 	for _, binding := range node.ArgumentBindings {
-		if binding.Capability != plan.Capability || !materializedWorkflowResourceKind(binding.ResourceKind) {
+		if binding.Capability != plan.Capability {
+			continue
+		}
+		if binding.ResourceKind == "browser_element" {
+			if ref, ok := materializedBrowserElementRef(state, strings.TrimSpace(stringValue(args[binding.Argument]))); ok {
+				args[binding.Argument] = ref
+				changed = true
+			}
+			continue
+		}
+		if !materializedWorkflowResourceKind(binding.ResourceKind) {
 			continue
 		}
 		values := workflowBoundArgumentValues(binding, node, run.Workflow.Intent, run.Workflow.Route, state)
@@ -104,13 +120,42 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 	return plan
 }
 
+func canonicalBrowserVerificationVerdict(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "success", "progress", "failure":
+		return strings.ToLower(strings.TrimSpace(value)), true
+	case "partial_progress", "in_progress":
+		return "progress", true
+	default:
+		return "", false
+	}
+}
+
 func materializedWorkflowResourceKind(kind string) bool {
 	switch kind {
-	case "query", "location", "info_answer", "weather_payload", "browser_page":
+	case "query", "location", "info_answer", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot":
 		return true
 	default:
 		return false
 	}
+}
+
+func materializedBrowserElementRef(state app.WorkflowNodeState, requested string) (string, bool) {
+	if requested == "" || requested == "<nil>" {
+		return "", false
+	}
+	match := ""
+	for _, ref := range state.OutcomeRefs {
+		if ref.Kind != "browser_element" ||
+			requested != strings.TrimSpace(ref.Ref) && requested != strings.TrimSpace(ref.Attributes["short_ref"]) {
+			continue
+		}
+		if match != "" && match != ref.Ref {
+			return "", false
+		}
+		match = strings.TrimSpace(ref.Ref)
+	}
+	return match, match != ""
 }
 
 func qualifierBoundArgumentsAllowed(definition app.ToolDefinition, capability app.CapabilityDescriptor, args map[string]any) bool {

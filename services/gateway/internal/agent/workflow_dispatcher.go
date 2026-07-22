@@ -22,6 +22,10 @@ type matchedWorkflowDispatch struct {
 }
 
 func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app.AgentRun, content string, seedCalls []app.ToolCall) (Result, bool, error) {
+	return r.resumeMatchedWorkflow(ctx, run, content, seedCalls, "workflow.resumed_after_approval")
+}
+
+func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, content string, seedCalls []app.ToolCall, auditType string) (Result, bool, error) {
 	if err := r.capabilities.ValidateDecision(run.Workflow.Route); err != nil {
 		result := r.blockPersistedWorkflowResume(ctx, run, content, err)
 		return result, true, nil
@@ -111,7 +115,7 @@ func (r Runtime) resumeMatchedWorkflowAfterApproval(ctx context.Context, run app
 	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
 	assistantMessage := r.messageWithWorkflowResult(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now}, workflowResult)
 	assistant := r.store.AddMessage(assistantMessage)
-	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.resumed_after_approval", Summary: string(run.Workflow.Status)})
+	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType, Summary: string(run.Workflow.Status)})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	return Result{
 		Run: run, Message: assistant, ToolCalls: workflowExecution.ToolCalls, Approvals: workflowExecution.Approvals, RouteDecision: &route,

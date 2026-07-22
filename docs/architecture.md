@@ -148,12 +148,21 @@ tool-result messages, observation ordering, compaction, and grounding keep the
 shared execution pipeline. Explicitly `unmatched` requests remain on the
 transitional TaskHint/ReAct lane selected for that request.
 
-Catalog revision `2026-07-21.v5` has six production leaves:
+Catalog revision `2026-07-21.v6` has seven production leaves:
 `browser.internet_search`, `browser.weather`, `browser.automation`,
-`browser.interaction`, `document.read`, and `document.edit`.
+`browser.interaction`, `document.read`, `document.edit`, and `schedule.manage`.
 `WorkflowProfileRegistry.Resolve` maps `document.edit` to revision 2 and every
 other leaf to revision 1; it performs no intent matching. The Dispatcher persists the
 `RouteDecision`, `ReturnRoute`, validated plan digest, and node state.
+
+`schedule.manage` is the sole scheduled-task management leaf. Its typed
+`create`, `read`, `edit`, and `delete` operations each expose exactly one of
+`reminders.create`, `reminders.list`, `reminders.update`, or
+`reminders.cancel`. These tools continue to persist `ScheduleSpec` through the
+existing `ScheduleRegistry`; Timer workers execute due work and Delivery
+Gateway returns results. WebChat's scheduled-task bar is a read-only projection
+of the current principal's `pending` and `sending` records and cannot mutate
+schedule state.
 
 `browser.internet_search` owns every read-only fact whose answer depends on
 current Internet state, including gold prices, exchange rates, stock or index
@@ -187,11 +196,13 @@ without a grounded location returns clarification.
 `browser.interaction` revision 1 owns explicit click requests against one
 managed current tab or one frozen URL. It checks Playwright health, resolves a
 reusable tab, then runs a structured snapshot/click/post-snapshot/verification
-loop. The fixed nine-tool scope remains visible for the Workflow lifetime, while
-stage capability rules reject out-of-order tools. Snapshot refs bind page,
+loop. Tool Exposure persists the fixed ten-tool boundary for the Workflow lifetime,
+while the model sees only the current stage's capability subset and runtime
+stage rules still reject out-of-order calls. Snapshot refs bind page,
 snapshot, element fingerprint, and the archived result; a successful click
 invalidates its source snapshot. Each click is approval-free but must be
-verified before another click. Repeated states fail immediately and the third
+verified before another click. A tab opened by the Workflow is closed after
+successful verification; a reused user tab remains open. Repeated states fail immediately and the third
 still-in-progress click fails with `interaction_attempt_limit`. Type, select,
 login, credentials, upload/download, payment, form submission, screenshots, and
 arbitrary script execution remain outside this revision.

@@ -90,7 +90,7 @@
       }
     },
     "browserAutomation": {
-      "enabled": false,
+      "enabled": true,
       "provider": "microsoft-playwright",
       "profile": "default"
     },

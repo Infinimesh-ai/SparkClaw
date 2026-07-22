@@ -106,7 +106,7 @@ Real managed-Chromium interaction smoke test:
 ```bash
 SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 \
 go test ./services/gateway/internal/browserautomation \
-  -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1
+  -run TestRealChromiumSnapshotAndLocatorInteractions -count=1
 ```
 
 ## Working With Tools
@@ -175,6 +175,12 @@ Core runtime code must remain profile-neutral. If a change requires a switch on
 Workflow ID or tool name to select a scope, resource, assessment, or next step,
 move that behavior into a Profile, plan binding, ToolHub registration, or
 outcome adapter. Only `RouteDecision.Status == unmatched` may enter ReAct.
+
+Scheduled-task changes must extend `schedule.manage`, not add another scheduler
+or storage path. Keep the route operation qualifier one-to-one with the existing
+Reminder tools, persist through `ScheduleRegistry`, and leave execution with the
+Timer workers and Delivery Gateway. UI status surfaces may list owner-scoped
+active schedules, but they must not become a second mutation API.
 
 ### Extending Weather Processing
 

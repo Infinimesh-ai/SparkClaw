@@ -25,6 +25,7 @@ func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]a
 	if strings.TrimSpace(result.Presentation) == "" {
 		result.Presentation = metadata.Presentation
 	}
+	result.Pages = nonNilBrowserPages(result.Pages)
 	result.SurfaceVisible = result.SurfaceVisible || metadata.SurfaceVisible
 	return Result{Output: result}, nil
 }
@@ -53,11 +54,19 @@ func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args m
 	if strings.TrimSpace(result.Presentation) == "" {
 		result.Presentation = metadata.Presentation
 	}
+	result.Pages = nonNilBrowserPages(result.Pages)
 	result.SurfaceVisible = result.SurfaceVisible || metadata.SurfaceVisible
 	if name == "browser.screenshot" {
 		h.attachBrowserScreenshot(ctx, &result)
 	}
 	return Result{Output: result}, nil
+}
+
+func nonNilBrowserPages(pages []any) []any {
+	if pages == nil {
+		return []any{}
+	}
+	return pages
 }
 
 func browserAutomationArgsWithMode(name string, args map[string]any) (map[string]any, browserModeMetadata) {

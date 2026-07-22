@@ -28,7 +28,7 @@ type Result struct {
 	Arguments          map[string]any `json:"arguments,omitempty"`
 	Output             any            `json:"output,omitempty"`
 	Text               string         `json:"text,omitempty"`
-	Pages              []any          `json:"pages,omitempty"`
+	Pages              []any          `json:"pages"`
 	ScreenshotPath     string         `json:"screenshot_path,omitempty"`
 	ScreenshotMarkdown string         `json:"screenshot_markdown,omitempty"`
 	BrowserMode        string         `json:"browser_mode,omitempty"`
@@ -127,7 +127,7 @@ func (a *PlaywrightAdapter) Call(ctx context.Context, tool string, args map[stri
 		return Result{}, err
 	}
 	normalized := normalizeOutput(tool, out)
-	if hidden {
+	if shouldAttachHiddenPageState(tool, hidden) {
 		normalized = a.withHiddenPageState(ctx, normalized, profileKey)
 	}
 	return Result{
@@ -144,6 +144,13 @@ func (a *PlaywrightAdapter) Call(ctx context.Context, tool string, args map[stri
 		Provider:       browserProviderName(hidden),
 		DurationMS:     time.Since(started).Milliseconds(),
 	}, nil
+}
+
+func shouldAttachHiddenPageState(tool string, hidden bool) bool {
+	if !hidden {
+		return false
+	}
+	return tool != "browser.close" && tool != "browser.list_tabs"
 }
 
 func (a *PlaywrightAdapter) withHiddenPageState(ctx context.Context, output any, profileKey string) any {
@@ -659,7 +666,11 @@ const browserReadEvaluateFunctionTemplate = `async () => {
   const accountPattern = /个人中心|我的账户|账户设置|账号设置|用户菜单|个人资料|account|profile|user menu|avatar/;
   const loginRoutePattern = /(?:^|[\/#?&=._-])(?:login|signin|sign-in|logon|auth|oauth|sso|verify|verification|captcha)(?:$|[\/#?&=._-])/;
   const loginTitlePattern = /(?:登录|登陆|sign in|log in|login)/;
-  const interactive = Array.from(document.querySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [role="menuitem"], [tabindex]')).filter(isVisible);
+  const explicitInteractive = Array.from(document.querySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [role="menuitem"], [tabindex]'));
+  const pointerInteractive = Array.from(document.querySelectorAll('body *')).filter((element) =>
+    isVisible(element) && window.getComputedStyle(element).cursor === "pointer"
+  );
+  const interactive = Array.from(new Set([...explicitInteractive, ...pointerInteractive])).filter(isVisible);
   const controlLabel = (element) => [
     element.innerText,
     element.getAttribute("aria-label"),
@@ -669,6 +680,11 @@ const browserReadEvaluateFunctionTemplate = `async () => {
   ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().toLowerCase();
   const visibleLogoutControl = interactive.some((element) => logoutPattern.test(controlLabel(element)));
   const visibleAccountControl = interactive.some((element) => accountPattern.test(controlLabel(element)));
+  const identityPattern = /[a-z0-9.!#$%%&'*+/=?^_{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/i;
+  const visibleIdentityControl = interactive.some((element) => {
+    const label = controlLabel(element);
+    return label.length > 0 && label.length <= 200 && identityPattern.test(label);
+  });
   const passwordInputs = Array.from(document.querySelectorAll(
     'input[type="password"], input[name*="password" i], input[id*="password" i]'
   )).filter(isVisible);
@@ -697,6 +713,7 @@ const browserReadEvaluateFunctionTemplate = `async () => {
     applicationLandmarks.length > 0 && interactive.length >= 4 || interactive.length >= 8
   );
   if (usableApplicationShell && challengeSignals.length === 0) authenticatedSignals.push("usable_application_shell");
+  if (visibleIdentityControl && usableApplicationShell && challengeSignals.length === 0) authenticatedSignals.push("visible_identity_control");
   let authState = "unknown";
   let authConfidence = "insufficient";
   let authSignals = [];
@@ -707,9 +724,9 @@ const browserReadEvaluateFunctionTemplate = `async () => {
     authState = "challenged";
     authConfidence = "explicit_ui";
     authSignals = challengeSignals;
-  } else if (authenticatedSignals.includes("visible_sign_out_control") || authenticatedSignals.includes("visible_account_control")) {
+  } else if (authenticatedSignals.includes("visible_sign_out_control") || authenticatedSignals.includes("visible_account_control") || authenticatedSignals.includes("visible_identity_control")) {
     authState = "authenticated";
-    authConfidence = "explicit_ui";
+    authConfidence = authenticatedSignals.includes("visible_identity_control") ? "application_continuity" : "explicit_ui";
     authSignals = authenticatedSignals;
   } else if (usableApplicationShell) {
     authConfidence = "application_shell";

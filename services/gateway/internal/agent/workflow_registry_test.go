@@ -168,6 +168,36 @@ func TestLegacyWorkflowIdentityFailsClosedInsteadOfBeingReinterpreted(t *testing
 	}
 }
 
+func TestWorkflowPlanRejectsScopedCapabilityWithoutStageExposure(t *testing.T) {
+	profile := browserInteractionProfile{}
+	resolve := func() (app.IntentEnvelope, app.WorkflowPlan) {
+		intent, plan, err := profile.Resolve(app.RouteDecision{Slots: app.RouteSlots{
+			Operation: app.RouteOperationInteract, Query: "点击当前页面的下一步按钮",
+			TargetKind: string(app.TargetKindBrowserCurrentTab), TargetRef: "selected",
+		}}, "turn")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return intent, plan
+	}
+
+	intent, plan := resolve()
+	plan.Nodes[0].StageCapabilities = plan.Nodes[0].StageCapabilities[:len(plan.Nodes[0].StageCapabilities)-1]
+	if err := validateWorkflowPlan(intent, profile, plan); err == nil || !strings.Contains(err.Error(), "no capability rule") {
+		t.Fatalf("missing stage exposure did not invalidate the workflow plan: %v", err)
+	}
+
+	intent, plan = resolve()
+	for index := range plan.Nodes[0].StageCapabilities {
+		if plan.Nodes[0].StageCapabilities[index].Stage == "close_opened_tab" {
+			plan.Nodes[0].StageCapabilities[index].Capabilities = []string{app.ToolCapabilityBrowserOpen}
+		}
+	}
+	if err := validateWorkflowPlan(intent, profile, plan); err == nil || !strings.Contains(err.Error(), "no stage exposes") {
+		t.Fatalf("scoped capability without a matching stage did not invalidate the workflow plan: %v", err)
+	}
+}
+
 func TestWorkflowStatePersistsRouteIdentity(t *testing.T) {
 	catalog := capability.MustDefaultCatalog()
 	route := app.RouteDecision{

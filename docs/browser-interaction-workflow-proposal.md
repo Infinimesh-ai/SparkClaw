@@ -105,11 +105,12 @@ wrong/unexpected effect -> failed(interaction_verification_failed)
 human-only step or ambiguity -> blocked/clarify
 ```
 
-The complete fixed tool allowlist is visible for the lifetime of the selected
-Workflow so the Deep model can perform multiple snapshot/click rounds without
-falling out of the route. Workflow state still enforces the order: health must
-precede tab resolution, a click requires the latest snapshot, and every click
-must be followed by verification before another click.
+The complete fixed tool boundary is persisted for the lifetime of the selected
+Workflow, while each Deep-model turn sees only the capability allowed by the
+active stage. Workflow state enforces the order: health must precede tab
+resolution, a click requires the latest snapshot, every click must be followed
+by verification before another click, and cleanup is exposed only after a
+Workflow-owned tab reaches verified success.
 
 | Logical capability | Intended tool | Valid use |
 |---|---|---|
@@ -117,6 +118,7 @@ must be followed by verification before another click.
 | `browser.tab.list` | `browser.list_tabs` | Resolve the selected and reusable pages. |
 | `browser.tab.focus` | `browser.focus` | Select a reusable managed page. |
 | `browser.tab.open` | `browser.open` | Open the frozen URL when no tab is reusable. |
+| `browser.tab.close` | `browser.close` | Close only the tab opened by this Workflow after verified success. |
 | `browser.tab.navigate` | `browser.navigate` | Reuse a blank selected tab for the frozen URL. |
 | `browser.page.snapshot` | `browser.snapshot` | Observe before and after every click. |
 | `browser.page.wait` | `browser.wait` | Perform only a bounded post-action settle. |
@@ -126,7 +128,8 @@ must be followed by verification before another click.
 These logical capabilities must be declared on the existing ToolHub
 registrations. The Workflow must not use the current `browser.legacy`
 capability as an escape hatch. `browser.type`, `browser.select`, screenshots,
-arbitrary evaluation, and tab closing are absent from the allowlist.
+and arbitrary evaluation are absent from the allowlist. Tab closing is limited
+to the cleanup stage and its page ID is bound to the Workflow-opened page ref.
 
 ## Tab Reuse Rules
 
@@ -140,6 +143,8 @@ Tab selection is deterministic and limited to the managed Chromium context:
 4. If no tab is reusable, open a new managed tab for the frozen URL.
 5. If multiple exact matches exist and none is selected, block with typed
    `browser_tab_ambiguous` instead of letting the model guess.
+6. After verified success, close a tab created by this Workflow. Never close a
+   current, exact-match, or blank tab that the Workflow reused.
 
 Same-origin or similar-path tabs are not reusable matches. The Workflow must
 not navigate an unrelated user tab merely to avoid opening a new one.

@@ -60,6 +60,13 @@ func assessBrowserAuthentication(call app.ToolCall, fields map[string]any) brows
 			Signals:    append([]string(nil), pageSignals...),
 		}
 	}
+	if browserLoginStructuredTitleLooksLikeAuthGate(fields) {
+		return browserAuthAssessment{
+			State:      browserAuthChallenged,
+			Confidence: "structured_title",
+			Signals:    []string{"structured_auth_title"},
+		}
+	}
 
 	text := browserLoginObservationText(call, fields)
 	challenge := browserLoginObservationLooksLikeAuthGate(text)
@@ -72,6 +79,13 @@ func assessBrowserAuthentication(call app.ToolCall, fields map[string]any) brows
 		}
 	}
 	if challenge {
+		if call.Tool == "browser.open" || call.Tool == "browser.navigate" {
+			return browserAuthAssessment{
+				State:      browserAuthUnknown,
+				Confidence: "untrusted_page_text",
+				Signals:    []string{"untrusted_auth_text"},
+			}
+		}
 		return browserAuthAssessment{
 			State:      browserAuthChallenged,
 			Confidence: "visible_ui",
@@ -93,6 +107,12 @@ func assessBrowserAuthentication(call app.ToolCall, fields map[string]any) brows
 		}
 	}
 	return browserAuthAssessment{State: browserAuthUnknown, Confidence: "insufficient"}
+}
+
+func browserLoginStructuredTitleLooksLikeAuthGate(fields map[string]any) bool {
+	title := strings.ToLower(strings.TrimSpace(firstNonEmptyString(fields["title"], fields["current_title"])))
+	return title == "login required" || title == "sign in" ||
+		strings.Contains(title, "登录qq邮箱") || strings.Contains(title, "qq邮箱登录")
 }
 
 func browserLoginObservationLooksAuthenticated(text string) bool {

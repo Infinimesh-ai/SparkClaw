@@ -436,6 +436,9 @@ func migratedWorkflowRequestWithoutMatch(content string, resources []app.Message
 	if weatherIntent(lower) || shouldUseBrowserAutomation(lower) || len(extractURLs(content)) > 0 {
 		return true
 	}
+	if scheduleManagementIntent(lower) {
+		return true
+	}
 	documentNoun := containsEnglishSemanticTerm(lower, "file", "files", "document", "documents", "workspace", "pdf", "docx", "xlsx", "pptx") ||
 		containsAny(lower, ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".log",
 			"文件", "文档", "工作区", "表格", "幻灯片", "演示文稿")

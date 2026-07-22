@@ -2,7 +2,7 @@
 
 > 语言： [English](../../docs/browser-automation-improvement.md) | 简体中文
 
-本文档专门规划 SparkClaw 的 browser-backed web access 完善方向。整体架构仍以 [架构](architecture.md) 为准；浏览器读取和交互的路线图放在本文档维护。浏览器呈现模式的编码约束见 [浏览器模式代码编写指南](browser-modes-coding-guide.md)，隐藏真实浏览器里程碑见 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md)，已实现的 router-first snapshot/click 闭环见 [浏览器页面交互 Workflow](browser-interaction-workflow-proposal.md)。
+本文档专门规划 SparkClaw 的 browser-backed web access 完善方向。整体架构仍以 [架构](architecture.md) 为准；浏览器读取和交互的路线图放在本文档维护。浏览器呈现模式的编码约束见 [浏览器模式代码编写指南](browser-modes-coding-guide.md)，隐藏真实浏览器里程碑见 [隐藏 Chromium 浏览器访问计划](browser-hidden-chromium-access.md)，已实现的 router-first snapshot/click 闭环见 [浏览器页面交互 Workflow](browser-interaction-workflow-proposal.md)，保持架构不变的快照可靠性优化见 [浏览器感知可靠性优化设计](browser-perception-reliability-design.md)。
 
 ## 目标
 
@@ -164,10 +164,10 @@ Browser-read 实现通过 Microsoft Playwright `launchPersistentContext` 启动�
 - 单测证明默认 `browser.read` 不调用 `take_snapshot`。
 - 单测或 Adapter 测试证明显式 Snapshot 生成 Playwright Accessibility Evidence，并且 Ref 可被 Locator Action 使用。
 - 单测覆盖同一 run 的 snapshot/click 绑定、循环检测、三次点击上限、无 approval 路由和 Stage Capability Gate。
-- 真实 Playwright Chromium 冒烟覆盖结构化 snapshot identity、旧 ref 拒绝且不丢失会话、click、点击后 snapshot 关联、wait 和 screenshot。
+- 真实 Playwright Chromium 冒烟覆盖结构化 snapshot identity、旧 ref 拒绝且不丢失会话、click、点击后 snapshot 关联、wait、screenshot 和显式标签页清理。
 - `go test ./services/gateway/internal/browserautomation -count=1`
 - `go test ./services/gateway/internal/toolhub -count=1`
 - `go test ./services/gateway/internal/agent -count=1`
-- `SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 go test ./services/gateway/internal/browserautomation -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1`
+- `SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 go test ./services/gateway/internal/browserautomation -run TestRealChromiumSnapshotAndLocatorInteractions -count=1`
 - `go test ./services/gateway/...`
 - `git diff --check`

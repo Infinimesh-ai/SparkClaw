@@ -525,12 +525,12 @@ button:disabled {
 
 .workspace {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
 .workspace.hasError {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .topbar {
@@ -609,6 +609,175 @@ button:disabled {
 .errorBanner > span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.scheduleBar {
+  min-width: 0;
+  margin: 12px var(--gutter) 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-deep);
+}
+
+.scheduleBarHeader {
+  display: grid;
+  grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 42px;
+  padding: 6px 9px 6px 12px;
+}
+
+.scheduleBarIdentity,
+.scheduleBarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scheduleBarIdentity > svg {
+  flex: 0 0 auto;
+  color: var(--cyber-blue);
+}
+
+.scheduleBarIdentity strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduleCount {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid rgba(96, 208, 68, 0.28);
+  border-radius: 6px;
+  color: var(--emerald-success);
+  background: rgba(96, 208, 68, 0.08);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.scheduleNext {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduleBarActions {
+  gap: 4px;
+}
+
+.scheduleBarActions .miniIconButton {
+  width: 26px;
+  height: 26px;
+}
+
+.scheduleToggle svg {
+  transition: transform 160ms ease;
+}
+
+.scheduleBar.open .scheduleToggle svg {
+  transform: rotate(180deg);
+}
+
+.scheduleBarActions .spin {
+  animation: schedule-spin 800ms linear infinite;
+}
+
+.scheduleList {
+  max-height: 154px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.scheduleRow {
+  display: grid;
+  grid-template-columns: 8px minmax(160px, 1.4fr) minmax(90px, 0.7fr) minmax(132px, 0.8fr) minmax(62px, auto);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+
+.scheduleRow:last-child {
+  border-bottom: 0;
+}
+
+.scheduleRow > strong,
+.scheduleRow > span,
+.scheduleRow > time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduleRow > strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.schedulePattern,
+.scheduleRow time {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.scheduleStatusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--emerald-success);
+}
+
+.scheduleStatusDot.sending {
+  background: var(--amber-warning);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.scheduleState {
+  justify-self: end;
+  color: var(--emerald-success);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.scheduleState.sending {
+  color: var(--amber-warning);
+}
+
+.scheduleEmpty {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@keyframes schedule-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .authActions {
@@ -2753,6 +2922,26 @@ button.finderRow {
     margin-inline: 16px;
   }
 
+  .scheduleBar {
+    margin-inline: 16px;
+  }
+
+  .scheduleBarHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .scheduleNext {
+    display: none;
+  }
+
+  .scheduleRow {
+    grid-template-columns: 8px minmax(120px, 1fr) minmax(110px, auto) minmax(60px, auto);
+  }
+
+  .schedulePattern {
+    display: none;
+  }
+
   .authActions {
     width: 100%;
     flex: 0 0 auto;
@@ -2788,6 +2977,18 @@ button.finderRow {
 }
 
 @media (max-width: 480px) {
+
+  .scheduleCount {
+    display: none;
+  }
+
+  .scheduleRow {
+    grid-template-columns: 8px minmax(0, 1fr) minmax(58px, auto);
+  }
+
+  .scheduleRow time {
+    display: none;
+  }
   .deliveryTargetSelectors,
   .externalPart {
     grid-template-columns: minmax(0, 1fr);

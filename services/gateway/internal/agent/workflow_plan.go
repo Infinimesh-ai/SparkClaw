@@ -99,6 +99,7 @@ func validateStageCapabilityRules(node app.WorkflowNode) error {
 		knownStages[transition.NextStage] = true
 	}
 	seen := map[string]bool{}
+	coveredCapabilities := map[string]bool{}
 	for _, rule := range node.StageCapabilities {
 		stage := strings.TrimSpace(rule.Stage)
 		if stage == "" || seen[stage] || !knownStages[stage] || len(rule.Capabilities) == 0 {
@@ -109,6 +110,7 @@ func validateStageCapabilityRules(node app.WorkflowNode) error {
 			if strings.TrimSpace(capability) == "" || !nodeCanRequireCapability(node, capability) {
 				return fmt.Errorf("workflow node %q stage %q allows capability %q outside its frozen scopes", node.ID, stage, capability)
 			}
+			coveredCapabilities[capability] = true
 		}
 	}
 	for stage := range knownStages {
@@ -116,7 +118,31 @@ func validateStageCapabilityRules(node app.WorkflowNode) error {
 			return fmt.Errorf("workflow node %q has no capability rule for stage %q", node.ID, stage)
 		}
 	}
+	for _, capability := range nodeScopeCapabilityNames(node) {
+		if !coveredCapabilities[capability] {
+			return fmt.Errorf("workflow node %q scopes capability %q but no stage exposes it", node.ID, capability)
+		}
+	}
 	return nil
+}
+
+func nodeScopeCapabilityNames(node app.WorkflowNode) []string {
+	capabilities := []string{}
+	appendScope := func(scope app.CapabilityScope) {
+		for _, requirement := range scope.Requirements {
+			if !containsString(capabilities, requirement.Name) {
+				capabilities = append(capabilities, requirement.Name)
+			}
+		}
+	}
+	appendScope(node.InitialScope)
+	for _, transition := range node.Transitions {
+		if transition.Replace != nil {
+			appendScope(*transition.Replace)
+		}
+		appendScope(app.CapabilityScope{Requirements: transition.Add})
+	}
+	return capabilities
 }
 
 func workflowStageAllowsCapability(node app.WorkflowNode, stage, capability string) bool {

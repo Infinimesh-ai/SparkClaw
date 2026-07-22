@@ -100,10 +100,10 @@ ref 过期 -> 返回 snapshot_before_action
 遇到人工步骤或存在歧义 -> blocked/clarify
 ```
 
-选中该 Workflow 后，完整的固定工具 allowlist 在整个生命周期内对 Deep 模型
-可见，从而支持多轮 snapshot/click，不会中途掉出路由。Workflow state 仍严格
-校验顺序：健康检查必须先于 tab 解析；click 必须引用最新 snapshot；每次 click
-之后必须完成验证，才能执行下一次 click。
+选中该 Workflow 后，完整的固定工具边界会在整个生命周期内持久化，但每轮 Deep
+模型只看到活动 Stage 允许的 Capability。Workflow state 严格校验顺序：健康检查
+必须先于 tab 解析；click 必须引用最新 snapshot；每次 click 之后必须完成验证，
+才能执行下一次 click；只有 Workflow 自有标签页验证成功后才暴露清理能力。
 
 | 逻辑能力 | 预期工具 | 合法用途 |
 |---|---|---|
@@ -111,6 +111,7 @@ ref 过期 -> 返回 snapshot_before_action
 | `browser.tab.list` | `browser.list_tabs` | 解析 selected page 和可复用 pages。 |
 | `browser.tab.focus` | `browser.focus` | 选择一个可复用的托管 page。 |
 | `browser.tab.open` | `browser.open` | 没有 tab 可复用时打开冻结 URL。 |
+| `browser.tab.close` | `browser.close` | 验证成功后只关闭本 Workflow 新建的标签页。 |
 | `browser.tab.navigate` | `browser.navigate` | 使用 selected 空白 tab 打开冻结 URL。 |
 | `browser.page.snapshot` | `browser.snapshot` | 每次 click 前后观察页面。 |
 | `browser.page.wait` | `browser.wait` | 只用于有边界的 action 后稳定等待。 |
@@ -119,7 +120,8 @@ ref 过期 -> 返回 snapshot_before_action
 
 这些逻辑能力应注册在已有 ToolHub 工具上。Workflow 不能把当前的
 `browser.legacy` 能力当作逃生通道。Allowlist 不包含 `browser.type`、
-`browser.select`、截图、任意脚本执行和关闭 tab。
+`browser.select`、截图和任意脚本执行。关闭标签页只允许出现在清理 Stage，
+其 page ID 必须绑定到 Workflow 新建页面的持久化 ref。
 
 ## Tab 复用规则
 
@@ -132,6 +134,8 @@ Tab 选择必须是确定性的，并且只考虑托管 Chromium context：
 4. 没有 tab 可复用时，为冻结 URL 打开新的托管 tab。
 5. 存在多个精确匹配且都不是 selected tab 时，以类型化
    `browser_tab_ambiguous` 阻断，不能让模型猜测。
+6. 验证成功后关闭本 Workflow 新建的标签页；复用的当前、精确匹配或空白
+   标签页都不能关闭。
 
 同源或路径相似不能视为可复用匹配。Workflow 不能为了少开一个 tab 而跳转
 用户正在使用的不相关页面。

@@ -106,7 +106,7 @@ go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count
 ```bash
 SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 \
 go test ./services/gateway/internal/browserautomation \
-  -run TestRealPlaywrightSnapshotAndLocatorInteractions -count=1
+  -run TestRealChromiumSnapshotAndLocatorInteractions -count=1
 ```
 
 ## 使用 Tools
@@ -148,6 +148,8 @@ go test ./services/gateway/internal/browserautomation \
 当前状态事实使用一个类型化语义边界。正确答案依赖实时互联网的只读事实使用 `fact_scope=current_internet_state`，包括价格、汇率、股票/指数行情、即时新闻、比赛结果和日程；静态常识保持 unmatched。不要为每类事实增加 leaf、关键词 switch 或工具名称列表。唯一的窄特例是 `browser.weather`，只处理一个已校验地点的当前天气或短期预报卡片；天气预警、新闻、历史和比较仍属于 `browser.internet_search`。
 
 Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 Switch 来选择 Scope、资源、Assessment 或下一步，应把行为移入 Profile、Plan Binding、ToolHub Registration 或 Outcome Adapter。只有 `RouteDecision.Status == unmatched` 可以进入 ReAct。
+
+定时任务变更必须扩展 `schedule.manage`，不能新增另一套 Scheduler 或存储路径。Route Operation Qualifier 与现有 Reminder 工具保持一对一，通过 `ScheduleRegistry` 持久化，并继续由 Timer Worker 与 Delivery Gateway 执行。UI 状态面可以列出 Owner 隔离的活动任务，但不能成为第二个修改 API。
 
 ### 扩展天气处理
 

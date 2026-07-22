@@ -673,6 +673,30 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 	}
 }
 
+func TestBrowserInteractionRouteClosesTabOpenedByWorkflow(t *testing.T) {
+	adapter := &fakeInteractionBrowserAdapter{emptyTabs: true}
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		cfg.config.Tools.BrowserAutomation.Enabled = true
+		cfg.browserAdapter = adapter
+	})
+	defer closeRuntime()
+
+	result, err := runtime.HandleMessage(context.Background(), session.ID, "打开 https://example.com 并点击下一步按钮")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserInteraction, app.WorkflowBrowserInteraction,
+		[]string{"browser.status", "browser.list_tabs", "browser.open", "browser.snapshot", "browser.click", "browser.snapshot", "browser.verify", "browser.close"},
+		[]string{
+			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserOpen,
+			app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserSnapshot,
+			app.ToolCapabilityBrowserVerify, app.ToolCapabilityBrowserClose,
+		})
+	if adapter.closes != 1 || adapter.closedPageID != "page_2" {
+		t.Fatalf("workflow did not close exactly the tab it opened: %#v", adapter)
+	}
+}
+
 func TestDocumentInformationRouteDispatchesRealFileRead(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		if err := os.WriteFile(filepath.Join(cfg.root, "note.txt"), []byte("SparkClaw document information evidence."), 0o644); err != nil {
@@ -971,8 +995,12 @@ func newWorkflowE2ERuntime(t *testing.T, customize func(*testRuntimeConfig)) (Ru
 }
 
 type fakeInteractionBrowserAdapter struct {
-	snapshots int
-	clicks    int
+	snapshots    int
+	clicks       int
+	closes       int
+	emptyTabs    bool
+	opened       bool
+	closedPageID string
 }
 
 func (a *fakeInteractionBrowserAdapter) Health(context.Context) (browserautomation.Result, error) {
@@ -987,21 +1015,37 @@ func (a *fakeInteractionBrowserAdapter) ReadPage(context.Context, string, map[st
 
 func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
 	switch tool {
-	case "browser.list_tabs", "browser.focus":
+	case "browser.list_tabs":
+		pages := []any{}
+		if !a.emptyTabs || a.opened {
+			pageID := "page_1"
+			if a.opened {
+				pageID = "page_2"
+			}
+			pages = []any{map[string]any{"page_id": pageID, "id": 1, "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
+		}
+		return browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Text: "browser tabs", Untrusted: true, Provider: "fake-interaction-browser"}, nil
+	case "browser.focus":
 		pages := []any{map[string]any{"page_id": "page_1", "id": 1, "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
 		result := browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_1: Checkout (https://example.com/checkout)", Untrusted: true, Provider: "fake-interaction-browser"}
-		if tool == "browser.focus" {
-			result.RawTool = "select_page"
-		}
+		result.RawTool = "select_page"
 		return result, nil
+	case "browser.open":
+		a.opened = true
+		pages := []any{map[string]any{"page_id": "page_2", "id": 2, "url": "https://example.com/", "title": "Checkout", "selected": true}}
+		return browserautomation.Result{Tool: tool, RawTool: "new_page", Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_2: Checkout (https://example.com/)", Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	case "browser.snapshot":
 		a.snapshots++
-		snapshotID := fmt.Sprintf("snapshot_1_%d", a.snapshots)
+		pageID := "page_1"
+		if a.opened {
+			pageID = "page_2"
+		}
+		snapshotID := fmt.Sprintf("snapshot_%s_%d", pageID, a.snapshots)
 		previousID := ""
 		digest := "checkout-before"
 		name := "下一步"
 		if a.clicks > 0 {
-			previousID = "snapshot_1_1"
+			previousID = fmt.Sprintf("snapshot_%s_1", pageID)
 			digest = "checkout-after"
 			name = "完成"
 		}
@@ -1013,7 +1057,7 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 		}}
 		snapshot := map[string]any{
 			"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": snapshotID,
-			"previous_snapshot_id": previousID, "page_id": "page_1", "url": "https://example.com/checkout",
+			"previous_snapshot_id": previousID, "page_id": pageID, "url": "https://example.com/checkout",
 			"title": "Checkout", "digest": digest, "repeated": false,
 			"controls_total": 1, "controls_returned": 1, "truncated": false, "controls": controls, "refs": controls,
 		}
@@ -1022,15 +1066,24 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 			Text: "snapshot " + snapshotID, Untrusted: true, Provider: "fake-interaction-browser",
 		}, nil
 	case "browser.click":
-		if a.snapshots != 1 || stringValue(args["snapshot_id"]) != "snapshot_1_1" || !strings.Contains(stringValue(args["uid"]), "snapshot_1_1:e1:") {
+		pageID := "page_1"
+		if a.opened {
+			pageID = "page_2"
+		}
+		expectedSnapshotID := fmt.Sprintf("snapshot_%s_1", pageID)
+		if a.snapshots != 1 || stringValue(args["snapshot_id"]) != expectedSnapshotID || !strings.Contains(stringValue(args["uid"]), expectedSnapshotID+":e1:") {
 			return browserautomation.Result{}, fmt.Errorf("click was not bound to the latest pre-click snapshot: %#v", args)
 		}
 		a.clicks++
 		return browserautomation.Result{
 			Tool: tool, RawTool: "click", Arguments: args,
-			Output:    map[string]any{"clicked": args["uid"], "snapshot_id": args["snapshot_id"], "page_id": "page_1", "url": "https://example.com/checkout"},
+			Output:    map[string]any{"clicked": args["uid"], "snapshot_id": args["snapshot_id"], "page_id": pageID, "url": "https://example.com/checkout"},
 			Untrusted: true, Provider: "fake-interaction-browser",
 		}, nil
+	case "browser.close":
+		a.closes++
+		a.closedPageID = stringValue(args["page_id"])
+		return browserautomation.Result{Tool: tool, RawTool: "close_page", Arguments: args, Output: map[string]any{"pages": []any{}}, Pages: []any{}, Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	default:
 		return browserautomation.Result{}, fmt.Errorf("unexpected browser.interaction tool %q", tool)
 	}

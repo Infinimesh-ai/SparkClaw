@@ -178,6 +178,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/deliveries/{id}", s.getDelivery)
 	s.mux.HandleFunc("POST /api/deliveries/{id}/retry", s.retryDelivery)
 	s.mux.HandleFunc("GET /api/message-history", s.listMessageHistory)
+	s.mux.HandleFunc("GET /api/schedules", s.listCurrentSchedules)
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
 	s.mux.HandleFunc("POST /api/sessions", s.createSession)
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.getSession)

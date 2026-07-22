@@ -173,6 +173,7 @@ export const dictionaries = {
       createSession: "Could not create session",
       renameSession: "Could not rename session",
       deleteSession: "Could not delete session",
+      schedules: "Could not refresh scheduled tasks",
       message: "Message failed",
       upload: "Document upload failed",
       approval: "Approval update failed",
@@ -232,6 +233,21 @@ export const dictionaries = {
       approvals: "Approvals",
       feedback: "Feedback",
       audit: "Audit"
+    },
+    schedules: {
+      title: "Scheduled tasks",
+      activeSuffix: "active",
+      nextRun: "Next",
+      noCurrent: "No current scheduled tasks.",
+      oneTime: "One time",
+      daily: "Daily",
+      weekly: "Weekly",
+      monthly: "Monthly",
+      refreshing: "Refreshing scheduled tasks",
+      statusPending: "Pending",
+      statusSending: "Sending",
+      collapse: "Collapse scheduled tasks",
+      expand: "Expand scheduled tasks"
     },
     status: {
       runtime: "Runtime",
@@ -552,6 +568,7 @@ export const dictionaries = {
       createSession: "无法创建会话",
       renameSession: "无法重命名会话",
       deleteSession: "无法删除会话",
+      schedules: "无法刷新定时任务",
       message: "消息发送失败",
       upload: "文档上传失败",
       approval: "审批更新失败",
@@ -611,6 +628,21 @@ export const dictionaries = {
       approvals: "审批",
       feedback: "反馈",
       audit: "审计"
+    },
+    schedules: {
+      title: "定时任务",
+      activeSuffix: "项进行中",
+      nextRun: "下次执行",
+      noCurrent: "当前没有定时任务。",
+      oneTime: "单次",
+      daily: "每天",
+      weekly: "每周",
+      monthly: "每月",
+      refreshing: "正在刷新定时任务",
+      statusPending: "等待中",
+      statusSending: "执行中",
+      collapse: "收起定时任务",
+      expand: "展开定时任务"
     },
     status: {
       runtime: "运行时",

@@ -175,8 +175,33 @@ async function snapshotPage(params = {}) {
     id = pageID(page);
   }
   const previousState = snapshotStates.get(id);
-  const refs = await page.locator("a[href],button,input,textarea,select,[role='button'],[role='link'],[role='menuitem'],[role='tab'],[contenteditable='true'],[tabindex]").evaluateAll((elements) => {
+  const refs = await page.locator("body").evaluate((body) => {
     document.querySelectorAll("[data-sparkclaw-ref]").forEach((element) => element.removeAttribute("data-sparkclaw-ref"));
+    const semanticSelector = "a[href],button,input,textarea,select,[role='button'],[role='link'],[role='menuitem'],[role='tab'],[contenteditable='true'],[tabindex]";
+    const semanticElements = new Set(body.querySelectorAll(semanticSelector));
+    const normalizedText = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const visible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return !element.disabled && element.getAttribute("aria-hidden") !== "true" && style.display !== "none" &&
+        style.visibility !== "hidden" && Number(style.opacity || "1") > 0 && rect.width > 0 && rect.height > 0;
+    };
+    const controlName = (element) => {
+      const labels = element.labels ? Array.from(element.labels).map((label) => label.innerText || label.textContent || "") : [];
+      return normalizedText([
+        element.getAttribute("aria-label"), ...labels, element.innerText,
+        element.getAttribute("placeholder"), element.getAttribute("title"), element.getAttribute("name"),
+      ].find((value) => value && value.trim()) || "");
+    };
+    const pointerCandidate = (element) => {
+      if (!visible(element) || window.getComputedStyle(element).cursor !== "pointer") return false;
+      const name = controlName(element);
+      if (!name) return false;
+      return !Array.from(element.children).some((child) =>
+        visible(child) && window.getComputedStyle(child).cursor === "pointer" && controlName(child) === name
+      );
+    };
+    const elements = Array.from(body.querySelectorAll("*")).filter((element) => semanticElements.has(element) || pointerCandidate(element));
     const out = [];
     for (const element of elements) {
       if (out.length >= 1000) break;
@@ -187,9 +212,7 @@ async function snapshotPage(params = {}) {
       element.setAttribute("data-sparkclaw-ref", shortRef);
       const tag = element.tagName.toLowerCase();
       const implicitRole = tag === "a" ? "link" : tag === "button" ? "button" : tag === "select" ? "combobox" : tag === "textarea" ? "textbox" : tag === "input" ? (element.type === "checkbox" ? "checkbox" : element.type === "radio" ? "radio" : "textbox") : "control";
-      const labels = element.labels ? Array.from(element.labels).map((label) => label.innerText || label.textContent || "") : [];
-      const name = [element.getAttribute("aria-label"), ...labels, element.innerText, element.getAttribute("placeholder"), element.getAttribute("title"), element.getAttribute("name")]
-        .find((value) => value && value.trim()) || "";
+      const name = controlName(element);
       const containerElement = element.closest('[role="dialog"],[role="form"],form,nav,main,section,article');
       const container = containerElement
         ? [containerElement.getAttribute("aria-label"), containerElement.getAttribute("title"), containerElement.querySelector("h1,h2,h3,legend")?.textContent]
@@ -199,7 +222,7 @@ async function snapshotPage(params = {}) {
       out.push({
         short_ref: shortRef,
         role: element.getAttribute("role") || implicitRole,
-        accessible_name: name.replace(/\s+/g, " ").trim().slice(0, 240),
+        accessible_name: name.slice(0, 240),
         tag,
         type: String(element.type || ""),
         target_url: tag === "a" ? String(element.href || "").slice(0, 1000) : "",
@@ -222,6 +245,7 @@ async function snapshotPage(params = {}) {
     aria = await page.locator("body").innerText({ timeout }).catch(() => "");
   }
   const title = await page.title().catch(() => "");
+  const pageAuth = await assessPageAuthentication(page);
   const interactionGoal = String(params.interaction_goal || "").trim();
   const rankedRefs = refs.map((item, index) => {
     const name = String(item.accessible_name || "").toLowerCase();
@@ -281,11 +305,96 @@ async function snapshotPage(params = {}) {
     controls_total: refs.length,
     controls_returned: controls.length,
     truncated: refs.length > controls.length,
+    browser_page_auth_state: pageAuth.state,
+    browser_page_auth_confidence: pageAuth.confidence,
+    browser_page_auth_signals: pageAuth.signals,
     aria,
     controls,
     refs: controls,
   };
-  return { text, snapshot_id: snapshotID, page_id: `page_${id}`, digest, repeated, snapshot, content: [{ type: "text", text }] };
+  return {
+    text, snapshot_id: snapshotID, page_id: `page_${id}`, digest, repeated, snapshot,
+    browser_page_auth_state: pageAuth.state,
+    browser_page_auth_confidence: pageAuth.confidence,
+    browser_page_auth_signals: pageAuth.signals,
+    content: [{ type: "text", text }],
+  };
+}
+
+async function assessPageAuthentication(page) {
+  return page.evaluate(() => {
+    const normalizedText = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const visible = (element) => {
+      if (!element || element.disabled || element.getAttribute("aria-hidden") === "true") return false;
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || "1") > 0 && rect.width > 0 && rect.height > 0;
+    };
+    const label = (element) => normalizedText([
+      element.innerText, element.getAttribute("aria-label"), element.getAttribute("title"),
+      element.getAttribute("value"), element.getAttribute("name"),
+    ].filter(Boolean).join(" ")).toLowerCase();
+    const explicit = Array.from(document.querySelectorAll(
+      'button,a,input,select,textarea,[role="button"],[role="link"],[role="menuitem"],[tabindex]'
+    ));
+    const pointer = Array.from(document.querySelectorAll("body *")).filter((element) =>
+      visible(element) && window.getComputedStyle(element).cursor === "pointer"
+    );
+    const interactive = Array.from(new Set([...explicit, ...pointer])).filter(visible);
+    const title = String(document.title || "").toLowerCase();
+    const route = String(location.pathname + location.search + location.hash).toLowerCase();
+    const loginRoutePattern = /(?:^|[\/#?&=._-])(?:login|signin|sign-in|logon|auth|oauth|sso|verify|verification|captcha)(?:$|[\/#?&=._-])/;
+    const loginTitlePattern = /(?:登录|登陆|sign in|log in|login)/;
+    const loginRouteOrTitle = loginRoutePattern.test(route) || loginTitlePattern.test(title);
+    const loginPromptPattern = /请(?:先)?登录|登录后(?:查看|访问|继续)|未登录|重新登录|账号登录|密码登录|扫码登录|please sign in|sign in to continue|login required|log in to (?:view|continue)|enter (?:your )?password/;
+    const verificationPattern = /验证码|短信验证码|captcha|verification code|sms code|two-factor|2fa|one[- ]time password|\botp\b/;
+    const loginActionPattern = /^(?:登录|登陆|继续登录|sign in|log in|login|continue)$/;
+    const logoutPattern = /退出登录|安全退出|注销登录|sign out|log out|logout/;
+    const accountPattern = /个人中心|我的账户|账户设置|账号设置|用户菜单|个人资料|account|profile|user menu|avatar/;
+    const identityPattern = /[a-z0-9.!#$%&'*+/=?^_{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/i;
+    const authSurfaces = Array.from(document.querySelectorAll('form,dialog,[role="dialog"],[aria-modal="true"]')).filter(visible);
+    const authSurfaceText = authSurfaces.map((element) => normalizedText(element.innerText || element.textContent).toLowerCase()).join(" ");
+    const passwordInputs = Array.from(document.querySelectorAll(
+      'input[type="password"],input[name*="password" i],input[id*="password" i]'
+    )).filter(visible);
+    const verificationInputs = Array.from(document.querySelectorAll(
+      'input[name*="captcha" i],input[id*="captcha" i],input[name*="verification" i],input[id*="verification" i],input[name*="otp" i],input[id*="otp" i],input[autocomplete="one-time-code"]'
+    )).filter(visible);
+    const contextualCredentials = passwordInputs.some((input) => {
+      const context = input.closest('form,dialog,[role="dialog"],[aria-modal="true"]');
+      if (!context || !visible(context)) return false;
+      const contextText = normalizedText(context.innerText || context.textContent).toLowerCase();
+      const actions = Array.from(context.querySelectorAll('button,input[type="submit"],a,[role="button"]')).filter(visible);
+      return loginPromptPattern.test(contextText) || actions.some((element) => loginActionPattern.test(label(element)));
+    });
+    const challengeSignals = [];
+    if (verificationInputs.length > 0 || (loginRouteOrTitle && verificationPattern.test(authSurfaceText))) challengeSignals.push("visible_verification_challenge");
+    if (contextualCredentials) challengeSignals.push("contextual_login_credentials");
+    if (loginRouteOrTitle && loginPromptPattern.test(authSurfaceText)) challengeSignals.push("explicit_login_page");
+    const authenticatedSignals = [];
+    if (interactive.some((element) => logoutPattern.test(label(element)))) authenticatedSignals.push("visible_sign_out_control");
+    if (interactive.some((element) => accountPattern.test(label(element)))) authenticatedSignals.push("visible_account_control");
+    const visibleIdentityControl = interactive.some((element) => {
+      const value = label(element);
+      return value.length > 0 && value.length <= 200 && identityPattern.test(value);
+    });
+    const applicationLandmarks = Array.from(document.querySelectorAll(
+      'main,nav,aside,[role="main"],[role="navigation"],[role="menubar"],[role="tree"]'
+    )).filter(visible);
+    const visibleTextLength = normalizedText(document.body?.innerText || document.body?.textContent).length;
+    const usableApplicationShell = !loginRouteOrTitle && visibleTextLength >= 80 &&
+      ((applicationLandmarks.length > 0 && interactive.length >= 4) || interactive.length >= 8);
+    if (visibleIdentityControl && usableApplicationShell) authenticatedSignals.push("visible_identity_control", "usable_application_shell");
+    if (challengeSignals.length > 0 && authenticatedSignals.length > 0) {
+      return { state: "unknown", confidence: "conflicting", signals: challengeSignals.concat(authenticatedSignals) };
+    }
+    if (challengeSignals.length > 0) return { state: "challenged", confidence: "explicit_ui", signals: challengeSignals };
+    if (authenticatedSignals.length > 0) {
+      const confidence = authenticatedSignals.includes("visible_identity_control") ? "application_continuity" : "explicit_ui";
+      return { state: "authenticated", confidence, signals: authenticatedSignals };
+    }
+    return { state: "unknown", confidence: usableApplicationShell ? "application_shell" : "insufficient", signals: usableApplicationShell ? ["usable_application_shell"] : [] };
+  });
 }
 
 async function locatorForRef(params) {

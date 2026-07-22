@@ -1244,7 +1244,7 @@ func mockBrowserInteractionStage(prompt string) string {
 		value = value[:end]
 	}
 	switch value {
-	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new", "snapshot_before_action", "choose_and_click", "snapshot_after_action", "verify_action":
+	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new", "snapshot_before_action", "choose_and_click", "snapshot_after_action", "verify_action", "close_opened_tab":
 		return value
 	default:
 		return ""
@@ -1291,6 +1291,8 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 			"before_snapshot_id": beforeID, "after_snapshot_id": afterID,
 			"element_ref": clicked, "verdict": "success", "reason": "The requested click produced a verified page-state change.",
 		})
+	case "close_opened_tab":
+		return mockReActAction("browser.close", map[string]any{"page_id": mockWorkflowPageID(prompt)})
 	}
 	return `{"type":"final","answer":"The browser interaction workflow could not select its required next action."}`
 }

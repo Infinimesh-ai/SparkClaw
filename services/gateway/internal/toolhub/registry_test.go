@@ -61,6 +61,7 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 		app.ToolCapabilityBrowserListTabs,
 		app.ToolCapabilityBrowserFocus,
 		app.ToolCapabilityBrowserOpen,
+		app.ToolCapabilityBrowserClose,
 		app.ToolCapabilityBrowserHealth,
 		app.ToolCapabilityBrowserNavigate,
 		app.ToolCapabilityBrowserSnapshot,
@@ -69,6 +70,7 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 		app.ToolCapabilityBrowserVerify,
 		app.ToolCapabilityDocumentRead,
 		app.ToolCapabilityDocumentEdit,
+		app.ToolCapabilityScheduleManage,
 	} {
 		if capabilityCounts[capability] == 0 {
 			t.Fatalf("workflow capability %q has no registered tools: %#v", capability, capabilityCounts)
@@ -98,6 +100,22 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 				descriptor.Name == app.ToolCapabilityBrowserFocus || descriptor.Name == app.ToolCapabilityBrowserOpen {
 				t.Fatalf("legacy tool %q entered a current browser r1 scope: %#v", name, definition.Capabilities)
 			}
+		}
+	}
+}
+
+func TestReminderToolsMapOneToOneToScheduleOperations(t *testing.T) {
+	want := map[string]app.RouteOperation{
+		"reminders.create": app.RouteOperationCreate,
+		"reminders.list":   app.RouteOperationRead,
+		"reminders.update": app.RouteOperationEdit,
+		"reminders.cancel": app.RouteOperationDelete,
+	}
+	for name, operation := range want {
+		registration := toolRegistry[name]
+		if len(registration.capabilities) != 1 || registration.capabilities[0].Name != app.ToolCapabilityScheduleManage ||
+			registration.capabilities[0].Qualifiers[app.CapabilityQualifierOperation] != string(operation) {
+			t.Fatalf("%s is not isolated to schedule %s: %#v", name, operation, registration.capabilities)
 		}
 	}
 }

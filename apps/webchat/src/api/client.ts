@@ -25,6 +25,7 @@ import type {
   ReadyStatus,
   RunFeedback,
   RunTrace,
+  Schedule,
   Session,
   Skill,
   SpeechStatus,
@@ -256,6 +257,7 @@ export const api = {
     }),
   retryDelivery: (id: string) => request<MessageDelivery>(`/api/deliveries/${id}/retry`, { method: "POST", body: JSON.stringify({ confirmed: true }) }),
   messageHistory: () => request<{ messages: MessageHistoryItem[] }>("/api/message-history"),
+  schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),
   updateToolPolicy: (deny: string[], approvalRequired: string[]) =>
     request<PublicConfig["tool_policy"]>("/api/tool-policy", {
       method: "POST",

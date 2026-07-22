@@ -65,6 +65,7 @@ import {
   ExternalPartTray
 } from "./components/delivery";
 import { VoiceInputButton, VoiceInputStatus } from "./components/VoiceInputButton";
+import { ScheduleBar } from "./components/schedules";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor, VoiceInputState } from "./hooks/useVoiceInput";
 import {
@@ -114,6 +115,7 @@ import type {
   PublicConfig,
   ReadyStatus,
   RunTrace,
+  Schedule,
   SessionEvent,
   Session,
   Skill,
@@ -162,6 +164,9 @@ export function App() {
   const [deliveryIdempotencyBySession, setDeliveryIdempotencyBySession] = useState<Record<string, string>>({});
   const [deliveryEndpoints, setDeliveryEndpoints] = useState<DeliveryEndpoint[]>([]);
   const [messageHistory, setMessageHistory] = useState<MessageHistoryItem[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [scheduleBarOpen, setScheduleBarOpen] = useState(true);
+  const [schedulesRefreshing, setSchedulesRefreshing] = useState(false);
   const [lastDeliveriesBySession, setLastDeliveriesBySession] = useState<Record<string, MessageDelivery>>({});
   const [deliveryReviewOpen, setDeliveryReviewOpen] = useState(false);
   const [deliveryBusy, setDeliveryBusy] = useState(false);
@@ -186,7 +191,7 @@ export function App() {
   }, [language]);
 
   const refreshGlobal = useCallback(async () => {
-    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces] =
+    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces, scheduleList] =
       await Promise.all([
         api.ready(),
         api.config(),
@@ -199,7 +204,8 @@ export function App() {
         api.skills(),
         api.evalRuns(),
         api.artifacts(),
-        api.traces()
+        api.traces(),
+        api.schedules()
       ]);
     setReady(readyStatus);
     setRuntimeConfig(configStatus);
@@ -213,7 +219,21 @@ export function App() {
     setEvalRuns(evalList.eval_runs ?? []);
     setArtifacts(artifactList.artifacts ?? []);
     setTraceList(traces.traces ?? []);
+    setSchedules(scheduleList.schedules ?? []);
   }, []);
+
+  const refreshSchedules = useCallback(async () => {
+    try {
+      setSchedulesRefreshing(true);
+      setError("");
+      const result = await api.schedules();
+      setSchedules(result.schedules ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.schedules);
+    } finally {
+      setSchedulesRefreshing(false);
+    }
+  }, [text.errors.schedules]);
 
   const refreshDeliverySurface = useCallback(async () => {
     const [endpointResult, historyResult] = await Promise.allSettled([
@@ -1109,6 +1129,16 @@ export function App() {
             ) : null}
           </div>
         )}
+
+        <ScheduleBar
+          schedules={schedules}
+          open={scheduleBarOpen}
+          loading={schedulesRefreshing}
+          language={language}
+          text={text}
+          onToggle={() => setScheduleBarOpen((current) => !current)}
+          onRefresh={() => void refreshSchedules()}
+        />
 
         <section className="chatColumn">
           <div className="messageList">

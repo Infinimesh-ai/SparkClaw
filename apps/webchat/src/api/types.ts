@@ -9,6 +9,17 @@ export type Session = {
   updated_at: string;
 };
 
+export type Schedule = {
+  id: string;
+  session_id?: string;
+  title: string;
+  due_time: string;
+  timezone: string;
+  recurrence?: string;
+  status: "pending" | "sending";
+  payload_mode: "literal" | "request";
+};
+
 export type Message = {
   id: string;
   session_id: string;

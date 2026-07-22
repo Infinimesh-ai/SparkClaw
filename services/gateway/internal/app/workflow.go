@@ -6,6 +6,7 @@ const (
 	CapabilityBrowserInteraction    CapabilityID = "browser.interaction"
 	CapabilityDocumentRead          CapabilityID = "document.read"
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
+	CapabilityScheduleManage        CapabilityID = "schedule.manage"
 )
 
 type IntentDomain string
@@ -13,6 +14,7 @@ type IntentDomain string
 const (
 	IntentDomainWeb       IntentDomain = "web"
 	IntentDomainWorkspace IntentDomain = "workspace"
+	IntentDomainSchedule  IntentDomain = "schedule"
 )
 
 type IntentOperation string
@@ -23,6 +25,9 @@ const (
 	IntentOperationRead     IntentOperation = "read"
 	IntentOperationAutomate IntentOperation = "automate"
 	IntentOperationProcess  IntentOperation = "process"
+	IntentOperationCreate   IntentOperation = "create"
+	IntentOperationEdit     IntentOperation = "edit"
+	IntentOperationDelete   IntentOperation = "delete"
 )
 
 type TargetKind string
@@ -48,6 +53,7 @@ type DataScope string
 const (
 	DataScopePublic    DataScope = "public"
 	DataScopeWorkspace DataScope = "workspace"
+	DataScopeLocal     DataScope = "local"
 )
 
 type EvidenceDepth string
@@ -117,6 +123,7 @@ const (
 	WorkflowBrowserInteraction    WorkflowID = "browser.interaction"
 	WorkflowDocumentRead          WorkflowID = "document.read"
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
+	WorkflowScheduleManage        WorkflowID = "schedule.manage"
 
 	WorkflowBrowserSearch       = WorkflowBrowserInternetSearch
 	WorkflowDocumentInformation = WorkflowDocumentRead
@@ -135,6 +142,8 @@ const (
 	ToolEffectExternalRead     ToolEffect = "external.read"
 	ToolEffectExternalInteract ToolEffect = "external.interact"
 	ToolEffectLocalCompute     ToolEffect = "local.compute"
+	ToolEffectLocalRead        ToolEffect = "local.read"
+	ToolEffectLocalWrite       ToolEffect = "local.write"
 	ToolEffectWorkspaceRead    ToolEffect = "workspace.read"
 	ToolEffectWorkspaceWrite   ToolEffect = "workspace.write"
 
@@ -145,6 +154,7 @@ const (
 	ToolCapabilityBrowserListTabs  = "browser.tab.list"
 	ToolCapabilityBrowserFocus     = "browser.tab.focus"
 	ToolCapabilityBrowserOpen      = "browser.tab.open"
+	ToolCapabilityBrowserClose     = "browser.tab.close"
 	ToolCapabilityBrowserHealth    = "browser.health.read"
 	ToolCapabilityBrowserNavigate  = "browser.tab.navigate"
 	ToolCapabilityBrowserSnapshot  = "browser.page.snapshot"
@@ -153,6 +163,7 @@ const (
 	ToolCapabilityBrowserVerify    = "browser.interaction.verify"
 	ToolCapabilityDocumentRead     = "document.read"
 	ToolCapabilityDocumentEdit     = "document.edit"
+	ToolCapabilityScheduleManage   = "schedule.manage"
 
 	CapabilityQualifierFormat   = "format"
 	CapabilityQualifierProvider = "provider"
@@ -177,6 +188,7 @@ const (
 	OutcomeAdapterBrowserHealth   ToolOutcomeAdapter = "browser.health"
 	OutcomeAdapterBrowserFocus    ToolOutcomeAdapter = "browser.focus"
 	OutcomeAdapterBrowserOpen     ToolOutcomeAdapter = "browser.open"
+	OutcomeAdapterBrowserClose    ToolOutcomeAdapter = "browser.close"
 	OutcomeAdapterBrowserNavigate ToolOutcomeAdapter = "browser.navigate"
 	OutcomeAdapterBrowserSnapshot ToolOutcomeAdapter = "browser.snapshot"
 	OutcomeAdapterBrowserWait     ToolOutcomeAdapter = "browser.wait"
@@ -198,6 +210,7 @@ const (
 	OutcomeSignalTargetTabMissing                OutcomeSignal = "target_tab_missing"
 	OutcomeSignalFocusCompleted                  OutcomeSignal = "focus_completed"
 	OutcomeSignalOpenCompleted                   OutcomeSignal = "open_completed"
+	OutcomeSignalCloseCompleted                  OutcomeSignal = "close_completed"
 	OutcomeSignalBrowserHealthy                  OutcomeSignal = "browser_healthy"
 	OutcomeSignalBrowserUnavailable              OutcomeSignal = "browser_unavailable"
 	OutcomeSignalTargetTabBlank                  OutcomeSignal = "target_tab_blank"

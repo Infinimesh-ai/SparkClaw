@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-21.v5"
+	DefaultCatalogRevision = "2026-07-21.v6"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -138,6 +138,10 @@ func DefaultCatalog() (Catalog, error) {
 		}),
 		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
+		}),
+		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),
+		leaf(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationCreate, app.RouteOperationRead, app.RouteOperationEdit, app.RouteOperationDelete}, RequireQuery: true,
 		}),
 	})
 }

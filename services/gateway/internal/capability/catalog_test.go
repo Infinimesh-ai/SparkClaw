@@ -19,6 +19,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		{"browser", "browser.interaction"},
 		{"document", "document.read"},
 		{"document", "document.edit"},
+		{"schedule", "schedule.manage"},
 	}
 	for _, path := range paths {
 		leaf, err := catalog.ResolveLeaf(path)

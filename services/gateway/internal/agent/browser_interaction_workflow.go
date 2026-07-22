@@ -119,10 +119,12 @@ func (p browserInteractionProfile) Resolve(route app.RouteDecision, sourceTurnID
 				browserInteractionTransition("wait_settled", "snapshot_after_action", app.OutcomeSignalWaitCompleted, browserInteractionMaxClicks, scope),
 				browserInteractionTransition("snapshot_stale", "snapshot_before_action", app.OutcomeSignalSnapshotStale, browserInteractionMaxClicks, scope),
 				browserInteractionTransition("continue_interaction", "choose_and_click", app.OutcomeSignalInteractionProgress, browserInteractionMaxClicks-1, scope),
+				browserInteractionTransition("close_opened", "close_opened_tab", app.OutcomeSignalInteractionGoalSatisfied, 1, scope),
 			},
 			ArgumentBindings: []app.ArgumentBinding{
 				{Capability: app.ToolCapabilityBrowserFocus, Argument: "page_id", ResourceKind: "browser_tab", Source: app.ArgumentBindingOutcomeRef},
 				{Capability: app.ToolCapabilityBrowserOpen, Argument: "url", ResourceKind: "url", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindExplicitURL}},
+				{Capability: app.ToolCapabilityBrowserClose, Argument: "page_id", ResourceKind: "browser_page", Source: app.ArgumentBindingOutcomeRef},
 				{Capability: app.ToolCapabilityBrowserNavigate, Argument: "url", ResourceKind: "url", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindExplicitURL}},
 				{Capability: app.ToolCapabilityBrowserNavigate, Argument: "page_id", ResourceKind: "browser_tab", Source: app.ArgumentBindingOutcomeRef},
 				{Capability: app.ToolCapabilityBrowserSnapshot, Argument: "page_id", ResourceKind: "browser_page", Source: app.ArgumentBindingOutcomeRef},
@@ -141,6 +143,7 @@ func (p browserInteractionProfile) Resolve(route app.RouteDecision, sourceTurnID
 				{Stage: "focus_existing", Capabilities: []string{app.ToolCapabilityBrowserFocus}},
 				{Stage: "navigate_blank", Capabilities: []string{app.ToolCapabilityBrowserNavigate}},
 				{Stage: "open_new", Capabilities: []string{app.ToolCapabilityBrowserOpen}},
+				{Stage: "close_opened_tab", Capabilities: []string{app.ToolCapabilityBrowserClose}},
 				{Stage: "snapshot_before_action", Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
 				{Stage: "choose_and_click", Capabilities: []string{app.ToolCapabilityBrowserClick}},
 				{Stage: "snapshot_after_action", Capabilities: []string{app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot}},
@@ -157,6 +160,7 @@ func browserInteractionScope() app.CapabilityScope {
 		{Name: app.ToolCapabilityBrowserListTabs},
 		{Name: app.ToolCapabilityBrowserFocus},
 		{Name: app.ToolCapabilityBrowserOpen},
+		{Name: app.ToolCapabilityBrowserClose},
 		{Name: app.ToolCapabilityBrowserNavigate},
 		{Name: app.ToolCapabilityBrowserSnapshot},
 		{Name: app.ToolCapabilityBrowserWait},
@@ -248,7 +252,11 @@ func (browserInteractionProfile) Assess(state *app.WorkflowState, outcome app.To
 	case "verify_action":
 		switch {
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied):
-			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "interaction_goal_satisfied"
+			if browserInteractionOpenedNewTab(node) {
+				assessment = browserInteractionNeedsMore(assessment, app.OutcomeSignalInteractionGoalSatisfied, "close_opened_tab")
+			} else {
+				assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "interaction_goal_satisfied"
+			}
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionProgress):
 			assessment = browserInteractionNeedsMore(assessment, app.OutcomeSignalInteractionProgress, "choose_and_click")
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionLoopDetected):
@@ -260,10 +268,20 @@ func (browserInteractionProfile) Assess(state *app.WorkflowState, outcome app.To
 		default:
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_verification_failed"
 		}
+	case "close_opened_tab":
+		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalCloseCompleted) {
+			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "interaction_goal_satisfied_tab_closed"
+		} else {
+			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_tab_cleanup_failed"
+		}
 	default:
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_interaction_stage_invalid"
 	}
 	return assessment
+}
+
+func browserInteractionOpenedNewTab(node app.WorkflowNodeState) bool {
+	return node.TransitionActivations["open_missing"] > 0
 }
 
 func browserInteractionNeedsMore(assessment app.NodeAssessment, signal app.OutcomeSignal, nextStage string) app.NodeAssessment {
@@ -348,7 +366,7 @@ func browserSnapshotOutcomeRepeated(refs []app.ResourceRef) bool {
 func (browserInteractionProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
 	nodeID := state.ActiveNodeIDs[0]
 	stage := state.Nodes[nodeID].Stage
-	hint := workflowHint(state, "browse", "web", "public", "collaborative", "workflow_stage: "+stage+". Use only the capability valid for this stage; every click requires a post-click snapshot and browser.verify before another click.")
+	hint := workflowHint(state, "browse", "web", "public", "collaborative", "workflow_stage: "+stage+". Use only the capability valid for this stage; every click requires a post-click snapshot and browser.verify before another click. browser.verify verdict must be exactly success, progress, or failure.")
 	hint.EstimatedRisk = app.RiskDraft
 	return hint
 }

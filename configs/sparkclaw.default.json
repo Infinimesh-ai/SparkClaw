@@ -96,7 +96,8 @@
     },
     "reminders": {
       "enabled": true,
-      "defaultChannel": "web"
+      "defaultChannel": "web",
+      "maxDeliveryAttempts": 8
     },
     "notifications": {
       "channels": {

@@ -43,7 +43,7 @@ func newGatewayServices(
 	if cfg.Tools.Reminders.Enabled {
 		schedules := messagecontrol.NewScheduleRegistry(st)
 		routes := messagecontrol.NewReturnRouteResolver(connectors.endpoints)
-		reminderScheduler = reminder.NewMessageScheduler(st, schedules, newScheduledRequestPublisher(runtime, routes, connectors.delivery))
+		reminderScheduler = reminder.NewMessageScheduler(st, schedules, newScheduledRequestPublisher(runtime, routes, connectors.delivery), cfg.Tools.Reminders.MaxDeliveryAttempts)
 	}
 
 	return &gatewayServices{

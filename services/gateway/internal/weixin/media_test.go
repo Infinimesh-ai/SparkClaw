@@ -247,7 +247,7 @@ func TestHandleInboundAttachmentOnlyAsksForInstruction(t *testing.T) {
 	if !strings.Contains(sentText, "你想让我") || !strings.Contains(sentText, "总结内容") {
 		t.Fatalf("expected clarification reply, got %q", sentText)
 	}
-	chatSession, ok := st.FindWeixinChatSession("bind_1", "wx-user")
+	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user", "")
 	if !ok {
 		t.Fatal("expected weixin chat session")
 	}
@@ -290,7 +290,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	st.AddMessage(app.Message{SessionID: oldSession.ID, Role: "user", Content: "旧问题", CreatedAt: time.Now().UTC()})
 	st.SaveEpisodeSummary(app.EpisodeSummary{SessionID: oldSession.ID, RunID: "run_old", Goal: "旧任务", Outcome: "completed", Summary: "旧摘要", CreatedAt: time.Now().UTC()})
 	st.SaveToolCall(app.ToolCall{ID: app.NewID("tc"), SessionID: oldSession.ID, RunID: "run_old", Tool: "files.read", Status: "completed", ObservationSummary: "old file context", StartedAt: time.Now().UTC()})
-	chatSession := st.SaveWeixinChatSession(app.WeixinChatSession{
+	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{
 		OwnerID:         "owner",
 		WorkspaceRoot:   root,
 		BindingID:       "bind_1",
@@ -316,7 +316,7 @@ func TestHandleInboundClearConversationStartsFreshAgentSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, ok := st.FindWeixinChatSession("bind_1", "wx-user")
+	updated, ok := st.FindExternalChatSession("bind_1", "wx-user", "")
 	if !ok {
 		t.Fatal("expected weixin chat session")
 	}
@@ -363,7 +363,7 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
-	chatSession := st.SaveWeixinChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
+	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
@@ -427,7 +427,7 @@ func TestHandleInboundApprovalReplyRejectsPendingAction(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("wx", "owner", t.TempDir(), "weixin", true)
-	chatSession := st.SaveWeixinChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
+	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{BindingID: "bind_1", ExternalUserID: "wx-user", LinkedSessionID: session.ID, Status: "active"})
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
@@ -481,7 +481,7 @@ func TestWorkspaceFilePathOnlyReturnsLikelyOutputFiles(t *testing.T) {
 	}
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("wx", "owner", root, "weixin", true)
-	chatSession := st.SaveWeixinChatSession(app.WeixinChatSession{
+	chatSession := st.SaveExternalChatSession(app.WeixinChatSession{
 		BindingID:       "bind_1",
 		ExternalUserID:  "wx-user",
 		LinkedSessionID: session.ID,

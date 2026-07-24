@@ -54,17 +54,6 @@ type TreeEvidence struct {
 	Score float64
 }
 
-func Fuse(_ *Graph, eligible []Candidate, embeddings map[string]EmbeddingEvidence, tree map[string]TreeEvidence, reranked map[string]float64, channels map[string]ChannelState, calibration Calibration) (Decision, error) {
-	scores, err := RankFusion(eligible, embeddings, tree, channels, calibration)
-	if errors.Is(err, ErrSemanticChannelsUnavailable) {
-		return Decision{Verdict: VerdictBlocked, Degraded: true, ReasonCode: "semantic_channels_unavailable"}, nil
-	}
-	if err != nil {
-		return Decision{}, err
-	}
-	return Decide(scores, reranked, channels, calibration)
-}
-
 func RankFusion(eligible []Candidate, embeddings map[string]EmbeddingEvidence, tree map[string]TreeEvidence, channels map[string]ChannelState, calibration Calibration) ([]CandidateScore, error) {
 	if err := calibration.Validate(); err != nil {
 		return nil, err

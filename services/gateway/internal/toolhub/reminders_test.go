@@ -204,7 +204,7 @@ func TestRemindersCreateUsesCurrentWeixinChatRecipient(t *testing.T) {
 		CreatedAt:     time.Now().UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	})
-	st.SaveWeixinChatSession(app.WeixinChatSession{
+	st.SaveExternalChatSession(app.WeixinChatSession{
 		BindingID:        "bind_weixin",
 		Channel:          "weixin",
 		Provider:         "openclaw-weixin-qr",

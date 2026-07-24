@@ -57,3 +57,7 @@ func TestScheduleRegistryRejectsCrossOwnerReturnEndpoint(t *testing.T) {
 		t.Fatal("expected cross-owner endpoint to be rejected")
 	}
 }
+
+func textContent(prefix, text string) app.MessageContent {
+	return app.MessageContent{Parts: []app.MessagePart{{ID: prefix + ":text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: text}}}
+}

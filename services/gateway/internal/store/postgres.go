@@ -2229,38 +2229,6 @@ func (s *PostgresStore) ListChannelInboxUpdates(channel, status string, readyBef
 	return collectRows(rows, scanChannelInboxUpdate)
 }
 
-func (s *PostgresStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
-	return s.SaveExternalChatSession(session)
-}
-
-func (s *PostgresStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
-	return s.GetExternalChatSession(id)
-}
-
-func (s *PostgresStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
-	return s.FindExternalChatSession(bindingID, externalUserID, "")
-}
-
-func (s *PostgresStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
-	return s.FindExternalChatSessionByLinkedSessionID(sessionID)
-}
-
-func (s *PostgresStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
-	return s.SaveExternalChatMessage(message)
-}
-
-func (s *PostgresStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
-	return s.GetExternalChatMessage(id)
-}
-
-func (s *PostgresStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
-	return s.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
-}
-
-func (s *PostgresStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
-	return s.ListExternalChatMessages(chatSessionID, limit)
-}
-
 func (s *PostgresStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
 	now := time.Now().UTC()
 	if secret.CreatedAt.IsZero() {

@@ -288,12 +288,6 @@ func firstError(primary, fallback error) error {
 	return fallback
 }
 
-func ScheduleSpecVersion() int { return app.ScheduleSpecSchemaVersion }
-
-func textContent(prefix, text string) app.MessageContent {
-	return app.MessageContent{Parts: []app.MessagePart{{ID: prefix + ":text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: text}}}
-}
-
 func firstText(content app.MessageContent) string {
 	for _, part := range content.Parts {
 		if part.Kind == app.MessagePartText {

@@ -66,9 +66,9 @@ func TestEmbeddingIndexAggregatesPositiveAndNegativeEvidence(t *testing.T) {
 }
 
 func TestFusionProducesClearTopTwoWithoutAuthorizingSecondCandidate(t *testing.T) {
-	graph, eligible := testGraphAndCandidates(t)
+	_, eligible := testGraphAndCandidates(t)
 	channels := healthyChannels()
-	decision, err := Fuse(graph, eligible,
+	decision, err := fuseForTest(eligible,
 		map[string]EmbeddingEvidence{
 			"test.answer#answer": {Score: 0.92}, "test.search#search": {Score: 0.30},
 		},
@@ -85,7 +85,7 @@ func TestFusionProducesClearTopTwoWithoutAuthorizingSecondCandidate(t *testing.T
 }
 
 func TestFusionDistinguishesAmbiguousLowAndUnavailable(t *testing.T) {
-	graph, eligible := testGraphAndCandidates(t)
+	_, eligible := testGraphAndCandidates(t)
 	calibration := DefaultCalibration()
 	tests := []struct {
 		name      string
@@ -115,7 +115,7 @@ func TestFusionDistinguishesAmbiguousLowAndUnavailable(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			decision, err := Fuse(graph, eligible, test.embedding, test.tree, test.reranked, test.channels, calibration)
+			decision, err := fuseForTest(eligible, test.embedding, test.tree, test.reranked, test.channels, calibration)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,4 +233,18 @@ func testCatalog(t *testing.T) capability.Catalog {
 		t.Fatal(err)
 	}
 	return catalog
+}
+
+// fuseForTest composes RankFusion + Decide the way the production intent
+// router does (internal/agent/intent_router.go), including the
+// channels-unavailable blocked verdict.
+func fuseForTest(eligible []Candidate, embeddings map[string]EmbeddingEvidence, tree map[string]TreeEvidence, reranked map[string]float64, channels map[string]ChannelState, calibration Calibration) (Decision, error) {
+	scores, err := RankFusion(eligible, embeddings, tree, channels, calibration)
+	if errors.Is(err, ErrSemanticChannelsUnavailable) {
+		return Decision{Verdict: VerdictBlocked, Degraded: true, ReasonCode: "semantic_channels_unavailable"}, nil
+	}
+	if err != nil {
+		return Decision{}, err
+	}
+	return Decide(scores, reranked, channels, calibration)
 }

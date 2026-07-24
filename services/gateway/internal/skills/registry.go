@@ -66,19 +66,6 @@ func (r Registry) List() ([]Skill, error) {
 	return out, nil
 }
 
-func (r Registry) Get(name string) (Skill, bool, error) {
-	all, err := r.List()
-	if err != nil {
-		return Skill{}, false, err
-	}
-	for _, skill := range all {
-		if skill.Name == name {
-			return skill, true, nil
-		}
-	}
-	return Skill{}, false, nil
-}
-
 func (r Registry) Relevant(query string, limit int) ([]Skill, error) {
 	if limit <= 0 {
 		limit = 3

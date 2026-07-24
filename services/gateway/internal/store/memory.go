@@ -1531,38 +1531,6 @@ func externalChatSessionTitle(channel string) string {
 	return "微信会话"
 }
 
-func (s *MemoryStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
-	return s.SaveExternalChatSession(session)
-}
-
-func (s *MemoryStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
-	return s.GetExternalChatSession(id)
-}
-
-func (s *MemoryStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
-	return s.FindExternalChatSession(bindingID, externalUserID, "")
-}
-
-func (s *MemoryStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
-	return s.FindExternalChatSessionByLinkedSessionID(sessionID)
-}
-
-func (s *MemoryStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
-	return s.SaveExternalChatMessage(message)
-}
-
-func (s *MemoryStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
-	return s.GetExternalChatMessage(id)
-}
-
-func (s *MemoryStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
-	return s.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
-}
-
-func (s *MemoryStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
-	return s.ListExternalChatMessages(chatSessionID, limit)
-}
-
 func (s *MemoryStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
 	s.mu.Lock()
 	defer s.mu.Unlock()

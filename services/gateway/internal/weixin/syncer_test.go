@@ -218,7 +218,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	if binding.ContextToken != "ctx-1" || binding.ProviderCursor != "cursor-2" {
 		t.Fatalf("binding context was not synced: %#v", binding)
 	}
-	chatSession, ok := st.FindWeixinChatSession("bind_1", "wx-user-1")
+	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
 	if !ok || chatSession.LinkedSessionID == "" {
 		t.Fatalf("weixin chat session not saved: %#v", chatSession)
 	}
@@ -235,7 +235,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 			t.Fatalf("weixin linked session should not appear in normal session list: %#v", session)
 		}
 	}
-	messages := st.ListWeixinChatMessages(chatSession.ID, 10)
+	messages := st.ListExternalChatMessages(chatSession.ID, 10)
 	if len(messages) != 2 {
 		t.Fatalf("expected inbound and outbound chat messages, got %#v", messages)
 	}
@@ -328,8 +328,8 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	if strings.Join(sentRecipients, ",") != "wx-user-a,wx-user-b" {
 		t.Fatalf("expected replies to separate weixin users, got %#v", sentRecipients)
 	}
-	sessionA, okA := st.FindWeixinChatSession("bind_1", "wx-user-a")
-	sessionB, okB := st.FindWeixinChatSession("bind_1", "wx-user-b")
+	sessionA, okA := st.FindExternalChatSession("bind_1", "wx-user-a", "")
+	sessionB, okB := st.FindExternalChatSession("bind_1", "wx-user-b", "")
 	if !okA || !okB {
 		t.Fatalf("expected separate weixin chat sessions, got A=%#v ok=%v B=%#v ok=%v", sessionA, okA, sessionB, okB)
 	}
@@ -700,10 +700,10 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 	if !aObservedB.Load() {
 		t.Fatal("binding B's dispatch should complete while binding A's dispatch is still running")
 	}
-	if _, ok := st.FindWeixinChatSession("bind_a", "wx-user-a"); !ok {
+	if _, ok := st.FindExternalChatSession("bind_a", "wx-user-a", ""); !ok {
 		t.Fatal("binding A chat session missing")
 	}
-	if _, ok := st.FindWeixinChatSession("bind_b", "wx-user-b"); !ok {
+	if _, ok := st.FindExternalChatSession("bind_b", "wx-user-b", ""); !ok {
 		t.Fatal("binding B chat session missing")
 	}
 }
@@ -776,7 +776,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		ExternalID:   "provider-msg-retry",
 	}
 	chatSession := dispatcher.ensureChatSession(inbound)
-	failed := st.SaveWeixinChatMessage(app.WeixinChatMessage{
+	failed := st.SaveExternalChatMessage(app.WeixinChatMessage{
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,
 		Direction:         "inbound",
@@ -791,7 +791,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	retried, ok := st.FindWeixinChatMessageByExternalID(chatSession.ID, "provider-msg-retry")
+	retried, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-retry")
 	if !ok {
 		t.Fatal("inbound message missing after retry")
 	}
@@ -802,7 +802,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		t.Fatalf("retried message should be processed, got %q", retried.Status)
 	}
 	inboundCount := 0
-	for _, message := range st.ListWeixinChatMessages(chatSession.ID, 20) {
+	for _, message := range st.ListExternalChatMessages(chatSession.ID, 20) {
 		if message.Direction == "inbound" {
 			inboundCount++
 		}

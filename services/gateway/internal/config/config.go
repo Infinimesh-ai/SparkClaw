@@ -439,9 +439,6 @@ func normalizeSpeechConfig(speech *SpeechConfig) error {
 	if strings.TrimSpace(speech.DefaultLanguage) == "" {
 		speech.DefaultLanguage = defaults.DefaultLanguage
 	}
-	if len(speech.AllowedHosts) == 0 {
-		speech.AllowedHosts = append([]string(nil), defaults.AllowedHosts...)
-	}
 	speech.AllowedHosts = normalizeHostList(speech.AllowedHosts)
 	if speech.RetainAudio {
 		return errors.New("speech.retain_audio is not supported")

@@ -439,38 +439,6 @@ func (s *FileStore) ListChannelInboxUpdates(channel, status string, readyBefore 
 	return s.inner.ListChannelInboxUpdates(channel, status, readyBefore, limit)
 }
 
-func (s *FileStore) SaveWeixinChatSession(session app.WeixinChatSession) app.WeixinChatSession {
-	return s.SaveExternalChatSession(session)
-}
-
-func (s *FileStore) GetWeixinChatSession(id string) (app.WeixinChatSession, bool) {
-	return s.GetExternalChatSession(id)
-}
-
-func (s *FileStore) FindWeixinChatSession(bindingID, externalUserID string) (app.WeixinChatSession, bool) {
-	return s.FindExternalChatSession(bindingID, externalUserID, "")
-}
-
-func (s *FileStore) FindWeixinChatSessionByLinkedSessionID(sessionID string) (app.WeixinChatSession, bool) {
-	return s.FindExternalChatSessionByLinkedSessionID(sessionID)
-}
-
-func (s *FileStore) SaveWeixinChatMessage(message app.WeixinChatMessage) app.WeixinChatMessage {
-	return s.SaveExternalChatMessage(message)
-}
-
-func (s *FileStore) GetWeixinChatMessage(id string) (app.WeixinChatMessage, bool) {
-	return s.GetExternalChatMessage(id)
-}
-
-func (s *FileStore) FindWeixinChatMessageByExternalID(chatSessionID, externalMessageID string) (app.WeixinChatMessage, bool) {
-	return s.FindExternalChatMessageByExternalID(chatSessionID, externalMessageID)
-}
-
-func (s *FileStore) ListWeixinChatMessages(chatSessionID string, limit int) []app.WeixinChatMessage {
-	return s.ListExternalChatMessages(chatSessionID, limit)
-}
-
 func (s *FileStore) SaveCredentialSecret(secret app.CredentialSecret) app.CredentialSecret {
 	out := s.inner.SaveCredentialSecret(secret)
 	s.persist()

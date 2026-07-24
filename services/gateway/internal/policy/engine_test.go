@@ -24,7 +24,7 @@ func TestMayExposeIsStaticAndExecutionRemainsArgumentAware(t *testing.T) {
 	engine := New(cfg)
 	def := app.ToolDefinition{Name: "file.delete", Risk: app.RiskReversible}
 
-	exposure := engine.MayExpose(def, ExposureContext{ActorRef: "owner", Workflow: "workspace.delete", NodeID: "delete"})
+	exposure := engine.MayExpose(def)
 	if !exposure.Allowed || exposure.RequiresApproval || len(exposure.Resources) != 0 {
 		t.Fatalf("static exposure must not make an execution decision: %#v", exposure)
 	}

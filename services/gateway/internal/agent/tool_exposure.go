@@ -195,7 +195,7 @@ func (e *toolExposureEngine) eligibleDefinitions(actorRef string, run app.AgentR
 		if len(definition.Capabilities) == 0 || !allowedRisks[definition.Risk] || hasDeniedEffect(definition.Directory.Effects, deniedEffects) {
 			continue
 		}
-		if !e.policy.MayExpose(definition, policy.ExposureContext{ActorRef: actorRef, Workflow: run.Workflow.Plan.ProfileID, NodeID: node.ID}).Allowed {
+		if !e.policy.MayExpose(definition).Allowed {
 			continue
 		}
 		for _, capability := range definition.Capabilities {

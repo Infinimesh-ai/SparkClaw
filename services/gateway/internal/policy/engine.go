@@ -21,17 +21,11 @@ type Engine struct {
 	cfg config.Config
 }
 
-type ExposureContext struct {
-	ActorRef string
-	Workflow app.WorkflowID
-	NodeID   app.WorkflowNodeID
-}
-
 func New(cfg config.Config) Engine {
 	return Engine{cfg: cfg}
 }
 
-func (e Engine) MayExpose(def app.ToolDefinition, _ ExposureContext) Decision {
+func (e Engine) MayExpose(def app.ToolDefinition) Decision {
 	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) {
 		return Decision{Allowed: false, Reason: "tool is denied by static exposure policy"}
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
@@ -84,7 +83,7 @@ func newConnectorAssembly(
 	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
 	if err := registry.Register(connector.Registration{
 		Channel:  "weixin",
-		Binding:  newWeixinBindingAdapter("weixin", weixinConfig),
+		Binding:  binding.NewWeixinAdapter("weixin", weixinConfig),
 		Provider: weixinNotifications,
 		Runtime:  weixinSyncer,
 	}); err != nil {
@@ -95,15 +94,6 @@ func newConnectorAssembly(
 		registry: registry, credentials: vault, endpoints: endpoints,
 		delivery: deliveryGateway,
 	}, nil
-}
-
-func newWeixinBindingAdapter(channel string, cfg config.NotificationChannelConfig) binding.Adapter {
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
-	case "openclaw-weixin-qr", "openclaw-weixin-login-qr":
-		return binding.NewWeixinQRAdapter(channel, cfg)
-	default:
-		return binding.NewManualWeixinAdapter(channel, cfg)
-	}
 }
 
 type telegramSpeechTranscriber struct {

@@ -138,13 +138,23 @@ func NewRouter(cfg config.Config, vaults ...credential.CredentialVault) Router {
 		switch strings.ToLower(strings.TrimSpace(channelCfg.Provider)) {
 		case "telegram-bot-api":
 			router = router.WithAdapter(channel, NewTelegramAdapter(channel, channelCfg, vault))
-		case "openclaw-weixin-qr", "openclaw-weixin-login-qr":
-			router = router.WithAdapter(channel, NewWeixinQRAdapter(channel, channelCfg))
 		default:
-			router = router.WithAdapter(channel, NewManualWeixinAdapter(channel, channelCfg))
+			router = router.WithAdapter(channel, NewWeixinAdapter(channel, channelCfg))
 		}
 	}
 	return router
+}
+
+// NewWeixinAdapter picks the weixin binding adapter for the channel's
+// configured provider: the QR login flow for the openclaw QR providers,
+// the manual handshake otherwise.
+func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig) Adapter {
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	case "openclaw-weixin-qr", "openclaw-weixin-login-qr":
+		return NewWeixinQRAdapter(channel, cfg)
+	default:
+		return NewManualWeixinAdapter(channel, cfg)
+	}
 }
 
 func NewBaseRouter(cfg config.Config) Router {

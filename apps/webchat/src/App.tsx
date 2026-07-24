@@ -1,33 +1,8 @@
-import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import {
-  Activity,
-  Bot,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  Clock3,
-  Copy,
-  Database,
-  Download,
-  FileSearch,
-  Globe2,
-  Inbox,
-  KeyRound,
-  Library,
-  ListChecks,
-  Mail,
-  RefreshCw,
-  Send,
-  ThumbsDown,
-  ThumbsUp,
-  Upload,
-  UserRound,
-  X
-} from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, Bot, KeyRound, RefreshCw } from "lucide-react";
 import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
-import type { Copy as CopyText, Language } from "./i18n";
+import type { Language } from "./i18n";
 import {
   attachmentOnlyPrompt,
   MessageBubble,
@@ -64,7 +39,6 @@ import type {
   PublicConfig,
   ReadyStatus,
   RunTrace,
-  SessionEvent,
   Session,
   Skill,
   ToolCall,

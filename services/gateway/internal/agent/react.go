@@ -245,7 +245,7 @@ func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID strin
 			}
 		}
 		if approval != nil {
-			result.FinalAnswer = fmt.Sprintf("%s is waiting for approval.", call.Tool)
+			result.FinalAnswer = fmt.Sprintf("%s is %s.", call.Tool, blockedAnswerWaitingApproval)
 			return result
 		}
 		if hint.WorkflowID != "" {
@@ -510,7 +510,7 @@ func volatileToolFingerprintKey(key string) bool {
 
 func repeatedToolFailureMessage(goal string, calls []app.ToolCall) string {
 	if len(calls) == 0 {
-		return "任务没有完成：工具连续失败。"
+		return blockedAnswerTaskIncomplete + "：工具连续失败。"
 	}
 	last := calls[len(calls)-1]
 	reason := strings.TrimSpace(last.Error)
@@ -518,9 +518,9 @@ func repeatedToolFailureMessage(goal string, calls []app.ToolCall) string {
 		reason = "工具连续失败，无法继续推进。"
 	}
 	if last.Tool == "images.inspect" {
-		return "任务没有完成：图片理解模型连续请求失败。\n失败工具：images.inspect\n原因：" + reason + "\n建议：稍后重试，或上传分辨率更低/内容更清晰的图片。"
+		return blockedAnswerTaskIncomplete + "：图片理解模型连续请求失败。\n失败工具：images.inspect\n原因：" + reason + "\n建议：稍后重试，或上传分辨率更低/内容更清晰的图片。"
 	}
-	return "任务没有完成。\n失败工具：" + last.Tool + "\n原因：" + reason
+	return blockedAnswerTaskIncomplete + "。\n失败工具：" + last.Tool + "\n原因：" + reason
 }
 
 func compactToolArgsFingerprint(args map[string]any) string {
@@ -576,12 +576,12 @@ func recoverableReActParseObservation(err error, step int) string {
 
 func reactParseFailureMessage(err error) string {
 	if err != nil && strings.Contains(err.Error(), "tool_not_visible") {
-		return "I could not continue because the model requested a tool that was not visible for this run. Error: " + err.Error()
+		return blockedAnswerCouldNotContinue + " because the model requested a tool that was not visible for this run. Error: " + err.Error()
 	}
 	if err != nil {
-		return "I could not continue because the model did not return valid ReAct JSON. Error: " + err.Error()
+		return blockedAnswerCouldNotContinue + " because the model did not return valid ReAct JSON. Error: " + err.Error()
 	}
-	return "I could not continue because the model did not return valid ReAct JSON."
+	return blockedAnswerCouldNotContinue + " because the model did not return valid ReAct JSON."
 }
 
 func contextualSystemPromptForReAct(goal string, episodes []app.EpisodeSummary, relevantSkills []skills.Skill, hint TaskHint, visibleTools []app.ToolDefinition, observations []string, agentContext string, opts ...reactPromptOptions) string {
@@ -757,7 +757,7 @@ func reactBudgetLimitMessage(goal, reason string, calls []app.ToolCall, observat
 	if strings.TrimSpace(reason) == "" {
 		reason = "本轮运行预算已用尽。"
 	}
-	lines := []string{"I could not continue because the ReAct run stopped at a runtime budget or blocker.", "Reason: " + reason}
+	lines := []string{blockedAnswerCouldNotContinue + " because the ReAct run stopped at a runtime budget or blocker.", "Reason: " + reason}
 	if len(calls) > 0 {
 		lines = append(lines, "Completed/attempted tools:")
 		for _, call := range calls {

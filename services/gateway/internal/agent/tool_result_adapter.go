@@ -106,7 +106,7 @@ func buildToolResultMessage(input toolResultAdapterInput) toolResultMessage {
 		case call.Error != "":
 			summary = fmt.Sprintf("%s failed: %s", call.Tool, call.Error)
 		case status == "approval_pending":
-			summary = call.Tool + " is waiting for approval."
+			summary = call.Tool + " is " + blockedAnswerWaitingApproval + "."
 		case output != nil:
 			summary = CompressObservation(call.Tool, output, 600)
 		default:

@@ -210,7 +210,7 @@ func groundedFailureSummary(goal string, calls []app.ToolCall) (string, bool) {
 		return "", false
 	}
 	last := failed[len(failed)-1]
-	lines := []string{"任务没有完成。"}
+	lines := []string{blockedAnswerTaskIncomplete + "。"}
 	if last.Tool != "" {
 		lines = append(lines, "失败工具："+last.Tool)
 	}
@@ -551,7 +551,7 @@ func fileReadFallbackFailure(calls []app.ToolCall) string {
 		}
 	}
 	lines := []string{
-		"任务没有完成。",
+		blockedAnswerTaskIncomplete + "。",
 		"兜底策略：files.read_no_final",
 		"原因：文件读取已完成，但系统没有生成用户请求的最终回答；不会用原文片段伪装成摘要或答案。",
 	}
@@ -590,7 +590,7 @@ func browserReadFallbackFailure(calls []app.ToolCall) string {
 		}
 	}
 	lines := []string{
-		"任务没有完成。",
+		blockedAnswerTaskIncomplete + "。",
 		"兜底策略：browser.read_no_final",
 		"原因：网页读取已完成，但系统没有生成用户请求的最终回答；不会用页面片段伪装成摘要、查证或结论。",
 	}
@@ -785,17 +785,6 @@ func cleanUserFinalAnswer(answer string) string {
 		return ""
 	}
 	return answer
-}
-
-func isBlockedFinalAnswer(answer string) bool {
-	answer = strings.TrimSpace(answer)
-	lower := strings.ToLower(answer)
-	return strings.HasPrefix(answer, "I could not continue") ||
-		strings.HasPrefix(answer, "Reached the ReAct step limit") ||
-		strings.HasPrefix(answer, "任务没有完成") ||
-		strings.HasPrefix(answer, "无法完成") ||
-		strings.Contains(lower, "waiting for approval") ||
-		strings.Contains(lower, "pending approval")
 }
 
 func shouldPreferModelFinal(goal, answer string) bool {

@@ -42,6 +42,7 @@ import { ScheduleBar } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { useExternalDelivery } from "./hooks/useExternalDelivery";
 import { useSchedules } from "./hooks/useSchedules";
+import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { sortNotificationBindings, isVisibleNotificationBinding } from "./lib/format";
@@ -102,9 +103,6 @@ export function App() {
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState<PanelTab>("timeline");
-  const [editingSession, setEditingSession] = useState("");
-  const [sessionTitleDraft, setSessionTitleDraft] = useState("");
-  const [sessionActionId, setSessionActionId] = useState("");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeMessageStreamRef = useRef<string>("");
 
@@ -210,6 +208,37 @@ export function App() {
     setSchedules(scheduleList.schedules ?? []);
   }, []);
 
+  const {
+    editingSession,
+    sessionTitleDraft,
+    setSessionTitleDraft,
+    sessionActionId,
+    createSession,
+    startRenameSession,
+    cancelRenameSession,
+    renameSession,
+    deleteSession
+  } = useSessionCrud({
+    activeSession,
+    text,
+    setError,
+    setSessions,
+    setActiveSession,
+    setMessages,
+    setDraftsBySession,
+    setAttachmentsBySession,
+    setToolCalls,
+    setModelCalls,
+    setAuditEvents,
+    setEpisodes,
+    setTab,
+    setTraceRun,
+    resetSessionDraft,
+    clearSessionState,
+    refreshSession,
+    refreshGlobal
+  });
+
   useEffect(() => {
     let cancelled = false;
     async function boot() {
@@ -313,25 +342,6 @@ export function App() {
     externallyDisabled: busy || deliveryBusy || externalDeliveryIntent || !activeSession,
     onTranscript: applyVoiceTranscript
   });
-  async function createSession() {
-    try {
-      setError("");
-      const session = await api.createSession();
-      setSessions((current) => [session, ...current]);
-      setActiveSession(session.id);
-      setMessages([]);
-      setAttachmentsBySession((current) => ({ ...current, [session.id]: [] }));
-      resetSessionDraft(session.id);
-      setToolCalls([]);
-      setModelCalls([]);
-      setAuditEvents([]);
-      setEpisodes([]);
-      setTab("timeline");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.createSession);
-    }
-  }
-
   async function send(content = activeInput, sessionId = activeSession) {
     const trimmed = content.trim();
     const attachments = attachmentsBySession[sessionId] ?? [];
@@ -420,61 +430,6 @@ export function App() {
         activeMessageStreamRef.current = "";
       }
       setBusy(false);
-    }
-  }
-
-  function startRenameSession(session: Session) {
-    setEditingSession(session.id);
-    setSessionTitleDraft(session.title);
-  }
-
-  function cancelRenameSession() {
-    setEditingSession("");
-    setSessionTitleDraft("");
-  }
-
-  async function renameSession(id: string) {
-    const title = sessionTitleDraft.trim();
-    if (!title || sessionActionId) return;
-    try {
-      setSessionActionId(id);
-      setError("");
-      const updated = await api.updateSession(id, title);
-      setSessions((current) => current.map((session) => (session.id === id ? updated : session)));
-      cancelRenameSession();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.renameSession);
-    } finally {
-      setSessionActionId("");
-    }
-  }
-
-  async function deleteSession(id: string) {
-    if (sessionActionId || !window.confirm(text.nav.confirmDeleteSession)) return;
-    try {
-      setSessionActionId(id);
-      setError("");
-      await api.deleteSession(id);
-      const sessionList = await api.sessions();
-      let next = id === activeSession ? sessionList.sessions[0] : sessionList.sessions.find((session) => session.id === activeSession);
-      if (!next) next = await api.createSession();
-      setDraftsBySession((current) => {
-        const nextDrafts = { ...current };
-        delete nextDrafts[id];
-        return nextDrafts;
-      });
-      setAttachmentsBySession((current) => omitSession(current, id));
-      clearSessionState(id);
-      setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
-      setActiveSession(next.id);
-      cancelRenameSession();
-      setTraceRun(null);
-      setTab("timeline");
-      await Promise.all([refreshSession(next.id), refreshGlobal()]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.deleteSession);
-    } finally {
-      setSessionActionId("");
     }
   }
 
@@ -725,10 +680,4 @@ export function App() {
       />
     </main>
   );
-}
-
-function omitSession<T>(current: Record<string, T>, sessionId: string) {
-  const next = { ...current };
-  delete next[sessionId];
-  return next;
 }

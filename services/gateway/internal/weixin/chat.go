@@ -94,17 +94,8 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		receivedAt = time.Now().UTC()
 	}
 	receive = receives.Advance(receive, "normalized", "", "")
-	if text != "" && len(inbound.Attachments) == 0 && isClearConversationRequest(text) {
-		err := d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
-		status := "processed"
-		if err != nil {
-			status = "failed"
-		}
-		receives.Advance(receive, status, "", "")
-		return err
-	}
 	if text != "" && len(inbound.Attachments) == 0 {
-		if handled, err := d.handleApprovalReply(ctx, inbound, chatSession, externalID, text, receivedAt); handled || err != nil {
+		if handled, err := d.handleControlText(ctx, inbound, chatSession, externalID, text, receivedAt); handled {
 			status := "processed"
 			if err != nil {
 				status = "failed"
@@ -114,46 +105,9 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		}
 	}
 	if text == "" && len(inbound.Attachments) > 0 {
-		inboundContent := pendingAttachmentContext(inbound.Attachments)
-		inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
-			ID:                retryID,
-			ChatSessionID:     chatSession.ID,
-			BindingID:         inbound.Binding.ID,
-			Direction:         "inbound",
-			Role:              "user",
-			ExternalMessageID: externalID,
-			Content:           inboundContent,
-			ContextToken:      inbound.ContextToken,
-			Status:            "needs_user_instruction",
-			CreatedAt:         receivedAt,
-		})
-		d.store.AddMessage(app.Message{
-			SessionID:   chatSession.LinkedSessionID,
-			Role:        "user",
-			Content:     inboundContent,
-			Attachments: inbound.Attachments,
-			CreatedAt:   receivedAt,
-		})
-		answer := attachmentClarificationPrompt(inbound.Attachments)
-		sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
-		outbound := app.ExternalChatMessage{
-			ChatSessionID: chatSession.ID,
-			BindingID:     inbound.Binding.ID,
-			Direction:     "outbound",
-			Role:          "assistant",
-			Content:       answer,
-			ContextToken:  inbound.ContextToken,
-			Status:        "sent",
-		}
-		if sendErr != nil {
-			outbound.Status = "failed"
-			outbound.Error = sendErr.Error()
-		} else if sendResult.Status != "" {
-			outbound.Status = sendResult.Status
-		}
-		d.store.SaveExternalChatMessage(outbound)
-		receives.Advance(receive, "processed", inboundMsg.ID, "")
-		return sendErr
+		inboundMsgID, err := d.handleAttachmentOnlyInbound(ctx, inbound, chatSession, externalID, retryID, receivedAt)
+		receives.Advance(receive, "processed", inboundMsgID, "")
+		return err
 	}
 	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
 		ID:                retryID,
@@ -219,6 +173,60 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		return d.sendControlResult(ctx, inbound, chatSession, answer, result.Run.ID)
 	}
 	return d.deliverAgentResult(ctx, result, ingress)
+}
+
+// handleControlText intercepts text-only messages that must not reach the
+// agent: clear-conversation commands and replies to a pending approval.
+func (d *Dispatcher) handleControlText(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) (bool, error) {
+	if isClearConversationRequest(text) {
+		return true, d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
+	}
+	handled, err := d.handleApprovalReply(ctx, inbound, chatSession, externalID, text, receivedAt)
+	return handled || err != nil, err
+}
+
+// handleAttachmentOnlyInbound records an attachment-only message as pending
+// context and asks the user what to do with it instead of invoking the agent.
+func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID string, receivedAt time.Time) (string, error) {
+	inboundContent := pendingAttachmentContext(inbound.Attachments)
+	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+		ID:                retryID,
+		ChatSessionID:     chatSession.ID,
+		BindingID:         inbound.Binding.ID,
+		Direction:         "inbound",
+		Role:              "user",
+		ExternalMessageID: externalID,
+		Content:           inboundContent,
+		ContextToken:      inbound.ContextToken,
+		Status:            "needs_user_instruction",
+		CreatedAt:         receivedAt,
+	})
+	d.store.AddMessage(app.Message{
+		SessionID:   chatSession.LinkedSessionID,
+		Role:        "user",
+		Content:     inboundContent,
+		Attachments: inbound.Attachments,
+		CreatedAt:   receivedAt,
+	})
+	answer := attachmentClarificationPrompt(inbound.Attachments)
+	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
+	outbound := app.ExternalChatMessage{
+		ChatSessionID: chatSession.ID,
+		BindingID:     inbound.Binding.ID,
+		Direction:     "outbound",
+		Role:          "assistant",
+		Content:       answer,
+		ContextToken:  inbound.ContextToken,
+		Status:        "sent",
+	}
+	if sendErr != nil {
+		outbound.Status = "failed"
+		outbound.Error = sendErr.Error()
+	} else if sendResult.Status != "" {
+		outbound.Status = sendResult.Status
+	}
+	d.store.SaveExternalChatMessage(outbound)
+	return inboundMsg.ID, sendErr
 }
 
 func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) error {

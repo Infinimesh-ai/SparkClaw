@@ -131,9 +131,13 @@ fi
 
 SPEECH_ENABLED="${SPARKCLAW_SPEECH_ENABLED:-false}"
 if [[ "$SPEECH_ENABLED" == "true" || "$SPEECH_ENABLED" == "1" ]]; then
-  SPEECH_BASE_URL="${SPARKCLAW_SPEECH_BASE_URL:-https://sparkclaw.infinimesh.cloud/asr}"
+  SPEECH_BASE_URL="${SPARKCLAW_SPEECH_BASE_URL:-}"
   SPEECH_MODEL="${SPARKCLAW_SPEECH_MODEL:-sparkclaw-asr}"
   SPEECH_RUNTIME_VERSION="${SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION:-0.24.0}"
+  if [[ -z "$SPEECH_BASE_URL" ]]; then
+    echo "err speech endpoint missing"
+    exit 1
+  fi
   check "speech health" curl --fail --silent --show-error --max-time 5 "$SPEECH_BASE_URL/health"
   check "speech runtime" bash -lc '
     payload="$(curl --fail --silent --show-error --max-time 5 "$1/version")" || exit 1

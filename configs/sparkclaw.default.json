@@ -11,12 +11,12 @@
     }
   },
   "model": {
-    "mock": false,
+    "mock": true,
     "http_timeout_seconds": 300,
     "disable_thinking": true,
     "fast": {
       "name": "sparkclaw-fast",
-      "base_url": "https://sparkclaw.infinimesh.cloud/fast/v1",
+      "base_url": "",
       "model": "sparkclaw-fast",
       "context_tokens": 8192,
       "mtp": true,
@@ -24,7 +24,7 @@
     },
     "deep": {
       "name": "sparkclaw-deep",
-      "base_url": "https://sparkclaw.infinimesh.cloud/deep/v1",
+      "base_url": "",
       "model": "sparkclaw-deep",
       "context_tokens": 12288,
       "mtp": true,
@@ -32,14 +32,14 @@
     },
     "embedding": {
       "name": "sparkclaw-embedding",
-      "base_url": "https://sparkclaw.infinimesh.cloud/embedding/v1",
+      "base_url": "",
       "model": "sparkclaw-embedding",
       "context_tokens": 32768,
       "mtp": false
     },
     "reranker": {
       "name": "sparkclaw-reranker",
-      "base_url": "https://sparkclaw.infinimesh.cloud/reranker/v1",
+      "base_url": "",
       "model": "sparkclaw-reranker",
       "context_tokens": 2048,
       "mtp": false
@@ -53,10 +53,10 @@
     }
   },
   "speech": {
-    "enabled": true,
+    "enabled": false,
     "backend": "openai-http",
-    "base_url": "https://sparkclaw.infinimesh.cloud/asr",
-    "allowed_hosts": ["sparkclaw.infinimesh.cloud"],
+    "base_url": "",
+    "allowed_hosts": [],
     "model": "sparkclaw-asr",
     "default_language": "auto",
     "timeout_seconds": 120,

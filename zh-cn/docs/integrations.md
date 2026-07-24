@@ -49,8 +49,8 @@ POST /api/speech/transcriptions
 ```
 
 Gateway 在调用配置的 allowlisted endpoint 前校验 media type、WAV structure、duration、
-upload size、request ID、session 和 language。默认服务是
-`https://sparkclaw.infinimesh.cloud/asr`，served model 为 `sparkclaw-asr`。
+upload size、request ID、session 和 language。adapter 默认关闭，endpoint 和 allowlist
+默认为空；只有显式配置 service URL、allowed host 和 served model 后才能启用。
 
 WebChat transcript 只插入当前 draft，绝不自动发送。转写不创建 chat message、Agent run、
 Tool Call、approval 或 artifact。audio byte 不保留，audit 只记录有界 metadata 和 outcome。

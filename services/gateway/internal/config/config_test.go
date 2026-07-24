@@ -103,8 +103,8 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if cfg.Speech.Enabled || cfg.Speech.Backend != "disabled" {
 		t.Fatalf("speech should be disabled by default: %#v", cfg.Speech)
 	}
-	if cfg.Speech.BaseURL != "https://sparkclaw.infinimesh.cloud/asr" || cfg.Speech.Model != "sparkclaw-asr" {
-		t.Fatalf("managed speech profile should remain available for explicit enablement: %#v", cfg.Speech)
+	if cfg.Speech.BaseURL != "" || len(cfg.Speech.AllowedHosts) != 0 || cfg.Speech.Model != "sparkclaw-asr" {
+		t.Fatalf("speech endpoint should require explicit configuration: %#v", cfg.Speech)
 	}
 	if cfg.Speech.MaxAudioSeconds != 60 || cfg.Speech.MaxUploadBytes != 3<<20 || cfg.Speech.MaxConcurrency != 1 {
 		t.Fatalf("speech limits missing: %#v", cfg.Speech)
@@ -117,6 +117,43 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	}
 	if cfg.State.Backend != "file" {
 		t.Fatalf("default state backend changed: %#v", cfg.State)
+	}
+}
+
+func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T) {
+	for _, name := range []string{
+		"SPARKCLAW_MODEL_MODE",
+		"SPARKCLAW_FAST_BASE_URL",
+		"SPARKCLAW_DEEP_BASE_URL",
+		"SPARKCLAW_EMBEDDING_BASE_URL",
+		"SPARKCLAW_RERANKER_BASE_URL",
+		"SPARKCLAW_SPEECH_ENABLED",
+		"SPARKCLAW_SPEECH_BASE_URL",
+		"SPARKCLAW_SPEECH_ALLOWED_HOSTS",
+	} {
+		t.Setenv(name, "")
+	}
+
+	configPath := filepath.Join("..", "..", "..", "..", "configs", "sparkclaw.default.json")
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Model.Mock {
+		t.Fatal("repository default config should use mock models")
+	}
+	for name, profile := range map[string]ModelProfile{
+		"fast":      cfg.Model.Fast,
+		"deep":      cfg.Model.Deep,
+		"embedding": cfg.Model.Embedding,
+		"reranker":  cfg.Model.Reranker,
+	} {
+		if profile.BaseURL != "" {
+			t.Fatalf("%s remote endpoint should require explicit configuration: %q", name, profile.BaseURL)
+		}
+	}
+	if cfg.Speech.Enabled || cfg.Speech.BaseURL != "" || len(cfg.Speech.AllowedHosts) != 0 {
+		t.Fatalf("speech remote endpoint should require explicit configuration: %#v", cfg.Speech)
 	}
 }
 
@@ -140,6 +177,10 @@ func TestLoadOptionalFeatureCompatibilityMatrix(t *testing.T) {
 			t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF", "test-entitlement")
 			t.Setenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION", "test-device")
 			t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF", "test-license")
+			if test.speech == "true" {
+				t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "https://speech.example.test/asr")
+				t.Setenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS", "speech.example.test")
+			}
 
 			cfg, err := Load("")
 			if err != nil {
@@ -185,7 +226,7 @@ func TestLoadAppliesSpeechEnvironment(t *testing.T) {
 
 func TestLoadRejectsInsecureOrUnlistedSpeechEndpoint(t *testing.T) {
 	t.Setenv("SPARKCLAW_SPEECH_ENABLED", "true")
-	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "http://sparkclaw.infinimesh.cloud/asr")
+	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "http://speech.example.test/asr")
 	if _, err := Load(""); err == nil {
 		t.Fatal("expected insecure speech URL to be rejected")
 	}

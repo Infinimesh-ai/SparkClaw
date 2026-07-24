@@ -63,8 +63,9 @@ POST /api/speech/transcriptions
 
 Gateway validates media type, WAV structure, duration, upload size, request ID,
 session, and language before calling the configured allowlisted endpoint. The
-default service is `https://sparkclaw.infinimesh.cloud/asr` with served model
-name `sparkclaw-asr`.
+adapter is disabled and its endpoint and allowlist are empty by default. Enable
+it only after explicitly configuring the service URL, allowed host, and served
+model name.
 
 A WebChat transcript is inserted into the current draft and is never sent
 automatically. Transcription does not create a chat message, Agent run, Tool

@@ -532,8 +532,8 @@ func Default() Config {
 		Speech: SpeechConfig{
 			Enabled:         false,
 			Backend:         "openai-http",
-			BaseURL:         "https://sparkclaw.infinimesh.cloud/asr",
-			AllowedHosts:    []string{"sparkclaw.infinimesh.cloud"},
+			BaseURL:         "",
+			AllowedHosts:    nil,
 			Model:           "sparkclaw-asr",
 			DefaultLanguage: "auto",
 			TimeoutSeconds:  120,

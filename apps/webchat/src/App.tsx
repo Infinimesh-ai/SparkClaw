@@ -15,23 +15,17 @@ import {
   Globe2,
   Inbox,
   KeyRound,
-  Languages,
   Library,
   ListChecks,
   Mail,
   MemoryStick,
-  Pencil,
-  Plus,
   RefreshCw,
-  Save,
   ScrollText,
   Send,
   Settings,
   ShieldAlert,
-  Terminal,
   ThumbsDown,
   ThumbsUp,
-  Trash2,
   Upload,
   UserRound,
   X
@@ -64,6 +58,7 @@ import {
 } from "./components/delivery";
 import { VoiceInputButton, VoiceInputStatus } from "./components/VoiceInputButton";
 import { ScheduleBar } from "./components/schedules";
+import { SessionSidebar } from "./components/sidebar";
 import { useExternalDelivery } from "./hooks/useExternalDelivery";
 import { useSchedules } from "./hooks/useSchedules";
 import { useVoiceInput } from "./hooks/useVoiceInput";
@@ -76,7 +71,6 @@ import {
   isBindingPending,
   loadDocumentUsage,
   saveDocumentUsage,
-  shortId,
   sortDocumentsByUsage,
   sortNotificationBindings,
   isVisibleNotificationBinding
@@ -344,9 +338,6 @@ export function App() {
     () => sortDocumentsByUsage(availableDocuments, documentUsage),
     [availableDocuments, documentUsage]
   );
-  const languageLabel = language === "zh" ? "中" : "EN";
-  const nextLanguage = language === "zh" ? "en" : "zh";
-
   const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
     let nextCaret = 0;
     setDraftsBySession((current) => {
@@ -874,97 +865,31 @@ export function App() {
   return (
     <main className={`shell ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
       <div className="connectionBar" aria-hidden="true" />
-      <aside className="sidebar">
-        <div className="brandRow">
-          <div className="brand">
-            <div className="brandMark">
-              <Terminal size={18} />
-            </div>
-            <div>
-              <strong>{text.app.name}</strong>
-              <span>{text.app.tagline}</span>
-            </div>
-          </div>
-          <button className="iconButton subtle" onClick={() => setLanguage(nextLanguage)} title={text.nav.language}>
-            <Languages size={17} />
-            <span>{languageLabel}</span>
-          </button>
-        </div>
-
-        <div className="navStatus">
-          <div className={`statusDot ${ready?.ok ? "ready" : "offline"}`} />
-          <div>
-            <strong>{ready?.ok ? text.nav.ready : text.nav.offline}</strong>
-            <span>{ready ? ready.model_mode : text.topbar.connecting}</span>
-          </div>
-        </div>
-
-        <button className="primaryButton" onClick={() => void createSession()} title={text.nav.newSession}>
-          <Plus size={17} />
-          <span>{text.nav.newSession}</span>
-        </button>
-
-        <dl className="navMetrics">
-          <dt>{text.nav.sessions}</dt>
-          <dd>{sessions.length}</dd>
-          <dt>{text.nav.approvals}</dt>
-          <dd>{pendingApprovals.length}</dd>
-          <dt>{text.nav.memories}</dt>
-          <dd>{pendingCandidates.length}</dd>
-        </dl>
-
-        <div className="sessionList" aria-label={text.nav.sessions}>
-          {sessions.map((session) => (
-            <div className={`sessionItem ${session.id === activeSession ? "active" : ""}`} key={session.id}>
-              {editingSession === session.id ? (
-                <form
-                  className="sessionRenameForm"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void renameSession(session.id);
-                  }}
-                >
-                  <input
-                    aria-label={text.nav.renameSession}
-                    value={sessionTitleDraft}
-                    onChange={(event) => setSessionTitleDraft(event.target.value)}
-                    disabled={sessionActionId === session.id}
-                  />
-                  <button className="miniIconButton" disabled={!sessionTitleDraft.trim() || sessionActionId === session.id} title={text.nav.saveSessionName}>
-                    <Save size={13} />
-                  </button>
-                  <button className="miniIconButton" type="button" onClick={cancelRenameSession} disabled={sessionActionId === session.id} title={text.common.cancel}>
-                    <X size={13} />
-                  </button>
-                </form>
-              ) : (
-                <>
-                  <button
-                    className="sessionSelect"
-                    onClick={() => {
-                      setActiveSession(session.id);
-                      setDeliveryReviewOpen(false);
-                      setTab("timeline");
-                      void refreshSession(session.id);
-                    }}
-                  >
-                    <span>{session.title}</span>
-                    <small>{shortId(session.id)}</small>
-                  </button>
-                  <div className="sessionActions">
-                    <button className="miniIconButton" onClick={() => startRenameSession(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
-                      <Pencil size={13} />
-                    </button>
-                    <button className="miniIconButton dangerIcon" onClick={() => void deleteSession(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      </aside>
+      <SessionSidebar
+        text={text}
+        language={language}
+        ready={ready}
+        sessions={sessions}
+        activeSession={activeSession}
+        pendingApprovalCount={pendingApprovals.length}
+        pendingCandidateCount={pendingCandidates.length}
+        editingSession={editingSession}
+        sessionTitleDraft={sessionTitleDraft}
+        sessionActionId={sessionActionId}
+        onLanguageChange={setLanguage}
+        onCreateSession={() => void createSession()}
+        onSelectSession={(session) => {
+          setActiveSession(session.id);
+          setDeliveryReviewOpen(false);
+          setTab("timeline");
+          void refreshSession(session.id);
+        }}
+        onStartRename={startRenameSession}
+        onCancelRename={cancelRenameSession}
+        onRenameSubmit={(id) => void renameSession(id)}
+        onTitleDraftChange={setSessionTitleDraft}
+        onDeleteSession={(id) => void deleteSession(id)}
+      />
 
       <section className={`workspace ${error ? "hasError" : ""}`}>
         <header className="topbar">

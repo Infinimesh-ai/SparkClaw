@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -395,11 +396,34 @@ func documentPythonBinary() string {
 }
 
 func documentNodeBinary() string {
-	path := findLocalToolPath(filepath.Join(".tools", "node-v24.14.0-darwin-arm64", "bin", "node"))
-	if path != "" {
+	// Optional probe for a repo-local node runtime (any version/platform,
+	// e.g. .tools/node-v24.14.0-darwin-arm64); PATH is the portable fallback.
+	if path := findLocalToolGlob(filepath.Join(".tools", "node-*", "bin", "node")); path != "" {
 		return path
 	}
 	return "node"
+}
+
+// findLocalToolGlob walks up from the working directory like
+// findLocalToolPath, matching a glob pattern instead of an exact path. The
+// lexically greatest match wins so version-suffixed runtimes pick the newest.
+func findLocalToolGlob(pattern string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		matches, err := filepath.Glob(filepath.Join(cwd, pattern))
+		if err == nil && len(matches) > 0 {
+			sort.Sort(sort.Reverse(sort.StringSlice(matches)))
+			return matches[0]
+		}
+		next := filepath.Dir(cwd)
+		if next == cwd {
+			return ""
+		}
+		cwd = next
+	}
 }
 
 func documentNodeModulesPath() string {

@@ -16,7 +16,9 @@ if [ -z "$SPARKCLAW_ROOT" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-export PATH="$SPARKCLAW_ROOT/.tools/node-v24.14.0-darwin-arm64/bin:$SPARKCLAW_ROOT/.tools/go1.25.5/bin:$PATH"
+for tool_bin in "$SPARKCLAW_ROOT"/.tools/node-*/bin "$SPARKCLAW_ROOT"/.tools/go*/bin; do
+  [ -d "$tool_bin" ] && export PATH="$tool_bin:$PATH"
+done
 export GOCACHE="$SPARKCLAW_ROOT/.tools/go-cache"
 export GOMODCACHE="$SPARKCLAW_ROOT/.tools/go-mod-cache"
 

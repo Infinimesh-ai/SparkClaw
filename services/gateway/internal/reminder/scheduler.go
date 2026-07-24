@@ -21,6 +21,10 @@ const (
 	pollInterval   = 10 * time.Second
 	workerCount    = 4
 	jobTimeout     = 5 * time.Minute
+
+	// DefaultMaxDeliveryAttempts backstops a non-positive configured cap so a
+	// permanently retryable publish failure can never reschedule forever.
+	DefaultMaxDeliveryAttempts = 8
 )
 
 // MessagePublisher submits due owner requests to the ordinary Message Runtime.
@@ -29,18 +33,23 @@ type MessagePublisher interface {
 }
 
 type Scheduler struct {
-	store     store.Store
-	schedules *messagecontrol.ScheduleRegistry
-	publisher MessagePublisher
-	now       func() time.Time
-	interval  time.Duration
+	store               store.Store
+	schedules           *messagecontrol.ScheduleRegistry
+	publisher           MessagePublisher
+	now                 func() time.Time
+	interval            time.Duration
+	maxDeliveryAttempts int
 }
 
-func NewMessageScheduler(st store.Store, schedules *messagecontrol.ScheduleRegistry, publisher MessagePublisher) *Scheduler {
+func NewMessageScheduler(st store.Store, schedules *messagecontrol.ScheduleRegistry, publisher MessagePublisher, maxDeliveryAttempts int) *Scheduler {
+	if maxDeliveryAttempts <= 0 {
+		maxDeliveryAttempts = DefaultMaxDeliveryAttempts
+	}
 	return &Scheduler{
 		store: st, schedules: schedules, publisher: publisher,
-		now:      func() time.Time { return time.Now().UTC() },
-		interval: pollInterval,
+		now:                 func() time.Time { return time.Now().UTC() },
+		interval:            pollInterval,
+		maxDeliveryAttempts: maxDeliveryAttempts,
 	}
 }
 
@@ -157,6 +166,11 @@ func (s *Scheduler) rearm(reminderID string, deliveryRecord app.ReminderDelivery
 		}
 		reminder.Status, reminder.DueTime, reminder.DeliveryAttempt, reminder.LastError = "pending", next, 0, ""
 	case deliveryRecord.Status == "failed" && deliveryRecord.RetryState == "retryable":
+		if deliveryRecord.Attempt >= s.maxDeliveryAttempts {
+			// Retries are exhausted: keep the terminal "failed" status the
+			// delivery write already recorded instead of re-arming forever.
+			return
+		}
 		reminder.Status = "pending"
 		reminder.DueTime = now.Add(retryBackoff(deliveryRecord.Attempt))
 	default:

@@ -62,7 +62,7 @@ func TestTimerRunKeepsPollingWhileScheduledMessagesAreSlow(t *testing.T) {
 		saveTestSchedule(t, st, fmt.Sprintf("sched_slow_%d", i), now.Add(-time.Minute), "")
 	}
 	publisher := blockingPublisher{received: make(chan app.MessageEnvelope, workerCount)}
-	scheduler := NewMessageScheduler(st, schedules, publisher)
+	scheduler := NewMessageScheduler(st, schedules, publisher, 0)
 	scheduler.interval = 5 * time.Millisecond
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -96,7 +96,7 @@ func TestSchedulerPublishesEveryDueScheduleThroughMessageRuntime(t *testing.T) {
 	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(_ context.Context, envelope app.MessageEnvelope) error {
 		got = envelope
 		return nil
-	}))
+	}), 0)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())
@@ -118,7 +118,7 @@ func TestCanceledPublicationRemainsLeasedForRecovery(t *testing.T) {
 	saveTestSchedule(t, st, "sched_canceled", due, "")
 	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(ctx context.Context, _ app.MessageEnvelope) error {
 		return ctx.Err()
-	}))
+	}), 0)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	scheduler.Tick(ctx)
@@ -134,7 +134,7 @@ func TestSchedulerKeepsRetryableRuntimeFailurePending(t *testing.T) {
 	saveTestSchedule(t, st, "sched_retry", due, "")
 	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(context.Context, app.MessageEnvelope) error {
 		return retryablePublishError{errors.New("runtime unavailable")}
-	}))
+	}), 0)
 	now := due.Add(time.Minute)
 	scheduler.now = func() time.Time { return now }
 	deliveries := scheduler.Tick(t.Context())
@@ -147,11 +147,41 @@ func TestSchedulerKeepsRetryableRuntimeFailurePending(t *testing.T) {
 	}
 }
 
+func TestSchedulerFailsTerminallyAfterMaxDeliveryAttempts(t *testing.T) {
+	st := store.NewMemoryStore()
+	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	saveTestSchedule(t, st, "sched_exhausted", due, "")
+	publishes := 0
+	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(context.Context, app.MessageEnvelope) error {
+		publishes++
+		return retryablePublishError{errors.New("runtime unavailable")}
+	}), 3)
+	now := due.Add(time.Minute)
+	scheduler.now = func() time.Time { return now }
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		deliveries := scheduler.Tick(t.Context())
+		if len(deliveries) != 1 || deliveries[0].Attempt != attempt || deliveries[0].RetryState != "retryable" {
+			t.Fatalf("attempt %d: unexpected deliveries %#v", attempt, deliveries)
+		}
+		now = now.Add(retryMaxDelay + time.Minute)
+	}
+	exhausted, _ := st.GetReminder("sched_exhausted")
+	if exhausted.Status != "failed" || exhausted.DeliveryAttempt != 3 || exhausted.LastError == "" {
+		t.Fatalf("expected terminal failed reminder after exhausting retries, got %#v", exhausted)
+	}
+
+	now = now.Add(24 * time.Hour)
+	if deliveries := scheduler.Tick(t.Context()); len(deliveries) != 0 || publishes != 3 {
+		t.Fatalf("exhausted reminder was claimed again: deliveries=%#v publishes=%d", deliveries, publishes)
+	}
+}
+
 func TestSchedulerReschedulesRecurringMessage(t *testing.T) {
 	st := store.NewMemoryStore()
 	due := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	saveTestSchedule(t, st, "sched_daily", due, "daily")
-	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(context.Context, app.MessageEnvelope) error { return nil }))
+	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(context.Context, app.MessageEnvelope) error { return nil }), 0)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 
 	deliveries := scheduler.Tick(t.Context())
@@ -168,7 +198,7 @@ func TestSchedulerWithoutMessagePublisherFailsClosed(t *testing.T) {
 	st := store.NewMemoryStore()
 	due := time.Now().UTC().Add(-time.Minute)
 	saveTestSchedule(t, st, "sched_no_publisher", due, "")
-	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), nil)
+	scheduler := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), nil, 0)
 	scheduler.now = func() time.Time { return due.Add(time.Minute) }
 	deliveries := scheduler.Tick(t.Context())
 	if len(deliveries) != 1 || deliveries[0].Status != "failed" || deliveries[0].RetryState != "blocked" {

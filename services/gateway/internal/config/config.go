@@ -134,8 +134,9 @@ type BrowserAutomationToolConfig struct {
 }
 
 type RemindersToolConfig struct {
-	Enabled        bool   `json:"enabled"`
-	DefaultChannel string `json:"defaultChannel"`
+	Enabled             bool   `json:"enabled"`
+	DefaultChannel      string `json:"defaultChannel"`
+	MaxDeliveryAttempts int    `json:"maxDeliveryAttempts"`
 }
 
 type NotificationsToolConfig struct {
@@ -326,7 +327,23 @@ func Load(path string) (Config, error) {
 	if err := normalizeNotificationChannels(&cfg.Tools.Notifications); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeRemindersConfig(&cfg.Tools.Reminders); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// normalizeRemindersConfig backfills a non-positive delivery-attempt cap with
+// the default so a partial tools.reminders section cannot silently make the
+// scheduler retry a failing publish forever.
+func normalizeRemindersConfig(reminders *RemindersToolConfig) error {
+	if reminders.MaxDeliveryAttempts <= 0 {
+		reminders.MaxDeliveryAttempts = Default().Tools.Reminders.MaxDeliveryAttempts
+	}
+	if reminders.MaxDeliveryAttempts > 100 {
+		return errors.New("reminders maxDeliveryAttempts must not exceed 100")
+	}
+	return nil
 }
 
 // validateModelConfig rejects a non-mock model configuration whose core chat
@@ -588,8 +605,9 @@ func Default() Config {
 				Profile:  "default",
 			},
 			Reminders: RemindersToolConfig{
-				Enabled:        true,
-				DefaultChannel: "web",
+				Enabled:             true,
+				DefaultChannel:      "web",
+				MaxDeliveryAttempts: 8,
 			},
 			Notifications: NotificationsToolConfig{
 				Channels: map[string]NotificationChannelConfig{
@@ -945,6 +963,11 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_DEFAULT_CHANNEL"); v != "" {
 		cfg.Tools.Reminders.DefaultChannel = v
+	}
+	if v := os.Getenv("SPARKCLAW_REMINDERS_MAX_DELIVERY_ATTEMPTS"); v != "" {
+		if attempts, err := strconv.Atoi(v); err == nil {
+			cfg.Tools.Reminders.MaxDeliveryAttempts = attempts
+		}
 	}
 	ensureNotificationChannels(&cfg.Tools.Notifications)
 	if v := os.Getenv("SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED"); v != "" {

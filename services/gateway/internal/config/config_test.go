@@ -371,6 +371,30 @@ func TestLoadDoesNotAcceptInfinimeshInfoCredentialsFromJSON(t *testing.T) {
 	}
 }
 
+func TestLoadBoundsReminderDeliveryAttempts(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Reminders.MaxDeliveryAttempts != 8 {
+		t.Fatalf("expected default reminder delivery attempt cap of 8, got %d", cfg.Tools.Reminders.MaxDeliveryAttempts)
+	}
+
+	t.Setenv("SPARKCLAW_REMINDERS_MAX_DELIVERY_ATTEMPTS", "-3")
+	cfg, err = Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Reminders.MaxDeliveryAttempts != 8 {
+		t.Fatalf("expected non-positive cap backfilled to 8, got %d", cfg.Tools.Reminders.MaxDeliveryAttempts)
+	}
+
+	t.Setenv("SPARKCLAW_REMINDERS_MAX_DELIVERY_ATTEMPTS", "101")
+	if _, err := Load(""); err == nil {
+		t.Fatal("expected oversized reminder delivery attempt cap to fail config loading")
+	}
+}
+
 func TestLoadValidatesInfinimeshInfoLimits(t *testing.T) {
 	t.Setenv("SPARKCLAW_INFINIMESH_INFO_TOKEN_BATCH_SIZE", "101")
 	if _, err := Load(""); err == nil {

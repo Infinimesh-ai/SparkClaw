@@ -36,7 +36,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { APIError, api, apiToken, clearAPIToken, openDocumentFile, saveAPIToken, sessionEventsURL, workspaceScreenshotURL } from "./api/client";
+import { api, apiToken, clearAPIToken, openDocumentFile, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Copy as CopyText, Language } from "./i18n";
 import {
@@ -63,7 +63,9 @@ import {
   ExternalPartTray
 } from "./components/delivery";
 import { VoiceInputButton, VoiceInputStatus } from "./components/VoiceInputButton";
-import { ScheduleBar, type ScheduleEditDraft } from "./components/schedules";
+import { ScheduleBar } from "./components/schedules";
+import { useExternalDelivery } from "./hooks/useExternalDelivery";
+import { useSchedules } from "./hooks/useSchedules";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor, VoiceInputState } from "./hooks/useVoiceInput";
 import {
@@ -83,37 +85,27 @@ import type { DocumentUsage } from "./lib/format";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
 import { notificationBindingErrorMessage } from "./lib/bindingError";
 import {
-  deliveryDraftParts,
   deliveryPartIDFromAttachment,
   deliveryPartFromAttachment,
-  emptyExternalDeliveryDraft,
-  endpointsForSoftware,
-  moveDeliveryPart,
-  selectDeliverySoftware,
-  validateDeliveryDraft
+  moveDeliveryPart
 } from "./lib/deliveryDraft";
-import type { ExternalDeliveryDraft } from "./lib/deliveryDraft";
 import type {
   Approval,
   ArtifactObject,
   AuditEvent,
   Client,
-  DeliveryEndpoint,
-  DeliveryPart,
   EpisodeSummary,
   EvalRun,
   Memory,
   MemoryCandidate,
   Message,
   MessageAttachment,
-  MessageDelivery,
   ModelCall,
   NotificationBinding,
   OwnerProfile,
   PublicConfig,
   ReadyStatus,
   RunTrace,
-  Schedule,
   SessionEvent,
   Session,
   Skill,
@@ -154,16 +146,6 @@ export function App() {
   const [documentUsage, setDocumentUsage] = useState<Record<string, DocumentUsage>>(() => loadDocumentUsage());
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
-  const [externalDraftsBySession, setExternalDraftsBySession] = useState<Record<string, ExternalDeliveryDraft>>({});
-  const [deliveryIdempotencyBySession, setDeliveryIdempotencyBySession] = useState<Record<string, string>>({});
-  const [deliveryEndpoints, setDeliveryEndpoints] = useState<DeliveryEndpoint[]>([]);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [scheduleBarOpen, setScheduleBarOpen] = useState(true);
-  const [schedulesRefreshing, setSchedulesRefreshing] = useState(false);
-  const [scheduleBusyId, setScheduleBusyId] = useState("");
-  const [lastDeliveriesBySession, setLastDeliveriesBySession] = useState<Record<string, MessageDelivery>>({});
-  const [deliveryReviewOpen, setDeliveryReviewOpen] = useState(false);
-  const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [isComposingInput, setIsComposingInput] = useState(false);
   const [compositionEndedAt, setCompositionEndedAt] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -183,6 +165,71 @@ export function App() {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
   }, [language]);
+
+  const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";
+  const activeAttachments = activeSession ? attachmentsBySession[activeSession] ?? [] : [];
+
+  const refreshSession = useCallback(async (sessionId: string) => {
+    if (!sessionId) return;
+    const [messageList, callList, modelCallList, auditList, episodeList] = await Promise.all([
+      api.messages(sessionId),
+      api.toolCalls(sessionId),
+      api.modelCalls(sessionId),
+      api.audit(sessionId),
+      api.episodes(sessionId)
+    ]);
+    if (activeMessageStreamRef.current !== sessionId) {
+      setMessages(messageList.messages ?? []);
+    }
+    setToolCalls(callList.tool_calls ?? []);
+    setModelCalls(modelCallList.model_calls ?? []);
+    setAuditEvents(auditList.audit_events ?? []);
+    setEpisodes(episodeList.episodes ?? []);
+  }, []);
+
+  const {
+    schedules,
+    setSchedules,
+    scheduleBarOpen,
+    setScheduleBarOpen,
+    schedulesRefreshing,
+    scheduleBusyId,
+    refreshSchedules,
+    editSchedule,
+    deleteSchedule
+  } = useSchedules({ activeSession, language, text, setError, refreshSession });
+
+  const {
+    deliveryBusy,
+    deliveryReviewOpen,
+    setDeliveryReviewOpen,
+    deliverySoftwareOptions,
+    activeDeliveryCandidates,
+    activeDeliveryEndpoint,
+    activeExternalDraft,
+    externalDeliveryIntent,
+    activeDeliveryValidation,
+    activeLastDelivery,
+    refreshDeliverySurface,
+    updateExternalDraft,
+    chooseDeliverySoftware,
+    selectDeliveryTarget,
+    updateExternalPart,
+    removeExternalPart,
+    openDeliveryReview,
+    confirmExternalDelivery,
+    retryExternalDelivery,
+    resetSessionDraft,
+    clearSessionState
+  } = useExternalDelivery({
+    activeSession,
+    activeInput,
+    activeAttachments,
+    setDraftsBySession,
+    setAttachmentsBySession,
+    setError,
+    deliveryErrorFallback: text.errors.message
+  });
 
   const refreshGlobal = useCallback(async () => {
     const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces, scheduleList] =
@@ -215,91 +262,6 @@ export function App() {
     setTraceList(traces.traces ?? []);
     setSchedules(scheduleList.schedules ?? []);
   }, []);
-
-  const refreshSchedules = useCallback(async () => {
-    try {
-      setSchedulesRefreshing(true);
-      setError("");
-      const result = await api.schedules();
-      setSchedules(result.schedules ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.schedules);
-    } finally {
-      setSchedulesRefreshing(false);
-    }
-  }, [text.errors.schedules]);
-
-  const refreshDeliverySurface = useCallback(async () => {
-    try {
-      const result = await api.deliveryEndpoints();
-      setDeliveryEndpoints(result.endpoints ?? []);
-    } catch {
-      setDeliveryEndpoints([]);
-    }
-  }, []);
-
-  const refreshSession = useCallback(async (sessionId: string) => {
-    if (!sessionId) return;
-    const [messageList, callList, modelCallList, auditList, episodeList] = await Promise.all([
-      api.messages(sessionId),
-      api.toolCalls(sessionId),
-      api.modelCalls(sessionId),
-      api.audit(sessionId),
-      api.episodes(sessionId)
-    ]);
-    if (activeMessageStreamRef.current !== sessionId) {
-      setMessages(messageList.messages ?? []);
-    }
-    setToolCalls(callList.tool_calls ?? []);
-    setModelCalls(modelCallList.model_calls ?? []);
-    setAuditEvents(auditList.audit_events ?? []);
-    setEpisodes(episodeList.episodes ?? []);
-  }, []);
-
-  async function editSchedule(schedule: Schedule, draft: ScheduleEditDraft) {
-    const sessionId = activeSession || schedule.session_id || "";
-    if (!sessionId || scheduleBusyId) return;
-    try {
-      setScheduleBusyId(schedule.id);
-      setError("");
-      const content = language === "zh"
-        ? `编辑定时任务 ${schedule.id}：内容改为“${draft.text.trim()}”，执行时间改为 ${draft.dueTime}（${draft.timezone}），重复规则改为 ${draft.recurrence || "none"}。`
-        : `Edit scheduled task ${schedule.id}: set the request to "${draft.text.trim()}", due time to ${draft.dueTime} (${draft.timezone}), and recurrence to ${draft.recurrence || "none"}.`;
-      const result = await api.scheduleAction(sessionId, content, {
-        operation: "edit", schedule_id: schedule.id, expected_updated_at: schedule.updated_at,
-        text: draft.text.trim(), due_time: draft.dueTime, timezone: draft.timezone.trim(), recurrence: draft.recurrence.trim() || "none"
-      });
-      if (result.run.state === "blocked") throw new Error(result.message.content || text.errors.schedules);
-      await refreshSchedules();
-      if (activeSession) await refreshSession(activeSession);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.schedules);
-      throw err;
-    } finally {
-      setScheduleBusyId("");
-    }
-  }
-
-  async function deleteSchedule(schedule: Schedule) {
-    const sessionId = activeSession || schedule.session_id || "";
-    if (!sessionId || scheduleBusyId) return;
-    try {
-      setScheduleBusyId(schedule.id);
-      setError("");
-      const content = language === "zh" ? `删除定时任务 ${schedule.id}。` : `Delete scheduled task ${schedule.id}.`;
-      const result = await api.scheduleAction(sessionId, content, {
-        operation: "delete", schedule_id: schedule.id, expected_updated_at: schedule.updated_at
-      });
-      if (result.run.state === "blocked") throw new Error(result.message.content || text.errors.schedules);
-      await refreshSchedules();
-      if (activeSession) await refreshSession(activeSession);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.schedules);
-      throw err;
-    } finally {
-      setScheduleBusyId("");
-    }
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -378,29 +340,6 @@ export function App() {
     [notificationBindings]
   );
   const active = sessions.find((session) => session.id === activeSession);
-  const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";
-  const activeAttachments = activeSession ? attachmentsBySession[activeSession] ?? [] : [];
-  const storedExternalDraft = activeSession
-    ? externalDraftsBySession[activeSession] ?? emptyExternalDeliveryDraft()
-    : emptyExternalDeliveryDraft();
-  const activeExternalDraft = { ...storedExternalDraft, software: storedExternalDraft.software ?? "", text: activeInput };
-  const deliverySoftwareOptions = useMemo(() => {
-    const options = new Map<string, string>();
-    for (const endpoint of deliveryEndpoints) {
-      if (endpoint.channel && !options.has(endpoint.channel)) {
-        options.set(endpoint.channel, endpoint.software_display_name || endpoint.channel);
-      }
-    }
-    return [...options].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [deliveryEndpoints]);
-  const activeDeliveryCandidates = useMemo(
-    () => endpointsForSoftware(deliveryEndpoints, activeExternalDraft.software),
-    [deliveryEndpoints, activeExternalDraft.software]
-  );
-  const activeDeliveryEndpoint = activeDeliveryCandidates.find((endpoint) => endpoint.id === activeExternalDraft.endpointId);
-  const externalDeliveryIntent = activeExternalDraft.software !== "";
-  const activeDeliveryValidation = validateDeliveryDraft(activeExternalDraft, activeDeliveryEndpoint);
-  const activeLastDelivery = activeSession ? lastDeliveriesBySession[activeSession] ?? null : null;
   const sortedAvailableDocuments = useMemo(
     () => sortDocumentsByUsage(availableDocuments, documentUsage),
     [availableDocuments, documentUsage]
@@ -445,7 +384,7 @@ export function App() {
       setActiveSession(session.id);
       setMessages([]);
       setAttachmentsBySession((current) => ({ ...current, [session.id]: [] }));
-      setExternalDraftsBySession((current) => ({ ...current, [session.id]: emptyExternalDeliveryDraft() }));
+      resetSessionDraft(session.id);
       setToolCalls([]);
       setModelCalls([]);
       setAuditEvents([]);
@@ -453,138 +392,6 @@ export function App() {
       setTab("timeline");
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.createSession);
-    }
-  }
-
-  function updateExternalDraft(update: (draft: ExternalDeliveryDraft) => ExternalDeliveryDraft) {
-    if (!activeSession) return;
-    setExternalDraftsBySession((current) => ({
-      ...current,
-      [activeSession]: update(current[activeSession] ?? emptyExternalDeliveryDraft())
-    }));
-    setDeliveryIdempotencyBySession((current) => {
-      const next = { ...current };
-      delete next[activeSession];
-      return next;
-    });
-  }
-
-  function chooseDeliverySoftware(software: string) {
-    updateExternalDraft((draft) => {
-      const selected = selectDeliverySoftware(draft, software);
-      return {
-        ...selected,
-        parts: software && draft.parts.length === 0
-          ? activeAttachments.map((attachment) => deliveryPartFromAttachment(deliveryPartIDFromAttachment(attachment), attachment))
-          : draft.parts
-      };
-    });
-    setDeliveryReviewOpen(false);
-  }
-
-  function selectDeliveryTarget(endpointId: string) {
-    updateExternalDraft((draft) => ({
-      ...draft,
-      endpointId,
-      parts: endpointId && draft.parts.length === 0
-        ? activeAttachments.map((attachment) => deliveryPartFromAttachment(deliveryPartIDFromAttachment(attachment), attachment))
-        : draft.parts
-    }));
-    setDeliveryReviewOpen(false);
-  }
-
-  function updateExternalPart(id: string, update: Partial<DeliveryPart>) {
-    updateExternalDraft((draft) => ({
-      ...draft,
-      parts: draft.parts.map((part) => (part.id === id ? { ...part, ...update } : part))
-    }));
-  }
-
-  function removeExternalPart(id: string) {
-    updateExternalDraft((draft) => ({ ...draft, parts: draft.parts.filter((part) => part.id !== id) }));
-    if (!activeSession) return;
-    setAttachmentsBySession((current) => ({
-      ...current,
-      [activeSession]: (current[activeSession] ?? []).filter((attachment) => deliveryPartIDFromAttachment(attachment) !== id)
-    }));
-  }
-
-  function openDeliveryReview() {
-    if (!activeSession || !activeDeliveryValidation.valid || !activeDeliveryEndpoint) return;
-    setDeliveryIdempotencyBySession((current) => ({
-      ...current,
-      [activeSession]: current[activeSession] || `web-${crypto.randomUUID()}`
-    }));
-    setDeliveryReviewOpen(true);
-  }
-
-  async function confirmExternalDelivery() {
-    if (!activeSession || !activeDeliveryEndpoint || !activeDeliveryValidation.valid || deliveryBusy) return;
-    const idempotencyKey = deliveryIdempotencyBySession[activeSession];
-    if (!idempotencyKey) return;
-    try {
-      setDeliveryBusy(true);
-      setError("");
-      const delivery = await api.createDelivery(
-        activeDeliveryEndpoint.id,
-        idempotencyKey,
-        deliveryDraftParts(activeExternalDraft)
-      );
-      setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: delivery }));
-      setExternalDraftsBySession((current) => ({
-        ...current,
-        [activeSession]: emptyExternalDeliveryDraft()
-      }));
-      setDraftsBySession((current) => ({ ...current, [activeSession]: "" }));
-      setAttachmentsBySession((current) => ({ ...current, [activeSession]: [] }));
-      setDeliveryIdempotencyBySession((current) => {
-        const next = { ...current };
-        delete next[activeSession];
-        return next;
-      });
-      setDeliveryReviewOpen(false);
-      await refreshDeliverySurface();
-    } catch (err) {
-      const failed = err instanceof APIError && err.details && typeof err.details === "object"
-        ? (err.details as { delivery?: MessageDelivery }).delivery
-        : undefined;
-      if (failed) {
-        setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: failed }));
-        setDeliveryReviewOpen(false);
-        await refreshDeliverySurface();
-      }
-      setError(err instanceof Error ? err.message : text.errors.message);
-    } finally {
-      setDeliveryBusy(false);
-    }
-  }
-
-  async function retryExternalDelivery() {
-    if (!activeSession || !activeLastDelivery || deliveryBusy) return;
-    try {
-      setDeliveryBusy(true);
-      setError("");
-      const delivery = await api.retryDelivery(activeLastDelivery.id);
-      setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: delivery }));
-      if (delivery.status === "sent") {
-        setExternalDraftsBySession((current) => ({
-          ...current,
-          [activeSession]: emptyExternalDeliveryDraft()
-        }));
-        setDraftsBySession((current) => ({ ...current, [activeSession]: "" }));
-        setAttachmentsBySession((current) => ({ ...current, [activeSession]: [] }));
-        setDeliveryIdempotencyBySession((current) => omitSession(current, activeSession));
-      }
-      await refreshDeliverySurface();
-    } catch (err) {
-      const failed = err instanceof APIError && err.details && typeof err.details === "object"
-        ? (err.details as { delivery?: MessageDelivery }).delivery
-        : undefined;
-      if (failed) setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: failed }));
-      setError(err instanceof Error ? err.message : text.errors.message);
-      await refreshDeliverySurface();
-    } finally {
-      setDeliveryBusy(false);
     }
   }
 
@@ -650,7 +457,7 @@ export function App() {
       const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
       setSessions(sessionList.sessions ?? []);
       setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
-      setExternalDraftsBySession((current) => ({ ...current, [sessionId]: emptyExternalDeliveryDraft() }));
+      resetSessionDraft(sessionId);
     } catch (err) {
       setMessages((current) => current.filter((message) => message.id !== userMessageId && message.id !== assistantMessageId));
       setStreamStatusesByMessage((current) => {
@@ -666,7 +473,7 @@ export function App() {
         const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
         setSessions(sessionList.sessions ?? []);
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
-        setExternalDraftsBySession((current) => ({ ...current, [sessionId]: emptyExternalDeliveryDraft() }));
+        resetSessionDraft(sessionId);
       } catch (fallbackErr) {
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
         setError(fallbackErr instanceof Error ? fallbackErr.message : err instanceof Error ? err.message : text.errors.message);
@@ -830,10 +637,7 @@ export function App() {
         return nextDrafts;
       });
       setAttachmentsBySession((current) => omitSession(current, id));
-      setExternalDraftsBySession((current) => omitSession(current, id));
-      setDeliveryIdempotencyBySession((current) => omitSession(current, id));
-      setLastDeliveriesBySession((current) => omitSession(current, id));
-      setDeliveryReviewOpen(false);
+      clearSessionState(id);
       setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
       setActiveSession(next.id);
       cancelRenameSession();

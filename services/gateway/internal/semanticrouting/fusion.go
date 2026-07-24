@@ -170,5 +170,10 @@ func sortCandidateScores(scores []CandidateScore, value func(CandidateScore) flo
 }
 
 func isMutation(operation app.RouteOperation) bool {
-	return operation == "create" || operation == "edit" || operation == "transform" || operation == "delete" || operation == "interact"
+	switch operation {
+	case app.RouteOperationCreate, app.RouteOperationEdit, app.RouteOperationTransform, app.RouteOperationDelete, app.RouteOperationInteract:
+		return true
+	default:
+		return false
+	}
 }

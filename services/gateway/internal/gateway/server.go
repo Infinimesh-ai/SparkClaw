@@ -51,6 +51,7 @@ type Server struct {
 	store         store.Store
 	tools         *toolhub.ToolHub
 	runtime       agent.Runtime
+	models        modelrouter.Router
 	traces        *trace.Writer
 	artifacts     artifact.Store
 	policies      policy.Engine
@@ -123,6 +124,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		store:     st,
 		tools:     tools,
 		runtime:   runtime,
+		models:    modelrouter.New(cfg),
 		traces:    traces,
 		artifacts: artifacts,
 		policies:  policy.New(cfg),
@@ -539,7 +541,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		system = "You are SparkClaw chat, a local-first model router endpoint. Answer directly and do not claim that tools were executed."
 	}
 	started := time.Now().UTC()
-	result, err := modelrouter.New(s.cfg).ChatWithProfile(r.Context(), profile, system, content)
+	result, err := s.models.ChatWithProfile(r.Context(), profile, system, content)
 	completed := time.Now().UTC()
 	s.store.SaveModelCall(modelCallFromChat("", "", "direct_chat", result, err, started, completed))
 	if err != nil {

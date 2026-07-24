@@ -20,6 +20,10 @@ import (
 
 const browserReadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
+// browserReadDirectClient serves every sessionless direct fetch; the request
+// context supplies the caller's bound, the client timeout is the hard cap.
+var browserReadDirectClient = &http.Client{Timeout: 8 * time.Second}
+
 func (h *ToolHub) browserRead(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	parsed, maxBytes, err := parseBrowserReadArgs(ctx, h, args)
 	if err != nil {
@@ -308,7 +312,6 @@ func (h *ToolHub) addBrowserAuthAudit(typ, sessionID, runID string, metadata bro
 }
 
 func (h *ToolHub) browserReadDirect(ctx context.Context, parsed *url.URL, maxBytes int, metadata browserModeMetadata, sessionID, runID, readMode string, browserSessionErr error) (Result, error) {
-	client := &http.Client{Timeout: 8 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return Result{}, err
@@ -316,7 +319,7 @@ func (h *ToolHub) browserReadDirect(ctx context.Context, parsed *url.URL, maxByt
 	req.Header.Set("User-Agent", browserReadUserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	resp, err := client.Do(req)
+	resp, err := browserReadDirectClient.Do(req)
 	if err != nil {
 		return Result{}, err
 	}

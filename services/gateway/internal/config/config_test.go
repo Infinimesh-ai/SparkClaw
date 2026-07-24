@@ -389,20 +389,20 @@ func TestLoadDefaultsWeixinNotificationToQRProvider(t *testing.T) {
 	if weixin.BaseURL != "https://ilinkai.weixin.qq.com" {
 		t.Fatalf("expected default ilink base URL, got %#v", weixin)
 	}
-	if !weixin.Enabled {
-		t.Fatalf("weixin notification channel should be enabled by default")
+	if weixin.Enabled {
+		t.Fatalf("weixin notification channel must stay opt-in by default")
 	}
 }
 
-func TestLoadAllowsWeixinNotificationToBeExplicitlyDisabled(t *testing.T) {
-	t.Setenv("SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED", "false")
+func TestLoadAllowsWeixinNotificationToBeExplicitlyEnabled(t *testing.T) {
+	t.Setenv("SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED", "true")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Tools.Notifications.Channels["weixin"].Enabled {
-		t.Fatalf("weixin notification channel should honor an explicit disable")
+	if !cfg.Tools.Notifications.Channels["weixin"].Enabled {
+		t.Fatalf("weixin notification channel should honor an explicit enable")
 	}
 }
 

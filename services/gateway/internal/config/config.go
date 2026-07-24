@@ -591,7 +591,7 @@ func Default() Config {
 						MaxPending:         32,
 					},
 					"weixin": {
-						Enabled:    true,
+						Enabled:    false,
 						Provider:   "openclaw-weixin-qr",
 						BaseURL:    "https://ilinkai.weixin.qq.com",
 						CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
@@ -1167,12 +1167,7 @@ func ensureNotificationChannels(cfg *NotificationsToolConfig) {
 		cfg.Channels = map[string]NotificationChannelConfig{}
 	}
 	if _, ok := cfg.Channels["weixin"]; !ok {
-		cfg.Channels["weixin"] = NotificationChannelConfig{
-			Enabled:    true,
-			Provider:   "openclaw-weixin-qr",
-			BaseURL:    "https://ilinkai.weixin.qq.com",
-			CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
-		}
+		cfg.Channels["weixin"] = Default().Tools.Notifications.Channels["weixin"]
 	}
 	if _, ok := cfg.Channels["telegram"]; !ok {
 		cfg.Channels["telegram"] = Default().Tools.Notifications.Channels["telegram"]

@@ -101,7 +101,7 @@
     "notifications": {
       "channels": {
         "weixin": {
-          "enabled": true,
+          "enabled": false,
           "provider": "openclaw-weixin-qr",
           "baseUrl": "https://ilinkai.weixin.qq.com",
           "cdnBaseUrl": "https://novac2c.cdn.weixin.qq.com/c2c"

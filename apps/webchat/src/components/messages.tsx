@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Bot, Check, Download, FileSearch, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
-import { apiToken, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
+import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
 import type { Message, MessageAttachment } from "../api/types";
 import type { Copy, Language } from "../i18n";
@@ -370,12 +370,7 @@ export function WorkspaceScreenshot({ path }: { path: string }) {
   useEffect(() => {
     let cancelled = false;
     let objectURL = "";
-    const headers = apiToken() ? { Authorization: `Bearer ${apiToken()}` } : undefined;
-    fetch(workspaceScreenshotURL(path), { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.blob();
-      })
+    fetchAuthedBlob(workspaceScreenshotURL(path))
       .then((blob) => {
         if (cancelled) return;
         objectURL = URL.createObjectURL(blob);

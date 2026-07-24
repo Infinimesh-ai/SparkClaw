@@ -178,14 +178,20 @@ export function documentFileURL(path: string, sessionId = "") {
   return new URL(route, new URL(API_BASE, window.location.origin)).toString();
 }
 
-export async function fetchDocumentFile(path: string, sessionId = "", signal?: AbortSignal) {
+// Shared fetch for binary endpoints (documents, screenshots) that need the
+// same bearer-token handling as JSON requests.
+export async function fetchAuthedBlob(url: string, signal?: AbortSignal) {
   const token = apiToken();
-  const response = await fetch(documentFileURL(path, sessionId), {
+  const response = await fetch(url, {
     signal,
     headers: token ? { Authorization: `Bearer ${token}` } : undefined
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.blob();
+}
+
+export function fetchDocumentFile(path: string, sessionId = "", signal?: AbortSignal) {
+  return fetchAuthedBlob(documentFileURL(path, sessionId), signal);
 }
 
 export async function openDocumentFile(path: string, sessionId = "") {

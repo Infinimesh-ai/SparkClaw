@@ -320,10 +320,29 @@ func Load(path string) (Config, error) {
 	if err := normalizeSpeechConfig(&cfg.Speech); err != nil {
 		return Config{}, err
 	}
+	if err := validateModelConfig(&cfg.Model); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeNotificationChannels(&cfg.Tools.Notifications); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// validateModelConfig rejects a non-mock model configuration whose core chat
+// profiles have no endpoint, so a missing base_url fails at load time instead
+// of at the first model call.
+func validateModelConfig(model *ModelConfig) error {
+	if model.Mock {
+		return nil
+	}
+	if strings.TrimSpace(model.Fast.BaseURL) == "" {
+		return errors.New("model.fast.base_url is required when model.mock is false (set it in config or SPARKCLAW_FAST_BASE_URL)")
+	}
+	if strings.TrimSpace(model.Deep.BaseURL) == "" {
+		return errors.New("model.deep.base_url is required when model.mock is false (set it in config or SPARKCLAW_DEEP_BASE_URL)")
+	}
+	return nil
 }
 
 // normalizeRuntimeLimits backfills non-positive ReAct budgets with the

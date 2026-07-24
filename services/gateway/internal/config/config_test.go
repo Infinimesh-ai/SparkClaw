@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -403,6 +404,32 @@ func TestLoadAllowsWeixinNotificationToBeExplicitlyEnabled(t *testing.T) {
 	}
 	if !cfg.Tools.Notifications.Channels["weixin"].Enabled {
 		t.Fatalf("weixin notification channel should honor an explicit enable")
+	}
+}
+
+func TestLoadRejectsExternalModelModeWithoutBaseURLs(t *testing.T) {
+	// Mirrors the shipped sparkclaw.default.json after 7d0653f: mock mode
+	// with the fast/deep endpoints blanked out.
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw := `{"model":{"mock":false,"fast":{"base_url":""},"deep":{"base_url":""}}}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "model.fast.base_url") {
+		t.Fatalf("expected load-time error about missing fast base_url, got %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_FAST_BASE_URL", "http://127.0.0.1:8000")
+	_, err = Load(path)
+	if err == nil || !strings.Contains(err.Error(), "model.deep.base_url") {
+		t.Fatalf("expected load-time error about missing deep base_url, got %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_DEEP_BASE_URL", "http://127.0.0.1:8001")
+	if _, err = Load(path); err != nil {
+		t.Fatalf("expected external mode with both base URLs to load, got %v", err)
 	}
 }
 

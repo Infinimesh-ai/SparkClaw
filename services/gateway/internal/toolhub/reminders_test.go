@@ -42,7 +42,9 @@ func TestRemindersCreateListCancel(t *testing.T) {
 		t.Fatalf("expected one reminder, got %#v", listOut)
 	}
 
-	canceled, err := hub.Execute(t.Context(), "reminders.cancel", map[string]any{"reminder_id": id}, session.ID, "r1")
+	canceled, err := hub.Execute(t.Context(), "reminders.cancel", map[string]any{
+		"reminder_id": id, "expected_updated_at": out["updated_at"],
+	}, session.ID, "r1")
 	if err != nil {
 		t.Fatalf("cancel reminder: %v", err)
 	}
@@ -52,23 +54,69 @@ func TestRemindersCreateListCancel(t *testing.T) {
 	}
 }
 
-func TestRemindersCreatePersistsRequestSchedule(t *testing.T) {
+func TestRemindersCreatePersistsRuntimeSchedule(t *testing.T) {
 	st := store.NewMemoryStore()
 	session := st.CreateSession("Scheduled browser request")
 	hub := New(config.Default(), st)
 	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
 		"text": "search tomorrow's weather", "due_time": "2026-07-18T09:00:00+08:00",
-		"payload_mode": "request", "expected_capability": "browser.search",
 	}, session.ID, "run_schedule")
 	if err != nil {
 		t.Fatal(err)
 	}
 	reminder, ok := st.GetReminder(created.Output.(map[string]any)["reminder_id"].(string))
 	if !ok || reminder.ScheduleSpec == nil {
-		t.Fatalf("request schedule was not persisted: %#v", reminder)
+		t.Fatalf("runtime schedule was not persisted: %#v", reminder)
 	}
-	if reminder.ScheduleSpec.Payload.Mode != app.SchedulePayloadRequest || reminder.ScheduleSpec.ExpectedCapabilityPath[0] != "browser.search" {
-		t.Fatalf("unexpected request schedule: %#v", reminder.ScheduleSpec)
+	if reminder.ScheduleSpec.SchemaVersion != app.ScheduleSpecSchemaVersion || reminder.ScheduleSpec.Payload.Content.Parts[0].Text != "search tomorrow's weather" {
+		t.Fatalf("unexpected runtime schedule: %#v", reminder.ScheduleSpec)
+	}
+}
+
+func TestRemindersListIgnoresRemovedLegacyScheduleSchema(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSession("Schedule schema cutoff")
+	now := time.Now().UTC()
+	st.SaveReminder(app.Reminder{
+		ID: "legacy-reminder", SessionID: session.ID, Text: "old literal payload", DueTime: now.Add(time.Hour),
+		Status: "pending", CreatedAt: now, UpdatedAt: now,
+		ScheduleSpec: &app.ScheduleSpec{SchemaVersion: app.ScheduleSpecSchemaVersion - 1},
+	})
+	hub := New(config.Default(), st)
+	listed, err := hub.Execute(t.Context(), "reminders.list", map[string]any{"status": "pending"}, session.ID, "run_list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := listed.Output.(map[string]any)
+	if out["count"] != 0 {
+		t.Fatalf("removed legacy schema must not be manageable: %#v", out)
+	}
+}
+
+func TestRemindersUpdateRejectsStaleListVersion(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSession("Schedule edit")
+	hub := New(config.Default(), st)
+	created, err := hub.Execute(t.Context(), "reminders.create", map[string]any{
+		"text": "first", "due_time": "2026-07-18T09:00:00+08:00",
+	}, session.ID, "run_create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := created.Output.(map[string]any)
+	args := map[string]any{
+		"reminder_id": out["reminder_id"], "expected_updated_at": out["updated_at"], "text": "second",
+	}
+	updated, err := hub.Execute(t.Context(), "reminders.update", args, session.ID, "run_update")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Output.(map[string]any)["text"] != "second" {
+		t.Fatalf("unexpected update output: %#v", updated.Output)
+	}
+	args["text"] = "stale overwrite"
+	if _, err := hub.Execute(t.Context(), "reminders.update", args, session.ID, "run_stale"); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("expected stale update conflict, got %v", err)
 	}
 }
 

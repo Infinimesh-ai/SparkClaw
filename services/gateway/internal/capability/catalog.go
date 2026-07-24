@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-21.v6"
+	DefaultCatalogRevision = "2026-07-23.v8"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -118,6 +118,10 @@ func DefaultCatalog() (Catalog, error) {
 	}
 	return NewCatalog(DefaultCatalogRevision, []Node{
 		branch(string(RootID), "", "Registered user-visible product capabilities."),
+		branch("conversation", string(RootID), "Answer simple questions that need no tools or external evidence."),
+		leaf(string(app.CapabilityConversationAnswer), "conversation", "Answer greetings, stable common knowledge, and simple explanations using only the owner request and conversation context. Current facts, workspace evidence, tools, and actions belong to other capabilities.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationAnswer}, RequireQuery: true,
+		}),
 		branch("browser", string(RootID), "Use current Internet facts, a single-location weather card, or a managed browser session."),
 		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSearch}, FactScopes: []app.RouteFactScope{app.RouteFactScopeCurrentInternet}, RequireQuery: true,
@@ -140,7 +144,7 @@ func DefaultCatalog() (Catalog, error) {
 			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),
-		leaf(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", RouteContract{
+		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationCreate, app.RouteOperationRead, app.RouteOperationEdit, app.RouteOperationDelete}, RequireQuery: true,
 		}),
 	})

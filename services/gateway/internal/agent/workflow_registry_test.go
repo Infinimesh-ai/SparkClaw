@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 )
 
 func assertNoLegacyRoutingAudit(t *testing.T, events []app.AuditEvent) {
@@ -24,6 +26,7 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 		decision app.RouteDecision
 		want     app.WorkflowID
 	}{
+		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"conversation", app.CapabilityConversationAnswer}, Slots: app.RouteSlots{Operation: app.RouteOperationAnswer, Query: "hello"}}, app.WorkflowConversationAnswer},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch}, Slots: app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "test"}}, app.WorkflowBrowserInternetSearch},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather}, Slots: app.RouteSlots{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: "今天杭州天气", TargetKind: string(app.TargetKindLocation), TargetRef: "杭州", Location: "杭州"}, Facts: map[string]string{"location_source": "current_turn"}}, app.WorkflowBrowserWeather},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation}, Slots: app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com/"}, Facts: map[string]string{"url": "https://example.com/"}}, app.WorkflowBrowserAutomation},
@@ -64,96 +67,121 @@ func TestWorkflowRegistryRejectsStaleInventedAndUnmatchedRoutes(t *testing.T) {
 	}
 }
 
-func TestRouteDecisionParserRejectsToolAndWorkflowFields(t *testing.T) {
+func TestWorkflowSemanticGraphIsCatalogValidatedAndCoversScheduleVariants(t *testing.T) {
+	catalog := capability.MustDefaultCatalog()
+	graph, err := defaultWorkflowProfileRegistry().SemanticGraph(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted := map[string]app.RouteOperation{
+		"schedule.manage#create": app.RouteOperationCreate,
+		"schedule.manage#read":   app.RouteOperationRead,
+		"schedule.manage#edit":   app.RouteOperationEdit,
+		"schedule.manage#delete": app.RouteOperationDelete,
+	}
+	for _, candidate := range graph.Candidates() {
+		want, ok := wanted[candidate.ID]
+		if !ok {
+			continue
+		}
+		if candidate.Route.Operation != want || len(candidate.CapabilityPath) != 2 || candidate.CapabilityPath[1] != app.CapabilityScheduleManage {
+			t.Fatalf("schedule candidate %q is not Catalog-grounded: %#v", candidate.ID, candidate)
+		}
+		delete(wanted, candidate.ID)
+	}
+	if len(wanted) != 0 {
+		t.Fatalf("semantic graph is missing schedule variants: %#v", wanted)
+	}
+	if candidate, ok := graph.Candidate("conversation.answer#answer"); !ok || candidate.Route.Operation != app.RouteOperationAnswer {
+		t.Fatal("semantic graph is missing the timer-eligible conversation candidate")
+	}
+}
+
+func TestFastGraphProjectionCarriesProfileEmbeddingAndTreeSemantics(t *testing.T) {
+	graph, err := defaultWorkflowProfileRegistry().SemanticGraph(capability.MustDefaultCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, ok := graph.Candidate("schedule.manage#edit")
+	if !ok {
+		t.Fatal("schedule edit semantic candidate is missing")
+	}
+	projected := treeGraphProjection([]semanticrouting.Candidate{candidate})
+	if len(projected) != 1 {
+		t.Fatalf("projection count=%d want 1", len(projected))
+	}
+	path, pathOK := projected[0]["capability_path"].([]app.CapabilityID)
+	embedTexts, embedOK := projected[0]["positive_semantics"].([]string)
+	hardNegatives, negativeOK := projected[0]["hard_negatives"].([]string)
+	if !pathOK || !slices.Equal(path, candidate.CapabilityPath) {
+		t.Fatalf("Tree projection lost the Catalog-owned domain path: %#v", projected[0])
+	}
+	if !embedOK || !slices.Equal(embedTexts, candidate.EmbedTexts) {
+		t.Fatalf("Tree projection lost embedding examples: %#v", projected[0])
+	}
+	if projected[0]["semantic_boundary"] != candidate.TreeDescription {
+		t.Fatalf("Tree projection lost tree reasoning text: %#v", projected[0])
+	}
+	if !negativeOK || !slices.Equal(hardNegatives, candidate.HardNegatives) {
+		t.Fatalf("Tree projection lost sibling hard negatives: %#v", projected[0])
+	}
+}
+
+func TestTreeCandidateParserRejectsFieldsOutsideScoreContract(t *testing.T) {
 	for _, raw := range []string{
-		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"revision","capability_path":["browser","browser.internet_search"],"tool":"web.search"},"delivery":{"explicit_external":false}}`,
-		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"revision","capability_path":["browser","browser.internet_search"],"workflow_id":"browser.internet_search"},"delivery":{"explicit_external":false}}`,
-		`{"route":{"schema_version":1,"status":"unmatched","catalog_revision":"revision"},"delivery":{"explicit_external":true,"endpoint_id":"endpoint_model_chosen"}}`,
+		`{"graph_revision":"revision","candidates":[],"route":{}}`,
+		`{"graph_revision":"revision","candidates":[{"candidate_id":"x#read","tree_score":0.9,"reason_code":"x"}]}`,
+		`{"graph_revision":"revision","candidates":[{"candidate_id":"x#read","tree_score":0.9,"workflow_id":"x"}]}`,
+		`{"graph_revision":"revision","candidates":[{"candidate_id":"x#read","tree_score":0.9,"tool":"web.search"}]}`,
 	} {
-		if _, err := parseIntentRoutingOutput(raw); err == nil {
+		if _, err := parseTreeRoutingOutput(raw); err == nil {
 			t.Fatalf("forbidden routing field was accepted: %s", raw)
 		}
 	}
 }
 
-func TestFastRouteCannotRewriteDeterministicFacts(t *testing.T) {
-	catalog := capability.MustDefaultCatalog()
-	runtime := Runtime{capabilities: catalog}
-	fallback := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
-		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation},
-		Slots:          app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com/allowed"},
-		Facts:          map[string]string{"url": "https://example.com/allowed"}, Confidence: 0.8,
-	}
-	candidate := fallback
-	candidate.Facts = map[string]string{"url": "https://attacker.example/rewritten"}
-	candidate.Slots.TargetRef = "https://attacker.example/rewritten"
-	normalized, err := runtime.normalizeFastRoute(candidate, fallback, "open https://example.com/allowed")
+func TestTreeCandidateParserFindsStrictObjectAfterMalformedProse(t *testing.T) {
+	raw := "I first considered {not-json}, then returned:\n```json\n" +
+		`{"graph_revision":"revision","candidates":[{"candidate_id":"conversation.answer#answer","tree_score":0.9}]}` +
+		"\n```"
+	decision, err := parseTreeRoutingOutput(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if normalized.Facts["url"] != fallback.Facts["url"] || normalized.Slots.TargetRef != fallback.Facts["url"] {
-		t.Fatalf("Fast route rewrote deterministic URL: %#v", normalized)
+	if decision.GraphRevision != "revision" || len(decision.Candidates) != 1 || decision.Candidates[0].CandidateID != "conversation.answer#answer" {
+		t.Fatalf("strict routing object was not extracted intact: %#v", decision)
 	}
 }
 
-func TestFastRouteCanSelectToolNeutralSemanticLeafButCannotRewriteQuery(t *testing.T) {
+func TestTreeCandidateValidationRejectsInvalidOutput(t *testing.T) {
 	catalog := capability.MustDefaultCatalog()
-	runtime := Runtime{capabilities: catalog}
-	fallback := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: catalog.Revision(),
-		Confidence: 0.8, Reason: "no deterministic profile matched",
-	}
-	candidate := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
-		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch},
-		Slots: app.RouteSlots{
-			Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model-rewritten query",
-			Location: "China", TargetKind: "commodity", TargetRef: "gold", TargetRefs: []string{"gold"}, OutputRef: "quote", Format: "text",
-		},
-		Facts:      map[string]string{"asset": "gold"},
-		Confidence: 0.95,
-	}
-	ownerText := "现在的金价是多少"
-	normalized, err := runtime.normalizeFastRoute(candidate, fallback, ownerText)
+	graph, err := defaultWorkflowProfileRegistry().SemanticGraph(catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if normalized.CapabilityPath[1] != app.CapabilityBrowserInternetSearch || normalized.Slots.Query != ownerText || normalized.Slots.FactScope != app.RouteFactScopeCurrentInternet ||
-		normalized.Slots.Location != "" || normalized.Slots.TargetKind != "" || normalized.Slots.TargetRef != "" || len(normalized.Slots.TargetRefs) != 0 ||
-		normalized.Slots.OutputRef != "" || normalized.Slots.Format != "" || len(normalized.Facts) != 0 {
-		t.Fatalf("Fast semantic route was not normalized into the registered live-fact leaf: %#v", normalized)
+	eligible := graph.EligibleCandidates(app.MessageSourceWeb)
+	valid := treeRoutingCandidate{CandidateID: eligible[0].ID, TreeScore: testTreeScore(0.9)}
+	tests := []treeRoutingOutput{
+		{GraphRevision: "stale", Candidates: []treeRoutingCandidate{valid}},
+		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{{CandidateID: "unknown#candidate", TreeScore: testTreeScore(0.9)}}},
+		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{valid, valid}},
+		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{{CandidateID: eligible[0].ID}}},
+		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{{CandidateID: eligible[0].ID, TreeScore: testTreeScore(1.1)}}},
+		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{valid, {CandidateID: eligible[1].ID, TreeScore: testTreeScore(0.8)}}},
+	}
+	for index, output := range tests {
+		topK := 6
+		if index == len(tests)-1 {
+			topK = 1
+		}
+		if err := validateTreeRoutingOutput(output, graph.Revision(), eligible, topK); err == nil {
+			t.Fatalf("invalid Tree output %d was accepted: %#v", index, output)
+		}
 	}
 }
 
-func TestFastRouteCannotInventWeatherLocationOrResourceLeaf(t *testing.T) {
-	catalog := capability.MustDefaultCatalog()
-	runtime := Runtime{capabilities: catalog}
-	fallback := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
-		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather},
-		Slots:          app.RouteSlots{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: "杭州今天天气怎么样", TargetKind: string(app.TargetKindLocation), TargetRef: "杭州", Location: "杭州"},
-		Facts:          map[string]string{"location_source": "current_turn"},
-	}
-	weather := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
-		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather},
-		Slots:          app.RouteSlots{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: "上海今天天气怎么样", TargetKind: string(app.TargetKindLocation), TargetRef: "上海", Location: "上海"},
-		Facts:          map[string]string{"location_source": "current_turn"},
-	}
-	normalized, err := runtime.normalizeFastRoute(weather, fallback, "杭州今天天气怎么样")
-	if err != nil || normalized.Slots.TargetRef != "杭州" || normalized.Slots.Location != "杭州" || normalized.Slots.Query != fallback.Slots.Query {
-		t.Fatalf("Fast rewrote the deterministic weather resource: normalized=%#v err=%v", normalized, err)
-	}
-	automation := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
-		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation},
-		Slots:          app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com"}, Facts: map[string]string{"url": "https://example.com"},
-	}
-	unmatched := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: catalog.Revision()}
-	if _, err := runtime.normalizeFastRoute(automation, unmatched, "open the site"); err == nil || !strings.Contains(err.Error(), "deterministic") {
-		t.Fatalf("Fast invented a resource-bound route: %v", err)
-	}
+func testTreeScore(score float64) *float64 {
+	return &score
 }
 
 func TestLegacyWorkflowIdentityFailsClosedInsteadOfBeingReinterpreted(t *testing.T) {
@@ -189,8 +217,8 @@ func TestWorkflowPlanRejectsScopedCapabilityWithoutStageExposure(t *testing.T) {
 
 	intent, plan = resolve()
 	for index := range plan.Nodes[0].StageCapabilities {
-		if plan.Nodes[0].StageCapabilities[index].Stage == "close_opened_tab" {
-			plan.Nodes[0].StageCapabilities[index].Capabilities = []string{app.ToolCapabilityBrowserOpen}
+		if plan.Nodes[0].StageCapabilities[index].Stage == "open_new" {
+			plan.Nodes[0].StageCapabilities[index].Capabilities = []string{app.ToolCapabilityBrowserFocus}
 		}
 	}
 	if err := validateWorkflowPlan(intent, profile, plan); err == nil || !strings.Contains(err.Error(), "no stage exposes") {
@@ -222,14 +250,14 @@ type futureWorkflowProfile struct{}
 func (futureWorkflowProfile) ID() app.WorkflowID           { return "future.translate" }
 func (futureWorkflowProfile) Revision() int                { return 1 }
 func (futureWorkflowProfile) Capability() app.CapabilityID { return "future.translate" }
+func (futureWorkflowProfile) RoutingSemantics() workflowRoutingSemantics {
+	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
+		Key: "translate", Route: workflowRouteTemplate{Operation: "translate"},
+		EmbedTexts: []string{"translate this"}, TreeDescription: "Translate one supplied passage.",
+	}}}
+}
 func (futureWorkflowProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
-}
-func (futureWorkflowProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	if input.Content != "translate this" {
-		return workflowRecognition{}, false
-	}
-	return workflowRecognition{Slots: app.RouteSlots{Operation: "translate", Query: input.Content}, Confidence: 1}, true
 }
 func (p futureWorkflowProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperation("translate"), app.TargetRef{Kind: app.TargetKindNone}, app.DataScopePublic)
@@ -251,7 +279,7 @@ func (futureWorkflowProfile) TransitionInstruction(app.ToolOutcome, app.NodeAsse
 	return ""
 }
 
-func TestWorkflowRecognitionRoutesFutureRegistrationWithoutCoreSwitch(t *testing.T) {
+func TestWorkflowSemanticGraphRoutesFutureRegistrationWithoutCoreSwitch(t *testing.T) {
 	workflow := app.WorkflowContractRef{ID: "future.translate", Revision: 1}
 	catalog, err := capability.NewCatalog("future", []capability.Node{
 		{ID: capability.RootID, Kind: capability.NodeBranch, Description: "root"},
@@ -263,10 +291,16 @@ func TestWorkflowRecognitionRoutesFutureRegistrationWithoutCoreSwitch(t *testing
 		t.Fatal(err)
 	}
 	registry := newWorkflowProfileRegistry(futureWorkflowProfile{})
-	decision, err := registry.Recognize(catalog, workflowRecognitionContext{SourceTurnID: "turn", Content: "translate this"})
-	if err != nil || decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != "future.translate" {
-		t.Fatalf("future workflow was not recognized through registrations: %#v %v", decision, err)
+	graph, err := registry.SemanticGraph(catalog)
+	if err != nil {
+		t.Fatal(err)
 	}
+	candidate, ok := graph.Candidate("future.translate#translate")
+	if !ok || len(candidate.CapabilityPath) != 2 || candidate.CapabilityPath[1] != "future.translate" {
+		t.Fatalf("future workflow was not compiled through registrations: %#v", candidate)
+	}
+	decision := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: candidate.CapabilityPath, Slots: app.RouteSlots{Operation: candidate.Route.Operation, Query: "translate this"}}
 	if _, err := registry.Resolve(catalog, decision, "turn"); err != nil {
 		t.Fatalf("future workflow was not resolved generically: %v", err)
 	}

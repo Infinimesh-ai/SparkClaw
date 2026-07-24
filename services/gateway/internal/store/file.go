@@ -289,6 +289,14 @@ func (s *FileStore) SaveReminder(reminder app.Reminder) app.Reminder {
 	return out
 }
 
+func (s *FileStore) UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+	out, err := s.inner.UpdatePendingReminder(reminder, expectedUpdatedAt)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
+}
+
 func (s *FileStore) GetReminder(id string) (app.Reminder, bool) {
 	return s.inner.GetReminder(id)
 }

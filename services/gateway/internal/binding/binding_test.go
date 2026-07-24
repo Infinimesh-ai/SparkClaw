@@ -58,6 +58,9 @@ func TestWeixinQRAdapterStartAndPoll(t *testing.T) {
 	if started.Status != "waiting_scan" || started.QRCodeURL == "" || started.ProviderSessionID != "qr-session" {
 		t.Fatalf("unexpected started binding: %#v", started)
 	}
+	if len(started.Scopes) != 2 || started.Scopes[0] != app.BindingScopeReminderSendSelf || started.Scopes[1] != app.BindingScopeMessageSendSelf {
+		t.Fatalf("binding did not default to all messaging scopes: %#v", started.Scopes)
+	}
 	if started.ExpiresAt == nil || started.ExpiresAt.Sub(started.CreatedAt) < 360*24*time.Hour {
 		t.Fatalf("binding QR session should stay valid for about one year, got created=%s expires=%v", started.CreatedAt, started.ExpiresAt)
 	}

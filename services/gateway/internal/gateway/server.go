@@ -35,6 +35,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -60,6 +61,7 @@ type Server struct {
 	delivery      *delivery.Gateway
 	endpoints     *messagecontrol.EndpointRegistry
 	providers     *delivery.ProviderRegistry
+	bridge        *iscpbridge.GatewayAdapter
 	deliveryMu    sync.Mutex
 	bindingsSet   bool
 	mux           *http.ServeMux
@@ -136,6 +138,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 	for _, option := range options {
 		option(s)
 	}
+	s.bridge = iscpbridge.NewGatewayAdapter(st, func() iscpbridge.AgentRuntime { return s.runtime })
 	if !s.bindingsSet {
 		s.bindings = binding.NewRouter(cfg, s.credentials)
 	}
@@ -189,6 +192,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.postMessage)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events/stream", s.streamSessionEvents)
+	s.mux.HandleFunc("POST /api/bridge/v1/dispatch", s.dispatchBridgeRequest)
 	s.mux.HandleFunc("GET /api/sessions/{id}/model-calls", s.listSessionModelCalls)
 	s.mux.HandleFunc("GET /api/sessions/{id}/tool-calls", s.listSessionToolCalls)
 	s.mux.HandleFunc("GET /api/sessions/{id}/audit", s.listSessionAudit)
@@ -658,10 +662,9 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var input struct {
-		Scopes            []string `json:"scopes"`
-		DefaultForChannel bool     `json:"default_for_channel"`
-		CredentialSecret  string   `json:"credential_secret"`
-		BotToken          string   `json:"bot_token"`
+		DefaultForChannel bool   `json:"default_for_channel"`
+		CredentialSecret  string `json:"credential_secret"`
+		BotToken          string `json:"bot_token"`
 	}
 	if r.Body != nil && r.Body != http.NoBody {
 		r.Body = http.MaxBytesReader(w, r.Body, 4096)
@@ -675,9 +678,6 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		writeError(w, connectorStartStatus(capability.DisabledReason), &binding.BindingError{Code: capability.DisabledReason})
 		return
 	}
-	if len(input.Scopes) == 0 {
-		input.Scopes = []string{"reminder_send_self"}
-	}
 	now := time.Now().UTC()
 	principal := principalForRequest(r)
 	pendingBinding := app.NotificationBinding{
@@ -687,7 +687,7 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 		Channel:           channel,
 		Status:            "waiting_scan",
 		DefaultForChannel: input.DefaultForChannel,
-		Scopes:            input.Scopes,
+		Scopes:            app.DefaultMessagingBindingScopes(),
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
@@ -874,6 +874,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Content     string                    `json:"content"`
 		Attachments []agent.MessageAttachment `json:"attachments"`
+		Schedule    *scheduleActionInput      `json:"schedule_action,omitempty"`
 	}
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -883,12 +884,35 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
-	result, err := s.runtime.HandleMessageWithAttachments(r.Context(), sessionID, input.Content, sanitizeMessageAttachments(input.Attachments))
+	var result agent.Result
+	var err error
+	if input.Schedule != nil {
+		result, err = s.runtime.HandleScheduleAction(r.Context(), sessionID, input.Content, input.Schedule.agentAction())
+	} else {
+		result, err = s.runtime.HandleMessageWithAttachments(r.Context(), sessionID, input.Content, sanitizeMessageAttachments(input.Attachments))
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
+}
+
+type scheduleActionInput struct {
+	Operation         app.RouteOperation `json:"operation"`
+	ScheduleID        string             `json:"schedule_id"`
+	ExpectedUpdatedAt string             `json:"expected_updated_at"`
+	Text              *string            `json:"text,omitempty"`
+	DueTime           *string            `json:"due_time,omitempty"`
+	Timezone          *string            `json:"timezone,omitempty"`
+	Recurrence        *string            `json:"recurrence,omitempty"`
+}
+
+func (input scheduleActionInput) agentAction() agent.ScheduleAction {
+	return agent.ScheduleAction{
+		Operation: input.Operation, ScheduleID: input.ScheduleID, ExpectedUpdatedAt: input.ExpectedUpdatedAt,
+		Text: input.Text, DueTime: input.DueTime, Timezone: input.Timezone, Recurrence: input.Recurrence,
+	}
 }
 
 func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
@@ -2405,8 +2429,10 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 	return map[string]any{
 		"browserAutomation": map[string]any{
-			"node_command": cfg.BrowserAutomation.NodeCommand,
-			"timeout_ms":   cfg.BrowserAutomation.TimeoutMS,
+			"command":                cfg.BrowserAutomation.Command,
+			"timeout_ms":             cfg.BrowserAutomation.TimeoutMS,
+			"startup_timeout_ms":     cfg.BrowserAutomation.StartupTimeoutMS,
+			"daemon_idle_timeout_ms": cfg.BrowserAutomation.DaemonIdleTimeoutMS,
 		},
 	}
 }

@@ -632,7 +632,7 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "browser.read",
-			Description: "Read a public HTTP(S) page through the mode-safe browser access path, extracting rendered HTML with Readability when a browser session is selected. Use browser.snapshot separately when page structure or controls are needed.",
+			Description: "Read a public HTTP(S) page through the mode-safe access path. Browser sessions use agent-browser rendered active-tab text and typed page evidence; use browser.snapshot separately for executable controls.",
 			InputSchema: schema("object", []string{"url"}, map[string]any{
 				"url":                     map[string]any{"type": "string"},
 				"max_bytes":               map[string]any{"type": "number"},
@@ -685,11 +685,13 @@ func defaultDefinitions() []app.ToolDefinition {
 				"browser_provider":             stringSchema(),
 				"browser_duration_ms":          integerSchema(),
 				"browser_actions":              stringArraySchema(),
+				"browser_read_source":          stringSchema(),
 				"browser_ready_state":          stringSchema(),
 				"browser_lang":                 stringSchema(),
 				"browser_html_length":          integerSchema(),
 				"browser_html_truncated":       booleanSchema(),
 				"browser_text_length":          integerSchema(),
+				"browser_text_truncated":       booleanSchema(),
 				"browser_scroll_height":        integerSchema(),
 				"browser_snapshot_text":        stringSchema(),
 				"browser_session_error":        stringSchema(),
@@ -751,9 +753,9 @@ func defaultDefinitions() []app.ToolDefinition {
 			Audit:            "always",
 		},
 		infoQueryDefinition(),
-		browserAutomationDefinition("browser.status", "Check whether the Microsoft Playwright browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.list_tabs", "List tabs/pages in the managed Playwright Chromium context.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.open", "Open a URL in a managed Playwright Chromium page/tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.status", "Check whether the managed agent-browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.list_tabs", "List tabs/pages in the managed agent-browser Chromium session.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.open", "Open a URL in a managed agent-browser Chromium page/tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.focus", "Focus/select a browser page/tab by stable page identifier.", app.RiskRead, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.close", "Close a managed Chromium tab opened by the active Workflow, using its stable page identifier.", app.RiskDraft, false, []string{"page_id"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.navigate", "Navigate the current or selected tab to a URL while preserving browser context.", app.RiskRead, false, []string{"url"}, []string{"page_id"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
@@ -855,17 +857,15 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "reminders.create",
-			Description: "Create a scheduled message. literal sends the configured content at the due time; request publishes the content back through Agent routing before returning its result. Default to the current external chat endpoint, otherwise web.",
+			Description: "Create a scheduled owner request. At the due time it re-enters Agent routing and returns the result to the selected reminder endpoint. Default to the current external chat endpoint, otherwise web.",
 			InputSchema: schema("object", []string{"text", "due_time"}, map[string]any{
-				"text":                stringSchema(),
-				"due_time":            stringSchema(),
-				"timezone":            stringSchema(),
-				"channel":             stringSchema(),
-				"recipient":           stringSchema(),
-				"recurrence":          stringSchema(),
-				"dedupe_key":          stringSchema(),
-				"payload_mode":        map[string]any{"type": "string", "enum": []string{"literal", "request"}},
-				"expected_capability": stringSchema(),
+				"text":       stringSchema(),
+				"due_time":   stringSchema(),
+				"timezone":   stringSchema(),
+				"channel":    stringSchema(),
+				"recipient":  stringSchema(),
+				"recurrence": stringSchema(),
+				"dedupe_key": stringSchema(),
 			}),
 			OutputSchema:     reminderOutputSchema(),
 			Risk:             app.RiskReversible,
@@ -898,14 +898,15 @@ func defaultDefinitions() []app.ToolDefinition {
 		{
 			Name:        "reminders.update",
 			Description: "Update a pending local reminder without sending it immediately.",
-			InputSchema: schema("object", []string{"reminder_id"}, map[string]any{
-				"reminder_id": stringSchema(),
-				"text":        stringSchema(),
-				"due_time":    stringSchema(),
-				"timezone":    stringSchema(),
-				"channel":     stringSchema(),
-				"recipient":   stringSchema(),
-				"recurrence":  stringSchema(),
+			InputSchema: schema("object", []string{"reminder_id", "expected_updated_at"}, map[string]any{
+				"reminder_id":         stringSchema(),
+				"expected_updated_at": stringSchema(),
+				"text":                stringSchema(),
+				"due_time":            stringSchema(),
+				"timezone":            stringSchema(),
+				"channel":             stringSchema(),
+				"recipient":           stringSchema(),
+				"recurrence":          stringSchema(),
 			}),
 			OutputSchema:     reminderOutputSchema(),
 			Risk:             app.RiskReversible,
@@ -918,9 +919,10 @@ func defaultDefinitions() []app.ToolDefinition {
 		{
 			Name:        "reminders.cancel",
 			Description: "Cancel a pending local reminder.",
-			InputSchema: schema("object", []string{"reminder_id"}, map[string]any{
-				"reminder_id": stringSchema(),
-				"reason":      stringSchema(),
+			InputSchema: schema("object", []string{"reminder_id", "expected_updated_at"}, map[string]any{
+				"reminder_id":         stringSchema(),
+				"expected_updated_at": stringSchema(),
+				"reason":              stringSchema(),
 			}),
 			OutputSchema:     reminderOutputSchema(),
 			Risk:             app.RiskReversible,
@@ -934,12 +936,14 @@ func defaultDefinitions() []app.ToolDefinition {
 }
 
 func reminderOutputSchema() map[string]any {
-	return objectSchema([]string{"reminder_id", "text_summary", "due_time", "timezone", "channel", "status"}, map[string]any{
+	return objectSchema([]string{"reminder_id", "text", "text_summary", "due_time", "timezone", "channel", "status", "updated_at"}, map[string]any{
 		"reminder_id":      stringSchema(),
+		"text":             stringSchema(),
 		"text_summary":     stringSchema(),
 		"due_time":         stringSchema(),
 		"timezone":         stringSchema(),
 		"channel":          stringSchema(),
+		"recurrence":       stringSchema(),
 		"recipient":        stringSchema(),
 		"status":           stringSchema(),
 		"created_at":       stringSchema(),
@@ -947,7 +951,6 @@ func reminderOutputSchema() map[string]any {
 		"canceled_at":      stringSchema(),
 		"last_delivery_id": stringSchema(),
 		"last_error":       stringSchema(),
-		"payload_mode":     stringSchema(),
 	})
 }
 

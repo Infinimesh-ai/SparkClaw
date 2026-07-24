@@ -66,7 +66,7 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 
 func TestHeuristicTaskHintFlagsFileDeleteAsDangerous(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("Delete the document stale-notes.txt")
+	route := mustRouteIntent(t, runtime, "Delete the document stale-notes.txt")
 	if route.Status != app.RouteUnmatched {
 		t.Fatalf("file deletion must remain outside document.edit revision 1: %#v", route)
 	}
@@ -116,128 +116,6 @@ func TestContextualSystemPromptIncludesRecentEpisodesAsData(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
-	}
-}
-
-func TestRuntimeInjectsEpisodeSummariesIntoModelContext(t *testing.T) {
-	var systemMessage string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Messages []struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"messages"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		if len(body.Messages) == 0 || body.Messages[0].Role != "system" {
-			t.Fatalf("missing system message: %#v", body.Messages)
-		}
-		systemMessage = body.Messages[0].Content
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
-		})
-	}))
-	defer server.Close()
-
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Model.Mock = false
-	cfg.Model.Fast.BaseURL = server.URL
-	cfg.Model.Deep.BaseURL = server.URL
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	session := st.CreateSession("episode context")
-	st.SaveEpisodeSummary(app.EpisodeSummary{
-		ID:        "ep_test",
-		SessionID: session.ID,
-		RunID:     "run_previous",
-		Goal:      "Previous SparkClaw task",
-		Outcome:   "completed",
-		Risk:      app.RiskRead,
-		Tools:     []string{"files.search:completed"},
-		Summary:   "Previous answer found the architecture document.",
-		CreatedAt: time.Now().UTC(),
-	})
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-
-	if _, err := runtime.HandleMessage(context.Background(), session.ID, "Search memory for architecture document"); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(systemMessage, "Previous SparkClaw task") || !strings.Contains(systemMessage, "files.search:completed") {
-		t.Fatalf("system prompt did not include episode context:\n%s", systemMessage)
-	}
-}
-
-func TestRuntimeInjectsRelevantSkillContext(t *testing.T) {
-	var systemMessage string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Messages []struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"messages"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		systemMessage = body.Messages[0].Content
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
-		})
-	}))
-	defer server.Close()
-
-	root := t.TempDir()
-	skillsDir := filepath.Join(root, "skills")
-	writeAgentTestSkill(t, skillsDir, "coding_helper", `---
-name: coding_helper
-description: Inspect workspace code and explain findings.
-risk_level: medium
-allowed_tools: ["files.search", "files.read"]
-denied_tools: ["shell.exec_sandboxed"]
-activation:
-  keywords: ["repo", "code"]
----
-Read observed workspace evidence before explaining the code.`)
-	cfg := agentTestConfig()
-	cfg.Model.Mock = false
-	cfg.Model.Fast.BaseURL = server.URL
-	cfg.Model.Deep.BaseURL = server.URL
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	cfg.Skills.Dirs = []string{skillsDir}
-	st := store.NewMemoryStore()
-	session := st.CreateSession("skill context")
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntimeWithSkills(st, tools, policy.New(cfg), modelrouter.New(cfg), nil, skills.NewRegistry(cfg))
-
-	if _, err := runtime.HandleMessage(context.Background(), session.ID, "Inspect repo code for deployment"); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"Relevant procedural skills",
-		"name=\"coding_helper\"",
-		"allowed_tools=\"files.search,files.read\"",
-		"denied_tools=\"shell.exec_sandboxed\"",
-		"cannot grant tool permission",
-	} {
-		if !strings.Contains(systemMessage, want) {
-			t.Fatalf("system prompt missing %q:\n%s", want, systemMessage)
-		}
-	}
-	foundAudit := false
-	for _, event := range st.ListAudit(session.ID) {
-		if event.Type == "skills.loaded" {
-			foundAudit = true
-			break
-		}
-	}
-	if !foundAudit {
-		t.Fatalf("skills.loaded audit missing: %#v", st.ListAudit(session.ID))
 	}
 }
 
@@ -517,7 +395,7 @@ func TestRuntimeAnswersBrowserReadWithExternalContent(t *testing.T) {
 	if len(calls) != 0 {
 		t.Fatalf("browser.internet_search revision 1 must not expose browser.read: %#v", calls)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("unsupported URL reading must fail closed outside ReAct: route=%#v", result.RouteDecision)
 	}
 }
@@ -541,7 +419,7 @@ func TestAuthoritativeURLReadBlocksAuthenticationWithoutLegacyResume(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("explicit URL reading must fail closed outside ReAct: route=%#v run=%#v", result.RouteDecision, result.Run)
 	}
 	if _, ok := st.FindActiveBrowserLoginBlock(session.ID); ok {
@@ -845,20 +723,20 @@ func TestRuntimeBrowserLoginWrongPageKeepsBlockWaiting(t *testing.T) {
 	}
 }
 
-func TestBrowserSelectedTabTargetParsesMCPTextPage(t *testing.T) {
+func TestBrowserSelectedTabTargetReadsNormalizedAgentBrowserPage(t *testing.T) {
 	call := app.ToolCall{
 		Tool:   "browser.list_tabs",
 		Status: "completed",
 		Result: map[string]any{
 			"pages": []any{
-				map[string]any{"text": "1: about:blank"},
-				map[string]any{"text": "2: University WebVPN (https://webvpn.example.edu/home) [selected]"},
+				map[string]any{"page_id": "page_1", "url": "about:blank", "selected": false},
+				map[string]any{"page_id": "page_2", "url": "https://webvpn.example.edu/home", "selected": true},
 			},
 		},
 	}
 	target, ok := browserSelectedTabTarget(call)
-	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "2" {
-		t.Fatalf("selected MCP text page was not parsed: %#v ok=%v", target, ok)
+	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "page_2" {
+		t.Fatalf("selected normalized agent-browser page was not read: %#v ok=%v", target, ok)
 	}
 }
 
@@ -868,13 +746,13 @@ func TestBrowserSelectedTabTargetPrefersLoginBlockPageOverAnotherSelectedTask(t 
 		Status: "completed",
 		Result: map[string]any{
 			"pages": []any{
-				map[string]any{"text": "2: University WebVPN (https://webvpn.example.edu/home)"},
-				map[string]any{"text": "8: QQ Mail (https://mail.qq.com/) [selected]"},
+				map[string]any{"page_id": "page_2", "url": "https://webvpn.example.edu/home", "selected": false},
+				map[string]any{"page_id": "page_8", "url": "https://mail.qq.com/", "selected": true},
 			},
 		},
 	}
-	target, ok := browserSelectedTabTarget(call, "2")
-	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "2" {
+	target, ok := browserSelectedTabTarget(call, "page_2")
+	if !ok || target.URL != "https://webvpn.example.edu/home" || target.PageID != "page_2" {
 		t.Fatalf("login block page should win over another task's selected tab: %#v ok=%v", target, ok)
 	}
 }
@@ -918,8 +796,9 @@ func TestRuntimeComparesBrowserSourcesWithCitations(t *testing.T) {
 	if len(calls) != 0 {
 		t.Fatalf("browser.internet_search revision 1 must not expose multi-page reads: %#v", calls)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
-		t.Fatalf("multi-page reading must fail closed outside ReAct: %#v", result.RouteDecision)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || len(result.RouteDecision.CapabilityPath) != 2 ||
+		result.RouteDecision.CapabilityPath[1] != app.CapabilityBrowserInternetSearch {
+		t.Fatalf("current browser research should enter the registered Internet search leaf: %#v", result.RouteDecision)
 	}
 }
 
@@ -1594,7 +1473,7 @@ func TestToolResultAdapterKeepsBrowserAutomationNestedAuthFields(t *testing.T) {
 	call := app.ToolCall{ID: "tc_open", Tool: "browser.open", Status: "completed"}
 	output := browserautomation.Result{
 		Tool:    "browser.open",
-		RawTool: "new_page",
+		RawTool: "agent_browser_tab_new",
 		Output: map[string]any{
 			"url":                     "https://example.com/protected",
 			"final_url":               "https://example.com/protected",
@@ -1707,7 +1586,7 @@ func TestToolResultAdapterKeepsBrowserSnapshotEvidence(t *testing.T) {
 	}
 	output := map[string]any{
 		"tool":     "browser.snapshot",
-		"raw_tool": "take_snapshot",
+		"raw_tool": "agent_browser_snapshot",
 		"text": strings.Join([]string{
 			`## Latest page snapshot`,
 			`uid=5_0 RootWebArea "Search - Microsoft Bing" url="https://www.bing.com/"`,
@@ -2034,7 +1913,7 @@ func TestTaskHintTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 func TestCompressBrowserSnapshotIncludesActionableElements(t *testing.T) {
 	output := map[string]any{
 		"tool":     "browser.snapshot",
-		"raw_tool": "take_snapshot",
+		"raw_tool": "agent_browser_snapshot",
 		"text": strings.Join([]string{
 			`## Latest page snapshot`,
 			`uid=1_0 RootWebArea "Mac - Apple" url="https://www.apple.com/mac/"`,
@@ -2068,7 +1947,7 @@ func TestCompressBrowserSnapshotIncludesActionableElements(t *testing.T) {
 func TestCompressBrowserSnapshotIncludesElementsFromResultStruct(t *testing.T) {
 	output := browserautomation.Result{
 		Tool:    "browser.snapshot",
-		RawTool: "take_snapshot",
+		RawTool: "agent_browser_snapshot",
 		Text: strings.Join([]string{
 			`## Latest page snapshot`,
 			`uid=5_0 RootWebArea "Search - Microsoft Bing" url="https://www.bing.com/"`,
@@ -2237,7 +2116,7 @@ func TestRuntimeReadsMultipleLocalFilesForCrossFileAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("multi-file comparison must fail closed outside ReAct: %#v", result.RouteDecision)
 	}
 	if strings.Contains(result.Message.Content, "Summary from local files:") ||
@@ -2247,7 +2126,7 @@ func TestRuntimeReadsMultipleLocalFilesForCrossFileAnswer(t *testing.T) {
 	}
 }
 
-func TestRuntimePlansCodeInspectionAndSandboxedTests(t *testing.T) {
+func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/repo\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -2260,66 +2139,20 @@ func TestRuntimePlansCodeInspectionAndSandboxedTests(t *testing.T) {
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
-	inspect, err := runtime.HandleMessage(context.Background(), session.ID, "Inspect repo and explain the code layout")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if inspect.Run.ModelLane != "deep" {
-		t.Fatalf("repo inspection should route to deep lane, got %#v", inspect.Run)
-	}
-	calls := st.ListToolCalls(session.ID)
-	if len(calls) != 1 || calls[0].Tool != "files.search" || calls[0].Status != "completed" {
-		t.Fatalf("repo inspection should search files, got %#v", calls)
-	}
-
-	tests, err := runtime.HandleMessage(context.Background(), session.ID, "Run tests in the sandbox")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tests.Run.Risk != app.RiskDangerous || tests.Run.ModelLane != "deep" {
-		t.Fatalf("sandboxed tests should be dangerous/deep, got %#v", tests.Run)
-	}
-	testCalls := st.ListToolCalls(session.ID)
-	last := testCalls[len(testCalls)-1]
-	if last.Tool != "shell.exec_sandboxed" || last.Status != "approval_pending" || last.Arguments["command"] != "npm test" {
-		t.Fatalf("test request should queue sandboxed shell approval, got %#v", last)
-	}
-	if !strings.Contains(tests.Message.Content, "Sandboxed shell result:") ||
-		!strings.Contains(tests.Message.Content, "等待审批中") ||
-		strings.Contains(tests.Message.Content, "Status: approval_pending") ||
-		strings.Contains(tests.Message.Content, "No side effect was executed before owner approval.") {
-		t.Fatalf("sandbox pending answer was not grounded:\n%s", tests.Message.Content)
-	}
-
-	combined, err := runtime.HandleMessage(context.Background(), session.ID, "Inspect repo and explain failing test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if combined.Run.Risk != app.RiskDangerous || combined.Run.ModelLane != "deep" {
-		t.Fatalf("combined failing-test task should be dangerous/deep, got %#v", combined.Run)
-	}
-	combinedCalls := st.ListToolCalls(session.ID)
-	if len(combinedCalls) < 2 {
-		t.Fatalf("expected accumulated tool calls, got %#v", combinedCalls)
-	}
-	searchCall := combinedCalls[len(combinedCalls)-2]
-	shellCall := combinedCalls[len(combinedCalls)-1]
-	if searchCall.Tool != "files.search" || searchCall.Status != "completed" || searchCall.Arguments["query"] != "test" {
-		t.Fatalf("failing-test task should inspect test evidence, got %#v", searchCall)
-	}
-	if shellCall.Tool != "shell.exec_sandboxed" || shellCall.Status != "approval_pending" || shellCall.Arguments["command"] != "npm test" {
-		t.Fatalf("failing-test task should queue npm test approval, got %#v", shellCall)
-	}
-	for _, want := range []string{
-		"Code diagnostics:",
-		"Repository evidence:",
-		"Test execution status:",
-		"等待审批中",
-		"approve the sandboxed test run",
-	} {
-		if !strings.Contains(combined.Message.Content, want) {
-			t.Fatalf("combined code diagnostic answer missing %q:\n%s", want, combined.Message.Content)
+	for _, goal := range []string{"Inspect repo and explain the code layout", "Run tests in the sandbox", "Inspect repo and explain failing test"} {
+		result, err := runtime.HandleMessage(context.Background(), session.ID, goal)
+		if err != nil {
+			t.Fatal(err)
 		}
+		if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.State != "blocked" || result.Run.Workflow != nil {
+			t.Fatalf("unregistered code task did not fail closed for %q: %#v", goal, result)
+		}
+		if hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+			t.Fatalf("unregistered code task entered ReAct for %q", goal)
+		}
+	}
+	if len(st.ListToolCalls(session.ID)) != 0 || len(st.ListApprovals("")) != 0 {
+		t.Fatalf("blocked unregistered code tasks executed tools or approvals: calls=%#v approvals=%#v", st.ListToolCalls(session.ID), st.ListApprovals(""))
 	}
 }
 
@@ -2527,7 +2360,7 @@ func hasModelCallOperation(calls []app.ModelCall, operation, lane string) bool {
 
 type fakeBrowserAutomationAdapter struct{}
 
-func (fakeBrowserAutomationAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
+func (fakeBrowserAutomationAdapter) Health(ctx context.Context, _ map[string]any) (browserautomation.Result, error) {
 	return browserautomation.Result{
 		Tool:      "browser.status",
 		Output:    map[string]any{"ok": true},
@@ -2547,7 +2380,7 @@ func (fakeBrowserAutomationAdapter) ReadPage(ctx context.Context, url string, ar
 		Text:      "Fake browser read Rendered content from the browser session.",
 		Rendered:  true,
 		Provider:  "fake-browser",
-		Actions:   []string{"new_page", "evaluate_script"},
+		Actions:   []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 		Untrusted: true,
 	}, nil
 }
@@ -2556,15 +2389,15 @@ func (fakeBrowserAutomationAdapter) Call(ctx context.Context, tool string, args 
 	switch tool {
 	case "browser.list_tabs":
 		return browserautomation.Result{
-			Tool: tool, RawTool: "list_pages", Arguments: args,
-			Output: map[string]any{"ok": true}, Pages: []any{map[string]any{"id": "page-existing", "url": "https://other.example/", "title": "Other tab"}},
+			Tool: tool, RawTool: "agent_browser_tab_list", Arguments: args,
+			Output: map[string]any{"ok": true}, Pages: []any{map[string]any{"page_id": "page_1", "url": "https://other.example/", "title": "Other tab"}},
 			Text: "page-existing https://other.example/ Other tab", Untrusted: true, Provider: "fake-browser",
 		}, nil
 	case "browser.screenshot":
 		png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 		return browserautomation.Result{
 			Tool:      tool,
-			RawTool:   "take_screenshot",
+			RawTool:   "agent_browser_screenshot",
 			Output:    map[string]any{"data": png, "mimeType": "image/png"},
 			Text:      "fake screenshot",
 			Untrusted: true,
@@ -2593,7 +2426,7 @@ type loginBlockBrowserAdapter struct {
 	selectedTabURL    string
 }
 
-func (a *loginBlockBrowserAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
+func (a *loginBlockBrowserAdapter) Health(ctx context.Context, _ map[string]any) (browserautomation.Result, error) {
 	return browserautomation.Result{
 		Tool:      "browser.status",
 		Output:    map[string]any{"ok": true},
@@ -2617,7 +2450,7 @@ func (a *loginBlockBrowserAdapter) ReadPage(ctx context.Context, url string, arg
 			Rendered:              true,
 			AuthChallengeDetected: true,
 			Provider:              "login-block-fake",
-			Actions:               []string{"new_page", "evaluate_script"},
+			Actions:               []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 			BrowserMode:           stringValue(args["browser_mode"]),
 			Presentation:          stringValue(args["presentation"]),
 			SurfaceVisible:        boolValue(args["surface_visible"]),
@@ -2632,7 +2465,7 @@ func (a *loginBlockBrowserAdapter) ReadPage(ctx context.Context, url string, arg
 		Text:           "Protected content Logged-in body.",
 		Rendered:       true,
 		Provider:       "login-block-fake",
-		Actions:        []string{"new_page", "evaluate_script"},
+		Actions:        []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 		BrowserMode:    stringValue(args["browser_mode"]),
 		Presentation:   stringValue(args["presentation"]),
 		SurfaceVisible: boolValue(args["surface_visible"]),
@@ -2650,11 +2483,11 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 		}
 		return browserautomation.Result{
 			Tool:      tool,
-			RawTool:   "list_pages",
+			RawTool:   "agent_browser_tab_list",
 			Arguments: args,
 			Output:    map[string]any{"ok": true},
 			Pages: []any{map[string]any{
-				"id":       "page-2",
+				"page_id":  "page_2",
 				"url":      selectedURL,
 				"title":    "Authenticated destination",
 				"selected": true,
@@ -2669,7 +2502,7 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 			target := stringValue(args["url"])
 			return browserautomation.Result{
 				Tool:      tool,
-				RawTool:   "new_page",
+				RawTool:   "agent_browser_tab_new",
 				Arguments: args,
 				Output: map[string]any{
 					"url":       target,
@@ -2684,7 +2517,7 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 			target := stringValue(args["url"])
 			return browserautomation.Result{
 				Tool:      tool,
-				RawTool:   "new_page",
+				RawTool:   "agent_browser_tab_new",
 				Arguments: args,
 				Output: map[string]any{
 					"url":                     target,
@@ -2767,7 +2600,7 @@ func hasAgentAuditStringSliceField(events []app.AuditEvent, typ, key, value stri
 	return false
 }
 
-func TestDangerousToolApprovalIncludesVerifierDecision(t *testing.T) {
+func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
 	cfg.Workspaces.DefaultRoot = root
@@ -2784,29 +2617,11 @@ func TestDangerousToolApprovalIncludesVerifierDecision(t *testing.T) {
 	if result.Run.Risk != app.RiskDangerous {
 		t.Fatalf("expected dangerous run, got %#v", result.Run)
 	}
-	if result.Run.State != "approval_pending" || result.Run.CompletedAt != nil {
-		t.Fatalf("dangerous run should remain approval_pending: %#v", result.Run)
+	if result.Run.State != "blocked" || result.Run.CompletedAt == nil || result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched {
+		t.Fatalf("unregistered dangerous run did not fail closed: %#v", result)
 	}
-	approvals := st.ListApprovals("pending")
-	if len(approvals) != 1 {
-		t.Fatalf("expected one pending approval, got %#v", approvals)
-	}
-	raw, ok := approvals[0].Arguments["_verifier"].(app.VerifierDecision)
-	if !ok {
-		t.Fatalf("approval arguments did not include verifier decision: %#v", approvals[0].Arguments)
-	}
-	if raw.Verdict != "ask_user" || raw.Lane != "deep" || !raw.RequiredUserConfirmation {
-		t.Fatalf("unexpected verifier decision: %#v", raw)
-	}
-	foundAudit := false
-	for _, event := range st.ListAudit(session.ID) {
-		if event.Type == "verifier.deep_check" {
-			foundAudit = true
-			break
-		}
-	}
-	if !foundAudit {
-		t.Fatalf("verifier audit event missing: %#v", st.ListAudit(session.ID))
+	if len(st.ListApprovals("")) != 0 || len(st.ListToolCalls(session.ID)) != 0 || hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", st.ListApprovals(""), st.ListToolCalls(session.ID))
 	}
 }
 
@@ -2846,7 +2661,7 @@ func TestTaskHintClassifiesUploadedImageAsImageInspection(t *testing.T) {
 func TestTaskHintDocumentEditAttachmentKeepsMutationTools(t *testing.T) {
 	content := "完善并修改文档中的心得与体会\n\nAttached files for this user turn:\n- report.docx path=uploads/report.docx content_type=application/zip bytes=17861"
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute(content)
+	route := mustRouteIntent(t, runtime, content)
 	if route.Status == app.RouteMatched {
 		t.Fatalf("an attachment description cannot bypass path and package preflight: %#v", route)
 	}
@@ -2892,7 +2707,7 @@ func TestParseTaskHintKeepsUnmigratedImageAndSensitiveMemoryTools(t *testing.T) 
 
 func TestStableIntentOwnsPublicWebSearchBeforeTaskHint(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("帮我查一下今天的 AI 新闻")
+	route := mustRouteIntent(t, runtime, "帮我查一下今天的 AI 新闻")
 	resolved, err := defaultWorkflowProfileRegistry().Resolve(runtime.capabilities, route, "turn")
 	if err != nil || len(resolved.Intent.Objectives) != 1 || resolved.Intent.Objectives[0].Operation != app.IntentOperationSearch {
 		t.Fatalf("public Web search did not enter the stable workflow contract: route=%#v intent=%#v err=%v", route, resolved.Intent, err)
@@ -2902,7 +2717,7 @@ func TestStableIntentOwnsPublicWebSearchBeforeTaskHint(t *testing.T) {
 func TestTaskHintClassifiesBrowserModes(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	for _, content := range []string{"打开浙江理工大学官网", "打开这个视频并自动播放"} {
-		route := runtime.deterministicCapabilityRoute(content)
+		route := mustRouteIntent(t, runtime, content)
 		if route.Status == app.RouteMatched {
 			t.Fatalf("browser.automation revision 1 requires one exact URL for %q: %#v", content, route)
 		}
@@ -2917,7 +2732,7 @@ func TestTaskHintClassifiesOwnerAuthenticatedBrowserData(t *testing.T) {
 	}
 	for _, prompt := range prompts {
 		runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-		route := runtime.deterministicCapabilityRoute(prompt)
+		route := mustRouteIntent(t, runtime, prompt)
 		if route.Status != app.RouteUnmatched {
 			t.Fatalf("login and account interaction must remain outside browser.automation revision 1 for %q: %#v", prompt, route)
 		}
@@ -2926,7 +2741,7 @@ func TestTaskHintClassifiesOwnerAuthenticatedBrowserData(t *testing.T) {
 
 func TestNormalizeTaskHintPreservesOwnerAuthenticatedBrowserRouting(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("登录https://webvpn.zstu.edu.cn，查看我的课表")
+	route := mustRouteIntent(t, runtime, "登录https://webvpn.zstu.edu.cn，查看我的课表")
 	if route.Status != app.RouteUnmatched {
 		t.Fatalf("owner-authenticated browser work must not enter revision 1: %#v", route)
 	}
@@ -2952,30 +2767,11 @@ MOCK_REACT_RESPONSE:{"type":"final","answer":"I cannot access personal accounts.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil {
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("unsupported personal-account work must fail closed outside ReAct: %#v", result)
 	}
 	if _, blocked := st.FindActiveBrowserLoginBlock(session.ID); blocked || adapter.openCalls != 0 {
 		t.Fatalf("unsupported account work must not open a page or create a login block: %#v", adapter)
-	}
-}
-
-func TestUnmatchedMigratedRequestsCannotFallBackToReAct(t *testing.T) {
-	for _, tc := range []struct {
-		content   string
-		resources []app.MessagePart
-		blocked   bool
-	}{
-		{content: "读取 https://example.com/account 的内容", blocked: true},
-		{content: "点击当前页面的登录按钮", blocked: true},
-		{content: "杭州天气，只要文字", blocked: true},
-		{content: "比较 report.docx 和 older.docx", blocked: true},
-		{content: "检查代码中的 https://example.com 常量", blocked: false},
-		{content: "请看 uploads/photo.png 这张图片", blocked: false},
-	} {
-		if got := migratedWorkflowRequestWithoutMatch(tc.content, tc.resources); got != tc.blocked {
-			t.Fatalf("migrated fallback classification for %q: got %t want %t", tc.content, got, tc.blocked)
-		}
 	}
 }
 
@@ -3008,7 +2804,7 @@ func TestStableIntentOwnsPublicWebSearchPhrases(t *testing.T) {
 		"帮我查一下一年前浙江理工大学招生新闻",
 	} {
 		runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-		route := runtime.deterministicCapabilityRoute(content)
+		route := mustRouteIntent(t, runtime, content)
 		resolved, err := defaultWorkflowProfileRegistry().Resolve(runtime.capabilities, route, "turn")
 		if err != nil || resolved.Intent.Objectives[0].Operation != app.IntentOperationSearch {
 			t.Fatalf("public search phrase did not enter stable intent for %q: route=%#v intent=%#v err=%v", content, route, resolved.Intent, err)
@@ -3031,7 +2827,7 @@ func TestTaskHintClassifiesWeixinReminder(t *testing.T) {
 
 func TestTaskHintClassifiesBrowserAutomation(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("帮我在 Chrome 里点击当前页面的登录按钮")
+	route := mustRouteIntent(t, runtime, "帮我在 Chrome 里点击当前页面的登录按钮")
 	if route.Status != app.RouteBlocked || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction {
 		t.Fatalf("login interaction should fail closed in browser.interaction revision 1: %#v", route)
 	}
@@ -3039,16 +2835,17 @@ func TestTaskHintClassifiesBrowserAutomation(t *testing.T) {
 
 func TestTaskHintClassifiesCurrentTabClickAsBrowserInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("点击当前页面的下一步按钮")
+	routing := mustRouteIntentOutput(t, runtime, "", "点击当前页面的下一步按钮", nil, app.MessageSourceWeb)
+	route := routing.Route
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
 		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetKind != string(app.TargetKindBrowserCurrentTab) {
-		t.Fatalf("current-tab click did not enter browser.interaction: %#v", route)
+		t.Fatalf("current-tab click did not enter browser.interaction: route=%#v fusion=%+v", route, routing.Fusion)
 	}
 }
 
 func TestTaskHintClassifiesURLClickAsBrowserInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("打开 https://example.com/checkout 并点击下一步")
+	route := mustRouteIntent(t, runtime, "打开 https://example.com/checkout 并点击下一步")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
 		route.Slots.TargetRef != "https://example.com/checkout" {
 		t.Fatalf("URL click did not enter browser.interaction: %#v", route)
@@ -3057,7 +2854,7 @@ func TestTaskHintClassifiesURLClickAsBrowserInteraction(t *testing.T) {
 
 func TestTaskHintResolvesRegisteredQQMailDestination(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("请在 Chromium 中打开 QQ 邮箱")
+	route := mustRouteIntent(t, runtime, "请在 Chromium 中打开 QQ 邮箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation ||
 		route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
 		t.Fatalf("registered QQ Mail destination did not enter browser.automation: %#v", route)
@@ -3066,7 +2863,7 @@ func TestTaskHintResolvesRegisteredQQMailDestination(t *testing.T) {
 
 func TestTaskHintRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("打开 QQ 邮箱的草稿箱")
+	route := mustRouteIntent(t, runtime, "打开 QQ 邮箱的草稿箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
 		route.Slots.Operation != app.RouteOperationInteract || route.Slots.TargetRef != "https://mail.qq.com/" || route.Facts["browser_destination"] != "qq_mail" {
 		t.Fatalf("registered QQ Mail subgoal did not enter browser.interaction: %#v", route)
@@ -3075,7 +2872,7 @@ func TestTaskHintRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
 
 func TestTaskHintDoesNotInventUnknownNamedBrowserDestination(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("打开未知邮箱")
+	route := mustRouteIntent(t, runtime, "打开未知邮箱")
 	if route.Status != app.RouteClarify || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation || route.Slots.TargetRef != "" {
 		t.Fatalf("unknown named destination should require an explicit URL: %#v", route)
 	}
@@ -3083,7 +2880,7 @@ func TestTaskHintDoesNotInventUnknownNamedBrowserDestination(t *testing.T) {
 
 func TestTaskHintClassifiesExplicitURLOpenAsBrowserAutomation(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("打开https://www.apple.com.cn/，帮我找到最新的MacBook界面")
+	route := mustRouteIntent(t, runtime, "打开https://www.apple.com.cn/")
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityBrowserAutomation || route.Slots.Operation != app.RouteOperationOpen {
 		t.Fatalf("explicit URL open did not reach browser.automation: %#v", route)
 	}
@@ -3091,37 +2888,25 @@ func TestTaskHintClassifiesExplicitURLOpenAsBrowserAutomation(t *testing.T) {
 
 func TestTaskHintClassifiesExplicitURLOpenAsActionCapableBrowserAutomation(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
-	if route.Status != app.RouteUnmatched {
-		t.Fatalf("unsupported checkbox selection should remain outside browser.interaction revision 1: %#v", route)
-	}
-}
-
-func TestNormalizeTaskHintKeepsBrowserAutomationOverModelWebBrowsing(t *testing.T) {
-	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	fallback := runtime.deterministicCapabilityRoute("打开https://www.apple.com.cn/，帮我找到最新的MacBook界面")
-	candidate := fallback
-	candidate.CapabilityPath = []app.CapabilityID{"browser", app.CapabilityBrowserSearch}
-	normalized, err := runtime.normalizeFastRoute(candidate, fallback, "打开https://www.apple.com.cn/，帮我找到最新的MacBook界面")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if normalized.CapabilityPath[1] != app.CapabilityBrowserAutomation {
-		t.Fatalf("Fast routing must not override deterministic browser automation: %#v", normalized)
+	route := mustRouteIntent(t, runtime, "打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
+	if route.Status != app.RouteBlocked || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
+		route.Reason != "browser_interaction_outside_registered_boundary" {
+		t.Fatalf("recognized but unsupported checkbox selection must block at browser.interaction revision 1: %#v", route)
 	}
 }
 
 func TestNormalizeTaskHintKeepsExplicitURLOpenActionCapable(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
-	if route.Status != app.RouteUnmatched {
-		t.Fatalf("unsupported interactive URL should remain outside browser.interaction revision 1: %#v", route)
+	route := mustRouteIntent(t, runtime, "打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
+	if route.Status != app.RouteBlocked || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
+		route.Reason != "browser_interaction_outside_registered_boundary" {
+		t.Fatalf("recognized but unsupported interactive URL must block at browser.interaction revision 1: %#v", route)
 	}
 }
 
 func TestTaskHintUsesSnapshotForBrowserStructure(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("查看当前 Chrome 页面结构")
+	route := mustRouteIntent(t, runtime, "查看当前 Chrome 页面结构")
 	if route.Status != app.RouteUnmatched {
 		t.Fatalf("browser structure inspection is outside browser.automation revision 1: %#v", route)
 	}
@@ -3129,7 +2914,7 @@ func TestTaskHintUsesSnapshotForBrowserStructure(t *testing.T) {
 
 func TestNormalizeTaskHintCorrectsStructureScreenshotSuggestion(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("查看当前页面结构，然后告诉我页面主标题是什么")
+	route := mustRouteIntent(t, runtime, "查看当前页面结构，然后告诉我页面主标题是什么")
 	if route.Status != app.RouteUnmatched {
 		t.Fatalf("browser structure inspection is outside browser.automation revision 1: %#v", route)
 	}
@@ -3223,7 +3008,7 @@ func TestWorkflowPlansDoNotPersistSkillIDs(t *testing.T) {
 		"打开 https://example.com",
 		"今天杭州天气",
 	} {
-		route := runtime.deterministicCapabilityRoute(content)
+		route := mustRouteIntent(t, runtime, content)
 		resolved, err := runtime.profiles.Resolve(runtime.capabilities, route, "turn")
 		if err != nil {
 			t.Fatalf("resolve %q: %v", content, err)
@@ -3376,7 +3161,7 @@ func TestLegacyReActCannotExposeMigratedWorkflowTools(t *testing.T) {
 
 func TestURLTaskHintPrefersBrowserReadOnly(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
-	route := runtime.deterministicCapabilityRoute("https://github.com/Infinimesh-ai/SparkClaw 这个项目是干什么的")
+	route := mustRouteIntent(t, runtime, "https://github.com/Infinimesh-ai/SparkClaw 这个项目是干什么的")
 	if route.Status != app.RouteUnmatched {
 		t.Fatalf("explicit URL reading is outside browser.internet_search revision 1: %#v", route)
 	}
@@ -3393,7 +3178,7 @@ func TestVisibleToolDefinitionsBrowserAutomationSkillControlsToolSet(t *testing.
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	session := st.CreateSession("fixed automation exposure")
-	route := runtime.deterministicCapabilityRoute("打开https://www.apple.com.cn/，帮我找到最新的MacBook界面")
+	route := mustRouteIntent(t, runtime, "打开https://www.apple.com.cn/")
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{ID: "run_fixed_automation", SessionID: session.ID}, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
 	if err != nil {
 		t.Fatal(err)
@@ -3420,19 +3205,19 @@ func TestEnrichPlanWithWebFreshnessPreservesLatestIntent(t *testing.T) {
 	}
 }
 
-func TestCanonicalizeSearchRoutingContentResolvesFreshDateBeforeRouting(t *testing.T) {
-	canonical, changed := canonicalizeSearchRoutingContent("今天杭州天气", "2026-07-17")
+func TestMaterializeRoutedWeatherQueryResolvesFreshDateAfterRouting(t *testing.T) {
+	canonical := materializeRoutedQuery(app.CapabilityBrowserWeather, "今天杭州天气", "2026-07-17")
 	want := "今天杭州天气 2026-07-17" + weatherCardQueryRequirementsZH
-	if !changed || canonical != want {
-		t.Fatalf("fresh search query was not canonicalized before routing: changed=%t query=%q", changed, canonical)
+	if canonical != want {
+		t.Fatalf("selected weather query was not materialized after routing: query=%q", canonical)
 	}
 }
 
-func TestCanonicalizeWeatherRoutingContentDoesNotDuplicateCardRequirements(t *testing.T) {
+func TestMaterializeRoutedWeatherQueryDoesNotDuplicateCardRequirements(t *testing.T) {
 	input := "weather in Hangzhou 2026-07-17" + weatherCardQueryRequirementsEN
-	canonical, changed := canonicalizeSearchRoutingContent(input, "2026-07-17")
-	if changed || canonical != input {
-		t.Fatalf("weather card requirements were duplicated: changed=%t query=%q", changed, canonical)
+	canonical := materializeRoutedQuery(app.CapabilityBrowserWeather, input, "2026-07-17")
+	if canonical != input {
+		t.Fatalf("weather card requirements were duplicated: query=%q", canonical)
 	}
 }
 

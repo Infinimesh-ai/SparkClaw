@@ -4,9 +4,9 @@ package browserautomation
 
 import "os/exec"
 
-func configureDriverCommand(_ *exec.Cmd) {}
+func configureAdapterCommand(_ *exec.Cmd) {}
 
-func terminateDriverProcess(cmd *exec.Cmd) {
+func terminateAdapterProcess(cmd *exec.Cmd) {
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}

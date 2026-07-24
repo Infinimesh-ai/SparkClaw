@@ -59,6 +59,9 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 		if binding.Capability != plan.Capability {
 			continue
 		}
+		if !toolDefinitionDeclaresArgument(definition, binding.Argument) {
+			continue
+		}
 		if !workflowArgumentAllowed(binding, node, run.Workflow.Intent, run.Workflow.Route, state, plan.Args) {
 			return errors.New("tool arguments are outside the frozen workflow resource boundary")
 		}
@@ -82,6 +85,10 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 	if !ok {
 		return plan
 	}
+	definition, ok := r.tools.Definition(plan.Name)
+	if !ok {
+		return plan
+	}
 	args := map[string]any{}
 	for key, value := range plan.Args {
 		args[key] = value
@@ -95,6 +102,9 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 	}
 	for _, binding := range node.ArgumentBindings {
 		if binding.Capability != plan.Capability {
+			continue
+		}
+		if !toolDefinitionDeclaresArgument(definition, binding.Argument) {
 			continue
 		}
 		if binding.ResourceKind == "browser_element" {
@@ -120,6 +130,12 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 	return plan
 }
 
+func toolDefinitionDeclaresArgument(definition app.ToolDefinition, argument string) bool {
+	properties, _ := definition.InputSchema["properties"].(map[string]any)
+	_, ok := properties[argument]
+	return ok
+}
+
 func canonicalBrowserVerificationVerdict(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "success", "progress", "failure":
@@ -133,7 +149,7 @@ func canonicalBrowserVerificationVerdict(value string) (string, bool) {
 
 func materializedWorkflowResourceKind(kind string) bool {
 	switch kind {
-	case "query", "location", "info_answer", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot":
+	case "query", "location", "info_answer", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot", "schedule", "schedule_patch":
 		return true
 	default:
 		return false
@@ -443,8 +459,15 @@ func workflowBoundArgumentValues(binding app.ArgumentBinding, node app.WorkflowN
 		}
 	case app.ArgumentBindingOutcomeRef:
 		for _, ref := range state.OutcomeRefs {
-			if ref.Kind == binding.ResourceKind && strings.TrimSpace(ref.Ref) != "" {
-				allowed = append(allowed, ref.Ref)
+			if ref.Kind != binding.ResourceKind {
+				continue
+			}
+			value := ref.Ref
+			if binding.SourceKey != "" {
+				value = ref.Attributes[binding.SourceKey]
+			}
+			if strings.TrimSpace(value) != "" {
+				allowed = append(allowed, value)
 			}
 		}
 	case app.ArgumentBindingRouteSlot:
@@ -535,13 +558,34 @@ func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run 
 	latest := reactRunResult{}
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
-		stageResult := r.runWorkflowModelStep(ctx, sessionID, run, content, hint, visibleTools, allCalls, allObservations)
+		stageResult := reactRunResult{}
+		if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
+			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content)
+		} else {
+			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, hint, visibleTools, allCalls, allObservations)
+		}
 		allCalls = append(allCalls, stageResult.ToolCalls...)
 		allApprovals = append(allApprovals, stageResult.Approvals...)
 		allObservations = stageResult.Observations
 		latest = stageResult
 		if stageResult.BrowserLoginBlock != nil || len(stageResult.Approvals) > 0 {
 			break
+		}
+		if stageResult.Completed && strings.TrimSpace(stageResult.FinalAnswer) != "" {
+			storedRun, ok := r.store.GetRun(run.ID)
+			if ok && storedRun.Workflow != nil && activeWorkflowNodeUsesModelAnswer(storedRun.Workflow) {
+				if err := completeActiveModelAnswerNode(&storedRun); err != nil {
+					latest.FinalAnswer = "The model-answer workflow could not record completion: " + err.Error()
+					break
+				}
+				r.store.SaveRun(storedRun)
+				r.store.AddAudit(app.AuditEvent{
+					SessionID: sessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.model_answer_completed",
+					Summary: "Completed a no-tool model-answer workflow",
+				})
+				run = storedRun
+				break
+			}
 		}
 
 		transitioned := false

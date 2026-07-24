@@ -45,7 +45,7 @@ func TestEndpointRegistryListsOnlyActorScopedExactSendEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(endpoints) != 1 || endpoints[0].ID != "chat-a" || endpoints[0].ExternalUserRef != "user-1" || endpoints[0].Address != "chat-1" {
+	if len(endpoints) != 2 || endpoints[0].ID != "chat-a" || endpoints[0].ExternalUserRef != "user-1" || endpoints[0].Address != "chat-1" || endpoints[1].ID != "chat-reminder" {
 		t.Fatalf("unexpected exact endpoint list: %#v", endpoints)
 	}
 	if endpoints[0].BindingRef == "" || endpoints[0].RecipientDisplayName != "Alex" {
@@ -90,7 +90,7 @@ func TestEndpointRegistryDeterministicTargetResolution(t *testing.T) {
 func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 	st := store.NewMemoryStore()
 	expired := time.Now().UTC().Add(-time.Minute)
-	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeReminderSendSelf})
+	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{"unknown"})
 	saveEndpointFixture(st, "bind-expired", "chat-expired", "owner-a", "actor-a", "weixin", "Chen", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
 	binding, _ := st.GetNotificationBinding("bind-expired")
 	binding.ExpiresAt = &expired

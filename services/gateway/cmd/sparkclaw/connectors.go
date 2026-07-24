@@ -56,7 +56,7 @@ func newConnectorAssembly(
 		return nil, fmt.Errorf("assemble delivery providers: %w", err)
 	}
 	routes := messagecontrol.NewReturnRouteResolver(endpoints)
-	deliveryGateway := delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{})
+	deliveryGateway := delivery.NewGateway(endpoints, providers, delivery.NewPersistentWebDelivery(st))
 	resultDeliverer := delivery.NewWorkflowResultDeliverer(routes, deliveryGateway)
 	telegramNotifications := telegram.NewNotificationAdapter(st, vault, telegramConfig)
 	telegramService := telegram.NewService(

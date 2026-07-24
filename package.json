@@ -25,13 +25,13 @@
     "apps/webchat"
   ],
   "dependencies": {
-    "playwright": "1.61.1"
+    "agent-browser": "0.32.3"
   },
   "scripts": {
     "dev:webchat": "npm --workspace @sparkclaw/webchat run dev",
     "build:webchat": "npm --workspace @sparkclaw/webchat run build",
     "test:webchat": "npm --workspace @sparkclaw/webchat run test",
-    "setup:browser": "playwright install chromium",
+    "setup:browser": "bash scripts/setup-browser.sh",
     "test:gateway": "go test ./services/gateway/...",
     "doctor": "bash scripts/doctor.sh",
     "setup:document-tools": "bash scripts/setup-document-tools.sh",

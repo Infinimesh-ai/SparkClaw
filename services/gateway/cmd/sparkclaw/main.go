@@ -53,7 +53,12 @@ func main() {
 	}
 	defer transcriber.Close()
 	traces := trace.NewWriterFromConfig(cfg)
-	runtime := agent.NewRuntimeWithSkills(st, tools, policyEngine, models, traces, skills.NewRegistry(cfg)).WithArtifactStore(artifactStore)
+	runtime, err := agent.NewRuntimeWithSkillsContext(context.Background(), st, tools, policyEngine, models, traces, skills.NewRegistry(cfg))
+	if err != nil {
+		slog.Error("failed to initialize agent runtime", "error", err)
+		os.Exit(1)
+	}
+	runtime = runtime.WithArtifactStore(artifactStore)
 	services, err := newGatewayServices(cfg, st, tools, runtime, traces, transcriber)
 	if err != nil {
 		slog.Error("failed to initialize gateway services", "error", err)

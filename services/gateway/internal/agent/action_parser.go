@@ -88,3 +88,49 @@ func extractJSONObject(content string) string {
 	}
 	return ""
 }
+
+func extractJSONObjects(content string) []string {
+	objects := []string{}
+	start := -1
+	depth := 0
+	inString := false
+	escaped := false
+	for index := 0; index < len(content); index++ {
+		char := content[index]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if char == '\\' {
+				escaped = true
+				continue
+			}
+			if char == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch char {
+		case '"':
+			if depth > 0 {
+				inString = true
+			}
+		case '{':
+			if depth == 0 {
+				start = index
+			}
+			depth++
+		case '}':
+			if depth == 0 {
+				continue
+			}
+			depth--
+			if depth == 0 && start >= 0 {
+				objects = append(objects, strings.TrimSpace(content[start:index+1]))
+				start = -1
+			}
+		}
+	}
+	return objects
+}

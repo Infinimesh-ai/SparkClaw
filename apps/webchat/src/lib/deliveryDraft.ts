@@ -19,12 +19,11 @@ export function emptyExternalDeliveryDraft(): ExternalDeliveryDraft {
 }
 
 export function endpointsForSoftware(endpoints: DeliveryEndpoint[], software: string) {
-  return endpoints.filter((endpoint) => endpoint.channel === software);
+  return software ? endpoints.filter((endpoint) => endpoint.channel === software) : [];
 }
 
-export function selectDeliverySoftware(draft: ExternalDeliveryDraft, software: string, endpoints: DeliveryEndpoint[]): ExternalDeliveryDraft {
-  const candidates = endpointsForSoftware(endpoints, software);
-  return { ...draft, software, endpointId: candidates.length === 1 ? candidates[0].id : "" };
+export function selectDeliverySoftware(draft: ExternalDeliveryDraft, software: string): ExternalDeliveryDraft {
+  return { ...draft, software, endpointId: "" };
 }
 
 export function deliveryDraftParts(draft: ExternalDeliveryDraft): DeliveryPart[] {
@@ -71,6 +70,10 @@ export function deliveryPartFromAttachment(id: string, attachment: MessageAttach
     bytes: attachment.bytes,
     caption: attachment.caption
   };
+}
+
+export function deliveryPartIDFromAttachment(attachment: MessageAttachment) {
+  return `attachment:${attachment.artifact_id || attachment.rel_path}`;
 }
 
 export function moveDeliveryPart(parts: DeliveryPart[], index: number, offset: -1 | 1) {

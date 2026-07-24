@@ -18,69 +18,6 @@ type documentPreflight struct {
 	Format    string
 }
 
-func recognizeDocumentRoute(input workflowRecognitionContext, edit bool) (workflowRecognition, bool) {
-	content := semanticRoutingContent(input.Content)
-	lower := strings.ToLower(content)
-	resourcePaths := attachedWorkspaceDocumentPaths(input.Resources)
-	wantsEdit := documentContentMutationRequested(lower)
-	wantsRead := (documentInformationRequested(content, lower) || len(resourcePaths) > 0 &&
-		(documentReadIntent(lower) || strings.TrimSpace(content) == "" || attachedWorkspaceImageCanFinalize(input.Resources, content))) && !wantsEdit
-	if edit && !wantsEdit || !edit && !wantsRead {
-		return workflowRecognition{}, false
-	}
-	if edit && unsupportedDocumentEditIntent(lower) {
-		return workflowRecognition{}, false
-	}
-	paths := documentRoutePaths(content)
-	if len(paths) == 0 {
-		paths = resourcePaths
-	}
-	if len(paths) == 0 && edit {
-		if recentPath := recentDocumentContextPath(input.Snapshot); recentPath != "" {
-			paths = []string{recentPath}
-		}
-	}
-	if len(paths) > 1 || len(paths) == 0 && (!edit || !documentReadIntent(lower)) {
-		return workflowRecognition{}, false
-	}
-	if len(paths) == 0 {
-		return workflowRecognition{
-			Status: app.RouteClarify, Confidence: 0.75,
-			Reason: "The document workflow requires one explicit governed path.",
-		}, true
-	}
-	preflight, err := preflightDocumentPath(input.WorkspaceRoot, paths[0], edit)
-	if err != nil {
-		if edit && strings.Contains(err.Error(), "read-only") {
-			return workflowRecognition{}, false
-		}
-		return workflowRecognition{
-			Status: app.RouteBlocked, Confidence: 0.95,
-			Reason: "Document preflight failed: " + err.Error(),
-		}, true
-	}
-	if preflight.Format == app.DocumentFormatImage && (hasExplicitExternalSendSignal(content) || !imageInspectCanFinalize(content)) {
-		return workflowRecognition{}, false
-	}
-	operation := app.RouteOperationRead
-	facts := map[string]string{"path": preflight.InputRef, "document_format": preflight.Format}
-	if edit {
-		operation = app.RouteOperationEdit
-		if preflight.Format == app.DocumentFormatPDF {
-			operation = app.RouteOperationTransform
-		}
-		facts["output_path"] = preflight.OutputRef
-	}
-	return workflowRecognition{
-		Slots: app.RouteSlots{
-			Operation: operation, Query: content, TargetKind: "workspace_path", TargetRef: preflight.InputRef,
-			OutputRef: preflight.OutputRef, Format: preflight.Format,
-		},
-		Facts: facts, Confidence: 0.95,
-		Reason: "The request targets one preflighted governed document.",
-	}, true
-}
-
 func attachedWorkspaceDocumentPaths(resources []app.MessagePart) []string {
 	paths := make([]string, 0, len(resources))
 	seen := map[string]bool{}
@@ -107,34 +44,6 @@ func attachedWorkspaceImageCanFinalize(resources []app.MessagePart, content stri
 		}
 	}
 	return false
-}
-
-func documentContentMutationRequested(lower string) bool {
-	return containsEnglishSemanticTerm(lower,
-		"edit", "modify", "replace", "update", "change", "insert", "append", "add", "delete", "remove",
-		"revise", "improve", "polish", "rewrite", "fill", "correct", "adjust", "transform", "rotate", "split",
-	) || containsAny(lower,
-		"编辑", "修改", "替换", "更新", "改为", "插入", "追加", "新增", "添加", "增加", "删除", "移除",
-		"完善", "润色", "改写", "补充", "填写", "填入", "调整", "修订", "修正", "转换", "旋转", "拆分",
-	)
-}
-
-func unsupportedDocumentEditIntent(lower string) bool {
-	createOrWrite := containsEnglishSemanticTerm(lower, "create", "write", "new") || containsAny(lower, "创建", "新建", "写入")
-	explicitEdit := containsEnglishSemanticTerm(lower, "edit", "modify", "replace", "update", "change", "revise", "improve", "polish") ||
-		containsAny(lower, "编辑", "修改", "替换", "更新", "改为", "完善", "润色")
-	if createOrWrite && !explicitEdit && !containsEnglishSemanticTerm(lower, "slide") && !containsAny(lower, "幻灯片") {
-		return true
-	}
-	deleteOrRemove := containsEnglishSemanticTerm(lower, "delete", "remove") || containsAny(lower, "删除", "移除")
-	contentTarget := containsEnglishSemanticTerm(lower, "content", "text", "paragraph", "row", "cell", "slide", "page", "chart", "image") ||
-		containsAny(lower, "内容", "正文", "文字", "文本", "段落", "行", "单元格", "幻灯片", "页面", "图表", "图片")
-	return deleteOrRemove && !contentTarget
-}
-
-func documentReadIntent(lower string) bool {
-	return containsEnglishSemanticTerm(lower, "read", "summarize", "inspect", "explain") ||
-		containsAny(lower, "读取", "阅读", "查看", "总结", "概括")
 }
 
 func recentDocumentContextPath(snapshot agentContextSnapshot) string {

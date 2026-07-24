@@ -216,21 +216,12 @@ func telegramDeliveryFailure(err error) (string, string) {
 	return delivery.CodeBindingUnavailable, "blocked"
 }
 
-func bindingHasScope(scopes []string, expected string) bool {
-	for _, scope := range scopes {
-		if strings.TrimSpace(scope) == expected {
-			return true
-		}
-	}
-	return false
-}
-
-func bindingAllowsScope(scopes []string, expected string, origin app.DeliveryOrigin) bool {
-	return bindingHasScope(scopes, expected) || (origin == app.DeliveryOriginSchedule && len(scopes) == 0)
+func bindingAllowsScope(scopes []string, expected string, _ app.DeliveryOrigin) bool {
+	return app.BindingAllowsMessagingScope(scopes, expected)
 }
 
 func bindingAllowsSourceReply(scopes []string) bool {
-	return len(scopes) == 0 || bindingHasScope(scopes, app.BindingScopeMessageSendSelf)
+	return app.BindingAllowsMessagingScope(scopes, app.BindingScopeMessageSendSelf)
 }
 
 func firstNonEmpty(values ...string) string {

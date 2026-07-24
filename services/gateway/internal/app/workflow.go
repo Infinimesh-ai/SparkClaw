@@ -1,6 +1,7 @@
 package app
 
 const (
+	CapabilityConversationAnswer    CapabilityID = "conversation.answer"
 	CapabilityBrowserInternetSearch CapabilityID = "browser.internet_search"
 	CapabilityBrowserWeather        CapabilityID = "browser.weather"
 	CapabilityBrowserInteraction    CapabilityID = "browser.interaction"
@@ -12,14 +13,16 @@ const (
 type IntentDomain string
 
 const (
-	IntentDomainWeb       IntentDomain = "web"
-	IntentDomainWorkspace IntentDomain = "workspace"
-	IntentDomainSchedule  IntentDomain = "schedule"
+	IntentDomainConversation IntentDomain = "conversation"
+	IntentDomainWeb          IntentDomain = "web"
+	IntentDomainWorkspace    IntentDomain = "workspace"
+	IntentDomainSchedule     IntentDomain = "schedule"
 )
 
 type IntentOperation string
 
 const (
+	IntentOperationAnswer   IntentOperation = "answer"
 	IntentOperationSearch   IntentOperation = "search"
 	IntentOperationRender   IntentOperation = "render"
 	IntentOperationRead     IntentOperation = "read"
@@ -117,6 +120,7 @@ type ArgumentBindingSource string
 type WorkflowResultProjection string
 
 const (
+	WorkflowConversationAnswer    WorkflowID = "conversation.answer"
 	WorkflowBrowserInternetSearch WorkflowID = "browser.internet_search"
 	WorkflowBrowserWeather        WorkflowID = "browser.weather"
 	WorkflowBrowserAutomation     WorkflowID = "browser.automation"
@@ -195,6 +199,8 @@ const (
 	OutcomeAdapterBrowserClick    ToolOutcomeAdapter = "browser.click"
 	OutcomeAdapterBrowserVerify   ToolOutcomeAdapter = "browser.verify"
 	OutcomeAdapterDocumentEdit    ToolOutcomeAdapter = "document.edit"
+	OutcomeAdapterScheduleList    ToolOutcomeAdapter = "schedule.list"
+	OutcomeAdapterScheduleChange  ToolOutcomeAdapter = "schedule.change"
 
 	OutcomeSignalResultsAvailable                OutcomeSignal = "results_available"
 	OutcomeSignalInfoAnswerAvailable             OutcomeSignal = "info_answer_available"
@@ -229,12 +235,16 @@ const (
 	OutcomeSignalUnsafeClickTarget               OutcomeSignal = "unsafe_click_target"
 	OutcomeSignalEditCompleted                   OutcomeSignal = "edit_completed"
 	OutcomeSignalArtifactAvailable               OutcomeSignal = "artifact_available"
+	OutcomeSignalSchedulesListed                 OutcomeSignal = "schedules_listed"
+	OutcomeSignalScheduleTargetResolved          OutcomeSignal = "schedule_target_resolved"
+	OutcomeSignalScheduleChanged                 OutcomeSignal = "schedule_changed"
 
 	AssessmentComplete          AssessmentStatus = "complete"
 	AssessmentNeedsMoreEvidence AssessmentStatus = "needs_more_evidence"
 	AssessmentBlocked           AssessmentStatus = "blocked"
 
-	CompletionEvidence CompletionRule = "evidence"
+	CompletionEvidence    CompletionRule = "evidence"
+	CompletionModelAnswer CompletionRule = "model_answer"
 
 	WorkflowStatusRunning   WorkflowStatus = "running"
 	WorkflowStatusSucceeded WorkflowStatus = "succeeded"

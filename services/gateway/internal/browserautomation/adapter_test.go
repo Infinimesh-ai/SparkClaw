@@ -4,265 +4,252 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
-func TestMapToolMapsBrowserTypeToFillByDefault(t *testing.T) {
-	rawTool, rawArgs, err := mapTool("browser.type", map[string]any{"uid": "1", "text": "hello"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawTool != "fill" {
-		t.Fatalf("browser.type should prefer fill by default, got %q", rawTool)
-	}
-	if rawArgs["value"] != "hello" {
-		t.Fatalf("browser.type should map public text arg to Playwright fill value arg: %#v", rawArgs)
-	}
-	if _, ok := rawArgs["text"]; ok {
-		t.Fatalf("browser.type should not forward public text arg to Playwright fill: %#v", rawArgs)
-	}
-}
-
-func TestMapToolMapsBrowserTypeToTypeTextForFocusedInputs(t *testing.T) {
-	rawTool, rawArgs, err := mapTool("browser.type", map[string]any{"text": "hello", "mode": "chat"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawTool != "type_text" {
-		t.Fatalf("browser.type should use type_text for chat/focused input, got %q", rawTool)
-	}
-	if _, ok := rawArgs["uid"]; ok {
-		t.Fatalf("browser.type should not forward uid to focused Playwright typing: %#v", rawArgs)
-	}
-}
-
-func TestMapToolMapsBrowserTypeWithRefToFillEvenWhenModeHintsTypeText(t *testing.T) {
-	rawTool, rawArgs, err := mapTool("browser.type", map[string]any{
-		"ref":  "6_7",
-		"text": "hello",
-		"mode": "search",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawTool != "fill" {
-		t.Fatalf("browser.type with explicit ref should use fill, got %q", rawTool)
-	}
-	if rawArgs["uid"] != "6_7" || rawArgs["value"] != "hello" {
-		t.Fatalf("browser.type should normalize ref/text to uid/value for fill: %#v", rawArgs)
-	}
-	if _, ok := rawArgs["ref"]; ok {
-		t.Fatalf("browser.type should not forward ref alias to Playwright fill: %#v", rawArgs)
-	}
-}
-
-func TestMapToolMapsNavigateToPlaywrightDriver(t *testing.T) {
-	rawTool, rawArgs, err := mapTool("browser.navigate", map[string]any{
-		"url":             "https://example.com",
-		"reason":          "test",
-		"browser_mode":    "collaborative",
-		"presentation":    "visible",
-		"surface_visible": true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawTool != "navigate_page" {
-		t.Fatalf("browser.navigate should map to navigate_page, got %q", rawTool)
-	}
-	if _, ok := rawArgs["reason"]; ok {
-		t.Fatalf("browser.navigate should not forward SparkClaw-only reason to Playwright: %#v", rawArgs)
-	}
-	for _, metadata := range []string{"browser_mode", "presentation", "surface_visible"} {
-		if _, ok := rawArgs[metadata]; ok {
-			t.Fatalf("browser.navigate should not forward SparkClaw-only %s to Playwright: %#v", metadata, rawArgs)
+func TestAgentBrowserTabIDMapsPublicPageID(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  string
+	}{{"1", "t1"}, {"page_2", "t2"}} {
+		got, err := agentBrowserTabID(map[string]any{"page_id": test.input})
+		if err != nil || got != test.want {
+			t.Fatalf("page id %q: got %q, err=%v", test.input, got, err)
 		}
 	}
-}
-
-func TestMapToolNormalizesPageIDForFocusAndClose(t *testing.T) {
-	rawTool, rawArgs, err := mapTool("browser.focus", map[string]any{"page_id": "1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawTool != "select_page" || rawArgs["pageId"] != 1 || rawArgs["bringToFront"] != true {
-		t.Fatalf("browser.focus should map string page_id to numeric Playwright pageId: tool=%q args=%#v", rawTool, rawArgs)
-	}
-	rawTool, rawArgs, err = mapTool("browser.close", map[string]any{"page_id": "page_2"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawTool != "close_page" || rawArgs["pageId"] != 2 {
-		t.Fatalf("browser.close should map prefixed page_id to numeric Playwright pageId: tool=%q args=%#v", rawTool, rawArgs)
+	if _, err := agentBrowserTabID(map[string]any{"page_id": "main"}); err == nil {
+		t.Fatal("non-numeric page ids must be rejected")
 	}
 }
 
-func TestMapToolStripsSparkClawVisibilityHints(t *testing.T) {
-	_, rawArgs, err := mapTool("browser.open", map[string]any{
-		"url":                    "https://example.com",
-		"visible_browser":        true,
-		"disable_hidden_browser": true,
-		"presentation":           "visible",
-		"surface_visible":        true,
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestNormalizeAgentBrowserTabsPreservesActiveTab(t *testing.T) {
+	pages := normalizeAgentBrowserTabs(map[string]any{"tabs": []any{
+		map[string]any{"tabId": "t1", "active": false, "url": "about:blank", "title": ""},
+		map[string]any{"tabId": "t2", "active": true, "url": "https://example.com", "title": "Example"},
+	}})
+	if len(pages) != 2 {
+		t.Fatalf("expected two pages, got %#v", pages)
 	}
-	for _, key := range []string{"visible_browser", "disable_hidden_browser", "presentation", "surface_visible"} {
-		if _, ok := rawArgs[key]; ok {
-			t.Fatalf("SparkClaw-only %s must not reach Playwright: %#v", key, rawArgs)
-		}
+	active := mapValue(pages[1])
+	if firstStringValue(active, "page_id") != "page_2" || !boolValue(active["selected"]) {
+		t.Fatalf("active agent-browser tab was not normalized: %#v", active)
 	}
 }
 
-func TestMapToolForwardsPageIDAndGoalToSnapshot(t *testing.T) {
-	rawTool, rawArgs, err := mapTool("browser.snapshot", map[string]any{
-		"page_id":          "page_1",
-		"interaction_goal": "click Next",
-		"reason":           "inspect current page",
-		"verbose":          true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawTool != "take_snapshot" {
-		t.Fatalf("browser.snapshot should map to take_snapshot, got %q", rawTool)
-	}
-	if rawArgs["page_id"] != "page_1" || rawArgs["interaction_goal"] != "click Next" {
-		t.Fatalf("browser.snapshot should bind the requested managed page and goal: %#v", rawArgs)
-	}
-	if _, ok := rawArgs["reason"]; ok {
-		t.Fatalf("browser.snapshot should not forward reason to take_snapshot: %#v", rawArgs)
-	}
-	if rawArgs["verbose"] != true {
-		t.Fatalf("browser.snapshot should preserve supported verbose arg: %#v", rawArgs)
-	}
-}
-
-func TestNormalizeListTabsPreservesPlaywrightPages(t *testing.T) {
-	output := normalizeOutput("browser.list_tabs", map[string]any{
-		"pages": []any{map[string]any{"page_id": "page_1", "url": "https://example.com", "title": "Example"}},
-	})
-	result, ok := output.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map output, got %#v", output)
-	}
-	pages, ok := result["pages"].([]any)
-	if !ok || len(pages) != 1 {
-		t.Fatalf("expected normalized pages, got %#v", result["pages"])
-	}
-}
-
-func TestNormalizeListTabsReturnsEmptyPagesForNoOpenPages(t *testing.T) {
-	output := normalizeOutput("browser.list_tabs", map[string]any{"pages": []any{}})
-	result, ok := output.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map output, got %#v", output)
-	}
-	pages, ok := result["pages"].([]any)
-	if !ok {
-		t.Fatalf("expected pages array, got %#v", result["pages"])
-	}
-	if len(pages) != 0 {
-		t.Fatalf("expected empty pages, got %#v", pages)
-	}
-}
-
-func TestEvaluatePayloadMapExtractsRenderedPageFields(t *testing.T) {
-	output := map[string]any{
-		"content": []any{
-			map[string]any{
-				"type": "text",
-				"text": `{"url":"https://example.com/rendered","title":"Rendered","html":"<article>Body</article>","rendered":true,"readyState":"complete"}`,
-			},
-		},
-	}
-	payload := evaluatePayloadMap(output)
-	if payload == nil {
-		t.Fatal("expected payload")
-	}
-	if firstStringValue(payload, "url") != "https://example.com/rendered" ||
-		firstStringValue(payload, "title") != "Rendered" ||
-		!boolValue(payload["rendered"]) {
-		t.Fatalf("unexpected payload: %#v", payload)
-	}
-}
-
-func TestEvaluatePayloadMapExtractsFencedDriverJSON(t *testing.T) {
-	output := map[string]any{
-		"content": []any{
-			map[string]any{
-				"type": "text",
-				"text": "Script ran on page and returned:\n```json\n{\"url\":\"https://example.com/next\",\"title\":\"Next page\",\"readyState\":\"complete\"}\n```",
-			},
-		},
-	}
-	payload := evaluatePayloadMap(output)
-	if payload == nil {
-		t.Fatal("expected fenced driver payload")
-	}
-	if firstStringValue(payload, "url") != "https://example.com/next" ||
-		firstStringValue(payload, "title") != "Next page" ||
-		firstStringValue(payload, "readyState") != "complete" {
-		t.Fatalf("unexpected fenced payload: %#v", payload)
-	}
-}
-
-func TestReadPageSnapshotRequestDefaultsFalse(t *testing.T) {
-	if readPageSnapshotRequested(nil) {
-		t.Fatal("browser.read should not request take_snapshot by default")
-	}
-	if readPageSnapshotRequested(map[string]any{"max_chars": 120000}) {
-		t.Fatal("max_chars-only browser.read should not request take_snapshot")
-	}
-	if !readPageSnapshotRequested(map[string]any{"include_snapshot": true}) {
-		t.Fatal("include_snapshot should request take_snapshot")
-	}
-}
-
-func TestBrowserReadEvaluateFunctionEmbedsMaxCharsWithoutExternalArgs(t *testing.T) {
-	fn := browserReadEvaluateFunction(120000)
-	if !strings.Contains(fn, "const limit = 120000;") {
-		t.Fatalf("browser read script should embed max chars limit:\n%s", fn)
-	}
-	if strings.Contains(fn, "maxChars") {
-		t.Fatalf("browser read script should not depend on external args as generic parameters:\n%s", fn)
-	}
-	fallback := browserReadEvaluateFunction(0)
-	if !strings.Contains(fallback, "const limit = 120000;") {
-		t.Fatalf("expected default max chars limit, got:\n%s", fallback)
-	}
-}
-
-func TestBrowserReadEvaluateFunctionUsesVisibleAuthControlsAndAuthenticatedEvidence(t *testing.T) {
-	fn := browserReadEvaluateFunction(120000)
-	for _, want := range []string{
-		"excludedTextTags",
-		"visibleTextFor",
-		"credentialHasLoginContext",
-		"visibleLogoutControl",
-		"visibleAccountControl",
-		"usableApplicationShell",
-		"authState",
-		"authConfidence",
-		"authSignals",
-		`authChallengeDetected = authState === "challenged"`,
+func TestAgentBrowserOpenReusesOnlySoleBlankPage(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		pages []any
+		want  bool
+	}{
+		{name: "sole blank page", pages: []any{map[string]any{"url": "about:blank"}}, want: true},
+		{name: "existing target page", pages: []any{map[string]any{"url": "https://wx.mail.qq.com/home/index#/list/4"}}},
+		{name: "blank plus existing page", pages: []any{map[string]any{"url": "about:blank"}, map[string]any{"url": "https://example.com/"}}},
+		{name: "no pages", pages: nil},
 	} {
-		if !strings.Contains(fn, want) {
-			t.Fatalf("browser auth evaluation missing %q:\n%s", want, fn)
+		t.Run(test.name, func(t *testing.T) {
+			if got := canReuseAgentBrowserBlankPage(test.pages); got != test.want {
+				t.Fatalf("unexpected blank-page reuse decision: got=%t want=%t pages=%#v", got, test.want, test.pages)
+			}
+		})
+	}
+}
+
+func TestAgentBrowserObservedTabsAreClonedAndConsumedOnce(t *testing.T) {
+	adapter := &AgentBrowserAdapter{}
+	pages := []any{map[string]any{"page_id": "page_1", "url": "about:blank", "selected": true}}
+	adapter.rememberObservedTabsLocked(pages)
+	mapValue(pages[0])["url"] = "https://unrelated.example/"
+
+	observed, ok := adapter.takeObservedTabsLocked()
+	if !ok || !canReuseAgentBrowserBlankPage(observed) {
+		t.Fatalf("verified blank-tab observation was not isolated from caller mutation: %#v", observed)
+	}
+	if second, ok := adapter.takeObservedTabsLocked(); ok || second != nil {
+		t.Fatalf("tab observation was reusable more than once: %#v ok=%t", second, ok)
+	}
+}
+
+func TestDecodeAgentBrowserToolResultUsesStructuredResponse(t *testing.T) {
+	result, err := decodeAgentBrowserToolResult("agent_browser_get_url", map[string]any{
+		"content": []any{map[string]any{"type": "text", "text": "https://example.com"}},
+		"structuredContent": map[string]any{"response": map[string]any{
+			"success": true,
+			"data":    map[string]any{"url": "https://example.com"},
+		}},
+	})
+	if err != nil || firstStringValue(mapValue(result.Data), "url") != "https://example.com" {
+		t.Fatalf("unexpected MCP result: %#v err=%v", result, err)
+	}
+	if _, err := decodeAgentBrowserToolResult("agent_browser_click", map[string]any{
+		"structuredContent": map[string]any{"response": map[string]any{"success": false, "error": "missing ref"}},
+	}); err == nil || !isAgentBrowserActionError(err) {
+		t.Fatalf("business failure should remain an action error: %v", err)
+	}
+}
+
+func TestAgentBrowserSnapshotRankingAndWrappedRefs(t *testing.T) {
+	refs := map[string]any{
+		"e1": map[string]any{"role": "link", "name": "Inbox"},
+		"e2": map[string]any{"role": "link", "name": "Drafts"},
+		"e3": map[string]any{"role": "button", "name": "Compose"},
+	}
+	ranked := buildAgentBrowserSnapshotRefs(refs, "Open Drafts")
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
+	if ranked[0].RawRef != "e2" {
+		t.Fatalf("interaction goal should rank Drafts first: %#v", ranked)
+	}
+	ranked[0].ExternalRef = "snapshot_1_1:e2:abc"
+	projection := projectAgentBrowserTreeRefs(ranked[:1])
+	if !strings.Contains(projection, "[ref=snapshot_1_1:e2:abc]") || strings.Contains(projection, "ref=e1") {
+		t.Fatalf("only wrapped, returned refs should remain executable: %q", projection)
+	}
+}
+
+func TestAgentBrowserFullSnapshotEnrichesGenericClickableFromDescendantText(t *testing.T) {
+	refs := map[string]any{"e14": map[string]any{"role": "generic"}}
+	tree := `- generic
+  - generic [ref=e14] clickable [cursor:pointer, onclick]
+    - image
+    - StaticText "Drafts"`
+	enrichAgentBrowserRefsFromTree(refs, tree)
+	values := mapValue(refs["e14"])
+	if firstStringValue(values, "name") != "Drafts" || !boolValue(values["clickable"]) {
+		t.Fatalf("native generic clickable was not enriched from its interaction-tree label: %#v", values)
+	}
+	descriptors := buildAgentBrowserSnapshotRefs(refs, "Open Drafts")
+	if len(descriptors) != 1 || descriptors[0].RawRef != "e14" || descriptors[0].Name != "Drafts" || descriptors[0].Score < 200 {
+		t.Fatalf("enriched native ref was not executable and goal-relevant: %#v", descriptors)
+	}
+}
+
+func TestAgentBrowserDescendantTextDoesNotBorrowNestedControlLabel(t *testing.T) {
+	refs := map[string]any{
+		"e1": map[string]any{"role": "generic"},
+		"e2": map[string]any{"role": "button", "name": "Delete"},
+	}
+	tree := `- generic [ref=e1] clickable
+  - button "Delete" [ref=e2]
+    - StaticText "Delete"
+- StaticText "Outside"`
+	enrichAgentBrowserRefsFromTree(refs, tree)
+	if name := firstStringValue(mapValue(refs["e1"]), "name"); name != "" {
+		t.Fatalf("parent clickable borrowed nested control label %q", name)
+	}
+}
+
+func TestAgentBrowserSnapshotUsesFullCompactNativeTree(t *testing.T) {
+	args := agentBrowserSnapshotRawArgs()
+	if boolValue(args["interactive"]) || !boolValue(args["compact"]) || !boolValue(args["includeUrls"]) {
+		t.Fatalf("snapshot acquisition must retain generic clickable refs using the full compact native tree: %#v", args)
+	}
+}
+
+func TestAgentBrowserSnapshotControlKeepsExecutionIdentityCompact(t *testing.T) {
+	descriptor := &agentBrowserSnapshotRef{
+		ExternalRef: "snapshot_1_1:e14:eaff13c7b5515f03",
+		Fingerprint: "eaff13c7b5515f0359bada71f37fb55ed44f1d5a71a35a67c7ae10903c839ab6",
+		Role:        "generic",
+		Name:        "Drafts",
+		Clickable:   true,
+		Ordinal:     1,
+	}
+	control := agentBrowserSnapshotControl(descriptor)
+	if firstStringValue(control, "ref") != descriptor.ExternalRef || firstStringValue(control, "fingerprint") != descriptor.Fingerprint[:16] {
+		t.Fatalf("compact control lost its current-snapshot identity: %#v", control)
+	}
+	for _, redundant := range []string{"uid", "clickable", "ordinal"} {
+		if _, exists := control[redundant]; exists {
+			t.Fatalf("compact control repeated private execution field %q: %#v", redundant, control)
 		}
 	}
-	for _, excluded := range []string{"document.body.innerText", "qq.com", "xmail_uin"} {
-		if strings.Contains(strings.ToLower(fn), excluded) {
-			t.Fatalf("browser auth evaluation must remain domain-neutral and exclude raw body/style text %q:\n%s", excluded, fn)
+}
+
+func TestAgentBrowserSnapshotFingerprintSurvivesRawRefRenumbering(t *testing.T) {
+	before := buildAgentBrowserSnapshotRefs(map[string]any{
+		"e1": map[string]any{"role": "link", "name": "Inbox"},
+		"e2": map[string]any{"role": "link", "name": "Drafts"},
+	}, "")
+	after := buildAgentBrowserSnapshotRefs(map[string]any{
+		"e7": map[string]any{"role": "link", "name": "Inbox"},
+		"e8": map[string]any{"role": "link", "name": "Drafts"},
+	}, "")
+	if before[1].RawRef == after[1].RawRef || before[1].Fingerprint != after[1].Fingerprint {
+		t.Fatalf("semantic fingerprint should survive agent-browser ref renumbering: before=%#v after=%#v", before[1], after[1])
+	}
+}
+
+func TestInferAgentBrowserSnapshotAuthUsesGenericInteractionTreeEvidence(t *testing.T) {
+	metadata := inferAgentBrowserSnapshotAuth(map[string]any{
+		"authState":      "unknown",
+		"authConfidence": "insufficient",
+	}, "Account access", "https://portal.example.test/login", []*agentBrowserSnapshotRef{
+		{Role: "tab", Name: "Email sign in"},
+		{Role: "iframe", Name: "Single sign-on login"},
+	})
+	if firstStringValue(metadata, "authState") != "challenged" ||
+		firstStringValue(metadata, "authConfidence") != "accessibility_tree" ||
+		!boolValue(metadata["authChallengeDetected"]) {
+		t.Fatalf("generic login gate was not inferred from snapshot evidence: %#v", metadata)
+	}
+	signals := firstStringSliceValue(metadata["authSignals"])
+	for _, want := range []string{"snapshot_auth_route", "snapshot_auth_controls", "snapshot_auth_frame"} {
+		if !containsString(signals, want) {
+			t.Fatalf("snapshot auth inference missing %q: %#v", want, metadata)
 		}
+	}
+}
+
+func TestInferAgentBrowserSnapshotAuthDoesNotTreatDocumentationAsLoginGate(t *testing.T) {
+	metadata := inferAgentBrowserSnapshotAuth(map[string]any{
+		"authState":      "unknown",
+		"authConfidence": "insufficient",
+	}, "Login API documentation", "https://docs.example.test/authentication", []*agentBrowserSnapshotRef{
+		{Role: "link", Name: "Sign in example"},
+		{Role: "link", Name: "Log out example"},
+	})
+	if firstStringValue(metadata, "authState") != "unknown" || boolValue(metadata["authChallengeDetected"]) {
+		t.Fatalf("documentation page must remain inconclusive: %#v", metadata)
+	}
+}
+
+func TestInferAgentBrowserSnapshotAuthRecognizesApplicationContinuity(t *testing.T) {
+	metadata := inferAgentBrowserSnapshotAuth(map[string]any{
+		"text": "Authenticated application workspace with navigation, account settings, current records, messages, drafts, and sent items.",
+	}, "Mailbox", "https://mail.example.test/app", []*agentBrowserSnapshotRef{
+		{Role: "button", Name: "owner@example.test", Clickable: true},
+		{Role: "navigation", Name: "Mailbox navigation"},
+		{Role: "link", Name: "Inbox", Clickable: true},
+		{Role: "link", Name: "Drafts", Clickable: true},
+		{Role: "link", Name: "Sent", Clickable: true},
+	})
+	if firstStringValue(metadata, "authState") != "authenticated" ||
+		firstStringValue(metadata, "authConfidence") != "application_continuity" ||
+		!containsString(firstStringSliceValue(metadata["authSignals"]), "visible_identity_control") {
+		t.Fatalf("native accessibility evidence did not preserve authenticated continuity: %#v", metadata)
+	}
+}
+
+func TestLimitAgentBrowserPageText(t *testing.T) {
+	got, truncated := limitAgentBrowserPageText("页面正文 ABC", 4)
+	if got != "页面正文" || !truncated {
+		t.Fatalf("native page text limit should count runes: got=%q truncated=%t", got, truncated)
+	}
+	got, truncated = limitAgentBrowserPageText("short", 120)
+	if got != "short" || truncated {
+		t.Fatalf("short native page text changed: got=%q truncated=%t", got, truncated)
 	}
 }
 
@@ -273,40 +260,51 @@ func TestFirstStringSliceValue(t *testing.T) {
 	}
 }
 
-func TestEmbeddedDriverUsesPersistentPlaywrightWithoutCDP(t *testing.T) {
-	for _, required := range []string{"require(\"playwright\")", "launchPersistentContext", "page.goto", "locator.click", "locator.fill", "locator.selectOption", "ariaSnapshot"} {
-		if !strings.Contains(playwrightDriverScript, required) {
-			t.Fatalf("embedded Playwright driver is missing %q", required)
-		}
+func TestResolveChromiumExecutableUsesSystemChromium(t *testing.T) {
+	temp := t.TempDir()
+	chromium := filepath.Join(temp, "chromium")
+	if err := os.WriteFile(chromium, []byte("stub"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"connectOverCDP", "remote-debugging-port", "chrome-devtools-mcp"} {
-		if strings.Contains(playwrightDriverScript, forbidden) {
-			t.Fatalf("embedded Playwright driver must not contain %q", forbidden)
-		}
-	}
-}
-
-func TestResolvePlaywrightRuntimeDirFindsPinnedDependency(t *testing.T) {
-	dir, err := resolvePlaywrightRuntimeDir()
+	executable, err := resolveChromiumExecutableFromCandidates([]string{filepath.Join(temp, "missing"), chromium})
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "node_modules", "playwright", "package.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), `"version": "1.61.1"`) {
-		t.Fatalf("Playwright dependency is not pinned to 1.61.1: %s", raw)
+	if executable != chromium {
+		t.Fatalf("expected system Chromium %q, got %q", chromium, executable)
 	}
 }
 
-func TestResolveChromiumExecutableUsesPlaywrightDefaultWhenUnset(t *testing.T) {
+func TestRealBrowserExecutableIsChromium(t *testing.T) {
+	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
+		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to validate the real Chromium executable")
+	}
 	executable, err := resolveChromiumExecutable("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if executable != "" {
-		t.Fatalf("unset custom executable should let Playwright resolve its matching Chromium, got %q", executable)
+	if runtime.GOOS == "darwin" {
+		infoPath := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Info.plist"))
+		info, readErr := os.ReadFile(infoPath)
+		if readErr != nil {
+			t.Fatalf("read Chromium bundle metadata %q: %v", infoPath, readErr)
+		}
+		if filepath.Base(executable) != "Chromium" || !bytes.Contains(info, []byte("<string>Chromium</string>")) {
+			t.Fatalf("browser tests require the Chromium app bundle, got %q", executable)
+		}
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, executable, "--version").CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("read Chromium version timed out for %q", executable)
+	}
+	if err != nil {
+		t.Fatalf("read Chromium version: %v: %s", err, output)
+	}
+	if version := strings.TrimSpace(string(output)); !strings.HasPrefix(version, "Chromium ") {
+		t.Fatalf("browser tests require Chromium, got %q from %q", version, executable)
 	}
 }
 
@@ -346,7 +344,7 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	adapter := NewAdapter(cfg)
 	t.Cleanup(func() { _ = adapter.Close() })
 
-	result, err := adapter.Call(context.Background(), "browser.open", map[string]any{
+	visibleArgs := map[string]any{
 		"url":                server.URL,
 		"browser_mode":       "collaborative",
 		"presentation":       "visible",
@@ -354,7 +352,17 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 		"visible_browser":    true,
 		"owner_id":           "owner-test",
 		"browser_profile_id": "direct-open",
-	})
+	}
+	health, err := adapter.Health(context.Background(), visibleArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthOutput := mapValue(health.Output)
+	if health.Provider != "agent-browser-visible" || health.Presentation != "visible" || !health.SurfaceVisible ||
+		!boolValue(healthOutput["ok"]) || firstStringValue(healthOutput, "status") != "ok" {
+		t.Fatalf("visible browser health did not preserve execution presentation: %#v", health)
+	}
+	result, err := adapter.Call(context.Background(), "browser.open", visibleArgs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +387,7 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 		"owner_id":           "owner-test",
 		"browser_profile_id": "direct-open",
 	}); err != nil {
-		t.Fatalf("string page_id should map to Playwright pageId: %v", err)
+		t.Fatalf("string page_id should map to an agent-browser tab: %v", err)
 	}
 	page, err := adapter.ReadPage(context.Background(), server.URL+"/authenticated", map[string]any{
 		"browser_mode":       "autonomous",
@@ -407,9 +415,46 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	})
 }
 
+func TestRealChromiumSnapshotRecognizesGenericLoginGate(t *testing.T) {
+	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
+		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to validate snapshot login-gate normalization")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Account access</title></head><body>
+<main><button>Email sign in</button><button>Single sign-on login</button></main>
+</body></html>`))
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.Adapters.BrowserAutomation.ProfileDir = t.TempDir()
+	cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
+	adapter := NewAdapter(cfg)
+	t.Cleanup(func() { _ = adapter.Close() })
+	args := map[string]any{
+		"url":                server.URL + "/login",
+		"browser_mode":       "autonomous",
+		"presentation":       "hidden",
+		"surface_visible":    false,
+		"owner_id":           "owner-test",
+		"browser_profile_id": "login-gate",
+	}
+	result, err := adapter.Call(context.Background(), "browser.snapshot", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := mapValue(result.Output)
+	if firstStringValue(output, "browser_page_auth_state") != "challenged" ||
+		firstStringValue(output, "browser_page_auth_confidence") != "accessibility_tree" ||
+		!boolValue(output["auth_challenge_detected"]) {
+		t.Fatalf("real agent-browser snapshot did not normalize the login gate: %#v", output)
+	}
+	closeSelectedChromiumTab(t, adapter, args)
+}
+
 func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
-		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real Playwright interaction smoke test")
+		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real agent-browser interaction smoke test")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<!doctype html><html><body>
@@ -464,6 +509,12 @@ func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(interactionSnapshot.Text, "ref=e") {
+		t.Fatalf("raw agent-browser refs crossed the adapter boundary: %q", interactionSnapshot.Text)
+	}
+	if strings.Contains(interactionSnapshot.Text, "Interactive refs:") {
+		t.Fatalf("snapshot text duplicated the structured control projection: %q", interactionSnapshot.Text)
+	}
 	interactionOutput, ok := interactionSnapshot.Output.(map[string]any)
 	if !ok {
 		t.Fatalf("interaction snapshot output is not structured: %#v", interactionSnapshot.Output)
@@ -511,9 +562,7 @@ func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 	}
 	actionSnapshotID := stringValue(actionPayload["snapshot_id"])
 	nameRef := snapshotRefNamed(actionSnapshot.Text, "Name")
-	choiceRef := snapshotRefNamed(actionSnapshot.Text, "Choice")
-	buttonRef := snapshotRefNamed(actionSnapshot.Text, "Increment")
-	if actionSnapshotID == "" || nameRef == "" || choiceRef == "" || buttonRef == "" {
+	if actionSnapshotID == "" || nameRef == "" {
 		t.Fatalf("post-Drafts snapshot did not expose stable action refs: %q", actionSnapshot.Text)
 	}
 	typeArgs := cloneArgs(common)
@@ -521,13 +570,37 @@ func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 	if _, err := adapter.Call(context.Background(), "browser.type", typeArgs); err != nil {
 		t.Fatal(err)
 	}
+	selectSnapshotArgs := cloneArgs(interactionSnapshotArgs)
+	selectSnapshotArgs["interaction_goal"] = "Select Choice B"
+	selectSnapshot, err := adapter.Call(context.Background(), "browser.snapshot", selectSnapshotArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectPayload := mapValue(mapValue(selectSnapshot.Output)["snapshot"])
+	selectSnapshotID := firstStringValue(selectPayload, "snapshot_id")
+	choiceRef := snapshotRefNamed(selectSnapshot.Text, "Choice")
+	if choiceRef == "" || firstStringValue(selectPayload, "previous_snapshot_id") != actionSnapshotID {
+		t.Fatalf("fill did not invalidate and link its snapshot: %#v", selectPayload)
+	}
 	selectArgs := cloneArgs(common)
-	selectArgs["uid"], selectArgs["value"] = choiceRef, "B"
+	selectArgs["uid"], selectArgs["value"], selectArgs["snapshot_id"] = choiceRef, "B", selectSnapshotID
 	if _, err := adapter.Call(context.Background(), "browser.select", selectArgs); err != nil {
 		t.Fatal(err)
 	}
+	clickSnapshotArgs := cloneArgs(interactionSnapshotArgs)
+	clickSnapshotArgs["interaction_goal"] = "Increment the counter"
+	clickSnapshot, err := adapter.Call(context.Background(), "browser.snapshot", clickSnapshotArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clickPayload := mapValue(mapValue(clickSnapshot.Output)["snapshot"])
+	clickSnapshotID := firstStringValue(clickPayload, "snapshot_id")
+	buttonRef := snapshotRefNamed(clickSnapshot.Text, "Increment")
+	if buttonRef == "" || firstStringValue(clickPayload, "previous_snapshot_id") != selectSnapshotID {
+		t.Fatalf("select did not invalidate and link its snapshot: %#v", clickPayload)
+	}
 	clickArgs := cloneArgs(common)
-	clickArgs["uid"], clickArgs["page_id"], clickArgs["snapshot_id"] = buttonRef, pageID, actionSnapshotID
+	clickArgs["uid"], clickArgs["page_id"], clickArgs["snapshot_id"] = buttonRef, pageID, clickSnapshotID
 	if _, err := adapter.Call(context.Background(), "browser.click", clickArgs); err != nil {
 		t.Fatal(err)
 	}
@@ -544,9 +617,9 @@ func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 		t.Fatalf("post-click snapshot output is not structured: %#v", postSnapshot.Output)
 	}
 	postPayload, ok := postOutput["snapshot"].(map[string]any)
-	if !ok || stringValue(postPayload["previous_snapshot_id"]) != actionSnapshotID ||
-		stringValue(postPayload["digest"]) == stringValue(actionPayload["digest"]) || boolValue(postPayload["repeated"]) {
-		t.Fatalf("post-click snapshot did not prove a changed state: before=%#v after=%#v", actionPayload, postPayload)
+	if !ok || stringValue(postPayload["previous_snapshot_id"]) != clickSnapshotID ||
+		stringValue(postPayload["digest"]) == stringValue(clickPayload["digest"]) || boolValue(postPayload["repeated"]) {
+		t.Fatalf("post-click snapshot did not prove a changed state: before=%#v after=%#v", clickPayload, postPayload)
 	}
 	waitArgs := cloneArgs(common)
 	waitArgs["text"] = "Alice / B / 1"
@@ -607,15 +680,19 @@ func closeSelectedChromiumTab(t *testing.T, adapter Adapter, common map[string]a
 }
 
 func snapshotRefNamed(snapshot, name string) string {
-	want := `name="` + name + `"`
+	want := `"` + name + `"`
 	for _, line := range strings.Split(snapshot, "\n") {
 		if !strings.Contains(line, want) {
 			continue
 		}
-		for _, field := range strings.Fields(line) {
-			if strings.HasPrefix(field, "ref=") {
-				return strings.TrimPrefix(field, "ref=")
-			}
+		const marker = "[ref="
+		start := strings.Index(line, marker)
+		if start < 0 {
+			continue
+		}
+		ref := line[start+len(marker):]
+		if end := strings.IndexByte(ref, ']'); end >= 0 {
+			return ref[:end]
 		}
 	}
 	return ""

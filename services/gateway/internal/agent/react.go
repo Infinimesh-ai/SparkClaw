@@ -96,9 +96,9 @@ func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run
 	return r.runBoundedToolLoopWithSeed(ctx, sessionID, run, content, hint, nil, visibleTools, seedCalls, seedObservations)
 }
 
-// runBoundedToolLoopWithSeed is a shared model/tool execution primitive. The
-// caller determines semantics: unmatched routing uses the ReAct fallback,
-// while matched workflows invoke it only within their persisted fixed scope.
+// runBoundedToolLoopWithSeed is a shared model/tool execution primitive.
+// Matched workflows invoke it only within their persisted fixed scope; the
+// ReAct-named wrappers remain only for resuming legacy persisted runs.
 func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
 	result := reactRunResult{Observations: append([]string(nil), seedObservations...)}
 	completedSoFar := append([]app.ToolCall(nil), seedCalls...)

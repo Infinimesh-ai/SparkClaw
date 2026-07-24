@@ -27,7 +27,8 @@
 - 代码、高风险审查、repair verification、terminal 相关任务、显式 deep 请求，运行 `deep` full profile。
 - 把 `deep` 的较低吞吐视为稠密模型的预期成本。`deep` 优化方向是稳定性和答案质量；`fast` 负责交互响应和短轮次体验。
 - eval 或受限运行时，必要情况下可以把 Gateway 的两个 profiles 都临时路由到已加载 lane。
-- embedding 和 reranker 保持小而可选；只有 retrieval workflow 需要 live endpoints 时才加载。
+- embedding 和 reranker 保持小型，但在已接受产品 profile 中常驻。Gateway 启动时必须使用
+  embedding 构建 semantic routing index；reranker 提供有界路由重排通道。
 
 单机阶段的性能项保持保守：
 
@@ -44,7 +45,7 @@
 
 | Setting | `fast` | `deep` | embedding | reranker | 取舍原因 |
 |---|---:|---:|---:|---:|---|
-| Context | 32768 | 65536 | 8192 | 2048 | 优先保 deep context；辅助模型保留单用户 retrieval 够用的 context。 |
+| Context | 32768 | 65536 | 8192 | 2048 | 优先保 deep context；辅助模型保留单用户 semantic routing 和有界 ranking 足够的 context。 |
 | MTP | off | off | off | off | 先节省内存和复杂度，验证常驻可行性。 |
 | KV cache budget | 8 GiB | 12 GiB | 2 GiB | 1 GiB | 直接限制真正的压力点，而不是让每个 server 按 full lane 预留。 |
 | Max response tokens | 768 | 1536 | n/a | n/a | 保持 agent loop 响应速度和 eval 稳定。 |
@@ -117,7 +118,7 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 
 | 机器 | 服务 | 备注 |
 |---|---|---|
-| DGX Spark A | `fast`、embedding、reranker、可选 guard | 优先优化交互延迟和 retrieval support。 |
+| DGX Spark A | `fast`、embedding、reranker、可选 guard | 优先优化交互延迟、semantic routing 和有界 ranking。 |
 | DGX Spark B | `deep` | 给长上下文和 repair/review 任务保留内存余量。 |
 
 只有在这个拆分稳定后，再逐步打开性能项：
@@ -136,7 +137,7 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 - Context length、KV cache budget、GPU memory utilization、MTP/DFlash 状态。
 - Startup success、idle memory、first-request latency、warmed-request latency。
 - Chat、summary、email triage、coding 场景吞吐。
-- 如果 profile 包含 embedding/reranker，记录它们的可用性。
+- 记录 embedding/reranker 可用性和 Gateway semantic-router readiness。
 - Golden eval 结果和 regression notes。
 
 长期测量结果追加到 [模型基线](../benchmarks/model_baseline.md)。本文档只维护策略和被接受的加载方案。

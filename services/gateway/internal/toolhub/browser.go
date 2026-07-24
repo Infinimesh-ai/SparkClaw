@@ -411,7 +411,7 @@ func (h *ToolHub) browserReadViaSession(ctx context.Context, parsed *url.URL, ar
 		raw = raw[:maxBytes]
 		truncated = true
 	}
-	if page.HTMLTruncated {
+	if page.HTMLTruncated || page.TextTruncated {
 		truncated = true
 	}
 	snapshotObject, snapshotErr := h.archiveBrowserSnapshot(ctx, parsed, contentType, raw, sessionID, runID)
@@ -450,7 +450,7 @@ func (h *ToolHub) browserReadViaSession(ctx context.Context, parsed *url.URL, ar
 		"final_url":                    finalURL,
 		"redirected":                   finalURL != parsed.String(),
 		"status_code":                  0,
-		"status_code_source":           "browser_session_unavailable",
+		"status_code_source":           "agent_browser_rendered_session",
 		"content_type":                 contentType,
 		"title":                        title,
 		"text":                         text,
@@ -465,11 +465,13 @@ func (h *ToolHub) browserReadViaSession(ctx context.Context, parsed *url.URL, ar
 		"browser_provider":             page.Provider,
 		"browser_duration_ms":          page.DurationMS,
 		"browser_actions":              page.Actions,
+		"browser_read_source":          page.ReadSource,
 		"browser_ready_state":          page.ReadyState,
 		"browser_lang":                 page.Lang,
 		"browser_html_length":          page.HTMLLength,
 		"browser_html_truncated":       page.HTMLTruncated,
 		"browser_text_length":          page.TextLength,
+		"browser_text_truncated":       page.TextTruncated,
 		"browser_scroll_height":        page.ScrollHeight,
 		"browser_page_auth_state":      authAssessment.State,
 		"browser_page_auth_confidence": authAssessment.Confidence,
@@ -516,11 +518,11 @@ func browserReadSource(page browserautomation.PageReadResult) ([]byte, string) {
 	if strings.TrimSpace(page.HTML) != "" {
 		return []byte(page.HTML), contentType
 	}
-	if strings.TrimSpace(page.SnapshotText) != "" {
-		return []byte(page.SnapshotText), "text/plain; source=browser_snapshot"
-	}
 	if strings.TrimSpace(page.Text) != "" {
-		return []byte(page.Text), "text/plain; source=browser_text"
+		return []byte(page.Text), "text/plain; source=agent-browser-read"
+	}
+	if strings.TrimSpace(page.SnapshotText) != "" {
+		return []byte(page.SnapshotText), "text/plain; source=agent-browser-snapshot"
 	}
 	return nil, contentType
 }

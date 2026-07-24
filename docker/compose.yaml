@@ -28,6 +28,12 @@ services:
     environment:
       SPARKCLAW_BIND: 0.0.0.0
       SPARKCLAW_BROWSER_READ_ALLOW_HOSTS: ${SPARKCLAW_BROWSER_READ_ALLOW_HOSTS:-}
+      SPARKCLAW_BROWSER_AUTOMATION_COMMAND: ${SPARKCLAW_BROWSER_AUTOMATION_COMMAND:-/app/node_modules/.bin/agent-browser}
+      SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS:-30000}
+      SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS:-10000}
+      SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS:-60000}
+      SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE: ${SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE:-/usr/bin/chromium}
+      SPARKCLAW_BROWSER_PROFILE_DIR: ${SPARKCLAW_BROWSER_PROFILE_DIR:-/var/lib/sparkclaw/browser-profiles}
       SPARKCLAW_ARTIFACT_BACKEND: ${SPARKCLAW_ARTIFACT_BACKEND:-filesystem}
       SPARKCLAW_ARTIFACT_DIR: ${SPARKCLAW_ARTIFACT_DIR:-/var/lib/sparkclaw/artifacts}
       SPARKCLAW_ARTIFACT_BUCKET: ${SPARKCLAW_ARTIFACT_BUCKET:-sparkclaw}
@@ -39,6 +45,7 @@ services:
       SPARKCLAW_STATE_DSN: ${SPARKCLAW_STATE_DSN:-postgres://sparkclaw:sparkclaw@postgres:5432/sparkclaw?sslmode=disable}
       SPARKCLAW_CREDENTIAL_KEY: ${SPARKCLAW_CREDENTIAL_KEY:-}
       SPARKCLAW_CREDENTIAL_KEY_FILE: ${SPARKCLAW_CREDENTIAL_KEY_FILE:-/var/lib/sparkclaw/memory/gateway-credentials.key}
+      SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED: ${SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED:-true}
       SPARKCLAW_TELEGRAM_ENABLED: ${SPARKCLAW_TELEGRAM_ENABLED:-false}
       SPARKCLAW_TELEGRAM_BASE_URL: ${SPARKCLAW_TELEGRAM_BASE_URL:-https://api.telegram.org}
       SPARKCLAW_TELEGRAM_POLL_TIMEOUT_SECONDS: ${SPARKCLAW_TELEGRAM_POLL_TIMEOUT_SECONDS:-30}
@@ -104,6 +111,7 @@ services:
       - ../data/artifacts:/var/lib/sparkclaw/artifacts
       - ../data/memory:/var/lib/sparkclaw/memory
       - ../data/logs:/var/log/sparkclaw
+      - ../data/browser-profiles:/var/lib/sparkclaw/browser-profiles
       - ../skills:/app/skills:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18789/healthz"]

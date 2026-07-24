@@ -123,8 +123,8 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 		wantTool  string
 		wantStage string
 	}{
-		{name: "exact target exists", pages: []any{map[string]any{"id": "page-7", "url": "https://example.com/"}}, wantTool: "browser.focus", wantStage: "focus_existing"},
-		{name: "exact target absent", pages: []any{map[string]any{"id": "page-8", "url": "https://other.example/"}}, wantTool: "browser.open", wantStage: "open_new"},
+		{name: "exact target exists", pages: []any{map[string]any{"page_id": "page_7", "url": "https://example.com/"}}, wantTool: "browser.focus", wantStage: "focus_existing"},
+		{name: "exact target absent", pages: []any{map[string]any{"page_id": "page_8", "url": "https://other.example/"}}, wantTool: "browser.open", wantStage: "open_new"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := config.Default()

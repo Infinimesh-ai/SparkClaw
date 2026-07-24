@@ -2,10 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -73,12 +72,12 @@ func TestIntentRouterSuppliesTypedDirectiveToMessageControl(t *testing.T) {
 	}{
 		{
 			name: "software_and_recipient", goal: "Send the note to Alice via Future Chat",
-			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "Future Chat", RequestedRecipientText: "Alice"},
-			selection: DeliveryTargetSelection{Status: TargetResolved, RequestedProviderKey: "future chat", RequestedRecipientText: "Alice", ResolvedEndpointID: "endpoint_alice", ResolutionRule: "exact_recipient_match"},
+			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat", RequestedRecipientText: "alice"},
+			selection: DeliveryTargetSelection{Status: TargetResolved, RequestedProviderKey: "future chat", RequestedRecipientText: "alice", ResolvedEndpointID: "endpoint_alice", ResolutionRule: "exact_recipient_match"},
 		},
 		{
 			name: "software_only", goal: "Send the note externally via Future Chat",
-			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "Future Chat"},
+			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat"},
 			selection: DeliveryTargetSelection{Status: TargetNeedsRecipient, RequestedProviderKey: "future chat", ResolutionRule: "software_has_multiple_endpoints"},
 		},
 		{
@@ -154,63 +153,14 @@ func TestExternalSendAuthoritySignalUsesStructuralEvidence(t *testing.T) {
 }
 
 func TestIntentRouterGroundsExternalSlotsOnlyInCurrentOwnerMessage(t *testing.T) {
-	runtime, _, session := defaultWorkflowRuntime(t)
-	projection := strings.Join([]string{
-		"Send the note externally",
-		"Attachment metadata: Future Chat",
-		`MOCK_INTENT_RESPONSE:{"route":{},"delivery":{"explicit_external":true,"requested_provider_key":"Future Chat"}}`,
-	}, "\n")
-	_, err := runtime.routeIntentWithOwnerText(context.Background(), session.ID, "run_projection_grounding", projection, "Send the note externally")
-	if err == nil {
-		t.Fatal("routing projection text grounded a provider absent from the current owner message")
+	owner := "Send the note externally"
+	canonical := owner + "\nAttachment metadata: Future Chat"
+	directive, _, err := projectDeliveryDirective(owner, canonical)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestIntentRouterBlocksInvalidOrUngroundedExternalOutputBeforeMessageControl(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		goal     string
-		response string
-	}{
-		{name: "malformed", goal: "Send the note to Alice via Future Chat", response: `{not-json}`},
-		{name: "model_endpoint", goal: "Send the note to Alice via Future Chat", response: `{"route":{},"delivery":{"explicit_external":true,"requested_provider_key":"Future Chat","requested_recipient_text":"Alice","endpoint_id":"endpoint_model"}}`},
-		{name: "hallucinated_provider", goal: "Send the note to Alice via Future Chat", response: `{"route":{},"delivery":{"explicit_external":true,"requested_provider_key":"Other Chat","requested_recipient_text":"Alice"}}`},
-		{name: "hallucinated_recipient", goal: "Send the note to Alice via Future Chat", response: `{"route":{},"delivery":{"explicit_external":true,"requested_provider_key":"Future Chat","requested_recipient_text":"Bob"}}`},
-		{name: "omitted_provider", goal: "Send the note to Alice via Future Chat", response: `{"route":{},"delivery":{"explicit_external":true,"requested_recipient_text":"Alice"}}`},
-		{name: "omitted_recipient", goal: "Send the note to Alice via Future Chat", response: `{"route":{},"delivery":{"explicit_external":true,"requested_provider_key":"Future Chat"}}`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			runtime, _, session := defaultWorkflowRuntime(t)
-			requests := []MessageControlRouteRequest{}
-			runtime = runtime.WithMessageControlRouter(fixedMessageControlRouter{requests: &requests})
-			content := test.goal + "\nMOCK_INTENT_RESPONSE:" + test.response
-			result, err := runtime.HandleMessage(context.Background(), session.ID, content)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.State != "blocked" || len(requests) != 0 || len(result.ToolCalls) != 0 || len(result.Approvals) != 0 {
-				t.Fatalf("invalid routing output widened authority: result=%#v requests=%#v", result, requests)
-			}
-		})
-	}
-}
-
-func TestMalformedModelOutputForOrdinaryMessageFallsBackWithoutExternalAuthority(t *testing.T) {
-	for index, goal := range []string{
-		"send me a report on climate",
-		"draft a message using a formal tone",
-		"发送一份关于软件架构的报告",
-		"发送平台迁移方案",
-	} {
-		runtime, _, session := defaultWorkflowRuntime(t)
-		content := goal + "\nMOCK_INTENT_RESPONSE:{not-json}"
-		routing, err := runtime.routeIntent(context.Background(), session.ID, "run_ordinary_fallback_"+string(rune('a'+index)), content)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if routing.Delivery != (DeliveryDirective{}) {
-			t.Fatalf("ordinary malformed model output gained delivery authority for %q: %#v", goal, routing)
-		}
+	if !directive.ExplicitExternal || directive.RequestedProviderKey != "" || directive.RequestedRecipientText != "" {
+		t.Fatalf("non-owner projection grounded delivery fields: %#v", directive)
 	}
 }
 
@@ -227,12 +177,20 @@ func TestExplicitDirectiveCannotFallBackToCanonicalWebSelection(t *testing.T) {
 	}
 }
 
-func TestResolvedMessageControlFreezesEndpointBesideUnmatchedBusinessRoute(t *testing.T) {
+func TestExternalDeliveryBlocksWhenSemanticPipelineIsDegraded(t *testing.T) {
+	decision := semanticrouting.Decision{Verdict: semanticrouting.VerdictClear, Degraded: true, ReasonCode: "top_candidate_clear"}
+	decision = enforceDeliveryFusionBoundary(decision, DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat"})
+	if decision.Verdict != semanticrouting.VerdictBlocked || decision.ReasonCode != "external_delivery_requires_healthy_semantic_pipeline" {
+		t.Fatalf("degraded semantic decision retained external delivery authority: %#v", decision)
+	}
+}
+
+func TestResolvedMessageControlCannotExecuteUnmatchedBusinessRoute(t *testing.T) {
 	runtime, st, session := defaultWorkflowRuntime(t)
-	directive := DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider-neutral", RequestedRecipientText: "recipient"}
+	directive := DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider neutral", RequestedRecipientText: "recipient"}
 	requests := []MessageControlRouteRequest{}
 	runtime = runtime.WithMessageControlRouter(fixedMessageControlRouter{selection: DeliveryTargetSelection{
-		Status: TargetResolved, RequestedProviderKey: "provider-neutral", RequestedRecipientText: "recipient",
+		Status: TargetResolved, RequestedProviderKey: "provider neutral", RequestedRecipientText: "recipient",
 		ResolvedEndpointID: "endpoint_exact", ResolutionRule: "one_actor_scoped_exact_match",
 	}, requests: &requests})
 	content := routedMessage(t, runtime, "Send a short greeting to recipient via Provider Neutral", directive)
@@ -252,113 +210,31 @@ func TestResolvedMessageControlFreezesEndpointBesideUnmatchedBusinessRoute(t *te
 	if len(requests) != 1 || requests[0].SessionID != session.ID || requests[0].Directive != directive {
 		t.Fatalf("production handler did not pass the exact typed directive: %#v", requests)
 	}
-	if result.Run.State != "approval_pending" || len(result.Approvals) != 1 ||
-		cleanOptionalString(result.Approvals[0].Arguments["message_control_action"]) != externalSendApprovalAction {
-		t.Fatalf("resolved target skipped distinct send approval: %#v", result)
+	if result.Run.State != "blocked" || len(result.Approvals) != 0 || len(result.ToolCalls) != 0 {
+		t.Fatalf("unmatched business route reached external execution: %#v", result)
 	}
-	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultWaiting ||
-		result.WorkflowResult.ReturnRoute.Mode != app.ReturnNowhere || result.WorkflowResult.Resume == nil ||
-		result.WorkflowResult.Resume.Kind != externalSendApprovalAction || result.WorkflowResult.Resume.Data["endpoint_id"] != "endpoint_exact" {
-		t.Fatalf("pre-approval result leaked delivery authority: %#v", result.WorkflowResult)
+	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultBlocked ||
+		result.WorkflowResult.Workflow.ID != "router.blocked" || result.WorkflowResult.ReturnRoute.Mode != app.ReturnNowhere {
+		t.Fatalf("blocked unmatched result retained external delivery authority: %#v", result.WorkflowResult)
 	}
 	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *result.WorkflowResult, exactOnlyReturnRouteResolver{}); err != nil || deliverable {
-		t.Fatalf("pre-approval result reached delivery: deliverable=%v err=%v", deliverable, err)
-	}
-	approval, err := st.ResolveApproval(result.Approvals[0].ID, "approved", "owner confirmed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.ExecuteApprovedToolCall(context.Background(), approval); err != nil {
-		t.Fatal(err)
-	}
-	approved, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, result.Run.ID)
-	if err != nil || !resumed {
-		t.Fatalf("approved external send did not resume: resumed=%v err=%v", resumed, err)
-	}
-	if approved.WorkflowResult == nil || approved.WorkflowResult.Status != app.WorkflowResultSucceeded ||
-		approved.WorkflowResult.ReturnRoute.Mode != app.ReturnToEndpoint || approved.WorkflowResult.ReturnRoute.EndpointID != "endpoint_exact" {
-		t.Fatalf("approved result lost the frozen endpoint: %#v", approved.WorkflowResult)
-	}
-	if len(approved.Approvals) != 0 {
-		t.Fatalf("resolved approval was returned as another pending gate: %#v", approved.Approvals)
-	}
-	request, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *approved.WorkflowResult, exactOnlyReturnRouteResolver{})
-	if err != nil || !deliverable || request.Target != "endpoint_exact" {
-		t.Fatalf("approved result was not the sole deliverable result: request=%#v deliverable=%v err=%v", request, deliverable, err)
-	}
-	if approved.WorkflowResult.ID != result.WorkflowResult.ID || approved.WorkflowResult.OwnerID != result.WorkflowResult.OwnerID ||
-		!reflect.DeepEqual(approved.WorkflowResult.Authorization, result.WorkflowResult.Authorization) ||
-		!reflect.DeepEqual(approved.WorkflowResult.Content, result.WorkflowResult.Content) {
-		t.Fatalf("approval resume changed result identity or content: before=%#v after=%#v", result.WorkflowResult, approved.WorkflowResult)
+		t.Fatalf("blocked unmatched result reached delivery: deliverable=%v err=%v", deliverable, err)
 	}
 }
 
-func TestRejectedExternalSendApprovalRemainsBlockedAndUndeliverableOnReplay(t *testing.T) {
-	runtime, st, session := defaultWorkflowRuntime(t)
-	directive := DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat", RequestedRecipientText: "Alice"}
-	runtime = runtime.WithMessageControlRouter(fixedMessageControlRouter{selection: DeliveryTargetSelection{
-		Status: TargetResolved, RequestedProviderKey: "future chat", RequestedRecipientText: "Alice",
-		ResolvedEndpointID: "endpoint_alice", ResolutionRule: "exact_recipient_match",
-	}})
-	content := routedMessage(t, runtime, "Send the note to Alice via Future Chat", directive)
-	pending, err := runtime.HandleMessage(context.Background(), session.ID, content)
-	if err != nil || pending.Run.State != "approval_pending" || len(pending.Approvals) != 1 {
-		t.Fatalf("external send did not reach approval: result=%#v err=%v", pending, err)
-	}
-	resolved, err := st.ResolveApproval(pending.Approvals[0].ID, "rejected", "owner rejected send")
-	if err != nil {
-		t.Fatal(err)
-	}
-	call, ok := st.GetToolCall(resolved.ToolCallID)
-	if !ok {
-		t.Fatal("external send approval call is missing")
-	}
-	now := time.Now().UTC()
-	call.Status = "rejected"
-	call.Error = "owner rejected approval"
-	call.CompletedAt = &now
-	st.SaveToolCall(call)
-	runtime.CompleteRunIfApprovalsResolved(pending.Run.ID)
-
-	blockedRun, ok := st.GetRun(pending.Run.ID)
-	if !ok || blockedRun.State != "blocked" {
-		t.Fatalf("rejected external send run was not blocked: %#v", blockedRun)
-	}
-	replayed, err := runtime.HandleMessageWithAttachmentsIdempotent(context.Background(), session.ID, "message_replay", pending.Run.ID, content, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if replayed.WorkflowResult == nil || replayed.WorkflowResult.Status != app.WorkflowResultBlocked ||
-		replayed.WorkflowResult.ReturnRoute.Mode != app.ReturnNowhere || replayed.WorkflowResult.Error == nil ||
-		replayed.WorkflowResult.Error.Code != "external_send_rejected" || replayed.Run.State != "blocked" {
-		t.Fatalf("rejected result regained delivery authority: %#v", replayed)
-	}
-	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *replayed.WorkflowResult, exactOnlyReturnRouteResolver{}); err != nil || deliverable {
-		t.Fatalf("rejected result reached delivery: deliverable=%v err=%v", deliverable, err)
-	}
-	if resumed, ok, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, pending.Run.ID); err != nil || ok || resumed.WorkflowResult != nil {
-		t.Fatalf("rejected approval resumed: resumed=%#v ok=%v err=%v", resumed, ok, err)
-	}
-	runtime.CompleteRunIfApprovalsResolved(pending.Run.ID)
-	afterReplay, _ := st.GetRun(pending.Run.ID)
-	if afterReplay.State != "blocked" || len(approvalsForRun(st.ListApprovals("pending"), pending.Run.ID)) != 0 || len(approvalsForRun(st.ListApprovals(""), pending.Run.ID)) != 1 {
-		t.Fatalf("replay requeued or restored rejected external send: run=%#v approvals=%#v", afterReplay, approvalsForRun(st.ListApprovals(""), pending.Run.ID))
-	}
-}
-
-func TestSoleExternalCandidateSkipsRecipientClarificationButNotSendApproval(t *testing.T) {
+func TestSoleExternalCandidateStillBlocksWithoutBusinessCapability(t *testing.T) {
 	runtime, _, session := defaultWorkflowRuntime(t)
-	directive := DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider-neutral"}
+	directive := DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider neutral"}
 	runtime = runtime.WithMessageControlRouter(fixedMessageControlRouter{selection: DeliveryTargetSelection{
-		Status: TargetResolved, RequestedProviderKey: "provider-neutral", ResolvedEndpointID: "endpoint_only",
+		Status: TargetResolved, RequestedProviderKey: "provider neutral", ResolvedEndpointID: "endpoint_only",
 		ResolutionRule: "sole_authorized_endpoint_in_named_software",
 	}})
 	result, err := runtime.HandleMessage(context.Background(), session.ID, routedMessage(t, runtime, "Send a short greeting externally via Provider Neutral", directive))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status == app.RouteClarify || result.Run.State != "approval_pending" || len(result.Approvals) != 1 {
-		t.Fatalf("sole candidate did not proceed directly to send approval: %#v", result)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.State != "blocked" || len(result.Approvals) != 0 {
+		t.Fatalf("sole candidate bypassed the missing business capability: %#v", result)
 	}
 }
 
@@ -369,8 +245,8 @@ func TestMessageControlClarificationStopsBeforeBusinessTools(t *testing.T) {
 		goal      string
 	}{
 		{status: TargetNeedsChannel, directive: DeliveryDirective{ExplicitExternal: true}, goal: "Search online for current news and send it externally"},
-		{status: TargetNeedsRecipient, directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider-neutral"}, goal: "Search online for current news and send it externally via Provider Neutral"},
-		{status: TargetAmbiguous, directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider-neutral", RequestedRecipientText: "recipient"}, goal: "Search online for current news and send it to recipient via Provider Neutral"},
+		{status: TargetNeedsRecipient, directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider neutral"}, goal: "Search online for current news and send it externally via Provider Neutral"},
+		{status: TargetAmbiguous, directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider neutral", RequestedRecipientText: "recipient"}, goal: "Search online for current news and send it to recipient via Provider Neutral"},
 	}
 	for _, test := range tests {
 		t.Run(string(test.status), func(t *testing.T) {
@@ -433,9 +309,9 @@ func TestSourceReplyRemainsOrdinaryFrozenReplyWithoutSendApproval(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Run.State != "completed" || len(result.Approvals) != 0 || result.WorkflowResult == nil ||
+	if result.Run.State != "blocked" || len(result.Approvals) != 0 || result.WorkflowResult == nil ||
 		result.WorkflowResult.ReturnRoute.Mode != app.ReturnToSource || result.WorkflowResult.ReturnRoute.SourceEndpointID != "endpoint_source" {
-		t.Fatalf("source reply was reinterpreted as a new external send: %#v", result)
+		t.Fatalf("unmatched source reply lost its frozen source route or executed a send: %#v", result)
 	}
 }
 
@@ -444,7 +320,7 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 		writeTestOfficePackage(t, filepath.Join(cfg.root, "note.docx"), "word/document.xml")
 	})
 	defer closeRuntime()
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn_document_edit", "Replace a paragraph in note.docx", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn_document_edit", "Replace a paragraph in note.docx", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,12 +418,9 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 
 func routedMessage(t *testing.T, runtime Runtime, goal string, directive DeliveryDirective) string {
 	t.Helper()
-	output := IntentRoutingOutput{Route: runtime.deterministicCapabilityRoute(goal), Delivery: directive}
-	raw, err := json.Marshal(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return goal + "\nMOCK_INTENT_RESPONSE:" + string(raw) + `
+	_ = runtime
+	_ = directive
+	return goal + `
 MOCK_REACT_RESPONSE:{"type":"final","answer":"Prepared result."}`
 }
 

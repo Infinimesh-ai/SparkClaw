@@ -31,6 +31,7 @@ type Runtime struct {
 	exposure       *toolExposureEngine
 	profiles       workflowProfileRegistry
 	capabilities   capability.Catalog
+	semanticRouter *semanticIntentRouter
 	messageControl MessageControlRouter
 }
 
@@ -50,26 +51,53 @@ type StreamHandler func(StreamEvent) error
 type MessageAttachment = app.MessageAttachment
 
 func NewRuntime(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) Runtime {
-	return newRuntime(st, tools, policyEngine, models, traces, skills.Registry{})
+	runtime, err := newRuntime(context.Background(), st, tools, policyEngine, models, traces, skills.Registry{})
+	if err != nil {
+		panic("initialize agent runtime: " + err.Error())
+	}
+	return runtime
 }
 
 func NewRuntimeWithSkills(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) Runtime {
-	return newRuntime(st, tools, policyEngine, models, traces, skillRegistry)
+	runtime, err := NewRuntimeWithSkillsContext(context.Background(), st, tools, policyEngine, models, traces, skillRegistry)
+	if err != nil {
+		panic("initialize agent runtime: " + err.Error())
+	}
+	return runtime
 }
 
-func newRuntime(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) Runtime {
-	return Runtime{
-		store:        st,
-		tools:        tools,
-		policy:       policyEngine,
-		models:       models,
-		traces:       traces,
-		skills:       skillRegistry,
-		artifacts:    artifact.NewStore(tools.Config().Storage),
-		exposure:     newToolExposureEngine(st, tools, policyEngine),
-		profiles:     defaultWorkflowProfileRegistry(),
-		capabilities: capability.MustDefaultCatalog(),
+func NewRuntimeWithSkillsContext(ctx context.Context, st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) (Runtime, error) {
+	return newRuntime(ctx, st, tools, policyEngine, models, traces, skillRegistry)
+}
+
+func newRuntime(ctx context.Context, st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) (Runtime, error) {
+	profiles := defaultWorkflowProfileRegistry()
+	catalog := capability.MustDefaultCatalog()
+	graph, err := profiles.SemanticGraph(catalog)
+	if err != nil {
+		return Runtime{}, fmt.Errorf("compile semantic routing graph: %w", err)
 	}
+	semanticRouter := newSemanticIntentRouter(catalog.Revision(), graph)
+	started := time.Now().UTC()
+	embeddingResult, err := semanticRouter.initializeEmbeddingIndex(ctx, models)
+	completed := time.Now().UTC()
+	st.SaveModelCall(modelCallFromEmbedding("", "", "intent_embedding_index", embeddingResult, err, started, completed))
+	if err != nil {
+		return Runtime{}, fmt.Errorf("initialize semantic embedding index: %w", err)
+	}
+	return Runtime{
+		store:          st,
+		tools:          tools,
+		policy:         policyEngine,
+		models:         models,
+		traces:         traces,
+		skills:         skillRegistry,
+		artifacts:      artifact.NewStore(tools.Config().Storage),
+		exposure:       newToolExposureEngine(st, tools, policyEngine),
+		profiles:       profiles,
+		capabilities:   catalog,
+		semanticRouter: semanticRouter,
+	}, nil
 }
 
 func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
@@ -84,30 +112,34 @@ func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 }
 
 func (r Runtime) HandleMessage(ctx context.Context, sessionID, content string) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, nil, nil, "", "", nil)
+	return r.handleMessage(ctx, sessionID, content, nil, nil, "", "", nil, nil)
 }
 
 func (r Runtime) HandleMessageStream(ctx context.Context, sessionID, content string, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, nil, emit, "", "", nil)
+	return r.handleMessage(ctx, sessionID, content, nil, emit, "", "", nil, nil)
 }
 
 func (r Runtime) HandleMessageWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, attachments, nil, "", "", nil)
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, "", "", nil, nil)
 }
 
 func (r Runtime) HandleMessageStreamWithAttachments(ctx context.Context, sessionID, content string, attachments []MessageAttachment, emit StreamHandler) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, attachments, emit, "", "", nil)
+	return r.handleMessage(ctx, sessionID, content, attachments, emit, "", "", nil, nil)
 }
 
 func (r Runtime) HandleMessageWithAttachmentsIdempotent(ctx context.Context, sessionID, messageID, runID, content string, attachments []MessageAttachment) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, nil)
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, nil, nil)
 }
 
 func (r Runtime) HandleMessageWithIngress(ctx context.Context, sessionID, messageID, runID, content string, attachments []MessageAttachment, ingress app.MessageIngressContext) (Result, error) {
-	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, &ingress)
+	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, &ingress, nil)
 }
 
-func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string, ingress *app.MessageIngressContext) (Result, error) {
+func (r Runtime) HandleScheduleAction(ctx context.Context, sessionID, content string, action ScheduleAction) (Result, error) {
+	return r.handleMessage(ctx, sessionID, content, nil, nil, "", "", nil, &action)
+}
+
+func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string, ingress *app.MessageIngressContext, scheduleAction *ScheduleAction) (Result, error) {
 	if requestedRunID != "" {
 		if existing, ok := r.store.GetRun(requestedRunID); ok && existing.SessionID == sessionID && existing.State != "received" {
 			return r.resultForExistingRun(existing), nil
@@ -159,7 +191,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		Risk:      classifyRisk(agentContent),
 		StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{
-			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: envelope.ReturnRoute,
+			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, Source: envelope.Source, ReturnRoute: envelope.ReturnRoute,
 		},
 	}
 	if run.ID == "" {
@@ -230,7 +262,16 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		}, nil
 	}
 
-	routing, routingErr := r.routeIntentWithRequest(ctx, sessionID, run.ID, request.Canonical, agentContent, projection.Resources)
+	var routing IntentRoutingOutput
+	var routingErr error
+	if scheduleAction != nil {
+		routing.Route, routingErr = r.scheduleActionRoute(*scheduleAction, request.Canonical)
+	} else {
+		routing, routingErr = r.routeIntentWithRequest(ctx, sessionID, run.ID, request.Canonical, agentContent, projection.Resources, envelope.Source.Kind)
+	}
+	if routing.Fusion != nil {
+		run.MessageContext.IntentFusion = routing.Fusion
+	}
 	if routingErr != nil {
 		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
 		run.MessageContext.Route = route
@@ -238,15 +279,6 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		return r.completeTerminalRoute(ctx, run, visibleContent, envelope.ReturnRoute, route), nil
 	}
 	route := routing.Route
-	if route.Status == app.RouteUnmatched && migratedWorkflowRequestWithoutMatch(request.Canonical, projection.Resources) {
-		route.Status = app.RouteBlocked
-		route.Reason = "The request belongs to a migrated domain but is outside the currently registered Workflow revision."
-		routing.Route = route
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.unsupported_revision",
-			Summary: route.Reason,
-		})
-	}
 	deliverySelection, returnRoute, controlErr := r.resolveMessageControl(ctx, sessionID, routing.Delivery, envelope)
 	if controlErr != nil {
 		blocked := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: controlErr.Error()}
@@ -282,88 +314,23 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	}
 	run.MessageContext.Route = route
 	r.store.SaveRun(run)
-	if route.Status == app.RouteClarify || route.Status == app.RouteBlocked {
+	if route.Status != app.RouteMatched {
 		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route), nil
 	}
-	authoritativeWorkflow := route.Status == app.RouteMatched
-	var hint TaskHint
-	var relevantSkills []skills.Skill
-	var visibleTools []app.ToolDefinition
-	var activeProfile workflowProfile
-	if authoritativeWorkflow {
-		dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, returnRoute, userMessage.ID)
-		if err != nil {
-			result := r.blockWorkflowSetup(ctx, run, visibleContent, err)
-			result.RouteDecision = &route
-			result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content)
-			return result, nil
-		}
-		run = dispatch.Run
-		activeProfile = dispatch.Profile
-		hint = dispatch.Hint
-		visibleTools = dispatch.Tools
-	} else {
-		hint = r.generateTaskHint(ctx, sessionID, run.ID, executionContent)
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID,
-			RunID:     run.ID,
-			Actor:     "gateway",
-			Type:      "gateway.dispatch",
-			Summary:   "Dispatched unmigrated domain from TaskHint classification",
-			Fields: map[string]any{
-				"model_lane_hint":        hint.ModelLaneHint,
-				"task_type":              hint.TaskType,
-				"evidence_need":          hint.EvidenceNeed,
-				"data_scope":             hint.DataScope,
-				"tool_mode":              hint.ToolMode,
-				"browser_mode":           hint.BrowserMode,
-				"requires_tool_evidence": hint.RequiresToolEvidence,
-				"browser_mode_reason":    hint.Reason,
-				"candidate_skills":       hint.CandidateSkills,
-				"candidate_tools":        hint.CandidateTools,
-			},
-		})
-		relevantSkills = r.relevantSkillsForHint(executionContent, hint)
-		visibleTools = r.visibleToolDefinitions(hint, relevantSkills)
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID,
-			RunID:     run.ID,
-			Actor:     "runtime",
-			Type:      "react.visible_tools",
-			Summary:   "Selected model-visible ToolDefinitions for an unmigrated domain",
-			Fields: map[string]any{
-				"tools":                    visibleToolNames(visibleTools),
-				"fallback_tool_candidates": fallbackToolCandidatesForAudit(hint),
-				"browser_mode":             hint.BrowserMode,
-				"data_scope":               hint.DataScope,
-				"requires_tool_evidence":   hint.RequiresToolEvidence,
-				"browser_mode_reason":      hint.Reason,
-			},
-		})
+	dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, returnRoute, userMessage.ID)
+	if err != nil {
+		result := r.blockWorkflowSetup(ctx, run, visibleContent, err)
+		result.RouteDecision = &route
+		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content)
+		return result, nil
 	}
-	if len(relevantSkills) > 0 {
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID,
-			RunID:     run.ID,
-			Actor:     "runtime",
-			Type:      "skills.loaded",
-			Summary:   "Loaded relevant procedural skills",
-			Fields: map[string]any{
-				"skills": skillNames(relevantSkills),
-			},
-		})
-	}
+	run = dispatch.Run
 	run.State = "reacting"
 	r.store.SaveRun(run)
 
-	var reactResult reactRunResult
-	if authoritativeWorkflow {
-		reactResult = r.runWorkflow(ctx, sessionID, run, executionContent, activeProfile, hint, visibleTools)
-		if refreshed, ok := r.store.GetRun(run.ID); ok {
-			run = refreshed
-		}
-	} else {
-		reactResult = r.runReActLoop(ctx, sessionID, run, executionContent, hint, relevantSkills, visibleTools)
+	reactResult := r.runWorkflow(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Hint, dispatch.Tools)
+	if refreshed, ok := r.store.GetRun(run.ID); ok {
+		run = refreshed
 	}
 	toolCalls := reactResult.ToolCalls
 	approvals := reactResult.Approvals
@@ -426,12 +393,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	episode := summarizeEpisode(visibleContent, run, allToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 
-	var workflowResult *app.WorkflowResult
-	if authoritativeWorkflow {
-		workflowResult = r.workflowResultForRun(run, route, returnRoute, run.Summary)
-	} else {
-		workflowResult = r.workflowResultForUnmatched(run, route, returnRoute, run.Summary)
-	}
+	workflowResult := r.workflowResultForRun(run, route, returnRoute, run.Summary)
 	assistantMessage := r.messageWithWorkflowResult(app.Message{
 		SessionID: sessionID,
 		RunID:     run.ID,
@@ -468,9 +430,7 @@ func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route
 		switch route.Status {
-		case app.RouteUnmatched:
-			result.WorkflowResult = r.workflowResultForUnmatched(run, route, run.MessageContext.ReturnRoute, message.Content)
-		case app.RouteClarify, app.RouteBlocked:
+		case app.RouteUnmatched, app.RouteClarify, app.RouteBlocked:
 			result.WorkflowResult = r.workflowResultForTerminalRoute(run, route, run.MessageContext.ReturnRoute, message.Content)
 		default:
 			result.WorkflowResult = r.workflowResultForDispatchFailure(run, route, run.MessageContext.ReturnRoute, message.Content)

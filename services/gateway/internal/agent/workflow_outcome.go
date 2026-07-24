@@ -29,6 +29,8 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterBrowserClick:    adaptBrowserClickOutcome,
 	app.OutcomeAdapterBrowserVerify:   adaptBrowserVerifyOutcome,
 	app.OutcomeAdapterDocumentEdit:    adaptDocumentEditOutcome,
+	app.OutcomeAdapterScheduleList:    adaptScheduleListOutcome,
+	app.OutcomeAdapterScheduleChange:  adaptScheduleChangeOutcome,
 }
 
 func adaptInfoAnswerWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -109,6 +111,42 @@ func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		if ref := firstNonEmptyString(output["output_path"], output["screenshot_path"], output["path"]); ref != "" {
 			outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: ref, Provenance: call.ID}}
 		}
+	}
+	return outcome
+}
+
+func adaptScheduleListOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		return outcome
+	}
+	output, _ := anyMap(call.Result)
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSchedulesListed}
+	for _, raw := range anySlice(output["reminders"]) {
+		item, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		id := strings.TrimSpace(stringValue(item["reminder_id"]))
+		if id == "" || id == "<nil>" {
+			continue
+		}
+		attributes := map[string]string{}
+		for _, key := range []string{"text", "text_summary", "due_time", "timezone", "recurrence", "channel", "status", "updated_at"} {
+			value := strings.TrimSpace(stringValue(item[key]))
+			if value != "" && value != "<nil>" {
+				attributes[key] = value
+			}
+		}
+		outcome.Refs = append(outcome.Refs, app.ResourceRef{Kind: "schedule", Ref: id, Provenance: call.ID, Attributes: attributes})
+	}
+	return outcome
+}
+
+func adaptScheduleChangeOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if output, ok := anyMap(call.Result); ok && toolCallCompleted(call) && strings.TrimSpace(stringValue(output["reminder_id"])) != "" {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalScheduleChanged}
 	}
 	return outcome
 }
@@ -200,7 +238,7 @@ func adaptBrowserTabsOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 		if !ok {
 			continue
 		}
-		pageID := firstNonEmptyString(page["page_id"], page["id"], page["pageId"])
+		pageID := firstNonEmptyString(page["page_id"])
 		pageURL := normalizeBrowserURL(firstNonEmptyString(page["url"], page["final_url"]))
 		if pageID == "" || pageURL == "" {
 			continue
@@ -221,7 +259,7 @@ func adaptBrowserHealthOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 		return outcome
 	}
 	payload := browserOutcomePayload(call.Result)
-	if boolValue(payload["ok"]) {
+	if browserHealthHealthy(payload) {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserHealthy}
 	} else {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserUnavailable}
@@ -229,11 +267,28 @@ func adaptBrowserHealthOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 	return outcome
 }
 
+func browserHealthHealthy(payload map[string]any) bool {
+	if value, exists := payload["ok"]; exists {
+		return boolValue(value)
+	}
+	return strings.EqualFold(strings.TrimSpace(stringValue(payload["status"])), "ok")
+}
+
 func adaptBrowserFocusOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if toolCallCompleted(call) {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalFocusCompleted}
 		outcome.Refs = browserPageRefs(call.Result, call.ID)
+		if len(outcome.Refs) == 0 {
+			payload := browserOutcomePayload(call.Result)
+			pageID := firstNonEmptyString(payload["page_id"], call.Arguments["page_id"])
+			if pageID != "" {
+				outcome.Refs = []app.ResourceRef{{
+					Kind: "browser_page", Ref: pageID, Provenance: call.ID,
+					Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(payload["url"], payload["current_url"]))},
+				}}
+			}
+		}
 	}
 	return outcome
 }
@@ -431,7 +486,7 @@ func browserPageRefs(value any, provenance string) []app.ResourceRef {
 		if !ok || !boolValue(page["selected"]) {
 			continue
 		}
-		pageID := firstNonEmptyString(page["page_id"], page["id"], page["pageId"])
+		pageID := firstNonEmptyString(page["page_id"])
 		if pageID != "" {
 			refs = append(refs, app.ResourceRef{Kind: "browser_page", Ref: pageID, Provenance: provenance, Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(page["url"]))}})
 		}
@@ -532,6 +587,38 @@ func applyWorkflowOutcome(run *app.AgentRun, outcome app.ToolOutcome, assessment
 	run.Workflow.Nodes[outcome.NodeID] = state
 	run.Workflow.Status = app.WorkflowStatusBlocked
 	return false, errors.New("no frozen workflow transition matched the node assessment")
+}
+
+func activeWorkflowNodeUsesModelAnswer(state *app.WorkflowState) bool {
+	if state == nil || len(state.ActiveNodeIDs) != 1 {
+		return false
+	}
+	node, ok := workflowPlanNode(state.Plan, state.ActiveNodeIDs[0])
+	return ok && node.Goal.Completion == app.CompletionModelAnswer
+}
+
+func completeActiveModelAnswerNode(run *app.AgentRun) error {
+	if run.Workflow == nil || workflowPlanDigest(run.Workflow.Plan) != run.Workflow.PlanDigest {
+		return errors.New("persisted workflow plan digest mismatch")
+	}
+	if !activeWorkflowNodeUsesModelAnswer(run.Workflow) {
+		return errors.New("active workflow node is not a model-answer node")
+	}
+	nodeID := run.Workflow.ActiveNodeIDs[0]
+	state := run.Workflow.Nodes[nodeID]
+	if state.Status != app.WorkflowNodeActive || len(state.CurrentScope.Requirements) != 0 {
+		return errors.New("model-answer node has an invalid active scope")
+	}
+	state.Attempts++
+	state.Status = app.WorkflowNodeSucceeded
+	run.Workflow.Nodes[nodeID] = state
+	run.Workflow.ActiveNodeIDs = removeWorkflowNodeID(run.Workflow.ActiveNodeIDs, nodeID)
+	activateReadyWorkflowNodes(run.Workflow)
+	if allWorkflowNodesSucceeded(run.Workflow) {
+		run.Workflow.Status = app.WorkflowStatusSucceeded
+		return nil
+	}
+	return errors.New("model-answer workflow has unsatisfied dependent nodes")
 }
 
 func activateReadyWorkflowNodes(state *app.WorkflowState) bool {

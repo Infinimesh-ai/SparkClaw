@@ -13,9 +13,9 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 )
 
-func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]any) (Result, error) {
-	_, metadata := browserAutomationArgsWithMode("browser.status", args)
-	result, err := h.browser.Health(ctx)
+func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
+	callArgs, metadata := h.browserAutomationCallArgs("browser.status", args, sessionID)
+	result, err := h.browser.Health(ctx, callArgs)
 	if err != nil {
 		return Result{}, err
 	}
@@ -31,19 +31,7 @@ func (h *ToolHub) browserAutomationHealth(ctx context.Context, args map[string]a
 }
 
 func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args map[string]any, sessionID string) (Result, error) {
-	callArgs, metadata := browserAutomationArgsWithMode(name, args)
-	if strings.TrimSpace(stringArg(callArgs, "owner_id", "")) == "" {
-		ownerID := ""
-		if h.store != nil && strings.TrimSpace(sessionID) != "" {
-			if session, ok := h.store.GetSession(sessionID); ok {
-				ownerID = strings.TrimSpace(session.OwnerID)
-			}
-		}
-		callArgs["owner_id"] = firstNonEmptyString(ownerID, app.DefaultOwnerID)
-	}
-	if strings.TrimSpace(stringArg(callArgs, "browser_profile_id", "")) == "" {
-		callArgs["browser_profile_id"] = firstNonEmptyString(strings.TrimSpace(h.cfg.Tools.BrowserAutomation.Profile), "default")
-	}
+	callArgs, metadata := h.browserAutomationCallArgs(name, args, sessionID)
 	result, err := h.browser.Call(ctx, name, callArgs)
 	if err != nil {
 		return Result{}, err
@@ -60,6 +48,23 @@ func (h *ToolHub) browserAutomationTool(ctx context.Context, name string, args m
 		h.attachBrowserScreenshot(ctx, &result)
 	}
 	return Result{Output: result}, nil
+}
+
+func (h *ToolHub) browserAutomationCallArgs(name string, args map[string]any, sessionID string) (map[string]any, browserModeMetadata) {
+	callArgs, metadata := browserAutomationArgsWithMode(name, args)
+	if strings.TrimSpace(stringArg(callArgs, "owner_id", "")) == "" {
+		ownerID := ""
+		if h.store != nil && strings.TrimSpace(sessionID) != "" {
+			if session, ok := h.store.GetSession(sessionID); ok {
+				ownerID = strings.TrimSpace(session.OwnerID)
+			}
+		}
+		callArgs["owner_id"] = firstNonEmptyString(ownerID, app.DefaultOwnerID)
+	}
+	if strings.TrimSpace(stringArg(callArgs, "browser_profile_id", "")) == "" {
+		callArgs["browser_profile_id"] = firstNonEmptyString(strings.TrimSpace(h.cfg.Tools.BrowserAutomation.Profile), "default")
+	}
+	return callArgs, metadata
 }
 
 func nonNilBrowserPages(pages []any) []any {

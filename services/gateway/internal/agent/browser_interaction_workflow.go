@@ -1,10 +1,6 @@
 package agent
 
-import (
-	"strings"
-
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-)
+import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 
 const browserInteractionMaxClicks = 3
 
@@ -15,64 +11,18 @@ func (browserInteractionProfile) Revision() int      { return 1 }
 func (browserInteractionProfile) Capability() app.CapabilityID {
 	return app.CapabilityBrowserInteraction
 }
+func (browserInteractionProfile) RoutingSemantics() workflowRoutingSemantics {
+	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
+		Key: "interact", Route: workflowRouteTemplate{Operation: app.RouteOperationInteract},
+		EmbedTexts: []string{
+			"点击当前页面的下一步", "打开苹果官网并点击 Mac", "打开QQ邮箱的草稿箱", "Click the Learn more button on https://example.com", "在这个标签页点开详情",
+		},
+		TreeDescription: "Inspect one managed browser page and perform a bounded verified click goal. Opening a nested in-site section such as drafts, inbox, or details requires a page click and is interaction, not merely opening a registered destination. Typing, form submission, login, payment, upload, deletion, or other consequential interaction is unsupported.",
+		HardNegatives:   []string{"打开这个网址", "输入用户名并登录", "查询网站上的最新价格", "点击文档里的链接", "购买这个商品"},
+	}}}
+}
 func (browserInteractionProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
-}
-
-func (browserInteractionProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	content := semanticRoutingContent(input.Content)
-	lower := strings.ToLower(content)
-	destination, hasDestination := matchRegisteredBrowserDestination(content)
-	registeredGoal := hasDestination && browserOpenIntent(lower) && registeredBrowserDestinationHasInteractionGoal(content, destination)
-	if !browserClickIntent(lower) && !registeredGoal {
-		return workflowRecognition{}, false
-	}
-	urls := extractURLs(content)
-	intentLower := lower
-	for _, rawURL := range urls {
-		intentLower = strings.ReplaceAll(intentLower, strings.ToLower(rawURL), " ")
-	}
-	if unsupportedBrowserInteractionIntent(intentLower) {
-		return workflowRecognition{
-			Status: app.RouteBlocked, Confidence: 0.98,
-			Reason: "Browser interaction revision 1 supports verified clicks only; input, selection, login, payment, and other consequential actions are unavailable.",
-		}, true
-	}
-	if len(urls) > 1 {
-		return workflowRecognition{Status: app.RouteClarify, Confidence: 0.9, Reason: "Browser interaction revision 1 requires one target page."}, true
-	}
-	targetKind := ""
-	targetRef := ""
-	facts := map[string]string{}
-	switch {
-	case len(urls) == 1:
-		targetKind = "url"
-		targetRef = normalizeBrowserURL(urls[0])
-		facts["url"] = targetRef
-	case registeredGoal:
-		targetKind = "url"
-		targetRef = normalizeBrowserURL(destination.Destination.URL)
-		facts["url"] = targetRef
-		facts["browser_destination"] = destination.Destination.ID
-	case explicitCurrentBrowserTab(lower):
-		targetKind = string(app.TargetKindBrowserCurrentTab)
-		targetRef = "selected"
-	default:
-		return workflowRecognition{Status: app.RouteClarify, Confidence: 0.85, Reason: "Specify one URL or explicitly identify the current browser tab before clicking."}, true
-	}
-	return workflowRecognition{
-		Slots: app.RouteSlots{Operation: app.RouteOperationInteract, Query: content, TargetKind: targetKind, TargetRef: targetRef},
-		Facts: facts, Confidence: 0.97,
-		Reason: "The request asks for bounded page inspection and one or more verified clicks in managed Chromium.",
-	}, true
-}
-
-func browserOpenIntent(lower string) bool {
-	return containsEnglishSemanticTerm(lower, "open", "visit", "launch", "focus") || containsAny(lower, "打开", "访问", "进入", "前往", "聚焦", "切换到")
-}
-
-func browserClickIntent(lower string) bool {
-	return containsEnglishSemanticTerm(lower, "click", "tap") || containsAny(lower, "点击", "点一下", "点开", "按下按钮")
 }
 
 func unsupportedBrowserInteractionIntent(lower string) bool {
@@ -119,12 +69,10 @@ func (p browserInteractionProfile) Resolve(route app.RouteDecision, sourceTurnID
 				browserInteractionTransition("wait_settled", "snapshot_after_action", app.OutcomeSignalWaitCompleted, browserInteractionMaxClicks, scope),
 				browserInteractionTransition("snapshot_stale", "snapshot_before_action", app.OutcomeSignalSnapshotStale, browserInteractionMaxClicks, scope),
 				browserInteractionTransition("continue_interaction", "choose_and_click", app.OutcomeSignalInteractionProgress, browserInteractionMaxClicks-1, scope),
-				browserInteractionTransition("close_opened", "close_opened_tab", app.OutcomeSignalInteractionGoalSatisfied, 1, scope),
 			},
 			ArgumentBindings: []app.ArgumentBinding{
 				{Capability: app.ToolCapabilityBrowserFocus, Argument: "page_id", ResourceKind: "browser_tab", Source: app.ArgumentBindingOutcomeRef},
 				{Capability: app.ToolCapabilityBrowserOpen, Argument: "url", ResourceKind: "url", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindExplicitURL}},
-				{Capability: app.ToolCapabilityBrowserClose, Argument: "page_id", ResourceKind: "browser_page", Source: app.ArgumentBindingOutcomeRef},
 				{Capability: app.ToolCapabilityBrowserNavigate, Argument: "url", ResourceKind: "url", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindExplicitURL}},
 				{Capability: app.ToolCapabilityBrowserNavigate, Argument: "page_id", ResourceKind: "browser_tab", Source: app.ArgumentBindingOutcomeRef},
 				{Capability: app.ToolCapabilityBrowserSnapshot, Argument: "page_id", ResourceKind: "browser_page", Source: app.ArgumentBindingOutcomeRef},
@@ -143,7 +91,6 @@ func (p browserInteractionProfile) Resolve(route app.RouteDecision, sourceTurnID
 				{Stage: "focus_existing", Capabilities: []string{app.ToolCapabilityBrowserFocus}},
 				{Stage: "navigate_blank", Capabilities: []string{app.ToolCapabilityBrowserNavigate}},
 				{Stage: "open_new", Capabilities: []string{app.ToolCapabilityBrowserOpen}},
-				{Stage: "close_opened_tab", Capabilities: []string{app.ToolCapabilityBrowserClose}},
 				{Stage: "snapshot_before_action", Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
 				{Stage: "choose_and_click", Capabilities: []string{app.ToolCapabilityBrowserClick}},
 				{Stage: "snapshot_after_action", Capabilities: []string{app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot}},
@@ -160,7 +107,6 @@ func browserInteractionScope() app.CapabilityScope {
 		{Name: app.ToolCapabilityBrowserListTabs},
 		{Name: app.ToolCapabilityBrowserFocus},
 		{Name: app.ToolCapabilityBrowserOpen},
-		{Name: app.ToolCapabilityBrowserClose},
 		{Name: app.ToolCapabilityBrowserNavigate},
 		{Name: app.ToolCapabilityBrowserSnapshot},
 		{Name: app.ToolCapabilityBrowserWait},
@@ -252,11 +198,7 @@ func (browserInteractionProfile) Assess(state *app.WorkflowState, outcome app.To
 	case "verify_action":
 		switch {
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied):
-			if browserInteractionOpenedNewTab(node) {
-				assessment = browserInteractionNeedsMore(assessment, app.OutcomeSignalInteractionGoalSatisfied, "close_opened_tab")
-			} else {
-				assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "interaction_goal_satisfied"
-			}
+			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "interaction_goal_satisfied"
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionProgress):
 			assessment = browserInteractionNeedsMore(assessment, app.OutcomeSignalInteractionProgress, "choose_and_click")
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionLoopDetected):
@@ -268,20 +210,10 @@ func (browserInteractionProfile) Assess(state *app.WorkflowState, outcome app.To
 		default:
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_verification_failed"
 		}
-	case "close_opened_tab":
-		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalCloseCompleted) {
-			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "interaction_goal_satisfied_tab_closed"
-		} else {
-			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_tab_cleanup_failed"
-		}
 	default:
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_interaction_stage_invalid"
 	}
 	return assessment
-}
-
-func browserInteractionOpenedNewTab(node app.WorkflowNodeState) bool {
-	return node.TransitionActivations["open_missing"] > 0
 }
 
 func browserInteractionNeedsMore(assessment app.NodeAssessment, signal app.OutcomeSignal, nextStage string) app.NodeAssessment {
@@ -293,7 +225,7 @@ func browserInteractionNeedsMore(assessment app.NodeAssessment, signal app.Outco
 
 func selectBrowserInteractionTab(route app.RouteDecision, refs []app.ResourceRef) (*app.ResourceRef, app.OutcomeSignal, string) {
 	selected := []app.ResourceRef{}
-	exact := []app.ResourceRef{}
+	matches := []app.ResourceRef{}
 	blank := []app.ResourceRef{}
 	for _, ref := range refs {
 		if ref.Kind != "browser_tab" {
@@ -303,8 +235,8 @@ func selectBrowserInteractionTab(route app.RouteDecision, refs []app.ResourceRef
 			selected = append(selected, ref)
 		}
 		url := normalizeBrowserURL(ref.Attributes["url"])
-		if route.Slots.TargetKind == "url" && url == normalizeBrowserURL(route.Slots.TargetRef) {
-			exact = append(exact, ref)
+		if route.Slots.TargetKind == "url" && browserTargetMatchesURL(route.Slots.TargetRef, route.Facts["browser_destination"], url) {
+			matches = append(matches, ref)
 		}
 		if ref.Attributes["selected"] == "true" && (url == "about:blank" || url == "chrome://newtab/" || url == "") {
 			blank = append(blank, ref)
@@ -316,15 +248,15 @@ func selectBrowserInteractionTab(route app.RouteDecision, refs []app.ResourceRef
 		}
 		return nil, "", "browser_current_tab_unavailable"
 	}
-	for _, ref := range exact {
+	for _, ref := range matches {
 		if ref.Attributes["selected"] == "true" {
 			return &ref, app.OutcomeSignalTargetTabExists, ""
 		}
 	}
-	if len(exact) == 1 {
-		return &exact[0], app.OutcomeSignalTargetTabExists, ""
+	if len(matches) == 1 {
+		return &matches[0], app.OutcomeSignalTargetTabExists, ""
 	}
-	if len(exact) > 1 {
+	if len(matches) > 1 {
 		return nil, "", "browser_tab_ambiguous"
 	}
 	if len(blank) == 1 {

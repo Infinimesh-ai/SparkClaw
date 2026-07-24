@@ -3,38 +3,14 @@ package agent
 import (
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const (
 	weatherCardQueryRequirementsZH = "；请提供当前天气状况和当前温度；可获得时提供当日最低/最高温度，以及从当前时刻起最多5个未来小时的具体日期时间、天气状况和温度；若任一项没有可靠数据，请明确说明未获取到，不得推测或用其他温度替代。"
 	weatherCardQueryRequirementsEN = ". Include the current weather condition and current temperature. When available, include today's low/high temperatures and up to five future hourly entries from the current time, each with a specific date-time, weather condition, and temperature. Explicitly state when reliable data is unavailable; never infer it or substitute another temperature."
 )
-
-// canonicalizeSearchRoutingContent resolves freshness once, before route selection.
-// MOCK response lines are retained so deterministic test-model controls still reach
-// the model, while semantic routing uses only the canonical query.
-func canonicalizeSearchRoutingContent(content, date string) (string, bool) {
-	query, ok := browserInternetSearchQuery(content)
-	weather := false
-	if !ok && ordinaryWeatherRequest(content) {
-		query, ok = semanticRoutingContent(content), true
-		weather = true
-	}
-	if !ok {
-		return content, false
-	}
-	canonical := canonicalizeWebSearchQuery(query, query, date)
-	if weather {
-		canonical = canonicalizeWeatherCardQuery(canonical)
-	}
-	if canonical == query {
-		return content, false
-	}
-	if controls := mockResponseLines(content); len(controls) > 0 {
-		return canonical + "\n" + strings.Join(controls, "\n"), true
-	}
-	return canonical, true
-}
 
 func canonicalizeWeatherCardQuery(query string) string {
 	query = strings.TrimSpace(query)
@@ -46,6 +22,20 @@ func canonicalizeWeatherCardQuery(query string) string {
 		return query + weatherCardQueryRequirementsZH
 	}
 	return query + weatherCardQueryRequirementsEN
+}
+
+// materializeRoutedQuery adds leaf-specific execution requirements only after
+// semantic fusion has selected one registered capability.
+func materializeRoutedQuery(capability app.CapabilityID, content, date string) string {
+	query := strings.TrimSpace(content)
+	switch capability {
+	case app.CapabilityBrowserInternetSearch:
+		return canonicalizeWebSearchQuery(query, query, date)
+	case app.CapabilityBrowserWeather:
+		return canonicalizeWeatherCardQuery(canonicalizeWebSearchQuery(query, query, date))
+	default:
+		return query
+	}
 }
 
 func mockResponseLines(content string) []string {

@@ -63,7 +63,6 @@ func (r Runtime) normalizeOwnerRequest(ctx context.Context, sessionID, runID, or
 		}
 	}
 
-	canonical, _ = canonicalizeSearchRoutingContent(canonical, date)
 	if controls := executionMockResponseLines(original); len(controls) > 0 {
 		canonical = strings.TrimSpace(canonical + "\n" + strings.Join(controls, "\n"))
 	}

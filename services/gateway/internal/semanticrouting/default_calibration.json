@@ -1,0 +1,20 @@
+{
+  "revision": "intent-fusion-2026-07-23.v2",
+  "alpha": 0.50,
+  "reranker_weight": 0.28,
+  "embedding_top_m": 3,
+  "embedding_negative_cost": 0.35,
+  "tree_top_k": 5,
+  "fusion_top_n": 5,
+  "embedding_timeout_ms": 20000,
+  "tree_timeout_ms": 30000,
+  "reranker_timeout_ms": 15000,
+  "routing_timeout_ms": 45000,
+  "clear_minimum": 0.54,
+  "clear_margin": 0.06,
+  "ambiguous_minimum": 0.46,
+  "mutation_minimum": 0.66,
+  "mutation_margin": 0.08,
+  "degraded_minimum": 0.70,
+  "degraded_margin": 0.12
+}

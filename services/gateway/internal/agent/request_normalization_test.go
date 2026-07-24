@@ -77,7 +77,7 @@ func TestRequestNormalizationFallsBackWhenModelTranslatesChineseRequest(t *testi
 	original := "最新国家人工智能大会讲了什么"
 	request := runtime.normalizeOwnerRequest(context.Background(), session.ID, "run_normalization_language_fallback", original+`
 MOCK_NORMALIZATION_RESPONSE:{"canonical_request":"Summarize the key topics from the latest National Artificial Intelligence Conference"}`, "", currentSearchDate())
-	want := original + " " + currentSearchDate()
+	want := original
 	if request.Source != requestNormalizationFallback || request.Canonical != want {
 		t.Fatalf("translated normalization did not fall back to the Chinese request: got %#v want %q", request, want)
 	}
@@ -141,12 +141,9 @@ func TestAttachmentOnlyDocumentStillRoutesFromStructuredResource(t *testing.T) {
 		}
 	})
 	defer closeRuntime()
-	route, err := runtime.recognizeCapabilityRouteWithResources(session.ID, "turn_attachment_only", "", []app.MessagePart{{
+	route := mustRouteIntentWithResources(t, runtime, session.ID, "", []app.MessagePart{{
 		Kind: app.MessagePartFile, Resource: &app.ResourceRef{Kind: "workspace_file", Ref: "note.txt"},
-	}}, agentContextSnapshot{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}}, app.MessageSourceWeb)
 	if route.Status != app.RouteMatched || route.Slots.TargetRef != "note.txt" {
 		t.Fatalf("attachment-only document route regressed: %#v", route)
 	}

@@ -91,7 +91,7 @@
     },
     "browserAutomation": {
       "enabled": true,
-      "provider": "microsoft-playwright",
+      "provider": "agent-browser",
       "profile": "default"
     },
     "reminders": {
@@ -101,7 +101,7 @@
     "notifications": {
       "channels": {
         "weixin": {
-          "enabled": false,
+          "enabled": true,
           "provider": "openclaw-weixin-qr",
           "baseUrl": "https://ilinkai.weixin.qq.com",
           "cdnBaseUrl": "https://novac2c.cdn.weixin.qq.com/c2c"
@@ -152,8 +152,10 @@
   },
   "adapters": {
     "browserAutomation": {
-      "nodeCommand": "node",
+      "command": "agent-browser",
       "timeoutMs": 30000,
+      "startupTimeoutMs": 10000,
+      "daemonIdleTimeoutMs": 60000,
       "chromiumExecutable": "",
       "profileDir": "./data/browser-profiles"
     }

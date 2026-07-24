@@ -23,13 +23,7 @@ const (
 	jobTimeout     = 5 * time.Minute
 )
 
-type DeliveryGateway interface {
-	Deliver(context.Context, app.DeliveryRequest) (app.DeliveryReceipt, error)
-}
-
-// MessagePublisher is the compatibility seam for scheduled request payloads.
-// The composition layer can replace it with the Workflow message queue without
-// changing scheduling or delivery semantics.
+// MessagePublisher submits due owner requests to the ordinary Message Runtime.
 type MessagePublisher interface {
 	Publish(context.Context, app.MessageEnvelope) error
 }
@@ -37,16 +31,14 @@ type MessagePublisher interface {
 type Scheduler struct {
 	store     store.Store
 	schedules *messagecontrol.ScheduleRegistry
-	routes    *messagecontrol.ReturnRouteResolver
-	gateway   DeliveryGateway
 	publisher MessagePublisher
 	now       func() time.Time
 	interval  time.Duration
 }
 
-func NewMessageScheduler(st store.Store, schedules *messagecontrol.ScheduleRegistry, routes *messagecontrol.ReturnRouteResolver, gateway DeliveryGateway, publisher MessagePublisher) *Scheduler {
+func NewMessageScheduler(st store.Store, schedules *messagecontrol.ScheduleRegistry, publisher MessagePublisher) *Scheduler {
 	return &Scheduler{
-		store: st, schedules: schedules, routes: routes, gateway: gateway, publisher: publisher,
+		store: st, schedules: schedules, publisher: publisher,
 		now:      func() time.Time { return time.Now().UTC() },
 		interval: pollInterval,
 	}
@@ -119,16 +111,12 @@ func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) a
 	deliveryRecord := app.ReminderDelivery{
 		ID: app.NewID("rdel"), ReminderID: string(schedule.ID), Status: "sent", RetryState: "none", Attempt: attempt, CreatedAt: s.now().UTC(),
 	}
-	if schedule.Spec.Payload.Mode == app.SchedulePayloadRequest {
-		deliveryRecord.Provider = "message-runtime"
-		deliveryRecord.ProviderStatus = "published"
-		if s.publisher == nil {
-			deliveryRecord.Status, deliveryRecord.ProviderStatus, deliveryRecord.Error, deliveryRecord.RetryState = "failed", "failed", "scheduled request publisher is unavailable", "blocked"
-		} else if err := s.publisher.Publish(ctx, scheduledEnvelope(schedule, dedupeKey, s.now().UTC())); err != nil {
-			deliveryRecord.Status, deliveryRecord.ProviderStatus, deliveryRecord.Error, deliveryRecord.RetryState = "failed", "failed", err.Error(), retryState(err)
-		}
-	} else {
-		deliveryRecord = s.deliverLiteral(ctx, schedule, dedupeKey, deliveryRecord)
+	deliveryRecord.Provider = "message-runtime"
+	deliveryRecord.ProviderStatus = "published"
+	if s.publisher == nil {
+		deliveryRecord.Status, deliveryRecord.ProviderStatus, deliveryRecord.Error, deliveryRecord.RetryState = "failed", "failed", "scheduled message publisher is unavailable", "blocked"
+	} else if err := s.publisher.Publish(ctx, scheduledEnvelope(schedule, dedupeKey, s.now().UTC())); err != nil {
+		deliveryRecord.Status, deliveryRecord.ProviderStatus, deliveryRecord.Error, deliveryRecord.RetryState = "failed", "failed", err.Error(), retryState(err)
 	}
 	if deliveryRecord.Status == "sent" && deliveryRecord.SentAt.IsZero() {
 		deliveryRecord.SentAt = s.now().UTC()
@@ -142,50 +130,6 @@ func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) a
 	deliveryRecord = s.store.SaveReminderDelivery(deliveryRecord)
 	s.rearm(string(schedule.ID), deliveryRecord)
 	return deliveryRecord
-}
-
-func (s *Scheduler) deliverLiteral(ctx context.Context, schedule app.MessageSchedule, dedupeKey string, record app.ReminderDelivery) app.ReminderDelivery {
-	endpoint, deliverResult, err := s.routes.Resolve(ctx, schedule.Spec.ReturnRoute)
-	if err != nil || !deliverResult {
-		if err == nil {
-			err = errors.New("literal schedule requires a return endpoint")
-		}
-		record.Status, record.ProviderStatus, record.Error, record.RetryState = "failed", "failed", err.Error(), "blocked"
-		return record
-	}
-	if endpoint.Kind == app.EndpointKindWeb {
-		record.Channel = "web"
-	} else {
-		record.Channel = endpoint.ProviderKey
-	}
-	record.Recipient = endpoint.BindingRef
-	request := app.DeliveryRequest{
-		SchemaVersion: app.DeliveryRequestSchemaVersion,
-		ID:            app.DeliveryID(record.ID), IdempotencyKey: dedupeKey, ResultID: string(schedule.ID), Target: endpoint.ID,
-		OwnerID: schedule.Spec.OwnerID, ActorID: schedule.Spec.ActorID, Authorization: schedule.Spec.Authorization,
-		Content: schedule.Spec.Payload.Content, Origin: app.DeliveryOriginSchedule, CreatedAt: s.now().UTC(),
-	}
-	receipt, err := s.gateway.Deliver(ctx, request)
-	if receipt.DeliveryID != "" {
-		record.ID = string(receipt.DeliveryID)
-	}
-	record.Provider = receipt.ProviderRef
-	record.ProviderStatus = string(receipt.Status)
-	record.Error = receipt.Error
-	record.RetryState = receipt.RetryState
-	if err != nil || receipt.Status != app.DeliverySucceeded {
-		record.Status = "failed"
-		if record.Error == "" && err != nil {
-			record.Error = err.Error()
-		}
-		if record.RetryState == "" {
-			record.RetryState = retryState(err)
-		}
-		return record
-	}
-	record.Status = "sent"
-	record.SentAt = valueTime(receipt.DeliveredAt, s.now().UTC())
-	return record
 }
 
 func scheduledEnvelope(schedule app.MessageSchedule, dedupeKey string, createdAt time.Time) app.MessageEnvelope {
@@ -244,11 +188,4 @@ func retryState(err error) string {
 		return state.RetryState()
 	}
 	return "blocked"
-}
-
-func valueTime(value *time.Time, fallback time.Time) time.Time {
-	if value != nil && !value.IsZero() {
-		return value.UTC()
-	}
-	return fallback
 }

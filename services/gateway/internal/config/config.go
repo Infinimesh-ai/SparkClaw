@@ -193,10 +193,12 @@ type AdapterConfig struct {
 }
 
 type BrowserAutomationAdapterConfig struct {
-	NodeCommand        string `json:"nodeCommand"`
-	TimeoutMS          int    `json:"timeoutMs"`
-	ChromiumExecutable string `json:"chromiumExecutable"`
-	ProfileDir         string `json:"profileDir"`
+	Command             string `json:"command"`
+	TimeoutMS           int    `json:"timeoutMs"`
+	StartupTimeoutMS    int    `json:"startupTimeoutMs"`
+	DaemonIdleTimeoutMS int    `json:"daemonIdleTimeoutMs"`
+	ChromiumExecutable  string `json:"chromiumExecutable"`
+	ProfileDir          string `json:"profileDir"`
 }
 
 type WorkspaceConfig struct {
@@ -293,6 +295,18 @@ func Load(path string) (Config, error) {
 	}
 	if strings.TrimSpace(cfg.Adapters.BrowserAutomation.ProfileDir) == "" {
 		cfg.Adapters.BrowserAutomation.ProfileDir = "./data/browser-profiles"
+	}
+	if strings.TrimSpace(cfg.Adapters.BrowserAutomation.Command) == "" {
+		cfg.Adapters.BrowserAutomation.Command = "agent-browser"
+	}
+	if cfg.Adapters.BrowserAutomation.TimeoutMS <= 0 {
+		cfg.Adapters.BrowserAutomation.TimeoutMS = 30000
+	}
+	if cfg.Adapters.BrowserAutomation.StartupTimeoutMS <= 0 {
+		cfg.Adapters.BrowserAutomation.StartupTimeoutMS = 10000
+	}
+	if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS <= 0 {
+		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = 60000
 	}
 	profileDir, err := filepath.Abs(cfg.Adapters.BrowserAutomation.ProfileDir)
 	if err != nil {
@@ -554,7 +568,7 @@ func Default() Config {
 			},
 			BrowserAutomation: BrowserAutomationToolConfig{
 				Enabled:  false,
-				Provider: "microsoft-playwright",
+				Provider: "agent-browser",
 				Profile:  "default",
 			},
 			Reminders: RemindersToolConfig{
@@ -577,7 +591,7 @@ func Default() Config {
 						MaxPending:         32,
 					},
 					"weixin": {
-						Enabled:    false,
+						Enabled:    true,
 						Provider:   "openclaw-weixin-qr",
 						BaseURL:    "https://ilinkai.weixin.qq.com",
 						CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
@@ -610,9 +624,11 @@ func Default() Config {
 		},
 		Adapters: AdapterConfig{
 			BrowserAutomation: BrowserAutomationAdapterConfig{
-				NodeCommand: "node",
-				TimeoutMS:   30000,
-				ProfileDir:  "./data/browser-profiles",
+				Command:             "agent-browser",
+				TimeoutMS:           30000,
+				StartupTimeoutMS:    10000,
+				DaemonIdleTimeoutMS: 60000,
+				ProfileDir:          "./data/browser-profiles",
 			},
 		},
 		Memory: MemoryConfig{
@@ -884,12 +900,22 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_PROFILE"); v != "" {
 		cfg.Tools.BrowserAutomation.Profile = v
 	}
-	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_NODE_COMMAND"); v != "" {
-		cfg.Adapters.BrowserAutomation.NodeCommand = v
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_COMMAND"); v != "" {
+		cfg.Adapters.BrowserAutomation.Command = v
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS"); v != "" {
 		if timeoutMS, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.BrowserAutomation.TimeoutMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS"); v != "" {
+		if timeoutMS, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.StartupTimeoutMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS"); v != "" {
+		if timeoutMS, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = timeoutMS
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE"); v != "" {
@@ -1142,6 +1168,7 @@ func ensureNotificationChannels(cfg *NotificationsToolConfig) {
 	}
 	if _, ok := cfg.Channels["weixin"]; !ok {
 		cfg.Channels["weixin"] = NotificationChannelConfig{
+			Enabled:    true,
 			Provider:   "openclaw-weixin-qr",
 			BaseURL:    "https://ilinkai.weixin.qq.com",
 			CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",

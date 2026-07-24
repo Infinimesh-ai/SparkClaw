@@ -14,7 +14,6 @@ import (
 type endpointStore interface {
 	GetSession(string) (app.Session, bool)
 	GetNotificationBinding(string) (app.NotificationBinding, bool)
-	GetReminder(string) (app.Reminder, bool)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(string, string) []app.ExternalChatSession
 }
@@ -33,10 +32,6 @@ func WebEndpointID(sessionID string) app.EndpointID {
 
 func BindingEndpointID(bindingID string) app.EndpointID {
 	return app.EndpointID(strings.TrimSpace(bindingID))
-}
-
-func LegacyScheduleEndpointID(scheduleID string) app.EndpointID {
-	return app.EndpointID("legacy-schedule:" + strings.TrimSpace(scheduleID))
 }
 
 func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
@@ -68,31 +63,6 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 			UpdatedAt: session.UpdatedAt,
 		}, nil
 	}
-	if strings.HasPrefix(value, "legacy-schedule:") {
-		reminderID := strings.TrimSpace(strings.TrimPrefix(value, "legacy-schedule:"))
-		reminder, ok := r.store.GetReminder(reminderID)
-		if !ok {
-			return app.MessageEndpoint{}, fmt.Errorf("legacy schedule endpoint %q is unavailable", value)
-		}
-		ownerID := app.DefaultOwnerID
-		if binding, ok := r.store.GetNotificationBinding(reminder.BindingID); ok && strings.TrimSpace(binding.OwnerID) != "" {
-			ownerID = binding.OwnerID
-		} else if session, ok := r.store.GetSession(reminder.SessionID); ok && strings.TrimSpace(session.OwnerID) != "" {
-			ownerID = session.OwnerID
-		}
-		kind := app.EndpointKindThirdPartyDevice
-		providerKey := strings.ToLower(strings.TrimSpace(reminder.Channel))
-		if providerKey == "" || providerKey == "web" {
-			kind, providerKey = app.EndpointKindWeb, ""
-		}
-		return app.MessageEndpoint{
-			ID: id, OwnerID: ownerID, ActorID: ownerID, Kind: kind, ProviderKey: providerKey,
-			BindingRef: reminder.BindingID, Address: reminder.Recipient,
-			ThreadRef: reminder.RecipientBinding, ContextRef: reminder.RecipientBinding,
-			SessionID: reminder.SessionID, Status: app.EndpointActive,
-			CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt,
-		}, nil
-	}
 	if chat, chatOK := r.store.GetExternalChatSession(value); chatOK {
 		return r.endpointForChat(id, chat)
 	}
@@ -109,19 +79,23 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 		ownerID = app.DefaultOwnerID
 	}
 	return app.MessageEndpoint{
-		ID:            id,
-		OwnerID:       ownerID,
-		ActorID:       firstEndpointValue(binding.ActorID, ownerID),
-		SourceActorID: ownerID,
-		Kind:          app.EndpointKindThirdPartyDevice,
-		ProviderKey:   providerKey,
-		BindingRef:    binding.ID,
-		Address:       firstEndpointValue(binding.ExternalChatID, binding.ExternalUserID),
-		ThreadRef:     binding.ExternalThreadID,
-		ContextRef:    binding.ContextToken,
-		Status:        app.EndpointActive,
-		CreatedAt:     binding.CreatedAt,
-		UpdatedAt:     binding.UpdatedAt,
+		ID:                   id,
+		OwnerID:              ownerID,
+		ActorID:              firstEndpointValue(binding.ActorID, ownerID),
+		SourceActorID:        ownerID,
+		Kind:                 app.EndpointKindThirdPartyDevice,
+		ProviderKey:          providerKey,
+		BindingRef:           binding.ID,
+		Address:              firstEndpointValue(binding.ExternalChatID, binding.ExternalUserID),
+		ThreadRef:            binding.ExternalThreadID,
+		ContextRef:           binding.ContextToken,
+		SoftwareDisplayName:  softwareDisplayName(providerKey),
+		AccountDisplayName:   firstEndpointValue(binding.DisplayName, binding.AccountID, providerKey),
+		RecipientDisplayName: firstEndpointValue(binding.DisplayName, "Recipient"),
+		ConversationLabel:    firstEndpointValue(binding.DisplayName, binding.AccountID, providerKey),
+		Status:               app.EndpointActive,
+		CreatedAt:            binding.CreatedAt,
+		UpdatedAt:            binding.UpdatedAt,
 	}, nil
 }
 
@@ -173,7 +147,7 @@ func (r *EndpointRegistry) List(ctx context.Context, ownerID, actorID string) ([
 	endpoints := []app.MessageEndpoint{}
 	for _, chat := range r.store.ListExternalChatSessions("", string(app.EndpointActive)) {
 		binding, ok := r.store.GetNotificationBinding(chat.BindingID)
-		if !ok || !bindingUsable(binding, time.Now().UTC()) || !hasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+		if !ok || !bindingUsable(binding, time.Now().UTC()) || !app.BindingAllowsMessagingScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
 			continue
 		}
 		endpoint, err := r.endpointForChat(app.EndpointID(chat.ID), chat)
@@ -302,7 +276,7 @@ func (r *EndpointRegistry) GetForDirectSend(_ context.Context, id app.EndpointID
 	if !ok || !bindingUsable(binding, time.Now().UTC()) {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery binding is unavailable")
 	}
-	if !hasScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
+	if !app.BindingAllowsMessagingScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
 		return app.MessageEndpoint{}, newTargetError(CodeScopeDenied, "delivery binding lacks ordinary message scope")
 	}
 	return endpoint, nil
@@ -326,15 +300,6 @@ func newTargetError(code, message string) error { return &TargetError{Code: code
 
 func bindingUsable(binding app.NotificationBinding, now time.Time) bool {
 	return binding.Status == string(app.EndpointActive) && binding.RevokedAt == nil && (binding.ExpiresAt == nil || binding.ExpiresAt.After(now))
-}
-
-func hasScope(scopes []string, expected string) bool {
-	for _, scope := range scopes {
-		if strings.TrimSpace(scope) == expected {
-			return true
-		}
-	}
-	return false
 }
 
 func endpointMatchesRecipient(endpoint app.MessageEndpoint, recipient string) bool {

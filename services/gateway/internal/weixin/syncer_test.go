@@ -34,7 +34,7 @@ func newWeixinTestResultDeliverer(t *testing.T, st store.Store, cfg config.Confi
 	if err := providers.Register(notification.NewWeixinAdapter("weixin", cfg.Tools.Notifications.Channels["weixin"], st)); err != nil {
 		t.Fatal(err)
 	}
-	gateway := delivery.NewGateway(endpoints, providers, delivery.LocalWebDelivery{})
+	gateway := delivery.NewGateway(endpoints, providers, nil)
 	return delivery.NewWorkflowResultDeliverer(messagecontrol.NewReturnRouteResolver(endpoints), gateway)
 }
 
@@ -117,7 +117,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 						"context_token": "ctx-1",
 						"create_time": 1782800000,
 						"item_list": [
-							{"type": 1, "text_item": {"text": "你好\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"你好，我是 SparkClaw。\"}"}}
+							{"type": 1, "text_item": {"text": "你好\nMOCK_CONVERSATION_RESPONSE:你好，我是 SparkClaw。"}}
 						]
 					}
 				]
@@ -227,7 +227,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 		t.Fatalf("linked session should be hidden weixin session: %#v", linkedSession)
 	}
 	runs := st.ListRuns(chatSession.LinkedSessionID)
-	if len(runs) != 1 || runs[0].MessageContext == nil || runs[0].MessageContext.OwnerID != chatSession.OwnerID || runs[0].MessageContext.ReturnRoute.SourceEndpointID != app.EndpointID(chatSession.ID) || runs[0].MessageContext.Route.Status != app.RouteUnmatched {
+	if len(runs) != 1 || runs[0].MessageContext == nil || runs[0].MessageContext.OwnerID != chatSession.OwnerID || runs[0].MessageContext.ReturnRoute.SourceEndpointID != app.EndpointID(chatSession.ID) || runs[0].MessageContext.Route.Status != app.RouteMatched || len(runs[0].MessageContext.Route.CapabilityPath) != 2 || runs[0].MessageContext.Route.CapabilityPath[1] != app.CapabilityConversationAnswer || runs[0].Workflow == nil || runs[0].Workflow.Plan.ProfileID != app.WorkflowConversationAnswer {
 		t.Fatalf("weixin run did not persist the external endpoint route context: %#v", runs)
 	}
 	for _, session := range st.ListSessions() {
@@ -772,7 +772,7 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		Binding:      binding,
 		FromUserID:   "wx-user-1",
 		ContextToken: "ctx-1",
-		Text:         "你好\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"重试成功\"}",
+		Text:         "你好\nMOCK_CONVERSATION_RESPONSE:重试成功",
 		ExternalID:   "provider-msg-retry",
 	}
 	chatSession := dispatcher.ensureChatSession(inbound)

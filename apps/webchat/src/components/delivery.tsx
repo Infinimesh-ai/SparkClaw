@@ -1,47 +1,9 @@
 import { ArrowDown, ArrowUp, FileAudio, FileImage, FileText, RotateCcw, Send, X } from "lucide-react";
-import type { DeliveryEndpoint, DeliveryPart, MessageDelivery, MessageHistoryItem } from "../api/types";
-import type { Copy as CopyText, Language } from "../i18n";
+import type { DeliveryEndpoint, DeliveryPart, MessageDelivery } from "../api/types";
+import type { Copy as CopyText } from "../i18n";
 import type { DeliveryDraftValidation, ExternalDeliveryDraft } from "../lib/deliveryDraft";
 import { deliveryDraftParts } from "../lib/deliveryDraft";
-import { formatBytes, formatDateTime } from "../lib/format";
-
-export function DeliveryHistory({
-  items,
-  text,
-  language
-}: {
-  items: MessageHistoryItem[];
-  text: CopyText;
-  language: Language;
-}) {
-  if (items.length === 0) {
-    return (
-      <div className="emptyState externalEmptyState">
-        <Send size={25} />
-        <span>{text.chat.noDeliveryHistory}</span>
-      </div>
-    );
-  }
-  return (
-    <div className="deliveryHistory">
-      {items.map((item) => (
-        <article className={`deliveryHistoryItem ${item.direction}`} key={`${item.direction}-${item.id}`}>
-          <div className="deliveryHistoryHeader">
-            <strong>
-              {item.direction === "receive" ? text.chat.receivedFrom : text.chat.sentTo} {item.recipient_display_name}
-            </strong>
-            <span className={`deliveryStatus ${item.status}`}>{item.status.replaceAll("_", " ")}</span>
-          </div>
-          <span className="deliveryIdentity">
-            {item.software_display_name} · {item.account_display_name}
-          </span>
-          {item.content && <p>{item.content}</p>}
-          <time>{formatDateTime(item.created_at, language)}</time>
-        </article>
-      ))}
-    </div>
-  );
-}
+import { formatBytes } from "../lib/format";
 
 export function ExternalPartTray({
   parts,

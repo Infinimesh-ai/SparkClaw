@@ -1460,6 +1460,48 @@ func (s *PostgresStore) SaveReminder(reminder app.Reminder) app.Reminder {
 	return reminder
 }
 
+func (s *PostgresStore) UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+	if reminder.UpdatedAt.IsZero() {
+		reminder.UpdatedAt = time.Now().UTC()
+	}
+	if reminder.TextSummary == "" {
+		reminder.TextSummary = summarizeReminderText(reminder.Text)
+	}
+	ctx := context.Background()
+	row := s.db.QueryRow(ctx, `
+		UPDATE reminders SET
+			session_id = nullif($2, ''), run_id = nullif($3, ''), text = $4, text_summary = $5,
+			due_time = $6, timezone = $7, channel = $8, recipient = $9,
+			recipient_binding = $10, binding_id = $11, credential_ref = $12, base_url = $13,
+			recurrence = $14, dedupe_key = $15, status = $16, last_delivery_id = $17,
+			last_error = $18, updated_at = $19, sent_at = $20, canceled_at = $21,
+			delivery_attempt = $22, schedule_spec = $23
+		WHERE id = $1 AND status = 'pending' AND updated_at = $24
+		RETURNING id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,
+			channel, recipient, recipient_binding, binding_id, credential_ref, base_url, recurrence, dedupe_key, status, last_delivery_id, last_error,
+			created_at, updated_at, sent_at, canceled_at, delivery_attempt, schedule_spec
+	`, reminder.ID, reminder.SessionID, reminder.RunID, reminder.Text, reminder.TextSummary,
+		reminder.DueTime, reminder.Timezone, reminder.Channel, reminder.Recipient,
+		reminder.RecipientBinding, reminder.BindingID, reminder.CredentialRef, reminder.BaseURL,
+		reminder.Recurrence, reminder.DedupeKey, reminder.Status, reminder.LastDeliveryID,
+		reminder.LastError, reminder.UpdatedAt, reminder.SentAt, reminder.CanceledAt,
+		reminder.DeliveryAttempt, mustJSON(reminder.ScheduleSpec), expectedUpdatedAt.UTC())
+	updated, err := scanReminder(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Reminder{}, ErrReminderConflict
+	}
+	if err != nil {
+		return app.Reminder{}, err
+	}
+	s.appendAudit(ctx, "reminder."+updated.Status, updated.SessionID, updated.RunID, "toolhub", updated.TextSummary, map[string]any{
+		"reminder_id": updated.ID,
+		"due_time":    updated.DueTime.UTC().Format(time.RFC3339),
+		"channel":     updated.Channel,
+	})
+	s.appendEvent(ctx, "reminder."+updated.Status, updated.SessionID, updated.RunID, updated)
+	return updated, nil
+}
+
 func (s *PostgresStore) GetReminder(id string) (app.Reminder, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, coalesce(session_id, ''), coalesce(run_id, ''), text, text_summary, due_time, timezone,

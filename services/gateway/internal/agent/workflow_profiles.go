@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -18,33 +17,22 @@ func (browserInternetSearchProfile) Revision() int      { return 1 }
 func (browserInternetSearchProfile) Capability() app.CapabilityID {
 	return app.CapabilityBrowserInternetSearch
 }
+func (browserInternetSearchProfile) RoutingSemantics() workflowRoutingSemantics {
+	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
+		Key:   "search",
+		Route: workflowRouteTemplate{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet},
+		EmbedTexts: []string{
+			"查一下今天的 AI 新闻", "What is the current gold price?", "现在美元兑人民币汇率是多少", "刚结束的比赛比分",
+			"苹果官网目前在售的产品和价格", "联网查询最新信息", "比较北京和上海今天的天气", "查询天气预警",
+		},
+		TreeDescription: "Retrieve read-only facts whose answer depends on current Internet state, including news, prices, availability, sports, alerts, official current catalogs, or multi-source and multi-location comparisons.",
+		HardNegatives: []string{
+			"解释什么是黄金", "上海今天的天气卡片", "打开苹果官网", "点击网页上的下一步", "一分钟后查一下新闻",
+		},
+	}}}
+}
 func (browserInternetSearchProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
-}
-func (browserInternetSearchProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	content, ok := browserInternetSearchQuery(input.Content)
-	if !ok {
-		return workflowRecognition{}, false
-	}
-	return workflowRecognition{
-		Slots: app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: content}, Confidence: 0.9,
-		Reason: "The request asks for an Internet search result.",
-	}, true
-}
-
-func browserInternetSearchQuery(content string) (string, bool) {
-	content = semanticRoutingContent(content)
-	lower := strings.ToLower(content)
-	if strings.TrimSpace(content) == "" || len(extractURLs(content)) != 0 || shouldUseBrowserAutomation(lower) ||
-		containsAny(lower, "current page", "current tab", "当前页面", "当前标签", "chrome") || scheduleManagementIntent(lower) || ordinaryWeatherRequest(content) || (!internetSearchIntent(lower) && !weatherResearchRequest(lower)) {
-		return "", false
-	}
-	return content, true
-}
-
-func internetSearchIntent(lower string) bool {
-	return containsEnglishSemanticTerm(lower, "web", "internet", "online", "news", "latest", "today", "current") ||
-		containsAny(lower, "联网", "网上", "互联网", "新闻", "最新", "今天", "今日", "查一下", "查询一下")
 }
 func (p browserInternetSearchProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationSearch, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopePublic)
@@ -90,43 +78,18 @@ type browserAutomationProfile struct{}
 func (browserAutomationProfile) ID() app.WorkflowID           { return app.WorkflowBrowserAutomation }
 func (browserAutomationProfile) Revision() int                { return 1 }
 func (browserAutomationProfile) Capability() app.CapabilityID { return app.CapabilityBrowserAutomation }
+func (browserAutomationProfile) RoutingSemantics() workflowRoutingSemantics {
+	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
+		Key: "open", Route: workflowRouteTemplate{Operation: app.RouteOperationOpen},
+		EmbedTexts: []string{
+			"打开 https://example.com", "访问苹果官网", "Open this URL in the browser", "切换到已打开的项目页面",
+		},
+		TreeDescription: "Open or focus exactly one explicit URL or registered browser destination. A request to enter a nested in-site section such as drafts, inbox, or details is browser interaction, not this candidate. Do not use for page clicks, typing, login, research, or extracting current facts.",
+		HardNegatives:   []string{"点击网页按钮", "打开QQ邮箱的草稿箱", "打开邮箱收件箱", "在网站里搜索商品", "查询官网价格", "登录这个网站", "打开本地文档"},
+	}}}
+}
 func (browserAutomationProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
-}
-func (browserAutomationProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	content := semanticRoutingContent(input.Content)
-	lower := strings.ToLower(content)
-	urls := extractURLs(content)
-	wantsOpen := containsEnglishSemanticTerm(lower, "open", "visit", "launch", "focus") || containsAny(lower, "打开", "访问", "聚焦", "切换到")
-	unsupportedInteraction := containsEnglishSemanticTerm(lower, "click", "type", "select", "check", "checkbox", "login", "sign in", "authenticate", "authentication", "interact", "screenshot", "inspect") ||
-		containsAny(lower, "点击", "输入", "选择", "勾选", "登录", "认证", "交互", "截图", "页面结构")
-	if !wantsOpen || unsupportedInteraction {
-		return workflowRecognition{}, false
-	}
-	if len(urls) > 1 {
-		return workflowRecognition{Status: app.RouteClarify, Confidence: 0.7, Reason: "Browser automation revision 1 requires one explicit target URL."}, true
-	}
-	target := ""
-	facts := map[string]string{}
-	reason := "The request asks to open or focus one explicit browser URL."
-	if len(urls) == 1 {
-		target = normalizeBrowserURL(urls[0])
-	} else if destination, ok := matchRegisteredBrowserDestination(content); ok {
-		if registeredBrowserDestinationHasInteractionGoal(content, destination) {
-			return workflowRecognition{}, false
-		}
-		target = normalizeBrowserURL(destination.Destination.URL)
-		facts["browser_destination"] = destination.Destination.ID
-		reason = "The request names a registered browser destination whose URL is frozen by the runtime."
-	} else {
-		return workflowRecognition{Status: app.RouteClarify, Confidence: 0.7, Reason: "Browser automation revision 1 requires one explicit or registered target URL."}, true
-	}
-	facts["url"] = target
-	return workflowRecognition{
-		Slots: app.RouteSlots{Operation: app.RouteOperationOpen, Query: content, TargetKind: "url", TargetRef: target},
-		Facts: facts, Confidence: 0.95,
-		Reason: reason,
-	}, true
 }
 func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	target := app.TargetRef{Kind: app.TargetKindExplicitURL, Ref: route.Slots.TargetRef}
@@ -139,7 +102,7 @@ func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID 
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID: nodeID, InitialStage: "scan_tabs",
-			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Focus an existing exact URL or open the frozen target URL", Completion: app.CompletionEvidence},
+			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Focus an existing matching target page or open the frozen target URL", Completion: app.CompletionEvidence},
 			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityBrowserListTabs}}},
 			Transitions: []app.ScopeTransition{
 				{ID: "focus_existing", NextStage: "focus_existing", On: app.TransitionPredicate{OutcomeSignals: []app.OutcomeSignal{app.OutcomeSignalTargetTabExists}, Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}}, Replace: &focusScope, MaxActivations: 1},
@@ -160,14 +123,16 @@ func (browserAutomationProfile) Assess(state *app.WorkflowState, outcome app.Too
 	assessment := baseNodeAssessment(outcome)
 	switch {
 	case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalTabsScanned):
-		target := normalizeBrowserURL(state.Route.Slots.TargetRef)
-		for _, ref := range outcome.Refs {
-			if ref.Kind == "browser_tab" && normalizeBrowserURL(ref.Attributes["url"]) == target {
-				assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "target_tab_exists"
-				assessment.Signals = []app.OutcomeSignal{app.OutcomeSignalTargetTabExists}
-				assessment.SelectedRefs = []app.ResourceRef{ref}
-				return assessment
-			}
+		selected, signal, reason := selectBrowserInteractionTab(state.Route, outcome.Refs)
+		if reason != "" {
+			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
+			return assessment
+		}
+		if selected != nil && signal == app.OutcomeSignalTargetTabExists {
+			assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "target_tab_exists"
+			assessment.Signals = []app.OutcomeSignal{app.OutcomeSignalTargetTabExists}
+			assessment.SelectedRefs = []app.ResourceRef{*selected}
+			return assessment
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "target_tab_missing"
 		assessment.Signals = []app.OutcomeSignal{app.OutcomeSignalTargetTabMissing}
@@ -196,11 +161,18 @@ type documentReadProfile struct{}
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
 func (documentReadProfile) Revision() int                { return 1 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
+func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
+	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
+		Key: "read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
+		EmbedTexts: []string{
+			"读取这个文档", "总结 report.pdf", "查看附件里的表格", "Explain the attached presentation", "检查工作区中的 notes.md",
+		},
+		TreeDescription: "Read, inspect, summarize, or explain exactly one governed workspace document or attachment without modifying it.",
+		HardNegatives:   []string{"修改这个文档", "打开网页", "搜索整个代码仓库", "创建一个新文件"},
+	}}}
+}
 func (documentReadProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationModel
-}
-func (documentReadProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	return recognizeDocumentRoute(input, false)
 }
 func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	target := app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
@@ -246,11 +218,26 @@ type documentEditProfile struct{}
 func (documentEditProfile) ID() app.WorkflowID           { return app.WorkflowDocumentEdit }
 func (documentEditProfile) Revision() int                { return 2 }
 func (documentEditProfile) Capability() app.CapabilityID { return app.CapabilityDocumentEdit }
+func (documentEditProfile) RoutingSemantics() workflowRoutingSemantics {
+	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
+		{
+			Key: "edit", Route: workflowRouteTemplate{Operation: app.RouteOperationEdit},
+			EmbedTexts: []string{
+				"修改这个 Word 文档", "把表格中的标题改掉", "润色附件里的演示文稿", "Edit notes.md and replace the heading",
+			},
+			TreeDescription: "Edit a copy of one governed text, Word, spreadsheet, or presentation document. The request changes document content rather than deleting the file itself.",
+			HardNegatives:   []string{"读取并总结文档", "删除整个文件", "创建新文档", "修改网页内容"},
+		},
+		{
+			Key: "transform", Route: workflowRouteTemplate{Operation: app.RouteOperationTransform},
+			EmbedTexts:      []string{"旋转这个 PDF", "拆分附件里的 PDF", "Transform the PDF into an edited copy", "调整 PDF 页面"},
+			TreeDescription: "Transform a governed PDF into a modified output copy, including page-oriented PDF operations. Do not use for reading or deleting the source file.",
+			HardNegatives:   []string{"总结 PDF", "编辑 Word 文档", "删除 PDF 文件", "创建 PDF"},
+		},
+	}}
+}
 func (documentEditProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
-}
-func (documentEditProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	return recognizeDocumentRoute(input, true)
 }
 func (p documentEditProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	target := app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
@@ -420,6 +407,21 @@ func workflowHint(state *app.WorkflowState, taskType, evidenceNeed, dataScope, b
 
 func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.AgentRun, actorRef string, hint *workflowExecutionHint) ([]app.ToolDefinition, error) {
 	state := run.Workflow.Nodes[hint.WorkflowNodeID]
+	node, ok := workflowPlanNode(run.Workflow.Plan, hint.WorkflowNodeID)
+	if ok && node.Goal.Completion == app.CompletionModelAnswer {
+		if len(state.CurrentScope.Requirements) != 0 {
+			return nil, errors.New("model-answer workflow node cannot materialize tools")
+		}
+		hint.Capability = ""
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: run.SessionID, RunID: run.ID, Actor: "tool-exposure", Type: "tools.exposure.none",
+			Summary: "Model-answer workflow intentionally exposes no tools",
+			Fields: map[string]any{
+				"workflow_id": run.Workflow.Plan.ProfileID, "node_id": hint.WorkflowNodeID, "scope_revision": state.ScopeRevision,
+			},
+		})
+		return []app.ToolDefinition{}, nil
+	}
 	view, err := r.exposure.Search(ctx, app.ExposureRequest{
 		RunID: run.ID, WorkflowID: run.Workflow.Plan.ProfileID, NodeID: hint.WorkflowNodeID,
 		ScopeRevision: state.ScopeRevision, ActorRef: actorRef, Limit: 32,

@@ -718,11 +718,12 @@ def assistant_after_user(predicate):
                 return following.get("content", "")
     return ""
 
-require(any(
-    "files.read_no_final" in content
-    and "golden-read-target.txt" in content
-    for content in assistant_messages
-), "file read fallback did not identify the missing final answer and observed file")
+file_read_answer = assistant_after_user(lambda content: content == "Summarize golden-read-target.txt")
+require(
+    "Mock workflow answer grounded" in file_read_answer
+    and "files.read_no_final" not in file_read_answer,
+    "file read did not produce the workflow final answer",
+)
 legacy_search_answer = assistant_after_user(lambda content: content == "Search for SparkClaw in the workspace")
 require(legacy_search_answer and "File search results:" not in legacy_search_answer, "document.read r1 fabricated a legacy file-search answer")
 legacy_browser_answers = [

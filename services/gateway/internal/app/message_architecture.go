@@ -1,6 +1,9 @@
 package app
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	MessageEnvelopeSchemaVersion      = 1
@@ -22,6 +25,48 @@ const (
 	BindingScopeReminderSendSelf = "reminder_send_self"
 	BindingScopeMessageSendSelf  = "message_send_self"
 )
+
+func DefaultMessagingBindingScopes() []string {
+	return []string{BindingScopeReminderSendSelf, BindingScopeMessageSendSelf}
+}
+
+// BindingAllowsMessagingScope upgrades legacy empty or single-scope bindings to
+// the current contract: an active messaging binding can exchange all messages.
+func BindingAllowsMessagingScope(scopes []string, expected string) bool {
+	if expected != BindingScopeReminderSendSelf && expected != BindingScopeMessageSendSelf {
+		return false
+	}
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == BindingScopeReminderSendSelf || scope == BindingScopeMessageSendSelf {
+			return true
+		}
+	}
+	return false
+}
+
+func EffectiveMessagingBindingScopes(scopes []string) []string {
+	if !BindingAllowsMessagingScope(scopes, BindingScopeMessageSendSelf) {
+		return append([]string(nil), scopes...)
+	}
+	out := DefaultMessagingBindingScopes()
+	seen := map[string]bool{
+		BindingScopeReminderSendSelf: true,
+		BindingScopeMessageSendSelf:  true,
+	}
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		out = append(out, scope)
+	}
+	return out
+}
 
 type MessageSourceKind string
 
@@ -173,19 +218,60 @@ type RouteDecision struct {
 	Reason          string            `json:"reason,omitempty"`
 }
 
+const IntentFusionDecisionSchemaVersion = 2
+
+type IntentFusionChannel struct {
+	Status     string `json:"status"`
+	Model      string `json:"model,omitempty"`
+	ReasonCode string `json:"reason_code,omitempty"`
+}
+
+type IntentFusionChannels struct {
+	Embedding IntentFusionChannel `json:"embedding"`
+	Tree      IntentFusionChannel `json:"tree"`
+	Reranker  IntentFusionChannel `json:"reranker"`
+}
+
+type IntentFusionCandidate struct {
+	CandidateID      string         `json:"candidate_id"`
+	CapabilityPath   []CapabilityID `json:"capability_path"`
+	EmbeddingScore   float64        `json:"embedding_score"`
+	TreeScore        float64        `json:"tree_score"`
+	FusionScore      float64        `json:"fusion_score"`
+	RerankerScore    float64        `json:"reranker_score"`
+	FinalScore       float64        `json:"final_score"`
+	NegativeConflict float64        `json:"negative_conflict,omitempty"`
+}
+
+type IntentFusionDecision struct {
+	SchemaVersion       int                     `json:"schema_version"`
+	GraphRevision       string                  `json:"graph_revision"`
+	CalibrationRevision string                  `json:"calibration_revision"`
+	Channels            IntentFusionChannels    `json:"channels"`
+	Candidates          []IntentFusionCandidate `json:"candidates,omitempty"`
+	Verdict             string                  `json:"verdict"`
+	Confidence          float64                 `json:"confidence"`
+	Margin              float64                 `json:"margin"`
+	Degraded            bool                    `json:"degraded,omitempty"`
+	ReasonCode          string                  `json:"reason_code"`
+}
+
 // MessageRunContext persists the identity and return boundary needed by
-// idempotent replay and approval/login resume, including unmatched ReAct runs.
+// idempotent replay and approval/login resume, including legacy persisted ReAct runs.
 type MessageRunContext struct {
-	OwnerID       string               `json:"owner_id"`
-	Authorization MessageAuthorization `json:"authorization"`
-	ReturnRoute   ReturnRoute          `json:"return_route"`
-	Request       RequestNormalization `json:"request"`
-	Route         RouteDecision        `json:"route"`
+	OwnerID       string                `json:"owner_id"`
+	Authorization MessageAuthorization  `json:"authorization"`
+	Source        MessageSourceContext  `json:"source"`
+	ReturnRoute   ReturnRoute           `json:"return_route"`
+	Request       RequestNormalization  `json:"request"`
+	Route         RouteDecision         `json:"route"`
+	IntentFusion  *IntentFusionDecision `json:"intent_fusion,omitempty"`
 }
 
 type RouteOperation string
 
 const (
+	RouteOperationAnswer    RouteOperation = "answer"
 	RouteOperationSearch    RouteOperation = "search"
 	RouteOperationRender    RouteOperation = "render"
 	RouteOperationRead      RouteOperation = "read"

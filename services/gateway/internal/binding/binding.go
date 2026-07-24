@@ -412,8 +412,11 @@ func (a *ManualWeixinAdapter) Cancel(ctx context.Context, binding app.Notificati
 }
 
 func normalizeScopes(scopes []string) []string {
-	out := []string{}
-	seen := map[string]bool{}
+	out := app.DefaultMessagingBindingScopes()
+	seen := map[string]bool{
+		app.BindingScopeReminderSendSelf: true,
+		app.BindingScopeMessageSendSelf:  true,
+	}
 	for _, scope := range scopes {
 		scope = strings.TrimSpace(scope)
 		if scope == "" || seen[scope] {
@@ -421,9 +424,6 @@ func normalizeScopes(scopes []string) []string {
 		}
 		seen[scope] = true
 		out = append(out, scope)
-	}
-	if len(out) == 0 {
-		out = append(out, "reminder_send_self")
 	}
 	return out
 }

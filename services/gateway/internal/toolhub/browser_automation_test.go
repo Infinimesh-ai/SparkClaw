@@ -71,7 +71,7 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 		t.Fatal("browser.click should require uid")
 	}
 	if err := hub.Validate("browser.focus", map[string]any{"page_id": 1}); err != nil {
-		t.Fatalf("browser.focus should accept numeric page ids from Playwright output: %v", err)
+		t.Fatalf("browser.focus should accept numeric page ids from agent-browser output: %v", err)
 	}
 	click, _ := hub.Definition("browser.click")
 	if click.RequiresApproval {
@@ -127,6 +127,34 @@ func TestBrowserOpenPassesCollaborativeMetadata(t *testing.T) {
 	}
 	if out.BrowserMode != "collaborative" || out.Presentation != "visible" || !out.SurfaceVisible {
 		t.Fatalf("browser.open output should include collaborative metadata: %#v", out)
+	}
+}
+
+func TestBrowserStatusPassesPresentationAndProfileIdentity(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	healthArgs := map[string]any{}
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("browser owner", "owner-health", "", "webchat", false)
+	hub := New(cfg, st).WithBrowserAutomationAdapter(fakePageReadAdapter{healthArgs: &healthArgs})
+
+	result, err := hub.Execute(context.Background(), "browser.status", map[string]any{
+		"browser_mode":    "collaborative",
+		"presentation":    "visible",
+		"surface_visible": true,
+	}, session.ID, "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if healthArgs["browser_mode"] != "collaborative" || healthArgs["presentation"] != "visible" || healthArgs["surface_visible"] != true {
+		t.Fatalf("browser.status should pass collaborative visible metadata to adapter: %#v", healthArgs)
+	}
+	if healthArgs["owner_id"] != "owner-health" || healthArgs["browser_profile_id"] != "default" {
+		t.Fatalf("browser.status should bind the health session to owner and logical profile: %#v", healthArgs)
+	}
+	out, ok := result.Output.(browserautomation.Result)
+	if !ok || out.BrowserMode != "collaborative" || out.Presentation != "visible" || !out.SurfaceVisible {
+		t.Fatalf("browser.status output should preserve requested presentation: %#v", result.Output)
 	}
 }
 

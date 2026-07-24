@@ -425,7 +425,7 @@ func weixinIngress(inbound InboundMessage, chatSession app.ExternalChatSession, 
 			Kind: app.MessageSourceThirdPartyDevice, Adapter: strings.ToLower(strings.TrimSpace(inbound.Binding.Channel)),
 			EndpointID: endpointID, NativeMessageID: nativeMessageID, NativeThreadRef: inbound.ContextToken,
 		},
-		OwnerID: ownerID, Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: append([]string(nil), inbound.Binding.Scopes...)},
+		OwnerID: ownerID, Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: app.EffectiveMessagingBindingScopes(inbound.Binding.Scopes)},
 		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpointID},
 	}
 }

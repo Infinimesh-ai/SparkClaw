@@ -19,31 +19,22 @@ type browserWeatherProfile struct{}
 func (browserWeatherProfile) ID() app.WorkflowID           { return app.WorkflowBrowserWeather }
 func (browserWeatherProfile) Revision() int                { return 1 }
 func (browserWeatherProfile) Capability() app.CapabilityID { return app.CapabilityBrowserWeather }
+func (browserWeatherProfile) RoutingSemantics() workflowRoutingSemantics {
+	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
+		Key:   "read",
+		Route: workflowRouteTemplate{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot},
+		EmbedTexts: []string{
+			"上海今天的天气怎么样", "杭州明天会下雨吗", "Show me the weather in London", "北京未来三天的天气预报",
+			"成都现在多少度", "出门要不要带伞，地点是深圳",
+		},
+		TreeDescription: "Return one current-condition or short-forecast weather card for exactly one location. Weather alerts, news, historical research, air quality, and multi-location comparisons are Internet search.",
+		HardNegatives: []string{
+			"比较北京和上海的天气", "查询台风天气预警", "查一下空气质量", "一分钟后查询上海天气", "解释天气是怎么形成的",
+		},
+	}}}
+}
 func (browserWeatherProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
-}
-
-func (browserWeatherProfile) Recognize(input workflowRecognitionContext) (workflowRecognition, bool) {
-	content := semanticRoutingContent(input.Content)
-	if !ordinaryWeatherRequest(content) {
-		return workflowRecognition{}, false
-	}
-	location := weatherLocationFromRequest(content)
-	if location == "" {
-		return workflowRecognition{
-			Status: app.RouteClarify, Confidence: 0.95,
-			Reason: "The weather request requires an explicit location.",
-		}, true
-	}
-	return workflowRecognition{
-		Slots: app.RouteSlots{
-			Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: strings.TrimSpace(content),
-			TargetKind: string(app.TargetKindLocation), TargetRef: location, Location: location, Format: "image",
-		},
-		Facts:      map[string]string{"location_source": "current_turn"},
-		Confidence: 0.96,
-		Reason:     "The request asks for a direct weather card for an explicit location.",
-	}, true
 }
 
 func ordinaryWeatherRequest(content string) bool {

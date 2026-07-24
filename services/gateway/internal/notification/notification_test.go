@@ -114,21 +114,16 @@ func TestWeixinProviderPreflightsAudioFallbackBeforeExternalSend(t *testing.T) {
 	}
 }
 
-func TestWeixinBindingScopeCompatibilityIsReminderOnly(t *testing.T) {
-	if notificationBindingAllowsScope(nil, app.BindingScopeMessageSendSelf, app.DeliveryOriginWebDirect) {
-		t.Fatal("legacy empty scopes granted ordinary direct-send authority")
+func TestWeixinBindingScopeCompatibilityDefaultsToAllMessaging(t *testing.T) {
+	for _, scopes := range [][]string{nil, {app.BindingScopeReminderSendSelf}, {app.BindingScopeMessageSendSelf}} {
+		if !notificationBindingAllowsScope(scopes, app.BindingScopeMessageSendSelf, app.DeliveryOriginWebDirect) ||
+			!notificationBindingAllowsScope(scopes, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) ||
+			!notificationBindingAllowsSourceReply(scopes) {
+			t.Fatalf("messaging binding did not grant full exchange for scopes %#v", scopes)
+		}
 	}
-	if !notificationBindingAllowsScope(nil, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
-		t.Fatal("legacy empty scopes lost reminder compatibility")
-	}
-	if notificationBindingAllowsScope([]string{app.BindingScopeMessageSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
-		t.Fatal("ordinary message scope granted reminder authority")
-	}
-	if !notificationBindingAllowsScope([]string{app.BindingScopeReminderSendSelf}, app.BindingScopeReminderSendSelf, app.DeliveryOriginSchedule) {
-		t.Fatal("explicit reminder scope was rejected")
-	}
-	if !notificationBindingAllowsSourceReply(nil) || notificationBindingAllowsSourceReply([]string{app.BindingScopeReminderSendSelf}) || !notificationBindingAllowsSourceReply([]string{app.BindingScopeMessageSendSelf}) {
-		t.Fatal("source reply scope compatibility expanded beyond legacy or ordinary-message authority")
+	if notificationBindingAllowsScope([]string{"unknown"}, app.BindingScopeMessageSendSelf, app.DeliveryOriginWebDirect) {
+		t.Fatal("unknown scope unexpectedly granted messaging authority")
 	}
 }
 

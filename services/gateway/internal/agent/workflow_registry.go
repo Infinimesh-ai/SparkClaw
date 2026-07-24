@@ -7,6 +7,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 )
 
 const workflowExecutionModelLane = "deep"
@@ -15,8 +16,8 @@ type workflowProfile interface {
 	ID() app.WorkflowID
 	Revision() int
 	Capability() app.CapabilityID
+	RoutingSemantics() workflowRoutingSemantics
 	Finalization() workflowFinalizationMode
-	Recognize(workflowRecognitionContext) (workflowRecognition, bool)
 	Resolve(app.RouteDecision, string) (app.IntentEnvelope, app.WorkflowPlan, error)
 	Prepare(*app.WorkflowState) (app.TransitionID, bool, error)
 	Assess(*app.WorkflowState, app.ToolOutcome) app.NodeAssessment
@@ -31,21 +32,9 @@ const (
 	workflowFinalizationModel    workflowFinalizationMode = "model"
 )
 
-type workflowRecognitionContext struct {
-	SourceTurnID  string
-	Content       string
-	Resources     []app.MessagePart
-	Snapshot      agentContextSnapshot
-	WorkspaceRoot string
-}
-
-type workflowRecognition struct {
-	Status     app.RouteStatus
-	Slots      app.RouteSlots
-	Facts      map[string]string
-	Confidence float64
-	Reason     string
-}
+type workflowRoutingSemantics = semanticrouting.WorkflowSemantics
+type workflowRoutingVariant = semanticrouting.IntentVariant
+type workflowRouteTemplate = semanticrouting.RouteTemplate
 
 type workflowExecutionHint struct {
 	TaskType             string
@@ -115,6 +104,7 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 
 func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	return newWorkflowProfileRegistry(
+		conversationAnswerProfile{},
 		browserInternetSearchProfile{},
 		browserWeatherProfile{},
 		browserAutomationProfile{},
@@ -133,50 +123,29 @@ func (r workflowProfileRegistry) Get(id app.WorkflowID) (workflowProfile, error)
 	return profile, nil
 }
 
-func (r workflowProfileRegistry) Recognize(catalog capability.Catalog, input workflowRecognitionContext) (app.RouteDecision, error) {
-	matches := make([]app.RouteDecision, 0, 1)
-	profileIDs := make([]string, 0, len(r.byID))
-	for id := range r.byID {
-		profileIDs = append(profileIDs, string(id))
+func (r workflowProfileRegistry) SemanticGraph(catalog capability.Catalog) (*semanticrouting.Graph, error) {
+	registrations := make([]semanticrouting.Registration, 0, len(r.byID))
+	for _, profile := range r.sortedProfiles() {
+		registrations = append(registrations, semanticrouting.Registration{
+			Capability: profile.Capability(),
+			Workflow: app.WorkflowContractRef{
+				ID: profile.ID(), Revision: profile.Revision(),
+			},
+			Semantics: profile.RoutingSemantics(),
+		})
 	}
-	sort.Strings(profileIDs)
-	for _, profileID := range profileIDs {
-		profile := r.byID[app.WorkflowID(profileID)]
-		recognition, ok := profile.Recognize(input)
-		if !ok {
-			continue
-		}
-		path, err := catalog.PathTo(profile.Capability())
-		if err != nil {
-			return app.RouteDecision{}, fmt.Errorf("registered workflow %q has no catalog leaf: %w", profile.ID(), err)
-		}
-		status := recognition.Status
-		if status == "" {
-			status = app.RouteMatched
-		}
-		decision := app.RouteDecision{
-			SchemaVersion: app.RouteDecisionSchemaVersion, Status: status, CatalogRevision: catalog.Revision(),
-			CapabilityPath: path, Slots: recognition.Slots, Facts: cloneStringMap(recognition.Facts),
-			Confidence: recognition.Confidence, Reason: recognition.Reason,
-		}
-		if err := catalog.ValidateDecision(decision); err != nil {
-			return app.RouteDecision{}, fmt.Errorf("workflow %q recognition is invalid: %w", profile.ID(), err)
-		}
-		matches = append(matches, decision)
+	return semanticrouting.Compile(catalog, registrations)
+}
+
+func (r workflowProfileRegistry) sortedProfiles() []workflowProfile {
+	profiles := make([]workflowProfile, 0, len(r.byID))
+	for _, profile := range r.byID {
+		profiles = append(profiles, profile)
 	}
-	if len(matches) == 0 {
-		return app.RouteDecision{
-			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: catalog.Revision(),
-			Confidence: 0.8, Reason: "No registered capability profile matched the request.",
-		}, nil
-	}
-	if len(matches) > 1 {
-		return app.RouteDecision{
-			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteClarify, CatalogRevision: catalog.Revision(),
-			Confidence: 0.5, Reason: "More than one registered capability profile matched the request.",
-		}, nil
-	}
-	return matches[0], nil
+	sort.Slice(profiles, func(i, j int) bool {
+		return profiles[i].ID() < profiles[j].ID()
+	})
+	return profiles
 }
 
 func (r workflowProfileRegistry) Resolve(catalog capability.Catalog, decision app.RouteDecision, sourceTurnID string) (resolvedWorkflow, error) {

@@ -63,22 +63,6 @@ func (g *Gateway) Deliver(ctx context.Context, request app.DeliveryRequest) (app
 	}
 }
 
-type LocalWebDelivery struct{}
-
-func (LocalWebDelivery) Deliver(_ context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	now := time.Now().UTC()
-	return app.DeliveryReceipt{
-		DeliveryID:   request.ID,
-		EndpointID:   endpoint.ID,
-		Status:       app.DeliverySucceeded,
-		ProviderRef:  "web-local",
-		Attempt:      1,
-		PartReceipts: successfulPartReceipts(request.Content, "web-local"),
-		AttemptedAt:  now,
-		DeliveredAt:  &now,
-	}, nil
-}
-
 func failedReceipt(endpoint app.MessageEndpoint, request app.DeliveryRequest, message string) app.DeliveryReceipt {
 	return app.DeliveryReceipt{
 		DeliveryID:  request.ID,
@@ -133,12 +117,4 @@ func requestAuthorizedForEndpoint(request app.DeliveryRequest, endpoint app.Mess
 		return endpoint.SourceActorID == request.OwnerID && endpoint.SourceActorID == request.ActorID
 	}
 	return endpoint.OwnerID == request.OwnerID && endpoint.ActorID == request.ActorID
-}
-
-func successfulPartReceipts(content app.MessageContent, providerRef string) []app.PartDeliveryReceipt {
-	receipts := make([]app.PartDeliveryReceipt, 0, len(content.Parts))
-	for _, part := range content.Parts {
-		receipts = append(receipts, app.PartDeliveryReceipt{PartID: part.ID, Status: "sent", Representation: "native", ProviderRef: providerRef})
-	}
-	return receipts
 }

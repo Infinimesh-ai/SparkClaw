@@ -1000,25 +1000,19 @@ func browserSelectedTabTarget(call app.ToolCall, preferredPageIDs ...string) (br
 		if !ok {
 			continue
 		}
-		text := strings.TrimSpace(stringValue(item["text"]))
-		url := strings.TrimSpace(stringValue(firstPresent(item, "url", "href")))
-		if url == "" || url == "<nil>" {
-			url = firstURL(text)
-		}
+		url := strings.TrimSpace(stringValue(item["url"]))
 		if !browserLoginResumeURLUsable(url) {
 			continue
 		}
-		pageID := strings.TrimSpace(stringValue(firstPresent(item, "page_id", "targetId", "target_id", "id")))
-		if (pageID == "" || pageID == "<nil>") && text != "" {
-			if before, _, found := strings.Cut(strings.TrimSpace(strings.TrimPrefix(text, "-")), ":"); found {
-				pageID = strings.TrimSpace(before)
-			}
+		pageID := strings.TrimSpace(stringValue(item["page_id"]))
+		if pageID == "" || pageID == "<nil>" {
+			continue
 		}
 		target := browserTabTarget{URL: url, PageID: pageID}
 		if preferred[pageID] {
 			return target, true
 		}
-		selected := boolValue(item["selected"]) || strings.Contains(strings.ToLower(text), "[selected]")
+		selected := boolValue(item["selected"])
 		if selected {
 			selectedTarget = target
 		}

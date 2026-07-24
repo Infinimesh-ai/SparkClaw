@@ -18,6 +18,8 @@ data/artifacts/*
 data/memory/*
 data/eval/*
 data/workspaces/.sparkclaw
+data/browser-profiles
+services/gateway/internal/toolhub/data/browser-profiles
 services/gateway/internal/agent/data/artifacts/*
 .DS_Store
 .env

@@ -19,7 +19,6 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -28,7 +27,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
-func TestFastRouterMapsCurrentInternetFactsToOneSearchLeaf(t *testing.T) {
+func TestFusionRouterMapsCurrentInternetFactsToOneSearchLeaf(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	for index, goal := range []string{
@@ -38,18 +37,13 @@ func TestFastRouterMapsCurrentInternetFactsToOneSearchLeaf(t *testing.T) {
 		"刚结束的比赛比分是多少",
 		"今天有什么重大新闻",
 	} {
-		candidate := app.RouteDecision{
-			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(),
-			CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch},
-			Slots:          app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model paraphrase"},
-			Confidence:     0.95,
-		}
-		routing, err := runtime.routeIntent(context.Background(), session.ID, fmt.Sprintf("run_live_fact_%d", index), mockIntentRoute(t, goal, candidate))
+		routing, err := runtime.routeIntent(context.Background(), session.ID, fmt.Sprintf("run_live_fact_%d", index), goal)
 		if err != nil {
 			t.Fatalf("route %q: %v", goal, err)
 		}
-		if routing.Route.CapabilityPath[1] != app.CapabilityBrowserInternetSearch || routing.Route.Slots.Query != goal || routing.Route.Slots.FactScope != app.RouteFactScopeCurrentInternet {
-			t.Fatalf("current fact did not normalize to browser.internet_search: goal=%q route=%#v", goal, routing.Route)
+		if routing.Route.Status != app.RouteMatched || len(routing.Route.CapabilityPath) != 2 || routing.Route.CapabilityPath[1] != app.CapabilityBrowserInternetSearch ||
+			routing.Route.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate()) || routing.Route.Slots.FactScope != app.RouteFactScopeCurrentInternet {
+			t.Fatalf("current fact did not normalize to browser.internet_search: goal=%q route=%#v fusion=%+v", goal, routing.Route, routing.Fusion)
 		}
 		resolved, err := runtime.profiles.Resolve(runtime.capabilities, routing.Route, "turn")
 		if err != nil || resolved.Profile.ID() != app.WorkflowBrowserInternetSearch {
@@ -58,9 +52,9 @@ func TestFastRouterMapsCurrentInternetFactsToOneSearchLeaf(t *testing.T) {
 	}
 }
 
-func TestInternetSearchRecognitionCoversShortFreshnessPhrases(t *testing.T) {
-	registry := defaultWorkflowProfileRegistry()
-	catalog := capability.MustDefaultCatalog()
+func TestInternetSearchSemanticRoutingCoversShortFreshnessPhrases(t *testing.T) {
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
 	for _, goal := range []string{
 		"今日金价",
 		"今天金价",
@@ -68,33 +62,62 @@ func TestInternetSearchRecognitionCoversShortFreshnessPhrases(t *testing.T) {
 		"查一下当前上证指数",
 		"最近有什么重大新闻",
 	} {
-		decision, err := registry.Recognize(catalog, workflowRecognitionContext{SourceTurnID: "turn", Content: goal})
-		if err != nil {
-			t.Fatalf("recognize %q: %v", goal, err)
-		}
+		decision := mustRouteIntent(t, runtime, goal)
 		if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserInternetSearch ||
-			decision.Slots.FactScope != app.RouteFactScopeCurrentInternet || decision.Slots.Query != goal {
+			decision.Slots.FactScope != app.RouteFactScopeCurrentInternet || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate()) {
 			t.Fatalf("fresh Internet fact did not deterministically route to browser.internet_search: goal=%q route=%#v", goal, decision)
 		}
 	}
 }
 
-func TestFastRouterLeavesStaticCommonKnowledgeUnmatched(t *testing.T) {
+func TestInternetSearchSemanticRoutingCoversPublishedCatalogResearch(t *testing.T) {
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	for _, goal := range []string{
+		"收集苹果官网在售mac的种类和价格",
+		"整理微软官网目前销售的 Surface 型号和售价",
+		"列出任天堂官方商店当前上架的主机产品目录",
+		"Collect the currently available Mac lineup and pricing",
+	} {
+		decision := mustRouteIntent(t, runtime, goal)
+		if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserInternetSearch ||
+			decision.Slots.FactScope != app.RouteFactScopeCurrentInternet || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate()) {
+			t.Fatalf("published catalog research did not route to browser.internet_search: goal=%q route=%#v", goal, decision)
+		}
+	}
+}
+
+func TestInternetSearchSemanticRoutingDoesNotRouteStaticCatalogVocabulary(t *testing.T) {
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	for _, goal := range []string{
+		"解释官网和门户网站的区别",
+		"苹果有哪些经典产品",
+		"价格这个概念是什么意思",
+	} {
+		decision := mustRouteIntent(t, runtime, goal)
+		if decision.Status == app.RouteMatched && len(decision.CapabilityPath) == 2 && decision.CapabilityPath[1] == app.CapabilityBrowserInternetSearch {
+			t.Fatalf("static catalog vocabulary was forced into Internet search: goal=%q route=%#v", goal, decision)
+		}
+	}
+}
+
+func TestFusionRouterKeepsStableConversationOffInternetSearch(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	goal := "法国的首都是什么"
-	candidate := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteUnmatched, CatalogRevision: runtime.capabilities.Revision(),
-		Confidence: 0.96, Reason: "The answer is stable common knowledge and does not require current Internet state.",
-	}
-	content := mockIntentRoute(t, goal, candidate) + `
-MOCK_REACT_RESPONSE:{"type":"final","answer":"巴黎。"}`
+	content := goal + `
+MOCK_CONVERSATION_RESPONSE:巴黎。`
 	result, err := runtime.HandleMessage(context.Background(), session.ID, content)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("static common knowledge was forced into a Workflow: %#v", result)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer ||
+		result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer || result.Message.Content != "巴黎。" {
+		t.Fatalf("deterministic conversation route was downgraded by Fast: %#v", result)
+	}
+	if hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+		t.Fatalf("conversation answer entered ReAct: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	for _, call := range toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID) {
 		if call.Tool == "web.search" {
@@ -103,7 +126,7 @@ MOCK_REACT_RESPONSE:{"type":"final","answer":"巴黎。"}`
 	}
 }
 
-func TestFastRouterKeepsWeatherCardBoundaryNarrow(t *testing.T) {
+func TestFusionRouterKeepsWeatherCardBoundaryNarrow(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	tests := []struct {
@@ -117,18 +140,7 @@ func TestFastRouterKeepsWeatherCardBoundaryNarrow(t *testing.T) {
 		{goal: "比较杭州和上海今天的天气", leaf: app.CapabilityBrowserInternetSearch, workflow: app.WorkflowBrowserInternetSearch},
 	}
 	for index, test := range tests {
-		slots := app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model paraphrase"}
-		if test.leaf == app.CapabilityBrowserWeather {
-			slots = app.RouteSlots{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: test.goal, TargetKind: string(app.TargetKindLocation), TargetRef: test.location, Location: test.location}
-		}
-		candidate := app.RouteDecision{
-			SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(),
-			CapabilityPath: []app.CapabilityID{"browser", test.leaf}, Slots: slots, Confidence: 0.94,
-		}
-		if test.leaf == app.CapabilityBrowserWeather {
-			candidate.Facts = map[string]string{"location_source": "current_turn"}
-		}
-		routing, err := runtime.routeIntent(context.Background(), session.ID, fmt.Sprintf("run_weather_boundary_%d", index), mockIntentRoute(t, test.goal, candidate))
+		routing, err := runtime.routeIntent(context.Background(), session.ID, fmt.Sprintf("run_weather_boundary_%d", index), test.goal)
 		if err != nil {
 			t.Fatalf("route %q: %v", test.goal, err)
 		}
@@ -157,45 +169,6 @@ func TestBrowserWeatherDispatchesOnlyInfoQuestionInitially(t *testing.T) {
 	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "info.query" || dispatch.Hint.Capability != app.ToolCapabilityInfoQuestion {
 		t.Fatalf("browser.weather exposed the wrong Workflow capability: %#v", dispatch)
 	}
-}
-
-func TestInvalidFastRouteBlocksWithoutWrongWorkflowOrReActFallback(t *testing.T) {
-	for _, raw := range []string{
-		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"REVISION","capability_path":["browser","browser.gold_price"],"slots":{"operation":"search","fact_scope":"current_internet_state","query":"gold"}},"delivery":{"explicit_external":false}}`,
-		`{"route":{"schema_version":1,"status":"matched","catalog_revision":"REVISION","capability_path":["browser","browser.internet_search"],"slots":{"operation":"search","fact_scope":"current_internet_state","query":"gold"},"tool":"web.search"},"delivery":{"explicit_external":false}}`,
-	} {
-		runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
-		content := "现在的金价是多少\nMOCK_INTENT_RESPONSE:" + strings.ReplaceAll(raw, "REVISION", runtime.capabilities.Revision())
-		result, err := runtime.HandleMessage(context.Background(), session.ID, content)
-		closeRuntime()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil || len(result.ToolCalls) != 0 || hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-			t.Fatalf("invalid Fast route degraded into another Workflow: %#v", result)
-		}
-	}
-}
-
-func TestIntentRoutingPromptDefinesLiveFactAndWeatherSemantics(t *testing.T) {
-	prompt := intentRoutingSystemPrompt("[]")
-	for _, expected := range []string{
-		"current gold prices", "exchange rates", "stock or index quotes", "current match results",
-		"Stable common knowledge", "browser.weather", "Weather alerts", "multi-location comparisons", "tool", "workflow",
-	} {
-		if !strings.Contains(strings.ToLower(prompt), strings.ToLower(expected)) {
-			t.Fatalf("intent routing prompt is missing %q:\n%s", expected, prompt)
-		}
-	}
-}
-
-func mockIntentRoute(t *testing.T, goal string, route app.RouteDecision) string {
-	t.Helper()
-	raw, err := json.Marshal(IntentRoutingOutput{Route: route})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return goal + "\nMOCK_INTENT_RESPONSE:" + string(raw)
 }
 
 func TestBrowserSearchRouteDispatchesRealWebSearchWorkflow(t *testing.T) {
@@ -332,16 +305,7 @@ func TestCurrentGoldPriceRouteCompletesThroughBoundedInfoEvidence(t *testing.T) 
 		infoCfg.MaxAttempts = 1
 	})
 	defer closeRuntime()
-	candidate := app.RouteDecision{
-		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(),
-		CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch},
-		Slots: app.RouteSlots{
-			Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "model paraphrase",
-			TargetKind: "commodity", TargetRef: "gold", Format: "text",
-		},
-		Facts: map[string]string{"asset": "gold"}, Confidence: 0.97,
-	}
-	routing, err := runtime.routeIntent(context.Background(), session.ID, "run_gold_route", mockIntentRoute(t, goal, candidate))
+	routing, err := runtime.routeIntent(context.Background(), session.ID, "run_gold_route", goal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +321,8 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"�
 		t.Fatalf("gold route did not complete its fixed search Workflow: %#v", run.Workflow)
 	}
 	calls := toolCallsForRun(st.ListToolCalls(session.ID), run.ID)
-	if requestedQuery != goal || routing.Route.Slots.Query != goal || len(calls) != 1 || calls[0].Tool != "web.search" || calls[0].Capability != app.ToolCapabilityWebDiscovery {
+	wantQuery := materializeRoutedQuery(app.CapabilityBrowserInternetSearch, goal, currentSearchDate())
+	if requestedQuery != wantQuery || routing.Route.Slots.Query != wantQuery || len(calls) != 1 || calls[0].Tool != "web.search" || calls[0].Capability != app.ToolCapabilityWebDiscovery {
 		t.Fatalf("gold search did not preserve its frozen route query: route=%#v provider_query=%q calls=%#v", routing.Route, requestedQuery, calls)
 	}
 	var observation toolResultMessage
@@ -673,7 +638,7 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 	}
 }
 
-func TestBrowserInteractionRouteClosesTabOpenedByWorkflow(t *testing.T) {
+func TestBrowserInteractionRouteLeavesOpenedTabAvailable(t *testing.T) {
 	adapter := &fakeInteractionBrowserAdapter{emptyTabs: true}
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		cfg.config.Tools.BrowserAutomation.Enabled = true
@@ -686,14 +651,14 @@ func TestBrowserInteractionRouteClosesTabOpenedByWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserInteraction, app.WorkflowBrowserInteraction,
-		[]string{"browser.status", "browser.list_tabs", "browser.open", "browser.snapshot", "browser.click", "browser.snapshot", "browser.verify", "browser.close"},
+		[]string{"browser.status", "browser.list_tabs", "browser.open", "browser.snapshot", "browser.click", "browser.snapshot", "browser.verify"},
 		[]string{
 			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserOpen,
 			app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserSnapshot,
-			app.ToolCapabilityBrowserVerify, app.ToolCapabilityBrowserClose,
+			app.ToolCapabilityBrowserVerify,
 		})
-	if adapter.closes != 1 || adapter.closedPageID != "page_2" {
-		t.Fatalf("workflow did not close exactly the tab it opened: %#v", adapter)
+	if adapter.closes != 0 || !adapter.opened {
+		t.Fatalf("explicit interaction did not leave its opened tab available: %#v", adapter)
 	}
 }
 
@@ -742,7 +707,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	})
 	defer closeRuntime()
 
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn_document_edit", "Replace a paragraph in note.docx", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn_document_edit", "Replace a paragraph in note.docx", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -840,7 +805,8 @@ func TestWorkflowImageOutputIsInlineAndProjectsWithoutAttachmentText(t *testing.
 	}}}
 	content := runtime.workflowResultContent(run, "图片已保存到 media/weather.png")
 	if len(content.Parts) != 1 || content.Parts[0].Kind != app.MessagePartImage || content.Parts[0].Disposition != app.MessageDispositionInline ||
-		content.Parts[0].Resource == nil || content.Parts[0].Resource.Ref != "media/weather.png" || content.Parts[0].Width != 1400 || content.Parts[0].Height != 900 {
+		content.Parts[0].Resource == nil || content.Parts[0].Resource.Ref != "media/weather.png" || content.Parts[0].Width != 1400 || content.Parts[0].Height != 900 ||
+		content.Parts[0].Caption != "" {
 		t.Fatalf("image output was not returned as one complete inline part: %#v", content)
 	}
 	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "图片已保存到 media/weather.png"}, &app.WorkflowResult{Content: content})
@@ -901,21 +867,21 @@ func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
 	}
 }
 
-func TestUnmatchedRouteAloneUsesReActFallback(t *testing.T) {
+func TestUnmatchedRouteBlocksWithoutReActFallback(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
-	result, err := runtime.HandleMessage(context.Background(), session.ID, "hello, explain this conversation briefly")
+	result, err := runtime.HandleMessage(context.Background(), session.ID, "Perform one unsupported multi-system operation")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched {
 		t.Fatalf("ordinary unmatched request did not remain unmatched: %#v", result.RouteDecision)
 	}
-	if result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != "react.unmatched" {
-		t.Fatalf("unmatched fallback did not produce WorkflowResult: %#v", result.WorkflowResult)
+	if result.Run.State != "blocked" || result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != "router.blocked" || result.WorkflowResult.Status != app.WorkflowResultBlocked {
+		t.Fatalf("unmatched route did not produce a blocked router result: %#v", result)
 	}
-	if !hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("unmatched request did not invoke the ReAct fallback: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+	if hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "react.visible_tools") {
+		t.Fatalf("unmatched request invoked a removed ReAct fallback: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
 	}
 }
 
@@ -1003,8 +969,8 @@ type fakeInteractionBrowserAdapter struct {
 	closedPageID string
 }
 
-func (a *fakeInteractionBrowserAdapter) Health(context.Context) (browserautomation.Result, error) {
-	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true}, Untrusted: true, Provider: "fake-interaction-browser"}, nil
+func (a *fakeInteractionBrowserAdapter) Health(context.Context, map[string]any) (browserautomation.Result, error) {
+	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true, "status": "ok", "provider": "agent-browser"}, Untrusted: true, Provider: "agent-browser-visible"}, nil
 }
 
 func (a *fakeInteractionBrowserAdapter) Close() error { return nil }
@@ -1022,18 +988,18 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 			if a.opened {
 				pageID = "page_2"
 			}
-			pages = []any{map[string]any{"page_id": pageID, "id": 1, "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
+			pages = []any{map[string]any{"page_id": pageID, "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
 		}
 		return browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Text: "browser tabs", Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	case "browser.focus":
-		pages := []any{map[string]any{"page_id": "page_1", "id": 1, "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
+		pages := []any{map[string]any{"page_id": "page_1", "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
 		result := browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_1: Checkout (https://example.com/checkout)", Untrusted: true, Provider: "fake-interaction-browser"}
 		result.RawTool = "select_page"
 		return result, nil
 	case "browser.open":
 		a.opened = true
-		pages := []any{map[string]any{"page_id": "page_2", "id": 2, "url": "https://example.com/", "title": "Checkout", "selected": true}}
-		return browserautomation.Result{Tool: tool, RawTool: "new_page", Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_2: Checkout (https://example.com/)", Untrusted: true, Provider: "fake-interaction-browser"}, nil
+		pages := []any{map[string]any{"page_id": "page_2", "url": "https://example.com/", "title": "Checkout", "selected": true}}
+		return browserautomation.Result{Tool: tool, RawTool: "agent_browser_tab_new", Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_2: Checkout (https://example.com/)", Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	case "browser.snapshot":
 		a.snapshots++
 		pageID := "page_1"
@@ -1062,7 +1028,7 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 			"controls_total": 1, "controls_returned": 1, "truncated": false, "controls": controls, "refs": controls,
 		}
 		return browserautomation.Result{
-			Tool: tool, RawTool: "take_snapshot", Arguments: args, Output: map[string]any{"snapshot_id": snapshotID, "page_id": "page_1", "digest": digest, "snapshot": snapshot},
+			Tool: tool, RawTool: "agent_browser_snapshot", Arguments: args, Output: map[string]any{"snapshot_id": snapshotID, "page_id": "page_1", "digest": digest, "snapshot": snapshot},
 			Text: "snapshot " + snapshotID, Untrusted: true, Provider: "fake-interaction-browser",
 		}, nil
 	case "browser.click":
@@ -1076,14 +1042,14 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 		}
 		a.clicks++
 		return browserautomation.Result{
-			Tool: tool, RawTool: "click", Arguments: args,
+			Tool: tool, RawTool: "agent_browser_click", Arguments: args,
 			Output:    map[string]any{"clicked": args["uid"], "snapshot_id": args["snapshot_id"], "page_id": pageID, "url": "https://example.com/checkout"},
 			Untrusted: true, Provider: "fake-interaction-browser",
 		}, nil
 	case "browser.close":
 		a.closes++
 		a.closedPageID = stringValue(args["page_id"])
-		return browserautomation.Result{Tool: tool, RawTool: "close_page", Arguments: args, Output: map[string]any{"pages": []any{}}, Pages: []any{}, Untrusted: true, Provider: "fake-interaction-browser"}, nil
+		return browserautomation.Result{Tool: tool, RawTool: "agent_browser_tab_close", Arguments: args, Output: map[string]any{"pages": []any{}}, Pages: []any{}, Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	default:
 		return browserautomation.Result{}, fmt.Errorf("unexpected browser.interaction tool %q", tool)
 	}
@@ -1115,8 +1081,10 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 		}
 	}
 	modelCalls := st.ListModelCalls(sessionID, result.Run.ID)
-	if !hasModelCallOperation(modelCalls, "capability_routing", "fast") {
-		t.Fatalf("matched workflow was not selected by the fast router: %#v", modelCalls)
+	if !hasModelCallOperation(modelCalls, "intent_embedding", "embedding") ||
+		!hasModelCallOperation(modelCalls, "intent_tree_graph", "fast") ||
+		!hasModelCallOperation(modelCalls, "intent_rerank", "reranker") {
+		t.Fatalf("matched workflow was not selected by semantic fusion: %#v", modelCalls)
 	}
 	foundWorkflowStep := false
 	for _, call := range modelCalls {

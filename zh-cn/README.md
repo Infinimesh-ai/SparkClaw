@@ -4,13 +4,16 @@
 
 **面向 DGX Spark 的可靠本地 Agent Runtime。**
 
-SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态已经是完整的单机双 lane 栈：响应快的 `fast` MoE lane、用于更难或更高风险工作的稠密 `deep` lane，以及为 retrieval workflow 常驻的 embedding/reranker 端点。
+SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态已经是完整的单机双 lane 栈：响应快的 `fast` MoE lane、用于更难或更高风险工作的稠密 `deep` lane，以及为 semantic routing 和有界 ranking 常驻的 embedding/reranker 端点。
 
-项目已经过了早期规划阶段。本 README 是入口，当前有效的详细文档是：
+项目已经过了早期规划阶段。本 README 是入口；完整当前文档集合见
+[文档索引](docs/index.md)。建议从以下文档开始：
 
 - [架构](docs/architecture.md)：产品边界、运行循环、服务边界、工具、数据和安全模型。
 - [部署](docs/deployment.md)：本地、Docker Compose 和 DGX Spark 模型服务部署。
 - [开发](docs/development.md)：仓库结构、验证矩阵、扩展流程和当前完成状态。
+- [Workflow 能力矩阵](docs/workflow-capabilities.md)：当前可实际执行的准确叶子 Workflow。
+- [意图路由](docs/intent-routing.md)、[消息与定时任务](docs/messaging-and-scheduling.md)、[浏览器 Runtime](docs/browser-runtime.md)、[文档 Workflow](docs/document-workflows.md)、[外部集成](docs/integrations.md)和 [WebChat](docs/webchat.md)：当前专项契约。
 - [模型加载方案](docs/model-loading.md)：单机、轻量双常驻和双 DGX Spark 加载策略。
 - [模型基线](benchmarks/model_baseline.md)：DGX Spark 端点证据、延迟数据和运行限制。
 - [Contributing](../CONTRIBUTING.md)、[Security](../SECURITY.md)、[Support](../SUPPORT.md)、[Changelog](../CHANGELOG.md) 和 [License](../LICENSE)：开源项目流程和条款。
@@ -20,13 +23,13 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 已实现并验证：
 
 - Go Gateway API：健康检查、ready 检查、direct chat、sessions、messages、events、tools、approvals、memories、traces、artifacts、eval reports、feedback、client pairing、token auth 和 rate limiting。
-- Agent Runtime：guard review、由 Gateway 控制的 fast/deep routing、有界 repair、schema repair、grounded final answer 和 trace snapshot。
+- Agent Runtime：Catalog 派生语义图、embedding 与 Fast/Tree 分数融合、有界 reranking、确定性单叶子 Workflow 分发、grounded execution、repair 和 trace snapshot。
 - 单机 `dual-light-v1` 模型 profile 已在 NVIDIA GB10 上验证：`fast` 与 `deep` chat lanes 加上 embedding/reranker 可以同时常驻，并使用显式 context、KV cache 和 sequence caps。
 - ToolHub：为文件、memory、browser access、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
 - approval-first policy：file deletion、shell execution、patch application 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
 - file、browser 和 external adapter observation 都被当作 untrusted data，并在进入回答前被摘要。
 - 邮件、日历和 Workspace Knowledge/RAG 在具备完整产品设计前明确暂缓；见[暂缓能力说明](docs/deferred-email-calendar-knowledge.md)。
-- 本地 file-backed state，PostgreSQL 18/pgvector 持久化 sessions、tool calls、approvals、evals、document chunks，以及 filesystem 或 S3-compatible artifact storage。
+- 本地 file-backed state，PostgreSQL 18/pgvector 持久化 runtime records，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
 - DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding/reranker endpoints。历史运行使用 58 个 case；移除仅有原型的能力后，当前活动矩阵为 43 个 case。
@@ -71,8 +74,8 @@ npm install
 npm run setup:browser
 ```
 
-第二条命令安装与固定 Playwright Runtime 版本匹配的本地 Chromium。只有部署环境必须
-使用单独管理且兼容的 Executable 时，才设置
+第二条命令校验固定版本的 agent-browser Runtime，并解析系统 Chromium；该命令不会下载
+Chrome for Testing。当 Chromium 位于非标准路径时，设置
 `adapters.browserAutomation.chromiumExecutable`。
 
 分别启动 Gateway 和 WebChat：

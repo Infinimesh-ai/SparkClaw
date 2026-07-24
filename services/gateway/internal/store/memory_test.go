@@ -1,11 +1,35 @@
 package store
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
+
+func TestMemoryStoreUpdatePendingReminderUsesCompareAndSwap(t *testing.T) {
+	st := NewMemoryStore()
+	now := time.Now().UTC()
+	stored := st.SaveReminder(app.Reminder{
+		ID: "reminder-cas", SessionID: "session-cas", Text: "before", DueTime: now.Add(time.Hour),
+		Status: "pending", CreatedAt: now, UpdatedAt: now,
+	})
+	updated := stored
+	updated.Text = "after"
+	updated.UpdatedAt = stored.UpdatedAt.Add(time.Nanosecond)
+	if _, err := st.UpdatePendingReminder(updated, stored.UpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	updated.Text = "stale overwrite"
+	if _, err := st.UpdatePendingReminder(updated, stored.UpdatedAt); !errors.Is(err, ErrReminderConflict) {
+		t.Fatalf("expected stale compare-and-swap conflict, got %v", err)
+	}
+	current, _ := st.GetReminder(stored.ID)
+	if current.Text != "after" {
+		t.Fatalf("stale update changed reminder: %#v", current)
+	}
+}
 
 func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 	st := NewMemoryStore()

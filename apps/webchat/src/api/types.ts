@@ -13,11 +13,33 @@ export type Schedule = {
   id: string;
   session_id?: string;
   title: string;
+  text: string;
   due_time: string;
   timezone: string;
   recurrence?: string;
   status: "pending" | "sending";
-  payload_mode: "literal" | "request";
+  updated_at: string;
+  editable: boolean;
+  cancelable: boolean;
+  endpoint: {
+    kind?: "web" | "third_party_device";
+    channel?: string;
+    software_display_name?: string;
+    account_display_name?: string;
+    recipient_display_name?: string;
+    conversation_label?: string;
+    status: "active" | "unavailable" | "not_applicable";
+  };
+};
+
+export type ScheduleAction = {
+  operation: "edit" | "delete";
+  schedule_id: string;
+  expected_updated_at: string;
+  text?: string;
+  due_time?: string;
+  timezone?: string;
+  recurrence?: string;
 };
 
 export type Message = {
@@ -246,17 +268,6 @@ export type MessageDelivery = {
   attempts: number;
   created_at: string;
   updated_at: string;
-};
-
-export type MessageHistoryItem = {
-  id: string;
-  direction: "receive" | "send";
-  status: string;
-  software_display_name: string;
-  recipient_display_name: string;
-  account_display_name: string;
-  content?: string;
-  created_at: string;
 };
 
 export type ModelStreamEvent = {

@@ -286,21 +286,12 @@ func (a *WeixinAdapter) deliveryFailure(endpoint app.MessageEndpoint, request ap
 	return receipt, err
 }
 
-func notificationBindingHasScope(scopes []string, expected string) bool {
-	for _, scope := range scopes {
-		if strings.TrimSpace(scope) == expected {
-			return true
-		}
-	}
-	return false
-}
-
-func notificationBindingAllowsScope(scopes []string, expected string, origin app.DeliveryOrigin) bool {
-	return notificationBindingHasScope(scopes, expected) || (origin == app.DeliveryOriginSchedule && len(scopes) == 0)
+func notificationBindingAllowsScope(scopes []string, expected string, _ app.DeliveryOrigin) bool {
+	return app.BindingAllowsMessagingScope(scopes, expected)
 }
 
 func notificationBindingAllowsSourceReply(scopes []string) bool {
-	return len(scopes) == 0 || notificationBindingHasScope(scopes, app.BindingScopeMessageSendSelf)
+	return app.BindingAllowsMessagingScope(scopes, app.BindingScopeMessageSendSelf)
 }
 
 func weixinDeliveryMessage(origin app.DeliveryOrigin, message string) string {

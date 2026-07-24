@@ -17,6 +17,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
@@ -282,6 +283,73 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 		if strings.Contains(string(configRaw), secret) || strings.Contains(string(readyRaw), secret) {
 			t.Fatalf("public status leaked integration secret")
 		}
+	}
+}
+
+func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = filepath.Join(root, "workspaces")
+	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
+	cfg.Storage.TraceDir = filepath.Join(root, "traces")
+	cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
+	cfg.State.Backend = "file"
+	cfg.State.Path = filepath.Join(root, "gateway-state.json")
+
+	st, err := newStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSession("Scheduled Web message")
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	traces := trace.NewWriter(cfg.Storage.TraceDir)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), traces)
+	services, err := newGatewayServices(cfg, st, tools, runtime, traces, speech.NewDisabled(cfg.Speech))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if services.reminderScheduler == nil {
+		t.Fatal("production assembly did not start the reminder scheduler")
+	}
+
+	now := time.Now().UTC()
+	schedule := app.MessageSchedule{
+		ID: app.ScheduleID("schedule-web-production"), SessionID: session.ID,
+		Spec: app.ScheduleSpec{
+			SchemaVersion: app.ScheduleSpecSchemaVersion, OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+			Payload: app.SchedulePayload{Content: app.MessageContent{Parts: []app.MessagePart{{
+				ID: "schedule:text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "该喝水了吗？",
+			}}}},
+			ReturnRoute:   app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: messagecontrol.WebEndpointID(session.ID)},
+			Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID},
+		},
+		DueTime: now.Add(-time.Second), Timezone: "UTC", DedupeKey: "schedule-web-production", Status: "pending",
+		CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute),
+	}
+	if _, err := messagecontrol.NewScheduleRegistry(st).Save(t.Context(), schedule); err != nil {
+		t.Fatal(err)
+	}
+
+	deliveries := services.reminderScheduler.Tick(t.Context())
+	if len(deliveries) != 1 || deliveries[0].Status != "sent" || deliveries[0].Provider != "message-runtime" {
+		t.Fatalf("scheduled Web delivery did not complete: %#v", deliveries)
+	}
+	messages := st.ListMessages(session.ID)
+	if len(messages) != 2 || messages[0].Role != "user" || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
+		t.Fatalf("scheduled Web delivery did not enter the conversation: %#v", messages)
+	}
+	stored, ok := st.GetReminder(string(schedule.ID))
+	if !ok || stored.Status != "sent" || stored.LastDeliveryID != deliveries[0].ID {
+		t.Fatalf("scheduled Web delivery state was not completed: %#v", stored)
+	}
+	reloaded, err := store.NewFileStore(cfg.State.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if messages := reloaded.ListMessages(session.ID); len(messages) != 2 || messages[0].Content != "该喝水了吗？" || messages[1].Role != "assistant" {
+		t.Fatalf("scheduled Web message did not survive file-state reload: %#v", messages)
 	}
 }
 

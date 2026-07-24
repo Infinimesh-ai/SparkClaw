@@ -192,10 +192,22 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 		State:     "running",
 		ModelLane: "fast",
 		Risk:      app.RiskRead,
-		MessageContext: &app.MessageRunContext{Request: app.RequestNormalization{
-			SchemaVersion: app.RequestNormalizationSchemaVersion,
-			Original:      "今天杭州天气", Canonical: "查询今天杭州天气 2026-07-17", Source: "fast_model",
-		}},
+		MessageContext: &app.MessageRunContext{
+			Request: app.RequestNormalization{
+				SchemaVersion: app.RequestNormalizationSchemaVersion,
+				Original:      "今天杭州天气", Canonical: "查询今天杭州天气 2026-07-17", Source: "fast_model",
+			},
+			IntentFusion: &app.IntentFusionDecision{
+				SchemaVersion: app.IntentFusionDecisionSchemaVersion, GraphRevision: "graph.v1", CalibrationRevision: "calibration.v1",
+				Channels: app.IntentFusionChannels{
+					Embedding: app.IntentFusionChannel{Status: "healthy", Model: "embedding@test"},
+					Tree:      app.IntentFusionChannel{Status: "healthy", Model: "fast@test"},
+					Reranker:  app.IntentFusionChannel{Status: "healthy", Model: "reranker@test"},
+				},
+				Candidates: []app.IntentFusionCandidate{{CandidateID: "browser.weather#read", CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather}, FinalScore: 0.91}},
+				Verdict:    "clear", Confidence: 0.91, Margin: 0.4, ReasonCode: "top_candidate_clear",
+			},
+		},
 		Workflow: &app.WorkflowState{
 			SchemaVersion: 1,
 			Plan: app.WorkflowPlan{
@@ -249,6 +261,10 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 	gotRun, ok := reloaded.GetRun(run.ID)
 	if !ok || gotRun.Workflow == nil || gotRun.MessageContext == nil || gotRun.MessageContext.Request.Canonical != "查询今天杭州天气 2026-07-17" {
 		t.Fatalf("workflow state did not reload: %#v ok=%v", gotRun, ok)
+	}
+	if gotRun.MessageContext.IntentFusion == nil || gotRun.MessageContext.IntentFusion.GraphRevision != "graph.v1" ||
+		len(gotRun.MessageContext.IntentFusion.Candidates) != 1 || gotRun.MessageContext.IntentFusion.Candidates[0].CandidateID != "browser.weather#read" {
+		t.Fatalf("intent fusion evidence did not reload: %#v", gotRun.MessageContext.IntentFusion)
 	}
 	gotNode := gotRun.Workflow.Nodes["research"]
 	if gotRun.Workflow.PlanDigest != "sha256:test-plan" || gotNode.ScopeRevision != 2 ||

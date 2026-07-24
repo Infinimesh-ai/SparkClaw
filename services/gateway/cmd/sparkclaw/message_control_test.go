@@ -74,7 +74,7 @@ func TestEndpointMessageControlRouterRejectsMismatchedSourceRoute(t *testing.T) 
 	}
 }
 
-func TestTypedRouterResolvesActualEndpointOnlyThroughSendApproval(t *testing.T) {
+func TestTypedRouterFreezesEndpointAndApprovalProtectsConversationSend(t *testing.T) {
 	cfg := integrationTestConfig(t)
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -86,35 +86,20 @@ func TestTypedRouterResolvesActualEndpointOnlyThroughSendApproval(t *testing.T) 
 		WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `Send a greeting to Chen via Weixin
-MOCK_INTENT_RESPONSE:{"route":{},"delivery":{"explicit_external":true,"requested_provider_key":"Weixin","requested_recipient_text":"Chen"}}
-MOCK_REACT_RESPONSE:{"type":"final","answer":"Greeting ready."}`)
+MOCK_CONVERSATION_RESPONSE:Greeting ready.`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Run.State != "approval_pending" || result.Run.MessageContext == nil ||
 		result.Run.MessageContext.ReturnRoute.Mode != app.ReturnToEndpoint || result.Run.MessageContext.ReturnRoute.EndpointID != "chat-c" ||
-		len(result.Approvals) != 1 || result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultWaiting ||
+		result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || len(result.RouteDecision.CapabilityPath) != 2 ||
+		result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer || len(result.Approvals) != 1 || len(result.ToolCalls) != 1 ||
+		result.ToolCalls[0].Tool != "notify.ask_approval" || result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultWaiting ||
 		result.WorkflowResult.ReturnRoute.Mode != app.ReturnNowhere {
-		t.Fatalf("typed external route bypassed exact resolution or send approval: %#v", result)
+		t.Fatalf("conversation send did not enter the exact endpoint approval boundary: %#v", result)
 	}
 	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *result.WorkflowResult, messagecontrol.NewReturnRouteResolver(endpoints)); err != nil || deliverable {
-		t.Fatalf("pre-approval result became deliverable: deliverable=%v err=%v", deliverable, err)
-	}
-
-	approval, err := st.ResolveApproval(result.Approvals[0].ID, "approved", "owner confirmed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.ExecuteApprovedToolCall(context.Background(), approval); err != nil {
-		t.Fatal(err)
-	}
-	approved, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, result.Run.ID)
-	if err != nil || !resumed || approved.WorkflowResult == nil {
-		t.Fatalf("approved external result did not resume: resumed=%v result=%#v err=%v", resumed, approved, err)
-	}
-	request, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *approved.WorkflowResult, messagecontrol.NewReturnRouteResolver(endpoints))
-	if err != nil || !deliverable || request.Target != "chat-c" || request.Origin != app.DeliveryOriginAgentWorkflow {
-		t.Fatalf("approved result did not preserve the exact canonical target: request=%#v deliverable=%v err=%v", request, deliverable, err)
+		t.Fatalf("unapproved conversation result became deliverable: deliverable=%v err=%v", deliverable, err)
 	}
 }
 

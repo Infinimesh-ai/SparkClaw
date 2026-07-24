@@ -19,9 +19,11 @@ jobs:
           import re
 
           root = Path(".")
-          ignored = {".git", "node_modules", ".tools", "data", ".agents", ".claude"}
-          # Agent instruction files managed by the Team Skills mount; they are
-          # tool-facing config, not project documentation, so no zh-cn mirror.
+          ignored = {
+              ".git", "node_modules", ".tools", "data",
+              ".agents", ".claude", ".codex", ".sparkclaw",
+          }
+          # Local agent instructions are ignored by Git and are not project docs.
           agent_files = {Path("AGENTS.md"), Path("CLAUDE.md")}
           base = []
           for path in root.rglob("*.md"):
@@ -101,6 +103,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install document tool runtimes
+        run: npm run setup:document-tools
       - uses: actions/setup-go@v5
         with:
           go-version-file: services/gateway/go.mod

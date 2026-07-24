@@ -104,7 +104,7 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	}
 }
 
-func TestReminderToolsMapOneToOneToScheduleOperations(t *testing.T) {
+func TestReminderToolsExposeDiscoveryBeforeScheduleMutation(t *testing.T) {
 	want := map[string]app.RouteOperation{
 		"reminders.create": app.RouteOperationCreate,
 		"reminders.list":   app.RouteOperationRead,
@@ -113,6 +113,23 @@ func TestReminderToolsMapOneToOneToScheduleOperations(t *testing.T) {
 	}
 	for name, operation := range want {
 		registration := toolRegistry[name]
+		if name == "reminders.list" {
+			if len(registration.capabilities) != 3 {
+				t.Fatalf("schedule discovery must serve read, edit, and delete stages: %#v", registration.capabilities)
+			}
+			for _, candidate := range []app.RouteOperation{app.RouteOperationRead, app.RouteOperationEdit, app.RouteOperationDelete} {
+				found := false
+				for _, descriptor := range registration.capabilities {
+					if descriptor.Qualifiers[app.CapabilityQualifierOperation] == string(candidate) {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("reminders.list is missing %s discovery capability: %#v", candidate, registration.capabilities)
+				}
+			}
+			continue
+		}
 		if len(registration.capabilities) != 1 || registration.capabilities[0].Name != app.ToolCapabilityScheduleManage ||
 			registration.capabilities[0].Qualifiers[app.CapabilityQualifierOperation] != string(operation) {
 			t.Fatalf("%s is not isolated to schedule %s: %#v", name, operation, registration.capabilities)

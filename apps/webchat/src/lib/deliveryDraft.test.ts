@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { DeliveryEndpoint } from "../api/types";
 import {
   deliveryDraftParts,
+  deliveryPartIDFromAttachment,
   deliveryPartFromAttachment,
   emptyExternalDeliveryDraft,
+  endpointsForSoftware,
   moveDeliveryPart,
   selectDeliverySoftware,
   validateDeliveryDraft
@@ -29,17 +31,26 @@ const endpoint = (id: string, channel: string, recipient: string): DeliveryEndpo
 });
 
 describe("external delivery draft", () => {
-  it("clears a recipient when software changes and only preselects a sole exact endpoint", () => {
-    const endpoints = [endpoint("tg-a", "telegram", "Alex"), endpoint("tg-b", "telegram", "Alex"), endpoint("wx-a", "weixin", "Chen")];
-    const selected = { ...emptyExternalDeliveryDraft(), software: "telegram", endpointId: "tg-a", text: "hello" };
-    expect(selectDeliverySoftware(selected, "telegram", endpoints).endpointId).toBe("");
-    expect(selectDeliverySoftware(selected, "weixin", endpoints).endpointId).toBe("wx-a");
-    expect(selectDeliverySoftware(selected, "signal", endpoints).endpointId).toBe("");
+  it("defaults to no third-party software or recipient and requires one exact endpoint", () => {
+    const target = endpoint("tg-a", "telegram", "Alex");
+    const draft = { ...emptyExternalDeliveryDraft(), text: "hello" };
+    expect(draft.software).toBe("");
+    expect(draft.endpointId).toBe("");
+    expect(validateDeliveryDraft(draft, target).error).toBe("recipient_required");
+    expect(validateDeliveryDraft({ ...draft, software: target.channel, endpointId: target.id }, target).valid).toBe(true);
+  });
+
+  it("filters recipients by software and clears the recipient when software changes", () => {
+    const telegram = endpoint("tg-a", "telegram", "Alex");
+    const weixin = endpoint("wx-a", "weixin", "Chen");
+    expect(endpointsForSoftware([telegram, weixin], "telegram")).toEqual([telegram]);
+    const draft = { ...emptyExternalDeliveryDraft(), software: "telegram", endpointId: telegram.id, text: "hello" };
+    expect(selectDeliverySoftware(draft, "weixin")).toMatchObject({ software: "weixin", endpointId: "", text: "hello" });
   });
 
   it("keeps send disabled for ambiguity and enforces part and byte limits", () => {
     const target = endpoint("tg-a", "telegram", "Alex");
-    const ambiguous = { ...emptyExternalDeliveryDraft(), software: "telegram", text: "hello" };
+    const ambiguous = { ...emptyExternalDeliveryDraft(), text: "hello" };
     expect(validateDeliveryDraft(ambiguous, target).error).toBe("recipient_required");
     const oversized = {
       ...ambiguous,
@@ -75,6 +86,7 @@ describe("external delivery draft", () => {
     });
     const reordered = moveDeliveryPart([image, audio, file], 2, -1);
     expect(reordered.map((part) => part.kind)).toEqual(["image", "file", "audio"]);
+    expect(deliveryPartIDFromAttachment({ artifact_id: "file-object", name: "report.pdf", rel_path: "uploads/report.pdf" })).toBe("attachment:file-object");
     expect(deliveryDraftParts({ software: "telegram", endpointId: "tg-a", text: " hello ", parts: reordered }).map((part) => part.kind))
       .toEqual(["text", "image", "file", "audio"]);
   });

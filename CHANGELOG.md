@@ -18,6 +18,9 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 ### Changed
 
 - Replaced old planning, audit and handoff documents with current maintainable docs.
+- Consolidated intent routing, messaging/scheduling, browser, document,
+  integration and WebChat documentation into six current component guides plus
+  one documentation index; removed 29 completed or superseded document pairs.
 - Excluded runtime skill packages from the bilingual documentation mirror because skills evolve independently.
 
 ### Validated

@@ -19,7 +19,6 @@ import {
   Library,
   ListChecks,
   Mail,
-  MessageSquare,
   MemoryStick,
   Pencil,
   Plus,
@@ -59,13 +58,12 @@ import {
   TracePanel
 } from "./components/panels";
 import {
-  DeliveryHistory,
   DeliveryReceiptSummary,
   DeliveryReviewDialog,
   ExternalPartTray
 } from "./components/delivery";
 import { VoiceInputButton, VoiceInputStatus } from "./components/VoiceInputButton";
-import { ScheduleBar } from "./components/schedules";
+import { ScheduleBar, type ScheduleEditDraft } from "./components/schedules";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor, VoiceInputState } from "./hooks/useVoiceInput";
 import {
@@ -86,6 +84,7 @@ import { insertVoiceTranscript } from "./lib/voiceDraft";
 import { notificationBindingErrorMessage } from "./lib/bindingError";
 import {
   deliveryDraftParts,
+  deliveryPartIDFromAttachment,
   deliveryPartFromAttachment,
   emptyExternalDeliveryDraft,
   endpointsForSoftware,
@@ -108,7 +107,6 @@ import type {
   Message,
   MessageAttachment,
   MessageDelivery,
-  MessageHistoryItem,
   ModelCall,
   NotificationBinding,
   OwnerProfile,
@@ -124,9 +122,6 @@ import type {
 } from "./api/types";
 
 type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings";
-type ComposerMode = "agent" | "external";
-
-
 export function App() {
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const text = dictionaries[language];
@@ -159,14 +154,13 @@ export function App() {
   const [documentUsage, setDocumentUsage] = useState<Record<string, DocumentUsage>>(() => loadDocumentUsage());
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
-  const [composerModesBySession, setComposerModesBySession] = useState<Record<string, ComposerMode>>({});
   const [externalDraftsBySession, setExternalDraftsBySession] = useState<Record<string, ExternalDeliveryDraft>>({});
   const [deliveryIdempotencyBySession, setDeliveryIdempotencyBySession] = useState<Record<string, string>>({});
   const [deliveryEndpoints, setDeliveryEndpoints] = useState<DeliveryEndpoint[]>([]);
-  const [messageHistory, setMessageHistory] = useState<MessageHistoryItem[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [scheduleBarOpen, setScheduleBarOpen] = useState(true);
   const [schedulesRefreshing, setSchedulesRefreshing] = useState(false);
+  const [scheduleBusyId, setScheduleBusyId] = useState("");
   const [lastDeliveriesBySession, setLastDeliveriesBySession] = useState<Record<string, MessageDelivery>>({});
   const [deliveryReviewOpen, setDeliveryReviewOpen] = useState(false);
   const [deliveryBusy, setDeliveryBusy] = useState(false);
@@ -236,19 +230,11 @@ export function App() {
   }, [text.errors.schedules]);
 
   const refreshDeliverySurface = useCallback(async () => {
-    const [endpointResult, historyResult] = await Promise.allSettled([
-      api.deliveryEndpoints(),
-      api.messageHistory()
-    ]);
-    if (endpointResult.status === "fulfilled") {
-      setDeliveryEndpoints(endpointResult.value.endpoints ?? []);
-    } else {
+    try {
+      const result = await api.deliveryEndpoints();
+      setDeliveryEndpoints(result.endpoints ?? []);
+    } catch {
       setDeliveryEndpoints([]);
-    }
-    if (historyResult.status === "fulfilled") {
-      setMessageHistory(historyResult.value.messages ?? []);
-    } else {
-      setMessageHistory([]);
     }
   }, []);
 
@@ -269,6 +255,51 @@ export function App() {
     setAuditEvents(auditList.audit_events ?? []);
     setEpisodes(episodeList.episodes ?? []);
   }, []);
+
+  async function editSchedule(schedule: Schedule, draft: ScheduleEditDraft) {
+    const sessionId = activeSession || schedule.session_id || "";
+    if (!sessionId || scheduleBusyId) return;
+    try {
+      setScheduleBusyId(schedule.id);
+      setError("");
+      const content = language === "zh"
+        ? `编辑定时任务 ${schedule.id}：内容改为“${draft.text.trim()}”，执行时间改为 ${draft.dueTime}（${draft.timezone}），重复规则改为 ${draft.recurrence || "none"}。`
+        : `Edit scheduled task ${schedule.id}: set the request to "${draft.text.trim()}", due time to ${draft.dueTime} (${draft.timezone}), and recurrence to ${draft.recurrence || "none"}.`;
+      const result = await api.scheduleAction(sessionId, content, {
+        operation: "edit", schedule_id: schedule.id, expected_updated_at: schedule.updated_at,
+        text: draft.text.trim(), due_time: draft.dueTime, timezone: draft.timezone.trim(), recurrence: draft.recurrence.trim() || "none"
+      });
+      if (result.run.state === "blocked") throw new Error(result.message.content || text.errors.schedules);
+      await refreshSchedules();
+      if (activeSession) await refreshSession(activeSession);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.schedules);
+      throw err;
+    } finally {
+      setScheduleBusyId("");
+    }
+  }
+
+  async function deleteSchedule(schedule: Schedule) {
+    const sessionId = activeSession || schedule.session_id || "";
+    if (!sessionId || scheduleBusyId) return;
+    try {
+      setScheduleBusyId(schedule.id);
+      setError("");
+      const content = language === "zh" ? `删除定时任务 ${schedule.id}。` : `Delete scheduled task ${schedule.id}.`;
+      const result = await api.scheduleAction(sessionId, content, {
+        operation: "delete", schedule_id: schedule.id, expected_updated_at: schedule.updated_at
+      });
+      if (result.run.state === "blocked") throw new Error(result.message.content || text.errors.schedules);
+      await refreshSchedules();
+      if (activeSession) await refreshSession(activeSession);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.schedules);
+      throw err;
+    } finally {
+      setScheduleBusyId("");
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -347,21 +378,27 @@ export function App() {
     [notificationBindings]
   );
   const active = sessions.find((session) => session.id === activeSession);
-  const activeComposerMode = activeSession ? composerModesBySession[activeSession] ?? "agent" : "agent";
   const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";
   const activeAttachments = activeSession ? attachmentsBySession[activeSession] ?? [] : [];
-  const activeExternalDraft = activeSession
+  const storedExternalDraft = activeSession
     ? externalDraftsBySession[activeSession] ?? emptyExternalDeliveryDraft()
     : emptyExternalDeliveryDraft();
-  const deliverySoftware = useMemo(
-    () => Array.from(new Map(deliveryEndpoints.map((endpoint) => [endpoint.channel, endpoint.software_display_name])).entries()),
-    [deliveryEndpoints]
-  );
+  const activeExternalDraft = { ...storedExternalDraft, software: storedExternalDraft.software ?? "", text: activeInput };
+  const deliverySoftwareOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const endpoint of deliveryEndpoints) {
+      if (endpoint.channel && !options.has(endpoint.channel)) {
+        options.set(endpoint.channel, endpoint.software_display_name || endpoint.channel);
+      }
+    }
+    return [...options].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [deliveryEndpoints]);
   const activeDeliveryCandidates = useMemo(
     () => endpointsForSoftware(deliveryEndpoints, activeExternalDraft.software),
-    [activeExternalDraft.software, deliveryEndpoints]
+    [deliveryEndpoints, activeExternalDraft.software]
   );
-  const activeDeliveryEndpoint = deliveryEndpoints.find((endpoint) => endpoint.id === activeExternalDraft.endpointId);
+  const activeDeliveryEndpoint = activeDeliveryCandidates.find((endpoint) => endpoint.id === activeExternalDraft.endpointId);
+  const externalDeliveryIntent = activeExternalDraft.software !== "";
   const activeDeliveryValidation = validateDeliveryDraft(activeExternalDraft, activeDeliveryEndpoint);
   const activeLastDelivery = activeSession ? lastDeliveriesBySession[activeSession] ?? null : null;
   const sortedAvailableDocuments = useMemo(
@@ -394,7 +431,7 @@ export function App() {
     speech: ready?.speech ?? null,
     sessionId: activeSession,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || activeComposerMode !== "agent" || !activeSession,
+    externallyDisabled: busy || deliveryBusy || externalDeliveryIntent || !activeSession,
     onTranscript: applyVoiceTranscript
   });
   const voiceLabel = voiceInputLabel(voice.state, voice.errorCode, voice.errorDetail, text);
@@ -419,15 +456,6 @@ export function App() {
     }
   }
 
-  function setComposerMode(mode: ComposerMode) {
-    if (!activeSession) return;
-    setComposerModesBySession((current) => ({ ...current, [activeSession]: mode }));
-    setDeliveryReviewOpen(false);
-    if (mode === "external") {
-      void refreshDeliverySurface();
-    }
-  }
-
   function updateExternalDraft(update: (draft: ExternalDeliveryDraft) => ExternalDeliveryDraft) {
     if (!activeSession) return;
     setExternalDraftsBySession((current) => ({
@@ -441,10 +469,43 @@ export function App() {
     });
   }
 
+  function chooseDeliverySoftware(software: string) {
+    updateExternalDraft((draft) => {
+      const selected = selectDeliverySoftware(draft, software);
+      return {
+        ...selected,
+        parts: software && draft.parts.length === 0
+          ? activeAttachments.map((attachment) => deliveryPartFromAttachment(deliveryPartIDFromAttachment(attachment), attachment))
+          : draft.parts
+      };
+    });
+    setDeliveryReviewOpen(false);
+  }
+
+  function selectDeliveryTarget(endpointId: string) {
+    updateExternalDraft((draft) => ({
+      ...draft,
+      endpointId,
+      parts: endpointId && draft.parts.length === 0
+        ? activeAttachments.map((attachment) => deliveryPartFromAttachment(deliveryPartIDFromAttachment(attachment), attachment))
+        : draft.parts
+    }));
+    setDeliveryReviewOpen(false);
+  }
+
   function updateExternalPart(id: string, update: Partial<DeliveryPart>) {
     updateExternalDraft((draft) => ({
       ...draft,
       parts: draft.parts.map((part) => (part.id === id ? { ...part, ...update } : part))
+    }));
+  }
+
+  function removeExternalPart(id: string) {
+    updateExternalDraft((draft) => ({ ...draft, parts: draft.parts.filter((part) => part.id !== id) }));
+    if (!activeSession) return;
+    setAttachmentsBySession((current) => ({
+      ...current,
+      [activeSession]: (current[activeSession] ?? []).filter((attachment) => deliveryPartIDFromAttachment(attachment) !== id)
     }));
   }
 
@@ -472,8 +533,10 @@ export function App() {
       setLastDeliveriesBySession((current) => ({ ...current, [activeSession]: delivery }));
       setExternalDraftsBySession((current) => ({
         ...current,
-        [activeSession]: { ...activeExternalDraft, text: "", parts: [] }
+        [activeSession]: emptyExternalDeliveryDraft()
       }));
+      setDraftsBySession((current) => ({ ...current, [activeSession]: "" }));
+      setAttachmentsBySession((current) => ({ ...current, [activeSession]: [] }));
       setDeliveryIdempotencyBySession((current) => {
         const next = { ...current };
         delete next[activeSession];
@@ -506,8 +569,10 @@ export function App() {
       if (delivery.status === "sent") {
         setExternalDraftsBySession((current) => ({
           ...current,
-          [activeSession]: { ...(current[activeSession] ?? emptyExternalDeliveryDraft()), text: "", parts: [] }
+          [activeSession]: emptyExternalDeliveryDraft()
         }));
+        setDraftsBySession((current) => ({ ...current, [activeSession]: "" }));
+        setAttachmentsBySession((current) => ({ ...current, [activeSession]: [] }));
         setDeliveryIdempotencyBySession((current) => omitSession(current, activeSession));
       }
       await refreshDeliverySurface();
@@ -585,6 +650,7 @@ export function App() {
       const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
       setSessions(sessionList.sessions ?? []);
       setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
+      setExternalDraftsBySession((current) => ({ ...current, [sessionId]: emptyExternalDeliveryDraft() }));
     } catch (err) {
       setMessages((current) => current.filter((message) => message.id !== userMessageId && message.id !== assistantMessageId));
       setStreamStatusesByMessage((current) => {
@@ -600,6 +666,7 @@ export function App() {
         const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
         setSessions(sessionList.sessions ?? []);
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
+        setExternalDraftsBySession((current) => ({ ...current, [sessionId]: emptyExternalDeliveryDraft() }));
       } catch (fallbackErr) {
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
         setError(fallbackErr instanceof Error ? fallbackErr.message : err instanceof Error ? err.message : text.errors.message);
@@ -615,11 +682,30 @@ export function App() {
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (isComposingInput || Date.now() - compositionEndedAt < 80) return;
-    if (activeComposerMode === "external") {
+    if (externalDeliveryIntent) {
       openDeliveryReview();
     } else {
       void send();
     }
+  }
+
+  function stageAttachment(attachment: MessageAttachment) {
+    if (!activeSession) return;
+    const partID = deliveryPartIDFromAttachment(attachment);
+    setAttachmentsBySession((current) => {
+      const existing = externalDeliveryIntent ? current[activeSession] ?? [] : [];
+      return {
+        ...current,
+        [activeSession]: [...existing.filter((item) => deliveryPartIDFromAttachment(item) !== partID), attachment]
+      };
+    });
+    updateExternalDraft((draft) => {
+      const existing = externalDeliveryIntent ? draft.parts : [];
+      return {
+        ...draft,
+        parts: [...existing.filter((part) => part.id !== partID), deliveryPartFromAttachment(partID, attachment)]
+      };
+    });
   }
 
   async function uploadDocument(file: File | null) {
@@ -640,14 +726,7 @@ export function App() {
         sha256: result.media?.sha256,
         source: isImageContentType(result.artifact?.content_type || file.type) ? "web_upload" : undefined
       };
-      if (activeComposerMode === "external") {
-        updateExternalDraft((draft) => ({
-          ...draft,
-          parts: [...draft.parts, deliveryPartFromAttachment(`part-${crypto.randomUUID()}`, attachment)]
-        }));
-      } else {
-        setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
-      }
+      stageAttachment(attachment);
       await refreshGlobal();
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.upload);
@@ -685,14 +764,7 @@ export function App() {
       content_type: document.content_type,
       bytes: document.bytes
     };
-    if (activeComposerMode === "external") {
-      updateExternalDraft((draft) => ({
-        ...draft,
-        parts: [...draft.parts, deliveryPartFromAttachment(`part-${crypto.randomUUID()}`, attachment)]
-      }));
-    } else {
-      setAttachmentsBySession((current) => ({ ...current, [activeSession]: [attachment] }));
-    }
+    stageAttachment(attachment);
     setDocumentUsage((current) => {
       const previous = current[document.key] ?? { count: 0, last_used_at: "" };
       const next = {
@@ -707,10 +779,14 @@ export function App() {
 
   function removeAttachment(sessionId: string, attachment: MessageAttachment) {
     if (!sessionId) return;
+    const partID = deliveryPartIDFromAttachment(attachment);
     setAttachmentsBySession((current) => ({
       ...current,
       [sessionId]: (current[sessionId] ?? []).filter((item) => item !== attachment)
     }));
+    if (sessionId === activeSession) {
+      updateExternalDraft((draft) => ({ ...draft, parts: draft.parts.filter((part) => part.id !== partID) }));
+    }
   }
 
   function startRenameSession(session: Session) {
@@ -754,7 +830,6 @@ export function App() {
         return nextDrafts;
       });
       setAttachmentsBySession((current) => omitSession(current, id));
-      setComposerModesBySession((current) => omitSession(current, id));
       setExternalDraftsBySession((current) => omitSession(current, id));
       setDeliveryIdempotencyBySession((current) => omitSession(current, id));
       setLastDeliveriesBySession((current) => omitSession(current, id));
@@ -778,7 +853,7 @@ export function App() {
       return;
     }
     event.preventDefault();
-    if (activeComposerMode === "external") {
+    if (externalDeliveryIntent) {
       openDeliveryReview();
     } else {
       void send();
@@ -876,10 +951,10 @@ export function App() {
     }
   }
 
-  async function startNotificationBinding(channel: string, botToken = "", scopes = ["reminder_send_self"]) {
+  async function startNotificationBinding(channel: string, botToken = "") {
     try {
       setError("");
-      const binding = await api.startNotificationBinding(channel, botToken, scopes);
+      const binding = await api.startNotificationBinding(channel, botToken);
       setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
       if (channel === "telegram") {
         setRuntimeConfig(await api.config());
@@ -1134,17 +1209,18 @@ export function App() {
           schedules={schedules}
           open={scheduleBarOpen}
           loading={schedulesRefreshing}
+          busyId={scheduleBusyId}
           language={language}
           text={text}
           onToggle={() => setScheduleBarOpen((current) => !current)}
           onRefresh={() => void refreshSchedules()}
+          onEdit={editSchedule}
+          onDelete={deleteSchedule}
         />
 
         <section className="chatColumn">
           <div className="messageList">
-            {activeComposerMode === "external" ? (
-              <DeliveryHistory items={messageHistory} text={text} language={language} />
-            ) : messages.length === 0 ? (
+            {messages.length === 0 ? (
               <div className="emptyState">
                 <Activity size={25} />
                 <span>{text.chat.emptyTitle}</span>
@@ -1163,57 +1239,39 @@ export function App() {
             )}
           </div>
           <div className="composerDock">
+            <DeliveryReceiptSummary
+              delivery={activeLastDelivery}
+              retrying={deliveryBusy}
+              text={text}
+              onRetry={() => void retryExternalDelivery()}
+            />
             <div className="composerToolbar">
-              <div className="composerMode" role="group" aria-label={text.nav.mode}>
-                <button type="button" className={activeComposerMode === "agent" ? "selected" : ""} onClick={() => setComposerMode("agent")}>
-                  <MessageSquare size={15} />
-                  <span>{text.chat.agentMode}</span>
-                </button>
-                <button type="button" className={activeComposerMode === "external" ? "selected" : ""} onClick={() => setComposerMode("external")}>
-                  <Send size={15} />
-                  <span>{text.chat.externalMode}</span>
-                </button>
-              </div>
-            </div>
-            {activeComposerMode === "agent" && (
-              <div className="starterRow">
-                {text.starters.map((prompt) => (
-                  <button key={prompt} onClick={() => void send(prompt, activeSession)} disabled={busy}>
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            )}
-            {activeComposerMode === "external" && (
-              <>
-                <DeliveryReceiptSummary
-                  delivery={activeLastDelivery}
-                  retrying={deliveryBusy}
-                  text={text}
-                  onRetry={() => void retryExternalDelivery()}
-                />
+              <div className="deliveryTargetControl">
+                <Send size={15} aria-hidden="true" />
                 <div className="deliveryTargetSelectors">
                   <label>
                     <span>{text.chat.software}</span>
                     <select
+                      aria-label={text.chat.software}
                       value={activeExternalDraft.software}
-                      onChange={(event) => updateExternalDraft((draft) => selectDeliverySoftware(draft, event.target.value, deliveryEndpoints))}
-                      disabled={deliveryBusy || deliveryEndpoints.length === 0}
+                      onChange={(event) => chooseDeliverySoftware(event.target.value)}
+                      disabled={busy || deliveryBusy || voice.active || deliverySoftwareOptions.length === 0}
                     >
-                      <option value="">{text.chat.chooseSoftware}</option>
-                      {deliverySoftware.map(([channel, label]) => (
-                        <option key={channel} value={channel}>{label}</option>
+                      <option value="">{deliverySoftwareOptions.length === 0 ? text.chat.noDeliveryEndpoints : text.chat.chooseSoftware}</option>
+                      {deliverySoftwareOptions.map((software) => (
+                        <option key={software.value} value={software.value}>{software.label}</option>
                       ))}
                     </select>
                   </label>
                   <label>
                     <span>{text.chat.recipient}</span>
                     <select
+                      aria-label={text.chat.recipient}
                       value={activeExternalDraft.endpointId}
-                      onChange={(event) => updateExternalDraft((draft) => ({ ...draft, endpointId: event.target.value }))}
-                      disabled={deliveryBusy || !activeExternalDraft.software || activeDeliveryCandidates.length === 0}
+                      onChange={(event) => selectDeliveryTarget(event.target.value)}
+                      disabled={busy || deliveryBusy || voice.active || !externalDeliveryIntent}
                     >
-                      <option value="">{activeDeliveryCandidates.length === 0 ? text.chat.noDeliveryEndpoints : text.chat.chooseRecipient}</option>
+                      <option value="">{text.chat.chooseRecipient}</option>
                       {activeDeliveryCandidates.map((endpoint) => (
                         <option key={endpoint.id} value={endpoint.id}>
                           {endpoint.recipient.display_name} · {endpoint.account_display_name}
@@ -1223,9 +1281,9 @@ export function App() {
                     </select>
                   </label>
                 </div>
-              </>
-            )}
-            {activeComposerMode === "agent" && activeAttachments.length > 0 && (
+              </div>
+            </div>
+            {!externalDeliveryIntent && activeAttachments.length > 0 && (
               <div className="attachmentTray">
                 {activeAttachments.map((attachment) => (
                   <div className="attachmentChip" key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}>
@@ -1254,7 +1312,7 @@ export function App() {
                 ))}
               </div>
             )}
-            {activeComposerMode === "external" && (
+            {externalDeliveryIntent && (
               <ExternalPartTray
                 parts={activeExternalDraft.parts}
                 fallbackPartIds={activeDeliveryValidation.fallbackPartIds}
@@ -1262,18 +1320,18 @@ export function App() {
                 text={text}
                 onChange={updateExternalPart}
                 onMove={(index, offset) => updateExternalDraft((draft) => ({ ...draft, parts: moveDeliveryPart(draft.parts, index, offset) }))}
-                onRemove={(id) => updateExternalDraft((draft) => ({ ...draft, parts: draft.parts.filter((part) => part.id !== id) }))}
+                onRemove={removeExternalPart}
               />
             )}
-            {activeComposerMode === "external" && activeDeliveryValidation.error && (
+            {externalDeliveryIntent && activeDeliveryValidation.error && (
               <span className="deliveryValidation">{deliveryValidationMessage(activeDeliveryValidation.error, text)}</span>
             )}
-            <form className={`composer ${activeComposerMode}`} onSubmit={onSubmit}>
+            <form className={`composer ${externalDeliveryIntent ? "external" : ""}`} onSubmit={onSubmit}>
               <input
                 ref={uploadInputRef}
                 className="documentUploadInput"
                 type="file"
-                accept={activeComposerMode === "agent" ? ".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" : undefined}
+                accept={externalDeliveryIntent ? undefined : ".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"}
                 onChange={(event) => void uploadDocument(event.target.files?.[0] ?? null)}
               />
               <button
@@ -1294,7 +1352,7 @@ export function App() {
               >
                 <FileSearch size={18} />
               </button>
-              {activeComposerMode === "agent" && (
+              {!externalDeliveryIntent && (
                 <VoiceInputButton
                   state={voice.state}
                   disabled={voice.disabled}
@@ -1312,15 +1370,10 @@ export function App() {
               )}
               <textarea
                 ref={composerInputRef}
-                value={activeComposerMode === "external" ? activeExternalDraft.text : activeInput}
+                value={activeInput}
                 onChange={(event) => {
                   if (!activeSession) return;
-                  const value = event.target.value;
-                  if (activeComposerMode === "external") {
-                    updateExternalDraft((draft) => ({ ...draft, text: value }));
-                  } else {
-                    setDraftsBySession((current) => ({ ...current, [activeSession]: value }));
-                  }
+                  setDraftsBySession((current) => ({ ...current, [activeSession]: event.target.value }));
                 }}
                 onKeyDown={onComposerKeyDown}
                 onCompositionStart={() => setIsComposingInput(true)}
@@ -1328,21 +1381,21 @@ export function App() {
                   setIsComposingInput(false);
                   setCompositionEndedAt(Date.now());
                 }}
-                placeholder={activeComposerMode === "external" ? text.chat.externalPlaceholder : text.chat.placeholder}
+                placeholder={text.chat.placeholder}
                 disabled={busy || deliveryBusy}
               />
               <button
                 className="sendButton"
                 disabled={
-                  activeComposerMode === "external"
+                  externalDeliveryIntent
                     ? deliveryBusy || !activeDeliveryValidation.valid
                     : busy || voice.active || (!activeInput.trim() && activeAttachments.length === 0)
                 }
-                title={activeComposerMode === "external" ? text.chat.reviewSend : text.chat.send}
+                title={externalDeliveryIntent ? text.chat.reviewSend : text.chat.send}
               >
                 <Send size={18} />
               </button>
-              {activeComposerMode === "agent" && (
+              {!externalDeliveryIntent && (
                 <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} label={voiceLabel} />
               )}
             </form>
@@ -1489,7 +1542,7 @@ export function App() {
             language={language}
             onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
             onRevokeClient={(id) => revokeClient(id)}
-            onStartNotificationBinding={(channel, botToken, scopes) => startNotificationBinding(channel, botToken, scopes)}
+            onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
             onRefreshNotificationBinding={(id) => refreshNotificationBinding(id)}
             onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
             onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}

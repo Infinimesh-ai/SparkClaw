@@ -133,6 +133,22 @@ func weatherRenderRegistration() toolRegistration {
 	return registration
 }
 
+func scheduleListRegistration() toolRegistration {
+	registration := workflowRegistration(
+		toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersList)},
+		app.ToolCapabilityScheduleManage, map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationRead)}, app.OutcomeAdapterScheduleList,
+		"List scheduled tasks visible to the current session owner.",
+		"Use for schedule.manage reads and as the required discovery stage before edit or delete.",
+		"Do not mutate schedule state.", app.ToolEffectLocalRead,
+	)
+	registration.capabilities = []app.CapabilityDescriptor{
+		{Name: app.ToolCapabilityScheduleManage, Qualifiers: map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationRead)}},
+		{Name: app.ToolCapabilityScheduleManage, Qualifiers: map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationEdit), "stage": "discover"}},
+		{Name: app.ToolCapabilityScheduleManage, Qualifiers: map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationDelete), "stage": "discover"}},
+	}
+	return registration
+}
+
 func browserReadRegistration() toolRegistration {
 	registration := workflowRegistration(
 		toolRegistration{run: ctxArgsSessionRun((*ToolHub).browserRead)}, "web.page.read",
@@ -246,8 +262,8 @@ var toolRegistry = map[string]toolRegistration{
 		"Submit one frozen public question directly to Infinimesh Info and preserve its answer evidence.",
 		"Use only as the first stage of a workflow that explicitly requires Info answer evidence.",
 		"Do not rewrite the query or use it as generic browser discovery.", app.ToolEffectExternalRead),
-	"browser.status": workflowRegistration(toolRegistration{enabled: browserAutomationEnabled, run: func(h *ToolHub, ctx context.Context, _ string, args map[string]any, _, _ string) (Result, error) {
-		return h.browserAutomationHealth(ctx, args)
+	"browser.status": workflowRegistration(toolRegistration{enabled: browserAutomationEnabled, run: func(h *ToolHub, ctx context.Context, _ string, args map[string]any, sessionID, _ string) (Result, error) {
+		return h.browserAutomationHealth(ctx, args, sessionID)
 	}}, app.ToolCapabilityBrowserHealth, nil, app.OutcomeAdapterBrowserHealth, "Check browser automation availability.", "Use before interaction when provider health is unknown.", "Do not use for public search.", app.ToolEffectExternalRead),
 	"browser.list_tabs":  browserAutomationRegistration(app.ToolCapabilityBrowserListTabs, app.OutcomeAdapterBrowserTabs, "List tabs in the managed browser session.", app.ToolEffectExternalRead),
 	"browser.open":       browserAutomationRegistration(app.ToolCapabilityBrowserOpen, app.OutcomeAdapterBrowserOpen, "Open a URL in a managed browser tab.", app.ToolEffectExternalRead),
@@ -269,14 +285,12 @@ var toolRegistry = map[string]toolRegistration{
 	"reminders.create": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSessionRun((*ToolHub).remindersCreate)}, app.ToolCapabilityScheduleManage,
 		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationCreate)}, app.OutcomeAdapterGeneric,
 		"Create a scheduled task in the existing Schedule Registry.", "Use only for schedule.manage create operations.", "Do not use to list, update, or cancel schedules.", app.ToolEffectLocalWrite),
-	"reminders.list": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersList)}, app.ToolCapabilityScheduleManage,
-		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationRead)}, app.OutcomeAdapterGeneric,
-		"List scheduled tasks visible to the current session owner.", "Use only for schedule.manage read operations.", "Do not mutate schedule state.", app.ToolEffectLocalRead),
+	"reminders.list": scheduleListRegistration(),
 	"reminders.update": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersUpdate)}, app.ToolCapabilityScheduleManage,
-		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationEdit)}, app.OutcomeAdapterGeneric,
+		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationEdit), "stage": "mutate"}, app.OutcomeAdapterScheduleChange,
 		"Update an existing scheduled task through the Schedule Registry.", "Use only for schedule.manage edit operations.", "Do not create or cancel schedules.", app.ToolEffectLocalWrite),
 	"reminders.cancel": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersCancel)}, app.ToolCapabilityScheduleManage,
-		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationDelete)}, app.OutcomeAdapterGeneric,
+		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationDelete), "stage": "mutate"}, app.OutcomeAdapterScheduleChange,
 		"Cancel an existing scheduled task.", "Use only for schedule.manage delete operations.", "Do not permanently remove schedule history.", app.ToolEffectLocalWrite),
 	"code.apply_patch":     {run: ctxArgs((*ToolHub).codeApplyPatch)},
 	"shell.exec_sandboxed": {run: ctxArgs((*ToolHub).shellExecSandboxed)},

@@ -222,6 +222,10 @@ func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 
 func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
 	profileDir := filepath.Join(t.TempDir(), "browser-profile")
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_COMMAND", "/opt/test/agent-browser")
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS", "31000")
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", "11000")
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "61000")
 	t.Setenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE", "/opt/test/chromium")
 	t.Setenv("SPARKCLAW_BROWSER_PROFILE_DIR", profileDir)
 
@@ -231,6 +235,12 @@ func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
 	}
 	if cfg.Adapters.BrowserAutomation.ChromiumExecutable != "/opt/test/chromium" {
 		t.Fatalf("shared Chromium env did not apply: %#v", cfg.Adapters.BrowserAutomation)
+	}
+	if cfg.Adapters.BrowserAutomation.Command != "/opt/test/agent-browser" ||
+		cfg.Adapters.BrowserAutomation.TimeoutMS != 31000 ||
+		cfg.Adapters.BrowserAutomation.StartupTimeoutMS != 11000 ||
+		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS != 61000 {
+		t.Fatalf("agent-browser adapter env did not apply: %#v", cfg.Adapters.BrowserAutomation)
 	}
 	if cfg.Adapters.BrowserAutomation.ProfileDir != profileDir || !filepath.IsAbs(cfg.Adapters.BrowserAutomation.ProfileDir) {
 		t.Fatalf("browser profile directory was not normalized: %#v", cfg.Adapters.BrowserAutomation)
@@ -338,8 +348,20 @@ func TestLoadDefaultsWeixinNotificationToQRProvider(t *testing.T) {
 	if weixin.BaseURL != "https://ilinkai.weixin.qq.com" {
 		t.Fatalf("expected default ilink base URL, got %#v", weixin)
 	}
-	if weixin.Enabled {
-		t.Fatalf("weixin notification channel should still be disabled until explicitly enabled")
+	if !weixin.Enabled {
+		t.Fatalf("weixin notification channel should be enabled by default")
+	}
+}
+
+func TestLoadAllowsWeixinNotificationToBeExplicitlyDisabled(t *testing.T) {
+	t.Setenv("SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED", "false")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tools.Notifications.Channels["weixin"].Enabled {
+		t.Fatalf("weixin notification channel should honor an explicit disable")
 	}
 }
 

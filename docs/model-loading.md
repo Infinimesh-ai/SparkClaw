@@ -27,7 +27,9 @@ Default single-machine operation should use one full chat lane at a time:
 - Run `deep` full profile for code work, high-risk review, repair verification, terminal-related tasks and explicit deep requests.
 - Treat lower `deep` throughput as an expected dense-model cost. Optimize `deep` for reliability and answer quality, while using `fast` for responsive interaction and short-turn flow.
 - During evals or constrained runs, route both Gateway profiles to the loaded lane when necessary.
-- Keep embedding and reranker small and optional; load them only when the retrieval workflow needs live endpoints.
+- Keep embedding and reranker small but resident in the accepted product
+  profile. Embedding is required to build the semantic routing index at Gateway
+  startup; reranker supplies the bounded routing reorder channel.
 
 Single-machine performance features are intentionally conservative:
 
@@ -44,7 +46,7 @@ Recommended first target:
 
 | Setting | `fast` | `deep` | embedding | reranker | Rationale |
 |---|---:|---:|---:|---:|---|
-| Context | 32768 | 65536 | 8192 | 2048 | Preserve deep context first; keep auxiliary context enough for single-user retrieval. |
+| Context | 32768 | 65536 | 8192 | 2048 | Preserve deep context first; keep auxiliary context sufficient for single-user semantic routing and bounded ranking. |
 | MTP | off | off | off | off | Save memory and reduce moving parts while validating residency. |
 | KV cache budget | 8 GiB | 12 GiB | 2 GiB | 1 GiB | Cap the real pressure point instead of letting each server reserve a full lane. |
 | Max response tokens | 768 | 1536 | n/a | n/a | Keep agent loops responsive and evals stable. |
@@ -117,7 +119,7 @@ When two DGX Spark systems are available, split model serving by lane rather tha
 
 | Machine | Services | Notes |
 |---|---|---|
-| DGX Spark A | `fast`, embedding, reranker, optional guard | Optimized for interactive latency and retrieval support. |
+| DGX Spark A | `fast`, embedding, reranker, optional guard | Optimized for interactive latency, semantic routing, and bounded ranking. |
 | DGX Spark B | `deep` | Keep memory headroom for large context and repair/review tasks. |
 
 Only after this split is stable should performance features be enabled:
@@ -136,7 +138,7 @@ Every new loading profile should record:
 - Context length, KV cache budget, GPU memory utilization and MTP/DFlash status.
 - Startup success, idle memory, first-request latency and warmed-request latency.
 - Throughput for chat, summary, email triage and coding scenarios.
-- Embedding/reranker availability when those services are part of the profile.
+- Embedding/reranker availability and Gateway semantic-router readiness.
 - Golden eval result and any regression notes.
 
 Append durable measurements to [Model baseline](../benchmarks/model_baseline.md). Keep this document focused on strategy and accepted loading profiles.

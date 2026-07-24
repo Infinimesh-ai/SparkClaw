@@ -355,7 +355,7 @@ func TestAvailableDocumentsIncludesUploadsAndMedia(t *testing.T) {
 	}
 }
 
-func TestApprovalExecutesPatchAfterApproval(t *testing.T) {
+func TestUnregisteredPatchRequestBlocksBeforeApproval(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "example.txt"), []byte("alpha\nbeta\ngamma"), 0o644); err != nil {
 		t.Fatal(err)
@@ -374,92 +374,19 @@ func TestApprovalExecutesPatchAfterApproval(t *testing.T) {
 	sendTestMessage(t, ts.URL, sessionID, "apply patch\n```diff\n--- a/example.txt\n+++ b/example.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+bravo\n gamma\n```")
 
 	approvals := getApprovals(t, ts.URL)
-	if len(approvals) != 1 {
-		t.Fatalf("expected one approval, got %d", len(approvals))
+	if len(approvals) != 0 {
+		t.Fatalf("unregistered patch request created approvals: %#v", approvals)
 	}
-	runID := approvals[0]["run_id"].(string)
-	pendingRun, ok := st.GetRun(runID)
-	if !ok {
-		t.Fatalf("run %q missing before approval", runID)
-	}
-	if pendingRun.State != "approval_pending" || pendingRun.CompletedAt != nil {
-		t.Fatalf("run should wait for approval before execution: %#v", pendingRun)
-	}
-	resp, err := http.Post(ts.URL+"/api/approvals/"+approvals[0]["id"].(string)+"/approve", "application/json", bytes.NewBufferString(`{"note":"test"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("approve returned %d", resp.StatusCode)
-	}
-	var approved struct {
-		ToolCall struct {
-			Status string         `json:"status"`
-			Result map[string]any `json:"result"`
-		} `json:"tool_call"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&approved); err != nil {
-		t.Fatal(err)
-	}
-	if approved.ToolCall.Status != "completed_after_approval" {
-		t.Fatalf("unexpected tool call status: %q", approved.ToolCall.Status)
-	}
-	completedRun, ok := st.GetRun(runID)
-	if !ok {
-		t.Fatalf("run %q missing after approval", runID)
-	}
-	if completedRun.State != "completed" || completedRun.CompletedAt == nil {
-		t.Fatalf("run should complete after approval resolution: %#v", completedRun)
-	}
-	manifestPath, _ := approved.ToolCall.Result["manifest_path"].(string)
-	rollbackPath, _ := approved.ToolCall.Result["rollback_patch_path"].(string)
-	if manifestPath == "" || rollbackPath == "" {
-		t.Fatalf("patch result missing rollback metadata: %#v", approved.ToolCall.Result)
-	}
-	if _, err := os.Stat(manifestPath); err != nil {
-		t.Fatalf("patch manifest missing: %v", err)
-	}
-	rollbackRaw, err := os.ReadFile(rollbackPath)
-	if err != nil || !strings.Contains(string(rollbackRaw), "-bravo") || !strings.Contains(string(rollbackRaw), "+beta") {
-		t.Fatalf("rollback patch incomplete raw=%q err=%v", rollbackRaw, err)
+	runs := st.ListRuns(sessionID)
+	if len(runs) != 1 || runs[0].State != "blocked" || runs[0].MessageContext == nil || runs[0].MessageContext.Route.Status != app.RouteUnmatched {
+		t.Fatalf("unregistered patch request did not fail closed: %#v", runs)
 	}
 	raw, err := os.ReadFile(filepath.Join(root, "example.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != "alpha\nbravo\ngamma" {
-		t.Fatalf("patch was not applied: %q", string(raw))
-	}
-	traceResp, err := http.Get(ts.URL + "/api/traces/" + runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer traceResp.Body.Close()
-	var refreshed struct {
-		Run struct {
-			State       string     `json:"state"`
-			CompletedAt *time.Time `json:"completed_at"`
-		} `json:"run"`
-		ToolCalls []struct {
-			Tool   string `json:"tool"`
-			Status string `json:"status"`
-		} `json:"tool_calls"`
-	}
-	if err := json.NewDecoder(traceResp.Body).Decode(&refreshed); err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, call := range refreshed.ToolCalls {
-		if call.Tool == "code.apply_patch" && call.Status == "completed_after_approval" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("refreshed trace did not include completed patch call: %#v", refreshed.ToolCalls)
-	}
-	if refreshed.Run.State != "completed" || refreshed.Run.CompletedAt == nil {
-		t.Fatalf("refreshed trace did not include completed run state: %#v", refreshed.Run)
+	if string(raw) != "alpha\nbeta\ngamma" || len(st.ListToolCalls(sessionID)) != 0 {
+		t.Fatalf("blocked patch request mutated the workspace: raw=%q calls=%#v", raw, st.ListToolCalls(sessionID))
 	}
 }
 
@@ -495,6 +422,7 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		CreatedAt: created,
 	})
 	cfg := config.Default()
+	cfg.Model.Mock = true
 	runtime := agent.NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
 
 	if _, err := st.ResolveApproval("ap_one", "approved", "ok"); err != nil {
@@ -534,7 +462,7 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 	defer ts.Close()
 
 	sessionID := createTestSession(t, ts.URL)
-	sendTestMessage(t, ts.URL, sessionID, "Remember that metrics should count memory candidates")
+	sendTestMessage(t, ts.URL, sessionID, "你好\nMOCK_CONVERSATION_RESPONSE:你好。")
 
 	resp, err := http.Get(ts.URL + "/metrics")
 	if err != nil {
@@ -553,10 +481,10 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_sessions_total 1",
 		"sparkclaw_messages_total 2",
 		"sparkclaw_agent_runs_total 1",
-		"sparkclaw_model_calls_total 6",
+		"sparkclaw_model_calls_total 7",
 		"sparkclaw_model_call_errors_total 0",
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
-		"sparkclaw_memory_candidates_total 1",
+		"sparkclaw_memory_candidates_total 0",
 		"sparkclaw_episode_summaries_total 1",
 	} {
 		if !strings.Contains(body, want) {
@@ -657,7 +585,14 @@ func TestChatEndpointSupportsManualModelProfileWithoutTools(t *testing.T) {
 		t.Fatalf("direct chat should not mutate agent state")
 	}
 	calls := st.ListModelCalls("", "")
-	if len(calls) != 1 || calls[0].Operation != "direct_chat" || calls[0].Lane != "deep" || calls[0].TotalTokens == 0 {
+	directCallRecorded := false
+	for _, call := range calls {
+		if call.Operation == "direct_chat" && call.Lane == "deep" && call.TotalTokens > 0 {
+			directCallRecorded = true
+		}
+	}
+	if len(calls) != 2 || !hasServerTestModelCall(calls, "intent_embedding_index", "embedding") ||
+		!directCallRecorded {
 		t.Fatalf("direct chat model call not recorded: %#v", calls)
 	}
 }
@@ -2189,7 +2124,7 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
-	startResp, err := http.Post(ts.URL+"/api/notification-bindings/weixin/start", "application/json", bytes.NewBufferString(`{}`))
+	startResp, err := http.Post(ts.URL+"/api/notification-bindings/weixin/start", "application/json", bytes.NewBufferString(`{"scopes":["reminder_send_self"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2204,6 +2139,9 @@ func TestNotificationBindingStartPollAndRevoke(t *testing.T) {
 	id := started["id"].(string)
 	if started["status"] != "waiting_scan" || started["qr_code_url"] == "" {
 		t.Fatalf("unexpected start response: %#v", started)
+	}
+	if scopes, ok := started["scopes"].([]any); !ok || len(scopes) != 2 {
+		t.Fatalf("new binding did not receive all messaging scopes: %#v", started["scopes"])
 	}
 
 	pollResp, err := http.Get(ts.URL + "/api/notification-bindings/" + id)
@@ -2597,7 +2535,9 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 		t.Fatal("trace did not include tool calls")
 	}
 	if !hasServerTestModelCall(decoded.ModelCalls, "request_normalization", "fast") ||
-		!hasServerTestModelCall(decoded.ModelCalls, "capability_routing", "fast") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "intent_embedding", "embedding") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "intent_tree_graph", "fast") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "intent_rerank", "reranker") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "deep") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)

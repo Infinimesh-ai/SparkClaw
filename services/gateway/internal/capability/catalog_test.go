@@ -13,6 +13,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := [][]app.CapabilityID{
+		{"conversation", "conversation.answer"},
 		{"browser", "browser.internet_search"},
 		{"browser", "browser.weather"},
 		{"browser", "browser.automation"},
@@ -27,7 +28,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 			t.Fatalf("resolve %v: %v", path, err)
 		}
 		wantRevision := 1
-		if leaf.ID == app.CapabilityDocumentEdit {
+		if leaf.ID == app.CapabilityDocumentEdit || leaf.ID == app.CapabilityScheduleManage {
 			wantRevision = 2
 		}
 		if leaf.Workflow == nil || app.CapabilityID(leaf.Workflow.ID) != leaf.ID || leaf.Workflow.Revision != wantRevision {

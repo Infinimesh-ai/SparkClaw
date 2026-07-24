@@ -2,7 +2,7 @@ package app
 
 import "time"
 
-const ScheduleSpecSchemaVersion = 1
+const ScheduleSpecSchemaVersion = 2
 
 type EndpointStatus string
 
@@ -36,28 +36,19 @@ type MessageEndpoint struct {
 	UpdatedAt            time.Time      `json:"updated_at,omitempty"`
 }
 
-type SchedulePayloadMode string
-
-const (
-	SchedulePayloadLiteral SchedulePayloadMode = "literal"
-	SchedulePayloadRequest SchedulePayloadMode = "request"
-)
-
 type SchedulePayload struct {
-	Mode    SchedulePayloadMode `json:"mode"`
-	Content MessageContent      `json:"content"`
+	Content MessageContent `json:"content"`
 }
 
-// ScheduleSpec is embedded in legacy Reminder records during migration. A
-// missing spec is interpreted as the original literal-text reminder shape.
+// ScheduleSpec freezes the owner request and delivery context that the Timer
+// republishes through the ordinary Message Runtime when the schedule is due.
 type ScheduleSpec struct {
-	SchemaVersion          int                  `json:"schema_version"`
-	OwnerID                string               `json:"owner_id"`
-	ActorID                string               `json:"actor_id"`
-	Payload                SchedulePayload      `json:"payload"`
-	ReturnRoute            ReturnRoute          `json:"return_route"`
-	Authorization          MessageAuthorization `json:"authorization"`
-	ExpectedCapabilityPath []CapabilityID       `json:"expected_capability_path,omitempty"`
+	SchemaVersion int                  `json:"schema_version"`
+	OwnerID       string               `json:"owner_id"`
+	ActorID       string               `json:"actor_id"`
+	Payload       SchedulePayload      `json:"payload"`
+	ReturnRoute   ReturnRoute          `json:"return_route"`
+	Authorization MessageAuthorization `json:"authorization"`
 }
 
 type MessageSchedule struct {

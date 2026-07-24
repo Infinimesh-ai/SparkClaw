@@ -280,7 +280,7 @@ func telegramIngress(binding app.NotificationBinding, chatSession app.ExternalCh
 			Kind: app.MessageSourceThirdPartyDevice, Adapter: strings.ToLower(strings.TrimSpace(binding.Channel)),
 			EndpointID: endpointID, NativeMessageID: nativeMessageID, NativeThreadRef: nativeThreadRef,
 		},
-		OwnerID: ownerID, Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: append([]string(nil), binding.Scopes...)},
+		OwnerID: ownerID, Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: app.EffectiveMessagingBindingScopes(binding.Scopes)},
 		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpointID},
 	}
 }

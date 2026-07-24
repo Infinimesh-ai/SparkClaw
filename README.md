@@ -4,13 +4,17 @@
 
 **Reliable local agent runtime for DGX Spark.**
 
-SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape is a full single-machine dual-lane stack: a responsive `fast` MoE lane, a dense `deep` lane for harder or higher-risk work, and resident embedding/reranker endpoints for retrieval workflows.
+SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape is a full single-machine dual-lane stack: a responsive `fast` MoE lane, a dense `deep` lane for harder or higher-risk work, and resident embedding/reranker endpoints for semantic routing and bounded ranking.
 
-The project is past the initial planning stage. This README is the entry point; the detailed current-state docs are:
+The project is past the initial planning stage. This README is the entry point;
+the [documentation index](docs/index.md) lists the complete current set. Start
+with:
 
 - [Architecture](docs/architecture.md): product boundary, runtime loop, service boundaries, tools, data and safety model.
 - [Deployment](docs/deployment.md): local, Docker Compose and DGX Spark model-serving instructions.
 - [Development](docs/development.md): repository layout, verification matrix, extension workflow and current completion status.
+- [Workflow capability matrix](docs/workflow-capabilities.md): the exact leaf Workflows that can currently execute.
+- [Intent routing](docs/intent-routing.md), [messaging and scheduling](docs/messaging-and-scheduling.md), [browser runtime](docs/browser-runtime.md), [document workflows](docs/document-workflows.md), [external integrations](docs/integrations.md), and [WebChat](docs/webchat.md): current component contracts.
 - [Model loading plan](docs/model-loading.md): single-machine, light dual-residency and two-DGX-Spark loading strategy.
 - [Model baseline](benchmarks/model_baseline.md): DGX Spark endpoint evidence, latency numbers and operating limits.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [Support](SUPPORT.md), [Changelog](CHANGELOG.md) and [License](LICENSE): open-source project process and terms.
@@ -20,13 +24,13 @@ The project is past the initial planning stage. This README is the entry point; 
 Implemented and validated:
 
 - Go Gateway API with health, readiness, direct chat, sessions, messages, events, tools, approvals, memories, traces, artifacts, eval reports, feedback, client pairing, token auth and rate limiting.
-- Agent Runtime with guard review, Gateway-controlled fast/deep routing, bounded repair, schema repair, grounded final answers and trace snapshots.
+- Agent Runtime with a Catalog-derived semantic graph, embedding and Fast/Tree score fusion, bounded reranking, deterministic one-leaf Workflow dispatch, grounded execution, repair, and trace snapshots.
 - Single-machine `dual-light-v1` model profile for NVIDIA GB10: `fast` and `deep` chat lanes plus embedding and reranker resident together, with explicit context, KV cache and sequence caps.
 - ToolHub with JSON-schema-validated tools for files, memory, browser access, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application and sensitive memory writes.
 - File, browser and external adapter observations are treated as untrusted data and are summarized before being used for answers.
 - Email, calendar and workspace knowledge/RAG are deliberately deferred until they have complete product designs; see [Deferred Capabilities](docs/deferred-email-calendar-knowledge.md).
-- File-backed state for local runs, PostgreSQL 18/pgvector for durable sessions, tool calls, approvals, evals and document chunks, and filesystem or S3-compatible artifact storage.
+- File-backed state for local runs, PostgreSQL 18/pgvector for durable runtime records, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
 - DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding/reranker endpoints. The historical run used 58 cases; the active matrix now has 43 after prototype-only capabilities were removed.
@@ -71,9 +75,10 @@ npm install
 npm run setup:browser
 ```
 
-The second command installs the local Chromium revision matched to the pinned
-Playwright runtime. Set `adapters.browserAutomation.chromiumExecutable` only
-when the deployment must use a separately managed compatible executable.
+The second command verifies the pinned agent-browser runtime and resolves a
+system Chromium installation. It does not download Chrome for Testing. Set
+`adapters.browserAutomation.chromiumExecutable` when Chromium is installed in a
+non-standard location.
 
 Run the Gateway and WebChat in separate terminals:
 

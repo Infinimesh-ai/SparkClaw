@@ -1,10 +1,13 @@
 package store
 
 import (
+	"errors"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
+
+var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
 
 type Store interface {
 	CreateSession(title string) app.Session
@@ -44,6 +47,7 @@ type Store interface {
 	ResolveApproval(id, status, note string) (app.Approval, error)
 	ListApprovals(status string) []app.Approval
 	SaveReminder(reminder app.Reminder) app.Reminder
+	UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error)
 	GetReminder(id string) (app.Reminder, bool)
 	ListReminders(filter app.ReminderFilter) []app.Reminder
 	ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder

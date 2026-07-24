@@ -15,7 +15,6 @@ import type {
   MemoryExportArchive,
   Message,
   MessageDelivery,
-  MessageHistoryItem,
   MessageAttachment,
   ModelStreamEvent,
   ModelCall,
@@ -26,6 +25,7 @@ import type {
   RunFeedback,
   RunTrace,
   Schedule,
+  ScheduleAction,
   Session,
   Skill,
   SpeechStatus,
@@ -241,10 +241,10 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
-  startNotificationBinding: (channel = "weixin", botToken = "", scopes = ["reminder_send_self"]) =>
+  startNotificationBinding: (channel = "weixin", botToken = "") =>
     request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
       method: "POST",
-      body: JSON.stringify({ default_for_channel: false, scopes, bot_token: botToken })
+      body: JSON.stringify({ default_for_channel: false, bot_token: botToken })
     }),
   notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
@@ -256,8 +256,12 @@ export const api = {
       body: JSON.stringify({ target, idempotency_key: idempotencyKey, confirmed: true, content: { parts } })
     }),
   retryDelivery: (id: string) => request<MessageDelivery>(`/api/deliveries/${id}/retry`, { method: "POST", body: JSON.stringify({ confirmed: true }) }),
-  messageHistory: () => request<{ messages: MessageHistoryItem[] }>("/api/message-history"),
   schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),
+  scheduleAction: (sessionId: string, content: string, action: ScheduleAction) =>
+    request<AgentResult>(`/api/sessions/${sessionId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content, schedule_action: action })
+    }),
   updateToolPolicy: (deny: string[], approvalRequired: string[]) =>
     request<PublicConfig["tool_policy"]>("/api/tool-policy", {
       method: "POST",

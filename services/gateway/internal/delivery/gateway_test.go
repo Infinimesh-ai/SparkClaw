@@ -60,7 +60,7 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 	if err := providers.Register(fake); err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := NewGateway(endpoints, providers, LocalWebDelivery{}).Deliver(t.Context(), request)
+	receipt, err := NewGateway(endpoints, providers, nil).Deliver(t.Context(), request)
 	if err != nil || receipt.Status != app.DeliverySucceeded || len(fake.endpoints) != 1 {
 		t.Fatalf("source reply delivery failed: receipt=%#v endpoints=%#v err=%v", receipt, fake.endpoints, err)
 	}
@@ -69,7 +69,7 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 		t.Fatalf("source reply crossed an exact endpoint boundary: %#v", got)
 	}
 	request.OwnerID = "owner-b"
-	if _, err := NewGateway(endpoints, providers, LocalWebDelivery{}).Deliver(t.Context(), request); err == nil || len(fake.endpoints) != 1 {
+	if _, err := NewGateway(endpoints, providers, nil).Deliver(t.Context(), request); err == nil || len(fake.endpoints) != 1 {
 		t.Fatalf("source reply crossed its authorized owner: endpoints=%#v err=%v", fake.endpoints, err)
 	}
 }
@@ -93,7 +93,7 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 		{ID: "file", Kind: app.MessagePartFile, Disposition: app.MessageDispositionAttachment, ArtifactID: "file"},
 	}}
 	request := app.DeliveryRequest{SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "del_fake", IdempotencyKey: "once", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}, Target: app.EndpointID(binding.ID), Content: content, CreatedAt: time.Now().UTC()}
-	receipt, err := NewGateway(endpoints, providers, LocalWebDelivery{}).Deliver(t.Context(), request)
+	receipt, err := NewGateway(endpoints, providers, nil).Deliver(t.Context(), request)
 	if err != nil || receipt.Status != app.DeliverySucceeded {
 		t.Fatalf("deliver: receipt=%#v err=%v", receipt, err)
 	}
@@ -119,7 +119,7 @@ func TestProviderPreflightRejectsWholePayloadBeforeSend(t *testing.T) {
 			{ID: "audio", Kind: app.MessagePartAudio, Disposition: app.MessageDispositionVoiceNote, ArtifactID: "audio"},
 		}},
 	}
-	receipt, err := NewGateway(endpoints, providers, LocalWebDelivery{}).Deliver(t.Context(), request)
+	receipt, err := NewGateway(endpoints, providers, nil).Deliver(t.Context(), request)
 	if err == nil || receipt.Status != app.DeliveryFailed {
 		t.Fatalf("expected explicit capability failure, receipt=%#v err=%v", receipt, err)
 	}
@@ -161,7 +161,7 @@ func TestGatewayRejectsEndpointOwnedByAnotherPrincipal(t *testing.T) {
 		OwnerID: "owner-a", ActorID: "owner-a", Authorization: app.MessageAuthorization{PrincipalID: "owner-a"}, Target: app.EndpointID(binding.ID),
 		Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "private"}}},
 	}
-	_, err := NewGateway(messagecontrol.NewEndpointRegistry(st), providers, LocalWebDelivery{}).Deliver(t.Context(), request)
+	_, err := NewGateway(messagecontrol.NewEndpointRegistry(st), providers, nil).Deliver(t.Context(), request)
 	if err == nil || len(fake.requests) != 0 {
 		t.Fatalf("cross-owner endpoint was delivered: requests=%#v err=%v", fake.requests, err)
 	}

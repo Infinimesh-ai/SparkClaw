@@ -11,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -63,15 +64,52 @@ func TestListCurrentSchedulesIsReadOnlyOwnerScopedProjection(t *testing.T) {
 	if len(decoded.Schedules) != 2 || decoded.Schedules[0].ID != "pending-visible" || decoded.Schedules[1].ID != "sending-visible" {
 		t.Fatalf("unexpected active schedules: %#v", decoded.Schedules)
 	}
-	if decoded.Schedules[0].Title != "Daily check" || decoded.Schedules[0].PayloadMode != app.SchedulePayloadRequest {
+	if decoded.Schedules[0].Title != "Daily check" || decoded.Schedules[0].Text != "Daily check" || decoded.Schedules[0].UpdatedAt.IsZero() {
 		t.Fatalf("unexpected public projection: %#v", decoded.Schedules[0])
+	}
+	if decoded.Schedules[0].Endpoint.Status != "unavailable" || decoded.Schedules[0].Editable || !decoded.Schedules[0].Cancelable {
+		t.Fatalf("unexpected unavailable endpoint controls: %#v", decoded.Schedules[0])
+	}
+}
+
+func TestScheduleEndpointProjectionNamesWebAndThirdPartyReminderEndpoints(t *testing.T) {
+	st := store.NewMemoryStore()
+	webSession := st.CreateSession("Web schedule chat")
+	now := time.Now().UTC()
+	st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "binding-telegram", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+		Channel: "telegram", Status: string(app.EndpointActive), DisplayName: "Work bot",
+		ExternalUserID: "private-user-id", CreatedAt: now, UpdatedAt: now,
+	})
+	server := &Server{store: st}
+	request := httptest.NewRequest(http.MethodGet, "/api/schedules", nil)
+	for _, test := range []struct {
+		name         string
+		endpointID   app.EndpointID
+		software     string
+		account      string
+		conversation string
+	}{
+		{name: "web", endpointID: messagecontrol.WebEndpointID(webSession.ID), software: "WebChat", conversation: webSession.Title},
+		{name: "third party", endpointID: "binding-telegram", software: "Telegram", account: "Work bot", conversation: "Work bot"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			projection := server.publicScheduleEndpoint(request, app.MessageSchedule{
+				SessionID: webSession.ID,
+				Spec:      app.ScheduleSpec{ReturnRoute: app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: test.endpointID}},
+			})
+			if projection.Status != string(app.EndpointActive) || projection.SoftwareDisplayName != test.software ||
+				projection.AccountDisplayName != test.account || projection.ConversationLabel != test.conversation {
+				t.Fatalf("unexpected endpoint projection: %#v", projection)
+			}
+		})
 	}
 }
 
 func testScheduleReminder(id, ownerID, actorID, status string, due time.Time, text string) app.Reminder {
 	spec := app.ScheduleSpec{
 		SchemaVersion: app.ScheduleSpecSchemaVersion, OwnerID: ownerID, ActorID: actorID,
-		Payload:       app.SchedulePayload{Mode: app.SchedulePayloadRequest, Content: app.MessageContent{Parts: []app.MessagePart{{ID: "part-1", Kind: app.MessagePartText, Text: text}}}},
+		Payload:       app.SchedulePayload{Content: app.MessageContent{Parts: []app.MessagePart{{ID: "part-1", Kind: app.MessagePartText, Text: text}}}},
 		ReturnRoute:   app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "private-endpoint"},
 		Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: []string{"credential-secret"}},
 	}

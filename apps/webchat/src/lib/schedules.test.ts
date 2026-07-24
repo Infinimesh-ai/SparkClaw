@@ -5,11 +5,15 @@ import { formatScheduleTime, schedulePattern } from "./schedules";
 const schedule: Schedule = {
   id: "schedule-1",
   title: "Daily check",
+  text: "Daily check",
   due_time: "2026-07-21T01:30:00Z",
   timezone: "Asia/Shanghai",
   recurrence: "daily",
   status: "pending",
-  payload_mode: "request"
+  updated_at: "2026-07-20T01:30:00Z",
+  editable: true,
+  cancelable: true,
+  endpoint: { kind: "web", channel: "web", software_display_name: "WebChat", status: "active" }
 };
 
 describe("schedule formatting", () => {

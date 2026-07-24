@@ -37,7 +37,11 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 		if _, exists := nodes[node.ID]; exists {
 			return fmt.Errorf("workflow node ID %q is duplicated", node.ID)
 		}
-		allowEmptyInitialScope := false
+		modelAnswerNode := node.Goal.Completion == app.CompletionModelAnswer
+		if modelAnswerNode && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0) {
+			return fmt.Errorf("workflow node %q model answer contract cannot expose tools, bindings, or transitions", node.ID)
+		}
+		allowEmptyInitialScope := modelAnswerNode
 		for _, transition := range node.Transitions {
 			allowEmptyInitialScope = allowEmptyInitialScope || transition.Deterministic
 		}

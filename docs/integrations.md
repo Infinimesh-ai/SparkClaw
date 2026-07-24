@@ -1,0 +1,132 @@
+# External Integrations
+
+> Language: English | [简体中文](../zh-cn/docs/integrations.md)
+
+This document summarizes the active optional integration boundaries. Detailed
+environment defaults live in `docker/env/sparkclaw.example.env`, and startup
+commands live in [Deployment](deployment.md).
+
+## Shared Rules
+
+- Integrations are disabled or fail closed when credentials, readiness, or
+  capability checks fail.
+- Secrets come from environment variables or files and are omitted from public
+  Gateway configuration.
+- External content is untrusted evidence. It never becomes system instruction.
+- Outbound calls have explicit host allowlists, deadlines, body limits, retry
+  limits, and audit records.
+- Messaging providers enter through Connector and Delivery registries; data
+  providers enter through typed adapter contracts.
+
+## Telegram
+
+Telegram is an optional private-chat connector. Multiple Bot bindings may
+coexist. Each Bot token is verified before activation and encrypted separately
+through the credential vault; persisted state stores ciphertext envelopes, not
+plaintext tokens.
+
+A verified Bot starts without a recipient. The first fresh authorized private
+message atomically claims its user/chat; historical updates and groups cannot
+claim it. Each binding owns its cursor, inbox identity, ordering, and recipient
+authorization. Long polling, global concurrency, pending work, attachment size,
+attachment count, and voice duration are bounded.
+
+Inbound text and supported media enter the shared Message Runtime. Voice notes
+delegate to the shared speech transcriber. Outbound text/media, scheduled
+results, and approval prompts use the same Delivery Gateway described in
+[Messaging and scheduling](messaging-and-scheduling.md).
+
+Main controls use `SPARKCLAW_TELEGRAM_*`. The Bot API base URL defaults to the
+official endpoint, polling is bounded, and private chats are required.
+
+## Weixin
+
+Weixin is an optional connector registered through the same provider-neutral
+interfaces. Its QR/binding lifecycle, polling/media behavior, addresses, and
+acknowledgements stay in the Weixin packages. Agent Runtime, Timer, and Delivery
+Gateway do not branch on Weixin names.
+
+Weixin configuration uses the notification channel block and corresponding
+environment overrides. Revoked or unavailable bindings remain visible but
+cannot be selected for delivery.
+
+## Speech Transcription
+
+Speech is an optional OpenAI-compatible transcription adapter shared by
+WebChat microphone input and Telegram voice notes. WebChat records bounded mono
+16 kHz PCM16 WAV and posts it to:
+
+```text
+GET  /api/speech/status
+POST /api/speech/transcriptions
+```
+
+Gateway validates media type, WAV structure, duration, upload size, request ID,
+session, and language before calling the configured allowlisted endpoint. The
+default service is `https://sparkclaw.infinimesh.cloud/asr` with served model
+name `sparkclaw-asr`.
+
+A WebChat transcript is inserted into the current draft and is never sent
+automatically. Transcription does not create a chat message, Agent run, Tool
+Call, approval, or artifact. Audio bytes are not retained; audit stores bounded
+metadata and outcome only. Queue and concurrency limits return explicit busy or
+unavailable states.
+
+Configuration uses `SPARKCLAW_SPEECH_*`, including endpoint, allowlist, model,
+language, timeout, duration, upload, concurrency, pending, and expected runtime
+version.
+
+## Infinimesh Info
+
+Infinimesh Info is the optional production provider for `web.search`, direct
+`info.query`, and the weather Workflow's evidence query. The provider adapter
+preserves the frozen query and request ID, obtains one-shot query tokens into an
+in-memory wallet, and applies bounded retries and response sizes.
+
+SparkClaw maps summary, non-empty key facts, public source metadata, snippets,
+and citations into stable evidence refs. It chooses a query-relevant bounded
+projection before model use. Missing summary text does not hide usable
+structured facts, and provider status text is not presented as an answer.
+
+Configuration uses `SPARKCLAW_INFINIMESH_INFO_*`. Entitlement, device
+attestation, and license proofs may be supplied directly or from files and must
+never appear in public config, logs, traces, or artifacts.
+
+## ISCP Bridge
+
+The optional ISCP Bridge is a separate process between JingSi App and the
+loopback Gateway. It uses the ISCP v0.1.0 Core SDK for device identity, Trust
+Grants, Session Hello/Ready, proof of possession, and SecureEnvelope. The Bridge
+maps encrypted `agent.*.v1` requests to one authenticated local Gateway endpoint;
+Gateway remains authoritative for sessions, runs, policy, approvals, events,
+and audit.
+
+The Bridge never accepts an ITES token and never exposes an unauthenticated LAN
+listener. Its production identity key lives in the operating-system keyring,
+Relay credentials rotate independently, and unsupported Gateway capabilities
+are absent from the manifest. See [ISCP Bridge](iscp-bridge.md) for enrollment,
+the versioned schema, App CI mock, and GB10 operation.
+
+## Binding And Status APIs
+
+WebChat manages current connector bindings through Gateway APIs:
+
+```text
+GET    /api/notification-bindings
+POST   /api/notification-bindings/{channel}/start
+GET    /api/notification-bindings/{id}
+DELETE /api/notification-bindings/{id}
+GET    /api/delivery-endpoints
+```
+
+The UI displays software, account, recipient, conversation, capabilities, and
+status from the Endpoint Registry. It does not infer a destination from channel
+names or expose native recipient IDs.
+
+## Verification
+
+Integration changes require focused disabled/unavailable tests, secret-redaction
+checks, host and timeout enforcement, Store backend parity, binding lifecycle,
+authorization isolation, payload limits, retry semantics, connector shutdown,
+and end-to-end Message Runtime/Delivery Gateway tests. Credential-gated live
+checks supplement but do not replace deterministic local tests.

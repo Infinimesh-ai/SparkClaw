@@ -2,281 +2,174 @@
 
 > 语言： [English](../../docs/development.md) | 简体中文
 
-本文档面向继续开发项目的 contributor。它替代旧的 initial roadmap 和 local implementation audit，记录当前实现状态、验证命令和扩展规则。
+本文档是贡献者入口。修改行为前先阅读系统职责[架构](architecture.md)、已发布用户表面
+[Workflow 能力矩阵](workflow-capabilities.md)，以及[文档索引](index.md)中的相关专项手册。
 
-## 仓库地图
+## 仓库结构
 
 ```text
-apps/webchat/              React/Vite workbench
-services/gateway/          Go API, Agent Runtime, Model Router, ToolHub, policy, state and traces
-configs/                   Runtime, model, tool, sandbox, logging and eval configuration
-docker/                    Compose file and service images
-scripts/                   Doctor, eval, model serving and benchmark scripts
-eval/golden/               Golden task definitions and fixtures
-benchmarks/                DGX Spark model evidence
-packages/                  Portable protocol, policy and tool-schema notes
-skills/                    尚未迁移领域的过渡 ReAct skills
-docs/                      Current project documentation
-zh-cn/                     Chinese documentation mirror
+apps/webchat/              React/Vite owner 工作台
+services/gateway/          Go Gateway 和 runtime package
+configs/                   Runtime 和 model 配置
+docker/                    Compose、image 和环境变量模板
+scripts/                   setup、doctor、eval 和 model helper
+eval/golden/               Golden case 和 fixture
+benchmarks/                模型端点证据
+packages/                  可移植 protocol/policy/schema 说明
+skills/                    未迁移 ReAct domain 的过渡 procedure
+tools/document-runtime/    声明的文档 adapter dependency
+docs/                      当前英文文档
+zh-cn/                     简体中文文档镜像
 ```
 
-## 实现状态
+`services/gateway/internal` 中大体依赖方向：
 
-MVP control plane 和 DGX Spark real-model closure 已完成。后续工作应作为 model optimization、product expansion 或 connector hardening 排期，而不是 MVP blocker。
+```text
+app contracts
+  <- capability / semanticrouting / messagecontrol / delivery / document
+  <- modelrouter / toolhub / policy / store / adapters
+  <- agent Workflow runtime
+  <- gateway HTTP 和 cmd/sparkclaw assembly
+```
 
-| Area | Status | Main Evidence |
-|---|---|---|
-| Gateway control plane, sessions, messages, events, owner profile, client pairing and rate limits | Complete | Gateway tests, golden API checks |
-| Agent Runtime, guard review, model routing, planning, repair and grounded answers | Complete | Agent tests, golden eval |
-| Router-first 能力 Workflow | 浏览器联网搜索/天气/自动化和文档读取/编辑已迁移 | Catalog revision 4、精确 Registry/Dispatcher、固定工具暴露、生产入口端到端测试与语义边界回归 |
-| ToolHub contracts and MVP tools | Complete | ToolHub tests, `/api/tools`, golden checks |
-| Approval-first reversible/dangerous actions | Complete | Approval tests, patch/delete/shell/memory golden cases |
-| Audit log, traces, observation summaries and artifact catalog | Complete | Trace/artifact tests and golden checks |
-| File、browser、memory、code 和 notify workflow | Complete | Unit tests plus 43-case eval |
-| 邮件、日历和 Workspace Knowledge/RAG | 已暂缓；原型已移除 | [暂缓能力记录](deferred-email-calendar-knowledge.md) |
-| 过渡 Skills Registry | 仅用于尚未迁移的 ReAct 领域 | Registry tests 和 `/api/skills`；已迁移 Workflow 的 Skill 包已删除 |
-| WebChat workbench | Complete | TypeScript/Vite build |
-| Runtime config, model profiles, tool policy editor, secret redaction and metrics | Complete | Gateway tests and golden checks |
-| Docker profiles and local deployment | Complete | Compose config, image builds, doctor script |
-| DGX Spark fast/deep/embedding/reranker serving | Complete | `benchmarks/model_baseline.md` |
-| Infinimesh Info `web.search` 与直接 `info.query` provider | Complete，opt-in | Contract/fault tests、保留证据的天气 Workflow fixture、redacted public config、credential-gated live smoke |
-| WebChat 与 Gateway speech transcription | Complete，opt-in | Speech/Gateway tests、voice frontend tests、live ASR smoke evidence |
-| 消息连接器 Registry 与 Telegram 多 Bot binding | Complete，opt-in | Provider-neutral registry、credential 隔离、binding、worker、media、reminder 与 WebChat tests |
-| 消息控制、定时消息与结果投递 | Router-first 垂直切片已完成 | 持久化入口/返回上下文、Endpoint/Schedule Registry、有界 Timer Worker、唯一 WorkflowResult 投递链路、Provider 能力预检、[迁移指南](message-control-delivery-migration.md) |
+Owner package 不得依赖 Gateway handler 或 WebChat concern。Adapter 实现 typed interface，
+不重新定义 domain record。
+
+## 安装
+
+需要 Go 1.25、Node.js 24+、npm 11+，以及标准 sandbox/eval 路径所需 Docker。
+
+```bash
+npm install
+npm run setup:document-tools
+npm run setup:browser
+```
+
+在两个 terminal 启动 Gateway 和 WebChat：
+
+```bash
+go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
+npm --workspace @sparkclaw/webchat run dev
+```
+
+Compose、auth、state backend、DGX Spark model 和运行环境变量见[部署](deployment.md)。
 
 ## 标准验证
 
-开发时运行最小相关测试，交付前运行完整矩阵。
-
-Host checks：
+按改动范围运行检查。常规完整本地 gate：
 
 ```bash
+cd services/gateway && go test ./...
+cd services/gateway && go vet ./...
+npm --workspace @sparkclaw/webchat test
 npm --workspace @sparkclaw/webchat run build
-npm --workspace @sparkclaw/webchat run test
-go test ./services/gateway/...
 bash scripts/doctor.sh
-bash scripts/run-eval.sh
 ```
 
-如果 host Go 不可用：
+还需要按范围运行：
 
-```bash
-sudo -n docker run --rm -u "$(id -u):$(id -g)" \
-  -v "$PWD":/workspace -w /workspace/services/gateway \
-  -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
-  golang:1.25-alpine /usr/local/go/bin/go test ./...
-```
+- 路由、Workflow、模型、tool、Policy、delivery 或用户流程改动：`bash scripts/run-eval.sh`；
+- Compose/config 改动：`docker compose --env-file .env -f docker/compose.yaml config --quiet`；
+- browser transport/profile 改动：`npm run setup:browser` 加针对性测试/eval；
+- Markdown 改动：本地或 CI 运行 `docs` job 规则，每份英文文档必须有 `zh-cn/` 镜像，
+  所有本地链接必须有效。
 
-Compose checks：
+credential-gated live service 只能作为附加证据。确定性测试仍需覆盖 unavailable、timeout、
+malformed 和 authorization failure。
 
-```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml config --quiet
-sudo -n env SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
-  docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d --build
-BROWSER_FIXTURE_URL=http://host.docker.internal:18791 \
-BROWSER_FIXTURE_BIND=0.0.0.0 \
-bash scripts/run-eval.sh
-```
+## 修改流程
 
-Postgres integration check：
+1. 为触及范围建立 clean behavioral baseline。
+2. 阅读 owner package、测试、配置和当前专项手册。
+3. 为每个新增事实或 registry entry 确定唯一 source of truth。
+4. 修改最小完整 owner boundary；除非 persisted data 明确要求，不保留平行 compatibility path。
+5. 为成功、失败和契约边界增加 focused test。
+6. 运行相应验证矩阵。
+7. 同一改动更新英文和中文文档。
+8. handoff 前检查 `git diff` 中的无关修改、generated churn、secret 和 stale name。
 
-```bash
-SPARKCLAW_TEST_POSTGRES_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw?sslmode=disable' \
-go test ./services/gateway/internal/store -run TestPostgresStoreRoundTrip -count=1
-```
+所有工作遵守[工程基线](engineering-baseline.md)，架构清理遵守[重构手册](refactor-playbook.md)。
 
-## Golden Eval 覆盖
+## Capability 与 Workflow 修改
 
-`scripts/run-eval.sh` 当前期望 43 个 golden cases。覆盖：
+当前自然语言路径是 semantic graph -> embedding/Fast Tree score -> weighted fusion ->
+reranker -> Top-2 decision -> deterministic route assembly。不要增加 keyword fallback、
+第二套 capability map 或 model-owned `RouteDecision`。见[意图路由](intent-routing.md)。
 
-- direct `/chat` profile selection
-- config、tool、skill、owner、client、auth 和 rate-limit surfaces
-- file search/read/write/delete 和 multi-file grounded answers
-- browser read、multi-source comparison、结构化交互 snapshot、验证点击闭环、过期 ref 和 prompt-injection handling
-- memory candidates、sensitive-memory rejection、approval-gated sensitive writes、editing 和 export
-- approval modification、approval-pending run lifecycle 和 post-approval trace refresh
-- shell 和 code patch approval、rollback artifacts 和 sandbox command queueing
-- model-call telemetry 和 fast/deep/repair lane selection
-- smoke/chaos eval persistence、failure archives 和 eval history
+新增用户可见 capability：
 
-添加 user-visible behavior 时，优先添加聚焦单元测试，以及一个覆盖真实 API path 的 golden case。
+1. 在 `internal/capability` 注册 branch/leaf、route contract、operation、target 和 Workflow reference。
+2. 为叶子实现且只实现一个 versioned Workflow Profile。
+3. 注册带真实样例、Tree distinction、hard negative 和来源限制的 semantic variant。
+4. 为必需 resource 增加 candidate-neutral deterministic grounding。
+5. 注册带 schema、risk/effect 和 outcome adapter 的准确 ToolHub capability。
+6. 定义 Workflow node、transition、argument binding、completion evidence、retry bound 和 final projection。
+7. 验证 Catalog/profile/graph 一致性、tool exposure、Policy/Approval、终态失败、语义混淆和端到端 delivery。
+8. 更新 [Workflow 能力矩阵](workflow-capabilities.md)。
 
-真实托管 Chromium 交互冒烟测试：
+只有 active Workflow node 暴露 tool。匹配 Workflow 不加载 Skill，也不回退 ReAct。矩阵外 tool
+可以为未来迁移继续注册，但不能宣传为当前用户能力。
 
-```bash
-SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 \
-go test ./services/gateway/internal/browserautomation \
-  -run TestRealChromiumSnapshotAndLocatorInteractions -count=1
-```
+## 消息、定时与 Delivery 修改
 
-## 使用 Tools
+复用 `internal/app` 共享 contract、`internal/messagecontrol` registry 和 `internal/delivery`
+Provider/Gateway。Web 是注册 delivery port，不是独立 result path。Timer 通过 Message Runtime
+重新发布到期内容，不直接发送。
 
-新增工具时：
+Schedule edit/delete 必须 list pending owner-scoped record、唯一解析 target、绑定当前 version，
+并用 compare-and-swap mutation。typed UI ID 只是 hint，不能跳过 fresh lookup。见
+[消息与定时任务](messaging-and-scheduling.md)。
 
-1. 定义 input 和 output structures。
-2. 在 ToolHub 同一 registration 中注册 execution、risk、语义 capability、可信目录元数据、effect 与 outcome adapter。
-3. 校验成功 output 与类型化 `ToolOutcome` adaptation。
-4. 如果它会 mutate、send、delete、execute 或暴露 sensitive data，添加 policy defaults。
-5. 添加 audit events 和 trace observation summaries。
-6. 如果 observation 可能很大或未来有用，存档完整 observation。
-7. 添加 unit tests 和至少一个 golden/smoke eval path。
-8. 如果改变产品边界，更新 [架构](architecture.md)。
+新 connector 注册 binding、delivery provider、可选 inbound runtime、capability 和 shutdown。
+Gateway/Agent code 不得按 provider name 分支。
 
-注册 capability 不会自动让模型看到工具。已迁移 Workflow Profile 必须把 capability 放入冻结活动 scope，且 `ToolExposure.Search/Materialize` 必须接纳并物化对应 registration。Workflow Plan 不得保存 Skill ID，Workflow 模型 Prompt 也不得加载 Skill 文本。不要在 TaskHint、Skill metadata 或 Agent Runtime 中增加平行工具名清单。
+## 浏览器修改
 
-当前 risk expectations：
+唯一执行后端是固定 agent-browser、系统 Chromium 和 SparkClaw-owned profile。ToolHub contract
+保持 provider-neutral，process/profile ownership 有界，page evidence 不可信，click ref 绑定 fresh
+snapshot。不要恢复 Playwright、personal Chrome attach、cookie export 或第二 DOM collector。
+见[浏览器 Runtime](browser-runtime.md)。
 
-| Risk | Behavior |
-|---|---|
-| `read` | policy 允许时可运行；输出是 untrusted evidence。 |
-| `draft` | 可产生本地 drafts/candidates，无外部副作用。 |
-| `reversible` | 需要 approval；必须保存 recovery metadata。 |
-| `dangerous` | 需要 approval；必须记录 reason、resources 和 execution result。 |
+## 文档修改
 
-## 使用能力路由与 Workflow
+Format inspection、high-level parse、normalized evidence、context projection、准确 editor
+registration、approval、output-copy write 和 post-edit preservation 必须保持在同一 staged pipeline。
+新 editor 需要准确 format/operation schema 和 delta verification。见[文档 Workflow](document-workflows.md)。
 
-当前用户可见边界见 [Workflow 能力矩阵](workflow-capabilities.md)，完整合同见[意图路由重构方案](intent-routing-workflow-refactor-plan.md)。迁移每个能力叶子时：
+## WebChat 修改
 
-1. 在版本化 Capability Catalog 中增加叶子与允许的类型化 Operation，并只引用一个精确 Workflow 协议。
-2. Fast 输出保持工具中立，拒绝未知 JSON 字段，Normalizer 冻结确定性 URL/path Fact。
-3. 注册一个精确版本化 Workflow Profile。Registry 只能使用已校验的叶子身份解析，不能重新解释消息。
-4. 为所有允许工具增加固定 Capability Metadata 与 Outcome Adapter；Tool Exposure 只能物化该 Scope。
-5. 在 Profile 中声明允许的 Transition、Risk 与受治理参数绑定，并持久化 Route 供审批/登录恢复使用。
-6. 删除同一功能的 TaskHint Candidate、旧 ReAct 暴露和 Skill 包；保留 Workflow 正在使用或等待后续迁移的 ToolHub Registration。
-7. 增加从生产入口执行真实 Tool Adapter 的端到端测试，断言 `WorkflowResult`，并证明没有 Legacy Routing Audit。
+API transport 放在 `apps/webchat/src/api/client.ts`，共享 response/action type 放在
+`apps/webchat/src/api/types.ts`。Gateway 负责 validation 和 public projection。为状态逻辑增加
+focused component/library test 并 build 完整应用。在运行中的 Gateway 上检查 desktop/mobile。
+见 [WebChat](webchat.md)。
 
-当前状态事实使用一个类型化语义边界。正确答案依赖实时互联网的只读事实使用 `fact_scope=current_internet_state`，包括价格、汇率、股票/指数行情、即时新闻、比赛结果和日程；静态常识保持 unmatched。不要为每类事实增加 leaf、关键词 switch 或工具名称列表。唯一的窄特例是 `browser.weather`，只处理一个已校验地点的当前天气或短期预报卡片；天气预警、新闻、历史和比较仍属于 `browser.internet_search`。
+## 模型与 Prompt
 
-Core Runtime 必须保持 Profile-neutral。如果实现需要按 Workflow ID 或工具名 Switch 来选择 Scope、资源、Assessment 或下一步，应把行为移入 Profile、Plan Binding、ToolHub Registration 或 Outcome Adapter。只有 `RouteDecision.Status == unmatched` 可以进入 ReAct。
+- Gateway 选择 model lane，prompt 不能自选。
+- semantic routing weight/threshold 是 embedded calibration artifact，只有在有 labeled
+  calibration/holdout 证据时才能修改。
+- Prompt 改动需要与契约对应的 malformed-output、repair、injection、多语言和 ambiguity coverage。
+- smoke call 不能证明模型质量；可重复测量写入[模型基线](../benchmarks/model_baseline.md)。
+- 加载/容量改动遵守[模型加载](model-loading.md)。
 
-定时任务变更必须扩展 `schedule.manage`，不能新增另一套 Scheduler 或存储路径。Route Operation Qualifier 与现有 Reminder 工具保持一对一，通过 `ScheduleRegistry` 持久化，并继续由 Timer Worker 与 Delivery Gateway 执行。UI 状态面可以列出 Owner 隔离的活动任务，但不能成为第二个修改 API。
+## 配置与数据卫生
 
-### 扩展天气处理
+- 每个配置都要加入 typed config、default、必要的 environment override、example env、public
+  redacted projection 和测试。
+- credential、native recipient ID、raw audio、敏感文件内容或未脱敏 provider payload 不得进入
+  public config/log/trace。
+- subprocess/outbound call 必须有 timeout、size/concurrency limit 和 owned cleanup。
+- durable record 保持 file/PostgreSQL Store parity。
+- 使用受治理 workspace/artifact ref，不接受任意 host path。
 
-天气迁移是多阶段 Workflow 的参考模式。`browser.weather` 在派发前冻结规范化 query 和有依据的 location；依次只暴露 `info.query`、`weather.structure_payload` 和 `media.render_weather_card`；中间值只通过受治理 outcome ref 传递。Deep 模型接收已映射 Info 证据中与 query 相关的有界投影，其中使用稳定的 `summary:0`、`fact:N` 和 `source:N:snippet:M` ref。结构化工具必须拒绝没有对应证据项精确原文子串支持的字段，并回到完整持久化 Info 结果校验引用与原文；每类请求数据要么包含有依据的值，要么写入明确的 `missing_fields`。缺失数据按“暂无数据”渲染，不能推测补齐，也不会因此阻塞卡片；渲染器必须保持无网络访问。详见[天气 Workflow 实施记录](browser-weather-workflow-migration-plan.md)。
+## 文档维护
 
-### 扩展文档处理
+编写 current-state 文档，不为每个功能永久保留计划。实现期间可以有 design record，完成后：
 
-文档 Workflow 的阶段顺序由 `internal/document.Pipeline` 负责，而不是由格式 adapter 或模型 prompt 决定。新增格式时，在 ToolHub 注册一个规范 parser，并按需注册带 operation qualifier 的 editor。除签名感知 detector 和 registration composition 外，不要增加 extension switch。
+1. 把长期架构决策合并到 `architecture.md` 或 owner 专项手册；
+2. 把命令合并到 `deployment.md`，贡献者步骤合并到本文；
+3. 按需更新 capability matrix 和 changelog；
+4. 删除已完成计划及其中文镜像；
+5. 修复全部 inbound link 并运行 docs check。
 
-高层路由只判断现有文档是读取还是修改；直接图片分析作为读取格式进入同一个 `document.read` Workflow。不得把自然语言中的插入、删除、追加、行、单元格、段落、幻灯片或页面词语映射为具体 editor operation。所有内容修改都携带检测格式进入 `document.edit` r2；结构化读取完成后，再由有边界的目录选择确定一个兼容、带 operation qualifier 的注册项。不支持的修改必须在该阶段明确 block，不能被强制套用到其他 editor。
-
-当前唯一实现的策略是 `small_file_v1`：源文件最大 8 MiB，完整抽取内容最大 200,000 bytes。更大资源必须返回类型化 `strategy_deferred`，直到另一个 `document.Strategy` 实现分块、流式、索引或惰性访问。截断内容绝不能成为成功的小文档结果。
-
-每个结构化文档 reader 都必须在 `structured_document_v1` 中生成稳定位置 ID。直接图片 reader 则通过 `images.inspect` 返回带尺寸和 Fast 模型来源的有界语义结果，原图限制为 12 MiB。高层 parser 可以增加可选的 `document_enrichment_v1` envelope，分别记录 assets、annotations、layout、extensions、coverage 和 category policy。DOCX、XLSX、PPTX 与文本型 PDF reader 会登记 parser 可见的嵌入图片，保存来源关系与 SHA-256 身份；图片二进制只写入 ArtifactStore，不进入 ToolCall JSON 或 prompt。`files.read` 默认使用目标模式，通过稳定的 `image_target_paths` 指定相关图片，并且只调用 Fast 模型；只有明确的全文视觉理解请求才使用 `image_analysis=all`。当前限制为目标模式最多 4 张、全文模式最多 8 张去重图片，并发 2，单图 30 秒，富化阶段总计 120 秒，输出上限 512 tokens，图片语义上下文合计最多 4,000 字符。
-
-每个 editor 都必须消费已经定位的目标，对未找到、歧义或命中数不符明确失败，写入不存在的新副本，并通过类型化结果返回全部输出 path，而不能只放在 adapter-specific details 中。XLSX 追加操作必须从该结构化表示中的最高非空行派生行锚点，不能使用库的物理 used range 或 `rowCount`，因为仅带格式的空白单元格会扩展二者并在新增内容前产生可见空洞。Pipeline 会通过同一 parser 完整重读每个输出，校验预期修改后值和未命中内容，比较已知的 asset、annotation 与 layout 指纹，再重新计算输入哈希。任何异常都会删除输出并返回 `preservation_mismatch`。成功摘要明确报告 `high_level_preservation=verified` 与 `package_preservation=unknown`；后者要等 OOXML/PDF 包级检查实现后才能升级。无效或零变更结果同样会清理副本。Subprocess 必须继续通过有界 document adapter 执行，所有解析内容都视为不可信。
-
-Path 只作为内部受治理 reference 保留，不作为面向用户的成功文本。文档修改成功后，每个输出都投影为 assistant message 上可下载的文件附件。图片输出使用 `kind=image` 与 `disposition=inline`，WebChat 按自然宽高比完整展示图片，而不是显示附件缩略图。审批恢复和持久化消息历史使用同一投影规则。
-
-测试前先安装文档运行时：
-
-```bash
-npm run setup:document-tools
-cd services/gateway
-go test ./internal/document ./internal/toolhub ./internal/agent ./cmd/sparkclaw
-```
-
-## 使用 Models
-
-确定性开发和 eval 使用 mock mode。DGX Spark 或兼容 OpenAI-style endpoints 使用 external mode。
-
-重要规则：
-
-- 发送 `sparkclaw-fast` 等 served names，不一定是 Hugging Face checkpoint IDs。
-- 对需要简洁 assistant content 的 Qwen3 chat-completions path 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。
-- 长 golden eval runs 中保持 generation caps 实用。
-- 修改 model、context、MTP、GPU memory utilization 或 serving image 后重新运行 benchmark。
-- LoRA、distillation 和 GGUF compatibility 在有 before/after eval evidence 前都视为 post-MVP model-ops work。
-
-## Frontend Development
-
-WebChat 位于 `apps/webchat/src/App.tsx`，共享 API types 位于 `apps/webchat/src/api/types.ts`。
-
-修改 UI 行为时：
-
-- Gateway 保持 policy 和 execution 的 source of truth。
-- 展示 approval、trace 和 tool-call state，而不是隐藏它们。
-- 保留 review-before-send microphone flow 与 Telegram multi-binding lifecycle。
-- 修改 composer 或 settings control 后检查 desktop 与 mobile layout。
-- 运行 `npm --workspace @sparkclaw/webchat run build`。
-- runtime status 和 error states 要足够可见，方便本地 operator 排障。
-
-## Config And Environment
-
-主要配置文件：
-
-- `configs/sparkclaw.default.json`
-- `configs/model.profiles.json`
-- `configs/tools.policy.json`
-- `configs/sandbox.policy.json`
-- `configs/eval.profiles.json`
-- `docker/env/sparkclaw.example.env`
-
-常用环境变量：
-
-- `SPARKCLAW_API_TOKEN`
-- `SPARKCLAW_MODEL_MODE`
-- `SPARKCLAW_FAST_BASE_URL`, `SPARKCLAW_FAST_MODEL`
-- `SPARKCLAW_DEEP_BASE_URL`, `SPARKCLAW_DEEP_MODEL`
-- `SPARKCLAW_EMBEDDING_BASE_URL`, `SPARKCLAW_EMBEDDING_MODEL`
-- `SPARKCLAW_RERANKER_BASE_URL`, `SPARKCLAW_RERANKER_MODEL`
-- `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
-- `SPARKCLAW_MODEL_DISABLE_THINKING`
-- `SPARKCLAW_STATE_BACKEND`, `SPARKCLAW_STATE_DSN`
-- `SPARKCLAW_ARTIFACT_BACKEND`
-- `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`
-- `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`
-- `SPARKCLAW_BROWSER_PROFILE_DIR`
-- `SPARKCLAW_WEB_SEARCH_ENABLED`, `SPARKCLAW_WEB_SEARCH_PROVIDER`
-- `SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE`
-- `SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE`
-- `SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE`
-- `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BACKEND`
-- `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`
-- `SPARKCLAW_TELEGRAM_ENABLED`, `SPARKCLAW_TELEGRAM_BASE_URL`
-- `SPARKCLAW_CREDENTIAL_KEY`, `SPARKCLAW_CREDENTIAL_KEY_FILE`
-- `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`
-
-不要提交 `.env`、state encryption keys 或 downloaded model weights。
-
-Infinimesh search、speech 与 Telegram 相互独立且默认关闭。Minimal profile 继续使用 `file` state backend，不要求 cloud 或 connector credential。每项功能都必须显式启用；Telegram enabled 而 speech disabled 时，text 与 attachment 继续可用，voice 返回明确不可用响应。
-
-## Data And Trace Hygiene
-
-Traces 和 artifacts 是开发资产，但可能包含敏感运行上下文。分享前：
-
-- 确认 redaction settings 已启用
-- 避免提交 `data/`
-- 扫描 diff 中的 `hf_`、`sk-` 和 `Authorization` 等 token
-- 确认 Infinimesh query 与 speech transcript 不进入 log、trace、status payload 或 committed fixture
-- 确认 Telegram file/PostgreSQL state 保存 credential envelope，而不是 bot token
-- raw external observations 只有在明确清洗后才进入 training data
-
-## Post-MVP Work
-
-有价值但不属于当前 MVP 必需项的后续工作：
-
-- 更长的 DGX Spark soak loops
-- smaller-context 和 no-MTP residency matrix，用于 simultaneous fast/deep serving
-- 在满足[暂缓能力](deferred-email-calendar-knowledge.md)门槛后，以设计优先方式重新引入相应能力
-- connector hardening 和 user-facing account setup
-- trace cleaning 后的 LoRA/QLoRA 或 distillation
-- GGUF/Ollama/llama.cpp compatibility profile validation
-- 从 `packages/protocol` 抽取 SDK
-- custom model profiles 的 packaging 和 rollback documentation
-
-Model training 只应在稳定 eval loop 之后开始。任何 custom model release 都需要：dataset manifest、redaction notes、exact base checkpoint hash、training config、before/after eval report 和 rollback path。
-
-## Handoff Checklist
-
-声明项目级变更完成前：
-
-1. 如果 commands、environment variables、boundaries 或 user workflows 改变，更新 docs。
-2. 运行变更区域的 targeted tests。
-3. UI 或 API types 变更后运行 WebChat build。
-4. Go code 变更后运行 Gateway tests。
-5. runtime 变更后运行 `scripts/doctor.sh` 和 mock golden eval。
-6. Docker 变更后验证 Compose config。
-7. 扫描 tracked diffs 中的 secrets。
-8. 新的 DGX Spark benchmark evidence 记录到 `benchmarks/model_baseline.md`。
+这样当前文档集合才能保持足够小并真正权威。

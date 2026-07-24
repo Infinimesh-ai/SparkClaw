@@ -92,8 +92,12 @@ def fitted_single_line_size(shape, text, max_size_pt):
         1.0,
         (shape.width - text_frame.margin_left - text_frame.margin_right) / 12700.0,
     )
+    # System fonts are not interchangeable: fallback Latin fonts often render
+    # CJK text as narrow missing-glyph boxes. Keep CJK layout decisions
+    # deterministic across runners instead of trusting those metrics.
     font_path = metric_font_path()
-    if font_path:
+    has_cjk = any(ord(char) >= 0x2E80 for char in text)
+    if font_path and not has_cjk:
         try:
             metric_font = ImageFont.truetype(font_path, 100, index=0)
             width_at_100 = float(metric_font.getlength(text))
@@ -101,7 +105,7 @@ def fitted_single_line_size(shape, text, max_size_pt):
                 return min(max_size_pt, usable_width_pt * 100.0 / width_at_100 * 0.94)
         except Exception:
             pass
-    return min(max_size_pt, usable_width_pt / visual_text_units(text) * 0.90)
+    return min(max_size_pt, usable_width_pt / visual_text_units(text) * 0.94)
 
 def shape_font_size(shape):
     text_frame = shape.text_frame

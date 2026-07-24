@@ -421,7 +421,7 @@ func browserTabsAnswerFromCalls(calls []app.ToolCall) (string, bool) {
 			}
 			title := strings.TrimSpace(stringValue(firstPresent(item, "title", "name")))
 			url := strings.TrimSpace(stringValue(firstPresent(item, "url")))
-			id := strings.TrimSpace(stringValue(firstPresent(item, "page_id", "targetId", "target_id", "id")))
+			id := strings.TrimSpace(stringValue(item["page_id"]))
 			line := fmt.Sprintf("%d.", index+1)
 			if title != "" && title != "<nil>" {
 				line += " " + title

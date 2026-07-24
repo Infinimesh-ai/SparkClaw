@@ -7,11 +7,11 @@ import (
 	"syscall"
 )
 
-func configureDriverCommand(cmd *exec.Cmd) {
+func configureAdapterCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-func terminateDriverProcess(cmd *exec.Cmd) {
+func terminateAdapterProcess(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}

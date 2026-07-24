@@ -39,10 +39,32 @@ secret_configured() {
   [[ -n "$direct_value" ]] || [[ -n "$file_path" && -r "$file_path" && -s "$file_path" ]]
 }
 
+check_system_chromium() {
+  CHROMIUM_EXECUTABLE="$(bash scripts/resolve-chromium.sh)"
+  [[ "$($CHROMIUM_EXECUTABLE --version)" == Chromium* ]]
+}
+
+check_agent_browser_snapshot() {
+  local browser="./node_modules/.bin/agent-browser"
+  local namespace="sparkclaw-doctor-$$"
+  local session="snapshot-$$"
+  local snapshot
+  export AGENT_BROWSER_NAMESPACE="$namespace"
+  export AGENT_BROWSER_EXECUTABLE_PATH="$CHROMIUM_EXECUTABLE"
+  trap '"$browser" --session "$session" close >/dev/null 2>&1 || true' RETURN
+  "$browser" --session "$session" open about:blank >/dev/null
+  snapshot="$("$browser" --session "$session" snapshot -i)"
+  [[ -n "$snapshot" ]]
+  "$browser" --session "$session" close >/dev/null
+  trap - RETURN
+}
+
 check "node" node --version
 check "npm" npm --version
-check "playwright 1.61.1" node -e 'const version = require("playwright/package.json").version; if (version !== "1.61.1") throw new Error(`expected playwright 1.61.1, got ${version}`)'
-check "playwright chromium" node -e 'const fs = require("node:fs"); const { chromium } = require("playwright"); fs.accessSync(chromium.executablePath(), fs.constants.X_OK)'
+check "agent-browser 0.32.3" bash -lc '[[ "$(./node_modules/.bin/agent-browser --version)" == "agent-browser 0.32.3" ]]'
+CHROMIUM_EXECUTABLE=""
+check "system Chromium" check_system_chromium
+check "agent-browser Chromium snapshot smoke" check_agent_browser_snapshot
 check "curl" curl --version
 check "docker" bash -lc "$DOCKER_BIN --version"
 check "docker compose" bash -lc "$DOCKER_BIN compose version"

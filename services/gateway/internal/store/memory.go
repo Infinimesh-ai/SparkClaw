@@ -896,6 +896,32 @@ func (s *MemoryStore) SaveReminder(reminder app.Reminder) app.Reminder {
 	return reminder
 }
 
+func (s *MemoryStore) UpdatePendingReminder(reminder app.Reminder, expectedUpdatedAt time.Time) (app.Reminder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.reminders[reminder.ID]
+	if !ok || current.Status != "pending" || !current.UpdatedAt.Equal(expectedUpdatedAt.UTC()) {
+		return app.Reminder{}, ErrReminderConflict
+	}
+	if reminder.CreatedAt.IsZero() {
+		reminder.CreatedAt = current.CreatedAt
+	}
+	if reminder.UpdatedAt.IsZero() {
+		reminder.UpdatedAt = time.Now().UTC()
+	}
+	if reminder.TextSummary == "" {
+		reminder.TextSummary = summarizeReminderText(reminder.Text)
+	}
+	s.reminders[reminder.ID] = reminder
+	s.appendAuditLocked("reminder."+reminder.Status, reminder.SessionID, reminder.RunID, "toolhub", reminder.TextSummary, map[string]any{
+		"reminder_id": reminder.ID,
+		"due_time":    reminder.DueTime.UTC().Format(time.RFC3339),
+		"channel":     reminder.Channel,
+	})
+	s.appendEventLocked("reminder."+reminder.Status, reminder.SessionID, reminder.RunID, reminder)
+	return reminder, nil
+}
+
 func (s *MemoryStore) GetReminder(id string) (app.Reminder, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

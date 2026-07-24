@@ -216,8 +216,8 @@ func TestBrowserReadUsesBrowserSessionWhenEnabled(t *testing.T) {
 		t.Fatalf("browser read did not use rendered article content: %q", text)
 	}
 	for _, action := range out["browser_actions"].([]string) {
-		if action == "take_snapshot" {
-			t.Fatalf("browser.read should not force structure snapshot: %#v", out["browser_actions"])
+		if strings.Contains(action, "_eval") {
+			t.Fatalf("browser.read must not fall back to DOM evaluation: %#v", out["browser_actions"])
 		}
 	}
 	if snapshot, ok := out["browser_snapshot_text"]; ok && strings.TrimSpace(fmt.Sprint(snapshot)) != "" {
@@ -255,8 +255,8 @@ func TestBrowserReadAutonomousHiddenUsesHiddenBrowserSessionWhenEnabled(t *testi
 		t.Fatalf("expected fake browser provider, got %#v", out["browser_provider"])
 	}
 	actions := fmt.Sprint(out["browser_actions"])
-	if !strings.Contains(actions, "new_hidden_page") || strings.Contains(actions, "take_snapshot") {
-		t.Fatalf("hidden read should use hidden page without forcing snapshot: %#v", out["browser_actions"])
+	if !strings.Contains(actions, "agent_browser_tab_new") || !strings.Contains(actions, "agent_browser_read") {
+		t.Fatalf("hidden read should use the native agent-browser read path: %#v", out["browser_actions"])
 	}
 	if !strings.Contains(fmt.Sprint(out["text"]), "Browser-rendered content loaded after JavaScript execution") {
 		t.Fatalf("hidden browser read did not extract rendered text: %#v", out)
@@ -282,7 +282,7 @@ func TestBrowserReadAutonomousAuthChallengeStartsVisibleHandoff(t *testing.T) {
 			BrowserMode:           "autonomous",
 			Presentation:          "hidden",
 			Provider:              "fake-browser",
-			Actions:               []string{"new_hidden_page", "evaluate_script"},
+			Actions:               []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 			Untrusted:             true,
 		},
 	}
@@ -369,7 +369,7 @@ func TestBrowserReadCompletedHandoffAcceptsAuthenticatedApplicationShell(t *test
 		BrowserMode:    "autonomous",
 		Presentation:   "hidden",
 		Provider:       "fake-browser",
-		Actions:        []string{"new_hidden_page", "evaluate_script"},
+		Actions:        []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 		Untrusted:      true,
 	}}
 	hub := New(cfg, st).WithBrowserAutomationAdapter(adapter)
@@ -410,7 +410,7 @@ func TestBrowserReadCompletedHandoffKeepsUnknownEvidenceInconclusive(t *testing.
 		AuthConfidence: "insufficient",
 		AuthSignals:    []string{"application_shell_too_weak"},
 		Provider:       "fake-browser",
-		Actions:        []string{"new_hidden_page", "evaluate_script"},
+		Actions:        []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 		Untrusted:      true,
 	}}
 	hub := New(cfg, st).WithBrowserAutomationAdapter(adapter)
@@ -486,12 +486,16 @@ func hasBrowserArtifactKind(objects []app.ArtifactObject, kind string) bool {
 }
 
 type fakePageReadAdapter struct {
-	readArgs *map[string]any
-	callArgs *map[string]any
-	readErr  error
+	readArgs   *map[string]any
+	callArgs   *map[string]any
+	healthArgs *map[string]any
+	readErr    error
 }
 
-func (fakePageReadAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
+func (f fakePageReadAdapter) Health(ctx context.Context, args map[string]any) (browserautomation.Result, error) {
+	if f.healthArgs != nil {
+		*f.healthArgs = cloneTestArgs(args)
+	}
 	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true}, Provider: "fake-browser", Untrusted: true}, nil
 }
 
@@ -510,10 +514,10 @@ func (f fakePageReadAdapter) ReadPage(ctx context.Context, url string, args map[
 		return browserautomation.PageReadResult{}, f.readErr
 	}
 	readMode := "browser_session"
-	actions := []string{"new_page", "evaluate_script"}
+	actions := []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"}
 	if fmt.Sprint(args["browser_mode"]) == "autonomous" && fmt.Sprint(args["presentation"]) == "hidden" && !boolArg(args, "surface_visible", false) {
 		readMode = "hidden_browser_session"
-		actions = []string{"new_hidden_page", "evaluate_script"}
+		actions = []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"}
 	}
 	return browserautomation.PageReadResult{
 		URL:            url,
@@ -540,7 +544,7 @@ type authFlowBrowserAdapter struct {
 	callArgs   map[string]any
 }
 
-func (a *authFlowBrowserAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
+func (a *authFlowBrowserAdapter) Health(ctx context.Context, _ map[string]any) (browserautomation.Result, error) {
 	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true}, Provider: "fake-browser", Untrusted: true}, nil
 }
 
@@ -580,7 +584,7 @@ func authenticatedPageReadResult(rawURL string) browserautomation.PageReadResult
 		BrowserMode:  "autonomous",
 		Presentation: "hidden",
 		Provider:     "fake-browser",
-		Actions:      []string{"new_hidden_page", "evaluate_script"},
+		Actions:      []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 		Untrusted:    true,
 	}
 }

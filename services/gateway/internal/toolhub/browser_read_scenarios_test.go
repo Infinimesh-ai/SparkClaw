@@ -155,7 +155,7 @@ func TestBrowserReadScenarioHiddenRenderedAndLazyPages(t *testing.T) {
 					Presentation:   "hidden",
 					SurfaceVisible: false,
 					Provider:       "scenario-hidden-browser",
-					Actions:        []string{"new_hidden_page", "evaluate_script"},
+					Actions:        []string{"agent_browser_tab_new", "agent_browser_read", "agent_browser_snapshot"},
 					Untrusted:      true,
 				},
 			})
@@ -178,8 +178,8 @@ func TestBrowserReadScenarioHiddenRenderedAndLazyPages(t *testing.T) {
 				t.Fatalf("rendered evidence missing marker %q: %#v", tc.marker, out)
 			}
 			actions := fmt.Sprint(out["browser_actions"])
-			if !strings.Contains(actions, "new_hidden_page") || !strings.Contains(actions, "evaluate_script") || strings.Contains(actions, "take_snapshot") {
-				t.Fatalf("hidden read actions should not force structure snapshot: %#v", out["browser_actions"])
+			if !strings.Contains(actions, "agent_browser_tab_new") || !strings.Contains(actions, "agent_browser_read") || !strings.Contains(actions, "agent_browser_snapshot") {
+				t.Fatalf("hidden read actions should remain agent-browser native: %#v", out["browser_actions"])
 			}
 			if intArg(out, "browser_scroll_height", 0) < tc.scrollHigh {
 				t.Fatalf("scroll diagnostics missing: %#v", out["browser_scroll_height"])
@@ -223,7 +223,7 @@ func TestBrowserReadScenarioFallbackUsesDirectHTTPWithExplicitMetadata(t *testin
 
 func TestBrowserReadScenarioRealHiddenProviderSmoke(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS") != "1" {
-		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real hidden Playwright Chromium smoke test")
+		t.Skip("set SPARKCLAW_RUN_REAL_BROWSER_SCENARIOS=1 to run the real hidden agent-browser Chromium smoke test")
 	}
 	server := newBrowserScenarioFixtureServer(t)
 	defer server.Close()
@@ -319,7 +319,7 @@ type scenarioPageReadAdapter struct {
 	readErr  error
 }
 
-func (scenarioPageReadAdapter) Health(ctx context.Context) (browserautomation.Result, error) {
+func (scenarioPageReadAdapter) Health(ctx context.Context, _ map[string]any) (browserautomation.Result, error) {
 	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true}, Provider: "scenario-browser", Untrusted: true}, nil
 }
 

@@ -86,6 +86,26 @@ VITE_SPARKCLAW_API_TOKEN=change-me npm --workspace @sparkclaw/webchat run dev
 
 如果未设置 `VITE_SPARKCLAW_API_TOKEN`，WebChat 会在第一次 unauthorized response 后提示输入。
 
+## ISCP Bridge 进程
+
+JingSi App 集成以独立 host 进程运行，从而使用 GB10 的操作系统 keyring，并且只访问 loopback
+Gateway。启用 Gateway token 认证，安装设备身份和 Cloud 签发的 enrollment bundle 后运行：
+
+```bash
+cd services/gateway
+mkdir -p ../../bin
+go build -o ../../bin/sparkclaw-iscp-bridge ./cmd/iscp-bridge
+../../bin/sparkclaw-iscp-bridge run -config ../../configs/iscp-bridge.example.json
+```
+
+相同 Gateway bearer 值或专用 paired-client token 必须写入 mode `0600` 的 Bridge
+`gateway.token` 文件。enrollment bundle 同样为 `0600`；生产 Ed25519 设备身份密钥保留在系统
+keyring。应由 service manager 执行失败重启，但显式设备撤销错误发生后，在安装新 enrollment
+bundle 前不要重启。
+
+注册、schema、credential rotation、mock mode 和完整安全边界见
+[ISCP Bridge](iscp-bridge.md)。
+
 ## State Backends
 
 默认 file state：
@@ -132,7 +152,8 @@ Compose 提供 MinIO：
 sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d minio minio-init
 ```
 
-Artifacts 包括 tool observations、browser snapshots、knowledge indexes、memory exports、patch rollback files 和 eval failure archives。
+Artifacts 包括 tool observations、browser snapshots、generated documents/media、
+memory exports、patch rollback files 和 eval failure archives。
 
 ## Sandbox Runner
 

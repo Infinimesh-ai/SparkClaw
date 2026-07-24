@@ -86,6 +86,28 @@ VITE_SPARKCLAW_API_TOKEN=change-me npm --workspace @sparkclaw/webchat run dev
 
 If `VITE_SPARKCLAW_API_TOKEN` is not set, WebChat prompts after the first unauthorized response.
 
+## ISCP Bridge Process
+
+The JingSi App integration runs as a separate host process so it can use the GB10
+operating-system keyring and reach only the loopback Gateway. Enable Gateway token
+auth, provision the identity and Cloud-issued enrollment bundle, then run:
+
+```bash
+cd services/gateway
+mkdir -p ../../bin
+go build -o ../../bin/sparkclaw-iscp-bridge ./cmd/iscp-bridge
+../../bin/sparkclaw-iscp-bridge run -config ../../configs/iscp-bridge.example.json
+```
+
+The same Gateway bearer value, or a dedicated paired-client token, must be stored
+in the Bridge `gateway.token` file with mode `0600`. The enrollment bundle is also
+`0600`; the production Ed25519 identity key stays in the system keyring. Install
+the binary under a service manager with restart-on-failure, but do not restart on
+an explicit device-revocation error until a new enrollment bundle is installed.
+
+See [ISCP Bridge](iscp-bridge.md) for enrollment, schema, credential rotation,
+mock mode, and the exact security boundary.
+
 ## State Backends
 
 Default file state:
@@ -132,7 +154,8 @@ Compose provides MinIO:
 sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d minio minio-init
 ```
 
-Artifacts include tool observations, browser snapshots, knowledge indexes, memory exports, patch rollback files and eval failure archives.
+Artifacts include tool observations, browser snapshots, generated documents and
+media, memory exports, patch rollback files and eval failure archives.
 
 ## Sandbox Runner
 

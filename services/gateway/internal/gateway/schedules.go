@@ -10,14 +10,28 @@ import (
 )
 
 type publicSchedule struct {
-	ID          app.ScheduleID          `json:"id"`
-	SessionID   string                  `json:"session_id,omitempty"`
-	Title       string                  `json:"title"`
-	DueTime     time.Time               `json:"due_time"`
-	Timezone    string                  `json:"timezone"`
-	Recurrence  string                  `json:"recurrence,omitempty"`
-	Status      string                  `json:"status"`
-	PayloadMode app.SchedulePayloadMode `json:"payload_mode"`
+	ID         app.ScheduleID         `json:"id"`
+	SessionID  string                 `json:"session_id,omitempty"`
+	Title      string                 `json:"title"`
+	Text       string                 `json:"text"`
+	DueTime    time.Time              `json:"due_time"`
+	Timezone   string                 `json:"timezone"`
+	Recurrence string                 `json:"recurrence,omitempty"`
+	Status     string                 `json:"status"`
+	UpdatedAt  time.Time              `json:"updated_at"`
+	Editable   bool                   `json:"editable"`
+	Cancelable bool                   `json:"cancelable"`
+	Endpoint   publicScheduleEndpoint `json:"endpoint"`
+}
+
+type publicScheduleEndpoint struct {
+	Kind                 app.EndpointKind `json:"kind,omitempty"`
+	Channel              string           `json:"channel,omitempty"`
+	SoftwareDisplayName  string           `json:"software_display_name,omitempty"`
+	AccountDisplayName   string           `json:"account_display_name,omitempty"`
+	RecipientDisplayName string           `json:"recipient_display_name,omitempty"`
+	ConversationLabel    string           `json:"conversation_label,omitempty"`
+	Status               string           `json:"status"`
 }
 
 func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
@@ -31,10 +45,14 @@ func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
 		if schedule.Spec.OwnerID != principal.OwnerID || schedule.Spec.ActorID != principal.ActorID {
 			continue
 		}
+		endpoint := s.publicScheduleEndpoint(r, schedule)
+		text := scheduleText(schedule.Spec.Payload.Content)
 		out = append(out, publicSchedule{
 			ID: schedule.ID, SessionID: schedule.SessionID, Title: scheduleTitle(schedule.Spec.Payload.Content),
 			DueTime: schedule.DueTime, Timezone: schedule.Timezone, Recurrence: schedule.Recurrence,
-			Status: schedule.Status, PayloadMode: schedule.Spec.Payload.Mode,
+			Status: schedule.Status, Text: text, UpdatedAt: schedule.UpdatedAt, Endpoint: endpoint,
+			Editable:   schedule.Status == "pending" && endpoint.Status == string(app.EndpointActive),
+			Cancelable: schedule.Status == "pending",
 		})
 		if len(out) == 100 {
 			break
@@ -43,16 +61,81 @@ func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"schedules": out})
 }
 
+func (s *Server) publicScheduleEndpoint(r *http.Request, schedule app.MessageSchedule) publicScheduleEndpoint {
+	route := schedule.Spec.ReturnRoute
+	if route.Mode == app.ReturnNowhere {
+		return publicScheduleEndpoint{Status: "not_applicable"}
+	}
+	endpointID := route.EndpointID
+	if route.Mode == app.ReturnToSource {
+		endpointID = route.SourceEndpointID
+	}
+	endpoint, err := messagecontrol.NewEndpointRegistry(s.store).Get(r.Context(), endpointID)
+	if err != nil {
+		return s.unavailableScheduleEndpoint(endpointID, schedule.SessionID)
+	}
+	projection := publicScheduleEndpoint{
+		Kind: endpoint.Kind, Channel: endpoint.ProviderKey, SoftwareDisplayName: endpoint.SoftwareDisplayName,
+		AccountDisplayName: endpoint.AccountDisplayName, RecipientDisplayName: endpoint.RecipientDisplayName,
+		ConversationLabel: endpoint.ConversationLabel, Status: string(endpoint.Status),
+	}
+	if endpoint.Kind == app.EndpointKindWeb {
+		projection.Channel = "web"
+		projection.SoftwareDisplayName = "WebChat"
+		if session, ok := s.store.GetSession(endpoint.SessionID); ok {
+			projection.ConversationLabel = session.Title
+		}
+	}
+	return projection
+}
+
+func (s *Server) unavailableScheduleEndpoint(endpointID app.EndpointID, sessionID string) publicScheduleEndpoint {
+	value := strings.TrimSpace(string(endpointID))
+	if strings.HasPrefix(value, "session:") {
+		projection := publicScheduleEndpoint{Kind: app.EndpointKindWeb, Channel: "web", SoftwareDisplayName: "WebChat", Status: "unavailable"}
+		if session, ok := s.store.GetSession(strings.TrimPrefix(value, "session:")); ok {
+			projection.ConversationLabel = session.Title
+		}
+		return projection
+	}
+	if chat, ok := s.store.GetExternalChatSession(value); ok {
+		binding, _ := s.store.GetNotificationBinding(chat.BindingID)
+		return publicScheduleEndpoint{
+			Kind: app.EndpointKindThirdPartyDevice, Channel: chat.Channel, SoftwareDisplayName: chat.Channel,
+			AccountDisplayName: binding.DisplayName, RecipientDisplayName: chat.DisplayName,
+			ConversationLabel: binding.DisplayName, Status: "unavailable",
+		}
+	}
+	if binding, ok := s.store.GetNotificationBinding(value); ok {
+		return publicScheduleEndpoint{
+			Kind: app.EndpointKindThirdPartyDevice, Channel: binding.Channel, SoftwareDisplayName: binding.Channel,
+			AccountDisplayName: binding.DisplayName, Status: "unavailable",
+		}
+	}
+	if session, ok := s.store.GetSession(sessionID); ok {
+		return publicScheduleEndpoint{Kind: app.EndpointKindWeb, Channel: "web", SoftwareDisplayName: "WebChat", ConversationLabel: session.Title, Status: "unavailable"}
+	}
+	return publicScheduleEndpoint{Status: "unavailable"}
+}
+
 func scheduleTitle(content app.MessageContent) string {
+	text := scheduleText(content)
+	if text == "" {
+		return "Scheduled task"
+	}
+	runes := []rune(text)
+	if len(runes) > 120 {
+		return string(runes[:120]) + "..."
+	}
+	return text
+}
+
+func scheduleText(content app.MessageContent) string {
 	for _, part := range content.Parts {
 		if part.Kind != app.MessagePartText || strings.TrimSpace(part.Text) == "" {
 			continue
 		}
-		runes := []rune(strings.TrimSpace(part.Text))
-		if len(runes) > 120 {
-			return string(runes[:120]) + "..."
-		}
-		return string(runes)
+		return strings.TrimSpace(part.Text)
 	}
-	return "Scheduled task"
+	return ""
 }

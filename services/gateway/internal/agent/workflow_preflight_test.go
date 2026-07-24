@@ -41,7 +41,7 @@ func TestDocumentReadPreflightDispatchesOnlyCompatibleReader(t *testing.T) {
 		t.Run(test.format, func(t *testing.T) {
 			runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 			defer closeRuntime()
-			route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "Summarize "+test.path, agentContextSnapshot{})
+			route, err := runtime.routeIntentForTest(session.ID, "turn", "Summarize "+test.path, agentContextSnapshot{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +93,7 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 		t.Run(test.format+"/"+test.operation, func(t *testing.T) {
 			runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 			defer closeRuntime()
-			route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", test.request, agentContextSnapshot{})
+			route, err := runtime.routeIntentForTest(session.ID, "turn", test.request, agentContextSnapshot{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -165,7 +165,7 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 	}
 	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "Rotate pages in report.pdf", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "Rotate pages in report.pdf", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,10 +206,11 @@ func TestDocumentEditUsesSingleGovernedAttachmentPath(t *testing.T) {
 		"修改并完善附件文档中五、心得与体会标题下的正文。必须依据结构化读取结果，仅定位并替换 document.p[25]，保持其他内容不变，写入新 DOCX 副本。", "", "Attached files for this user turn:",
 		"- original-display-name.docx path=uploads/report.docx content_type=application/vnd.openxmlformats-officedocument.wordprocessingml.document bytes=128 media_kind=file",
 	}, "\n")
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", projection, agentContextSnapshot{})
+	routing, err := runtime.routeIntentOutputForTest(session.ID, "turn", projection)
 	if err != nil {
 		t.Fatal(err)
 	}
+	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Slots.TargetRef != "uploads/report.docx" || route.Facts["document_operation"] != "" {
 		t.Fatalf("attached document edit did not freeze its unique governed path: %#v", route)
@@ -229,13 +230,14 @@ func TestDocumentContentMutationRoutesToEditR2ThenSelectsXLSXEditor(t *testing.T
 		"文档末尾新增学号 3，姓名为张七的人", "", "Attached files for this user turn:",
 		"- people.xlsx path=uploads/people.xlsx content_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=6791",
 	}, "\n")
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", projection, agentContextSnapshot{})
+	routing, err := runtime.routeIntentOutputForTest(session.ID, "turn", projection)
 	if err != nil {
 		t.Fatal(err)
 	}
+	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
-		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r2: %#v", route)
+		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r2: route=%#v fusion=%+v", route, routing.Fusion)
 	}
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
@@ -268,7 +270,7 @@ func TestXLSXMutationSynonymsDoNotFreezeConcreteOperations(t *testing.T) {
 		"在 people.xlsx 指定位置插入一行",
 		"删除 people.xlsx 中指定的一行",
 	} {
-		route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", request, agentContextSnapshot{})
+		route, err := runtime.routeIntentForTest(session.ID, "turn", request, agentContextSnapshot{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -285,7 +287,7 @@ func TestDocumentRoutingKeepsReadOnlyAndFileLifecycleOutsideEditR2(t *testing.T)
 	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
 
-	read, err := runtime.recognizeCapabilityRoute(session.ID, "read", "读取 people.xlsx 的内容", agentContextSnapshot{})
+	read, err := runtime.routeIntentForTest(session.ID, "read", "读取 people.xlsx 的内容", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +295,7 @@ func TestDocumentRoutingKeepsReadOnlyAndFileLifecycleOutsideEditR2(t *testing.T)
 		t.Fatalf("read-only document request left document.read: %#v", read)
 	}
 	for _, request := range []string{"删除 people.xlsx", "新建 people.xlsx"} {
-		route, err := runtime.recognizeCapabilityRoute(session.ID, "lifecycle", request, agentContextSnapshot{})
+		route, err := runtime.routeIntentForTest(session.ID, "lifecycle", request, agentContextSnapshot{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -310,15 +312,16 @@ func TestImageAttachmentUsesDocumentReadOnlyForDirectAnalysis(t *testing.T) {
 	defer closeRuntime()
 	attachment := "\n\nAttached files for this user turn:\n- screen.png path=media/screen.png content_type=image/png bytes=74 media_kind=image"
 
-	direct, err := runtime.recognizeCapabilityRoute(session.ID, "direct", "这张图片什么内容"+attachment, agentContextSnapshot{})
+	directRouting, err := runtime.routeIntentOutputForTest(session.ID, "direct", "这张图片什么内容"+attachment)
 	if err != nil {
 		t.Fatal(err)
 	}
+	direct := directRouting.Route
 	if direct.Status != app.RouteMatched || direct.CapabilityPath[1] != app.CapabilityDocumentRead || direct.Facts["document_format"] != app.DocumentFormatImage {
-		t.Fatalf("direct image analysis did not enter document.read: %#v", direct)
+		t.Fatalf("direct image analysis did not enter document.read: route=%#v fusion=%+v", direct, directRouting.Fusion)
 	}
 	for _, request := range []string{"把这张图片发送到微信", "这张图片里的新闻是真的吗，帮我联网查证"} {
-		route, err := runtime.recognizeCapabilityRoute(session.ID, "other", request+attachment, agentContextSnapshot{})
+		route, err := runtime.routeIntentForTest(session.ID, "other", request+attachment, agentContextSnapshot{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -335,7 +338,7 @@ func TestUnsupportedDocumentContentMutationStillRoutesToEditR2(t *testing.T) {
 	}
 	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "修改 report.pdf 中的文字内容", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "修改 report.pdf 中的文字内容", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}

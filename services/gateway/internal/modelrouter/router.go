@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
@@ -1080,11 +1081,23 @@ func mockResponse(lane, user string) string {
 		}
 		return "Mock workflow answer grounded in the completed document evidence."
 	}
-	if strings.Contains(user, "Deterministic route and authority-safe delivery fallback:") {
-		if injected := mockInjectedResponse(user, "MOCK_INTENT_RESPONSE:"); injected != "" {
+	if strings.Contains(user, "WORKFLOW_MODEL_ANSWER_REQUEST") {
+		if injected := mockInjectedResponse(user, "MOCK_CONVERSATION_RESPONSE:"); injected != "" {
 			return injected
 		}
-		return `{"route":{},"delivery":{"explicit_external":false}}`
+		return "I can answer this directly from the current conversation."
+	}
+	if strings.Contains(user, "INTENT_FUSION_TREE_REPAIR_REQUEST") {
+		if injected := mockInjectedResponse(user, "MOCK_INTENT_TREE_REPAIR_RESPONSE:"); injected != "" {
+			return injected
+		}
+		return mockIntentFusionResponse(user)
+	}
+	if strings.Contains(user, "INTENT_FUSION_TREE_REQUEST") {
+		if injected := mockInjectedResponse(user, "MOCK_INTENT_TREE_RESPONSE:"); injected != "" {
+			return injected
+		}
+		return mockIntentFusionResponse(user)
 	}
 	if injected := mockInjectedResponse(user, "MOCK_TASK_HINT_RESPONSE:"); injected != "" {
 		return injected
@@ -1244,7 +1257,7 @@ func mockBrowserInteractionStage(prompt string) string {
 		value = value[:end]
 	}
 	switch value {
-	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new", "snapshot_before_action", "choose_and_click", "snapshot_after_action", "verify_action", "close_opened_tab":
+	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new", "snapshot_before_action", "choose_and_click", "snapshot_after_action", "verify_action":
 		return value
 	default:
 		return ""
@@ -1291,8 +1304,6 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 			"before_snapshot_id": beforeID, "after_snapshot_id": afterID,
 			"element_ref": clicked, "verdict": "success", "reason": "The requested click produced a verified page-state change.",
 		})
-	case "close_opened_tab":
-		return mockReActAction("browser.close", map[string]any{"page_id": mockWorkflowPageID(prompt)})
 	}
 	return `{"type":"final","answer":"The browser interaction workflow could not select its required next action."}`
 }
@@ -1549,7 +1560,7 @@ func mockEmbeddings(inputs []string) [][]float32 {
 	vectors := make([][]float32, 0, len(inputs))
 	for _, input := range inputs {
 		vector := make([]float32, 64)
-		terms := strings.Fields(strings.ToLower(input))
+		terms := mockSemanticTerms(input)
 		if len(terms) == 0 {
 			terms = []string{input}
 		}
@@ -1569,14 +1580,14 @@ func mockEmbeddings(inputs []string) [][]float32 {
 }
 
 func mockRerank(query string, documents []string, topN int) []RerankScored {
-	queryTerms := strings.Fields(strings.ToLower(query))
 	results := make([]RerankScored, 0, len(documents))
 	for index, document := range documents {
-		lower := strings.ToLower(document)
-		score := float64(len(queryTerms)) * 0.01
-		for _, term := range queryTerms {
-			if strings.Contains(lower, term) {
-				score += 1
+		score := mockSemanticSimilarity(query, document)
+		if candidateID := mockPromptValue(document, "candidate_id="); candidateID != "" {
+			if prior := mockIntentCandidatePrior(query, candidateID); prior > 0 {
+				score = prior
+			} else {
+				score = min(score, 0.25)
 			}
 		}
 		results = append(results, RerankScored{Index: index, Score: score})
@@ -1594,6 +1605,205 @@ func mockRerank(query string, documents []string, topN int) []RerankScored {
 		results = results[:topN]
 	}
 	return results
+}
+
+type mockIntentGraphCandidate struct {
+	CandidateID       string   `json:"candidate_id"`
+	SemanticBoundary  string   `json:"semantic_boundary"`
+	PositiveSemantics []string `json:"positive_semantics"`
+	HardNegatives     []string `json:"hard_negatives"`
+}
+
+func mockIntentFusionResponse(user string) string {
+	revision := mockPromptValue(user, "Graph revision: ")
+	query := mockPromptSection(user, "Owner semantic query:\n", "\n\nReturn the scored registered candidates now.")
+	graphJSON := mockPromptSection(user, "Semantic graph:\n", "\n\nOwner semantic query:")
+	var graph []mockIntentGraphCandidate
+	if json.Unmarshal([]byte(graphJSON), &graph) != nil || len(graph) == 0 {
+		encoded, _ := json.Marshal(map[string]any{"graph_revision": revision, "candidates": []any{}})
+		return string(encoded)
+	}
+	type scoredCandidate struct {
+		ID    string
+		Score float64
+	}
+	scored := make([]scoredCandidate, 0, len(graph))
+	for _, candidate := range graph {
+		positive := mockSemanticSimilarity(query, candidate.SemanticBoundary)
+		for _, example := range candidate.PositiveSemantics {
+			positive = max(positive, mockSemanticSimilarity(query, example))
+		}
+		negative := 0.0
+		for _, example := range candidate.HardNegatives {
+			negative = max(negative, mockSemanticSimilarity(query, example))
+		}
+		score := min(0.99, max(0.01, 0.08+1.25*positive-0.55*negative))
+		if prior := mockIntentCandidatePrior(query, candidate.CandidateID); prior > 0 {
+			score = prior
+		} else {
+			score = min(score, 0.25)
+		}
+		scored = append(scored, scoredCandidate{ID: candidate.CandidateID, Score: score})
+	}
+	slices.SortFunc(scored, func(left, right scoredCandidate) int {
+		if left.Score > right.Score {
+			return -1
+		}
+		if left.Score < right.Score {
+			return 1
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	if len(scored) > 5 {
+		scored = scored[:5]
+	}
+	candidates := make([]map[string]any, 0, len(scored))
+	for _, candidate := range scored {
+		candidates = append(candidates, map[string]any{
+			"candidate_id": candidate.ID, "tree_score": candidate.Score,
+		})
+	}
+	encoded, _ := json.Marshal(map[string]any{"graph_revision": revision, "candidates": candidates})
+	return string(encoded)
+}
+
+func mockPromptValue(prompt, prefix string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), prefix))
+		}
+	}
+	return ""
+}
+
+func mockPromptSection(prompt, start, end string) string {
+	index := strings.Index(prompt, start)
+	if index < 0 {
+		return ""
+	}
+	section := prompt[index+len(start):]
+	if endIndex := strings.Index(section, end); endIndex >= 0 {
+		section = section[:endIndex]
+	}
+	return strings.TrimSpace(section)
+}
+
+func mockSemanticSimilarity(left, right string) float64 {
+	leftTerms := mockSemanticTermSet(left)
+	rightTerms := mockSemanticTermSet(right)
+	if len(leftTerms) == 0 || len(rightTerms) == 0 {
+		return 0
+	}
+	intersection := 0
+	for term := range leftTerms {
+		if rightTerms[term] {
+			intersection++
+		}
+	}
+	return float64(intersection) / math.Sqrt(float64(len(leftTerms)*len(rightTerms)))
+}
+
+func mockSemanticTermSet(value string) map[string]bool {
+	terms := mockSemanticTerms(value)
+	set := make(map[string]bool, len(terms))
+	for _, term := range terms {
+		set[term] = true
+	}
+	return set
+}
+
+func mockSemanticTerms(value string) []string {
+	lower := strings.ToLower(value)
+	terms := strings.FieldsFunc(lower, func(char rune) bool {
+		return !(unicode.IsLetter(char) || unicode.IsDigit(char))
+	})
+	for _, run := range strings.FieldsFunc(lower, func(char rune) bool { return !unicode.In(char, unicode.Han) }) {
+		runes := []rune(run)
+		for size := 1; size <= 3; size++ {
+			for start := 0; start+size <= len(runes); start++ {
+				terms = append(terms, string(runes[start:start+size]))
+			}
+		}
+	}
+	if len(terms) == 0 {
+		return []string{lower}
+	}
+	return terms
+}
+
+func mockIntentCandidatePrior(query, candidateID string) float64 {
+	lower := strings.ToLower(strings.TrimSpace(query))
+	contains := func(terms ...string) bool { return containsAnyTerm(lower, terms...) }
+	temporal := contains("秒后", "分钟后", "小时后", "天后", "明天", "后天", "稍后", "到时候", "每天", "每周", "tomorrow", "later", "every ")
+	scheduleDiscussion := contains("为什么", "失败", "没有触发", "没触发", "why", "failed", "failure")
+	scheduleStatement := contains("我会", "我将", "我参加", "i will ", "i am going")
+	switch candidateID {
+	case "schedule.manage#create":
+		if temporal && !scheduleDiscussion && !scheduleStatement && !contains("查看", "列出", "有哪些", "show", "list") && contains("提醒", "告知", "叫我", "跟我说", "通知", "查一下", "查询", "remind", "tell me", "notify", "search") {
+			return 0.97
+		}
+	case "schedule.manage#read":
+		scheduleTarget := contains("提醒", "定时任务", "计划任务", "schedule", "scheduled", "reminder")
+		if !scheduleDiscussion && scheduleTarget && contains("查看", "列出", "有哪些", "show", "list", "view") {
+			return 0.96
+		}
+	case "schedule.manage#edit":
+		scheduleTarget := contains("提醒", "定时任务", "计划任务", "schedule", "reminder")
+		if !scheduleDiscussion && scheduleTarget && contains("修改", "改到", "改为", "推迟", "提前", "reschedule", "edit reminder") {
+			return 0.97
+		}
+	case "schedule.manage#delete":
+		if !scheduleDiscussion && contains("取消", "删除", "不要再", "cancel", "delete reminder") && contains("提醒", "定时", "任务", "reminder", "schedule") {
+			return 0.97
+		}
+	case "browser.weather#read":
+		if contains("天气", "气温", "温度", "下雨", "下雪", "weather", "forecast") && !contains("预警", "新闻", "空气质量", "对比", "比较", "alert", "news", "compare", "air quality") {
+			return 0.97
+		}
+	case "browser.internet_search#search":
+		ordinaryWeather := contains("天气", "气温", "温度", "下雨", "下雪", "weather", "forecast") && !contains("预警", "新闻", "空气质量", "对比", "比较", "alert", "news", "air quality", "compare")
+		localDocument := contains(".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", "本地文件", "工作区", "workspace", "local file")
+		browserAction := contains("点击", "点开", "按钮", "当前页面", "当前标签", "页面结构", "chrome 页面", "勾选", "输入", "click", "tap", "button", "current page", "current tab", "page structure", "check", "type")
+		conceptual := contains("概念", "是什么意思", "是什么概念", "解释", "what is", "explain")
+		if !ordinaryWeather && !localDocument && !browserAction && !conceptual && contains("查一下", "查询一下", "搜索", "联网", "浏览器查询", "最新", "今天", "今日", "现在", "当前", "实时", "最近", "新闻", "价格", "售价", "汇率", "指数", "比分", "在售", "上架", "预警", "空气质量", "对比", "比较", "search", "look up", "online", "current", "latest", "today", "news", "price", "pricing", "exchange rate", "score", "available", "compare") {
+			return 0.96
+		}
+	case "browser.automation#open":
+		if contains("打开", "访问", "切换到", "open", "visit", "focus") && !contains("点击", "点开", "输入", "填写", "选择", "勾选", "登录", "认证", "草稿箱", "收件箱", "click", "type", "select", "check", "login", "sign in", "authenticate", "drafts", "inbox") {
+			return 0.96
+		}
+	case "browser.interaction#interact":
+		if contains("点击", "点开", "按钮", "勾选", "选择", "输入", "草稿箱", "收件箱", "click", "tap", "check", "select", "type", "drafts", "inbox") {
+			return 0.97
+		}
+	case "document.read#read":
+		documentTarget := contains("附件", "文档", "文件", "图片", "图像", ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", ".png", ".jpg", ".jpeg", "document", "file", "image", "attached")
+		mutation := contains("修改", "编辑", "替换", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
+		if documentTarget && contains("读取", "阅读", "查看", "总结", "概括", "解释", "什么内容", "什么文字", "分析", "read", "summarize", "inspect", "explain", "analyze") && !mutation {
+			return 0.96
+		}
+	case "document.edit#edit":
+		mutation := contains("修改", "编辑", "替换", "改为", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "增加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
+		browserContext := contains("按钮", "页面", "账户", "网页", "button", "page", "account", "browser")
+		fileLifecycle := contains("删除", "移除", "delete", "remove") && !contains("内容", "文字", "文本", "段落", "行", "单元格", "幻灯片", "页面内容", "content", "text", "paragraph", "row", "cell", "slide")
+		if mutation && !browserContext && !fileLifecycle && !contains("pdf") {
+			return 0.97
+		}
+	case "document.edit#transform":
+		if contains("pdf") && contains("修改", "旋转", "拆分", "调整", "transform", "rotate", "split", "edit") {
+			return 0.97
+		}
+	case "conversation.answer#answer":
+		reserved := contains(
+			"打开", "点击", "登录", "提醒", "定时", "文件", "文档", "附件", "图片", "图像", "照片", "天气", "气温", "温度", "下雨", "下雪", "预报", "空气质量",
+			"新闻", "价格", "金价", "售价", "汇率", "指数", "比分", "现在", "当前", "实时", "最新", "运行", "测试", "代码", "仓库", "项目", "记住", "完善", "修改", "编辑",
+			"open", "click", "login", "remind", "schedule", "file", "document", "image", "photo", "weather", "forecast", "air quality", "news", "price", "exchange rate", "current", "latest", "run test", "code", "repo", "repository", "project", "remember", "edit", "improve",
+		)
+		if !reserved && (contains("你好", "您好", "谢谢", "解释", "概括", "是什么", "为什么", "区别", "hello", "thanks", "explain", "what is", "why") || len([]rune(lower)) <= 12) {
+			return 0.95
+		}
+	}
+	return 0
 }
 
 func containsAnyTerm(value string, terms ...string) bool {

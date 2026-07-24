@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type scheduleStore interface {
 	SaveReminder(app.Reminder) app.Reminder
+	UpdatePendingReminder(app.Reminder, time.Time) (app.Reminder, error)
 	GetReminder(string) (app.Reminder, bool)
 	ListReminders(app.ReminderFilter) []app.Reminder
 	ClaimDueReminders(time.Time, time.Time, int) []app.Reminder
@@ -19,6 +21,14 @@ type scheduleStore interface {
 	GetNotificationBinding(string) (app.NotificationBinding, bool)
 	GetExternalChatSession(string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(string, string) []app.ExternalChatSession
+}
+
+type SchedulePatch struct {
+	Content     *app.MessageContent
+	DueTime     *time.Time
+	Timezone    *string
+	Recurrence  *string
+	ReturnRoute *app.ReturnRoute
 }
 
 type ScheduleRegistry struct {
@@ -33,19 +43,112 @@ func (r *ScheduleRegistry) Save(ctx context.Context, schedule app.MessageSchedul
 	if r == nil || r.store == nil {
 		return app.MessageSchedule{}, errors.New("schedule registry is unavailable")
 	}
-	if err := validateSchedule(schedule); err != nil {
+	reminder, err := r.reminderForSchedule(ctx, schedule)
+	if err != nil {
 		return app.MessageSchedule{}, err
+	}
+	saved, ok := r.fromReminder(r.store.SaveReminder(reminder))
+	if !ok {
+		return app.MessageSchedule{}, errors.New("saved schedule spec is unavailable")
+	}
+	return saved, nil
+}
+
+func (r *ScheduleRegistry) UpdatePending(ctx context.Context, id app.ScheduleID, ownerID, actorID string, expectedUpdatedAt time.Time, patch SchedulePatch) (app.MessageSchedule, error) {
+	schedule, err := r.pendingOwned(id, ownerID, actorID, expectedUpdatedAt)
+	if err != nil {
+		return app.MessageSchedule{}, err
+	}
+	if patch.Content != nil {
+		schedule.Spec.Payload.Content = *patch.Content
+	}
+	if patch.DueTime != nil {
+		schedule.DueTime = patch.DueTime.UTC()
+	}
+	if patch.Timezone != nil {
+		schedule.Timezone = strings.TrimSpace(*patch.Timezone)
+	}
+	if patch.Recurrence != nil {
+		schedule.Recurrence = strings.TrimSpace(*patch.Recurrence)
+	}
+	if patch.ReturnRoute != nil {
+		schedule.Spec.ReturnRoute = *patch.ReturnRoute
+	}
+	schedule.UpdatedAt = nextUpdateTime(expectedUpdatedAt)
+	reminder, err := r.reminderForSchedule(ctx, schedule)
+	if err != nil {
+		return app.MessageSchedule{}, err
+	}
+	updated, err := r.store.UpdatePendingReminder(reminder, expectedUpdatedAt.UTC())
+	if err != nil {
+		if errors.Is(err, store.ErrReminderConflict) {
+			return app.MessageSchedule{}, store.ErrReminderConflict
+		}
+		return app.MessageSchedule{}, err
+	}
+	result, ok := r.fromReminder(updated)
+	if !ok {
+		return app.MessageSchedule{}, errors.New("updated schedule spec is unavailable")
+	}
+	return result, nil
+}
+
+func (r *ScheduleRegistry) CancelPending(ctx context.Context, id app.ScheduleID, ownerID, actorID string, expectedUpdatedAt time.Time) (app.MessageSchedule, error) {
+	schedule, err := r.pendingOwned(id, ownerID, actorID, expectedUpdatedAt)
+	if err != nil {
+		return app.MessageSchedule{}, err
+	}
+	now := nextUpdateTime(expectedUpdatedAt)
+	schedule.Status = "canceled"
+	schedule.UpdatedAt = now
+	schedule.CanceledAt = &now
+	reminder, err := r.reminderForSchedule(ctx, schedule)
+	if err != nil {
+		return app.MessageSchedule{}, err
+	}
+	updated, err := r.store.UpdatePendingReminder(reminder, expectedUpdatedAt.UTC())
+	if err != nil {
+		if errors.Is(err, store.ErrReminderConflict) {
+			return app.MessageSchedule{}, store.ErrReminderConflict
+		}
+		return app.MessageSchedule{}, err
+	}
+	result, ok := r.fromReminder(updated)
+	if !ok {
+		return app.MessageSchedule{}, errors.New("canceled schedule spec is unavailable")
+	}
+	return result, nil
+}
+
+func (r *ScheduleRegistry) pendingOwned(id app.ScheduleID, ownerID, actorID string, expectedUpdatedAt time.Time) (app.MessageSchedule, error) {
+	if r == nil || r.store == nil {
+		return app.MessageSchedule{}, errors.New("schedule registry is unavailable")
+	}
+	schedule, ok := r.Get(context.Background(), id)
+	if !ok || schedule.Spec.OwnerID != strings.TrimSpace(ownerID) || schedule.Spec.ActorID != strings.TrimSpace(actorID) {
+		return app.MessageSchedule{}, errors.New("schedule not found")
+	}
+	if schedule.Status != "pending" {
+		return app.MessageSchedule{}, fmt.Errorf("only pending schedules can be changed, current status is %q", schedule.Status)
+	}
+	if expectedUpdatedAt.IsZero() || !schedule.UpdatedAt.Equal(expectedUpdatedAt.UTC()) {
+		return app.MessageSchedule{}, store.ErrReminderConflict
+	}
+	return schedule, nil
+}
+
+func (r *ScheduleRegistry) reminderForSchedule(ctx context.Context, schedule app.MessageSchedule) (app.Reminder, error) {
+	if err := validateSchedule(schedule); err != nil {
+		return app.Reminder{}, err
 	}
 	if schedule.Spec.ReturnRoute.Mode != app.ReturnNowhere {
 		endpoint, deliver, err := NewReturnRouteResolver(NewEndpointRegistry(r.store)).Resolve(ctx, schedule.Spec.ReturnRoute)
 		if err != nil || !deliver {
-			return app.MessageSchedule{}, firstError(err, errors.New("schedule return endpoint is unavailable"))
+			return app.Reminder{}, firstError(err, errors.New("schedule return endpoint is unavailable"))
 		}
 		if endpoint.OwnerID != schedule.Spec.OwnerID || schedule.Spec.Authorization.PrincipalID != schedule.Spec.OwnerID {
-			return app.MessageSchedule{}, errors.New("schedule return endpoint does not belong to the authorized owner")
+			return app.Reminder{}, errors.New("schedule return endpoint does not belong to the authorized owner")
 		}
-	} else if schedule.Spec.Payload.Mode == app.SchedulePayloadLiteral {
-		return app.MessageSchedule{}, errors.New("literal schedule requires a return endpoint")
 	}
 	reminder := app.Reminder{}
 	if existing, ok := r.store.GetReminder(string(schedule.ID)); ok {
@@ -68,8 +171,8 @@ func (r *ScheduleRegistry) Save(ctx context.Context, schedule app.MessageSchedul
 	reminder.CanceledAt = schedule.CanceledAt
 	spec := schedule.Spec
 	reminder.ScheduleSpec = &spec
-	r.applyLegacyTarget(&reminder, spec.ReturnRoute)
-	return r.fromReminder(r.store.SaveReminder(reminder)), nil
+	r.applyTargetProjection(&reminder, spec.ReturnRoute)
+	return reminder, nil
 }
 
 func (r *ScheduleRegistry) Get(_ context.Context, id app.ScheduleID) (app.MessageSchedule, bool) {
@@ -80,7 +183,7 @@ func (r *ScheduleRegistry) Get(_ context.Context, id app.ScheduleID) (app.Messag
 	if !ok {
 		return app.MessageSchedule{}, false
 	}
-	return r.fromReminder(reminder), true
+	return r.fromReminder(reminder)
 }
 
 func (r *ScheduleRegistry) List(_ context.Context, filter app.ReminderFilter) []app.MessageSchedule {
@@ -90,7 +193,9 @@ func (r *ScheduleRegistry) List(_ context.Context, filter app.ReminderFilter) []
 	reminders := r.store.ListReminders(filter)
 	out := make([]app.MessageSchedule, 0, len(reminders))
 	for _, reminder := range reminders {
-		out = append(out, r.fromReminder(reminder))
+		if schedule, ok := r.fromReminder(reminder); ok {
+			out = append(out, schedule)
+		}
 	}
 	return out
 }
@@ -102,54 +207,31 @@ func (r *ScheduleRegistry) ClaimDue(_ context.Context, now, staleBefore time.Tim
 	reminders := r.store.ClaimDueReminders(now.UTC(), staleBefore.UTC(), limit)
 	out := make([]app.MessageSchedule, 0, len(reminders))
 	for _, reminder := range reminders {
-		out = append(out, r.fromReminder(reminder))
+		if schedule, ok := r.fromReminder(reminder); ok {
+			out = append(out, schedule)
+		}
 	}
 	return out
 }
 
-func (r *ScheduleRegistry) fromReminder(reminder app.Reminder) app.MessageSchedule {
+func (r *ScheduleRegistry) fromReminder(reminder app.Reminder) (app.MessageSchedule, bool) {
+	if reminder.ScheduleSpec == nil || reminder.ScheduleSpec.SchemaVersion != app.ScheduleSpecSchemaVersion {
+		return app.MessageSchedule{}, false
+	}
 	dedupeKey := strings.TrimSpace(reminder.DedupeKey)
 	if dedupeKey == "" {
 		dedupeKey = "reminder:" + reminder.ID
 	}
-	spec := app.ScheduleSpec{}
-	if reminder.ScheduleSpec != nil {
-		spec = *reminder.ScheduleSpec
-	} else {
-		endpointID := BindingEndpointID(reminder.BindingID)
-		ownerID := ""
-		if binding, ok := r.store.GetNotificationBinding(reminder.BindingID); ok {
-			ownerID = strings.TrimSpace(binding.OwnerID)
-		}
-		if endpointID == "" && reminder.SessionID != "" {
-			endpointID = WebEndpointID(reminder.SessionID)
-			if session, ok := r.store.GetSession(reminder.SessionID); ok {
-				ownerID = strings.TrimSpace(session.OwnerID)
-			}
-		}
-		if endpointID == "" || (strings.ToLower(strings.TrimSpace(reminder.Channel)) != "web" && reminder.BindingID == "") {
-			endpointID = LegacyScheduleEndpointID(reminder.ID)
-		}
-		if ownerID == "" {
-			ownerID = app.DefaultOwnerID
-		}
-		spec = app.ScheduleSpec{
-			SchemaVersion: ScheduleSpecVersion(), OwnerID: ownerID, ActorID: ownerID,
-			Payload:                app.SchedulePayload{Mode: app.SchedulePayloadLiteral, Content: textContent(string(reminder.ID), reminder.Text)},
-			ReturnRoute:            app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: endpointID},
-			Authorization:          app.MessageAuthorization{PrincipalID: ownerID},
-			ExpectedCapabilityPath: []app.CapabilityID{"message", "message.send"},
-		}
-	}
+	spec := *reminder.ScheduleSpec
 	return app.MessageSchedule{
 		ID: app.ScheduleID(reminder.ID), SessionID: reminder.SessionID, RunID: reminder.RunID, Spec: spec,
 		DueTime: reminder.DueTime, Timezone: reminder.Timezone, Recurrence: reminder.Recurrence,
 		DedupeKey: dedupeKey, Status: reminder.Status, DeliveryAttempt: reminder.DeliveryAttempt,
 		CreatedAt: reminder.CreatedAt, UpdatedAt: reminder.UpdatedAt, SentAt: reminder.SentAt, CanceledAt: reminder.CanceledAt,
-	}
+	}, true
 }
 
-func (r *ScheduleRegistry) applyLegacyTarget(reminder *app.Reminder, route app.ReturnRoute) {
+func (r *ScheduleRegistry) applyTargetProjection(reminder *app.Reminder, route app.ReturnRoute) {
 	endpointID := route.EndpointID
 	if route.Mode == app.ReturnToSource {
 		endpointID = route.SourceEndpointID
@@ -187,11 +269,8 @@ func validateSchedule(schedule app.MessageSchedule) error {
 	if schedule.Spec.SchemaVersion != app.ScheduleSpecSchemaVersion {
 		return fmt.Errorf("unsupported schedule spec version %d", schedule.Spec.SchemaVersion)
 	}
-	if schedule.Spec.Payload.Mode != app.SchedulePayloadLiteral && schedule.Spec.Payload.Mode != app.SchedulePayloadRequest {
-		return fmt.Errorf("unsupported schedule payload mode %q", schedule.Spec.Payload.Mode)
-	}
-	if schedule.Spec.Payload.Mode == app.SchedulePayloadRequest && strings.TrimSpace(schedule.SessionID) == "" {
-		return errors.New("request schedule requires a session id")
+	if strings.TrimSpace(schedule.SessionID) == "" {
+		return errors.New("schedule requires a session id")
 	}
 	if len(schedule.Spec.Payload.Content.Parts) == 0 {
 		return errors.New("schedule payload content is required")
@@ -242,4 +321,12 @@ func firstValue(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func nextUpdateTime(expected time.Time) time.Time {
+	now := time.Now().UTC()
+	if !now.After(expected.UTC()) {
+		return expected.UTC().Add(time.Nanosecond)
+	}
+	return now
 }

@@ -25,6 +25,45 @@ func TestCanonicalBrowserVerificationVerdictAcceptsBoundedProgressAliases(t *tes
 	}
 }
 
+func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload map[string]any
+		want    app.OutcomeSignal
+	}{
+		{name: "stable boolean", payload: map[string]any{"ok": true}, want: app.OutcomeSignalBrowserHealthy},
+		{name: "agent-browser status", payload: map[string]any{"status": "ok", "provider": "agent-browser"}, want: app.OutcomeSignalBrowserHealthy},
+		{name: "explicit failure wins", payload: map[string]any{"ok": false, "status": "ok"}, want: app.OutcomeSignalBrowserUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			outcome := adaptBrowserHealthOutcome(app.ToolCall{
+				ID: "tc_health", Tool: "browser.status", Status: "completed",
+				Result: map[string]any{"output": test.payload},
+			}, "browser_interaction")
+			if len(outcome.Signals) != 1 || outcome.Signals[0] != test.want {
+				t.Fatalf("unexpected browser health outcome: %#v", outcome)
+			}
+		})
+	}
+}
+
+func TestAdaptBrowserFocusOutcomeCarriesFocusedPageWithoutPagesArray(t *testing.T) {
+	outcome := adaptBrowserFocusOutcome(app.ToolCall{
+		ID: "tc_focus", Tool: "browser.focus", Status: "completed",
+		Arguments: map[string]any{"page_id": "page_7"},
+		Result: map[string]any{"output": map[string]any{
+			"tabId": "t7", "url": "https://example.test/workspace", "title": "Workspace",
+		}},
+	}, "browser_interaction")
+	if len(outcome.Signals) != 1 || outcome.Signals[0] != app.OutcomeSignalFocusCompleted || len(outcome.Refs) != 1 {
+		t.Fatalf("focused page outcome is incomplete: %#v", outcome)
+	}
+	ref := outcome.Refs[0]
+	if ref.Kind != "browser_page" || ref.Ref != "page_7" || ref.Attributes["url"] != "https://example.test/workspace" {
+		t.Fatalf("focused page was not normalized for the snapshot stage: %#v", ref)
+	}
+}
+
 func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		cfg.config.Tools.BrowserAutomation.Enabled = true
@@ -32,7 +71,7 @@ func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *
 	})
 	defer closeRuntime()
 
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,12 +94,12 @@ func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *
 		t.Fatal("browser interaction workflow was not persisted")
 	}
 	node := stored.Workflow.Nodes["browser_interaction"]
-	if len(node.SelectedEntries) != 10 {
-		t.Fatalf("stage projection changed the fixed ten-tool boundary: %#v", node.SelectedEntries)
+	if len(node.SelectedEntries) != 9 {
+		t.Fatalf("stage projection changed the fixed nine-tool boundary: %#v", node.SelectedEntries)
 	}
 }
 
-func TestBrowserInteractionClosesOnlyTabsOpenedByWorkflow(t *testing.T) {
+func TestBrowserInteractionLeavesExplicitlyOpenedTabAvailable(t *testing.T) {
 	profile := browserInteractionProfile{}
 	goalSatisfied := app.ToolOutcome{
 		NodeID: "browser_interaction", Signals: []app.OutcomeSignal{app.OutcomeSignalInteractionGoalSatisfied},
@@ -68,76 +107,102 @@ func TestBrowserInteractionClosesOnlyTabsOpenedByWorkflow(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		activations map[app.TransitionID]int
-		wantStatus  app.AssessmentStatus
-		wantReason  string
 	}{
-		{name: "workflow opened tab", activations: map[app.TransitionID]int{"open_missing": 1}, wantStatus: app.AssessmentNeedsMoreEvidence, wantReason: "close_opened_tab"},
-		{name: "workflow reused tab", activations: map[app.TransitionID]int{}, wantStatus: app.AssessmentComplete, wantReason: "interaction_goal_satisfied"},
+		{name: "workflow opened tab", activations: map[app.TransitionID]int{"open_missing": 1}},
+		{name: "workflow reused tab", activations: map[app.TransitionID]int{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := &app.WorkflowState{Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
 				"browser_interaction": {Stage: "verify_action", TransitionActivations: tc.activations},
 			}}
 			assessment := profile.Assess(state, goalSatisfied)
-			if assessment.Status != tc.wantStatus || assessment.ReasonCode != tc.wantReason {
-				t.Fatalf("unexpected cleanup decision: %#v", assessment)
+			if assessment.Status != app.AssessmentComplete || assessment.ReasonCode != "interaction_goal_satisfied" {
+				t.Fatalf("successful explicit interaction did not leave its page available: %#v", assessment)
 			}
 		})
 	}
+}
 
-	closed := profile.Assess(&app.WorkflowState{Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
-		"browser_interaction": {Stage: "close_opened_tab"},
-	}}, app.ToolOutcome{NodeID: "browser_interaction", Signals: []app.OutcomeSignal{app.OutcomeSignalCloseCompleted}})
-	if closed.Status != app.AssessmentComplete || closed.ReasonCode != "interaction_goal_satisfied_tab_closed" {
-		t.Fatalf("successful tab cleanup did not complete the workflow: %#v", closed)
+func TestBrowserInteractionReusesOnlyMatchingTargetTabs(t *testing.T) {
+	registeredRoute := app.RouteDecision{
+		Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://mail.qq.com/"},
+		Facts: map[string]string{"browser_destination": "qq_mail"},
+	}
+	for _, test := range []struct {
+		name       string
+		route      app.RouteDecision
+		refs       []app.ResourceRef
+		wantRef    string
+		wantSignal app.OutcomeSignal
+	}{
+		{
+			name:  "selected registered subdomain page",
+			route: registeredRoute,
+			refs: []app.ResourceRef{{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{
+				"url": "https://wx.mail.qq.com/home/index?sid=redacted#/list/4", "selected": "true",
+			}}},
+			wantRef: "page_1", wantSignal: app.OutcomeSignalTargetTabExists,
+		},
+		{
+			name:  "matching page instead of selected unrelated page",
+			route: registeredRoute,
+			refs: []app.ResourceRef{
+				{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{"url": "https://example.com/", "selected": "true"}},
+				{Kind: "browser_tab", Ref: "page_2", Attributes: map[string]string{"url": "https://wx.mail.qq.com/home/index#/list/4"}},
+			},
+			wantRef: "page_2", wantSignal: app.OutcomeSignalTargetTabExists,
+		},
+		{
+			name:  "lookalike host is rejected",
+			route: registeredRoute,
+			refs: []app.ResourceRef{{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{
+				"url": "https://mail.qq.com.example.org/home", "selected": "true",
+			}}},
+			wantSignal: app.OutcomeSignalTargetTabMissing,
+		},
+		{
+			name:  "explicit URL still requires exact match",
+			route: app.RouteDecision{Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://example.com/a"}},
+			refs: []app.ResourceRef{{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{
+				"url": "https://example.com/b", "selected": "true",
+			}}},
+			wantSignal: app.OutcomeSignalTargetTabMissing,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			selected, signal, reason := selectBrowserInteractionTab(test.route, test.refs)
+			if reason != "" || signal != test.wantSignal {
+				t.Fatalf("unexpected target-tab decision: selected=%#v signal=%q reason=%q", selected, signal, reason)
+			}
+			if test.wantRef == "" {
+				if selected != nil {
+					t.Fatalf("non-matching tab was reused: %#v", selected)
+				}
+				return
+			}
+			if selected == nil || selected.Ref != test.wantRef {
+				t.Fatalf("matching target tab was not selected: %#v", selected)
+			}
+		})
 	}
 }
 
-func TestBrowserInteractionMaterializesOnlyOpenedTabForCleanup(t *testing.T) {
-	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
-		cfg.config.Tools.BrowserAutomation.Enabled = true
-		cfg.browserAdapter = &fakeInteractionBrowserAdapter{}
-	})
-	defer closeRuntime()
-
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "打开 https://example.com 并点击下一步按钮", agentContextSnapshot{})
-	if err != nil {
-		t.Fatal(err)
+func TestBrowserAutomationReusesRegisteredDestinationPage(t *testing.T) {
+	state := &app.WorkflowState{Route: app.RouteDecision{
+		Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://mail.qq.com/"},
+		Facts: map[string]string{"browser_destination": "qq_mail"},
+	}}
+	outcome := app.ToolOutcome{
+		Signals: []app.OutcomeSignal{app.OutcomeSignalTabsScanned},
+		Refs: []app.ResourceRef{{Kind: "browser_tab", Ref: "page_7", Attributes: map[string]string{
+			"url": "https://wx.mail.qq.com/home/index#/list/4", "selected": "true",
+		}}},
 	}
-	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
-	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, ok := st.GetRun(dispatch.Run.ID)
-	if !ok || stored.Workflow == nil {
-		t.Fatal("browser interaction workflow was not persisted")
-	}
-	node := stored.Workflow.Nodes["browser_interaction"]
-	node.Stage = "close_opened_tab"
-	node.ScopeRevision = 8
-	node.TransitionActivations["open_missing"] = 1
-	node.OutcomeRefs = []app.ResourceRef{
-		{Kind: "browser_tab", Ref: "page_1", Attributes: map[string]string{"url": "https://existing.example/"}},
-		{Kind: "browser_page", Ref: "page_2", Attributes: map[string]string{"url": "https://example.com/"}},
-	}
-	stored.Workflow.Nodes["browser_interaction"] = node
-	st.SaveRun(stored)
-
-	plan := runtime.materializeWorkflowBoundArguments(stored.ID, toolPlan{
-		Name: "browser.close", Args: map[string]any{"page_id": "page_1"},
-		WorkflowID: app.WorkflowBrowserInteraction, WorkflowNodeID: "browser_interaction", ScopeRevision: 8,
-		Capability: app.ToolCapabilityBrowserClose,
-	})
-	if plan.Args["page_id"] != "page_2" {
-		t.Fatalf("cleanup was not bound to the tab opened by the workflow: %#v", plan.Args)
-	}
-	definition, ok := runtime.tools.Definition("browser.close")
-	if !ok {
-		t.Fatal("browser.close is unavailable")
-	}
-	if err := runtime.validateWorkflowToolPlan(stored.ID, plan, definition); err != nil {
-		t.Fatalf("bound tab cleanup did not pass the workflow boundary: %v", err)
+	assessment := (browserAutomationProfile{}).Assess(state, outcome)
+	if assessment.Status != app.AssessmentNeedsMoreEvidence ||
+		!containsOutcomeSignal(assessment.Signals, app.OutcomeSignalTargetTabExists) ||
+		len(assessment.SelectedRefs) != 1 || assessment.SelectedRefs[0].Ref != "page_7" {
+		t.Fatalf("registered target page was not reused by browser.automation: %#v", assessment)
 	}
 }
 
@@ -148,7 +213,7 @@ func TestBrowserInteractionMaterializesFrozenBlankTabNavigationArguments(t *test
 	})
 	defer closeRuntime()
 
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +250,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	})
 	defer closeRuntime()
 
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +339,7 @@ func TestBrowserInteractionLoginResumeDiscardsPreLoginSnapshotAndContinues(t *te
 	})
 	defer closeRuntime()
 
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "点击当前页面的下一步按钮", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "点击当前页面的下一步按钮", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +388,7 @@ func TestBrowserInteractionLoginResumeAppliesNavigationAndContinues(t *testing.T
 	})
 	defer closeRuntime()
 
-	route, err := runtime.recognizeCapabilityRoute(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "打开QQ邮箱的草稿箱", agentContextSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +446,7 @@ func TestBrowserInteractionPlanKeepsBoundedFullToolScope(t *testing.T) {
 		t.Fatalf("unexpected browser.interaction plan: %#v", plan)
 	}
 	node := plan.Nodes[0]
-	if !node.InitialScope.MaterializeAll || len(node.InitialScope.Requirements) != 10 || node.MaxAttempts != 24 {
+	if !node.InitialScope.MaterializeAll || len(node.InitialScope.Requirements) != 9 || node.MaxAttempts != 24 {
 		t.Fatalf("browser.interaction lost its bounded full-lifecycle scope: %#v", node)
 	}
 	stages := map[string][]string{}
@@ -394,7 +459,6 @@ func TestBrowserInteractionPlanKeepsBoundedFullToolScope(t *testing.T) {
 		"focus_existing":         app.ToolCapabilityBrowserFocus,
 		"navigate_blank":         app.ToolCapabilityBrowserNavigate,
 		"open_new":               app.ToolCapabilityBrowserOpen,
-		"close_opened_tab":       app.ToolCapabilityBrowserClose,
 		"snapshot_before_action": app.ToolCapabilityBrowserSnapshot,
 		"choose_and_click":       app.ToolCapabilityBrowserClick,
 		"verify_action":          app.ToolCapabilityBrowserVerify,
@@ -430,15 +494,16 @@ func TestBrowserInteractionRepeatedPostSnapshotFailsClosed(t *testing.T) {
 }
 
 func TestBrowserInteractionConsequentialClicksFailRoutingClosed(t *testing.T) {
-	profile := browserInteractionProfile{}
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
 	for _, goal := range []string{
 		"点击当前页面的删除账户按钮",
 		"click Send on the current page",
 		"点击当前页面的确认订单按钮",
 	} {
-		recognition, matched := profile.Recognize(workflowRecognitionContext{Content: goal})
-		if !matched || recognition.Status != app.RouteBlocked {
-			t.Fatalf("consequential click did not fail routing closed: goal=%q recognition=%#v matched=%v", goal, recognition, matched)
+		route := mustRouteIntent(t, runtime, goal)
+		if route.Status != app.RouteBlocked {
+			t.Fatalf("consequential click did not fail routing closed: goal=%q route=%#v", goal, route)
 		}
 	}
 }

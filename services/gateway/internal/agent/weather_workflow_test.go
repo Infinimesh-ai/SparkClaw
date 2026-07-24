@@ -9,8 +9,8 @@ import (
 )
 
 func TestWeatherRouteRecognizesGroundedLocations(t *testing.T) {
-	registry := defaultWorkflowProfileRegistry()
-	catalog := capability.MustDefaultCatalog()
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
 	tests := []struct {
 		query    string
 		location string
@@ -28,12 +28,9 @@ func TestWeatherRouteRecognizesGroundedLocations(t *testing.T) {
 		{"Hangzhou forecast", "Hangzhou"},
 	}
 	for _, test := range tests {
-		decision, err := registry.Recognize(catalog, workflowRecognitionContext{SourceTurnID: "turn", Content: test.query})
-		if err != nil {
-			t.Fatalf("recognize %q: %v", test.query, err)
-		}
+		decision := mustRouteIntent(t, runtime, test.query)
 		if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserWeather ||
-			decision.Slots.FactScope != app.RouteFactScopeWeatherSnapshot || decision.Slots.Query != test.query || decision.Slots.TargetKind != string(app.TargetKindLocation) ||
+			decision.Slots.FactScope != app.RouteFactScopeWeatherSnapshot || decision.Slots.Query != materializeRoutedQuery(app.CapabilityBrowserWeather, test.query, currentSearchDate()) || decision.Slots.TargetKind != string(app.TargetKindLocation) ||
 			decision.Slots.TargetRef != test.location || decision.Slots.Location != test.location {
 			t.Fatalf("unexpected weather route for %q: %#v", test.query, decision)
 		}
@@ -41,21 +38,19 @@ func TestWeatherRouteRecognizesGroundedLocations(t *testing.T) {
 }
 
 func TestWeatherRouteClarifiesMissingLocation(t *testing.T) {
-	decision, err := defaultWorkflowProfileRegistry().Recognize(capability.MustDefaultCatalog(), workflowRecognitionContext{SourceTurnID: "turn", Content: "今天天气"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	decision := mustRouteIntent(t, runtime, "今天天气")
 	if decision.Status != app.RouteClarify || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserWeather {
 		t.Fatalf("missing location should clarify under browser.weather: %#v", decision)
 	}
 }
 
 func TestWeatherResearchStaysOnInternetSearch(t *testing.T) {
+	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
 	for _, query := range []string{"杭州天气预警官方来源", "杭州天气新闻", "对比三个网站的杭州天气", "杭州空气质量"} {
-		decision, err := defaultWorkflowProfileRegistry().Recognize(capability.MustDefaultCatalog(), workflowRecognitionContext{SourceTurnID: "turn", Content: query})
-		if err != nil {
-			t.Fatalf("recognize %q: %v", query, err)
-		}
+		decision := mustRouteIntent(t, runtime, query)
 		if decision.Status != app.RouteMatched || len(decision.CapabilityPath) != 2 || decision.CapabilityPath[1] != app.CapabilityBrowserInternetSearch {
 			t.Fatalf("weather research should use internet search for %q: %#v", query, decision)
 		}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
@@ -329,12 +330,16 @@ func (r Runtime) workflowOutputPart(sessionID string, call app.ToolCall, ref app
 	if kind == app.MessagePartImage {
 		disposition = app.MessageDispositionInline
 	}
+	caption := cleanOptionalString(output["summary"])
+	if definition.OutcomeAdapter == app.OutcomeAdapterWeatherCard {
+		caption = ""
+	}
 	return app.MessagePart{
 		ID: fmt.Sprintf("%s:output:%d", call.ID, index), Kind: kind, Disposition: disposition,
 		Resource: &resourceRef,
 		Name:     name, ContentType: contentType, Bytes: intLikeValue(output["bytes"]),
 		Width: intLikeValue(output["width"]), Height: intLikeValue(output["height"]),
-		SHA256: cleanOptionalString(output["sha256"]), Caption: cleanOptionalString(output["summary"]),
+		SHA256: cleanOptionalString(output["sha256"]), Caption: caption,
 	}, true
 }
 
@@ -379,7 +384,10 @@ func workflowResultTextContent(summary string) app.MessageContent {
 }
 
 func (r Runtime) messageWithWorkflowResult(message app.Message, result *app.WorkflowResult) app.Message {
-	content, attachments := workflowResultMessagePayload(result, message.Content)
+	if result == nil {
+		return message
+	}
+	content, attachments := delivery.ProjectWebMessageContent(result.Content, message.Content)
 	message.Content = content
 	message.Attachments = attachments
 	return message

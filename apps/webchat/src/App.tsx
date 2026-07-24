@@ -1,4 +1,4 @@
-import { Fragment, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Activity,
@@ -25,51 +25,27 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { api, apiToken, clearAPIToken, openDocumentFile, saveAPIToken, sessionEventsURL } from "./api/client";
+import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Copy as CopyText, Language } from "./i18n";
 import {
   attachmentOnlyPrompt,
-  isImageAttachment,
-  isImageContentType,
   MessageBubble,
-  WorkspaceFileImage,
   streamStatusFromEvent,
   upsertStreamStatus
 } from "./components/messages";
 import type { StreamStatus } from "./components/messages";
 import { InspectorColumn } from "./components/inspector";
 import type { PanelTab } from "./components/inspector";
-import {
-  DeliveryReceiptSummary,
-  DeliveryReviewDialog,
-  ExternalPartTray
-} from "./components/delivery";
-import { VoiceInputButton, VoiceInputStatus } from "./components/VoiceInputButton";
+import { ComposerDock } from "./components/composer";
 import { ScheduleBar } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { useExternalDelivery } from "./hooks/useExternalDelivery";
 import { useSchedules } from "./hooks/useSchedules";
 import { useVoiceInput } from "./hooks/useVoiceInput";
-import type { VoiceDraftAnchor, VoiceInputState } from "./hooks/useVoiceInput";
-import {
-  fileKindLabel,
-  fileNameFromPath,
-  formatBytes,
-  formatDateTime,
-  loadDocumentUsage,
-  saveDocumentUsage,
-  sortDocumentsByUsage,
-  sortNotificationBindings,
-  isVisibleNotificationBinding
-} from "./lib/format";
-import type { DocumentUsage } from "./lib/format";
+import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
+import { sortNotificationBindings, isVisibleNotificationBinding } from "./lib/format";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
-import {
-  deliveryPartIDFromAttachment,
-  deliveryPartFromAttachment,
-  moveDeliveryPart
-} from "./lib/deliveryDraft";
 import type {
   Approval,
   ArtifactObject,
@@ -119,16 +95,9 @@ export function App() {
   const [traceList, setTraceList] = useState<TraceMetadata[]>([]);
   const [traceLoading, setTraceLoading] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [availableDocuments, setAvailableDocuments] = useState<ArtifactObject[]>([]);
-  const [choosingDocument, setChoosingDocument] = useState(false);
-  const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
-  const [documentUsage, setDocumentUsage] = useState<Record<string, DocumentUsage>>(() => loadDocumentUsage());
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
-  const [isComposingInput, setIsComposingInput] = useState(false);
-  const [compositionEndedAt, setCompositionEndedAt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [uploadingDocument, setUploadingDocument] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError] = useState("");
@@ -136,7 +105,6 @@ export function App() {
   const [editingSession, setEditingSession] = useState("");
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [sessionActionId, setSessionActionId] = useState("");
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeMessageStreamRef = useRef<string>("");
 
@@ -319,10 +287,6 @@ export function App() {
     [notificationBindings]
   );
   const active = sessions.find((session) => session.id === activeSession);
-  const sortedAvailableDocuments = useMemo(
-    () => sortDocumentsByUsage(availableDocuments, documentUsage),
-    [availableDocuments, documentUsage]
-  );
   const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
     let nextCaret = 0;
     setDraftsBySession((current) => {
@@ -349,9 +313,6 @@ export function App() {
     externallyDisabled: busy || deliveryBusy || externalDeliveryIntent || !activeSession,
     onTranscript: applyVoiceTranscript
   });
-  const voiceLabel = voiceInputLabel(voice.state, voice.errorCode, voice.errorDetail, text);
-  const voiceTitle = voiceInputTitle(voice.state, voiceLabel, text);
-
   async function createSession() {
     try {
       setError("");
@@ -462,116 +423,6 @@ export function App() {
     }
   }
 
-  function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (isComposingInput || Date.now() - compositionEndedAt < 80) return;
-    if (externalDeliveryIntent) {
-      openDeliveryReview();
-    } else {
-      void send();
-    }
-  }
-
-  function stageAttachment(attachment: MessageAttachment) {
-    if (!activeSession) return;
-    const partID = deliveryPartIDFromAttachment(attachment);
-    setAttachmentsBySession((current) => {
-      const existing = externalDeliveryIntent ? current[activeSession] ?? [] : [];
-      return {
-        ...current,
-        [activeSession]: [...existing.filter((item) => deliveryPartIDFromAttachment(item) !== partID), attachment]
-      };
-    });
-    updateExternalDraft((draft) => {
-      const existing = externalDeliveryIntent ? draft.parts : [];
-      return {
-        ...draft,
-        parts: [...existing.filter((part) => part.id !== partID), deliveryPartFromAttachment(partID, attachment)]
-      };
-    });
-  }
-
-  async function uploadDocument(file: File | null) {
-    if (!file || !activeSession || uploadingDocument) return;
-    try {
-      setUploadingDocument(true);
-      setError("");
-      const result = await api.uploadDocument(activeSession, file);
-      const attachment: MessageAttachment = {
-        artifact_id: result.artifact?.id,
-        name: file.name,
-        rel_path: result.rel_path || result.artifact?.key || file.name,
-        uri: result.artifact?.uri,
-        content_type: result.artifact?.content_type || file.type,
-        bytes: result.bytes || result.artifact?.bytes,
-        width: result.media?.width,
-        height: result.media?.height,
-        sha256: result.media?.sha256,
-        source: isImageContentType(result.artifact?.content_type || file.type) ? "web_upload" : undefined
-      };
-      stageAttachment(attachment);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.upload);
-    } finally {
-      setUploadingDocument(false);
-      if (uploadInputRef.current) {
-        uploadInputRef.current.value = "";
-      }
-    }
-  }
-
-  async function openDocumentPicker() {
-    if (!activeSession || choosingDocument) return;
-    try {
-      setChoosingDocument(true);
-      setError("");
-      const result = await api.availableDocuments(activeSession);
-      const documents = result.documents ?? [];
-      setAvailableDocuments(documents);
-      setDocumentPickerOpen(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.upload);
-    } finally {
-      setChoosingDocument(false);
-    }
-  }
-
-  function chooseAvailableDocument(document: ArtifactObject) {
-    if (!activeSession) return;
-    const attachment: MessageAttachment = {
-      artifact_id: document.id,
-      name: fileNameFromPath(document.key),
-      rel_path: document.key,
-      uri: document.uri,
-      content_type: document.content_type,
-      bytes: document.bytes
-    };
-    stageAttachment(attachment);
-    setDocumentUsage((current) => {
-      const previous = current[document.key] ?? { count: 0, last_used_at: "" };
-      const next = {
-        ...current,
-        [document.key]: { count: previous.count + 1, last_used_at: new Date().toISOString() }
-      };
-      saveDocumentUsage(next);
-      return next;
-    });
-    setDocumentPickerOpen(false);
-  }
-
-  function removeAttachment(sessionId: string, attachment: MessageAttachment) {
-    if (!sessionId) return;
-    const partID = deliveryPartIDFromAttachment(attachment);
-    setAttachmentsBySession((current) => ({
-      ...current,
-      [sessionId]: (current[sessionId] ?? []).filter((item) => item !== attachment)
-    }));
-    if (sessionId === activeSession) {
-      updateExternalDraft((draft) => ({ ...draft, parts: draft.parts.filter((part) => part.id !== partID) }));
-    }
-  }
-
   function startRenameSession(session: Session) {
     setEditingSession(session.id);
     setSessionTitleDraft(session.title);
@@ -624,19 +475,6 @@ export function App() {
       setError(err instanceof Error ? err.message : text.errors.deleteSession);
     } finally {
       setSessionActionId("");
-    }
-  }
-
-  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey) return;
-    if (isComposingInput || event.nativeEvent.isComposing || Date.now() - compositionEndedAt < 80) {
-      return;
-    }
-    event.preventDefault();
-    if (externalDeliveryIntent) {
-      openDeliveryReview();
-    } else {
-      void send();
     }
   }
 
@@ -814,219 +652,39 @@ export function App() {
               ))
             )}
           </div>
-          <div className="composerDock">
-            <DeliveryReceiptSummary
-              delivery={activeLastDelivery}
-              retrying={deliveryBusy}
-              text={text}
-              onRetry={() => void retryExternalDelivery()}
-            />
-            <div className="composerToolbar">
-              <div className="deliveryTargetControl">
-                <Send size={15} aria-hidden="true" />
-                <div className="deliveryTargetSelectors">
-                  <label>
-                    <span>{text.chat.software}</span>
-                    <select
-                      aria-label={text.chat.software}
-                      value={activeExternalDraft.software}
-                      onChange={(event) => chooseDeliverySoftware(event.target.value)}
-                      disabled={busy || deliveryBusy || voice.active || deliverySoftwareOptions.length === 0}
-                    >
-                      <option value="">{deliverySoftwareOptions.length === 0 ? text.chat.noDeliveryEndpoints : text.chat.chooseSoftware}</option>
-                      {deliverySoftwareOptions.map((software) => (
-                        <option key={software.value} value={software.value}>{software.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>{text.chat.recipient}</span>
-                    <select
-                      aria-label={text.chat.recipient}
-                      value={activeExternalDraft.endpointId}
-                      onChange={(event) => selectDeliveryTarget(event.target.value)}
-                      disabled={busy || deliveryBusy || voice.active || !externalDeliveryIntent}
-                    >
-                      <option value="">{text.chat.chooseRecipient}</option>
-                      {activeDeliveryCandidates.map((endpoint) => (
-                        <option key={endpoint.id} value={endpoint.id}>
-                          {endpoint.recipient.display_name} · {endpoint.account_display_name}
-                          {endpoint.conversation_label ? ` · ${endpoint.conversation_label}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </div>
-            </div>
-            {!externalDeliveryIntent && activeAttachments.length > 0 && (
-              <div className="attachmentTray">
-                {activeAttachments.map((attachment) => (
-                  <div className="attachmentChip" key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}>
-                    <button
-                      type="button"
-                      className={`attachmentOpen ${isImageAttachment(attachment) ? "image" : ""}`}
-                      title={text.chat.openAttachment}
-                      onClick={() => void openDocumentFile(attachment.rel_path, activeSession).catch(() => undefined)}
-                    >
-                      {isImageAttachment(attachment) ? (
-                        <WorkspaceFileImage path={attachment.rel_path} sessionId={activeSession} alt={attachment.name || attachment.rel_path} />
-                      ) : (
-                        <FileSearch size={15} />
-                      )}
-                      <span>{attachment.name || attachment.rel_path}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="attachmentRemove"
-                      title={text.chat.removeAttachment}
-                      onClick={() => removeAttachment(activeSession, attachment)}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {externalDeliveryIntent && (
-              <ExternalPartTray
-                parts={activeExternalDraft.parts}
-                fallbackPartIds={activeDeliveryValidation.fallbackPartIds}
-                supportsCaption={activeDeliveryEndpoint?.capabilities.supports_caption === true}
-                text={text}
-                onChange={updateExternalPart}
-                onMove={(index, offset) => updateExternalDraft((draft) => ({ ...draft, parts: moveDeliveryPart(draft.parts, index, offset) }))}
-                onRemove={removeExternalPart}
-              />
-            )}
-            {externalDeliveryIntent && activeDeliveryValidation.error && (
-              <span className="deliveryValidation">{deliveryValidationMessage(activeDeliveryValidation.error, text)}</span>
-            )}
-            <form className={`composer ${externalDeliveryIntent ? "external" : ""}`} onSubmit={onSubmit}>
-              <input
-                ref={uploadInputRef}
-                className="documentUploadInput"
-                type="file"
-                accept={externalDeliveryIntent ? undefined : ".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"}
-                onChange={(event) => void uploadDocument(event.target.files?.[0] ?? null)}
-              />
-              <button
-                className="uploadButton"
-                type="button"
-                disabled={busy || deliveryBusy || uploadingDocument || !activeSession}
-                title={uploadingDocument ? text.chat.uploading : text.chat.upload}
-                onClick={() => uploadInputRef.current?.click()}
-              >
-                <Upload size={18} />
-              </button>
-              <button
-                className="uploadButton"
-                type="button"
-                disabled={busy || deliveryBusy || choosingDocument || !activeSession}
-                title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile}
-                onClick={() => void openDocumentPicker()}
-              >
-                <FileSearch size={18} />
-              </button>
-              {!externalDeliveryIntent && (
-                <VoiceInputButton
-                  state={voice.state}
-                  disabled={voice.disabled}
-                  title={voiceTitle}
-                  onClick={() => {
-                    const input = composerInputRef.current;
-                    voice.toggle({
-                      sessionId: activeSession,
-                      draft: activeInput,
-                      selectionStart: input?.selectionStart ?? activeInput.length,
-                      selectionEnd: input?.selectionEnd ?? activeInput.length
-                    });
-                  }}
-                />
-              )}
-              <textarea
-                ref={composerInputRef}
-                value={activeInput}
-                onChange={(event) => {
-                  if (!activeSession) return;
-                  setDraftsBySession((current) => ({ ...current, [activeSession]: event.target.value }));
-                }}
-                onKeyDown={onComposerKeyDown}
-                onCompositionStart={() => setIsComposingInput(true)}
-                onCompositionEnd={() => {
-                  setIsComposingInput(false);
-                  setCompositionEndedAt(Date.now());
-                }}
-                placeholder={text.chat.placeholder}
-                disabled={busy || deliveryBusy}
-              />
-              <button
-                className="sendButton"
-                disabled={
-                  externalDeliveryIntent
-                    ? deliveryBusy || !activeDeliveryValidation.valid
-                    : busy || voice.active || (!activeInput.trim() && activeAttachments.length === 0)
-                }
-                title={externalDeliveryIntent ? text.chat.reviewSend : text.chat.send}
-              >
-                <Send size={18} />
-              </button>
-              {!externalDeliveryIntent && (
-                <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} label={voiceLabel} />
-              )}
-            </form>
-          </div>
-          {documentPickerOpen && (
-            <div className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.chat.chooseFile}>
-              <div className="documentPicker">
-                <div className="documentPickerHeader">
-                  <strong>{text.chat.chooseFile}</strong>
-                  <button type="button" className="attachmentRemove" onClick={() => setDocumentPickerOpen(false)} title={text.common.cancel}>
-                    <X size={14} />
-                  </button>
-                </div>
-                {sortedAvailableDocuments.length === 0 ? (
-                  <span className="muted">{text.chat.noUploadedFiles}</span>
-                ) : (
-                  <div className="documentPickerList">
-                    <div className="finderHeader">
-                      <span>{text.chat.fileName}</span>
-                      <span>{text.chat.fileUsage}</span>
-                      <span>{text.chat.fileRecentUse}</span>
-                      <span>{text.chat.fileSize}</span>
-                      <span>{text.chat.fileKind}</span>
-                    </div>
-                    {sortedAvailableDocuments.map((document) => {
-                      const usage = documentUsage[document.key];
-                      return (
-                        <button className="finderRow file" key={document.id} type="button" onClick={() => chooseAvailableDocument(document)}>
-                          <span className="finderName fileName">
-                            <FileSearch size={16} />
-                            <strong>{fileNameFromPath(document.key)}</strong>
-                          </span>
-                          <span>{usage ? `${usage.count} ${text.chat.usedTimes}` : text.chat.neverUsed}</span>
-                          <span>{usage ? formatDateTime(usage.last_used_at, language) : "--"}</span>
-                          <span>{formatBytes(document.bytes)}</span>
-                          <span>{fileKindLabel(document)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          {deliveryReviewOpen && activeDeliveryEndpoint && activeDeliveryValidation.valid && (
-            <DeliveryReviewDialog
-              endpoint={activeDeliveryEndpoint}
-              draft={activeExternalDraft}
-              validation={activeDeliveryValidation}
-              busy={deliveryBusy}
-              text={text}
-              onCancel={() => setDeliveryReviewOpen(false)}
-              onConfirm={() => void confirmExternalDelivery()}
-            />
-          )}
+          <ComposerDock
+            text={text}
+            language={language}
+            activeSession={activeSession}
+            activeInput={activeInput}
+            activeAttachments={activeAttachments}
+            busy={busy}
+            voice={voice}
+            composerInputRef={composerInputRef}
+            setDraftsBySession={setDraftsBySession}
+            setAttachmentsBySession={setAttachmentsBySession}
+            setError={setError}
+            refreshGlobal={refreshGlobal}
+            onSend={() => void send()}
+            deliveryBusy={deliveryBusy}
+            deliveryReviewOpen={deliveryReviewOpen}
+            setDeliveryReviewOpen={setDeliveryReviewOpen}
+            deliverySoftwareOptions={deliverySoftwareOptions}
+            activeDeliveryCandidates={activeDeliveryCandidates}
+            activeDeliveryEndpoint={activeDeliveryEndpoint}
+            activeExternalDraft={activeExternalDraft}
+            externalDeliveryIntent={externalDeliveryIntent}
+            activeDeliveryValidation={activeDeliveryValidation}
+            activeLastDelivery={activeLastDelivery}
+            updateExternalDraft={updateExternalDraft}
+            chooseDeliverySoftware={chooseDeliverySoftware}
+            selectDeliveryTarget={selectDeliveryTarget}
+            updateExternalPart={updateExternalPart}
+            removeExternalPart={removeExternalPart}
+            openDeliveryReview={openDeliveryReview}
+            confirmExternalDelivery={confirmExternalDelivery}
+            retryExternalDelivery={retryExternalDelivery}
+          />
         </section>
       </section>
 
@@ -1067,65 +725,6 @@ export function App() {
       />
     </main>
   );
-}
-
-function voiceInputTitle(state: VoiceInputState, label: string, text: CopyText) {
-  if (state === "recording") return text.chat.voiceStop;
-  if (state === "encoding" || state === "transcribing") return text.chat.voiceCancel;
-  if (state === "requesting_permission") return text.chat.voiceRequesting;
-  if (state === "disabled") return label;
-  return text.chat.voiceStart;
-}
-
-function voiceInputLabel(state: VoiceInputState, errorCode: string, errorDetail: string, text: CopyText) {
-  if (state === "requesting_permission") return text.chat.voiceRequesting;
-  if (state === "recording") return text.chat.voiceRecording;
-  if (state === "encoding") return text.chat.voicePreparing;
-  if (state === "transcribing") return text.chat.voiceTranscribing;
-  switch (errorCode) {
-    case "voice_capture_unsupported":
-      return text.chat.voiceUnsupported;
-    case "voice_permission_denied":
-      return text.chat.voicePermissionDenied;
-    case "voice_no_device":
-      return text.chat.voiceNoDevice;
-    case "voice_capture_failed":
-      return text.chat.voiceCaptureFailed;
-    case "speech_too_short":
-      return text.chat.voiceTooShort;
-    case "speech_no_speech":
-      return text.chat.voiceNoSpeech;
-    case "speech_too_large":
-      return text.chat.voiceTooLarge;
-    case "speech_busy":
-      return text.chat.voiceBusy;
-    case "speech_disabled":
-    case "speech_model_unavailable":
-      return state === "disabled" ? text.chat.voiceUnavailable : errorDetail || text.chat.voiceUnavailable;
-    case "speech_timeout":
-      return text.chat.voiceTimeout;
-    case "speech_inference_failed":
-      return errorDetail || text.chat.voiceFailed;
-    default:
-      return state === "error" ? errorDetail || text.chat.voiceFailed : text.chat.voiceUnavailable;
-  }
-}
-
-function deliveryValidationMessage(error: string, text: CopyText) {
-  switch (error) {
-    case "recipient_required":
-      return text.chat.recipientRequired;
-    case "content_required":
-      return text.chat.contentRequired;
-    case "part_unsupported":
-      return text.chat.partUnsupported;
-    case "too_many_parts":
-      return text.chat.tooManyParts;
-    case "payload_too_large":
-      return text.chat.payloadTooLarge;
-    default:
-      return "";
-  }
 }
 
 function omitSession<T>(current: Record<string, T>, sessionId: string) {

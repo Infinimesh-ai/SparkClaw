@@ -11,19 +11,14 @@ import {
   Database,
   Download,
   FileSearch,
-  Gauge,
   Globe2,
   Inbox,
   KeyRound,
   Library,
   ListChecks,
   Mail,
-  MemoryStick,
   RefreshCw,
-  ScrollText,
   Send,
-  Settings,
-  ShieldAlert,
   ThumbsDown,
   ThumbsUp,
   Upload,
@@ -43,14 +38,8 @@ import {
   upsertStreamStatus
 } from "./components/messages";
 import type { StreamStatus } from "./components/messages";
-import {
-  ApprovalPanel,
-  MemoryPanel,
-  SettingsPanel,
-  StatusStack,
-  ToolTimelinePanel,
-  TracePanel
-} from "./components/panels";
+import { InspectorColumn } from "./components/inspector";
+import type { PanelTab } from "./components/inspector";
 import {
   DeliveryReceiptSummary,
   DeliveryReviewDialog,
@@ -68,7 +57,6 @@ import {
   fileNameFromPath,
   formatBytes,
   formatDateTime,
-  isBindingPending,
   loadDocumentUsage,
   saveDocumentUsage,
   sortDocumentsByUsage,
@@ -77,7 +65,6 @@ import {
 } from "./lib/format";
 import type { DocumentUsage } from "./lib/format";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
-import { notificationBindingErrorMessage } from "./lib/bindingError";
 import {
   deliveryPartIDFromAttachment,
   deliveryPartFromAttachment,
@@ -107,7 +94,6 @@ import type {
   TraceMetadata
 } from "./api/types";
 
-type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings";
 export function App() {
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const text = dictionaries[language];
@@ -127,7 +113,6 @@ export function App() {
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [notificationBindings, setNotificationBindings] = useState<NotificationBinding[]>([]);
-  const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
   const [evalRuns, setEvalRuns] = useState<EvalRun[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactObject[]>([]);
   const [traceRun, setTraceRun] = useState<RunTrace | null>(null);
@@ -655,60 +640,6 @@ export function App() {
     }
   }
 
-  async function resolveApproval(id: string, accepted: boolean) {
-    try {
-      setError("");
-      if (accepted) await api.approve(id);
-      else await api.reject(id);
-      await Promise.all([refreshGlobal(), refreshSession(activeSession)]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.approval);
-    }
-  }
-
-  async function modifyApproval(id: string, args: Record<string, unknown>) {
-    try {
-      setError("");
-      await api.modifyApproval(id, args);
-      await Promise.all([refreshGlobal(), refreshSession(activeSession)]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.approvalEdit);
-    }
-  }
-
-  async function resolveMemory(id: string, accepted: boolean) {
-    try {
-      setError("");
-      if (accepted) await api.acceptMemory(id);
-      else await api.rejectMemory(id);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memory);
-    }
-  }
-
-  async function updateMemory(id: string, kind: string, content: string) {
-    try {
-      setError("");
-      await api.updateMemory(id, kind, content);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memoryEdit);
-      throw err;
-    }
-  }
-
-  async function deleteMemory(id: string) {
-    try {
-      setError("");
-      await api.deleteMemory(id);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memoryDelete);
-      throw err;
-    }
-  }
-
   async function saveFeedback(message: Message, rating: "up" | "down" | "corrected", correction = "") {
     if (!message.run_id) return;
     try {
@@ -720,90 +651,6 @@ export function App() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.feedback);
-      throw err;
-    }
-  }
-
-  async function archiveMemoryExport() {
-    try {
-      setError("");
-      await api.archiveMemoryExport();
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memoryExport);
-      throw err;
-    }
-  }
-
-  async function revokeClient(id: string) {
-    try {
-      setError("");
-      await api.revokeClient(id);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.clientRevoke);
-      throw err;
-    }
-  }
-
-  async function startNotificationBinding(channel: string, botToken = "") {
-    try {
-      setError("");
-      const binding = await api.startNotificationBinding(channel, botToken);
-      setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
-      if (channel === "telegram") {
-        setRuntimeConfig(await api.config());
-      } else {
-        await refreshGlobal();
-      }
-      setTab("settings");
-    } catch (err) {
-      const message = notificationBindingErrorMessage(err, text);
-      setError(message);
-      throw new Error(message);
-    }
-  }
-
-  async function refreshNotificationBinding(id: string) {
-    const binding = await api.notificationBinding(id);
-    setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
-    const awaitingTelegramMessage = binding.channel === "telegram" && binding.status === "active" && !binding.external_user_id && !binding.context_token;
-    if (!isBindingPending(binding.status) && !awaitingTelegramMessage) {
-      await refreshGlobal();
-    }
-    return binding;
-  }
-
-  async function revokeNotificationBinding(id: string) {
-    try {
-      setError("");
-      await api.revokeNotificationBinding(id);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.binding);
-      throw err;
-    }
-  }
-
-  async function updateToolPolicy(deny: string[], approvalRequired: string[]) {
-    try {
-      setError("");
-      await api.updateToolPolicy(deny, approvalRequired);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.policyUpdate);
-      throw err;
-    }
-  }
-
-  async function updateOwner(displayName: string, email: string, preferences: Record<string, string>) {
-    try {
-      setError("");
-      const updated = await api.updateOwner(displayName, email, preferences);
-      setOwnerProfile(updated);
-      await refreshGlobal();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.ownerUpdate);
       throw err;
     }
   }
@@ -1183,101 +1030,41 @@ export function App() {
         </section>
       </section>
 
-      <aside className="inspectorColumn">
-        <div className="inspectorTitle">INSPECTOR</div>
-        <div className="tabs">
-          <button className={tab === "timeline" ? "selected" : ""} onClick={() => setTab("timeline")} title={text.tabs.timeline}>
-            <FileSearch size={16} />
-            <span>{text.tabs.timeline}</span>
-          </button>
-          <button className={tab === "approvals" ? "selected" : ""} onClick={() => setTab("approvals")} title={text.tabs.approvals}>
-            <ShieldAlert size={16} />
-            <span>{pendingApprovals.length}</span>
-          </button>
-          <button className={tab === "memory" ? "selected" : ""} onClick={() => setTab("memory")} title={text.tabs.memory}>
-            <MemoryStick size={16} />
-            <span>{pendingCandidates.length}</span>
-          </button>
-          <button className={tab === "trace" ? "selected" : ""} onClick={() => setTab("trace")} title={text.tabs.trace}>
-            <ScrollText size={16} />
-            <span>{text.tabs.trace}</span>
-          </button>
-          <button className={tab === "status" ? "selected" : ""} onClick={() => setTab("status")} title={text.tabs.status}>
-            <Gauge size={16} />
-            <span>{text.tabs.status}</span>
-          </button>
-          <button className={tab === "settings" ? "selected" : ""} onClick={() => setTab("settings")} title={text.tabs.settings}>
-            <Settings size={16} />
-            <span>{text.tabs.settings}</span>
-          </button>
-        </div>
-
-        {tab === "timeline" && <ToolTimelinePanel calls={toolCalls} text={text} onTrace={(runId) => void openTrace(runId)} />}
-        {tab === "approvals" && (
-          <ApprovalPanel
-            approvals={approvals}
-            text={text}
-            onResolve={(id, accepted) => void resolveApproval(id, accepted)}
-            onModify={(id, args) => void modifyApproval(id, args)}
-          />
-        )}
-        {tab === "memory" && (
-          <MemoryPanel
-            candidates={candidates}
-            memories={memories}
-            text={text}
-            onResolve={(id, accepted) => void resolveMemory(id, accepted)}
-            onUpdate={(id, kind, content) => updateMemory(id, kind, content)}
-            onDelete={(id) => deleteMemory(id)}
-            onExport={() => archiveMemoryExport()}
-          />
-        )}
-        {tab === "trace" && (
-          <TracePanel trace={traceRun} traces={traceList} loading={traceLoading} text={text} language={language} onOpen={(runId) => void openTrace(runId)} />
-        )}
-        {tab === "status" && (
-          <StatusStack
-            ready={ready}
-            modelCalls={modelCalls}
-            auditEvents={auditEvents}
-            artifacts={artifacts}
-            episodes={episodes}
-            evalRun={evalRun}
-            evalRuns={evalRuns}
-            skills={skills}
-            text={text}
-            language={language}
-            onRunEval={async () => {
-              setError("");
-              const result = await api.runEval("smoke");
-              setEvalRun(result);
-              setEvalRuns([result, ...evalRuns.filter((run) => run.id !== result.id)]);
-            }}
-            onSelectEval={async (id) => {
-              setError("");
-              setEvalRun(await api.evalRun(id));
-            }}
-            onError={(message) => setError(message)}
-          />
-        )}
-        {tab === "settings" && (
-          <SettingsPanel
-            runtimeConfig={runtimeConfig}
-            ownerProfile={ownerProfile}
-            clients={clients}
-            weixinBindings={weixinBindings}
-            telegramBindings={telegramBindings}
-            text={text}
-            language={language}
-            onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
-            onRevokeClient={(id) => revokeClient(id)}
-            onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
-            onRefreshNotificationBinding={(id) => refreshNotificationBinding(id)}
-            onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
-            onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
-          />
-        )}
-      </aside>
+      <InspectorColumn
+        tab={tab}
+        onTabChange={setTab}
+        text={text}
+        language={language}
+        pendingApprovalCount={pendingApprovals.length}
+        pendingCandidateCount={pendingCandidates.length}
+        toolCalls={toolCalls}
+        approvals={approvals}
+        candidates={candidates}
+        memories={memories}
+        traceRun={traceRun}
+        traceList={traceList}
+        traceLoading={traceLoading}
+        ready={ready}
+        modelCalls={modelCalls}
+        auditEvents={auditEvents}
+        artifacts={artifacts}
+        episodes={episodes}
+        evalRuns={evalRuns}
+        skills={skills}
+        runtimeConfig={runtimeConfig}
+        ownerProfile={ownerProfile}
+        clients={clients}
+        weixinBindings={weixinBindings}
+        telegramBindings={telegramBindings}
+        onOpenTrace={(runId) => void openTrace(runId)}
+        setError={setError}
+        refreshGlobal={refreshGlobal}
+        refreshActiveSession={() => refreshSession(activeSession)}
+        setEvalRuns={setEvalRuns}
+        setNotificationBindings={setNotificationBindings}
+        setRuntimeConfig={setRuntimeConfig}
+        setOwnerProfile={setOwnerProfile}
+      />
     </main>
   );
 }

@@ -207,6 +207,18 @@ func normalizeTelegramAudio(ctx context.Context, inputPath, outputPath string, m
 	if err != nil {
 		return errors.New("FFmpeg is unavailable")
 	}
+	// The caller's context comes from the long-lived poll worker and carries
+	// no deadline, and -t only caps output duration, not wall clock; bound
+	// the subprocess so a stalled decode cannot pin a worker slot forever.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		timeout := 60 * time.Second
+		if maxSeconds > 0 && time.Duration(2*maxSeconds)*time.Second > timeout {
+			timeout = time.Duration(2*maxSeconds) * time.Second
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,pipe", "-i", inputPath}
 	if maxSeconds > 0 {
 		args = append(args, "-t", strconv.Itoa(maxSeconds))

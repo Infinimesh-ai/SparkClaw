@@ -21,7 +21,7 @@ documentation tree.
 
 | Document | Scope |
 |---|---|
-| [Intent routing](intent-routing.md) | Semantic graph, embedding and Fast/Tree fusion, reranking, grounding, and one-leaf dispatch |
+| [Intent routing](intent-routing.md) | Semantic graph, embedding and Fast/Tree fusion, Top-2 grounding, and one-leaf dispatch |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
 | [Browser runtime](browser-runtime.md) | agent-browser transport, managed Chromium profiles, browser Workflow boundaries, and security |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
@@ -33,10 +33,11 @@ documentation tree.
 
 | Document | Scope |
 |---|---|
-| [Model loading](model-loading.md) | Accepted single-machine and multi-machine model-loading strategy |
+| [Model loading](model-loading.md) | Single-machine and multi-machine model-loading strategy and validation status |
 | [Model baseline](../benchmarks/model_baseline.md) | Measured model endpoint evidence and operating limits |
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
+| [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
 | [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |
 
 Repository process is documented in [Contributing](../CONTRIBUTING.md),

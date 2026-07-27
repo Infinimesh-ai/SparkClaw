@@ -4,7 +4,7 @@
 
 **Reliable local agent runtime for DGX Spark.**
 
-SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape is a full single-machine dual-lane stack: a responsive `fast` MoE lane, a dense `deep` lane for harder or higher-risk work, and resident embedding/reranker endpoints for semantic routing and bounded ranking.
+SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape is a full single-machine dual-lane stack: a responsive `fast` MoE lane, a dense `deep` lane for harder or higher-risk work, and a resident embedding endpoint for semantic routing.
 
 The project is past the initial planning stage. This README is the entry point;
 the [documentation index](docs/index.md) lists the complete current set. Start
@@ -24,8 +24,8 @@ with:
 Implemented and validated:
 
 - Go Gateway API with health, readiness, direct chat, sessions, messages, events, tools, approvals, memories, traces, artifacts, eval reports, feedback, client pairing, token auth and rate limiting.
-- Agent Runtime with a Catalog-derived semantic graph, embedding and Fast/Tree score fusion, bounded reranking, deterministic one-leaf Workflow dispatch, grounded execution, repair, and trace snapshots.
-- Single-machine `dual-light-v1` model profile for NVIDIA GB10: `fast` and `deep` chat lanes plus embedding and reranker resident together, with explicit context, KV cache and sequence caps.
+- Agent Runtime with a Catalog-derived semantic graph, full-candidate embedding and Fast/Tree score fusion, deterministic Top-2 and one-leaf Workflow dispatch, grounded execution, repair, and trace snapshots.
+- Single-machine `dual-light-v1` model profile for NVIDIA GB10: `fast` and `deep` chat lanes plus embedding resident together, with explicit context, KV cache and sequence caps.
 - ToolHub with JSON-schema-validated tools for files, memory, browser access, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application and sensitive memory writes.
 - File, browser and external adapter observations are treated as untrusted data and are summarized before being used for answers.
@@ -33,12 +33,12 @@ Implemented and validated:
 - File-backed state for local runs, PostgreSQL 18/pgvector for durable runtime records, and filesystem or S3-compatible artifact storage.
 - React/Vite WebChat workbench with chat, tool timeline, approval inbox, memory editor, trace viewer, eval/status/settings panels and model telemetry.
 - Docker Compose profiles for mock local operation, development, evaluation, external model compatibility and DGX Spark local-model serving.
-- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding/reranker endpoints. The historical run used 58 cases; the active matrix now has 43 after prototype-only capabilities were removed.
+- DGX Spark validation on NVIDIA GB10 with PostgreSQL 18/pgvector, MinIO, sandbox-runner and vLLM fast/deep/embedding endpoints. The current Fast + Embedding calibration passes 15/15 labeled intents. The 43-case runner still contains assertions for retired prototype code/shell workflows and must be aligned with the current capability matrix before it can serve as a full current acceptance result.
 
 Known operating boundary:
 
 - On the validated GB10 machine, full 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
-- The accepted single-machine dual-lane profile is `dual-light-v1`: fast runs at 32K context with 8G KV cache, deep runs at 64K context with 12G KV cache, both with MTP off. Deep is intentionally slower because it is a dense model; the acceptance standard is task stability and overall product experience, not deep-lane throughput alone.
+- The validated single-machine residency profile is `dual-light-v1`: fast runs at 32K context with 8G KV cache, deep runs at 64K context with 12G KV cache, both with MTP off. Deep is intentionally slower because it is a dense model; broader product acceptance still depends on a current capability-aligned end-to-end matrix.
 - Gateway, not the `fast` model, decides which chat lane to call. It routes code, terminal, dangerous, repair or explicitly deep/review requests to `deep`; routine bounded work goes to `fast`, with deep fallback only if a fast call fails.
 - Skill packages under `skills/` are transitional procedures for unmigrated ReAct domains only. Migrated Workflow capabilities do not load Skills; see the [Workflow capability matrix](docs/workflow-capabilities.md).
 
@@ -68,33 +68,28 @@ The browser allowlist is required only for deterministic local fixtures. In norm
 
 ## Local Development
 
-Install JavaScript dependencies:
+Install host development dependencies:
 
 ```bash
-npm install
-npm run setup:browser
+npm run setup:host
 ```
 
-The second command verifies the pinned agent-browser runtime and resolves a
-system Chromium installation. It does not download Chrome for Testing. Set
+This installs root-workspace Node packages, user-site Python document
+libraries, verifies the pinned agent-browser runtime, and resolves a system
+Chromium installation. It does not download Chrome for Testing. Set
 `adapters.browserAutomation.chromiumExecutable` when Chromium is installed in a
 non-standard location.
 
-Run the Gateway and WebChat in separate terminals:
+Rebuild and restart the external-model/PostgreSQL development runtime used on
+this machine:
 
 ```bash
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-npm --workspace @sparkclaw/webchat run dev
+npm run dev
 ```
 
-If Go is not installed on the host, use the Docker Go builder path used by `scripts/doctor.sh`:
-
-```bash
-sudo -n docker run --rm -u "$(id -u):$(id -g)" \
-  -v "$PWD":/workspace -w /workspace/services/gateway \
-  -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
-  golang:1.25-alpine /usr/local/go/bin/go test ./...
-```
+Use `npm run dev:gateway` or `npm run dev:webchat` to rebuild only one
+application container. Direct host mock/file and Vite debugging remain
+available as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
 
 For a direct model-router smoke test without starting an Agent session or executing tools:
 
@@ -130,14 +125,14 @@ The npm workspace root is intentionally marked `private` to prevent accidental p
 
 ## DGX Spark Models
 
-For the current full local-model path, start the accepted single-machine profile first:
+For the current full local-model path, start the validated single-machine residency profile first:
 
 ```bash
 scripts/serve_models_compose.sh dual-light
 scripts/restart_runtime_compose.sh
 ```
 
-`dual-light` starts all resident product model services: `fast`, `deep`, embedding and reranker. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat in `external/postgres` mode and fails if Gateway is not ready.
+`dual-light` starts all resident product model services: `fast`, `deep`, and embedding. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat in `external/postgres` mode and fails if Gateway is not ready.
 
 Other serving entrypoints are available for targeted tests and controls:
 
@@ -147,7 +142,7 @@ scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
 scripts/serve_models_compose.sh dual-light-chat
-scripts/serve_models_compose.sh embedding,reranker
+scripts/serve_models_compose.sh embedding
 ```
 
 Default served lanes:
@@ -157,9 +152,8 @@ Default served lanes:
 | fast | `sparkclaw-fast` | 8001 | `Qwen/Qwen3.6-35B-A3B-FP8` |
 | deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
-| reranker | `sparkclaw-reranker` | 8004 | `Qwen/Qwen3-Reranker-0.6B` |
 
-The accepted single-machine profile is intentionally conservative: `fast` is the responsive MoE lane, `deep` is the dense stability/quality lane, MTP is off, and auxiliary models use small explicit KV budgets so the full product stack fits. `dual-light-chat` is only for chat-lane controls without auxiliary endpoints.
+The validated single-machine residency profile is intentionally conservative: `fast` is the responsive MoE lane, `deep` is the dense stability/quality lane, MTP is off, and embedding uses a small explicit KV budget so the current model stack fits. `dual-light-chat` is only for chat-lane controls without the embedding endpoint.
 
 Loading strategy lives in [docs/model-loading.md](docs/model-loading.md). Benchmark evidence, endpoint snapshots and operating notes live in [benchmarks/model_baseline.md](benchmarks/model_baseline.md).
 

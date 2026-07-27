@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# Installs the Node/Python tool runtimes the gateway shells out to
-# (see services/gateway/internal/toolhub/document_tools.go and browser.go).
-# Node modules land in .tools/document-node, Python packages in a
-# .tools/document-python virtualenv — the exact paths the gateway probes.
+# Installs the Node/Python dependencies used by Gateway document adapters.
+# Node packages use the root npm workspace; Python packages use the host
+# user's standard site-packages directory.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NODE_DIR="$ROOT/.tools/document-node"
-PY_DIR="$ROOT/.tools/document-python"
 MANIFEST_DIR="$ROOT/tools/document-runtime"
+cd "$ROOT"
 
-if command -v npm >/dev/null 2>&1; then
-  mkdir -p "$NODE_DIR"
-  cp "$MANIFEST_DIR/package.json" "$NODE_DIR/package.json"
-  echo "Installing Node document dependencies into $NODE_DIR ..."
-  (cd "$NODE_DIR" && npm install --no-audit --no-fund)
-else
-  echo "npm not found; skipping Node document dependencies (xlsx tools will be unavailable)." >&2
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is required to install Node document dependencies." >&2
+  exit 1
 fi
 
-if command -v python3 >/dev/null 2>&1; then
-  if [ ! -x "$PY_DIR/bin/python" ]; then
-    echo "Creating Python virtualenv at $PY_DIR ..."
-    python3 -m venv "$PY_DIR"
-  fi
-  echo "Installing Python document dependencies into $PY_DIR ..."
-  "$PY_DIR/bin/pip" install --quiet --upgrade pip
-  "$PY_DIR/bin/pip" install --quiet -r "$MANIFEST_DIR/requirements.txt"
-else
-  echo "python3 not found; skipping Python document dependencies (docx/pptx/pdf tools will be unavailable)." >&2
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -m pip --version >/dev/null 2>&1; then
+  echo "python3 and pip are required to install Python document dependencies." >&2
+  exit 1
 fi
 
-echo "Document tool runtimes are ready."
+echo "Installing Node dependencies through the root npm workspace ..."
+npm install --no-audit --no-fund
+
+echo "Installing Python document dependencies into the host user site ..."
+pip_args=(--quiet --user)
+if python3 -m pip install --help | grep -q -- "--break-system-packages"; then
+  pip_args+=(--break-system-packages)
+fi
+python3 -m pip install "${pip_args[@]}" -r "$MANIFEST_DIR/requirements.txt"
+
+node -e 'for (const name of ["@mozilla/readability", "jsdom", "exceljs"]) require(name)'
+python3 -c 'import docx, pptx, pypdf'
+
+echo "Host document dependencies are ready."

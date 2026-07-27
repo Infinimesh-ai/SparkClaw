@@ -8,7 +8,7 @@
 
 这些能力不再出现在 ToolHub、Agent Runtime 路由、Skill、公开配置、WebChat 设置和 Golden Eval 中。Owner Profile 仍可保留 email 形式的身份字段；该字段仅是资料元数据，不代表邮件集成。受治理的 Browser Workflow 仍可访问 Owner 已授权的个人网站，但这不会恢复专用邮件或日历 Connector。
 
-独立的 Embedding 与 Reranker 模型 lane 继续保留在架构和配置中。本次只移除 Knowledge 原型对这两条 lane 的拼装耦合，不会删除或重新设计 lane 本身。
+独立的 Embedding 模型 lane 继续保留在架构和配置中，供 semantic routing 使用。已删除的 Knowledge 原型不拥有也不扩展该 lane。
 
 ## 已移除范围
 

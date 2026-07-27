@@ -162,7 +162,34 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS scope_revision INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT '';
 
-CREATE TABLE IF NOT EXISTS approvals (
+	CREATE TABLE IF NOT EXISTS document_records (
+	  id TEXT PRIMARY KEY,
+	  owner_id TEXT NOT NULL DEFAULT 'owner',
+	  session_id TEXT NOT NULL REFERENCES sessions(id),
+	  governed_path TEXT NOT NULL,
+	  name TEXT NOT NULL,
+	  content_type TEXT NOT NULL DEFAULT '',
+	  format TEXT NOT NULL DEFAULT '',
+	  size_bytes BIGINT NOT NULL DEFAULT 0,
+	  sha256 TEXT NOT NULL DEFAULT '',
+	  status TEXT NOT NULL,
+	  source TEXT NOT NULL,
+	  source_message_id TEXT NOT NULL DEFAULT '',
+	  source_run_id TEXT NOT NULL DEFAULT '',
+	  source_tool_call_id TEXT NOT NULL DEFAULT '',
+	  parent_document_id TEXT NOT NULL DEFAULT '',
+	  last_activity TEXT NOT NULL,
+	  last_activity_id TEXT NOT NULL,
+	  last_activity_at TIMESTAMPTZ NOT NULL,
+	  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS document_records_owner_session_activity_idx
+	  ON document_records(owner_id, session_id, last_activity_at DESC);
+	CREATE INDEX IF NOT EXISTS document_records_session_path_idx
+	  ON document_records(session_id, governed_path);
+
+	CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
   run_id TEXT NOT NULL REFERENCES agent_runs(id),
@@ -713,6 +740,7 @@ func (s *PostgresStore) DeleteSession(id string) (app.Session, error) {
 	deleteStatements := []string{
 		`DELETE FROM run_feedback WHERE session_id = $1`,
 		`DELETE FROM approvals WHERE session_id = $1`,
+		`DELETE FROM document_records WHERE session_id = $1`,
 		`DELETE FROM memory_candidates WHERE session_id = $1`,
 		`DELETE FROM memories WHERE source_run_id IN (SELECT id FROM agent_runs WHERE session_id = $1)`,
 		`DELETE FROM episode_summaries WHERE session_id = $1`,
@@ -1315,6 +1343,106 @@ func (s *PostgresStore) ListToolCalls(sessionID string) []app.ToolCall {
 	}
 	defer rows.Close()
 	return collectRows(rows, scanToolCall)
+}
+
+func (s *PostgresStore) SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if record.ID == "" {
+		record.ID = app.NewID("doc")
+	}
+	if record.OwnerID == "" {
+		record.OwnerID = app.DefaultOwnerID
+	}
+	if record.Status == "" {
+		record.Status = app.DocumentStatusAvailable
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	if record.LastActivityAt.IsZero() {
+		record.LastActivityAt = now
+	}
+	if record.LastActivityID == "" {
+		record.LastActivityID = record.ID
+	}
+	record.UpdatedAt = now
+	_, _ = s.db.Exec(ctx, `
+		INSERT INTO document_records (
+			id, owner_id, session_id, governed_path, name, content_type, format,
+			size_bytes, sha256, status, source, source_message_id, source_run_id,
+			source_tool_call_id, parent_document_id, last_activity, last_activity_id,
+			last_activity_at, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+		)
+		ON CONFLICT (id) DO UPDATE SET
+			owner_id = EXCLUDED.owner_id,
+			session_id = EXCLUDED.session_id,
+			governed_path = EXCLUDED.governed_path,
+			name = EXCLUDED.name,
+			content_type = EXCLUDED.content_type,
+			format = EXCLUDED.format,
+			size_bytes = EXCLUDED.size_bytes,
+			sha256 = EXCLUDED.sha256,
+			status = EXCLUDED.status,
+			source = EXCLUDED.source,
+			source_message_id = EXCLUDED.source_message_id,
+			source_run_id = EXCLUDED.source_run_id,
+			source_tool_call_id = EXCLUDED.source_tool_call_id,
+			parent_document_id = EXCLUDED.parent_document_id,
+			last_activity = EXCLUDED.last_activity,
+			last_activity_id = EXCLUDED.last_activity_id,
+			last_activity_at = EXCLUDED.last_activity_at,
+			updated_at = EXCLUDED.updated_at
+	`, record.ID, record.OwnerID, record.SessionID, record.GovernedPath, record.Name,
+		record.ContentType, record.Format, record.SizeBytes, record.SHA256, record.Status,
+		record.Source, record.SourceMessageID, record.SourceRunID, record.SourceToolCallID,
+		record.ParentDocumentID, record.LastActivity, record.LastActivityID,
+		record.LastActivityAt, record.CreatedAt, record.UpdatedAt)
+	s.appendAudit(ctx, "document.saved", record.SessionID, record.SourceRunID, "document_registry", record.LastActivity, map[string]any{
+		"document_id": record.ID,
+		"path":        record.GovernedPath,
+		"activity_id": record.LastActivityID,
+	})
+	s.appendEvent(ctx, "document.saved", record.SessionID, record.SourceRunID, record)
+	return record
+}
+
+func (s *PostgresStore) GetDocumentRecord(id string) (app.DocumentRecord, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, session_id, governed_path, name, content_type, format,
+			size_bytes, sha256, status, source, source_message_id, source_run_id,
+			source_tool_call_id, parent_document_id, last_activity, last_activity_id,
+			last_activity_at, created_at, updated_at
+		FROM document_records
+		WHERE id = $1
+	`, id)
+	record, err := scanDocumentRecord(row)
+	return record, err == nil
+}
+
+func (s *PostgresStore) ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(context.Background(), `
+		SELECT id, owner_id, session_id, governed_path, name, content_type, format,
+			size_bytes, sha256, status, source, source_message_id, source_run_id,
+			source_tool_call_id, parent_document_id, last_activity, last_activity_id,
+			last_activity_at, created_at, updated_at
+		FROM document_records
+		WHERE ($1 = '' OR owner_id = $1) AND ($2 = '' OR session_id = $2)
+		ORDER BY last_activity_at DESC, updated_at DESC, id ASC
+		LIMIT $3
+	`, ownerID, sessionID, limit)
+	if err != nil {
+		return []app.DocumentRecord{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanDocumentRecord)
 }
 
 func (s *PostgresStore) SaveApproval(approval app.Approval) {
@@ -3105,6 +3233,33 @@ func scanToolCall(row scanner) (app.ToolCall, error) {
 	_ = json.Unmarshal(args, &call.Arguments)
 	call.Result = decodeJSON(result)
 	return call, nil
+}
+
+func scanDocumentRecord(row scanner) (app.DocumentRecord, error) {
+	var record app.DocumentRecord
+	err := row.Scan(
+		&record.ID,
+		&record.OwnerID,
+		&record.SessionID,
+		&record.GovernedPath,
+		&record.Name,
+		&record.ContentType,
+		&record.Format,
+		&record.SizeBytes,
+		&record.SHA256,
+		&record.Status,
+		&record.Source,
+		&record.SourceMessageID,
+		&record.SourceRunID,
+		&record.SourceToolCallID,
+		&record.ParentDocumentID,
+		&record.LastActivity,
+		&record.LastActivityID,
+		&record.LastActivityAt,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	)
+	return record, err
 }
 
 func scanApproval(row scanner) (app.Approval, error) {

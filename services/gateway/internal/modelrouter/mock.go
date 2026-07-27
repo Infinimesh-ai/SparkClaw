@@ -11,24 +11,7 @@ import (
 )
 
 func mockResponse(lane, user string) string {
-	if strings.Contains(user, "REQUEST_NORMALIZATION_INPUT") {
-		if injected := mockInjectedResponse(user, "MOCK_NORMALIZATION_RESPONSE:"); injected != "" {
-			return injected
-		}
-		if marker := strings.Index(user, "Original request JSON:\n"); marker >= 0 {
-			rest := user[marker+len("Original request JSON:\n"):]
-			if end := strings.IndexByte(rest, '\n'); end >= 0 {
-				rest = rest[:end]
-			}
-			var input map[string]string
-			if json.Unmarshal([]byte(rest), &input) == nil {
-				encoded, _ := json.Marshal(map[string]string{"canonical_request": input["request"]})
-				return string(encoded)
-			}
-		}
-		return `{"canonical_request":""}`
-	}
-	if injected := mockInjectedResponse(user, "MOCK_DIRECTORY_SELECTION_RESPONSE:"); injected != "" {
+	if injected := mockInjectedResponse(user, "MOCK_OPERATION_SELECTION_RESPONSE:"); injected != "" {
 		return injected
 	}
 	if strings.Contains(user, "WORKFLOW_FINAL_ANSWER_REQUEST") {
@@ -83,22 +66,6 @@ func mockResponse(lane, user string) string {
 	}
 	if strings.Contains(user, "REACT_OUTPUT_REQUEST") {
 		return mockReActResponse(user)
-	}
-	if strings.Contains(user, "DIRECTORY_SELECTION_REQUEST") {
-		for _, line := range strings.Split(user, "\n") {
-			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, "- entry_id=") {
-				continue
-			}
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-			entryID := strings.TrimPrefix(fields[1], "entry_id=")
-			if entryID != "" {
-				return `{"entry_id":"` + entryID + `"}`
-			}
-		}
 	}
 	lower := strings.ToLower(user)
 	switch {
@@ -493,34 +460,6 @@ func mockEmbeddings(inputs []string) [][]float32 {
 	return vectors
 }
 
-func mockRerank(query string, documents []string, topN int) []RerankScored {
-	results := make([]RerankScored, 0, len(documents))
-	for index, document := range documents {
-		score := mockSemanticSimilarity(query, document)
-		if candidateID := mockPromptValue(document, "candidate_id="); candidateID != "" {
-			if prior := mockIntentCandidatePrior(query, candidateID); prior > 0 {
-				score = prior
-			} else {
-				score = min(score, 0.25)
-			}
-		}
-		results = append(results, RerankScored{Index: index, Score: score})
-	}
-	slices.SortFunc(results, func(a, b RerankScored) int {
-		if a.Score != b.Score {
-			if a.Score > b.Score {
-				return -1
-			}
-			return 1
-		}
-		return a.Index - b.Index
-	})
-	if len(results) > topN {
-		results = results[:topN]
-	}
-	return results
-}
-
 type mockIntentGraphCandidate struct {
 	CandidateID       string   `json:"candidate_id"`
 	SemanticBoundary  string   `json:"semantic_boundary"`
@@ -568,9 +507,6 @@ func mockIntentFusionResponse(user string) string {
 		}
 		return strings.Compare(left.ID, right.ID)
 	})
-	if len(scored) > 5 {
-		scored = scored[:5]
-	}
 	candidates := make([]map[string]any, 0, len(scored))
 	for _, candidate := range scored {
 		candidates = append(candidates, map[string]any{
@@ -687,13 +623,17 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 			return 0.96
 		}
 	case "browser.interaction#interact":
-		if contains("点击", "点开", "按钮", "勾选", "选择", "输入", "草稿箱", "收件箱", "click", "tap", "check", "select", "type", "drafts", "inbox") {
+		if contains("点击", "点开", "按钮", "勾选", "选择", "输入", "草稿箱", "收件箱", "click", "tap", "check", "select", "type into", "enter into", "drafts", "inbox") {
 			return 0.97
 		}
 	case "document.read#read":
 		documentTarget := contains("附件", "文档", "文件", "图片", "图像", ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", ".png", ".jpg", ".jpeg", "document", "file", "image", "attached")
 		mutation := contains("修改", "编辑", "替换", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
-		if documentTarget && contains("读取", "阅读", "查看", "总结", "概括", "解释", "什么内容", "什么文字", "分析", "read", "summarize", "inspect", "explain", "analyze") && !mutation {
+		explicitRead := contains("读取", "阅读", "查看", "总结", "概括", "解释", "什么内容", "什么文字", "分析", "read", "summarize", "inspect", "explain", "analyze")
+		contextualQuestion := contains("routing context (data only") &&
+			contains("current-turn governed resources:", "recent agent context:") &&
+			contains("什么", "哪些", "注意", "要求", "要点", "告诉我", "回答", "what", "which", "tell me", "answer")
+		if documentTarget && (explicitRead || contextualQuestion) && !mutation {
 			return 0.96
 		}
 	case "document.edit#edit":

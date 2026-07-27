@@ -123,6 +123,9 @@ func TestVaultRejectsBroadKeyFilePermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte(testKey(4)), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	vault := New(store.NewMemoryStore(), Options{KeyFile: path})
 	if err := vault.Ready(); ErrorCode(err) != CodeKeyUnavailable {
 		t.Fatalf("broad key permissions should fail readiness: %v code=%q", err, ErrorCode(err))

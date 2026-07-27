@@ -1,6 +1,7 @@
 package toolhub
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -101,6 +102,22 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 				t.Fatalf("legacy tool %q entered a current browser r1 scope: %#v", name, definition.Capabilities)
 			}
 		}
+	}
+}
+
+func TestDOCXParagraphDirectoryMetadataDistinguishesRevisionFromInsertion(t *testing.T) {
+	replace := toolRegistry["docx.replace_paragraph"].directory
+	insert := toolRegistry["docx.insert_paragraph"].directory
+
+	if !strings.Contains(replace.WhenToUse, "existing paragraph") ||
+		!strings.Contains(replace.WhenToUse, "improve") ||
+		!strings.Contains(replace.WhenNotToUse, "new paragraph") {
+		t.Fatalf("DOCX replacement metadata does not describe existing-content revision: %#v", replace)
+	}
+	if !strings.Contains(insert.WhenToUse, "explicitly requests") ||
+		!strings.Contains(insert.WhenToUse, "new paragraph") ||
+		!strings.Contains(insert.WhenNotToUse, "existing paragraph") {
+		t.Fatalf("DOCX insertion metadata does not require an additive request: %#v", insert)
 	}
 }
 

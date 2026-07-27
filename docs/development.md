@@ -39,22 +39,32 @@ implement typed interfaces; they do not redefine domain records.
 
 ## Setup
 
-Requirements are Go 1.25, Node.js 24+, npm 11+, and Docker for the standard
-sandbox/eval path.
+The validated host baseline is Ubuntu ARM64 with Go 1.25, Node.js 26, npm 11,
+Python 3.12, and Docker. `.nvmrc`, CI, and Docker builds use Node 26 so host and
+container validation stay on the same major version.
+
+Install Go, Node.js, npm, Python, and pip as host tools available on `PATH`.
+The root npm workspace owns all Node dependencies, while
+`setup:document-tools` installs Python document libraries into the host user's
+standard site-packages directory. The repository does not use a `.tools`
+runtime or platform-specific toolchain directory.
 
 ```bash
-npm install
-npm run setup:document-tools
-npm run setup:browser
+npm run setup:host
 ```
 
-Run Gateway and WebChat in separate terminals:
+Rebuild and restart the current external-model/PostgreSQL development runtime:
 
 ```bash
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-npm --workspace @sparkclaw/webchat run dev
+npm run dev
 ```
 
+To rebuild only one application container, use `npm run dev:gateway` or
+`npm run dev:webchat`. These commands preserve the external/PostgreSQL
+environment and verify Gateway readiness.
+
+Direct host processes are retained only for isolated mock/file and Vite
+debugging as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
 See [Deployment](deployment.md) for Compose, auth, state backends, DGX Spark
 models, and operational environment variables.
 
@@ -104,9 +114,9 @@ Follow the [Engineering baseline](engineering-baseline.md) for all work and the
 ## Capability And Workflow Changes
 
 The current natural-language path is semantic graph -> embedding and Fast/Tree
-scores -> weighted fusion -> reranker -> Top-2 decision -> deterministic route
-assembly. Do not add keyword fallback, a second capability map, or a model-owned
-`RouteDecision`. See [Intent routing](intent-routing.md).
+scores for every eligible candidate -> weighted fusion -> Top-2 decision ->
+deterministic route assembly. Do not add keyword fallback, a second capability
+map, or a model-owned `RouteDecision`. See [Intent routing](intent-routing.md).
 
 To add a user-facing capability:
 

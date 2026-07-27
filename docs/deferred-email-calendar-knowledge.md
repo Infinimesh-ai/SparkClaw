@@ -8,7 +8,7 @@ Email, calendar, and workspace knowledge/RAG were removed from the active SparkC
 
 They are not available through ToolHub, Agent Runtime routing, Skills, public configuration, WebChat settings, or the golden eval suite. The owner profile may still contain an email-shaped identity field; that field is profile metadata and is not an email integration. Authenticated personal sites may still be accessed through the governed browser workflow; that does not restore a dedicated email or calendar connector.
 
-The standalone Embedding and Reranker model lanes remain part of the architecture and configuration. This removal only deletes the knowledge prototype's coupling to those lanes; it does not remove or redesign the lanes themselves.
+The standalone Embedding lane remains part of the architecture and configuration for semantic routing. The removed knowledge prototype does not own or extend that lane.
 
 ## What Was Removed
 

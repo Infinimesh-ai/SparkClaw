@@ -575,6 +575,9 @@ func applyWorkflowOutcome(run *app.AgentRun, outcome app.ToolOutcome, assessment
 		} else {
 			state.CurrentScope.Requirements = appendUniqueRequirements(state.CurrentScope.Requirements, transition.Add...)
 		}
+		if state.TransitionActivations == nil {
+			state.TransitionActivations = make(map[app.TransitionID]int)
+		}
 		state.TransitionActivations[transition.ID]++
 		state.ScopeRevision++
 		state.Stage = transition.NextStage

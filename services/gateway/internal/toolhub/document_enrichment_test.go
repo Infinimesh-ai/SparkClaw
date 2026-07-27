@@ -243,9 +243,8 @@ const ExcelJS = require("exceljs");
   sheet.addImage(imageId, "A2:D8");
   await workbook.xlsx.writeFile(root + "/image.xlsx");
 })().catch(error => { console.error(error && error.stack || error); process.exit(1); });
-`
+	`
 	cmd = exec.Command(documentNodeBinary(), "-e", nodeScript, root, imagePath)
-	cmd.Env = append(os.Environ(), "NODE_PATH="+documentNodeModulesPath())
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create XLSX image fixture: %v\n%s", err, output)
 	}

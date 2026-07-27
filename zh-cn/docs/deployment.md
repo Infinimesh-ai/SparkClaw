@@ -8,8 +8,8 @@
 
 - Ubuntu 24.04 或其他带 Docker / Docker Compose 的 Linux host。
 - DGX Spark 模型服务需要 NVIDIA container runtime。
-- host-side WebChat build 需要 Node.js 24+ 和 npm 11+。
-- host-side Gateway 开发需要 Go 1.25；如果 host 没有 Go，可使用 Docker Go builder fallback。
+- host-side build 使用 Node.js 26 和 npm 11；版本入口为仓库 `.nvmrc`。
+- host-side Gateway 开发使用 Go 1.25。
 - 模型下载需要把 Hugging Face token 放在本地 `.env` 中。不要提交 `.env`。
 
 创建本地环境文件：
@@ -66,25 +66,27 @@ bash scripts/run-eval.sh
 
 ## Host Development Runtime
 
-直接运行 Gateway 和 WebChat：
+已验证 DGX Spark 主机的标准开发运行态是容器化
+external-model/PostgreSQL topology：
 
 ```bash
-npm install
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-npm --workspace @sparkclaw/webchat run dev
+npm run dev
 ```
 
-Host WebChat dev server 同样监听 `0.0.0.0:18790`，并把 API 请求代理到仅监听
-loopback 的 Gateway。
+使用 `npm run dev:gateway` 或 `npm run dev:webchat` 可以只重建一个应用容器，
+且不会切回 mock/file mode。
 
-本地 token auth：
+仅在隔离的宿主进程调试中，才在两个 terminal 分别运行 mock/file Gateway
+和 Vite server：
 
 ```bash
-SPARKCLAW_API_TOKEN=change-me go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-VITE_SPARKCLAW_API_TOKEN=change-me npm --workspace @sparkclaw/webchat run dev
+npm run dev:gateway:host
+npm run dev:webchat:host
 ```
 
-如果未设置 `VITE_SPARKCLAW_API_TOKEN`，WebChat 会在第一次 unauthorized response 后提示输入。
+Host WebChat dev server 监听 `0.0.0.0:18790`，并把 API 请求代理到仅监听
+loopback 的 Gateway。受保护的宿主进程运行态应把 `SPARKCLAW_API_TOKEN`
+和 `VITE_SPARKCLAW_API_TOKEN` 设为相同值。
 
 ## ISCP Bridge 进程
 
@@ -134,6 +136,12 @@ go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
 Gateway 启动时会应用当前核心 schema。项目标准 data service image 仍保留 PostgreSQL 18 with pgvector，但 Workspace Knowledge/RAG 暂缓期间，Gateway 不再创建或查询 Document Chunk/Vector Schema。
+
+PostgreSQL 18 会把 cluster 存放在带主版本号的子目录中，因此 Compose 将
+带版本号的 `sparkclaw_pg18` volume 挂载到 `/var/lib/postgresql`。使用旧
+`/var/lib/postgresql/data` 挂载创建的 PostgreSQL 17 `sparkclaw_pg`
+volume，必须先备份，再通过 `pg_dump`/`pg_restore` 迁移。不要把旧 data
+directory 直接挂到 PostgreSQL 18，也不要通过删除旧卷来强制重新初始化。
 
 ## Artifact Storage
 
@@ -186,19 +194,18 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
   postgres minio minio-init sandbox-runner gateway webchat
 ```
 
-模型端点 healthy 后，用 external mode 重建 Gateway：
+模型端点 healthy 后，用 external mode 重建 Gateway 与 WebChat：
 
 ```bash
-sudo -n env \
-  SPARKCLAW_MODEL_MODE=external \
-  SPARKCLAW_STATE_BACKEND=postgres \
-  SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=300 \
-  SPARKCLAW_MODEL_DISABLE_THINKING=true \
-  SPARKCLAW_FAST_MODEL=sparkclaw-fast \
-  SPARKCLAW_DEEP_MODEL=sparkclaw-deep \
-  SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
-  docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d --build --force-recreate gateway webchat
+scripts/restart_runtime_compose.sh
 ```
+
+模型运行态应使用该脚本，而不是直接执行
+`docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
+`docker/env/sparkclaw.external-postgres.env`，避免 Compose 退回
+`docker/env/sparkclaw.example.env` 的 `mock/file` 默认值；重启后还会检查
+`/readyz`，只有 Gateway 报告 `model_mode=external` 且
+`state_backend=postgres` 时才成功退出。
 
 ## DGX Spark Model Services
 
@@ -215,9 +222,13 @@ Compose vLLM services：
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
 scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh dual-light-asr
 scripts/serve_models_compose.sh dual-light-chat
-scripts/serve_models_compose.sh embedding,reranker
+scripts/serve_models_compose.sh embedding
+scripts/serve_models_compose.sh guard
+scripts/serve_models_compose.sh asr
 scripts/serve_models_compose.sh all
+scripts/serve_models_compose.sh all-with-asr
 ```
 
 默认 endpoints：
@@ -227,7 +238,8 @@ scripts/serve_models_compose.sh all
 | fast | `sparkclaw-fast` | `http://127.0.0.1:8001/v1` |
 | deep | `sparkclaw-deep` | `http://127.0.0.1:8002/v1` |
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
-| reranker | `sparkclaw-reranker` | `http://127.0.0.1:8004/v1` |
+| guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
+| asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
 
 检查 endpoints：
 
@@ -235,7 +247,8 @@ scripts/serve_models_compose.sh all
 curl -fsS http://127.0.0.1:8001/v1/models
 curl -fsS http://127.0.0.1:8002/v1/models
 curl -fsS http://127.0.0.1:8003/v1/models
-curl -fsS http://127.0.0.1:8004/v1/models
+curl -fsS http://127.0.0.1:8005/v1/models
+curl -fsS http://127.0.0.1:8006/v1/models
 ```
 
 重要环境变量：
@@ -244,19 +257,101 @@ curl -fsS http://127.0.0.1:8004/v1/models
 - `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
 - `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
-- `SPARKCLAW_RERANKER_MODEL_ID`, `SPARKCLAW_RERANKER_MODEL`, `SPARKCLAW_RERANKER_MAX_MODEL_LEN`, `SPARKCLAW_RERANKER_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_RERANKER_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_RERANKER_MAX_NUM_SEQS`
+- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
+- `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
+- `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` 或 `HUGGING_FACE_HUB_TOKEN`
 
 `*_MODEL_ID` 是 serving container 加载的 Hugging Face checkpoint；`*_MODEL` 是 Gateway 发送的 OpenAI-compatible served name。
 
+### 专用 Qwen3Guard
+
+guard lane 使用公开的生成式 checkpoint `Qwen/Qwen3Guard-Gen-0.6B`；
+`Qwen/Qwen3Guard-0.6B` 不是有效的公开 checkpoint ID。只启动 guard endpoint：
+
+```bash
+SPARKCLAW_MODEL_LOADING_PROFILE=dual-light scripts/serve_models_compose.sh guard
+curl -fsS http://127.0.0.1:8005/v1/models
+```
+
+单台 GB10 的 `dual-light` profile 把 guard 限制为 16K context、2 GiB KV cache、
+单序列和 eager execution。Qwen3Guard 返回原生
+`Safety: Safe|Unsafe|Controversial` 与 `Categories:` 格式；Gateway 分别映射为
+`allow`、`block` 和 `review`。SparkClaw 当前没有人工安全复核队列，因此 `review`
+和 `block` 都会在 routing 或 tool execution 前终止 run。外部 endpoint 不可用时，
+Gateway 会记录 `mock=true` 并使用本地 heuristic fallback。
+
+### 从魔塔加载 Qwen3-ASR
+
+SparkClaw speech 使用 OpenAI-compatible transcription endpoint。Qwen3-ASR 支持 vLLM serving 和 OpenAI transcription API，[官方 Qwen3-ASR README](https://github.com/QwenLM/Qwen3-ASR) 也建议中国大陆用户通过 ModelScope 下载。单台 GB10 同时运行已验证的 `dual-light` 常驻 profile 时，先用 `Qwen/Qwen3-ASR-0.6B`；只有在 fast、deep、embedding 都常驻后重新测过内存和延迟，再切到 `Qwen/Qwen3-ASR-1.7B`。
+
+把 ASR checkpoint 下载到共享模型缓存：
+
+```bash
+python3 -m pip install -U modelscope
+mkdir -p data/models/modelscope/Qwen3-ASR-0.6B
+modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir data/models/modelscope/Qwen3-ASR-0.6B
+```
+
+ASR compose override 会基于本地 vLLM image 构建一个轻量派生镜像，只补音频依赖，不改文本模型主镜像：
+
+- Compose：`docker/compose.asr.yaml`
+- 环境变量：`docker/env/sparkclaw.asr.env`
+- 镜像配方：`docker/images/asr-vllm.Dockerfile`
+- 默认 served model：`sparkclaw-asr`
+- 容器内默认模型路径：`/models/modelscope/Qwen3-ASR-0.6B`
+
+只启动 ASR：
+
+```bash
+scripts/serve_models_compose.sh asr
+```
+
+启动已验证的常驻 profile 并带 ASR：
+
+```bash
+scripts/serve_models_compose.sh dual-light-asr
+```
+
+启动启用 speech 的 Gateway 和 WebChat：
+
+```bash
+docker compose \
+  --env-file docker/env/sparkclaw.dual-light.env \
+  --env-file docker/env/sparkclaw.asr.env \
+  -f docker/compose.yaml \
+  -f docker/compose.dual-light.yaml \
+  -f docker/compose.asr.yaml \
+  --profile models-local up -d gateway webchat
+```
+
+从 host 检查 ASR endpoint：
+
+```bash
+curl -fsS http://127.0.0.1:8006/health
+curl -fsS http://127.0.0.1:8006/v1/models
+curl -fsS http://127.0.0.1:8006/v1/audio/transcriptions \
+  -F model=sparkclaw-asr \
+  -F response_format=json \
+  -F file=@/path/to/sample.wav
+```
+
+host 侧运行 doctor 时，`docker/env/sparkclaw.asr.env` 中的容器 URL 留给 Gateway 使用，检查命令里覆盖成 loopback：
+
+```bash
+set -a
+. docker/env/sparkclaw.asr.env
+set +a
+SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
+```
+
 2026-05-24 DGX Spark 验证说明：
 
 - NVIDIA GB10 和 driver `580.159.03` 在 host 和 CUDA containers 中可见。
 - `vllm/vllm-openai:cu130-nightly` 可在 arm64 上运行。
-- `Qwen/Qwen3.6-27B-FP8`、`Qwen/Qwen3.6-35B-A3B-FP8`、`Qwen/Qwen3-Embedding-0.6B` 和 `Qwen/Qwen3-Reranker-0.6B` 已验证。
-- reranker 在 `/rerank` 不可用时使用 vLLM generative scoring。
+- `Qwen/Qwen3.6-27B-FP8`、`Qwen/Qwen3.6-35B-A3B-FP8`、`Qwen/Qwen3-Embedding-0.6B` 和 `Qwen/Qwen3Guard-Gen-0.6B` 已验证。
 - full-context fast+deep dual residency 在两个 chat lanes 都为 128K context 且启用 MTP 时未能同时容纳。可一次运行一个 128K/MTP chat lane，把两个 Gateway profiles 都路由到已加载 lane，或降低 context/MTP 后重新测量。
 
 轻量双常驻实验：
@@ -266,7 +361,7 @@ scripts/serve_models_compose.sh dual-light
 python3 scripts/record_model_loading.py --profile dual-light-v1
 ```
 
-`dual-light` 快捷方式会应用 `docker/env/sparkclaw.dual-light.env` 和 `docker/compose.dual-light.yaml`：fast 32K + 8G KV cache，deep 64K + 12G KV cache，embedding 8K + 2G KV cache，reranker 2K + 1G KV cache，关闭 MTP，并降低并发序列数。运行 external mode Gateway 前先启动这个完整 profile。在 2026-05-25 real-model golden eval 通过后，它是当前接受的单用户完整产品 profile。
+`dual-light` 快捷方式会应用 `docker/env/sparkclaw.dual-light.env` 和 `docker/compose.dual-light.yaml`：fast 32K + 8G KV cache，deep 64K + 12G KV cache，embedding 8K + 2G KV cache，guard 16K + 2G KV cache。MTP 关闭，并发序列数保持较低。运行 external mode Gateway 前先启动这个完整 profile。
 
 只有在刻意测量不带辅助端点的 chat lanes 时才使用 `dual-light-chat`。
 
@@ -302,7 +397,7 @@ bash scripts/run-eval.sh
 - `data/traces`
 - `data/artifacts`
 - `data/workspaces`
-- Postgres volume `sparkclaw_pg`
+- Postgres volume `sparkclaw_pg18`
 - MinIO volume `sparkclaw_minio`
 - 如果需要复用模型缓存，则备份 `data/models`
 
@@ -349,6 +444,5 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 | Docker permission denied | 使用 `sudo -n docker ...` 或将用户加入 Docker group。 |
 | Golden eval browser step fails | Docker eval 启动 Gateway 时设置 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal`；host eval 使用 `127.0.0.1`。 |
 | Model returns reasoning but no answer | 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。 |
-| Reranker `/rerank` returns 404 | 使用已有 generative-scoring fallback 和 served name `sparkclaw-reranker`。 |
 | Postgres vector extension unavailable | SparkClaw fallback 到 JSON vectors 和 Gateway-side hybrid scoring。 |
 | 128K fast+deep does not fit | 一次运行一个 chat lane，或降低 context/MTP 后重新 benchmark。 |

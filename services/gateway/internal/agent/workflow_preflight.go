@@ -18,22 +18,6 @@ type documentPreflight struct {
 	Format    string
 }
 
-func attachedWorkspaceDocumentPaths(resources []app.MessagePart) []string {
-	paths := make([]string, 0, len(resources))
-	seen := map[string]bool{}
-	for _, resource := range resources {
-		if (resource.Kind != app.MessagePartFile && resource.Kind != app.MessagePartImage) || resource.Resource == nil || resource.Resource.Kind != "workspace_file" {
-			continue
-		}
-		ref := strings.TrimSpace(resource.Resource.Ref)
-		if ref != "" && !seen[ref] {
-			seen[ref] = true
-			paths = append(paths, ref)
-		}
-	}
-	return paths
-}
-
 func attachedWorkspaceImageCanFinalize(resources []app.MessagePart, content string) bool {
 	if !imageInspectCanFinalize(content) {
 		return false
@@ -44,19 +28,6 @@ func attachedWorkspaceImageCanFinalize(resources []app.MessagePart, content stri
 		}
 	}
 	return false
-}
-
-func recentDocumentContextPath(snapshot agentContextSnapshot) string {
-	for index := len(snapshot.ToolResults) - 1; index >= 0; index-- {
-		call := snapshot.ToolResults[index]
-		for _, value := range []string{stringValue(call.Arguments["output_path"]), stringValue(call.Arguments["path"])} {
-			value = strings.TrimSpace(value)
-			if value != "" && value != "<nil>" {
-				return value
-			}
-		}
-	}
-	return ""
 }
 
 func documentRoutePaths(content string) []string {

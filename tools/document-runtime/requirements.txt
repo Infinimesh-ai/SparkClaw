@@ -1,5 +1,5 @@
 # Python dependencies for the gateway document tool adapters.
-# Installed into .tools/document-python by scripts/setup-document-tools.sh.
+# Installed into the host Python user site by scripts/setup-document-tools.sh.
 python-docx>=1.1
 python-pptx>=1.0
 pypdf>=5.0

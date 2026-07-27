@@ -27,9 +27,9 @@ Default single-machine operation should use one full chat lane at a time:
 - Run `deep` full profile for code work, high-risk review, repair verification, terminal-related tasks and explicit deep requests.
 - Treat lower `deep` throughput as an expected dense-model cost. Optimize `deep` for reliability and answer quality, while using `fast` for responsive interaction and short-turn flow.
 - During evals or constrained runs, route both Gateway profiles to the loaded lane when necessary.
-- Keep embedding and reranker small but resident in the accepted product
-  profile. Embedding is required to build the semantic routing index at Gateway
-  startup; reranker supplies the bounded routing reorder channel.
+- Keep embedding and the dedicated guard small but resident in the product
+  profile. Embedding builds the semantic routing index and scores each request;
+  guard moderates the owner prompt before routing or tool execution.
 
 Single-machine performance features are intentionally conservative:
 
@@ -44,14 +44,14 @@ If a single DGX Spark needs both chat lanes resident, the experiment should star
 
 Recommended first target:
 
-| Setting | `fast` | `deep` | embedding | reranker | Rationale |
+| Setting | `fast` | `deep` | embedding | guard | Rationale |
 |---|---:|---:|---:|---:|---|
-| Context | 32768 | 65536 | 8192 | 2048 | Preserve deep context first; keep auxiliary context sufficient for single-user semantic routing and bounded ranking. |
+| Context | 32768 | 65536 | 8192 | 16384 | Preserve deep context; keep auxiliary contexts sufficient for their bounded inputs. |
 | MTP | off | off | off | off | Save memory and reduce moving parts while validating residency. |
-| KV cache budget | 8 GiB | 12 GiB | 2 GiB | 1 GiB | Cap the real pressure point instead of letting each server reserve a full lane. |
-| Max response tokens | 768 | 1536 | n/a | n/a | Keep agent loops responsive and evals stable. |
+| KV cache budget | 8 GiB | 12 GiB | 2 GiB | 2 GiB | Cap the real pressure point instead of letting each server reserve a full lane. |
+| Max response tokens | 768 | 1536 | n/a | 128 | Keep agent loops and moderation responsive. |
 | Max concurrent sequences | 4 | 2 | 1 | 1 | The product is single-user; optimize for fit and latency, not concurrency. |
-| GPU memory utilization | 0.42 | 0.44 | 0.06 | 0.06 | `--kv-cache-memory-bytes` is the binding cap; utilization stays conservative for startup checks. |
+| GPU memory utilization | 0.42 | 0.36 | 0.06 | 0.04 | Explicit KV budgets bind capacity; utilization stays conservative for startup checks. |
 
 This profile is implemented as `dgx-spark-dual-light-v1`:
 
@@ -69,9 +69,21 @@ The preferred compromise is `deep` priority:
 
 This gives SparkClaw a responsive local `fast` lane while preserving the main value of `deep`: harder reasoning over larger evidence windows.
 
-First accepted finding: `dual-light-v1` fits as a single-machine full product residency profile after auxiliary KV caps are made explicit. Warmed `fast` runs around 48-50 tok/s and warmed `deep` runs around 7.3 tok/s. A chat-only control, with embedding and reranker stopped, left `deep` throughput essentially unchanged, so the slower `deep` lane is treated as the dense-model quality/stability trade-off rather than a residency failure. The auxiliary models need small explicit KV budgets when they are started after both chat lanes: embedding at 32K failed, embedding at 8K with 2G KV started and returned warm requests around 28.5 ms.
+The historical `dual-light-v1` experiment showed that both chat lanes plus small
+auxiliary endpoints fit on one machine. Warmed `fast` ran around 48-50 tok/s and
+warmed `deep` around 7.3 tok/s. A chat-only control left `deep` throughput
+essentially unchanged. The current product profile keeps embedding and guard:
+embedding at 8K with a 2G KV cap returned warmed requests around 28.5 ms;
+Qwen3Guard at 16K with a 2G KV cap used 1.12 GiB for model weights and returned
+warmed moderation requests in about 80-110 ms. A 32K guard context was rejected
+because it needed 3.5 GiB KV.
 
-The acceptance standard for this single-user profile is integrated task performance, not concurrency. On 2026-05-25, `dual-light-v1` passed the historical 58-case real-model golden eval with fast, deep, embedding and reranker resident through an external Gateway. That makes it the current accepted single-machine dual-model profile while further tuning focuses on quality regressions, startup ergonomics and first-request warmup. The active 43-case matrix still requires a fresh real-model run when model-stack behavior changes.
+The acceptance standard for this single-user profile is integrated task
+performance, not concurrency. On 2026-05-25, the historical stack passed the
+then-current 58-case real-model golden eval. Removing the reranking lane changes
+the routing model stack, so the current Fast + Embedding + Guard profile
+requires a fresh active 43-case real-model run before its quality can be
+compared with that historical result.
 
 ### Dual-Light Test Loop
 
@@ -82,6 +94,8 @@ scripts/serve_models_compose.sh dual-light
 
 curl -fsS http://127.0.0.1:8001/v1/models
 curl -fsS http://127.0.0.1:8002/v1/models
+curl -fsS http://127.0.0.1:8003/v1/models
+curl -fsS http://127.0.0.1:8005/v1/models
 
 set -a
 . docker/env/sparkclaw.dual-light.env
@@ -89,17 +103,17 @@ set +a
 SPARKCLAW_FAST_BASE_URL=http://127.0.0.1:8001/v1 \
 SPARKCLAW_DEEP_BASE_URL=http://127.0.0.1:8002/v1 \
 SPARKCLAW_EMBEDDING_BASE_URL=http://127.0.0.1:8003/v1 \
-SPARKCLAW_RERANKER_BASE_URL=http://127.0.0.1:8004/v1 \
 python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.md
 
 SPARKCLAW_FAST_BASE_URL=http://127.0.0.1:8001/v1 \
 SPARKCLAW_DEEP_BASE_URL=http://127.0.0.1:8002/v1 \
 SPARKCLAW_EMBEDDING_BASE_URL=http://127.0.0.1:8003/v1 \
-SPARKCLAW_RERANKER_BASE_URL=http://127.0.0.1:8004/v1 \
 python3 scripts/record_model_loading.py --profile dual-light-v1
 ```
 
-Use `scripts/serve_models_compose.sh dual-light-chat` only for chat-only controls. The accepted product profile is `dual-light`, which includes fast, deep, embedding and reranker.
+Use `scripts/serve_models_compose.sh dual-light-chat` only for chat-only controls.
+The product profile is `dual-light`, which includes fast, deep, embedding, and
+the dedicated guard.
 
 Record rejected profiles too. A failed startup with logs and GPU process state is still useful evidence.
 
@@ -119,7 +133,7 @@ When two DGX Spark systems are available, split model serving by lane rather tha
 
 | Machine | Services | Notes |
 |---|---|---|
-| DGX Spark A | `fast`, embedding, reranker, optional guard | Optimized for interactive latency, semantic routing, and bounded ranking. |
+| DGX Spark A | `fast`, embedding, guard | Optimized for interactive latency, semantic routing and prompt moderation. |
 | DGX Spark B | `deep` | Keep memory headroom for large context and repair/review tasks. |
 
 Only after this split is stable should performance features be enabled:
@@ -138,7 +152,7 @@ Every new loading profile should record:
 - Context length, KV cache budget, GPU memory utilization and MTP/DFlash status.
 - Startup success, idle memory, first-request latency and warmed-request latency.
 - Throughput for chat, summary, email triage and coding scenarios.
-- Embedding/reranker availability and Gateway semantic-router readiness.
+- Embedding and guard availability plus Gateway semantic-router readiness.
 - Golden eval result and any regression notes.
 
 Append durable measurements to [Model baseline](../benchmarks/model_baseline.md). Keep this document focused on strategy and accepted loading profiles.

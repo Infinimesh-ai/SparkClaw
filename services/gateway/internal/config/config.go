@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -48,7 +49,6 @@ type ModelConfig struct {
 	Fast               ModelProfile `json:"fast"`
 	Deep               ModelProfile `json:"deep"`
 	Embedding          ModelProfile `json:"embedding"`
-	Reranker           ModelProfile `json:"reranker"`
 	Guard              ModelProfile `json:"guard"`
 	Mock               bool         `json:"mock"`
 	HTTPTimeoutSeconds int          `json:"http_timeout_seconds"`
@@ -474,10 +474,10 @@ func normalizeSpeechConfig(speech *SpeechConfig) error {
 	}
 	parsed, err := url.Parse(strings.TrimSpace(speech.BaseURL))
 	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
-		return errors.New("speech.base_url must be an absolute https URL")
+		return errors.New("speech.base_url must be an absolute http or https URL")
 	}
-	if parsed.Scheme != "https" {
-		return errors.New("speech.base_url must use https")
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return errors.New("speech.base_url must use http or https")
 	}
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("speech.base_url cannot contain credentials, query parameters, or fragments")
@@ -485,8 +485,22 @@ func normalizeSpeechConfig(speech *SpeechConfig) error {
 	if !containsFold(speech.AllowedHosts, parsed.Hostname()) {
 		return fmt.Errorf("speech.base_url host %q is not listed in speech.allowed_hosts", parsed.Hostname())
 	}
+	if parsed.Scheme == "http" && !isLocalHTTPHost(parsed.Hostname()) {
+		return errors.New("speech.base_url may use http only for loopback, private, or local container hosts")
+	}
 	speech.BaseURL = strings.TrimRight(parsed.String(), "/")
 	return nil
+}
+
+func isLocalHTTPHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	}
+	return !strings.Contains(host, ".")
 }
 
 func normalizeHostList(values []string) []string {
@@ -549,17 +563,12 @@ func Default() Config {
 				Model:         "Qwen/Qwen3-Embedding-0.6B",
 				ContextTokens: 32768,
 			},
-			Reranker: ModelProfile{
-				Name:          "sparkclaw-reranker",
-				BaseURL:       "http://127.0.0.1:8004/v1",
-				Model:         "Qwen/Qwen3-Reranker-0.6B",
-				ContextTokens: 2048,
-			},
 			Guard: ModelProfile{
 				Name:          "sparkclaw-guard",
 				BaseURL:       "http://127.0.0.1:8005/v1",
-				Model:         "Qwen/Qwen3Guard-0.6B",
+				Model:         "Qwen/Qwen3Guard-Gen-0.6B",
 				ContextTokens: 32768,
+				MaxTokens:     128,
 			},
 		},
 		Speech: SpeechConfig{
@@ -904,17 +913,21 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_EMBEDDING_MODEL"); v != "" {
 		cfg.Model.Embedding.Model = v
 	}
-	if v := os.Getenv("SPARKCLAW_RERANKER_BASE_URL"); v != "" {
-		cfg.Model.Reranker.BaseURL = v
-	}
-	if v := os.Getenv("SPARKCLAW_RERANKER_MODEL"); v != "" {
-		cfg.Model.Reranker.Model = v
-	}
 	if v := os.Getenv("SPARKCLAW_GUARD_BASE_URL"); v != "" {
 		cfg.Model.Guard.BaseURL = v
 	}
 	if v := os.Getenv("SPARKCLAW_GUARD_MODEL"); v != "" {
 		cfg.Model.Guard.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_GUARD_MAX_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Guard.MaxTokens = tokens
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_GUARD_CONTEXT_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Model.Guard.ContextTokens = tokens
+		}
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_READ_ALLOW_HOSTS"); v != "" {
 		cfg.Security.BrowserReadAllowHosts = splitCSV(v)

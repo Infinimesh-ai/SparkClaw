@@ -38,10 +38,18 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 			return fmt.Errorf("workflow node ID %q is duplicated", node.ID)
 		}
 		modelAnswerNode := node.Goal.Completion == app.CompletionModelAnswer
-		if modelAnswerNode && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0) {
-			return fmt.Errorf("workflow node %q model answer contract cannot expose tools, bindings, or transitions", node.ID)
+		deterministicNode := node.Goal.Completion == app.CompletionDeterministic
+		decisionNode := node.Goal.Completion == app.CompletionDecision
+		if (modelAnswerNode || deterministicNode) && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0 || len(node.InitialScope.Requirements) != 0) {
+			return fmt.Errorf("workflow node %q non-tool completion contract cannot expose tools, bindings, scopes, or transitions", node.ID)
 		}
-		allowEmptyInitialScope := modelAnswerNode
+		if decisionNode && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll) {
+			return fmt.Errorf("workflow decision node %q cannot declare transitions, bindings, stage capabilities, or materialize all", node.ID)
+		}
+		if node.Goal.Completion != app.CompletionEvidence && !modelAnswerNode && !deterministicNode && !decisionNode {
+			return fmt.Errorf("workflow node %q has unsupported completion rule %q", node.ID, node.Goal.Completion)
+		}
+		allowEmptyInitialScope := modelAnswerNode || deterministicNode
 		for _, transition := range node.Transitions {
 			allowEmptyInitialScope = allowEmptyInitialScope || transition.Deterministic
 		}
@@ -86,6 +94,18 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 				return fmt.Errorf("workflow node %q has an invalid dependency %q", nodeID, dependency)
 			}
 			seenDependencies[dependency] = true
+		}
+		if node.Goal.Completion == app.CompletionDecision {
+			hasEvidenceDependency := false
+			for _, dependency := range node.DependsOn {
+				if nodes[dependency].Goal.Completion == app.CompletionEvidence {
+					hasEvidenceDependency = true
+					break
+				}
+			}
+			if !hasEvidenceDependency {
+				return fmt.Errorf("workflow decision node %q requires an evidence dependency", nodeID)
+			}
 		}
 	}
 	if workflowPlanHasCycle(nodes) {

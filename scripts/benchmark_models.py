@@ -5,7 +5,6 @@ import os
 import statistics
 import sys
 import time
-import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -69,13 +68,6 @@ def request_json(method, url, body=None, timeout=120):
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
-
-
-def generative_scoring_base_url(base_url):
-    stripped = base_url.rstrip("/")
-    if stripped.endswith("/v1"):
-        return stripped[:-3]
-    return stripped
 
 
 def stream_chat(lane, base_url, model, prompt, timeout):
@@ -219,43 +211,6 @@ def check_embedding(base_url, model, timeout):
     }
 
 
-def check_reranker(base_url, model, timeout):
-    if not base_url or not model:
-        return {"status": "skipped", "reason": "reranker endpoint or model is not configured"}
-    started = time.perf_counter()
-    query = "DGX Spark validation"
-    documents = [
-        "SparkClaw records traces and approval decisions.",
-        "A garden calendar lists watering reminders.",
-    ]
-    try:
-        decoded = request_json("POST", base_url.rstrip("/") + "/rerank", {
-            "model": model,
-            "query": query,
-            "documents": documents,
-            "top_n": 2,
-        }, timeout=timeout)
-    except urllib.error.HTTPError as err:
-        if err.code != 404:
-            raise
-        decoded = request_json("POST", generative_scoring_base_url(base_url) + "/generative_scoring", {
-            "model": model,
-            "query": "Is this document relevant to the query? Answer Yes or No.\nQuery: " + query,
-            "items": ["Document: " + document + "\nAnswer:" for document in documents],
-            "label_token_ids": [7414, 2308],
-            "apply_softmax": True,
-        }, timeout=timeout)
-    completed = time.perf_counter()
-    results = decoded.get("results") or decoded.get("data") or []
-    return {
-        "status": "passed" if results else "failed",
-        "model": model,
-        "latency_ms": round((completed - started) * 1000, 1),
-        "results": results[:2],
-        "usage": decoded.get("usage") or {},
-    }
-
-
 def summarize(results):
     grouped = {}
     for item in results:
@@ -350,26 +305,17 @@ def main():
         },
         "summary": summarize(results),
         "results": results,
-        "endpoint_checks": {
-            "embedding": None,
-            "reranker": None,
-        },
+        "endpoint_checks": {"embedding": None},
         "errors": errors,
     }
     if args.skip_aux_checks:
         report["endpoint_checks"]["embedding"] = {"status": "skipped", "reason": "auxiliary endpoint checks disabled"}
-        report["endpoint_checks"]["reranker"] = {"status": "skipped", "reason": "auxiliary endpoint checks disabled"}
     else:
         try:
             embedding_model = env("SPARKCLAW_EMBEDDING_MODEL", env("SPARKCLAW_EMBEDDING_SERVED_NAME", "sparkclaw-embedding"))
             report["endpoint_checks"]["embedding"] = check_embedding(env("SPARKCLAW_EMBEDDING_BASE_URL", "http://127.0.0.1:8003/v1"), embedding_model, args.timeout)
         except Exception as err:
             report["endpoint_checks"]["embedding"] = {"status": "failed", "error": str(err)}
-        try:
-            reranker_model = env("SPARKCLAW_RERANKER_MODEL", env("SPARKCLAW_RERANKER_SERVED_NAME", "sparkclaw-reranker"))
-            report["endpoint_checks"]["reranker"] = check_reranker(env("SPARKCLAW_RERANKER_BASE_URL", "http://127.0.0.1:8004/v1"), reranker_model, args.timeout)
-        except Exception as err:
-            report["endpoint_checks"]["reranker"] = {"status": "failed", "error": str(err)}
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:

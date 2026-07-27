@@ -45,11 +45,11 @@ interaction, hidden tool execution, or unevaluated model claims.
 ```text
 WebChat / Telegram / Weixin / Timer
   -> Gateway + Message Plane
-      -> request normalization and deterministic grounding
+      -> owner request + current/recent resource resolution
       -> semantic intent router
-          -> embedding channel
-          -> Fast/Tree channel
-          -> fusion + bounded reranker + Top-2 decision
+          -> embedding channel: current owner question only
+          -> Fast/Tree channel: same question + bounded typed context
+          -> weighted fusion + Top-2 decision
       -> Catalog validation and one Workflow Profile
       -> Workflow Runtime
           -> stage-scoped Tool Exposure
@@ -83,9 +83,11 @@ projections, and service assembly. The Message Plane converts Web, connector,
 and Timer input into one provider-neutral `MessageEnvelope`, preserving ordered
 parts, source identity, authorization, and `ReturnRoute`.
 
-Each run persists the untouched owner request, normalized execution request,
-deterministic resource context, route evidence, owner/actor identity, and return
-route. Resume and replay reuse that state instead of reinterpreting it.
+Each run persists the untouched owner request, deterministic resource context,
+route evidence, owner/actor identity, and return route. There is no canonical
+execution request, request-normalization model call, or normalization audit
+structure. Resume and replay recover the owner request from the persisted
+message instead of reinterpreting it.
 
 ### Capability And Intent Routing
 
@@ -93,18 +95,25 @@ route. Resume and replay reuse that state instead of reinterpreting it.
 contracts, operations, target policy, and Workflow references. Workflow
 Profiles own semantic examples and Tree distinctions for their leaf.
 
-Natural-language recognition uses an embedding channel and a Fast model Tree
-channel over the same compiled graph. Their calibrated scores are combined as:
+Natural-language recognition uses an asymmetric pair of channels over the same
+compiled graph. Embedding receives only the current owner-authored question.
+Fast/Tree receives that same question plus bounded typed context, including
+recent conversation and document-record metadata such as name, format, source,
+and recent activity. This contract applies to every natural-language intent,
+not only document requests. Fast reasons about ambiguity and scores candidates;
+it cannot rewrite the request, bind a resource, or emit a `RouteDecision`.
+Their calibrated scores are combined as:
 
 ```text
 fusion_score = alpha * embedding_score
              + (1 - alpha) * tree_score
 ```
 
-A bounded reranker reorders only the fused shortlist. The final Top-2 produces
-clear, ambiguous, or low coverage; only a clear eligible candidate is assembled
-into one `RouteDecision`. Typed UI actions and persisted resumes bypass semantic
-classification but not Catalog validation. See [Intent routing](intent-routing.md).
+Both channels score every eligible candidate. Weighted fusion sorts that complete
+set and retains the final Top-2, which produces clear, ambiguous, or low
+coverage; only a clear eligible candidate is assembled into one `RouteDecision`.
+Typed UI actions and persisted resumes bypass semantic classification but not
+Catalog validation. See [Intent routing](intent-routing.md).
 
 ### Workflow Runtime And ToolHub
 
@@ -119,6 +128,13 @@ cannot add tools, change frozen resource bindings, or bypass approval. A matched
 Workflow failure remains explicit and never falls through to another router or
 legacy ReAct.
 
+Each bounded model/tool loop freezes its full and compact system prompts at loop
+start. Current-run observations appear once, in causal order in the user prompt,
+followed by the output contract. Prompt admission uses the model profile selected
+by the same Router task policy as execution, with an 85% context-window safety
+factor and an offline-calibrated conservative token estimate. Compact fallback
+changes the frozen system variant but preserves current-run observations.
+
 ### Model Router
 
 The current model lanes are:
@@ -128,8 +144,7 @@ The current model lanes are:
 | `fast` | Tree routing and other bounded responsive reasoning |
 | `deep` | Selected Workflow planning, assessment, repair, and final answers |
 | `embedding` | Startup semantic graph index and embedding channel queries |
-| `reranker` | Bounded fused-shortlist scoring |
-| `guard` | Optional review profile; may share a served chat model |
+| `guard` | Dedicated Qwen3Guard prompt moderation before routing or tool execution |
 | `mock` | Deterministic local development/eval behavior |
 
 Gateway selects lanes. Model output never chooses its own lane. Loading and
@@ -153,9 +168,17 @@ Browser execution uses pinned agent-browser with a SparkClaw-owned Chromium
 profile and no alternate browser backend. Details and Workflow limits are in
 [Browser runtime](browser-runtime.md).
 
-Document reads and edits use format inspection, structured normalization,
-bounded enrichment, exact editor selection, approval, output-copy writes, and
-post-edit preservation checks. See [Document workflows](document-workflows.md).
+Documents have durable first-class `DocumentRecord` identities independent of
+their parsed content. Reads and edits use recent-record resolution, deterministic
+format inspection, a traceable `confirm_document_target` Workflow node,
+structured parsing, and an explicit `select_edit_operation` decision node.
+Multi-candidate edit decisions run on Deep over located evidence and persist one
+exact ToolHub entry before the editor can materialize. The former Fast secondary
+directory router is removed. Approval, output-copy writes, and post-edit
+preservation checks remain on the shared path. Parsed representations may be
+incomplete, replaced, or regenerated without losing document identity or
+activity lineage.
+See [Document workflows](document-workflows.md).
 
 Telegram, Weixin, speech, and Infinimesh Info are optional adapters behind
 shared connector, delivery, transcription, or search contracts. See
@@ -169,14 +192,16 @@ owned by Gateway.
 ## State And Artifacts
 
 Store interfaces own sessions, messages, Agent runs, route/fusion evidence,
-Workflow state, tool/model calls, approvals, schedules, endpoints, deliveries,
-connector bindings, inbox records, memories, evals, and audit events. File state
-supports local use; PostgreSQL supports durable operation.
+Workflow state, tool/model calls, durable document records and lineage,
+approvals, schedules, endpoints, deliveries, connector bindings, inbox records,
+memories, evals, and audit events. Memory, file snapshot, and PostgreSQL
+backends implement the same document-record contract.
 
 Artifacts hold large or inspectable outputs such as tool observations, browser
-evidence, generated documents/media, memory exports, rollback files, and eval
-failure archives. Filesystem and S3-compatible backends share the same metadata
-contract. Secrets and raw speech audio are not artifacts.
+evidence, replaceable parsed-document observations, generated documents/media,
+memory exports, rollback files, and eval failure archives. Filesystem and
+S3-compatible backends share the same metadata contract. Secrets and raw speech
+audio are not artifacts.
 
 ## Trust And Safety Boundaries
 
@@ -202,6 +227,7 @@ Important cross-package contracts live in `internal/app`:
 - `RouteDecision`, `IntentFusionDecision`, `IntentEnvelope`;
 - `WorkflowPlan`, `WorkflowState`, `WorkflowResult`;
 - `ToolCall`, `ToolOutcome`, `Approval`;
+- `DocumentRecord`;
 - `MessageEndpoint`, `MessageSchedule`, `DeliveryRequest`, `DeliveryReceipt`;
 - `ArtifactObject`, traces, audit events, and model calls.
 
@@ -216,7 +242,7 @@ projections. They must not maintain competing literal maps or duplicate stores.
 | WebChat | `0.0.0.0:18790` |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |
-| Fast / Deep / Embedding / Reranker | `8001` / `8002` / `8003` / `8004` |
+| Fast / Deep / Embedding / Guard | `8001` / `8002` / `8003` / `8005` |
 | PostgreSQL / MinIO | `15432` / `19000` (`19001` console) |
 
 ## Extension Rules

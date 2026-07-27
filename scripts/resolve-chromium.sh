@@ -4,24 +4,15 @@ set -euo pipefail
 candidates=()
 configured="${SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE:-}"
 
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "SparkClaw browser automation requires the Linux host environment" >&2
+  exit 1
+fi
+
 if [[ -n "$configured" ]]; then
   candidates+=("$configured")
 else
-  case "$(uname -s)" in
-    Darwin)
-      candidates+=(
-        "/Applications/Chromium.app/Contents/MacOS/Chromium"
-        "$HOME/Applications/Chromium.app/Contents/MacOS/Chromium"
-      )
-      ;;
-    Linux)
-      candidates+=("/usr/bin/chromium" "/usr/bin/chromium-browser" "/snap/bin/chromium")
-      ;;
-    MINGW*|MSYS*|CYGWIN*)
-      [[ -n "${LOCALAPPDATA:-}" ]] && candidates+=("$LOCALAPPDATA/Chromium/Application/chrome.exe")
-      [[ -n "${PROGRAMFILES:-}" ]] && candidates+=("$PROGRAMFILES/Chromium/Application/chrome.exe")
-      ;;
-  esac
+  candidates+=("/usr/bin/chromium" "/usr/bin/chromium-browser" "/snap/bin/chromium")
 
   for name in chromium chromium-browser; do
     if resolved="$(command -v "$name" 2>/dev/null)"; then

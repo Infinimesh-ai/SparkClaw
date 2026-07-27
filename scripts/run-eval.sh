@@ -330,7 +330,7 @@ require(config["state"]["encryption_key"] == "missing" and config["state"]["encr
 require(config["memory"]["retention_days"] == 180, "/api/config missing default memory retention policy")
 require(config["runtime"]["observation_summary_max_bytes"] == 2400, "/api/config missing observation compression policy")
 require(config["model"]["guard"]["name"] == "sparkclaw-guard", "/api/config missing guard model profile")
-require(config["model"]["guard"]["model"].endswith("Qwen3Guard-0.6B"), "/api/config guard model mismatch")
+require(config["model"]["guard"]["model"].endswith("Qwen3Guard-Gen-0.6B"), "/api/config guard model mismatch")
 require(config["tool_policy"]["definition_count"] >= 17, "/api/config tool policy summary missing definitions")
 api_smoke_checks = eval_profiles["profiles"]["api-smoke"]["checks"]
 require("mtp_ab_eval_profile" in api_smoke_checks, "api-smoke evaluator profile missing MTP A/B profile check")

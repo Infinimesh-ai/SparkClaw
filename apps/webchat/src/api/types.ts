@@ -411,7 +411,6 @@ export type PublicConfig = {
     fast: PublicModelProfile;
     deep: PublicModelProfile;
     embedding: PublicModelProfile;
-    reranker: PublicModelProfile;
     guard: PublicModelProfile;
   };
   speech: {

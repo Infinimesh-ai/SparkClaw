@@ -72,7 +72,7 @@ func TestTimerSourceDoesNotOverrideSupportedSearchRequest(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	goal := "查一下今天的 AI 新闻"
-	routing, err := runtime.routeIntentWithRequest(t.Context(), session.ID, "run_timer_search", goal, goal, nil, app.MessageSourceTimer)
+	routing, err := runtime.routeIntentWithRequest(t.Context(), session.ID, "run_timer_search", goal, nil, app.MessageSourceTimer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestHandleMessagePersistsFinalTopTwoIntentFusionEvidence(t *testing.T) {
 	}
 	fusion := stored.MessageContext.IntentFusion
 	if fusion.SchemaVersion != app.IntentFusionDecisionSchemaVersion || fusion.GraphRevision == "" || fusion.CalibrationRevision == "" ||
-		fusion.Channels.Embedding.Status != "healthy" || fusion.Channels.Tree.Status != "healthy" || fusion.Channels.Reranker.Status != "healthy" ||
+		fusion.Channels.Embedding.Status != "healthy" || fusion.Channels.Tree.Status != "healthy" ||
 		len(fusion.Candidates) != 2 || fusion.Candidates[0].CandidateID != "conversation.answer#answer" || fusion.Verdict != "clear" {
 		t.Fatalf("persisted semantic fusion evidence is incomplete: %#v", fusion)
 	}

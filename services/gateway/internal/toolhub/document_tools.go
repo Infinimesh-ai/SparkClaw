@@ -333,9 +333,7 @@ func runPythonAdapter(ctx context.Context, script string, request map[string]any
 
 func runNodeAdapter(ctx context.Context, script string, request map[string]any) (map[string]any, error) {
 	return runSubprocessAdapter(ctx, request, func(ctx context.Context) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, documentNodeBinary(), "-e", script)
-		cmd.Env = append(os.Environ(), "NODE_PATH="+documentNodeModulesPath())
-		return cmd
+		return exec.CommandContext(ctx, documentNodeBinary(), "-e", script)
 	})
 }
 
@@ -388,10 +386,6 @@ func runPDFPython(ctx context.Context, request map[string]any) (map[string]any, 
 }
 
 func documentPythonBinary() string {
-	path := findLocalToolPath(filepath.Join(".tools", "document-python", "bin", "python"))
-	if path != "" {
-		return path
-	}
 	return "python3"
 }
 

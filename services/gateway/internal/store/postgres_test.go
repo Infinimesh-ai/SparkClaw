@@ -93,6 +93,19 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		got.WorkflowID != app.WorkflowWebExplicitURL || got.WorkflowNodeID != "read" || got.ScopeRevision != 1 || got.Capability != "web.page.read" {
 		t.Fatalf("tool call did not round trip: %#v ok=%v", got, ok)
 	}
+	documentRecord := st.SaveDocumentRecord(app.DocumentRecord{
+		ID: "doc_pg", OwnerID: session.OwnerID, SessionID: session.ID,
+		GovernedPath: "report.docx", Name: "report.docx", Format: app.DocumentFormatDOCX,
+		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceToolOutput,
+		SourceRunID: run.ID, SourceToolCallID: call.ID, LastActivity: app.DocumentActivityEdited,
+		LastActivityID: call.ID, LastActivityAt: time.Now().UTC(),
+	})
+	if got, ok := st.GetDocumentRecord(documentRecord.ID); !ok || got.SourceToolCallID != call.ID {
+		t.Fatalf("document record did not round trip: %#v ok=%v", got, ok)
+	}
+	if records := st.ListDocumentRecords(session.OwnerID, session.ID, 10); len(records) != 1 || records[0].ID != documentRecord.ID {
+		t.Fatalf("document records did not list: %#v", records)
+	}
 	modelCompleted := time.Now().UTC()
 	st.SaveModelCall(app.ModelCall{
 		ID:             app.NewID("mcall"),
@@ -280,7 +293,7 @@ func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 	_, err := st.db.Exec(context.Background(), `
 		TRUNCATE message_delivery_records, message_receive_records, channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions,
 			credential_secrets, notification_bindings, reminder_deliveries, reminders, events, audit_events, owners, eval_runs,
-			artifact_objects, episode_summaries, memories, memory_candidates, approvals, tool_calls,
+			artifact_objects, episode_summaries, memories, memory_candidates, approvals, document_records, tool_calls,
 			model_calls, run_feedback, messages, agent_runs, sessions
 		RESTART IDENTITY CASCADE
 	`)

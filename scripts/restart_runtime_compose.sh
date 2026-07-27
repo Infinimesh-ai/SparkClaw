@@ -9,6 +9,21 @@ RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.external-postgres.env
 COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
 GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18789/readyz}"
+services=("$@")
+
+if [[ ${#services[@]} -eq 0 ]]; then
+  services=(gateway webchat)
+fi
+
+for service in "${services[@]}"; do
+  case "$service" in
+    gateway|webchat) ;;
+    *)
+      echo "unsupported runtime service: $service (expected gateway or webchat)" >&2
+      exit 1
+      ;;
+  esac
+done
 
 if [[ ! -f "$RUNTIME_ENV" ]]; then
   echo "runtime env file not found: $RUNTIME_ENV" >&2
@@ -31,7 +46,7 @@ if [[ -f .env ]]; then
 fi
 compose_args+=(--env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" --profile "$PROFILE")
 
-"${docker_cmd[@]}" "${compose_args[@]}" up -d --build --force-recreate gateway webchat
+"${docker_cmd[@]}" "${compose_args[@]}" up -d --build --force-recreate "${services[@]}"
 
 for _ in $(seq 1 30); do
   ready_json="$(curl -fsS "$GATEWAY_READY_URL" 2>/dev/null || true)"

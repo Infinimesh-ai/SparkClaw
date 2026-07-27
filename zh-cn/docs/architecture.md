@@ -39,11 +39,11 @@ SparkClaw 不是无限制 autonomous agent 或公开 multi-tenant SaaS。它不�
 ```text
 WebChat / Telegram / 微信 / Timer
   -> Gateway + Message Plane
-      -> request normalization 和 deterministic grounding
+      -> owner 原始请求 + current/recent 资源解析
       -> semantic intent router
-          -> embedding channel
-          -> Fast/Tree channel
-          -> fusion + bounded reranker + Top-2 decision
+          -> embedding channel：仅当前 owner 问题
+          -> Fast/Tree channel：同一问题 + 有界 typed context
+          -> weighted fusion + Top-2 decision
       -> Catalog validation 和一个 Workflow Profile
       -> Workflow Runtime
           -> stage-scoped Tool Exposure
@@ -74,24 +74,29 @@ Gateway 负责 HTTP/event API、auth、pairing、rate limit、session、public p
 assembly。Message Plane 把 Web、connector 和 Timer 输入转换为统一 provider-neutral
 `MessageEnvelope`，保留有序 part、source identity、authorization 和 `ReturnRoute`。
 
-每个 run 持久化 untouched owner request、normalized execution request、deterministic resource
-context、route evidence、owner/actor identity 和 return route。resume/replay 复用该状态，不重新解释。
+每个 run 持久化 untouched owner request、deterministic resource context、route evidence、
+owner/actor identity 和 return route。系统不存在 canonical execution request、请求规范化模型
+调用或 normalization audit 结构。resume/replay 从持久化消息恢复 owner 原始请求，不重新解释。
 
 ### Capability 与意图路由
 
 `capability.Catalog` 是 branch、leaf、route contract、operation、target policy 和 Workflow
 reference 的结构权威。Workflow Profile 负责自己叶子的 semantic example 和 Tree distinction。
 
-自然语言识别在同一编译图上运行 embedding channel 和 Fast model Tree channel：
+自然语言识别在同一编译图上使用非对称双通道。Embedding 只接收当前 owner 编写的问题。
+Fast/Tree 接收同一问题以及有界 typed context，其中可以包含近期对话，以及文档记录中的
+名称、格式、来源和最近活动等元数据。该契约适用于全部自然语言意图，不只适用于文档。
+Fast 负责消解歧义并给候选评分，不能改写请求、绑定资源或输出 `RouteDecision`：
 
 ```text
 fusion_score = alpha * embedding_score
              + (1 - alpha) * tree_score
 ```
 
-有界 reranker 只能重排融合 shortlist。最终 Top-2 产生 clear、ambiguous 或 low coverage；
-只有 clear 且 eligible 的候选会组装为一个 `RouteDecision`。typed UI action 和 persisted resume
-绕过 semantic classification，但不绕过 Catalog 校验。见[意图路由](intent-routing.md)。
+两个通道都会为所有 eligible candidate 评分。Weighted fusion 对完整集合排序并保留最终
+Top-2，由此产生 clear、ambiguous 或 low coverage；只有 clear 且 eligible 的候选会组装为
+一个 `RouteDecision`。typed UI action 和 persisted resume 绕过 semantic classification，
+但不绕过 Catalog 校验。见[意图路由](intent-routing.md)。
 
 ### Workflow Runtime 与 ToolHub
 
@@ -103,6 +108,12 @@ ToolHub registration 是 tool 的 execution/schema/risk/effect 权威。Policy/A
 选择之后、effect 之前执行。模型不能增加 tool、修改冻结 resource binding 或绕过 approval。
 匹配 Workflow 失败保持显式，不回退到另一 router 或旧 ReAct。
 
+每个有界 model/tool loop 在开始时冻结 full 和 compact 两个 system prompt。本轮
+observations 按因果顺序只在 user prompt 中出现一次，随后是 output contract。Prompt
+准入复用与实际执行相同的 Router task policy 选择 model profile，并使用 85% context
+window 安全系数和离线校准的保守 token 估算。Compact fallback 只切换冻结的 system
+variant，不压缩本轮 observations。
+
 ### Model Router
 
 | Lane | 作用 |
@@ -110,8 +121,7 @@ ToolHub registration 是 tool 的 execution/schema/risk/effect 权威。Policy/A
 | `fast` | Tree routing 和其他有界快速推理 |
 | `deep` | 已选 Workflow 的 planning、assessment、repair 和 final answer |
 | `embedding` | 启动语义图索引和 embedding channel query |
-| `reranker` | 有界融合 shortlist 评分 |
-| `guard` | 可选 review profile，可共享 chat model |
+| `guard` | routing 或 tool execution 前执行 prompt moderation 的专用 Qwen3Guard |
 | `mock` | 确定性本地开发/eval |
 
 Gateway 选择 lane，模型输出不能自选。加载和容量策略见[模型加载](model-loading.md)。
@@ -130,8 +140,13 @@ send 都创建 `DeliveryRequest` 并调用 Delivery Gateway。`LocalWebDelivery`
 浏览器使用固定 agent-browser 和 SparkClaw-owned Chromium profile，没有备用 browser backend。
 见[浏览器 Runtime](browser-runtime.md)。
 
-文档读取/编辑使用 format inspection、structured normalization、有界 enrichment、准确 editor
-选择、approval、output-copy write 和 post-edit preservation check。见[文档 Workflow](document-workflows.md)。
+文档拥有独立于解析内容的持久化一等 `DocumentRecord` 身份。读取/编辑使用最近记录解析、
+确定性 format inspection、可追溯的 `confirm_document_target` Workflow 节点、structured
+parsing 和显式 `select_edit_operation` 决策节点。多候选编辑决策由 Deep 基于定位证据完成，
+并在 editor materialize 前持久化一个精确 ToolHub entry。原 Fast 目录二次路由已经删除。
+approval、output-copy write 和 post-edit preservation check 继续走共享路径。解析
+representation 可以不完整、被替换或重新生成，而不会丢失文档身份和活动谱系。
+见[文档 Workflow](document-workflows.md)。
 
 Telegram、微信、speech 和 Infinimesh Info 是共享 connector、delivery、transcription 或 search
 contract 后的可选 adapter。见[外部集成](integrations.md)。
@@ -143,12 +158,14 @@ cursor 和 audit 仍由 Gateway 负责。
 ## State 与 Artifact
 
 Store interface 负责 session、message、Agent run、route/fusion evidence、Workflow state、
-tool/model call、approval、schedule、endpoint、delivery、connector binding、inbox、memory、eval
-和 audit event。file state 支持本地使用，PostgreSQL 支持 durable operation。
+tool/model call、持久文档记录与谱系、approval、schedule、endpoint、delivery、connector
+binding、inbox、memory、eval 和 audit event。memory、file snapshot 和 PostgreSQL 后端实现
+相同的文档记录契约。
 
 Artifact 保存大型或可检查输出，例如 tool observation、browser evidence、generated
-document/media、memory export、rollback file 和 eval failure archive。filesystem 与 S3-compatible
-backend 共用 metadata contract。secret 和 raw speech audio 不是 artifact。
+document/media、可替换的文档解析 observation、memory export、rollback file 和 eval failure
+archive。filesystem 与 S3-compatible backend 共用 metadata contract。secret 和 raw speech
+audio 不是 artifact。
 
 ## 信任与安全边界
 
@@ -168,6 +185,7 @@ backend 共用 metadata contract。secret 和 raw speech audio 不是 artifact�
 - `RouteDecision`、`IntentFusionDecision`、`IntentEnvelope`；
 - `WorkflowPlan`、`WorkflowState`、`WorkflowResult`；
 - `ToolCall`、`ToolOutcome`、`Approval`；
+- `DocumentRecord`；
 - `MessageEndpoint`、`MessageSchedule`、`DeliveryRequest`、`DeliveryReceipt`；
 - `ArtifactObject`、trace、audit event 和 model call。
 
@@ -181,7 +199,7 @@ Provider/UI 通过 owner package 和 public projection 消费这些契约，不�
 | WebChat | `0.0.0.0:18790` |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |
-| Fast / Deep / Embedding / Reranker | `8001` / `8002` / `8003` / `8004` |
+| Fast / Deep / Embedding / Guard | `8001` / `8002` / `8003` / `8005` |
 | PostgreSQL / MinIO | `15432` / `19000`（`19001` console） |
 
 ## 扩展规则

@@ -60,6 +60,14 @@ func TestEmbeddingIndexAggregatesPositiveAndNegativeEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(evidence) != 2 {
+		t.Fatalf("embedding did not score every eligible candidate: %#v", evidence)
+	}
+	for _, candidateID := range []string{"test.answer#answer", "test.search#search"} {
+		if _, ok := evidence[candidateID]; !ok {
+			t.Fatalf("embedding omitted eligible candidate %q: %#v", candidateID, evidence)
+		}
+	}
 	if evidence["test.answer#answer"].Score <= evidence["test.search#search"].Score {
 		t.Fatalf("positive semantic support did not outrank the unrelated candidate: %#v", evidence)
 	}
@@ -75,7 +83,7 @@ func TestFusionProducesClearTopTwoWithoutAuthorizingSecondCandidate(t *testing.T
 		map[string]TreeEvidence{
 			"test.answer#answer": {Score: 0.90}, "test.search#search": {Score: 0.25},
 		},
-		map[string]float64{"test.answer#answer": 0.95, "test.search#search": 0.20}, channels, DefaultCalibration())
+		channels, DefaultCalibration())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +99,6 @@ func TestFusionDistinguishesAmbiguousLowAndUnavailable(t *testing.T) {
 		name      string
 		embedding map[string]EmbeddingEvidence
 		tree      map[string]TreeEvidence
-		reranked  map[string]float64
 		channels  map[string]ChannelState
 		verdict   Verdict
 	}{
@@ -99,23 +106,23 @@ func TestFusionDistinguishesAmbiguousLowAndUnavailable(t *testing.T) {
 			name:      "ambiguous",
 			embedding: map[string]EmbeddingEvidence{"test.answer#answer": {Score: 0.78}, "test.search#search": {Score: 0.77}},
 			tree:      map[string]TreeEvidence{"test.answer#answer": {Score: 0.80}, "test.search#search": {Score: 0.79}},
-			reranked:  map[string]float64{"test.answer#answer": 0.81, "test.search#search": 0.80}, channels: healthyChannels(), verdict: VerdictAmbiguous,
+			channels:  healthyChannels(), verdict: VerdictAmbiguous,
 		},
 		{
 			name:      "low",
 			embedding: map[string]EmbeddingEvidence{"test.answer#answer": {Score: 0.10}, "test.search#search": {Score: 0.08}},
 			tree:      map[string]TreeEvidence{"test.answer#answer": {Score: 0.12}, "test.search#search": {Score: 0.10}},
-			reranked:  map[string]float64{"test.answer#answer": 0.10, "test.search#search": 0.08}, channels: healthyChannels(), verdict: VerdictLow,
+			channels:  healthyChannels(), verdict: VerdictLow,
 		},
 		{
 			name: "unavailable", channels: map[string]ChannelState{
-				"embedding": {Status: ChannelFailed}, "fast": {Status: ChannelFailed}, "reranker": {Status: ChannelFailed},
+				"embedding": {Status: ChannelFailed}, "tree": {Status: ChannelFailed},
 			}, verdict: VerdictBlocked,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			decision, err := fuseForTest(eligible, test.embedding, test.tree, test.reranked, test.channels, calibration)
+			decision, err := fuseForTest(eligible, test.embedding, test.tree, test.channels, calibration)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -156,6 +163,42 @@ func TestRankFusionUsesAlphaAndOneMinusAlpha(t *testing.T) {
 	}
 }
 
+func TestRankFusionScoresEveryEligibleCandidateBeforeTopTwoDecision(t *testing.T) {
+	_, eligible := testGraphAndCandidates(t)
+	third := eligible[0]
+	third.ID = "test.answer#alternate"
+	eligible = append(eligible, third)
+	scores, err := RankFusion(
+		eligible,
+		map[string]EmbeddingEvidence{
+			"test.answer#answer":    {Score: 0.90},
+			"test.search#search":    {Score: 0.60},
+			"test.answer#alternate": {Score: 0.20},
+		},
+		map[string]TreeEvidence{
+			"test.answer#answer":    {Score: 0.80},
+			"test.search#search":    {Score: 0.50},
+			"test.answer#alternate": {Score: 0.10},
+		},
+		healthyChannels(),
+		DefaultCalibration(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != len(eligible) {
+		t.Fatalf("fusion dropped eligible candidates before decision: got=%d want=%d", len(scores), len(eligible))
+	}
+	decision, err := Decide(scores, healthyChannels(), DefaultCalibration())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decision.Candidates) != 2 || decision.Candidates[0].Candidate.ID != "test.answer#answer" ||
+		decision.Candidates[1].Candidate.ID != "test.search#search" {
+		t.Fatalf("decision did not retain the fused Top-2: %#v", decision.Candidates)
+	}
+}
+
 func TestRankFusionReportsBothSemanticChannelsUnavailable(t *testing.T) {
 	_, eligible := testGraphAndCandidates(t)
 	_, err := RankFusion(eligible, nil, nil, map[string]ChannelState{
@@ -171,8 +214,8 @@ func TestMutationBlocksWheneverSemanticPipelineIsDegraded(t *testing.T) {
 	mutation := eligible[0]
 	mutation.Route.Operation = app.RouteOperationEdit
 	channels := healthyChannels()
-	channels["reranker"] = ChannelState{Status: ChannelFailed, ReasonCode: "timeout"}
-	decision, err := Decide([]CandidateScore{{Candidate: mutation, FusionScore: 0.99}}, nil, channels, DefaultCalibration())
+	channels["embedding"] = ChannelState{Status: ChannelFailed, ReasonCode: "timeout"}
+	decision, err := Decide([]CandidateScore{{Candidate: mutation, FusionScore: 0.99}}, channels, DefaultCalibration())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +237,6 @@ func healthyChannels() map[string]ChannelState {
 	return map[string]ChannelState{
 		"embedding": {Status: ChannelHealthy, Model: "embedding@test"},
 		"tree":      {Status: ChannelHealthy, Model: "fast@test"},
-		"reranker":  {Status: ChannelHealthy, Model: "reranker@test"},
 	}
 }
 
@@ -238,7 +280,7 @@ func testCatalog(t *testing.T) capability.Catalog {
 // fuseForTest composes RankFusion + Decide the way the production intent
 // router does (internal/agent/intent_router.go), including the
 // channels-unavailable blocked verdict.
-func fuseForTest(eligible []Candidate, embeddings map[string]EmbeddingEvidence, tree map[string]TreeEvidence, reranked map[string]float64, channels map[string]ChannelState, calibration Calibration) (Decision, error) {
+func fuseForTest(eligible []Candidate, embeddings map[string]EmbeddingEvidence, tree map[string]TreeEvidence, channels map[string]ChannelState, calibration Calibration) (Decision, error) {
 	scores, err := RankFusion(eligible, embeddings, tree, channels, calibration)
 	if errors.Is(err, ErrSemanticChannelsUnavailable) {
 		return Decision{Verdict: VerdictBlocked, Degraded: true, ReasonCode: "semantic_channels_unavailable"}, nil
@@ -246,5 +288,5 @@ func fuseForTest(eligible []Candidate, embeddings map[string]EmbeddingEvidence, 
 	if err != nil {
 		return Decision{}, err
 	}
-	return Decide(scores, reranked, channels, calibration)
+	return Decide(scores, channels, calibration)
 }

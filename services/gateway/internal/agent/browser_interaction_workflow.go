@@ -123,8 +123,8 @@ func browserInteractionTransition(id, stage string, signal app.OutcomeSignal, ma
 	}
 }
 
-func (browserInteractionProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (browserInteractionProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
+	return workflowPreparation{}, nil
 }
 
 func (browserInteractionProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {

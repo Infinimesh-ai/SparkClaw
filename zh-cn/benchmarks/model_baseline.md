@@ -2,7 +2,8 @@
 
 > 语言： [English](../../benchmarks/model_baseline.md) | 简体中文
 
-本文记录 DGX Spark 上本地 fast、deep、embedding 和 reranker 模型服务的硬件验证与可复现实测基准。
+本文记录 DGX Spark 上当前 fast、deep、embedding、guard 模型服务的硬件验证与
+可复现实测基准。下文 reranker 条目仅保留为 2026-07-24 移除该 lane 之前的历史测量。
 
 ## 启动命令
 
@@ -20,7 +21,8 @@ scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
 scripts/serve_models_compose.sh dual-light
 scripts/serve_models_compose.sh dual-light-chat
-scripts/serve_models_compose.sh embedding,reranker
+scripts/serve_models_compose.sh embedding
+scripts/serve_models_compose.sh guard
 ```
 
 默认值：
@@ -30,15 +32,19 @@ scripts/serve_models_compose.sh embedding,reranker
 | fast | Qwen/Qwen3.6-35B-A3B-FP8 | sparkclaw-fast | 8001 | 131072 | 2 speculative tokens |
 | deep | Qwen/Qwen3.6-27B-FP8 | sparkclaw-deep | 8002 | 131072 | 2 speculative tokens |
 | embedding | Qwen/Qwen3-Embedding-0.6B | sparkclaw-embedding | 8003 | 32768 | off |
-| reranker | Qwen/Qwen3-Reranker-0.6B | sparkclaw-reranker | 8004 | 2048 | off |
+| guard | Qwen/Qwen3Guard-Gen-0.6B | Qwen/Qwen3Guard-Gen-0.6B | 8005 | 32768 | off |
 
-通过 `SPARKCLAW_FAST_*`、`SPARKCLAW_DEEP_*`、`SPARKCLAW_EMBEDDING_*`、`SPARKCLAW_RERANKER_*` 可以调整 checkpoint、served name、端口、tensor parallel size、context length、speculative decoding、GPU memory utilization 或 vLLM image。`*_MODEL_ID` 用于 Hugging Face checkpoint，`*_MODEL` 用于 Gateway 请求 OpenAI-compatible endpoint 时发送的 served model name。
+通过 `SPARKCLAW_FAST_*`、`SPARKCLAW_DEEP_*`、`SPARKCLAW_EMBEDDING_*`、
+`SPARKCLAW_GUARD_*` 可以调整 checkpoint、served name、context length、
+generation limits、GPU memory utilization 或 vLLM image。`*_MODEL_ID` 用于
+Hugging Face checkpoint，`*_MODEL` 用于 Gateway 请求 OpenAI-compatible
+endpoint 时发送的 served model name。
 
 实验性单机双常驻：
 
 | Profile | Fast | Deep | MTP | Notes |
 |---|---|---|---|---|
-| `dual-light-v1` | 32K context、8G KV、4 seqs、768 max tokens | 64K context、12G KV、2 seqs、1536 max tokens | off | 单用户完整产品 profile。Embedding 使用 8K/2G KV/1 seq；reranker 使用 2K/1G KV/1 seq。 |
+| `dual-light` | 32K context、8G KV、4 seqs、768 max tokens | 64K context、12G KV、2 seqs、1536 max tokens | off | 单用户产品 profile。Embedding 使用 8K/2G KV/1 seq；guard 使用 16K/2G KV/1 seq。 |
 
 ## 检查
 
@@ -46,7 +52,7 @@ scripts/serve_models_compose.sh embedding,reranker
 curl -fsS http://127.0.0.1:8001/v1/models
 curl -fsS http://127.0.0.1:8002/v1/models
 curl -fsS http://127.0.0.1:8003/v1/models
-curl -fsS http://127.0.0.1:8004/v1/models
+curl -fsS http://127.0.0.1:8005/v1/models
 ```
 
 然后以 external model mode 运行 Gateway：
@@ -57,6 +63,8 @@ SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS=300 \
 SPARKCLAW_MODEL_DISABLE_THINKING=true \
 SPARKCLAW_FAST_MODEL=sparkclaw-fast \
 SPARKCLAW_DEEP_MODEL=sparkclaw-deep \
+SPARKCLAW_GUARD_BASE_URL=http://127.0.0.1:8005/v1 \
+SPARKCLAW_GUARD_MODEL=Qwen/Qwen3Guard-Gen-0.6B \
 go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
@@ -71,6 +79,25 @@ SPARKCLAW_MODEL_DISABLE_THINKING=true \
 python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.md
 ```
 
+## Prompt Token 估算器校准
+
+ReAct prompt 估算器于 2026-07-27 使用本地 Qwen Fast `/tokenize` endpoint
+完成校准：
+
+```bash
+python3 scripts/calibrate_prompt_tokens.py
+```
+
+| Sample | UTF-8 bytes | Tokens | Bytes/token |
+|---|---:|---:|---:|
+| English | 115 | 20 | 5.750 |
+| Chinese | 160 | 38 | 4.211 |
+| ReAct JSON | 145 | 36 | 4.028 |
+| Mixed Chinese/English/JSON | 220 | 49 | 4.490 |
+
+Runtime 准入据此按每四个 UTF-8 bytes 一个 token，再加 12-token chat envelope
+余量进行估算。该算法对全部实测样本保持保守，且不引入在线 tokenizer 依赖。
+
 ## DGX Spark Bring-Up 结果
 
 | Date | Hardware | Area | Result | Evidence |
@@ -83,13 +110,16 @@ python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.
 | 2026-05-24 | NVIDIA GB10 | Deep chat endpoint | Passed | `Qwen/Qwen3.6-27B-FP8` 加载 66 shards、28.75 GiB checkpoint、28.08 GiB model memory、63.98 GiB KV cache、7.13x 131K concurrency；benchmark rows 如下。 |
 | 2026-05-24 | NVIDIA GB10 | Fast chat endpoint | Passed | `Qwen/Qwen3.6-35B-A3B-FP8` 加载 42 shards、34.89 GiB checkpoint、34.18 GiB model memory、59.55 GiB KV cache、20.05x 131K concurrency；benchmark rows 如下。 |
 | 2026-05-24 | NVIDIA GB10 | Embedding endpoint | Passed | `Qwen/Qwen3-Embedding-0.6B` 返回 1024 dimensions，latency 26.5 ms。 |
-| 2026-05-24 | NVIDIA GB10 | Reranker endpoint | Passed | `Qwen/Qwen3-Reranker-0.6B` 使用 `--runner auto --convert auto --max-model-len 2048`；`/generative_scoring` 返回 relevance scores。Gateway 和 benchmark code 会从 `/rerank` 404 fallback 到 `/generative_scoring`。 |
+| 2026-05-24 | NVIDIA GB10 | Reranker endpoint（历史） | Passed | `Qwen/Qwen3-Reranker-0.6B` 返回 relevance scores；该 endpoint 及 Gateway 集成已于 2026-07-24 移除。 |
 | 2026-05-24 | NVIDIA GB10 | Real-model golden eval | Passed | Dockerized Gateway 以 `SPARKCLAW_MODEL_MODE=external` 和 `SPARKCLAW_EXPECT_REAL_MODELS=1` 运行；输出包含 `ok golden tasks passed tool_calls=38 approvals=8 memory_candidates=1` 和 `ok extended golden checks passed golden_cases=58`。 |
 | 2026-05-24 | NVIDIA GB10 | Full-context fast+deep residency | Limited | Deep 128K/MTP 常驻后剩余 12.08 GiB；fast 即使降配仍请求 12.16 GiB。应一次运行一个 128K/MTP chat lane，或降低 context/MTP 后重新测量。 |
 | 2026-05-25 | NVIDIA GB10 | Light dual-residency v1 | Passed | `dual-light-v1` 让 fast/deep 与 embedding/reranker 同时 healthy。Fast 使用 32K context、8G KV、4 seqs；deep 使用 64K context、12G KV、2 seqs；MTP 关闭。 |
 | 2026-05-25 | NVIDIA GB10 | `dual-light-v1` golden eval | Passed | External Gateway 在 fast/deep/embedding/reranker 常驻时通过 real-model golden eval：`ok golden tasks passed tool_calls=38 approvals=8 memory_candidates=1`；`ok extended golden checks passed golden_cases=58`。 |
+| 2026-07-24 | NVIDIA GB10 | Fast + Embedding 意图校准 | Passed | 当前全候选链路在 `alpha = 0.50` 时达到 exact Top-1 15/15；纯 Embedding 为 13/15，Fast 通道为 15/15。没有 reranker 服务或调用参与。 |
+| 2026-07-24 | NVIDIA GB10 | Qwen3Guard endpoint | Passed | `Qwen/Qwen3Guard-Gen-0.6B` 以 16K context、2 GiB KV、单序列运行。vLLM 报告模型占用 1.12 GiB，进程使用 3,659 MiB；warm Safe/Controversial 检查耗时 79-107 ms。被拒绝的 32K 配置需要 3.5 GiB KV。 |
+| 2026-07-24 | NVIDIA GB10 | 当前 43-case runner | 需要对齐 | Runner 在预期 `code.apply_patch` approval 处停止：当前 Catalog 没有自然语言 code/shell Workflow，但未更新的矩阵仍断言已退役的 `code.apply_patch`、`shell.exec_sandboxed` 和 `files.search` 路径。因此这次运行不能作为当前路由质量验收结果。 |
 
-工作树中的证据文件：
+工作树中的历史证据文件：
 
 - `data/eval/model-benchmark-report.json`：最新 fast-lane chat benchmark JSON。
 - `data/eval/embedding-reranker-check.json`：embedding 与 reranker endpoint check JSON。
@@ -143,12 +173,20 @@ Profile: `dual-light-v1`
 ## 运行说明
 
 - Hugging Face token 应只放在本地 `.env` 中，作为 `HF_TOKEN` 和/或 `HUGGING_FACE_HUB_TOKEN`；`.env` 与下载的模型权重均被 git ignore。
-- Gateway 请求辅助模型时必须使用 served names：`SPARKCLAW_EMBEDDING_MODEL=sparkclaw-embedding` 和 `SPARKCLAW_RERANKER_MODEL=sparkclaw-reranker`。Compose 通过 `SPARKCLAW_EMBEDDING_MODEL_ID` 与 `SPARKCLAW_RERANKER_MODEL_ID` 加载 checkpoint IDs。
+- Gateway embedding 请求必须使用 served name
+  `SPARKCLAW_EMBEDDING_MODEL=sparkclaw-embedding`；Compose 通过
+  `SPARKCLAW_EMBEDDING_MODEL_ID` 加载 checkpoint。
 - 对 Qwen3 chat-completions，`SPARKCLAW_MODEL_DISABLE_THINKING=true` 是必要的；否则容易得到 reasoning-only output，而不是简洁 assistant content。
 - 真实 golden run 中，fast 与 deep profiles 都路由到已加载的 live chat endpoint，并使用较低 generation caps：`SPARKCLAW_FAST_MAX_TOKENS=256`、`SPARKCLAW_DEEP_MAX_TOKENS=384`，以保证 58-case eval 稳定。
 - 在 128K context 且 MTP enabled 时，本 GB10 配置上 fast 与 deep chat services 应视为互斥常驻，除非降低 context、MTP 或 GPU memory utilization 后重新验证。
 - `fast` 是响应快的 MoE lane；`deep` 是稠密的稳定性/质量 lane。`deep` 实测约 7.3 tok/s 属于这个取舍的预期表现，不应脱离任务质量、eval 通过率和整体产品体验单独优化。
-- 停掉 embedding 和 reranker 后，`dual-light-v1` 的 chat 吞吐没有明显变化；需要 retrieval workflow 时，辅助模型常驻是可以接受的。
-- 两个 chat lanes 已常驻时，辅助模型不能使用宽松的默认 context/memory 设置。Embedding 32K 在 chat 常驻后因可用 KV cache 不足启动失败；embedding 8K + 2G 显式 KV + 1 seq 恢复了完整栈。重启后的首次辅助请求可能慢，但 warm embedding/reranker check 分别为 28.5 ms 和 24.7 ms。
-- 当前单用户验收标准是综合任务表现：`dual-light-v1` 已被接受，因为 external Gateway 在两个 chat lanes 和辅助模型都常驻时通过了 58-case real-model golden eval。
-- `scripts/serve_models_compose.sh dual-light` 现在启动完整产品 profile：fast、deep、embedding、reranker。`dual-light-chat` 只用于 chat-only 对照。
+- 历史 chat-only 对照没有显著改变 `deep` 吞吐。
+- 两个 chat lanes 已常驻时，embedding 不能使用宽松的 context/memory 设置。
+  Embedding 32K 启动失败；embedding 8K + 2G 显式 KV + 1 seq 恢复了完整栈。
+- 历史 58-case 结果早于 reranking lane 的移除。应先让 43-case runner 与当前能力矩阵
+  对齐，再运行它并声明当前产品质量等价。
+- Qwen3Guard 输出原生 `Safety: Safe|Unsafe|Controversial` 标签，Gateway 映射为
+  `allow`、`block`、`review`。由于没有人工 review queue，`review` 和 `block`
+  都会终止 run；endpoint 不可用时，model-call telemetry 会显示 `mock=true`。
+- `scripts/serve_models_compose.sh dual-light` 现在启动 fast、deep、embedding 和
+  guard；`dual-light-chat` 只用于 chat-only 对照。

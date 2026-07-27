@@ -16,7 +16,7 @@
 ## 第 0 步：建立基线（不可跳过）
 
 1. 干净构建：`cd services/gateway && go build ./...`
-2. 环境依赖：文档工具测试需要 `npm run setup:document-tools`（安装 exceljs 与 python-docx/pptx/pypdf 到 `.tools/`）。
+2. 环境依赖：文档工具测试需要 `npm run setup:document-tools`（Node 包由根 workspace 安装，Python 库安装到宿主用户 site-packages）。
 3. 全量测试：`go test ./...`，前端 `npm install && npm run build`（在 `apps/webchat`，含 `tsc -b`）。
 4. **记录基线**：哪些包过、哪些失败及原因。分不清"本来就坏"和"被我改坏"，后面所有验证都是空谈。
 

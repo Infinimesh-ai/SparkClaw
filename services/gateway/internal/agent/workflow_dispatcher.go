@@ -7,6 +7,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -59,6 +60,20 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 			return result, true, nil
 		}
 	}
+	decisionObservations := []string{}
+	if run.Workflow.Status == app.WorkflowStatusRunning {
+		observation, _, decisionErr := r.resolveActiveWorkflowDecisions(ctx, &run, profile)
+		if decisionErr != nil {
+			result := r.blockPersistedWorkflowResume(ctx, run, content, decisionErr)
+			return result, true, nil
+		}
+		if strings.TrimSpace(observation) != "" {
+			decisionObservations = append(decisionObservations, observation)
+		}
+		if refreshed, ok := r.store.GetRun(run.ID); ok {
+			run = refreshed
+		}
+	}
 	workflowExecution := reactRunResult{}
 	if run.Workflow.Status == app.WorkflowStatusRunning {
 		hint := profile.Hint(run.Workflow)
@@ -75,7 +90,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		r.store.SaveRun(run)
 		workflowExecution = r.runWorkflowWithSeed(
 			ctx, run.SessionID, run, content, profile, hint.taskHint(), visibleTools,
-			seedCalls, observationsForResume(seedCalls),
+			seedCalls, append(observationsForResume(seedCalls), decisionObservations...),
 		)
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
 			run = refreshed
@@ -513,8 +528,27 @@ func (r Runtime) workflowResultIdentity(run app.AgentRun) (string, app.MessageAu
 
 func workflowResourceRefs(state *app.WorkflowState) []app.ResourceRef {
 	refs := []app.ResourceRef{}
-	for _, node := range state.Nodes {
+	if state == nil {
+		return refs
+	}
+	visited := make(map[app.WorkflowNodeID]bool, len(state.Nodes))
+	for _, plannedNode := range state.Plan.Nodes {
+		node, ok := state.Nodes[plannedNode.ID]
+		if !ok {
+			continue
+		}
+		visited[plannedNode.ID] = true
 		refs = appendUniqueResourceRefs(refs, node.OutcomeRefs...)
+	}
+	remaining := make([]app.WorkflowNodeID, 0, len(state.Nodes)-len(visited))
+	for nodeID := range state.Nodes {
+		if !visited[nodeID] {
+			remaining = append(remaining, nodeID)
+		}
+	}
+	slices.Sort(remaining)
+	for _, nodeID := range remaining {
+		refs = appendUniqueResourceRefs(refs, state.Nodes[nodeID].OutcomeRefs...)
 	}
 	return refs
 }

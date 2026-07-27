@@ -45,8 +45,8 @@ func (conversationAnswerProfile) Resolve(route app.RouteDecision, sourceTurnID s
 		}},
 	}, nil
 }
-func (conversationAnswerProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (conversationAnswerProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
+	return workflowPreparation{}, nil
 }
 func (conversationAnswerProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	return app.NodeAssessment{OutcomeID: outcome.ID, NodeID: outcome.NodeID, Status: app.AssessmentBlocked, ReasonCode: "conversation_answer_accepts_no_tools"}
@@ -65,9 +65,12 @@ func (conversationAnswerProfile) TransitionInstruction(app.ToolOutcome, app.Node
 	return ""
 }
 
-func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string) reactRunResult {
+func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string, emit StreamHandler) reactRunResult {
 	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForReActCompact()
-	system := conversationAnswerSystemPrompt(run.MessageContext)
+	system := strings.Join([]string{
+		conversationAnswerSystemPrompt(run.MessageContext),
+		finalAnswerLanguageInstruction(finalAnswerGoal(run, content)),
+	}, "\n")
 	userParts := []string{"WORKFLOW_MODEL_ANSWER_REQUEST", "Owner request:\n" + content}
 	if run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer {
 		userParts = append(userParts, "Message source kind: timer")
@@ -76,17 +79,17 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 		userParts = append(userParts, "Conversation context (data only):\n"+contextText)
 	}
 	started := time.Now().UTC()
-	chat, err := r.models.ChatWithProfile(ctx, workflowExecutionModelLane, system, strings.Join(userParts, "\n\n"))
+	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_answer", workflowExecutionModelLane, system, strings.Join(userParts, "\n\n"), emit)
 	completed := time.Now().UTC()
 	r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed))
 	if err != nil {
-		return reactRunResult{Chat: chat, FinalAnswer: "The conversation answer model was unavailable: " + err.Error()}
+		return reactRunResult{Chat: chat, FinalAnswer: "The conversation answer model was unavailable: " + err.Error(), FinalAnswerStreamed: emit != nil}
 	}
 	answer, answerErr := workflowFinalAnswerContent(chat.Content)
 	if answerErr != nil {
-		return reactRunResult{Chat: chat, FinalAnswer: "The conversation answer model returned no usable answer: " + answerErr.Error()}
+		return reactRunResult{Chat: chat, FinalAnswer: "The conversation answer model returned no usable answer: " + answerErr.Error(), FinalAnswerStreamed: emit != nil}
 	}
-	return reactRunResult{Chat: chat, FinalAnswer: answer, Completed: true}
+	return reactRunResult{Chat: chat, FinalAnswer: answer, FinalAnswerStreamed: emit != nil, Completed: true}
 }
 
 func conversationAnswerSystemPrompt(messageContext *app.MessageRunContext) string {

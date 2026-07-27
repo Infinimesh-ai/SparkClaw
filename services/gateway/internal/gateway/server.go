@@ -2375,7 +2375,6 @@ func publicModelConfig(cfg config.ModelConfig) map[string]any {
 		"fast":                 publicModelProfile(cfg.Fast),
 		"deep":                 publicModelProfile(cfg.Deep),
 		"embedding":            publicModelProfile(cfg.Embedding),
-		"reranker":             publicModelProfile(cfg.Reranker),
 		"guard":                publicModelProfile(cfg.Guard),
 	}
 }

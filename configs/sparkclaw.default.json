@@ -37,19 +37,13 @@
       "context_tokens": 32768,
       "mtp": false
     },
-    "reranker": {
-      "name": "sparkclaw-reranker",
-      "base_url": "",
-      "model": "sparkclaw-reranker",
-      "context_tokens": 2048,
-      "mtp": false
-    },
     "guard": {
       "name": "sparkclaw-guard",
       "base_url": "http://127.0.0.1:8005/v1",
-      "model": "Qwen/Qwen3Guard-0.6B",
+      "model": "Qwen/Qwen3Guard-Gen-0.6B",
       "context_tokens": 32768,
-      "mtp": false
+      "mtp": false,
+      "max_tokens": 128
     }
   },
   "speech": {

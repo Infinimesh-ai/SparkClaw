@@ -104,7 +104,7 @@ def main():
             "fast": endpoint_models(env("SPARKCLAW_FAST_BASE_URL", "http://127.0.0.1:8001/v1"), args.timeout),
             "deep": endpoint_models(env("SPARKCLAW_DEEP_BASE_URL", "http://127.0.0.1:8002/v1"), args.timeout),
             "embedding": endpoint_models(env("SPARKCLAW_EMBEDDING_BASE_URL", "http://127.0.0.1:8003/v1"), args.timeout),
-            "reranker": endpoint_models(env("SPARKCLAW_RERANKER_BASE_URL", "http://127.0.0.1:8004/v1"), args.timeout),
+            "guard": endpoint_models(env("SPARKCLAW_GUARD_BASE_URL", "http://127.0.0.1:8005/v1"), args.timeout),
         },
         "benchmark": load_json(args.benchmark),
     }

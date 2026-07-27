@@ -4,7 +4,7 @@ SPARKCLAW_ROOT=""
 SPARKCLAW_SEARCH_DIR="$(pwd)"
 
 while [ "$SPARKCLAW_SEARCH_DIR" != "/" ]; do
-  if [ -f "$SPARKCLAW_SEARCH_DIR/go.work" ] && [ -f "$SPARKCLAW_SEARCH_DIR/package.json" ] && [ -d "$SPARKCLAW_SEARCH_DIR/.tools" ]; then
+  if [ -f "$SPARKCLAW_SEARCH_DIR/go.work" ] && [ -f "$SPARKCLAW_SEARCH_DIR/package.json" ]; then
     SPARKCLAW_ROOT="$SPARKCLAW_SEARCH_DIR"
     break
   fi
@@ -12,7 +12,7 @@ while [ "$SPARKCLAW_SEARCH_DIR" != "/" ]; do
 done
 
 if [ -z "$SPARKCLAW_ROOT" ]; then
-  echo "SparkClaw repo root with .tools was not found."
+  echo "SparkClaw repo root was not found."
   return 1 2>/dev/null || exit 1
 fi
 
@@ -32,8 +32,6 @@ export SPARKCLAW_DEEP_MODEL="${SPARKCLAW_DEEP_MODEL:-sparkclaw-deep}"
 export SPARKCLAW_DEEP_SERVED_NAME="${SPARKCLAW_DEEP_SERVED_NAME:-sparkclaw-deep}"
 export SPARKCLAW_EMBEDDING_BASE_URL="${SPARKCLAW_EMBEDDING_BASE_URL:-}"
 export SPARKCLAW_EMBEDDING_MODEL="${SPARKCLAW_EMBEDDING_MODEL:-sparkclaw-embedding}"
-export SPARKCLAW_RERANKER_BASE_URL="${SPARKCLAW_RERANKER_BASE_URL:-}"
-export SPARKCLAW_RERANKER_MODEL="${SPARKCLAW_RERANKER_MODEL:-sparkclaw-reranker}"
 export SPARKCLAW_BROWSER_AUTOMATION_ENABLED="${SPARKCLAW_BROWSER_AUTOMATION_ENABLED:-true}"
 export SPARKCLAW_BROWSER_PROFILE_DIR="${SPARKCLAW_BROWSER_PROFILE_DIR:-$SPARKCLAW_ROOT/data/browser-profiles}"
 export SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED="${SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED:-true}"
@@ -96,12 +94,11 @@ if [ -f "$SPARKCLAW_ROOT/.env" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1 || ! command -v go >/dev/null 2>&1; then
-  echo "SparkClaw local dev tools were not found under:"
-  echo "  $SPARKCLAW_ROOT/.tools"
+  echo "SparkClaw requires node, npm, and go on PATH."
   return 1 2>/dev/null || exit 1
 fi
 
-echo "SparkClaw local dev tools are on PATH."
+echo "SparkClaw development tools are on PATH."
 echo "node: $(node -v)"
 echo "npm:  $(npm -v)"
 echo "go:   $(go version)"

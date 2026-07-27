@@ -11,6 +11,30 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+func TestFileStorePersistsDocumentRecords(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "document-state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSession("documents")
+	saved := st.SaveDocumentRecord(app.DocumentRecord{
+		ID: "doc_file", OwnerID: session.OwnerID, SessionID: session.ID,
+		GovernedPath: "reports/report.pdf", Name: "report.pdf", Format: app.DocumentFormatPDF,
+		Status: app.DocumentStatusAvailable, Source: app.DocumentSourceAttachment,
+		SourceMessageID: "m_file", LastActivity: app.DocumentActivityAttached,
+		LastActivityID: "m_file", LastActivityAt: time.Now().UTC(),
+	})
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.GetDocumentRecord(saved.ID)
+	if !ok || got.GovernedPath != saved.GovernedPath || got.SourceMessageID != "m_file" {
+		t.Fatalf("file snapshot omitted document record: %#v ok=%v", got, ok)
+	}
+}
+
 func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gateway-state.json")
 	st, err := NewFileStore(path)
@@ -193,18 +217,13 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 		ModelLane: "fast",
 		Risk:      app.RiskRead,
 		MessageContext: &app.MessageRunContext{
-			Request: app.RequestNormalization{
-				SchemaVersion: app.RequestNormalizationSchemaVersion,
-				Original:      "今天杭州天气", Canonical: "查询今天杭州天气 2026-07-17", Source: "fast_model",
-			},
 			IntentFusion: &app.IntentFusionDecision{
 				SchemaVersion: app.IntentFusionDecisionSchemaVersion, GraphRevision: "graph.v1", CalibrationRevision: "calibration.v1",
 				Channels: app.IntentFusionChannels{
 					Embedding: app.IntentFusionChannel{Status: "healthy", Model: "embedding@test"},
 					Tree:      app.IntentFusionChannel{Status: "healthy", Model: "fast@test"},
-					Reranker:  app.IntentFusionChannel{Status: "healthy", Model: "reranker@test"},
 				},
-				Candidates: []app.IntentFusionCandidate{{CandidateID: "browser.weather#read", CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather}, FinalScore: 0.91}},
+				Candidates: []app.IntentFusionCandidate{{CandidateID: "browser.weather#read", CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather}, FusionScore: 0.91}},
 				Verdict:    "clear", Confidence: 0.91, Margin: 0.4, ReasonCode: "top_candidate_clear",
 			},
 		},
@@ -259,7 +278,7 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	gotRun, ok := reloaded.GetRun(run.ID)
-	if !ok || gotRun.Workflow == nil || gotRun.MessageContext == nil || gotRun.MessageContext.Request.Canonical != "查询今天杭州天气 2026-07-17" {
+	if !ok || gotRun.Workflow == nil || gotRun.MessageContext == nil {
 		t.Fatalf("workflow state did not reload: %#v ok=%v", gotRun, ok)
 	}
 	if gotRun.MessageContext.IntentFusion == nil || gotRun.MessageContext.IntentFusion.GraphRevision != "graph.v1" ||

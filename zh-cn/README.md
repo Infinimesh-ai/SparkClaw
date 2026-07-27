@@ -4,7 +4,7 @@
 
 **面向 DGX Spark 的可靠本地 Agent Runtime。**
 
-SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态已经是完整的单机双 lane 栈：响应快的 `fast` MoE lane、用于更难或更高风险工作的稠密 `deep` lane，以及为 semantic routing 和有界 ranking 常驻的 embedding/reranker 端点。
+SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态已经是完整的单机双 lane 栈：响应快的 `fast` MoE lane、用于更难或更高风险工作的稠密 `deep` lane，以及为 semantic routing 常驻的 embedding 端点。
 
 项目已经过了早期规划阶段。本 README 是入口；完整当前文档集合见
 [文档索引](docs/index.md)。建议从以下文档开始：
@@ -23,8 +23,8 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 已实现并验证：
 
 - Go Gateway API：健康检查、ready 检查、direct chat、sessions、messages、events、tools、approvals、memories、traces、artifacts、eval reports、feedback、client pairing、token auth 和 rate limiting。
-- Agent Runtime：Catalog 派生语义图、embedding 与 Fast/Tree 分数融合、有界 reranking、确定性单叶子 Workflow 分发、grounded execution、repair 和 trace snapshot。
-- 单机 `dual-light-v1` 模型 profile 已在 NVIDIA GB10 上验证：`fast` 与 `deep` chat lanes 加上 embedding/reranker 可以同时常驻，并使用显式 context、KV cache 和 sequence caps。
+- Agent Runtime：Catalog 派生语义图、全候选 embedding 与 Fast/Tree 分数融合、确定性 Top-2 和单叶子 Workflow 分发、grounded execution、repair 和 trace snapshot。
+- 单机 `dual-light-v1` 模型 profile 已在 NVIDIA GB10 上验证：`fast` 与 `deep` chat lanes 加上 embedding 可以同时常驻，并使用显式 context、KV cache 和 sequence caps。
 - ToolHub：为文件、memory、browser access、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
 - approval-first policy：file deletion、shell execution、patch application 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
 - file、browser 和 external adapter observation 都被当作 untrusted data，并在进入回答前被摘要。
@@ -32,12 +32,12 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 本地 file-backed state，PostgreSQL 18/pgvector 持久化 runtime records，以及 filesystem 或 S3-compatible artifact storage。
 - React/Vite WebChat workbench：chat、tool timeline、approval inbox、memory editor、trace viewer、eval/status/settings panels 和 model telemetry。
 - Docker Compose profiles：mock local operation、development、evaluation、external model compatibility 和 DGX Spark local-model serving。
-- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding/reranker endpoints。历史运行使用 58 个 case；移除仅有原型的能力后，当前活动矩阵为 43 个 case。
+- DGX Spark NVIDIA GB10 验证：PostgreSQL 18/pgvector、MinIO、sandbox-runner 与 vLLM fast/deep/embedding endpoints。当前 Fast + Embedding 校准在 15 条标注意图上达到 15/15。43-case runner 仍包含已退役 code/shell 原型 Workflow 的断言，在与当前能力矩阵对齐前不能作为完整的当前验收结果。
 
 已知运行边界：
 
 - 在已验证的 GB10 机器上，full 128K context 且启用 MTP 时，fast 和 deep chat lanes 应视为不能同时常驻，除非降低 context、MTP 或 GPU memory utilization 后重新测量。
-- 当前接受的单机双 lane profile 是 `dual-light-v1`：fast 使用 32K context + 8G KV cache，deep 使用 64K context + 12G KV cache，二者都关闭 MTP。Deep 是稠密模型，慢是预期内；验收标准是任务稳定性和产品综合体验，而不是单独追求 deep throughput。
+- 已验证的单机常驻 profile 是 `dual-light-v1`：fast 使用 32K context + 8G KV cache，deep 使用 64K context + 12G KV cache，二者都关闭 MTP。Deep 是稠密模型，慢是预期内；更广的产品验收仍需使用与当前能力对齐的端到端矩阵。
 - 决定调用哪个 chat lane 的是 Gateway，不是 `fast` 模型本身。代码、terminal、危险、repair 或显式 deep/review 请求会走 `deep`；常规有边界任务走 `fast`。只有 fast 调用失败时，才会把 deep 作为 fallback。
 - `skills/` 下只保留尚未迁移领域的过渡 ReAct procedure。已迁移 Workflow 不再加载 Skill；当前能力以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
 
@@ -67,32 +67,26 @@ browser allowlist 只用于确定性的本地 fixture。正常运行中，`brows
 
 ## 本地开发
 
-安装 JavaScript 依赖：
+安装宿主开发依赖：
 
 ```bash
-npm install
-npm run setup:browser
+npm run setup:host
 ```
 
-第二条命令校验固定版本的 agent-browser Runtime，并解析系统 Chromium；该命令不会下载
-Chrome for Testing。当 Chromium 位于非标准路径时，设置
+该命令安装根 workspace Node 包、用户 site-packages 中的 Python 文档库，校验固定版本的
+agent-browser Runtime，并解析系统 Chromium；它不会下载 Chrome for Testing。当
+Chromium 位于非标准路径时，设置
 `adapters.browserAutomation.chromiumExecutable`。
 
-分别启动 Gateway 和 WebChat：
+重建并重启当前真机使用的 external-model/PostgreSQL 开发运行态：
 
 ```bash
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-npm --workspace @sparkclaw/webchat run dev
+npm run dev
 ```
 
-如果 host 没有 Go，可以使用 `scripts/doctor.sh` 同样采用的 Docker Go builder 路径：
-
-```bash
-sudo -n docker run --rm -u "$(id -u):$(id -g)" \
-  -v "$PWD":/workspace -w /workspace/services/gateway \
-  -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
-  golang:1.25-alpine /usr/local/go/bin/go test ./...
-```
+只重建一个应用容器时，使用 `npm run dev:gateway` 或 `npm run dev:webchat`。
+直接运行宿主 mock/file Gateway 或 Vite 仅用于隔离调试，对应
+`npm run dev:gateway:host` 和 `npm run dev:webchat:host`。
 
 direct model-router smoke test：
 
@@ -128,14 +122,14 @@ npm workspace root 保持 `private`，用于避免误发布 package。仓库本�
 
 ## DGX Spark 模型
 
-当前完整本地模型路径先启动已接受的单机 profile：
+当前完整本地模型路径先启动已验证的单机常驻 profile：
 
 ```bash
 scripts/serve_models_compose.sh dual-light
 scripts/restart_runtime_compose.sh
 ```
 
-`dual-light` 会启动完整产品模型常驻服务：`fast`、`deep`、embedding 和 reranker。`scripts/restart_runtime_compose.sh` 随后以 `external/postgres` mode 重启 Gateway/WebChat，如果 Gateway 未 ready 会失败退出。
+`dual-light` 会启动完整产品模型常驻服务：`fast`、`deep` 和 embedding。`scripts/restart_runtime_compose.sh` 随后以 `external/postgres` mode 重启 Gateway/WebChat，如果 Gateway 未 ready 会失败退出。
 
 其他服务入口用于定向测试和对照实验：
 
@@ -145,7 +139,7 @@ scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
 scripts/serve_models_compose.sh dual-light-chat
-scripts/serve_models_compose.sh embedding,reranker
+scripts/serve_models_compose.sh embedding
 ```
 
 默认 served lanes：
@@ -155,9 +149,8 @@ scripts/serve_models_compose.sh embedding,reranker
 | fast | `sparkclaw-fast` | 8001 | `Qwen/Qwen3.6-35B-A3B-FP8` |
 | deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
-| reranker | `sparkclaw-reranker` | 8004 | `Qwen/Qwen3-Reranker-0.6B` |
 
-已接受的单机 profile 是保守取舍：`fast` 是响应快的 MoE lane，`deep` 是稠密的稳定性/质量 lane，MTP 关闭，辅助模型使用小的显式 KV budget 以保证完整产品栈能放下。`dual-light-chat` 只用于不带辅助端点的 chat-lane 对照实验。
+已验证的单机常驻 profile 是保守取舍：`fast` 是响应快的 MoE lane，`deep` 是稠密的稳定性/质量 lane，MTP 关闭，embedding 使用小的显式 KV budget 以保证当前模型栈能放下。`dual-light-chat` 只用于不带 embedding 端点的 chat-lane 对照实验。
 
 加载策略见 [docs/model-loading.md](docs/model-loading.md)。Benchmark 证据、endpoint 快照和运行说明见 [benchmarks/model_baseline.md](benchmarks/model_baseline.md)。
 

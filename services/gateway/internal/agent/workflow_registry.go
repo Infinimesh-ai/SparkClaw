@@ -19,10 +19,21 @@ type workflowProfile interface {
 	RoutingSemantics() workflowRoutingSemantics
 	Finalization() workflowFinalizationMode
 	Resolve(app.RouteDecision, string) (app.IntentEnvelope, app.WorkflowPlan, error)
-	Prepare(*app.WorkflowState) (app.TransitionID, bool, error)
+	Prepare(*app.WorkflowState) (workflowPreparation, error)
 	Assess(*app.WorkflowState, app.ToolOutcome) app.NodeAssessment
 	Hint(*app.WorkflowState) workflowExecutionHint
 	TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string
+}
+
+type workflowPreparation struct {
+	TransitionID app.TransitionID
+	CompleteNode bool
+	OutcomeRefs  []app.ResourceRef
+}
+
+type workflowDecisionSemantics interface {
+	DecisionRules(app.WorkflowNode) []string
+	DecisionResolvedInstruction(app.ToolDirectoryEntry) string
 }
 
 type workflowFinalizationMode string

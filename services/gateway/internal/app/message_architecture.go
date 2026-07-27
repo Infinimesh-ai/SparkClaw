@@ -6,20 +6,11 @@ import (
 )
 
 const (
-	MessageEnvelopeSchemaVersion      = 1
-	RequestNormalizationSchemaVersion = 1
-	RouteDecisionSchemaVersion        = 1
-	WorkflowResultSchemaVersion       = 1
-	DeliveryRequestSchemaVersion      = 2
+	MessageEnvelopeSchemaVersion = 1
+	RouteDecisionSchemaVersion   = 1
+	WorkflowResultSchemaVersion  = 1
+	DeliveryRequestSchemaVersion = 2
 )
-
-type RequestNormalization struct {
-	SchemaVersion   int    `json:"schema_version"`
-	Original        string `json:"original"`
-	Canonical       string `json:"canonical"`
-	ResourceContext string `json:"resource_context,omitempty"`
-	Source          string `json:"source"`
-}
 
 const (
 	BindingScopeReminderSendSelf = "reminder_send_self"
@@ -218,7 +209,7 @@ type RouteDecision struct {
 	Reason          string            `json:"reason,omitempty"`
 }
 
-const IntentFusionDecisionSchemaVersion = 2
+const IntentFusionDecisionSchemaVersion = 3
 
 type IntentFusionChannel struct {
 	Status     string `json:"status"`
@@ -229,7 +220,6 @@ type IntentFusionChannel struct {
 type IntentFusionChannels struct {
 	Embedding IntentFusionChannel `json:"embedding"`
 	Tree      IntentFusionChannel `json:"tree"`
-	Reranker  IntentFusionChannel `json:"reranker"`
 }
 
 type IntentFusionCandidate struct {
@@ -238,8 +228,6 @@ type IntentFusionCandidate struct {
 	EmbeddingScore   float64        `json:"embedding_score"`
 	TreeScore        float64        `json:"tree_score"`
 	FusionScore      float64        `json:"fusion_score"`
-	RerankerScore    float64        `json:"reranker_score"`
-	FinalScore       float64        `json:"final_score"`
 	NegativeConflict float64        `json:"negative_conflict,omitempty"`
 }
 
@@ -263,7 +251,6 @@ type MessageRunContext struct {
 	Authorization MessageAuthorization  `json:"authorization"`
 	Source        MessageSourceContext  `json:"source"`
 	ReturnRoute   ReturnRoute           `json:"return_route"`
-	Request       RequestNormalization  `json:"request"`
 	Route         RouteDecision         `json:"route"`
 	IntentFusion  *IntentFusionDecision `json:"intent_fusion,omitempty"`
 }

@@ -27,7 +27,6 @@ func TestIntentFusionCandidatePersistsOnlyChannelScores(t *testing.T) {
 		Channels: IntentFusionChannels{
 			Embedding: IntentFusionChannel{Status: "healthy"},
 			Tree:      IntentFusionChannel{Status: "healthy"},
-			Reranker:  IntentFusionChannel{Status: "healthy"},
 		},
 		Candidates: []IntentFusionCandidate{{
 			CandidateID: "schedule.manage#create", EmbeddingScore: 0.8, TreeScore: 0.7,
@@ -42,7 +41,7 @@ func TestIntentFusionCandidatePersistsOnlyChannelScores(t *testing.T) {
 			t.Fatalf("intent fusion JSON is missing %s: %s", required, encoded)
 		}
 	}
-	for _, removed := range []string{`"fast_score"`, `"fast_reason_code"`} {
+	for _, removed := range []string{`"fast_score"`, `"fast_reason_code"`, `"reranker"`, `"reranker_score"`, `"final_score"`} {
 		if strings.Contains(encoded, removed) {
 			t.Fatalf("intent fusion JSON retained removed field %s: %s", removed, encoded)
 		}

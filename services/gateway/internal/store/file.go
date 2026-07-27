@@ -44,6 +44,7 @@ type Snapshot struct {
 	Runs                 map[string]app.AgentRun              `json:"runs"`
 	ModelCalls           map[string]app.ModelCall             `json:"model_calls"`
 	ToolCalls            map[string]app.ToolCall              `json:"tool_calls"`
+	DocumentRecords      map[string]app.DocumentRecord        `json:"document_records,omitempty"`
 	Approvals            map[string]app.Approval              `json:"approvals"`
 	Reminders            map[string]app.Reminder              `json:"reminders"`
 	ReminderDelivery     map[string]app.ReminderDelivery      `json:"reminder_delivery"`
@@ -215,6 +216,20 @@ func (s *FileStore) AddMessage(message app.Message) app.Message {
 	out := s.inner.AddMessage(message)
 	s.persist()
 	return out
+}
+
+func (s *FileStore) SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord {
+	out := s.inner.SaveDocumentRecord(record)
+	s.persist()
+	return out
+}
+
+func (s *FileStore) GetDocumentRecord(id string) (app.DocumentRecord, bool) {
+	return s.inner.GetDocumentRecord(id)
+}
+
+func (s *FileStore) ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord {
+	return s.inner.ListDocumentRecords(ownerID, sessionID, limit)
 }
 
 func (s *FileStore) ListMessages(sessionID string) []app.Message {

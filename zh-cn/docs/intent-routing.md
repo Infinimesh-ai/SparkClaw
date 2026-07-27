@@ -10,17 +10,25 @@
 自然语言请求由两个独立通道在同一份注册语义图上分类：
 
 ```text
-规范化 owner 请求
-  -> 确定性 grounding
+当前 owner 编写的问题
+  -> 候选无关的资源解析
   -> 按来源过滤后的语义候选
-      -> embedding 相似度评分
-      -> Fast 模型沿 capability tree 推理
+      -> 仅根据问题计算 embedding 相似度
+      -> Fast 模型根据问题 + 有界 typed context 沿 capability tree 推理
   -> 加权融合
-  -> 有界 reranking
   -> 最终 Top-2 决策
   -> 确定性 Route 组装
   -> 仅一个叶子 Workflow，或 clarify / blocked / unmatched
 ```
+
+Embedding 通道只接收当前 owner 编写的问题，不接收 history、resource marker、attachment
+metadata、document record 或其他上下文。Fast/Tree 接收同一个问题，并把有界的本轮资源
+元数据和近期 Agent 上下文作为 typed data，用于完整推理追问指代、省略主题/目标、纠正和
+歧义。该非对称契约适用于全部自然语言意图识别。
+
+系统不再有模型请求规范化调用、canonical request 或持久化 normalization 结构。Fast 只给
+候选评分，不能改写问题、选择具体资源、输出 `RouteDecision` 或授予 authority。上下文可以
+帮助 Fast 消歧，但资源只能在 Fusion 后由确定性 grounding 和 Workflow 绑定。
 
 语义图是不可变的内存投影，不是向量数据库，也不拥有第二套 capability taxonomy。
 图拓扑、叶子契约、operation 和 Workflow 引用来自 `capability.Catalog`；每个
@@ -43,7 +51,7 @@ schedule.manage#delete
 ```
 
 变体只选择经 Catalog 校验的 operation 和 fact-scope 模板，不会创建额外 Workflow。
-两个语义通道都只返回候选 ID 和分数：
+两个语义通道都会为所有按来源过滤后的候选评分，并且只返回候选 ID 和分数：
 
 ```text
 Embedding: candidate_id + embedding_score
@@ -53,15 +61,8 @@ fusion_score = alpha * embedding_score
              + (1 - alpha) * tree_score
 ```
 
-内置 calibration artifact 当前使用 `alpha = 0.50`。融合保留有界 Top-N，
-reranker 只能给这些候选重新评分：
-
-```text
-final_score = (1 - reranker_weight) * fusion_score
-            + reranker_weight * reranker_score
-```
-
-当前 `reranker_weight` 为 `0.28`。这些参数由
+内置 calibration artifact 当前使用 `alpha = 0.50`。Fusion 根据 `fusion_score`
+对完整 eligible candidate 集合进行确定性排序，并保留最终 Top-2。该权重由
 `internal/semanticrouting/default_calibration.json` 管理；修改前必须有 calibration
 证据和针对性路由测试。排序分数不是概率，持久化 confidence 由分数、margin、
 negative conflict 和通道状态单独计算。
@@ -96,17 +97,24 @@ type RoutingIntentVariant struct {
 schedule ID、endpoint ID 和任务栏 typed value 由受限、候选无关的 projector 提取，
 模型不能编造。
 
+文档 grounding 只使用一个最近文档 resolver。当前请求中的明确 path 或本轮受治理资源
+具有最高优先级；否则优先使用持久 `DocumentRecord` 活动，成功文档工具调用和附件消息仅
+作为历史状态迁移 fallback。Record 只向 Fast 暴露有界元数据：document ID、受治理 path、
+名称、content type、格式、来源/来源 ID 和最近活动。同一最新 activity 的全部输出保持
+ambiguous，不会压缩成一个。唯一的最近文档可以在无需再次附加的情况下满足追问，但仍
+必须通过 workspace、普通文件、符号链接、扩展名和文件签名 preflight。
+
 只有 Agent Runtime 能把一个 clear 候选转换成 `RouteDecision`：
 
 1. 在冻结的图 revision 中解析候选。
 2. 从 Catalog 推导完整 capability path。
 3. 从注册变体复制 operation 和 fact scope。
-4. 从持久化规范化请求和 grounding 绑定 query 与资源。
+4. 从 owner 原始请求绑定 query，并从 grounding 绑定资源。
 5. 通过 Catalog 校验完整 route。
 6. 解析并持久化唯一一个 Workflow Profile revision。
 
-Tree 模型不输出 `RouteDecision`，reranker 不能增加候选，任何路由阶段都不选 tool。
-叶子选定后，Tool Exposure 才根据当前 Workflow node、注册 capability descriptor、
+Tree 模型不输出 `RouteDecision`，任何路由阶段都不选 tool。叶子选定后，
+Tool Exposure 才根据当前 Workflow node、注册 capability descriptor、
 argument binding 和 Policy 派生。
 
 ## 决策状态
@@ -125,7 +133,7 @@ mutation 和外部 delivery 使用更严格的分数与 margin。语义已明确
 它不是第三个意图信号，也不能改变排序。
 
 最终 Top-2 证据会连同 graph/calibration revision、模型 fingerprint、通道状态、各通道
-分数、最终分数、confidence、margin、verdict 和 reason code 一起持久化。Top-2 用于
+分数、fusion score、confidence、margin、verdict 和 reason code 一起持久化。Top-2 用于
 澄清和诊断，永远不授权两个 Workflow。
 
 ## 定时与 Delivery 语义
@@ -147,7 +155,6 @@ Workflow 执行。
 
 - Embedding 和 Tree 在总路由 deadline 内独立执行。
 - 一个语义通道失败时，只读 route 可使用更严格降级门槛；mutation 或外部 effect 关闭失败。
-- Reranker 失败时，只读工作可保留融合顺序；mutation 或外部 effect 被阻止。
 - 两个语义通道都失败、索引不一致或候选未知时阻止路由。
 - `clarify`、`blocked` 和 `unmatched` 都是终态，不回退到 TaskHint、旧关键词逻辑或 ReAct。
 

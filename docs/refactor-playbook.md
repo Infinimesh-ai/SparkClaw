@@ -16,7 +16,7 @@ This is the standard instruction document handed to an Agent (e.g. Claude Code) 
 ## Step 0: Establish the baseline (never skip)
 
 1. Clean build: `cd services/gateway && go build ./...`
-2. Environment deps: document-tool tests need `npm run setup:document-tools` (installs exceljs and python-docx/pptx/pypdf into `.tools/`).
+2. Environment deps: document-tool tests need `npm run setup:document-tools` (installs Node packages through the root workspace and Python libraries into the host user site).
 3. Full tests: `go test ./...`; frontend `npm install && npm run build` (in `apps/webchat`, includes `tsc -b`).
 4. **Record the baseline**: which packages pass, which fail and why. Without separating "already broken" from "broken by me", all later verification is meaningless.
 

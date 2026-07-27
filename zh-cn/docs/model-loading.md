@@ -27,8 +27,8 @@
 - 代码、高风险审查、repair verification、terminal 相关任务、显式 deep 请求，运行 `deep` full profile。
 - 把 `deep` 的较低吞吐视为稠密模型的预期成本。`deep` 优化方向是稳定性和答案质量；`fast` 负责交互响应和短轮次体验。
 - eval 或受限运行时，必要情况下可以把 Gateway 的两个 profiles 都临时路由到已加载 lane。
-- embedding 和 reranker 保持小型，但在已接受产品 profile 中常驻。Gateway 启动时必须使用
-  embedding 构建 semantic routing index；reranker 提供有界路由重排通道。
+- embedding 和专用 guard 保持小型并在产品 profile 中常驻。Embedding 构建 semantic
+  routing index 并为请求评分；guard 在 routing 或 tool execution 前审核 owner prompt。
 
 单机阶段的性能项保持保守：
 
@@ -43,14 +43,14 @@
 
 建议第一轮目标：
 
-| Setting | `fast` | `deep` | embedding | reranker | 取舍原因 |
+| Setting | `fast` | `deep` | embedding | guard | 取舍原因 |
 |---|---:|---:|---:|---:|---|
-| Context | 32768 | 65536 | 8192 | 2048 | 优先保 deep context；辅助模型保留单用户 semantic routing 和有界 ranking 足够的 context。 |
+| Context | 32768 | 65536 | 8192 | 16384 | 优先保 deep context；辅助模型保留适合有界输入的 context。 |
 | MTP | off | off | off | off | 先节省内存和复杂度，验证常驻可行性。 |
-| KV cache budget | 8 GiB | 12 GiB | 2 GiB | 1 GiB | 直接限制真正的压力点，而不是让每个 server 按 full lane 预留。 |
-| Max response tokens | 768 | 1536 | n/a | n/a | 保持 agent loop 响应速度和 eval 稳定。 |
+| KV cache budget | 8 GiB | 12 GiB | 2 GiB | 2 GiB | 直接限制真正的压力点，而不是让每个 server 按 full lane 预留。 |
+| Max response tokens | 768 | 1536 | n/a | 128 | 保持 agent loop 和审核响应速度。 |
 | Max concurrent sequences | 4 | 2 | 1 | 1 | 产品是单用户使用，优先 fit 和 latency，不追求并发。 |
-| GPU memory utilization | 0.42 | 0.44 | 0.06 | 0.06 | 真正的约束来自 `--kv-cache-memory-bytes`；utilization 只保持保守的启动检查余量。 |
+| GPU memory utilization | 0.42 | 0.36 | 0.06 | 0.04 | 显式 KV budget 约束容量；utilization 保持保守的启动检查余量。 |
 
 这个 profile 已实现为 `dgx-spark-dual-light-v1`：
 
@@ -68,9 +68,16 @@
 
 这样 SparkClaw 仍然有一个响应快的本地 `fast` lane，同时保住 `deep` 最重要的价值：在更大的证据窗口里处理复杂推理。
 
-第一轮接受结论：在辅助模型显式 KV cap 后，`dual-light-v1` 可以作为单机完整产品常驻 profile。Warm `fast` 约 48-50 tok/s，warm `deep` 约 7.3 tok/s。停掉 embedding/reranker 后的 chat-only 对照中，`deep` 吞吐基本不变，因此 `deep` 慢应视为稠密模型的质量/稳定性取舍，而不是常驻方案失败。辅助模型如果在两个 chat lanes 常驻后启动，需要小的显式 KV budget：embedding 32K 启动失败，embedding 8K + 2G KV 可启动，warm request 约 28.5 ms。
+历史 `dual-light-v1` 实验说明两个 chat lanes 加小型辅助端点可以在单机常驻。
+Warm `fast` 约 48-50 tok/s，warm `deep` 约 7.3 tok/s；chat-only 对照中 `deep`
+吞吐基本不变。当前产品 profile 常驻 embedding 和 guard：embedding 8K + 2G KV
+的 warm request 约 28.5 ms；Qwen3Guard 16K + 2G KV 的模型权重占用 1.12 GiB，
+warm moderation request 约 80-110 ms。Guard 32K 因需要 3.5 GiB KV 被 vLLM 拒绝。
 
-这个单用户 profile 的验收标准是综合任务表现，而不是并发。2026-05-25，`dual-light-v1` 在 fast、deep、embedding、reranker 全部常驻，并由 external Gateway 调用的情况下，通过了历史 58-case real-model golden eval。因此它是当前接受的单机双模型 profile；后续调优重点应放在质量回退、启动体验和 first-request warmup 上。模型栈行为发生变化时，仍需重新运行当前 43-case 活动矩阵。
+这个单用户 profile 的验收标准是综合任务表现，而不是并发。2026-05-25 的历史模型栈
+通过了当时的 58-case real-model golden eval。移除 reranking lane 改变了路由模型栈，
+因此当前 Fast + Embedding + Guard profile 仍需重新运行活动的 43-case real-model
+matrix，才能与历史结果进行质量比较。
 
 ### 轻量双常驻测试循环
 
@@ -81,6 +88,8 @@ scripts/serve_models_compose.sh dual-light
 
 curl -fsS http://127.0.0.1:8001/v1/models
 curl -fsS http://127.0.0.1:8002/v1/models
+curl -fsS http://127.0.0.1:8003/v1/models
+curl -fsS http://127.0.0.1:8005/v1/models
 
 set -a
 . docker/env/sparkclaw.dual-light.env
@@ -88,17 +97,16 @@ set +a
 SPARKCLAW_FAST_BASE_URL=http://127.0.0.1:8001/v1 \
 SPARKCLAW_DEEP_BASE_URL=http://127.0.0.1:8002/v1 \
 SPARKCLAW_EMBEDDING_BASE_URL=http://127.0.0.1:8003/v1 \
-SPARKCLAW_RERANKER_BASE_URL=http://127.0.0.1:8004/v1 \
 python3 scripts/benchmark_models.py --append-markdown benchmarks/model_baseline.md
 
 SPARKCLAW_FAST_BASE_URL=http://127.0.0.1:8001/v1 \
 SPARKCLAW_DEEP_BASE_URL=http://127.0.0.1:8002/v1 \
 SPARKCLAW_EMBEDDING_BASE_URL=http://127.0.0.1:8003/v1 \
-SPARKCLAW_RERANKER_BASE_URL=http://127.0.0.1:8004/v1 \
 python3 scripts/record_model_loading.py --profile dual-light-v1
 ```
 
-只在 chat-only 对照实验中使用 `scripts/serve_models_compose.sh dual-light-chat`。被接受的产品 profile 是 `dual-light`，包含 fast、deep、embedding 和 reranker。
+只在 chat-only 对照实验中使用 `scripts/serve_models_compose.sh dual-light-chat`。
+产品 profile 是 `dual-light`，包含 fast、deep、embedding 和专用 guard。
 
 失败的 profile 也要记录。启动失败加上 logs 和 GPU process state，本身就是有价值的证据。
 
@@ -118,7 +126,7 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 
 | 机器 | 服务 | 备注 |
 |---|---|---|
-| DGX Spark A | `fast`、embedding、reranker、可选 guard | 优先优化交互延迟、semantic routing 和有界 ranking。 |
+| DGX Spark A | `fast`、embedding、guard | 优先优化交互延迟、semantic routing 和 prompt moderation。 |
 | DGX Spark B | `deep` | 给长上下文和 repair/review 任务保留内存余量。 |
 
 只有在这个拆分稳定后，再逐步打开性能项：
@@ -137,7 +145,7 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 - Context length、KV cache budget、GPU memory utilization、MTP/DFlash 状态。
 - Startup success、idle memory、first-request latency、warmed-request latency。
 - Chat、summary、email triage、coding 场景吞吐。
-- 记录 embedding/reranker 可用性和 Gateway semantic-router readiness。
+- 记录 embedding、guard 可用性和 Gateway semantic-router readiness。
 - Golden eval 结果和 regression notes。
 
 长期测量结果追加到 [模型基线](../benchmarks/model_baseline.md)。本文档只维护策略和被接受的加载方案。

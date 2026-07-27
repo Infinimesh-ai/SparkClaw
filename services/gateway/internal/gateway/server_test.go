@@ -481,7 +481,7 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_sessions_total 1",
 		"sparkclaw_messages_total 2",
 		"sparkclaw_agent_runs_total 1",
-		"sparkclaw_model_calls_total 7",
+		"sparkclaw_model_calls_total 5",
 		"sparkclaw_model_call_errors_total 0",
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
 		"sparkclaw_memory_candidates_total 0",
@@ -2534,13 +2534,17 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	if len(decoded.ToolCalls) == 0 {
 		t.Fatal("trace did not include tool calls")
 	}
-	if !hasServerTestModelCall(decoded.ModelCalls, "request_normalization", "fast") ||
-		!hasServerTestModelCall(decoded.ModelCalls, "intent_embedding", "embedding") ||
+	if !hasServerTestModelCall(decoded.ModelCalls, "intent_embedding", "embedding") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "intent_tree_graph", "fast") ||
-		!hasServerTestModelCall(decoded.ModelCalls, "intent_rerank", "reranker") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "deep") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)
+	}
+	if hasServerTestModelCall(decoded.ModelCalls, "intent_rerank", "reranker") {
+		t.Fatalf("trace included a model call for the removed reranker: %#v", decoded.ModelCalls)
+	}
+	if hasServerTestModelCall(decoded.ModelCalls, "request_normalization", "fast") {
+		t.Fatalf("trace included a model call for the removed request normalizer: %#v", decoded.ModelCalls)
 	}
 	if hasServerTestModelCall(decoded.ModelCalls, "task_hint", "fast") {
 		t.Fatalf("migrated workspace search unexpectedly used TaskHint: %#v", decoded.ModelCalls)

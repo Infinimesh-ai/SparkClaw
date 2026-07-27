@@ -8,8 +8,8 @@ This document is the current deployment guide for local development, Docker Comp
 
 - Ubuntu 24.04 or another Linux host with Docker and Docker Compose.
 - NVIDIA container runtime for DGX Spark model serving.
-- Node.js 24+ and npm 11+ for host-side WebChat builds.
-- Go 1.25 for host-side Gateway work, or Docker access for the Go builder fallback.
+- Node.js 26 and npm 11 for host-side builds; use the repository `.nvmrc`.
+- Go 1.25 for host-side Gateway work.
 - A Hugging Face token in local `.env` for model downloads. Do not commit `.env`.
 
 Create the local environment file:
@@ -66,25 +66,27 @@ The `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS` setting is intentionally explicit. It l
 
 ## Host Development Runtime
 
-Run Gateway and WebChat directly:
+The standard development runtime on the validated DGX Spark host is the
+containerized external-model/PostgreSQL topology:
 
 ```bash
-npm install
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-npm --workspace @sparkclaw/webchat run dev
+npm run dev
 ```
 
-The host WebChat dev server also listens on `0.0.0.0:18790` and proxies API
-requests to the loopback-only Gateway.
+Use `npm run dev:gateway` or `npm run dev:webchat` to rebuild a single
+application container without switching the runtime back to mock/file mode.
 
-Use token auth for local protected runs:
+For isolated host-process debugging only, run the mock/file Gateway and Vite
+server in separate terminals:
 
 ```bash
-SPARKCLAW_API_TOKEN=change-me go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-VITE_SPARKCLAW_API_TOKEN=change-me npm --workspace @sparkclaw/webchat run dev
+npm run dev:gateway:host
+npm run dev:webchat:host
 ```
 
-If `VITE_SPARKCLAW_API_TOKEN` is not set, WebChat prompts after the first unauthorized response.
+The host WebChat dev server listens on `0.0.0.0:18790` and proxies API requests
+to the loopback-only Gateway. Set `SPARKCLAW_API_TOKEN` and
+`VITE_SPARKCLAW_API_TOKEN` to the same value for protected host-process runs.
 
 ## ISCP Bridge Process
 
@@ -136,6 +138,13 @@ go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
 ```
 
 Gateway applies the active core schema at startup. The project-standard data service image remains PostgreSQL 18 with pgvector available, but Gateway no longer creates or queries a document-chunk/vector schema while workspace knowledge/RAG is deferred.
+
+PostgreSQL 18 stores clusters under a major-version-specific subdirectory, so
+Compose mounts the versioned `sparkclaw_pg18` volume at
+`/var/lib/postgresql`. An existing PostgreSQL 17 `sparkclaw_pg` volume created
+with the old `/var/lib/postgresql/data` mount must be backed up and migrated
+with `pg_dump`/`pg_restore`. Do not attach the old data directory directly to
+PostgreSQL 18 or delete it to force a clean start.
 
 ## Artifact Storage
 
@@ -211,9 +220,13 @@ Compose vLLM services:
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
 scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh dual-light-asr
 scripts/serve_models_compose.sh dual-light-chat
-scripts/serve_models_compose.sh embedding,reranker
+scripts/serve_models_compose.sh embedding
+scripts/serve_models_compose.sh guard
+scripts/serve_models_compose.sh asr
 scripts/serve_models_compose.sh all
+scripts/serve_models_compose.sh all-with-asr
 ```
 
 Default endpoints:
@@ -223,7 +236,8 @@ Default endpoints:
 | fast | `sparkclaw-fast` | `http://127.0.0.1:8001/v1` |
 | deep | `sparkclaw-deep` | `http://127.0.0.1:8002/v1` |
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
-| reranker | `sparkclaw-reranker` | `http://127.0.0.1:8004/v1` |
+| guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
+| asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
 
 Check endpoints:
 
@@ -231,7 +245,8 @@ Check endpoints:
 curl -fsS http://127.0.0.1:8001/v1/models
 curl -fsS http://127.0.0.1:8002/v1/models
 curl -fsS http://127.0.0.1:8003/v1/models
-curl -fsS http://127.0.0.1:8004/v1/models
+curl -fsS http://127.0.0.1:8005/v1/models
+curl -fsS http://127.0.0.1:8006/v1/models
 ```
 
 Important environment variables:
@@ -240,19 +255,103 @@ Important environment variables:
 - `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
 - `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
-- `SPARKCLAW_RERANKER_MODEL_ID`, `SPARKCLAW_RERANKER_MODEL`, `SPARKCLAW_RERANKER_MAX_MODEL_LEN`, `SPARKCLAW_RERANKER_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_RERANKER_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_RERANKER_MAX_NUM_SEQS`
+- `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
+- `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
+- `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`
 
 Use `*_MODEL_ID` for the Hugging Face checkpoint loaded by the serving container and `*_MODEL` for the OpenAI-compatible served name sent by Gateway.
 
+### Dedicated Qwen3Guard
+
+The guard lane uses the public generative checkpoint
+`Qwen/Qwen3Guard-Gen-0.6B`; `Qwen/Qwen3Guard-0.6B` is not a valid public
+checkpoint ID. Start only this endpoint with:
+
+```bash
+SPARKCLAW_MODEL_LOADING_PROFILE=dual-light scripts/serve_models_compose.sh guard
+curl -fsS http://127.0.0.1:8005/v1/models
+```
+
+The single-GB10 `dual-light` profile limits guard to 16K context, 2 GiB KV
+cache, one sequence and eager execution. Qwen3Guard returns its native
+`Safety: Safe|Unsafe|Controversial` and `Categories:` format; Gateway maps
+those severities to `allow`, `block` and `review`. Because SparkClaw has no
+human safety-review queue, both `review` and `block` stop the run before routing
+or tool execution. If the external endpoint is unavailable, Gateway records
+`mock=true` and uses the local heuristic fallback.
+
+### Qwen3-ASR From ModelScope
+
+SparkClaw speech uses the OpenAI-compatible transcription endpoint. Qwen3-ASR supports vLLM serving and the OpenAI transcription API, and the [official Qwen3-ASR README](https://github.com/QwenLM/Qwen3-ASR) recommends ModelScope downloads for users in Mainland China. On one GB10 with the validated `dual-light` residency profile, start with `Qwen/Qwen3-ASR-0.6B`; switch to `Qwen/Qwen3-ASR-1.7B` only after measuring memory and latency with the local fast, deep, and embedding services resident.
+
+Download the ASR checkpoint into the shared model cache:
+
+```bash
+python3 -m pip install -U modelscope
+mkdir -p data/models/modelscope/Qwen3-ASR-0.6B
+modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir data/models/modelscope/Qwen3-ASR-0.6B
+```
+
+The ASR compose override builds a small derivative of the local vLLM image that adds audio dependencies without changing the main text-model image:
+
+- Compose: `docker/compose.asr.yaml`
+- Environment: `docker/env/sparkclaw.asr.env`
+- Image recipe: `docker/images/asr-vllm.Dockerfile`
+- Default served model: `sparkclaw-asr`
+- Default model path in container: `/models/modelscope/Qwen3-ASR-0.6B`
+
+Start ASR by itself:
+
+```bash
+scripts/serve_models_compose.sh asr
+```
+
+Start the validated residency profile with ASR:
+
+```bash
+scripts/serve_models_compose.sh dual-light-asr
+```
+
+Run Gateway and WebChat with speech enabled:
+
+```bash
+docker compose \
+  --env-file docker/env/sparkclaw.dual-light.env \
+  --env-file docker/env/sparkclaw.asr.env \
+  -f docker/compose.yaml \
+  -f docker/compose.dual-light.yaml \
+  -f docker/compose.asr.yaml \
+  --profile models-local up -d gateway webchat
+```
+
+Check the ASR endpoint from the host:
+
+```bash
+curl -fsS http://127.0.0.1:8006/health
+curl -fsS http://127.0.0.1:8006/v1/models
+curl -fsS http://127.0.0.1:8006/v1/audio/transcriptions \
+  -F model=sparkclaw-asr \
+  -F response_format=json \
+  -F file=@/path/to/sample.wav
+```
+
+For host-side doctor checks, keep the container URL in `docker/env/sparkclaw.asr.env` for Gateway but override the base URL to loopback:
+
+```bash
+set -a
+. docker/env/sparkclaw.asr.env
+set +a
+SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
+```
+
 Validated DGX Spark notes from 2026-05-24:
 
 - NVIDIA GB10 and driver `580.159.03` were visible on host and from CUDA containers.
 - `vllm/vllm-openai:cu130-nightly` worked on arm64.
-- `Qwen/Qwen3.6-27B-FP8`, `Qwen/Qwen3.6-35B-A3B-FP8`, `Qwen/Qwen3-Embedding-0.6B` and `Qwen/Qwen3-Reranker-0.6B` were validated.
-- The reranker uses vLLM generative scoring when `/rerank` is unavailable.
+- `Qwen/Qwen3.6-27B-FP8`, `Qwen/Qwen3.6-35B-A3B-FP8`, `Qwen/Qwen3-Embedding-0.6B`, and `Qwen/Qwen3Guard-Gen-0.6B` were validated.
 - Full-context fast+deep dual residency did not fit with both chat lanes at 128K context and MTP enabled. Operate one 128K/MTP chat lane at a time, route both Gateway profiles to the loaded lane for evals, or reduce context/MTP and re-measure.
 
 Light dual-residency experiment:
@@ -262,7 +361,7 @@ scripts/serve_models_compose.sh dual-light
 python3 scripts/record_model_loading.py --profile dual-light-v1
 ```
 
-The `dual-light` shortcut applies `docker/env/sparkclaw.dual-light.env` and `docker/compose.dual-light.yaml`: fast 32K with 8G KV cache, deep 64K with 12G KV cache, embedding 8K with 2G KV cache, reranker 2K with 1G KV cache, no MTP, and low sequence concurrency. Start this full profile before running Gateway in external mode. This is the current accepted single-user full product profile after the 2026-05-25 real-model golden eval passed.
+The `dual-light` shortcut applies `docker/env/sparkclaw.dual-light.env` and `docker/compose.dual-light.yaml`: fast 32K with 8G KV cache, deep 64K with 12G KV cache, embedding 8K with 2G KV cache, and guard 16K with 2G KV cache. MTP is off and sequence concurrency is low. Start this full profile before running Gateway in external mode.
 
 Use `dual-light-chat` only when intentionally measuring chat lanes without auxiliary endpoints.
 
@@ -298,7 +397,7 @@ Back up these paths or volumes:
 - `data/traces`
 - `data/artifacts`
 - `data/workspaces`
-- Postgres volume `sparkclaw_pg`
+- Postgres volume `sparkclaw_pg18`
 - MinIO volume `sparkclaw_minio`
 - `data/models` if model cache reuse matters
 
@@ -345,6 +444,5 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 | Docker permission denied | Use `sudo -n docker ...` or add the user to the Docker group. |
 | Golden eval browser step fails | Start Gateway with `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal` for Docker eval or `127.0.0.1` for host eval. |
 | Model returns reasoning but no answer | Set `SPARKCLAW_MODEL_DISABLE_THINKING=true`. |
-| Reranker `/rerank` returns 404 | Use the existing generative-scoring fallback and served name `sparkclaw-reranker`. |
 | Postgres vector extension unavailable | SparkClaw falls back to JSON vectors and Gateway-side hybrid scoring. |
 | 128K fast+deep does not fit | Run one chat lane at a time or lower context/MTP and re-benchmark. |

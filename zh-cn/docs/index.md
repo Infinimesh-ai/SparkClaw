@@ -19,7 +19,7 @@
 
 | 文档 | 范围 |
 |---|---|
-| [意图路由](intent-routing.md) | 语义图、embedding 与 Fast/Tree 融合、reranking、grounding 和单叶子分发 |
+| [意图路由](intent-routing.md) | 语义图、embedding 与 Fast/Tree 融合、Top-2 grounding 和单叶子分发 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | agent-browser transport、托管 Chromium profile、浏览器 Workflow 边界和安全约束 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
@@ -31,10 +31,11 @@
 
 | 文档 | 范围 |
 |---|---|
-| [模型加载](model-loading.md) | 已接受的单机和多机模型加载策略 |
+| [模型加载](model-loading.md) | 单机和多机模型加载策略及验证状态 |
 | [模型基线](../benchmarks/model_baseline.md) | 模型端点实测证据和运行边界 |
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
+| [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
 | [暂缓能力](deferred-email-calendar-knowledge.md) | 已移除的邮件、日历、workspace knowledge 原型及重新引入门槛 |
 
 仓库协作流程见[贡献指南](../CONTRIBUTING.md)、[安全策略](../SECURITY.md)、

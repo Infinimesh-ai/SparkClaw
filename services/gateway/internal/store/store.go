@@ -43,6 +43,9 @@ type Store interface {
 	SaveToolCall(call app.ToolCall)
 	GetToolCall(id string) (app.ToolCall, bool)
 	ListToolCalls(sessionID string) []app.ToolCall
+	SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord
+	GetDocumentRecord(id string) (app.DocumentRecord, bool)
+	ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord
 	SaveApproval(approval app.Approval)
 	ResolveApproval(id, status, note string) (app.Approval, error)
 	ListApprovals(status string) []app.Approval

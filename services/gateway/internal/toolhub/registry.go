@@ -186,6 +186,30 @@ func documentEditRegistration(run toolExecutor, format, operation, summary strin
 	return registration
 }
 
+func docxReplaceParagraphRegistration() toolRegistration {
+	registration := documentEditRegistration(
+		structureOp((*ToolHub).docxStructureEdit, "replace_paragraph"),
+		app.DocumentFormatDOCX,
+		"replace_paragraph",
+		"Replace one existing DOCX paragraph and write a new document.",
+	)
+	registration.directory.WhenToUse = "Use when structured read evidence locates an existing paragraph whose content the owner wants to modify, improve, polish, complete, update, revise, or rewrite."
+	registration.directory.WhenNotToUse = "Do not use when the owner explicitly requests a new paragraph or the target paragraph is absent; use insertion for an additive change."
+	return registration
+}
+
+func docxInsertParagraphRegistration() toolRegistration {
+	registration := documentEditRegistration(
+		structureOp((*ToolHub).docxStructureEdit, "insert_paragraph"),
+		app.DocumentFormatDOCX,
+		"insert_paragraph",
+		"Insert one new DOCX paragraph and write a new document.",
+	)
+	registration.directory.WhenToUse = "Use only when the owner explicitly requests adding, inserting, or appending a new paragraph, or structured read evidence confirms that no existing target can be replaced."
+	registration.directory.WhenNotToUse = "Do not use to improve, polish, complete, update, revise, or rewrite an existing paragraph; replace that paragraph instead."
+	return registration
+}
+
 func officeReplaceRegistration() toolRegistration {
 	registration := documentEditRegistration(ctxArgs((*ToolHub).officeReplaceText), app.DocumentFormatDOCX, "replace_text", "Replace bounded text and write an Office output copy.")
 	registration.directory.WhenToUse = "Use only for explicit old/new text pairs that appear as bounded structured text blocks."
@@ -231,8 +255,8 @@ var toolRegistry = map[string]toolRegistration{
 	"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
 	"text.replace_text":         documentEditRegistration(ctxArgs((*ToolHub).textReplaceText), app.DocumentFormatText, "replace_text", "Replace bounded text and write a new plain-text output copy."),
 	"office.replace_text":       officeReplaceRegistration(),
-	"docx.replace_paragraph":    documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "replace_paragraph"), app.DocumentFormatDOCX, "replace_paragraph", "Replace one DOCX paragraph and write a new document."),
-	"docx.insert_paragraph":     documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "insert_paragraph"), app.DocumentFormatDOCX, "insert_paragraph", "Insert one DOCX paragraph and write a new document."),
+	"docx.replace_paragraph":    docxReplaceParagraphRegistration(),
+	"docx.insert_paragraph":     docxInsertParagraphRegistration(),
 	"docx.delete_paragraph":     documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "delete_paragraph"), app.DocumentFormatDOCX, "delete_paragraph", "Delete one DOCX paragraph and write a new document."),
 	"docx.set_text_style":       documentEditRegistration(structureOp((*ToolHub).docxStructureEdit, "set_text_style"), app.DocumentFormatDOCX, "set_text_style", "Apply a bounded DOCX paragraph style and write a new document."),
 	"pptx.add_slide":            documentEditRegistration(structureOp((*ToolHub).pptxSlideEdit, "add_slide"), app.DocumentFormatPPTX, "add_slide", "Add one PPTX slide and write a new presentation."),

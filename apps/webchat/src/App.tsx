@@ -21,6 +21,7 @@ import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { sortNotificationBindings, isVisibleNotificationBinding } from "./lib/format";
+import { messageStreamFailureDisposition } from "./lib/messageStream";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
 import type {
   Approval,
@@ -322,6 +323,7 @@ export function App() {
     if (!sessionId || (!trimmed && attachments.length === 0) || busy || voice.active) return;
     const userMessageId = `local-user-${Date.now()}`;
     const assistantMessageId = `local-assistant-${Date.now()}`;
+    let streamAccepted = false;
     try {
       setBusy(true);
       setError("");
@@ -341,6 +343,9 @@ export function App() {
       let receivedDelta = false;
       await api.sendMessageStream(sessionId, trimmed || attachmentOnlyPrompt(language), attachments, {
         onEvent: (event, data) => {
+          if (event === "message.stream.started") {
+            streamAccepted = true;
+          }
           const status = streamStatusFromEvent(event, data, text);
           if (!status) return;
           setStreamStatusesByMessage((current) => ({
@@ -389,16 +394,17 @@ export function App() {
       if (activeMessageStreamRef.current === sessionId) {
         activeMessageStreamRef.current = "";
       }
-      try {
-        await api.sendMessage(sessionId, trimmed || attachmentOnlyPrompt(language), attachments);
-        const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
-        setSessions(sessionList.sessions ?? []);
+      const disposition = messageStreamFailureDisposition(streamAccepted);
+      if (disposition === "restore_draft") {
+        setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
+        setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
+      } else {
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
         resetSessionDraft(sessionId);
-      } catch (fallbackErr) {
-        setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
-        setError(fallbackErr instanceof Error ? fallbackErr.message : err instanceof Error ? err.message : text.errors.message);
       }
+      setError(err instanceof Error ? err.message : text.errors.message);
+      const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
+      setSessions(sessionList.sessions ?? []);
     } finally {
       if (activeMessageStreamRef.current === sessionId) {
         activeMessageStreamRef.current = "";

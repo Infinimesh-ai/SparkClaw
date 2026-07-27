@@ -9,8 +9,8 @@
 ## 1. 依赖与环境：任何人 clone 下来必须能跑
 
 - **运行时依赖必须声明在受版本控制的清单里**（`go.mod`、`package.json`、`requirements.txt`）。禁止依赖"我机器上恰好装了"的全局包。
-  - *事故*：文档工具在运行时 `require("exceljs")`，但整个仓库没有任何清单声明它，13 个测试在干净环境下全部失败。现在的正确位置是 [tools/document-runtime](../../tools/document-runtime/package.json)，配 `npm run setup:document-tools` 安装。
-- **禁止写死开发机专属路径或平台**。`.tools/node-v24.14.0-darwin-arm64/bin/node` 这类路径只能作为可选探测项，必须有跨平台回退。
+  - *事故*：文档工具在运行时 `require("exceljs")`，但整个仓库没有任何清单声明它，13 个测试在干净环境下全部失败。现在的正确位置是 [document runtime npm workspace](../../tools/document-runtime/package.json)，配 `npm run setup:document-tools` 安装。
+- **禁止写死开发机专属路径或平台**。宿主工具必须通过 `PATH` 解析，不得新增仓库私有 runtime/toolchain 目录。
 - 新增外部依赖时，同步更新 setup/doctor 脚本，保证 `git clone && 安装脚本 && go test ./...` 一次通过。
 
 ## 2. 子进程与外部调用：必须有超时和归宿

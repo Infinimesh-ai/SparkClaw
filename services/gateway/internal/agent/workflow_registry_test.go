@@ -43,8 +43,11 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			t.Fatalf("resolve %v: %v", test.decision.CapabilityPath, err)
 		}
 		wantRevision := 1
-		if test.want == app.WorkflowDocumentEdit {
+		if test.want == app.WorkflowDocumentRead {
 			wantRevision = 2
+		}
+		if test.want == app.WorkflowDocumentEdit {
+			wantRevision = 4
 		}
 		if resolved.Profile.ID() != test.want || resolved.Plan.ProfileID != test.want || resolved.Plan.ProfileRevision != wantRevision {
 			t.Fatalf("leaf %v resolved wrong contract: %#v", test.decision.CapabilityPath, resolved)
@@ -160,21 +163,31 @@ func TestTreeCandidateValidationRejectsInvalidOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	eligible := graph.EligibleCandidates(app.MessageSourceWeb)
-	valid := treeRoutingCandidate{CandidateID: eligible[0].ID, TreeScore: testTreeScore(0.9)}
+	valid := make([]treeRoutingCandidate, 0, len(eligible))
+	for _, candidate := range eligible {
+		valid = append(valid, treeRoutingCandidate{CandidateID: candidate.ID, TreeScore: testTreeScore(0.9)})
+	}
+	if err := validateTreeRoutingOutput(treeRoutingOutput{GraphRevision: graph.Revision(), Candidates: valid}, graph.Revision(), eligible); err != nil {
+		t.Fatalf("complete Tree output was rejected: %v", err)
+	}
+	unknown := append([]treeRoutingCandidate(nil), valid...)
+	unknown[0].CandidateID = "unknown#candidate"
+	duplicate := append([]treeRoutingCandidate(nil), valid...)
+	duplicate[1] = duplicate[0]
+	missingScore := append([]treeRoutingCandidate(nil), valid...)
+	missingScore[0].TreeScore = nil
+	invalidScore := append([]treeRoutingCandidate(nil), valid...)
+	invalidScore[0].TreeScore = testTreeScore(1.1)
 	tests := []treeRoutingOutput{
-		{GraphRevision: "stale", Candidates: []treeRoutingCandidate{valid}},
-		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{{CandidateID: "unknown#candidate", TreeScore: testTreeScore(0.9)}}},
-		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{valid, valid}},
-		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{{CandidateID: eligible[0].ID}}},
-		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{{CandidateID: eligible[0].ID, TreeScore: testTreeScore(1.1)}}},
-		{GraphRevision: graph.Revision(), Candidates: []treeRoutingCandidate{valid, {CandidateID: eligible[1].ID, TreeScore: testTreeScore(0.8)}}},
+		{GraphRevision: "stale", Candidates: valid},
+		{GraphRevision: graph.Revision(), Candidates: unknown},
+		{GraphRevision: graph.Revision(), Candidates: duplicate},
+		{GraphRevision: graph.Revision(), Candidates: valid[:len(valid)-1]},
+		{GraphRevision: graph.Revision(), Candidates: missingScore},
+		{GraphRevision: graph.Revision(), Candidates: invalidScore},
 	}
 	for index, output := range tests {
-		topK := 6
-		if index == len(tests)-1 {
-			topK = 1
-		}
-		if err := validateTreeRoutingOutput(output, graph.Revision(), eligible, topK); err == nil {
+		if err := validateTreeRoutingOutput(output, graph.Revision(), eligible); err == nil {
 			t.Fatalf("invalid Tree output %d was accepted: %#v", index, output)
 		}
 	}
@@ -266,8 +279,8 @@ func (p futureWorkflowProfile) Resolve(route app.RouteDecision, sourceTurnID str
 		Nodes: []app.WorkflowNode{{ID: nodeID, InitialStage: "translate", Goal: app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "translate", Completion: app.CompletionEvidence},
 			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: "future.translate"}}}, AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1}}}, nil
 }
-func (futureWorkflowProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (futureWorkflowProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
+	return workflowPreparation{}, nil
 }
 func (futureWorkflowProfile) Assess(*app.WorkflowState, app.ToolOutcome) app.NodeAssessment {
 	return app.NodeAssessment{Status: app.AssessmentComplete}

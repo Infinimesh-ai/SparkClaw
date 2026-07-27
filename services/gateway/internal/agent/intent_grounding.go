@@ -11,18 +11,21 @@ import (
 )
 
 type groundedTarget struct {
-	Kind  string
-	Ref   string
-	Facts map[string]string
+	Kind     string
+	Ref      string
+	Facts    map[string]string
+	Document documentContextReference
 }
 
 type intentGroundingProjection struct {
 	Targets       []groundedTarget
 	WorkspaceRoot string
+	SessionID     string
+	RunID         string
 }
 
-func (r Runtime) projectIntentGrounding(sessionID, runID, content string, resources []app.MessagePart) intentGroundingProjection {
-	projection := intentGroundingProjection{}
+func (r Runtime) projectIntentGrounding(sessionID, runID, content string, documents documentContextResolution) intentGroundingProjection {
+	projection := intentGroundingProjection{SessionID: sessionID, RunID: runID}
 	if r.store != nil {
 		if session, ok := r.store.GetSession(sessionID); ok {
 			projection.WorkspaceRoot = session.WorkspaceRoot
@@ -47,14 +50,18 @@ func (r Runtime) projectIntentGrounding(sessionID, runID, content string, resour
 	if location := weatherLocationFromRequest(content); location != "" {
 		projection.Targets = append(projection.Targets, groundedTarget{Kind: string(app.TargetKindLocation), Ref: location, Facts: map[string]string{"location_source": "current_turn"}})
 	}
-	paths := append(documentRoutePaths(content), attachedWorkspaceDocumentPaths(resources)...)
-	if len(paths) == 0 {
-		if path := recentDocumentContextPath(r.buildAgentContextSnapshot(sessionID, runID, content)); path != "" {
-			paths = append(paths, path)
+	for _, document := range documents.References {
+		facts := map[string]string{
+			"target_provenance":  document.Provenance,
+			"document_id":        document.DocumentID,
+			"document_format":    document.Format,
+			"document_source":    document.Source,
+			"document_source_id": document.SourceID,
+			"document_activity":  document.Activity,
 		}
-	}
-	for _, path := range paths {
-		projection.Targets = append(projection.Targets, groundedTarget{Kind: "workspace_path", Ref: path})
+		projection.Targets = append(projection.Targets, groundedTarget{
+			Kind: "workspace_path", Ref: document.Ref, Facts: facts, Document: document,
+		})
 	}
 	projection.Targets = dedupeGroundedTargets(projection.Targets)
 	return projection
@@ -153,7 +160,24 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 				return base, nil
 			}
 			target.Ref = preflight.InputRef
-			target.Facts = map[string]string{"path": preflight.InputRef, "document_format": preflight.Format}
+			target.Facts = cloneFacts(target.Facts)
+			if target.Facts == nil {
+				target.Facts = map[string]string{}
+			}
+			target.Facts["path"] = preflight.InputRef
+			target.Facts["document_format"] = preflight.Format
+			if r.store != nil {
+				record := r.confirmDocumentRecord(grounding.SessionID, grounding.RunID, target.Document, preflight)
+				target.Facts["document_id"] = record.ID
+				target.Facts["document_source"] = record.Source
+				target.Facts["document_source_id"] = firstNonEmptyString(
+					record.SourceToolCallID,
+					record.SourceMessageID,
+					record.SourceRunID,
+					record.ID,
+				)
+				target.Facts["document_activity"] = record.LastActivity
+			}
 			base.Slots.OutputRef, base.Slots.Format = preflight.OutputRef, preflight.Format
 			if edit {
 				target.Facts["output_path"] = preflight.OutputRef

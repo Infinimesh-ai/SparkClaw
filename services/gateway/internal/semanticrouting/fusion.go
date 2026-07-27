@@ -36,8 +36,6 @@ type CandidateScore struct {
 	EmbeddingScore   float64
 	TreeScore        float64
 	FusionScore      float64
-	RerankerScore    float64
-	FinalScore       float64
 	NegativeConflict float64
 }
 
@@ -90,13 +88,10 @@ func RankFusion(eligible []Candidate, embeddings map[string]EmbeddingEvidence, t
 		})
 	}
 	sortCandidateScores(scores, func(score CandidateScore) float64 { return score.FusionScore })
-	if len(scores) > calibration.FusionTopN {
-		scores = scores[:calibration.FusionTopN]
-	}
 	return scores, nil
 }
 
-func Decide(scores []CandidateScore, reranked map[string]float64, channels map[string]ChannelState, calibration Calibration) (Decision, error) {
+func Decide(scores []CandidateScore, channels map[string]ChannelState, calibration Calibration) (Decision, error) {
 	if err := calibration.Validate(); err != nil {
 		return Decision{}, err
 	}
@@ -105,25 +100,15 @@ func Decide(scores []CandidateScore, reranked map[string]float64, channels map[s
 	}
 	embeddingHealthy := channels["embedding"].Status == ChannelHealthy
 	treeHealthy := channels["tree"].Status == ChannelHealthy
-	rerankerHealthy := channels["reranker"].Status == ChannelHealthy
-	for index := range scores {
-		rerankScore, ok := reranked[scores[index].Candidate.ID]
-		if rerankerHealthy && ok {
-			scores[index].RerankerScore = clamp01(rerankScore)
-			scores[index].FinalScore = clamp01((1-calibration.RerankerWeight)*scores[index].FusionScore + calibration.RerankerWeight*scores[index].RerankerScore)
-		} else {
-			scores[index].FinalScore = scores[index].FusionScore
-		}
-	}
-	sortCandidateScores(scores, func(score CandidateScore) float64 { return score.FinalScore })
+	sortCandidateScores(scores, func(score CandidateScore) float64 { return score.FusionScore })
 	if len(scores) > 2 {
 		scores = scores[:2]
 	}
-	degraded := !embeddingHealthy || !treeHealthy || !rerankerHealthy
-	topScore := scores[0].FinalScore
+	degraded := !embeddingHealthy || !treeHealthy
+	topScore := scores[0].FusionScore
 	margin := topScore
 	if len(scores) > 1 {
-		margin -= scores[1].FinalScore
+		margin -= scores[1].FusionScore
 	}
 	minimum, requiredMargin := calibration.ClearMinimum, calibration.ClearMargin
 	if isMutation(scores[0].Candidate.Route.Operation) {

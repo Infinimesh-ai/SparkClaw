@@ -156,8 +156,8 @@ func (p browserWeatherProfile) Resolve(route app.RouteDecision, sourceTurnID str
 	}, nil
 }
 
-func (browserWeatherProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (browserWeatherProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
+	return workflowPreparation{}, nil
 }
 
 func (browserWeatherProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {

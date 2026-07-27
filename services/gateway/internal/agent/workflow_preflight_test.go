@@ -57,9 +57,16 @@ func TestDocumentReadPreflightDispatchesOnlyCompatibleReader(t *testing.T) {
 				t.Fatalf("read stage exposed an incompatible reader: %#v", visibleToolNames(dispatch.Tools))
 			}
 			node := dispatch.Run.Workflow.Nodes["document_read"]
-			if node.Stage != "read_by_type" || node.ScopeRevision != 2 || len(node.CurrentScope.Requirements) != 1 ||
+			if node.Stage != "read_by_type" || node.ScopeRevision != 1 || len(node.CurrentScope.Requirements) != 1 ||
 				node.CurrentScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != test.format {
-				t.Fatalf("read type transition was not frozen: %#v", node)
+				t.Fatalf("read operation node was not frozen: %#v", node)
+			}
+			confirmation := dispatch.Run.Workflow.Nodes["confirm_document_target"]
+			if confirmation.Status != app.WorkflowNodeSucceeded || confirmation.Attempts != 1 ||
+				len(confirmation.OutcomeRefs) != 1 ||
+				confirmation.OutcomeRefs[0].Attributes["path"] != test.path ||
+				confirmation.OutcomeRefs[0].Attributes["format"] != test.format {
+				t.Fatalf("document target confirmation was not persisted before reader exposure: %#v", confirmation)
 			}
 		})
 	}
@@ -118,10 +125,17 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 				t.Fatalf("edit stage exposed an incompatible editor: %#v", visibleToolNames(dispatch.Tools))
 			}
 			node := dispatch.Run.Workflow.Nodes["document_edit"]
-			if node.Stage != "edit_by_type" || node.ScopeRevision != 2 || len(node.CurrentScope.Requirements) != 1 ||
+			if node.Stage != "edit_by_type" || node.ScopeRevision != 1 || len(node.CurrentScope.Requirements) != 1 ||
 				node.CurrentScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != test.format ||
 				node.CurrentScope.Requirements[0].Qualifiers[app.CapabilityQualifierOperation] != "" {
-				t.Fatalf("edit type transition was not frozen: %#v", node)
+				t.Fatalf("edit node scope was not frozen: %#v", node)
+			}
+			decision := dispatch.Run.Workflow.Nodes["select_edit_operation"]
+			if decision.Status != app.WorkflowNodeSucceeded || len(decision.OutcomeRefs) != 1 ||
+				decision.OutcomeRefs[0].Kind != "tool_directory_entry" ||
+				decision.OutcomeRefs[0].Attributes[app.CapabilityQualifierFormat] != test.format ||
+				decision.OutcomeRefs[0].Attributes[app.CapabilityQualifierOperation] != test.operation {
+				t.Fatalf("edit operation decision was not persisted with exact qualifiers: %#v", decision)
 			}
 		})
 	}
@@ -180,7 +194,7 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 		t.Fatal("pdf.transform is unavailable")
 	}
 	plan := toolPlan{
-		Name: "pdf.transform", WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 2,
+		Name: "pdf.transform", WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1,
 		Capability: app.ToolCapabilityDocumentEdit,
 		Args:       map[string]any{"path": "report.pdf", "output_path": "report-sparkclaw-edit.pdf", "operation": "rotate_pages"},
 	}
@@ -217,7 +231,7 @@ func TestDocumentEditUsesSingleGovernedAttachmentPath(t *testing.T) {
 	}
 }
 
-func TestDocumentContentMutationRoutesToEditR2ThenSelectsXLSXEditor(t *testing.T) {
+func TestDocumentContentMutationRoutesToEditR4ThenSelectsXLSXEditor(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "uploads", "people.xlsx")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -237,23 +251,23 @@ func TestDocumentContentMutationRoutesToEditR2ThenSelectsXLSXEditor(t *testing.T
 	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
-		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r2: route=%#v fusion=%+v", route, routing.Fusion)
+		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r4: route=%#v fusion=%+v", route, routing.Fusion)
 	}
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.Revision() != 2 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
-		t.Fatalf("XLSX edit did not start in document.edit r2 read stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
+	if dispatch.Profile.Revision() != 4 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
+		t.Fatalf("XLSX edit did not start in document.edit r4 evidence stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "xlsx.append_row", "append_row")
 	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "xlsx.append_row" {
 		t.Fatalf("XLSX content mutation exposed the wrong editor: %#v", visibleToolNames(dispatch.Tools))
 	}
-	if !hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_directory_selection", "fast") ||
-		!hasAgentAuditType(st.ListAudit(session.ID), "tools.directory.selected") {
-		t.Fatalf("XLSX editor was not selected through the bounded post-read directory step")
+	if !hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_operation_selection", "deep") ||
+		!hasAgentAuditType(st.ListAudit(session.ID), "workflow.decision_resolved") {
+		t.Fatalf("XLSX editor was not selected through the explicit deep decision node")
 	}
 }
 
@@ -276,7 +290,7 @@ func TestXLSXMutationSynonymsDoNotFreezeConcreteOperations(t *testing.T) {
 		}
 		if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 			route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
-			t.Fatalf("XLSX mutation synonym escaped generic document.edit r2 routing for %q: %#v", request, route)
+			t.Fatalf("XLSX mutation synonym escaped generic document.edit r4 routing for %q: %#v", request, route)
 		}
 	}
 }
@@ -300,7 +314,7 @@ func TestDocumentRoutingKeepsReadOnlyAndFileLifecycleOutsideEditR2(t *testing.T)
 			t.Fatal(err)
 		}
 		if route.Status == app.RouteMatched && len(route.CapabilityPath) > 1 && route.CapabilityPath[1] == app.CapabilityDocumentEdit {
-			t.Fatalf("file lifecycle request entered document.edit r2 for %q: %#v", request, route)
+			t.Fatalf("file lifecycle request entered document.edit r4 for %q: %#v", request, route)
 		}
 	}
 }
@@ -344,38 +358,19 @@ func TestUnsupportedDocumentContentMutationStillRoutesToEditR2(t *testing.T) {
 	}
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatPDF || route.Facts["document_operation"] != "" {
-		t.Fatalf("unsupported PDF content mutation degraded outside document.edit r2: %#v", route)
+		t.Fatalf("unsupported PDF content mutation degraded outside document.edit r4: %#v", route)
 	}
 }
 
 func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.MemoryStore, dispatch matchedWorkflowDispatch, inputPath, selectedTool, selectedOperation string) (app.AgentRun, []app.ToolDefinition) {
 	t.Helper()
-	if len(dispatch.Tools) != 1 {
-		t.Fatalf("document edit read stage is not singular: %#v", visibleToolNames(dispatch.Tools))
-	}
-	definition := dispatch.Tools[0]
-	call := app.ToolCall{
-		ID: "tc_document_read_" + string(dispatch.Run.Workflow.Route.Slots.Format), SessionID: dispatch.Run.SessionID, RunID: dispatch.Run.ID,
-		Tool: definition.Name, Risk: app.RiskRead, Status: "completed", Arguments: map[string]any{"path": inputPath},
-		Result:     map[string]any{"path": inputPath, "rel_path": inputPath, "content": "structured evidence"},
-		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
-	}
-	st.SaveToolCall(call)
-	outcome, err := adaptWorkflowOutcome(definition, call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assessment := dispatch.Profile.Assess(dispatch.Run.Workflow, outcome)
-	changed, err := applyWorkflowOutcome(&dispatch.Run, outcome, assessment)
-	if err != nil || !changed {
-		t.Fatalf("document read did not activate edit stage: changed=%t assessment=%#v err=%v", changed, assessment, err)
-	}
+	dispatch.Run = advanceDocumentEditToDecision(t, st, dispatch, inputPath)
 	selectedDefinition, ok := runtime.tools.Definition(selectedTool)
 	if !ok {
 		t.Fatalf("selected test editor %q is unavailable", selectedTool)
 	}
 	selectedEntry := app.ToolDirectoryEntryID("")
-	state := dispatch.Run.Workflow.Nodes["document_edit"]
+	state := dispatch.Run.Workflow.Nodes["select_edit_operation"]
 	for _, capability := range selectedDefinition.Capabilities {
 		if !matchesAnyRequirement(capability, state.CurrentScope.Requirements) ||
 			selectedOperation != "" && capability.Qualifiers[app.CapabilityQualifierOperation] != selectedOperation {
@@ -387,8 +382,11 @@ func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.Memory
 	if selectedEntry == "" {
 		t.Fatalf("selected test editor %q operation %q is outside the edit scope", selectedTool, selectedOperation)
 	}
-	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_DIRECTORY_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
 	st.SaveRun(dispatch.Run)
+	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
+		t.Fatalf("document operation decision did not resolve: changed=%t err=%v", changed, err)
+	}
 	hint := dispatch.Profile.Hint(dispatch.Run.Workflow)
 	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run.SessionID), &hint)
 	if err != nil {
@@ -400,8 +398,34 @@ func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.Memory
 	return dispatch.Run, tools
 }
 
-func TestParseWorkflowDirectorySelectionRejectsUnknownAndTrailingFields(t *testing.T) {
-	selection, err := parseWorkflowDirectorySelection(`{"entry_id":"entry_allowed"}`)
+func advanceDocumentEditToDecision(t *testing.T, st *store.MemoryStore, dispatch matchedWorkflowDispatch, inputPath string) app.AgentRun {
+	t.Helper()
+	if len(dispatch.Tools) != 1 {
+		t.Fatalf("document edit read stage is not singular: %#v", visibleToolNames(dispatch.Tools))
+	}
+	definition := dispatch.Tools[0]
+	call := app.ToolCall{
+		ID: "tc_document_read_" + string(dispatch.Run.Workflow.Route.Slots.Format), SessionID: dispatch.Run.SessionID, RunID: dispatch.Run.ID,
+		Tool: definition.Name, Risk: app.RiskRead, Status: "completed", Arguments: map[string]any{"path": inputPath},
+		Result:     map[string]any{"path": inputPath, "rel_path": inputPath, "content": "structured evidence"},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_locate_evidence", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
+	}
+	st.SaveToolCall(call)
+	outcome, err := adaptWorkflowOutcome(definition, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment := dispatch.Profile.Assess(dispatch.Run.Workflow, outcome)
+	changed, err := applyWorkflowOutcome(&dispatch.Run, outcome, assessment)
+	if err != nil || !changed {
+		t.Fatalf("document read did not activate the operation decision: changed=%t assessment=%#v err=%v", changed, assessment, err)
+	}
+	st.SaveRun(dispatch.Run)
+	return dispatch.Run
+}
+
+func TestParseWorkflowDecisionSelectionRejectsUnknownAndTrailingFields(t *testing.T) {
+	selection, err := parseWorkflowDecisionSelection(`{"entry_id":"entry_allowed"}`)
 	if err != nil || selection.EntryID != "entry_allowed" {
 		t.Fatalf("valid directory selection was rejected: selection=%#v err=%v", selection, err)
 	}
@@ -409,7 +433,7 @@ func TestParseWorkflowDirectorySelectionRejectsUnknownAndTrailingFields(t *testi
 		`{"entry_id":"entry_allowed","tool":"xlsx.append_row"}`,
 		`{"entry_id":"entry_allowed"}{"entry_id":"entry_other"}`,
 	} {
-		if _, err := parseWorkflowDirectorySelection(raw); err == nil {
+		if _, err := parseWorkflowDecisionSelection(raw); err == nil {
 			t.Fatalf("invalid directory selection was accepted: %s", raw)
 		}
 	}

@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -83,16 +82,6 @@ type EmbeddingResult struct {
 	TotalTokens  int         `json:"total_tokens,omitempty"`
 }
 
-type RerankResult struct {
-	Lane         string         `json:"lane"`
-	Profile      string         `json:"profile"`
-	Model        string         `json:"model"`
-	Results      []RerankScored `json:"results"`
-	Mock         bool           `json:"mock"`
-	PromptTokens int            `json:"prompt_tokens,omitempty"`
-	TotalTokens  int            `json:"total_tokens,omitempty"`
-}
-
 type GuardResult struct {
 	Lane           string   `json:"lane"`
 	Profile        string   `json:"profile"`
@@ -104,11 +93,6 @@ type GuardResult struct {
 	PromptTokens   int      `json:"prompt_tokens,omitempty"`
 	ResponseTokens int      `json:"response_tokens,omitempty"`
 	TotalTokens    int      `json:"total_tokens,omitempty"`
-}
-
-type RerankScored struct {
-	Index int     `json:"index"`
-	Score float64 `json:"score"`
 }
 
 type tokenUsage struct {
@@ -147,9 +131,6 @@ func (r Router) LaneFor(profile config.ModelProfile) string {
 	}
 	if profile.Name == r.cfg.Model.Embedding.Name {
 		return "embedding"
-	}
-	if profile.Name == r.cfg.Model.Reranker.Name {
-		return "reranker"
 	}
 	if profile.Name == r.cfg.Model.Guard.Name {
 		return "guard"
@@ -371,48 +352,6 @@ func (r Router) Embed(ctx context.Context, inputs []string) (EmbeddingResult, er
 	}, nil
 }
 
-func (r Router) Rerank(ctx context.Context, query string, documents []string, topN int) (RerankResult, error) {
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return RerankResult{}, errors.New("rerank query cannot be empty")
-	}
-	if len(documents) == 0 {
-		return RerankResult{}, errors.New("rerank documents cannot be empty")
-	}
-	if topN <= 0 || topN > len(documents) {
-		topN = len(documents)
-	}
-	profile := r.cfg.Model.Reranker
-	if strings.TrimSpace(profile.Name) == "" {
-		profile.Name = "sparkclaw-reranker"
-	}
-	if r.cfg.Model.Mock {
-		promptTokens := estimateTokens(query) + estimateTokenList(documents)
-		return RerankResult{
-			Lane:         "reranker",
-			Profile:      profile.Name,
-			Model:        modelID(profile),
-			Results:      mockRerank(query, documents, topN),
-			Mock:         true,
-			PromptTokens: promptTokens,
-			TotalTokens:  promptTokens,
-		}, nil
-	}
-	results, usage, err := r.rerank(ctx, profile, query, documents, topN)
-	if err != nil {
-		return RerankResult{}, err
-	}
-	return RerankResult{
-		Lane:         "reranker",
-		Profile:      profile.Name,
-		Model:        modelID(profile),
-		Results:      results,
-		Mock:         false,
-		PromptTokens: usage.PromptTokens,
-		TotalTokens:  usage.TotalTokens,
-	}, nil
-}
-
 func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -462,6 +401,10 @@ func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) 
 }
 
 func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile, system, user string) (string, tokenUsage, error) {
+	return r.chatCompletionsWithTemperature(ctx, profile, system, user, 0.2)
+}
+
+func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile config.ModelProfile, system, user string, temperature float64) (string, tokenUsage, error) {
 	if profile.BaseURL == "" {
 		return "", tokenUsage{}, errors.New("model base_url is empty")
 	}
@@ -472,7 +415,7 @@ func (r Router) chatCompletions(ctx context.Context, profile config.ModelProfile
 			{"role": "system", "content": system},
 			{"role": "user", "content": user},
 		},
-		"temperature": 0.2,
+		"temperature": temperature,
 	}
 	if r.cfg.Model.DisableThinking {
 		body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
@@ -797,169 +740,6 @@ func streamChunks(value string, size int) []string {
 	return chunks
 }
 
-func (r Router) rerank(ctx context.Context, profile config.ModelProfile, query string, documents []string, topN int) ([]RerankScored, tokenUsage, error) {
-	if profile.BaseURL == "" {
-		return nil, tokenUsage{}, errors.New("reranker base_url is empty")
-	}
-	endpoint := strings.TrimRight(profile.BaseURL, "/") + "/rerank"
-	body := map[string]any{
-		"model":     modelID(profile),
-		"query":     query,
-		"documents": documents,
-		"top_n":     topN,
-	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, tokenUsage{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
-	if err != nil {
-		return nil, tokenUsage{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return nil, tokenUsage{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusNotFound {
-			return r.generativeScoreRerank(ctx, profile, query, documents, topN)
-		}
-		return nil, tokenUsage{}, fmt.Errorf("reranker received HTTP %d", resp.StatusCode)
-	}
-	var decoded struct {
-		Results []struct {
-			Index          int      `json:"index"`
-			RelevanceScore *float64 `json:"relevance_score"`
-			Score          *float64 `json:"score"`
-		} `json:"results"`
-		Data []struct {
-			Index          int      `json:"index"`
-			RelevanceScore *float64 `json:"relevance_score"`
-			Score          *float64 `json:"score"`
-		} `json:"data"`
-		Usage struct {
-			PromptTokens int `json:"prompt_tokens"`
-			TotalTokens  int `json:"total_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, tokenUsage{}, err
-	}
-	rawResults := decoded.Results
-	if len(rawResults) == 0 {
-		rawResults = decoded.Data
-	}
-	if len(rawResults) == 0 {
-		return nil, tokenUsage{}, errors.New("reranker response had no results")
-	}
-	results := make([]RerankScored, 0, len(rawResults))
-	for _, item := range rawResults {
-		if item.Index < 0 || item.Index >= len(documents) {
-			continue
-		}
-		score := 0.0
-		if item.RelevanceScore != nil {
-			score = *item.RelevanceScore
-		} else if item.Score != nil {
-			score = *item.Score
-		}
-		results = append(results, RerankScored{Index: item.Index, Score: score})
-	}
-	if len(results) == 0 {
-		return nil, tokenUsage{}, errors.New("reranker response did not reference provided documents")
-	}
-	usage := tokenUsage{PromptTokens: decoded.Usage.PromptTokens, TotalTokens: decoded.Usage.TotalTokens}
-	if usage.PromptTokens == 0 {
-		usage.PromptTokens = estimateTokens(query) + estimateTokenList(documents)
-	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens
-	}
-	return results, usage, nil
-}
-
-func (r Router) generativeScoreRerank(ctx context.Context, profile config.ModelProfile, query string, documents []string, topN int) ([]RerankScored, tokenUsage, error) {
-	endpoint := strings.TrimSuffix(strings.TrimRight(profile.BaseURL, "/"), "/v1") + "/generative_scoring"
-	items := make([]string, 0, len(documents))
-	for _, document := range documents {
-		items = append(items, "Document: "+document+"\nAnswer:")
-	}
-	body := map[string]any{
-		"model":           modelID(profile),
-		"query":           "Is this document relevant to the query? Answer Yes or No.\nQuery: " + query,
-		"items":           items,
-		"label_token_ids": []int{7414, 2308},
-		"apply_softmax":   true,
-	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, tokenUsage{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
-	if err != nil {
-		return nil, tokenUsage{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if key := strings.TrimSpace(getenv("OPENAI_API_KEY")); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return nil, tokenUsage{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, tokenUsage{}, fmt.Errorf("reranker generative scoring received HTTP %d", resp.StatusCode)
-	}
-	var decoded struct {
-		Data []struct {
-			Index int     `json:"index"`
-			Score float64 `json:"score"`
-		} `json:"data"`
-		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-			TotalTokens      int `json:"total_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, tokenUsage{}, err
-	}
-	results := make([]RerankScored, 0, len(decoded.Data))
-	for _, item := range decoded.Data {
-		if item.Index < 0 || item.Index >= len(documents) {
-			continue
-		}
-		results = append(results, RerankScored{Index: item.Index, Score: item.Score})
-	}
-	if len(results) == 0 {
-		return nil, tokenUsage{}, errors.New("reranker generative scoring response had no usable scores")
-	}
-	sort.SliceStable(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-	if topN > 0 && topN < len(results) {
-		results = results[:topN]
-	}
-	usage := tokenUsage{
-		PromptTokens:   decoded.Usage.PromptTokens,
-		ResponseTokens: decoded.Usage.CompletionTokens,
-		TotalTokens:    decoded.Usage.TotalTokens,
-	}
-	if usage.PromptTokens == 0 {
-		usage.PromptTokens = estimateTokens(query) + estimateTokenList(documents)
-	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.ResponseTokens
-	}
-	return results, usage, nil
-}
-
 func (r Router) embeddings(ctx context.Context, profile config.ModelProfile, inputs []string) ([][]float32, tokenUsage, error) {
 	if profile.BaseURL == "" {
 		return nil, tokenUsage{}, errors.New("embedding base_url is empty")
@@ -1032,7 +812,7 @@ func (r Router) guard(ctx context.Context, profile config.ModelProfile, content 
 		return GuardResult{}, tokenUsage{}, errors.New("guard base_url is empty")
 	}
 	system := "Classify the user content for SparkClaw safety. Return compact JSON with verdict allow, review, or block; categories array; and reason."
-	rawContent, usage, err := r.chatCompletions(ctx, profile, system, content)
+	rawContent, usage, err := r.chatCompletionsWithTemperature(ctx, profile, system, content, 0)
 	if err != nil {
 		return GuardResult{}, tokenUsage{}, err
 	}
@@ -1068,6 +848,11 @@ func parseGuardContent(content string) GuardResult {
 		}
 		return result
 	}
+	if verdict, categories, ok := parseNativeGuardContent(content); ok {
+		result.Verdict = verdict
+		result.Categories = categories
+		return result
+	}
 	lower := strings.ToLower(content)
 	for _, verdict := range []string{"allow", "review", "block"} {
 		if strings.Contains(lower, verdict) {
@@ -1078,11 +863,39 @@ func parseGuardContent(content string) GuardResult {
 	return result
 }
 
+func parseNativeGuardContent(content string) (string, []string, bool) {
+	verdict := ""
+	categories := []string{}
+	for _, line := range strings.Split(content, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "safety":
+			verdict = normalizeGuardVerdict(value)
+		case "categories":
+			for category := range strings.FieldsFuncSeq(value, func(r rune) bool {
+				return r == ',' || r == ';'
+			}) {
+				category = strings.TrimSpace(category)
+				if category != "" && !strings.EqualFold(category, "none") {
+					categories = append(categories, category)
+				}
+			}
+		}
+	}
+	if verdict == "" {
+		return "", nil, false
+	}
+	return verdict, uniqueStrings(categories), true
+}
+
 func normalizeGuardVerdict(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "allow", "allowed", "safe":
 		return "allow"
-	case "review", "needs_review", "needs-review", "warn":
+	case "review", "needs_review", "needs-review", "warn", "controversial":
 		return "review"
 	case "block", "blocked", "deny", "unsafe":
 		return "block"

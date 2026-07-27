@@ -58,16 +58,6 @@ func (c Candidate) SupportsSource(kind app.MessageSourceKind) bool {
 	return len(c.SourceKinds) == 0 || slices.Contains(c.SourceKinds, kind)
 }
 
-func (c Candidate) RerankCard() string {
-	positives := strings.Join(c.EmbedTexts, " | ")
-	negatives := strings.Join(c.HardNegatives, " | ")
-	return fmt.Sprintf(
-		"candidate_id=%s\npath=%s\noperation=%s\nfact_scope=%s\nboundary=%s\npositive_semantics=%s\nhard_negatives=%s",
-		c.ID, joinPath(c.CapabilityPath), c.Route.Operation, c.Route.FactScope,
-		c.TreeDescription, positives, negatives,
-	)
-}
-
 type Graph struct {
 	revision        string
 	catalogRevision string
@@ -217,12 +207,4 @@ func cloneCandidate(candidate Candidate) Candidate {
 	candidate.HardNegatives = append([]string(nil), candidate.HardNegatives...)
 	candidate.SourceKinds = append([]app.MessageSourceKind(nil), candidate.SourceKinds...)
 	return candidate
-}
-
-func joinPath(path []app.CapabilityID) string {
-	parts := make([]string, len(path))
-	for index, id := range path {
-		parts[index] = string(id)
-	}
-	return strings.Join(parts, "/")
 }

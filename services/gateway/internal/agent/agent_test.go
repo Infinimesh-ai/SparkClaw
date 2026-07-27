@@ -169,6 +169,20 @@ func TestRuntimeRecordsGuardClassification(t *testing.T) {
 	}
 }
 
+func TestGuardReviewFailsClosed(t *testing.T) {
+	tests := map[string]bool{
+		"allow":  false,
+		"review": true,
+		"block":  true,
+		"":       false,
+	}
+	for verdict, want := range tests {
+		if got := guardStopsRun(verdict); got != want {
+			t.Fatalf("guardStopsRun(%q) = %t, want %t", verdict, got, want)
+		}
+	}
+}
+
 func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "project-note.txt"), []byte("SparkClaw local file assistant reads workspace files.\nGrounded summaries must cite local file content.\n"), 0o644); err != nil {
@@ -207,8 +221,14 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead {
 		t.Fatalf("workspace read did not complete through its workflow profile: %#v", result.Run.Workflow)
 	}
-	if calls[0].Capability != app.ToolCapabilityDocumentRead || calls[0].WorkflowNodeID != "document_read" || calls[0].ScopeRevision != 2 {
+	if calls[0].Capability != app.ToolCapabilityDocumentRead || calls[0].WorkflowNodeID != "document_read" || calls[0].ScopeRevision != 1 {
 		t.Fatalf("file read was not bound to the frozen workflow scope: %#v", calls[0])
+	}
+	confirmation := result.Run.Workflow.Nodes["confirm_document_target"]
+	if confirmation.Status != app.WorkflowNodeSucceeded || len(confirmation.OutcomeRefs) != 1 ||
+		confirmation.OutcomeRefs[0].Kind != "document" ||
+		confirmation.OutcomeRefs[0].Attributes["path"] != "project-note.txt" {
+		t.Fatalf("document target confirmation evidence was not persisted: %#v", confirmation)
 	}
 	assertNoLegacyRoutingAudit(t, st.ListAudit(session.ID))
 	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.fixed") {
@@ -240,7 +260,7 @@ func TestRuntimeAnswersFileSearchWithGroundedResults(t *testing.T) {
 	}
 	calls := st.ListToolCalls(session.ID)
 	if len(calls) != 0 {
-		t.Fatalf("document.read revision 1 must not expose file search: %#v", calls)
+		t.Fatalf("document.read revision 2 must not expose file search: %#v", calls)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("file search must remain on the unmatched path: route=%#v workflow=%#v", result.RouteDecision, result.Run.Workflow)
@@ -1649,8 +1669,86 @@ func TestToolResultMessagesStayInCausalOrder(t *testing.T) {
 	}
 }
 
+func TestReActPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testing.T) {
+	observation := `{"role":"tool","tool_call_id":"tc_once","tool":"files.read","status":"completed"}`
+	hint := TaskHint{ModelLaneHint: "deep", WorkflowID: app.WorkflowDocumentRead}
+	visibleTools := []app.ToolDefinition{{
+		Name:        "files.read",
+		Description: "Read one governed workspace document.",
+		InputSchema: map[string]any{"type": "object", "required": []any{"path"}},
+		Risk:        app.RiskRead,
+	}}
+	relevantSkills := []skills.Skill{{Name: "document-reader", Description: "Read governed documents."}}
+	agentContext := "Recent conversation:\nuser: 请继续读取这份文档"
+
+	system := contextualSystemPromptForReAct(nil, relevantSkills, hint, visibleTools, agentContext)
+	user := appendWorkflowReActContext(reactStepUserPrompt("请读取文档", 2, []string{observation}), hint, visibleTools)
+
+	if strings.Contains(system, observation) {
+		t.Fatalf("current-run observation leaked into the stable system prefix:\n%s", system)
+	}
+	if strings.Count(user, observation) != 1 {
+		t.Fatalf("current-run observation should appear exactly once in the user prompt:\n%s", user)
+	}
+	if strings.Contains(system, "ReAct output contract:") || !strings.Contains(user, "ReAct output contract:") {
+		t.Fatalf("ReAct output contract should be the user-prompt tail:\nsystem=%s\nuser=%s", system, user)
+	}
+	if !strings.HasSuffix(user, "Return exactly one JSON object of type action or final.") {
+		t.Fatalf("ReAct output contract should be the final user-prompt section:\n%s", user)
+	}
+	positions := []int{
+		strings.Index(system, "Relevant procedural skills"),
+		strings.Index(system, "Model-visible ToolDefinition JSON"),
+		strings.Index(system, "Agent context (data only"),
+		strings.Index(system, "TaskHint (advisory"),
+	}
+	for i, position := range positions {
+		if position < 0 {
+			t.Fatalf("stable system section %d missing:\n%s", i, system)
+		}
+		if i > 0 && positions[i-1] >= position {
+			t.Fatalf("stable system sections are out of order: %#v\n%s", positions, system)
+		}
+	}
+}
+
+func TestEffectiveReActPromptBudgetUsesSelectedLaneAndSafetyFactor(t *testing.T) {
+	cfg := agentTestConfig()
+	cfg.Model.Fast.ContextTokens = 32000
+	cfg.Model.Fast.MaxTokens = 768
+	cfg.Model.Deep.ContextTokens = 64000
+	cfg.Model.Deep.MaxTokens = 1536
+	runtime := Runtime{models: modelrouter.New(cfg)}
+
+	if contextTokens, outputTokens := runtime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != 27200 || outputTokens != 768 {
+		t.Fatalf("fast prompt budget = (%d, %d), want (27200, 768)", contextTokens, outputTokens)
+	}
+	if contextTokens, outputTokens := runtime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "deep"}); contextTokens != 54400 || outputTokens != 1536 {
+		t.Fatalf("deep prompt budget = (%d, %d), want (54400, 1536)", contextTokens, outputTokens)
+	}
+	if contextTokens, _ := runtime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "fast", Risk: app.RiskDangerous}); contextTokens != 54400 {
+		t.Fatalf("dangerous task should use the Deep profile budget, got %d", contextTokens)
+	}
+
+	cfg.Model.Fast.ContextTokens = 0
+	fallbackRuntime := Runtime{models: modelrouter.New(cfg)}
+	if contextTokens, _ := fallbackRuntime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != defaultReActContextTokens {
+		t.Fatalf("missing profile context should use fallback %d, got %d", defaultReActContextTokens, contextTokens)
+	}
+}
+
+func TestEstimatePromptTokensUsesCalibratedByteCoefficient(t *testing.T) {
+	value := strings.Repeat("a", 400)
+	want := promptEstimateChatOverheadTokens + 100
+	if got := estimatePromptTokens(value); got != want {
+		t.Fatalf("estimated tokens = %d, want %d", got, want)
+	}
+}
+
 func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 	cfg := agentTestConfig()
+	cfg.Model.Deep.ContextTokens = 4096
+	cfg.Model.Deep.MaxTokens = 512
 	st := store.NewMemoryStore()
 	session := st.CreateSession("compress react prompt")
 	tools := toolhub.New(cfg, st)
@@ -1704,10 +1802,13 @@ func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 		},
 	}
 	agentContext := strings.Repeat("历史上下文 ", 3000)
-	system := contextualSystemPromptForReAct("修改心得与体会段落", nil, nil, TaskHint{ModelLaneHint: "deep"}, visibleTools, []string{longObservation}, agentContext)
-	user := reactStepUserPrompt("修改心得与体会段落", 2, []string{longObservation})
+	hint := TaskHint{ModelLaneHint: "deep"}
+	system := contextualSystemPromptForReAct(nil, nil, hint, visibleTools, agentContext)
+	compactSystem := contextualSystemPromptForReAct(nil, nil, hint, visibleTools, "历史上下文 compact summary", reactPromptOptions{Compact: true})
+	user := appendWorkflowReActContext(reactStepUserPrompt("修改心得与体会段落", 2, []string{longObservation}), hint, visibleTools)
+	task := reactModelTask(app.AgentRun{Risk: app.RiskRead}, "修改心得与体会段落", hint)
 
-	compressedSystem, compressedUser := runtime.compressReActPromptIfNeeded(session.ID, "run_compress", 2, TaskHint{ModelLaneHint: "deep"}, "修改心得与体会段落", nil, nil, visibleTools, []string{longObservation}, "历史上下文 compact summary", system, user)
+	compressedSystem, compressedUser := runtime.compressReActPromptIfNeeded(session.ID, "run_compress", 2, task, system, user, compactSystem)
 
 	if compressedSystem == system && compressedUser == user {
 		t.Fatal("expected prompt compression to trigger")
@@ -1724,7 +1825,7 @@ func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 	if compressedUser != user || strings.Contains(compressedUser, "tool_result_compact") {
 		t.Fatalf("compact prompt must preserve current ReAct observations without compacting them:\n%s", compressedUser)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "react.prompt_compressed", "strategy", "old_context_compact_preserve_current_react_v1") {
+	if !hasAgentAuditField(st.ListAudit(session.ID), "react.prompt_compressed", "strategy", "stable_prefix_compact_context_v2") {
 		t.Fatalf("prompt compression audit missing: %#v", st.ListAudit(session.ID))
 	}
 }

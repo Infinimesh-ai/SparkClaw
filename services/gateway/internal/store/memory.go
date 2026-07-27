@@ -22,6 +22,7 @@ type MemoryStore struct {
 	runs                 map[string]app.AgentRun
 	modelCalls           map[string]app.ModelCall
 	toolCalls            map[string]app.ToolCall
+	documentRecords      map[string]app.DocumentRecord
 	approvals            map[string]app.Approval
 	reminders            map[string]app.Reminder
 	reminderDelivery     map[string]app.ReminderDelivery
@@ -55,6 +56,7 @@ func NewMemoryStore() *MemoryStore {
 		runs:                 map[string]app.AgentRun{},
 		modelCalls:           map[string]app.ModelCall{},
 		toolCalls:            map[string]app.ToolCall{},
+		documentRecords:      map[string]app.DocumentRecord{},
 		approvals:            map[string]app.Approval{},
 		reminders:            map[string]app.Reminder{},
 		reminderDelivery:     map[string]app.ReminderDelivery{},
@@ -91,6 +93,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		Runs:                 cloneMap(s.runs),
 		ModelCalls:           cloneMap(s.modelCalls),
 		ToolCalls:            cloneMap(s.toolCalls),
+		DocumentRecords:      cloneMap(s.documentRecords),
 		Approvals:            cloneMap(s.approvals),
 		Reminders:            cloneMap(s.reminders),
 		ReminderDelivery:     cloneMap(s.reminderDelivery),
@@ -135,6 +138,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.runs = ensureMap(snapshot.Runs)
 	s.modelCalls = ensureMap(snapshot.ModelCalls)
 	s.toolCalls = ensureMap(snapshot.ToolCalls)
+	s.documentRecords = ensureMap(snapshot.DocumentRecords)
 	s.approvals = ensureMap(snapshot.Approvals)
 	s.reminders = ensureMap(snapshot.Reminders)
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
@@ -353,6 +357,11 @@ func (s *MemoryStore) DeleteSession(id string) (app.Session, error) {
 	for callID, call := range s.toolCalls {
 		if call.SessionID == id {
 			delete(s.toolCalls, callID)
+		}
+	}
+	for documentID, record := range s.documentRecords {
+		if record.SessionID == id {
+			delete(s.documentRecords, documentID)
 		}
 	}
 	for approvalID, approval := range s.approvals {
@@ -818,6 +827,74 @@ func (s *MemoryStore) ListToolCalls(sessionID string) []app.ToolCall {
 	slices.SortFunc(out, func(a, b app.ToolCall) int {
 		return a.StartedAt.Compare(b.StartedAt)
 	})
+	return out
+}
+
+func (s *MemoryStore) SaveDocumentRecord(record app.DocumentRecord) app.DocumentRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	if record.ID == "" {
+		record.ID = app.NewID("doc")
+	}
+	if record.OwnerID == "" {
+		record.OwnerID = app.DefaultOwnerID
+	}
+	if record.Status == "" {
+		record.Status = app.DocumentStatusAvailable
+	}
+	if record.CreatedAt.IsZero() {
+		if existing, ok := s.documentRecords[record.ID]; ok && !existing.CreatedAt.IsZero() {
+			record.CreatedAt = existing.CreatedAt
+		} else {
+			record.CreatedAt = now
+		}
+	}
+	if record.LastActivityAt.IsZero() {
+		record.LastActivityAt = now
+	}
+	if record.LastActivityID == "" {
+		record.LastActivityID = record.ID
+	}
+	record.UpdatedAt = now
+	s.documentRecords[record.ID] = record
+	s.appendAuditLocked("document.saved", record.SessionID, record.SourceRunID, "document_registry", record.LastActivity, map[string]any{
+		"document_id": record.ID,
+		"path":        record.GovernedPath,
+		"activity_id": record.LastActivityID,
+	})
+	s.appendEventLocked("document.saved", record.SessionID, record.SourceRunID, record)
+	return record
+}
+
+func (s *MemoryStore) GetDocumentRecord(id string) (app.DocumentRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	record, ok := s.documentRecords[id]
+	return record, ok
+}
+
+func (s *MemoryStore) ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]app.DocumentRecord, 0)
+	for _, record := range s.documentRecords {
+		if (ownerID == "" || record.OwnerID == ownerID) && (sessionID == "" || record.SessionID == sessionID) {
+			out = append(out, record)
+		}
+	}
+	slices.SortFunc(out, func(a, b app.DocumentRecord) int {
+		if order := b.LastActivityAt.Compare(a.LastActivityAt); order != 0 {
+			return order
+		}
+		if order := b.UpdatedAt.Compare(a.UpdatedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
 	return out
 }
 

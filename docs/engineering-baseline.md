@@ -9,8 +9,8 @@ This document is the **non-negotiable baseline** for every code contribution, no
 ## 1. Dependencies & environment: a fresh clone must run
 
 - **Every runtime dependency must be declared in a version-controlled manifest** (`go.mod`, `package.json`, `requirements.txt`). Never rely on packages that "happen to be installed" on your machine.
-  - *Incident*: document tools did `require("exceljs")` at runtime with no manifest anywhere in the repo; 13 tests failed on a clean environment. The correct home is now [tools/document-runtime](../tools/document-runtime/package.json), installed via `npm run setup:document-tools`.
-- **Never hardcode developer-machine paths or platforms.** Paths like `.tools/node-v24.14.0-darwin-arm64/bin/node` may only be optional probes with a cross-platform fallback.
+  - *Incident*: document tools did `require("exceljs")` at runtime with no manifest anywhere in the repo; 13 tests failed on a clean environment. The correct home is now the [document runtime npm workspace](../tools/document-runtime/package.json), installed via `npm run setup:document-tools`.
+- **Never hardcode developer-machine paths or platforms.** Host tools must resolve through `PATH`; do not add repository-private runtime/toolchain directories.
 - When adding an external dependency, update the setup/doctor scripts so that `git clone && setup && go test ./...` passes in one shot.
 
 ## 2. Subprocesses & outbound calls: timeouts and ownership

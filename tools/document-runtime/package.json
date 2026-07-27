@@ -1,7 +1,7 @@
 {
   "name": "sparkclaw-document-runtime",
   "private": true,
-  "description": "Node dependencies for gateway tool adapters (installed into .tools/document-node by scripts/setup-document-tools.sh).",
+  "description": "Node dependencies for Gateway document adapters, installed by the root npm workspace.",
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "jsdom": "^29.1.1",

@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -100,15 +99,16 @@ func (e *agentBrowserActionError) Error() string {
 
 func newAgentBrowserNamespace() string {
 	raw := make([]byte, 8)
-	if _, err := rand.Read(raw); err == nil {
-		return "sparkclaw-" + hex.EncodeToString(raw)
+	if _, err := rand.Read(raw); err != nil {
+		fallback := sha256.Sum256([]byte(fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())))
+		copy(raw, fallback[:len(raw)])
 	}
-	return fmt.Sprintf("sparkclaw-%d-%d", os.Getpid(), time.Now().UnixNano())
+	return "sc-" + hex.EncodeToString(raw)
 }
 
 func agentBrowserSessionName(profileKey, presentation string) string {
 	digest := sha256.Sum256([]byte(profileKey + "\x00" + presentation))
-	return "sparkclaw-" + hex.EncodeToString(digest[:10])
+	return "sc-" + hex.EncodeToString(digest[:10])
 }
 
 func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, commandPath, namespace string, hidden bool, profileKey string) (*agentBrowserSession, error) {
@@ -473,9 +473,6 @@ func findWorkspaceAgentBrowser() string {
 	}
 	for current := wd; ; current = filepath.Dir(current) {
 		candidates := []string{filepath.Join(current, "node_modules", ".bin", "agent-browser")}
-		if runtime.GOOS == "windows" {
-			candidates = append(candidates, filepath.Join(current, "node_modules", ".bin", "agent-browser.cmd"))
-		}
 		for _, candidate := range candidates {
 			if path, pathErr := validateAgentBrowserCommand(candidate); pathErr == nil {
 				return path
@@ -526,22 +523,7 @@ func resolveChromiumExecutable(configured string) (string, error) {
 		return validateChromiumExecutable(configured)
 	}
 
-	candidates := make([]string, 0, 6)
-	switch runtime.GOOS {
-	case "darwin":
-		candidates = append(candidates, "/Applications/Chromium.app/Contents/MacOS/Chromium")
-		if home, err := os.UserHomeDir(); err == nil {
-			candidates = append(candidates, filepath.Join(home, "Applications", "Chromium.app", "Contents", "MacOS", "Chromium"))
-		}
-	case "linux":
-		candidates = append(candidates, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium")
-	case "windows":
-		for _, root := range []string{os.Getenv("LOCALAPPDATA"), os.Getenv("PROGRAMFILES")} {
-			if root != "" {
-				candidates = append(candidates, filepath.Join(root, "Chromium", "Application", "chrome.exe"))
-			}
-		}
-	}
+	candidates := []string{"/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium"}
 	for _, name := range []string{"chromium", "chromium-browser"} {
 		if path, err := exec.LookPath(name); err == nil {
 			candidates = append(candidates, path)

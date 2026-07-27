@@ -164,7 +164,7 @@ func recentContextMessages(messages []app.Message, currentRunID string, limit in
 		if role != "user" && role != "assistant" {
 			continue
 		}
-		if strings.TrimSpace(message.Content) == "" {
+		if strings.TrimSpace(message.Content) == "" && len(message.Attachments) == 0 {
 			continue
 		}
 		filtered = append(filtered, message)

@@ -86,12 +86,17 @@ func TestLoadAppliesObservationSummaryLimitEnvironment(t *testing.T) {
 func TestLoadAppliesGuardModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_GUARD_BASE_URL", "http://guard.example.test/v1")
 	t.Setenv("SPARKCLAW_GUARD_MODEL", "Qwen/TestGuard")
+	t.Setenv("SPARKCLAW_GUARD_MAX_TOKENS", "96")
+	t.Setenv("SPARKCLAW_GUARD_CONTEXT_TOKENS", "16384")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Model.Guard.BaseURL != "http://guard.example.test/v1" || cfg.Model.Guard.Model != "Qwen/TestGuard" {
+	if cfg.Model.Guard.BaseURL != "http://guard.example.test/v1" ||
+		cfg.Model.Guard.Model != "Qwen/TestGuard" ||
+		cfg.Model.Guard.MaxTokens != 96 ||
+		cfg.Model.Guard.ContextTokens != 16384 {
 		t.Fatalf("guard model env did not apply: %#v", cfg.Model.Guard)
 	}
 }
@@ -127,7 +132,6 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 		"SPARKCLAW_FAST_BASE_URL",
 		"SPARKCLAW_DEEP_BASE_URL",
 		"SPARKCLAW_EMBEDDING_BASE_URL",
-		"SPARKCLAW_RERANKER_BASE_URL",
 		"SPARKCLAW_SPEECH_ENABLED",
 		"SPARKCLAW_SPEECH_BASE_URL",
 		"SPARKCLAW_SPEECH_ALLOWED_HOSTS",
@@ -147,7 +151,6 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 		"fast":      cfg.Model.Fast,
 		"deep":      cfg.Model.Deep,
 		"embedding": cfg.Model.Embedding,
-		"reranker":  cfg.Model.Reranker,
 	} {
 		if profile.BaseURL != "" {
 			t.Fatalf("%s remote endpoint should require explicit configuration: %q", name, profile.BaseURL)
@@ -228,13 +231,43 @@ func TestLoadAppliesSpeechEnvironment(t *testing.T) {
 func TestLoadRejectsInsecureOrUnlistedSpeechEndpoint(t *testing.T) {
 	t.Setenv("SPARKCLAW_SPEECH_ENABLED", "true")
 	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "http://speech.example.test/asr")
+	t.Setenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS", "speech.example.test")
 	if _, err := Load(""); err == nil {
 		t.Fatal("expected insecure speech URL to be rejected")
 	}
 
 	t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "https://speech.example.test/asr")
+	t.Setenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS", "")
 	if _, err := Load(""); err == nil {
 		t.Fatal("expected speech host outside the allowlist to be rejected")
+	}
+}
+
+func TestLoadAllowsLocalHTTPSpeechEndpoint(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		host string
+	}{
+		{name: "loopback", url: "http://127.0.0.1:8006", host: "127.0.0.1"},
+		{name: "private IP", url: "http://10.0.0.12:8006", host: "10.0.0.12"},
+		{name: "compose service", url: "http://sparkclaw-asr:8006", host: "sparkclaw-asr"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("SPARKCLAW_SPEECH_ENABLED", "true")
+			t.Setenv("SPARKCLAW_SPEECH_BACKEND", "openai-http")
+			t.Setenv("SPARKCLAW_SPEECH_BASE_URL", test.url)
+			t.Setenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS", test.host)
+
+			cfg, err := Load("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Speech.BaseURL != test.url {
+				t.Fatalf("speech URL was not preserved: %#v", cfg.Speech)
+			}
+		})
 	}
 }
 

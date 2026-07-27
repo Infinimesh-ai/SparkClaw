@@ -737,7 +737,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 			"output_path":    "note-sparkclaw-edit.docx",
 			"change_summary": map[string]any{"operation": "replace_paragraph", "original_unchanged": true, "changed": 1},
 		},
-		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 2, Capability: app.ToolCapabilityDocumentEdit,
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	}
 	st.SaveToolCall(call)
 	outcome, err := adaptWorkflowOutcome(definition, call)
@@ -1082,9 +1082,11 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 	}
 	modelCalls := st.ListModelCalls(sessionID, result.Run.ID)
 	if !hasModelCallOperation(modelCalls, "intent_embedding", "embedding") ||
-		!hasModelCallOperation(modelCalls, "intent_tree_graph", "fast") ||
-		!hasModelCallOperation(modelCalls, "intent_rerank", "reranker") {
+		!hasModelCallOperation(modelCalls, "intent_tree_graph", "fast") {
 		t.Fatalf("matched workflow was not selected by semantic fusion: %#v", modelCalls)
+	}
+	if hasModelCallOperation(modelCalls, "intent_rerank", "reranker") {
+		t.Fatalf("semantic fusion unexpectedly called the removed reranker: %#v", modelCalls)
 	}
 	foundWorkflowStep := false
 	for _, call := range modelCalls {

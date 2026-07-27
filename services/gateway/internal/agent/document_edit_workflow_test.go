@@ -43,7 +43,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 
 	readCall, approval, _ := runtime.runToolPlan(context.Background(), session.ID, dispatch.Run.ID, toolPlan{
 		Name: "files.read", Args: map[string]any{"path": "notes.md"}, WorkflowID: app.WorkflowDocumentEdit,
-		WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
+		WorkflowNodeID: "document_locate_evidence", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	})
 	if approval != nil || !toolCallCompleted(readCall) {
 		t.Fatalf("document read did not complete before mutation: call=%#v approval=%#v", readCall, approval)
@@ -57,9 +57,15 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	assessment := dispatch.Profile.Assess(storedRun.Workflow, outcome)
 	changed, err := applyWorkflowOutcome(&storedRun, outcome, assessment)
 	if err != nil || !changed {
-		t.Fatalf("structured read did not activate editor: changed=%t assessment=%#v err=%v", changed, assessment, err)
+		t.Fatalf("structured read did not activate operation decision: changed=%t assessment=%#v err=%v", changed, assessment, err)
 	}
 	st.SaveRun(storedRun)
+	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
+		t.Fatalf("single-candidate text operation decision did not resolve deterministically: changed=%t err=%v", changed, err)
+	}
+	if hasModelCallOperation(st.ListModelCalls(session.ID, storedRun.ID), "workflow_operation_selection", "deep") {
+		t.Fatalf("single-candidate text edit made an unnecessary operation-selection model call")
+	}
 	hint := dispatch.Profile.Hint(storedRun.Workflow)
 	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &hint)
 	if err != nil {
@@ -75,7 +81,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 			"path": "model-invented-input.md", "output_path": "model-invented-output.md", "expected_replacements": 1,
 			"replacements": []any{map[string]any{"find": "Original reflection", "replace": "Improved reflection"}},
 		},
-		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 2, Capability: app.ToolCapabilityDocumentEdit,
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
 	if editApproval == nil || editCall.Status != "approval_pending" {
 		t.Fatalf("text edit did not enter recoverable approval: call=%#v approval=%#v", editCall, editApproval)
@@ -113,6 +119,12 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if result.WorkflowResult.Data == nil || result.WorkflowResult.Data["change_summary"] == nil || len(result.WorkflowResult.Content.Parts) != 1 ||
 		result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartFile || result.WorkflowResult.Content.Parts[0].Disposition != app.MessageDispositionAttachment {
 		t.Fatalf("unified document result omitted change summary or file: %#v", result.WorkflowResult)
+	}
+	documentRecords := st.ListDocumentRecords(session.OwnerID, session.ID, 10)
+	if len(documentRecords) < 2 || documentRecords[0].GovernedPath != "notes-sparkclaw-edit.md" ||
+		documentRecords[0].ParentDocumentID == "" || documentRecords[0].SourceToolCallID != executed.ID ||
+		documentRecords[0].LastActivity != app.DocumentActivityEdited {
+		t.Fatalf("approved edit output was not recorded with document lineage: %#v", documentRecords)
 	}
 
 	original, err := os.ReadFile(inputPath)

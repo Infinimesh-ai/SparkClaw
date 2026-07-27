@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -54,8 +55,8 @@ func (p browserInternetSearchProfile) Resolve(route app.RouteDecision, sourceTur
 		}},
 	}, nil
 }
-func (browserInternetSearchProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (browserInternetSearchProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
+	return workflowPreparation{}, nil
 }
 func (browserInternetSearchProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
@@ -116,8 +117,8 @@ func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID 
 		}},
 	}, nil
 }
-func (browserAutomationProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (browserAutomationProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
+	return workflowPreparation{}, nil
 }
 func (browserAutomationProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
@@ -159,7 +160,7 @@ func (browserAutomationProfile) TransitionInstruction(_ app.ToolOutcome, assessm
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 1 }
+func (documentReadProfile) Revision() int                { return 2 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
@@ -177,25 +178,33 @@ func (documentReadProfile) Finalization() workflowFinalizationMode {
 func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	target := app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, app.IntentOperationRead, target, app.DataScopeWorkspace)
-	nodeID := app.WorkflowNodeID("document_read")
+	confirmNodeID := app.WorkflowNodeID("confirm_document_target")
+	readNodeID := app.WorkflowNodeID("document_read")
 	readScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
 		Name: app.ToolCapabilityDocumentRead, Qualifiers: map[string]string{app.CapabilityQualifierFormat: route.Facts["document_format"]},
 	}}}
 	return intent, app.WorkflowPlan{
 		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
-		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
-		Nodes: []app.WorkflowNode{{
-			ID: nodeID, InitialStage: "inspect_type",
-			Goal:             app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Read the exact governed path with its detected format", Completion: app.CompletionEvidence},
-			InitialScope:     app.CapabilityScope{},
-			Transitions:      []app.ScopeTransition{{ID: "document_type_resolved", Deterministic: true, NextStage: "read_by_type", Replace: &readScope, MaxActivations: 1}},
-			ArgumentBindings: []app.ArgumentBinding{{Capability: app.ToolCapabilityDocumentRead, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindWorkspacePath}}},
-			AllowedRisks:     []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
-		}},
+		InitialNodeIDs: []app.WorkflowNodeID{confirmNodeID}, Completion: app.CompletionEvidence,
+		Nodes: []app.WorkflowNode{
+			{
+				ID: confirmNodeID, InitialStage: "confirm_document_target",
+				Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Persist the exact governed document identity and frozen path", Completion: app.CompletionDeterministic},
+				InitialScope: app.CapabilityScope{},
+				AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+			},
+			{
+				ID: readNodeID, InitialStage: "read_by_type", DependsOn: []app.WorkflowNodeID{confirmNodeID},
+				Goal:             app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Read the exact governed path with its detected format", Completion: app.CompletionEvidence},
+				InitialScope:     readScope,
+				ArgumentBindings: []app.ArgumentBinding{{Capability: app.ToolCapabilityDocumentRead, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"}},
+				AllowedRisks:     []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+			},
+		},
 	}, nil
 }
-func (documentReadProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "document_type_resolved", true, nil
+func (documentReadProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
+	return documentTargetPreparation(state)
 }
 func (documentReadProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
@@ -216,7 +225,7 @@ func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 type documentEditProfile struct{}
 
 func (documentEditProfile) ID() app.WorkflowID           { return app.WorkflowDocumentEdit }
-func (documentEditProfile) Revision() int                { return 2 }
+func (documentEditProfile) Revision() int                { return 4 }
 func (documentEditProfile) Capability() app.CapabilityID { return app.CapabilityDocumentEdit }
 func (documentEditProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
@@ -242,7 +251,10 @@ func (documentEditProfile) Finalization() workflowFinalizationMode {
 func (p documentEditProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	target := app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, app.IntentOperationProcess, target, app.DataScopeWorkspace)
-	nodeID := app.WorkflowNodeID("document_edit")
+	confirmNodeID := app.WorkflowNodeID("confirm_document_target")
+	locateNodeID := app.WorkflowNodeID("document_locate_evidence")
+	decisionNodeID := app.WorkflowNodeID("select_edit_operation")
+	editNodeID := app.WorkflowNodeID("document_edit")
 	readScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
 		Name: app.ToolCapabilityDocumentRead, Qualifiers: map[string]string{app.CapabilityQualifierFormat: route.Facts["document_format"]},
 	}}}
@@ -251,34 +263,49 @@ func (p documentEditProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 	}}}
 	return intent, app.WorkflowPlan{
 		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
-		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence, ResultProjection: app.WorkflowResultOutputsOnly,
-		Nodes: []app.WorkflowNode{{
-			ID: nodeID, InitialStage: "read_for_edit",
-			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Read, locate, and edit a governed output copy using one compatible registered editor", Completion: app.CompletionEvidence},
-			InitialScope: readScope,
-			Transitions: []app.ScopeTransition{{
-				ID:        "document_evidence_resolved",
-				On:        app.TransitionPredicate{OutcomeSignals: []app.OutcomeSignal{app.OutcomeSignalContentAvailable}, Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}},
-				NextStage: "edit_by_type", Replace: &editScope, MaxActivations: 1,
-			}},
-			ArgumentBindings: []app.ArgumentBinding{
-				{Capability: app.ToolCapabilityDocumentRead, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindWorkspacePath}},
-				{Capability: app.ToolCapabilityDocumentEdit, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindWorkspacePath}},
-				{Capability: app.ToolCapabilityDocumentEdit, Argument: "output_path", ResourceKind: "path", Source: app.ArgumentBindingRouteFact, SourceKey: "output_path"},
+		InitialNodeIDs: []app.WorkflowNodeID{confirmNodeID}, Completion: app.CompletionEvidence, ResultProjection: app.WorkflowResultOutputsOnly,
+		Nodes: []app.WorkflowNode{
+			{
+				ID: confirmNodeID, InitialStage: "confirm_document_target",
+				Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Persist the exact governed document identity and frozen path", Completion: app.CompletionDeterministic},
+				InitialScope: app.CapabilityScope{},
+				AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
 			},
-			AllowedRisks: []app.RiskLevel{app.RiskRead, app.RiskReversible}, MaxAttempts: 2,
-		}},
+			{
+				ID: locateNodeID, InitialStage: "read_for_edit", DependsOn: []app.WorkflowNodeID{confirmNodeID},
+				Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Read the governed document and locate structured evidence for the requested change", Completion: app.CompletionEvidence},
+				InitialScope: readScope,
+				ArgumentBindings: []app.ArgumentBinding{{
+					Capability: app.ToolCapabilityDocumentRead, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref",
+				}},
+				AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+			},
+			{
+				ID: decisionNodeID, InitialStage: "select_edit_operation", DependsOn: []app.WorkflowNodeID{locateNodeID},
+				Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Choose exactly one registered editor operation from the located document evidence", Completion: app.CompletionDecision},
+				InitialScope: editScope,
+				AllowedRisks: []app.RiskLevel{app.RiskReversible}, MaxAttempts: 2,
+			},
+			{
+				ID: editNodeID, InitialStage: "edit_by_type", DependsOn: []app.WorkflowNodeID{decisionNodeID},
+				Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Apply the selected bounded edit to a governed output copy", Completion: app.CompletionEvidence},
+				InitialScope: editScope,
+				ArgumentBindings: []app.ArgumentBinding{
+					{Capability: app.ToolCapabilityDocumentEdit, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingIntentTarget, TargetKinds: []app.TargetKind{app.TargetKindWorkspacePath}},
+					{Capability: app.ToolCapabilityDocumentEdit, Argument: "output_path", ResourceKind: "path", Source: app.ArgumentBindingRouteFact, SourceKey: "output_path"},
+				},
+				AllowedRisks: []app.RiskLevel{app.RiskReversible}, MaxAttempts: 2,
+			}},
 	}, nil
 }
-func (documentEditProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (documentEditProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
+	return documentTargetPreparation(state)
 }
 func (documentEditProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
-	node := state.Nodes[outcome.NodeID]
-	if node.Stage == "read_for_edit" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
-		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "document_evidence_available"
-	} else if node.Stage == "edit_by_type" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalEditCompleted) {
+	if outcome.NodeID == "document_locate_evidence" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
+		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "document_evidence_located"
+	} else if outcome.NodeID == "document_edit" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalEditCompleted) {
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "document_edit_completed"
 	} else {
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "document_edit_failed"
@@ -286,18 +313,57 @@ func (documentEditProfile) Assess(state *app.WorkflowState, outcome app.ToolOutc
 	return assessment
 }
 func (documentEditProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	node := state.Nodes["document_edit"]
 	operation := "modify"
-	if node.Stage == "read_for_edit" {
+	if len(state.ActiveNodeIDs) > 0 && state.ActiveNodeIDs[0] == "document_locate_evidence" {
 		operation = "inspect"
 	}
 	return workflowHint(state, operation, "workspace", "workspace", "", "Dispatched by the staged document.edit workflow contract.")
 }
-func (documentEditProfile) TransitionInstruction(_ app.ToolOutcome, assessment app.NodeAssessment) string {
-	if assessment.ReasonCode != "document_evidence_available" {
-		return ""
+func (documentEditProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
+	return ""
+}
+func (documentEditProfile) DecisionRules(app.WorkflowNode) []string {
+	return []string{
+		"Use the owner's requested content change and the completed structured observation to distinguish replacement, insertion, deletion, append, style, row, cell, slide, and page operations.",
+		"Apply minimum-change semantics when the observation already contains the requested target: modify, improve, polish, complete, update, revise, or rewrite means replace/update that existing target, not insert or append another overlapping block.",
+		"Choose insert, add, or append only when the owner explicitly requests a new block, row, or slide, or when the structured observation shows that the requested target does not exist.",
 	}
-	return "workflow_stage: document_evidence_available. The compatible editor was selected only after structured reading. Use the complete structured_document_v1 observation to locate only the requested stable block, paragraph, cell, row, slide, or pages and compose the requested change. Call the single materialized editor with the frozen input/output paths; its reversible action must enter Policy approval rather than asking for conversational confirmation."
+}
+func (documentEditProfile) DecisionResolvedInstruction(entry app.ToolDirectoryEntry) string {
+	operation := strings.TrimSpace(entry.Capability.Qualifiers[app.CapabilityQualifierOperation])
+	return "workflow_stage: edit_operation_selected operation=" + operation + ". Use the complete structured_document_v1 observation to edit only the requested stable block, paragraph, cell, row, slide, or pages. Call the single materialized editor with the frozen input/output paths; its reversible action must enter Policy approval rather than asking for conversational confirmation."
+}
+
+func documentTargetPreparation(state *app.WorkflowState) (workflowPreparation, error) {
+	if state == nil {
+		return workflowPreparation{}, errors.New("document target confirmation requires workflow state")
+	}
+	documentID := strings.TrimSpace(state.Route.Facts["document_id"])
+	path := strings.TrimSpace(state.Route.Slots.TargetRef)
+	format := strings.TrimSpace(state.Route.Facts["document_format"])
+	if documentID == "" || path == "" || format == "" {
+		return workflowPreparation{}, errors.New("document target confirmation requires a durable document ID, frozen path, and format")
+	}
+	sourceID := firstNonEmptyString(
+		strings.TrimSpace(state.Route.Facts["document_source_id"]),
+		documentID,
+	)
+	return workflowPreparation{
+		CompleteNode: true,
+		OutcomeRefs: []app.ResourceRef{{
+			Kind:       "document",
+			Ref:        documentID,
+			Provenance: sourceID,
+			Attributes: map[string]string{
+				"path":       path,
+				"format":     format,
+				"source":     strings.TrimSpace(state.Route.Facts["document_source"]),
+				"source_id":  sourceID,
+				"activity":   strings.TrimSpace(state.Route.Facts["document_activity"]),
+				"provenance": strings.TrimSpace(state.Route.Facts["target_provenance"]),
+			},
+		}},
+	}, nil
 }
 
 func terminalGenericAssessment(outcome app.ToolOutcome, completedReason, failedReason string) app.NodeAssessment {
@@ -344,9 +410,42 @@ func newWorkflowState(route app.RouteDecision, returnRoute app.ReturnRoute, inte
 }
 
 func prepareWorkflowState(profile workflowProfile, state *app.WorkflowState) error {
-	transitionID, prepare, err := profile.Prepare(state)
-	if err != nil || !prepare {
+	preparation, err := profile.Prepare(state)
+	if err != nil {
 		return err
+	}
+	if preparation.CompleteNode {
+		if preparation.TransitionID != "" {
+			return errors.New("deterministic workflow preparation cannot complete a node and apply a transition together")
+		}
+		if len(state.ActiveNodeIDs) != 1 {
+			return errors.New("deterministic workflow completion requires one active node")
+		}
+		nodeID := state.ActiveNodeIDs[0]
+		node, ok := workflowPlanNode(state.Plan, nodeID)
+		if !ok || node.Goal.Completion != app.CompletionDeterministic {
+			return errors.New("deterministic workflow completion requires a declared deterministic node")
+		}
+		if len(preparation.OutcomeRefs) == 0 {
+			return errors.New("deterministic workflow completion requires persisted outcome references")
+		}
+		nodeState := state.Nodes[nodeID]
+		nodeState.Status = app.WorkflowNodeSucceeded
+		nodeState.Attempts = 1
+		nodeState.OutcomeRefs = appendUniqueResourceRefs(nodeState.OutcomeRefs, preparation.OutcomeRefs...)
+		state.Nodes[nodeID] = nodeState
+		state.ActiveNodeIDs = removeWorkflowNodeID(state.ActiveNodeIDs, nodeID)
+		activateReadyWorkflowNodes(state)
+		if allWorkflowNodesSucceeded(state) {
+			state.Status = app.WorkflowStatusSucceeded
+		} else if len(state.ActiveNodeIDs) == 0 {
+			state.Status = app.WorkflowStatusBlocked
+			return errors.New("deterministic workflow completion did not activate a dependent node")
+		}
+		return nil
+	}
+	if preparation.TransitionID == "" {
+		return nil
 	}
 	if len(state.ActiveNodeIDs) != 1 {
 		return errors.New("deterministic workflow preparation requires one active node")
@@ -358,7 +457,7 @@ func prepareWorkflowState(profile workflowProfile, state *app.WorkflowState) err
 	}
 	nodeState := state.Nodes[nodeID]
 	for _, transition := range node.Transitions {
-		if transition.ID != transitionID || !transition.Deterministic {
+		if transition.ID != preparation.TransitionID || !transition.Deterministic {
 			continue
 		}
 		if nodeState.TransitionActivations[transition.ID] >= transition.MaxActivations {
@@ -368,6 +467,9 @@ func prepareWorkflowState(profile workflowProfile, state *app.WorkflowState) err
 			nodeState.CurrentScope = *transition.Replace
 		} else {
 			nodeState.CurrentScope.Requirements = appendUniqueRequirements(nodeState.CurrentScope.Requirements, transition.Add...)
+		}
+		if nodeState.TransitionActivations == nil {
+			nodeState.TransitionActivations = make(map[app.TransitionID]int)
 		}
 		nodeState.TransitionActivations[transition.ID]++
 		nodeState.ScopeRevision++
@@ -408,6 +510,9 @@ func workflowHint(state *app.WorkflowState, taskType, evidenceNeed, dataScope, b
 func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.AgentRun, actorRef string, hint *workflowExecutionHint) ([]app.ToolDefinition, error) {
 	state := run.Workflow.Nodes[hint.WorkflowNodeID]
 	node, ok := workflowPlanNode(run.Workflow.Plan, hint.WorkflowNodeID)
+	if ok && node.Goal.Completion == app.CompletionDecision {
+		return nil, errors.New("workflow decision node must be resolved before tool materialization")
+	}
 	if ok && node.Goal.Completion == app.CompletionModelAnswer {
 		if len(state.CurrentScope.Requirements) != 0 {
 			return nil, errors.New("model-answer workflow node cannot materialize tools")
@@ -433,7 +538,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if len(view.Entries) == 0 {
 		return nil, errors.New("no registered tool satisfies the active workflow scope")
 	}
-	entryIDs, err := r.workflowDirectorySelection(ctx, run, state, view)
+	entryIDs, err := workflowDirectorySelection(run, state, view)
 	if err != nil {
 		return nil, err
 	}

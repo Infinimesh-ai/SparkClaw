@@ -156,8 +156,8 @@ func (p scheduleManageProfile) Resolve(route app.RouteDecision, sourceTurnID str
 	}, nil
 }
 
-func (scheduleManageProfile) Prepare(*app.WorkflowState) (app.TransitionID, bool, error) {
-	return "", false, nil
+func (scheduleManageProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
+	return workflowPreparation{}, nil
 }
 
 func (scheduleManageProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {

@@ -66,6 +66,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	call.ObservationSummary = CompressObservation(call.Tool, result.Output, r.observationSummaryLimit())
 	call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, result.Output)
 	r.store.SaveToolCall(call)
+	r.recordDocumentToolActivity(call)
 	return call, nil
 }
 

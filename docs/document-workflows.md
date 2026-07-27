@@ -8,26 +8,77 @@ its durable format, evidence, and preservation contracts.
 
 ## Workflow Boundary
 
-`document.read` revision 1 reads or summarizes one exact governed workspace
-file. `document.edit` revision 2 reads one exact file, resolves one supported
-operation, obtains approval for the reversible edit, and writes a new sibling
-output copy named `<name>-sparkclaw-edit.<ext>`.
+`document.read` revision 2 reads or summarizes one exact governed workspace
+file. `document.edit` revision 4 reads one exact file, resolves one supported
+operation through an explicit Workflow decision node, obtains approval for the
+reversible edit, and writes a new sibling output copy named
+`<name>-sparkclaw-edit.<ext>`.
 
 Input and output paths are deterministic bindings. The model cannot replace
 them. Paths must remain under the configured workspace, resolve to regular
 non-symlink files, and match both extension and inspected file signature/package
 type. Existing output files are never overwritten.
 
+Every document Workflow begins with `confirm_document_target`. Deterministic
+preflight has already selected one durable document ID, governed path, format,
+provenance, and source ID; the node persists that evidence in `OutcomeRefs`
+before activating the read or edit node. The node is therefore an executable
+state transition, not a prompt instruction or decorative plan entry.
+
+The edit plan is frozen as:
+
+```text
+confirm_document_target
+  -> document_locate_evidence
+  -> select_edit_operation
+  -> document_edit
+```
+
+`select_edit_operation` never exposes a tool to ReAct. Runtime searches its
+format-qualified `document.edit` scope directly. A single candidate is selected
+deterministically; multiple candidates are resolved by one retry-bounded Deep
+model decision over the owner request and up to 20,000 runes of dependency
+evidence. The selected directory entry, capability, format, operation, and
+selection path are persisted in the node's `OutcomeRefs`. The edit node can
+materialize only that entry. A missing, stale, ambiguous, or invalid decision
+blocks the Workflow. The former Fast secondary directory router has been
+removed; any other multi-candidate scope must declare its own decision node.
+See the [operation-selection design record](document-edit-operation-selection.md).
+
+## Durable Document Records
+
+`DocumentRecord` is the first-class identity and activity record for a governed
+document. It stores stable ID, owner/session scope, governed path, name, content
+type, format, size/hash when available, status, source message/run/tool IDs,
+optional parent document ID, and recent activity ID/time. Memory, file snapshot,
+and PostgreSQL stores implement the same contract.
+
+Attachments are recorded immediately after the owner message is persisted,
+before parsing. Deterministic preflight enriches the record; successful reads
+update its activity; each successful edit output becomes a new record linked to
+its input through `parent_document_id`. Split operations retain every output
+under the same activity ID, so later reference resolution keeps that set
+ambiguous.
+
+Document identity and provenance must be durable. Parsed text, summaries,
+layout enrichment, and other derived representations are deliberately not part
+of `DocumentRecord`: they may be incomplete, archived as tool observations,
+replaced, or regenerated.
+
 ## Pipeline
 
 ```text
-inspect path and format
+record or resolve durable document identity
+  -> inspect governed path and format
+  -> persist confirm_document_target evidence
   -> parse with small_file_v1 high-level adapter
   -> normalize structured_document_v1
   -> enrich supported evidence categories
-  -> persist the full representation
-  -> build bounded context segments
-  -> select one format/operation editor
+  -> archive/project replaceable parse evidence as needed
+  -> complete document_locate_evidence with structured observations
+  -> resolve select_edit_operation inside the frozen format scope
+  -> persist one exact tool_directory_entry decision
+  -> materialize only the decided format/operation editor
   -> Policy approval
   -> write a new output
   -> reread and verify intended change plus preservation
@@ -44,10 +95,11 @@ separate categories with stable locations. `document_enrichment_v1` adds Fast
 image semantics and bounded layout evidence where supported. Model-derived
 image/OCR observations remain `untrusted` and carry provenance.
 
-The full representation is persisted, while model context receives selected
-segments with category, anchor, priority, and bounded text. Category budgets
-prevent image semantics or OCR from evicting primary document content, and
-repeated images are deduplicated by source hash.
+The full tool observation may be archived for traceability, while model context
+receives selected segments with category, anchor, priority, and bounded text.
+Exact preservation of the parsed representation is not required for document
+identity. Category budgets prevent image semantics or OCR from evicting primary
+document content, and repeated images are deduplicated by source hash.
 
 Current image limits and budgets are enforced in code and tests. Any change to
 them is a contract change, not a prompt-only adjustment.
@@ -76,8 +128,8 @@ partial evidence but are not implicit mutation targets.
 ## Mutation Safety
 
 - Image semantics may locate a target but cannot authorize an edit by itself.
-- Every mutation is limited to the selected format/operation schema and frozen
-  paths.
+- Every mutation must match the persisted operation decision, selected
+  format/operation schema, and frozen paths.
 - The original SHA-256 must remain unchanged.
 - Output is reread through the same normalized pipeline.
 - Expected after-values and operation-specific deltas are checked.

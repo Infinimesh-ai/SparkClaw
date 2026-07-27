@@ -555,11 +555,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, goal, run.Summary, toolCalls)
 	if emit != nil && len(reactResult.Approvals) == 0 && reactResult.BrowserLoginBlock == nil && !isBlockedFinalAnswer(reactResult.FinalAnswer) {
-		if streamed, streamedChat, err := r.streamFinalAnswer(ctx, goal, run, run.Summary, toolCalls, emit); err == nil && strings.TrimSpace(streamed) != "" {
-			run.Summary = r.applyGroundedSummary(sessionID, run.ID, goal, streamed, toolCalls)
-			reactResult.Chat = streamedChat
-			run.ModelLane = streamedChat.Lane
-		}
+		_ = emitCompletedFinalAnswer(run, "legacy_react_answer", run.Summary, emit)
 	}
 	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
 		toolCalls = append(toolCalls, call)
@@ -756,9 +752,7 @@ func (r Runtime) finishMatchedBrowserLoginResume(ctx context.Context, run app.Ag
 		run.Summary = "The browser workflow resumed after login and completed its bounded read."
 	}
 	if emit != nil && run.State == "completed" {
-		if streamed, _, streamErr := r.streamFinalAnswer(ctx, goal, run, run.Summary, toolCalls, emit); streamErr == nil && strings.TrimSpace(streamed) != "" {
-			run.Summary = streamed
-		}
+		_ = emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit)
 	}
 	if call, _, queued := r.queueExternalSendApproval(&run); queued {
 		toolCalls = append(toolCalls, call)

@@ -1205,9 +1205,8 @@ const ExcelJS = require("exceljs");
   console.error(error && error.stack || error);
   process.exit(1);
 });
-`
+	`
 	cmd = exec.Command(documentNodeBinary(), "-e", nodeScript, root)
-	cmd.Env = append(os.Environ(), "NODE_PATH="+documentNodeModulesPath())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create xlsx fixture with exceljs: %v\n%s", err, out)
 	}
@@ -2039,9 +2038,8 @@ const ExcelJS = require("exceljs");
   console.error(error && error.stack || error);
   process.exit(1);
 });
-`
+	`
 	cmd := exec.Command(documentNodeBinary(), "-e", nodeScript, root, name)
-	cmd.Env = append(os.Environ(), "NODE_PATH="+documentNodeModulesPath())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create xlsx fixture: %v\n%s", err, out)
 	}

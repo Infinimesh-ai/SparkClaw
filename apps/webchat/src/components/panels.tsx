@@ -1308,8 +1308,6 @@ export function SettingsPanel({
           <dd>{profileLabel(runtimeConfig.model.deep, text)}</dd>
           <dt>{text.settings.embed}</dt>
           <dd>{profileLabel(runtimeConfig.model.embedding, text)}</dd>
-          <dt>{text.settings.rerank}</dt>
-          <dd>{profileLabel(runtimeConfig.model.reranker, text)}</dd>
           <dt>{text.settings.guard}</dt>
           <dd>{profileLabel(runtimeConfig.model.guard, text)}</dd>
         </dl>

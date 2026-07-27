@@ -13,14 +13,10 @@ var defaultCalibrationJSON []byte
 type Calibration struct {
 	Revision              string  `json:"revision"`
 	Alpha                 float64 `json:"alpha"`
-	RerankerWeight        float64 `json:"reranker_weight"`
-	EmbeddingTopM         int     `json:"embedding_top_m"`
+	EmbeddingExampleTopM  int     `json:"embedding_example_top_m"`
 	EmbeddingNegativeCost float64 `json:"embedding_negative_cost"`
-	TreeTopK              int     `json:"tree_top_k"`
-	FusionTopN            int     `json:"fusion_top_n"`
 	EmbeddingTimeoutMS    int     `json:"embedding_timeout_ms"`
 	TreeTimeoutMS         int     `json:"tree_timeout_ms"`
-	RerankerTimeoutMS     int     `json:"reranker_timeout_ms"`
 	RoutingTimeoutMS      int     `json:"routing_timeout_ms"`
 	ClearMinimum          float64 `json:"clear_minimum"`
 	ClearMargin           float64 `json:"clear_margin"`
@@ -47,7 +43,7 @@ func (c Calibration) Validate() error {
 		return errors.New("calibration revision is required")
 	}
 	for name, value := range map[string]float64{
-		"alpha": c.Alpha, "reranker_weight": c.RerankerWeight, "embedding_negative_cost": c.EmbeddingNegativeCost,
+		"alpha": c.Alpha, "embedding_negative_cost": c.EmbeddingNegativeCost,
 		"clear_minimum": c.ClearMinimum,
 		"clear_margin":  c.ClearMargin, "ambiguous_minimum": c.AmbiguousMinimum,
 		"mutation_minimum": c.MutationMinimum, "mutation_margin": c.MutationMargin,
@@ -57,7 +53,7 @@ func (c Calibration) Validate() error {
 			return fmt.Errorf("calibration %s is outside [0,1]", name)
 		}
 	}
-	if c.EmbeddingTopM < 1 || c.TreeTopK < 1 || c.FusionTopN < 2 || c.EmbeddingTimeoutMS < 1 || c.TreeTimeoutMS < 1 || c.RerankerTimeoutMS < 1 || c.RoutingTimeoutMS < 1 {
+	if c.EmbeddingExampleTopM < 1 || c.EmbeddingTimeoutMS < 1 || c.TreeTimeoutMS < 1 || c.RoutingTimeoutMS < 1 {
 		return errors.New("calibration ranking bounds are invalid")
 	}
 	if c.ClearMinimum < c.AmbiguousMinimum || c.MutationMinimum < c.ClearMinimum || c.DegradedMinimum < c.ClearMinimum {

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -282,17 +281,6 @@ func TestRealBrowserExecutableIsChromium(t *testing.T) {
 	executable, err := resolveChromiumExecutable("")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if runtime.GOOS == "darwin" {
-		infoPath := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Info.plist"))
-		info, readErr := os.ReadFile(infoPath)
-		if readErr != nil {
-			t.Fatalf("read Chromium bundle metadata %q: %v", infoPath, readErr)
-		}
-		if filepath.Base(executable) != "Chromium" || !bytes.Contains(info, []byte("<string>Chromium</string>")) {
-			t.Fatalf("browser tests require the Chromium app bundle, got %q", executable)
-		}
-		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -722,6 +710,18 @@ func TestResolveSharedProfileDirSeparatesLogicalProfiles(t *testing.T) {
 		if info, err := os.Stat(path); err != nil || !info.IsDir() {
 			t.Fatalf("profile directory was not created: path=%q info=%#v err=%v", path, info, err)
 		}
+	}
+}
+
+func TestAgentBrowserIdentifiersFitPinnedUnixSocketPath(t *testing.T) {
+	socketPath := filepath.Join(
+		"/opt/agent-browser/.agent-browser/namespaces",
+		newAgentBrowserNamespace(),
+		"run",
+		agentBrowserSessionName("owner\x00default", "visible")+".sock",
+	)
+	if got, limit := len([]byte(socketPath)), 103; got > limit {
+		t.Fatalf("agent-browser socket path is %d bytes (max %d): %s", got, limit, socketPath)
 	}
 }
 

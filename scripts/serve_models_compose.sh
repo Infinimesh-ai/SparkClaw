@@ -6,11 +6,19 @@ cd "$ROOT"
 
 LANES="${1:-fast}"
 MODEL_PROFILE="${SPARKCLAW_MODEL_LOADING_PROFILE:-}"
+INCLUDE_ASR=false
 if [[ "$LANES" == "all" ]]; then
-  LANES="fast,deep,embedding,reranker"
+  LANES="fast,deep,embedding,guard"
+elif [[ "$LANES" == "all-with-asr" ]]; then
+  LANES="fast,deep,embedding,guard,asr"
+  INCLUDE_ASR=true
 elif [[ "$LANES" == "dual-light" || "$LANES" == "light-dual" ]]; then
-  LANES="fast,deep,embedding,reranker"
+  LANES="fast,deep,embedding,guard"
   MODEL_PROFILE="dual-light"
+elif [[ "$LANES" == "dual-light-asr" || "$LANES" == "light-dual-asr" ]]; then
+  LANES="fast,deep,embedding,guard,asr"
+  MODEL_PROFILE="dual-light"
+  INCLUDE_ASR=true
 elif [[ "$LANES" == "dual-light-chat" || "$LANES" == "light-dual-chat" ]]; then
   LANES="fast,deep"
   MODEL_PROFILE="dual-light"
@@ -29,7 +37,8 @@ for lane in "${requested[@]}"; do
     fast|sparkclaw-fast) services+=(sparkclaw-fast) ;;
     deep|sparkclaw-deep) services+=(sparkclaw-deep) ;;
     embedding|embed|sparkclaw-embedding) services+=(sparkclaw-embedding) ;;
-    reranker|rerank|score|sparkclaw-reranker) services+=(sparkclaw-reranker) ;;
+    guard|safety|sparkclaw-guard) services+=(sparkclaw-guard) ;;
+    asr|speech|sparkclaw-asr) services+=(sparkclaw-asr); INCLUDE_ASR=true ;;
     "") ;;
     *)
       echo "unknown lane: $lane" >&2
@@ -39,7 +48,7 @@ for lane in "${requested[@]}"; do
 done
 
 if [[ "${#services[@]}" -eq 0 ]]; then
-  echo "usage: $0 fast|deep|embedding|reranker|all|dual-light|dual-light-chat|lane,lane" >&2
+  echo "usage: $0 fast|deep|embedding|guard|asr|all|all-with-asr|dual-light|dual-light-asr|dual-light-chat|lane,lane" >&2
   exit 1
 fi
 
@@ -53,6 +62,10 @@ if [[ "$MODEL_PROFILE" == "dual-light" ]]; then
   compose_args+=(-f docker/compose.yaml -f docker/compose.dual-light.yaml)
 else
   compose_args+=(-f docker/compose.yaml)
+fi
+if [[ "$INCLUDE_ASR" == "true" ]]; then
+  compose_args+=(--env-file docker/env/sparkclaw.asr.env)
+  compose_args+=(-f docker/compose.asr.yaml)
 fi
 compose_args+=(--profile models-local up -d "${services[@]}")
 

@@ -243,8 +243,10 @@ const (
 	AssessmentNeedsMoreEvidence AssessmentStatus = "needs_more_evidence"
 	AssessmentBlocked           AssessmentStatus = "blocked"
 
-	CompletionEvidence    CompletionRule = "evidence"
-	CompletionModelAnswer CompletionRule = "model_answer"
+	CompletionEvidence      CompletionRule = "evidence"
+	CompletionModelAnswer   CompletionRule = "model_answer"
+	CompletionDeterministic CompletionRule = "deterministic"
+	CompletionDecision      CompletionRule = "decision"
 
 	WorkflowStatusRunning   WorkflowStatus = "running"
 	WorkflowStatusSucceeded WorkflowStatus = "succeeded"

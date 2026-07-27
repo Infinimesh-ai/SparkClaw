@@ -110,7 +110,7 @@ func (i *EmbeddingIndex) Score(query []float32, eligible map[string]bool, calibr
 			}
 			return 0
 		})
-		count := min(calibration.EmbeddingTopM, len(scores))
+		count := min(calibration.EmbeddingExampleTopM, len(scores))
 		mean := 0.0
 		for _, score := range scores[:count] {
 			mean += score

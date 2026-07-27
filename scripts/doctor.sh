@@ -7,6 +7,35 @@ cd "$ROOT"
 echo "SparkClaw doctor"
 echo "root=$ROOT"
 
+load_dotenv_var() {
+  local name="$1"
+  local line
+  if [[ -n "${!name+x}" || ! -f .env ]]; then
+    return
+  fi
+  line="$(grep -E "^${name}=" .env | tail -n 1 || true)"
+  if [[ -n "$line" ]]; then
+    export "$name=${line#*=}"
+  fi
+}
+
+for name in \
+  SPARKCLAW_WEB_SEARCH_ENABLED \
+  SPARKCLAW_WEB_SEARCH_PROVIDER \
+  SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF \
+  SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE \
+  SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION \
+  SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE \
+  SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF \
+  SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE \
+  SPARKCLAW_TELEGRAM_ENABLED \
+  SPARKCLAW_SPEECH_ENABLED \
+  SPARKCLAW_SPEECH_BASE_URL \
+  SPARKCLAW_SPEECH_MODEL \
+  SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION; do
+  load_dotenv_var "$name"
+done
+
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 if ! "$DOCKER_BIN" ps >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n "$DOCKER_BIN" ps >/dev/null 2>&1; then
   DOCKER_BIN="sudo -n $DOCKER_BIN"
@@ -59,8 +88,26 @@ check_agent_browser_snapshot() {
   trap - RETURN
 }
 
-check "node" node --version
-check "npm" npm --version
+check_npm_install_script_approvals() {
+  npm approve-scripts --allow-scripts-pending --json |
+    node -e '
+      let input = "";
+      process.stdin.on("data", (chunk) => { input += chunk; });
+      process.stdin.on("end", () => {
+        const pending = JSON.parse(input).allowScripts;
+        process.exit(Array.isArray(pending) && pending.length === 0 ? 0 : 1);
+      });
+    '
+}
+
+check "Node.js 26" node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
+check "npm 11" bash -lc '[[ "$(npm --version)" == 11.* ]]'
+check "npm install scripts approved" check_npm_install_script_approvals
+check "Node document dependencies" node -e 'for (const name of ["@mozilla/readability", "jsdom", "exceljs"]) require(name)'
+check "Python 3.12" python3 -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'
+check "pip" python3 -m pip --version
+check "Python document dependencies" python3 -c 'import docx, pptx, pypdf'
+check "repository-private .tools absent" test ! -e "$ROOT/.tools"
 check "agent-browser 0.32.3" bash -lc '[[ "$(./node_modules/.bin/agent-browser --version)" == "agent-browser 0.32.3" ]]'
 CHROMIUM_EXECUTABLE=""
 check "system Chromium" check_system_chromium
@@ -68,16 +115,20 @@ check "agent-browser Chromium snapshot smoke" check_agent_browser_snapshot
 check "curl" curl --version
 check "docker" bash -lc "$DOCKER_BIN --version"
 check "docker compose" bash -lc "$DOCKER_BIN compose version"
-if go version >/tmp/sparkclaw-doctor.out 2>&1; then
-  echo "ok  go"
-else
-  echo "warn go not found on host; checking Docker Go builder"
-  check "go builder" bash -lc "$DOCKER_BIN run --rm golang:1.25-alpine go version"
+GO_BIN="${GO_BIN:-$(command -v go 2>/dev/null || true)}"
+if [[ -z "$GO_BIN" ]]; then
+  echo "err Go 1.25 is required on the host"
+  exit 1
 fi
+check "Go 1.25" bash -lc '[[ "$("$1" version)" == "go version go1.25."* ]]' _ "$GO_BIN"
 
-for dir in data/workspaces data/traces data/artifacts data/logs data/memory data/eval configs docker; do
+for dir in data/workspaces data/traces data/artifacts data/logs data/memory data/eval data/browser-profiles configs docker; do
   if [[ ! -d "$dir" ]]; then
     echo "err missing $dir"
+    exit 1
+  fi
+  if [[ "$dir" == "data/browser-profiles" && ! -w "$dir" ]]; then
+    echo "err $dir is not writable"
     exit 1
   fi
   echo "ok  $dir"
@@ -107,9 +158,18 @@ else
   echo "ok  web search disabled"
 fi
 
-if command -v lsof >/dev/null 2>&1; then
+port_is_listening() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltn "sport = :$port" | grep -q .
+  else
+    lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+  fi
+}
+
+if command -v ss >/dev/null 2>&1 || command -v lsof >/dev/null 2>&1; then
   for port in 18789 18790 18889; do
-    if lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    if port_is_listening "$port"; then
       echo "warn port $port is already in use"
     else
       echo "ok  port $port available"

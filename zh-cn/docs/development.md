@@ -37,22 +37,30 @@ Owner package 不得依赖 Gateway handler 或 WebChat concern。Adapter 实现 
 
 ## 安装
 
-需要 Go 1.25、Node.js 24+、npm 11+，以及标准 sandbox/eval 路径所需 Docker。
+已验证的宿主基线是 Ubuntu ARM64、Go 1.25、Node.js 26、npm 11、Python 3.12
+和 Docker。`.nvmrc`、CI 与 Docker build 都使用 Node 26，使宿主和容器验证保持
+相同主版本。
+
+Go、Node.js、npm、Python 和 pip 应作为宿主机工具安装并可从 `PATH` 访问。所有
+Node 依赖由根 npm workspace 管理，`setup:document-tools` 将 Python 文档库安装到
+宿主用户的标准 site-packages。仓库不再使用 `.tools` runtime 或绑定平台的工具链目录。
 
 ```bash
-npm install
-npm run setup:document-tools
-npm run setup:browser
+npm run setup:host
 ```
 
-在两个 terminal 启动 Gateway 和 WebChat：
+重建并重启当前 external-model/PostgreSQL 开发运行态：
 
 ```bash
-go run ./services/gateway/cmd/sparkclaw -config configs/sparkclaw.default.json
-npm --workspace @sparkclaw/webchat run dev
+npm run dev
 ```
 
-Compose、auth、state backend、DGX Spark model 和运行环境变量见[部署](deployment.md)。
+只重建一个应用容器时，使用 `npm run dev:gateway` 或 `npm run dev:webchat`；
+这两个命令仍保留 external/PostgreSQL 环境，并验证 Gateway readiness。
+
+仅在隔离的 mock/file 与 Vite 调试中直接运行宿主进程，对应命令为
+`npm run dev:gateway:host` 和 `npm run dev:webchat:host`。Compose、auth、
+state backend、DGX Spark model 和运行环境变量见[部署](deployment.md)。
 
 ## 标准验证
 
@@ -92,9 +100,10 @@ malformed 和 authorization failure。
 
 ## Capability 与 Workflow 修改
 
-当前自然语言路径是 semantic graph -> embedding/Fast Tree score -> weighted fusion ->
-reranker -> Top-2 decision -> deterministic route assembly。不要增加 keyword fallback、
-第二套 capability map 或 model-owned `RouteDecision`。见[意图路由](intent-routing.md)。
+当前自然语言路径是 semantic graph -> 为所有 eligible candidate 生成 embedding/Fast Tree
+score -> weighted fusion -> Top-2 decision -> deterministic route assembly。不要增加
+keyword fallback、第二套 capability map 或 model-owned `RouteDecision`。
+见[意图路由](intent-routing.md)。
 
 新增用户可见 capability：
 

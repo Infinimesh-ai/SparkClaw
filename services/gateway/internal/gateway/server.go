@@ -46,6 +46,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
 
+const sseHeartbeatInterval = 15 * time.Second
+
 type Server struct {
 	cfg           config.Config
 	store         store.Store
@@ -995,7 +997,9 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	poll := time.NewTicker(200 * time.Millisecond)
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer poll.Stop()
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
@@ -1016,6 +1020,11 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 			if !sendRuntimeEvents() {
 				return
 			}
+		case <-heartbeat.C:
+			if err := writeSSEHeartbeat(w); err != nil {
+				return
+			}
+			flusher.Flush()
 		case result := <-results:
 			if !sendRuntimeEvents() {
 				return
@@ -1071,9 +1080,9 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	poll := time.NewTicker(750 * time.Millisecond)
-	ping := time.NewTicker(15 * time.Second)
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer poll.Stop()
-	defer ping.Stop()
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
@@ -1082,8 +1091,8 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 			if !send() {
 				return
 			}
-		case <-ping.C:
-			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+		case <-heartbeat.C:
+			if err := writeSSEHeartbeat(w); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -2249,6 +2258,11 @@ func writeNamedSSE(w http.ResponseWriter, name string, value any) error {
 		return err
 	}
 	return nil
+}
+
+func writeSSEHeartbeat(w io.Writer) error {
+	_, err := io.WriteString(w, ": ping\n\n")
+	return err
 }
 
 func lastEventID(events []app.Event) string {

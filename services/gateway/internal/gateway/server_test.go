@@ -674,6 +674,16 @@ func TestSessionEventStreamEmitsSSE(t *testing.T) {
 	}
 }
 
+func TestSSEHeartbeatUsesCommentFrame(t *testing.T) {
+	var heartbeat strings.Builder
+	if err := writeSSEHeartbeat(&heartbeat); err != nil {
+		t.Fatal(err)
+	}
+	if got := heartbeat.String(); got != ": ping\n\n" {
+		t.Fatalf("heartbeat frame = %q", got)
+	}
+}
+
 func TestEmptySessionListEndpointsReturnArrays(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)

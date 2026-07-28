@@ -74,7 +74,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 			run = refreshed
 		}
 	}
-	workflowExecution := reactRunResult{}
+	workflowExecution := workflowExecutionResult{}
 	if run.Workflow.Status == app.WorkflowStatusRunning {
 		hint := profile.Hint(run.Workflow)
 		visibleTools, exposeErr := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run.SessionID), &hint)
@@ -85,7 +85,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
 			run = refreshed
 		}
-		run.State = "reacting"
+		run.State = "executing"
 		run.CompletedAt = nil
 		r.store.SaveRun(run)
 		workflowExecution = r.runWorkflowWithSeed(
@@ -503,7 +503,7 @@ func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDec
 	result := &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
 		OwnerID: ownerID, Authorization: authorization,
-		Status: status, CapabilityPath: nil, Workflow: app.WorkflowContractRef{ID: "react.unmatched", Revision: 1},
+		Status: status, CapabilityPath: nil, Workflow: app.WorkflowContractRef{ID: "legacy.unmatched", Revision: 1},
 		Content:     r.workflowResultContentFromToolCalls(run, summary),
 		ReturnRoute: returnRoute,
 	}

@@ -96,7 +96,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	storedRun, _ = st.GetRun(storedRun.ID)
 	storedRun.State = "approval_pending"
 	st.SaveRun(storedRun)
-	st.SaveModelCall(app.ModelCall{ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "react_step_2", Status: "completed", StartedAt: time.Now().UTC()})
+	st.SaveModelCall(app.ModelCall{ID: app.NewID("mcall"), SessionID: session.ID, RunID: storedRun.ID, Operation: "workflow_step_2", Status: "completed", StartedAt: time.Now().UTC()})
 
 	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "owner approved document copy")
 	if err != nil {
@@ -183,7 +183,7 @@ func TestDocumentEditLocateEvidenceInvokesBoundReaderBeforeModel(t *testing.T) {
 	}
 
 	result := runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
-MOCK_REACT_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"path":"model-path.md","output_path":"model-output.md","expected_replacements":1,"replacements":[{"find":"Original reflection","replace":"Improved reflection"}]}}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"path":"model-path.md","output_path":"model-output.md","expected_replacements":1,"replacements":[{"find":"Original reflection","replace":"Improved reflection"}]}}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
 
 	storedRun, ok := st.GetRun(dispatch.Run.ID)
 	if !ok || storedRun.Workflow == nil {
@@ -200,8 +200,8 @@ MOCK_REACT_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"pa
 		t.Fatalf("document edit did not run one bound read before the editor: %#v", result.ToolCalls)
 	}
 	modelCalls := st.ListModelCalls(session.ID, dispatch.Run.ID)
-	if countModelCalls(modelCalls, "react_step_1", "deep") != 1 ||
-		countModelCalls(modelCalls, "react_step_2", "deep") != 0 ||
+	if countModelCalls(modelCalls, "workflow_step_1", "deep") != 1 ||
+		countModelCalls(modelCalls, "workflow_step_2", "deep") != 0 ||
 		hasModelCallOperation(modelCalls, "workflow_operation_selection", "deep") {
 		t.Fatalf("document localization made an unnecessary model call: %#v", modelCalls)
 	}
@@ -264,7 +264,7 @@ func TestDocumentEditEditorBlocksAfterRepeatedPrematureFinal(t *testing.T) {
 	}
 
 	result := runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, `重新完善 notes.md 的心得与体会
-MOCK_REACT_RESPONSE:{"type":"final","answer":"已经完善。"}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
+MOCK_STEP_RESPONSE:{"type":"final","answer":"已经完善。"}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
 
 	storedRun, ok := st.GetRun(dispatch.Run.ID)
 	if !ok || storedRun.Workflow == nil {
@@ -280,9 +280,9 @@ MOCK_REACT_RESPONSE:{"type":"final","answer":"已经完善。"}`, dispatch.Profi
 		t.Fatalf("direct localization should be the only executed tool: %#v", result.ToolCalls)
 	}
 	modelCalls := st.ListModelCalls(session.ID, dispatch.Run.ID)
-	if countModelCalls(modelCalls, "react_step_1", "deep") != 1 ||
-		countModelCalls(modelCalls, "react_step_2", "deep") != 1 ||
-		countModelCalls(modelCalls, "react_step_3", "deep") != 0 {
+	if countModelCalls(modelCalls, "workflow_step_1", "deep") != 1 ||
+		countModelCalls(modelCalls, "workflow_step_2", "deep") != 1 ||
+		countModelCalls(modelCalls, "workflow_step_3", "deep") != 0 {
 		t.Fatalf("editor protocol retry was not bounded to two calls: %#v", modelCalls)
 	}
 	if result.FinalAnswer != "The workflow is blocked: required tool not called." {

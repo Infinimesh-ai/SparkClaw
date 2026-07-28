@@ -57,7 +57,7 @@ func (snapshot agentContextSnapshot) ForTaskHint() string {
 	return strings.Join(sections, "\n\n")
 }
 
-func (snapshot agentContextSnapshot) ForReAct() string {
+func (snapshot agentContextSnapshot) ForWorkflowStep() string {
 	sections := []string{}
 	if messages := formatContextMessages(snapshot.Messages); messages != "" {
 		sections = append(sections, "Recent conversation:\n"+messages)
@@ -74,13 +74,13 @@ func (snapshot agentContextSnapshot) ForReAct() string {
 	return strings.Join(sections, "\n\n")
 }
 
-func (snapshot agentContextSnapshot) ForReActCompact() string {
+func (snapshot agentContextSnapshot) ForWorkflowStepCompact() string {
 	sections := []string{}
 	if messages := formatContextMessages(tailMessages(snapshot.Messages, 4)); messages != "" {
 		sections = append(sections, "Recent conversation (older context compacted):\n"+messages)
 	}
 	if toolResults := formatContextToolResultsWithLimit(tailToolCalls(snapshot.ToolResults, compactContextToolLimit), compactContextToolSummaryLimit); toolResults != "" {
-		sections = append(sections, "Recent tool results / prior working context (old session context compacted; current ReAct observations are preserved separately):\n"+toolResults)
+		sections = append(sections, "Recent tool results / prior working context (old session context compacted; current workflow step observations are preserved separately):\n"+toolResults)
 	}
 	if images := formatContextImages(snapshot.RecentImages); images != "" {
 		sections = append(sections, "Recent session images available for image understanding or final Markdown media replies:\n"+images)

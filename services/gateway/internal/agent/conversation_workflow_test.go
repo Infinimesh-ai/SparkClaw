@@ -94,7 +94,7 @@ func TestConversationAnswerRunsWithoutToolsOrReActFallback(t *testing.T) {
 		t.Fatalf("simple conversation did not complete through conversation.answer: %#v", result)
 	}
 	if len(result.ToolCalls) != 0 || len(result.Approvals) != 0 || !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_answer", "deep") ||
-		hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+		hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
 		t.Fatalf("conversation.answer used tools, approvals, or ReAct: result=%#v calls=%#v", result, st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.none") || !hasAgentAuditType(st.ListAudit(session.ID), "workflow.model_answer_completed") {

@@ -378,7 +378,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		Fields:    browserLoginBlockRuntimeFields(block, map[string]any{"reply_intent": intent}),
 	})
 
-	run.State = "reacting"
+	run.State = "executing"
 	run.CompletedAt = nil
 	r.store.SaveRun(run)
 	interruptedWorkflowCallID := ""
@@ -525,36 +525,36 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	hint := r.generateTaskHint(ctx, sessionID, run.ID, goal)
 	relevantSkills := r.relevantSkillsForHint(goal, hint)
 	visibleTools := r.visibleToolDefinitions(hint, relevantSkills)
-	reactResult := r.runReActLoopWithSeed(ctx, sessionID, run, goal, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
+	execution := r.runReActLoopWithSeed(ctx, sessionID, run, goal, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
 	toolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
 	approvals := approvalsForRun(r.store.ListApprovals(""), run.ID)
-	if len(reactResult.Approvals) > 0 {
+	if len(execution.Approvals) > 0 {
 		approvals = approvalsForRun(r.store.ListApprovals(""), run.ID)
 	}
 	now = time.Now().UTC()
-	if reactResult.BrowserLoginBlock != nil {
+	if execution.BrowserLoginBlock != nil {
 		run.State = "browser_login_blocked"
 		run.CompletedAt = nil
-	} else if len(reactResult.Approvals) > 0 {
+	} else if len(execution.Approvals) > 0 {
 		run.State = "approval_pending"
 		run.CompletedAt = nil
-	} else if isBlockedFinalAnswer(reactResult.FinalAnswer) {
+	} else if isBlockedFinalAnswer(execution.FinalAnswer) {
 		run.State = "blocked"
 		run.CompletedAt = &now
 	} else {
 		run.State = "completed"
 		run.CompletedAt = &now
 	}
-	run.ModelLane = reactResult.Chat.Lane
-	run.Summary = summarizeRun(reactResult.Chat, reactResult.Observations, reactResult.Approvals)
-	if strings.TrimSpace(reactResult.FinalAnswer) != "" {
-		run.Summary = reactResult.FinalAnswer
-		if len(reactResult.Observations) > 0 || len(reactResult.Approvals) > 0 {
-			run.Summary = summarizeRun(modelrouter.ChatResult{Content: reactResult.FinalAnswer}, reactResult.Observations, reactResult.Approvals)
+	run.ModelLane = execution.Chat.Lane
+	run.Summary = summarizeRun(execution.Chat, execution.Observations, execution.Approvals)
+	if strings.TrimSpace(execution.FinalAnswer) != "" {
+		run.Summary = execution.FinalAnswer
+		if len(execution.Observations) > 0 || len(execution.Approvals) > 0 {
+			run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, execution.Observations, execution.Approvals)
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, goal, run.Summary, toolCalls)
-	if emit != nil && len(reactResult.Approvals) == 0 && reactResult.BrowserLoginBlock == nil && !isBlockedFinalAnswer(reactResult.FinalAnswer) {
+	if emit != nil && len(execution.Approvals) == 0 && execution.BrowserLoginBlock == nil && !isBlockedFinalAnswer(execution.FinalAnswer) {
 		_ = emitCompletedFinalAnswer(run, "legacy_react_answer", run.Summary, emit)
 	}
 	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
@@ -572,7 +572,7 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		Content:   run.Summary,
 		CreatedAt: now,
 	})
-	r.writeTrace(ctx, run, reactResult.Chat, toolCalls, approvals, feedback, &episode)
+	r.writeTrace(ctx, run, execution.Chat, toolCalls, approvals, feedback, &episode)
 	return Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}, true, nil
 }
 

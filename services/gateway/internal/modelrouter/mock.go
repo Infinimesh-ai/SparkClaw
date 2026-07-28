@@ -44,7 +44,7 @@ func mockResponse(lane, user string) string {
 	if injected := mockInjectedResponse(user, "MOCK_TASK_HINT_RESPONSE:"); injected != "" {
 		return injected
 	}
-	if strings.Contains(user, "REACT_OUTPUT_REQUEST") {
+	if strings.Contains(user, "WORKFLOW_STEP_REQUEST") {
 		lower := strings.ToLower(user)
 		for _, stage := range []struct {
 			tool   string
@@ -61,11 +61,11 @@ func mockResponse(lane, user string) string {
 			}
 		}
 	}
-	if injected := mockInjectedResponse(user, "MOCK_REACT_RESPONSE:"); injected != "" {
+	if injected := mockInjectedResponse(user, "MOCK_STEP_RESPONSE:"); injected != "" {
 		return injected
 	}
-	if strings.Contains(user, "REACT_OUTPUT_REQUEST") {
-		return mockReActResponse(user)
+	if strings.Contains(user, "WORKFLOW_STEP_REQUEST") {
+		return mockWorkflowStepResponse(user)
 	}
 	lower := strings.ToLower(user)
 	switch {
@@ -82,8 +82,8 @@ func mockResponse(lane, user string) string {
 	}
 }
 
-func mockReActResponse(user string) string {
-	goal := mockReActGoal(user)
+func mockWorkflowStepResponse(user string) string {
+	goal := mockWorkflowStepGoal(user)
 	lowerGoal := strings.ToLower(goal)
 	lowerPrompt := strings.ToLower(user)
 	if stage := mockBrowserInteractionStage(lowerPrompt); stage != "" {
@@ -91,43 +91,43 @@ func mockReActResponse(user string) string {
 	}
 	switch {
 	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: browser.list_tabs") && !strings.Contains(lowerPrompt, "browser.list_tabs observation"):
-		return mockReActAction("browser.list_tabs", map[string]any{})
+		return mockWorkflowStepAction("browser.list_tabs", map[string]any{})
 	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: browser.focus") && !strings.Contains(lowerPrompt, "browser.focus observation"):
-		return mockReActAction("browser.focus", map[string]any{"page_id": mockWorkflowPageID(user)})
+		return mockWorkflowStepAction("browser.focus", map[string]any{"page_id": mockWorkflowPageID(user)})
 	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: browser.open") && !strings.Contains(lowerPrompt, "browser.open observation"):
 		urls := mockURLs(goal)
 		if len(urls) > 0 {
-			return mockReActAction("browser.open", map[string]any{"url": urls[0]})
+			return mockWorkflowStepAction("browser.open", map[string]any{"url": urls[0]})
 		}
 	}
 	if strings.Contains(lowerPrompt, "previous observation summaries") {
 		if strings.Contains(lowerPrompt, "workflow_requirement: source_page_required") && !strings.Contains(lowerPrompt, "browser.read observation") {
 			urls := mockURLs(user)
 			if len(urls) > 0 {
-				return mockReActAction("browser.read", map[string]any{"url": urls[0]})
+				return mockWorkflowStepAction("browser.read", map[string]any{"url": urls[0]})
 			}
 		}
 		if strings.Contains(lowerGoal, "failing test") || strings.Contains(lowerGoal, "failed test") {
 			if strings.Contains(lowerPrompt, "files.search observation") {
-				return mockReActAction("shell.exec_sandboxed", map[string]any{"command": "npm test"})
+				return mockWorkflowStepAction("shell.exec_sandboxed", map[string]any{"command": "npm test"})
 			}
-			return mockReActAction("files.search", map[string]any{"query": "test"})
+			return mockWorkflowStepAction("files.search", map[string]any{"query": "test"})
 		}
 		if strings.Contains(lowerGoal, "compare") {
 			paths := mockPaths(goal)
 			readCount := strings.Count(lowerPrompt, "files.read observation")
 			if readCount < len(paths) {
-				return mockReActAction("files.read", map[string]any{"path": paths[readCount]})
+				return mockWorkflowStepAction("files.read", map[string]any{"path": paths[readCount]})
 			}
 		}
 		if strings.Contains(lowerPrompt, "browser.read observation") && strings.Contains(lowerGoal, "compare") && strings.Count(lowerPrompt, "browser.read observation") < 2 {
 			urls := mockURLs(goal)
 			if len(urls) > 1 {
-				return mockReActAction("browser.read", map[string]any{"url": urls[1]})
+				return mockWorkflowStepAction("browser.read", map[string]any{"url": urls[1]})
 			}
 		}
 		if strings.Contains(lowerPrompt, "browser.type") && (strings.Contains(lowerGoal, "截图") || strings.Contains(lowerGoal, "screenshot")) && !strings.Contains(lowerPrompt, "browser.screenshot") {
-			return mockReActAction("browser.screenshot", map[string]any{})
+			return mockWorkflowStepAction("browser.screenshot", map[string]any{})
 		}
 		if strings.Contains(lowerGoal, "detail") && strings.Contains(lowerPrompt, "web.search observation") {
 			return `{"type":"final","answer":"I reviewed the observed web search evidence and prepared the bounded answer."}`
@@ -136,37 +136,37 @@ func mockReActResponse(user string) string {
 	}
 	switch {
 	case (strings.Contains(lowerGoal, "输入") || strings.Contains(lowerGoal, "type")) && (strings.Contains(lowerGoal, "截图") || strings.Contains(lowerGoal, "screenshot")):
-		return mockReActAction("browser.type", map[string]any{"text": "苹果"})
+		return mockWorkflowStepAction("browser.type", map[string]any{"text": "苹果"})
 	case strings.Contains(lowerGoal, "apply patch"):
-		return mockReActAction("code.apply_patch", map[string]any{"patch": mockPatch(goal)})
+		return mockWorkflowStepAction("code.apply_patch", map[string]any{"patch": mockPatch(goal)})
 	case strings.Contains(lowerGoal, "inspect repo"):
 		if strings.Contains(lowerGoal, "failing test") || strings.Contains(lowerGoal, "failed test") {
-			return mockReActAction("files.search", map[string]any{"query": "test"})
+			return mockWorkflowStepAction("files.search", map[string]any{"query": "test"})
 		}
-		return mockReActAction("files.search", map[string]any{"query": "repo"})
+		return mockWorkflowStepAction("files.search", map[string]any{"query": "repo"})
 	case strings.Contains(lowerGoal, "shell command") || strings.Contains(lowerGoal, "run tests"):
-		return mockReActAction("shell.exec_sandboxed", map[string]any{"command": mockShellCommand(goal)})
+		return mockWorkflowStepAction("shell.exec_sandboxed", map[string]any{"command": mockShellCommand(goal)})
 	case strings.Contains(lowerGoal, "remember"):
-		return mockReActAction("memory.write_candidate", map[string]any{
+		return mockWorkflowStepAction("memory.write_candidate", map[string]any{
 			"content":     goal,
 			"kind":        "note",
 			"sensitivity": "normal",
 			"reason":      "User asked SparkClaw to remember this.",
 		})
 	case len(mockURLs(goal)) > 0:
-		return mockReActAction("browser.read", map[string]any{"url": mockURLs(goal)[0]})
+		return mockWorkflowStepAction("browser.read", map[string]any{"url": mockURLs(goal)[0]})
 	case strings.Contains(lowerGoal, "web") || strings.Contains(lowerGoal, "internet") || strings.Contains(lowerGoal, "news") || strings.Contains(lowerGoal, "latest") || strings.Contains(lowerGoal, "today") || strings.Contains(lowerGoal, "search online") || strings.Contains(lowerGoal, "网上") || strings.Contains(lowerGoal, "联网") || strings.Contains(lowerGoal, "查一下") || strings.Contains(lowerGoal, "最新"):
-		return mockReActAction("web.search", map[string]any{"query": mockSearchQuery(goal)})
+		return mockWorkflowStepAction("web.search", map[string]any{"query": mockSearchQuery(goal)})
 	case strings.Contains(lowerGoal, "compare"):
 		paths := mockPaths(goal)
 		if len(paths) > 0 {
-			return mockReActAction("files.read", map[string]any{"path": paths[0]})
+			return mockWorkflowStepAction("files.read", map[string]any{"path": paths[0]})
 		}
-		return mockReActAction("files.search", map[string]any{"query": mockSearchQuery(goal)})
+		return mockWorkflowStepAction("files.search", map[string]any{"query": mockSearchQuery(goal)})
 	case strings.Contains(lowerGoal, "search") || strings.Contains(lowerGoal, "find"):
-		return mockReActAction("files.search", map[string]any{"query": mockSearchQuery(goal)})
+		return mockWorkflowStepAction("files.search", map[string]any{"query": mockSearchQuery(goal)})
 	case strings.Contains(lowerGoal, "read") || strings.Contains(lowerGoal, "summarize"):
-		return mockReActAction("files.read", map[string]any{"path": mockPath(goal)})
+		return mockWorkflowStepAction("files.read", map[string]any{"path": mockPath(goal)})
 	default:
 		return `{"type":"final","answer":"I can answer this directly from the current conversation."}`
 	}
@@ -193,26 +193,26 @@ func mockBrowserInteractionStage(prompt string) string {
 func mockBrowserInteractionAction(prompt, goal, stage string) string {
 	switch stage {
 	case "health_check":
-		return mockReActAction("browser.status", map[string]any{})
+		return mockWorkflowStepAction("browser.status", map[string]any{})
 	case "scan_tabs":
-		return mockReActAction("browser.list_tabs", map[string]any{})
+		return mockWorkflowStepAction("browser.list_tabs", map[string]any{})
 	case "focus_existing":
-		return mockReActAction("browser.focus", map[string]any{"page_id": mockWorkflowPageID(prompt)})
+		return mockWorkflowStepAction("browser.focus", map[string]any{"page_id": mockWorkflowPageID(prompt)})
 	case "navigate_blank":
 		urls := mockURLs(goal)
 		if len(urls) > 0 {
-			return mockReActAction("browser.navigate", map[string]any{"page_id": mockWorkflowPageID(prompt), "url": urls[0]})
+			return mockWorkflowStepAction("browser.navigate", map[string]any{"page_id": mockWorkflowPageID(prompt), "url": urls[0]})
 		}
 	case "open_new":
 		urls := mockURLs(goal)
 		if len(urls) > 0 {
-			return mockReActAction("browser.open", map[string]any{"url": urls[0]})
+			return mockWorkflowStepAction("browser.open", map[string]any{"url": urls[0]})
 		}
 	case "snapshot_before_action", "snapshot_after_action":
-		return mockReActAction("browser.snapshot", map[string]any{})
+		return mockWorkflowStepAction("browser.snapshot", map[string]any{})
 	case "choose_and_click":
 		snapshotID, pageID, elementRef := mockLatestBrowserSnapshot(prompt)
-		return mockReActAction("browser.click", map[string]any{
+		return mockWorkflowStepAction("browser.click", map[string]any{
 			"page_id": pageID, "snapshot_id": snapshotID, "uid": elementRef,
 			"expected_effect": "Advance the frozen browser interaction goal.",
 		})
@@ -226,7 +226,7 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 		if clicked == "" {
 			_, _, clicked = mockLatestBrowserSnapshot(prompt)
 		}
-		return mockReActAction("browser.verify", map[string]any{
+		return mockWorkflowStepAction("browser.verify", map[string]any{
 			"before_snapshot_id": beforeID, "after_snapshot_id": afterID,
 			"element_ref": clicked, "verdict": "success", "reason": "The requested click produced a verified page-state change.",
 		})
@@ -301,17 +301,17 @@ func mockWorkflowPageID(prompt string) string {
 	return strings.TrimSpace(value)
 }
 
-func mockReActAction(tool string, args map[string]any) string {
+func mockWorkflowStepAction(tool string, args map[string]any) string {
 	raw, _ := json.Marshal(map[string]any{
 		"type":      "action",
 		"tool":      tool,
 		"arguments": args,
-		"reason":    "mock ReAct action for test coverage",
+		"reason":    "mock workflow step action for test coverage",
 	})
 	return string(raw)
 }
 
-func mockReActGoal(user string) string {
+func mockWorkflowStepGoal(user string) string {
 	marker := "User goal:"
 	idx := strings.Index(user, marker)
 	if idx < 0 {

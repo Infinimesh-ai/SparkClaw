@@ -65,8 +65,8 @@ func (conversationAnswerProfile) TransitionInstruction(app.ToolOutcome, app.Node
 	return ""
 }
 
-func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string, emit StreamHandler) reactRunResult {
-	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForReActCompact()
+func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string, emit StreamHandler) workflowExecutionResult {
+	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForWorkflowStepCompact()
 	system := strings.Join([]string{
 		conversationAnswerSystemPrompt(run.MessageContext),
 		finalAnswerLanguageInstruction(finalAnswerGoal(run, content)),
@@ -83,13 +83,13 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 	completed := time.Now().UTC()
 	r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed))
 	if err != nil {
-		return reactRunResult{Chat: chat, FinalAnswer: "The conversation answer model was unavailable: " + err.Error(), FinalAnswerStreamed: emit != nil}
+		return workflowExecutionResult{Chat: chat, FinalAnswer: "The conversation answer model was unavailable: " + err.Error(), FinalAnswerStreamed: emit != nil}
 	}
 	answer, answerErr := workflowFinalAnswerContent(chat.Content)
 	if answerErr != nil {
-		return reactRunResult{Chat: chat, FinalAnswer: "The conversation answer model returned no usable answer: " + answerErr.Error(), FinalAnswerStreamed: emit != nil}
+		return workflowExecutionResult{Chat: chat, FinalAnswer: "The conversation answer model returned no usable answer: " + answerErr.Error(), FinalAnswerStreamed: emit != nil}
 	}
-	return reactRunResult{Chat: chat, FinalAnswer: answer, FinalAnswerStreamed: emit != nil, Completed: true}
+	return workflowExecutionResult{Chat: chat, FinalAnswer: answer, FinalAnswerStreamed: emit != nil, Completed: true}
 }
 
 func conversationAnswerSystemPrompt(messageContext *app.MessageRunContext) string {

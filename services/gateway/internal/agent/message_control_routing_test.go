@@ -363,7 +363,7 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 		SessionID: session.ID, RunID: run.ID, Role: "user", Content: "Replace a paragraph in note.docx", CreatedAt: dispatch.Run.StartedAt,
 	})
 	st.SaveModelCall(app.ModelCall{
-		ID: "mc_document_edit", SessionID: session.ID, RunID: run.ID, Operation: "react_step_1", Status: "completed", StartedAt: dispatch.Run.StartedAt,
+		ID: "mc_document_edit", SessionID: session.ID, RunID: run.ID, Operation: "workflow_step_1", Status: "completed", StartedAt: dispatch.Run.StartedAt,
 	})
 	dispatch.Run.State = "approval_pending"
 	st.SaveRun(dispatch.Run)
@@ -421,7 +421,7 @@ func routedMessage(t *testing.T, runtime Runtime, goal string, directive Deliver
 	_ = runtime
 	_ = directive
 	return goal + `
-MOCK_REACT_RESPONSE:{"type":"final","answer":"Prepared result."}`
+MOCK_STEP_RESPONSE:{"type":"final","answer":"Prepared result."}`
 }
 
 func defaultWorkflowRuntime(t *testing.T) (Runtime, *store.MemoryStore, app.Session) {

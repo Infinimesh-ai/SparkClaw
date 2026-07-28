@@ -548,27 +548,27 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 }
 
-func (r Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition) reactRunResult {
+func (r Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition) workflowExecutionResult {
 	return r.runWorkflowWithSeed(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil)
 }
 
-func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, emit StreamHandler) reactRunResult {
+func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {
 	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil, emit)
 }
 
-func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) reactRunResult {
+func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
 	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, hint, visibleTools, seedCalls, seedObservations, nil)
 }
 
-func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) reactRunResult {
+func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) workflowExecutionResult {
 	actorRef := r.workflowActorRef(sessionID)
 	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
 	allObservations := append([]string(nil), seedObservations...)
-	latest := reactRunResult{}
+	latest := workflowExecutionResult{}
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
-		stageResult := reactRunResult{}
+		stageResult := workflowExecutionResult{}
 		if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
 		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {
@@ -728,8 +728,8 @@ func activeWorkflowNodeUsesDirectToolOnce(state *app.WorkflowState) bool {
 	return ok && node.InvocationMode == app.WorkflowInvocationDirectOnce
 }
 
-func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string) reactRunResult {
-	result := reactRunResult{Observations: append([]string(nil), observations...)}
+func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string) workflowExecutionResult {
+	result := workflowExecutionResult{Observations: append([]string(nil), observations...)}
 	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 || len(visibleTools) != 1 ||
 		hint.WorkflowID != run.Workflow.Plan.ProfileID || hint.WorkflowNodeID != run.Workflow.ActiveNodeIDs[0] || hint.ScopeRevision <= 0 {
 		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid

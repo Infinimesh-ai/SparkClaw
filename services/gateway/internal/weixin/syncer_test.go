@@ -260,7 +260,7 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 						"context_token": "ctx-a",
 						"create_time": 1782800000,
 						"item_list": [
-							{"type": 1, "text_item": {"text": "你好A\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"回复A\"}"}}
+							{"type": 1, "text_item": {"text": "你好A\nMOCK_STEP_RESPONSE:{\"type\":\"final\",\"answer\":\"回复A\"}"}}
 						]
 					},
 					{
@@ -269,7 +269,7 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 						"context_token": "ctx-b",
 						"create_time": 1782800001,
 						"item_list": [
-							{"type": 1, "text_item": {"text": "你好B\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"回复B\"}"}}
+							{"type": 1, "text_item": {"text": "你好B\nMOCK_STEP_RESPONSE:{\"type\":\"final\",\"answer\":\"回复B\"}"}}
 						]
 					}
 				]
@@ -380,7 +380,7 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 						"context_token": "ctx-1",
 						"create_time": 1782800000,
 						"item_list": [
-							{"type": 1, "text_item": {"text": "查询上海天气\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"![天气卡片](media/20260702/weather.png)\"}"}}
+							{"type": 1, "text_item": {"text": "查询上海天气\nMOCK_STEP_RESPONSE:{\"type\":\"final\",\"answer\":\"![天气卡片](media/20260702/weather.png)\"}"}}
 						]
 					}
 				]
@@ -524,7 +524,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 						"context_token": "ctx-1",
 						"create_time": 1782800000,
 						"item_list": [
-							{"type": 1, "text_item": {"text": "你好\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"回复\"}"}}
+							{"type": 1, "text_item": {"text": "你好\nMOCK_STEP_RESPONSE:{\"type\":\"final\",\"answer\":\"回复\"}"}}
 						]
 					}
 				]
@@ -633,7 +633,7 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 							"context_token": "ctx-` + user + `",
 							"create_time": 1782800000,
 							"item_list": [
-								{"type": 1, "text_item": {"text": "你好\nMOCK_REACT_RESPONSE:{\"type\":\"final\",\"answer\":\"回复\"}"}}
+								{"type": 1, "text_item": {"text": "你好\nMOCK_STEP_RESPONSE:{\"type\":\"final\",\"answer\":\"回复\"}"}}
 							]
 						}
 					]

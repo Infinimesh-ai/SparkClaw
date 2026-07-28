@@ -311,20 +311,20 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		return result, nil
 	}
 	run = dispatch.Run
-	run.State = "reacting"
+	run.State = "executing"
 	r.store.SaveRun(run)
 
-	reactResult := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Hint, dispatch.Tools, emit)
+	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Hint, dispatch.Tools, emit)
 	if refreshed, ok := r.store.GetRun(run.ID); ok {
 		run = refreshed
 	}
-	toolCalls := reactResult.ToolCalls
-	approvals := reactResult.Approvals
-	observations := reactResult.Observations
+	toolCalls := execution.ToolCalls
+	approvals := execution.Approvals
+	observations := execution.Observations
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
 
 	now := time.Now().UTC()
-	if reactResult.BrowserLoginBlock != nil {
+	if execution.BrowserLoginBlock != nil {
 		run.State = "browser_login_blocked"
 		run.CompletedAt = nil
 	} else if len(approvals) > 0 {
@@ -333,23 +333,23 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	} else if run.Workflow != nil && run.Workflow.Status == app.WorkflowStatusBlocked {
 		run.State = "blocked"
 		run.CompletedAt = &now
-	} else if isBlockedFinalAnswer(reactResult.FinalAnswer) {
+	} else if isBlockedFinalAnswer(execution.FinalAnswer) {
 		run.State = "blocked"
 		run.CompletedAt = &now
 	} else {
 		run.State = "completed"
 		run.CompletedAt = &now
 	}
-	run.ModelLane = reactResult.Chat.Lane
-	run.Summary = summarizeRun(reactResult.Chat, observations, approvals)
-	if strings.TrimSpace(reactResult.FinalAnswer) != "" {
-		run.Summary = reactResult.FinalAnswer
+	run.ModelLane = execution.Chat.Lane
+	run.Summary = summarizeRun(execution.Chat, observations, approvals)
+	if strings.TrimSpace(execution.FinalAnswer) != "" {
+		run.Summary = execution.FinalAnswer
 		if len(observations) > 0 || len(approvals) > 0 {
-			run.Summary = summarizeRun(modelrouter.ChatResult{Content: reactResult.FinalAnswer}, observations, approvals)
+			run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, observations, approvals)
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
-	if emit != nil && !reactResult.FinalAnswerStreamed && len(approvals) == 0 && reactResult.BrowserLoginBlock == nil && !isBlockedFinalAnswer(reactResult.FinalAnswer) {
+	if emit != nil && !execution.FinalAnswerStreamed && len(approvals) == 0 && execution.BrowserLoginBlock == nil && !isBlockedFinalAnswer(execution.FinalAnswer) {
 		if err := emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit); err != nil {
 			r.store.AddAudit(app.AuditEvent{
 				SessionID: sessionID,
@@ -384,7 +384,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		CreatedAt: now,
 	}, workflowResult)
 	assistant := r.store.AddMessage(assistantMessage)
-	r.writeTrace(ctx, run, reactResult.Chat, allToolCalls, allApprovals, feedback, &episode)
+	r.writeTrace(ctx, run, execution.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}
 	return result, nil
 }
@@ -440,7 +440,7 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 
 	seedCalls := completedToolCallsForResume(toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID))
 	seedObservations := observationsForResume(seedCalls)
-	if len(seedCalls) == 0 || !hasReActModelCall(r.store.ListModelCalls(sessionID, run.ID)) {
+	if len(seedCalls) == 0 || !hasWorkflowStepModelCall(r.store.ListModelCalls(sessionID, run.ID)) {
 		return Result{}, false, nil
 	}
 	if run.Workflow != nil {
@@ -488,7 +488,7 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		SessionID: sessionID,
 		RunID:     run.ID,
 		Actor:     "runtime",
-		Type:      "react.resume_after_approval",
+		Type:      "workflow_step.resume_after_approval",
 		Summary:   "Resuming ReAct run after approved action",
 		Fields: map[string]any{
 			"tools":                    visibleToolNames(visibleTools),
@@ -502,36 +502,36 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		},
 	})
 
-	run.State = "reacting"
+	run.State = "executing"
 	run.CompletedAt = nil
 	r.store.SaveRun(run)
 
-	reactResult := r.runReActLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
-	toolCalls := reactResult.ToolCalls
-	approvals := reactResult.Approvals
-	observations := reactResult.Observations
+	execution := r.runReActLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
+	toolCalls := execution.ToolCalls
+	approvals := execution.Approvals
+	observations := execution.Observations
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
 
 	now := time.Now().UTC()
-	if reactResult.BrowserLoginBlock != nil {
+	if execution.BrowserLoginBlock != nil {
 		run.State = "browser_login_blocked"
 		run.CompletedAt = nil
 	} else if len(approvals) > 0 {
 		run.State = "approval_pending"
 		run.CompletedAt = nil
-	} else if isBlockedFinalAnswer(reactResult.FinalAnswer) {
+	} else if isBlockedFinalAnswer(execution.FinalAnswer) {
 		run.State = "blocked"
 		run.CompletedAt = &now
 	} else {
 		run.State = "completed"
 		run.CompletedAt = &now
 	}
-	run.ModelLane = reactResult.Chat.Lane
-	run.Summary = summarizeRun(reactResult.Chat, observations, approvals)
-	if strings.TrimSpace(reactResult.FinalAnswer) != "" {
-		run.Summary = reactResult.FinalAnswer
+	run.ModelLane = execution.Chat.Lane
+	run.Summary = summarizeRun(execution.Chat, observations, approvals)
+	if strings.TrimSpace(execution.FinalAnswer) != "" {
+		run.Summary = execution.FinalAnswer
 		if len(observations) > 0 || len(approvals) > 0 {
-			run.Summary = summarizeRun(modelrouter.ChatResult{Content: reactResult.FinalAnswer}, observations, approvals)
+			run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, observations, approvals)
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, content, run.Summary, currentToolCalls)
@@ -563,7 +563,7 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 		CreatedAt: now,
 	}, presentationResult)
 	assistant := r.store.AddMessage(assistantMessage)
-	r.writeTrace(ctx, run, reactResult.Chat, currentToolCalls, allApprovals, feedback, &episode)
+	r.writeTrace(ctx, run, execution.Chat, currentToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
@@ -620,7 +620,7 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 		SessionID: sessionID,
 		RunID:     run.ID,
 		Actor:     "runtime",
-		Type:      "react.resume_terminal_action",
+		Type:      "workflow_step.resume_terminal_action",
 		Summary:   "Completed run after approved terminal action",
 		Fields: map[string]any{
 			"tool": last.Tool,
@@ -917,9 +917,10 @@ func observationsForResume(calls []app.ToolCall) []string {
 	return out
 }
 
-func hasReActModelCall(calls []app.ModelCall) bool {
+func hasWorkflowStepModelCall(calls []app.ModelCall) bool {
 	for _, call := range calls {
-		if strings.HasPrefix(call.Operation, "react_step_") {
+		// "react_step_" covers runs persisted before the workflow-step rename.
+		if strings.HasPrefix(call.Operation, "workflow_step_") || strings.HasPrefix(call.Operation, "react_step_") {
 			return true
 		}
 	}

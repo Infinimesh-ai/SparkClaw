@@ -16,11 +16,11 @@ func TestWorkflowModelStepForcesDeepWithoutChangingFallbackLane(t *testing.T) {
 	workflowResult := runtime.runWorkflowModelStep(
 		t.Context(), session.ID, workflowRun,
 		`workflow goal
-MOCK_REACT_RESPONSE:{"type":"final","answer":"done"}`,
+MOCK_STEP_RESPONSE:{"type":"final","answer":"done"}`,
 		TaskHint{WorkflowID: app.WorkflowBrowserInternetSearch, ModelLaneHint: "fast"}, nil, nil, nil,
 	)
 	if workflowResult.Chat.Lane != workflowExecutionModelLane ||
-		!hasModelCallOperation(st.ListModelCalls(session.ID, workflowRun.ID), "react_step_1", workflowExecutionModelLane) {
+		!hasModelCallOperation(st.ListModelCalls(session.ID, workflowRun.ID), "workflow_step_1", workflowExecutionModelLane) {
 		t.Fatalf("workflow execution did not force the deep lane: result=%#v calls=%#v", workflowResult.Chat, st.ListModelCalls(session.ID, workflowRun.ID))
 	}
 
@@ -29,11 +29,11 @@ MOCK_REACT_RESPONSE:{"type":"final","answer":"done"}`,
 	fallbackResult := runtime.runReActLoop(
 		t.Context(), session.ID, fallbackRun,
 		`fallback goal
-MOCK_REACT_RESPONSE:{"type":"final","answer":"done"}`,
+MOCK_STEP_RESPONSE:{"type":"final","answer":"done"}`,
 		TaskHint{ModelLaneHint: "fast"}, nil, nil,
 	)
 	if fallbackResult.Chat.Lane != "fast" ||
-		!hasModelCallOperation(st.ListModelCalls(session.ID, fallbackRun.ID), "react_step_1", "fast") {
+		!hasModelCallOperation(st.ListModelCalls(session.ID, fallbackRun.ID), "workflow_step_1", "fast") {
 		t.Fatalf("unmatched fallback lane changed: result=%#v calls=%#v", fallbackResult.Chat, st.ListModelCalls(session.ID, fallbackRun.ID))
 	}
 }

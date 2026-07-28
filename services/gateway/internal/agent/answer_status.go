@@ -12,7 +12,7 @@ const (
 	blockedAnswerTaskIncomplete   = "任务没有完成"
 	blockedAnswerCannotComplete   = "无法完成"
 	blockedAnswerCouldNotContinue = "I could not continue"
-	blockedAnswerStepLimit        = "Reached the ReAct step limit"
+	blockedAnswerStepLimit        = "Reached the workflow step limit"
 	blockedAnswerWaitingApproval  = "waiting for approval"
 	blockedAnswerPendingApproval  = "pending approval"
 )

@@ -511,7 +511,7 @@ func TestBrowserInteractionConsequentialClicksFailRoutingClosed(t *testing.T) {
 func TestWorkflowPromptContextKeepsStageAndProvidedToolList(t *testing.T) {
 	hint := TaskHint{WorkflowID: app.WorkflowBrowserInteraction, Reason: "workflow_stage: verify_action. Verify before another click."}
 	tools := []app.ToolDefinition{{Name: "browser.snapshot"}, {Name: "browser.click"}, {Name: "browser.verify"}}
-	prompt := appendWorkflowReActContext("REACT_OUTPUT_REQUEST", hint, tools)
+	prompt := appendWorkflowStepContext("WORKFLOW_STEP_REQUEST", hint, tools)
 	for _, expected := range []string{"workflow_stage: verify_action", "browser.snapshot", "browser.click", "browser.verify"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("workflow prompt context lost %q: %s", expected, prompt)

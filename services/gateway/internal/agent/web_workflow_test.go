@@ -116,7 +116,7 @@ MOCK_CONVERSATION_RESPONSE:巴黎。`
 		result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer || result.Message.Content != "巴黎。" {
 		t.Fatalf("deterministic conversation route was downgraded by Fast: %#v", result)
 	}
-	if hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
 		t.Fatalf("conversation answer entered ReAct: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	for _, call := range toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID) {
@@ -221,7 +221,7 @@ func TestBrowserSearchRouteDispatchesRealWebSearchWorkflow(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, frozenQuery+`
-MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+frozenQuery+`"}}`)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+frozenQuery+`"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestCurrentGoldPriceRouteCompletesThroughBoundedInfoEvidence(t *testing.T) 
 		t.Fatal(err)
 	}
 	runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
-MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"今日金价"}}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"今日金价"}}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
 	run, ok := st.GetRun(run.ID)
 	if !ok || run.Workflow == nil || run.Workflow.Status != app.WorkflowStatusSucceeded || run.Workflow.Plan.ProfileID != app.WorkflowBrowserInternetSearch {
 		t.Fatalf("gold route did not complete its fixed search Workflow: %#v", run.Workflow)
@@ -380,7 +380,7 @@ func TestBrowserSearchWorkflowUsesCanonicalQueryInsteadOfModelRewrite(t *testing
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `今天杭州新闻
-MOCK_REACT_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"完全不同的查询","freshness":"today","max_results":5}}`)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"完全不同的查询","freshness":"today","max_results":5}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -671,7 +671,7 @@ func TestDocumentInformationRouteDispatchesRealFileRead(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `Summarize the document note.txt
-MOCK_REACT_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"note.txt"}}`)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"note.txt"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,7 +688,7 @@ func TestWebChatImageAttachmentRunsImageInspectWorkflow(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessageWithAttachments(context.Background(), session.ID, `这张图片什么内容
-MOCK_REACT_RESPONSE:{"type":"action","tool":"images.inspect","arguments":{"path":"media/20260721/test.png"}}`, []MessageAttachment{{
+MOCK_STEP_RESPONSE:{"type":"action","tool":"images.inspect","arguments":{"path":"media/20260721/test.png"}}`, []MessageAttachment{{
 		Name: "test.png", RelPath: relPath, ContentType: "image/png", Bytes: 74, Width: 2, Height: 2, Source: "web_upload",
 	}})
 	if err != nil {
@@ -861,7 +861,7 @@ func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
 		if result.WorkflowResult == nil || result.WorkflowResult.Status != test.want || len(result.ToolCalls) != 0 {
 			t.Fatalf("terminal route %q returned the wrong result: %#v", test.status, result)
 		}
-		if hasReActModelCall(st.ListModelCalls(session.ID, run.ID)) {
+		if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, run.ID)) {
 			t.Fatalf("terminal route %q entered ReAct fallback", test.status)
 		}
 	}
@@ -880,7 +880,7 @@ func TestUnmatchedRouteBlocksWithoutReActFallback(t *testing.T) {
 	if result.Run.State != "blocked" || result.WorkflowResult == nil || result.WorkflowResult.Workflow.ID != "router.blocked" || result.WorkflowResult.Status != app.WorkflowResultBlocked {
 		t.Fatalf("unmatched route did not produce a blocked router result: %#v", result)
 	}
-	if hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "react.visible_tools") {
+	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.visible_tools") {
 		t.Fatalf("unmatched request invoked a removed ReAct fallback: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
 	}
 }
@@ -898,7 +898,7 @@ func TestMatchedDispatchFailureReturnsFailedWorkflowResultWithoutFallback(t *tes
 	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultFailed || result.WorkflowResult.Workflow.ID != app.WorkflowBrowserSearch {
 		t.Fatalf("matched setup failure did not return the leaf WorkflowResult: %#v", result.WorkflowResult)
 	}
-	if hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
 		t.Fatalf("matched workflow failure entered ReAct fallback: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 }
@@ -1090,7 +1090,7 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 	}
 	foundWorkflowStep := false
 	for _, call := range modelCalls {
-		if !strings.HasPrefix(call.Operation, "react_step_") {
+		if !strings.HasPrefix(call.Operation, "workflow_step_") {
 			continue
 		}
 		foundWorkflowStep = true

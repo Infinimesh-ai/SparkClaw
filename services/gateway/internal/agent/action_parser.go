@@ -8,10 +8,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-func parseReActOutput(content string, visible []app.ToolDefinition) (reactOutput, error) {
+func parseWorkflowStepOutput(content string, visible []app.ToolDefinition) (workflowStepOutput, error) {
 	raw := extractJSONObject(content)
 	if raw == "" {
-		return reactOutput{}, fmt.Errorf("react output is not a JSON object")
+		return workflowStepOutput{}, fmt.Errorf("workflow step output is not a JSON object")
 	}
 	var envelope struct {
 		Type      string         `json:"type"`
@@ -21,23 +21,23 @@ func parseReActOutput(content string, visible []app.ToolDefinition) (reactOutput
 		Answer    string         `json:"answer"`
 	}
 	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
-		return reactOutput{}, fmt.Errorf("react output JSON parse failed: %w", err)
+		return workflowStepOutput{}, fmt.Errorf("workflow step output JSON parse failed: %w", err)
 	}
 	switch strings.ToLower(strings.TrimSpace(envelope.Type)) {
 	case "action":
 		tool := strings.TrimSpace(envelope.Tool)
 		if tool == "" {
-			return reactOutput{}, fmt.Errorf("react action missing tool")
+			return workflowStepOutput{}, fmt.Errorf("workflow step action missing tool")
 		}
 		if !toolVisible(tool, visible) {
-			return reactOutput{}, fmt.Errorf("tool_not_visible: %s", tool)
+			return workflowStepOutput{}, fmt.Errorf("tool_not_visible: %s", tool)
 		}
 		if envelope.Arguments == nil {
 			envelope.Arguments = map[string]any{}
 		}
-		return reactOutput{
+		return workflowStepOutput{
 			Kind: "action",
-			Action: reactAction{
+			Action: workflowStepAction{
 				Type:      "action",
 				Tool:      tool,
 				Arguments: envelope.Arguments,
@@ -47,17 +47,17 @@ func parseReActOutput(content string, visible []app.ToolDefinition) (reactOutput
 	case "final":
 		answer := strings.TrimSpace(envelope.Answer)
 		if answer == "" {
-			return reactOutput{}, fmt.Errorf("react final missing answer")
+			return workflowStepOutput{}, fmt.Errorf("workflow step final missing answer")
 		}
-		return reactOutput{
+		return workflowStepOutput{
 			Kind: "final",
-			Final: reactFinal{
+			Final: workflowStepFinal{
 				Type:   "final",
 				Answer: answer,
 			},
 		}, nil
 	default:
-		return reactOutput{}, fmt.Errorf("react output type must be action or final")
+		return workflowStepOutput{}, fmt.Errorf("workflow step output type must be action or final")
 	}
 }
 

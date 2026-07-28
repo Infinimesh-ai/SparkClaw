@@ -21,20 +21,20 @@ type TaskHint struct {
 	Capability           string             `json:"-"`
 }
 
-type reactAction struct {
+type workflowStepAction struct {
 	Type      string         `json:"type"`
 	Tool      string         `json:"tool"`
 	Arguments map[string]any `json:"arguments"`
 	Reason    string         `json:"reason,omitempty"`
 }
 
-type reactFinal struct {
+type workflowStepFinal struct {
 	Type   string `json:"type"`
 	Answer string `json:"answer"`
 }
 
-type reactOutput struct {
+type workflowStepOutput struct {
 	Kind   string
-	Action reactAction
-	Final  reactFinal
+	Action workflowStepAction
+	Final  workflowStepFinal
 }

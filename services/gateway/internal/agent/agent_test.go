@@ -531,7 +531,7 @@ func TestRuntimeCreatesBrowserLoginBlockFromSnapshotAuthGateUsingPreviousURL(t *
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
 		SessionID: session.ID,
-		State:     "reacting",
+		State:     "executing",
 		Risk:      app.RiskRead,
 		StartedAt: now,
 	}
@@ -589,7 +589,7 @@ func TestAuthenticatedBrowserSnapshotDoesNotCreateLoginBlockFromResourceLabel(t 
 	run := app.AgentRun{
 		ID:        app.NewID("run"),
 		SessionID: session.ID,
-		State:     "reacting",
+		State:     "executing",
 		Risk:      app.RiskRead,
 		StartedAt: now,
 	}
@@ -1133,7 +1133,7 @@ func TestCompactReActPromptKeepsCurrentDocumentOperationContext(t *testing.T) {
 	}
 
 	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 9000, EvidenceLimit: 5000})
-	prompt := reactStepUserPromptWithOptions("修改心得与体会", 2, []string{message}, reactPromptOptions{Compact: true})
+	prompt := workflowStepUserPromptWithOptions("修改心得与体会", 2, []string{message}, workflowStepPromptOptions{Compact: true})
 	for _, want := range []string{
 		"document.operation_context",
 		"五、心得与体会",
@@ -1661,7 +1661,7 @@ func TestToolResultMessagesStayInCausalOrder(t *testing.T) {
 		adaptToolResult(toolResultAdapterInput{Call: app.ToolCall{ID: "tc_a", Tool: "files.search", Status: "completed"}, Output: map[string]any{"query": "alpha", "count": 1}}),
 		adaptToolResult(toolResultAdapterInput{Call: app.ToolCall{ID: "tc_b", Tool: "files.read", Status: "completed"}, Output: map[string]any{"path": "alpha.txt", "content": "alpha body"}}),
 	}
-	prompt := reactStepUserPrompt("read alpha", 3, observations)
+	prompt := workflowStepUserPrompt("read alpha", 3, observations)
 	first := strings.Index(prompt, `"tool_call_id":"tc_a"`)
 	second := strings.Index(prompt, `"tool_call_id":"tc_b"`)
 	if first < 0 || second < 0 || first >= second {
@@ -1681,8 +1681,8 @@ func TestReActPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testi
 	relevantSkills := []skills.Skill{{Name: "document-reader", Description: "Read governed documents."}}
 	agentContext := "Recent conversation:\nuser: 请继续读取这份文档"
 
-	system := contextualSystemPromptForReAct(nil, relevantSkills, hint, visibleTools, agentContext)
-	user := appendWorkflowReActContext(reactStepUserPrompt("请读取文档", 2, []string{observation}), hint, visibleTools)
+	system := workflowStepSystemPrompt(nil, relevantSkills, hint, visibleTools, agentContext)
+	user := appendWorkflowStepContext(workflowStepUserPrompt("请读取文档", 2, []string{observation}), hint, visibleTools)
 
 	if strings.Contains(system, observation) {
 		t.Fatalf("current-run observation leaked into the stable system prefix:\n%s", system)
@@ -1690,7 +1690,7 @@ func TestReActPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testi
 	if strings.Count(user, observation) != 1 {
 		t.Fatalf("current-run observation should appear exactly once in the user prompt:\n%s", user)
 	}
-	if strings.Contains(system, "ReAct output contract:") || !strings.Contains(user, "ReAct output contract:") {
+	if strings.Contains(system, "Workflow step output contract:") || !strings.Contains(user, "Workflow step output contract:") {
 		t.Fatalf("ReAct output contract should be the user-prompt tail:\nsystem=%s\nuser=%s", system, user)
 	}
 	if !strings.HasSuffix(user, "Return exactly one JSON object of type action or final.") {
@@ -1720,20 +1720,20 @@ func TestEffectiveReActPromptBudgetUsesSelectedLaneAndSafetyFactor(t *testing.T)
 	cfg.Model.Deep.MaxTokens = 1536
 	runtime := Runtime{models: modelrouter.New(cfg)}
 
-	if contextTokens, outputTokens := runtime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != 27200 || outputTokens != 768 {
+	if contextTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != 27200 || outputTokens != 768 {
 		t.Fatalf("fast prompt budget = (%d, %d), want (27200, 768)", contextTokens, outputTokens)
 	}
-	if contextTokens, outputTokens := runtime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "deep"}); contextTokens != 54400 || outputTokens != 1536 {
+	if contextTokens, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"}); contextTokens != 54400 || outputTokens != 1536 {
 		t.Fatalf("deep prompt budget = (%d, %d), want (54400, 1536)", contextTokens, outputTokens)
 	}
-	if contextTokens, _ := runtime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "fast", Risk: app.RiskDangerous}); contextTokens != 54400 {
+	if contextTokens, _ := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast", Risk: app.RiskDangerous}); contextTokens != 54400 {
 		t.Fatalf("dangerous task should use the Deep profile budget, got %d", contextTokens)
 	}
 
 	cfg.Model.Fast.ContextTokens = 0
 	fallbackRuntime := Runtime{models: modelrouter.New(cfg)}
-	if contextTokens, _ := fallbackRuntime.effectiveReActPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != defaultReActContextTokens {
-		t.Fatalf("missing profile context should use fallback %d, got %d", defaultReActContextTokens, contextTokens)
+	if contextTokens, _ := fallbackRuntime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "fast"}); contextTokens != defaultWorkflowStepContextTokens {
+		t.Fatalf("missing profile context should use fallback %d, got %d", defaultWorkflowStepContextTokens, contextTokens)
 	}
 }
 
@@ -1803,12 +1803,12 @@ func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 	}
 	agentContext := strings.Repeat("历史上下文 ", 3000)
 	hint := TaskHint{ModelLaneHint: "deep"}
-	system := contextualSystemPromptForReAct(nil, nil, hint, visibleTools, agentContext)
-	compactSystem := contextualSystemPromptForReAct(nil, nil, hint, visibleTools, "历史上下文 compact summary", reactPromptOptions{Compact: true})
-	user := appendWorkflowReActContext(reactStepUserPrompt("修改心得与体会段落", 2, []string{longObservation}), hint, visibleTools)
-	task := reactModelTask(app.AgentRun{Risk: app.RiskRead}, "修改心得与体会段落", hint)
+	system := workflowStepSystemPrompt(nil, nil, hint, visibleTools, agentContext)
+	compactSystem := workflowStepSystemPrompt(nil, nil, hint, visibleTools, "历史上下文 compact summary", workflowStepPromptOptions{Compact: true})
+	user := appendWorkflowStepContext(workflowStepUserPrompt("修改心得与体会段落", 2, []string{longObservation}), hint, visibleTools)
+	task := workflowStepModelTask(app.AgentRun{Risk: app.RiskRead}, "修改心得与体会段落", hint)
 
-	compressedSystem, compressedUser := runtime.compressReActPromptIfNeeded(session.ID, "run_compress", 2, task, system, user, compactSystem)
+	compressedSystem, compressedUser := runtime.compressWorkflowStepPromptIfNeeded(session.ID, "run_compress", 2, task, system, user, compactSystem)
 
 	if compressedSystem == system && compressedUser == user {
 		t.Fatal("expected prompt compression to trigger")
@@ -1825,7 +1825,7 @@ func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 	if compressedUser != user || strings.Contains(compressedUser, "tool_result_compact") {
 		t.Fatalf("compact prompt must preserve current ReAct observations without compacting them:\n%s", compressedUser)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "react.prompt_compressed", "strategy", "stable_prefix_compact_context_v2") {
+	if !hasAgentAuditField(st.ListAudit(session.ID), "workflow_step.prompt_compressed", "strategy", "stable_prefix_compact_context_v2") {
 		t.Fatalf("prompt compression audit missing: %#v", st.ListAudit(session.ID))
 	}
 }
@@ -2077,7 +2077,7 @@ func TestCompressBrowserSnapshotIncludesElementsFromResultStruct(t *testing.T) {
 }
 
 func TestReactBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {
-	budget := reactRunBudget{
+	budget := workflowStepBudget{
 		StartedAt:            time.Now().UTC(),
 		MaxDuration:          time.Minute,
 		MaxToolCalls:         16,
@@ -2085,7 +2085,7 @@ func TestReactBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {
 		MaxNoProgressActions: 3,
 		MaxRepeatedToolCalls: 3,
 	}
-	stop, reason := shouldStopReActRun(context.Background(), budget, nil, nil, 0, 3, "files.read")
+	stop, reason := shouldStopWorkflowStepLoop(context.Background(), budget, nil, nil, 0, 3, "files.read")
 	if !stop {
 		t.Fatal("expected repeated same tool calls to stop the run")
 	}
@@ -2095,7 +2095,7 @@ func TestReactBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {
 }
 
 func TestReactBudgetAllowsRepeatedToolWhenFollowedByDifferentAction(t *testing.T) {
-	budget := reactRunBudget{
+	budget := workflowStepBudget{
 		StartedAt:            time.Now().UTC(),
 		MaxDuration:          time.Minute,
 		MaxToolCalls:         16,
@@ -2103,7 +2103,7 @@ func TestReactBudgetAllowsRepeatedToolWhenFollowedByDifferentAction(t *testing.T
 		MaxNoProgressActions: 3,
 		MaxRepeatedToolCalls: 3,
 	}
-	stop, reason := shouldStopReActRun(context.Background(), budget, nil, nil, 0, 1, "docx.insert_paragraph")
+	stop, reason := shouldStopWorkflowStepLoop(context.Background(), budget, nil, nil, 0, 1, "docx.insert_paragraph")
 	if stop {
 		t.Fatalf("different follow-up action should reset repeated-tool budget, got %q", reason)
 	}
@@ -2248,7 +2248,7 @@ func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 		if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.State != "blocked" || result.Run.Workflow != nil {
 			t.Fatalf("unregistered code task did not fail closed for %q: %#v", goal, result)
 		}
-		if hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+		if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
 			t.Fatalf("unregistered code task entered ReAct for %q", goal)
 		}
 	}
@@ -2375,7 +2375,7 @@ func TestRuntimeCompletesDocumentRunAfterApprovedMutation(t *testing.T) {
 		ID:        app.NewID("mc"),
 		SessionID: session.ID,
 		RunID:     run.ID,
-		Operation: "react_step_1",
+		Operation: "workflow_step_1",
 		Status:    "completed",
 		StartedAt: now,
 	})
@@ -2721,7 +2721,7 @@ func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	if result.Run.State != "blocked" || result.Run.CompletedAt == nil || result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched {
 		t.Fatalf("unregistered dangerous run did not fail closed: %#v", result)
 	}
-	if len(st.ListApprovals("")) != 0 || len(st.ListToolCalls(session.ID)) != 0 || hasReActModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
+	if len(st.ListApprovals("")) != 0 || len(st.ListToolCalls(session.ID)) != 0 || hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
 		t.Fatalf("blocked dangerous request reached legacy execution: approvals=%#v calls=%#v", st.ListApprovals(""), st.ListToolCalls(session.ID))
 	}
 }
@@ -2864,7 +2864,7 @@ func TestRuntimeRecoversPersonalAccountRefusalIntoBrowserOpen(t *testing.T) {
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `登录https://example.com/protected，查看我的课表
-MOCK_REACT_RESPONSE:{"type":"final","answer":"I cannot access personal accounts."}`)
+MOCK_STEP_RESPONSE:{"type":"final","answer":"I cannot access personal accounts."}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3125,8 +3125,8 @@ func TestWorkflowPlansDoNotPersistSkillIDs(t *testing.T) {
 }
 
 func TestReactParseFailureMessageDistinguishesInvisibleTool(t *testing.T) {
-	msg := reactParseFailureMessage(parseReActInvisibleToolError())
-	if !strings.Contains(msg, "tool that was not visible") || strings.Contains(msg, "valid ReAct JSON") {
+	msg := workflowStepParseFailureMessage(parseWorkflowStepInvisibleToolError())
+	if !strings.Contains(msg, "tool that was not visible") || strings.Contains(msg, "valid workflow step JSON") {
 		t.Fatalf("invisible tool message should be specific, got %q", msg)
 	}
 	if !strings.Contains(msg, "tool_not_visible") {
@@ -3136,12 +3136,12 @@ func TestReactParseFailureMessageDistinguishesInvisibleTool(t *testing.T) {
 
 func TestReactParseFailureMessageIncludesParseErrorWithoutRawModelOutput(t *testing.T) {
 	rawModelOutput := `{"type":"action","tool":"office.replace_text","arguments":{"replacements":[{"find":"bad":""}]}}`
-	_, err := parseReActOutput(rawModelOutput, []app.ToolDefinition{{Name: "office.replace_text"}})
+	_, err := parseWorkflowStepOutput(rawModelOutput, []app.ToolDefinition{{Name: "office.replace_text"}})
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	msg := reactParseFailureMessage(err)
-	if !strings.Contains(msg, "valid ReAct JSON") || !strings.Contains(msg, "react output JSON parse failed") {
+	msg := workflowStepParseFailureMessage(err)
+	if !strings.Contains(msg, "valid workflow step JSON") || !strings.Contains(msg, "workflow step output JSON parse failed") {
 		t.Fatalf("parse failure should explain where it failed, got %q", msg)
 	}
 	if strings.Contains(msg, rawModelOutput) || strings.Contains(msg, `"tool":"office.replace_text"`) {
@@ -3150,16 +3150,16 @@ func TestReactParseFailureMessageIncludesParseErrorWithoutRawModelOutput(t *test
 }
 
 func TestRecoverableReActParseObservationKeepsBadActionUnexecuted(t *testing.T) {
-	_, err := parseReActOutput(`{"type":"action","tool":"web.search","arguments":{`, []app.ToolDefinition{{Name: "web.search"}})
+	_, err := parseWorkflowStepOutput(`{"type":"action","tool":"web.search","arguments":{`, []app.ToolDefinition{{Name: "web.search"}})
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	observation := recoverableReActParseObservation(err, 2)
+	observation := recoverableWorkflowStepParseObservation(err, 2)
 	for _, want := range []string{
-		"react.parse_error Observation step=2",
+		"workflow_step.parse_error Observation step=2",
 		"status=failed_recoverable",
 		"Bad JSON action was not executed",
-		"Return exactly one valid ReAct JSON object next",
+		"Return exactly one valid workflow step JSON object next",
 	} {
 		if !strings.Contains(observation, want) {
 			t.Fatalf("recoverable parse observation missing %q:\n%s", want, observation)
@@ -3169,18 +3169,18 @@ func TestRecoverableReActParseObservationKeepsBadActionUnexecuted(t *testing.T) 
 
 func TestRecoverableReActParseObservationTellsFinalToEscapeNewlines(t *testing.T) {
 	badFinal := "{\"type\":\"final\",\"answer\":\"第一行\n第二行\"}"
-	_, err := parseReActOutput(badFinal, nil)
+	_, err := parseWorkflowStepOutput(badFinal, nil)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	observation := recoverableReActParseObservation(err, 3)
+	observation := recoverableWorkflowStepParseObservation(err, 3)
 	if !strings.Contains(observation, "escape") || !strings.Contains(observation, "\\n") {
 		t.Fatalf("final parse observation should explain newline escaping:\n%s", observation)
 	}
 }
 
 func TestParseReActOutputRejectsRuntimeActionProtocol(t *testing.T) {
-	_, err := parseReActOutput(`{"type":"runtime_action","action":"send_media","media_path":"media/20260703/card.png"}`, nil)
+	_, err := parseWorkflowStepOutput(`{"type":"runtime_action","action":"send_media","media_path":"media/20260703/card.png"}`, nil)
 	if err == nil {
 		t.Fatal("expected runtime_action to be rejected")
 	}
@@ -3189,8 +3189,8 @@ func TestParseReActOutputRejectsRuntimeActionProtocol(t *testing.T) {
 	}
 }
 
-func parseReActInvisibleToolError() error {
-	_, err := parseReActOutput(`{"type":"action","tool":"web.search","arguments":{}}`, []app.ToolDefinition{})
+func parseWorkflowStepInvisibleToolError() error {
+	_, err := parseWorkflowStepOutput(`{"type":"action","tool":"web.search","arguments":{}}`, []app.ToolDefinition{})
 	return err
 }
 
@@ -3219,7 +3219,7 @@ func TestSystemPromptIncludesTemporalContext(t *testing.T) {
 }
 
 func TestReActParserRejectsInvisibleTool(t *testing.T) {
-	_, err := parseReActOutput(`{"type":"action","tool":"obsolete.tool","arguments":{}}`, []app.ToolDefinition{
+	_, err := parseWorkflowStepOutput(`{"type":"action","tool":"obsolete.tool","arguments":{}}`, []app.ToolDefinition{
 		{Name: "files.read"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "tool_not_visible") {

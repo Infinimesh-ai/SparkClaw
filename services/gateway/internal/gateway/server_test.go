@@ -2546,7 +2546,7 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	}
 	if !hasServerTestModelCall(decoded.ModelCalls, "intent_embedding", "embedding") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "intent_tree_graph", "fast") ||
-		!hasServerTestModelCall(decoded.ModelCalls, "react_step_1", "deep") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "workflow_step_1", "deep") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)
 	}

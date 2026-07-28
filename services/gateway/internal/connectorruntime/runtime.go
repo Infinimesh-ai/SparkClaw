@@ -41,7 +41,7 @@ func WorkflowResultFromAgentResult(result agent.Result, ingress app.MessageIngre
 		OwnerID:       ingress.OwnerID,
 		Authorization: ingress.Authorization,
 		Status:        status,
-		Workflow:      app.WorkflowContractRef{ID: app.WorkflowID("react.unmatched"), Revision: 1},
+		Workflow:      app.WorkflowContractRef{ID: app.WorkflowID("legacy.unmatched"), Revision: 1},
 		Content:       content,
 		ReturnRoute:   ingress.ReturnRoute,
 	}, nil

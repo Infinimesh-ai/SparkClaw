@@ -17,7 +17,7 @@ func TestRoutedMessageUsesOwnerRequestWithoutNormalization(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `帮我看看现在的状态
-MOCK_REACT_RESPONSE:{"type":"final","answer":"状态正常"}`)
+MOCK_STEP_RESPONSE:{"type":"final","answer":"状态正常"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestAttachedDocumentRoutesFromStructuredResourceWithoutTextLeakage(t *testi
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessageWithAttachments(context.Background(), session.ID, `Summarize this attachment
-MOCK_REACT_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"note.txt"}}`, []MessageAttachment{{
+MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"note.txt"}}`, []MessageAttachment{{
 		Name: "note.txt", RelPath: "note.txt", ContentType: "text/plain",
 	}})
 	if err != nil {

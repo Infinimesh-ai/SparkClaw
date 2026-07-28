@@ -182,11 +182,11 @@
   },
   "runtime": {
     "observation_summary_max_bytes": 2400,
-    "react_max_duration_seconds": 180,
-    "react_max_tool_calls": 16,
-    "react_max_observation_bytes": 48000,
-    "react_max_no_progress_actions": 3,
-    "react_max_repeated_tool_calls": 3
+    "workflow_step_max_duration_seconds": 180,
+    "workflow_step_max_tool_calls": 16,
+    "workflow_step_max_observation_bytes": 48000,
+    "workflow_step_max_no_progress_actions": 3,
+    "workflow_step_max_repeated_tool_calls": 3
   },
   "logging": {
     "level": "info",

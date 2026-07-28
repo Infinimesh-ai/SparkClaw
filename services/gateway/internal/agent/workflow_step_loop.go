@@ -60,23 +60,23 @@ type repeatedToolCallRun struct {
 
 func (r Runtime) stepBudget() workflowStepBudget {
 	cfg := r.tools.Config().Runtime
-	maxDurationSeconds := cfg.ReactMaxDurationSeconds
+	maxDurationSeconds := cfg.StepMaxDurationSeconds
 	if maxDurationSeconds <= 0 {
 		maxDurationSeconds = 180
 	}
-	maxToolCalls := cfg.ReactMaxToolCalls
+	maxToolCalls := cfg.StepMaxToolCalls
 	if maxToolCalls <= 0 {
 		maxToolCalls = 16
 	}
-	maxObservationBytes := cfg.ReactMaxObservationBytes
+	maxObservationBytes := cfg.StepMaxObservationBytes
 	if maxObservationBytes <= 0 {
 		maxObservationBytes = 48000
 	}
-	maxNoProgressActions := cfg.ReactMaxNoProgressActions
+	maxNoProgressActions := cfg.StepMaxNoProgressActions
 	if maxNoProgressActions <= 0 {
 		maxNoProgressActions = 3
 	}
-	maxRepeatedToolCalls := cfg.ReactMaxRepeatedToolCalls
+	maxRepeatedToolCalls := cfg.StepMaxRepeatedToolCalls
 	if maxRepeatedToolCalls <= 0 {
 		maxRepeatedToolCalls = 3
 	}

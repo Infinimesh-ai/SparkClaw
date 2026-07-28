@@ -1394,7 +1394,7 @@ func TestToolResultAdapterPreservesCompleteInfoEvidenceDirectory(t *testing.T) {
 	}
 	hub := toolhub.New(config.Default(), store.NewMemoryStore())
 	maxBytes, evidenceLimit := (Runtime{tools: hub}).toolResultObservationBudget("info.query")
-	if maxBytes != config.Default().Runtime.ReactMaxObservationBytes || evidenceLimit != maxBytes-4000 {
+	if maxBytes != config.Default().Runtime.StepMaxObservationBytes || evidenceLimit != maxBytes-4000 {
 		t.Fatalf("Info query should use the full workflow observation budget, got max=%d evidence=%d", maxBytes, evidenceLimit)
 	}
 	compacted := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 600, EvidenceLimit: 120})
@@ -2116,7 +2116,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Runtime.ObservationSummaryMaxBytes = 140
-	cfg.Runtime.ReactMaxObservationBytes = 140
+	cfg.Runtime.StepMaxObservationBytes = 140
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
@@ -2187,7 +2187,7 @@ func TestRuntimeKeepsSmallDocumentContentFullInCurrentToolObservation(t *testing
 	if !strings.Contains(evidence.Text, "小文档开始") || !strings.Contains(evidence.Text, "小文档结束") || strings.Contains(evidence.Text, "[truncated:") {
 		t.Fatalf("full evidence should keep complete small document boundaries:\n%s", evidence.Text)
 	}
-	if len(calls[0].ObservationSummary) > cfg.Runtime.ReactMaxObservationBytes {
+	if len(calls[0].ObservationSummary) > cfg.Runtime.StepMaxObservationBytes {
 		t.Fatalf("observation should still respect current workflow step observation budget: %d", len(calls[0].ObservationSummary))
 	}
 }

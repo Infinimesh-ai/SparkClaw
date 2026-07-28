@@ -8,9 +8,11 @@
 ## Workflow 边界
 
 `document.read` revision 2 读取或总结一个明确的受治理 workspace 文件。
-`document.edit` revision 4 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
+`document.edit` revision 5 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级
-`<name>-sparkclaw-edit.<ext>` 输出副本。
+`<name>-sparkclaw-edit.<ext>` 输出副本。如果该名称已存在，preflight 会选择第一个可用的
+带编号同级名称，例如 `<name>-sparkclaw-edit-2.<ext>`。继续编辑其中一个副本时，会沿用同一
+编号序列。
 
 输入输出 path 都是确定性 binding，模型不能替换。path 必须位于配置 workspace 内，解析成
 regular non-symlink file，并同时通过 extension 与 file signature/package type 检查。
@@ -30,6 +32,15 @@ confirm_document_target
   -> document_edit
 ```
 
+`document_locate_evidence` 是 `direct_once` 节点。Runtime 使用冻结 path 直接调用唯一一个
+按格式限定的 reader，且只调用一次；定位前不存在模型 `action | final` 步骤。该调用产生的
+结构化 observation 是 operation 选择使用的唯一证据。读取失败会直接 block，不会回退到
+另一次读取。
+
+在模型驱动的工具 stage 中，模型在调用已 materialize 工具前返回 `final` 属于协议违例，
+不代表完成。Runtime 会返回一次限定在当前 stage 的纠正提示；如果模型再次提前返回
+`final`，则以 `required_tool_not_called` 阻断当前节点，不再发起第三次模型调用。
+
 `select_edit_operation` 不会向 ReAct 暴露工具。Runtime 直接检索它按格式限定的
 `document.edit` scope：单候选确定性选中；多候选由一次有重试上限的 Deep 模型决策处理，
 输入是 owner 请求和最多 20,000 字符的依赖证据。选中的 directory entry、capability、
@@ -46,8 +57,11 @@ ID、可选 parent document ID，以及最近 activity ID/time。memory、file s
 PostgreSQL Store 实现相同契约。
 
 附件在 owner message 持久化后立即登记，早于解析。确定性 preflight 丰富记录；成功读取更新
-其活动；每个成功编辑产物都创建一条新记录，并通过 `parent_document_id` 关联输入。split
-operation 的全部产物共享同一 activity ID，因此后续引用解析会把这一组保持为 ambiguous。
+其活动；每个成功编辑产物都创建一条新记录，并通过 `parent_document_id` 关联输入。单个编辑
+产物会保留为“继续修改刚才编辑好的文件”等后续请求的最近文档候选，其身份、血缘、来源和
+`edited` 活动都会投影到路由上下文。只有当前请求通过语义路由选中文档 Workflow 时才会绑定
+该候选；无关对话不会继承它。split operation 的全部产物共享同一 activity ID，因此后续引用
+解析会把这一组保持为 ambiguous。
 
 文档身份和 provenance 必须持久化。解析文本、摘要、layout enrichment 和其他派生
 representation 刻意不属于 `DocumentRecord`：它们可以不完整、作为 tool observation 归档、
@@ -59,6 +73,7 @@ representation 刻意不属于 `DocumentRecord`：它们可以不完整、作为
 记录或解析持久文档身份
   -> inspect 受治理 path 和 format
   -> 持久化 confirm_document_target 证据
+  -> 无模型步骤地调用一次已绑定 reader
   -> 通过 small_file_v1 high-level adapter 解析
   -> normalize 为 structured_document_v1
   -> enrich 支持的 evidence category

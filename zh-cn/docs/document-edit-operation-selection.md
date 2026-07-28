@@ -7,6 +7,10 @@
 [文档 Workflow](document-workflows.md)，把 `document.edit` 从 revision 3 升级到
 revision 4。
 
+Revision 5 保留同一四节点 Plan，但把 `document_locate_evidence` 标记为 `direct_once`：
+Runtime 在任何 Deep operation 选择调用前，使用冻结 path 直接且只调用一次按格式限定的
+reader，模型不再决定是否执行定位读取。
+
 ## 问题
 
 `document.edit` revision 3 只有一个 `document_edit` 节点、两个 stage。结构化读取
@@ -66,11 +70,12 @@ Runtime 在计算下一个执行 hint 之前消解处于 active 状态的决策�
 2. 零候选：block workflow（`no registered editor matches the requested document
    change`）。
 3. 单候选：确定性选中，不发起模型调用（例如文本编辑只注册了 `replace_text`）。
-4. 多候选：在 `deep` profile 上发起一次 `workflow_operation_selection` 模型调用。
-   prompt 携带 owner 请求、节点 goal、依赖 evidence 节点在更大预算下的完整结构化
-   observation，以及合格条目。严格的单字段 `{"entry_id":"..."}` 输出契约与最小改动语义
-   （修改/完善/润色 → replace；除非目标不存在或明确要求新增，否则绝不 insert）
-   沿用已退役 fast prompt 的规则。
+4. 多候选：在 `deep` profile 上发起 attempt 有界的 `workflow_operation_selection`
+   模型调用。prompt 携带 owner 请求、节点 goal、依赖 evidence 节点在更大预算下的
+   完整结构化 observation，以及合格条目。严格的单字段 `{"entry_id":"..."}` 输出契约
+   与最小改动语义（修改/完善/润色 → replace；除非目标不存在或明确要求新增，否则绝不
+   insert）沿用已退役 fast prompt 的规则。当冻结视图仍有候选时，空选择会被审计并携带
+   明确反馈重试；只有重复空选择才以无匹配 editor block。
 5. 选中条目作为 outcome reference（`kind=tool_directory_entry`，带 capability、格式、
    operation 属性）持久化到决策节点上，节点完成，editor 节点激活。无效模型输出消耗
    一次 attempt；`MaxAttempts` 耗尽则 block workflow。
@@ -132,15 +137,15 @@ fail closed，并必须新增显式决策节点。
   `resolveActiveWorkflowDecisions(ctx, *run, profile)`；当唯一 active 节点是决策节点时
   Runtime 调用消解器。
 - 消解流程：在节点冻结 scope 下检索目录（沿用 `tools.directory.searched` audit）；
-  零候选 block；单候选不发模型调用直接选中；多候选发起一次
-  `ChatWithProfile(ctx, "deep", ...)` 的 `workflow_operation_selection` 调用。
+  零候选 block；单候选不发模型调用直接选中；多候选最多发起节点 attempt 上限次数的
+  `ChatWithProfile(ctx, "deep", ...)` `workflow_operation_selection` 调用。
 - prompt 使用 `WORKFLOW_OPERATION_SELECTION_REQUEST` 头与 owner 请求段；mock-router
   注入通道为 `MOCK_OPERATION_SELECTION_RESPONSE`，输出使用严格的
   `parseWorkflowDecisionSelection` 契约。依赖节点 observation 以 20000 字符预算进入
   prompt（`workflowDirectoryEvidence` 的泛化）。
-- attempt 记账使用 `node.MaxAttempts`；无效输出重试，空 `entry_id` 以
-  `no_registered_editor_matches` block，attempt 耗尽以
-  `edit_operation_selection_invalid` block。
+- attempt 记账使用 `node.MaxAttempts`；无效输出会重试，冻结视图仍有候选时空
+  `entry_id` 也会重试。重复空选择以 `no_registered_editor_matches` block，其他无效
+  输出耗尽 attempt 后以 `edit_operation_selection_invalid` block。
 - 完成时持久化 outcome reference（`kind=tool_directory_entry`，属性
   capability/format/operation/via），经 `activateReadyWorkflowNodes` 激活后继节点，
   发出 `tools.directory.selected`（actor `workflow-decision`）与
@@ -169,8 +174,8 @@ fail closed，并必须新增显式决策节点。
   `document_edit_workflow_test.go`、`message_control_routing_test.go`、
   `web_workflow_test.go` 中的节点 ID / scope revision 引用。
 - 新增覆盖：deep lane 多候选选择；单候选文本编辑断言零次选择模型调用；空
-  `entry_id` block；决策缺失时 materialization fail-closed；无效输出重试后 block；
-  plan 校验拒绝缺 evidence 依赖或缺 scope 的决策节点。
+  `entry_id` 重试后 block；决策缺失时 materialization fail-closed；无效输出重试后
+  block；plan 校验拒绝缺 evidence 依赖或缺 scope 的决策节点。
 - [文档 Workflow](document-workflows.md) 及其英文原文现已更新到 revision 4 并回链本记录。
 
 验证：在 `services/gateway` 下执行 `go build ./...` 与

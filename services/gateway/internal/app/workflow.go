@@ -118,6 +118,7 @@ type WorkflowStatus string
 type WorkflowNodeStatus string
 type ArgumentBindingSource string
 type WorkflowResultProjection string
+type WorkflowInvocationMode string
 
 const (
 	WorkflowConversationAnswer    WorkflowID = "conversation.answer"
@@ -257,6 +258,8 @@ const (
 	WorkflowNodeSucceeded WorkflowNodeStatus = "succeeded"
 	WorkflowNodeBlocked   WorkflowNodeStatus = "blocked"
 
+	WorkflowInvocationDirectOnce WorkflowInvocationMode = "direct_once"
+
 	ArgumentBindingIntentTarget ArgumentBindingSource = "intent_target"
 	ArgumentBindingOutcomeRef   ArgumentBindingSource = "outcome_ref"
 	ArgumentBindingRouteSlot    ArgumentBindingSource = "route_slot"
@@ -318,16 +321,17 @@ type ArgumentBinding struct {
 }
 
 type WorkflowNode struct {
-	ID                WorkflowNodeID        `json:"id"`
-	InitialStage      string                `json:"initial_stage"`
-	DependsOn         []WorkflowNodeID      `json:"depends_on,omitempty"`
-	Goal              NodeGoal              `json:"goal"`
-	InitialScope      CapabilityScope       `json:"initial_scope"`
-	Transitions       []ScopeTransition     `json:"transitions,omitempty"`
-	ArgumentBindings  []ArgumentBinding     `json:"argument_bindings,omitempty"`
-	StageCapabilities []StageCapabilityRule `json:"stage_capabilities,omitempty"`
-	AllowedRisks      []RiskLevel           `json:"allowed_risks"`
-	MaxAttempts       int                   `json:"max_attempts"`
+	ID                WorkflowNodeID         `json:"id"`
+	InitialStage      string                 `json:"initial_stage"`
+	DependsOn         []WorkflowNodeID       `json:"depends_on,omitempty"`
+	Goal              NodeGoal               `json:"goal"`
+	InitialScope      CapabilityScope        `json:"initial_scope"`
+	Transitions       []ScopeTransition      `json:"transitions,omitempty"`
+	ArgumentBindings  []ArgumentBinding      `json:"argument_bindings,omitempty"`
+	StageCapabilities []StageCapabilityRule  `json:"stage_capabilities,omitempty"`
+	AllowedRisks      []RiskLevel            `json:"allowed_risks"`
+	MaxAttempts       int                    `json:"max_attempts"`
+	InvocationMode    WorkflowInvocationMode `json:"invocation_mode,omitempty"`
 }
 
 type WorkflowPlan struct {

@@ -203,6 +203,12 @@ func TestRecentDocumentResolverPrefersDurableRecordMetadata(t *testing.T) {
 		Source: app.DocumentSourceToolOutput, SourceToolCallID: "tc_edit",
 		LastActivity: app.DocumentActivityEdited, LastActivityID: "tc_edit", LastActivityAt: observedAt,
 	})
+	st.SaveDocumentRecord(app.DocumentRecord{
+		ID: "doc_latest_legacy_absolute", OwnerID: session.OwnerID, SessionID: session.ID,
+		GovernedPath: filepath.Join(session.WorkspaceRoot, "reports", "latest.docx"), Name: "最新报告.docx",
+		Source: app.DocumentSourceToolOutput, SourceToolCallID: "tc_edit",
+		LastActivity: app.DocumentActivityEdited, LastActivityID: "tc_edit", LastActivityAt: observedAt,
+	})
 	st.AddMessage(app.Message{
 		SessionID: session.ID, Role: "user", CreatedAt: observedAt.Add(-time.Minute),
 		Attachments: []app.MessageAttachment{{Name: "旧报告.pdf", RelPath: "old.pdf"}},

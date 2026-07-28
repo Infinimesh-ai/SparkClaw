@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -122,17 +123,52 @@ func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (docu
 		if format != app.DocumentFormatText && format != app.DocumentFormatDOCX && format != app.DocumentFormatXLSX && format != app.DocumentFormatPPTX && format != app.DocumentFormatPDF {
 			return documentPreflight{}, fmt.Errorf("document format %q is read-only", format)
 		}
-		extension := filepath.Ext(relative)
-		base := strings.TrimSuffix(filepath.Base(relative), extension) + "-sparkclaw-edit" + extension
-		result.OutputRef = filepath.ToSlash(filepath.Join(filepath.Dir(relative), base))
-		outputPath := filepath.Join(root, filepath.FromSlash(result.OutputRef))
-		if _, err := os.Lstat(outputPath); err == nil {
-			return documentPreflight{}, errors.New("document output copy already exists")
-		} else if !errors.Is(err, os.ErrNotExist) {
+		result.OutputRef, err = nextDocumentOutputRef(root, relative)
+		if err != nil {
 			return documentPreflight{}, errors.New("document output path is unavailable")
 		}
 	}
 	return result, nil
+}
+
+func nextDocumentOutputRef(root, inputRef string) (string, error) {
+	directory := filepath.Dir(inputRef)
+	entries, err := os.ReadDir(filepath.Join(root, directory))
+	if err != nil {
+		return "", err
+	}
+	usedNames := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		usedNames[entry.Name()] = struct{}{}
+	}
+
+	extension := filepath.Ext(inputRef)
+	stem, firstSequence := documentOutputFamily(strings.TrimSuffix(filepath.Base(inputRef), extension))
+	for offset := 0; offset <= len(entries); offset++ {
+		sequence := firstSequence + offset
+		name := stem + extension
+		if sequence > 1 {
+			name = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
+		}
+		if _, exists := usedNames[name]; !exists {
+			return filepath.ToSlash(filepath.Join(directory, name)), nil
+		}
+	}
+	return "", errors.New("no output copy name is available")
+}
+
+func documentOutputFamily(inputStem string) (string, int) {
+	const marker = "-sparkclaw-edit"
+	if strings.HasSuffix(inputStem, marker) {
+		return inputStem, 2
+	}
+	if markerIndex := strings.LastIndex(inputStem, marker+"-"); markerIndex >= 0 {
+		suffix := inputStem[markerIndex+len(marker)+1:]
+		if sequence, err := strconv.Atoi(suffix); err == nil && sequence >= 2 && strconv.Itoa(sequence) == suffix {
+			return inputStem[:markerIndex] + marker, sequence + 1
+		}
+	}
+	return inputStem + marker, 1
 }
 
 func normalizeBrowserURL(raw string) string {

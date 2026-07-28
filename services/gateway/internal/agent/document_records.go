@@ -80,7 +80,8 @@ func (r Runtime) recordDocumentToolActivity(call app.ToolCall) {
 	if r.store == nil || !toolCallCompleted(call) || !isDocumentContextCall(call) {
 		return
 	}
-	if call.Capability == app.ToolCapabilityDocumentEdit || toolCallProducesDocumentOutput(call) {
+	workspaceRoot := r.workspaceRootForSession(call.SessionID)
+	if call.Capability == app.ToolCapabilityDocumentEdit || toolCallProducesDocumentOutput(call, workspaceRoot) {
 		r.recordDocumentEditOutputs(call)
 		return
 	}
@@ -115,7 +116,7 @@ func (r Runtime) recordDocumentToolActivity(call app.ToolCall) {
 func (r Runtime) recordDocumentEditOutputs(call app.ToolCall) {
 	inputPath := normalizeGovernedDocumentPath(strings.TrimSpace(stringValue(call.Arguments["path"])))
 	parent, _ := r.documentRecordByPath(call.SessionID, inputPath)
-	for _, outputPath := range documentOutputPaths(call) {
+	for _, outputPath := range documentOutputPaths(call, r.workspaceRootForSession(call.SessionID)) {
 		record, ok := r.documentRecordByPath(call.SessionID, outputPath)
 		if !ok {
 			record = app.DocumentRecord{
@@ -259,7 +260,7 @@ func documentFormatFromMetadata(name, contentType string) string {
 	}
 }
 
-func documentOutputPaths(call app.ToolCall) []string {
+func documentOutputPaths(call app.ToolCall, workspaceRoot string) []string {
 	output, _ := anyMap(call.Result)
 	candidates := make([]string, 0)
 	for _, raw := range anySlice(output["outputs"]) {
@@ -280,7 +281,7 @@ func documentOutputPaths(call app.ToolCall) []string {
 	seen := map[string]bool{}
 	paths := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		path := normalizeGovernedDocumentPath(candidate)
+		path := normalizeDocumentOutputPath(workspaceRoot, candidate)
 		if path == "" || seen[path] {
 			continue
 		}
@@ -290,8 +291,8 @@ func documentOutputPaths(call app.ToolCall) []string {
 	return paths
 }
 
-func toolCallProducesDocumentOutput(call app.ToolCall) bool {
-	return len(documentOutputPaths(call)) > 0 && call.Capability != app.ToolCapabilityDocumentRead
+func toolCallProducesDocumentOutput(call app.ToolCall, workspaceRoot string) bool {
+	return len(documentOutputPaths(call, workspaceRoot)) > 0 && call.Capability != app.ToolCapabilityDocumentRead
 }
 
 func toolResultDocumentPath(result any) string {
@@ -319,4 +320,28 @@ func normalizeGovernedDocumentPath(value string) string {
 		return ""
 	}
 	return filepath.ToSlash(cleaned)
+}
+
+func normalizeDocumentOutputPath(workspaceRoot, value string) string {
+	path := normalizeGovernedDocumentPath(value)
+	if path == "" || !filepath.IsAbs(filepath.FromSlash(path)) {
+		return path
+	}
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return ""
+	}
+	root, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		return ""
+	}
+	absolute, err := filepath.Abs(filepath.FromSlash(path))
+	if err != nil {
+		return ""
+	}
+	relative, err := filepath.Rel(root, absolute)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return ""
+	}
+	return normalizeGovernedDocumentPath(relative)
 }

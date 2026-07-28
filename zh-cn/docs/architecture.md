@@ -142,7 +142,8 @@ send 都创建 `DeliveryRequest` 并调用 Delivery Gateway。`LocalWebDelivery`
 
 文档拥有独立于解析内容的持久化一等 `DocumentRecord` 身份。读取/编辑使用最近记录解析、
 确定性 format inspection、可追溯的 `confirm_document_target` Workflow 节点、structured
-parsing 和显式 `select_edit_operation` 决策节点。多候选编辑决策由 Deep 基于定位证据完成，
+parsing 和显式 `select_edit_operation` 决策节点。编辑定位节点使用冻结 path 直接且仅调用
+一次按格式限定的 reader；读取前不存在模型工具选择步骤。多候选编辑决策由 Deep 基于定位证据完成，
 并在 editor materialize 前持久化一个精确 ToolHub entry。原 Fast 目录二次路由已经删除。
 approval、output-copy write 和 post-edit preservation check 继续走共享路径。解析
 representation 可以不完整、被替换或重新生成，而不会丢失文档身份和活动谱系。

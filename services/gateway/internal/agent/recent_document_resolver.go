@@ -17,16 +17,17 @@ const (
 )
 
 type documentContextReference struct {
-	DocumentID  string
-	Ref         string
-	Name        string
-	ContentType string
-	Format      string
-	Source      string
-	SourceID    string
-	Activity    string
-	Provenance  string
-	ObservedAt  time.Time
+	DocumentID       string
+	ParentDocumentID string
+	Ref              string
+	Name             string
+	ContentType      string
+	Format           string
+	Source           string
+	SourceID         string
+	Activity         string
+	Provenance       string
+	ObservedAt       time.Time
 }
 
 type documentContextResolution struct {
@@ -58,12 +59,15 @@ func (r Runtime) resolveDocumentContext(sessionID, runID, content string, resour
 	if r.store == nil {
 		return documentContextResolution{}
 	}
-	if references := recentDocumentRecordReferences(r.store.ListDocumentRecords("", sessionID, 100)); len(references) > 0 {
+	if references := recentDocumentRecordReferences(
+		r.store.ListDocumentRecords("", sessionID, 100),
+		r.workspaceRootForSession(sessionID),
+	); len(references) > 0 {
 		return documentContextResolution{References: references}
 	}
 
 	snapshot := r.buildAgentContextSnapshot(sessionID, runID, content)
-	toolReferences := recentDocumentToolReferences(r.store.ListToolCalls(sessionID))
+	toolReferences := recentDocumentToolReferences(r.store.ListToolCalls(sessionID), r.workspaceRootForSession(sessionID))
 	messageReferences := recentDocumentMessageReferences(snapshot.Messages)
 	switch {
 	case len(toolReferences) == 0:
@@ -77,7 +81,7 @@ func (r Runtime) resolveDocumentContext(sessionID, runID, content string, resour
 	}
 }
 
-func recentDocumentRecordReferences(records []app.DocumentRecord) []documentContextReference {
+func recentDocumentRecordReferences(records []app.DocumentRecord, workspaceRoot string) []documentContextReference {
 	if len(records) == 0 {
 		return nil
 	}
@@ -86,6 +90,8 @@ func recentDocumentRecordReferences(records []app.DocumentRecord) []documentCont
 		activityID = records[0].ID
 	}
 	references := make([]documentContextReference, 0)
+	referenceIndexes := make(map[string]int)
+	canonicalRecord := make(map[string]bool)
 	for _, record := range records {
 		candidateActivityID := strings.TrimSpace(record.LastActivityID)
 		if candidateActivityID == "" {
@@ -94,19 +100,37 @@ func recentDocumentRecordReferences(records []app.DocumentRecord) []documentCont
 		if candidateActivityID != activityID {
 			continue
 		}
-		references = append(references, documentReferenceFromRecord(record, documentProvenanceDocumentRecord))
+		rawPath := normalizeGovernedDocumentPath(record.GovernedPath)
+		path := normalizeDocumentOutputPath(workspaceRoot, rawPath)
+		if path == "" {
+			continue
+		}
+		reference := documentReferenceFromRecord(record, documentProvenanceDocumentRecord)
+		reference.Ref = path
+		isCanonical := !filepath.IsAbs(filepath.FromSlash(rawPath))
+		if index, exists := referenceIndexes[path]; exists {
+			if isCanonical && !canonicalRecord[path] {
+				references[index] = reference
+				canonicalRecord[path] = true
+			}
+			continue
+		}
+		referenceIndexes[path] = len(references)
+		canonicalRecord[path] = isCanonical
+		references = append(references, reference)
 	}
-	return dedupeDocumentReferences(references)
+	return references
 }
 
 func documentReferenceFromRecord(record app.DocumentRecord, provenance string) documentContextReference {
 	return documentContextReference{
-		DocumentID:  record.ID,
-		Ref:         record.GovernedPath,
-		Name:        record.Name,
-		ContentType: record.ContentType,
-		Format:      record.Format,
-		Source:      record.Source,
+		DocumentID:       record.ID,
+		ParentDocumentID: record.ParentDocumentID,
+		Ref:              record.GovernedPath,
+		Name:             record.Name,
+		ContentType:      record.ContentType,
+		Format:           record.Format,
+		Source:           record.Source,
 		SourceID: firstNonEmptyString(
 			record.SourceToolCallID,
 			record.SourceMessageID,
@@ -138,14 +162,14 @@ func documentReferencesFromMessageParts(resources []app.MessagePart) []documentC
 	return dedupeDocumentReferences(references)
 }
 
-func recentDocumentToolReferences(calls []app.ToolCall) []documentContextReference {
+func recentDocumentToolReferences(calls []app.ToolCall, workspaceRoot string) []documentContextReference {
 	selectedIndex := -1
 	selectedAt := time.Time{}
 	for index, call := range calls {
 		if !toolCallCompleted(call) || !isDocumentContextCall(call) {
 			continue
 		}
-		if len(documentContextPathsFromToolCall(call)) == 0 {
+		if len(documentContextPathsFromToolCall(call, workspaceRoot)) == 0 {
 			continue
 		}
 		observedAt := call.StartedAt
@@ -160,7 +184,7 @@ func recentDocumentToolReferences(calls []app.ToolCall) []documentContextReferen
 		return nil
 	}
 	selected := calls[selectedIndex]
-	paths := documentContextPathsFromToolCall(selected)
+	paths := documentContextPathsFromToolCall(selected, workspaceRoot)
 	references := make([]documentContextReference, 0, len(paths))
 	for _, path := range paths {
 		references = append(references, documentContextReference{
@@ -172,8 +196,8 @@ func recentDocumentToolReferences(calls []app.ToolCall) []documentContextReferen
 	return dedupeDocumentReferences(references)
 }
 
-func documentContextPathsFromToolCall(call app.ToolCall) []string {
-	if outputs := documentOutputPaths(call); len(outputs) > 0 {
+func documentContextPathsFromToolCall(call app.ToolCall, workspaceRoot string) []string {
+	if outputs := documentOutputPaths(call, workspaceRoot); len(outputs) > 0 {
 		return outputs
 	}
 	path := normalizeGovernedDocumentPath(firstNonEmptyString(
@@ -263,6 +287,9 @@ func formatDocumentRoutingContext(resolution documentContextResolution) string {
 		}
 		if documentID := strings.TrimSpace(reference.DocumentID); documentID != "" {
 			fields = append(fields, "document_id="+quoteEpisodeField(documentID, 100))
+		}
+		if parentDocumentID := strings.TrimSpace(reference.ParentDocumentID); parentDocumentID != "" {
+			fields = append(fields, "parent_document_id="+quoteEpisodeField(parentDocumentID, 100))
 		}
 		if name := strings.TrimSpace(reference.Name); name != "" {
 			fields = append(fields, "name="+quoteEpisodeField(name, 160))

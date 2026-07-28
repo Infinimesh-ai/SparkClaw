@@ -172,6 +172,9 @@ Documents have durable first-class `DocumentRecord` identities independent of
 their parsed content. Reads and edits use recent-record resolution, deterministic
 format inspection, a traceable `confirm_document_target` Workflow node,
 structured parsing, and an explicit `select_edit_operation` decision node.
+The edit localization node invokes its single format-qualified reader directly
+and exactly once with the frozen path; no model tool-choice step precedes the
+read.
 Multi-candidate edit decisions run on Deep over located evidence and persist one
 exact ToolHub entry before the editor can materialize. The former Fast secondary
 directory router is removed. Approval, output-copy writes, and post-edit

@@ -23,6 +23,9 @@ const (
 	promptEstimateChatOverheadTokens = 12
 	compactReActSkillWorkflowLimit   = 320
 	compactReActToolDescriptionLimit = 180
+	maxRequiredToolFinalResponses    = 2
+
+	workflowFailureRequiredToolNotCalled = "required_tool_not_called"
 )
 
 type reactPromptOptions struct {
@@ -38,6 +41,7 @@ type reactRunResult struct {
 	FinalAnswerStreamed bool
 	Completed           bool
 	BrowserLoginBlock   *app.BrowserLoginBlock
+	WorkflowFailure     string
 }
 
 type reactRunBudget struct {
@@ -115,6 +119,7 @@ func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID strin
 	budget := r.reactBudget()
 	noProgressActions := 0
 	repeatedRun := repeatedToolCallRun{}
+	requiredToolFinalResponses := 0
 	attempts := 0
 	for {
 		if stop, reason := shouldStopReActRun(ctx, budget, result.ToolCalls, result.Observations, noProgressActions, repeatedRun.Count, repeatedRun.Tool); stop {
@@ -192,6 +197,32 @@ func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID strin
 			},
 		})
 		if parsed.Kind == "final" {
+			if hint.WorkflowID != "" && hint.RequiresToolEvidence && len(stepVisibleTools) > 0 {
+				requiredToolFinalResponses++
+				noProgressActions++
+				repeatedRun = repeatedToolCallRun{}
+				result.Observations = append(result.Observations, requiredWorkflowToolCallObservation(stepVisibleTools))
+				r.store.AddAudit(app.AuditEvent{
+					SessionID: sessionID,
+					RunID:     run.ID,
+					Actor:     "runtime",
+					Type:      "workflow.required_tool_not_called",
+					Summary:   "Rejected a final answer before the required workflow tool was called",
+					Fields: map[string]any{
+						"workflow_id":  hint.WorkflowID,
+						"node_id":      hint.WorkflowNodeID,
+						"step":         stepNumber,
+						"attempt":      requiredToolFinalResponses,
+						"max_attempts": maxRequiredToolFinalResponses,
+						"tools":        visibleToolNames(stepVisibleTools),
+					},
+				})
+				if requiredToolFinalResponses >= maxRequiredToolFinalResponses {
+					result.WorkflowFailure = workflowFailureRequiredToolNotCalled
+					return result
+				}
+				continue
+			}
 			result.FinalAnswer = parsed.Final.Answer
 			result.Completed = true
 			return result
@@ -260,6 +291,11 @@ func (r Runtime) runBoundedToolLoopWithSeed(ctx context.Context, sessionID strin
 			return result
 		}
 	}
+}
+
+func requiredWorkflowToolCallObservation(visibleTools []app.ToolDefinition) string {
+	return "workflow_protocol_violation: A final answer is invalid because this workflow stage requires tool evidence. Return an action for one of the materialized tools (" +
+		strings.Join(visibleToolNames(visibleTools), ", ") + ") and do not return final before that tool call completes."
 }
 
 func reactModelTask(run app.AgentRun, content string, hint TaskHint) modelrouter.Task {

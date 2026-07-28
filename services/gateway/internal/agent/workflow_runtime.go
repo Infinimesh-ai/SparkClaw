@@ -13,6 +13,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
+const workflowFailureDirectToolInvocationInvalid = "direct_tool_invocation_invalid"
+
 func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definition app.ToolDefinition) error {
 	if plan.WorkflowID == "" {
 		return nil
@@ -569,6 +571,8 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		stageResult := reactRunResult{}
 		if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
+		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {
+			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, hint, visibleTools, allObservations)
 		} else {
 			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, hint, visibleTools, allCalls, allObservations)
 		}
@@ -576,6 +580,15 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		allApprovals = append(allApprovals, stageResult.Approvals...)
 		allObservations = stageResult.Observations
 		latest = stageResult
+		if stageResult.WorkflowFailure != "" {
+			if err := r.blockActiveWorkflowNodeForProtocolFailure(&run, stageResult.WorkflowFailure); err != nil {
+				latest.FinalAnswer = err.Error()
+			} else {
+				latest.FinalAnswer = ""
+			}
+			latest.Completed = false
+			break
+		}
 		if stageResult.BrowserLoginBlock != nil || len(stageResult.Approvals) > 0 {
 			break
 		}
@@ -705,6 +718,95 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		}
 	}
 	return latest
+}
+
+func activeWorkflowNodeUsesDirectToolOnce(state *app.WorkflowState) bool {
+	if state == nil || len(state.ActiveNodeIDs) != 1 {
+		return false
+	}
+	node, ok := workflowPlanNode(state.Plan, state.ActiveNodeIDs[0])
+	return ok && node.InvocationMode == app.WorkflowInvocationDirectOnce
+}
+
+func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string) reactRunResult {
+	result := reactRunResult{Observations: append([]string(nil), observations...)}
+	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 || len(visibleTools) != 1 ||
+		hint.WorkflowID != run.Workflow.Plan.ProfileID || hint.WorkflowNodeID != run.Workflow.ActiveNodeIDs[0] || hint.ScopeRevision <= 0 {
+		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid
+		return result
+	}
+	node, ok := workflowPlanNode(run.Workflow.Plan, hint.WorkflowNodeID)
+	if !ok || node.InvocationMode != app.WorkflowInvocationDirectOnce {
+		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid
+		return result
+	}
+	capability, err := r.materializedWorkflowCapability(run.ID, hint.WorkflowNodeID, hint.ScopeRevision, visibleTools[0].Name)
+	if err != nil {
+		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid
+		result.Observations = append(result.Observations, "workflow_direct_tool_error: "+err.Error())
+		return result
+	}
+	call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, toolPlan{
+		Name:           visibleTools[0].Name,
+		Args:           map[string]any{},
+		WorkflowID:     hint.WorkflowID,
+		WorkflowNodeID: hint.WorkflowNodeID,
+		ScopeRevision:  hint.ScopeRevision,
+		Capability:     capability,
+	})
+	result.ToolCalls = []app.ToolCall{call}
+	if approval != nil {
+		result.Approvals = []app.Approval{*approval}
+	}
+	if strings.TrimSpace(observation) != "" {
+		result.Observations = append(result.Observations, observation)
+	}
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		RunID:     run.ID,
+		Actor:     "workflow_dispatcher",
+		Type:      "workflow.direct_tool_invoked",
+		Summary:   "Invoked the single bound tool without a model execution step",
+		Fields: map[string]any{
+			"workflow_id":    hint.WorkflowID,
+			"node_id":        hint.WorkflowNodeID,
+			"scope_revision": hint.ScopeRevision,
+			"tool":           call.Tool,
+			"status":         call.Status,
+		},
+	})
+	return result
+}
+
+func (r Runtime) blockActiveWorkflowNodeForProtocolFailure(run *app.AgentRun, reason string) error {
+	if run == nil || run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 {
+		return errors.New("workflow protocol failure requires one active node")
+	}
+	nodeID := run.Workflow.ActiveNodeIDs[0]
+	state, ok := run.Workflow.Nodes[nodeID]
+	if !ok || state.Status != app.WorkflowNodeActive {
+		return errors.New("workflow protocol failure does not belong to an active node")
+	}
+	state.Status = app.WorkflowNodeBlocked
+	state.LastAssessment = &app.NodeAssessment{
+		NodeID: nodeID, Status: app.AssessmentBlocked, ReasonCode: reason,
+	}
+	run.Workflow.Nodes[nodeID] = state
+	run.Workflow.Status = app.WorkflowStatusBlocked
+	r.store.SaveRun(*run)
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: run.SessionID,
+		RunID:     run.ID,
+		Actor:     "runtime",
+		Type:      "workflow.protocol_blocked",
+		Summary:   reason,
+		Fields: map[string]any{
+			"workflow_id": run.Workflow.Plan.ProfileID,
+			"node_id":     nodeID,
+			"reason_code": reason,
+		},
+	})
+	return nil
 }
 
 func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, goal string, calls []app.ToolCall, observations []string, emit StreamHandler) (modelrouter.ChatResult, string, error) {

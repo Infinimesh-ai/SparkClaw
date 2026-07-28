@@ -40,6 +40,14 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 		modelAnswerNode := node.Goal.Completion == app.CompletionModelAnswer
 		deterministicNode := node.Goal.Completion == app.CompletionDeterministic
 		decisionNode := node.Goal.Completion == app.CompletionDecision
+		directOnceNode := node.InvocationMode == app.WorkflowInvocationDirectOnce
+		if node.InvocationMode != "" && !directOnceNode {
+			return fmt.Errorf("workflow node %q has unsupported invocation mode %q", node.ID, node.InvocationMode)
+		}
+		if directOnceNode && (node.Goal.Completion != app.CompletionEvidence || node.MaxAttempts != 1 ||
+			node.InitialScope.MaterializeAll || len(node.InitialScope.Requirements) != 1 || len(node.Transitions) != 0) {
+			return fmt.Errorf("workflow node %q direct-once invocation requires one evidence capability, one attempt, and no transitions", node.ID)
+		}
 		if (modelAnswerNode || deterministicNode) && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0 || len(node.InitialScope.Requirements) != 0) {
 			return fmt.Errorf("workflow node %q non-tool completion contract cannot expose tools, bindings, scopes, or transitions", node.ID)
 		}

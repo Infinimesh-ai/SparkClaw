@@ -98,8 +98,13 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 			continue
 		}
 		if selection.EntryID == "" {
-			r.blockWorkflowDecision(run, node, "no_registered_editor_matches")
-			return "", true, nil
+			selectionErr = errors.New("workflow operation selection returned no entry while eligible entries remain")
+			r.auditWorkflowDecisionAttempt(*run, node, state.Attempts, selectionErr)
+			if state.Attempts >= node.MaxAttempts {
+				r.blockWorkflowDecision(run, node, "no_registered_editor_matches")
+				return "", true, nil
+			}
+			continue
 		}
 		entry, exists := directoryViewEntry(view, selection.EntryID)
 		if !exists {
@@ -137,6 +142,9 @@ func (r Runtime) selectWorkflowDecisionEntry(ctx context.Context, run app.AgentR
 		"Eligible directory entries:\n" + entriesJSON,
 		"Return {\"entry_id\":\"one listed id\"}. Return an empty entry_id when no listed editor implements the requested change.",
 	}, "\n\n")
+	if state, ok := run.Workflow.Nodes[node.ID]; ok && state.Attempts > 0 {
+		user += "\n\nRETRY_FEEDBACK\nA prior answer was empty or invalid even though this frozen view still has eligible entries. Re-evaluate the owner request against the located evidence and the when_to_use rules. Do not return an empty entry_id merely because the editor must draft improved replacement content."
+	}
 
 	started := time.Now().UTC()
 	chat, chatErr := r.models.ChatWithProfile(ctx, workflowExecutionModelLane, strings.Join(rules, "\n"), user)

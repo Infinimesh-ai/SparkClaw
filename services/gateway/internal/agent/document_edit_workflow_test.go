@@ -126,6 +126,32 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 		documentRecords[0].LastActivity != app.DocumentActivityEdited {
 		t.Fatalf("approved edit output was not recorded with document lineage: %#v", documentRecords)
 	}
+	outputRecord := documentRecords[0]
+	followUp := "继续修改刚才编辑好的文件，把 Improved reflection 改为 Final reflection"
+	resolution := runtime.resolveDocumentContext(session.ID, "run_follow_up", followUp, nil)
+	if len(resolution.References) != 1 || resolution.References[0].DocumentID != outputRecord.ID ||
+		resolution.References[0].ParentDocumentID != outputRecord.ParentDocumentID ||
+		resolution.References[0].Ref != outputRecord.GovernedPath ||
+		resolution.References[0].Source != app.DocumentSourceToolOutput ||
+		resolution.References[0].Activity != app.DocumentActivityEdited {
+		t.Fatalf("recent document resolver did not preserve the edited output and its lineage: %#v", resolution)
+	}
+	unrelatedRoute := mustRouteIntentOutput(t, runtime, session.ID, "今天杭州天气", nil, app.MessageSourceWeb).Route
+	if unrelatedRoute.Status != app.RouteMatched || len(unrelatedRoute.CapabilityPath) != 2 ||
+		unrelatedRoute.CapabilityPath[1] != app.CapabilityBrowserWeather ||
+		unrelatedRoute.Slots.TargetKind != string(app.TargetKindLocation) ||
+		unrelatedRoute.Slots.TargetRef != "杭州" || unrelatedRoute.Facts["document_id"] != "" {
+		t.Fatalf("unrelated request inherited the recent edited document: %#v", unrelatedRoute)
+	}
+	followUpRoute := mustRouteIntentOutput(t, runtime, session.ID, followUp, nil, app.MessageSourceWeb).Route
+	if followUpRoute.Status != app.RouteMatched || len(followUpRoute.CapabilityPath) != 2 ||
+		followUpRoute.CapabilityPath[1] != app.CapabilityDocumentEdit ||
+		followUpRoute.Slots.TargetRef != "notes-sparkclaw-edit.md" ||
+		followUpRoute.Slots.OutputRef != "notes-sparkclaw-edit-2.md" ||
+		followUpRoute.Facts["document_id"] != outputRecord.ID ||
+		followUpRoute.Facts["document_parent_id"] != outputRecord.ParentDocumentID {
+		t.Fatalf("follow-up edit did not bind the latest edited document: %#v", followUpRoute)
+	}
 
 	original, err := os.ReadFile(inputPath)
 	if err != nil || string(original) != "# Notes\nOriginal reflection" {
@@ -134,5 +160,132 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	updated, err := os.ReadFile(filepath.Join(root, "notes-sparkclaw-edit.md"))
 	if err != nil || string(updated) != "# Notes\nImproved reflection" {
 		t.Fatalf("output text mismatch: %q err=%v", updated, err)
+	}
+}
+
+func TestDocumentEditLocateEvidenceInvokesBoundReaderBeforeModel(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("# Notes\nOriginal reflection"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+
+	goal := "Replace Original reflection in notes.md"
+	route, err := runtime.routeIntentForTest(session.ID, "turn", goal, agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
+MOCK_REACT_RESPONSE:{"type":"action","tool":"text.replace_text","arguments":{"path":"model-path.md","output_path":"model-output.md","expected_replacements":1,"replacements":[{"find":"Original reflection","replace":"Improved reflection"}]}}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
+
+	storedRun, ok := st.GetRun(dispatch.Run.ID)
+	if !ok || storedRun.Workflow == nil {
+		t.Fatal("document edit workflow state was not persisted")
+	}
+	locate := storedRun.Workflow.Nodes["document_locate_evidence"]
+	if locate.Status != app.WorkflowNodeSucceeded || locate.Attempts != 1 ||
+		locate.LastAssessment == nil || locate.LastAssessment.ReasonCode != "document_evidence_located" {
+		t.Fatalf("direct document read did not complete the locate node: %#v", locate)
+	}
+	if len(result.ToolCalls) != 2 || result.ToolCalls[0].Tool != "files.read" || result.ToolCalls[0].Status != "completed" ||
+		result.ToolCalls[0].Arguments["path"] != "notes.md" ||
+		result.ToolCalls[1].Tool != "text.replace_text" || result.ToolCalls[1].Status != "approval_pending" {
+		t.Fatalf("document edit did not run one bound read before the editor: %#v", result.ToolCalls)
+	}
+	modelCalls := st.ListModelCalls(session.ID, dispatch.Run.ID)
+	if countModelCalls(modelCalls, "react_step_1", "deep") != 1 ||
+		countModelCalls(modelCalls, "react_step_2", "deep") != 0 ||
+		hasModelCallOperation(modelCalls, "workflow_operation_selection", "deep") {
+		t.Fatalf("document localization made an unnecessary model call: %#v", modelCalls)
+	}
+	if result.ToolCalls[0].CompletedAt == nil || modelCalls[0].StartedAt.Before(*result.ToolCalls[0].CompletedAt) {
+		t.Fatalf("editor model call started before the fixed localization read completed: call=%#v models=%#v", result.ToolCalls[0], modelCalls)
+	}
+	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow.direct_tool_invoked") {
+		t.Fatalf("direct localization read was not audited: %#v", st.ListAudit(session.ID))
+	}
+}
+
+func TestDocumentEditDirectLocalizationRejectsMismatchedWorkflowHint(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("# Notes\nOriginal reflection"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "Replace Original reflection in notes.md", agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch.Hint.WorkflowNodeID = "document_edit"
+
+	result := runtime.runWorkflowDirectToolOnce(context.Background(), session.ID, dispatch.Run, dispatch.Hint, dispatch.Tools, nil)
+
+	if result.WorkflowFailure != workflowFailureDirectToolInvocationInvalid || len(result.ToolCalls) != 0 {
+		t.Fatalf("mismatched direct localization hint was not rejected before execution: %#v", result)
+	}
+	if calls := toolCallsForRun(st.ListToolCalls(session.ID), dispatch.Run.ID); len(calls) != 0 {
+		t.Fatalf("mismatched direct localization hint executed a tool: %#v", calls)
+	}
+	if calls := st.ListModelCalls(session.ID, dispatch.Run.ID); len(calls) != 0 {
+		t.Fatalf("mismatched direct localization hint invoked a model: %#v", calls)
+	}
+}
+
+func TestDocumentEditEditorBlocksAfterRepeatedPrematureFinal(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("# 心得与体会\n原始内容"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "重新完善 notes.md 的心得与体会", agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, `重新完善 notes.md 的心得与体会
+MOCK_REACT_RESPONSE:{"type":"final","answer":"已经完善。"}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
+
+	storedRun, ok := st.GetRun(dispatch.Run.ID)
+	if !ok || storedRun.Workflow == nil {
+		t.Fatal("document edit workflow state was not persisted")
+	}
+	locate := storedRun.Workflow.Nodes["document_locate_evidence"]
+	editor := storedRun.Workflow.Nodes["document_edit"]
+	if locate.Status != app.WorkflowNodeSucceeded || editor.Status != app.WorkflowNodeBlocked ||
+		editor.LastAssessment == nil || editor.LastAssessment.ReasonCode != workflowFailureRequiredToolNotCalled {
+		t.Fatalf("premature final did not block the editor after direct localization: %#v", storedRun.Workflow)
+	}
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Tool != "files.read" {
+		t.Fatalf("direct localization should be the only executed tool: %#v", result.ToolCalls)
+	}
+	modelCalls := st.ListModelCalls(session.ID, dispatch.Run.ID)
+	if countModelCalls(modelCalls, "react_step_1", "deep") != 1 ||
+		countModelCalls(modelCalls, "react_step_2", "deep") != 1 ||
+		countModelCalls(modelCalls, "react_step_3", "deep") != 0 {
+		t.Fatalf("editor protocol retry was not bounded to two calls: %#v", modelCalls)
+	}
+	if result.FinalAnswer != "The workflow is blocked: required tool not called." {
+		t.Fatalf("workflow did not surface the explicit editor protocol failure: %q", result.FinalAnswer)
 	}
 }

@@ -8,6 +8,11 @@ choice out of the fast secondary routing call and into a dedicated
 amends [Document workflows](document-workflows.md) and raises `document.edit`
 from revision 3 to revision 4.
 
+Revision 5 keeps this four-node plan but marks `document_locate_evidence` as
+`direct_once`: Runtime invokes the single format-qualified reader exactly once
+with the frozen path before any Deep operation-selection call. The model no
+longer chooses whether to perform the localization read.
+
 ## Problem
 
 `document.edit` revision 3 ran as one `document_edit` node with two stages.
@@ -80,13 +85,16 @@ execution hint:
    requested document change`).
 3. One candidate: select it deterministically — no model call (text edits,
    for example, only register `replace_text`).
-4. Multiple candidates: one `workflow_operation_selection` model call on the
-   `deep` profile. The prompt carries the owner request, the node goal, the
-   full structured observations of the dependency evidence nodes under a wider
-   budget, and the eligible entries. The strict single-field
+4. Multiple candidates: retry-bounded `workflow_operation_selection` model
+   calls on the `deep` profile. The prompt carries the owner request, the node
+   goal, the full structured observations of the dependency evidence nodes
+   under a wider budget, and the eligible entries. The strict single-field
    `{"entry_id":"..."}` output contract and minimum-change semantics
-   (modify/improve/polish → replace, never insert unless the target is absent
-   or explicitly requested as new) are unchanged from the retired fast prompt.
+   (modify/improve/polish, including equivalent Chinese edit verbs → replace,
+   never insert unless the target is absent or explicitly requested as new)
+   are unchanged from the retired fast prompt. An empty selection while the
+   frozen view still contains candidates is audited and retried with explicit
+   feedback; only repeated empty selections block as no matching editor.
 5. The selected entry is persisted on the decision node as an outcome
    reference (`kind=tool_directory_entry` with capability, format, and
    operation attributes), the node completes, and the editor node activates.
@@ -161,17 +169,19 @@ The refactor landed in five reviewable steps; each kept the build and the
   resolver whenever the single active node is a decision node.
 - Resolution: directory search under the node's frozen scope (existing
   `tools.directory.searched` audit); zero candidates block; one candidate is
-  selected without a model call; multiple candidates trigger one
-  `workflow_operation_selection` call via `ChatWithProfile(ctx, "deep", ...)`.
+  selected without a model call; multiple candidates trigger up to the node's
+  attempt bound of `workflow_operation_selection` calls via
+  `ChatWithProfile(ctx, "deep", ...)`.
 - The prompt uses the `WORKFLOW_OPERATION_SELECTION_REQUEST` header and owner
   request segment. The mock-router injection channel is
   `MOCK_OPERATION_SELECTION_RESPONSE`; output uses the strict
   `parseWorkflowDecisionSelection` contract. Dependency-node
   observations feed the prompt under a 20000-rune budget (a generalization of
   `workflowDirectoryEvidence`).
-- Attempt accounting uses `node.MaxAttempts`; invalid output retries, an empty
-  `entry_id` blocks with `no_registered_editor_matches`, exhausted attempts
-  block with `edit_operation_selection_invalid`.
+- Attempt accounting uses `node.MaxAttempts`; invalid output retries, as does
+  an empty `entry_id` while eligible candidates remain. Repeated empty
+  selections block with `no_registered_editor_matches`; other exhausted
+  invalid attempts block with `edit_operation_selection_invalid`.
 - Completion persists the outcome reference
   (`kind=tool_directory_entry`, attributes capability/format/operation/via),
   activates dependents via `activateReadyWorkflowNodes`, emits

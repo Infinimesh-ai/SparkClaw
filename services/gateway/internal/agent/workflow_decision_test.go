@@ -31,7 +31,7 @@ func TestDocumentEditDecisionInvalidOutputRetriesThenBlocks(t *testing.T) {
 	}
 }
 
-func TestDocumentEditDecisionEmptySelectionBlocksWithoutFastFallback(t *testing.T) {
+func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(t *testing.T) {
 	runtime, st, _, dispatch := newDocumentDecisionFixture(t, "Replace a paragraph in report.docx")
 	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"\"}"
 	st.SaveRun(dispatch.Run)
@@ -41,9 +41,12 @@ func TestDocumentEditDecisionEmptySelectionBlocksWithoutFastFallback(t *testing.
 		t.Fatalf("empty decision output did not block: changed=%t err=%v", changed, err)
 	}
 	decision := dispatch.Run.Workflow.Nodes["select_edit_operation"]
-	if dispatch.Run.Workflow.Status != app.WorkflowStatusBlocked || decision.Attempts != 1 ||
+	if dispatch.Run.Workflow.Status != app.WorkflowStatusBlocked || decision.Attempts != 2 ||
 		decision.LastAssessment == nil || decision.LastAssessment.ReasonCode != "no_registered_editor_matches" {
 		t.Fatalf("empty decision output did not preserve its terminal reason: %#v", decision)
+	}
+	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", "deep") != 2 {
+		t.Fatalf("empty decision output did not use the decision node attempt bound: %#v", st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
 	}
 	if hasModelCallOperation(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_directory_selection", "fast") {
 		t.Fatal("document edit decision fell back to the retired fast directory selector")
@@ -132,6 +135,32 @@ func TestWorkflowPlanRejectsInvalidDecisionNodes(t *testing.T) {
 	plan.Nodes[2].InitialScope.MaterializeAll = true
 	if err := validateWorkflowPlan(intent, profile, plan); err == nil || !strings.Contains(err.Error(), "materialize all") {
 		t.Fatalf("decision node with materialize-all scope was accepted: %v", err)
+	}
+}
+
+func TestWorkflowPlanRejectsInvalidDirectOnceNode(t *testing.T) {
+	profile := documentEditProfile{}
+	resolve := func() (app.IntentEnvelope, app.WorkflowPlan) {
+		intent, plan, err := profile.Resolve(app.RouteDecision{
+			Slots: app.RouteSlots{TargetRef: "report.docx"},
+			Facts: map[string]string{"document_format": app.DocumentFormatDOCX, "output_path": "report-sparkclaw-edit.docx"},
+		}, "turn")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return intent, plan
+	}
+
+	intent, plan := resolve()
+	plan.Nodes[1].MaxAttempts = 2
+	if err := validateWorkflowPlan(intent, profile, plan); err == nil || !strings.Contains(err.Error(), "direct-once") {
+		t.Fatalf("retrying direct-once node was accepted: %v", err)
+	}
+
+	intent, plan = resolve()
+	plan.Nodes[1].InvocationMode = "unknown"
+	if err := validateWorkflowPlan(intent, profile, plan); err == nil || !strings.Contains(err.Error(), "unsupported invocation mode") {
+		t.Fatalf("unknown invocation mode was accepted: %v", err)
 	}
 }
 

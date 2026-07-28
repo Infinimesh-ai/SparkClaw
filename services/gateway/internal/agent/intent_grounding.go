@@ -54,6 +54,7 @@ func (r Runtime) projectIntentGrounding(sessionID, runID, content string, docume
 		facts := map[string]string{
 			"target_provenance":  document.Provenance,
 			"document_id":        document.DocumentID,
+			"document_parent_id": document.ParentDocumentID,
 			"document_format":    document.Format,
 			"document_source":    document.Source,
 			"document_source_id": document.SourceID,

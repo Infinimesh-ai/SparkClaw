@@ -9,10 +9,12 @@ its durable format, evidence, and preservation contracts.
 ## Workflow Boundary
 
 `document.read` revision 2 reads or summarizes one exact governed workspace
-file. `document.edit` revision 4 reads one exact file, resolves one supported
+file. `document.edit` revision 5 reads one exact file, resolves one supported
 operation through an explicit Workflow decision node, obtains approval for the
 reversible edit, and writes a new sibling output copy named
-`<name>-sparkclaw-edit.<ext>`.
+`<name>-sparkclaw-edit.<ext>`. If that name already exists, preflight selects
+the first available numbered sibling such as `<name>-sparkclaw-edit-2.<ext>`.
+Further edits to one of those copies continue the same numbered family.
 
 Input and output paths are deterministic bindings. The model cannot replace
 them. Paths must remain under the configured workspace, resolve to regular
@@ -33,6 +35,17 @@ confirm_document_target
   -> select_edit_operation
   -> document_edit
 ```
+
+`document_locate_evidence` is a `direct_once` node. Runtime invokes its single
+format-qualified reader exactly once with the frozen path; no model
+`action | final` step runs before localization. The resulting structured
+observation is the only evidence passed to operation selection. A failed read
+blocks instead of falling through to another read.
+
+At a model-driven tool stage, a model `final` response before the materialized
+tool call is a protocol violation, not completion. Runtime returns one
+stage-scoped correction; a repeated premature `final` blocks the active node
+with `required_tool_not_called` without starting a third model call.
 
 `select_edit_operation` never exposes a tool to ReAct. Runtime searches its
 format-qualified `document.edit` scope directly. A single candidate is selected
@@ -56,9 +69,13 @@ and PostgreSQL stores implement the same contract.
 Attachments are recorded immediately after the owner message is persisted,
 before parsing. Deterministic preflight enriches the record; successful reads
 update its activity; each successful edit output becomes a new record linked to
-its input through `parent_document_id`. Split operations retain every output
-under the same activity ID, so later reference resolution keeps that set
-ambiguous.
+its input through `parent_document_id`. A single edited output remains a
+recent-document candidate for a later request such as "continue editing the
+modified file"; its identity, lineage, source, and `edited` activity are
+projected into routing context. It is bound only when the current request
+semantically selects a document Workflow; unrelated turns do not inherit it.
+Split operations retain every output under the same activity ID, so later
+reference resolution keeps that set ambiguous.
 
 Document identity and provenance must be durable. Parsed text, summaries,
 layout enrichment, and other derived representations are deliberately not part
@@ -71,6 +88,7 @@ replaced, or regenerated.
 record or resolve durable document identity
   -> inspect governed path and format
   -> persist confirm_document_target evidence
+  -> invoke the bound reader once without a model step
   -> parse with small_file_v1 high-level adapter
   -> normalize structured_document_v1
   -> enrich supported evidence categories

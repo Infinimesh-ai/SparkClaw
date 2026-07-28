@@ -225,7 +225,7 @@ func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 type documentEditProfile struct{}
 
 func (documentEditProfile) ID() app.WorkflowID           { return app.WorkflowDocumentEdit }
-func (documentEditProfile) Revision() int                { return 4 }
+func (documentEditProfile) Revision() int                { return 5 }
 func (documentEditProfile) Capability() app.CapabilityID { return app.CapabilityDocumentEdit }
 func (documentEditProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
@@ -278,7 +278,7 @@ func (p documentEditProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 				ArgumentBindings: []app.ArgumentBinding{{
 					Capability: app.ToolCapabilityDocumentRead, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref",
 				}},
-				AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+				AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1, InvocationMode: app.WorkflowInvocationDirectOnce,
 			},
 			{
 				ID: decisionNodeID, InitialStage: "select_edit_operation", DependsOn: []app.WorkflowNodeID{locateNodeID},
@@ -326,6 +326,7 @@ func (documentEditProfile) DecisionRules(app.WorkflowNode) []string {
 	return []string{
 		"Use the owner's requested content change and the completed structured observation to distinguish replacement, insertion, deletion, append, style, row, cell, slide, and page operations.",
 		"Apply minimum-change semantics when the observation already contains the requested target: modify, improve, polish, complete, update, revise, or rewrite means replace/update that existing target, not insert or append another overlapping block.",
+		"Apply the same semantics across languages: 完善、润色、优化或改写 an existing located paragraph means replace that paragraph, not no match and not insertion.",
 		"Choose insert, add, or append only when the owner explicitly requests a new block, row, or slide, or when the structured observation shows that the requested target does not exist.",
 	}
 }

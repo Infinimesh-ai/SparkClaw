@@ -117,7 +117,7 @@ MOCK_CONVERSATION_RESPONSE:巴黎。`
 		t.Fatalf("deterministic conversation route was downgraded by Fast: %#v", result)
 	}
 	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("conversation answer entered ReAct: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+		t.Fatalf("conversation answer entered the step loop: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	for _, call := range toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID) {
 		if call.Tool == "web.search" {
@@ -862,12 +862,12 @@ func TestClarifyAndBlockedRoutesReturnWithoutFallback(t *testing.T) {
 			t.Fatalf("terminal route %q returned the wrong result: %#v", test.status, result)
 		}
 		if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, run.ID)) {
-			t.Fatalf("terminal route %q entered ReAct fallback", test.status)
+			t.Fatalf("terminal route %q entered a legacy fallback", test.status)
 		}
 	}
 }
 
-func TestUnmatchedRouteBlocksWithoutReActFallback(t *testing.T) {
+func TestUnmatchedRouteBlocksWithoutLegacyFallback(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	result, err := runtime.HandleMessage(context.Background(), session.ID, "Perform one unsupported multi-system operation")
@@ -881,7 +881,7 @@ func TestUnmatchedRouteBlocksWithoutReActFallback(t *testing.T) {
 		t.Fatalf("unmatched route did not produce a blocked router result: %#v", result)
 	}
 	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) || hasAgentAuditType(st.ListAudit(session.ID), "task_hint.generated") || hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.visible_tools") {
-		t.Fatalf("unmatched request invoked a removed ReAct fallback: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
+		t.Fatalf("unmatched request invoked a removed legacy fallback: calls=%#v audit=%#v", st.ListModelCalls(session.ID, result.Run.ID), st.ListAudit(session.ID))
 	}
 }
 
@@ -899,7 +899,7 @@ func TestMatchedDispatchFailureReturnsFailedWorkflowResultWithoutFallback(t *tes
 		t.Fatalf("matched setup failure did not return the leaf WorkflowResult: %#v", result.WorkflowResult)
 	}
 	if hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("matched workflow failure entered ReAct fallback: %#v", st.ListModelCalls(session.ID, result.Run.ID))
+		t.Fatalf("matched workflow failure entered a legacy fallback: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 }
 

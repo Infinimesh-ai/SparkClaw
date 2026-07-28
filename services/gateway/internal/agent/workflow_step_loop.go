@@ -12,18 +12,17 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 )
 
 const (
 	defaultWorkflowStepContextTokens        = 12288
 	workflowStepContextSafetyFactor         = 0.85
 	workflowStepPromptCompressionThreshold  = 0.80
-	promptEstimateBytesPerToken      = 4
-	promptEstimateChatOverheadTokens = 12
-	compactWorkflowStepSkillLimit   = 320
+	promptEstimateBytesPerToken             = 4
+	promptEstimateChatOverheadTokens        = 12
+	compactWorkflowStepSkillLimit           = 320
 	compactWorkflowStepToolDescriptionLimit = 180
-	maxRequiredToolFinalResponses    = 2
+	maxRequiredToolFinalResponses           = 2
 
 	workflowFailureRequiredToolNotCalled = "required_tool_not_called"
 )
@@ -91,30 +90,21 @@ func (r Runtime) stepBudget() workflowStepBudget {
 	}
 }
 
-func (r Runtime) runReActLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition) workflowExecutionResult {
-	return r.runWorkflowStepLoop(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, nil, nil)
-}
-
-func (r Runtime) runReActLoopWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
-	return r.runWorkflowStepLoop(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
-}
-
 func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
 	hint.ModelLaneHint = workflowExecutionModelLane
-	return r.runWorkflowStepLoop(ctx, sessionID, run, content, hint, nil, visibleTools, seedCalls, seedObservations)
+	return r.runWorkflowStepLoop(ctx, sessionID, run, content, hint, visibleTools, seedCalls, seedObservations)
 }
 
-// runWorkflowStepLoop is a shared model/tool execution primitive.
-// Matched workflows invoke it only within their persisted fixed scope; the
-// ReAct-named wrappers remain only for resuming legacy persisted runs.
-func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, relevantSkills []skills.Skill, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
+// runWorkflowStepLoop is the shared model/tool execution primitive. Matched
+// workflows invoke it only within their persisted fixed scope.
+func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]string(nil), seedObservations...)}
 	completedSoFar := append([]app.ToolCall(nil), seedCalls...)
 	contextSnapshot := r.buildAgentContextSnapshot(sessionID, run.ID, content)
 	contextText := contextSnapshot.ForWorkflowStep()
 	compactContextText := contextSnapshot.ForWorkflowStepCompact()
-	systemPrompt := workflowStepSystemPrompt(contextSnapshot.Episodes, relevantSkills, hint, visibleTools, contextText)
-	compactSystemPrompt := workflowStepSystemPrompt(contextSnapshot.Episodes, relevantSkills, hint, visibleTools, compactContextText, workflowStepPromptOptions{Compact: true})
+	systemPrompt := workflowStepSystemPrompt(contextSnapshot.Episodes, hint, visibleTools, contextText)
+	compactSystemPrompt := workflowStepSystemPrompt(contextSnapshot.Episodes, hint, visibleTools, compactContextText, workflowStepPromptOptions{Compact: true})
 	task := workflowStepModelTask(run, content, hint)
 	budget := r.stepBudget()
 	noProgressActions := 0
@@ -613,35 +603,16 @@ func recoverableWorkflowStepParseObservation(err error, step int) string {
 	return strings.Join(lines, " ")
 }
 
-func workflowStepParseFailureMessage(err error) string {
-	if err != nil && strings.Contains(err.Error(), "tool_not_visible") {
-		return blockedAnswerCouldNotContinue + " because the model requested a tool that was not visible for this run. Error: " + err.Error()
-	}
-	if err != nil {
-		return blockedAnswerCouldNotContinue + " because the model did not return valid workflow step JSON. Error: " + err.Error()
-	}
-	return blockedAnswerCouldNotContinue + " because the model did not return valid workflow step JSON."
-}
-
-func workflowStepSystemPrompt(episodes []app.EpisodeSummary, relevantSkills []skills.Skill, hint TaskHint, visibleTools []app.ToolDefinition, agentContext string, opts ...workflowStepPromptOptions) string {
+func workflowStepSystemPrompt(episodes []app.EpisodeSummary, hint TaskHint, visibleTools []app.ToolDefinition, agentContext string, opts ...workflowStepPromptOptions) string {
 	options := workflowStepPromptOptions{}
 	if len(opts) > 0 {
 		options = opts[0]
 	}
-	basePrompt := contextualSystemPrompt(episodes, relevantSkills)
+	basePrompt := contextualSystemPrompt(episodes)
 	if options.Compact {
-		basePrompt = compactContextualSystemPrompt(episodes, relevantSkills)
+		basePrompt = compactContextualSystemPrompt(episodes)
 	}
 	lines := []string{basePrompt}
-	if len(relevantSkills) > 0 {
-		lines = append(lines, "", strings.Join([]string{
-			"Skill execution rule:",
-			"- If a visible skill clearly matches the current task, treat its SKILL.md workflow as the operating procedure for this run.",
-			"- Skill instructions are lower priority than platform safety, policy, tool schemas, approvals, and explicit user constraints.",
-			"- If the user explicitly asks for a different method, follow the explicit user request within safety and policy limits.",
-			"- If no skill matches, rely on TaskHint, visible tools, and ordinary judgment.",
-		}, "\n"))
-	}
 	toolPayload := make([]map[string]any, 0, len(visibleTools))
 	for _, def := range visibleTools {
 		if options.Compact {
@@ -701,24 +672,8 @@ func workflowStepOutputContract() string {
 	}, "\n")
 }
 
-func compactContextualSystemPrompt(episodes []app.EpisodeSummary, relevantSkills []skills.Skill) string {
+func compactContextualSystemPrompt(episodes []app.EpisodeSummary) string {
 	lines := []string{systemPrompt()}
-	if len(relevantSkills) > 0 {
-		lines = append(lines, "", "Relevant procedural skills (compact):")
-		for _, skill := range relevantSkills {
-			fields := []string{"name=" + quoteEpisodeField(skill.Name, 80)}
-			if skill.Description != "" {
-				fields = append(fields, "description="+quoteEpisodeField(skill.Description, 120))
-			}
-			if len(skill.AllowedTools) > 0 {
-				fields = append(fields, "allowed_tools="+quoteEpisodeField(strings.Join(skill.AllowedTools, ","), 180))
-			}
-			if skill.BodyPreview != "" {
-				fields = append(fields, "workflow="+quoteEpisodeField(skill.BodyPreview, compactWorkflowStepSkillLimit))
-			}
-			lines = append(lines, "- "+strings.Join(fields, " "))
-		}
-	}
 	if len(episodes) > 0 {
 		limit := len(episodes)
 		if limit > 2 {
@@ -809,143 +764,4 @@ func workflowStepBudgetLimitMessage(goal, reason string, calls []app.ToolCall, o
 		lines = append(lines, "Latest observation: "+observations[len(observations)-1])
 	}
 	return strings.Join(lines, "\n")
-}
-
-func (r Runtime) relevantSkillsForHint(content string, hint TaskHint) []skills.Skill {
-	found := filterLegacyReActSkills(r.relevantSkills(content))
-	if !r.skills.Enabled() || len(hint.CandidateSkills) == 0 {
-		return found
-	}
-	all, err := r.skills.List()
-	if err != nil {
-		return found
-	}
-	seen := map[string]bool{}
-	out := []skills.Skill{}
-	for _, skill := range found {
-		seen[skill.Name] = true
-		out = append(out, skill)
-	}
-	for _, wanted := range hint.CandidateSkills {
-		for _, skill := range all {
-			if skill.Name == wanted && legacyReActSkillAllowed(skill.Name) && !seen[skill.Name] {
-				seen[skill.Name] = true
-				out = append(out, skill)
-			}
-		}
-	}
-	return out
-}
-
-func filterLegacyReActSkills(values []skills.Skill) []skills.Skill {
-	out := make([]skills.Skill, 0, len(values))
-	for _, skill := range values {
-		if legacyReActSkillAllowed(skill.Name) {
-			out = append(out, skill)
-		}
-	}
-	return out
-}
-
-func legacyReActSkillAllowed(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "browser_automation", "document_assistant", "weather_lookup", "web_search":
-		return false
-	default:
-		return true
-	}
-}
-
-func (r Runtime) visibleToolDefinitions(hint TaskHint, relevantSkills []skills.Skill) []app.ToolDefinition {
-	ordered := []string{}
-	candidates := map[string]bool{}
-	addCandidate := func(tool string) {
-		tool = strings.TrimSpace(tool)
-		if tool == "" || candidates[tool] {
-			return
-		}
-		candidates[tool] = true
-		ordered = append(ordered, tool)
-	}
-	for _, tool := range hint.CandidateTools {
-		addCandidate(tool)
-	}
-	denied := map[string]bool{}
-	for _, skill := range relevantSkills {
-		if !legacyReActSkillAllowed(skill.Name) {
-			continue
-		}
-		for _, tool := range skill.AllowedTools {
-			addCandidate(tool)
-		}
-		for _, tool := range skill.DeniedTools {
-			denied[tool] = true
-		}
-	}
-	for _, tool := range fallbackToolsForHint(hint) {
-		addCandidate(tool)
-	}
-	defs := []app.ToolDefinition{}
-	for _, name := range ordered {
-		if denied[name] {
-			continue
-		}
-		def, ok := r.tools.Definition(name)
-		if !ok {
-			continue
-		}
-		if !legacyReActToolAllowed(def) {
-			continue
-		}
-		if !toolAllowedForMode(def, hint.ToolMode) {
-			continue
-		}
-		decision := r.policy.Decide(def, map[string]any{})
-		if !decision.Allowed {
-			continue
-		}
-		defs = append(defs, def)
-	}
-	return defs
-}
-
-func legacyReActToolAllowed(def app.ToolDefinition) bool {
-	for _, capability := range def.Capabilities {
-		name := strings.ToLower(strings.TrimSpace(capability.Name))
-		if name == app.ToolCapabilityDocumentRead {
-			continue
-		}
-		if strings.HasPrefix(name, "browser.") || strings.HasPrefix(name, "web.") ||
-			strings.HasPrefix(name, "weather.") || strings.HasPrefix(name, "document.") ||
-			name == app.ToolCapabilityInfoQuestion {
-			return false
-		}
-	}
-	return true
-}
-
-func fallbackToolsForHint(hint TaskHint) []string {
-	switch hint.EvidenceNeed {
-	case "workspace":
-		return []string{"files.search", "files.read", "images.inspect"}
-	case "memory":
-		return []string{"memory.search", "memory.write_candidate"}
-	case "command":
-		return []string{"files.search", "files.read", "shell.exec_sandboxed"}
-	default:
-		return nil
-	}
-}
-
-func toolAllowedForMode(def app.ToolDefinition, mode string) bool {
-	switch mode {
-	case "none":
-		return false
-	case "read_only":
-		return def.Risk == app.RiskRead
-	case "draft":
-		return def.Risk == app.RiskRead || def.Risk == app.RiskDraft
-	default:
-		return true
-	}
 }

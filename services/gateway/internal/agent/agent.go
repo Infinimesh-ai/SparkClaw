@@ -439,7 +439,6 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	}
 
 	seedCalls := completedToolCallsForResume(toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID))
-	seedObservations := observationsForResume(seedCalls)
 	if len(seedCalls) == 0 || !hasWorkflowStepModelCall(r.store.ListModelCalls(sessionID, run.ID)) {
 		return Result{}, false, nil
 	}
@@ -449,102 +448,30 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	if result, ok := r.completeRunAfterTerminalApprovedAction(ctx, sessionID, run, content, seedCalls); ok {
 		return result, true, nil
 	}
+	return r.completeRetiredLegacyRun(ctx, run, content, "workflow.legacy_resume_retired",
+		"Rejected an approval resume for a run without a persisted workflow plan"), true, nil
+}
 
-	hint := r.generateTaskHint(ctx, sessionID, run.ID, content)
+// completeRetiredLegacyRun terminally closes a persisted run that predates the
+// workflow runtime. The generic model/tool loop those runs relied on has been
+// removed, so the only safe continuation is a fresh, workflow-routed request.
+func (r Runtime) completeRetiredLegacyRun(ctx context.Context, run app.AgentRun, goal, auditType, auditSummary string) Result {
+	now := time.Now().UTC()
+	run.State = "blocked"
+	run.CompletedAt = &now
+	run.Summary = retiredLegacyRunMessage
+	r.store.SaveRun(run)
 	r.store.AddAudit(app.AuditEvent{
-		SessionID: sessionID,
-		RunID:     run.ID,
-		Actor:     "gateway",
-		Type:      "gateway.dispatch",
-		Summary:   "Dispatched resumed run from fast TaskHint classification",
-		Fields: map[string]any{
-			"model_lane_hint":        hint.ModelLaneHint,
-			"task_type":              hint.TaskType,
-			"evidence_need":          hint.EvidenceNeed,
-			"data_scope":             hint.DataScope,
-			"tool_mode":              hint.ToolMode,
-			"browser_mode":           hint.BrowserMode,
-			"requires_tool_evidence": hint.RequiresToolEvidence,
-			"browser_mode_reason":    hint.Reason,
-			"candidate_skills":       hint.CandidateSkills,
-			"candidate_tools":        hint.CandidateTools,
-		},
-	})
-	relevantSkills := r.relevantSkillsForHint(content, hint)
-	if len(relevantSkills) > 0 {
-		r.store.AddAudit(app.AuditEvent{
-			SessionID: sessionID,
-			RunID:     run.ID,
-			Actor:     "runtime",
-			Type:      "skills.loaded",
-			Summary:   "Loaded relevant procedural skills during approval resume",
-			Fields: map[string]any{
-				"skills": skillNames(relevantSkills),
-			},
-		})
-	}
-	visibleTools := r.visibleToolDefinitions(hint, relevantSkills)
-	r.store.AddAudit(app.AuditEvent{
-		SessionID: sessionID,
+		SessionID: run.SessionID,
 		RunID:     run.ID,
 		Actor:     "runtime",
-		Type:      "workflow_step.resume_after_approval",
-		Summary:   "Resuming ReAct run after approved action",
-		Fields: map[string]any{
-			"tools":                    visibleToolNames(visibleTools),
-			"fallback_tool_candidates": fallbackToolCandidatesForAudit(hint),
-			"browser_mode":             hint.BrowserMode,
-			"data_scope":               hint.DataScope,
-			"requires_tool_evidence":   hint.RequiresToolEvidence,
-			"browser_mode_reason":      hint.Reason,
-			"seed_tool_calls":          toolCallIDs(seedCalls),
-			"seed_observations":        len(seedObservations),
-		},
+		Type:      auditType,
+		Summary:   auditSummary,
 	})
-
-	run.State = "executing"
-	run.CompletedAt = nil
-	r.store.SaveRun(run)
-
-	execution := r.runReActLoopWithSeed(ctx, sessionID, run, content, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
-	toolCalls := execution.ToolCalls
-	approvals := execution.Approvals
-	observations := execution.Observations
-	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
-
-	now := time.Now().UTC()
-	if execution.BrowserLoginBlock != nil {
-		run.State = "browser_login_blocked"
-		run.CompletedAt = nil
-	} else if len(approvals) > 0 {
-		run.State = "approval_pending"
-		run.CompletedAt = nil
-	} else if isBlockedFinalAnswer(execution.FinalAnswer) {
-		run.State = "blocked"
-		run.CompletedAt = &now
-	} else {
-		run.State = "completed"
-		run.CompletedAt = &now
-	}
-	run.ModelLane = execution.Chat.Lane
-	run.Summary = summarizeRun(execution.Chat, observations, approvals)
-	if strings.TrimSpace(execution.FinalAnswer) != "" {
-		run.Summary = execution.FinalAnswer
-		if len(observations) > 0 || len(approvals) > 0 {
-			run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, observations, approvals)
-		}
-	}
-	run.Summary = r.applyGroundedSummary(sessionID, run.ID, content, run.Summary, currentToolCalls)
-	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
-		toolCalls = append(toolCalls, call)
-		approvals = append(approvals, approval)
-		currentToolCalls = append(currentToolCalls, call)
-	}
-	r.store.SaveRun(run)
-
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
+	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID)
 	feedback := r.store.ListRunFeedback(run.ID)
-	episode := summarizeEpisode(content, run, currentToolCalls, allApprovals, run.Summary, now)
+	episode := summarizeEpisode(goal, run, currentToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 	var workflowResult *app.WorkflowResult
 	if run.MessageContext != nil {
@@ -553,24 +480,23 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	}
 	presentationResult := workflowResult
 	if presentationResult == nil {
-		presentationResult = &app.WorkflowResult{Content: r.workflowResultContentFromToolCalls(run, run.Summary)}
+		presentationResult = &app.WorkflowResult{Content: workflowResultTextContent(run.Summary)}
 	}
-	assistantMessage := r.messageWithWorkflowResult(app.Message{
-		SessionID: sessionID,
+	assistant := r.store.AddMessage(r.messageWithWorkflowResult(app.Message{
+		SessionID: run.SessionID,
 		RunID:     run.ID,
 		Role:      "assistant",
 		Content:   run.Summary,
 		CreatedAt: now,
-	}, presentationResult)
-	assistant := r.store.AddMessage(assistantMessage)
-	r.writeTrace(ctx, run, execution.Chat, currentToolCalls, allApprovals, feedback, &episode)
-	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}
+	}, presentationResult))
+	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
+	result := Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route
 		result.WorkflowResult = workflowResult
 	}
-	return result, true, nil
+	return result
 }
 
 func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, sessionID string, run app.AgentRun, content string, seedCalls []app.ToolCall) (Result, bool) {
@@ -1255,41 +1181,8 @@ func systemPrompt() string {
 	}, "\n\n")
 }
 
-func (r Runtime) relevantSkills(content string) []skills.Skill {
-	if !r.skills.Enabled() {
-		return nil
-	}
-	found, err := r.skills.Relevant(content, 3)
-	if err != nil {
-		return nil
-	}
-	return found
-}
-
-func contextualSystemPrompt(episodes []app.EpisodeSummary, relevantSkills []skills.Skill) string {
+func contextualSystemPrompt(episodes []app.EpisodeSummary) string {
 	lines := []string{systemPrompt()}
-	if len(relevantSkills) > 0 {
-		lines = append(lines, "", "Relevant procedural skills (primary workflow for matching tasks; cannot grant tool permission or bypass policy):")
-		for _, skill := range relevantSkills {
-			fields := []string{
-				"name=" + quoteEpisodeField(skill.Name, 80),
-				"risk=" + quoteEpisodeField(skill.RiskLevel, 40),
-			}
-			if skill.Description != "" {
-				fields = append(fields, "description="+quoteEpisodeField(skill.Description, 160))
-			}
-			if len(skill.AllowedTools) > 0 {
-				fields = append(fields, "allowed_tools="+quoteEpisodeField(strings.Join(skill.AllowedTools, ","), 240))
-			}
-			if len(skill.DeniedTools) > 0 {
-				fields = append(fields, "denied_tools="+quoteEpisodeField(strings.Join(skill.DeniedTools, ","), 200))
-			}
-			if skill.BodyPreview != "" {
-				fields = append(fields, "workflow="+quoteEpisodeField(skill.BodyPreview, 1800))
-			}
-			lines = append(lines, "- "+strings.Join(fields, " "))
-		}
-	}
 	if len(episodes) == 0 {
 		return strings.Join(lines, "\n")
 	}
@@ -1325,14 +1218,6 @@ func contextualSystemPrompt(episodes []app.EpisodeSummary, relevantSkills []skil
 		lines = append(lines, "- "+strings.Join(fields, " "))
 	}
 	return strings.Join(lines, "\n")
-}
-
-func skillNames(skills []skills.Skill) []string {
-	out := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		out = append(out, skill.Name)
-	}
-	return out
 }
 
 func visibleToolNames(defs []app.ToolDefinition) []string {

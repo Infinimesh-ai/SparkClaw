@@ -17,6 +17,11 @@ const (
 	blockedAnswerPendingApproval  = "pending approval"
 )
 
+// retiredLegacyRunMessage closes persisted runs that predate the workflow
+// runtime; the generic ReAct loop they would resume into no longer exists.
+const retiredLegacyRunMessage = blockedAnswerCannotComplete +
+	"继续这次旧的运行:它由已下线的通用执行循环创建。请重新发送你的请求,让它通过当前的 workflow 运行时执行。"
+
 func isBlockedFinalAnswer(answer string) bool {
 	answer = strings.TrimSpace(answer)
 	lower := strings.ToLower(answer)

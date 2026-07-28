@@ -245,7 +245,7 @@ type IntentFusionDecision struct {
 }
 
 // MessageRunContext persists the identity and return boundary needed by
-// idempotent replay and approval/login resume, including legacy persisted ReAct runs.
+// idempotent replay and approval/login resume, including runs persisted by the retired pre-workflow runtime.
 type MessageRunContext struct {
 	OwnerID       string                `json:"owner_id"`
 	Authorization MessageAuthorization  `json:"authorization"`

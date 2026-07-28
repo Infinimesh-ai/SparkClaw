@@ -16,7 +16,7 @@ type Runtime interface {
 
 // WorkflowResultFromAgentResult preserves the new WorkflowResult unchanged.
 // The adapter exists only for legacy runtimes that returned no route, or for a
-// persisted legacy ReAct result; matched results must never be re-created.
+// persisted result from the retired pre-workflow runtime; matched results must never be re-created.
 func WorkflowResultFromAgentResult(result agent.Result, ingress app.MessageIngressContext) (app.WorkflowResult, error) {
 	if result.WorkflowResult != nil {
 		return *result.WorkflowResult, nil

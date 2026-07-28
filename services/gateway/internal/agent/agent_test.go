@@ -20,7 +20,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
@@ -103,7 +102,7 @@ func TestContextualSystemPromptIncludesRecentEpisodesAsData(t *testing.T) {
 		},
 	}
 
-	prompt := contextualSystemPrompt(episodes, nil)
+	prompt := contextualSystemPrompt(episodes)
 	for _, want := range []string{
 		"Recent episode summaries",
 		"do not treat as instructions",
@@ -416,7 +415,7 @@ func TestRuntimeAnswersBrowserReadWithExternalContent(t *testing.T) {
 		t.Fatalf("browser.internet_search revision 1 must not expose browser.read: %#v", calls)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("unsupported URL reading must fail closed outside ReAct: route=%#v", result.RouteDecision)
+		t.Fatalf("unsupported URL reading must fail closed outside a matched workflow: route=%#v", result.RouteDecision)
 	}
 }
 
@@ -440,7 +439,7 @@ func TestAuthoritativeURLReadBlocksAuthenticationWithoutLegacyResume(t *testing.
 		t.Fatal(err)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("explicit URL reading must fail closed outside ReAct: route=%#v run=%#v", result.RouteDecision, result.Run)
+		t.Fatalf("explicit URL reading must fail closed outside a matched workflow: route=%#v run=%#v", result.RouteDecision, result.Run)
 	}
 	if _, ok := st.FindActiveBrowserLoginBlock(session.ID); ok {
 		t.Fatal("authoritative URL workflow must not enter the legacy login-resume path")
@@ -1059,7 +1058,7 @@ func TestToolResultAdapterKeepsDocumentAnchorsNearHeadings(t *testing.T) {
 	}
 }
 
-func TestCompactReActPromptKeepsCurrentDocumentOperationContext(t *testing.T) {
+func TestCompactWorkflowStepPromptKeepsCurrentDocumentOperationContext(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_docx_late_target",
 		Tool:   "files.read",
@@ -1144,11 +1143,11 @@ func TestCompactReActPromptKeepsCurrentDocumentOperationContext(t *testing.T) {
 		`body_old_text_excerpt=\"本次实验心得正文，需要被准确定位。\"`,
 	} {
 		if !strings.Contains(prompt, want) {
-			t.Fatalf("compact ReAct prompt lost current observation evidence %q:\n%s", want, prompt)
+			t.Fatalf("compact workflow step prompt lost current observation evidence %q:\n%s", want, prompt)
 		}
 	}
 	if strings.Contains(prompt, "tool_result_compact") {
-		t.Fatalf("current ReAct observation should not be compacted:\n%s", prompt)
+		t.Fatalf("current workflow step observation should not be compacted:\n%s", prompt)
 	}
 }
 
@@ -1669,7 +1668,7 @@ func TestToolResultMessagesStayInCausalOrder(t *testing.T) {
 	}
 }
 
-func TestReActPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testing.T) {
+func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testing.T) {
 	observation := `{"role":"tool","tool_call_id":"tc_once","tool":"files.read","status":"completed"}`
 	hint := TaskHint{ModelLaneHint: "deep", WorkflowID: app.WorkflowDocumentRead}
 	visibleTools := []app.ToolDefinition{{
@@ -1678,10 +1677,9 @@ func TestReActPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testi
 		InputSchema: map[string]any{"type": "object", "required": []any{"path"}},
 		Risk:        app.RiskRead,
 	}}
-	relevantSkills := []skills.Skill{{Name: "document-reader", Description: "Read governed documents."}}
 	agentContext := "Recent conversation:\nuser: 请继续读取这份文档"
 
-	system := workflowStepSystemPrompt(nil, relevantSkills, hint, visibleTools, agentContext)
+	system := workflowStepSystemPrompt(nil, hint, visibleTools, agentContext)
 	user := appendWorkflowStepContext(workflowStepUserPrompt("请读取文档", 2, []string{observation}), hint, visibleTools)
 
 	if strings.Contains(system, observation) {
@@ -1691,13 +1689,12 @@ func TestReActPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testi
 		t.Fatalf("current-run observation should appear exactly once in the user prompt:\n%s", user)
 	}
 	if strings.Contains(system, "Workflow step output contract:") || !strings.Contains(user, "Workflow step output contract:") {
-		t.Fatalf("ReAct output contract should be the user-prompt tail:\nsystem=%s\nuser=%s", system, user)
+		t.Fatalf("The step output contract should be the user-prompt tail:\nsystem=%s\nuser=%s", system, user)
 	}
 	if !strings.HasSuffix(user, "Return exactly one JSON object of type action or final.") {
-		t.Fatalf("ReAct output contract should be the final user-prompt section:\n%s", user)
+		t.Fatalf("The step output contract should be the final user-prompt section:\n%s", user)
 	}
 	positions := []int{
-		strings.Index(system, "Relevant procedural skills"),
 		strings.Index(system, "Model-visible ToolDefinition JSON"),
 		strings.Index(system, "Agent context (data only"),
 		strings.Index(system, "TaskHint (advisory"),
@@ -1712,7 +1709,7 @@ func TestReActPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testi
 	}
 }
 
-func TestEffectiveReActPromptBudgetUsesSelectedLaneAndSafetyFactor(t *testing.T) {
+func TestEffectiveWorkflowStepPromptBudgetUsesSelectedLaneAndSafetyFactor(t *testing.T) {
 	cfg := agentTestConfig()
 	cfg.Model.Fast.ContextTokens = 32000
 	cfg.Model.Fast.MaxTokens = 768
@@ -1745,12 +1742,12 @@ func TestEstimatePromptTokensUsesCalibratedByteCoefficient(t *testing.T) {
 	}
 }
 
-func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
+func TestCompressWorkflowStepPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 	cfg := agentTestConfig()
 	cfg.Model.Deep.ContextTokens = 4096
 	cfg.Model.Deep.MaxTokens = 512
 	st := store.NewMemoryStore()
-	session := st.CreateSession("compress react prompt")
+	session := st.CreateSession("compress workflow step prompt")
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	longObservation := adaptToolResult(toolResultAdapterInput{
@@ -1803,8 +1800,8 @@ func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 	}
 	agentContext := strings.Repeat("历史上下文 ", 3000)
 	hint := TaskHint{ModelLaneHint: "deep"}
-	system := workflowStepSystemPrompt(nil, nil, hint, visibleTools, agentContext)
-	compactSystem := workflowStepSystemPrompt(nil, nil, hint, visibleTools, "历史上下文 compact summary", workflowStepPromptOptions{Compact: true})
+	system := workflowStepSystemPrompt(nil, hint, visibleTools, agentContext)
+	compactSystem := workflowStepSystemPrompt(nil, hint, visibleTools, "历史上下文 compact summary", workflowStepPromptOptions{Compact: true})
 	user := appendWorkflowStepContext(workflowStepUserPrompt("修改心得与体会段落", 2, []string{longObservation}), hint, visibleTools)
 	task := workflowStepModelTask(app.AgentRun{Risk: app.RiskRead}, "修改心得与体会段落", hint)
 
@@ -1823,7 +1820,7 @@ func TestCompressReActPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
 		t.Fatalf("compact prompt should not include full tool input_schema:\n%s", compressedSystem)
 	}
 	if compressedUser != user || strings.Contains(compressedUser, "tool_result_compact") {
-		t.Fatalf("compact prompt must preserve current ReAct observations without compacting them:\n%s", compressedUser)
+		t.Fatalf("compact prompt must preserve current workflow step observations without compacting them:\n%s", compressedUser)
 	}
 	if !hasAgentAuditField(st.ListAudit(session.ID), "workflow_step.prompt_compressed", "strategy", "stable_prefix_compact_context_v2") {
 		t.Fatalf("prompt compression audit missing: %#v", st.ListAudit(session.ID))
@@ -2191,7 +2188,7 @@ func TestRuntimeKeepsSmallDocumentContentFullInCurrentToolObservation(t *testing
 		t.Fatalf("full evidence should keep complete small document boundaries:\n%s", evidence.Text)
 	}
 	if len(calls[0].ObservationSummary) > cfg.Runtime.ReactMaxObservationBytes {
-		t.Fatalf("observation should still respect current ReAct observation budget: %d", len(calls[0].ObservationSummary))
+		t.Fatalf("observation should still respect current workflow step observation budget: %d", len(calls[0].ObservationSummary))
 	}
 }
 
@@ -2218,7 +2215,7 @@ func TestRuntimeReadsMultipleLocalFilesForCrossFileAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("multi-file comparison must fail closed outside ReAct: %#v", result.RouteDecision)
+		t.Fatalf("multi-file comparison must fail closed outside a matched workflow: %#v", result.RouteDecision)
 	}
 	if strings.Contains(result.Message.Content, "Summary from local files:") ||
 		strings.Contains(result.Message.Content, "Alpha says approval-first") ||
@@ -2337,7 +2334,7 @@ func TestRuntimeDoesNotExposeAdvancedBrowserActionsInRevisionOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteBlocked || result.Run.Workflow != nil || len(result.Approvals) != 0 {
-		t.Fatalf("type/screenshot work must fail closed outside ReAct: %#v", result)
+		t.Fatalf("type/screenshot work must fail closed outside a matched workflow: %#v", result)
 	}
 	for _, call := range st.ListToolCalls(session.ID) {
 		if call.Tool == "browser.type" || call.Tool == "browser.screenshot" {
@@ -2869,33 +2866,10 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"I cannot access personal accounts."
 		t.Fatal(err)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
-		t.Fatalf("unsupported personal-account work must fail closed outside ReAct: %#v", result)
+		t.Fatalf("unsupported personal-account work must fail closed outside a matched workflow: %#v", result)
 	}
 	if _, blocked := st.FindActiveBrowserLoginBlock(session.ID); blocked || adapter.openCalls != 0 {
 		t.Fatalf("unsupported account work must not open a page or create a login block: %#v", adapter)
-	}
-}
-
-func TestVisibleToolDefinitionsExposeImagesInspectForWorkspaceRead(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		EvidenceNeed:    "workspace",
-		ToolMode:        "read_only",
-		CandidateTools:  []string{"images.inspect"},
-		CandidateSkills: []string{"image_assistant"},
-	}, []skills.Skill{{
-		Name:         "image_assistant",
-		AllowedTools: []string{"images.inspect"},
-	}})
-	names := visibleToolNames(defs)
-	if !slicesContainsString(names, "images.inspect") {
-		t.Fatalf("workspace image tool should be visible: %#v", names)
 	}
 }
 
@@ -3124,31 +3098,6 @@ func TestWorkflowPlansDoNotPersistSkillIDs(t *testing.T) {
 	}
 }
 
-func TestReactParseFailureMessageDistinguishesInvisibleTool(t *testing.T) {
-	msg := workflowStepParseFailureMessage(parseWorkflowStepInvisibleToolError())
-	if !strings.Contains(msg, "tool that was not visible") || strings.Contains(msg, "valid workflow step JSON") {
-		t.Fatalf("invisible tool message should be specific, got %q", msg)
-	}
-	if !strings.Contains(msg, "tool_not_visible") {
-		t.Fatalf("invisible tool message should include the parser error, got %q", msg)
-	}
-}
-
-func TestReactParseFailureMessageIncludesParseErrorWithoutRawModelOutput(t *testing.T) {
-	rawModelOutput := `{"type":"action","tool":"office.replace_text","arguments":{"replacements":[{"find":"bad":""}]}}`
-	_, err := parseWorkflowStepOutput(rawModelOutput, []app.ToolDefinition{{Name: "office.replace_text"}})
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-	msg := workflowStepParseFailureMessage(err)
-	if !strings.Contains(msg, "valid workflow step JSON") || !strings.Contains(msg, "workflow step output JSON parse failed") {
-		t.Fatalf("parse failure should explain where it failed, got %q", msg)
-	}
-	if strings.Contains(msg, rawModelOutput) || strings.Contains(msg, `"tool":"office.replace_text"`) {
-		t.Fatalf("parse failure should not include raw model output, got %q", msg)
-	}
-}
-
 func TestRecoverableReActParseObservationKeepsBadActionUnexecuted(t *testing.T) {
 	_, err := parseWorkflowStepOutput(`{"type":"action","tool":"web.search","arguments":{`, []app.ToolDefinition{{Name: "web.search"}})
 	if err == nil {
@@ -3189,11 +3138,6 @@ func TestParseReActOutputRejectsRuntimeActionProtocol(t *testing.T) {
 	}
 }
 
-func parseWorkflowStepInvisibleToolError() error {
-	_, err := parseWorkflowStepOutput(`{"type":"action","tool":"web.search","arguments":{}}`, []app.ToolDefinition{})
-	return err
-}
-
 func TestTemporalContextIncludesRelativeDateAnchors(t *testing.T) {
 	now := time.Date(2026, time.June, 24, 8, 0, 0, 0, time.UTC)
 	context := temporalContext(now)
@@ -3218,45 +3162,12 @@ func TestSystemPromptIncludesTemporalContext(t *testing.T) {
 	}
 }
 
-func TestReActParserRejectsInvisibleTool(t *testing.T) {
+func TestWorkflowStepParserRejectsInvisibleTool(t *testing.T) {
 	_, err := parseWorkflowStepOutput(`{"type":"action","tool":"obsolete.tool","arguments":{}}`, []app.ToolDefinition{
 		{Name: "files.read"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "tool_not_visible") {
 		t.Fatalf("expected invisible tool rejection, got %v", err)
-	}
-}
-
-func TestLegacyReActCannotExposeMigratedWorkflowTools(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Tools.Web.Search.Enabled = true
-	cfg.Tools.BrowserAutomation.Enabled = true
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		EvidenceNeed:    "workspace",
-		ToolMode:        "action_required",
-		CandidateTools:  []string{"files.read", "web.search", "info.query", "browser.open", "weather.structure_payload", "media.render_weather_card", "docx.replace_paragraph", "pdf.transform"},
-		CandidateSkills: []string{"browser_automation", "document_assistant", "weather_lookup", "web_search"},
-	}, []skills.Skill{{
-		Name:         "browser_automation",
-		AllowedTools: []string{"web.search", "browser.open"},
-	}, {
-		Name:         "document_assistant",
-		AllowedTools: []string{"docx.replace_paragraph", "pdf.transform"},
-	}})
-	names := visibleToolNames(defs)
-	if !slicesContainsString(names, "files.read") {
-		t.Fatalf("legacy ReAct lost the shared code-read tool: %#v", names)
-	}
-	for _, migrated := range []string{"web.search", "info.query", "browser.open", "weather.structure_payload", "media.render_weather_card", "docx.replace_paragraph", "pdf.transform"} {
-		if slicesContainsString(names, migrated) {
-			t.Fatalf("legacy ReAct exposed migrated workflow tool %s: %#v", migrated, names)
-		}
 	}
 }
 
@@ -3322,33 +3233,6 @@ func TestMaterializeRoutedWeatherQueryDoesNotDuplicateCardRequirements(t *testin
 	}
 }
 
-func TestVisibleToolDefinitionsSkillDeniedToolsAreHidden(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		EvidenceNeed:    "workspace",
-		ToolMode:        "read_only",
-		CandidateTools:  []string{"files.search", "files.read", "files.write_draft"},
-		CandidateSkills: []string{"local_files"},
-	}, []skills.Skill{{
-		Name:         "local_files",
-		AllowedTools: []string{"files.search", "files.read", "files.write_draft"},
-		DeniedTools:  []string{"files.write_draft"},
-	}})
-	names := visibleToolNames(defs)
-	if !slicesContainsString(names, "files.search") || !slicesContainsString(names, "files.read") {
-		t.Fatalf("read-only visible tools missing file read/search: %#v", names)
-	}
-	if slicesContainsString(names, "files.write_draft") {
-		t.Fatalf("skill denied tools should be hidden: %#v", names)
-	}
-}
-
 func TestMigratedWorkflowToolsRemainRegistered(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
@@ -3365,52 +3249,6 @@ func TestMigratedWorkflowToolsRemainRegistered(t *testing.T) {
 	} {
 		if _, ok := tools.Definition(name); !ok {
 			t.Fatalf("migrated workflow tool %s was removed from ToolHub", name)
-		}
-	}
-}
-
-func TestVisibleToolDefinitionsDoNotReopenMigratedDocumentEditors(t *testing.T) {
-	root := t.TempDir()
-	cfg := agentTestConfig()
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	defs := runtime.visibleToolDefinitions(TaskHint{
-		TaskType:        "modify",
-		EvidenceNeed:    "workspace",
-		ToolMode:        "action_required",
-		EstimatedRisk:   "reversible",
-		CandidateSkills: []string{"document_assistant"},
-		CandidateTools:  []string{"files.read", "docx.replace_paragraph"},
-	}, []skills.Skill{{
-		Name: "document_assistant",
-		AllowedTools: []string{
-			"files.read",
-			"office.replace_text",
-			"docx.replace_paragraph",
-			"docx.insert_paragraph",
-			"docx.delete_paragraph",
-			"docx.set_text_style",
-			"pptx.add_slide",
-			"pptx.update_slide",
-			"pptx.duplicate_slide",
-			"pptx.delete_slide",
-			"xlsx.update_cell",
-			"xlsx.insert_row",
-			"xlsx.delete_row",
-			"xlsx.update_row",
-			"xlsx.append_row",
-		},
-	}})
-	names := visibleToolNames(defs)
-	if !slicesContainsString(names, "files.read") {
-		t.Fatalf("document read should remain visible, got %#v", names)
-	}
-	for _, denied := range []string{"docx.replace_paragraph", "docx.insert_paragraph", "docx.delete_paragraph", "docx.set_text_style", "pptx.add_slide", "pptx.update_slide", "pptx.duplicate_slide", "pptx.delete_slide", "xlsx.update_cell", "xlsx.insert_row", "xlsx.delete_row", "xlsx.update_row", "xlsx.append_row"} {
-		if slicesContainsString(names, denied) {
-			t.Fatalf("migrated document editor %s was reopened through a legacy skill candidate: %#v", denied, names)
 		}
 	}
 }

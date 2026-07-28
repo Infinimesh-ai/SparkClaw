@@ -82,7 +82,7 @@ func TestTimerSourceDoesNotOverrideSupportedSearchRequest(t *testing.T) {
 	}
 }
 
-func TestConversationAnswerRunsWithoutToolsOrReActFallback(t *testing.T) {
+func TestConversationAnswerRunsWithoutToolsOrLegacyFallback(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	result, err := runtime.HandleMessage(context.Background(), session.ID, "法国的首都是什么？\nMOCK_CONVERSATION_RESPONSE:巴黎。")
@@ -95,7 +95,7 @@ func TestConversationAnswerRunsWithoutToolsOrReActFallback(t *testing.T) {
 	}
 	if len(result.ToolCalls) != 0 || len(result.Approvals) != 0 || !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_answer", "deep") ||
 		hasWorkflowStepModelCall(st.ListModelCalls(session.ID, result.Run.ID)) {
-		t.Fatalf("conversation.answer used tools, approvals, or ReAct: result=%#v calls=%#v", result, st.ListModelCalls(session.ID, result.Run.ID))
+		t.Fatalf("conversation.answer used tools, approvals, or the step loop: result=%#v calls=%#v", result, st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.none") || !hasAgentAuditType(st.ListAudit(session.ID), "workflow.model_answer_completed") {
 		t.Fatalf("no-tool workflow boundary was not audited: %#v", st.ListAudit(session.ID))

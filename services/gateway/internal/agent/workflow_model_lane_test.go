@@ -24,16 +24,4 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"done"}`,
 		t.Fatalf("workflow execution did not force the deep lane: result=%#v calls=%#v", workflowResult.Chat, st.ListModelCalls(session.ID, workflowRun.ID))
 	}
 
-	fallbackRun := app.AgentRun{ID: "run_fallback_lane", SessionID: session.ID, Risk: app.RiskRead, StartedAt: time.Now().UTC()}
-	st.SaveRun(fallbackRun)
-	fallbackResult := runtime.runReActLoop(
-		t.Context(), session.ID, fallbackRun,
-		`fallback goal
-MOCK_STEP_RESPONSE:{"type":"final","answer":"done"}`,
-		TaskHint{ModelLaneHint: "fast"}, nil, nil,
-	)
-	if fallbackResult.Chat.Lane != "fast" ||
-		!hasModelCallOperation(st.ListModelCalls(session.ID, fallbackRun.ID), "workflow_step_1", "fast") {
-		t.Fatalf("unmatched fallback lane changed: result=%#v calls=%#v", fallbackResult.Chat, st.ListModelCalls(session.ID, fallbackRun.ID))
-	}
 }

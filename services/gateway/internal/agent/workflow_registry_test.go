@@ -13,7 +13,7 @@ import (
 func assertNoLegacyRoutingAudit(t *testing.T, events []app.AuditEvent) {
 	t.Helper()
 	for _, event := range events {
-		if event.Type == "task_hint.generated" || event.Type == "task_hint.fallback" || event.Type == "react.visible_tools_expanded" {
+		if event.Type == "task_hint.generated" || event.Type == "task_hint.fallback" {
 			t.Fatalf("migrated workflow used a legacy routing path: %#v", event)
 		}
 	}

@@ -62,10 +62,6 @@ func toolNamesForAudit(calls []app.ToolCall) []string {
 	return uniqueNonEmpty(names)
 }
 
-func fallbackToolCandidatesForAudit(hint TaskHint) []string {
-	return fallbackToolsForHint(hint)
-}
-
 func groundedSummary(goal, fallback string, calls []app.ToolCall) string {
 	summary, _ := groundedSummaryWithStrategy(goal, fallback, calls)
 	return summary

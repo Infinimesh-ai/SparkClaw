@@ -520,60 +520,8 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		return r.finishMatchedBrowserLoginResume(ctx, run, goal, interruptedWorkflowCallID, emit), true, nil
 	}
 
-	seedCalls := completedToolCallsForResume(toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID))
-	seedObservations := observationsForResume(seedCalls)
-	hint := r.generateTaskHint(ctx, sessionID, run.ID, goal)
-	relevantSkills := r.relevantSkillsForHint(goal, hint)
-	visibleTools := r.visibleToolDefinitions(hint, relevantSkills)
-	execution := r.runReActLoopWithSeed(ctx, sessionID, run, goal, hint, relevantSkills, visibleTools, seedCalls, seedObservations)
-	toolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
-	approvals := approvalsForRun(r.store.ListApprovals(""), run.ID)
-	if len(execution.Approvals) > 0 {
-		approvals = approvalsForRun(r.store.ListApprovals(""), run.ID)
-	}
-	now = time.Now().UTC()
-	if execution.BrowserLoginBlock != nil {
-		run.State = "browser_login_blocked"
-		run.CompletedAt = nil
-	} else if len(execution.Approvals) > 0 {
-		run.State = "approval_pending"
-		run.CompletedAt = nil
-	} else if isBlockedFinalAnswer(execution.FinalAnswer) {
-		run.State = "blocked"
-		run.CompletedAt = &now
-	} else {
-		run.State = "completed"
-		run.CompletedAt = &now
-	}
-	run.ModelLane = execution.Chat.Lane
-	run.Summary = summarizeRun(execution.Chat, execution.Observations, execution.Approvals)
-	if strings.TrimSpace(execution.FinalAnswer) != "" {
-		run.Summary = execution.FinalAnswer
-		if len(execution.Observations) > 0 || len(execution.Approvals) > 0 {
-			run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, execution.Observations, execution.Approvals)
-		}
-	}
-	run.Summary = r.applyGroundedSummary(sessionID, run.ID, goal, run.Summary, toolCalls)
-	if emit != nil && len(execution.Approvals) == 0 && execution.BrowserLoginBlock == nil && !isBlockedFinalAnswer(execution.FinalAnswer) {
-		_ = emitCompletedFinalAnswer(run, "legacy_react_answer", run.Summary, emit)
-	}
-	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
-		toolCalls = append(toolCalls, call)
-		approvals = append(approvals, approval)
-	}
-	r.store.SaveRun(run)
-	feedback := r.store.ListRunFeedback(run.ID)
-	episode := summarizeEpisode(goal, run, toolCalls, approvals, run.Summary, now)
-	r.store.SaveEpisodeSummary(episode)
-	assistant := r.store.AddMessage(app.Message{
-		SessionID: sessionID,
-		RunID:     run.ID,
-		Role:      "assistant",
-		Content:   run.Summary,
-		CreatedAt: now,
-	})
-	r.writeTrace(ctx, run, execution.Chat, toolCalls, approvals, feedback, &episode)
-	return Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals}, true, nil
+	return r.completeRetiredLegacyRun(ctx, run, goal, "workflow.legacy_login_resume_retired",
+		"Resolved a browser login block for a run without a persisted workflow plan"), true, nil
 }
 
 func (r Runtime) reopenBrowserLoginBlock(ctx context.Context, sessionID string, run app.AgentRun, block app.BrowserLoginBlock, userReply string, calls []app.ToolCall, approvals []app.Approval, reason string) (Result, bool, error) {

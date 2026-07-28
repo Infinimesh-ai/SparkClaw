@@ -41,7 +41,7 @@ confirm_document_target
 不代表完成。Runtime 会返回一次限定在当前 stage 的纠正提示；如果模型再次提前返回
 `final`，则以 `required_tool_not_called` 阻断当前节点，不再发起第三次模型调用。
 
-`select_edit_operation` 不会向 ReAct 暴露工具。Runtime 直接检索它按格式限定的
+`select_edit_operation` 不会向步骤模型暴露工具。Runtime 直接检索它按格式限定的
 `document.edit` scope：单候选确定性选中；多候选由一次有重试上限的 Deep 模型决策处理，
 输入是 owner 请求和最多 20,000 字符的依赖证据。选中的 directory entry、capability、
 format、operation 与选择路径写入该节点的 `OutcomeRefs`，编辑节点只能 materialize 这一

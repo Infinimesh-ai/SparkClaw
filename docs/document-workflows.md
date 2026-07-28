@@ -47,7 +47,7 @@ tool call is a protocol violation, not completion. Runtime returns one
 stage-scoped correction; a repeated premature `final` blocks the active node
 with `required_tool_not_called` without starting a third model call.
 
-`select_edit_operation` never exposes a tool to ReAct. Runtime searches its
+`select_edit_operation` never exposes a tool to the step model. Runtime searches its
 format-qualified `document.edit` scope directly. A single candidate is selected
 deterministically; multiple candidates are resolved by one retry-bounded Deep
 model decision over the owner request and up to 20,000 runes of dependency

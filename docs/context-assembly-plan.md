@@ -13,7 +13,7 @@ rules.
 Scope: prompt assembly and tool-result composition inside
 `services/gateway/internal/agent`. No external API, store schema, or Workflow
 Profile contract changes. The `modelrouter.Chat(ctx, task, system, user)`
-two-string interface and the JSON-in-text ReAct protocol are intentionally
+two-string interface and the JSON-in-text step protocol are intentionally
 kept: the current Qwen lanes handle that protocol acceptably and the
 parse-error recovery path already covers its failure mode.
 
@@ -22,20 +22,20 @@ parse-error recovery path already covers its failure mode.
 - Model interface: one system string plus one user string per call
   (`services/gateway/internal/modelrouter/router.go`, `Chat`). No messages
   array, no native function calling. Bounded tool loops parse a JSON action
-  from raw model text (`agent/react_output.go`).
+  from raw model text (`agent/workflow_step_output.go`).
 - Session context: `buildAgentContextSnapshot`
   (`agent/context_snapshot.go`) selects fixed windows — last 8
   user/assistant messages (each trimmed to 360 chars), last 6 cross-run tool
   results (summary cap 4000 chars), 4 episode summaries, 4 memories, 3
   images — and renders them into one text block per variant
-  (`ForReAct` / `ForReActCompact` / `ForTaskHint`).
+  (`ForWorkflowStep` / `ForWorkflowStepCompact` / `ForTaskHint`).
 - Tool results: `adaptToolResult` (`agent/tool_result_adapter.go`) builds a
   structured JSON envelope (summary / structured / evidence) with
   per-category evidence extractors and three-tier degradation, default cap
   1600 bytes per tool message. Full outputs are persisted as artifacts and
   referenced by `artifact_uri` / `ObservationRef`.
-- Loop budgets (`agent/react.go`): self-imposed prompt cap
-  `defaultReActContextTokens = 12288` tokens; one-shot compact compression at
+- Loop budgets (`agent/workflow_step_loop.go`): self-imposed prompt cap
+  `defaultWorkflowStepContextTokens = 12288` tokens; one-shot compact compression at
   80% of the available input budget; run-level observation cap 48000 bytes;
   token estimation is a chars/3 vs bytes/4 heuristic.
 
@@ -43,12 +43,12 @@ parse-error recovery path already covers its failure mode.
 
 - **P0-1 — Observations are sent twice per step.** In non-compact mode the
   full observation list is embedded in the system prompt
-  (`contextualSystemPromptForReAct`, `agent/react.go` around line 634) and
-  again in the user prompt (`reactStepUserPrompt`). Every tool step re-sends
+  (`contextualSystemPromptForWorkflowStep`, `agent/workflow_step_loop.go` around line 634) and
+  again in the user prompt (`workflowStepUserPrompt`). Every tool step re-sends
   the whole list twice, which burns the 12k budget, triggers compression
   earlier, and reaches the hard stop sooner.
 - **P0-2 — Observation growth ends the run instead of being compacted.**
-  `shouldStopReActRun` terminates the run once accumulated observations reach
+  `shouldStopWorkflowStepLoop` terminates the run once accumulated observations reach
   `MaxObservationBytes` (48000). A single `files.read` document envelope can
   contribute 5–6 KB of evidence, so multi-step document or browser tasks can
   die mid-task with a budget message. There is no in-run compaction path —
@@ -59,7 +59,7 @@ parse-error recovery path already covers its failure mode.
   `dgx-spark-dual-light-v1` profile (serialized generation, 8 GB fast-lane KV
   cache) re-prefilling 8–10k tokens per step is user-visible latency.
 - **P0-4 — Token budgets are disconnected from the deployed profiles.**
-  `effectiveReActPromptBudget` clamps every lane to 12288 tokens even though
+  `effectiveWorkflowStepPromptBudget` clamps every lane to 12288 tokens even though
   the profiles serve 32k (fast) and 64k (deep), and the chars/3 estimate is
   uncalibrated for Chinese-heavy prompts.
 
@@ -74,7 +74,7 @@ Each item is an independent, per-topic commit.
 ### 0.1 Single-copy observations (implemented 2026-07-27)
 
 Remove the observation block from the non-compact system prompt; the user
-prompt (`reactStepUserPrompt`) becomes the only carrier, matching what
+prompt (`workflowStepUserPrompt`) becomes the only carrier, matching what
 compact mode already does. No format change in the surviving copy, so no
 model-behavior retraining risk.
 
@@ -91,7 +91,7 @@ observation list in place instead of stopping:
   key structured fields, and `artifact_uri`, and tagged `compacted=true`.
 - The most recent 2 observations are never compacted (current execution
   state must stay verbatim).
-- Order is preserved. Emit an audit event `react.observations_compacted`
+- Order is preserved. Emit an audit event `workflow_step.observations_compacted`
   with before/after byte counts.
 - Only if the budget is still exceeded after all eligible entries are
   compacted does the run stop with the existing message.
@@ -101,7 +101,7 @@ recover compacted evidence. Therefore this item must not ship before Phase
 1.2 provides the uniform read-back tool.
 
 Acceptance: a scripted long run (16+ tool steps of document/browser reads)
-completes instead of stopping on `react.budget_stopped`; audit shows
+completes instead of stopping on `workflow_step.budget_stopped`; audit shows
 compaction events.
 
 ### 0.3 Stable prompt prefix ordering (code implemented 2026-07-27)
@@ -127,7 +127,7 @@ model logs drop after step 1; record the before/after measurement in
 
 ### 0.4 Lane-aligned token budgets and calibrated estimation (implemented 2026-07-27)
 
-- `effectiveReActPromptBudget` uses the active lane profile's
+- `effectiveWorkflowStepPromptBudget` uses the active lane profile's
   `context_tokens` multiplied by a 0.85 safety factor, instead of the 12288
   clamp. 12288 remains only as the fallback when the profile does not
   declare a limit.
@@ -156,7 +156,7 @@ them into one explicit builder in the `agent` package:
 
 | Section | Degradation chain | Today's equivalent |
 |---|---|---|
-| Output contract and safety rules | never degrades | ReAct rule block |
+| Output contract and safety rules | never degrades | step output contract block |
 | Tool definition JSON | full → compact (names + required args) | compact tool defs |
 | Current-run observations | full → rolling compaction (0.2) | observations list |
 | Session tool results | full → compact → drop | `formatContextToolResults` |
@@ -167,7 +167,7 @@ them into one explicit builder in the `agent` package:
 - The builder receives the lane's real input budget (from 0.4), allocates
   top-down by priority, and degrades from the lowest-priority section
   upward until the estimate fits.
-- `ForReAct`, `ForReActCompact`, and `ForTaskHint` become three budget
+- `ForWorkflowStep`, `ForWorkflowStepCompact`, and `ForTaskHint` become three budget
   configurations of the same builder; the rendered text at the `full` level
   is byte-identical to today's output, so model-facing behavior does not
   change at introduction time.
@@ -235,12 +235,12 @@ phase:
   0.4; builder degradation order and full-level byte-identity for 1.1;
   registry consistency covers 1.2 automatically.
 - Scenario: long document and browser runs on the **default `file` state
-  backend**; verify completion without `react.budget_stopped` and correct
+  backend**; verify completion without `workflow_step.budget_stopped` and correct
   `observation.read` recovery of truncated evidence.
 - Performance: before/after per-step prefill measurements on the dual-light
   profile recorded in [Model baseline](../benchmarks/model_baseline.md).
-- Audit: `react.prompt_compressed` continues to fire; new
-  `react.observations_compacted` events carry byte counts.
+- Audit: `workflow_step.prompt_compressed` continues to fire; new
+  `workflow_step.observations_compacted` events carry byte counts.
 
 ## 7. Delivery Order
 

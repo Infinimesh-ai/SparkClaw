@@ -13,9 +13,9 @@
 - 对话上下文、附件、ToolResult 消息、Observation 顺序、压缩、Grounding 和渠道投递继续复用原有统一 Runtime 流程。
 - Workflow Plan 不再包含 Skill ID，Workflow 执行也不加载任何 Skill 文本。版本化 Profile、活动 Capability Scope、Argument Binding、ToolHub Metadata 与 Policy 共同构成完整执行边界。
 - Query、URL、Workspace Path、Location、Output Path 和 Outcome Ref 都从持久化状态物化；模型不能在后续 Stage 中替换这些冻结资源。
-- 已匹配 Workflow 如果失败，会明确失败或阻断，不会回退到 TaskHint/ReAct 或其他能力。
-- `unmatched` 路由会终止为 `router.blocked`，不会暴露 TaskHint Candidate、工具或 ReAct。
-- 浏览器、天气或文档请求如果超出当前 Profile Revision，会从 `unmatched` 转为 `blocked`，不能通过旧 ReAct 恢复。
+- 已匹配 Workflow 如果失败，会明确失败或阻断，不会回退到 TaskHint、通用回退循环或其他能力。
+- `unmatched` 路由会终止为 `router.blocked`，不会暴露 TaskHint Candidate、工具或任何回退执行器。
+- 浏览器、天气或文档请求如果超出当前 Profile Revision，会从 `unmatched` 转为 `blocked`，不存在可恢复的旧回退路径。
 
 ## 当前 Profile
 
@@ -42,4 +42,4 @@
 
 ## 未迁移能力
 
-代码/命令辅助、图片检查、记忆和其他没有注册 Workflow 的领域会终止为 `unmatched`。Legacy Skill 与 ReAct 恢复代码仅保留用于兼容已持久化运行。当前 Workflow 矩阵之外的已注册工具继续保留在 ToolHub 中等待后续迁移，但不能作为可用功能对外宣称。
+代码/命令辅助、图片检查、记忆和其他没有注册 Workflow 的领域会终止为 `unmatched`。旧的通用循环已删除；恢复迁移前持久化的运行会以明确的"旧运行时已下线"消息终止。当前 Workflow 矩阵之外的已注册工具继续保留在 ToolHub 中等待后续迁移，但不能作为可用功能对外宣称。

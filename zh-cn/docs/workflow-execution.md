@@ -1,0 +1,195 @@
+# Workflow 执行 Runtime
+
+> 语言：[English](../../docs/workflow-execution.md) | 简体中文
+
+本文是 `services/gateway/internal/agent` 中 workflow 原生执行 runtime 的贡献者
+手册，覆盖每个匹配请求的执行路径、唯一的模型/工具步骤原语、预算与协议、恢复
+语义，以及新增 workflow 代码的扩展点。旧的通用 ReAct 循环已彻底删除：工具只能
+通过 workflow 执行，其背后不存在任何回退执行器。
+
+相关文档：系统边界见[架构](architecture.md)，当前注册能力见
+[Workflow 能力矩阵](workflow-capabilities.md)，逐步扩展流程见
+[开发](development.md)，请求如何选中叶子见[意图路由](intent-routing.md)。
+
+## 执行流水线
+
+每条入站消息走同一条流水线（`agent.go` 的 `handleMessage`）：
+
+1. **归一化** —— message plane 生成渠道无关的 envelope 和资源投影。
+2. **Guard + 路由** —— 安全 guard 可直接终止运行；意图路由返回唯一的
+   `RouteDecision`。`clarify` / `blocked` / `unmatched` 是终态：直接产出结果，
+   绝不执行工具。
+3. **分发** —— `dispatchMatchedWorkflow`（`workflow_dispatcher.go`）把匹配叶子
+   解析为一个带版本的 Workflow Profile，冻结计划（节点、迁移、参数绑定、完成
+   证据、计划摘要），持久化到运行记录上，并为第一个 active scope 物化工具。
+4. **阶段循环** —— `runWorkflowStream`（`workflow_runtime.go`）驱动有界阶段，
+   直到 workflow 成功、阻断，或等待审批 / 浏览器登录交接。每个阶段执行三种节
+   点调用形态之一：
+   - **无工具模型回答**节点（`conversation_workflow.go`）；
+   - **直接工具调用**节点（`runWorkflowDirectToolOnce`），不经过模型步骤直接
+     调用唯一绑定的工具；
+   - 经 `runWorkflowModelStep` 的**模型步骤**，即共享步骤循环。
+5. **评估 + 迁移** —— 每次 workflow 工具调用都被适配为类型化的
+   `ToolOutcome`，由 Profile 评估并应用到持久化的节点状态；Profile 决策与迁移
+   指令进入下一阶段的 observation。工具物化按 scope revision 重新计算。
+6. **终结** —— 成功的 workflow 依据 `profile.Finalization()`，要么通过
+   grounded 结果适配器投影类型化结果，要么用模型合成最终回答
+   （`synthesizeWorkflowFinalAnswer`）。
+
+## Workflow 步骤循环
+
+`workflow_step_loop.go` 持有唯一的模型/工具执行原语：
+
+- `runWorkflowModelStep` 是唯一入口。它强制 workflow 执行模型通道并调用
+  `runWorkflowStepLoop`。
+- 循环在启动时冻结完整与 compact 两份 system prompt
+  （`workflowStepSystemPrompt`，基于上下文快照的 `ForWorkflowStep` /
+  `ForWorkflowStepCompact` 视图）。当前运行的 observation 只在 user prompt 中
+  按因果顺序出现一次，其后是步骤输出契约。
+- Prompt 准入用标定过的每 token 4 字节系数估算,在可用输入预算的 80% 处切换到
+  compact system prompt（`compressWorkflowStepPromptIfNeeded`，审计事件
+  `workflow_step.prompt_compressed`）。预算来自与执行同一路由任务策略选出的模
+  型 profile，并带 85% 上下文窗口安全系数
+  （`effectiveWorkflowStepPromptBudget`）。
+
+### 步骤协议
+
+每个步骤发送以 `WORKFLOW_STEP_REQUEST` 开头的 user prompt,要求模型只返回一个
+JSON 对象：
+
+```json
+{"type":"action","tool":"tool.name","arguments":{},"reason":"short reason"}
+{"type":"final","answer":"answer for the user"}
+```
+
+`parseWorkflowStepOutput`（`workflow_step_output.go`、`action_parser.go`）校验
+封套并拒绝模型不可见的工具（`tool_not_visible`）。解析失败是可恢复的：循环追
+加一条 `workflow_step.parse_error` observation，审计
+`workflow_step.parse_failed`，让模型自行纠正；坏 action 绝不会被执行。
+
+在 workflow scope 内,每次工具调用后循环都返回 workflow runtime，让结果先被评
+估,同一 scope revision 下才允许下一次工具调用。若阶段要求工具证据
+（`TaskHint.RequiresToolEvidence`），过早的 `final` 会被
+`workflow_protocol_violation` observation 拒绝（审计
+`workflow.required_tool_not_called`）；两次被拒后节点以
+`required_tool_not_called` 原因阻断。
+
+### 预算与停止条件
+
+`stepBudget()` 读取 `RuntimeConfig`，任一上限先触发即停止循环（审计
+`workflow_step.budget_stopped`）：
+
+| 配置键（`runtime` 段） | 默认值 | 触发停止的条件 |
+|---|---|---|
+| `workflow_step_max_duration_seconds` | 180 | 墙钟时间耗尽 |
+| `workflow_step_max_tool_calls` | 16 | 已执行工具调用达到上限 |
+| `workflow_step_max_observation_bytes` | 48000 | 累积 observation 达到上限 |
+| `workflow_step_max_no_progress_actions` | 3 | 连续动作未产生新证据 |
+| `workflow_step_max_repeated_tool_calls` | 3 | 同一工具以相同指纹重复调用 |
+
+`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` 可覆盖 observation 预算。已废
+弃的 `react_max_*` 键与 `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` 仍作为回退加
+载（两者同时存在时新键优先）；新配置必须使用 `workflow_step_max_*` 命名。
+
+### Scope 约束
+
+模型输出无法扩大 workflow 边界：
+
+- `materializedWorkflowCapability` 把所选工具映射到 active 节点/scope revision
+  已物化的能力，否则该步骤失败。
+- `validateWorkflowToolPlan`（`workflow_runtime.go`）在执行前依据持久化的计划
+  摘要、active 节点状态、阶段能力规则、qualifier 绑定和冻结参数绑定重新校验每
+  个计划。
+- `materializeWorkflowBoundArguments` / `bindWorkflowToolArguments` 用持久化的
+  intent/route/outcome 状态覆写参数值，后续阶段无法偷换 query、URL、路径或元
+  素引用。
+
+## 运行状态、模型调用与审计事件
+
+运行状态：`received` → `routing` → `executing` → `workflow_step`（每个模型步
+骤置位），以及终态/等待态 `completed`、`blocked`、`clarification_required`、
+`approval_pending`、`browser_login_blocked`。
+
+步骤循环产生的模型调用使用 operation `workflow_step_<n>`；恢复门控
+（`hasWorkflowStepModelCall`）同时识别持久化数据中改名前的
+`react_step_<n>`。
+
+执行器发出的关键审计事件：
+
+| 类型 | 含义 |
+|---|---|
+| `workflow.dispatched` / `gateway.dispatch` | 匹配叶子绑定到冻结的 workflow 契约 |
+| `workflow_step.output` | 解析出一个步骤封套（action 或 final） |
+| `workflow_step.parse_failed` | 可恢复的步骤协议解析失败 |
+| `workflow_step.prompt_compressed` | 模型调用前替换为 compact system prompt |
+| `workflow_step.budget_stopped` | 某步骤预算停止了循环 |
+| `workflow.required_tool_not_called` | 拒绝了跳过必需工具证据的最终回答 |
+| `workflow.transitioned` | 工具结果被评估并应用到节点状态 |
+| `workflow.direct_tool_invoked` | 直接调用节点执行了唯一绑定工具 |
+| `workflow.model_answer_completed` | 无工具模型回答 workflow 完成 |
+| `workflow.blocked` / `workflow.protocol_blocked` | 装配或协议失败阻断了 workflow |
+| `workflow.finalization_failed` | 已完成证据无法渲染为最终回答 |
+| `workflow.legacy_resume_retired` / `workflow.legacy_login_resume_retired` | 迁移前的持久化运行被关闭而非恢复 |
+
+## 恢复语义
+
+`ResumeRunAfterApproval`（`agent.go`）处理审批已解决的运行：
+
+- **外部发送审批**走专用发送路径恢复。
+- **Workflow 运行**经 `resumeMatchedWorkflowAfterApproval`
+  （`workflow_dispatcher.go`）恢复：已批准的种子调用被重新评估进持久化计划，
+  阶段循环在同一冻结 scope 内继续。
+- **迁移前的持久化运行**：若被批准的动作是终结性的，运行以 grounded 摘要完
+  成；否则以"旧运行时已下线"消息关闭，审计
+  `workflow.legacy_resume_retired`。无 workflow 计划的运行在浏览器登录恢复时
+  同理（`workflow.legacy_login_resume_retired`）。不存在重新进入通用循环的路
+  径。
+
+Workflow 运行上的浏览器登录交接经 `finishMatchedBrowserLoginResume` 恢复，带
+着冻结目标重新进入持久化的 workflow scope。
+
+## 扩展点
+
+按[开发](development.md)中的扩展流程执行；代码锚点如下：
+
+- **能力叶子与路由** —— `internal/capability` catalog，以及由 Profile 注册表
+  编译出的语义图。
+- **Workflow Profile** —— 实现 Profile 并在 `defaultWorkflowProfileRegistry`
+  注册（`workflow_profiles.go`、`workflow_registry.go`）。Profile 拥有计划形
+  态（节点、阶段、迁移、供 `workflowStageLimit` 使用的
+  `MaxAttempts`/`MaxActivations` 上界）、`Assess`/`TransitionInstruction`/
+  `Hint` 函数、决策，以及终结模式（`workflowFinalizationModel` 或 grounded
+  投影）。
+- **节点调用形态** —— 默认模型步骤；设置
+  `InvocationMode: app.WorkflowInvocationDirectOnce` 表示免模型的单次工具调
+  用；无工具会话 Profile 使用模型回答节点。
+- **工具** —— 在 `internal/toolhub/registry.go` 注册（一致性测试禁止按名
+  switch 注册）。声明带 qualifier 的能力,使物化与阶段规则可以绑定它们；当
+  workflow 需要从工具结果提取类型化信号时,补充结果适配器
+  （`workflow_outcome.go`、`tool_result_adapter.go`）。
+- **参数绑定** —— 把工具参数绑定到 intent target、route slot、route fact 或先
+  前的 outcome ref，让取值从持久化状态物化，而不是信任模型输出。
+- **预算** —— 按部署在 `runtime` 配置段调整 `workflow_step_max_*` 键；不要为
+  单个 workflow 开旁路。
+
+修改 prompt 组装时,保持 `agent_test.go` 覆盖的不变量：observation 在 user
+prompt 中只出现一次、步骤输出契约位于 user prompt 尾部、system prompt 各节保
+持稳定顺序以利缓存前缀。
+
+## 旧版迁移备注
+
+2026-07 的迁移重命名了执行面并删除了通用循环。旧标识符只出现在持久化数据兼容
+垫片中：
+
+| 旧 | 新 |
+|---|---|
+| `react.go` / `react_output.go` | `workflow_step_loop.go` / `workflow_step_output.go` |
+| `runReActLoop` / `runReActLoopWithSeed` | 已删除（`runWorkflowModelStep` 是唯一入口） |
+| Prompt 标记 `REACT_OUTPUT_REQUEST` | `WORKFLOW_STEP_REQUEST` |
+| Observation 标记 `react.parse_error` | `workflow_step.parse_error` |
+| 审计事件 `react.*` | `workflow_step.*` |
+| 运行状态 `reacting` / `react_step` | `executing` / `workflow_step` |
+| 模型调用 operation `react_step_<n>` | `workflow_step_<n>`（恢复时仍识别旧前缀） |
+| 配置 `react_max_*`、`SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` | `workflow_step_max_*`、`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES`（旧键作为回退加载） |
+| unmatched 契约引用 `react.unmatched` | `legacy.unmatched` |
+| TaskHint/Skill 驱动的工具可见性（`visibleToolDefinitions`、回退工具列表、旧 Skill 过滤器） | 已删除；工具只按 workflow scope 物化 |

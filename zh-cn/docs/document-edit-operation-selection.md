@@ -61,7 +61,7 @@ confirm_document_target        （确定性）
 
 - 必须声明非空的初始 capability scope（候选边界）；
 - 不得声明 transition、argument binding 或 stage capability 规则；
-- 绝不 materialize ReAct 可见工具——由 Runtime 直接消解；
+- 绝不 materialize 模型可见的步骤工具——由 Runtime 直接消解；
 - 必须依赖至少一个 evidence 节点，确保定位证据先于选择存在。
 
 Runtime 在计算下一个执行 hint 之前消解处于 active 状态的决策节点：

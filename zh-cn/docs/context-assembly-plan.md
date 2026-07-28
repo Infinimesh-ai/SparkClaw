@@ -9,7 +9,7 @@
 
 范围：`services/gateway/internal/agent` 内的 prompt 组装与工具结果拼装。不改
 外部 API、存储 schema 或 Workflow Profile 契约。`modelrouter.Chat(ctx, task,
-system, user)` 双字符串接口与 JSON-in-text ReAct 协议**有意保留**：当前 Qwen
+system, user)` 双字符串接口与 JSON-in-text 步骤协议**有意保留**：当前 Qwen
 双通道对该协议的遵循度可接受，且 parse-error 恢复路径已覆盖其失败模式。
 
 ## 1. 本方案实施前基线
@@ -17,29 +17,29 @@ system, user)` 双字符串接口与 JSON-in-text ReAct 协议**有意保留**�
 - 模型接口：每次调用一段 system 字符串加一段 user 字符串
   （`services/gateway/internal/modelrouter/router.go` 的 `Chat`）。没有
   messages 数组，没有原生 function calling。受限工具循环从模型原始文本中解析
-  JSON action（`agent/react_output.go`）。
+  JSON action（`agent/workflow_step_output.go`）。
 - 会话上下文：`buildAgentContextSnapshot`（`agent/context_snapshot.go`）按固
   定窗口选取——最近 8 条 user/assistant 消息（每条截断 360 字符）、最近 6 条
   跨 run 工具结果（摘要上限 4000 字符）、4 条 episode 摘要、4 条记忆、3 张图
-  片——并按变体（`ForReAct` / `ForReActCompact` / `ForTaskHint`）渲染成一整
+  片——并按变体（`ForWorkflowStep` / `ForWorkflowStepCompact` / `ForTaskHint`）渲染成一整
   块文本。
 - 工具结果：`adaptToolResult`（`agent/tool_result_adapter.go`）构建结构化
   JSON envelope（summary / structured / evidence），按工具类别抽取证据，三级
   降级压缩，单条 tool message 默认上限 1600 字节。完整输出以 artifact 落盘，
   由 `artifact_uri` / `ObservationRef` 引用。
-- 循环预算（`agent/react.go`）：自设 prompt 上限
-  `defaultReActContextTokens = 12288`；可用输入预算 80% 处做一次性 compact 压
+- 循环预算（`agent/workflow_step_loop.go`）：自设 prompt 上限
+  `defaultWorkflowStepContextTokens = 12288`；可用输入预算 80% 处做一次性 compact 压
   缩；run 级 observation 上限 48000 字节；token 估算是 chars/3 与 bytes/4 取
   大的启发式。
 
 ## 2. 方案制定时识别的问题（P0）
 
 - **P0-1 —— observation 每步双份发送。** 非 compact 模式下，完整 observation
-  列表既嵌入 system prompt（`contextualSystemPromptForReAct`，
-  `agent/react.go` 634 行附近），又出现在 user prompt
-  （`reactStepUserPrompt`）。每个工具步骤把整个列表重复发两遍，消耗 12k 预
+  列表既嵌入 system prompt（`contextualSystemPromptForWorkflowStep`，
+  `agent/workflow_step_loop.go` 634 行附近），又出现在 user prompt
+  （`workflowStepUserPrompt`）。每个工具步骤把整个列表重复发两遍，消耗 12k 预
   算，更早触发压缩，更早撞上硬终止。
-- **P0-2 —— observation 增长导致 run 终止而非压缩。** `shouldStopReActRun`
+- **P0-2 —— observation 增长导致 run 终止而非压缩。** `shouldStopWorkflowStepLoop`
   在累计 observation 达到 `MaxObservationBytes`（48000）后直接结束 run。单次
   `files.read` 的文档 envelope 就可能贡献 5–6 KB 证据，多步文档/浏览器任务会
   在中途以预算提示失败。**不存在 run 内压缩路径**——只有"停"。
@@ -47,7 +47,7 @@ system, user)` 双字符串接口与 JSON-in-text ReAct 协议**有意保留**�
   步重建且内含 observations，跨步不存在稳定前缀。在单 GB10 的
   `dgx-spark-dual-light-v1` 配置下（串行生成、fast 通道仅 8 GB KV cache），每
   步重算 8–10k token 的 prefill 是用户可感知的延迟。
-- **P0-4 —— token 预算与部署 profile 脱节。** `effectiveReActPromptBudget`
+- **P0-4 —— token 预算与部署 profile 脱节。** `effectiveWorkflowStepPromptBudget`
   把所有通道钳制在 12288 token，而 profile 实际提供 32k（fast）和 64k
   （deep）；chars/3 估算对中文为主的 prompt 未校准。
 
@@ -61,7 +61,7 @@ system, user)` 双字符串接口与 JSON-in-text ReAct 协议**有意保留**�
 ### 0.1 observation 单份化（2026-07-27 已实施）
 
 从非 compact system prompt 中移除 observation 块；user prompt
-（`reactStepUserPrompt`）成为唯一载体，与 compact 模式现有行为一致。保留的那
+（`workflowStepUserPrompt`）成为唯一载体，与 compact 模式现有行为一致。保留的那
 份格式不变，不引入模型行为再适应风险。
 
 验收：每步 prompt 体积减少整个 observation 载荷；`agent` 包现有测试保持通过。
@@ -74,7 +74,7 @@ system, user)` 双字符串接口与 JSON-in-text ReAct 协议**有意保留**�
   行，保留 `tool`、`status`、关键 structured 字段与 `artifact_uri`，并标记
   `compacted=true`。
 - 最近 2 条 observation 永不压缩（当前执行状态必须保持原文）。
-- 顺序保持不变。发出审计事件 `react.observations_compacted`，携带压缩前后字
+- 顺序保持不变。发出审计事件 `workflow_step.observations_compacted`，携带压缩前后字
   节数。
 - 仅当所有可压缩条目压缩后仍超预算，才按现有提示终止 run。
 
@@ -82,7 +82,7 @@ system, user)` 双字符串接口与 JSON-in-text ReAct 协议**有意保留**�
 项不得早于阶段 1.2 的统一回读工具交付。
 
 验收：脚本化长 run（16+ 步文档/浏览器读取）能够完成而非停在
-`react.budget_stopped`；审计中可见压缩事件。
+`workflow_step.budget_stopped`；审计中可见压缩事件。
 
 ### 0.3 稳定 prompt 前缀排序（代码于 2026-07-27 实施）
 
@@ -102,7 +102,7 @@ system, user)` 双字符串接口与 JSON-in-text ReAct 协议**有意保留**�
 
 ### 0.4 通道对齐的 token 预算与校准估算（2026-07-27 已实施）
 
-- `effectiveReActPromptBudget` 改为读取当前通道 profile 的
+- `effectiveWorkflowStepPromptBudget` 改为读取当前通道 profile 的
   `context_tokens` 乘以 0.85 安全系数，替代 12288 钳制。12288 仅作为 profile
   未声明上限时的兜底。
 - 用 vLLM `/tokenize` 端点对代表性中文、英文、JSON 样本做一次离线校准，得出
@@ -126,7 +126,7 @@ adapter 的单条上限仍约束尾部。
 
 | Section | 降级链 | 现状对应 |
 |---|---|---|
-| 输出契约与安全规则 | 永不降级 | ReAct 规则块 |
+| 输出契约与安全规则 | 永不降级 | 步骤输出契约规则块 |
 | 工具定义 JSON | full → compact（名称+必填参数） | compact 工具定义 |
 | 当前 run 的 observations | full → 滚动压缩（0.2） | observation 列表 |
 | 会话工具结果 | full → compact → drop | `formatContextToolResults` |
@@ -136,7 +136,7 @@ adapter 的单条上限仍约束尾部。
 
 - builder 接收该通道的真实输入预算（来自 0.4），按优先级自上而下分配，超预
   算时从最低优先级 section 起沿降级链降级，直到估算通过。
-- `ForReAct`、`ForReActCompact`、`ForTaskHint` 变为同一 builder 的三种预算配
+- `ForWorkflowStep`、`ForWorkflowStepCompact`、`ForTaskHint` 变为同一 builder 的三种预算配
   置；`full` 级渲染文本与今天的输出逐字节一致，引入时不改变模型可见行为。
 - 未来新增上下文来源（日历、邮件摘要——见
   [暂缓能力](deferred-email-calendar-knowledge.md)）只需注册一个 section，
@@ -188,11 +188,11 @@ web/浏览器证据对模型不可恢复。新增一个只读工具：
 - 单元：0.2 的压缩触发/顺序/字节记账；0.4 的预算计算；1.1 的降级顺序与
   full 级逐字节一致性；1.2 由注册表一致性测试自动覆盖。
 - 场景：在**默认 `file` 状态后端**上运行长文档与浏览器任务；确认不再出现
-  `react.budget_stopped`，且 `observation.read` 能正确恢复被截断的证据。
+  `workflow_step.budget_stopped`，且 `observation.read` 能正确恢复被截断的证据。
 - 性能：dual-light 配置下每步 prefill 的前后测量，记录到
   [模型基线](../benchmarks/model_baseline.md)。
-- 审计：`react.prompt_compressed` 继续触发；新增
-  `react.observations_compacted` 事件携带字节数。
+- 审计：`workflow_step.prompt_compressed` 继续触发；新增
+  `workflow_step.observations_compacted` 事件携带字节数。
 
 ## 7. 交付顺序
 

@@ -106,7 +106,7 @@ materialize 当前 stage 所需 ToolHub capability。
 
 ToolHub registration 是 tool 的 execution/schema/risk/effect 权威。Policy/Approval 在 Workflow
 选择之后、effect 之前执行。模型不能增加 tool、修改冻结 resource binding 或绕过 approval。
-匹配 Workflow 失败保持显式，不回退到另一 router 或旧 ReAct。
+匹配 Workflow 失败保持显式，不回退到另一 router 或任何通用回退循环；workflow 步骤循环是唯一的执行原语，旧 ReAct 路径已删除。
 
 每个有界 model/tool loop 在开始时冻结 full 和 compact 两个 system prompt。本轮
 observations 按因果顺序只在 user prompt 中出现一次，随后是 output contract。Prompt

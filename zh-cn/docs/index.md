@@ -19,6 +19,7 @@
 
 | 文档 | 范围 |
 |---|---|
+| [Workflow 执行](workflow-execution.md) | Workflow 原生执行流水线、步骤循环及其协议、预算、恢复语义和扩展点 |
 | [意图路由](intent-routing.md) | 语义图、embedding 与 Fast/Tree 融合、Top-2 grounding 和单叶子分发 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | agent-browser transport、托管 Chromium profile、浏览器 Workflow 边界和安全约束 |

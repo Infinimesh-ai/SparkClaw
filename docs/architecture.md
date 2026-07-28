@@ -126,7 +126,8 @@ ToolHub registration is the execution/schema/risk/effect authority for a tool.
 Policy and Approval run after Workflow selection and before effects. Model output
 cannot add tools, change frozen resource bindings, or bypass approval. A matched
 Workflow failure remains explicit and never falls through to another router or
-legacy ReAct.
+a generic fallback loop; the workflow step loop is the only execution
+primitive and the legacy ReAct path has been removed.
 
 Each bounded model/tool loop freezes its full and compact system prompts at loop
 start. Current-run observations appear once, in causal order in the user prompt,

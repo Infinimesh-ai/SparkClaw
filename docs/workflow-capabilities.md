@@ -25,13 +25,13 @@ available.
 - Bound queries, URLs, workspace paths, locations, output paths, and outcome refs
   are materialized from persisted state. A model cannot replace them during a
   later stage.
-- A matched Workflow failure is explicit. It never falls back to TaskHint/ReAct
-  or a different capability.
+- A matched Workflow failure is explicit. It never falls back to TaskHint, a
+  generic fallback loop, or a different capability.
 - An `unmatched` route terminates as `router.blocked`; it does not expose
-  TaskHint candidates, tools, or ReAct.
+  TaskHint candidates, tools, or a fallback executor.
 - A browser, weather, or document request outside the current profile revision
-  is changed from `unmatched` to `blocked`; it cannot recover through legacy
-  ReAct.
+  is changed from `unmatched` to `blocked`; there is no legacy fallback to
+  recover through.
 
 ## Current Profiles
 
@@ -59,7 +59,8 @@ available.
 ## Unmigrated Features
 
 Code/command assistance, image inspection, memory, and other domains without a
-registered Workflow terminate as `unmatched`. Legacy Skills and ReAct resume
-code remain only for persisted-run compatibility. Registered tools outside the
+registered Workflow terminate as `unmatched`. The legacy generic loop has been
+removed; resuming a persisted pre-workflow run now terminates with an explicit
+retired-runtime message. Registered tools outside the
 current Workflow matrix remain in ToolHub for later migration but are not
 advertised as available features.

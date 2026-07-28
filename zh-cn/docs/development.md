@@ -16,7 +16,7 @@ scripts/                   setup、doctor、eval 和 model helper
 eval/golden/               Golden case 和 fixture
 benchmarks/                模型端点证据
 packages/                  可移植 protocol/policy/schema 说明
-skills/                    未迁移 ReAct domain 的过渡 procedure
+skills/                    仅作参考保留的过渡 procedure；不再载入执行
 tools/document-runtime/    声明的文档 adapter dependency
 docs/                      当前英文文档
 zh-cn/                     简体中文文档镜像
@@ -116,7 +116,7 @@ keyword fallback、第二套 capability map 或 model-owned `RouteDecision`。
 7. 验证 Catalog/profile/graph 一致性、tool exposure、Policy/Approval、终态失败、语义混淆和端到端 delivery。
 8. 更新 [Workflow 能力矩阵](workflow-capabilities.md)。
 
-只有 active Workflow node 暴露 tool。匹配 Workflow 不加载 Skill，也不回退 ReAct。矩阵外 tool
+只有 active Workflow node 暴露 tool。匹配 Workflow 不加载 Skill，也不回退到任何通用循环；workflow 步骤循环（见 [Workflow 执行](workflow-execution.md)）是唯一的执行原语。矩阵外 tool
 可以为未来迁移继续注册，但不能宣传为当前用户能力。
 
 ## 消息、定时与 Delivery 修改

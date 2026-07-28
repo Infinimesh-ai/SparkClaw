@@ -73,7 +73,7 @@ plan validation rules of its own:
 
 - must declare a non-empty initial capability scope (the candidate boundary);
 - must not declare transitions, argument bindings, or stage capability rules;
-- never materializes ReAct-visible tools — the runtime resolves it directly;
+- never materializes model-visible step tools — the runtime resolves it directly;
 - must depend on at least one evidence node so located evidence exists first.
 
 The runtime resolves an active decision node before computing the next

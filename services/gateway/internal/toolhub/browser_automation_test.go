@@ -33,13 +33,17 @@ func TestBrowserAutomationToolsRegisterOnlyWhenEnabled(t *testing.T) {
 		"browser.screenshot",
 		"browser.wait",
 		"browser.click",
-		"browser.verify",
+		"browser.validate_transition",
+		"browser.assess_goal",
 		"browser.type",
 		"browser.select",
 	} {
 		if _, ok := enabled.Definition(name); !ok {
 			t.Fatalf("%s should register when browser automation is enabled", name)
 		}
+	}
+	if _, ok := enabled.Definition("browser.verify"); ok {
+		t.Fatal("retired browser.verify must not register")
 	}
 }
 
@@ -57,10 +61,10 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 		"browser.click":    {"uid": "button_1"},
 		"browser.type":     {"text": "hello"},
 		"browser.select":   {"uid": "select_1", "value": "A"},
-		"browser.verify": {
+		"browser.validate_transition": {
 			"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2", "element_ref": "element_1",
-			"verdict": "success", "reason": "target state changed",
 		},
+		"browser.assess_goal": {"snapshot_id": "snapshot_2", "verdict": "success", "evidence_refs": []string{"element_1"}, "reason": "target state changed"},
 	}
 	for name, args := range valid {
 		if err := hub.Validate(name, args); err != nil {

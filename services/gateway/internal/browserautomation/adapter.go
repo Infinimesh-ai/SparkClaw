@@ -29,6 +29,8 @@ type Result struct {
 	BrowserMode        string         `json:"browser_mode,omitempty"`
 	Presentation       string         `json:"presentation,omitempty"`
 	SurfaceVisible     bool           `json:"surface_visible,omitempty"`
+	SessionGeneration  uint64         `json:"session_generation,omitempty"`
+	ProviderSessionRef string         `json:"provider_session_ref,omitempty"`
 	Untrusted          bool           `json:"untrusted"`
 	Provider           string         `json:"provider"`
 	DurationMS         int64          `json:"duration_ms"`
@@ -61,6 +63,8 @@ type PageReadResult struct {
 	BrowserMode           string         `json:"browser_mode,omitempty"`
 	Presentation          string         `json:"presentation,omitempty"`
 	SurfaceVisible        bool           `json:"surface_visible,omitempty"`
+	SessionGeneration     uint64         `json:"session_generation,omitempty"`
+	ProviderSessionRef    string         `json:"provider_session_ref,omitempty"`
 	Provider              string         `json:"provider"`
 	DurationMS            int64          `json:"duration_ms"`
 	Untrusted             bool           `json:"untrusted"`

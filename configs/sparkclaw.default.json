@@ -151,6 +151,10 @@
       "timeoutMs": 30000,
       "startupTimeoutMs": 10000,
       "daemonIdleTimeoutMs": 60000,
+      "settleTimeoutMs": 15000,
+      "settleQuietPeriodMs": 500,
+      "settlePollIntervalMs": 100,
+      "routeRebindLimit": 2,
       "chromiumExecutable": "",
       "profileDir": "./data/browser-profiles"
     }

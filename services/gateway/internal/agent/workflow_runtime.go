@@ -57,6 +57,8 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 	if !workflowStageAllowsCapability(node, state.Stage, plan.Capability) {
 		return errors.New("tool call is not valid in the active workflow stage")
 	}
+	boundArgumentDeclared := map[string]bool{}
+	boundArgumentAllowed := map[string]bool{}
 	for _, binding := range node.ArgumentBindings {
 		if binding.Capability != plan.Capability {
 			continue
@@ -64,7 +66,16 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 		if !toolDefinitionDeclaresArgument(definition, binding.Argument) {
 			continue
 		}
-		if !workflowArgumentAllowed(binding, node, run.Workflow.Intent, run.Workflow.Route, state, plan.Args) {
+		if _, supplied := plan.Args[binding.Argument]; !supplied {
+			continue
+		}
+		boundArgumentDeclared[binding.Argument] = true
+		if workflowArgumentAllowed(binding, node, run.Workflow.Intent, run.Workflow.Route, state, plan.Args) {
+			boundArgumentAllowed[binding.Argument] = true
+		}
+	}
+	for argument := range boundArgumentDeclared {
+		if !boundArgumentAllowed[argument] {
 			return errors.New("tool arguments are outside the frozen workflow resource boundary")
 		}
 	}
@@ -96,12 +107,6 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 		args[key] = value
 	}
 	changed := false
-	if plan.WorkflowID == app.WorkflowBrowserInteraction && plan.Capability == app.ToolCapabilityBrowserVerify {
-		if verdict, ok := canonicalBrowserVerificationVerdict(stringValue(args["verdict"])); ok && verdict != stringValue(args["verdict"]) {
-			args["verdict"] = verdict
-			changed = true
-		}
-	}
 	for _, binding := range node.ArgumentBindings {
 		if binding.Capability != plan.Capability {
 			continue
@@ -138,20 +143,10 @@ func toolDefinitionDeclaresArgument(definition app.ToolDefinition, argument stri
 	return ok
 }
 
-func canonicalBrowserVerificationVerdict(value string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "success", "progress", "failure":
-		return strings.ToLower(strings.TrimSpace(value)), true
-	case "partial_progress", "in_progress":
-		return "progress", true
-	default:
-		return "", false
-	}
-}
-
 func materializedWorkflowResourceKind(kind string) bool {
 	switch kind {
-	case "query", "location", "info_answer", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot", "schedule", "schedule_patch":
+	case "query", "location", "path", "info_answer", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot",
+		"browser_before_snapshot", "browser_after_snapshot", "browser_result_url", "browser_click", "schedule", "schedule_patch":
 		return true
 	default:
 		return false
@@ -548,10 +543,6 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 }
 
-func (r Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition) workflowExecutionResult {
-	return r.runWorkflowWithSeed(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil)
-}
-
 func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {
 	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil, emit)
 }
@@ -573,6 +564,8 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
 		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {
 			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, hint, visibleTools, allObservations)
+		} else if directProfile, ok := profile.(workflowDirectStageProfile); ok && directProfile.DirectStage(run.Workflow) {
+			stageResult = r.runWorkflowDirectStage(ctx, sessionID, run, hint, visibleTools, allObservations, directProfile.DirectStageArguments(run.Workflow))
 		} else {
 			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, hint, visibleTools, allCalls, allObservations)
 		}
@@ -580,6 +573,9 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		allApprovals = append(allApprovals, stageResult.Approvals...)
 		allObservations = stageResult.Observations
 		latest = stageResult
+		if stageResult.Halted {
+			break
+		}
 		if stageResult.WorkflowFailure != "" {
 			if err := r.blockActiveWorkflowNodeForProtocolFailure(&run, stageResult.WorkflowFailure); err != nil {
 				latest.FinalAnswer = err.Error()
@@ -597,6 +593,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			if ok && storedRun.Workflow != nil && activeWorkflowNodeUsesModelAnswer(storedRun.Workflow) {
 				if err := completeActiveModelAnswerNode(&storedRun); err != nil {
 					latest.FinalAnswer = "The model-answer workflow could not record completion: " + err.Error()
+					latest.Halted = true
 					break
 				}
 				r.store.SaveRun(storedRun)
@@ -621,11 +618,13 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			outcome, err := adaptWorkflowOutcome(definition, call)
 			if err != nil {
 				latest.FinalAnswer = err.Error()
+				latest.Halted = true
 				break
 			}
 			storedRun, ok := r.store.GetRun(run.ID)
 			if !ok || storedRun.Workflow == nil {
 				latest.FinalAnswer = "workflow state was not available after tool execution"
+				latest.Halted = true
 				break
 			}
 			assessment := profile.Assess(storedRun.Workflow, outcome)
@@ -634,6 +633,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			r.auditWorkflowOutcome(storedRun, outcome, assessment, changed, applyErr)
 			if applyErr != nil && assessment.Status != app.AssessmentBlocked {
 				latest.FinalAnswer = applyErr.Error()
+				latest.Halted = true
 				break
 			}
 			if changed {
@@ -643,10 +643,14 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 				}
 			}
 		}
+		if latest.Halted {
+			break
+		}
 
 		storedRun, ok := r.store.GetRun(run.ID)
 		if !ok || storedRun.Workflow == nil {
 			latest.FinalAnswer = "workflow state could not be reloaded"
+			latest.Halted = true
 			break
 		}
 		run = storedRun
@@ -656,6 +660,8 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		decisionObservation, decisionChanged, decisionErr := r.resolveActiveWorkflowDecisions(ctx, &run, profile)
 		if decisionErr != nil {
 			latest.FinalAnswer = decisionErr.Error()
+			latest.Halted = true
+			latest.Cancelled = ctx.Err() != nil
 			break
 		}
 		if decisionChanged {
@@ -670,14 +676,16 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		if !transitioned {
 			allObservations = append(allObservations, "workflow_requirement: The active workflow completion rule is not satisfied. Call the single materialized capability before returning a final answer.")
 		}
-		workflowHint := profile.Hint(run.Workflow)
+		stageContext := profile.Hint(run.Workflow)
 		var err error
-		visibleTools, err = r.materializeActiveWorkflowTools(ctx, run, actorRef, &workflowHint)
+		visibleTools, err = r.materializeActiveWorkflowTools(ctx, run, actorRef, &stageContext)
 		if err != nil {
 			latest.FinalAnswer = err.Error()
+			latest.Halted = true
+			latest.Cancelled = ctx.Err() != nil
 			break
 		}
-		hint = workflowHint.taskHint()
+		hint = stageContext.taskHint()
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
 			run = refreshed
 		}
@@ -686,6 +694,10 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 	latest.ToolCalls = allCalls
 	latest.Approvals = allApprovals
 	latest.Observations = allObservations
+	if latest.Halted {
+		latest.Completed = false
+		return latest
+	}
 	if storedRun, ok := r.store.GetRun(run.ID); ok && storedRun.Workflow != nil {
 		switch {
 		case storedRun.Workflow.Status == app.WorkflowStatusRunning && latest.BrowserLoginBlock == nil && len(latest.Approvals) == 0:
@@ -695,7 +707,10 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			latest.Completed = false
 			latest.FinalAnswer = workflowBlockedMessage(storedRun.Workflow)
 		case storedRun.Workflow.Status == app.WorkflowStatusSucceeded && strings.TrimSpace(latest.FinalAnswer) == "" && profile.Finalization() == workflowFinalizationModel:
-			chat, answer, err := r.synthesizeWorkflowFinalAnswer(ctx, storedRun, content, allCalls, allObservations, emit)
+			chat, answer, err := r.synthesizeWorkflowFinalAnswer(
+				ctx, storedRun, content, allCalls, allObservations,
+				workflowExecutionModelLane, emit,
+			)
 			latest.FinalAnswerStreamed = emit != nil
 			if err == nil {
 				latest.Chat = chat
@@ -703,6 +718,8 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 				latest.Completed = true
 			} else {
 				latest.Chat.Content = ""
+				latest.Halted = true
+				latest.FinalAnswer = "The completed workflow result could not be rendered: " + err.Error()
 				r.store.AddAudit(app.AuditEvent{
 					SessionID: storedRun.SessionID,
 					RunID:     storedRun.ID,
@@ -729,6 +746,14 @@ func activeWorkflowNodeUsesDirectToolOnce(state *app.WorkflowState) bool {
 }
 
 func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string) workflowExecutionResult {
+	return r.runWorkflowDirectTool(ctx, sessionID, run, hint, visibleTools, observations, nil, true)
+}
+
+func (r Runtime) runWorkflowDirectStage(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string, args map[string]any) workflowExecutionResult {
+	return r.runWorkflowDirectTool(ctx, sessionID, run, hint, visibleTools, observations, args, false)
+}
+
+func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string, args map[string]any, requireDirectOnce bool) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]string(nil), observations...)}
 	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 || len(visibleTools) != 1 ||
 		hint.WorkflowID != run.Workflow.Plan.ProfileID || hint.WorkflowNodeID != run.Workflow.ActiveNodeIDs[0] || hint.ScopeRevision <= 0 {
@@ -736,7 +761,7 @@ func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string
 		return result
 	}
 	node, ok := workflowPlanNode(run.Workflow.Plan, hint.WorkflowNodeID)
-	if !ok || node.InvocationMode != app.WorkflowInvocationDirectOnce {
+	if !ok || requireDirectOnce && node.InvocationMode != app.WorkflowInvocationDirectOnce {
 		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid
 		return result
 	}
@@ -746,20 +771,34 @@ func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string
 		result.Observations = append(result.Observations, "workflow_direct_tool_error: "+err.Error())
 		return result
 	}
-	call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, toolPlan{
+	plan := toolPlan{
 		Name:           visibleTools[0].Name,
-		Args:           map[string]any{},
+		Args:           clonePlanArgs(args),
 		WorkflowID:     hint.WorkflowID,
 		WorkflowNodeID: hint.WorkflowNodeID,
 		ScopeRevision:  hint.ScopeRevision,
 		Capability:     capability,
-	})
+	}
+	plan = enrichPlanWithBrowserMode(hint, plan)
+	call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
 	result.ToolCalls = []app.ToolCall{call}
 	if approval != nil {
 		result.Approvals = []app.Approval{*approval}
 	}
 	if strings.TrimSpace(observation) != "" {
 		result.Observations = append(result.Observations, observation)
+	}
+	if hint.WorkflowID == app.WorkflowBrowserAutomation || hint.WorkflowID == app.WorkflowBrowserInteraction {
+		goal := run.Workflow.Route.Slots.Query
+		if strings.TrimSpace(goal) == "" {
+			goal = run.Workflow.Route.Slots.TargetRef
+		}
+		if block, ok := r.recordBrowserLoginBlockFromToolCall(sessionID, run.ID, goal, plan, call); ok {
+			result.BrowserLoginBlock = &block
+			result.FinalAnswer = browserLoginBlockedMessage(block)
+			result.Completed = false
+			return result
+		}
 	}
 	r.store.AddAudit(app.AuditEvent{
 		SessionID: sessionID,
@@ -809,7 +848,7 @@ func (r Runtime) blockActiveWorkflowNodeForProtocolFailure(run *app.AgentRun, re
 	return nil
 }
 
-func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, goal string, calls []app.ToolCall, observations []string, emit StreamHandler) (modelrouter.ChatResult, string, error) {
+func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, goal string, calls []app.ToolCall, observations []string, lane string, emit StreamHandler) (modelrouter.ChatResult, string, error) {
 	originalGoal := finalAnswerGoal(run, goal)
 	system := strings.Join([]string{
 		"You are SparkClaw's final answer synthesizer for a completed workflow.",
@@ -833,7 +872,7 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	}
 	userLines = append(userLines, "", "Produce the final answer now.")
 	started := time.Now().UTC()
-	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_final_answer", laneForFinalStream(run.ModelLane), system, strings.Join(userLines, "\n"), emit)
+	chat, err := r.chatWorkflowFinalAnswer(ctx, run, "workflow_final_answer", laneForFinalStream(lane), system, strings.Join(userLines, "\n"), emit)
 	completed := time.Now().UTC()
 	r.store.SaveModelCall(modelCallFromChat(run.SessionID, run.ID, "workflow_final_answer", chat, err, started, completed))
 	if err != nil {

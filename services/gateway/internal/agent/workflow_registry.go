@@ -36,6 +36,11 @@ type workflowDecisionSemantics interface {
 	DecisionResolvedInstruction(app.ToolDirectoryEntry) string
 }
 
+type workflowDirectStageProfile interface {
+	DirectStage(*app.WorkflowState) bool
+	DirectStageArguments(*app.WorkflowState) map[string]any
+}
+
 type workflowFinalizationMode string
 
 const (
@@ -84,6 +89,12 @@ func (hint workflowExecutionHint) taskHint() TaskHint {
 type workflowProfileRegistry struct {
 	byCapability map[app.CapabilityID]workflowProfile
 	byID         map[app.WorkflowID]workflowProfile
+	byContract   map[workflowProfileKey]workflowProfile
+}
+
+type workflowProfileKey struct {
+	ID       app.WorkflowID
+	Revision int
 }
 
 type resolvedWorkflow struct {
@@ -96,19 +107,25 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 	registry := workflowProfileRegistry{
 		byCapability: make(map[app.CapabilityID]workflowProfile, len(profiles)),
 		byID:         make(map[app.WorkflowID]workflowProfile, len(profiles)),
+		byContract:   make(map[workflowProfileKey]workflowProfile, len(profiles)),
 	}
 	for _, profile := range profiles {
 		if profile == nil || profile.ID() == "" || profile.Revision() <= 0 || profile.Capability() == "" || profile.Finalization() == "" {
 			panic("workflow profile registration is incomplete")
 		}
-		if _, exists := registry.byID[profile.ID()]; exists {
-			panic("duplicate workflow profile registration: " + string(profile.ID()))
+		key := workflowProfileKey{ID: profile.ID(), Revision: profile.Revision()}
+		if _, exists := registry.byContract[key]; exists {
+			panic(fmt.Sprintf("duplicate workflow profile registration: %s r%d", profile.ID(), profile.Revision()))
 		}
-		if _, exists := registry.byCapability[profile.Capability()]; exists {
-			panic("duplicate workflow capability registration: " + string(profile.Capability()))
+		registry.byContract[key] = profile
+		current := registry.byID[profile.ID()]
+		if current == nil || profile.Revision() > current.Revision() {
+			if byCapability := registry.byCapability[profile.Capability()]; byCapability != nil && byCapability.ID() != profile.ID() {
+				panic("duplicate workflow capability registration: " + string(profile.Capability()))
+			}
+			registry.byID[profile.ID()] = profile
+			registry.byCapability[profile.Capability()] = profile
 		}
-		registry.byID[profile.ID()] = profile
-		registry.byCapability[profile.Capability()] = profile
 	}
 	return registry
 }
@@ -126,7 +143,17 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	)
 }
 
-func (r workflowProfileRegistry) Get(id app.WorkflowID) (workflowProfile, error) {
+func (r workflowProfileRegistry) Get(id app.WorkflowID, revision ...int) (workflowProfile, error) {
+	if len(revision) > 1 {
+		return nil, errors.New("workflow profile lookup accepts at most one revision")
+	}
+	if len(revision) == 1 {
+		profile, ok := r.byContract[workflowProfileKey{ID: id, Revision: revision[0]}]
+		if !ok {
+			return nil, fmt.Errorf("persisted workflow profile is not registered: %s r%d", id, revision[0])
+		}
+		return profile, nil
+	}
 	profile, ok := r.byID[id]
 	if !ok {
 		return nil, errors.New("persisted workflow profile is not registered: " + string(id))

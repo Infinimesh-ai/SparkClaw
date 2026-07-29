@@ -259,6 +259,81 @@ func TestMemoryStoreTracksActiveBrowserLoginBlock(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
+	st := NewMemoryStore()
+	session := st.CreateSession("browser handoff CAS")
+	run := app.AgentRun{
+		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
+		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
+	}
+	st.SaveRun(run)
+	leaseUntil := time.Now().UTC().Add(time.Minute)
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID: session.ID, RunID: run.ID,
+		WorkflowID: app.WorkflowBrowserAutomation, WorkflowRevision: app.BrowserWorkflowRevision2,
+		WorkflowNodeID: "browser_result", SessionGeneration: 7,
+		Status:            app.BrowserHandoffStatusValidatingVisible,
+		TransitionOwnerID: "runtime-a", TransitionLeaseUntil: &leaseUntil,
+		Target: app.BrowserTargetDescriptor{
+			TargetKind:    app.BrowserTargetRegisteredDestination,
+			DestinationID: "qq_mail", CanonicalURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+			RedactedURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+		},
+		VisibleEvidence: &app.BrowserResultEvidence{
+			ID: "visible-evidence", SchemaVersion: app.BrowserHandoffSchemaVersion,
+			VisiblePageID: "page-visible", VisibleSnapshotID: "snapshot-visible",
+		},
+	})
+	if block.Version != 1 || block.SchemaVersion != app.BrowserHandoffSchemaVersion {
+		t.Fatalf("new handoff version/schema = %d/%d", block.Version, block.SchemaVersion)
+	}
+	update := block
+	update.Status = app.BrowserHandoffStatusTransferring
+	updated, err := st.UpdateBrowserLoginBlock(update, block.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != block.Version+1 || updated.Target.DestinationID != "qq_mail" ||
+		updated.VisibleEvidence == nil || updated.VisibleEvidence.VisibleSnapshotID != "snapshot-visible" ||
+		updated.TransitionOwnerID != "runtime-a" || updated.TransitionLeaseUntil == nil {
+		t.Fatalf("revision-two handoff fields did not survive CAS: %#v", updated)
+	}
+	stale := block
+	stale.LastError = "stale overwrite"
+	if _, err := st.UpdateBrowserLoginBlock(stale, block.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+		t.Fatalf("stale browser handoff update error = %v", err)
+	}
+	current, _ := st.GetBrowserLoginBlock(block.ID)
+	if current.Version != updated.Version || current.LastError == "stale overwrite" {
+		t.Fatalf("stale browser handoff update changed current state: %#v", current)
+	}
+}
+
+func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
+	st := NewMemoryStore()
+	session := st.CreateSession("delete blocked browser session")
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID:  session.ID,
+		RunID:      run.ID,
+		SiteOrigin: "https://example.com",
+	})
+
+	if _, err := st.DeleteSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
+		t.Fatal("session deletion retained browser login block")
+	}
+	if _, ok := st.GetRun(run.ID); ok {
+		t.Fatal("session deletion retained agent run")
+	}
+	if _, ok := st.GetSession(session.ID); ok {
+		t.Fatal("session deletion retained session")
+	}
+}
+
 func TestMemoryStoreSavesRunFeedback(t *testing.T) {
 	st := NewMemoryStore()
 	session := st.CreateSession("Feedback")

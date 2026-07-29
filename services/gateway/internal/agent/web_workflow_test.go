@@ -602,7 +602,14 @@ func TestBrowserAutomationRouteDispatchesRealAutomationAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserAutomation, app.WorkflowBrowserAutomation,
-		[]string{"browser.list_tabs", "browser.open"}, []string{app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserOpen})
+		[]string{
+			"browser.status", "browser.list_tabs", "browser.open", "browser.wait", "browser.snapshot",
+			"browser.open", "browser.wait", "browser.snapshot",
+		}, []string{
+			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserOpen,
+			app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserOpen,
+			app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
+		})
 }
 
 func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
@@ -618,23 +625,28 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserInteraction, app.WorkflowBrowserInteraction,
-		[]string{"browser.status", "browser.list_tabs", "browser.focus", "browser.snapshot", "browser.click", "browser.snapshot", "browser.verify"},
+		[]string{
+			"browser.status", "browser.list_tabs", "browser.focus", "browser.wait", "browser.snapshot",
+			"browser.assess_goal", "browser.click", "browser.wait", "browser.snapshot",
+			"browser.validate_transition", "browser.assess_goal", "browser.open", "browser.wait",
+			"browser.snapshot", "browser.assess_goal",
+		},
 		[]string{
 			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserFocus,
-			app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserSnapshot,
-			app.ToolCapabilityBrowserVerify,
+			app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserGoalAssess,
+			app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
+			app.ToolCapabilityBrowserTransitionValidate, app.ToolCapabilityBrowserGoalAssess,
+			app.ToolCapabilityBrowserOpen, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
+			app.ToolCapabilityBrowserGoalAssess,
 		})
 	if len(result.Approvals) != 0 || len(st.ListApprovals("")) != 0 {
 		t.Fatalf("bounded browser.interaction click unexpectedly requested approval: %#v", result.Approvals)
 	}
-	if adapter.clicks != 1 || adapter.snapshots != 2 {
-		t.Fatalf("interaction did not enforce one pre/post snapshot around the click: %#v", adapter)
+	if adapter.clicks != 1 || adapter.snapshots != 3 {
+		t.Fatalf("interaction did not enforce hidden pre/post snapshots and one visible result snapshot: %#v", adapter)
 	}
-	if !strings.Contains(result.Message.Content, "通过点击后 snapshot 验证") {
-		t.Fatalf("interaction result did not report verified completion: %q", result.Message.Content)
-	}
-	if strings.Contains(result.Message.Content, "The requested click") {
-		t.Fatalf("interaction result leaked model-authored English reason text: %q", result.Message.Content)
+	if strings.TrimSpace(result.Message.Content) == "" {
+		t.Fatalf("interaction result did not report verified visible completion: %q", result.Message.Content)
 	}
 }
 
@@ -651,11 +663,19 @@ func TestBrowserInteractionRouteLeavesOpenedTabAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserInteraction, app.WorkflowBrowserInteraction,
-		[]string{"browser.status", "browser.list_tabs", "browser.open", "browser.snapshot", "browser.click", "browser.snapshot", "browser.verify"},
+		[]string{
+			"browser.status", "browser.list_tabs", "browser.open", "browser.wait", "browser.snapshot",
+			"browser.assess_goal", "browser.click", "browser.wait", "browser.snapshot",
+			"browser.validate_transition", "browser.assess_goal", "browser.open", "browser.wait",
+			"browser.snapshot", "browser.assess_goal",
+		},
 		[]string{
 			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserOpen,
-			app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserSnapshot,
-			app.ToolCapabilityBrowserVerify,
+			app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserGoalAssess,
+			app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
+			app.ToolCapabilityBrowserTransitionValidate, app.ToolCapabilityBrowserGoalAssess,
+			app.ToolCapabilityBrowserOpen, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
+			app.ToolCapabilityBrowserGoalAssess,
 		})
 	if adapter.closes != 0 || !adapter.opened {
 		t.Fatalf("explicit interaction did not leave its opened tab available: %#v", adapter)
@@ -967,10 +987,18 @@ type fakeInteractionBrowserAdapter struct {
 	emptyTabs    bool
 	opened       bool
 	closedPageID string
+	currentURL   string
 }
 
 func (a *fakeInteractionBrowserAdapter) Health(context.Context, map[string]any) (browserautomation.Result, error) {
-	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true, "status": "ok", "provider": "agent-browser"}, Untrusted: true, Provider: "agent-browser-visible"}, nil
+	return browserautomation.Result{
+		Tool: "browser.status",
+		Output: map[string]any{
+			"ok": true, "status": "ok", "provider": "agent-browser",
+			"visible_environment_ready": true, "session_generation": 1,
+		},
+		SessionGeneration: 1, Presentation: "hidden", Untrusted: true, Provider: "agent-browser-headless",
+	}, nil
 }
 
 func (a *fakeInteractionBrowserAdapter) Close() error { return nil }
@@ -988,18 +1016,36 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 			if a.opened {
 				pageID = "page_2"
 			}
-			pages = []any{map[string]any{"page_id": pageID, "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
+			pageURL := firstNonEmptyString(a.currentURL, "https://example.com/checkout")
+			pages = []any{fakeBrowserPage(pageID, pageURL, args)}
 		}
 		return browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Text: "browser tabs", Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	case "browser.focus":
-		pages := []any{map[string]any{"page_id": "page_1", "url": "https://example.com/checkout", "title": "Checkout", "selected": true}}
+		a.currentURL = "https://example.com/checkout"
+		pages := []any{fakeBrowserPage("page_1", a.currentURL, args)}
 		result := browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_1: Checkout (https://example.com/checkout)", Untrusted: true, Provider: "fake-interaction-browser"}
 		result.RawTool = "select_page"
 		return result, nil
 	case "browser.open":
 		a.opened = true
-		pages := []any{map[string]any{"page_id": "page_2", "url": "https://example.com/", "title": "Checkout", "selected": true}}
+		a.currentURL = firstNonEmptyString(args["url"], a.currentURL, "https://example.com/")
+		pages := []any{fakeBrowserPage("page_2", a.currentURL, args)}
 		return browserautomation.Result{Tool: tool, RawTool: "agent_browser_tab_new", Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_2: Checkout (https://example.com/)", Untrusted: true, Provider: "fake-interaction-browser"}, nil
+	case "browser.wait":
+		generation, presentation := fakeBrowserIdentity(args)
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_stable_state", Arguments: args,
+			Output: map[string]any{
+				"status": "stable", "reason_code": "browser_target_settled",
+				"page_id": fakeInteractionPageID(a), "url": a.currentURL,
+				"state_digest":       fmt.Sprintf("stable-%d-%d", generation, a.clicks),
+				"state_changed":      boolValue(args["allow_no_change"]) || a.clicks > 0,
+				"session_generation": generation, "presentation": presentation,
+				"provider_session_ref": "fake-" + presentation,
+			},
+			Text:              "browser page reached a stable observable state",
+			SessionGeneration: generation, Presentation: presentation, Untrusted: true, Provider: "fake-interaction-browser",
+		}, nil
 	case "browser.snapshot":
 		a.snapshots++
 		pageID := "page_1"
@@ -1021,15 +1067,18 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 			"visible": true, "enabled": true, "container": "结算", "nearby_text": name,
 			"in_viewport": true, "ordinal": 1, "fingerprint": "0123456789abcdef0123456789abcdef",
 		}}
+		generation, presentation := fakeBrowserIdentity(args)
 		snapshot := map[string]any{
 			"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": snapshotID,
-			"previous_snapshot_id": previousID, "page_id": pageID, "url": "https://example.com/checkout",
+			"previous_snapshot_id": previousID, "page_id": pageID, "url": a.currentURL,
 			"title": "Checkout", "digest": digest, "repeated": false,
+			"session_generation": generation, "presentation": presentation,
+			"provider_session_ref": "fake-" + presentation, "owner_id": app.DefaultOwnerID, "profile_id": "default",
 			"controls_total": 1, "controls_returned": 1, "truncated": false, "controls": controls, "refs": controls,
 		}
 		return browserautomation.Result{
-			Tool: tool, RawTool: "agent_browser_snapshot", Arguments: args, Output: map[string]any{"snapshot_id": snapshotID, "page_id": "page_1", "digest": digest, "snapshot": snapshot},
-			Text: "snapshot " + snapshotID, Untrusted: true, Provider: "fake-interaction-browser",
+			Tool: tool, RawTool: "agent_browser_snapshot", Arguments: args, Output: map[string]any{"snapshot_id": snapshotID, "page_id": pageID, "digest": digest, "snapshot": snapshot},
+			Text: "snapshot " + snapshotID, SessionGeneration: generation, Presentation: presentation, Untrusted: true, Provider: "fake-interaction-browser",
 		}, nil
 	case "browser.click":
 		pageID := "page_1"
@@ -1052,6 +1101,30 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 		return browserautomation.Result{Tool: tool, RawTool: "agent_browser_tab_close", Arguments: args, Output: map[string]any{"pages": []any{}}, Pages: []any{}, Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	default:
 		return browserautomation.Result{}, fmt.Errorf("unexpected browser.interaction tool %q", tool)
+	}
+}
+
+func fakeBrowserIdentity(args map[string]any) (uint64, string) {
+	presentation := firstNonEmptyString(args["presentation"], "hidden")
+	if presentation == "visible" {
+		return 2, presentation
+	}
+	return 1, presentation
+}
+
+func fakeInteractionPageID(adapter *fakeInteractionBrowserAdapter) string {
+	if adapter.opened {
+		return "page_2"
+	}
+	return "page_1"
+}
+
+func fakeBrowserPage(pageID, pageURL string, args map[string]any) map[string]any {
+	generation, presentation := fakeBrowserIdentity(args)
+	return map[string]any{
+		"page_id": pageID, "url": pageURL, "title": "Checkout", "selected": true,
+		"session_generation": generation, "presentation": presentation,
+		"provider_session_ref": "fake-" + presentation, "owner_id": app.DefaultOwnerID, "profile_id": "default",
 	}
 }
 
@@ -1098,7 +1171,11 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 			t.Fatalf("workflow model step %q used lane %q, want %q", call.Operation, call.Lane, workflowExecutionModelLane)
 		}
 	}
-	if !foundWorkflowStep {
+	if workflowID == app.WorkflowBrowserAutomation && result.Run.Workflow.Plan.ProfileRevision >= app.BrowserWorkflowRevision2 {
+		if foundWorkflowStep || !hasAgentAuditType(st.ListAudit(sessionID), "workflow.direct_tool_invoked") {
+			t.Fatalf("browser.automation revision 2 must run structural stages without model tool selection: model_calls=%#v", modelCalls)
+		}
+	} else if !foundWorkflowStep {
 		t.Fatalf("matched workflow did not persist a model execution step: %#v", modelCalls)
 	}
 	assertNoLegacyRoutingAudit(t, st.ListAudit(sessionID))

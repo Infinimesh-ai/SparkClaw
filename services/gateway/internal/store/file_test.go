@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,102 @@ func TestFileStorePersistsDocumentRecords(t *testing.T) {
 	got, ok := reloaded.GetDocumentRecord(saved.ID)
 	if !ok || got.GovernedPath != saved.GovernedPath || got.SourceMessageID != "m_file" {
 		t.Fatalf("file snapshot omitted document record: %#v ok=%v", got, ok)
+	}
+}
+
+func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "browser-handoff-state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSession("browser handoff round trip")
+	run := app.AgentRun{
+		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
+		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
+	}
+	st.SaveRun(run)
+	leaseUntil := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID: session.ID, RunID: run.ID,
+		WorkflowID: app.WorkflowBrowserInteraction, WorkflowRevision: app.BrowserWorkflowRevision2,
+		WorkflowNodeID: "browser_result", SessionGeneration: 11,
+		Status:            app.BrowserHandoffStatusValidatingVisible,
+		TransitionOwnerID: "runtime-file", TransitionLeaseUntil: &leaseUntil,
+		Target: app.BrowserTargetDescriptor{
+			TargetKind:    app.BrowserTargetRegisteredDestination,
+			DestinationID: "qq_mail", CanonicalURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+			RedactedURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+		},
+		VisibleEvidence: &app.BrowserResultEvidence{
+			ID: "visible-file", SchemaVersion: app.BrowserHandoffSchemaVersion,
+			VisiblePageID: "page-file", VisibleSnapshotID: "snapshot-file",
+		},
+	})
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.GetBrowserLoginBlock(block.ID)
+	if !ok || got.Version != block.Version || got.WorkflowID != app.WorkflowBrowserInteraction ||
+		got.WorkflowRevision != app.BrowserWorkflowRevision2 || got.Target.DestinationID != "qq_mail" ||
+		got.VisibleEvidence == nil || got.VisibleEvidence.VisibleSnapshotID != "snapshot-file" ||
+		got.TransitionOwnerID != "runtime-file" || got.TransitionLeaseUntil == nil ||
+		!got.TransitionLeaseUntil.Equal(leaseUntil) {
+		t.Fatalf("file handoff round trip mismatch: %#v ok=%v", got, ok)
+	}
+	update := got
+	update.Status = app.BrowserHandoffStatusTransferring
+	updated, err := reloaded.UpdateBrowserLoginBlock(update, got.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := got
+	stale.LastError = "stale"
+	if _, err := reloaded.UpdateBrowserLoginBlock(stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+		t.Fatalf("stale file handoff update error = %v", err)
+	}
+	afterReload, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := afterReload.GetBrowserLoginBlock(block.ID)
+	if !ok || current.Version != updated.Version || current.Status != app.BrowserHandoffStatusTransferring ||
+		current.LastError == "stale" {
+		t.Fatalf("file CAS result did not persist: %#v ok=%v", current, ok)
+	}
+}
+
+func TestFileStoreDeleteSessionRemovesPersistedBrowserLoginBlocks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSession("delete blocked browser session")
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID:  session.ID,
+		RunID:      run.ID,
+		SiteOrigin: "https://example.com",
+	})
+
+	if _, err := st.DeleteSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.GetBrowserLoginBlock(block.ID); ok {
+		t.Fatal("session deletion retained persisted browser login block")
+	}
+	if _, ok := reloaded.GetRun(run.ID); ok {
+		t.Fatal("session deletion retained persisted agent run")
+	}
+	if _, ok := reloaded.GetSession(session.ID); ok {
+		t.Fatal("session deletion retained persisted session")
 	}
 }
 

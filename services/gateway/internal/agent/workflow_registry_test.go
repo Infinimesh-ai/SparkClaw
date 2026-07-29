@@ -43,6 +43,9 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			t.Fatalf("resolve %v: %v", test.decision.CapabilityPath, err)
 		}
 		wantRevision := 1
+		if test.want == app.WorkflowBrowserAutomation || test.want == app.WorkflowBrowserInteraction {
+			wantRevision = app.BrowserWorkflowRevision2
+		}
 		if test.want == app.WorkflowDocumentRead {
 			wantRevision = 2
 		}
@@ -209,6 +212,22 @@ func TestLegacyWorkflowIdentityFailsClosedInsteadOfBeingReinterpreted(t *testing
 	}
 }
 
+func TestBrowserRevision1ContractsAreRetired(t *testing.T) {
+	registry := defaultWorkflowProfileRegistry()
+	for _, id := range []app.WorkflowID{app.WorkflowBrowserAutomation, app.WorkflowBrowserInteraction} {
+		if _, err := registry.Get(id, 1); err == nil || !strings.Contains(err.Error(), "not registered") {
+			t.Fatalf("retired browser contract %s r1 remained resumable: %v", id, err)
+		}
+		profile, err := registry.Get(id, app.BrowserWorkflowRevision2)
+		if err != nil {
+			t.Fatalf("current browser contract %s r2 is not registered: %v", id, err)
+		}
+		if profile.Revision() != app.BrowserWorkflowRevision2 {
+			t.Fatalf("browser contract %s resolved revision %d", id, profile.Revision())
+		}
+	}
+}
+
 func TestWorkflowPlanRejectsScopedCapabilityWithoutStageExposure(t *testing.T) {
 	profile := browserInteractionProfile{}
 	resolve := func() (app.IntentEnvelope, app.WorkflowPlan) {
@@ -230,7 +249,8 @@ func TestWorkflowPlanRejectsScopedCapabilityWithoutStageExposure(t *testing.T) {
 
 	intent, plan = resolve()
 	for index := range plan.Nodes[0].StageCapabilities {
-		if plan.Nodes[0].StageCapabilities[index].Stage == "open_new" {
+		if plan.Nodes[0].StageCapabilities[index].Stage == "open_new" ||
+			plan.Nodes[0].StageCapabilities[index].Stage == "present_visible" {
 			plan.Nodes[0].StageCapabilities[index].Capabilities = []string{app.ToolCapabilityBrowserFocus}
 		}
 	}

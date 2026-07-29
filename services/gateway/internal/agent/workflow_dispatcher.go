@@ -32,7 +32,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		result := r.blockPersistedWorkflowResume(ctx, run, content, err)
 		return result, true, nil
 	}
-	profile, err := r.profiles.Get(run.Workflow.Plan.ProfileID)
+	profile, err := r.profiles.Get(run.Workflow.Plan.ProfileID, run.Workflow.Plan.ProfileRevision)
 	if err != nil {
 		result := r.blockPersistedWorkflowResume(ctx, run, content, err)
 		return result, true, nil

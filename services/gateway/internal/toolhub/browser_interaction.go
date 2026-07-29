@@ -18,6 +18,7 @@ type browserSnapshotRecord struct {
 	PreviousSnapshotID string
 	PageID             string
 	Digest             string
+	Generation         uint64
 	Refs               map[string]bool
 	Labels             map[string]string
 }
@@ -28,72 +29,100 @@ func (h *ToolHub) clickBrowserInteraction(ctx context.Context, args map[string]a
 		elementRef := strings.TrimSpace(browserAutomationStringValue(args["uid"]))
 		if snapshot, found := findBrowserSnapshotRecord(h.store.ListToolCalls(sessionID), runID, snapshotID); found {
 			if label := strings.TrimSpace(snapshot.Labels[elementRef]); unsafeBrowserInteractionLabel(label) {
-				return Result{}, fmt.Errorf("unsafe click target %q is outside browser.interaction revision 1", label)
+				return Result{}, fmt.Errorf("unsafe click target %q is outside the bounded browser.interaction contract", label)
 			}
 		}
 	}
 	return h.browserAutomationTool(ctx, "browser.click", args, sessionID)
 }
 
-func (h *ToolHub) verifyBrowserInteraction(_ context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+func (h *ToolHub) validateBrowserTransition(_ context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	beforeID := strings.TrimSpace(browserAutomationStringValue(args["before_snapshot_id"]))
 	afterID := strings.TrimSpace(browserAutomationStringValue(args["after_snapshot_id"]))
 	elementRef := strings.TrimSpace(browserAutomationStringValue(args["element_ref"]))
-	verdict := strings.ToLower(strings.TrimSpace(browserAutomationStringValue(args["verdict"])))
-	reason := strings.TrimSpace(browserAutomationStringValue(args["reason"]))
-	if beforeID == afterID {
-		return Result{}, errors.New("browser.verify requires two different snapshot IDs")
+	if beforeID == "" || afterID == "" || beforeID == afterID {
+		return Result{}, errors.New("browser.validate_transition requires two different snapshot IDs")
 	}
-
 	calls := h.store.ListToolCalls(sessionID)
 	before, beforeOK := findBrowserSnapshotRecord(calls, runID, beforeID)
 	after, afterOK := findBrowserSnapshotRecord(calls, runID, afterID)
 	if !beforeOK || !afterOK || before.Index >= after.Index {
-		return Result{}, errors.New("browser.verify snapshots are unavailable or out of order in the current run")
+		return Result{}, errors.New("browser.validate_transition snapshots are unavailable or out of order in the current run")
 	}
 	click, clickIndex, ok := findBrowserClickBetween(calls, runID, before.Index, after.Index, beforeID, elementRef)
 	if !ok || !before.Refs[elementRef] {
-		return Result{}, errors.New("browser.verify could not bind the requested element to one click after the before snapshot")
+		return Result{}, errors.New("browser.validate_transition could not bind one click to the before snapshot")
 	}
 	if after.PreviousSnapshotID != "" && after.PreviousSnapshotID != beforeID {
-		return Result{}, errors.New("browser.verify after snapshot does not follow the bound click snapshot")
+		return Result{}, errors.New("browser.validate_transition after snapshot does not follow the bound click snapshot")
 	}
 	if clicked := browserClickOutputRef(click); clicked != "" && clicked != elementRef {
-		return Result{}, errors.New("browser.verify click result does not match the selected snapshot element")
+		return Result{}, errors.New("browser.validate_transition click result does not match the selected snapshot element")
 	}
-
-	clickCount := completedBrowserClickCount(calls, runID, after.Index)
+	if before.Generation == 0 || after.Generation == 0 || before.Generation != after.Generation {
+		return Result{}, errors.New("browser.validate_transition snapshots do not share the current session generation")
+	}
 	stateChanged := before.Digest != "" && after.Digest != "" && before.Digest != after.Digest
-	code := "ok"
-	status := verdict
-	if verdict == "success" {
-		status = "succeeded"
+	if !stateChanged || priorValidatedBrowserState(calls, runID, clickIndex, after.Digest) {
+		return Result{}, errors.New("browser.validate_transition detected no new page state")
 	}
-	goalSatisfied := verdict == "success"
-	switch {
-	case !stateChanged || priorVerifiedBrowserState(calls, runID, clickIndex, after.Digest):
-		status, code, goalSatisfied = "failed", "interaction_loop_detected", false
-	case verdict == "failure":
-		status, code, goalSatisfied = "failed", "interaction_verification_failed", false
-	case verdict == "progress" && clickCount >= 3:
-		status, code, goalSatisfied = "failed", "interaction_attempt_limit", false
-	case verdict != "success" && verdict != "progress":
-		return Result{}, errors.New("browser.verify verdict is unsupported")
-	}
-
 	return Result{Output: map[string]any{
-		"schema_version":     1,
-		"status":             status,
-		"code":               code,
+		"schema_version":     2,
+		"status":             "validated",
+		"code":               "ok",
 		"before_snapshot_id": beforeID,
 		"after_snapshot_id":  afterID,
 		"page_id":            after.PageID,
 		"element_ref":        elementRef,
-		"state_changed":      stateChanged,
-		"goal_satisfied":     goalSatisfied,
-		"reason":             trimBrowserVerificationReason(reason),
+		"session_generation": after.Generation,
+		"state_changed":      true,
 		"before_digest":      before.Digest,
 		"after_digest":       after.Digest,
+		"click_count":        completedBrowserClickCount(calls, runID, after.Index),
+	}}, nil
+}
+
+func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+	snapshotID := strings.TrimSpace(browserAutomationStringValue(args["snapshot_id"]))
+	verdict := strings.ToLower(strings.TrimSpace(browserAutomationStringValue(args["verdict"])))
+	reason := strings.TrimSpace(browserAutomationStringValue(args["reason"]))
+	evidenceRefs := browserInteractionStringSlice(args["evidence_refs"])
+	if verdict != "success" && verdict != "progress" && verdict != "failure" {
+		return Result{}, errors.New("browser.assess_goal verdict is unsupported")
+	}
+	if len(evidenceRefs) == 0 {
+		return Result{}, errors.New("browser.assess_goal requires current after-snapshot evidence citations")
+	}
+	calls := h.store.ListToolCalls(sessionID)
+	snapshot, ok := findBrowserSnapshotRecord(calls, runID, snapshotID)
+	if !ok {
+		return Result{}, errors.New("browser.assess_goal snapshot is unavailable in the current run")
+	}
+	for _, ref := range evidenceRefs {
+		if !snapshot.Refs[ref] {
+			return Result{}, fmt.Errorf("browser.assess_goal evidence ref %q is foreign to the current snapshot", ref)
+		}
+	}
+	status, code := verdict, "ok"
+	if verdict == "success" {
+		status = "succeeded"
+	}
+	clickCount := completedBrowserClickCount(calls, runID, snapshot.Index)
+	if verdict == "failure" {
+		status, code = "failed", "interaction_goal_failed"
+	} else if verdict == "progress" && clickCount >= 3 {
+		status, code = "failed", "interaction_attempt_limit"
+	}
+	return Result{Output: map[string]any{
+		"schema_version":     2,
+		"status":             status,
+		"code":               code,
+		"snapshot_id":        snapshotID,
+		"page_id":            snapshot.PageID,
+		"session_generation": snapshot.Generation,
+		"goal_satisfied":     status == "succeeded",
+		"evidence_refs":      evidenceRefs,
+		"reason":             trimBrowserVerificationReason(reason),
 		"click_count":        clickCount,
 	}}, nil
 }
@@ -112,6 +141,7 @@ func findBrowserSnapshotRecord(calls []app.ToolCall, runID, snapshotID string) (
 			PreviousSnapshotID: strings.TrimSpace(browserAutomationStringValue(snapshot["previous_snapshot_id"])),
 			PageID:             strings.TrimSpace(browserAutomationStringValue(snapshot["page_id"])),
 			Digest:             strings.TrimSpace(browserAutomationStringValue(snapshot["digest"])),
+			Generation:         uint64(intLikeBrowserValue(snapshot["session_generation"])),
 			Refs:               map[string]bool{},
 			Labels:             map[string]string{},
 		}
@@ -128,6 +158,24 @@ func findBrowserSnapshotRecord(calls []app.ToolCall, runID, snapshotID string) (
 		return record, true
 	}
 	return browserSnapshotRecord{}, false
+}
+
+func intLikeBrowserValue(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case json.Number:
+		parsed, _ := typed.Int64()
+		return int(parsed)
+	default:
+		var parsed int
+		_, _ = fmt.Sscan(strings.TrimSpace(browserAutomationStringValue(value)), &parsed)
+		return parsed
+	}
 }
 
 func unsafeBrowserInteractionLabel(label string) bool {
@@ -178,7 +226,7 @@ func completedBrowserClickCount(calls []app.ToolCall, runID string, throughIndex
 	return count
 }
 
-func priorVerifiedBrowserState(calls []app.ToolCall, runID string, beforeIndex int, digest string) bool {
+func priorValidatedBrowserState(calls []app.ToolCall, runID string, beforeIndex int, digest string) bool {
 	if digest == "" {
 		return false
 	}
@@ -186,7 +234,7 @@ func priorVerifiedBrowserState(calls []app.ToolCall, runID string, beforeIndex i
 		if index >= beforeIndex {
 			break
 		}
-		if call.RunID != runID || call.Tool != "browser.verify" || call.Status != "completed" {
+		if call.RunID != runID || call.Tool != "browser.validate_transition" || call.Status != "completed" {
 			continue
 		}
 		output, ok := browserInteractionMap(call.Result)
@@ -258,6 +306,26 @@ func browserInteractionSlice(value any) []any {
 		return nil
 	}
 	return values
+}
+
+func browserInteractionStringSlice(value any) []string {
+	out := []string{}
+	switch typed := value.(type) {
+	case []string:
+		for _, text := range typed {
+			if text = strings.TrimSpace(text); text != "" {
+				out = append(out, text)
+			}
+		}
+	default:
+		for _, raw := range browserInteractionSlice(value) {
+			text := strings.TrimSpace(browserAutomationStringValue(raw))
+			if text != "" && text != "<nil>" {
+				out = append(out, text)
+			}
+		}
+	}
+	return out
 }
 
 func firstBrowserValue(values ...any) any {

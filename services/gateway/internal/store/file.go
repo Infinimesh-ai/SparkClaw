@@ -504,6 +504,14 @@ func (s *FileStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.Brows
 	return out
 }
 
+func (s *FileStore) UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error) {
+	out, err := s.inner.UpdateBrowserLoginBlock(block, expectedVersion)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
+}
+
 func (s *FileStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
 	return s.inner.GetBrowserLoginBlock(id)
 }

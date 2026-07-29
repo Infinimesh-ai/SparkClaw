@@ -145,20 +145,33 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 				t.Fatal(err)
 			}
 			state := newWorkflowState(route, app.ReturnRoute{}, intent, plan)
+			if _, err := profile.Prepare(state); err != nil {
+				t.Fatal(err)
+			}
+			nodeID := plan.InitialNodeIDs[0]
+			node := state.Nodes[nodeID]
+			node.Stage = "scan_tabs"
+			state.Nodes[nodeID] = node
 			runID := "run_browser_stage_" + strings.ReplaceAll(test.name, " ", "_")
 			st.SaveRun(app.AgentRun{ID: runID, SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
-			nodeID := plan.InitialNodeIDs[0]
 			request := app.ExposureRequest{RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 1, ActorRef: "owner"}
 			initial, err := engine.Search(context.Background(), request)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(initial.Entries) != 1 || initial.Entries[0].Capability.Name != app.ToolCapabilityBrowserListTabs {
-				t.Fatalf("scan stage exposed the wrong capability: %#v", initial.Entries)
+			var listTabsEntry app.ToolDirectoryEntry
+			for _, entry := range initial.Entries {
+				if entry.Capability.Name == app.ToolCapabilityBrowserListTabs {
+					listTabsEntry = entry
+					break
+				}
+			}
+			if listTabsEntry.ID == "" {
+				t.Fatalf("revision-2 boundary did not include tab discovery: %#v", initial.Entries)
 			}
 			if _, err := engine.Materialize(context.Background(), app.MaterializeRequest{
 				ViewID: initial.ViewID, RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 1,
-				EntryIDs: []app.ToolDirectoryEntryID{initial.Entries[0].ID}, ActorRef: "owner",
+				EntryIDs: []app.ToolDirectoryEntryID{listTabsEntry.ID}, ActorRef: "owner",
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -179,7 +192,7 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 			}
 			_, err = engine.Materialize(context.Background(), app.MaterializeRequest{
 				ViewID: initial.ViewID, RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 1,
-				EntryIDs: []app.ToolDirectoryEntryID{initial.Entries[0].ID}, ActorRef: "owner",
+				EntryIDs: []app.ToolDirectoryEntryID{listTabsEntry.ID}, ActorRef: "owner",
 			})
 			if !errors.Is(err, errExposureWorkflowMismatch) {
 				t.Fatalf("old scope revision remained callable: %v", err)
@@ -189,12 +202,23 @@ func TestBrowserAutomationStageExposureReplacesViewAndRejectsOldRevision(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(next.Entries) != 1 {
-				t.Fatalf("next stage exposed a tool union: %#v", next.Entries)
+			wantDefinition, ok := hub.Definition(test.wantTool)
+			if !ok || len(wantDefinition.Capabilities) != 1 {
+				t.Fatalf("missing exact definition for %q", test.wantTool)
+			}
+			var nextEntry app.ToolDirectoryEntry
+			for _, entry := range next.Entries {
+				if entry.Capability.Name == wantDefinition.Capabilities[0].Name {
+					nextEntry = entry
+					break
+				}
+			}
+			if nextEntry.ID == "" {
+				t.Fatalf("next revision-2 boundary omitted %q: %#v", test.wantTool, next.Entries)
 			}
 			exposure, err := engine.Materialize(context.Background(), app.MaterializeRequest{
 				ViewID: next.ViewID, RunID: runID, WorkflowID: profile.ID(), NodeID: nodeID, ScopeRevision: 2,
-				EntryIDs: []app.ToolDirectoryEntryID{next.Entries[0].ID}, ActorRef: "owner",
+				EntryIDs: []app.ToolDirectoryEntryID{nextEntry.ID}, ActorRef: "owner",
 			})
 			if err != nil {
 				t.Fatal(err)

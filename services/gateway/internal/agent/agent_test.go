@@ -475,14 +475,13 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected active browser login block from browser.open result")
 	}
-	if block.RunID != first.Run.ID || block.ResumeTool != "browser.read" || block.ResumeArgs["url"] != "https://example.com/protected" {
-		t.Fatalf("visible browser block should preserve original URL and resume through browser.read: %#v", block)
+	if block.RunID != first.Run.ID || block.ResumeTool != "browser.snapshot" || block.ResumeArgs["url"] != "https://example.com/protected" {
+		t.Fatalf("visible browser block should preserve the frozen URL and resume through fresh snapshot evidence: %#v", block)
 	}
 	if block.BrowserAuthStatus != "handoff_waiting" || block.LoginHandoffURL != "https://example.com/protected" {
 		t.Fatalf("visible browser block lost auth handoff fields: %#v", block)
 	}
 
-	adapter.readCalls = 1
 	adapter.selectedTabURL = "https://example.com/protected"
 	second, err := runtime.HandleMessage(context.Background(), session.ID, "登录完成")
 	if err != nil {
@@ -492,12 +491,11 @@ func TestRuntimeCreatesBrowserLoginBlockFromVisibleBrowserTool(t *testing.T) {
 		t.Fatalf("login completion should resume original run: first=%s second=%s", first.Run.ID, second.Run.ID)
 	}
 	if second.Run.Workflow == nil || second.RouteDecision == nil || !reflect.DeepEqual(second.Run.Workflow.Route, frozenRoute) ||
-		!reflect.DeepEqual(*second.RouteDecision, frozenRoute) || second.Run.Workflow.PlanDigest != frozenPlanDigest ||
-		adapter.lastReadURL != "https://example.com/protected" {
-		t.Fatalf("login resume changed the frozen route, plan, or URL: before=%#v after=%#v read_url=%q", frozenRoute, second.Run.Workflow, adapter.lastReadURL)
+		!reflect.DeepEqual(*second.RouteDecision, frozenRoute) || second.Run.Workflow.PlanDigest != frozenPlanDigest {
+		t.Fatalf("login resume changed the frozen route or plan: before=%#v after=%#v", frozenRoute, second.Run.Workflow)
 	}
-	if adapter.listTabsCalls == 0 {
-		t.Fatalf("login completion should inspect visible tabs before resuming")
+	if adapter.listTabsCalls < 2 || adapter.snapshotCalls < 3 || adapter.readCalls != 0 {
+		t.Fatalf("login completion did not validate visibly and reacquire hidden evidence: %#v", adapter)
 	}
 }
 
@@ -2460,10 +2458,12 @@ type fakeBrowserAutomationAdapter struct{}
 
 func (fakeBrowserAutomationAdapter) Health(ctx context.Context, _ map[string]any) (browserautomation.Result, error) {
 	return browserautomation.Result{
-		Tool:      "browser.status",
-		Output:    map[string]any{"ok": true},
-		Untrusted: true,
-		Provider:  "fake-browser",
+		Tool:              "browser.status",
+		Output:            map[string]any{"ok": true, "visible_environment_ready": true, "session_generation": 1},
+		SessionGeneration: 1,
+		Presentation:      "hidden",
+		Untrusted:         true,
+		Provider:          "fake-browser",
 	}, nil
 }
 
@@ -2501,6 +2501,44 @@ func (fakeBrowserAutomationAdapter) Call(ctx context.Context, tool string, args 
 			Untrusted: true,
 			Provider:  "fake-browser",
 		}, nil
+	case "browser.open":
+		target := firstNonEmptyString(args["url"], "https://example.com/")
+		page := fakeBrowserPage("page_2", target, args)
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_tab_new", Arguments: args,
+			Output: map[string]any{"pages": []any{page}}, Pages: []any{page},
+			Text: target, SessionGeneration: uint64(intLikeValue(page["session_generation"])),
+			Presentation: firstNonEmptyString(page["presentation"]), Untrusted: true, Provider: "fake-browser",
+		}, nil
+	case "browser.wait":
+		generation, presentation := fakeBrowserIdentity(args)
+		target := firstNonEmptyString(args["expected_url"], "https://example.com/")
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_stable_state", Arguments: args,
+			Output: map[string]any{
+				"status": "stable", "page_id": "page_2", "url": target, "state_digest": "stable",
+				"state_changed": true, "session_generation": generation, "presentation": presentation,
+				"provider_session_ref": "fake-" + presentation,
+			},
+			Text:              "browser page reached a stable observable state",
+			SessionGeneration: generation, Presentation: presentation, Untrusted: true, Provider: "fake-browser",
+		}, nil
+	case "browser.snapshot":
+		generation, presentation := fakeBrowserIdentity(args)
+		target := "https://example.com/"
+		snapshotID := fmt.Sprintf("snapshot_page_2_%d", generation)
+		snapshot := map[string]any{
+			"snapshot_id": snapshotID, "page_id": "page_2", "url": target, "title": "Example",
+			"digest": fmt.Sprintf("digest-%d", generation), "repeated": false,
+			"session_generation": generation, "presentation": presentation,
+			"provider_session_ref": "fake-" + presentation, "owner_id": app.DefaultOwnerID, "profile_id": "default",
+			"controls": []any{}, "refs": []any{},
+		}
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_snapshot", Arguments: args,
+			Output: map[string]any{"snapshot": snapshot}, Text: "Example snapshot",
+			SessionGeneration: generation, Presentation: presentation, Untrusted: true, Provider: "fake-browser",
+		}, nil
 	default:
 		return browserautomation.Result{
 			Tool:      tool,
@@ -2518,18 +2556,29 @@ type loginBlockBrowserAdapter struct {
 	readCalls         int
 	lastReadURL       string
 	listTabsCalls     int
+	snapshotCalls     int
+	waitCalls         int
+	focusCalls        int
 	openCalls         int
+	closeCalls        int
 	openAuthChallenge bool
 	openAuthGateText  string
 	selectedTabURL    string
+	lastOpenArgs      map[string]any
+	lastSnapshotArgs  map[string]any
+	visibleValidated  bool
+	visibleAuthReject bool
+	hiddenAuthReject  bool
 }
 
 func (a *loginBlockBrowserAdapter) Health(ctx context.Context, _ map[string]any) (browserautomation.Result, error) {
 	return browserautomation.Result{
-		Tool:      "browser.status",
-		Output:    map[string]any{"ok": true},
-		Untrusted: true,
-		Provider:  "login-block-fake",
+		Tool: "browser.status",
+		Output: map[string]any{
+			"ok": true, "visible_environment_ready": true, "session_generation": 1,
+		},
+		SessionGeneration: 1, Presentation: "hidden",
+		Untrusted: true, Provider: "login-block-fake",
 	}, nil
 }
 
@@ -2579,23 +2628,106 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 		if selectedURL == "" {
 			selectedURL = "https://example.com/protected"
 		}
+		generation, presentation := a.identity(args)
+		page := map[string]any{
+			"page_id": "page_2", "url": selectedURL, "title": "Authenticated destination", "selected": true,
+			"session_generation": generation, "presentation": presentation,
+			"provider_session_ref": "login-block-" + presentation,
+			"owner_id":             app.DefaultOwnerID, "profile_id": "default",
+		}
 		return browserautomation.Result{
 			Tool:      tool,
 			RawTool:   "agent_browser_tab_list",
 			Arguments: args,
-			Output:    map[string]any{"ok": true},
-			Pages: []any{map[string]any{
-				"page_id":  "page_2",
-				"url":      selectedURL,
-				"title":    "Authenticated destination",
-				"selected": true,
-			}},
-			Text:      "page-2 " + selectedURL + " Authenticated destination [selected]",
-			Untrusted: true,
-			Provider:  "login-block-fake",
+			Output: map[string]any{
+				"ok": true, "pages": []any{page}, "session_generation": generation,
+				"presentation": presentation, "provider_session_ref": "login-block-" + presentation,
+			},
+			Pages: []any{page}, Text: "page-2 " + selectedURL + " Authenticated destination [selected]",
+			SessionGeneration: generation, Presentation: presentation,
+			Untrusted: true, Provider: "login-block-fake",
+		}, nil
+	case "browser.focus":
+		a.focusCalls++
+		generation, presentation := a.identity(args)
+		selectedURL := firstNonEmptyString(a.selectedTabURL, args["url"], "https://example.com/protected")
+		page := map[string]any{
+			"page_id": firstNonEmptyString(args["page_id"], "page_2"), "url": selectedURL,
+			"title": "Authenticated destination", "selected": true,
+			"session_generation": generation, "presentation": presentation,
+			"provider_session_ref": "login-block-" + presentation,
+			"owner_id":             app.DefaultOwnerID, "profile_id": "default",
+		}
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_tab_switch", Arguments: args,
+			Output: map[string]any{"pages": []any{page}}, Pages: []any{page},
+			SessionGeneration: generation, Presentation: presentation,
+			Untrusted: true, Provider: "login-block-fake",
+		}, nil
+	case "browser.wait":
+		a.waitCalls++
+		generation, presentation := a.identity(args)
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_stable_state", Arguments: args,
+			Output: map[string]any{
+				"status": "stable", "reason_code": "browser_target_settled",
+				"page_id":      firstNonEmptyString(args["page_id"], "page_2"),
+				"url":          firstNonEmptyString(a.selectedTabURL, args["expected_url"]),
+				"text":         "browser page reached a stable observable state",
+				"state_digest": "authenticated-stable", "state_changed": true,
+				"session_generation": generation, "presentation": presentation,
+				"provider_session_ref": "login-block-" + presentation,
+			},
+			Text:              "browser page reached a stable observable state",
+			SessionGeneration: generation, Presentation: presentation,
+			Untrusted: true, Provider: "login-block-fake",
+		}, nil
+	case "browser.snapshot":
+		a.snapshotCalls++
+		a.lastSnapshotArgs = clonePlanArgs(args)
+		generation, presentation := a.identity(args)
+		authState := "authenticated"
+		authConfidence := "profile_continuity"
+		authSignals := []any{"usable_application_shell", "managed_profile_continuity"}
+		title := "Authenticated destination"
+		text := "邮箱主页 收件箱 草稿箱 安全退出"
+		if presentation == "visible" && a.visibleAuthReject ||
+			presentation == "hidden" && a.visibleValidated && a.hiddenAuthReject {
+			authState = "challenged"
+			authConfidence = "accessibility_tree"
+			authSignals = []any{"password_control"}
+			title = "登录QQ邮箱"
+			text = "请登录 密码"
+		}
+		snapshotID := fmt.Sprintf("snapshot_%s_%d", presentation, a.snapshotCalls)
+		pageID := firstNonEmptyString(args["page_id"], "page_2")
+		snapshot := map[string]any{
+			"snapshot_id": snapshotID, "page_id": pageID,
+			"url":   firstNonEmptyString(a.selectedTabURL, args["url"], "https://example.com/protected"),
+			"title": title, "text": text, "digest": "digest-" + snapshotID,
+			"session_generation": generation, "presentation": presentation,
+			"provider_session_ref": "login-block-" + presentation,
+			"owner_id":             app.DefaultOwnerID, "profile_id": "default",
+			"browser_page_auth_state": authState, "browser_page_auth_confidence": authConfidence,
+			"browser_page_auth_signals": authSignals,
+			"auth_challenge_detected":   authState == "challenged",
+			"controls":                  []any{},
+		}
+		if presentation == "visible" && authState == "authenticated" {
+			a.visibleValidated = true
+		}
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_snapshot", Arguments: args,
+			Output: map[string]any{
+				"snapshot": snapshot, "snapshot_id": snapshotID, "page_id": pageID,
+				"session_generation": generation, "presentation": presentation,
+			},
+			Text: text, SessionGeneration: generation, Presentation: presentation,
+			Untrusted: true, Provider: "login-block-fake",
 		}, nil
 	case "browser.open":
 		a.openCalls++
+		a.lastOpenArgs = clonePlanArgs(args)
 		if strings.TrimSpace(a.openAuthGateText) != "" {
 			target := stringValue(args["url"])
 			return browserautomation.Result{
@@ -2611,8 +2743,9 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 				Provider:  "login-block-fake",
 			}, nil
 		}
-		if a.openAuthChallenge {
+		if a.openAuthChallenge && !a.visibleValidated {
 			target := stringValue(args["url"])
+			generation, presentation := a.identity(args)
 			return browserautomation.Result{
 				Tool:      tool,
 				RawTool:   "agent_browser_tab_new",
@@ -2630,12 +2763,31 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 					"login_handoff_required":  true,
 					"login_handoff_opened":    true,
 					"login_handoff_url":       target,
+					"session_generation":      generation,
+					"presentation":            presentation,
+					"provider_session_ref":    "login-block-" + presentation,
 				},
-				Text:      "Login required",
-				Untrusted: true,
-				Provider:  "login-block-fake",
+				Text: "Login required", SessionGeneration: generation, Presentation: presentation,
+				Untrusted: true, Provider: "login-block-fake",
 			}, nil
 		}
+		target := firstNonEmptyString(args["url"], a.selectedTabURL)
+		a.selectedTabURL = target
+		generation, presentation := a.identity(args)
+		page := map[string]any{
+			"page_id": "page_2", "url": target, "title": "Authenticated destination", "selected": true,
+			"session_generation": generation, "presentation": presentation,
+			"provider_session_ref": "login-block-" + presentation,
+			"owner_id":             app.DefaultOwnerID, "profile_id": "default",
+		}
+		return browserautomation.Result{
+			Tool: tool, RawTool: "agent_browser_open", Arguments: args,
+			Output: map[string]any{"pages": []any{page}}, Pages: []any{page},
+			SessionGeneration: generation, Presentation: presentation,
+			Untrusted: true, Provider: "login-block-fake",
+		}, nil
+	case "browser.close":
+		a.closeCalls++
 	}
 	return browserautomation.Result{
 		Tool:      tool,
@@ -2646,6 +2798,20 @@ func (a *loginBlockBrowserAdapter) Call(ctx context.Context, tool string, args m
 		Untrusted: true,
 		Provider:  "login-block-fake",
 	}, nil
+}
+
+func (a *loginBlockBrowserAdapter) identity(args map[string]any) (uint64, string) {
+	presentation := firstNonEmptyString(args["presentation"], "hidden")
+	switch {
+	case presentation == "visible" && a.visibleValidated:
+		return 4, presentation
+	case presentation == "visible":
+		return 2, presentation
+	case a.visibleValidated:
+		return 3, presentation
+	default:
+		return 1, presentation
+	}
 }
 
 func hasToolCallStatus(calls []app.ToolCall, tool, status string) bool {
@@ -3196,8 +3362,8 @@ func TestVisibleToolDefinitionsBrowserAutomationSkillControlsToolSet(t *testing.
 		t.Fatal(err)
 	}
 	names := visibleToolNames(dispatch.Tools)
-	if len(names) != 1 || names[0] != "browser.list_tabs" {
-		t.Fatalf("browser automation scan stage must expose only browser.list_tabs: %#v", names)
+	if len(names) != 1 || names[0] != "browser.status" {
+		t.Fatalf("browser automation preflight stage must expose only browser.status: %#v", names)
 	}
 }
 

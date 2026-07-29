@@ -220,11 +220,21 @@ const (
 )
 
 const (
-	BrowserLoginBlockStatusWaiting  = "waiting"
-	BrowserLoginBlockStatusResuming = "resuming"
-	BrowserLoginBlockStatusResolved = "resolved"
-	BrowserLoginBlockStatusCanceled = "canceled"
-	BrowserLoginBlockStatusFailed   = "failed"
+	BrowserHandoffStatusWaitingOwner      = "waiting_owner"
+	BrowserHandoffStatusReopeningVisible  = "reopening_visible"
+	BrowserHandoffStatusValidatingVisible = "validating_visible"
+	BrowserHandoffStatusTransferring      = "transferring_profile"
+	BrowserHandoffStatusValidatingHidden  = "validating_hidden"
+	BrowserHandoffStatusResumingWorkflow  = "resuming_workflow"
+	BrowserHandoffStatusResolved          = "resolved"
+	BrowserHandoffStatusCanceled          = "canceled"
+	BrowserHandoffStatusFailed            = "failed"
+
+	BrowserLoginBlockStatusWaiting  = BrowserHandoffStatusWaitingOwner
+	BrowserLoginBlockStatusResuming = BrowserHandoffStatusValidatingVisible
+	BrowserLoginBlockStatusResolved = BrowserHandoffStatusResolved
+	BrowserLoginBlockStatusCanceled = BrowserHandoffStatusCanceled
+	BrowserLoginBlockStatusFailed   = BrowserHandoffStatusFailed
 )
 
 type BrowserAuthRecord struct {
@@ -248,28 +258,38 @@ type BrowserAuthRecord struct {
 }
 
 type BrowserLoginBlock struct {
-	ID                 string         `json:"id"`
-	SessionID          string         `json:"session_id"`
-	RunID              string         `json:"run_id"`
-	Status             string         `json:"status"`
-	OriginalGoal       string         `json:"original_goal"`
-	ResumeTool         string         `json:"resume_tool"`
-	ResumeArgs         map[string]any `json:"resume_args"`
-	LastToolCallID     string         `json:"last_tool_call_id,omitempty"`
-	LoginHandoffURL    string         `json:"login_handoff_url,omitempty"`
-	LoginHandoffPageID string         `json:"login_handoff_page_id,omitempty"`
-	LastVisiblePageID  string         `json:"last_visible_page_id,omitempty"`
-	OwnerID            string         `json:"owner_id"`
-	BrowserProfileID   string         `json:"browser_profile_id"`
-	SiteOrigin         string         `json:"site_origin"`
-	SiteRealm          string         `json:"site_realm,omitempty"`
-	AccountHint        string         `json:"account_hint,omitempty"`
-	BrowserAuthStatus  string         `json:"browser_auth_status,omitempty"`
-	LastUserReply      string         `json:"last_user_reply,omitempty"`
-	LastError          string         `json:"last_error,omitempty"`
-	CreatedAt          time.Time      `json:"created_at"`
-	UpdatedAt          time.Time      `json:"updated_at"`
-	ResolvedAt         *time.Time     `json:"resolved_at,omitempty"`
+	SchemaVersion        int                     `json:"schema_version"`
+	Version              int64                   `json:"version"`
+	TransitionOwnerID    string                  `json:"transition_owner_id,omitempty"`
+	TransitionLeaseUntil *time.Time              `json:"transition_lease_until,omitempty"`
+	ID                   string                  `json:"id"`
+	SessionID            string                  `json:"session_id"`
+	RunID                string                  `json:"run_id"`
+	WorkflowID           WorkflowID              `json:"workflow_id,omitempty"`
+	WorkflowRevision     int                     `json:"workflow_revision,omitempty"`
+	WorkflowNodeID       WorkflowNodeID          `json:"workflow_node_id,omitempty"`
+	SessionGeneration    uint64                  `json:"session_generation,omitempty"`
+	Status               string                  `json:"status"`
+	OriginalGoal         string                  `json:"original_goal"`
+	ResumeTool           string                  `json:"resume_tool"`
+	ResumeArgs           map[string]any          `json:"resume_args"`
+	LastToolCallID       string                  `json:"last_tool_call_id,omitempty"`
+	LoginHandoffURL      string                  `json:"login_handoff_url,omitempty"`
+	LoginHandoffPageID   string                  `json:"login_handoff_page_id,omitempty"`
+	LastVisiblePageID    string                  `json:"last_visible_page_id,omitempty"`
+	OwnerID              string                  `json:"owner_id"`
+	BrowserProfileID     string                  `json:"browser_profile_id"`
+	SiteOrigin           string                  `json:"site_origin"`
+	SiteRealm            string                  `json:"site_realm,omitempty"`
+	AccountHint          string                  `json:"account_hint,omitempty"`
+	BrowserAuthStatus    string                  `json:"browser_auth_status,omitempty"`
+	Target               BrowserTargetDescriptor `json:"target,omitempty"`
+	VisibleEvidence      *BrowserResultEvidence  `json:"visible_evidence,omitempty"`
+	LastUserReply        string                  `json:"last_user_reply,omitempty"`
+	LastError            string                  `json:"last_error,omitempty"`
+	CreatedAt            time.Time               `json:"created_at"`
+	UpdatedAt            time.Time               `json:"updated_at"`
+	ResolvedAt           *time.Time              `json:"resolved_at,omitempty"`
 }
 
 type Memory struct {

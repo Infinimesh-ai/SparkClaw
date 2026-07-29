@@ -326,6 +326,11 @@ func (s *MemoryStore) DeleteSession(id string) (app.Session, error) {
 		delete(s.runFeedback, runID)
 		delete(s.runs, runID)
 	}
+	for blockID, block := range s.browserLoginBlocks {
+		if block.SessionID == id {
+			delete(s.browserLoginBlocks, blockID)
+		}
+	}
 	for feedbackRunID, feedback := range s.runFeedback {
 		filtered := feedback[:0]
 		for _, item := range feedback {
@@ -1747,6 +1752,21 @@ func (s *MemoryStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.Bro
 	return block
 }
 
+func (s *MemoryStore) UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.browserLoginBlocks[strings.TrimSpace(block.ID)]
+	if !ok || current.Version != expectedVersion {
+		return app.BrowserLoginBlock{}, ErrBrowserHandoffConflict
+	}
+	block.Version = expectedVersion + 1
+	block = normalizeBrowserLoginBlock(block, current)
+	s.browserLoginBlocks[block.ID] = block
+	s.appendAuditLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
+	s.appendEventLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, block)
+	return block, nil
+}
+
 func (s *MemoryStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -2265,8 +2285,18 @@ func normalizeBrowserAuthRecord(record app.BrowserAuthRecord, current app.Browse
 
 func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.BrowserLoginBlock) app.BrowserLoginBlock {
 	now := time.Now().UTC()
+	if block.SchemaVersion <= 0 {
+		block.SchemaVersion = app.BrowserHandoffSchemaVersion
+	}
+	if block.Version <= current.Version {
+		block.Version = current.Version + 1
+	}
+	if block.Version <= 0 {
+		block.Version = 1
+	}
 	block.SessionID = strings.TrimSpace(block.SessionID)
 	block.RunID = strings.TrimSpace(block.RunID)
+	block.TransitionOwnerID = strings.TrimSpace(block.TransitionOwnerID)
 	block.Status = strings.TrimSpace(block.Status)
 	if block.Status == "" {
 		block.Status = app.BrowserLoginBlockStatusWaiting
@@ -2291,6 +2321,10 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 	block.BrowserAuthStatus = strings.TrimSpace(block.BrowserAuthStatus)
 	block.LastUserReply = strings.TrimSpace(block.LastUserReply)
 	block.LastError = strings.TrimSpace(block.LastError)
+	if block.Status == app.BrowserHandoffStatusWaitingOwner || !browserLoginBlockActive(block.Status) {
+		block.TransitionOwnerID = ""
+		block.TransitionLeaseUntil = nil
+	}
 	if block.ID == "" {
 		block.ID = app.NewID("blogin")
 	}
@@ -2309,7 +2343,12 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 
 func browserLoginBlockActive(status string) bool {
 	switch strings.TrimSpace(status) {
-	case app.BrowserLoginBlockStatusWaiting, app.BrowserLoginBlockStatusResuming:
+	case app.BrowserHandoffStatusWaitingOwner,
+		app.BrowserHandoffStatusReopeningVisible,
+		app.BrowserHandoffStatusValidatingVisible,
+		app.BrowserHandoffStatusTransferring,
+		app.BrowserHandoffStatusValidatingHidden,
+		app.BrowserHandoffStatusResumingWorkflow:
 		return true
 	default:
 		return false

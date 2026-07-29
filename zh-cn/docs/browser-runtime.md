@@ -29,21 +29,30 @@ Workflow leaf
 |---|---|
 | `browser.internet_search` r1 | 通过 `web.search` 搜索公开当前信息，不打开来源页面 |
 | `browser.weather` r1 | 查询 Infinimesh Info、组织证据，并为一个明确地点生成天气卡片 |
-| `browser.automation` r1 | 打开一个明确 HTTP(S) URL 或注册 destination，或 focus 匹配 tab |
-| `browser.interaction` r1 | 检查一个目标，最多执行三次受限、ref-bound、点击后验证的 click |
+| `browser.automation` r2 | 在 hidden Chromium 中取得一个目标并完成 settle/snapshot，再在 visible Chromium 中呈现并独立验证同一结果 |
+| `browser.interaction` r2 | 在相同 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
 
-`browser.interaction` r1 不执行 type、select、upload、download、form submit、凭据输入、
-captcha/2FA、payment/purchase、页面脚本或 login completion。底层 browser tool 不会扩大
-已支持 Workflow 表面；以 [Workflow 能力矩阵](workflow-capabilities.md)为准。
+`browser.interaction` r2 不执行 type、select、upload、download、form submit、凭据输入、
+captcha/2FA、payment/purchase、页面脚本或自动登录。登录和人工验证使用显式 owner
+handoff。底层 browser tool 不会扩大已支持 Workflow 表面；以
+[Workflow 能力矩阵](workflow-capabilities.md)为准。浏览器 r1 profile 及其完成后呈现
+兼容路径已经退役。
 
 ## Read 与 Interaction 证据
 
 浏览器证据分为不同契约：
 
-- `browser.read` 从 active page 提取有界 rendered text 和 typed page metadata，永不执行页面脚本。
-- `browser.snapshot` 为选定页面状态创建带可执行 wrapped ref 的结构化 accessibility projection。
+- `browser.read` 为非 Workflow 调用者从 active page 提取有界 rendered text 和 typed page
+  metadata，永不执行页面脚本，也不是 r2 的第二条 perception 路径。
+- `browser.wait` 根据有界可观察 readiness signal 等待 navigation 或 interaction 稳定；
+  timeout、renderer failure 或 caller cancellation 会明确终止当前阶段。
+- `browser.snapshot` 为选定页面状态创建带可执行 wrapped ref、page identity、
+  presentation mode 和 session generation 的结构化 accessibility projection。
 - `browser.click` 只能接收该 snapshot 中持久化的 ref。
-- 每次 click 后必须重新 snapshot 并执行 `browser.verify`，才能完成或继续 click。
+- `browser.validate_transition` 对比持久化 before/after snapshot；
+  `browser.assess_goal` 针对一个精确 snapshot 独立评估冻结目标。
+- 每次 navigation 与 click 后都必须 settle 并生成 fresh snapshot。stale generation/ref、
+  repeated state、route divergence 或 semantic evidence 缺失都会 fail closed。
 
 Agent-browser 的 accessibility snapshot 和 native ref 是 provider 侧交互事实。SparkClaw
 只在其上增加有界模型投影、相关性检查、page identity、semantic fingerprint、重复状态
@@ -56,21 +65,67 @@ profile 的 visible Chromium，但 hidden 与 visible 进程绝不能同时持�
 认证状态保留在 Chromium 内。SparkClaw 不把凭据复制到其他进程，也不 attach owner 的
 日常浏览器 profile。
 
-默认 profile root 是 `./data/browser-profiles`。访问要求 exclusive lock、bounded startup、
-bounded command execution 和 owned child process cleanup。visible handoff 前先停止 hidden
-owner；resume 使用实际选中的 post-login URL 和新证据。
+在 Linux ARM64 Compose runtime 中，visible session 使用 owner 的真实 X11/XWayland
+桌面。`npm run dev` 自动发现唯一的本地 display 及其 Xauthority 文件，再将 X socket
+和 authority 挂载进 Gateway。adapter 对 visible session 禁用 agent-browser 的 Xvfb
+fallback：desktop 缺失或不可访问时会明确失败，不再把只能在虚拟显示中看到的浏览器
+报告为成功。headless 自动化不依赖该 desktop bridge。Gateway 镜像同时提供 UTF-8
+locale 以及 Noto CJK/emoji 字体，使 Chromium 能正确显示 QQ 邮箱等中文应用，而不会
+出现缺字方框。
 
-当前 browser Workflow 不暴露 login completion，因此认证或人工验证请求会关闭失败，
-不会假装完成。托管 profile lifecycle 保留为未来显式 login Workflow 的基础。
+默认 profile root 是 `./data/browser-profiles`。每个 session 在整个进程生命周期内持有
+exclusive OS file lock；发生 contention 时明确失败，不会启动第二个 owner。访问同时要求
+bounded startup、bounded command execution 和 owned child process cleanup。Compose
+Gateway 使用 init 进程回收 browser session 退出后的 Chromium 后代进程。visible handoff
+前先停止 hidden owner；转回 hidden 时也遵循相同顺序。
+
+browser automation 和 interaction 在 hidden Chromium 中完成 acquire、navigate、settle、
+snapshot 和 interaction。最终呈现是同一冻结 r2 Workflow 内的必需节点：Runtime 以 visible
+方式 open/focus 结果 URL，等待稳定，获取 visible snapshot，重新校验冻结 route；interaction
+还会独立复核目标。没有这些 visible evidence，run 不能成功。全新的 visible session 会
+直接导航目标，不先暴露启动时的 `about:blank` tab；已经初始化且可复用的 profile 不会被
+替换为空白登录提示。已验证结果页面不受 headless daemon 空闲超时影响并保持打开，生产
+完成流程不会调用 `browser.close`。
+
+持久化的安全结果 descriptor 保存 origin、path、fragment 和 query provenance，不保存
+provider session token。QQ 邮箱等应用可能在新进程中替换易失 `sid`；Runtime 保留新的
+session query，只重新应用已验证的同源 hash route，并从 artifact、audit、episode 和 API
+响应中移除 provider 注入 token。owner 明确提供的 query parameter 仍属于冻结目标。
+
+browser tool 检测到登录或人工验证界面后，Runtime 持久化 handoff，暂停原 Workflow，
+并要求 owner 在 visible Chromium 中完成验证。歧义回复不会产生任何 browser call；明确
+取消会保留 visible 页面；明确报告页面错误会重新打开冻结目标。只有明确确认完成才进入
+校验。
+
+校验先列出 visible tab、选择 handoff 页面、等待稳定并获取 fresh visible snapshot，再
+独立检查认证证据以及当前页面是否仍满足冻结任务。显式 URL 仍要求精确匹配；registered
+destination 只能使用其受限 host/subdomain 规则。页面缺失、未认证或与任务无关时，
+Workflow 保持暂停并明确反馈，不启动 hidden 自动化。visible 校验通过后，Runtime 把
+profile 转交 hidden，重新取得选中页面、settle 并生成另一个 fresh snapshot。profile
+连续性丢失时回到 `waiting_owner`，不会猜测。登录前 ref 全部丢弃，但已完成 click budget
+保持不变。
+
+handoff transition 持久化为 `waiting_owner`、`reopening_visible`、
+`validating_visible`、`transferring_profile`、`validating_hidden` 和
+`resuming_workflow`，最终进入 `resolved`、`canceled` 或 `failed`。Store
+compare-and-swap、transition owner 和有界 lease 让 memory、file、PostgreSQL backend
+上的 retry 与 Gateway restart recovery 保持单 owner、幂等。login completion 是 Runtime
+管理的用户确认 gate，不是 model-visible tool。
 
 ## 网络与安全边界
 
 - 明确目标必须是规范化 HTTP(S) URL。注册 destination 解析成冻结 runtime URL 和受限 host/subdomain 规则。
 - URL fetch 默认拒绝 loopback、private、link-local 等禁止 literal host；本地 fixture 必须明确 allowlist。
 - redirect 和最终 page identity 会重新校验。
-- 不复用无关现有 tab。明确打开的页面在成功 open 或 interaction 后保持打开。
+- 不复用无关现有 tab。成功 open 或 interaction 后，最终结果页面保持打开；关闭 tab
+  只用于测试清理。
+- `browser.status` 是被动检查：它验证固定 provider、system Chromium 版本与 AArch64
+  ELF、profile lock 可用性、UTF-8/CJK 支持，以及需要 visible 时的 DISPLAY socket 和
+  Xauthority 文件，不启动 Chromium，也不创建 `about:blank`。
 - 即使 snapshot 中存在 unsafe 或 consequential control，也会阻止。模型输出不能绕过 ref ownership 或 Policy。
 - screenshot、raw response 和 rendered text 都是 artifact/evidence，不是可信指令。
+- Compose Xauthority 虽然是 read-only mount，但会授予 Gateway 访问 owner 桌面 display
+  的权限。只在受信任、单 owner 的本地 runtime 中启用 visible forwarding。
 
 ## 配置与安装
 
@@ -80,6 +135,9 @@ owner；resume 使用实际选中的 post-login URL 和新证据。
 npm install
 npm run setup:browser
 ```
+
+Linux setup 检查还要求 fontconfig 和已安装的中文字体。Debian 和 Ubuntu 主机可安装
+`fontconfig` 与 `fonts-noto-cjk`。
 
 重要配置位于 `configs/sparkclaw.default.json`，对应环境变量模板在
 `docker/env/sparkclaw.example.env`：
@@ -91,15 +149,29 @@ npm run setup:browser
 | `adapters.browserAutomation.profileDir` | SparkClaw-owned persistent profile root |
 | `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | 有界进程 lifecycle |
 | `security.browser_read_allow_hosts` | private-host 明确例外，主要用于测试 fixture |
+| `SPARKCLAW_BROWSER_DISPLAY` | 仅用于 Compose 的 Linux host display，例如 `:1` |
+| `SPARKCLAW_BROWSER_XAUTHORITY` | 仅用于 Compose 的可读 host Xauthority 文件 |
 
 环境变量覆盖使用 `SPARKCLAW_BROWSER_AUTOMATION_*`、
 `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`、`SPARKCLAW_BROWSER_PROFILE_DIR` 和
 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`。常规 host 与 Compose 命令见[部署](deployment.md)。
 
+`npm run dev` 会自动解析这两个仅用于 Compose 的 desktop 值。直接调用 Compose 时先导出：
+
+```bash
+mapfile -t browser_display < <(scripts/resolve-browser-display.sh)
+export SPARKCLAW_BROWSER_DISPLAY="${browser_display[0]}"
+export SPARKCLAW_BROWSER_XAUTHORITY="${browser_display[1]}"
+docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d gateway
+```
+
 ## 验证
 
-浏览器改动应覆盖：adapter 协议、timeout、进程 ownership 和 profile lock；read/snapshot
-规范化和不可信证据；明确 URL、注册 destination、tab focus 和 redirect；stale/foreign ref、
-重复状态、unsafe control 和尝试上限；private-host 拒绝与 fixture allowlist；Workflow 路由和
-stage-scoped tool exposure；以及 `npm run setup:browser`、Gateway 测试、WebChat 测试/build
-和可用时的 golden browser eval。
+浏览器改动应覆盖：adapter 协议、timeout、进程 ownership 和 profile lock；被动 Linux
+ARM64 environment preflight 与 reason code；settle timeout/cancellation、snapshot
+规范化和不可信证据；明确 URL、注册 destination、tab focus 和 redirect；stale
+generation/ref、重复状态、unsafe control 和尝试上限；visible/hidden transfer、owner reply
+classification、restart recovery、CAS conflict 和 post-login 页面匹配/不匹配；UTF-8/CJK
+与 QQ 邮箱中文 snapshot/ref/auth evidence 往返；private-host 拒绝与 fixture allowlist；
+Workflow 路由和 stage-scoped tool exposure；以及 `npm run setup:browser`、Gateway 测试、
+WebChat 测试/build 和可用时的 golden browser eval。

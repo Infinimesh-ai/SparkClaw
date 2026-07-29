@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
@@ -81,6 +83,59 @@ func TestAgentBrowserObservedTabsAreClonedAndConsumedOnce(t *testing.T) {
 	}
 }
 
+func TestFreshVisibleSessionOpensTargetBeforeTabDiscovery(t *testing.T) {
+	adapter := &AgentBrowserAdapter{freshSession: true, activePresentation: "visible"}
+	if !adapter.shouldOpenFreshVisibleSessionDirect(true) {
+		t.Fatal("fresh visible browser.open should navigate directly to its target")
+	}
+	adapter.activePresentation = "hidden"
+	if adapter.shouldOpenFreshVisibleSessionDirect(true) {
+		t.Fatal("hidden sessions must keep the existing automation path")
+	}
+	adapter.activePresentation = "visible"
+	adapter.freshSession = false
+	if adapter.shouldOpenFreshVisibleSessionDirect(true) {
+		t.Fatal("an established visible session must inspect existing tabs before opening another")
+	}
+}
+
+func TestRebaseFreshVisibleURLFragmentUsesRedirectedSessionURL(t *testing.T) {
+	target := "https://wx.mail.qq.com/home/index?sid=stale#/list/4"
+	current := "https://wx.mail.qq.com/home/index?sid=fresh#/list/1/1"
+	got, ok := rebaseFreshVisibleURLFragment(target, current)
+	if !ok || got != "https://wx.mail.qq.com/home/index?sid=fresh#/list/4" {
+		t.Fatalf("unexpected rebased URL: got=%q ok=%t", got, ok)
+	}
+
+	for _, test := range []struct {
+		name    string
+		target  string
+		current string
+	}{
+		{
+			name:    "already at target fragment",
+			target:  "https://example.com/app#/drafts",
+			current: "https://example.com/app?session=fresh#/drafts",
+		},
+		{
+			name:    "cross origin redirect",
+			target:  "https://example.com/app#/drafts",
+			current: "https://login.example.net/app#/inbox",
+		},
+		{
+			name:    "target without fragment",
+			target:  "https://example.com/drafts",
+			current: "https://example.com/inbox",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if rebound, ok := rebaseFreshVisibleURLFragment(test.target, test.current); ok || rebound != "" {
+				t.Fatalf("unexpected rebase: got=%q ok=%t", rebound, ok)
+			}
+		})
+	}
+}
+
 func TestDecodeAgentBrowserToolResultUsesStructuredResponse(t *testing.T) {
 	result, err := decodeAgentBrowserToolResult("agent_browser_get_url", map[string]any{
 		"content": []any{map[string]any{"type": "text", "text": "https://example.com"}},
@@ -114,6 +169,44 @@ func TestAgentBrowserSnapshotRankingAndWrappedRefs(t *testing.T) {
 	projection := projectAgentBrowserTreeRefs(ranked[:1])
 	if !strings.Contains(projection, "[ref=snapshot_1_1:e2:abc]") || strings.Contains(projection, "ref=e1") {
 		t.Fatalf("only wrapped, returned refs should remain executable: %q", projection)
+	}
+}
+
+func TestQQMailSnapshotPreservesUTF8ChineseEvidence(t *testing.T) {
+	source := map[string]any{
+		"text": "QQ邮箱 收件箱 草稿箱 已发送 垃圾箱 联系人 邮件正文 中文主题 安全退出",
+		"refs": map[string]any{
+			"e1": map[string]any{"role": "navigation", "name": "邮箱导航"},
+			"e2": map[string]any{"role": "link", "name": "收件箱"},
+			"e3": map[string]any{"role": "link", "name": "草稿箱"},
+			"e4": map[string]any{"role": "button", "name": "安全退出"},
+		},
+	}
+	raw, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	text := firstStringValue(decoded, "text")
+	refs := mapValue(decoded["refs"])
+	descriptors := buildAgentBrowserSnapshotRefs(refs, "打开草稿箱")
+	projection := projectAgentBrowserTreeRefs(descriptors)
+	if !utf8.ValidString(text) || !utf8.ValidString(projection) ||
+		strings.ContainsRune(text+projection, utf8.RuneError) {
+		t.Fatalf("QQ Mail snapshot contains invalid UTF-8: text=%q projection=%q", text, projection)
+	}
+	for _, want := range []string{"收件箱", "草稿箱", "安全退出"} {
+		if !strings.Contains(text+projection, want) {
+			t.Fatalf("QQ Mail snapshot lost Chinese label %q: text=%q projection=%q", want, text, projection)
+		}
+	}
+	metadata := inferAgentBrowserSnapshotAuth(map[string]any{"text": text}, "QQ邮箱", "https://wx.mail.qq.com/home/index#/list/1/1", descriptors)
+	if firstStringValue(metadata, "authState") != "authenticated" ||
+		!containsString(firstStringSliceValue(metadata["authSignals"]), "visible_sign_out_control") {
+		t.Fatalf("Chinese authenticated mailbox evidence was not recognized: %#v", metadata)
 	}
 }
 
@@ -394,7 +487,7 @@ func TestRealVisibleBrowserOpenReusesStartupPage(t *testing.T) {
 	if page.AuthState != "authenticated" || page.AuthConfidence != "application_continuity" {
 		t.Fatalf("authenticated application identity was not recognized: state=%q confidence=%q signals=%#v", page.AuthState, page.AuthConfidence, page.AuthSignals)
 	}
-	closeSelectedChromiumTab(t, adapter, map[string]any{
+	closeAllChromiumTabs(t, adapter, map[string]any{
 		"browser_mode":       "autonomous",
 		"presentation":       "hidden",
 		"surface_visible":    false,
@@ -665,6 +758,35 @@ func closeSelectedChromiumTab(t *testing.T, adapter Adapter, common map[string]a
 	if len(remaining.Pages) != 0 {
 		t.Fatalf("Chromium tab remained open after browser.close: %#v", remaining.Pages)
 	}
+}
+
+func closeAllChromiumTabs(t *testing.T, adapter Adapter, common map[string]any) {
+	t.Helper()
+	for range 16 {
+		tabs, err := adapter.Call(context.Background(), "browser.list_tabs", common)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tabs.Pages) == 0 {
+			return
+		}
+		pageID := ""
+		for _, raw := range tabs.Pages {
+			page, ok := raw.(map[string]any)
+			if ok && boolValue(page["selected"]) {
+				pageID = stringValue(page["page_id"])
+			}
+		}
+		if pageID == "" {
+			t.Fatalf("Chromium cleanup could not identify the selected tab: %#v", tabs.Pages)
+		}
+		closeArgs := cloneArgs(common)
+		closeArgs["page_id"] = pageID
+		if _, err := adapter.Call(context.Background(), "browser.close", closeArgs); err != nil {
+			t.Fatalf("close Chromium tab %s: %v", pageID, err)
+		}
+	}
+	t.Fatal("Chromium cleanup exceeded 16 tabs")
 }
 
 func snapshotRefNamed(snapshot, name string) string {

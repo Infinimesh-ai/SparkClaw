@@ -10,14 +10,20 @@ COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
 GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18789/readyz}"
 services=("$@")
+browser_display=""
+browser_xauthority="/dev/null"
 
 if [[ ${#services[@]} -eq 0 ]]; then
   services=(gateway webchat)
 fi
 
+start_gateway=false
 for service in "${services[@]}"; do
   case "$service" in
-    gateway|webchat) ;;
+    gateway)
+      start_gateway=true
+      ;;
+    webchat) ;;
     *)
       echo "unsupported runtime service: $service (expected gateway or webchat)" >&2
       exit 1
@@ -38,6 +44,26 @@ fi
 if ! "${docker_cmd[@]}" ps >/dev/null 2>&1; then
   echo "docker is not available; set DOCKER_BIN or run with a user that can access Docker" >&2
   exit 1
+fi
+
+if [[ "$start_gateway" == true ]]; then
+  if browser_display_info="$(bash scripts/resolve-browser-display.sh)"; then
+    browser_display="${browser_display_info%%$'\n'*}"
+    browser_xauthority="${browser_display_info#*$'\n'}"
+    echo "Visible Chromium display: $browser_display"
+  else
+    echo "warn visible Chromium is unavailable; hidden browser automation remains enabled" >&2
+  fi
+fi
+export SPARKCLAW_BROWSER_DISPLAY="$browser_display"
+export SPARKCLAW_BROWSER_XAUTHORITY="$browser_xauthority"
+if [[ "${docker_cmd[0]}" == "sudo" ]]; then
+  docker_cmd=(
+    sudo -n env
+    "SPARKCLAW_BROWSER_DISPLAY=$SPARKCLAW_BROWSER_DISPLAY"
+    "SPARKCLAW_BROWSER_XAUTHORITY=$SPARKCLAW_BROWSER_XAUTHORITY"
+    "$DOCKER_BIN"
+  )
 fi
 
 compose_args=(compose)

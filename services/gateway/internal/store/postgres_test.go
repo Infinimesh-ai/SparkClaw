@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -286,6 +287,104 @@ func TestPostgresStoreExternalChatAndInboxParity(t *testing.T) {
 	truncatePostgresStore(t, st)
 	testExternalChatAndInboxParity(t, st)
 	testMessageLifecycleParity(t, st)
+}
+
+func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
+	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SPARKCLAW_TEST_POSTGRES_DSN to run postgres store integration tests")
+	}
+	st, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	truncatePostgresStore(t, st)
+
+	session := st.CreateSession("delete blocked browser session")
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID:  session.ID,
+		RunID:      run.ID,
+		SiteOrigin: "https://example.com",
+	})
+	if _, ok := st.GetBrowserLoginBlock(block.ID); !ok {
+		t.Fatal("browser login block was not saved")
+	}
+
+	if _, err := st.DeleteSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.GetBrowserLoginBlock(block.ID); ok {
+		t.Fatal("session deletion retained browser login block")
+	}
+	if _, ok := st.GetRun(run.ID); ok {
+		t.Fatal("session deletion retained agent run")
+	}
+	if _, ok := st.GetSession(session.ID); ok {
+		t.Fatal("session deletion retained session")
+	}
+}
+
+func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
+	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SPARKCLAW_TEST_POSTGRES_DSN to run postgres store integration tests")
+	}
+	st, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	truncatePostgresStore(t, st)
+
+	session := st.CreateSession("browser handoff CAS")
+	run := app.AgentRun{
+		ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked",
+		ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC(),
+	}
+	st.SaveRun(run)
+	leaseUntil := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID: session.ID, RunID: run.ID,
+		WorkflowID: app.WorkflowBrowserAutomation, WorkflowRevision: app.BrowserWorkflowRevision2,
+		WorkflowNodeID: "browser_result", SessionGeneration: 17,
+		Status:            app.BrowserHandoffStatusValidatingVisible,
+		TransitionOwnerID: "runtime-postgres", TransitionLeaseUntil: &leaseUntil,
+		Target: app.BrowserTargetDescriptor{
+			TargetKind:    app.BrowserTargetRegisteredDestination,
+			DestinationID: "qq_mail", CanonicalURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+			RedactedURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+		},
+		VisibleEvidence: &app.BrowserResultEvidence{
+			ID: "visible-postgres", SchemaVersion: app.BrowserHandoffSchemaVersion,
+			VisiblePageID: "page-postgres", VisibleSnapshotID: "snapshot-postgres",
+		},
+	})
+	got, ok := st.GetBrowserLoginBlock(block.ID)
+	if !ok || got.Version != block.Version || got.Target.DestinationID != "qq_mail" ||
+		got.VisibleEvidence == nil || got.VisibleEvidence.VisibleSnapshotID != "snapshot-postgres" ||
+		got.TransitionOwnerID != "runtime-postgres" || got.TransitionLeaseUntil == nil ||
+		!got.TransitionLeaseUntil.Equal(leaseUntil) {
+		t.Fatalf("PostgreSQL handoff round trip mismatch: %#v ok=%v", got, ok)
+	}
+	update := got
+	update.Status = app.BrowserHandoffStatusTransferring
+	updated, err := st.UpdateBrowserLoginBlock(update, got.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := got
+	stale.LastError = "stale"
+	if _, err := st.UpdateBrowserLoginBlock(stale, got.Version); !errors.Is(err, ErrBrowserHandoffConflict) {
+		t.Fatalf("stale PostgreSQL handoff update error = %v", err)
+	}
+	current, ok := st.GetBrowserLoginBlock(block.ID)
+	if !ok || current.Version != updated.Version || current.Status != app.BrowserHandoffStatusTransferring ||
+		current.LastError == "stale" {
+		t.Fatalf("PostgreSQL CAS result mismatch: %#v ok=%v", current, ok)
+	}
 }
 
 func truncatePostgresStore(t *testing.T, st *PostgresStore) {

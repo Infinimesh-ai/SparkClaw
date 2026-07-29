@@ -194,12 +194,16 @@ type AdapterConfig struct {
 }
 
 type BrowserAutomationAdapterConfig struct {
-	Command             string `json:"command"`
-	TimeoutMS           int    `json:"timeoutMs"`
-	StartupTimeoutMS    int    `json:"startupTimeoutMs"`
-	DaemonIdleTimeoutMS int    `json:"daemonIdleTimeoutMs"`
-	ChromiumExecutable  string `json:"chromiumExecutable"`
-	ProfileDir          string `json:"profileDir"`
+	Command              string `json:"command"`
+	TimeoutMS            int    `json:"timeoutMs"`
+	StartupTimeoutMS     int    `json:"startupTimeoutMs"`
+	DaemonIdleTimeoutMS  int    `json:"daemonIdleTimeoutMs"`
+	SettleTimeoutMS      int    `json:"settleTimeoutMs"`
+	SettleQuietPeriodMS  int    `json:"settleQuietPeriodMs"`
+	SettlePollIntervalMS int    `json:"settlePollIntervalMs"`
+	RouteRebindLimit     int    `json:"routeRebindLimit"`
+	ChromiumExecutable   string `json:"chromiumExecutable"`
+	ProfileDir           string `json:"profileDir"`
 }
 
 type WorkspaceConfig struct {
@@ -351,6 +355,30 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS <= 0 {
 		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = 60000
+	}
+	if cfg.Adapters.BrowserAutomation.SettleTimeoutMS <= 0 {
+		cfg.Adapters.BrowserAutomation.SettleTimeoutMS = 15000
+	}
+	if cfg.Adapters.BrowserAutomation.SettleQuietPeriodMS <= 0 {
+		cfg.Adapters.BrowserAutomation.SettleQuietPeriodMS = 500
+	}
+	if cfg.Adapters.BrowserAutomation.SettlePollIntervalMS <= 0 {
+		cfg.Adapters.BrowserAutomation.SettlePollIntervalMS = 100
+	}
+	if cfg.Adapters.BrowserAutomation.RouteRebindLimit <= 0 {
+		cfg.Adapters.BrowserAutomation.RouteRebindLimit = 2
+	}
+	if cfg.Adapters.BrowserAutomation.SettleTimeoutMS < 500 || cfg.Adapters.BrowserAutomation.SettleTimeoutMS > 120000 {
+		return Config{}, errors.New("adapters.browserAutomation.settleTimeoutMs must be between 500 and 120000")
+	}
+	if cfg.Adapters.BrowserAutomation.SettleQuietPeriodMS < 100 || cfg.Adapters.BrowserAutomation.SettleQuietPeriodMS > 10000 {
+		return Config{}, errors.New("adapters.browserAutomation.settleQuietPeriodMs must be between 100 and 10000")
+	}
+	if cfg.Adapters.BrowserAutomation.SettlePollIntervalMS < 25 || cfg.Adapters.BrowserAutomation.SettlePollIntervalMS > cfg.Adapters.BrowserAutomation.SettleQuietPeriodMS {
+		return Config{}, errors.New("adapters.browserAutomation.settlePollIntervalMs must be between 25 and settleQuietPeriodMs")
+	}
+	if cfg.Adapters.BrowserAutomation.RouteRebindLimit < 1 || cfg.Adapters.BrowserAutomation.RouteRebindLimit > 5 {
+		return Config{}, errors.New("adapters.browserAutomation.routeRebindLimit must be between 1 and 5")
 	}
 	profileDir, err := filepath.Abs(cfg.Adapters.BrowserAutomation.ProfileDir)
 	if err != nil {
@@ -710,11 +738,15 @@ func Default() Config {
 		},
 		Adapters: AdapterConfig{
 			BrowserAutomation: BrowserAutomationAdapterConfig{
-				Command:             "agent-browser",
-				TimeoutMS:           30000,
-				StartupTimeoutMS:    10000,
-				DaemonIdleTimeoutMS: 60000,
-				ProfileDir:          "./data/browser-profiles",
+				Command:              "agent-browser",
+				TimeoutMS:            30000,
+				StartupTimeoutMS:     10000,
+				DaemonIdleTimeoutMS:  60000,
+				SettleTimeoutMS:      15000,
+				SettleQuietPeriodMS:  500,
+				SettlePollIntervalMS: 100,
+				RouteRebindLimit:     2,
+				ProfileDir:           "./data/browser-profiles",
 			},
 		},
 		Memory: MemoryConfig{
@@ -1006,6 +1038,26 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS"); v != "" {
 		if timeoutMS, err := strconv.Atoi(v); err == nil {
 			cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_SETTLE_TIMEOUT_MS"); v != "" {
+		if timeoutMS, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.SettleTimeoutMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_SETTLE_QUIET_PERIOD_MS"); v != "" {
+		if timeoutMS, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.SettleQuietPeriodMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_SETTLE_POLL_INTERVAL_MS"); v != "" {
+		if timeoutMS, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.SettlePollIntervalMS = timeoutMS
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.BrowserAutomation.RouteRebindLimit = limit
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE"); v != "" {

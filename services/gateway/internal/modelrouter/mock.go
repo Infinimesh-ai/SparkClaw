@@ -183,7 +183,9 @@ func mockBrowserInteractionStage(prompt string) string {
 		value = value[:end]
 	}
 	switch value {
-	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new", "snapshot_before_action", "choose_and_click", "snapshot_after_action", "verify_action":
+	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new",
+		"snapshot_before_action", "choose_and_click", "snapshot_after_action",
+		"assess_goal_initial", "assess_goal_after_action", "assess_goal_visible":
 		return value
 	default:
 		return ""
@@ -216,19 +218,16 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 			"page_id": pageID, "snapshot_id": snapshotID, "uid": elementRef,
 			"expected_effect": "Advance the frozen browser interaction goal.",
 		})
-	case "verify_action":
-		snapshotIDs := mockBrowserFieldValues(prompt, "snapshot_id")
-		beforeID, afterID := "snapshot_before", "snapshot_after"
-		if len(snapshotIDs) >= 2 {
-			beforeID, afterID = snapshotIDs[len(snapshotIDs)-2], snapshotIDs[len(snapshotIDs)-1]
+	case "assess_goal_initial", "assess_goal_after_action", "assess_goal_visible":
+		snapshotID, _, elementRef := mockLatestBrowserSnapshot(prompt)
+		verdict := "success"
+		if stage == "assess_goal_initial" {
+			verdict = "progress"
 		}
-		clicked := mockLastBrowserFieldValue(prompt, "clicked")
-		if clicked == "" {
-			_, _, clicked = mockLatestBrowserSnapshot(prompt)
-		}
-		return mockWorkflowStepAction("browser.verify", map[string]any{
-			"before_snapshot_id": beforeID, "after_snapshot_id": afterID,
-			"element_ref": clicked, "verdict": "success", "reason": "The requested click produced a verified page-state change.",
+		return mockWorkflowStepAction("browser.assess_goal", map[string]any{
+			"snapshot_id": snapshotID, "verdict": verdict,
+			"evidence_refs": []string{elementRef},
+			"reason":        "The cited control in the current snapshot supports the bounded goal assessment.",
 		})
 	}
 	return `{"type":"final","answer":"The browser interaction workflow could not select its required next action."}`

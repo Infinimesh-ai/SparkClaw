@@ -146,6 +146,33 @@ Key audit event types emitted by the executor:
 | `workflow.finalization_failed` | Completed evidence could not be rendered into a final answer |
 | `workflow.legacy_resume_retired` / `workflow.legacy_login_resume_retired` | A pre-workflow persisted run was closed instead of resumed |
 
+## Browser Revision 2 Execution
+
+`browser.automation` and `browser.interaction` register only revision 2. A
+persisted browser r1 plan is rejected as an unregistered contract rather than
+reinterpreted under current code. The shared r2 plan owns acquisition, evidence,
+interaction, and presentation:
+
+- Runtime directly invokes passive environment preflight, tab discovery,
+  focus/open/navigation, settle, snapshot, and visible presentation stages.
+- Hidden acquisition always settles and snapshots before semantic validation.
+  Every navigation or click invalidates prior refs and requires another settle
+  plus generation-scoped snapshot.
+- Interaction uses separate `browser.validate_transition` and
+  `browser.assess_goal` capabilities. Goal assessment occurs before an action,
+  after every validated action, and again on the visible result.
+- Presentation is a required Workflow stage, not a completion callback. It
+  transfers the managed profile to visible Chromium, opens or focuses the exact
+  result, settles, snapshots, and validates it. The persisted result record
+  binds hidden and visible evidence; the run cannot succeed without the visible
+  evidence and leaves that page open.
+
+Failure boundaries are explicit: passive preflight, acquisition, settle,
+snapshot identity/generation, route validation, transition validation, goal
+assessment, profile transfer, and presentation can each block independently.
+Retries remain bounded by plan transitions and are idempotent against persisted
+state.
+
 ## Resume Semantics
 
 `ResumeRunAfterApproval` (`agent.go`) handles a run whose approval was
@@ -162,9 +189,25 @@ resolved:
   (`workflow.legacy_login_resume_retired`). There is no path that re-enters a
   generic loop.
 
-Browser login handoffs on workflow runs resume through
-`finishMatchedBrowserLoginResume`, which re-enters the persisted workflow
-scope with the frozen target.
+Browser login handoffs are persisted revision-2 state machines. While
+`waiting_owner`, ambiguous replies perform no browser work, cancellation leaves
+the visible page open, and a wrong-page reply reopens the frozen target. Only an
+explicit completion confirmation claims the transition lease and enters
+`validating_visible`.
+
+Runtime then lists visible tabs, selects and settles the handoff page, captures a
+fresh visible snapshot, and independently validates route, authentication, and
+the frozen task page. A mismatch returns to `waiting_owner` with an explicit
+owner-facing explanation. Success transfers the exclusive managed profile to
+hidden Chromium, reacquires and settles the selected page, and captures a fresh
+hidden snapshot before `resuming_workflow`. Pre-login refs are discarded while
+the click budget remains unchanged; loss of profile continuity returns to
+`waiting_owner`.
+
+Every transition is compare-and-swap persisted with a transition owner and
+bounded lease. A second Runtime cannot duplicate an active transition, and a
+new Runtime can claim an expired transition after restart. The same contract is
+implemented by memory, file, and PostgreSQL stores.
 
 ## Extension Points
 

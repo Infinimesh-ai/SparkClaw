@@ -490,6 +490,12 @@ CREATE TABLE IF NOT EXISTS browser_login_blocks (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
   run_id TEXT NOT NULL REFERENCES agent_runs(id),
+  schema_version INTEGER NOT NULL DEFAULT 2,
+  version BIGINT NOT NULL DEFAULT 1,
+  workflow_id TEXT NOT NULL DEFAULT '',
+  workflow_revision INTEGER NOT NULL DEFAULT 0,
+  workflow_node_id TEXT NOT NULL DEFAULT '',
+  session_generation BIGINT NOT NULL DEFAULT 0,
   status TEXT NOT NULL,
   original_goal TEXT NOT NULL DEFAULT '',
   resume_tool TEXT NOT NULL DEFAULT 'browser.read',
@@ -504,8 +510,12 @@ CREATE TABLE IF NOT EXISTS browser_login_blocks (
   site_realm TEXT NOT NULL DEFAULT '',
   account_hint TEXT NOT NULL DEFAULT '',
   browser_auth_status TEXT NOT NULL DEFAULT '',
+  target JSONB NOT NULL DEFAULT '{}',
+  visible_evidence JSONB NOT NULL DEFAULT 'null',
   last_user_reply TEXT NOT NULL DEFAULT '',
   last_error TEXT NOT NULL DEFAULT '',
+  transition_owner_id TEXT NOT NULL DEFAULT '',
+  transition_lease_until TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   resolved_at TIMESTAMPTZ
@@ -515,6 +525,26 @@ ALTER TABLE browser_login_blocks
   ADD COLUMN IF NOT EXISTS login_handoff_page_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE browser_login_blocks
   ADD COLUMN IF NOT EXISTS last_visible_page_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS schema_version INTEGER NOT NULL DEFAULT 2;
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS workflow_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS workflow_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS workflow_node_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS session_generation BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS target JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS visible_evidence JSONB NOT NULL DEFAULT 'null';
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS transition_owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE browser_login_blocks
+  ADD COLUMN IF NOT EXISTS transition_lease_until TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS browser_login_blocks_active_idx
   ON browser_login_blocks(session_id, status, updated_at DESC);
@@ -747,6 +777,7 @@ func (s *PostgresStore) DeleteSession(id string) (app.Session, error) {
 		`DELETE FROM artifact_objects WHERE session_id = $1`,
 		`DELETE FROM external_chat_messages WHERE chat_session_id IN (SELECT id FROM external_chat_sessions WHERE linked_session_id = $1)`,
 		`DELETE FROM external_chat_sessions WHERE linked_session_id = $1`,
+		`DELETE FROM browser_login_blocks WHERE session_id = $1`,
 		`DELETE FROM tool_calls WHERE session_id = $1`,
 		`DELETE FROM model_calls WHERE session_id = $1`,
 		`DELETE FROM messages WHERE session_id = $1`,
@@ -2512,16 +2543,23 @@ func (s *PostgresStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.B
 	ctx := context.Background()
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO browser_login_blocks (
-			id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+			id, session_id, run_id, schema_version, version, workflow_id, workflow_revision,
+			workflow_node_id, session_generation, status, original_goal, resume_tool, resume_args,
 			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
 			owner_id, browser_profile_id, site_origin,
-			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
-			created_at, updated_at, resolved_at
+			site_realm, account_hint, browser_auth_status, target, visible_evidence, last_user_reply, last_error,
+			transition_owner_id, transition_lease_until, created_at, updated_at, resolved_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
 		ON CONFLICT (id) DO UPDATE SET
 			session_id = EXCLUDED.session_id,
 			run_id = EXCLUDED.run_id,
+			schema_version = EXCLUDED.schema_version,
+			version = EXCLUDED.version,
+			workflow_id = EXCLUDED.workflow_id,
+			workflow_revision = EXCLUDED.workflow_revision,
+			workflow_node_id = EXCLUDED.workflow_node_id,
+			session_generation = EXCLUDED.session_generation,
 			status = EXCLUDED.status,
 			original_goal = EXCLUDED.original_goal,
 			resume_tool = EXCLUDED.resume_tool,
@@ -2536,27 +2574,76 @@ func (s *PostgresStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.B
 			site_realm = EXCLUDED.site_realm,
 			account_hint = EXCLUDED.account_hint,
 			browser_auth_status = EXCLUDED.browser_auth_status,
+			target = EXCLUDED.target,
+			visible_evidence = EXCLUDED.visible_evidence,
 			last_user_reply = EXCLUDED.last_user_reply,
 			last_error = EXCLUDED.last_error,
+			transition_owner_id = EXCLUDED.transition_owner_id,
+			transition_lease_until = EXCLUDED.transition_lease_until,
 			updated_at = EXCLUDED.updated_at,
 			resolved_at = EXCLUDED.resolved_at
-	`, block.ID, block.SessionID, block.RunID, block.Status, block.OriginalGoal, block.ResumeTool, mustJSON(block.ResumeArgs),
+	`, block.ID, block.SessionID, block.RunID, block.SchemaVersion, block.Version, block.WorkflowID, block.WorkflowRevision,
+		block.WorkflowNodeID, block.SessionGeneration, block.Status, block.OriginalGoal, block.ResumeTool, mustJSON(block.ResumeArgs),
 		block.LastToolCallID, block.LoginHandoffURL, block.LoginHandoffPageID, block.LastVisiblePageID,
 		block.OwnerID, block.BrowserProfileID, block.SiteOrigin,
-		block.SiteRealm, block.AccountHint, block.BrowserAuthStatus, block.LastUserReply, block.LastError,
-		block.CreatedAt, block.UpdatedAt, block.ResolvedAt)
+		block.SiteRealm, block.AccountHint, block.BrowserAuthStatus, mustJSON(block.Target), mustJSON(block.VisibleEvidence), block.LastUserReply, block.LastError,
+		block.TransitionOwnerID, block.TransitionLeaseUntil, block.CreatedAt, block.UpdatedAt, block.ResolvedAt)
 	s.appendAudit(ctx, "browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
 	s.appendEvent(ctx, "browser_login_block."+block.Status, block.SessionID, block.RunID, block)
 	return block
 }
 
+func (s *PostgresStore) UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error) {
+	current, ok := s.GetBrowserLoginBlock(block.ID)
+	if !ok || current.Version != expectedVersion {
+		return app.BrowserLoginBlock{}, ErrBrowserHandoffConflict
+	}
+	block.Version = expectedVersion + 1
+	block = normalizeBrowserLoginBlock(block, current)
+	ctx := context.Background()
+	result, err := s.db.Exec(ctx, `
+		UPDATE browser_login_blocks SET
+			session_id = $2, run_id = $3, schema_version = $4, version = $5,
+			workflow_id = $6, workflow_revision = $7, workflow_node_id = $8,
+			session_generation = $9, status = $10, original_goal = $11,
+			resume_tool = $12, resume_args = $13, last_tool_call_id = $14,
+			login_handoff_url = $15, login_handoff_page_id = $16,
+			last_visible_page_id = $17, owner_id = $18, browser_profile_id = $19,
+			site_origin = $20, site_realm = $21, account_hint = $22,
+			browser_auth_status = $23, target = $24, visible_evidence = $25,
+			last_user_reply = $26, last_error = $27, transition_owner_id = $28,
+			transition_lease_until = $29, created_at = $30,
+			updated_at = $31, resolved_at = $32
+		WHERE id = $1 AND version = $33
+	`, block.ID, block.SessionID, block.RunID, block.SchemaVersion, block.Version,
+		block.WorkflowID, block.WorkflowRevision, block.WorkflowNodeID, block.SessionGeneration,
+		block.Status, block.OriginalGoal, block.ResumeTool, mustJSON(block.ResumeArgs),
+		block.LastToolCallID, block.LoginHandoffURL, block.LoginHandoffPageID, block.LastVisiblePageID,
+		block.OwnerID, block.BrowserProfileID, block.SiteOrigin, block.SiteRealm, block.AccountHint,
+		block.BrowserAuthStatus, mustJSON(block.Target), mustJSON(block.VisibleEvidence),
+		block.LastUserReply, block.LastError, block.TransitionOwnerID, block.TransitionLeaseUntil,
+		block.CreatedAt, block.UpdatedAt, block.ResolvedAt,
+		expectedVersion)
+	if err != nil {
+		return app.BrowserLoginBlock{}, err
+	}
+	affected := result.RowsAffected()
+	if affected != 1 {
+		return app.BrowserLoginBlock{}, ErrBrowserHandoffConflict
+	}
+	s.appendAudit(ctx, "browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
+	s.appendEvent(ctx, "browser_login_block."+block.Status, block.SessionID, block.RunID, block)
+	return block, nil
+}
+
 func (s *PostgresStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+		SELECT id, session_id, run_id, schema_version, version, workflow_id, workflow_revision,
+			workflow_node_id, session_generation, status, original_goal, resume_tool, resume_args,
 			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
 			owner_id, browser_profile_id, site_origin,
-			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
-			created_at, updated_at, resolved_at
+			site_realm, account_hint, browser_auth_status, target, visible_evidence, last_user_reply, last_error,
+			transition_owner_id, transition_lease_until, created_at, updated_at, resolved_at
 		FROM browser_login_blocks
 		WHERE id = $1
 	`, strings.TrimSpace(id))
@@ -2566,27 +2653,29 @@ func (s *PostgresStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, 
 
 func (s *PostgresStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+		SELECT id, session_id, run_id, schema_version, version, workflow_id, workflow_revision,
+			workflow_node_id, session_generation, status, original_goal, resume_tool, resume_args,
 			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
 			owner_id, browser_profile_id, site_origin,
-			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
-			created_at, updated_at, resolved_at
+			site_realm, account_hint, browser_auth_status, target, visible_evidence, last_user_reply, last_error,
+			transition_owner_id, transition_lease_until, created_at, updated_at, resolved_at
 		FROM browser_login_blocks
-		WHERE session_id = $1 AND status IN ($2, $3)
+		WHERE session_id = $1 AND status NOT IN ($2, $3, $4)
 		ORDER BY updated_at DESC
 		LIMIT 1
-	`, strings.TrimSpace(sessionID), app.BrowserLoginBlockStatusWaiting, app.BrowserLoginBlockStatusResuming)
+	`, strings.TrimSpace(sessionID), app.BrowserHandoffStatusResolved, app.BrowserHandoffStatusCanceled, app.BrowserHandoffStatusFailed)
 	block, err := scanBrowserLoginBlock(row)
 	return block, err == nil
 }
 
 func (s *PostgresStore) ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, run_id, status, original_goal, resume_tool, resume_args,
+		SELECT id, session_id, run_id, schema_version, version, workflow_id, workflow_revision,
+			workflow_node_id, session_generation, status, original_goal, resume_tool, resume_args,
 			last_tool_call_id, login_handoff_url, login_handoff_page_id, last_visible_page_id,
 			owner_id, browser_profile_id, site_origin,
-			site_realm, account_hint, browser_auth_status, last_user_reply, last_error,
-			created_at, updated_at, resolved_at
+			site_realm, account_hint, browser_auth_status, target, visible_evidence, last_user_reply, last_error,
+			transition_owner_id, transition_lease_until, created_at, updated_at, resolved_at
 		FROM browser_login_blocks
 		WHERE ($1 = '' OR session_id = $1) AND ($2 = '' OR status = $2)
 		ORDER BY updated_at DESC
@@ -3357,11 +3446,17 @@ func scanBrowserAuthRecord(row scanner) (app.BrowserAuthRecord, error) {
 
 func scanBrowserLoginBlock(row scanner) (app.BrowserLoginBlock, error) {
 	var block app.BrowserLoginBlock
-	var args []byte
+	var args, target, visibleEvidence []byte
 	err := row.Scan(
 		&block.ID,
 		&block.SessionID,
 		&block.RunID,
+		&block.SchemaVersion,
+		&block.Version,
+		&block.WorkflowID,
+		&block.WorkflowRevision,
+		&block.WorkflowNodeID,
+		&block.SessionGeneration,
 		&block.Status,
 		&block.OriginalGoal,
 		&block.ResumeTool,
@@ -3376,14 +3471,24 @@ func scanBrowserLoginBlock(row scanner) (app.BrowserLoginBlock, error) {
 		&block.SiteRealm,
 		&block.AccountHint,
 		&block.BrowserAuthStatus,
+		&target,
+		&visibleEvidence,
 		&block.LastUserReply,
 		&block.LastError,
+		&block.TransitionOwnerID,
+		&block.TransitionLeaseUntil,
 		&block.CreatedAt,
 		&block.UpdatedAt,
 		&block.ResolvedAt,
 	)
 	if len(args) > 0 {
 		_ = json.Unmarshal(args, &block.ResumeArgs)
+	}
+	if len(target) > 0 {
+		_ = json.Unmarshal(target, &block.Target)
+	}
+	if len(visibleEvidence) > 0 && string(visibleEvidence) != "null" {
+		_ = json.Unmarshal(visibleEvidence, &block.VisibleEvidence)
 	}
 	if block.ResumeArgs == nil {
 		block.ResumeArgs = map[string]any{}

@@ -12,49 +12,64 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestBrowserVerifyAcceptsBoundChangedSnapshots(t *testing.T) {
+func TestBrowserValidateTransitionAcceptsBoundChangedSnapshots(t *testing.T) {
 	st, hub := newBrowserVerificationHub()
 	seedBrowserVerificationCycle(st, "session", "run", 1, "before", "after")
 
-	result, err := hub.Execute(context.Background(), "browser.verify", map[string]any{
+	result, err := hub.Execute(context.Background(), "browser.validate_transition", map[string]any{
 		"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2",
-		"element_ref": browserVerificationRef(1), "verdict": "success", "reason": "目标按钮已进入下一状态",
+		"element_ref": browserVerificationRef(1),
 	}, "session", "run")
 	if err != nil {
 		t.Fatal(err)
 	}
 	output := result.Output.(map[string]any)
-	if output["status"] != "succeeded" || output["code"] != "ok" || output["goal_satisfied"] != true || output["click_count"] != 1 {
-		t.Fatalf("unexpected successful verification: %#v", output)
+	if output["status"] != "validated" || output["code"] != "ok" || output["state_changed"] != true ||
+		output["session_generation"] != uint64(7) || output["click_count"] != 1 {
+		t.Fatalf("unexpected transition validation: %#v", output)
 	}
 }
 
-func TestBrowserVerifyRejectsRepeatedStateAsLoop(t *testing.T) {
+func TestBrowserAssessGoalAcceptsCurrentSnapshotEvidence(t *testing.T) {
+	st, hub := newBrowserVerificationHub()
+	seedBrowserVerificationCycle(st, "session", "run", 1, "before", "after")
+
+	result, err := hub.Execute(context.Background(), "browser.assess_goal", map[string]any{
+		"snapshot_id": "snapshot_2", "verdict": "success",
+		"evidence_refs": []string{browserVerificationRef(2)}, "reason": "目标状态已出现",
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.Output.(map[string]any)
+	if output["status"] != "succeeded" || output["code"] != "ok" || output["goal_satisfied"] != true ||
+		output["session_generation"] != uint64(7) {
+		t.Fatalf("unexpected goal assessment: %#v", output)
+	}
+}
+
+func TestBrowserValidateTransitionRejectsRepeatedState(t *testing.T) {
 	st, hub := newBrowserVerificationHub()
 	seedBrowserVerificationCycle(st, "session", "run", 1, "same", "same")
 
-	result, err := hub.Execute(context.Background(), "browser.verify", map[string]any{
+	_, err := hub.Execute(context.Background(), "browser.validate_transition", map[string]any{
 		"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2",
-		"element_ref": browserVerificationRef(1), "verdict": "progress", "reason": "页面没有变化",
+		"element_ref": browserVerificationRef(1),
 	}, "session", "run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	output := result.Output.(map[string]any)
-	if output["status"] != "failed" || output["code"] != "interaction_loop_detected" || output["goal_satisfied"] != false {
-		t.Fatalf("repeated state did not fail closed: %#v", output)
+	if err == nil || !strings.Contains(err.Error(), "no new page state") {
+		t.Fatalf("repeated state did not fail closed: %v", err)
 	}
 }
 
-func TestBrowserVerifyStopsProgressAfterThirdClick(t *testing.T) {
+func TestBrowserAssessGoalStopsProgressAfterThirdClick(t *testing.T) {
 	st, hub := newBrowserVerificationHub()
 	seedBrowserVerificationCycle(st, "session", "run", 1, "state_0", "state_1")
 	seedBrowserVerificationCycle(st, "session", "run", 2, "state_1", "state_2")
 	seedBrowserVerificationCycle(st, "session", "run", 3, "state_2", "state_3")
 
-	result, err := hub.Execute(context.Background(), "browser.verify", map[string]any{
-		"before_snapshot_id": "snapshot_5", "after_snapshot_id": "snapshot_6",
-		"element_ref": browserVerificationRef(5), "verdict": "progress", "reason": "还需要继续点击",
+	result, err := hub.Execute(context.Background(), "browser.assess_goal", map[string]any{
+		"snapshot_id": "snapshot_6", "verdict": "progress",
+		"evidence_refs": []string{browserVerificationRef(6)}, "reason": "还需要继续点击",
 	}, "session", "run")
 	if err != nil {
 		t.Fatal(err)
@@ -65,16 +80,16 @@ func TestBrowserVerifyStopsProgressAfterThirdClick(t *testing.T) {
 	}
 }
 
-func TestBrowserVerifyRejectsSnapshotsFromAnotherRun(t *testing.T) {
+func TestBrowserValidateTransitionRejectsSnapshotsFromAnotherRun(t *testing.T) {
 	st, hub := newBrowserVerificationHub()
 	seedBrowserVerificationCycle(st, "session", "other_run", 1, "before", "after")
 
-	_, err := hub.Execute(context.Background(), "browser.verify", map[string]any{
+	_, err := hub.Execute(context.Background(), "browser.validate_transition", map[string]any{
 		"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2",
-		"element_ref": browserVerificationRef(1), "verdict": "success", "reason": "changed",
+		"element_ref": browserVerificationRef(1),
 	}, "session", "run")
 	if err == nil {
-		t.Fatal("browser.verify accepted snapshots outside the current run")
+		t.Fatal("browser.validate_transition accepted snapshots outside the current run")
 	}
 }
 
@@ -119,7 +134,7 @@ func seedBrowserVerificationCycle(st *store.MemoryStore, sessionID, runID string
 		Result:    browserautomation.Result{Output: map[string]any{"snapshot_id": beforeID, "clicked": ref, "page_id": "page_1"}},
 		StartedAt: browserVerificationCallTime(beforeNumber*2 + 1),
 	})
-	st.SaveToolCall(browserVerificationSnapshotCall(sessionID, runID, afterNumber, beforeID, afterDigest, ""))
+	st.SaveToolCall(browserVerificationSnapshotCall(sessionID, runID, afterNumber, beforeID, afterDigest, browserVerificationRef(afterNumber)))
 }
 
 func browserVerificationSnapshotCall(sessionID, runID string, number int, previousID, digest, ref string) app.ToolCall {
@@ -133,7 +148,7 @@ func browserVerificationSnapshotCall(sessionID, runID string, number int, previo
 		StartedAt: browserVerificationCallTime(number * 2),
 		Result: browserautomation.Result{Output: map[string]any{"snapshot": map[string]any{
 			"snapshot_id": snapshotID, "previous_snapshot_id": previousID, "page_id": "page_1",
-			"digest": digest, "controls": controls,
+			"digest": digest, "session_generation": uint64(7), "controls": controls,
 		}}},
 	}
 }

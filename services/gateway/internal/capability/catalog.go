@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-27.v9"
+	DefaultCatalogRevision = "2026-07-29.v11"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -130,10 +130,10 @@ func DefaultCatalog() (Catalog, error) {
 			Operations: []app.RouteOperation{app.RouteOperationRead}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, TargetKinds: []string{string(app.TargetKindLocation)},
 			RequireQuery: true, RequireLocation: true, RequireTarget: true, RequiredFacts: []string{"location_source"},
 		}),
-		leaf(string(app.CapabilityBrowserAutomation), "browser", "Open or focus an explicitly known URL in the managed browser.", RouteContract{
+		leafRevision(string(app.CapabilityBrowserAutomation), "browser", "Open or focus an explicitly known URL in the managed browser.", app.BrowserWorkflowRevision2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url"}, RequireTarget: true, RequiredFacts: []string{"url"},
 		}),
-		leaf(string(app.CapabilityBrowserInteraction), "browser", "Inspect a managed Chromium page and perform up to three verified clicks for one frozen interaction goal.", RouteContract{
+		leafRevision(string(app.CapabilityBrowserInteraction), "browser", "Inspect a managed Chromium page and perform up to three verified clicks for one frozen interaction goal.", app.BrowserWorkflowRevision2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationInteract}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab)}, RequireQuery: true, RequireTarget: true,
 		}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),

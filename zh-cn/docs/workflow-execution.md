@@ -131,6 +131,28 @@ JSON 对象：
 | `workflow.finalization_failed` | 已完成证据无法渲染为最终回答 |
 | `workflow.legacy_resume_retired` / `workflow.legacy_login_resume_retired` | 迁移前的持久化运行被关闭而非恢复 |
 
+## 浏览器 Revision 2 执行
+
+`browser.automation` 与 `browser.interaction` 只注册 revision 2。持久化的浏览器 r1 plan
+会作为未注册契约被拒绝，不会由当前代码重新解释。共享 r2 plan 负责 acquisition、
+evidence、interaction 与 presentation：
+
+- Runtime 直接调用被动 environment preflight、tab discovery、focus/open/navigation、
+  settle、snapshot 和 visible presentation 阶段。
+- hidden acquisition 总是在 semantic validation 前完成 settle 与 snapshot。每次
+  navigation 或 click 都会让旧 ref 失效，必须重新 settle 并生成 generation-scoped
+  snapshot。
+- interaction 使用独立的 `browser.validate_transition` 和 `browser.assess_goal`
+  capability。目标评估发生在 action 前、每次验证后的 action 后，以及最终 visible 结果上。
+- presentation 是必需 Workflow 阶段，不是 completion callback。它把 managed profile
+  转交 visible Chromium，open/focus 精确结果，完成 settle、snapshot 和校验。持久化
+  result record 绑定 hidden 与 visible evidence；缺少 visible evidence 时 run 不能成功，
+  且成功后保留该页面打开。
+
+失败边界保持独立：被动 preflight、acquisition、settle、snapshot identity/generation、
+route validation、transition validation、goal assessment、profile transfer 和
+presentation 都可以分别 block。retry 由 plan transition 限制，并针对持久化状态幂等。
+
 ## 恢复语义
 
 `ResumeRunAfterApproval`（`agent.go`）处理审批已解决的运行：
@@ -145,8 +167,19 @@ JSON 对象：
   同理（`workflow.legacy_login_resume_retired`）。不存在重新进入通用循环的路
   径。
 
-Workflow 运行上的浏览器登录交接经 `finishMatchedBrowserLoginResume` 恢复，带
-着冻结目标重新进入持久化的 workflow scope。
+浏览器登录交接是持久化 revision-2 状态机。处于 `waiting_owner` 时，歧义回复不会执行
+browser call，取消会保留 visible 页面，wrong-page 回复会重新打开冻结目标。只有明确
+确认完成才会取得 transition lease 并进入 `validating_visible`。
+
+Runtime 随后列出 visible tab，选择并 settle handoff 页面，生成 fresh visible snapshot，
+再独立验证 route、认证状态和冻结任务页面。不匹配时回到 `waiting_owner`，向 owner 明确
+说明原因。成功后把 exclusive managed profile 转交 hidden Chromium，重新取得并 settle
+选中页面，再生成 fresh hidden snapshot，之后进入 `resuming_workflow`。登录前 ref 会被
+丢弃，click budget 保持不变；profile 连续性丢失时回到 `waiting_owner`。
+
+每次 transition 都通过 compare-and-swap 持久化，并带 transition owner 和有界 lease。
+第二个 Runtime 不能重复执行活动 transition；Gateway 重启后，新 Runtime 可以接管已过期
+transition。memory、file 和 PostgreSQL store 实现同一契约。
 
 ## 扩展点
 

@@ -22,6 +22,37 @@ func TestValidatePreservationRejectsUnreportedPPTXLayoutChange(t *testing.T) {
 	}
 }
 
+func TestValidatePreservationAllowsReportedCompanionGeometryButNotText(t *testing.T) {
+	before := pptxPreservationRepresentation("old", 100, 0)
+	after := pptxPreservationRepresentation("new", 200, 1)
+	companionPath := "presentation.slide[1].shape[2]"
+	before.Blocks = append(before.Blocks, Block{
+		Kind: "shape_text", Text: "label", Location: map[string]any{
+			"slide_index": 1, "shape_index": 2, "path": companionPath,
+		}, Format: map[string]any{"x": 0},
+	})
+	after.Blocks = append(after.Blocks, Block{
+		Kind: "shape_text", Text: "label", Location: map[string]any{
+			"slide_index": 1, "shape_index": 2, "path": companionPath,
+		}, Format: map[string]any{"x": 1},
+	})
+	edit, matches, details := pptxCoordinatedPreservationInputs()
+	details["layout_adjusted_shape_indexes"] = []any{1, 2}
+	details["layout_changes"] = append(mapSlice(details["layout_changes"]), map[string]any{
+		"shape_index": 2,
+		"before":      map[string]any{"x": 0, "y": 0, "width": 100, "height": 20, "font_size_pt": 16.5, "word_wrap": false},
+		"after":       map[string]any{"x": 1, "y": 0, "width": 100, "height": 20, "font_size_pt": 16.5, "word_wrap": false},
+	})
+
+	if _, err := ValidatePreservation(before, after, edit, matches, details); err != nil {
+		t.Fatalf("reported companion geometry was rejected: %v", err)
+	}
+	after.Blocks[1].Text = "changed label"
+	if _, err := ValidatePreservation(before, after, edit, matches, details); !IsErrorCode(err, CodePreservationMismatch) {
+		t.Fatalf("companion text mutation was incorrectly allowed: %v", err)
+	}
+}
+
 func pptxPreservationRepresentation(text string, targetWidth, unrelatedX int) Representation {
 	path := "presentation.slide[1].shape[1]"
 	shape := func(index, x, width int) map[string]any {

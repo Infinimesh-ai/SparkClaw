@@ -1,19 +1,23 @@
 
 import copy
 import json
+import math
 import os
 import re
 import sys
 try:
     from pptx import Presentation
     from pptx.util import Pt
-    from PIL import ImageFont
 except Exception:
     print(json.dumps({"error":"PPTX slide adapter requires python-pptx"}))
     sys.exit(0)
 
 req = json.load(sys.stdin)
 op = req.get("operation")
+EMU_PER_PT = 12700.0
+WRAP_WIDTH_FACTOR = 0.90
+LINE_HEIGHT_FACTOR = 1.20
+MAX_STANDALONE_WRAP_LINES = 4
 
 def positive_index(value, name):
     idx = int(value or 0)
@@ -54,22 +58,6 @@ def fill_text_placeholders(slide, title, body):
 def normalized_text(value):
     return " ".join(str(value or "").split())
 
-def metric_font_path():
-    windows = os.environ.get("WINDIR", "")
-    candidates = [
-        os.environ.get("SPARKCLAW_PPTX_METRIC_FONT", ""),
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        os.path.join(windows, "Fonts", "msyh.ttc") if windows else "",
-        os.path.join(windows, "Fonts", "arial.ttf") if windows else "",
-    ]
-    for candidate in candidates:
-        if candidate and os.path.isfile(candidate):
-            return candidate
-    return ""
-
 def visual_text_units(text):
     units = 0.0
     for char in text:
@@ -92,19 +80,6 @@ def fitted_single_line_size(shape, text, max_size_pt):
         1.0,
         (shape.width - text_frame.margin_left - text_frame.margin_right) / 12700.0,
     )
-    # System fonts are not interchangeable: fallback Latin fonts often render
-    # CJK text as narrow missing-glyph boxes. Keep CJK layout decisions
-    # deterministic across runners instead of trusting those metrics.
-    font_path = metric_font_path()
-    has_cjk = any(ord(char) >= 0x2E80 for char in text)
-    if font_path and not has_cjk:
-        try:
-            metric_font = ImageFont.truetype(font_path, 100, index=0)
-            width_at_100 = float(metric_font.getlength(text))
-            if width_at_100 > 0:
-                return min(max_size_pt, usable_width_pt * 100.0 / width_at_100 * 0.94)
-        except Exception:
-            pass
     return min(max_size_pt, usable_width_pt / visual_text_units(text) * 0.94)
 
 def shape_font_size(shape):
@@ -123,6 +98,66 @@ def text_fits_single_line(shape, size_pt=None):
         size_pt = shape_font_size(shape)
     return fitted_single_line_size(shape, shape.text_frame.text, size_pt) >= size_pt - 0.25
 
+def logical_text_lines(text):
+    return re.split(r"[\r\n\v]", str(text or ""))
+
+def text_line_capacity(shape, size_pt=None):
+    if size_pt is None:
+        size_pt = shape_font_size(shape)
+    text_frame = shape.text_frame
+    usable_width_pt = max(
+        1.0,
+        (shape.width - text_frame.margin_left - text_frame.margin_right) / EMU_PER_PT,
+    )
+    return max(1.0, usable_width_pt / max(size_pt, 1.0) * WRAP_WIDTH_FACTOR)
+
+def wrapped_line_count(shape, text=None, size_pt=None):
+    if text is None:
+        text = shape.text_frame.text
+    capacity = text_line_capacity(shape, size_pt)
+    return max(1, sum(max(1, int(math.ceil(visual_text_units(line) / capacity))) for line in logical_text_lines(text)))
+
+def required_text_height(shape, text=None, size_pt=None):
+    if size_pt is None:
+        size_pt = shape_font_size(shape)
+    text_frame = shape.text_frame
+    margins_pt = (text_frame.margin_top + text_frame.margin_bottom) / EMU_PER_PT
+    lines = wrapped_line_count(shape, text, size_pt)
+    return int(math.ceil((margins_pt + lines * size_pt * LINE_HEIGHT_FACTOR) * EMU_PER_PT))
+
+def text_fits_wrapped(shape, size_pt=None):
+    return required_text_height(shape, size_pt=size_pt) <= int(shape.height)
+
+def measured_text_flow(shape, size_pt=None):
+    explicit_breaks = len(logical_text_lines(shape.text_frame.text)) > 1
+    if not explicit_breaks and text_fits_single_line(shape, size_pt):
+        return "single"
+    if text_fits_wrapped(shape, size_pt):
+        return "wrapped"
+    return "overflow"
+
+def apply_measured_text_flow(shape, size_pt=None):
+    flow = measured_text_flow(shape, size_pt)
+    if flow == "single":
+        return flow
+    shape.text_frame.word_wrap = True
+    return flow
+
+def text_fits_current_flow(shape, size_pt=None):
+    if size_pt is None:
+        size_pt = shape_font_size(shape)
+    lines = logical_text_lines(shape.text_frame.text)
+    if len(lines) == 1 and text_fits_single_line(shape, size_pt):
+        return True
+    if shape.text_frame.word_wrap is False:
+        if any(fitted_single_line_size(shape, line, size_pt) < size_pt - 0.25 for line in lines):
+            return False
+        return required_text_height(shape, size_pt=size_pt) <= int(shape.height)
+    return text_fits_wrapped(shape, size_pt)
+
+def shape_uses_multiple_lines(shape, size_pt=None):
+    return len(logical_text_lines(shape.text_frame.text)) > 1 or wrapped_line_count(shape, size_pt=size_pt) > 1
+
 def shape_bounds(shape):
     word_wrap = None
     if getattr(shape, "has_text_frame", False):
@@ -140,6 +175,11 @@ def vertical_overlap(left, right):
     top = max(int(left.top), int(right.top))
     bottom = min(int(left.top + left.height), int(right.top + right.height))
     return max(0, bottom - top)
+
+def horizontal_overlap(left, right):
+    start = max(int(left.left), int(right.left))
+    end = min(int(left.left + left.width), int(right.left + right.width))
+    return max(0, end - start)
 
 def shape_has_fill(shape):
     try:
@@ -197,6 +237,54 @@ def derive_band_groups(slide):
         used.update((background_index, label_index, body_index))
     return groups
 
+def shape_is_contained(background, shape, tolerance):
+    return (
+        int(shape.left) >= int(background.left) - tolerance
+        and int(shape.top) >= int(background.top) - tolerance
+        and int(shape.left + shape.width) <= int(background.left + background.width) + tolerance
+        and int(shape.top + shape.height) <= int(background.top + background.height) + tolerance
+    )
+
+def derive_card_groups(slide):
+    groups = []
+    backgrounds = [
+        (index, shape) for index, shape in enumerate(slide.shapes, start=1)
+        if shape_has_fill(shape)
+        and not normalized_text(getattr(shape, "text", ""))
+        and int(shape.width) >= 914400
+        and int(shape.height) >= 457200
+    ]
+    texts = [
+        (index, shape) for index, shape in enumerate(slide.shapes, start=1)
+        if getattr(shape, "has_text_frame", False) and normalized_text(shape.text)
+    ]
+    for background_index, background in backgrounds:
+        tolerance = max(12700, int(min(background.width, background.height) * 0.04))
+        children = [(index, shape) for index, shape in texts if shape_is_contained(background, shape, tolerance)]
+        if len(children) < 2:
+            continue
+        title_index, title = min(children, key=lambda item: (int(item[1].top), int(item[1].left)))
+        body_index, body = max(children, key=lambda item: (int(item[1].top), int(item[1].height)))
+        if title_index == body_index or int(body.top) <= int(title.top):
+            continue
+        companions = []
+        for index, shape in enumerate(slide.shapes, start=1):
+            if index == background_index or normalized_text(getattr(shape, "text", "")) or not shape_has_fill(shape):
+                continue
+            if shape_is_contained(background, shape, tolerance):
+                companions.append((index, shape))
+        groups.append({
+            "background_index": background_index,
+            "background": background,
+            "title_index": title_index,
+            "title": title,
+            "body_index": body_index,
+            "body": body,
+            "text_indexes": {index for index, _ in children},
+            "companions": companions,
+        })
+    return groups
+
 def peer_band_family(groups, selected_indexes):
     selected = [group for group in groups if group["body_index"] in selected_indexes]
     if not selected:
@@ -211,6 +299,30 @@ def peer_band_family(groups, selected_indexes):
     ]
     return family if len(family) >= 2 else []
 
+def peer_card_family(groups, selected_indexes):
+    selected = [group for group in groups if group["body_index"] in selected_indexes]
+    if not selected:
+        return []
+    anchor = selected[0]
+    background = anchor["background"]
+    body = anchor["body"]
+    tolerance = max(12700, int(min(background.width, background.height) * 0.08))
+    body_left_offset = int(body.left - background.left)
+    body_top_offset = int(body.top - background.top)
+    family = [
+        group for group in groups
+        if abs(int(group["background"].top) - int(background.top)) <= tolerance
+        and abs(int(group["background"].width) - int(background.width)) <= tolerance
+        and abs(int(group["background"].height) - int(background.height)) <= tolerance
+        and abs(int(group["body"].left - group["background"].left) - body_left_offset) <= tolerance
+        and abs(int(group["body"].top - group["background"].top) - body_top_offset) <= tolerance
+    ]
+    ordered = sorted(family, key=lambda group: int(group["background"].left))
+    for current, following in zip(ordered, ordered[1:]):
+        if int(current["background"].left + current["background"].width) > int(following["background"].left) + tolerance:
+            return []
+    return family if len(family) >= 2 else []
+
 def safe_right_boundary(prs, slide, shape, excluded_indexes):
     boundary = int(prs.slide_width - min(prs.slide_width * 0.05, 457200))
     current_right = int(shape.left + shape.width)
@@ -222,13 +334,24 @@ def safe_right_boundary(prs, slide, shape, excluded_indexes):
             boundary = other_left - 91440
     return max(current_right, boundary)
 
+def safe_bottom_boundary(prs, slide, shape, excluded_indexes):
+    boundary = int(prs.slide_height - min(prs.slide_height * 0.05, 342900))
+    current_bottom = int(shape.top + shape.height)
+    for index, other in enumerate(slide.shapes, start=1):
+        if index in excluded_indexes or other is shape or horizontal_overlap(shape, other) <= 0:
+            continue
+        other_top = int(other.top)
+        if other_top >= current_bottom and other_top < boundary:
+            boundary = other_top - 91440
+    return max(current_bottom, boundary)
+
 def geometry_change(index, before, after):
     return {"shape_index": index, "before": before, "after": after}
 
 def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
     family = peer_band_family(groups, selected_indexes)
     if not family:
-        return set()
+        return [], set()
     excluded = set()
     for group in family:
         excluded.update((group["background_index"], group["label_index"], group["body_index"]))
@@ -237,7 +360,6 @@ def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
     common_font_size = min(body_font_sizes)
     if max(body_font_sizes) - min(body_font_sizes) > 1.0:
         raise ValueError("coordinated slide layout rejected inconsistent peer body font sizes")
-    adjusted = set()
     for group in family:
         background = group["background"]
         body = group["body"]
@@ -245,48 +367,167 @@ def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
         new_body_width = int(common_right - body.left)
         if new_background_width <= 0 or new_body_width <= 0:
             raise ValueError("coordinated slide layout could not establish non-overlapping label and body columns")
-        if int(background.width) != new_background_width:
-            background.width = new_background_width
-            adjusted.add(group["background_index"])
-        if int(body.width) != new_body_width:
-            body.width = new_body_width
-            adjusted.add(group["body_index"])
+        background.width = new_background_width
+        body.width = new_body_width
         set_shape_font_size(body, common_font_size)
-        body.text_frame.word_wrap = False
-        if not text_fits_single_line(body, common_font_size):
-            raise ValueError("updated text is too long for the coordinated slide layout; shorten the text")
-    return adjusted
+    target_body_height = max(
+        max(int(group["body"].height) for group in family),
+        max(required_text_height(group["body"], size_pt=common_font_size) for group in family),
+    )
+    bottom_padding = max(
+        int(group["background"].top + group["background"].height - group["body"].top - group["body"].height)
+        for group in family
+    )
+    target_background_height = max(
+        max(int(group["background"].height) for group in family),
+        max(int(group["body"].top - group["background"].top) + target_body_height + bottom_padding for group in family),
+    )
+    ordered = sorted(family, key=lambda group: int(group["background"].top))
+    for current, following in zip(ordered, ordered[1:]):
+        if int(current["background"].top) + target_background_height > int(following["background"].top) - 91440:
+            raise ValueError("updated text is too tall for the coordinated peer-row layout")
+    if int(ordered[-1]["background"].top) + target_background_height > safe_bottom_boundary(prs, slide, ordered[-1]["background"], excluded):
+        raise ValueError("updated text is too tall for the coordinated peer-row layout")
+    wrapped = set()
+    for group in family:
+        background = group["background"]
+        label = group["label"]
+        body = group["body"]
+        background.height = target_background_height
+        body.height = target_body_height
+        if int(label.height) < target_body_height:
+            label.height = target_body_height
+        flow = apply_measured_text_flow(body, common_font_size)
+        if flow == "overflow":
+            raise ValueError("updated text does not fit the coordinated peer-row layout")
+        if shape_uses_multiple_lines(body, common_font_size):
+            wrapped.add(group["body_index"])
+    return family, wrapped
 
-def expand_shape_without_collision(prs, slide, shape_index, excluded_indexes):
+def apply_coordinated_card_layout(prs, slide, groups, selected_indexes):
+    family = peer_card_family(groups, selected_indexes)
+    if not family:
+        return [], set()
+    members = set()
+    for group in family:
+        members.add(group["background_index"])
+        members.update(group["text_indexes"])
+        members.update(index for index, _ in group["companions"])
+    body_font_sizes = [shape_font_size(group["body"]) for group in family]
+    common_font_size = min(body_font_sizes)
+    if max(body_font_sizes) - min(body_font_sizes) > 1.0:
+        raise ValueError("coordinated card layout rejected inconsistent peer body font sizes")
+    target_body_height = max(
+        max(int(group["body"].height) for group in family),
+        max(required_text_height(group["body"], size_pt=common_font_size) for group in family),
+    )
+    bottom_padding = max(
+        int(group["background"].top + group["background"].height - group["body"].top - group["body"].height)
+        for group in family
+    )
+    target_background_height = max(
+        max(int(group["background"].height) for group in family),
+        max(int(group["body"].top - group["background"].top) + target_body_height + bottom_padding for group in family),
+    )
+    for group in family:
+        if int(group["background"].top) + target_background_height > safe_bottom_boundary(prs, slide, group["background"], members):
+            raise ValueError("updated text is too tall for the coordinated card layout")
+    wrapped = set()
+    for group in family:
+        background = group["background"]
+        body = group["body"]
+        original_background_top = int(background.top)
+        original_background_bottom = int(background.top + background.height)
+        background.height = target_background_height
+        body.height = target_body_height
+        set_shape_font_size(body, common_font_size)
+        flow = apply_measured_text_flow(body, common_font_size)
+        if flow == "overflow":
+            raise ValueError("updated text does not fit the coordinated card layout")
+        if shape_uses_multiple_lines(body, common_font_size):
+            wrapped.add(group["body_index"])
+        tolerance = max(12700, int(min(background.width, background.height) * 0.04))
+        for _, companion in group["companions"]:
+            top_aligned = abs(int(companion.top) - original_background_top) <= tolerance
+            bottom_aligned = abs(int(companion.top + companion.height) - original_background_bottom) <= tolerance
+            if top_aligned and bottom_aligned:
+                companion.height = int(background.top + background.height - companion.top)
+    return family, wrapped
+
+def fit_shape_without_collision(prs, slide, shape_index, excluded_indexes):
     shape = slide.shapes[shape_index - 1]
-    if text_fits_single_line(shape):
-        return False
-    right = safe_right_boundary(prs, slide, shape, excluded_indexes)
-    if right > int(shape.left + shape.width):
-        shape.width = int(right - shape.left)
-    shape.text_frame.word_wrap = False
-    if not text_fits_single_line(shape):
-        raise ValueError("updated text is too long for its slide shape; shorten the text")
-    return True
+    original_height = int(shape.height)
+    explicit_breaks = len(logical_text_lines(shape.text_frame.text)) > 1
+    flow = measured_text_flow(shape)
+    if flow != "overflow":
+        if flow == "wrapped":
+            shape.text_frame.word_wrap = True
+        return flow
+    if not explicit_breaks:
+        right = safe_right_boundary(prs, slide, shape, excluded_indexes)
+        if right > int(shape.left + shape.width):
+            shape.width = int(right - shape.left)
+        flow = measured_text_flow(shape)
+        if flow == "single":
+            shape.text_frame.word_wrap = False
+            return flow
+        if flow == "wrapped":
+            shape.text_frame.word_wrap = True
+            return flow
+    line_count = wrapped_line_count(shape)
+    size_pt = shape_font_size(shape)
+    text_frame = shape.text_frame
+    original_usable_height_pt = max(
+        0.0,
+        (original_height - text_frame.margin_top - text_frame.margin_bottom) / EMU_PER_PT,
+    )
+    original_line_capacity = int(original_usable_height_pt // max(size_pt * LINE_HEIGHT_FACTOR, 1.0))
+    if line_count > max(MAX_STANDALONE_WRAP_LINES, original_line_capacity):
+        raise ValueError("updated text is too long for its slide shape after multi-line layout; shorten the text")
+    required_height = required_text_height(shape)
+    bottom = safe_bottom_boundary(prs, slide, shape, excluded_indexes)
+    if int(shape.top) + required_height > bottom:
+        raise ValueError("updated text is too tall for its slide shape without overlapping nearby content")
+    shape.height = required_height
+    shape.text_frame.word_wrap = True
+    if not text_fits_current_flow(shape):
+        raise ValueError("updated text does not fit its slide shape after multi-line layout")
+    return "wrapped"
 
-def validate_slide_layout(prs, slide, updated_indexes, band_groups):
+def validate_slide_layout(prs, slide, updated_indexes, band_groups, card_groups):
     for index, shape in enumerate(slide.shapes, start=1):
         if int(shape.left) < 0 or int(shape.top) < 0 or int(shape.left + shape.width) > int(prs.slide_width) or int(shape.top + shape.height) > int(prs.slide_height):
             raise ValueError("slide shape %s is outside the presentation canvas" % index)
     for index in updated_indexes:
         shape = slide.shapes[index - 1]
-        if not text_fits_single_line(shape):
+        if not text_fits_current_flow(shape):
             raise ValueError("updated text does not fit slide shape %s" % index)
     for group in band_groups:
         background = group["background"]
         body = group["body"]
         if int(background.left + background.width) > int(body.left):
             raise ValueError("coordinated label background overlaps body shape %s" % group["body_index"])
+        if int(body.top + body.height) > int(background.top + background.height) + 12700:
+            raise ValueError("coordinated peer-row body extends below its background shape %s" % group["background_index"])
+    for group in card_groups:
+        background = group["background"]
+        body = group["body"]
+        if not shape_is_contained(background, body, 12700):
+            raise ValueError("coordinated card body extends beyond background shape %s" % group["background_index"])
+    for family in (band_groups, card_groups):
+        if not family:
+            continue
+        body_heights = {int(group["body"].height) for group in family}
+        body_fonts = {round(shape_font_size(group["body"]), 2) for group in family}
+        if len(body_heights) != 1 or len(body_fonts) != 1:
+            raise ValueError("coordinated peer text boxes are not geometrically uniform")
     return {
         "updated_text_fits": True,
+        "wrapped_text_fits": True,
         "canvas_bounds": True,
         "companion_non_overlap": True,
         "peer_font_uniform": True,
+        "peer_geometry_uniform": True,
     }
 
 def page_marker_warnings(prs):
@@ -311,22 +552,32 @@ def page_marker_warnings(prs):
     return warnings
 
 def replace_text_preserving_style(shape, text):
-    text = str(text or "")
+    text = re.sub(r"\r\n?|\v", "\n", str(text or ""))
     if not text.strip():
         raise ValueError("updated shape text must not be empty")
-    if "\n" in text or "\r" in text:
-        raise ValueError("updated shape text must be one text block without explicit line breaks")
     text_frame = shape.text_frame
     paragraph = text_frame.paragraphs[0]
     if paragraph.runs:
-        paragraph.runs[0].text = text
-        for run in paragraph.runs[1:]:
-            run.text = ""
+        first_run = paragraph.runs[0]
     else:
-        paragraph.add_run().text = text
-    for extra_paragraph in text_frame.paragraphs[1:]:
-        for run in extra_paragraph.runs:
-            run.text = ""
+        first_run = paragraph.add_run()
+    run_properties = copy.deepcopy(first_run._r.get_or_add_rPr())
+    for child in list(paragraph._p):
+        if child is first_run._r:
+            continue
+        if child.tag.endswith(("}r", "}br", "}fld")):
+            paragraph._p.remove(child)
+    lines = text.split("\n")
+    first_run.text = lines[0]
+    for line in lines[1:]:
+        paragraph.add_line_break()
+        run = paragraph.add_run()
+        current_properties = run._r.get_or_add_rPr()
+        run._r.remove(current_properties)
+        run._r.insert(0, copy.deepcopy(run_properties))
+        run.text = line
+    for extra_paragraph in list(text_frame.paragraphs[1:]):
+        extra_paragraph._p.getparent().remove(extra_paragraph._p)
 
 def update_slide(prs, slide, updates, layout_policy):
     if not isinstance(updates, list) or not updates:
@@ -354,28 +605,41 @@ def update_slide(prs, slide, updates, layout_policy):
             raise ValueError("old_text does not match slide shape %s" % shape_index)
         replace_text_preserving_style(shape, update.get("text"))
 
-    groups = derive_band_groups(slide)
-    adjusted = set()
-    coordinated_family = []
+    band_groups = derive_band_groups(slide)
+    card_groups = derive_card_groups(slide)
+    coordinated_bands = []
+    coordinated_cards = []
+    wrapped = set()
     if layout_policy == "coordinated":
-        coordinated_family = peer_band_family(groups, seen)
-        adjusted.update(apply_coordinated_band_layout(prs, slide, groups, seen))
-        family_body_indexes = {group["body_index"] for group in coordinated_family}
+        coordinated_bands, band_wrapped = apply_coordinated_band_layout(prs, slide, band_groups, seen)
+        coordinated_cards, card_wrapped = apply_coordinated_card_layout(prs, slide, card_groups, seen)
+        wrapped.update(band_wrapped)
+        wrapped.update(card_wrapped)
+        family_body_indexes = {
+            group["body_index"] for group in coordinated_bands + coordinated_cards
+        }
         excluded = set()
-        for group in coordinated_family:
+        for group in coordinated_bands:
             excluded.update((group["background_index"], group["label_index"], group["body_index"]))
+        for group in coordinated_cards:
+            excluded.add(group["background_index"])
+            excluded.update(group["text_indexes"])
+            excluded.update(index for index, _ in group["companions"])
         for shape_index in seen - family_body_indexes:
-            if expand_shape_without_collision(prs, slide, shape_index, excluded | seen):
-                adjusted.add(shape_index)
+            flow = fit_shape_without_collision(prs, slide, shape_index, excluded)
+            if flow == "wrapped":
+                wrapped.add(shape_index)
     else:
         for shape_index in seen:
             shape = slide.shapes[shape_index - 1]
-            if not text_fits_single_line(shape):
-                raise ValueError("updated text is too long for preserve layout_policy; use coordinated or shorten the text")
+            if not text_fits_current_flow(shape):
+                raise ValueError("updated text does not fit preserve layout_policy; use coordinated or shorten the text")
+            if shape_uses_multiple_lines(shape):
+                wrapped.add(shape_index)
 
-    checks = validate_slide_layout(prs, slide, seen, coordinated_family)
+    checks = validate_slide_layout(prs, slide, seen, coordinated_bands, coordinated_cards)
     changes = []
-    for shape_index in sorted(adjusted):
+    for shape_index, shape in enumerate(slide.shapes, start=1):
         after = shape_bounds(slide.shapes[shape_index - 1])
         if before[shape_index] != after:
             changes.append(geometry_change(shape_index, before[shape_index], after))
@@ -383,12 +647,14 @@ def update_slide(prs, slide, updates, layout_policy):
     return {
         "updated_shapes": len(seen),
         "fitted_shapes": 0,
+        "wrapped_shapes": len(wrapped),
+        "wrapped_shape_indexes": sorted(wrapped),
         "layout_policy": layout_policy,
         "layout_adjusted_shapes": len(adjusted),
         "layout_adjusted_shape_indexes": sorted(adjusted),
         "layout_changes": changes,
         "layout_checks": checks,
-        "companion_groups_used": len(coordinated_family),
+        "companion_groups_used": len(coordinated_bands) + len(coordinated_cards),
     }
 
 def duplicate_slide(prs, idx):

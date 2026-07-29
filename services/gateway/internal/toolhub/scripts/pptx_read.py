@@ -83,6 +83,17 @@ def first_text_run(shape):
                 return run
     return None
 
+def shape_effective_font_size(shape):
+    if not getattr(shape, "has_text_frame", False):
+        return 18.0
+    sizes = [
+        float(run.font.size.pt)
+        for paragraph in shape.text_frame.paragraphs
+        for run in paragraph.runs
+        if trim(run.text) and run.font.size is not None
+    ]
+    return max(sizes) if sizes else 18.0
+
 def visual_text_units(text):
     units = 0.0
     for char in str(text or ""):
@@ -116,8 +127,9 @@ def shape_text_style(shape):
     capacity = None
     fit_ratio = None
     units = visual_text_units(text)
-    if size and size > 0:
-        capacity = round((usable_width / 12700.0) / size / 0.90, 2)
+    effective_size = shape_effective_font_size(shape)
+    if usable_width > 0:
+        capacity = round((usable_width / 12700.0) / effective_size * 0.94, 2)
         fit_ratio = round(units / capacity, 3) if capacity > 0 else None
     return {
         "font_name": name,

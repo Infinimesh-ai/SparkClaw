@@ -23,11 +23,11 @@ func ValidatePreservation(before, after Representation, edit EditRequest, matche
 	if err := verifyExpectedMutation(before, after, edit, matches); err != nil {
 		return report, preservationError(before.Format, err.Error())
 	}
-	if err := verifyUnchangedContent(before, after, edit, matches); err != nil {
-		return report, preservationError(before.Format, err.Error())
-	}
 	allowedLayoutShapes, err := verifyReportedLayoutChanges(before, after, edit, appliedDetails)
 	if err != nil {
+		return report, preservationError(before.Format, err.Error())
+	}
+	if err := verifyUnchangedContent(before, after, edit, matches, allowedLayoutShapes); err != nil {
 		return report, preservationError(before.Format, err.Error())
 	}
 	for _, category := range []string{"assets", "annotations", "layout"} {
@@ -154,7 +154,7 @@ func verifyExpectedMutation(before, after Representation, edit EditRequest, matc
 	return nil
 }
 
-func verifyUnchangedContent(before, after Representation, edit EditRequest, matches []Match) error {
+func verifyUnchangedContent(before, after Representation, edit EditRequest, matches []Match, allowedLayoutShapes map[string]bool) error {
 	operation := strings.ToLower(strings.TrimSpace(edit.Operation))
 	switch operation {
 	case "replace_text", "replace_paragraph", "set_text_style", "update_cell", "update_row", "update_slide", "rotate_pages":
@@ -171,7 +171,8 @@ func verifyUnchangedContent(before, after Representation, edit EditRequest, matc
 		}
 		path := stringValue(block.Location["path"])
 		other, ok := afterByPath[path]
-		if !ok || other.Text != block.Text || !sameJSON(other.Format, block.Format) {
+		layoutOnly := allowedLayoutShapes[layoutShapeKey(block.Location)]
+		if !ok || other.Text != block.Text || (!layoutOnly && !sameJSON(other.Format, block.Format)) {
 			return fmt.Errorf("unrelated content changed at %s", path)
 		}
 	}
@@ -542,12 +543,14 @@ func rowHasValues(row map[string]any, values []any) bool {
 }
 
 func slideShapeHasText(document Representation, slideIndex, shapeIndex int, expected string) bool {
+	expected = strings.Join(strings.Fields(expected), " ")
 	for _, slide := range document.Slides {
 		if intValue(slide["index"]) != slideIndex {
 			continue
 		}
 		for _, item := range mapSlice(slide["items"]) {
-			if intValue(item["shape_index"]) == shapeIndex && stringValue(item["text"]) == expected {
+			actual := strings.Join(strings.Fields(stringValue(item["text"])), " ")
+			if intValue(item["shape_index"]) == shapeIndex && actual == expected {
 				return true
 			}
 		}

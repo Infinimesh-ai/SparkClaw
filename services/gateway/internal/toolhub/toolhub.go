@@ -448,7 +448,7 @@ func defaultDefinitions() []app.ToolDefinition {
 			"body":         stringSchema(),
 			"output_path":  stringSchema(),
 		}),
-		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating selected text shapes from files.read evidence. Use layout_policy=coordinated for improvement work so high-confidence companion shapes and peer rows are adjusted together; use preserve for exact copy edits that must retain geometry. Never submit a whole slide as one replacement.", []string{"path", "slide_index", "updates", "output_path"}, map[string]any{
+		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating one or more selected text shapes from files.read evidence. Replacement text may contain line breaks. Use layout_policy=coordinated so wrapping, text-box height, verified companion backgrounds, and peer rows or cards adapt together; use preserve only when existing geometry already fits. Runtime owns layout changes. Never submit a whole slide as one replacement.", []string{"path", "slide_index", "updates", "output_path"}, map[string]any{
 			"path":        stringSchema(),
 			"slide_index": integerSchema(),
 			"layout_policy": map[string]any{
@@ -1086,11 +1086,14 @@ func pptxToolDefinition(name, description string, required []string, input map[s
 			"body":                          stringSchema(),
 			"updated_shapes":                integerSchema(),
 			"fitted_shapes":                 integerSchema(),
+			"wrapped_shapes":                integerSchema(),
+			"wrapped_shape_indexes":         arraySchema(integerSchema()),
 			"layout_policy":                 stringSchema(),
 			"layout_adjusted_shapes":        integerSchema(),
 			"layout_adjusted_shape_indexes": arraySchema(integerSchema()),
 			"layout_changes":                arraySchema(objectValueSchema()),
 			"layout_checks":                 objectValueSchema(),
+			"companion_groups_used":         integerSchema(),
 			"warnings":                      stringArraySchema(),
 			"change_summary":                objectValueSchema(),
 			"untrusted":                     booleanSchema(),

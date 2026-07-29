@@ -315,9 +315,19 @@ func documentChangeOutput(result document.EditResult, status string) map[string]
 		}
 	}
 	out["bytes"] = intArg(result.Details, "bytes", fileSize(result.OutputPath))
-	for _, key := range []string{"paragraph_index", "slide_index", "inserted_slide_index", "layout_index", "slides", "updated_shapes", "fitted_shapes", "layout_adjusted_shapes", "row", "inserted_row", "pages", "replacements"} {
+	for _, key := range []string{"paragraph_index", "slide_index", "inserted_slide_index", "layout_index", "slides", "updated_shapes", "fitted_shapes", "wrapped_shapes", "layout_adjusted_shapes", "companion_groups_used", "row", "inserted_row", "pages", "replacements"} {
 		if _, exists := result.Details[key]; exists {
 			out[key] = intArg(result.Details, key, 0)
+		}
+	}
+	for _, key := range []string{"wrapped_shape_indexes", "layout_adjusted_shape_indexes"} {
+		if _, exists := result.Details[key]; exists {
+			values := documentAnySlice(result.Details[key])
+			indexes := make([]int, 0, len(values))
+			for _, value := range values {
+				indexes = append(indexes, documentIntValue(value))
+			}
+			out[key] = indexes
 		}
 	}
 	if _, exists := result.Details["outputs"]; exists && len(result.OutputPaths) == 0 {

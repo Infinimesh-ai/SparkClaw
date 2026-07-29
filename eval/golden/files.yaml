@@ -1,4 +1,16 @@
 cases:
+  - id: browser_weather_dedicated_info_endpoint
+    prompt: "Show me the weather in Hangzhou"
+    expected:
+      workflow: browser.weather
+      tools: ["weather.lookup", "media.render_weather_card"]
+      info_endpoint: "POST /v1/info/weather"
+      authorization_scheme: PrivateToken
+      location: Hangzhou
+      units: metric
+      typed_weather_payload: true
+      result_kind: image
+      legacy_info_query_used: false
   - id: direct_chat_fast_profile
     prompt: "POST /chat with profile fast and a plain user message"
     expected:

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -20,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -95,39 +97,109 @@ func TestImagesInspectUsesMockMultimodalModel(t *testing.T) {
 	}
 }
 
-func TestRenderWeatherCardCreatesMediaPNG(t *testing.T) {
-	root := t.TempDir()
+type weatherInfoStub struct {
+	request  infinimeshinfo.WeatherRequest
+	response infinimeshinfo.WeatherResponse
+	err      error
+}
+
+func (s *weatherInfoStub) Weather(_ context.Context, request infinimeshinfo.WeatherRequest) (infinimeshinfo.WeatherResponse, error) {
+	s.request = request
+	return s.response, s.err
+}
+
+func weatherFloat(value float64) *float64 {
+	return &value
+}
+
+func dedicatedWeatherResponse() infinimeshinfo.WeatherResponse {
+	return infinimeshinfo.WeatherResponse{
+		RequestID: "weather-request",
+		Status:    "ok",
+		Weather: infinimeshinfo.WeatherReport{
+			Provider:   "caiyun_weather",
+			Location:   infinimeshinfo.WeatherCoordinates{Name: "杭州市", Latitude: weatherFloat(30.2741), Longitude: weatherFloat(120.1551)},
+			Timezone:   "Asia/Shanghai",
+			ObservedAt: "2026-07-29T05:00:00Z",
+			Current: &infinimeshinfo.WeatherCurrent{
+				TemperatureC: weatherFloat(31.2), ApparentTemperatureC: weatherFloat(33),
+				Condition: "partly_cloudy", HumidityPercent: weatherFloat(62),
+				WindSpeedKPH: weatherFloat(12.6), PrecipitationMMH: weatherFloat(0),
+			},
+			Hourly: []infinimeshinfo.WeatherHour{{
+				Time: "2026-07-29T06:00:00Z", TemperatureC: weatherFloat(32),
+				Condition: "partly_cloudy", PrecipitationProbabilityPercent: weatherFloat(10),
+			}},
+			Daily: []infinimeshinfo.WeatherDay{{
+				Date: "2026-07-29", TemperatureMinC: weatherFloat(27), TemperatureMaxC: weatherFloat(35),
+				Condition: "partly_cloudy", PrecipitationProbabilityPercent: weatherFloat(20),
+			}},
+		},
+		Sources: []infinimeshinfo.WeatherSource{{
+			ID: "weather-source", SourceType: "weather", Provider: "caiyun_weather", RetrievedAt: "2026-07-29T05:00:01Z",
+		}},
+		Usage: infinimeshinfo.Usage{CostCredits: 1, TokenType: "info.basic", CacheHit: true},
+	}
+}
+
+func TestWeatherLookupMapsDedicatedTypedResponseWithoutCoordinates(t *testing.T) {
 	cfg := config.Default()
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, root, "web", false)
-	runID := "run_weather"
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info", SessionID: session.ID, RunID: runID, Tool: "info.query", Status: "completed",
-		Result: map[string]any{
-			"request_id": "req-1", "summary": "杭州当前多云，气温31°C。", "retrieved_at": "2026-07-17T10:00:00+08:00", "untrusted": true,
-			"key_facts": []any{}, "sources": []any{},
-		},
-	})
-	hub := New(cfg, st)
-	structured, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info",
-		"location":        "杭州",
-		"current":         map[string]any{"condition": "多云", "temperature_c": 31, "feels_like_c": nil, "humidity_pct": nil, "wind_kmh": nil},
-		"missing_fields":  []any{"daily", "hourly"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "多云"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "summary:0", "evidence_text": "气温31°C"},
-		},
-	}, session.ID, runID)
+	cfg.Tools.Web.Search.Enabled = true
+	stub := &weatherInfoStub{response: dedicatedWeatherResponse()}
+	hub := New(cfg, store.NewMemoryStore()).WithWeatherInfoAdapter(stub)
+
+	result, err := hub.Execute(context.Background(), "weather.lookup", map[string]any{"location": " 杭州 "}, "session", "run")
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.SaveToolCall(app.ToolCall{ID: "tc_payload", SessionID: session.ID, RunID: runID, Tool: "weather.structure_payload", Status: "completed", Result: structured.Output})
+	if stub.request.Location.Name != "杭州" || len(stub.request.Granularity) != 3 ||
+		stub.request.Days != 3 || stub.request.HourlySteps != 24 ||
+		stub.request.Units != infinimeshinfo.WeatherUnitsMetric ||
+		stub.request.Language != cfg.Plugins.Entries.InfinimeshInfo.Config.Language {
+		t.Fatalf("weather lookup did not preserve the dedicated request contract: %#v", stub.request)
+	}
+	payload, ok := result.Output.(weatherPayload)
+	if !ok || payload.SchemaVersion != weatherPayloadSchemaVersion || payload.RequestID != "weather-request" ||
+		payload.Location != "杭州市" || payload.Provider != "caiyun_weather" ||
+		payload.Current.TemperatureC == nil || *payload.Current.TemperatureC != 31.2 ||
+		len(payload.Hourly) != 1 || len(payload.Daily) != 1 || payload.SourceCount != 1 ||
+		!payload.CacheHit || !payload.Untrusted {
+		t.Fatalf("weather lookup did not produce the typed Workflow payload: %#v", result.Output)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"lat"`) || strings.Contains(string(raw), `"lon"`) ||
+		strings.Contains(string(raw), "30.2741") || strings.Contains(string(raw), "120.1551") {
+		t.Fatalf("weather Workflow payload leaked provider coordinates: %s", raw)
+	}
+}
+
+func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Tools.Web.Search.Enabled = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	st, err := store.NewFileStore(filepath.Join(root, "gateway-state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, root, "web", false)
+	runID := "run_weather"
+	hub := New(cfg, st).WithWeatherInfoAdapter(&weatherInfoStub{response: dedicatedWeatherResponse()})
+	lookup, err := hub.Execute(context.Background(), "weather.lookup", map[string]any{"location": "杭州"}, session.ID, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.SaveToolCall(app.ToolCall{
+		ID: "tc_weather", SessionID: session.ID, RunID: runID,
+		Tool: "weather.lookup", Status: "completed", Result: lookup.Output,
+	})
 
 	result, err := hub.Execute(context.Background(), "media.render_weather_card", map[string]any{
-		"weather_payload_ref": "tc_payload",
+		"weather_payload_ref": "tc_weather",
 	}, session.ID, runID)
 	if err != nil {
 		t.Fatal(err)
@@ -146,187 +218,34 @@ func TestRenderWeatherCardCreatesMediaPNG(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, mediaPath)); err != nil {
 		t.Fatalf("weather card was not written: %v", err)
 	}
-}
-
-func TestRenderWeatherCardPreservesExplicitMissingInfoData(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Default()
-	cfg.Workspaces.DefaultRoot = root
-	cfg.Workspaces.Allowlist = []string{root}
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather missing", app.DefaultOwnerID, root, "web", false)
-	runID := "run_weather_missing"
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info_missing", SessionID: session.ID, RunID: runID, Tool: "info.query", Status: "completed",
-		Result: map[string]any{
-			"request_id": "req-missing", "summary": "未检索到杭州可靠的实时天气数据。",
-			"retrieved_at": "2026-07-17T10:00:00+08:00", "untrusted": true,
-			"key_facts": []any{}, "sources": []any{},
-		},
-	})
-	hub := New(cfg, st)
-	structured, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info_missing",
-		"location":        "杭州",
-		"current":         map[string]any{},
-		"missing_fields":  []any{"current.condition", "current.temperature_c", "daily", "hourly"},
-		"evidence":        []any{},
-	}, session.ID, runID)
+	reloaded, err := store.NewFileStore(filepath.Join(root, "gateway-state.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, ok := structured.Output.(weatherPayload)
-	if !ok || len(payload.MissingFields) != 4 || payload.Current.TemperatureC != nil || payload.Current.Condition != "" {
-		t.Fatalf("missing Info data was not preserved explicitly: %#v", structured.Output)
-	}
-	data := weatherCardDataFromPayload(payload)
-	if !data.MissingData || displayCondition(data.Condition) != "暂无数据" || displayTemperature(data.Temperature) != "--°" {
-		t.Fatalf("missing Info data should remain visible in card data: %#v", data)
-	}
-	st.SaveToolCall(app.ToolCall{ID: "tc_payload_missing", SessionID: session.ID, RunID: runID, Tool: "weather.structure_payload", Status: "completed", Result: structured.Output})
-	if _, err := hub.Execute(context.Background(), "media.render_weather_card", map[string]any{
-		"weather_payload_ref": "tc_payload_missing",
-	}, session.ID, runID); err != nil {
-		t.Fatalf("explicit missing data should still render a weather card: %v", err)
+	if call, ok := reloaded.GetToolCall("tc_weather"); !ok || call.Tool != "weather.lookup" {
+		t.Fatalf("default file backend did not persist the weather lookup boundary: %#v ok=%t", call, ok)
 	}
 }
 
-func TestStructureWeatherPayloadDropsEvidenceForExplicitMissingFields(t *testing.T) {
+func TestRenderWeatherCardRejectsIncompleteOrLegacyPayloadReferences(t *testing.T) {
 	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather missing evidence", app.DefaultOwnerID, t.TempDir(), "web", false)
+	session := st.CreateSessionWithScope("weather invalid", app.DefaultOwnerID, t.TempDir(), "web", false)
 	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info_missing_evidence", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{
-			"summary":      "Synthesized 8 citation-backed fact(s) from 8 public source(s).",
-			"retrieved_at": "2026-07-20T06:03:34Z", "untrusted": true,
-		},
+		ID: "tc_incomplete", SessionID: session.ID, RunID: "run", Tool: "weather.lookup", Status: "completed",
+		Result: weatherPayload{Status: "completed", SchemaVersion: weatherPayloadSchemaVersion, RequestID: "request", Location: "杭州"},
+	})
+	st.SaveToolCall(app.ToolCall{
+		ID: "tc_wrong_tool", SessionID: session.ID, RunID: "run", Tool: "web.search", Status: "completed",
+		Result: dedicatedWeatherResponse(),
 	})
 	hub := New(config.Default(), st)
-	result, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info_missing_evidence",
-		"location":        "Hangzhou",
-		"current":         map[string]any{},
-		"daily":           []any{},
-		"hourly":          []any{},
-		"missing_fields":  []any{"current.condition", "current.temperature_c", "daily", "hourly"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "Synthesized 8 citation-backed fact(s) from 8 public source(s)."},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "summary:0", "evidence_text": "Synthesized 8 citation-backed fact(s) from 8 public source(s)."},
-			map[string]any{"field_path": "daily", "evidence_ref": "summary:0", "evidence_text": "Synthesized 8 citation-backed fact(s) from 8 public source(s)."},
-			map[string]any{"field_path": "hourly", "evidence_ref": "summary:0", "evidence_text": "Synthesized 8 citation-backed fact(s) from 8 public source(s)."},
-			map[string]any{"field_path": "hourly[0].condition", "evidence_ref": "summary:0", "evidence_text": "Synthesized 8 citation-backed fact(s) from 8 public source(s)."},
-		},
-	}, session.ID, "run")
-	if err != nil {
-		t.Fatalf("evidence attached to explicit missing markers should be ignored: %v", err)
-	}
-	payload, ok := result.Output.(weatherPayload)
-	if !ok || payload.EvidenceCount != 0 || len(payload.Evidence) != 0 {
-		t.Fatalf("missing-field evidence must not be persisted as value evidence: %#v", result.Output)
-	}
-}
-
-func TestStructureWeatherPayloadDowngradesUngroundedHourlySection(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather hourly downgrade", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info_hourly", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{
-			"summary": "Synthesized weather evidence.", "retrieved_at": "2026-07-20T09:20:00+08:00", "untrusted": true,
-			"key_facts": []any{map[string]any{"id": "fact:0", "claim": "杭州当前29°C，多云；07月20日中雨 | 多云，26° ~ 35°。"}},
-			"sources":   []any{map[string]any{"evidence_index": 1, "snippets": []string{"09:00\n\n30°\n\n1-3"}}},
-		},
-	})
-	hub := New(config.Default(), st)
-	result, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info_hourly", "location": "杭州",
-		"current":        map[string]any{"condition": "多云", "temperature_c": 29},
-		"daily":          []any{map[string]any{"date": "07月20日", "condition": "中雨 | 多云", "min_temperature_c": 26, "max_temperature_c": 35}},
-		"hourly":         []any{map[string]any{"time": "09:00", "condition": "多云", "temperature_c": 30}},
-		"missing_fields": []any{},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "fact:0", "evidence_text": "多云"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "fact:0", "evidence_text": "29°C"},
-			map[string]any{"field_path": "daily[0].date", "evidence_ref": "fact:0", "evidence_text": "07月20日"},
-			map[string]any{"field_path": "daily[0].condition", "evidence_ref": "fact:0", "evidence_text": "中雨 | 多云"},
-			map[string]any{"field_path": "daily[0].min_temperature_c", "evidence_ref": "fact:0", "evidence_text": "26° ~ 35°"},
-			map[string]any{"field_path": "daily[0].max_temperature_c", "evidence_ref": "fact:0", "evidence_text": "26° ~ 35°"},
-			map[string]any{"field_path": "hourly[0].time", "evidence_ref": "source:1:snippet:0", "evidence_text": "09:00"},
-			map[string]any{"field_path": "hourly[0].condition", "evidence_ref": "source:1:snippet:0", "evidence_text": "09:00\n\n30°\n\n1-3"},
-			map[string]any{"field_path": "hourly[0].temperature_c", "evidence_ref": "source:1:snippet:0", "evidence_text": "30°"},
-		},
-	}, session.ID, "run")
-	if err != nil {
-		t.Fatalf("ungrounded optional hourly data should degrade instead of blocking the card: %v", err)
-	}
-	payload, ok := result.Output.(weatherPayload)
-	if !ok || len(payload.Hourly) != 0 || !containsStringValue(payload.MissingFields, weatherMissingHourly) || len(payload.Daily) != 1 || payload.Current.TemperatureC == nil {
-		t.Fatalf("only the invalid hourly section should be removed: %#v", result.Output)
-	}
-	for _, evidence := range payload.Evidence {
-		if strings.HasPrefix(evidence.FieldPath, "hourly[") {
-			t.Fatalf("discarded hourly evidence must not be persisted: %#v", payload.Evidence)
+	for _, ref := range []string{"tc_incomplete", "tc_wrong_tool"} {
+		_, err := hub.Execute(context.Background(), "media.render_weather_card", map[string]any{
+			"weather_payload_ref": ref,
+		}, session.ID, "run")
+		if err == nil {
+			t.Fatalf("weather card accepted invalid payload reference %q", ref)
 		}
-	}
-}
-
-func TestStructureWeatherPayloadStillRejectsDuplicateValueEvidence(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather duplicate evidence", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info_duplicate", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{"summary": "Hangzhou is cloudy at 31°C.", "retrieved_at": "2026-07-20T06:03:34Z", "untrusted": true},
-	})
-	hub := New(config.Default(), st)
-	_, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info_duplicate",
-		"location":        "Hangzhou",
-		"current":         map[string]any{"condition": "cloudy", "temperature_c": 31},
-		"missing_fields":  []any{"daily", "hourly"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "cloudy"},
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "cloudy"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "summary:0", "evidence_text": "31°C"},
-		},
-	}, session.ID, "run")
-	if err == nil || !strings.Contains(err.Error(), `weather evidence field "current.condition" is duplicated`) {
-		t.Fatalf("duplicate value evidence must still be rejected, got %v", err)
-	}
-}
-
-func TestStructureWeatherPayloadRequiresValueOrMissingMarker(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather availability", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{"summary": "杭州当前多云，气温31°C。", "retrieved_at": "2026-07-17T10:00:00+08:00", "untrusted": true},
-	})
-	hub := New(config.Default(), st)
-	tests := []struct {
-		name    string
-		current map[string]any
-		missing []any
-		want    string
-	}{
-		{
-			name: "unmarked missing temperature", current: map[string]any{"condition": "多云"},
-			missing: []any{"daily", "hourly"}, want: "neither Info data nor an explicit missing marker",
-		},
-		{
-			name: "value and missing marker conflict", current: map[string]any{"condition": "多云", "temperature_c": 31},
-			missing: []any{"current.temperature_c", "daily", "hourly"}, want: "cannot contain data and be marked missing",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-				"info_answer_ref": "tc_info", "location": "杭州", "current": test.current,
-				"missing_fields": test.missing, "evidence": []any{},
-			}, session.ID, "run")
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("expected availability contract error containing %q, got %v", test.want, err)
-			}
-		})
 	}
 }
 
@@ -340,185 +259,6 @@ func TestRenderWeatherCardRejectsLegacyWeatherInputs(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected legacy weather input %q to be rejected", field)
 		}
-	}
-}
-
-func TestStructureWeatherPayloadRejectsUngroundedFields(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{"summary": "杭州当前多云，气温31°C。", "retrieved_at": "2026-07-17T10:00:00+08:00", "untrusted": true},
-	})
-	hub := New(config.Default(), st)
-	_, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info",
-		"location":        "杭州",
-		"current":         map[string]any{"condition": "晴", "temperature_c": 35},
-		"missing_fields":  []any{"daily", "hourly"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "多云"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "summary:0", "evidence_text": "气温31°C"},
-		},
-	}, session.ID, "run")
-	if err == nil || !strings.Contains(err.Error(), "does not contain the submitted") {
-		t.Fatalf("expected ungrounded weather fields to fail, got %v", err)
-	}
-}
-
-func TestStructureWeatherPayloadRejectsMismatchedUnits(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{"summary": "杭州当前多云，湿度31%。", "retrieved_at": "2026-07-17T10:00:00+08:00", "untrusted": true},
-	})
-	hub := New(config.Default(), st)
-	_, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info",
-		"location":        "杭州",
-		"current":         map[string]any{"condition": "多云", "temperature_c": 31},
-		"missing_fields":  []any{"daily", "hourly"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "多云"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "summary:0", "evidence_text": "湿度31%"},
-		},
-	}, session.ID, "run")
-	if err == nil || !strings.Contains(err.Error(), "required unit") {
-		t.Fatalf("expected mismatched weather units to fail, got %v", err)
-	}
-}
-
-func TestStructureWeatherPayloadAcceptsFactAndSourceEvidenceRefs(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{
-			"summary": "Synthesized 8 citation-backed fact(s) from 8 public source(s).", "retrieved_at": "2026-07-17T10:00:00+08:00", "untrusted": true,
-			"key_facts": []any{
-				map[string]any{"id": "fact:4", "claim": "杭州当前多云。"},
-			},
-			"sources": []any{map[string]any{"evidence_index": 2, "id": "src-weather", "snippets": []string{"杭州当前气温31°C。"}}},
-		},
-	})
-	hub := New(config.Default(), st)
-	_, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info",
-		"location":        "杭州",
-		"current":         map[string]any{"condition": "多云", "temperature_c": 31},
-		"missing_fields":  []any{"daily", "hourly"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "fact:4", "evidence_text": "多云"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "source:2:snippet:0", "evidence_text": "气温31°C"},
-		},
-	}, session.ID, "run")
-	if err != nil {
-		t.Fatalf("structured Info refs should be accepted, got %v", err)
-	}
-}
-
-func TestStructureWeatherPayloadAcceptsFormattingOnlyQuoteDifferences(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather markdown evidence", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info_markdown", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{
-			"summary": "Synthesized weather evidence.", "retrieved_at": "2026-07-20T09:20:00+08:00", "untrusted": true,
-			"sources": []any{map[string]any{"evidence_index": 1, "snippets": []string{"杭州当前 **28** _℃_，晴转小雨。"}}},
-		},
-	})
-	hub := New(config.Default(), st)
-	_, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info_markdown", "location": "杭州",
-		"current":        map[string]any{"condition": "晴转小雨", "temperature_c": 28},
-		"missing_fields": []any{"daily", "hourly"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "source:1:snippet:0", "evidence_text": "晴转小雨"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "source:1:snippet:0", "evidence_text": "28 ℃"},
-		},
-	}, session.ID, "run")
-	if err != nil {
-		t.Fatalf("Markdown-only formatting differences should preserve grounded evidence: %v", err)
-	}
-	if weatherEvidenceContainsQuote("杭州当前29℃。", "杭州当前28℃") {
-		t.Fatal("quote normalization must not change evidence values")
-	}
-}
-
-func TestWeatherEvidenceAcceptsEquivalentDateFormats(t *testing.T) {
-	for _, evidence := range []string{"2026-07-20", "2026年07月20日", "Monday, July 20, 2026"} {
-		if !weatherEvidenceContainsDate(evidence, "2026-07-20") {
-			t.Fatalf("equivalent weather date was rejected: %q", evidence)
-		}
-	}
-	if weatherEvidenceContainsDate("Monday, July 21, 2026", "2026-07-20") {
-		t.Fatal("different weather date must be rejected")
-	}
-}
-
-func TestWeatherEvidenceRangeUnitAppliesToBothDailyEndpoints(t *testing.T) {
-	for _, value := range []float64{28, 34} {
-		if !weatherEvidenceRangeContainsUnit("28~34℃", value, weatherTemperatureUnits) {
-			t.Fatalf("compact daily range did not apply its unit to %v", value)
-		}
-	}
-	if weatherEvidenceRangeContainsUnit("humidity 28%, temperature 34℃", 28, weatherTemperatureUnits) {
-		t.Fatal("unrelated numbers must not borrow a temperature unit")
-	}
-}
-
-func TestStructureWeatherPayloadCapsHourlyForecastAtFive(t *testing.T) {
-	hours := make([]any, 0, 6)
-	for index := 0; index < 6; index++ {
-		hours = append(hours, map[string]any{
-			"time": fmt.Sprintf("2026-07-17 %02d:00", index+11), "condition": "多云", "temperature_c": 31 + index,
-		})
-	}
-	hub := New(config.Default(), store.NewMemoryStore())
-	err := hub.Validate("weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info", "location": "杭州",
-		"current":        map[string]any{"condition": "多云", "temperature_c": 31},
-		"hourly":         hours,
-		"missing_fields": []any{"daily"},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "多云"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "summary:0", "evidence_text": "31°C"},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "at most 5") {
-		t.Fatalf("expected sixth hourly forecast to be rejected, got %v", err)
-	}
-}
-
-func TestStructureWeatherPayloadAllowsDailyRangeWithoutRepeatedCondition(t *testing.T) {
-	st := store.NewMemoryStore()
-	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, t.TempDir(), "web", false)
-	st.SaveToolCall(app.ToolCall{
-		ID: "tc_info", SessionID: session.ID, RunID: "run", Tool: "info.query", Status: "completed",
-		Result: map[string]any{
-			"summary":      "杭州当前多云，气温31°C。2026-07-17最低温度27°C，最高温度35°C。",
-			"retrieved_at": "2026-07-17T10:00:00+08:00", "untrusted": true,
-		},
-	})
-	hub := New(config.Default(), st)
-	_, err := hub.Execute(context.Background(), "weather.structure_payload", map[string]any{
-		"info_answer_ref": "tc_info", "location": "杭州",
-		"current":        map[string]any{"condition": "多云", "temperature_c": 31},
-		"missing_fields": []any{"hourly"},
-		"daily": []any{map[string]any{
-			"date": "2026-07-17", "min_temperature_c": 27, "max_temperature_c": 35,
-		}},
-		"evidence": []any{
-			map[string]any{"field_path": "current.condition", "evidence_ref": "summary:0", "evidence_text": "多云"},
-			map[string]any{"field_path": "current.temperature_c", "evidence_ref": "summary:0", "evidence_text": "气温31°C"},
-			map[string]any{"field_path": "daily[0].date", "evidence_ref": "summary:0", "evidence_text": "2026-07-17"},
-			map[string]any{"field_path": "daily[0].min_temperature_c", "evidence_ref": "summary:0", "evidence_text": "最低温度27°C"},
-			map[string]any{"field_path": "daily[0].max_temperature_c", "evidence_ref": "summary:0", "evidence_text": "最高温度35°C"},
-		},
-	}, session.ID, "run")
-	if err != nil {
-		t.Fatalf("daily range should not require a repeated daily condition: %v", err)
 	}
 }
 

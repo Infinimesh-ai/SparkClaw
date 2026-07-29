@@ -57,7 +57,6 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	for _, capability := range []string{
 		app.ToolCapabilityWebDiscovery,
 		app.ToolCapabilityInfoQuestion,
-		app.ToolCapabilityWeatherStructure,
 		app.ToolCapabilityWeatherRender,
 		app.ToolCapabilityBrowserListTabs,
 		app.ToolCapabilityBrowserFocus,
@@ -81,6 +80,15 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	weather, ok := hub.Definition("media.render_weather_card")
 	if !ok || weather.OutcomeAdapter != app.OutcomeAdapterWeatherCard || len(weather.Directory.OutputKinds) != 1 || weather.Directory.OutputKinds[0] != app.OutputKindImage {
 		t.Fatalf("weather card registration is outside its typed workflow boundary: %#v", weather)
+	}
+	lookup, ok := hub.Definition("weather.lookup")
+	if !ok || lookup.OutcomeAdapter != app.OutcomeAdapterWeatherPayload || len(lookup.Capabilities) != 1 ||
+		lookup.Capabilities[0].Name != app.ToolCapabilityInfoQuestion ||
+		lookup.Capabilities[0].Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo {
+		t.Fatalf("dedicated weather lookup did not reuse the existing Info capability: %#v", lookup)
+	}
+	if _, ok := hub.Definition("info.query"); ok {
+		t.Fatal("legacy direct Info query remains registered")
 	}
 	imageInspect, ok := hub.Definition("images.inspect")
 	if !ok || imageInspect.OutcomeAdapter != app.OutcomeAdapterWorkspaceRead || len(imageInspect.Capabilities) != 1 ||

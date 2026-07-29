@@ -65,6 +65,40 @@ func TestChatUsesConfiguredModelID(t *testing.T) {
 	}
 }
 
+func TestMockWorkflowStepSelectsWeatherStageTool(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+		tool   string
+	}{
+		{
+			name:   "lookup",
+			prompt: "WORKFLOW_STEP_REQUEST\nModel-visible tools this workflow stage: weather.lookup",
+			tool:   "weather.lookup",
+		},
+		{
+			name:   "render",
+			prompt: "WORKFLOW_STEP_REQUEST\nModel-visible tools this workflow stage: media.render_weather_card\nPrevious observation summaries: weather lookup completed",
+			tool:   "media.render_weather_card",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := mockResponse("deep", test.prompt)
+			var action struct {
+				Type string `json:"type"`
+				Tool string `json:"tool"`
+			}
+			if err := json.Unmarshal([]byte(response), &action); err != nil {
+				t.Fatalf("decode mock action: %v", err)
+			}
+			if action.Type != "action" || action.Tool != test.tool {
+				t.Fatalf("unexpected mock weather action: %#v", action)
+			}
+		})
+	}
+}
+
 func TestChatRejectsReasoningOnlyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

@@ -154,7 +154,6 @@ const (
 
 	ToolCapabilityWebDiscovery              = "web.discovery"
 	ToolCapabilityInfoQuestion              = "info.question.read"
-	ToolCapabilityWeatherStructure          = "weather.payload.structure"
 	ToolCapabilityWeatherRender             = "weather.card.render"
 	ToolCapabilityBrowserListTabs           = "browser.tab.list"
 	ToolCapabilityBrowserFocus              = "browser.tab.focus"
@@ -184,7 +183,6 @@ const (
 
 	OutcomeAdapterGeneric           ToolOutcomeAdapter = "generic"
 	OutcomeAdapterWebSearch         ToolOutcomeAdapter = "web.search"
-	OutcomeAdapterInfoAnswer        ToolOutcomeAdapter = "info.answer"
 	OutcomeAdapterWeatherPayload    ToolOutcomeAdapter = "weather.payload"
 	OutcomeAdapterWeatherCard       ToolOutcomeAdapter = "weather.card"
 	OutcomeAdapterWebPage           ToolOutcomeAdapter = "web.page"
@@ -206,7 +204,6 @@ const (
 	OutcomeAdapterScheduleChange    ToolOutcomeAdapter = "schedule.change"
 
 	OutcomeSignalResultsAvailable                OutcomeSignal = "results_available"
-	OutcomeSignalInfoAnswerAvailable             OutcomeSignal = "info_answer_available"
 	OutcomeSignalWeatherPayloadAvailable         OutcomeSignal = "weather_payload_available"
 	OutcomeSignalWeatherCardAvailable            OutcomeSignal = "weather_card_available"
 	OutcomeSignalNoResults                       OutcomeSignal = "no_results"

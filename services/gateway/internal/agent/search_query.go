@@ -7,23 +7,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-const (
-	weatherCardQueryRequirementsZH = "；请提供当前天气状况和当前温度；可获得时提供当日最低/最高温度，以及从当前时刻起最多5个未来小时的具体日期时间、天气状况和温度；若任一项没有可靠数据，请明确说明未获取到，不得推测或用其他温度替代。"
-	weatherCardQueryRequirementsEN = ". Include the current weather condition and current temperature. When available, include today's low/high temperatures and up to five future hourly entries from the current time, each with a specific date-time, weather condition, and temperature. Explicitly state when reliable data is unavailable; never infer it or substitute another temperature."
-)
-
-func canonicalizeWeatherCardQuery(query string) string {
-	query = strings.TrimSpace(query)
-	lower := strings.ToLower(query)
-	if strings.Contains(query, "最多5个未来小时") || strings.Contains(lower, "up to five future hourly entries") {
-		return query
-	}
-	if containsCJK(query) {
-		return query + weatherCardQueryRequirementsZH
-	}
-	return query + weatherCardQueryRequirementsEN
-}
-
 // materializeRoutedQuery adds leaf-specific execution requirements only after
 // semantic fusion has selected one registered capability.
 func materializeRoutedQuery(capability app.CapabilityID, content, date string) string {
@@ -31,8 +14,6 @@ func materializeRoutedQuery(capability app.CapabilityID, content, date string) s
 	switch capability {
 	case app.CapabilityBrowserInternetSearch:
 		return canonicalizeWebSearchQuery(query, query, date)
-	case app.CapabilityBrowserWeather:
-		return canonicalizeWeatherCardQuery(canonicalizeWebSearchQuery(query, query, date))
 	default:
 		return query
 	}

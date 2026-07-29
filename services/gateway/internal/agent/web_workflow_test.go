@@ -166,7 +166,7 @@ func TestBrowserWeatherDispatchesOnlyInfoQuestionInitially(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "info.query" || dispatch.Hint.Capability != app.ToolCapabilityInfoQuestion {
+	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "weather.lookup" || dispatch.Hint.Capability != app.ToolCapabilityInfoQuestion {
 		t.Fatalf("browser.weather exposed the wrong Workflow capability: %#v", dispatch)
 	}
 }
@@ -396,40 +396,66 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"�
 	}
 }
 
-func TestBrowserWeatherWorkflowQueriesInfoStructuresRendersAndReturnsImage(t *testing.T) {
-	var requestedQuery string
+func TestBrowserWeatherWorkflowUsesDedicatedInfoEndpointAndReturnsImage(t *testing.T) {
+	var requestedLocation string
 	info := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/info/tokens/issue":
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer entitlement-proof" {
+				t.Errorf("unexpected token issue contract: method=%s authorization=%q", r.Method, r.Header.Get("Authorization"))
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"epoch":           time.Now().UTC().Format("2006-01-02"),
 				"issued_tokens":   []map[string]any{{"type": "info.basic", "token_mode": "internal_opaque", "token": "weather-token", "expires_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339)}},
 				"quota_remaining": map[string]int{"info.basic": 9},
 			})
-		case "/v1/info/query":
+		case "/v1/info/weather":
 			var request struct {
-				Query string `json:"query"`
+				RequestID string `json:"request_id"`
+				Location  struct {
+					Name string `json:"name"`
+				} `json:"location"`
+				Granularity []string `json:"granularity"`
+				Days        int      `json:"days"`
+				HourlySteps int      `json:"hourly_steps"`
+				Units       string   `json:"units"`
+				Language    string   `json:"language"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 				t.Fatal(err)
 			}
-			requestedQuery = request.Query
+			requestedLocation = request.Location.Name
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "PrivateToken weather-token" ||
+				r.Header.Get("X-Request-Id") != request.RequestID || request.RequestID == "" ||
+				len(request.Granularity) != 3 || request.Days != 3 || request.HourlySteps != 24 ||
+				request.Units != "metric" || request.Language != "zh-CN" {
+				t.Errorf("unexpected dedicated weather request: method=%s authorization=%q body=%#v", r.Method, r.Header.Get("Authorization"), request)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"request_id": r.Header.Get("X-Request-Id"), "status": "ok",
-				"answer_context": map[string]any{
-					"summary": "Synthesized 3 citation-backed fact(s) from 1 public source(s).",
-					"key_facts": []map[string]any{
-						{"claim": "杭州当前多云，气温31°C，体感33°C，湿度62%，风速12 km/h。", "sources": []string{"src-1"}},
-						{"claim": "2026-07-20杭州今日最低27°C，最高35°C。", "sources": []string{"src-1"}},
+				"weather": map[string]any{
+					"provider": "caiyun_weather",
+					"location": map[string]any{"lat": 30.2741, "lon": 120.1551, "name": "杭州市"},
+					"timezone": "Asia/Shanghai", "observed_at": "2026-07-29T05:00:00Z",
+					"current": map[string]any{
+						"temp_c": 31.2, "apparent_temp_c": 33.0, "condition": "partly_cloudy",
+						"humidity_percent": 62, "wind_speed_kph": 12.6, "precipitation_mm_h": 0,
 					},
+					"hourly": []map[string]any{{
+						"time": "2026-07-29T06:00:00Z", "temp_c": 32.0, "condition": "partly_cloudy",
+						"precipitation_probability_percent": 10,
+					}},
+					"daily": []map[string]any{{
+						"date": "2026-07-29", "temp_min_c": 27.0, "temp_max_c": 35.0,
+						"condition": "partly_cloudy", "precipitation_probability_percent": 20,
+					}},
 				},
 				"sources": []map[string]any{{
-					"id": "src-1", "title": "Weather source", "url": "https://example.com/weather", "source_type": "weather",
-					"retrieved_at": time.Now().UTC().Format(time.RFC3339), "snippets": []string{"11:00多云32°C，12:00晴33°C。"},
+					"id": "src-weather", "source_type": "weather", "provider": "caiyun_weather",
+					"retrieved_at": "2026-07-29T05:00:01Z",
 				}},
-				"citations": []string{"src-1"},
-				"usage":     map[string]any{"cost_credits": 1, "token_type": "info.basic"},
+				"usage": map[string]any{"cost_credits": 1, "token_type": "info.basic", "cache_hit": false},
 			})
 		default:
 			t.Fatalf("unexpected Infinimesh path: %s", r.URL.Path)
@@ -449,23 +475,29 @@ func TestBrowserWeatherWorkflowQueriesInfoStructuresRendersAndReturnsImage(t *te
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `今天杭州天气
-MOCK_INFO_QUERY_RESPONSE:{"type":"action","tool":"info.query","arguments":{"query":"模型改写后的天气问题"}}
-	MOCK_WEATHER_STRUCTURE_RESPONSE:{"type":"action","tool":"weather.structure_payload","arguments":{"info_answer_ref":"模型伪造引用","location":"上海","current":{"condition":"多云","temperature_c":31,"feels_like_c":33,"humidity_pct":62,"wind_kmh":12},"hourly":[{"time":"11:00","condition":"多云","temperature_c":32},{"time":"12:00","condition":"晴","temperature_c":33}],"daily":[{"date":"2026-07-20","min_temperature_c":27,"max_temperature_c":35}],"missing_fields":[],"evidence":[{"field_path":"current.condition","evidence_ref":"fact:0","evidence_text":"多云"},{"field_path":"current.temperature_c","evidence_ref":"fact:0","evidence_text":"气温31°C"},{"field_path":"current.feels_like_c","evidence_ref":"fact:0","evidence_text":"体感33°C"},{"field_path":"current.humidity_pct","evidence_ref":"fact:0","evidence_text":"湿度62%"},{"field_path":"current.wind_kmh","evidence_ref":"fact:0","evidence_text":"风速12 km/h"},{"field_path":"hourly[0].time","evidence_ref":"source:0:snippet:0","evidence_text":"11:00"},{"field_path":"hourly[0].condition","evidence_ref":"source:0:snippet:0","evidence_text":"11:00多云"},{"field_path":"hourly[0].temperature_c","evidence_ref":"source:0:snippet:0","evidence_text":"32°C"},{"field_path":"hourly[1].time","evidence_ref":"source:0:snippet:0","evidence_text":"12:00"},{"field_path":"hourly[1].condition","evidence_ref":"source:0:snippet:0","evidence_text":"12:00晴"},{"field_path":"hourly[1].temperature_c","evidence_ref":"source:0:snippet:0","evidence_text":"33°C"},{"field_path":"daily[0].date","evidence_ref":"fact:1","evidence_text":"2026-07-20"},{"field_path":"daily[0].min_temperature_c","evidence_ref":"fact:1","evidence_text":"最低27°C"},{"field_path":"daily[0].max_temperature_c","evidence_ref":"fact:1","evidence_text":"最高35°C"}]}}
+MOCK_WEATHER_LOOKUP_RESPONSE:{"type":"action","tool":"weather.lookup","arguments":{"location":"上海"}}
 MOCK_WEATHER_RENDER_RESPONSE:{"type":"action","tool":"media.render_weather_card","arguments":{"weather_payload_ref":"模型伪造引用"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserWeather, app.WorkflowBrowserWeather,
-		[]string{"info.query", "weather.structure_payload", "media.render_weather_card"},
-		[]string{app.ToolCapabilityInfoQuestion, app.ToolCapabilityWeatherStructure, app.ToolCapabilityWeatherRender})
+		[]string{"weather.lookup", "media.render_weather_card"},
+		[]string{app.ToolCapabilityInfoQuestion, app.ToolCapabilityWeatherRender})
 
-	wantQuery := "今天杭州天气 " + currentSearchDate() + weatherCardQueryRequirementsZH
-	if result.RouteDecision.Slots.Query != wantQuery || result.RouteDecision.Slots.TargetRef != "杭州" || requestedQuery != wantQuery {
-		t.Fatalf("weather route or Info query was not frozen: route=%#v info_query=%q", result.RouteDecision, requestedQuery)
+	if result.RouteDecision.Slots.Query != "今天杭州天气" || result.RouteDecision.Slots.TargetRef != "杭州" || requestedLocation != "杭州" {
+		t.Fatalf("weather route or dedicated location was not frozen: route=%#v info_location=%q", result.RouteDecision, requestedLocation)
 	}
-	if result.ToolCalls[0].Arguments["query"] != wantQuery || result.ToolCalls[1].Arguments["info_answer_ref"] != result.ToolCalls[0].ID ||
-		result.ToolCalls[1].Arguments["location"] != "杭州" || result.ToolCalls[2].Arguments["weather_payload_ref"] != result.ToolCalls[1].ID {
+	if result.ToolCalls[0].Arguments["location"] != "杭州" ||
+		result.ToolCalls[1].Arguments["weather_payload_ref"] != result.ToolCalls[0].ID {
 		t.Fatalf("weather resources were not materialized across stages: %#v", result.ToolCalls)
+	}
+	rawLookup, err := json.Marshal(result.ToolCalls[0].Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rawLookup), `"lat"`) || strings.Contains(string(rawLookup), `"lon"`) ||
+		strings.Contains(string(rawLookup), "30.2741") || strings.Contains(string(rawLookup), "120.1551") {
+		t.Fatalf("weather Workflow observation leaked provider coordinates: %s", rawLookup)
 	}
 	if result.WorkflowResult == nil || len(result.WorkflowResult.Content.Parts) != 1 || result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartImage || result.WorkflowResult.Content.Parts[0].Resource == nil {
 		t.Fatalf("weather workflow did not project one image-only result: %#v", result.WorkflowResult)
@@ -520,7 +552,7 @@ func TestWorkflowOutputResourceRefUsesDefaultWorkspaceForUnscopedWebSession(t *t
 	}
 }
 
-func TestBrowserWeatherWorkflowRendersExplicitMissingInfoData(t *testing.T) {
+func TestBrowserWeatherWorkflowRejectsIncompleteDedicatedResponseWithoutFallback(t *testing.T) {
 	info := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -528,20 +560,34 @@ func TestBrowserWeatherWorkflowRendersExplicitMissingInfoData(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"epoch": time.Now().UTC().Format("2006-01-02"),
 				"issued_tokens": []map[string]any{{
-					"type": "info.basic", "token_mode": "internal_opaque", "token": "weather-missing-token",
+					"type": "info.basic", "token_mode": "internal_opaque", "token": "weather-incomplete-token",
 					"expires_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 				}},
 				"quota_remaining": map[string]int{"info.basic": 9},
 			})
-		case "/v1/info/query":
+		case "/v1/info/weather":
+			var request struct {
+				RequestID string `json:"request_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"request_id": r.Header.Get("X-Request-Id"), "status": "ok",
-				"answer_context": map[string]any{
-					"summary":   "未检索到杭州可靠的实时天气状况、实时温度、当日温度范围或未来小时数据。",
-					"key_facts": []map[string]any{},
+				"request_id": request.RequestID, "status": "ok",
+				"weather": map[string]any{
+					"provider": "caiyun_weather",
+					"location": map[string]any{"lat": 30.2741, "lon": 120.1551, "name": "杭州市"},
+					"timezone": "Asia/Shanghai", "observed_at": "2026-07-29T05:00:00Z",
+					"current": map[string]any{"temp_c": 31.2, "condition": "partly_cloudy"},
+					"hourly": []map[string]any{{
+						"time": "2026-07-29T06:00:00Z", "temp_c": 32.0, "condition": "partly_cloudy",
+					}},
 				},
-				"sources": []map[string]any{},
-				"usage":   map[string]any{"cost_credits": 1, "token_type": "info.basic"},
+				"sources": []map[string]any{{
+					"id": "src-weather", "source_type": "weather", "provider": "caiyun_weather",
+					"retrieved_at": "2026-07-29T05:00:01Z",
+				}},
+				"usage": map[string]any{"cost_credits": 1, "token_type": "info.basic"},
 			})
 		default:
 			t.Fatalf("unexpected Infinimesh path: %s", r.URL.Path)
@@ -549,7 +595,7 @@ func TestBrowserWeatherWorkflowRendersExplicitMissingInfoData(t *testing.T) {
 	}))
 	defer info.Close()
 
-	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		cfg.config.Tools.Web.Search.Enabled = true
 		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
 		infoCfg.BaseURL = info.URL
@@ -561,32 +607,19 @@ func TestBrowserWeatherWorkflowRendersExplicitMissingInfoData(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `杭州天气
-MOCK_INFO_QUERY_RESPONSE:{"type":"action","tool":"info.query","arguments":{"query":"模型改写后的天气问题"}}
-MOCK_WEATHER_STRUCTURE_RESPONSE:{"type":"action","tool":"weather.structure_payload","arguments":{"info_answer_ref":"模型伪造引用","location":"上海","current":{},"missing_fields":["current.condition","current.temperature_c","daily","hourly"],"evidence":[{"field_path":"current.condition","evidence_ref":"summary:0","evidence_text":"未检索到杭州可靠的实时天气状况、实时温度、当日温度范围或未来小时数据。"},{"field_path":"current.temperature_c","evidence_ref":"summary:0","evidence_text":"未检索到杭州可靠的实时天气状况、实时温度、当日温度范围或未来小时数据。"},{"field_path":"daily","evidence_ref":"summary:0","evidence_text":"未检索到杭州可靠的实时天气状况、实时温度、当日温度范围或未来小时数据。"},{"field_path":"hourly","evidence_ref":"summary:0","evidence_text":"未检索到杭州可靠的实时天气状况、实时温度、当日温度范围或未来小时数据。"}]}}
-MOCK_WEATHER_RENDER_RESPONSE:{"type":"action","tool":"media.render_weather_card","arguments":{"weather_payload_ref":"模型伪造引用"}}`)
+MOCK_WEATHER_LOOKUP_RESPONSE:{"type":"action","tool":"weather.lookup","arguments":{"location":"上海"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserWeather, app.WorkflowBrowserWeather,
-		[]string{"info.query", "weather.structure_payload", "media.render_weather_card"},
-		[]string{app.ToolCapabilityInfoQuestion, app.ToolCapabilityWeatherStructure, app.ToolCapabilityWeatherRender})
-	if result.WorkflowResult == nil || len(result.WorkflowResult.Content.Parts) != 1 || result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartImage {
-		t.Fatalf("missing weather data should still produce one explicit card result: %#v", result.WorkflowResult)
+	if result.Run.State != "blocked" || len(result.ToolCalls) != 1 ||
+		result.ToolCalls[0].Tool != "weather.lookup" || result.ToolCalls[0].Status != "failed" ||
+		!strings.Contains(result.ToolCalls[0].Error, "missing daily forecast") {
+		t.Fatalf("incomplete dedicated weather response did not fail explicitly: %#v", result)
 	}
-	raw, err := json.Marshal(result.ToolCalls[1].Result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
-	missing, ok := payload["missing_fields"].([]any)
-	if !ok || len(missing) != 4 {
-		t.Fatalf("weather payload did not preserve all missing categories: %#v", payload)
-	}
-	if evidence, ok := payload["evidence"].([]any); !ok || len(evidence) != 0 || payload["evidence_count"] != float64(0) {
-		t.Fatalf("weather payload persisted evidence for explicitly missing fields: %#v", payload)
+	for _, call := range result.ToolCalls {
+		if call.Tool == "media.render_weather_card" {
+			t.Fatalf("weather workflow rendered after an incomplete dedicated response: %#v", result.ToolCalls)
+		}
 	}
 }
 

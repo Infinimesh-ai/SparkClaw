@@ -28,7 +28,7 @@ Workflow leaf
 | Capability | 当前 revision 边界 |
 |---|---|
 | `browser.internet_search` r1 | 通过 `web.search` 搜索公开当前信息，不打开来源页面 |
-| `browser.weather` r1 | 查询 Infinimesh Info、组织证据，并为一个明确地点生成天气卡片 |
+| `browser.weather` r1 | 通过 Infinimesh Info `POST /v1/info/weather` 查询 typed metric 数据，并为一个明确地点生成天气卡片 |
 | `browser.automation` r2 | 在 hidden Chromium 中取得一个目标并完成 settle/snapshot，再在 visible Chromium 中呈现并独立验证同一结果 |
 | `browser.interaction` r2 | 在相同 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
 

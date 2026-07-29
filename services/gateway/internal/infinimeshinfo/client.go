@@ -207,7 +207,7 @@ func (c *Client) Query(ctx context.Context, request QueryRequest) (QueryResponse
 		if apiErrorCode(err) == "TOKEN_EXPIRED" {
 			c.wallet.DiscardAll(TokenTypeBasic)
 		}
-		if attempt == c.cfg.MaxAttempts || !retryableQueryError(err) {
+		if attempt == c.cfg.MaxAttempts || !retryableRequestError(err) {
 			break
 		}
 		if err := c.waitForRetry(ctx, attempt); err != nil {
@@ -358,7 +358,7 @@ func decodeAPIError(endpoint string, statusCode int, body []byte) error {
 	}
 }
 
-func retryableQueryError(err error) bool {
+func retryableRequestError(err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
 		if apiErr.Retryable {

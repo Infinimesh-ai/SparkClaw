@@ -13,7 +13,6 @@ type workflowOutcomeAdapter func(app.ToolCall, app.WorkflowNodeID) app.ToolOutco
 var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterGeneric:           adaptGenericWorkflowOutcome,
 	app.OutcomeAdapterWebSearch:         adaptWebSearchWorkflowOutcome,
-	app.OutcomeAdapterInfoAnswer:        adaptInfoAnswerWorkflowOutcome,
 	app.OutcomeAdapterWeatherPayload:    adaptWeatherPayloadWorkflowOutcome,
 	app.OutcomeAdapterWeatherCard:       adaptWeatherCardWorkflowOutcome,
 	app.OutcomeAdapterWebPage:           adaptWebPageWorkflowOutcome,
@@ -35,48 +34,12 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterScheduleChange:    adaptScheduleChangeOutcome,
 }
 
-func adaptInfoAnswerWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
-	outcome := adaptGenericWorkflowOutcome(call, nodeID)
-	output, ok := anyMap(call.Result)
-	if ok && toolCallCompleted(call) && infoAnswerHasEvidence(output) {
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInfoAnswerAvailable}
-		outcome.Refs = []app.ResourceRef{{Kind: "info_answer", Ref: call.ID, Provenance: call.ID}}
-	}
-	return outcome
-}
-
-func infoAnswerHasEvidence(output map[string]any) bool {
-	if value := strings.TrimSpace(stringValue(output["summary"])); value != "" && value != "<nil>" {
-		return true
-	}
-	for _, raw := range anySlice(output["key_facts"]) {
-		if fact, ok := anyMap(raw); ok {
-			if claim := strings.TrimSpace(stringValue(fact["claim"])); claim != "" && claim != "<nil>" {
-				return true
-			}
-		}
-	}
-	for _, raw := range anySlice(output["sources"]) {
-		source, ok := anyMap(raw)
-		if !ok {
-			continue
-		}
-		if snippet := strings.TrimSpace(stringValue(source["snippet"])); snippet != "" && snippet != "<nil>" {
-			return true
-		}
-		for _, snippet := range stringSliceValue(source["snippets"]) {
-			if strings.TrimSpace(snippet) != "" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func adaptWeatherPayloadWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	output, ok := anyMap(call.Result)
-	if ok && toolCallCompleted(call) && intLikeValue(output["schema_version"]) > 0 && strings.TrimSpace(stringValue(output["location"])) != "" {
+	if ok && toolCallCompleted(call) && intLikeValue(output["schema_version"]) == 3 &&
+		firstNonEmptyString(output["request_id"]) != "" &&
+		firstNonEmptyString(output["location"]) != "" {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalWeatherPayloadAvailable}
 		outcome.Refs = []app.ResourceRef{{Kind: "weather_payload", Ref: call.ID, Provenance: call.ID}}
 	}

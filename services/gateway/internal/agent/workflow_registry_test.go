@@ -47,7 +47,7 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			wantRevision = app.BrowserWorkflowRevision2
 		}
 		if test.want == app.WorkflowDocumentRead {
-			wantRevision = 2
+			wantRevision = 3
 		}
 		if test.want == app.WorkflowDocumentEdit {
 			wantRevision = 5
@@ -305,8 +305,8 @@ func (futureWorkflowProfile) Prepare(*app.WorkflowState) (workflowPreparation, e
 func (futureWorkflowProfile) Assess(*app.WorkflowState, app.ToolOutcome) app.NodeAssessment {
 	return app.NodeAssessment{Status: app.AssessmentComplete}
 }
-func (futureWorkflowProfile) Hint(*app.WorkflowState) workflowExecutionHint {
-	return workflowExecutionHint{}
+func (futureWorkflowProfile) StageContext(*app.WorkflowState) workflowStageContext {
+	return workflowStageContext{}
 }
 func (futureWorkflowProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""

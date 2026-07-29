@@ -18,8 +18,8 @@ func mustRouteIntent(t *testing.T, runtime Runtime, content string) app.RouteDec
 	return mustRouteIntentOutput(t, runtime, "", content, nil, app.MessageSourceWeb).Route
 }
 
-func (runtime Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition) workflowExecutionResult {
-	return runtime.runWorkflowWithSeed(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil)
+func (runtime Runtime) runWorkflow(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition) workflowExecutionResult {
+	return runtime.runWorkflowWithSeed(ctx, sessionID, run, content, profile, stageContext, visibleTools, nil, nil)
 }
 
 func mustRouteIntentWithResources(t *testing.T, runtime Runtime, sessionID, content string, resources []app.MessagePart, sourceKind app.MessageSourceKind) app.RouteDecision {

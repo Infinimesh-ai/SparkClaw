@@ -83,7 +83,8 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 			r.blockWorkflowDecision(run, node, "edit_operation_selection_invalid")
 			return "", true, nil
 		}
-		selection, selectionErr := r.selectWorkflowDecisionEntry(ctx, *run, profile, node, string(entriesJSON))
+		selectionLane := workflowModelLaneForProfile(profile.ID())
+		selection, selectionErr := r.selectWorkflowDecisionEntry(ctx, *run, profile, node, string(entriesJSON), selectionLane)
 		state = run.Workflow.Nodes[node.ID]
 		state.Attempts++
 		run.Workflow.Nodes[node.ID] = state
@@ -116,12 +117,12 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 			}
 			continue
 		}
-		instruction, resolveErr := r.completeWorkflowDecision(run, profile, node, view, entry, "deep")
+		instruction, resolveErr := r.completeWorkflowDecision(run, profile, node, view, entry, selectionLane)
 		return instruction, true, resolveErr
 	}
 }
 
-func (r Runtime) selectWorkflowDecisionEntry(ctx context.Context, run app.AgentRun, profile workflowProfile, node app.WorkflowNode, entriesJSON string) (workflowDecisionSelectionOutput, error) {
+func (r Runtime) selectWorkflowDecisionEntry(ctx context.Context, run app.AgentRun, profile workflowProfile, node app.WorkflowNode, entriesJSON, lane string) (workflowDecisionSelectionOutput, error) {
 	rules := []string{
 		"Select exactly one concrete tool directory entry for an already validated SparkClaw workflow decision.",
 		"Return only one compact JSON object with the single field entry_id; unknown fields are forbidden.",
@@ -147,7 +148,7 @@ func (r Runtime) selectWorkflowDecisionEntry(ctx context.Context, run app.AgentR
 	}
 
 	started := time.Now().UTC()
-	chat, chatErr := r.models.ChatWithProfile(ctx, workflowExecutionModelLane, strings.Join(rules, "\n"), user)
+	chat, chatErr := r.models.ChatWithProfile(ctx, lane, strings.Join(rules, "\n"), user)
 	completed := time.Now().UTC()
 	r.store.SaveModelCall(modelCallFromChat(run.SessionID, run.ID, "workflow_operation_selection", chat, chatErr, started, completed))
 	if chatErr != nil {

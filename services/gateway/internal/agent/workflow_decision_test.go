@@ -26,8 +26,8 @@ func TestDocumentEditDecisionInvalidOutputRetriesThenBlocks(t *testing.T) {
 		decision.LastAssessment.ReasonCode != "edit_operation_selection_invalid" {
 		t.Fatalf("invalid decision output did not exhaust its own attempt bound: %#v", decision)
 	}
-	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", "deep") != 2 {
-		t.Fatalf("invalid decision output did not retry on the deep lane: %#v", st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
+	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 2 {
+		t.Fatalf("invalid decision output did not retry on the document workflow lane: %#v", st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
 	}
 }
 
@@ -45,7 +45,7 @@ func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(
 		decision.LastAssessment == nil || decision.LastAssessment.ReasonCode != "no_registered_editor_matches" {
 		t.Fatalf("empty decision output did not preserve its terminal reason: %#v", decision)
 	}
-	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", "deep") != 2 {
+	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 2 {
 		t.Fatalf("empty decision output did not use the decision node attempt bound: %#v", st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
 	}
 	if hasModelCallOperation(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_directory_selection", "fast") {
@@ -56,8 +56,8 @@ func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(
 func TestDocumentEditDecisionAndConsumerFailClosed(t *testing.T) {
 	t.Run("decision node is never materialized", func(t *testing.T) {
 		runtime, _, session, dispatch := newDocumentDecisionFixture(t, "Improve report.docx")
-		hint := dispatch.Profile.Hint(dispatch.Run.Workflow)
-		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(session.ID), &hint); err == nil ||
+		stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
+		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(session.ID), &stageContext); err == nil ||
 			!strings.Contains(err.Error(), "decision node must be resolved") {
 			t.Fatalf("active decision node did not fail materialization closed: %v", err)
 		}
@@ -74,8 +74,8 @@ func TestDocumentEditDecisionAndConsumerFailClosed(t *testing.T) {
 		}
 		st.SaveRun(dispatch.Run)
 
-		hint := dispatch.Profile.Hint(dispatch.Run.Workflow)
-		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(session.ID), &hint); err == nil ||
+		stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
+		if _, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(session.ID), &stageContext); err == nil ||
 			!strings.Contains(err.Error(), "decision reference") {
 			t.Fatalf("editor materialized without a persisted decision reference: %v", err)
 		}

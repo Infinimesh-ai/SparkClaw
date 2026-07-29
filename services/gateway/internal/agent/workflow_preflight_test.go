@@ -278,9 +278,9 @@ func TestDocumentContentMutationRoutesToEditR4ThenSelectsXLSXEditor(t *testing.T
 	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "xlsx.append_row" {
 		t.Fatalf("XLSX content mutation exposed the wrong editor: %#v", visibleToolNames(dispatch.Tools))
 	}
-	if !hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_operation_selection", "deep") ||
+	if !hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) ||
 		!hasAgentAuditType(st.ListAudit(session.ID), "workflow.decision_resolved") {
-		t.Fatalf("XLSX editor was not selected through the explicit deep decision node")
+		t.Fatalf("XLSX editor was not selected through the explicit document decision node")
 	}
 }
 
@@ -400,8 +400,8 @@ func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.Memory
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("document operation decision did not resolve: changed=%t err=%v", changed, err)
 	}
-	hint := dispatch.Profile.Hint(dispatch.Run.Workflow)
-	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run.SessionID), &hint)
+	stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), dispatch.Run, runtime.workflowActorRef(dispatch.Run.SessionID), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,7 +27,7 @@ func TestDocumentEditCancellationStopsBeforeRepeatingActiveStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "docx.replace_paragraph", "replace_paragraph")
-	stageContext := dispatch.Profile.Hint(dispatch.Run.Workflow).taskHint()
+	stageContext := dispatch.Profile.StageContext(dispatch.Run.Workflow)
 	budgetStopsBefore := countAuditEvents(st.ListAudit(session.ID), "workflow_step.budget_stopped")
 
 	ctx, cancel := context.WithCancel(context.Background())

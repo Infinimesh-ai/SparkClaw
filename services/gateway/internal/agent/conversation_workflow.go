@@ -51,10 +51,10 @@ func (conversationAnswerProfile) Prepare(*app.WorkflowState) (workflowPreparatio
 func (conversationAnswerProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	return app.NodeAssessment{OutcomeID: outcome.ID, NodeID: outcome.NodeID, Status: app.AssessmentBlocked, ReasonCode: "conversation_answer_accepts_no_tools"}
 }
-func (conversationAnswerProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+func (conversationAnswerProfile) StageContext(state *app.WorkflowState) workflowStageContext {
 	nodeID := state.ActiveNodeIDs[0]
 	node := state.Nodes[nodeID]
-	return workflowExecutionHint{
+	return workflowStageContext{
 		TaskType: "answer", EvidenceNeed: "none", DataScope: "local", ToolMode: "none",
 		RequiresToolEvidence: false, EstimatedRisk: app.RiskRead, ModelLaneHint: workflowExecutionModelLane,
 		Reason:     "Answer only from the owner request and conversation context; no tools or external evidence are allowed.",

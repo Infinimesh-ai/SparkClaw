@@ -71,8 +71,8 @@ func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *
 	if got := visibleToolNames(dispatch.Tools); len(got) != 1 || got[0] != "browser.status" {
 		t.Fatalf("health_check exposed an out-of-stage browser tool: %#v", got)
 	}
-	if dispatch.Hint.Capability != app.ToolCapabilityBrowserHealth {
-		t.Fatalf("health_check hint selected the wrong capability: %#v", dispatch.Hint)
+	if dispatch.Context.Capability != app.ToolCapabilityBrowserHealth {
+		t.Fatalf("health_check stage context selected the wrong capability: %#v", dispatch.Context)
 	}
 	stored, ok := st.GetRun(dispatch.Run.ID)
 	if !ok || stored.Workflow == nil {
@@ -118,13 +118,13 @@ func TestBrowserWorkflowStageContextsStayHiddenUntilPresentation(t *testing.T) {
 				"browser": {Stage: "scan_tabs"},
 			},
 		}
-		var hint workflowExecutionHint
+		var stageContext workflowStageContext
 		if workflowID == app.WorkflowBrowserAutomation {
-			hint = (browserAutomationProfile{}).Hint(state)
+			stageContext = (browserAutomationProfile{}).StageContext(state)
 		} else {
-			hint = (browserInteractionProfile{}).Hint(state)
+			stageContext = (browserInteractionProfile{}).StageContext(state)
 		}
-		plan := enrichPlanWithBrowserMode(hint.taskHint(), toolPlan{Name: "browser.list_tabs", Args: map[string]any{}})
+		plan := enrichPlanWithBrowserMode(stageContext, toolPlan{Name: "browser.list_tabs", Args: map[string]any{}})
 		if plan.Args["browser_mode"] != "autonomous" || plan.Args["presentation"] != "hidden" || boolValue(plan.Args["surface_visible"]) {
 			t.Fatalf("%s execution stage was not hidden: %#v", workflowID, plan.Args)
 		}
@@ -500,9 +500,9 @@ func TestBrowserInteractionConsequentialClicksFailRoutingClosed(t *testing.T) {
 }
 
 func TestWorkflowPromptContextKeepsStageAndProvidedToolList(t *testing.T) {
-	hint := TaskHint{WorkflowID: app.WorkflowBrowserInteraction, Reason: "workflow_stage: validate_transition. Validate before goal assessment."}
+	stageContext := workflowStageContext{WorkflowID: app.WorkflowBrowserInteraction, Reason: "workflow_stage: validate_transition. Validate before goal assessment."}
 	tools := []app.ToolDefinition{{Name: "browser.snapshot"}, {Name: "browser.click"}, {Name: "browser.validate_transition"}}
-	prompt := appendWorkflowStepContext("WORKFLOW_STEP_REQUEST", hint, tools)
+	prompt := appendWorkflowStepContext("WORKFLOW_STEP_REQUEST", stageContext, tools)
 	for _, expected := range []string{"workflow_stage: validate_transition", "browser.snapshot", "browser.click", "browser.validate_transition"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("workflow prompt context lost %q: %s", expected, prompt)

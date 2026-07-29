@@ -166,7 +166,7 @@ func TestBrowserWeatherDispatchesOnlyInfoQuestionInitially(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "weather.lookup" || dispatch.Hint.Capability != app.ToolCapabilityInfoQuestion {
+	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "weather.lookup" || dispatch.Context.Capability != app.ToolCapabilityInfoQuestion {
 		t.Fatalf("browser.weather exposed the wrong Workflow capability: %#v", dispatch)
 	}
 }
@@ -315,7 +315,7 @@ func TestCurrentGoldPriceRouteCompletesThroughBoundedInfoEvidence(t *testing.T) 
 		t.Fatal(err)
 	}
 	runtime.runWorkflow(context.Background(), session.ID, dispatch.Run, goal+`
-MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"今日金价"}}`, dispatch.Profile, dispatch.Hint, dispatch.Tools)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"今日金价"}}`, dispatch.Profile, dispatch.Context, dispatch.Tools)
 	run, ok := st.GetRun(run.ID)
 	if !ok || run.Workflow == nil || run.Workflow.Status != app.WorkflowStatusSucceeded || run.Workflow.Plan.ProfileID != app.WorkflowBrowserInternetSearch {
 		t.Fatalf("gold route did not complete its fixed search Workflow: %#v", run.Workflow)
@@ -1195,21 +1195,27 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 		t.Fatalf("semantic fusion unexpectedly called the removed reranker: %#v", modelCalls)
 	}
 	foundWorkflowStep := false
+	wantWorkflowLane := workflowModelLaneForProfile(workflowID)
 	for _, call := range modelCalls {
 		if !strings.HasPrefix(call.Operation, "workflow_step_") {
 			continue
 		}
 		foundWorkflowStep = true
-		if call.Lane != workflowExecutionModelLane {
-			t.Fatalf("workflow model step %q used lane %q, want %q", call.Operation, call.Lane, workflowExecutionModelLane)
+		if call.Lane != wantWorkflowLane {
+			t.Fatalf("workflow model step %q used lane %q, want %q", call.Operation, call.Lane, wantWorkflowLane)
 		}
 	}
-	if workflowID == app.WorkflowBrowserAutomation && result.Run.Workflow.Plan.ProfileRevision >= app.BrowserWorkflowRevision2 {
+	directOnly := workflowID == app.WorkflowBrowserAutomation && result.Run.Workflow.Plan.ProfileRevision >= app.BrowserWorkflowRevision2 ||
+		workflowID == app.WorkflowDocumentRead && result.Run.Workflow.Plan.ProfileRevision >= 3
+	if directOnly {
 		if foundWorkflowStep || !hasAgentAuditType(st.ListAudit(sessionID), "workflow.direct_tool_invoked") {
-			t.Fatalf("browser.automation revision 2 must run structural stages without model tool selection: model_calls=%#v", modelCalls)
+			t.Fatalf("%s must run its structural stages without model tool selection: model_calls=%#v", workflowID, modelCalls)
 		}
 	} else if !foundWorkflowStep {
 		t.Fatalf("matched workflow did not persist a model execution step: %#v", modelCalls)
+	}
+	if workflowID == app.WorkflowDocumentRead && !hasModelCallOperation(modelCalls, "workflow_final_answer", documentWorkflowModelLane) {
+		t.Fatalf("document.read did not finalize direct evidence on Fast: %#v", modelCalls)
 	}
 	assertNoLegacyRoutingAudit(t, st.ListAudit(sessionID))
 	if !hasAgentAuditType(st.ListAudit(sessionID), "workflow.dispatched") || !hasAgentAuditType(st.ListAudit(sessionID), "tools.exposure.fixed") {

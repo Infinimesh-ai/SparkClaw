@@ -2621,9 +2621,13 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	}
 	if !hasServerTestModelCall(decoded.ModelCalls, "intent_embedding", "embedding") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "intent_tree_graph", "fast") ||
-		!hasServerTestModelCall(decoded.ModelCalls, "workflow_step_1", "deep") ||
+		!hasServerTestModelCall(decoded.ModelCalls, "workflow_final_answer", "fast") ||
 		!hasServerTestModelCall(decoded.ModelCalls, "guard", "guard") {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)
+	}
+	if hasServerTestModelCall(decoded.ModelCalls, "workflow_step_1", "deep") ||
+		hasServerTestModelCall(decoded.ModelCalls, "workflow_step_1", "fast") {
+		t.Fatalf("document.read trace included a model action step before its single bound reader: %#v", decoded.ModelCalls)
 	}
 	if hasServerTestModelCall(decoded.ModelCalls, "intent_rerank", "reranker") {
 		t.Fatalf("trace included a model call for the removed reranker: %#v", decoded.ModelCalls)

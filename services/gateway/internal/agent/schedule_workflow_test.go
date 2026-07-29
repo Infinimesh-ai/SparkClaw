@@ -109,8 +109,8 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 		t.Fatalf("schedule workflow did not enter mutation stage: changed=%t err=%v", changed, err)
 	}
 	st.SaveRun(storedRun)
-	hint := dispatch.Profile.Hint(storedRun.Workflow)
-	mutationTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &hint)
+	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
+	mutationTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}

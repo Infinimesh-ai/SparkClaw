@@ -28,8 +28,11 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 			t.Fatalf("resolve %v: %v", path, err)
 		}
 		wantRevision := 1
-		if leaf.ID == app.CapabilityDocumentRead || leaf.ID == app.CapabilityScheduleManage {
+		if leaf.ID == app.CapabilityScheduleManage {
 			wantRevision = 2
+		}
+		if leaf.ID == app.CapabilityDocumentRead {
+			wantRevision = 3
 		}
 		if leaf.ID == app.CapabilityDocumentEdit {
 			wantRevision = 5

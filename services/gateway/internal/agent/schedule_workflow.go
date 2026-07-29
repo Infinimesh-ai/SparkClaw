@@ -193,9 +193,9 @@ func (scheduleManageProfile) Assess(state *app.WorkflowState, outcome app.ToolOu
 	return assessment
 }
 
-func (scheduleManageProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+func (scheduleManageProfile) StageContext(state *app.WorkflowState) workflowStageContext {
 	operation := string(state.Route.Slots.Operation)
-	return workflowHint(state, operation, "schedule", "local", "", "Dispatched by the schedule.manage workflow contract.")
+	return workflowStageContextForState(state, operation, "schedule", "local", "", "Dispatched by the schedule.manage workflow contract.")
 }
 
 func (scheduleManageProfile) TransitionInstruction(_ app.ToolOutcome, assessment app.NodeAssessment) string {

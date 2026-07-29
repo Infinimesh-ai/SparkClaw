@@ -316,7 +316,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	run.State = "executing"
 	r.store.SaveRun(run)
 
-	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Hint, dispatch.Tools, emit)
+	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Context, dispatch.Tools, emit)
 	if refreshed, ok := r.store.GetRun(run.ID); ok {
 		run = refreshed
 	}
@@ -1143,11 +1143,11 @@ func enrichPlanWithWebFreshness(goal string, plan toolPlan) toolPlan {
 	return plan
 }
 
-func enrichPlanWithBrowserMode(hint TaskHint, plan toolPlan) toolPlan {
+func enrichPlanWithBrowserMode(stageContext workflowStageContext, plan toolPlan) toolPlan {
 	if !strings.HasPrefix(plan.Name, "browser.") {
 		return plan
 	}
-	mode := browserModeForToolPlan(hint, plan.Name)
+	mode := browserModeForToolPlan(stageContext, plan.Name)
 	if mode == "" {
 		return plan
 	}
@@ -1177,8 +1177,8 @@ func hasNonEmptyStringArg(args map[string]any, key string) bool {
 	return text != "" && text != "<nil>"
 }
 
-func browserModeForToolPlan(hint TaskHint, tool string) string {
-	mode := strings.ToLower(strings.TrimSpace(hint.BrowserMode))
+func browserModeForToolPlan(stageContext workflowStageContext, tool string) string {
+	mode := strings.ToLower(strings.TrimSpace(stageContext.BrowserMode))
 	if mode == "autonomous" || mode == "collaborative" {
 		return mode
 	}

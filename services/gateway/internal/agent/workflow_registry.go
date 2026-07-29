@@ -11,6 +11,16 @@ import (
 )
 
 const workflowExecutionModelLane = "deep"
+const documentWorkflowModelLane = "fast"
+
+func workflowModelLaneForProfile(profileID app.WorkflowID) string {
+	switch profileID {
+	case app.WorkflowDocumentRead, app.WorkflowDocumentEdit:
+		return documentWorkflowModelLane
+	default:
+		return workflowExecutionModelLane
+	}
+}
 
 type workflowProfile interface {
 	ID() app.WorkflowID
@@ -21,7 +31,7 @@ type workflowProfile interface {
 	Resolve(app.RouteDecision, string) (app.IntentEnvelope, app.WorkflowPlan, error)
 	Prepare(*app.WorkflowState) (workflowPreparation, error)
 	Assess(*app.WorkflowState, app.ToolOutcome) app.NodeAssessment
-	Hint(*app.WorkflowState) workflowExecutionHint
+	StageContext(*app.WorkflowState) workflowStageContext
 	TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string
 }
 
@@ -52,38 +62,20 @@ type workflowRoutingSemantics = semanticrouting.WorkflowSemantics
 type workflowRoutingVariant = semanticrouting.IntentVariant
 type workflowRouteTemplate = semanticrouting.RouteTemplate
 
-type workflowExecutionHint struct {
-	TaskType             string
-	EvidenceNeed         string
-	DataScope            string
-	ToolMode             string
-	BrowserMode          string
-	RequiresToolEvidence bool
-	EstimatedRisk        app.RiskLevel
-	ModelLaneHint        string
-	Reason               string
-	WorkflowID           app.WorkflowID
-	WorkflowNodeID       app.WorkflowNodeID
-	ScopeRevision        int
-	Capability           string
-}
-
-func (hint workflowExecutionHint) taskHint() TaskHint {
-	return TaskHint{
-		TaskType:             hint.TaskType,
-		EvidenceNeed:         hint.EvidenceNeed,
-		DataScope:            hint.DataScope,
-		ToolMode:             hint.ToolMode,
-		BrowserMode:          hint.BrowserMode,
-		RequiresToolEvidence: hint.RequiresToolEvidence,
-		EstimatedRisk:        string(hint.EstimatedRisk),
-		ModelLaneHint:        hint.ModelLaneHint,
-		Reason:               hint.Reason,
-		WorkflowID:           hint.WorkflowID,
-		WorkflowNodeID:       hint.WorkflowNodeID,
-		ScopeRevision:        hint.ScopeRevision,
-		Capability:           hint.Capability,
-	}
+type workflowStageContext struct {
+	TaskType             string             `json:"task_type"`
+	EvidenceNeed         string             `json:"evidence_need"`
+	DataScope            string             `json:"data_scope,omitempty"`
+	ToolMode             string             `json:"tool_mode"`
+	BrowserMode          string             `json:"browser_mode,omitempty"`
+	RequiresToolEvidence bool               `json:"requires_tool_evidence,omitempty"`
+	EstimatedRisk        app.RiskLevel      `json:"estimated_risk"`
+	ModelLaneHint        string             `json:"model_lane_hint"`
+	Reason               string             `json:"reason"`
+	WorkflowID           app.WorkflowID     `json:"-"`
+	WorkflowNodeID       app.WorkflowNodeID `json:"-"`
+	ScopeRevision        int                `json:"-"`
+	Capability           string             `json:"-"`
 }
 
 type workflowProfileRegistry struct {

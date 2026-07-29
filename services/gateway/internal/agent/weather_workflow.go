@@ -170,8 +170,8 @@ func (browserWeatherProfile) Assess(state *app.WorkflowState, outcome app.ToolOu
 	return assessment
 }
 
-func (browserWeatherProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	return workflowHint(state, "weather", "info", "public", "", "Dispatched by the browser.weather workflow contract.")
+func (browserWeatherProfile) StageContext(state *app.WorkflowState) workflowStageContext {
+	return workflowStageContextForState(state, "weather", "info", "public", "", "Dispatched by the browser.weather workflow contract.")
 }
 
 func (browserWeatherProfile) TransitionInstruction(outcome app.ToolOutcome, _ app.NodeAssessment) string {

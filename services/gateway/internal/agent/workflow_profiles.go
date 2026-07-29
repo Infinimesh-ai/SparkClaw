@@ -67,8 +67,8 @@ func (browserInternetSearchProfile) Assess(_ *app.WorkflowState, outcome app.Too
 	}
 	return assessment
 }
-func (browserInternetSearchProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	return workflowHint(state, "search", "web", "public", "", "Dispatched by the browser.internet_search workflow contract.")
+func (browserInternetSearchProfile) StageContext(state *app.WorkflowState) workflowStageContext {
+	return workflowStageContextForState(state, "search", "web", "public", "", "Dispatched by the browser.internet_search workflow contract.")
 }
 func (browserInternetSearchProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
@@ -77,7 +77,7 @@ func (browserInternetSearchProfile) TransitionInstruction(app.ToolOutcome, app.N
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 2 }
+func (documentReadProfile) Revision() int                { return 3 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
@@ -115,7 +115,7 @@ func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 				Goal:             app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Read the exact governed path with its detected format", Completion: app.CompletionEvidence},
 				InitialScope:     readScope,
 				ArgumentBindings: []app.ArgumentBinding{{Capability: app.ToolCapabilityDocumentRead, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"}},
-				AllowedRisks:     []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+				AllowedRisks:     []app.RiskLevel{app.RiskRead}, MaxAttempts: 1, InvocationMode: app.WorkflowInvocationDirectOnce,
 			},
 		},
 	}, nil
@@ -132,8 +132,8 @@ func (documentReadProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome)
 	}
 	return assessment
 }
-func (documentReadProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
-	return workflowHint(state, "inspect", "workspace", "workspace", "", "Dispatched by the document.read workflow contract.")
+func (documentReadProfile) StageContext(state *app.WorkflowState) workflowStageContext {
+	return workflowStageContextForState(state, "inspect", "workspace", "workspace", "", "Dispatched by the document.read workflow contract.")
 }
 func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
@@ -229,12 +229,12 @@ func (documentEditProfile) Assess(state *app.WorkflowState, outcome app.ToolOutc
 	}
 	return assessment
 }
-func (documentEditProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+func (documentEditProfile) StageContext(state *app.WorkflowState) workflowStageContext {
 	operation := "modify"
 	if len(state.ActiveNodeIDs) > 0 && state.ActiveNodeIDs[0] == "document_locate_evidence" {
 		operation = "inspect"
 	}
-	return workflowHint(state, operation, "workspace", "workspace", "", "Dispatched by the staged document.edit workflow contract.")
+	return workflowStageContextForState(state, operation, "workspace", "workspace", "", "Dispatched by the staged document.edit workflow contract.")
 }
 func (documentEditProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
@@ -406,28 +406,28 @@ func workflowPlanDigest(plan app.WorkflowPlan) string {
 	return "plan_" + hex.EncodeToString(sum[:])
 }
 
-func workflowHint(state *app.WorkflowState, taskType, evidenceNeed, dataScope, browserMode, reason string) workflowExecutionHint {
+func workflowStageContextForState(state *app.WorkflowState, taskType, evidenceNeed, dataScope, browserMode, reason string) workflowStageContext {
 	nodeID := state.ActiveNodeIDs[0]
 	nodeState := state.Nodes[nodeID]
-	hint := workflowExecutionHint{
+	stageContext := workflowStageContext{
 		TaskType: taskType, EvidenceNeed: evidenceNeed, DataScope: dataScope, ToolMode: "workflow_bounded", BrowserMode: browserMode,
-		RequiresToolEvidence: true, EstimatedRisk: app.RiskRead, ModelLaneHint: workflowExecutionModelLane, Reason: reason,
+		RequiresToolEvidence: true, EstimatedRisk: app.RiskRead, ModelLaneHint: workflowModelLaneForProfile(state.Plan.ProfileID), Reason: reason,
 		WorkflowID: state.Plan.ProfileID, WorkflowNodeID: nodeID, ScopeRevision: nodeState.ScopeRevision,
 	}
 	if node, ok := workflowPlanNode(state.Plan, nodeID); ok {
 		if capabilities, gated := workflowStageCapabilityNames(node, nodeState.Stage); gated && len(capabilities) > 0 {
-			hint.Capability = capabilities[0]
+			stageContext.Capability = capabilities[0]
 		}
 	}
-	if hint.Capability == "" && len(nodeState.CurrentScope.Requirements) > 0 {
-		hint.Capability = nodeState.CurrentScope.Requirements[0].Name
+	if stageContext.Capability == "" && len(nodeState.CurrentScope.Requirements) > 0 {
+		stageContext.Capability = nodeState.CurrentScope.Requirements[0].Name
 	}
-	return hint
+	return stageContext
 }
 
-func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.AgentRun, actorRef string, hint *workflowExecutionHint) ([]app.ToolDefinition, error) {
-	state := run.Workflow.Nodes[hint.WorkflowNodeID]
-	node, ok := workflowPlanNode(run.Workflow.Plan, hint.WorkflowNodeID)
+func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.AgentRun, actorRef string, stageContext *workflowStageContext) ([]app.ToolDefinition, error) {
+	state := run.Workflow.Nodes[stageContext.WorkflowNodeID]
+	node, ok := workflowPlanNode(run.Workflow.Plan, stageContext.WorkflowNodeID)
 	if ok && node.Goal.Completion == app.CompletionDecision {
 		return nil, errors.New("workflow decision node must be resolved before tool materialization")
 	}
@@ -435,18 +435,18 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 		if len(state.CurrentScope.Requirements) != 0 {
 			return nil, errors.New("model-answer workflow node cannot materialize tools")
 		}
-		hint.Capability = ""
+		stageContext.Capability = ""
 		r.store.AddAudit(app.AuditEvent{
 			SessionID: run.SessionID, RunID: run.ID, Actor: "tool-exposure", Type: "tools.exposure.none",
 			Summary: "Model-answer workflow intentionally exposes no tools",
 			Fields: map[string]any{
-				"workflow_id": run.Workflow.Plan.ProfileID, "node_id": hint.WorkflowNodeID, "scope_revision": state.ScopeRevision,
+				"workflow_id": run.Workflow.Plan.ProfileID, "node_id": stageContext.WorkflowNodeID, "scope_revision": state.ScopeRevision,
 			},
 		})
 		return []app.ToolDefinition{}, nil
 	}
 	view, err := r.exposure.Search(ctx, app.ExposureRequest{
-		RunID: run.ID, WorkflowID: run.Workflow.Plan.ProfileID, NodeID: hint.WorkflowNodeID,
+		RunID: run.ID, WorkflowID: run.Workflow.Plan.ProfileID, NodeID: stageContext.WorkflowNodeID,
 		ScopeRevision: state.ScopeRevision, ActorRef: actorRef, Limit: 32,
 	})
 	if err != nil {
@@ -467,13 +467,13 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if err != nil {
 		return nil, err
 	}
-	hint.ScopeRevision = view.ScopeRevision
+	stageContext.ScopeRevision = view.ScopeRevision
 	r.auditFixedWorkflowExposure(run, view, entryIDs, exposure.Definitions)
-	visibleDefinitions, capabilities, err := workflowStageVisibleTools(run, hint.WorkflowNodeID, exposure.Definitions)
+	visibleDefinitions, capabilities, err := workflowStageVisibleTools(run, stageContext.WorkflowNodeID, exposure.Definitions)
 	if err != nil {
 		return nil, err
 	}
-	r.auditWorkflowStageExposure(run, hint.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
+	r.auditWorkflowStageExposure(run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
 	return visibleDefinitions, nil
 }
 

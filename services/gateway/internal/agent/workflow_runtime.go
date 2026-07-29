@@ -551,15 +551,15 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 }
 
-func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {
-	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil, emit)
+func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {
+	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, stageContext, visibleTools, nil, nil, emit)
 }
 
-func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
-	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, hint, visibleTools, seedCalls, seedObservations, nil)
+func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
+	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, stageContext, visibleTools, seedCalls, seedObservations, nil)
 }
 
-func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) workflowExecutionResult {
+func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) workflowExecutionResult {
 	actorRef := r.workflowActorRef(sessionID)
 	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
@@ -571,11 +571,11 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
 		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {
-			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, hint, visibleTools, allObservations)
+			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, stageContext, visibleTools, allObservations)
 		} else if directProfile, ok := profile.(workflowDirectStageProfile); ok && directProfile.DirectStage(run.Workflow) {
-			stageResult = r.runWorkflowDirectStage(ctx, sessionID, run, hint, visibleTools, allObservations, directProfile.DirectStageArguments(run.Workflow))
+			stageResult = r.runWorkflowDirectStage(ctx, sessionID, run, stageContext, visibleTools, allObservations, directProfile.DirectStageArguments(run.Workflow))
 		} else {
-			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, hint, visibleTools, allCalls, allObservations)
+			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, stageContext, visibleTools, allCalls, allObservations)
 		}
 		allCalls = append(allCalls, stageResult.ToolCalls...)
 		allApprovals = append(allApprovals, stageResult.Approvals...)
@@ -684,7 +684,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		if !transitioned {
 			allObservations = append(allObservations, "workflow_requirement: The active workflow completion rule is not satisfied. Call the single materialized capability before returning a final answer.")
 		}
-		stageContext := profile.Hint(run.Workflow)
+		stageContext = profile.StageContext(run.Workflow)
 		var err error
 		visibleTools, err = r.materializeActiveWorkflowTools(ctx, run, actorRef, &stageContext)
 		if err != nil {
@@ -693,7 +693,6 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			latest.Cancelled = ctx.Err() != nil
 			break
 		}
-		hint = stageContext.taskHint()
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
 			run = refreshed
 		}
@@ -717,7 +716,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		case storedRun.Workflow.Status == app.WorkflowStatusSucceeded && strings.TrimSpace(latest.FinalAnswer) == "" && profile.Finalization() == workflowFinalizationModel:
 			chat, answer, err := r.synthesizeWorkflowFinalAnswer(
 				ctx, storedRun, content, allCalls, allObservations,
-				workflowExecutionModelLane, emit,
+				workflowModelLaneForProfile(profile.ID()), emit,
 			)
 			latest.FinalAnswerStreamed = emit != nil
 			if err == nil {
@@ -753,27 +752,27 @@ func activeWorkflowNodeUsesDirectToolOnce(state *app.WorkflowState) bool {
 	return ok && node.InvocationMode == app.WorkflowInvocationDirectOnce
 }
 
-func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string) workflowExecutionResult {
-	return r.runWorkflowDirectTool(ctx, sessionID, run, hint, visibleTools, observations, nil, true)
+func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string) workflowExecutionResult {
+	return r.runWorkflowDirectTool(ctx, sessionID, run, stageContext, visibleTools, observations, nil, true)
 }
 
-func (r Runtime) runWorkflowDirectStage(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string, args map[string]any) workflowExecutionResult {
-	return r.runWorkflowDirectTool(ctx, sessionID, run, hint, visibleTools, observations, args, false)
+func (r Runtime) runWorkflowDirectStage(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any) workflowExecutionResult {
+	return r.runWorkflowDirectTool(ctx, sessionID, run, stageContext, visibleTools, observations, args, false)
 }
 
-func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string, args map[string]any, requireDirectOnce bool) workflowExecutionResult {
+func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any, requireDirectOnce bool) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]string(nil), observations...)}
 	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 || len(visibleTools) != 1 ||
-		hint.WorkflowID != run.Workflow.Plan.ProfileID || hint.WorkflowNodeID != run.Workflow.ActiveNodeIDs[0] || hint.ScopeRevision <= 0 {
+		stageContext.WorkflowID != run.Workflow.Plan.ProfileID || stageContext.WorkflowNodeID != run.Workflow.ActiveNodeIDs[0] || stageContext.ScopeRevision <= 0 {
 		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid
 		return result
 	}
-	node, ok := workflowPlanNode(run.Workflow.Plan, hint.WorkflowNodeID)
+	node, ok := workflowPlanNode(run.Workflow.Plan, stageContext.WorkflowNodeID)
 	if !ok || requireDirectOnce && node.InvocationMode != app.WorkflowInvocationDirectOnce {
 		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid
 		return result
 	}
-	capability, err := r.materializedWorkflowCapability(run.ID, hint.WorkflowNodeID, hint.ScopeRevision, visibleTools[0].Name)
+	capability, err := r.materializedWorkflowCapability(run.ID, stageContext.WorkflowNodeID, stageContext.ScopeRevision, visibleTools[0].Name)
 	if err != nil {
 		result.WorkflowFailure = workflowFailureDirectToolInvocationInvalid
 		result.Observations = append(result.Observations, "workflow_direct_tool_error: "+err.Error())
@@ -782,12 +781,12 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 	plan := toolPlan{
 		Name:           visibleTools[0].Name,
 		Args:           clonePlanArgs(args),
-		WorkflowID:     hint.WorkflowID,
-		WorkflowNodeID: hint.WorkflowNodeID,
-		ScopeRevision:  hint.ScopeRevision,
+		WorkflowID:     stageContext.WorkflowID,
+		WorkflowNodeID: stageContext.WorkflowNodeID,
+		ScopeRevision:  stageContext.ScopeRevision,
 		Capability:     capability,
 	}
-	plan = enrichPlanWithBrowserMode(hint, plan)
+	plan = enrichPlanWithBrowserMode(stageContext, plan)
 	call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
 	result.ToolCalls = []app.ToolCall{call}
 	if approval != nil {
@@ -796,7 +795,7 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 	if strings.TrimSpace(observation) != "" {
 		result.Observations = append(result.Observations, observation)
 	}
-	if hint.WorkflowID == app.WorkflowBrowserAutomation || hint.WorkflowID == app.WorkflowBrowserInteraction {
+	if stageContext.WorkflowID == app.WorkflowBrowserAutomation || stageContext.WorkflowID == app.WorkflowBrowserInteraction {
 		goal := run.Workflow.Route.Slots.Query
 		if strings.TrimSpace(goal) == "" {
 			goal = run.Workflow.Route.Slots.TargetRef
@@ -815,9 +814,9 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 		Type:      "workflow.direct_tool_invoked",
 		Summary:   "Invoked the single bound tool without a model execution step",
 		Fields: map[string]any{
-			"workflow_id":    hint.WorkflowID,
-			"node_id":        hint.WorkflowNodeID,
-			"scope_revision": hint.ScopeRevision,
+			"workflow_id":    stageContext.WorkflowID,
+			"node_id":        stageContext.WorkflowNodeID,
+			"scope_revision": stageContext.ScopeRevision,
 			"tool":           call.Tool,
 			"status":         call.Status,
 		},

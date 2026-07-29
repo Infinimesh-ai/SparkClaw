@@ -19,7 +19,7 @@ import (
 type matchedWorkflowDispatch struct {
 	Run     app.AgentRun
 	Profile workflowProfile
-	Hint    TaskHint
+	Context workflowStageContext
 	Tools   []app.ToolDefinition
 }
 
@@ -76,8 +76,8 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	}
 	workflowExecution := workflowExecutionResult{}
 	if run.Workflow.Status == app.WorkflowStatusRunning {
-		hint := profile.Hint(run.Workflow)
-		visibleTools, exposeErr := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run.SessionID), &hint)
+		stageContext := profile.StageContext(run.Workflow)
+		visibleTools, exposeErr := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run.SessionID), &stageContext)
 		if exposeErr != nil {
 			result := r.blockPersistedWorkflowResume(ctx, run, content, exposeErr)
 			return result, true, nil
@@ -89,7 +89,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		run.CompletedAt = nil
 		r.store.SaveRun(run)
 		workflowExecution = r.runWorkflowWithSeed(
-			ctx, run.SessionID, run, content, profile, hint.taskHint(), visibleTools,
+			ctx, run.SessionID, run, content, profile, stageContext, visibleTools,
 			seedCalls, append(observationsForResume(seedCalls), decisionObservations...),
 		)
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
@@ -168,8 +168,8 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 			"plan_digest": run.Workflow.PlanDigest, "active_node_ids": run.Workflow.ActiveNodeIDs,
 		},
 	})
-	workflowHint := resolved.Profile.Hint(run.Workflow)
-	visibleTools, err := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run.SessionID), &workflowHint)
+	stageContext := resolved.Profile.StageContext(run.Workflow)
+	visibleTools, err := r.materializeActiveWorkflowTools(ctx, run, r.workflowActorRef(run.SessionID), &stageContext)
 	if err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
@@ -180,11 +180,11 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 		SessionID: run.SessionID, RunID: run.ID, Actor: "gateway", Type: "gateway.dispatch",
 		Summary: "Dispatched a matched capability through its fixed workflow boundary",
 		Fields: map[string]any{
-			"workflow_id": resolved.Plan.ProfileID, "node_id": workflowHint.WorkflowNodeID,
-			"scope_revision": workflowHint.ScopeRevision, "tools": visibleToolNames(visibleTools),
+			"workflow_id": resolved.Plan.ProfileID, "node_id": stageContext.WorkflowNodeID,
+			"scope_revision": stageContext.ScopeRevision, "tools": visibleToolNames(visibleTools),
 		},
 	})
-	return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile, Hint: workflowHint.taskHint(), Tools: visibleTools}, nil
+	return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile, Context: stageContext, Tools: visibleTools}, nil
 }
 
 func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, goal string, returnRoute app.ReturnRoute, route app.RouteDecision) Result {

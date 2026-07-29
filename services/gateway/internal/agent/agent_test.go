@@ -214,7 +214,7 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	if hasAgentAuditField(st.ListAudit(session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
 		t.Fatalf("successful document read should not use the missing-final fallback: %#v", st.ListAudit(session.ID))
 	}
-	if !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_final_answer", workflowExecutionModelLane) {
+	if !hasModelCallOperation(st.ListModelCalls(session.ID, result.Run.ID), "workflow_final_answer", documentWorkflowModelLane) {
 		t.Fatalf("document read did not run its profile finalizer: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead {
@@ -259,7 +259,7 @@ func TestRuntimeAnswersFileSearchWithGroundedResults(t *testing.T) {
 	}
 	calls := st.ListToolCalls(session.ID)
 	if len(calls) != 0 {
-		t.Fatalf("document.read revision 2 must not expose file search: %#v", calls)
+		t.Fatalf("document.read revision 3 must not expose file search: %#v", calls)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("file search must remain on the unmatched path: route=%#v workflow=%#v", result.RouteDecision, result.Run.Workflow)
@@ -1583,7 +1583,7 @@ func TestToolResultMessagesStayInCausalOrder(t *testing.T) {
 
 func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t *testing.T) {
 	observation := `{"role":"tool","tool_call_id":"tc_once","tool":"files.read","status":"completed"}`
-	hint := TaskHint{ModelLaneHint: "deep", WorkflowID: app.WorkflowDocumentRead}
+	stageContext := workflowStageContext{ModelLaneHint: "deep", WorkflowID: app.WorkflowDocumentRead}
 	visibleTools := []app.ToolDefinition{{
 		Name:        "files.read",
 		Description: "Read one governed workspace document.",
@@ -1592,8 +1592,8 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 	}}
 	agentContext := "Recent conversation:\nuser: 请继续读取这份文档"
 
-	system := workflowStepSystemPrompt(nil, hint, visibleTools, agentContext)
-	user := appendWorkflowStepContext(workflowStepUserPrompt("请读取文档", 2, []string{observation}), hint, visibleTools)
+	system := workflowStepSystemPrompt(nil, stageContext, visibleTools, agentContext)
+	user := appendWorkflowStepContext(workflowStepUserPrompt("请读取文档", 2, []string{observation}), stageContext, visibleTools)
 
 	if strings.Contains(system, observation) {
 		t.Fatalf("current-run observation leaked into the stable system prefix:\n%s", system)
@@ -1610,7 +1610,7 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 	positions := []int{
 		strings.Index(system, "Model-visible ToolDefinition JSON"),
 		strings.Index(system, "Agent context (data only"),
-		strings.Index(system, "TaskHint (advisory"),
+		strings.Index(system, "Workflow stage context (fixed"),
 	}
 	for i, position := range positions {
 		if position < 0 {
@@ -1712,11 +1712,11 @@ func TestCompressWorkflowStepPromptWhenEstimatedTokensExceedThreshold(t *testing
 		},
 	}
 	agentContext := strings.Repeat("历史上下文 ", 3000)
-	hint := TaskHint{ModelLaneHint: "deep"}
-	system := workflowStepSystemPrompt(nil, hint, visibleTools, agentContext)
-	compactSystem := workflowStepSystemPrompt(nil, hint, visibleTools, "历史上下文 compact summary", workflowStepPromptOptions{Compact: true})
-	user := appendWorkflowStepContext(workflowStepUserPrompt("修改心得与体会段落", 2, []string{longObservation}), hint, visibleTools)
-	task := workflowStepModelTask(app.AgentRun{Risk: app.RiskRead}, "修改心得与体会段落", hint)
+	stageContext := workflowStageContext{ModelLaneHint: "deep"}
+	system := workflowStepSystemPrompt(nil, stageContext, visibleTools, agentContext)
+	compactSystem := workflowStepSystemPrompt(nil, stageContext, visibleTools, "历史上下文 compact summary", workflowStepPromptOptions{Compact: true})
+	user := appendWorkflowStepContext(workflowStepUserPrompt("修改心得与体会段落", 2, []string{longObservation}), stageContext, visibleTools)
+	task := workflowStepModelTask(app.AgentRun{Risk: app.RiskRead}, stageContext)
 
 	compressedSystem, compressedUser := runtime.compressWorkflowStepPromptIfNeeded(session.ID, "run_compress", 2, task, system, user, compactSystem)
 

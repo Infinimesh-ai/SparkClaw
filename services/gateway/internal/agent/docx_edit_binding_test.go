@@ -81,8 +81,8 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("DOCX paragraph operation was not selected: changed=%t err=%v", changed, err)
 	}
-	hint := dispatch.Profile.Hint(storedRun.Workflow)
-	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &hint)
+	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
+	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
 	if err != nil {
 		t.Fatal(err)
 	}

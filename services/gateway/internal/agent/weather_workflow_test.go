@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -57,7 +56,7 @@ func TestWeatherResearchStaysOnInternetSearch(t *testing.T) {
 	}
 }
 
-func TestWeatherWorkflowFreezesThreeSequentialScopes(t *testing.T) {
+func TestWeatherWorkflowFreezesDedicatedLookupAndRenderScopes(t *testing.T) {
 	catalog := capability.MustDefaultCatalog()
 	route := app.RouteDecision{
 		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
@@ -73,52 +72,54 @@ func TestWeatherWorkflowFreezesThreeSequentialScopes(t *testing.T) {
 		t.Fatalf("unexpected weather plan: %#v", resolved.Plan)
 	}
 	node := resolved.Plan.Nodes[0]
-	if node.InitialStage != "query_info" || node.MaxAttempts != 3 || len(node.Transitions) != 2 || len(node.ArgumentBindings) != 4 {
-		t.Fatalf("weather plan did not freeze three stages: %#v", node)
+	if node.InitialStage != "lookup_weather" || node.MaxAttempts != 3 || len(node.Transitions) != 1 || len(node.ArgumentBindings) != 2 {
+		t.Fatalf("weather plan did not freeze the dedicated two-stage path: %#v", node)
 	}
 	if node.InitialScope.Requirements[0].Name != app.ToolCapabilityInfoQuestion ||
-		node.Transitions[0].Replace.Requirements[0].Name != app.ToolCapabilityWeatherStructure ||
-		node.Transitions[1].Replace.Requirements[0].Name != app.ToolCapabilityWeatherRender {
+		node.InitialScope.Requirements[0].Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo ||
+		node.Transitions[0].Replace.Requirements[0].Name != app.ToolCapabilityWeatherRender {
 		t.Fatalf("weather scopes are not sequential and exact: %#v", node)
 	}
+	if node.ArgumentBindings[0].Capability != app.ToolCapabilityInfoQuestion ||
+		node.ArgumentBindings[0].Argument != "location" ||
+		node.ArgumentBindings[0].Source != app.ArgumentBindingRouteSlot ||
+		node.ArgumentBindings[0].SourceKey != "target_ref" ||
+		node.ArgumentBindings[1].Capability != app.ToolCapabilityWeatherRender ||
+		node.ArgumentBindings[1].Argument != "weather_payload_ref" ||
+		node.ArgumentBindings[1].Source != app.ArgumentBindingOutcomeRef {
+		t.Fatalf("weather arguments are not bound to the frozen route and lookup outcome: %#v", node.ArgumentBindings)
+	}
 }
 
-func TestWeatherStructureInstructionOmitsEvidenceForMissingFields(t *testing.T) {
+func TestWeatherTransitionInstructionOnlyRendersBoundTypedPayload(t *testing.T) {
 	instruction := browserWeatherProfile{}.TransitionInstruction(app.ToolOutcome{
-		Signals: []app.OutcomeSignal{app.OutcomeSignalInfoAnswerAvailable},
+		Signals: []app.OutcomeSignal{app.OutcomeSignalWeatherPayloadAvailable},
 	}, app.NodeAssessment{})
-	if !strings.Contains(instruction, "do not submit a value or evidence entry for a marked category") {
-		t.Fatalf("weather structure instruction does not define missing-field evidence behavior: %q", instruction)
-	}
-	for _, ref := range []string{"summary:0", "fact:N", "source:N:snippet:M"} {
-		if !strings.Contains(instruction, ref) {
-			t.Fatalf("weather structure instruction does not expose Info ref %q: %q", ref, instruction)
-		}
-	}
-	for _, shape := range []string{"standalone current reading", "if only a daily range is available", "complete range such as 28~34℃", "without reformatting", "strictly after the current system time", "mark hourly missing", "current may contain only condition, temperature_c, feels_like_c, humidity_pct, wind_kmh, and precipitation_mm", "never submit humidity_percent", "every hourly entry uses exactly time, condition, and temperature_c, never datetime", "all three hourly leaves require separate evidence entries", "daily are arrays", "min_temperature_c", "field_path, evidence_ref, and evidence_text", "Unknown optional values may be omitted or null", "daily[0].date", "hourly[0].condition", "never an unsupported field", "Never use field/ref/value aliases"} {
-		if !strings.Contains(instruction, shape) {
-			t.Fatalf("weather structure instruction does not enforce %q: %q", shape, instruction)
-		}
+	if instruction != "workflow_requirement: Render the bound typed weather payload. Call media.render_weather_card without adding, rewriting, or reinterpreting weather fields." {
+		t.Fatalf("weather transition instruction allows payload reinterpretation: %q", instruction)
 	}
 }
 
-func TestInfoAnswerOutcomeAcceptsStructuredEvidenceWithoutSummary(t *testing.T) {
-	tests := []struct {
-		name   string
-		result map[string]any
-	}{
-		{name: "fact", result: map[string]any{"summary": "", "key_facts": []any{map[string]any{"claim": "杭州当前多云。"}}}},
-		{name: "source snippet", result: map[string]any{"sources": []any{map[string]any{"snippets": []string{"杭州当前气温31°C。"}}}}},
+func TestWeatherPayloadOutcomeRequiresDedicatedTypedBoundary(t *testing.T) {
+	valid := adaptWeatherPayloadWorkflowOutcome(app.ToolCall{
+		ID: "tc_weather", Tool: "weather.lookup", Status: "completed",
+		Result: map[string]any{"schema_version": 3, "request_id": "request", "location": "杭州"},
+	}, "weather")
+	if !containsOutcomeSignal(valid.Signals, app.OutcomeSignalWeatherPayloadAvailable) ||
+		len(valid.Refs) != 1 || valid.Refs[0].Kind != "weather_payload" || valid.Refs[0].Ref != "tc_weather" {
+		t.Fatalf("dedicated weather payload did not advance the workflow: %#v", valid)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			outcome := adaptInfoAnswerWorkflowOutcome(app.ToolCall{
-				ID: "tc_info", Tool: "info.query", Status: "completed", Result: test.result,
-			}, "weather")
-			if !containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInfoAnswerAvailable) || len(outcome.Refs) != 1 || outcome.Refs[0].Ref != "tc_info" {
-				t.Fatalf("structured Info evidence should advance the workflow without summary: %#v", outcome)
-			}
-		})
+	for _, result := range []map[string]any{
+		{"schema_version": 2, "request_id": "request", "location": "杭州"},
+		{"schema_version": 3, "location": "杭州"},
+		{"schema_version": 3, "request_id": "request"},
+	} {
+		outcome := adaptWeatherPayloadWorkflowOutcome(app.ToolCall{
+			ID: "tc_invalid", Tool: "weather.lookup", Status: "completed", Result: result,
+		}, "weather")
+		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalWeatherPayloadAvailable) {
+			t.Fatalf("incomplete weather payload advanced the workflow: %#v", outcome)
+		}
 	}
 }
 

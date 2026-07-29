@@ -1366,91 +1366,6 @@ func TestToolResultAdapterDoesNotFallbackForNonInfoWebSearchOutput(t *testing.T)
 	}
 }
 
-func TestToolResultAdapterPreservesCompleteInfoEvidenceDirectory(t *testing.T) {
-	call := app.ToolCall{ID: "tc_info", Tool: "info.query", Status: "completed"}
-	summary := "Synthesized 8 citation-backed fact(s) from 8 public source(s)."
-	output := map[string]any{
-		"request_id": "req-1", "query": "杭州天气", "provider": "infinimesh-info",
-		"summary": summary, "retrieved_at": "2026-07-17T10:00:00Z", "untrusted": true,
-		"key_facts": []any{map[string]any{"id": "fact:0", "claim": "杭州当前多云，气温31°C。", "sources": []string{"src-1"}}},
-		"sources":   []any{map[string]any{"evidence_index": 0, "id": "src-1", "url": "https://example.com/weather", "snippets": []string{"杭州今日最低27°C，最高34°C。"}}},
-		"citations": []string{"https://example.com/weather"},
-	}
-	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 48000, EvidenceLimit: 44000})
-	var decoded toolResultMessage
-	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
-		t.Fatalf("Info observation is not JSON: %v\n%s", err, message)
-	}
-	if decoded.Category != "info_query" || len(decoded.Evidence) != 1 || decoded.Evidence[0].Kind != "info.evidence_projection" || decoded.Evidence[0].Truncated {
-		t.Fatalf("Info evidence observation was not preserved completely: %#v", decoded)
-	}
-	if !usableInfoQueryObservation(message) {
-		t.Fatal("complete Info observation should pass the completeness gate")
-	}
-	for _, want := range []string{"summary:0", summary, "fact:0", "杭州当前多云，气温31°C。", "source:0:snippet:0", "杭州今日最低27°C，最高34°C。", "https://example.com/weather"} {
-		if !strings.Contains(decoded.Evidence[0].Text, want) {
-			t.Fatalf("complete Info evidence is missing %q", want)
-		}
-	}
-	hub := toolhub.New(config.Default(), store.NewMemoryStore())
-	maxBytes, evidenceLimit := (Runtime{tools: hub}).toolResultObservationBudget("info.query")
-	if maxBytes != config.Default().Runtime.StepMaxObservationBytes || evidenceLimit != maxBytes-4000 {
-		t.Fatalf("Info query should use the full workflow observation budget, got max=%d evidence=%d", maxBytes, evidenceLimit)
-	}
-	compacted := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 600, EvidenceLimit: 120})
-	if usableInfoQueryObservation(compacted) {
-		t.Fatal("compacted Info evidence must fail closed instead of reaching extraction")
-	}
-}
-
-func TestToolResultAdapterAcceptsInfoFactsWithoutSummary(t *testing.T) {
-	call := app.ToolCall{ID: "tc_info_facts", Tool: "info.query", Status: "completed"}
-	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: map[string]any{
-		"request_id": "req-facts", "query": "杭州天气", "provider": "infinimesh-info",
-		"summary": "", "key_facts": []any{map[string]any{"id": "fact:0", "claim": "杭州当前气温31°C。"}},
-		"sources": []any{}, "citations": []string{}, "untrusted": true,
-	}, MaxBytes: 48000, EvidenceLimit: 44000})
-	if !usableInfoQueryObservation(message) {
-		t.Fatalf("Info facts should remain usable when summary is empty: %s", message)
-	}
-}
-
-func TestToolResultAdapterBoundsLargeStructuredInfoResponse(t *testing.T) {
-	call := app.ToolCall{ID: "tc_info_large", Tool: "info.query", Status: "completed"}
-	facts := make([]any, 0, 8)
-	sources := make([]any, 0, 8)
-	for index := 0; index < 8; index++ {
-		facts = append(facts, map[string]any{
-			"id": fmt.Sprintf("fact:%d", index), "claim": strings.Repeat("杭州天气证据 31°C。", 300),
-			"sources": []string{fmt.Sprintf("src-%d", index)},
-		})
-		sources = append(sources, map[string]any{
-			"evidence_index": index, "id": fmt.Sprintf("src-%d", index),
-			"url":      fmt.Sprintf("https://example.com/weather/%d", index),
-			"snippets": []string{strings.Repeat("杭州天气来源片段 31°C。", 300)},
-		})
-	}
-	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: map[string]any{
-		"request_id": "req-large", "query": "杭州天气", "provider": "infinimesh-info",
-		"summary":   "Synthesized 8 citation-backed fact(s) from 8 public source(s).",
-		"key_facts": facts, "sources": sources, "untrusted": true,
-	}, MaxBytes: 48000, EvidenceLimit: 44000})
-	var decoded toolResultMessage
-	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if !usableInfoQueryObservation(message) || len(decoded.Evidence) != 1 || len(decoded.Evidence[0].Text) > websearch.MaxInfoProjectionBytes {
-		t.Fatalf("large Info response was not converted to a usable bounded projection: message_bytes=%d evidence=%#v", len(message), decoded.Evidence)
-	}
-	var projection websearch.InfoEvidenceProjection
-	if err := json.Unmarshal([]byte(decoded.Evidence[0].Text), &projection); err != nil {
-		t.Fatal(err)
-	}
-	if projection.Status != websearch.InfoProjectionPartial || !containsString(projection.MissingComponents, "projection.capacity") || len(projection.Facts) == 0 || len(projection.Sources) == 0 {
-		t.Fatalf("large Info projection did not preserve structured evidence and capacity status: %#v", projection)
-	}
-}
-
 func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
 	call := app.ToolCall{ID: "tc_read", Tool: "browser.read", Status: "completed"}
 	output := map[string]any{
@@ -3217,22 +3132,6 @@ func TestEnrichPlanWithWebFreshnessPreservesLatestIntent(t *testing.T) {
 	}
 }
 
-func TestMaterializeRoutedWeatherQueryResolvesFreshDateAfterRouting(t *testing.T) {
-	canonical := materializeRoutedQuery(app.CapabilityBrowserWeather, "今天杭州天气", "2026-07-17")
-	want := "今天杭州天气 2026-07-17" + weatherCardQueryRequirementsZH
-	if canonical != want {
-		t.Fatalf("selected weather query was not materialized after routing: query=%q", canonical)
-	}
-}
-
-func TestMaterializeRoutedWeatherQueryDoesNotDuplicateCardRequirements(t *testing.T) {
-	input := "weather in Hangzhou 2026-07-17" + weatherCardQueryRequirementsEN
-	canonical := materializeRoutedQuery(app.CapabilityBrowserWeather, input, "2026-07-17")
-	if canonical != input {
-		t.Fatalf("weather card requirements were duplicated: query=%q", canonical)
-	}
-}
-
 func TestMigratedWorkflowToolsRemainRegistered(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()
@@ -3243,7 +3142,7 @@ func TestMigratedWorkflowToolsRemainRegistered(t *testing.T) {
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
 	for _, name := range []string{
-		"web.search", "info.query", "weather.structure_payload", "media.render_weather_card",
+		"web.search", "weather.lookup", "media.render_weather_card",
 		"browser.list_tabs", "browser.open", "browser.focus", "browser.read",
 		"files.read", "images.inspect", "docx.replace_paragraph", "pptx.add_slide", "xlsx.update_cell", "pdf.extract_text", "pdf.transform",
 	} {

@@ -61,13 +61,18 @@ upload、concurrency、pending 和 expected runtime version。
 
 ## Infinimesh Info
 
-Infinimesh Info 是 `web.search`、直接 `info.query` 和天气 Workflow evidence query 的可选
-生产 provider。adapter 保留冻结 query 和 request ID，把 one-shot query token 放在内存
-wallet 中，并限制 retry 和 response size。
+Infinimesh Info 是 `web.search` 和现有 `browser.weather` Workflow 的可选生产 provider。
+公开搜索使用 `POST /v1/info/query`；天气只使用结构化 `POST /v1/info/weather`，不再保留
+通用 query fallback 或自由文本天气解析。两条路径都保留 request ID，通过原有内存 wallet
+获取 one-shot `info.basic` token，以 `PrivateToken` 传递，并限制 retry、deadline 和
+response size。
 
 SparkClaw 把 summary、非空 key fact、公开 source metadata、snippet 和 citation 映射为稳定
 evidence ref，在模型调用前选择与 query 相关的有界 projection。summary 缺失不会隐藏可用
 结构化 fact，provider status 文本也不会伪装成答案。
+天气 adapter 则校验固定 metric 的 current/hourly/daily 字段和规范化 condition 词表，
+随后只暴露 typed 卡片 payload。provider 坐标在进入 ToolHub output、trace 或卡片渲染前
+被丢弃；malformed 或不完整天气响应会明确失败。
 
 配置使用 `SPARKCLAW_INFINIMESH_INFO_*`。entitlement、device attestation 和 license proof
 可以直接或通过文件提供，但绝不能进入 public config、log、trace 或 artifact。

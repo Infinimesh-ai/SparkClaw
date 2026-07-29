@@ -21,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/sandbox"
@@ -29,33 +30,51 @@ import (
 )
 
 type ToolHub struct {
-	cfg       config.Config
-	store     store.Store
-	defs      map[string]app.ToolDefinition
-	models    modelrouter.Router
-	runner    sandbox.Runner
-	artifacts artifact.Store
-	reminders *remindertarget.Resolver
-	webSearch websearch.Adapter
-	browser   browserautomation.Adapter
-	documents *document.Pipeline
+	cfg         config.Config
+	store       store.Store
+	defs        map[string]app.ToolDefinition
+	models      modelrouter.Router
+	runner      sandbox.Runner
+	artifacts   artifact.Store
+	reminders   *remindertarget.Resolver
+	webSearch   websearch.Adapter
+	weatherInfo WeatherInfoAdapter
+	browser     browserautomation.Adapter
+	documents   *document.Pipeline
 }
 
 type Result struct {
 	Output any
 }
 
+type WeatherInfoAdapter interface {
+	Weather(context.Context, infinimeshinfo.WeatherRequest) (infinimeshinfo.WeatherResponse, error)
+}
+
 func New(cfg config.Config, st store.Store) *ToolHub {
+	infoCfg := cfg.Plugins.Entries.InfinimeshInfo.Config
+	weatherInfo, _ := infinimeshinfo.NewClient(infinimeshinfo.Config{
+		BaseURL:              infoCfg.BaseURL,
+		EntitlementProof:     infoCfg.EntitlementProof,
+		DeviceAttestation:    infoCfg.DeviceAttestation,
+		LicenseProof:         infoCfg.LicenseProof,
+		TokenBatchSize:       infoCfg.TokenBatchSize,
+		MaxAttempts:          infoCfg.MaxAttempts,
+		RetryBaseDelay:       time.Duration(infoCfg.RetryBaseDelayMS) * time.Millisecond,
+		RequestTimeout:       time.Duration(infoCfg.RequestTimeoutSeconds) * time.Second,
+		ResponseBodyMaxBytes: infoCfg.ResponseBodyMaxBytes,
+	}, nil)
 	h := &ToolHub{
-		cfg:       cfg,
-		store:     st,
-		defs:      map[string]app.ToolDefinition{},
-		models:    modelrouter.New(cfg),
-		runner:    sandbox.NewRunner(cfg),
-		artifacts: artifact.NewStore(cfg.Storage),
-		reminders: remindertarget.NewResolver(st),
-		webSearch: websearch.NewAdapter(cfg),
-		browser:   browserautomation.NewAdapter(cfg),
+		cfg:         cfg,
+		store:       st,
+		defs:        map[string]app.ToolDefinition{},
+		models:      modelrouter.New(cfg),
+		runner:      sandbox.NewRunner(cfg),
+		artifacts:   artifact.NewStore(cfg.Storage),
+		reminders:   remindertarget.NewResolver(st),
+		webSearch:   websearch.NewAdapter(cfg),
+		weatherInfo: weatherInfo,
+		browser:     browserautomation.NewAdapter(cfg),
 	}
 	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {
@@ -96,6 +115,11 @@ func (h *ToolHub) WithArtifactStore(artifacts artifact.Store) *ToolHub {
 
 func (h *ToolHub) WithBrowserAutomationAdapter(adapter browserautomation.Adapter) *ToolHub {
 	h.browser = adapter
+	return h
+}
+
+func (h *ToolHub) WithWeatherInfoAdapter(adapter WeatherInfoAdapter) *ToolHub {
+	h.weatherInfo = adapter
 	return h
 }
 
@@ -275,7 +299,7 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
-		weatherStructureDefinition(),
+		weatherLookupDefinition(),
 		weatherRenderDefinition(),
 		{
 			Name:        "files.write_draft",
@@ -752,7 +776,6 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
-		infoQueryDefinition(),
 		browserAutomationDefinition("browser.status", "Check whether the managed agent-browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.list_tabs", "List tabs/pages in the managed agent-browser Chromium session.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.open", "Open a URL in a managed agent-browser Chromium page/tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),

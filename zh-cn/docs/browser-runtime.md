@@ -28,7 +28,7 @@ Workflow leaf
 | Capability | 当前 revision 边界 |
 |---|---|
 | `browser.internet_search` r1 | 通过 `web.search` 搜索公开当前信息，不打开来源页面 |
-| `browser.weather` r1 | 查询 Infinimesh Info、组织证据，并为一个明确地点生成天气卡片 |
+| `browser.weather` r1 | 通过 Infinimesh Info `POST /v1/info/weather` 查询 typed metric 数据，并为一个明确地点生成天气卡片 |
 | `browser.automation` r1 | 打开一个明确 HTTP(S) URL 或注册 destination，或 focus 匹配 tab |
 | `browser.interaction` r1 | 检查一个目标，最多执行三次受限、ref-bound、点击后验证的 click |
 

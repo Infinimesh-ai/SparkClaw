@@ -64,7 +64,7 @@ func browserAutomationEnabled(cfg config.Config) bool {
 	return cfg.Tools.BrowserAutomation.Enabled
 }
 
-func infoQueryEnabled(cfg config.Config) bool {
+func infoEnabled(cfg config.Config) bool {
 	return cfg.Tools.Web.Search.Enabled
 }
 
@@ -245,11 +245,11 @@ var toolRegistry = map[string]toolRegistration{
 	),
 	"images.inspect": documentReadRegistration(ctxArgs((*ToolHub).imageInspect), []string{app.DocumentFormatImage},
 		"Inspect one explicitly identified image with the Fast multimodal model."),
-	"weather.structure_payload": workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).structureWeatherPayload)}, app.ToolCapabilityWeatherStructure,
-		nil, app.OutcomeAdapterWeatherPayload,
-		"Validate and persist weather fields extracted from the bound Info evidence directory.",
-		"Use only in the structuring stage of browser.weather.",
-		"Do not infer missing weather facts; record every unavailable requested category in missing_fields and consume only the bound Info evidence directory.", app.ToolEffectLocalCompute),
+	"weather.lookup": workflowRegistration(toolRegistration{enabled: infoEnabled, run: ctxArgs((*ToolHub).lookupWeather)}, app.ToolCapabilityInfoQuestion,
+		map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWeatherPayload,
+		"Read normalized metric weather for one bound city from the dedicated Infinimesh Info weather endpoint.",
+		"Use only as the lookup stage of browser.weather.",
+		"Do not use generic Info query/search, rewrite the city, request non-metric units, or synthesize weather values.", app.ToolEffectExternalRead),
 	"media.render_weather_card": weatherRenderRegistration(),
 	"files.write_draft":         legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
 	"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
@@ -276,16 +276,11 @@ var toolRegistry = map[string]toolRegistration{
 	"memory.propose":         {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
 	"memory.write_sensitive": {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
 	"browser.read":           browserReadRegistration(),
-	"web.search": workflowRegistration(toolRegistration{enabled: infoQueryEnabled, run: ctxArgs((*ToolHub).webSearchTool)}, app.ToolCapabilityWebDiscovery,
+	"web.search": workflowRegistration(toolRegistration{enabled: infoEnabled, run: ctxArgs((*ToolHub).webSearchTool)}, app.ToolCapabilityWebDiscovery,
 		map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWebSearch,
 		"Discover public web sources when the target URL is unknown.",
 		"Use for public search, freshness checks, and source discovery.",
 		"Do not use when a specific URL is already known or for source-page verification.", app.ToolEffectExternalRead),
-	"info.query": workflowRegistration(toolRegistration{enabled: infoQueryEnabled, run: ctxArgs((*ToolHub).infoQuery)}, app.ToolCapabilityInfoQuestion,
-		map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterInfoAnswer,
-		"Submit one frozen public question directly to Infinimesh Info and preserve its answer evidence.",
-		"Use only as the first stage of a workflow that explicitly requires Info answer evidence.",
-		"Do not rewrite the query or use it as generic browser discovery.", app.ToolEffectExternalRead),
 	"browser.status": workflowRegistration(toolRegistration{enabled: browserAutomationEnabled, run: func(h *ToolHub, ctx context.Context, _ string, args map[string]any, sessionID, _ string) (Result, error) {
 		return h.browserAutomationHealth(ctx, args, sessionID)
 	}}, app.ToolCapabilityBrowserHealth, nil, app.OutcomeAdapterBrowserHealth, "Check browser automation availability.", "Use before interaction when provider health is unknown.", "Do not use for public search.", app.ToolEffectExternalRead),

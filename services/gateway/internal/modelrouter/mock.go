@@ -50,8 +50,7 @@ func mockResponse(lane, user string) string {
 			tool   string
 			marker string
 		}{
-			{"info.query", "MOCK_INFO_QUERY_RESPONSE:"},
-			{"weather.structure_payload", "MOCK_WEATHER_STRUCTURE_RESPONSE:"},
+			{"weather.lookup", "MOCK_WEATHER_LOOKUP_RESPONSE:"},
 			{"media.render_weather_card", "MOCK_WEATHER_RENDER_RESPONSE:"},
 		} {
 			if strings.Contains(lower, "model-visible tools this workflow stage: "+stage.tool) {

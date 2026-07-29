@@ -29,7 +29,7 @@ attachment, cookie export, or second DOM perception engine.
 | Capability | Current revision boundary |
 |---|---|
 | `browser.internet_search` r1 | Search public current information through `web.search`; it does not open source pages |
-| `browser.weather` r1 | Query Infinimesh Info, structure evidence, and render one weather card for one explicit location |
+| `browser.weather` r1 | Query typed metric data through Infinimesh Info `POST /v1/info/weather` and render one card for one explicit location |
 | `browser.automation` r1 | Open one explicit HTTP(S) URL or registered destination, or focus a matching existing tab |
 | `browser.interaction` r1 | Inspect one target and perform at most three bounded, ref-bound, post-click-verified clicks |
 

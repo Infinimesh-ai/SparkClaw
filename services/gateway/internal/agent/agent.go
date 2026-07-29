@@ -1068,13 +1068,6 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, result.Output)
 	maxBytes, evidenceLimit := r.toolResultObservationBudget(call.Tool)
 	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: result.Output, ObservationRef: call.ObservationRef, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
-	if call.Tool == "info.query" && !usableInfoQueryObservation(call.ObservationSummary) {
-		call.Status = "failed"
-		call.Error = "bounded Info evidence projection is unavailable within the model observation budget"
-		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{
-			Call: call, Err: errors.New(call.Error), MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes,
-		})
-	}
 	r.store.SaveToolCall(call)
 	r.recordDocumentToolActivity(call)
 	return call, nil, call.ObservationSummary
@@ -1087,7 +1080,7 @@ func (r Runtime) toolResultObservationBudget(tool string) (int, int) {
 		maxBytes = defaultToolResultMessageMaxBytes
 	}
 	evidenceLimit := defaultToolResultEvidenceLimit
-	if tool == "files.read" || tool == "info.query" || tool == "browser.snapshot" {
+	if tool == "files.read" || tool == "browser.snapshot" {
 		currentObservationMax := runtime.StepMaxObservationBytes
 		if currentObservationMax <= 0 {
 			currentObservationMax = 48000

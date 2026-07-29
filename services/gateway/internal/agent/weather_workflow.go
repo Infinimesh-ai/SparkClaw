@@ -130,25 +130,21 @@ func (p browserWeatherProfile) Resolve(route app.RouteDecision, sourceTurnID str
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationRead, target, app.DataScopePublic)
 	intent.Objectives[0].Output = app.OutputKindImage
 	nodeID := app.WorkflowNodeID("weather")
-	structureScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityWeatherStructure}}}
 	renderScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityWeatherRender}}}
 	return intent, app.WorkflowPlan{
 		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence, ResultProjection: app.WorkflowResultOutputsOnly,
 		Nodes: []app.WorkflowNode{{
-			ID: nodeID, InitialStage: "query_info",
-			Goal: app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Query Info, structure grounded weather fields, and render one weather card", Completion: app.CompletionEvidence},
+			ID: nodeID, InitialStage: "lookup_weather",
+			Goal: app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Read normalized Info weather data and render one weather card", Completion: app.CompletionEvidence},
 			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
 				Name: app.ToolCapabilityInfoQuestion, Qualifiers: map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo},
 			}}},
 			Transitions: []app.ScopeTransition{
-				{ID: "info_answer_ready", NextStage: "structure_weather", On: app.TransitionPredicate{OutcomeSignals: []app.OutcomeSignal{app.OutcomeSignalInfoAnswerAvailable}, Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}}, Replace: &structureScope, MaxActivations: 1},
 				{ID: "weather_payload_ready", NextStage: "render_card", On: app.TransitionPredicate{OutcomeSignals: []app.OutcomeSignal{app.OutcomeSignalWeatherPayloadAvailable}, Assessments: []app.AssessmentStatus{app.AssessmentNeedsMoreEvidence}}, Replace: &renderScope, MaxActivations: 1},
 			},
 			ArgumentBindings: []app.ArgumentBinding{
-				{Capability: app.ToolCapabilityInfoQuestion, Argument: "query", ResourceKind: "query", Source: app.ArgumentBindingRouteSlot, SourceKey: "query"},
-				{Capability: app.ToolCapabilityWeatherStructure, Argument: "info_answer_ref", ResourceKind: "info_answer", Source: app.ArgumentBindingOutcomeRef},
-				{Capability: app.ToolCapabilityWeatherStructure, Argument: "location", ResourceKind: "location", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"},
+				{Capability: app.ToolCapabilityInfoQuestion, Argument: "location", ResourceKind: "location", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"},
 				{Capability: app.ToolCapabilityWeatherRender, Argument: "weather_payload_ref", ResourceKind: "weather_payload", Source: app.ArgumentBindingOutcomeRef},
 			},
 			AllowedRisks: []app.RiskLevel{app.RiskRead, app.RiskDraft}, MaxAttempts: 3,
@@ -164,9 +160,7 @@ func (browserWeatherProfile) Assess(state *app.WorkflowState, outcome app.ToolOu
 	assessment := baseNodeAssessment(outcome)
 	node := state.Nodes[outcome.NodeID]
 	switch {
-	case node.Stage == "query_info" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInfoAnswerAvailable):
-		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "info_answer_available"
-	case node.Stage == "structure_weather" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalWeatherPayloadAvailable):
+	case node.Stage == "lookup_weather" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalWeatherPayloadAvailable):
 		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "weather_payload_available"
 	case node.Stage == "render_card" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalWeatherCardAvailable):
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "weather_card_available"
@@ -182,10 +176,8 @@ func (browserWeatherProfile) Hint(state *app.WorkflowState) workflowExecutionHin
 
 func (browserWeatherProfile) TransitionInstruction(outcome app.ToolOutcome, _ app.NodeAssessment) string {
 	switch {
-	case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInfoAnswerAvailable):
-		return "workflow_requirement: Read the bounded query-relevant Info evidence projection, including available summary, facts, and source snippets. Submit only values explicitly present there; never infer, translate, paraphrase, combine unrelated values, or substitute daily low/high for current temperature. current.temperature_c requires a standalone current reading whose evidence_text includes that one number and its temperature unit; if only a daily range is available, mark current.temperature_c missing. Evidence for any numeric value must include its unit; for daily min/max copy the complete range such as 28~34℃ when the unit is written once. For every submitted value, including date and time strings, copy an exact substring without reformatting and use only its listed summary:0, fact:N, or source:N:snippet:M ref. missing_fields is mandatory: mark current.condition, current.temperature_c, daily, and hourly whenever that category has no reliable supporting data, and do not submit a value or evidence entry for a marked category. Submit zero to five hourly entries strictly after the current system time; never submit past hours, and mark hourly missing when no future entries are supported. The tool argument shape is exact: current may contain only condition, temperature_c, feels_like_c, humidity_pct, wind_kmh, and precipitation_mm; never submit humidity_percent, wind text, uv, or any other property. Unknown optional values may be omitted or null. hourly and daily are arrays; every hourly entry uses exactly time, condition, and temperature_c, never datetime, and all three hourly leaves require separate evidence entries; daily entries use date, condition, min_temperature_c, and max_temperature_c. every evidence entry uses exactly field_path, evidence_ref, and evidence_text. field_path always names one submitted schema leaf such as current.condition, daily[0].date, daily[0].min_temperature_c, hourly[0].time, hourly[0].condition, or hourly[0].temperature_c, never an unsupported field or the daily/hourly category. Never use field/ref/value aliases or put evidence_ref inside current, hourly, or daily."
 	case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalWeatherPayloadAvailable):
-		return "workflow_requirement: Render the bound validated weather payload. Call media.render_weather_card without adding or rewriting weather fields."
+		return "workflow_requirement: Render the bound typed weather payload. Call media.render_weather_card without adding, rewriting, or reinterpreting weather fields."
 	default:
 		return ""
 	}

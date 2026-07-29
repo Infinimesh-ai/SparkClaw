@@ -79,15 +79,22 @@ version.
 
 ## Infinimesh Info
 
-Infinimesh Info is the optional production provider for `web.search`, direct
-`info.query`, and the weather Workflow's evidence query. The provider adapter
-preserves the frozen query and request ID, obtains one-shot query tokens into an
-in-memory wallet, and applies bounded retries and response sizes.
+Infinimesh Info is the optional production provider for `web.search` and the
+existing `browser.weather` Workflow. Public search uses `POST /v1/info/query`.
+Weather exclusively uses the structured `POST /v1/info/weather` contract; no
+generic query fallback or free-text weather parser remains. Both paths preserve
+request IDs, obtain one-shot `info.basic` tokens through the existing in-memory
+wallet, send them as `PrivateToken`, and apply bounded retries, deadlines, and
+response sizes.
 
 SparkClaw maps summary, non-empty key facts, public source metadata, snippets,
 and citations into stable evidence refs. It chooses a query-relevant bounded
 projection before model use. Missing summary text does not hide usable
 structured facts, and provider status text is not presented as an answer.
+The weather adapter instead validates fixed metric current/hourly/daily fields
+and the normalized condition vocabulary, then exposes a typed card payload.
+Provider coordinates are discarded before ToolHub output, traces, or card
+rendering. Malformed or incomplete weather responses fail explicitly.
 
 Configuration uses `SPARKCLAW_INFINIMESH_INFO_*`. Entitlement, device
 attestation, and license proofs may be supplied directly or from files and must

@@ -151,7 +151,7 @@ func canonicalBrowserVerificationVerdict(value string) (string, bool) {
 
 func materializedWorkflowResourceKind(kind string) bool {
 	switch kind {
-	case "query", "location", "info_answer", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot", "schedule", "schedule_patch":
+	case "query", "location", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot", "schedule", "schedule_patch":
 		return true
 	default:
 		return false

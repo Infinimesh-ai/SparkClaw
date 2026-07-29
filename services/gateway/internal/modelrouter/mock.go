@@ -85,6 +85,12 @@ func mockWorkflowStepResponse(user string) string {
 	goal := mockWorkflowStepGoal(user)
 	lowerGoal := strings.ToLower(goal)
 	lowerPrompt := strings.ToLower(user)
+	switch {
+	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: weather.lookup"):
+		return mockWorkflowStepAction("weather.lookup", map[string]any{"location": "workflow-bound location"})
+	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: media.render_weather_card"):
+		return mockWorkflowStepAction("media.render_weather_card", map[string]any{"weather_payload_ref": "workflow-bound weather payload"})
+	}
 	if stage := mockBrowserInteractionStage(lowerPrompt); stage != "" {
 		return mockBrowserInteractionAction(user, goal, stage)
 	}

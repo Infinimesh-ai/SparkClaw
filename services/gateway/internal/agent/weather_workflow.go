@@ -101,7 +101,7 @@ func chineseWeatherLocation(content string) string {
 	for changed := true; changed; {
 		changed = false
 		location = leadingChineseDatePattern.ReplaceAllString(location, "")
-		for _, prefix := range []string{"请帮我查一下", "帮我查一下", "请查询一下", "查询一下", "查一下", "请帮我看看", "帮我看看", "请看看", "看看", "请告诉我", "告诉我", "请查", "查询", "请问", "请", "今天", "今日", "明天", "明日", "后天", "现在", "当前", "实时"} {
+		for _, prefix := range []string{"请帮我查看一下", "帮我查看一下", "请查看一下", "查看一下", "请帮我查看", "帮我查看", "请查看", "查看", "请帮我查一下", "帮我查一下", "请查询一下", "查询一下", "查一下", "请帮我看看", "帮我看看", "请看看", "看看", "请告诉我", "告诉我", "请查", "查询", "请问", "请", "今天", "今日", "明天", "明日", "后天", "现在", "当前", "实时"} {
 			if strings.HasPrefix(location, prefix) {
 				location = strings.TrimSpace(strings.TrimPrefix(location, prefix))
 				changed = true

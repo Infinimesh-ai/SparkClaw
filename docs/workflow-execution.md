@@ -45,12 +45,28 @@ Every inbound message follows one pipeline (`agent.go` `handleMessage`):
    model (`synthesizeWorkflowFinalAnswer`), depending on
    `profile.Finalization()`.
 
+### Streaming Ownership
+
+After `message.stream.started` is flushed, the accepted Workflow runs on the
+Gateway lifecycle context rather than the HTTP request context. A browser
+refresh, navigation, or broken SSE connection stops event delivery only; the
+Workflow continues to its persisted result, approval, or model timeout, and
+WebChat recovers that state through its normal polling. The model router's
+`http_timeout_seconds` remains the upper bound for each Fast or Deep request.
+
+Gateway shutdown cancels the lifecycle context and waits for detached stream
+work to exit. A true lifecycle cancellation stops the Workflow once and records
+the run as `cancelled`; a model timeout or other execution error records
+`failed`. Neither state may be projected as `completed`, and a running Workflow
+is complete only after its persisted status is `succeeded`.
+
 ## The Workflow Step Loop
 
 `workflow_step_loop.go` holds the only model/tool execution primitive:
 
-- `runWorkflowModelStep` is the single entry point. It forces the workflow
-  execution model lane and calls `runWorkflowStepLoop`.
+- `runWorkflowModelStep` is the single entry point. It honors the profile's
+  stage-context lane, defaults to Deep only when no lane is supplied, and calls
+  `runWorkflowStepLoop`.
 - The loop freezes a full and a compact system prompt at loop start
   (`workflowStepSystemPrompt` over the context snapshot's `ForWorkflowStep` /
   `ForWorkflowStepCompact` views). Current-run observations appear exactly
@@ -82,7 +98,7 @@ and lets the model correct itself; the bad action is never executed.
 Inside a workflow scope the loop returns to the workflow runtime after every
 tool call so the outcome can be assessed before another tool may run under the
 same scope revision. If a stage requires tool evidence
-(`TaskHint.RequiresToolEvidence`), a premature `final` is rejected with a
+(`workflowStageContext.RequiresToolEvidence`), a premature `final` is rejected with a
 `workflow_protocol_violation` observation (audited as
 `workflow.required_tool_not_called`); after two rejected attempts the node is
 blocked with reason `required_tool_not_called`.
@@ -123,7 +139,8 @@ Model output cannot widen a workflow's boundary:
 
 Run states: `received` → `routing` → `executing` → `workflow_step` (set per
 model step) and terminal/waiting states `completed`, `blocked`,
-`clarification_required`, `approval_pending`, `browser_login_blocked`.
+`failed`, `cancelled`, `clarification_required`, `approval_pending`,
+`browser_login_blocked`.
 
 Model calls made by the step loop use operation `workflow_step_<n>`; resume
 gating (`hasWorkflowStepModelCall`) also recognizes the pre-rename
@@ -143,6 +160,7 @@ Key audit event types emitted by the executor:
 | `workflow.direct_tool_invoked` | A direct-invocation node ran its single bound tool |
 | `workflow.model_answer_completed` | A no-tool model-answer workflow completed |
 | `workflow.blocked` / `workflow.protocol_blocked` | Setup or protocol failure blocked the workflow |
+| `workflow.execution_cancelled` | Gateway shutdown cancelled an active Workflow |
 | `workflow.finalization_failed` | Completed evidence could not be rendered into a final answer |
 | `workflow.legacy_resume_retired` / `workflow.legacy_login_resume_retired` | A pre-workflow persisted run was closed instead of resumed |
 
@@ -220,7 +238,7 @@ anchors are:
   `defaultWorkflowProfileRegistry` (`workflow_profiles.go`,
   `workflow_registry.go`). A profile owns its plan shape (nodes, stages,
   transitions, `MaxAttempts`/`MaxActivations` bounds feeding
-  `workflowStageLimit`), its `Assess`/`TransitionInstruction`/`Hint`
+  `workflowStageLimit`), its `Assess`/`TransitionInstruction`/`StageContext`
   functions, decisions, and its finalization mode
   (`workflowFinalizationModel` vs. grounded projection).
 - **Node invocation modes** — default model step; set
@@ -258,4 +276,3 @@ loop. Old identifiers appear only in persisted data compatibility shims:
 | model call operation `react_step_<n>` | `workflow_step_<n>` (old prefix still recognized on resume) |
 | config `react_max_*`, `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` | `workflow_step_max_*`, `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` (old keys load as fallbacks) |
 | unmatched contract ref `react.unmatched` | `legacy.unmatched` |
-| TaskHint/skill-driven tool visibility (`visibleToolDefinitions`, fallback tool lists, legacy skill filters) | removed; tools are materialized per workflow scope only |

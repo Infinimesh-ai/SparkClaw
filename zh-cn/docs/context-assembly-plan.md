@@ -21,7 +21,7 @@ system, user)` 双字符串接口与 JSON-in-text 步骤协议**有意保留**�
 - 会话上下文：`buildAgentContextSnapshot`（`agent/context_snapshot.go`）按固
   定窗口选取——最近 8 条 user/assistant 消息（每条截断 360 字符）、最近 6 条
   跨 run 工具结果（摘要上限 4000 字符）、4 条 episode 摘要、4 条记忆、3 张图
-  片——并按变体（`ForWorkflowStep` / `ForWorkflowStepCompact` / `ForTaskHint`）渲染成一整
+  片——并按变体（`ForWorkflowStep` / `ForWorkflowStepCompact` / `ForIntentRouting`）渲染成一整
   块文本。
 - 工具结果：`adaptToolResult`（`agent/tool_result_adapter.go`）构建结构化
   JSON envelope（summary / structured / evidence），按工具类别抽取证据，三级
@@ -89,8 +89,8 @@ system, user)` 双字符串接口与 JSON-in-text 步骤协议**有意保留**�
 固定 prompt 布局：单次受限循环内不变的内容全部靠前，每步变化的内容只追加在
 尾部：
 
-- system prompt：静态规则 → skills → 工具定义 JSON → 会话上下文快照（run 开
-  始时冻结）→ TaskHint。同一循环各步之间 system prompt 不得有任何变化。
+- system prompt：静态规则 → 工具定义 JSON → 会话上下文快照（run 开
+  始时冻结）→ Workflow stage context。同一循环各步之间 system prompt 不得有任何变化。
 - user prompt：step 头 → observation 列表（增长尾部）→ 输出契约。
 
 仅调整顺序，内容不变。vLLM 的 automatic prefix caching 随后可在每步复用静态
@@ -131,12 +131,11 @@ adapter 的单条上限仍约束尾部。
 | 当前 run 的 observations | full → 滚动压缩（0.2） | observation 列表 |
 | 会话工具结果 | full → compact → drop | `formatContextToolResults` |
 | 最近对话 | full → 尾部 4 条 → drop | `formatContextMessages` |
-| Skills | full → compact → drop | skill 块 |
 | 记忆 / 图片 / episodes | compact → drop | 其余 section |
 
 - builder 接收该通道的真实输入预算（来自 0.4），按优先级自上而下分配，超预
   算时从最低优先级 section 起沿降级链降级，直到估算通过。
-- `ForWorkflowStep`、`ForWorkflowStepCompact`、`ForTaskHint` 变为同一 builder 的三种预算配
+- `ForWorkflowStep`、`ForWorkflowStepCompact`、`ForIntentRouting` 变为同一 builder 的三种预算配
   置；`full` 级渲染文本与今天的输出逐字节一致，引入时不改变模型可见行为。
 - 未来新增上下文来源（日历、邮件摘要——见
   [暂缓能力](deferred-email-calendar-knowledge.md)）只需注册一个 section，

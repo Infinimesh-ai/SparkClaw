@@ -189,7 +189,7 @@ execution.
 - Both semantic channels failing, an index mismatch, or an unknown candidate
   blocks routing.
 - `clarify`, `blocked`, and `unmatched` are terminal. They do not fall through to
-  TaskHint, legacy keyword logic, or a generic fallback loop.
+  keyword routing or a generic fallback loop.
 
 ## Extending Routing
 

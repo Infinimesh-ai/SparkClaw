@@ -36,12 +36,24 @@
    grounded 结果适配器投影类型化结果，要么用模型合成最终回答
    （`synthesizeWorkflowFinalAnswer`）。
 
+### 流式执行所有权
+
+`message.stream.started` 刷出后，已接受的 Workflow 使用 Gateway 生命周期上下文
+运行，不再依赖 HTTP 请求上下文。浏览器刷新、页面跳转或 SSE 连接中断只停止事件
+传输；Workflow 会继续运行到持久化结果、审批或模型超时，WebChat 通过现有轮询恢
+复这些状态。每次 Fast 或 Deep 请求的上限仍由模型路由的 `http_timeout_seconds` 控制。
+
+Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后台任务退出。真正的生命
+周期取消只停止 Workflow 一次，并把运行记为 `cancelled`；模型超时或其他执行错误
+记为 `failed`。两者都不得投影为 `completed`，只有持久化 Workflow 状态已经是
+`succeeded` 时，运行才算完成。
+
 ## Workflow 步骤循环
 
 `workflow_step_loop.go` 持有唯一的模型/工具执行原语：
 
-- `runWorkflowModelStep` 是唯一入口。它强制 workflow 执行模型通道并调用
-  `runWorkflowStepLoop`。
+- `runWorkflowModelStep` 是唯一入口。它采用 Profile stage context 指定的通道，只在
+  未指定通道时默认使用 Deep，然后调用 `runWorkflowStepLoop`。
 - 循环在启动时冻结完整与 compact 两份 system prompt
   （`workflowStepSystemPrompt`，基于上下文快照的 `ForWorkflowStep` /
   `ForWorkflowStepCompact` 视图）。当前运行的 observation 只在 user prompt 中
@@ -69,7 +81,7 @@ JSON 对象：
 
 在 workflow scope 内,每次工具调用后循环都返回 workflow runtime，让结果先被评
 估,同一 scope revision 下才允许下一次工具调用。若阶段要求工具证据
-（`TaskHint.RequiresToolEvidence`），过早的 `final` 会被
+（`workflowStageContext.RequiresToolEvidence`），过早的 `final` 会被
 `workflow_protocol_violation` observation 拒绝（审计
 `workflow.required_tool_not_called`）；两次被拒后节点以
 `required_tool_not_called` 原因阻断。
@@ -107,8 +119,8 @@ JSON 对象：
 ## 运行状态、模型调用与审计事件
 
 运行状态：`received` → `routing` → `executing` → `workflow_step`（每个模型步
-骤置位），以及终态/等待态 `completed`、`blocked`、`clarification_required`、
-`approval_pending`、`browser_login_blocked`。
+骤置位），以及终态/等待态 `completed`、`blocked`、`failed`、`cancelled`、
+`clarification_required`、`approval_pending`、`browser_login_blocked`。
 
 步骤循环产生的模型调用使用 operation `workflow_step_<n>`；恢复门控
 （`hasWorkflowStepModelCall`）同时识别持久化数据中改名前的
@@ -128,6 +140,7 @@ JSON 对象：
 | `workflow.direct_tool_invoked` | 直接调用节点执行了唯一绑定工具 |
 | `workflow.model_answer_completed` | 无工具模型回答 workflow 完成 |
 | `workflow.blocked` / `workflow.protocol_blocked` | 装配或协议失败阻断了 workflow |
+| `workflow.execution_cancelled` | Gateway 关闭取消了 active Workflow |
 | `workflow.finalization_failed` | 已完成证据无法渲染为最终回答 |
 | `workflow.legacy_resume_retired` / `workflow.legacy_login_resume_retired` | 迁移前的持久化运行被关闭而非恢复 |
 
@@ -191,7 +204,7 @@ transition。memory、file 和 PostgreSQL store 实现同一契约。
   注册（`workflow_profiles.go`、`workflow_registry.go`）。Profile 拥有计划形
   态（节点、阶段、迁移、供 `workflowStageLimit` 使用的
   `MaxAttempts`/`MaxActivations` 上界）、`Assess`/`TransitionInstruction`/
-  `Hint` 函数、决策，以及终结模式（`workflowFinalizationModel` 或 grounded
+  `StageContext` 函数、决策，以及终结模式（`workflowFinalizationModel` 或 grounded
   投影）。
 - **节点调用形态** —— 默认模型步骤；设置
   `InvocationMode: app.WorkflowInvocationDirectOnce` 表示免模型的单次工具调
@@ -225,4 +238,3 @@ prompt 中只出现一次、步骤输出契约位于 user prompt 尾部、system
 | 模型调用 operation `react_step_<n>` | `workflow_step_<n>`（恢复时仍识别旧前缀） |
 | 配置 `react_max_*`、`SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` | `workflow_step_max_*`、`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES`（旧键作为回退加载） |
 | unmatched 契约引用 `react.unmatched` | `legacy.unmatched` |
-| TaskHint/Skill 驱动的工具可见性（`visibleToolDefinitions`、回退工具列表、旧 Skill 过滤器） | 已删除；工具只按 workflow scope 物化 |

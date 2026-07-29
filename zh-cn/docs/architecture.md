@@ -47,7 +47,7 @@ WebChat / Telegram / 微信 / Timer
       -> Catalog validation 和一个 Workflow Profile
       -> Workflow Runtime
           -> stage-scoped Tool Exposure
-          -> Model Router（Deep execution call）
+          -> Model Router（由 Profile 选择执行通道）
           -> ToolHub -> Policy -> Approval
       -> WorkflowResult
       -> Delivery Gateway -> Web 或 connector Provider
@@ -118,8 +118,8 @@ variant，不压缩本轮 observations。
 
 | Lane | 作用 |
 |---|---|
-| `fast` | Tree routing 和其他有界快速推理 |
-| `deep` | 已选 Workflow 的 planning、assessment、repair 和 final answer |
+| `fast` | Tree routing、文档读取/编辑推理与终结，以及其他有界快速推理 |
+| `deep` | 非文档 Workflow 的默认 planning、assessment、repair 和 final answer 通道 |
 | `embedding` | 启动语义图索引和 embedding channel query |
 | `guard` | routing 或 tool execution 前执行 prompt moderation 的专用 Qwen3Guard |
 | `mock` | 确定性本地开发/eval |
@@ -143,8 +143,9 @@ send 都创建 `DeliveryRequest` 并调用 Delivery Gateway。`LocalWebDelivery`
 文档拥有独立于解析内容的持久化一等 `DocumentRecord` 身份。读取/编辑使用最近记录解析、
 确定性 format inspection、可追溯的 `confirm_document_target` Workflow 节点、structured
 parsing 和显式 `select_edit_operation` 决策节点。编辑定位节点使用冻结 path 直接且仅调用
-一次按格式限定的 reader；读取前不存在模型工具选择步骤。多候选编辑决策由 Deep 基于定位证据完成，
-并在 editor materialize 前持久化一个精确 ToolHub entry。原 Fast 目录二次路由已经删除。
+一次按格式限定的 reader；读取前不存在模型工具选择步骤。当前所有文档模型调用都使用 Fast，
+包括读取终结、多候选编辑决策和 editor 参数生成。决策会在 editor materialize 前持久化一个
+精确 ToolHub entry；原内联目录二次路由仍保持删除。
 approval、output-copy write 和 post-edit preservation check 继续走共享路径。解析
 representation 可以不完整、被替换或重新生成，而不会丢失文档身份和活动谱系。
 见[文档 Workflow](document-workflows.md)。

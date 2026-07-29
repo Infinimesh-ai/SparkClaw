@@ -28,7 +28,7 @@ parse-error recovery path already covers its failure mode.
   user/assistant messages (each trimmed to 360 chars), last 6 cross-run tool
   results (summary cap 4000 chars), 4 episode summaries, 4 memories, 3
   images — and renders them into one text block per variant
-  (`ForWorkflowStep` / `ForWorkflowStepCompact` / `ForTaskHint`).
+  (`ForWorkflowStep` / `ForWorkflowStepCompact` / `ForIntentRouting`).
 - Tool results: `adaptToolResult` (`agent/tool_result_adapter.go`) builds a
   structured JSON envelope (summary / structured / evidence) with
   per-category evidence extractors and three-tier degradation, default cap
@@ -109,8 +109,8 @@ compaction events.
 Fix the prompt layout so everything that is constant within one bounded loop
 comes first and only per-step material is appended at the tail:
 
-- System prompt: static rules → skills → tool definition JSON → session
-  context snapshot (frozen at run start) → TaskHint. Nothing in the system
+- System prompt: static rules → tool definition JSON → session
+  context snapshot (frozen at run start) → Workflow stage context. Nothing in the system
   prompt may vary between steps of the same loop.
 - User prompt: step header → observation list (growing tail) → output
   contract.
@@ -161,13 +161,12 @@ them into one explicit builder in the `agent` package:
 | Current-run observations | full → rolling compaction (0.2) | observations list |
 | Session tool results | full → compact → drop | `formatContextToolResults` |
 | Recent conversation | full → tail(4) → drop | `formatContextMessages` |
-| Skills | full → compact → drop | skill block |
 | Memories / images / episodes | compact → drop | remaining sections |
 
 - The builder receives the lane's real input budget (from 0.4), allocates
   top-down by priority, and degrades from the lowest-priority section
   upward until the estimate fits.
-- `ForWorkflowStep`, `ForWorkflowStepCompact`, and `ForTaskHint` become three budget
+- `ForWorkflowStep`, `ForWorkflowStepCompact`, and `ForIntentRouting` become three budget
   configurations of the same builder; the rendered text at the `full` level
   is byte-identical to today's output, so model-facing behavior does not
   change at introduction time.

@@ -17,7 +17,7 @@
 - 工具契约与执行器：`email.search`、`email.read_thread`、`email.draft_reply`、`email.send`、`calendar.read`、`calendar.propose_event`、`calendar.create`、`knowledge.index_workspace` 和 `knowledge.search`。
 - `internal/personaldata` 下基于文件 fixture 和假定 HTTP API 的适配器，以及 mock outbox 和 created-event 日志。
 - 本地关键词索引、Embedding/Reranking 拼装逻辑、`DocumentStore`、Document/Chunk 状态和 PostgreSQL Document/Vector Schema。
-- 专用于这些工具的 TaskHint 启发式、Mock Model Action、Grounded Answer Formatter、Schema/Repair 特例和审批文案。
+- 专用于这些工具的路由启发式、Mock Model Action、Grounded Answer Formatter、Schema/Repair 特例和审批文案。
 - `email_triage`、`calendar_assistant` Skill，个人数据 fixture、WebChat Adapter 展示、环境变量、Policy 项和专用 Unit/Golden Case。
 
 Git 历史保留了代码备份；本文保存原边界及其不能被零散恢复的原因。

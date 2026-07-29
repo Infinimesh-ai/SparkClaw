@@ -17,7 +17,7 @@ The removed surface included:
 - Tool contracts and executors: `email.search`, `email.read_thread`, `email.draft_reply`, `email.send`, `calendar.read`, `calendar.propose_event`, `calendar.create`, `knowledge.index_workspace`, and `knowledge.search`.
 - File-fixture and assumed HTTP adapters under `internal/personaldata`, including mock outbox and created-event logs.
 - The local keyword index, embedding/reranking glue, `DocumentStore`, document/chunk state, and PostgreSQL document/vector schema.
-- TaskHint heuristics, mock-model actions, grounded answer formatters, schema/repair special cases, and approval labels dedicated to these tools.
+- Routing heuristics, mock-model actions, grounded answer formatters, schema/repair special cases, and approval labels dedicated to these tools.
 - The `email_triage` and `calendar_assistant` Skills, personal-data fixtures, WebChat adapter rows, environment variables, policy entries, and dedicated unit/golden cases.
 
 The source history remains the code backup. This document preserves the previous boundary and the reasons it must not be restored piecemeal.

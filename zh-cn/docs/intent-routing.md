@@ -156,7 +156,7 @@ Workflow 执行。
 - Embedding 和 Tree 在总路由 deadline 内独立执行。
 - 一个语义通道失败时，只读 route 可使用更严格降级门槛；mutation 或外部 effect 关闭失败。
 - 两个语义通道都失败、索引不一致或候选未知时阻止路由。
-- `clarify`、`blocked` 和 `unmatched` 都是终态，不回退到 TaskHint、旧关键词逻辑或任何通用回退循环。
+- `clarify`、`blocked` 和 `unmatched` 都是终态，不回退到关键词路由或任何通用回退循环。
 
 ## 扩展路由
 

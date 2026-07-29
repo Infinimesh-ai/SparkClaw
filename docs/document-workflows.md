@@ -8,13 +8,18 @@ its durable format, evidence, and preservation contracts.
 
 ## Workflow Boundary
 
-`document.read` revision 2 reads or summarizes one exact governed workspace
-file. `document.edit` revision 5 reads one exact file, resolves one supported
+`document.read` revision 3 reads or summarizes one exact governed workspace
+file. Its format-qualified reader is a `direct_once` node: Runtime invokes the
+single reader with the frozen path, and Fast only synthesizes the final
+answer from completed evidence. `document.edit` revision 5 reads one exact
+file, resolves one supported
 operation through an explicit Workflow decision node, obtains approval for the
 reversible edit, and writes a new sibling output copy named
 `<name>-sparkclaw-edit.<ext>`. If that name already exists, preflight selects
 the first available numbered sibling such as `<name>-sparkclaw-edit-2.<ext>`.
-Further edits to one of those copies continue the same numbered family.
+Further edits to one of those copies continue the same numbered family. All
+model calls owned by both document profiles currently use Fast; the non-document
+Workflow default remains Deep.
 
 Input and output paths are deterministic bindings. The model cannot replace
 them. Paths must remain under the configured workspace, resolve to regular
@@ -49,12 +54,12 @@ with `required_tool_not_called` without starting a third model call.
 
 `select_edit_operation` never exposes a tool to the step model. Runtime searches its
 format-qualified `document.edit` scope directly. A single candidate is selected
-deterministically; multiple candidates are resolved by one retry-bounded Deep
+deterministically; multiple candidates are resolved by one retry-bounded Fast
 model decision over the owner request and up to 20,000 runes of dependency
 evidence. The selected directory entry, capability, format, operation, and
 selection path are persisted in the node's `OutcomeRefs`. The edit node can
 materialize only that entry. A missing, stale, ambiguous, or invalid decision
-blocks the Workflow. The former Fast secondary directory router has been
+blocks the Workflow. The former inline secondary directory router has been
 removed; any other multi-candidate scope must declare its own decision node.
 See the [operation-selection design record](document-edit-operation-selection.md).
 
@@ -139,6 +144,17 @@ them is a contract change, not a prompt-only adjustment.
 - `coordinated` may resize verified companion backgrounds and peer body columns,
   reports every layout change, and rejects output that still cannot fit.
 
+PPTX replacement text may wrap or contain explicit CR/LF line breaks. Runtime
+normalizes explicit breaks to PowerPoint soft breaks, preserves the existing
+text style, and owns all deterministic layout decisions. Under `coordinated`,
+peer text boxes share the required height and font, verified backgrounds grow
+with their body text, and full-height accent bars extend with card backgrounds.
+Every geometry, font, or `word_wrap` mutation is reported from whole-slide
+before/after evidence. The edit fails closed if the resulting text still does
+not fit, a companion relationship is inconsistent, or a changed shape would
+cross nearby content or the slide canvas. The model only selects evidence-bound
+shape targets and supplies replacement text; it does not choose layout values.
+
 Unsupported assets, annotations, charts, animations, SmartArt internals,
 macros, tracked changes, scanned-PDF OCR, and package extensions may be read as
 partial evidence but are not implicit mutation targets.
@@ -148,6 +164,12 @@ partial evidence but are not implicit mutation targets.
 - Image semantics may locate a target but cannot authorize an edit by itself.
 - Every mutation must match the persisted operation decision, selected
   format/operation schema, and frozen paths.
+- The model-visible `docx.replace_paragraph` schema declares `source_hash` as
+  required before model execution. Before Policy and Approval, Runtime binds a
+  missing value from the single completed `document_locate_evidence` read in
+  the current run and rejects a supplied value that conflicts with that
+  evidence. Missing, conflicting, unrelated-node, or prior-run evidence blocks
+  without creating an approval.
 - The original SHA-256 must remain unchanged.
 - Output is reread through the same normalized pipeline.
 - Expected after-values and operation-specific deltas are checked.

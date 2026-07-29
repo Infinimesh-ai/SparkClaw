@@ -7,12 +7,13 @@
 
 ## Workflow 边界
 
-`document.read` revision 2 读取或总结一个明确的受治理 workspace 文件。
-`document.edit` revision 5 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
+`document.read` revision 3 读取或总结一个明确的受治理 workspace 文件。其格式限定 reader
+是 `direct_once` 节点：Runtime 使用冻结路径直接调用唯一 reader，Fast 只根据已完成证据生成
+最终回答。`document.edit` revision 5 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级
 `<name>-sparkclaw-edit.<ext>` 输出副本。如果该名称已存在，preflight 会选择第一个可用的
 带编号同级名称，例如 `<name>-sparkclaw-edit-2.<ext>`。继续编辑其中一个副本时，会沿用同一
-编号序列。
+编号序列。两个文档 Profile 拥有的所有模型调用当前都使用 Fast；非文档 Workflow 仍默认使用 Deep。
 
 输入输出 path 都是确定性 binding，模型不能替换。path 必须位于配置 workspace 内，解析成
 regular non-symlink file，并同时通过 extension 与 file signature/package type 检查。
@@ -42,10 +43,10 @@ confirm_document_target
 `final`，则以 `required_tool_not_called` 阻断当前节点，不再发起第三次模型调用。
 
 `select_edit_operation` 不会向步骤模型暴露工具。Runtime 直接检索它按格式限定的
-`document.edit` scope：单候选确定性选中；多候选由一次有重试上限的 Deep 模型决策处理，
+`document.edit` scope：单候选确定性选中；多候选由一次有重试上限的 Fast 模型决策处理，
 输入是 owner 请求和最多 20,000 字符的依赖证据。选中的 directory entry、capability、
 format、operation 与选择路径写入该节点的 `OutcomeRefs`，编辑节点只能 materialize 这一
-entry。决策缺失、过期、有歧义或无效时 Workflow 会显式 block。原 Fast 目录二次路由已经
+entry。决策缺失、过期、有歧义或无效时 Workflow 会显式 block。原内联目录二次路由已经
 删除；其他多候选 scope 也必须声明自己的决策节点。详见
 [operation 选择设计记录](document-edit-operation-selection.md)。
 
@@ -117,6 +118,14 @@ budget 由代码与测试约束，修改它们属于契约变化。
 - `coordinated` 可以调整已验证 companion background 和 peer body column，报告全部 layout
   change；仍无法容纳时拒绝输出。
 
+PPTX replacement text 可以自动换行，也可以包含显式 CR/LF。Runtime 会把显式换行规范化为
+PowerPoint soft break，保留现有文本样式，并独占全部确定性布局决策。在 `coordinated`
+策略下，同组 text box 使用一致的所需高度与字体，已验证 background 随 body text
+增长，贯穿卡片高度的 accent bar 也随 card background 延伸。系统根据整页修改前后证据
+报告每一项 geometry、font 或 `word_wrap` 变更。如果结果文本仍无法容纳、companion
+关系不一致，或修改后的 shape 会越过相邻内容或 slide canvas，则编辑显式失败。模型只
+选择由证据绑定的 shape target 并填写 replacement text，不选择 layout value。
+
 不支持的 asset、annotation、chart、animation、SmartArt internal、macro、tracked change、
 scanned-PDF OCR 和 package extension 可以作为 partial evidence 读取，但不是隐式 mutation target。
 
@@ -125,6 +134,10 @@ scanned-PDF OCR 和 package extension 可以作为 partial evidence 读取，但
 - Image semantic 可以辅助定位，但不能单独授权 edit。
 - 每次 mutation 都必须匹配持久化 operation 决策、选中的 format/operation schema 和冻结
   path。
+- 模型执行前，可见的 `docx.replace_paragraph` schema 已将 `source_hash` 声明为 required。
+  在 Policy 和 Approval 之前，Runtime 会从当前 run 唯一已完成的
+  `document_locate_evidence` read 中绑定缺失值；如果模型提供的值与该证据冲突，则直接拒绝。
+  缺失、冲突、来自无关节点或旧 run 的 evidence 会直接阻断，不创建 approval。
 - 原文件 SHA-256 必须不变。
 - 输出通过同一 normalize pipeline 重新读取。
 - 校验 expected after-value 和 operation-specific delta。

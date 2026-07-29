@@ -53,7 +53,7 @@ WebChat / Telegram / Weixin / Timer
       -> Catalog validation and one Workflow Profile
       -> Workflow Runtime
           -> stage-scoped Tool Exposure
-          -> Model Router (Deep execution calls)
+          -> Model Router (profile-selected execution calls)
           -> ToolHub -> Policy -> Approval
       -> WorkflowResult
       -> Delivery Gateway -> Web or connector Provider
@@ -142,8 +142,8 @@ The current model lanes are:
 
 | Lane | Role |
 |---|---|
-| `fast` | Tree routing and other bounded responsive reasoning |
-| `deep` | Selected Workflow planning, assessment, repair, and final answers |
+| `fast` | Tree routing, document read/edit reasoning and finalization, and other bounded responsive reasoning |
+| `deep` | Default lane for non-document Workflow planning, assessment, repair, and final answers |
 | `embedding` | Startup semantic graph index and embedding channel queries |
 | `guard` | Dedicated Qwen3Guard prompt moderation before routing or tool execution |
 | `mock` | Deterministic local development/eval behavior |
@@ -176,9 +176,10 @@ structured parsing, and an explicit `select_edit_operation` decision node.
 The edit localization node invokes its single format-qualified reader directly
 and exactly once with the frozen path; no model tool-choice step precedes the
 read.
-Multi-candidate edit decisions run on Deep over located evidence and persist one
-exact ToolHub entry before the editor can materialize. The former Fast secondary
-directory router is removed. Approval, output-copy writes, and post-edit
+All document model calls currently use Fast: this includes read finalization,
+multi-candidate edit decisions, and editor argument generation. A decision
+persists one exact ToolHub entry before the editor can materialize; the former
+inline secondary directory router remains removed. Approval, output-copy writes, and post-edit
 preservation checks remain on the shared path. Parsed representations may be
 incomplete, replaced, or regenerated without losing document identity or
 activity lineage.

@@ -8,7 +8,7 @@
 revision 4。
 
 Revision 5 保留同一四节点 Plan，但把 `document_locate_evidence` 标记为 `direct_once`：
-Runtime 在任何 Deep operation 选择调用前，使用冻结 path 直接且只调用一次按格式限定的
+Runtime 在任何 Fast operation 选择调用前，使用冻结 path 直接且只调用一次按格式限定的
 reader，模型不再决定是否执行定位读取。
 
 ## 问题
@@ -20,22 +20,21 @@ reader，模型不再决定是否执行定位读取。
 `set_text_style`），Runtime 在 `workflowDirectorySelection` 内用一次内联的
 `ChatWithProfile("fast", ...)` 调用消解歧义。
 
-这个 fast 二次路由有三个结构性缺陷：
+这个内联二次路由有三个结构性缺陷：
 
-1. **能力档位错误。** 区分 replace 与 insert 是基于 owner 请求加完整结构化 observation
-   的语义判断。fast lane 多次在请求（"修改/完善/润色"已有内容块）要求 `replace_*` 时
-   选成了 `insert_*`。
+1. **执行所有权错误。** 区分 replace 与 insert 是基于 owner 请求加结构化证据的语义判断，
+   但该选择隐藏在通用工具 materialization 内，而不是由声明在 Plan 中的 Workflow 决策节点负责。
 2. **证据不足。** 选择 prompt 只拿到裁剪至 6000 字符的紧凑 observation 摘要，而不是
-   deep 执行器随后能看到的定位证据。
+   完整定位证据。
 3. **对 plan 不可见。** 选择发生在工具 materialization 内部：没有 plan 节点、没有独立的
    attempt 上限、没有专属 audit 轨迹，冻结 plan 也无法表达"选择必须先于 mutation"。
 
 ## 决定
 
 operation 选择成为冻结 plan 中的一等**决策节点**，由 Workflow Runtime 在 workflow 执行
-model lane（`deep`）上执行，位于证据定位之后、editor stage 之前。`document.edit` 的
-fast 二次路由路径被关闭：如果 edit 节点在没有持久化决策的情况下进入 materialization，
-workflow 显式 block，而不是回退到 fast 模型调用。
+Profile 选择的 model lane（`document.edit` 当前为 `fast`）上执行，位于证据定位之后、
+editor stage 之前。`document.edit` 的内联二次路由路径被关闭：如果 edit 节点在没有持久化
+决策的情况下进入 materialization，workflow 显式 block，而不是回退到内联二次模型调用。
 
 ### 新 plan 形态（`document.edit` revision 4）
 
@@ -64,17 +63,17 @@ confirm_document_target        （确定性）
 - 绝不 materialize 模型可见的步骤工具——由 Runtime 直接消解；
 - 必须依赖至少一个 evidence 节点，确保定位证据先于选择存在。
 
-Runtime 在计算下一个执行 hint 之前消解处于 active 状态的决策节点：
+Runtime 在计算下一个 stage context 之前消解处于 active 状态的决策节点：
 
 1. 用节点的冻结 scope 检索工具目录（与其他节点相同的 `ExposureRequest` audit 路径）。
 2. 零候选：block workflow（`no registered editor matches the requested document
    change`）。
 3. 单候选：确定性选中，不发起模型调用（例如文本编辑只注册了 `replace_text`）。
-4. 多候选：在 `deep` profile 上发起 attempt 有界的 `workflow_operation_selection`
+4. 多候选：在 `fast` profile 上发起 attempt 有界的 `workflow_operation_selection`
    模型调用。prompt 携带 owner 请求、节点 goal、依赖 evidence 节点在更大预算下的
    完整结构化 observation，以及合格条目。严格的单字段 `{"entry_id":"..."}` 输出契约
    与最小改动语义（修改/完善/润色 → replace；除非目标不存在或明确要求新增，否则绝不
-   insert）沿用已退役 fast prompt 的规则。当冻结视图仍有候选时，空选择会被审计并携带
+   insert）沿用已退役内联 prompt 的规则。当冻结视图仍有候选时，空选择会被审计并携带
    明确反馈重试；只有重复空选择才以无匹配 editor block。
 5. 选中条目作为 outcome reference（`kind=tool_directory_entry`，带 capability、格式、
    operation 属性）持久化到决策节点上，节点完成，editor 节点激活。无效模型输出消耗
@@ -82,23 +81,23 @@ Runtime 在计算下一个执行 hint 之前消解处于 active 状态的决策�
 
 消解过程发出既有的 `tools.directory.selected` audit 事件（actor `workflow-decision`）
 和新增的 `workflow.decision_resolved` 事件，并追加
-`workflow_stage: edit_operation_selected operation=...` observation，让 deep 执行器
+`workflow_stage: edit_operation_selected operation=...` observation，让 editor stage
 知道冻结了哪个 operation 及其原因。
 
 ### 消费决策
 
 `workflowDirectorySelection` 能识别依赖决策节点的节点：持久化的
 `tool_directory_entry` reference 是唯一可接受的选择，它必须仍然存在于当前目录视图中；
-reference 缺失或有歧义是硬错误。通用 Fast 模型 fallback 已删除。现在只有
+reference 缺失或有歧义是硬错误。通用内联模型 fallback 已删除。现在只有
 `MaterializeAll`、精确持久化决策和确定性单候选三种目录选择路径；其他多候选 scope 会
 fail closed，并必须新增显式决策节点。
 
 ## 稳定性
 
-- operation 选择在 deep lane 上进行，看到的证据与执行器一致，并被冻结格式 scope 约束。
+- operation 选择在 Fast lane 上进行，使用完整定位证据，并被冻结格式 scope 约束。
 - 选择结果被持久化、可审计、attempt 有界且强制生效：edit 工具调用必须匹配已决策条目，
   否则被既有的 materialized-boundary 校验拒绝。
-- `document.edit` 不会再静默退化到 fast 二次路由；每个歧义要么经决策节点消解，
+- `document.edit` 不会再静默退化到内联二次路由；每个歧义要么经决策节点消解，
   要么显式 block。
 - 单候选格式完全跳过模型调用，新节点不给文本编辑增加任何延迟。
 
@@ -124,7 +123,7 @@ fail closed，并必须新增显式决策节点。
 - `Assess()` 改按 `outcome.NodeID` 而非节点 stage 分派：locate +
   `content_available` → 完成（`document_evidence_located`）；edit +
   `edit_completed` → 完成（`document_edit_completed`）；其余 block。
-- `Hint()` 依据 `state.ActiveNodeIDs[0]` 判定 `inspect`/`modify`；原
+- `StageContext()` 依据 `state.ActiveNodeIDs[0]` 判定 `inspect`/`modify`；原
   `TransitionInstruction` 文案退役，由决策完成 observation 取代。
 - profile 实现新的可选接口
   `workflowDecisionSemantics { DecisionRules(app.WorkflowNode) []string;
@@ -138,7 +137,7 @@ fail closed，并必须新增显式决策节点。
   Runtime 调用消解器。
 - 消解流程：在节点冻结 scope 下检索目录（沿用 `tools.directory.searched` audit）；
   零候选 block；单候选不发模型调用直接选中；多候选最多发起节点 attempt 上限次数的
-  `ChatWithProfile(ctx, "deep", ...)` `workflow_operation_selection` 调用。
+  `ChatWithProfile(ctx, "fast", ...)` `workflow_operation_selection` 调用。
 - prompt 使用 `WORKFLOW_OPERATION_SELECTION_REQUEST` 头与 owner 请求段；mock-router
   注入通道为 `MOCK_OPERATION_SELECTION_RESPONSE`，输出使用严格的
   `parseWorkflowDecisionSelection` 契约。依赖节点 observation 以 20000 字符预算进入
@@ -163,17 +162,17 @@ fail closed，并必须新增显式决策节点。
 - `internal/agent/workflow_runtime.go`（`runWorkflowWithSeedAndStream`）：每个
   stage 的状态检查之后消解 active 决策；追加返回的 observation 并把消解视作一次
   transition；消解导致 block 时经既有 `workflowBlockedMessage` 路径退出。
-- `internal/agent/workflow_dispatcher.go`（`resumeMatchedWorkflow`）：计算 hint 与
+- `internal/agent/workflow_dispatcher.go`（`resumeMatchedWorkflow`）：计算 stage context 与
   materialize 之前先消解 active 决策，使定位与选择之间的崩溃可恢复。
 
 ### 5. 测试与文档
 
 - 更新 `workflow_preflight_test.go`（`advanceDocumentEditToEditor` 把 read 调用记到
   `document_locate_evidence`，随后调用消解器；edit 节点 scope revision 2 → 1；
-  模型调用断言改为 `deep` 上的 `workflow_operation_selection`），以及
+  模型调用断言改为 `fast` 上的 `workflow_operation_selection`），以及
   `document_edit_workflow_test.go`、`message_control_routing_test.go`、
   `web_workflow_test.go` 中的节点 ID / scope revision 引用。
-- 新增覆盖：deep lane 多候选选择；单候选文本编辑断言零次选择模型调用；空
+- 新增覆盖：Fast lane 多候选选择；单候选文本编辑断言零次选择模型调用；空
   `entry_id` 重试后 block；决策缺失时 materialization fail-closed；无效输出重试后
   block；plan 校验拒绝缺 evidence 依赖或缺 scope 的决策节点。
 - [文档 Workflow](document-workflows.md) 及其英文原文现已更新到 revision 4 并回链本记录。
@@ -187,5 +186,5 @@ workflow 中的文档语言镜像检查。
 - 不新增 editor operation、格式或保真规则。
 - `document.read`、browser、weather、schedule 与 conversation workflow 保持既有 plan；
   当前 scope 都通过 `MaterializeAll` 或单一精确候选解析，不需要模型目录 fallback。
-- intent router 的第一遍路由（`task_hint`、capability 匹配）不变；本设计只移除文档编辑
-  workflow 内部的第二跳 fast 路由。
+- intent router 的第一遍 capability 匹配不变；本设计只移除文档编辑 workflow 内部的
+  第二跳内联路由。

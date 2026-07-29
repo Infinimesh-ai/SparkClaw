@@ -10,7 +10,7 @@ from revision 3 to revision 4.
 
 Revision 5 keeps this four-node plan but marks `document_locate_evidence` as
 `direct_once`: Runtime invokes the single format-qualified reader exactly once
-with the frozen path before any Deep operation-selection call. The model no
+with the frozen path before any Fast operation-selection call. The model no
 longer chooses whether to perform the localization read.
 
 ## Problem
@@ -24,15 +24,14 @@ than one entry (for DOCX: `replace_text`, `replace_paragraph`,
 the ambiguity inside `workflowDirectorySelection` with an inline
 `ChatWithProfile("fast", ...)` call.
 
-That fast secondary routing had three structural defects:
+That inline secondary routing had three structural defects:
 
-1. **Wrong capability class.** Distinguishing replace from insert is a semantic
-   judgment over the owner request plus the full structured observation. The
-   fast lane repeatedly chose `insert_*` when the request ("修改/完善/润色 an
-   existing block") required `replace_*`.
+1. **Wrong execution ownership.** Distinguishing replace from insert is a
+   semantic judgment over the owner request plus structured evidence, but the
+   choice was hidden inside generic tool materialization rather than owned by a
+   declared Workflow decision node.
 2. **Starved evidence.** The selection prompt only received compact observation
-   summaries trimmed to 6000 runes, not the located evidence the deep executor
-   would later see.
+   summaries trimmed to 6000 runes, not the complete located evidence.
 3. **Invisible to the plan.** The choice happened inside tool materialization:
    no plan node, no attempt bounds of its own, no dedicated audit trail, and no
    way for the frozen plan to state that selection must precede mutation.
@@ -40,11 +39,11 @@ That fast secondary routing had three structural defects:
 ## Decision
 
 Operation selection becomes a first-class **decision node** in the frozen plan,
-executed by the Workflow Runtime on the workflow execution model lane (`deep`),
-after evidence localization and before the editor stage. The fast secondary
-routing path is closed for `document.edit`: if the edit node ever reaches
+executed by the Workflow Runtime on the profile-selected execution lane
+(`fast` for `document.edit`), after evidence localization and before the editor
+stage. The inline secondary routing path is closed for `document.edit`: if the edit node ever reaches
 materialization without a persisted decision, the workflow blocks explicitly
-instead of falling back to a fast model call.
+instead of falling back to an inline secondary model call.
 
 ### New plan shape (`document.edit` revision 4)
 
@@ -77,7 +76,7 @@ plan validation rules of its own:
 - must depend on at least one evidence node so located evidence exists first.
 
 The runtime resolves an active decision node before computing the next
-execution hint:
+stage context:
 
 1. Search the tool directory with the node's frozen scope (same
    `ExposureRequest` audit path as any other node).
@@ -86,13 +85,13 @@ execution hint:
 3. One candidate: select it deterministically — no model call (text edits,
    for example, only register `replace_text`).
 4. Multiple candidates: retry-bounded `workflow_operation_selection` model
-   calls on the `deep` profile. The prompt carries the owner request, the node
+   calls on the `fast` profile. The prompt carries the owner request, the node
    goal, the full structured observations of the dependency evidence nodes
    under a wider budget, and the eligible entries. The strict single-field
    `{"entry_id":"..."}` output contract and minimum-change semantics
    (modify/improve/polish, including equivalent Chinese edit verbs → replace,
    never insert unless the target is absent or explicitly requested as new)
-   are unchanged from the retired fast prompt. An empty selection while the
+   are unchanged from the retired inline prompt. An empty selection while the
    frozen view still contains candidates is audited and retried with explicit
    feedback; only repeated empty selections block as no matching editor.
 5. The selected entry is persisted on the decision node as an outcome
@@ -103,27 +102,27 @@ execution hint:
 
 Resolution emits the existing `tools.directory.selected` audit event (actor
 `workflow-decision`) plus a `workflow.decision_resolved` event, and appends a
-`workflow_stage: edit_operation_selected operation=...` observation so the deep
-executor knows which operation was frozen and why.
+`workflow_stage: edit_operation_selected operation=...` observation so the
+editor stage knows which operation was frozen and why.
 
 ### Consuming the decision
 
 `workflowDirectorySelection` recognizes nodes that depend on a decision
 node: the persisted `tool_directory_entry` reference is the only admissible
 selection, it must still be present in the active directory view, and a missing
-or ambiguous reference is a hard error. The generic Fast model fallback has
+or ambiguous reference is a hard error. The generic inline model fallback has
 been deleted. `MaterializeAll`, an exact persisted decision, and a deterministic
 single candidate are now the only directory-selection paths; any other
 multi-candidate scope fails and must add an explicit decision node.
 
 ## Stability properties
 
-- Operation choice runs on the deep lane with the same evidence the executor
-  sees, bounded by the frozen format scope.
+- Operation choice runs on the Fast lane with the complete located evidence,
+  bounded by the frozen format scope.
 - The choice is persisted, auditable, retry-bounded, and enforced: the edit
   tool call must match the decided entry or it is rejected by the existing
   materialized-boundary validation.
-- `document.edit` can no longer silently degrade to fast secondary routing;
+- `document.edit` can no longer silently degrade to inline secondary routing;
   every ambiguity either resolves through the decision node or blocks visibly.
 - Single-candidate formats skip the model call entirely, so the new node adds
   no latency to text edits.
@@ -154,7 +153,7 @@ The refactor landed in five reviewable steps; each kept the build and the
   locate + `content_available` → complete (`document_evidence_located`);
   edit + `edit_completed` → complete (`document_edit_completed`); anything
   else blocks.
-- `Hint()` keys `inspect`/`modify` off `state.ActiveNodeIDs[0]`; the old
+- `StageContext()` keys `inspect`/`modify` off `state.ActiveNodeIDs[0]`; the old
   `TransitionInstruction` text is retired in favor of the decision-resolved
   observation.
 - The profile implements a new optional interface
@@ -171,7 +170,7 @@ The refactor landed in five reviewable steps; each kept the build and the
   `tools.directory.searched` audit); zero candidates block; one candidate is
   selected without a model call; multiple candidates trigger up to the node's
   attempt bound of `workflow_operation_selection` calls via
-  `ChatWithProfile(ctx, "deep", ...)`.
+  `ChatWithProfile(ctx, "fast", ...)`.
 - The prompt uses the `WORKFLOW_OPERATION_SELECTION_REQUEST` header and owner
   request segment. The mock-router injection channel is
   `MOCK_OPERATION_SELECTION_RESPONSE`; output uses the strict
@@ -205,7 +204,7 @@ The refactor landed in five reviewable steps; each kept the build and the
   observation and treat resolution as a transition; a blocked resolution exits
   through the existing `workflowBlockedMessage` path.
 - `internal/agent/workflow_dispatcher.go` (`resumeMatchedWorkflow`): resolve
-  active decisions before computing the hint and materializing tools so a
+  active decisions before computing the stage context and materializing tools so a
   crash between localization and selection recovers.
 
 ### 5. Tests and docs
@@ -213,10 +212,10 @@ The refactor landed in five reviewable steps; each kept the build and the
 - Update `workflow_preflight_test.go` (`advanceDocumentEditToEditor` posts the
   read call to `document_locate_evidence`, then calls the resolver; edit-node
   scope revision drops 2 → 1; the model-call assertion becomes
-  `workflow_operation_selection` on `deep`), plus the node-ID/scope-revision
+  `workflow_operation_selection` on `fast`), plus the node-ID/scope-revision
   references in `document_edit_workflow_test.go`,
   `message_control_routing_test.go`, and `web_workflow_test.go`.
-- New coverage: deep-lane multi-candidate selection; single-candidate text
+- New coverage: Fast-lane multi-candidate selection; single-candidate text
   edit asserts zero selection model calls; empty `entry_id` blocks; missing
   decision fails materialization closed; invalid output retries then blocks;
   plan validation rejects decision nodes without evidence dependencies or
@@ -234,6 +233,5 @@ language-mirror check from the CI workflow.
 - `document.read`, browser, weather, schedule, and conversation workflows keep
   their existing plans. Their current scopes resolve through `MaterializeAll`
   or one exact candidate and do not need a model-owned directory fallback.
-- The intent router's first-pass routing (`task_hint`, capability matching) is
-  unchanged; this design only removes the second fast routing hop inside the
-  document edit workflow.
+- The intent router's first-pass capability matching is unchanged; this design
+  only removes the second inline routing hop inside the document edit workflow.

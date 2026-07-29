@@ -225,7 +225,7 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 		})
 	case "assess_goal_initial", "assess_goal_after_action", "assess_goal_visible":
 		snapshotID, _, elementRef := mockLatestBrowserSnapshot(prompt)
-		verdict := "success"
+		verdict := "satisfied"
 		if stage == "assess_goal_initial" {
 			verdict = "progress"
 		}

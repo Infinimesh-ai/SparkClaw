@@ -332,11 +332,49 @@ func groundedBrowserAutomationSummary(goal, fallback string, calls []app.ToolCal
 	if failure, ok := browserInteractionFailureAnswerFromCalls(calls); ok {
 		return failure, true
 	}
+	if result, ok := browserVerifiedResultAnswerFromCalls(goal, calls); ok {
+		return result, true
+	}
 	if tabs, ok := browserTabsAnswerFromCalls(calls); ok {
 		return tabs, true
 	}
 	if screenshot, ok := browserScreenshotAnswerFromCalls(goal, fallback, calls); ok {
 		return screenshot, true
+	}
+	return "", false
+}
+
+func browserVerifiedResultAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) {
+	for index := len(calls) - 1; index >= 0; index-- {
+		call := calls[index]
+		if call.Tool != "browser.assess_goal" || !toolCallCompleted(call) {
+			continue
+		}
+		assessment := browserOutcomePayload(call.Result)
+		if strings.TrimSpace(stringValue(assessment["status"])) != "succeeded" ||
+			!boolLikeValue(assessment["goal_satisfied"]) {
+			continue
+		}
+		snapshotID := cleanOptionalString(assessment["snapshot_id"])
+		for snapshotIndex := index - 1; snapshotIndex >= 0; snapshotIndex-- {
+			snapshotCall := calls[snapshotIndex]
+			if snapshotCall.Tool != "browser.snapshot" || !toolCallCompleted(snapshotCall) {
+				continue
+			}
+			snapshot, ok := browserSnapshotPayload(snapshotCall.Result)
+			if !ok || cleanOptionalString(snapshot["snapshot_id"]) != snapshotID ||
+				cleanOptionalString(snapshot["presentation"]) != string(app.BrowserPresentationVisible) {
+				continue
+			}
+			resultURL := cleanOptionalString(snapshot["url"])
+			if resultURL == "" {
+				continue
+			}
+			if containsCJK(goal) {
+				return "浏览器操作已完成，结果已在可见浏览器中打开：\n" + resultURL, true
+			}
+			return "Browser automation completed. The verified result is open in the visible browser:\n" + resultURL, true
+		}
 	}
 	return "", false
 }

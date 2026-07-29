@@ -11,6 +11,7 @@ import (
 
 const browserWorkflowRevision2 = 2
 const browserResultPresentationReason = "workflow_result_presentation"
+const browserSnapshotSettleRetryLimit = 2
 
 type browserAutomationProfile struct{}
 
@@ -119,6 +120,8 @@ func browserRevision2Plan(id app.WorkflowID, revision int, interaction bool) app
 		browserRevision2Transition("navigate_acquired", "settle_hidden", app.OutcomeSignalNavigateCompleted, 1, scope),
 		browserRevision2Transition("hidden_settled", "snapshot_hidden", app.OutcomeSignalHiddenTargetSettled, 4, scope),
 		browserRevision2Transition("visible_settled", "snapshot_visible", app.OutcomeSignalVisibleTargetSettled, 2, scope),
+		browserRevision2Transition("hidden_snapshot_drifted", "settle_hidden", app.OutcomeSignalHiddenSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
+		browserRevision2Transition("visible_snapshot_drifted", "settle_visible", app.OutcomeSignalVisibleSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
 	}
 	if !interaction {
 		transitions = append(transitions,
@@ -152,6 +155,7 @@ func browserRevision2Plan(id app.WorkflowID, revision int, interaction bool) app
 			browserRevision2Transition("initial_needs_action", "choose_and_click", app.OutcomeSignalInteractionProgress, 1, scope),
 			browserRevision2Transition("click_recorded", "settle_after_action", app.OutcomeSignalClickCompleted, browserInteractionMaxClicks, scope),
 			browserRevision2Transition("action_settled", "snapshot_after_action", app.OutcomeSignalActionTargetSettled, browserInteractionMaxClicks, scope),
+			browserRevision2Transition("action_snapshot_drifted", "settle_after_action", app.OutcomeSignalActionSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
 			browserRevision2Transition("validate_transition", "validate_transition", app.OutcomeSignalInteractionVerificationRequired, browserInteractionMaxClicks, scope),
 			browserRevision2Transition("assess_after_action", "assess_goal_after_action", app.OutcomeSignalTargetValidated, browserInteractionMaxClicks, scope),
 			browserRevision2Transition("continue_interaction", "choose_and_click", app.OutcomeSignalInteractionProgress, browserInteractionMaxClicks-1, scope),
@@ -278,8 +282,16 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 		args["require_ready_state"] = true
 		args["allow_no_change"] = stage != "settle_after_action"
 		if state != nil && state.Browser != nil {
-			if state.Browser.Target.CanonicalURL != "" {
-				args["expected_url"] = state.Browser.Target.CanonicalURL
+			expectedURL := state.Browser.Target.CanonicalURL
+			if stage == "settle_visible" && state.Browser.Result != nil &&
+				state.Browser.Result.Target.CanonicalURL != "" {
+				expectedURL = state.Browser.Result.Target.CanonicalURL
+			}
+			if expectedURL != "" {
+				args["expected_url"] = expectedURL
+			}
+			if state.Browser.Target.TargetKind != "" {
+				args["target_kind"] = string(state.Browser.Target.TargetKind)
 			}
 		}
 		if stage == "settle_after_action" && state != nil && len(state.ActiveNodeIDs) == 1 {
@@ -373,6 +385,12 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_settle_timeout"
 	case "snapshot_hidden":
 		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationHidden)
+		if reason == "" && interaction && !browserSnapshotHasInteractionEvidence(refs) {
+			reason = "browser_snapshot_not_ready"
+		}
+		if reason == "browser_snapshot_route_changed" || reason == "browser_snapshot_not_ready" {
+			return browserRevision2SnapshotRetry(state, assessment, "hidden_snapshot_drifted", app.OutcomeSignalHiddenSnapshotDrifted, "settle_hidden")
+		}
 		if reason != "" {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
 			return assessment
@@ -397,12 +415,18 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		}
 	case "snapshot_after_action":
 		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationHidden)
-		if reason != "" {
-			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
+		if reason == "" && browserSnapshotOutcomeRepeated(refs) {
+			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_loop_detected"
 			return assessment
 		}
-		if browserSnapshotOutcomeRepeated(refs) {
-			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_loop_detected"
+		if reason == "" && !browserSnapshotHasInteractionEvidence(refs) {
+			reason = "browser_snapshot_not_ready"
+		}
+		if reason == "browser_snapshot_route_changed" || reason == "browser_snapshot_not_ready" {
+			return browserRevision2SnapshotRetry(state, assessment, "action_snapshot_drifted", app.OutcomeSignalActionSnapshotDrifted, "settle_after_action")
+		}
+		if reason != "" {
+			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
 			return assessment
 		}
 		refs = browserTransitionRefs(node.OutcomeRefs, refs)
@@ -435,6 +459,12 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_presentation_failed"
 	case "snapshot_visible":
 		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationVisible)
+		if reason == "" && interaction && !browserSnapshotHasInteractionEvidence(refs) {
+			reason = "browser_snapshot_not_ready"
+		}
+		if reason == "browser_snapshot_route_changed" || reason == "browser_snapshot_not_ready" {
+			return browserRevision2SnapshotRetry(state, assessment, "visible_snapshot_drifted", app.OutcomeSignalVisibleSnapshotDrifted, "settle_visible")
+		}
 		if reason != "" {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
 			return assessment
@@ -481,6 +511,15 @@ func browserRevision2NeedsMore(assessment app.NodeAssessment, signal app.Outcome
 	return assessment
 }
 
+func browserRevision2SnapshotRetry(state *app.WorkflowState, assessment app.NodeAssessment, transitionID string, signal app.OutcomeSignal, stage string) app.NodeAssessment {
+	node := state.Nodes[assessment.NodeID]
+	if node.TransitionActivations[app.TransitionID(transitionID)] >= browserSnapshotSettleRetryLimit {
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_snapshot_not_ready"
+		return assessment
+	}
+	return browserRevision2NeedsMore(assessment, signal, stage, []app.ResourceRef{})
+}
+
 func browserRevision2TransitionInstruction(assessment app.NodeAssessment) string {
 	if assessment.ReasonCode == "" {
 		return ""
@@ -499,6 +538,9 @@ func browserRevision2ValidatedSnapshot(state *app.WorkflowState, outcome app.Too
 	liveURL := page.Attributes["url"]
 	if !browserPresentationURLMatchesRoute(state, liveURL) || !browserLoginResumeURLUsable(liveURL) {
 		return nil, "browser_route_diverged"
+	}
+	if browserSnapshotRouteChangedAfterSettle(state, outcome.NodeID, liveURL) {
+		return nil, "browser_snapshot_route_changed"
 	}
 	if strings.TrimSpace(snapshot.Attributes["digest"]) == "" {
 		return nil, "browser_snapshot_empty"
@@ -519,6 +561,52 @@ func browserRevision2ValidatedSnapshot(state *app.WorkflowState, outcome app.Too
 		}
 	}
 	return validated, ""
+}
+
+func browserSnapshotRouteChangedAfterSettle(state *app.WorkflowState, nodeID app.WorkflowNodeID, liveURL string) bool {
+	if state == nil {
+		return false
+	}
+	node, ok := state.Nodes[nodeID]
+	if !ok {
+		return false
+	}
+	for index := len(node.OutcomeRefs) - 1; index >= 0; index-- {
+		ref := node.OutcomeRefs[index]
+		if ref.Kind != "browser_page" ||
+			strings.TrimSpace(ref.Attributes["state_digest"]) == "" ||
+			strings.TrimSpace(ref.Attributes["url"]) == "" {
+			continue
+		}
+		return !sameBrowserDocumentRoute(ref.Attributes["url"], liveURL)
+	}
+	return false
+}
+
+func sameBrowserDocumentRoute(leftRaw, rightRaw string) bool {
+	left, leftErr := url.Parse(strings.TrimSpace(leftRaw))
+	right, rightErr := url.Parse(strings.TrimSpace(rightRaw))
+	if leftErr != nil || rightErr != nil || !sameBrowserOrigin(leftRaw, rightRaw) {
+		return false
+	}
+	leftPath := left.EscapedPath()
+	if leftPath == "" {
+		leftPath = "/"
+	}
+	rightPath := right.EscapedPath()
+	if rightPath == "" {
+		rightPath = "/"
+	}
+	return leftPath == rightPath && left.EscapedFragment() == right.EscapedFragment()
+}
+
+func browserSnapshotHasInteractionEvidence(refs []app.ResourceRef) bool {
+	for _, ref := range refs {
+		if ref.Kind == "browser_element" && strings.TrimSpace(ref.Ref) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

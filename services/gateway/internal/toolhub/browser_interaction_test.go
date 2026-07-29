@@ -31,20 +31,24 @@ func TestBrowserValidateTransitionAcceptsBoundChangedSnapshots(t *testing.T) {
 }
 
 func TestBrowserAssessGoalAcceptsCurrentSnapshotEvidence(t *testing.T) {
-	st, hub := newBrowserVerificationHub()
-	seedBrowserVerificationCycle(st, "session", "run", 1, "before", "after")
+	for _, verdict := range []string{"satisfied", "success"} {
+		t.Run(verdict, func(t *testing.T) {
+			st, hub := newBrowserVerificationHub()
+			seedBrowserVerificationCycle(st, "session", "run", 1, "before", "after")
 
-	result, err := hub.Execute(context.Background(), "browser.assess_goal", map[string]any{
-		"snapshot_id": "snapshot_2", "verdict": "success",
-		"evidence_refs": []string{browserVerificationRef(2)}, "reason": "目标状态已出现",
-	}, "session", "run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	output := result.Output.(map[string]any)
-	if output["status"] != "succeeded" || output["code"] != "ok" || output["goal_satisfied"] != true ||
-		output["session_generation"] != uint64(7) {
-		t.Fatalf("unexpected goal assessment: %#v", output)
+			result, err := hub.Execute(context.Background(), "browser.assess_goal", map[string]any{
+				"snapshot_id": "snapshot_2", "verdict": verdict,
+				"evidence_refs": []string{browserVerificationRef(2)}, "reason": "目标状态已出现",
+			}, "session", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := result.Output.(map[string]any)
+			if output["status"] != "succeeded" || output["code"] != "ok" || output["goal_satisfied"] != true ||
+				output["session_generation"] != uint64(7) {
+				t.Fatalf("unexpected goal assessment: %#v", output)
+			}
+		})
 	}
 }
 

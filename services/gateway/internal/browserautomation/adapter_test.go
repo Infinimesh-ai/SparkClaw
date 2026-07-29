@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,12 +100,23 @@ func TestFreshVisibleSessionOpensTargetBeforeTabDiscovery(t *testing.T) {
 	}
 }
 
-func TestRebaseFreshVisibleURLFragmentUsesRedirectedSessionURL(t *testing.T) {
+func TestRebaseFreshVisibleURLRouteUsesRedirectedSessionURL(t *testing.T) {
 	target := "https://wx.mail.qq.com/home/index?sid=stale#/list/4"
 	current := "https://wx.mail.qq.com/home/index?sid=fresh#/list/1/1"
-	got, ok := rebaseFreshVisibleURLFragment(target, current)
+	parsedTarget, err := url.Parse(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := browserURLOrigin(parsedTarget); got != "https://wx.mail.qq.com/" {
+		t.Fatalf("visible startup origin = %q", got)
+	}
+	got, ok := rebaseFreshVisibleURLRoute(target, current)
 	if !ok || got != "https://wx.mail.qq.com/home/index?sid=fresh#/list/4" {
 		t.Fatalf("unexpected rebased URL: got=%q ok=%t", got, ok)
+	}
+	got, ok = rebaseFreshVisibleURLRoute(target, "https://wx.mail.qq.com/list/readtemplate?sid=fresh#/login")
+	if !ok || got != "https://wx.mail.qq.com/home/index?sid=fresh#/list/4" {
+		t.Fatalf("unexpected bootstrap-path rebase: got=%q ok=%t", got, ok)
 	}
 
 	for _, test := range []struct {
@@ -129,7 +141,7 @@ func TestRebaseFreshVisibleURLFragmentUsesRedirectedSessionURL(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if rebound, ok := rebaseFreshVisibleURLFragment(test.target, test.current); ok || rebound != "" {
+			if rebound, ok := rebaseFreshVisibleURLRoute(test.target, test.current); ok || rebound != "" {
 				t.Fatalf("unexpected rebase: got=%q ok=%t", rebound, ok)
 			}
 		})

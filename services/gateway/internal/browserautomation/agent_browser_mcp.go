@@ -22,11 +22,12 @@ import (
 )
 
 const (
-	agentBrowserVersion         = "0.32.3"
-	agentBrowserProtocolVersion = "2025-11-25"
-	agentBrowserMaxMessageBytes = 16 << 20
-	hiddenBrowserViewport       = "1365x768"
-	agentBrowserFallbackClose   = 10 * time.Second
+	agentBrowserVersion             = "0.32.3"
+	agentBrowserProtocolVersion     = "2025-11-25"
+	agentBrowserMaxMessageBytes     = 16 << 20
+	hiddenBrowserViewport           = "1365x768"
+	agentBrowserFallbackClose       = 10 * time.Second
+	agentBrowserTransportHeadroomMS = 5000
 )
 
 var requiredAgentBrowserTools = map[string][]string{
@@ -632,13 +633,20 @@ func resolveSharedProfileDir(configured, profileKey string) (string, error) {
 }
 
 func requestTimeoutMS(ctx context.Context, fallback int) int {
+	limit := adapterTimeoutMS(fallback)
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline).Milliseconds()
-		if remaining > 0 && remaining < int64(fallback) {
-			return int(remaining)
+		if remaining > 0 && remaining < int64(limit) {
+			limit = int(remaining)
 		}
 	}
-	return adapterTimeoutMS(fallback)
+	if limit > agentBrowserTransportHeadroomMS {
+		return limit - agentBrowserTransportHeadroomMS
+	}
+	if limit > 1 {
+		return limit / 2
+	}
+	return 1
 }
 
 func adapterTimeout(timeoutMS int) time.Duration {

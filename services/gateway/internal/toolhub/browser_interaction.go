@@ -87,7 +87,7 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 	verdict := strings.ToLower(strings.TrimSpace(browserAutomationStringValue(args["verdict"])))
 	reason := strings.TrimSpace(browserAutomationStringValue(args["reason"]))
 	evidenceRefs := browserInteractionStringSlice(args["evidence_refs"])
-	if verdict != "success" && verdict != "progress" && verdict != "failure" {
+	if verdict != "satisfied" && verdict != "success" && verdict != "progress" && verdict != "failure" {
 		return Result{}, errors.New("browser.assess_goal verdict is unsupported")
 	}
 	if len(evidenceRefs) == 0 {
@@ -104,7 +104,7 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 		}
 	}
 	status, code := verdict, "ok"
-	if verdict == "success" {
+	if verdict == "satisfied" || verdict == "success" {
 		status = "succeeded"
 	}
 	clickCount := completedBrowserClickCount(calls, runID, snapshot.Index)

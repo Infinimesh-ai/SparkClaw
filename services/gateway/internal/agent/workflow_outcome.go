@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -324,7 +326,7 @@ func adaptBrowserWaitOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 					Ref:        pageID,
 					Provenance: call.ID,
 					Attributes: browserOutcomeIdentityAttributes(payload, map[string]string{
-						"url":          normalizeBrowserURL(firstNonEmptyString(payload["url"])),
+						"url":          normalizeBrowserEvidenceURL(firstNonEmptyString(payload["url"])),
 						"state_digest": firstNonEmptyString(payload["state_digest"]),
 					}),
 				}}
@@ -431,7 +433,7 @@ func adaptBrowserTransitionOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 			"before_snapshot_id": strings.TrimSpace(stringValue(payload["before_snapshot_id"])),
 			"after_snapshot_id":  strings.TrimSpace(stringValue(payload["after_snapshot_id"])),
 			"after_digest":       strings.TrimSpace(stringValue(payload["after_digest"])),
-			"session_generation": strings.TrimSpace(stringValue(payload["session_generation"])),
+			"session_generation": browserSessionGenerationString(payload["session_generation"]),
 		},
 	}}
 	return outcome
@@ -539,8 +541,11 @@ func browserOutcomeIdentityAttributes(payload map[string]any, attributes map[str
 	if attributes == nil {
 		attributes = map[string]string{}
 	}
+	if generation := browserSessionGenerationString(payload["session_generation"]); generation != "" {
+		attributes["session_generation"] = generation
+	}
 	for _, key := range []string{
-		"session_generation", "provider_session_ref", "presentation",
+		"provider_session_ref", "presentation",
 		"owner_id", "profile_id", "browser_profile_id",
 	} {
 		if value := firstNonEmptyString(payload[key]); value != "" {
@@ -552,6 +557,58 @@ func browserOutcomeIdentityAttributes(payload map[string]any, attributes map[str
 	}
 	delete(attributes, "browser_profile_id")
 	return attributes
+}
+
+func browserSessionGenerationString(value any) string {
+	const maxExactJSONInteger = uint64(1<<53 - 1)
+	var candidate string
+	switch typed := value.(type) {
+	case string:
+		candidate = strings.TrimSpace(typed)
+	case json.Number:
+		candidate = typed.String()
+	case uint64:
+		if typed <= maxExactJSONInteger {
+			return strconv.FormatUint(typed, 10)
+		}
+		return ""
+	case uint:
+		if uint64(typed) <= maxExactJSONInteger {
+			return strconv.FormatUint(uint64(typed), 10)
+		}
+		return ""
+	case int:
+		if typed > 0 && uint64(typed) <= maxExactJSONInteger {
+			return strconv.FormatUint(uint64(typed), 10)
+		}
+		return ""
+	case int64:
+		if typed > 0 && uint64(typed) <= maxExactJSONInteger {
+			return strconv.FormatUint(uint64(typed), 10)
+		}
+		return ""
+	case float64:
+		if typed > 0 && typed <= float64(maxExactJSONInteger) && typed == float64(uint64(typed)) {
+			return strconv.FormatUint(uint64(typed), 10)
+		}
+		return ""
+	case float32:
+		const maxExactFloat32Integer = uint64(1<<24 - 1)
+		if typed > 0 && typed <= float32(maxExactFloat32Integer) && typed == float32(uint64(typed)) {
+			return strconv.FormatUint(uint64(typed), 10)
+		}
+		return ""
+	default:
+		return ""
+	}
+	if parsed, err := strconv.ParseUint(candidate, 10, 64); err == nil && parsed <= maxExactJSONInteger {
+		return strconv.FormatUint(parsed, 10)
+	}
+	parsed, err := strconv.ParseFloat(candidate, 64)
+	if err != nil || parsed <= 0 || parsed > float64(maxExactJSONInteger) || parsed != float64(uint64(parsed)) {
+		return ""
+	}
+	return strconv.FormatUint(uint64(parsed), 10)
 }
 
 func adaptDocumentEditOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {

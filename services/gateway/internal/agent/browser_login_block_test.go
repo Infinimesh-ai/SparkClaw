@@ -62,7 +62,8 @@ func TestBrowserLoginResumeUsesValidatedRegisteredPostLoginURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	if second.Run.ID != first.Run.ID || second.Run.State != "completed" {
-		t.Fatalf("validated QQ Mail page did not resume the original run: run=%#v calls=%#v", second.Run, workflowCallDebug(toolCallsForRun(st.ListToolCalls(session.ID), first.Run.ID)))
+		node := second.Run.Workflow.Nodes["browser_result"]
+		t.Fatalf("validated QQ Mail page did not resume the original run: run=%#v node=%#v calls=%#v", second.Run, node, workflowCallDebug(toolCallsForRun(st.ListToolCalls(session.ID), first.Run.ID)))
 	}
 	if second.Run.Workflow == nil || second.Run.Workflow.Route.Slots.TargetRef != frozenTarget ||
 		frozenTarget != "https://mail.qq.com/" {

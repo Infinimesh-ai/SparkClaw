@@ -64,7 +64,7 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 		"browser.validate_transition": {
 			"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2", "element_ref": "element_1",
 		},
-		"browser.assess_goal": {"snapshot_id": "snapshot_2", "verdict": "success", "evidence_refs": []string{"element_1"}, "reason": "target state changed"},
+		"browser.assess_goal": {"snapshot_id": "snapshot_2", "verdict": "satisfied", "evidence_refs": []string{"element_1"}, "reason": "target state changed"},
 	}
 	for name, args := range valid {
 		if err := hub.Validate(name, args); err != nil {

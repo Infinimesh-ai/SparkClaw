@@ -39,7 +39,7 @@ func NewAdapter(cfg config.Config) Adapter {
 		cfg:            cfg,
 		namespace:      newAgentBrowserNamespace(),
 		snapshots:      map[string]*agentBrowserSnapshotState{},
-		nextGeneration: uint64(time.Now().UTC().UnixNano()),
+		nextGeneration: uint64(time.Now().UTC().UnixMicro()),
 	}
 }
 
@@ -524,7 +524,7 @@ func (a *AgentBrowserAdapter) preserveFreshVisibleURLFragmentLocked(ctx context.
 		return nil
 	}
 	if _, err := a.waitForStableStateLocked(ctx, session, map[string]any{
-		"expected_url":    targetURL,
+		"expected_url":    browserURLOrigin(target),
 		"allow_no_change": true,
 	}); err != nil {
 		return err
@@ -533,7 +533,7 @@ func (a *AgentBrowserAdapter) preserveFreshVisibleURLFragmentLocked(ctx context.
 	if err != nil {
 		return err
 	}
-	reboundURL, ok := rebaseFreshVisibleURLFragment(targetURL, currentURL)
+	reboundURL, ok := rebaseFreshVisibleURLRoute(targetURL, currentURL)
 	if !ok {
 		return nil
 	}
@@ -541,13 +541,23 @@ func (a *AgentBrowserAdapter) preserveFreshVisibleURLFragmentLocked(ctx context.
 	return err
 }
 
-func rebaseFreshVisibleURLFragment(targetRaw, currentRaw string) (string, bool) {
+func browserURLOrigin(parsed *url.URL) string {
+	if parsed == nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host, Path: "/"}).String()
+}
+
+func rebaseFreshVisibleURLRoute(targetRaw, currentRaw string) (string, bool) {
 	target, targetErr := url.Parse(strings.TrimSpace(targetRaw))
 	current, currentErr := url.Parse(strings.TrimSpace(currentRaw))
 	if targetErr != nil || currentErr != nil || target.Fragment == "" ||
-		!browserURLsShareOrigin(target, current) || target.Fragment == current.Fragment {
+		!browserURLsShareOrigin(target, current) ||
+		target.Path == current.Path && target.Fragment == current.Fragment {
 		return "", false
 	}
+	current.Path = target.Path
+	current.RawPath = target.RawPath
 	current.Fragment = target.Fragment
 	current.RawFragment = target.RawFragment
 	return current.String(), true

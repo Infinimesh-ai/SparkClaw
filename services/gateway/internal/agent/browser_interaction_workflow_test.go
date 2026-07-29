@@ -452,6 +452,163 @@ func TestBrowserInteractionPlanKeepsBoundedFullToolScope(t *testing.T) {
 	}
 }
 
+func TestBrowserSettleArgumentsCarryFrozenRegisteredDestinationKind(t *testing.T) {
+	state := &app.WorkflowState{
+		Browser: &app.BrowserWorkflowState{
+			Target: app.BrowserTargetDescriptor{
+				TargetKind:    app.BrowserTargetRegisteredDestination,
+				CanonicalURL:  "https://mail.qq.com/",
+				DestinationID: "qq_mail",
+			},
+		},
+		ActiveNodeIDs: []app.WorkflowNodeID{"browser_result"},
+		Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+			"browser_result": {Stage: "settle_hidden"},
+		},
+	}
+
+	args := (browserInteractionProfile{}).DirectStageArguments(state)
+	if args["expected_url"] != "https://mail.qq.com/" ||
+		args["target_kind"] != string(app.BrowserTargetRegisteredDestination) {
+		t.Fatalf("registered destination settle args = %#v", args)
+	}
+}
+
+func TestBrowserVisibleSettleArgumentsUseVerifiedHiddenResultURL(t *testing.T) {
+	state := &app.WorkflowState{
+		Browser: &app.BrowserWorkflowState{
+			Target: app.BrowserTargetDescriptor{
+				TargetKind:    app.BrowserTargetRegisteredDestination,
+				CanonicalURL:  "https://mail.qq.com/",
+				DestinationID: "qq_mail",
+			},
+			Result: &app.BrowserResultEvidence{
+				Target: app.BrowserTargetDescriptor{
+					TargetKind:    app.BrowserTargetRegisteredDestination,
+					CanonicalURL:  "https://wx.mail.qq.com/home/index#/list/4",
+					DestinationID: "qq_mail",
+				},
+			},
+		},
+		ActiveNodeIDs: []app.WorkflowNodeID{"browser_result"},
+		Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+			"browser_result": {Stage: "settle_visible"},
+		},
+	}
+
+	args := (browserInteractionProfile{}).DirectStageArguments(state)
+	if args["expected_url"] != "https://wx.mail.qq.com/home/index#/list/4" ||
+		args["target_kind"] != string(app.BrowserTargetRegisteredDestination) {
+		t.Fatalf("visible settle args = %#v", args)
+	}
+}
+
+func TestBrowserSessionGenerationSurvivesJSONNumberCoercion(t *testing.T) {
+	const generation = uint64(1785323495538)
+	attributes := browserOutcomeIdentityAttributes(map[string]any{
+		"session_generation": float64(generation),
+	}, nil)
+	if attributes["session_generation"] != "1785323495538" {
+		t.Fatalf("session generation attribute = %q", attributes["session_generation"])
+	}
+	if got := browserRefGeneration(app.ResourceRef{Attributes: attributes}); got != generation {
+		t.Fatalf("parsed session generation = %d, want %d", got, generation)
+	}
+
+	unsafe := browserOutcomeIdentityAttributes(map[string]any{
+		"session_generation": float64(1 << 54),
+	}, nil)
+	if unsafe["session_generation"] != "" {
+		t.Fatalf("unsafe JSON generation was accepted: %#v", unsafe)
+	}
+}
+
+func TestBrowserInteractionRetriesSnapshotThatChangedAfterSettleOrHasNoEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		settledURL     string
+		snapshotURL    string
+		includeElement bool
+	}{
+		{
+			name:           "route changed after settle",
+			settledURL:     "https://wx.mail.qq.com/list/readtemplate",
+			snapshotURL:    "https://wx.mail.qq.com/home/index#/list/1/1",
+			includeElement: true,
+		},
+		{
+			name:        "interaction evidence not rendered",
+			settledURL:  "https://wx.mail.qq.com/home/index#/list/1/1",
+			snapshotURL: "https://wx.mail.qq.com/home/index#/list/1/1",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := browserRevision2Plan(app.WorkflowBrowserInteraction, app.BrowserWorkflowRevision2, true)
+			initialRefs := []app.ResourceRef{{
+				Kind: "browser_page", Ref: "page_1",
+				Attributes: map[string]string{"url": test.settledURL, "state_digest": "settled"},
+			}}
+			state := &app.WorkflowState{
+				Plan: plan, PlanDigest: workflowPlanDigest(plan), Status: app.WorkflowStatusRunning,
+				Route: app.RouteDecision{
+					Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://mail.qq.com/"},
+					Facts: map[string]string{"browser_destination": "qq_mail"},
+				},
+				Browser: &app.BrowserWorkflowState{Target: app.BrowserTargetDescriptor{
+					TargetKind: app.BrowserTargetRegisteredDestination, CanonicalURL: "https://mail.qq.com/",
+					DestinationID: "qq_mail",
+				}},
+				ActiveNodeIDs: []app.WorkflowNodeID{"browser_result"},
+				Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+					"browser_result": {
+						Status: app.WorkflowNodeActive, Stage: "snapshot_hidden",
+						CurrentScope: plan.Nodes[0].InitialScope, ScopeRevision: 1,
+						TransitionActivations: map[app.TransitionID]int{}, OutcomeRefs: initialRefs,
+					},
+				},
+			}
+			refs := []app.ResourceRef{
+				{
+					Kind: "browser_page", Ref: "page_1",
+					Attributes: map[string]string{"url": test.snapshotURL},
+				},
+				{
+					Kind: "browser_snapshot", Ref: "snapshot_1",
+					Attributes: map[string]string{
+						"digest": "digest_1", "session_generation": "7", "presentation": "hidden",
+					},
+				},
+			}
+			if test.includeElement {
+				refs = append(refs, app.ResourceRef{Kind: "browser_element", Ref: "snapshot_1:e1"})
+			}
+			outcome := app.ToolOutcome{
+				ID: "outcome_snapshot", ToolCallID: "tc_snapshot", Tool: "browser.snapshot",
+				NodeID: "browser_result", Status: "completed",
+				Signals: []app.OutcomeSignal{app.OutcomeSignalSnapshotAvailable}, Refs: refs,
+			}
+
+			assessment := (browserInteractionProfile{}).Assess(state, outcome)
+			if assessment.Status != app.AssessmentNeedsMoreEvidence ||
+				assessment.ReasonCode != "settle_hidden" ||
+				len(assessment.Signals) != 1 ||
+				assessment.Signals[0] != app.OutcomeSignalHiddenSnapshotDrifted ||
+				assessment.SelectedRefs == nil || len(assessment.SelectedRefs) != 0 {
+				t.Fatalf("snapshot retry assessment = %#v", assessment)
+			}
+			run := app.AgentRun{Workflow: state}
+			transitioned, err := applyWorkflowOutcome(&run, outcome, assessment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			node := run.Workflow.Nodes["browser_result"]
+			if !transitioned || node.Stage != "settle_hidden" || len(node.OutcomeRefs) != len(initialRefs) {
+				t.Fatalf("snapshot retry persisted drifting evidence: transitioned=%t node=%#v", transitioned, node)
+			}
+		})
+	}
+}
+
 func TestBrowserInteractionRepeatedPostSnapshotFailsClosed(t *testing.T) {
 	state := &app.WorkflowState{
 		Route: app.RouteDecision{Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://example.com/"}},
@@ -518,5 +675,37 @@ func TestUnsafeBrowserClickGroundingOverridesEarlierTabEvidence(t *testing.T) {
 	answer, ok := groundedBrowserAutomationSummary("点击当前页面的下一步", "fallback", calls)
 	if !ok || answer != "页面交互已阻止：目标点击可能产生不允许的后果。" {
 		t.Fatalf("unsafe click failure was hidden by earlier browser evidence: %q ok=%v", answer, ok)
+	}
+}
+
+func TestVerifiedVisibleBrowserResultGroundingOverridesEarlierBlankTab(t *testing.T) {
+	calls := []app.ToolCall{
+		{
+			Tool: "browser.list_tabs", Status: "completed",
+			Result: map[string]any{"pages": []any{map[string]any{
+				"page_id": "page_1", "url": "about:blank", "selected": true,
+			}}},
+		},
+		{
+			Tool: "browser.snapshot", Status: "completed",
+			Result: map[string]any{"output": map[string]any{"snapshot": map[string]any{
+				"snapshot_id":  "snapshot_visible",
+				"url":          "https://wx.mail.qq.com/home/index#/list/4",
+				"presentation": string(app.BrowserPresentationVisible),
+			}}},
+		},
+		{
+			Tool: "browser.assess_goal", Status: "completed",
+			Result: map[string]any{
+				"status": "succeeded", "goal_satisfied": true, "snapshot_id": "snapshot_visible",
+			},
+		},
+	}
+
+	answer, ok := groundedBrowserAutomationSummary("打开qq邮箱的草稿箱", "", calls)
+	if !ok || !strings.Contains(answer, "浏览器操作已完成") ||
+		!strings.Contains(answer, "https://wx.mail.qq.com/home/index#/list/4") ||
+		strings.Contains(answer, "about:blank") {
+		t.Fatalf("verified browser result summary = %q, ok=%v", answer, ok)
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 type browserStableObservation struct {
@@ -49,6 +51,7 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 		_, _ = a.callAgentToolLocked(settleCtx, session, "agent_browser_wait_for_load", map[string]any{"state": "domcontentloaded"})
 	}
 	expectedURL := firstNonEmptyAgentBrowserString(stringArg(args, "expected_url"), stringArg(args, "canonical_url"))
+	targetKind := app.BrowserTargetKind(strings.TrimSpace(stringArg(args, "target_kind")))
 	beforeDigest := strings.TrimSpace(stringArg(args, "before_digest"))
 	allowNoChange := boolArg(args, "allow_no_change")
 	requiredStable := maxInt(2, quietMS/pollMS+1)
@@ -71,7 +74,7 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 		}
 		observations++
 		if expectedURL != "" {
-			rebound, routeErr := settleBrowserRoute(expectedURL, observation.URL)
+			rebound, routeErr := settleBrowserRoute(expectedURL, observation.URL, targetKind)
 			if routeErr != nil {
 				return nil, routeErr
 			}
@@ -153,13 +156,14 @@ func (a *AgentBrowserAdapter) observeStableBrowserStateLocked(ctx context.Contex
 	return browserStableObservation{URL: pageURL, Title: title, Digest: hex.EncodeToString(raw[:])}, nil
 }
 
-func settleBrowserRoute(expectedRaw, currentRaw string) (string, error) {
+func settleBrowserRoute(expectedRaw, currentRaw string, targetKind app.BrowserTargetKind) (string, error) {
 	expected, expectedErr := url.Parse(strings.TrimSpace(expectedRaw))
 	current, currentErr := url.Parse(strings.TrimSpace(currentRaw))
 	if expectedErr != nil || currentErr != nil || expected.Scheme == "" || expected.Host == "" || current.Scheme == "" || current.Host == "" {
 		return "", errors.New("browser_route_diverged: expected or current route is invalid")
 	}
-	if !browserURLsShareOrigin(expected, current) {
+	if !browserURLsShareOrigin(expected, current) &&
+		(targetKind != app.BrowserTargetRegisteredDestination || !registeredDestinationAllowsOrigin(expected, current)) {
 		return "", errors.New("browser_route_diverged: browser left the frozen target origin")
 	}
 	if (expected.Path != "" && expected.Path != "/" && current.Path != expected.Path) ||
@@ -176,6 +180,17 @@ func settleBrowserRoute(expectedRaw, currentRaw string) (string, error) {
 		return rebound.String(), nil
 	}
 	return "", nil
+}
+
+func registeredDestinationAllowsOrigin(expected, current *url.URL) bool {
+	if expected == nil || current == nil ||
+		!strings.EqualFold(expected.Scheme, current.Scheme) || expected.Port() != current.Port() {
+		return false
+	}
+	expectedHost := strings.TrimSuffix(strings.ToLower(expected.Hostname()), ".")
+	currentHost := strings.TrimSuffix(strings.ToLower(current.Hostname()), ".")
+	return expectedHost != "" && currentHost != "" &&
+		(currentHost == expectedHost || strings.HasSuffix(currentHost, "."+expectedHost))
 }
 
 func boundedBrowserSettleValue(value, minimum, maximum int) int {

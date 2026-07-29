@@ -193,7 +193,7 @@ func resolveVisibleBrowserEnvironment() (visibleBrowserEnvironment, error) {
 		return visibleBrowserEnvironment{}, &visibleEnvironmentError{reasonCode: "browser_display_unavailable"}
 	}
 
-	xauthority := firstNonEmptyEnvironment("SPARKCLAW_BROWSER_XAUTHORITY", "XAUTHORITY")
+	xauthority := firstReadableEnvironmentFile("SPARKCLAW_BROWSER_XAUTHORITY", "XAUTHORITY")
 	if !readableNonemptyFile(xauthority) {
 		xauthority = resolveXauthorityCandidate()
 	}
@@ -271,12 +271,41 @@ func firstNonEmptyEnvironment(keys ...string) string {
 	return ""
 }
 
-func browserExecutableArchitecture(path string) string {
-	binary, err := elf.Open(path)
-	if err != nil {
-		return ""
+func firstReadableEnvironmentFile(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); readableNonemptyFile(value) {
+			return value
+		}
 	}
-	defer binary.Close()
+	return ""
+}
+
+func browserExecutableArchitecture(path string) string {
+	candidates := []string{path}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
+		candidates = append(candidates, resolved)
+	}
+	switch filepath.Base(path) {
+	case "chromium", "chromium-browser":
+		installRoot := filepath.Clean(filepath.Join(filepath.Dir(path), ".."))
+		candidates = append(candidates,
+			filepath.Join(installRoot, "lib", "chromium", "chromium"),
+			filepath.Join(installRoot, "lib", "chromium-browser", "chromium-browser"),
+		)
+	}
+	for _, candidate := range candidates {
+		binary, err := elf.Open(candidate)
+		if err != nil {
+			continue
+		}
+		architecture := elfArchitecture(binary)
+		_ = binary.Close()
+		return architecture
+	}
+	return ""
+}
+
+func elfArchitecture(binary *elf.File) string {
 	if binary.Machine == elf.EM_AARCH64 && binary.Class == elf.ELFCLASS64 {
 		return "aarch64"
 	}

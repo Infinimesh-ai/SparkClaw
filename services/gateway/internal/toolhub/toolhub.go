@@ -407,7 +407,7 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "optional",
 			Audit:            "always",
 		},
-		docxToolDefinition("docx.replace_paragraph", "Replace one DOCX paragraph by location or 1-based paragraph_index and write a new DOCX file. Requires old_text or source_hash evidence from files.read preflight.", []string{"path", "text", "output_path"}, map[string]any{
+		docxToolDefinition("docx.replace_paragraph", "Replace one DOCX paragraph by location or 1-based paragraph_index and write a new DOCX file. Requires source_hash evidence from files.read preflight; old_text is an optional exact-text consistency guard.", []string{"path", "source_hash", "text", "output_path"}, map[string]any{
 			"path":            stringSchema(),
 			"paragraph_index": integerSchema(),
 			"location":        objectValueSchema(),

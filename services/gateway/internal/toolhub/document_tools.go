@@ -70,8 +70,8 @@ func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args 
 	if err != nil {
 		return Result{}, err
 	}
-	if operation == "replace_paragraph" && strings.TrimSpace(stringArg(args, "old_text", "")) == "" && strings.TrimSpace(stringArg(args, "source_hash", "")) == "" {
-		return Result{}, errors.New("docx.replace_paragraph requires old_text or source_hash preflight evidence")
+	if operation == "replace_paragraph" && strings.TrimSpace(stringArg(args, "source_hash", "")) == "" {
+		return Result{}, errors.New("docx.replace_paragraph requires source_hash preflight evidence")
 	}
 	target := docxEditTarget(operation, args)
 	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{

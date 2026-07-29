@@ -828,6 +828,7 @@ func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
 		"path":        "note.docx",
 		"location":    location,
 		"old_text":    "Wrong paragraph",
+		"source_hash": sourceHash("Second paragraph"),
 		"text":        "Should not be written",
 		"output_path": "outputs/location-mismatch.docx",
 	}, "s", "run")
@@ -996,6 +997,7 @@ func TestDocxParagraphToolsWriteNewVersions(t *testing.T) {
 				"path":            "note.docx",
 				"paragraph_index": 2,
 				"old_text":        "Second paragraph",
+				"source_hash":     sourceHash("Second paragraph"),
 				"text":            "Replaced second paragraph",
 				"output_path":     "outputs/replaced.docx",
 			},

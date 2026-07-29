@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"net/url"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -10,27 +11,29 @@ import (
 type workflowOutcomeAdapter func(app.ToolCall, app.WorkflowNodeID) app.ToolOutcome
 
 var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
-	app.OutcomeAdapterGeneric:         adaptGenericWorkflowOutcome,
-	app.OutcomeAdapterWebSearch:       adaptWebSearchWorkflowOutcome,
-	app.OutcomeAdapterInfoAnswer:      adaptInfoAnswerWorkflowOutcome,
-	app.OutcomeAdapterWeatherPayload:  adaptWeatherPayloadWorkflowOutcome,
-	app.OutcomeAdapterWeatherCard:     adaptWeatherCardWorkflowOutcome,
-	app.OutcomeAdapterWebPage:         adaptWebPageWorkflowOutcome,
-	app.OutcomeAdapterWorkspaceSearch: adaptWorkspaceSearchOutcome,
-	app.OutcomeAdapterWorkspaceRead:   adaptWorkspaceReadOutcome,
-	app.OutcomeAdapterBrowserHealth:   adaptBrowserHealthOutcome,
-	app.OutcomeAdapterBrowserTabs:     adaptBrowserTabsOutcome,
-	app.OutcomeAdapterBrowserFocus:    adaptBrowserFocusOutcome,
-	app.OutcomeAdapterBrowserOpen:     adaptBrowserOpenOutcome,
-	app.OutcomeAdapterBrowserClose:    adaptBrowserCloseOutcome,
-	app.OutcomeAdapterBrowserNavigate: adaptBrowserNavigateOutcome,
-	app.OutcomeAdapterBrowserSnapshot: adaptBrowserSnapshotOutcome,
-	app.OutcomeAdapterBrowserWait:     adaptBrowserWaitOutcome,
-	app.OutcomeAdapterBrowserClick:    adaptBrowserClickOutcome,
-	app.OutcomeAdapterBrowserVerify:   adaptBrowserVerifyOutcome,
-	app.OutcomeAdapterDocumentEdit:    adaptDocumentEditOutcome,
-	app.OutcomeAdapterScheduleList:    adaptScheduleListOutcome,
-	app.OutcomeAdapterScheduleChange:  adaptScheduleChangeOutcome,
+	app.OutcomeAdapterGeneric:           adaptGenericWorkflowOutcome,
+	app.OutcomeAdapterWebSearch:         adaptWebSearchWorkflowOutcome,
+	app.OutcomeAdapterInfoAnswer:        adaptInfoAnswerWorkflowOutcome,
+	app.OutcomeAdapterWeatherPayload:    adaptWeatherPayloadWorkflowOutcome,
+	app.OutcomeAdapterWeatherCard:       adaptWeatherCardWorkflowOutcome,
+	app.OutcomeAdapterWebPage:           adaptWebPageWorkflowOutcome,
+	app.OutcomeAdapterWorkspaceSearch:   adaptWorkspaceSearchOutcome,
+	app.OutcomeAdapterWorkspaceRead:     adaptWorkspaceReadOutcome,
+	app.OutcomeAdapterBrowserHealth:     adaptBrowserHealthOutcome,
+	app.OutcomeAdapterBrowserTabs:       adaptBrowserTabsOutcome,
+	app.OutcomeAdapterBrowserFocus:      adaptBrowserFocusOutcome,
+	app.OutcomeAdapterBrowserOpen:       adaptBrowserOpenOutcome,
+	app.OutcomeAdapterBrowserClose:      adaptBrowserCloseOutcome,
+	app.OutcomeAdapterBrowserNavigate:   adaptBrowserNavigateOutcome,
+	app.OutcomeAdapterBrowserSnapshot:   adaptBrowserSnapshotOutcome,
+	app.OutcomeAdapterBrowserWait:       adaptBrowserWaitOutcome,
+	app.OutcomeAdapterBrowserClick:      adaptBrowserClickOutcome,
+	app.OutcomeAdapterBrowserVerify:     adaptBrowserVerifyOutcome,
+	app.OutcomeAdapterBrowserTransition: adaptBrowserTransitionOutcome,
+	app.OutcomeAdapterBrowserGoal:       adaptBrowserGoalOutcome,
+	app.OutcomeAdapterDocumentEdit:      adaptDocumentEditOutcome,
+	app.OutcomeAdapterScheduleList:      adaptScheduleListOutcome,
+	app.OutcomeAdapterScheduleChange:    adaptScheduleChangeOutcome,
 }
 
 func adaptInfoAnswerWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -243,7 +246,7 @@ func adaptBrowserTabsOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 		if pageID == "" || pageURL == "" {
 			continue
 		}
-		attributes := map[string]string{"url": pageURL}
+		attributes := browserOutcomeIdentityAttributes(page, map[string]string{"url": pageURL})
 		if boolValue(page["selected"]) {
 			attributes["selected"] = "true"
 		}
@@ -285,7 +288,9 @@ func adaptBrowserFocusOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 			if pageID != "" {
 				outcome.Refs = []app.ResourceRef{{
 					Kind: "browser_page", Ref: pageID, Provenance: call.ID,
-					Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(payload["url"], payload["current_url"]))},
+					Attributes: browserOutcomeIdentityAttributes(payload, map[string]string{
+						"url": normalizeBrowserURL(firstNonEmptyString(payload["url"], payload["current_url"])),
+					}),
 				}}
 			}
 		}
@@ -325,7 +330,12 @@ func adaptBrowserNavigateOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		payload := browserOutcomePayload(call.Result)
 		pageID := firstNonEmptyString(payload["page_id"], call.Arguments["page_id"])
 		if pageID != "" {
-			outcome.Refs = []app.ResourceRef{{Kind: "browser_page", Ref: pageID, Provenance: call.ID, Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(payload["url"]))}}}
+			outcome.Refs = []app.ResourceRef{{
+				Kind: "browser_page", Ref: pageID, Provenance: call.ID,
+				Attributes: browserOutcomeIdentityAttributes(payload, map[string]string{
+					"url": normalizeBrowserURL(firstNonEmptyString(payload["url"])),
+				}),
+			}}
 		}
 	}
 	return outcome
@@ -342,7 +352,24 @@ func browserToolOutcomeRequiresAuthBlock(call app.ToolCall) bool {
 func adaptBrowserWaitOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if toolCallCompleted(call) {
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalWaitCompleted}
+		payload := browserOutcomePayload(call.Result)
+		if strings.EqualFold(firstNonEmptyString(call.Arguments["mode"]), "stable_state") &&
+			strings.EqualFold(firstNonEmptyString(payload["status"]), "stable") {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalTargetSettled}
+			if pageID := firstNonEmptyString(payload["page_id"], call.Arguments["page_id"]); pageID != "" {
+				outcome.Refs = []app.ResourceRef{{
+					Kind:       "browser_page",
+					Ref:        pageID,
+					Provenance: call.ID,
+					Attributes: browserOutcomeIdentityAttributes(payload, map[string]string{
+						"url":          normalizeBrowserURL(firstNonEmptyString(payload["url"])),
+						"state_digest": firstNonEmptyString(payload["state_digest"]),
+					}),
+				}}
+			}
+		} else {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalWaitCompleted}
+		}
 	}
 	return outcome
 }
@@ -370,8 +397,12 @@ func adaptBrowserSnapshotOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		"previous_snapshot_id": strings.TrimSpace(stringValue(snapshot["previous_snapshot_id"])),
 		"repeated":             strings.TrimSpace(stringValue(snapshot["repeated"])),
 	}
+	common = browserOutcomeIdentityAttributes(snapshot, common)
+	pageAttributes := browserOutcomeIdentityAttributes(snapshot, map[string]string{
+		"url": normalizeBrowserEvidenceURL(firstNonEmptyString(snapshot["url"])),
+	})
 	outcome.Refs = append(outcome.Refs,
-		app.ResourceRef{Kind: "browser_page", Ref: pageID, Provenance: call.ID, Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(snapshot["url"]))}},
+		app.ResourceRef{Kind: "browser_page", Ref: pageID, Provenance: call.ID, Attributes: pageAttributes},
 		app.ResourceRef{Kind: "browser_snapshot", Ref: snapshotID, Provenance: call.ID, Attributes: common},
 	)
 	for _, raw := range anySlice(firstPresent(snapshot, "controls", "refs")) {
@@ -392,6 +423,7 @@ func adaptBrowserSnapshotOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 			"container":   firstNonEmptyString(control["container"]),
 			"fingerprint": firstNonEmptyString(control["fingerprint"]),
 		}
+		attributes = browserOutcomeIdentityAttributes(snapshot, attributes)
 		outcome.Refs = append(outcome.Refs, app.ResourceRef{Kind: "browser_element", Ref: ref, Provenance: call.ID, Attributes: attributes})
 	}
 	return outcome
@@ -449,6 +481,63 @@ func adaptBrowserVerifyOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 	return outcome
 }
 
+func adaptBrowserTransitionOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
+		return outcome
+	}
+	payload, _ := anyMap(call.Result)
+	if strings.TrimSpace(stringValue(payload["status"])) != "validated" || !boolValue(payload["state_changed"]) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
+		return outcome
+	}
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalTargetValidated}
+	outcome.Refs = []app.ResourceRef{{
+		Kind: "browser_transition", Ref: call.ID, Provenance: call.ID,
+		Attributes: map[string]string{
+			"before_snapshot_id": strings.TrimSpace(stringValue(payload["before_snapshot_id"])),
+			"after_snapshot_id":  strings.TrimSpace(stringValue(payload["after_snapshot_id"])),
+			"after_digest":       strings.TrimSpace(stringValue(payload["after_digest"])),
+			"session_generation": strings.TrimSpace(stringValue(payload["session_generation"])),
+		},
+	}}
+	return outcome
+}
+
+func adaptBrowserGoalOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
+		return outcome
+	}
+	payload, _ := anyMap(call.Result)
+	status := strings.TrimSpace(stringValue(payload["status"]))
+	code := strings.TrimSpace(stringValue(payload["code"]))
+	switch {
+	case status == "succeeded" && boolValue(payload["goal_satisfied"]):
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionGoalSatisfied}
+	case status == "progress":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionProgress}
+	case code == "interaction_attempt_limit":
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionAttemptLimit}
+	default:
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
+	}
+	evidenceRefs := stringSliceValue(payload["evidence_refs"])
+	outcome.Refs = []app.ResourceRef{{
+		Kind: "browser_goal_assessment", Ref: call.ID, Provenance: call.ID,
+		Attributes: map[string]string{
+			"status":        status,
+			"code":          code,
+			"snapshot_id":   strings.TrimSpace(stringValue(payload["snapshot_id"])),
+			"evidence_refs": strings.Join(evidenceRefs, ","),
+			"reason":        strings.TrimSpace(stringValue(payload["reason"])),
+		},
+	}}
+	return outcome
+}
+
 func browserOutcomePayload(value any) map[string]any {
 	outer, ok := anyMap(value)
 	if !ok {
@@ -488,10 +577,49 @@ func browserPageRefs(value any, provenance string) []app.ResourceRef {
 		}
 		pageID := firstNonEmptyString(page["page_id"])
 		if pageID != "" {
-			refs = append(refs, app.ResourceRef{Kind: "browser_page", Ref: pageID, Provenance: provenance, Attributes: map[string]string{"url": normalizeBrowserURL(firstNonEmptyString(page["url"]))}})
+			refs = append(refs, app.ResourceRef{
+				Kind:       "browser_page",
+				Ref:        pageID,
+				Provenance: provenance,
+				Attributes: browserOutcomeIdentityAttributes(page, map[string]string{
+					"url": normalizeBrowserURL(firstNonEmptyString(page["url"])),
+				}),
+			})
 		}
 	}
 	return refs
+}
+
+func normalizeBrowserEvidenceURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return strings.TrimSpace(raw)
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	if parsed.Path == "" {
+		parsed.Path = "/"
+	}
+	return parsed.String()
+}
+
+func browserOutcomeIdentityAttributes(payload map[string]any, attributes map[string]string) map[string]string {
+	if attributes == nil {
+		attributes = map[string]string{}
+	}
+	for _, key := range []string{
+		"session_generation", "provider_session_ref", "presentation",
+		"owner_id", "profile_id", "browser_profile_id",
+	} {
+		if value := firstNonEmptyString(payload[key]); value != "" {
+			attributes[key] = value
+		}
+	}
+	if attributes["profile_id"] == "" {
+		attributes["profile_id"] = attributes["browser_profile_id"]
+	}
+	delete(attributes, "browser_profile_id")
+	return attributes
 }
 
 func adaptDocumentEditOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {

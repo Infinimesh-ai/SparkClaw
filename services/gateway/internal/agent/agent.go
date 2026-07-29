@@ -21,6 +21,7 @@ import (
 )
 
 type Runtime struct {
+	instanceID     string
 	store          store.Store
 	tools          *toolhub.ToolHub
 	policy         policy.Engine
@@ -86,6 +87,7 @@ func newRuntime(ctx context.Context, st store.Store, tools *toolhub.ToolHub, pol
 		return Runtime{}, fmt.Errorf("initialize semantic embedding index: %w", err)
 	}
 	return Runtime{
+		instanceID:     app.NewID("runtime"),
 		store:          st,
 		tools:          tools,
 		policy:         policyEngine,
@@ -964,6 +966,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		ScopeRevision:  plan.ScopeRevision,
 		Capability:     plan.Capability,
 	}
+	call.Arguments, _ = r.redactBrowserToolPersistence(runID, call.Tool, call.Arguments, nil)
 	if !ok {
 		call.Status = "failed"
 		call.Error = "tool not found"
@@ -1059,15 +1062,20 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	if err != nil {
 		call.Status = "failed"
 		call.Error = err.Error()
+		if strings.HasPrefix(call.Tool, "browser.") {
+			call.Error = redactBrowserPersistenceText(app.BrowserTargetDescriptor{
+				QueryProvenance: app.BrowserQueryProviderVolatile,
+			}, call.Error)
+		}
 		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
 		r.store.SaveToolCall(call)
 		return call, nil, call.ObservationSummary
 	}
 	call.Status = "completed"
-	call.Result = result.Output
-	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, result.Output)
+	call.Arguments, call.Result = r.redactBrowserToolPersistence(runID, call.Tool, call.Arguments, result.Output)
+	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
 	maxBytes, evidenceLimit := r.toolResultObservationBudget(call.Tool)
-	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: result.Output, ObservationRef: call.ObservationRef, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
+	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
 	if call.Tool == "info.query" && !usableInfoQueryObservation(call.ObservationSummary) {
 		call.Status = "failed"
 		call.Error = "bounded Info evidence projection is unavailable within the model observation budget"

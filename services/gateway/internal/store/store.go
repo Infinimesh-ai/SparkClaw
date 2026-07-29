@@ -8,6 +8,7 @@ import (
 )
 
 var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
+var ErrBrowserHandoffConflict = errors.New("browser handoff changed or is no longer available")
 
 type Store interface {
 	CreateSession(title string) app.Session
@@ -90,6 +91,7 @@ type Store interface {
 	ListBrowserAuthRecords(ownerID, browserProfileID string) []app.BrowserAuthRecord
 	RevokeBrowserAuthRecord(id, reason string) (app.BrowserAuthRecord, error)
 	SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock
+	UpdateBrowserLoginBlock(block app.BrowserLoginBlock, expectedVersion int64) (app.BrowserLoginBlock, error)
 	GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bool)
 	FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool)
 	ListBrowserLoginBlocks(sessionID, status string) []app.BrowserLoginBlock

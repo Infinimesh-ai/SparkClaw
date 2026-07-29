@@ -8,7 +8,8 @@ RUN go build -o /out/sparkclaw ./services/gateway/cmd/sparkclaw
 FROM node:26-bookworm-slim
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg xvfb \
+    && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg fonts-noto-cjk fonts-noto-color-emoji xvfb \
+    && fc-list ':lang=zh-cn' family | grep -q 'Noto' \
     && rm -rf /var/lib/apt/lists/*
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-pip \
@@ -28,6 +29,8 @@ RUN npm ci --omit=dev \
     && chmod -R a+rwX /opt/agent-browser/.agent-browser /var/lib/sparkclaw/browser-profiles
 COPY --from=build /out/sparkclaw /usr/local/bin/sparkclaw
 COPY configs /app/configs
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 ENV SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE=/usr/bin/chromium
 ENV SPARKCLAW_BROWSER_PROFILE_DIR=/var/lib/sparkclaw/browser-profiles
 USER sparkclaw

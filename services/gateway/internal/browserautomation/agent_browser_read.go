@@ -50,7 +50,7 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 		URL: targetURL, Provider: browserProviderName(hidden), Untrusted: true,
 		Actions: []string{openTool}, ReadMode: readMode, Errors: map[string]any{},
 		BrowserMode: metadata.BrowserMode, Presentation: metadata.Presentation, SurfaceVisible: metadata.SurfaceVisible,
-		Rendered: true,
+		SessionGeneration: a.sessionGeneration, ProviderSessionRef: session.sessionName, Rendered: true,
 	}
 
 	result.Actions = append(result.Actions, "agent_browser_wait_for_load")

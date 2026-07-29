@@ -23,6 +23,7 @@ services:
       context: ..
       dockerfile: docker/images/gateway.Dockerfile
     user: "${SPARKCLAW_CONTAINER_UID:-1000}:${SPARKCLAW_CONTAINER_GID:-1000}"
+    init: true
     env_file:
       - env/sparkclaw.example.env
     environment:
@@ -32,8 +33,14 @@ services:
       SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS:-30000}
       SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS:-10000}
       SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS:-60000}
+      SPARKCLAW_BROWSER_AUTOMATION_SETTLE_TIMEOUT_MS: ${SPARKCLAW_BROWSER_AUTOMATION_SETTLE_TIMEOUT_MS:-15000}
+      SPARKCLAW_BROWSER_AUTOMATION_SETTLE_QUIET_PERIOD_MS: ${SPARKCLAW_BROWSER_AUTOMATION_SETTLE_QUIET_PERIOD_MS:-500}
+      SPARKCLAW_BROWSER_AUTOMATION_SETTLE_POLL_INTERVAL_MS: ${SPARKCLAW_BROWSER_AUTOMATION_SETTLE_POLL_INTERVAL_MS:-100}
+      SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT: ${SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT:-2}
       SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE: ${SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE:-/usr/bin/chromium}
       SPARKCLAW_BROWSER_PROFILE_DIR: ${SPARKCLAW_BROWSER_PROFILE_DIR:-/var/lib/sparkclaw/browser-profiles}
+      DISPLAY: ${SPARKCLAW_BROWSER_DISPLAY:-}
+      XAUTHORITY: /run/sparkclaw-browser/Xauthority
       SPARKCLAW_ARTIFACT_BACKEND: ${SPARKCLAW_ARTIFACT_BACKEND:-filesystem}
       SPARKCLAW_ARTIFACT_DIR: ${SPARKCLAW_ARTIFACT_DIR:-/var/lib/sparkclaw/artifacts}
       SPARKCLAW_ARTIFACT_BUCKET: ${SPARKCLAW_ARTIFACT_BUCKET:-sparkclaw}
@@ -113,6 +120,8 @@ services:
       - ../data/logs:/var/log/sparkclaw
       - ../data/browser-profiles:/var/lib/sparkclaw/browser-profiles
       - ../skills:/app/skills:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${SPARKCLAW_BROWSER_XAUTHORITY:-/dev/null}:/run/sparkclaw-browser/Xauthority:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18789/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s

@@ -65,6 +65,7 @@ func newGatewayServices(
 }
 
 func (s *gatewayServices) Start(ctx context.Context) {
+	s.server.BindLifecycleContext(ctx)
 	if s.reminderScheduler != nil {
 		go s.reminderScheduler.Run(ctx)
 	}

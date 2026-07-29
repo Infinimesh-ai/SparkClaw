@@ -326,21 +326,15 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
 
 	now := time.Now().UTC()
-	if execution.BrowserLoginBlock != nil {
-		run.State = "browser_login_blocked"
-		run.CompletedAt = nil
-	} else if len(approvals) > 0 {
-		run.State = "approval_pending"
-		run.CompletedAt = nil
-	} else if run.Workflow != nil && run.Workflow.Status == app.WorkflowStatusBlocked {
-		run.State = "blocked"
-		run.CompletedAt = &now
-	} else if isBlockedFinalAnswer(execution.FinalAnswer) {
-		run.State = "blocked"
-		run.CompletedAt = &now
-	} else {
-		run.State = "completed"
-		run.CompletedAt = &now
+	finalizeWorkflowRunState(&run, execution, now)
+	if execution.Cancelled {
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID,
+			RunID:     run.ID,
+			Actor:     "runtime",
+			Type:      "workflow.execution_cancelled",
+			Summary:   "The Gateway lifecycle ended before the active workflow completed",
+		})
 	}
 	run.ModelLane = execution.Chat.Lane
 	run.Summary = summarizeRun(execution.Chat, observations, approvals)
@@ -351,7 +345,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
-	if emit != nil && !execution.FinalAnswerStreamed && len(approvals) == 0 && execution.BrowserLoginBlock == nil && !isBlockedFinalAnswer(execution.FinalAnswer) {
+	if emit != nil && run.State == "completed" && !execution.FinalAnswerStreamed && len(approvals) == 0 && execution.BrowserLoginBlock == nil {
 		if err := emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit); err != nil {
 			r.store.AddAudit(app.AuditEvent{
 				SessionID: sessionID,
@@ -389,6 +383,32 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	r.writeTrace(ctx, run, execution.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}
 	return result, nil
+}
+
+func finalizeWorkflowRunState(run *app.AgentRun, execution workflowExecutionResult, now time.Time) {
+	switch {
+	case execution.BrowserLoginBlock != nil:
+		run.State = "browser_login_blocked"
+		run.CompletedAt = nil
+	case len(execution.Approvals) > 0:
+		run.State = "approval_pending"
+		run.CompletedAt = nil
+	case execution.Cancelled:
+		run.State = "cancelled"
+		run.CompletedAt = &now
+	case run.Workflow != nil && run.Workflow.Status == app.WorkflowStatusBlocked:
+		run.State = "blocked"
+		run.CompletedAt = &now
+	case isBlockedFinalAnswer(execution.FinalAnswer):
+		run.State = "blocked"
+		run.CompletedAt = &now
+	case run.Workflow != nil && run.Workflow.Status == app.WorkflowStatusSucceeded && !execution.Halted:
+		run.State = "completed"
+		run.CompletedAt = &now
+	default:
+		run.State = "failed"
+		run.CompletedAt = &now
+	}
 }
 
 func (r Runtime) resultForExistingRun(run app.AgentRun) Result {

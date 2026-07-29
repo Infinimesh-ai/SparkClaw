@@ -96,6 +96,10 @@ func main() {
 		slog.Error("gateway shutdown failed", "error", err)
 		os.Exit(1)
 	}
+	if err := server.WaitForBackgroundWork(shutdownCtx); err != nil {
+		slog.Error("gateway background work shutdown failed", "error", err)
+		os.Exit(1)
+	}
 	slog.Info("sparkclaw gateway stopped")
 }
 

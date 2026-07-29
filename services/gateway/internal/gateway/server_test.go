@@ -684,6 +684,81 @@ func TestSSEHeartbeatUsesCommentFrame(t *testing.T) {
 	}
 }
 
+func TestMessageStreamExecutionSurvivesClientDisconnect(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
+	defer cancelLifecycle()
+	server.BindLifecycleContext(lifecycleCtx)
+
+	executionStarted := make(chan struct{})
+	releaseExecution := make(chan struct{})
+	executionFinished := make(chan error, 1)
+	server.streamMessage = func(ctx context.Context, _ string, _ string, _ []agent.MessageAttachment, _ agent.StreamHandler) (agent.Result, error) {
+		close(executionStarted)
+		select {
+		case <-releaseExecution:
+			executionFinished <- nil
+			return agent.Result{}, nil
+		case <-ctx.Done():
+			executionFinished <- ctx.Err()
+			return agent.Result{}, ctx.Err()
+		}
+	}
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	sessionID := createTestSession(t, ts.URL)
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, ts.URL+"/api/sessions/"+sessionID+"/messages/stream", bytes.NewBufferString(`{"content":"long running request"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		resp.Body.Close()
+		t.Fatalf("message stream returned %d", resp.StatusCode)
+	}
+	select {
+	case <-executionStarted:
+	case <-time.After(time.Second):
+		resp.Body.Close()
+		t.Fatal("stream execution did not start")
+	}
+
+	cancelRequest()
+	resp.Body.Close()
+	select {
+	case executionErr := <-executionFinished:
+		t.Fatalf("client disconnect cancelled Gateway-owned execution: %v", executionErr)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseExecution)
+	select {
+	case executionErr := <-executionFinished:
+		if executionErr != nil {
+			t.Fatalf("Gateway-owned execution failed after client disconnect: %v", executionErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Gateway-owned execution did not finish after client disconnect")
+	}
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
+	if err := server.WaitForBackgroundWork(waitCtx); err != nil {
+		t.Fatalf("Gateway did not release completed background stream work: %v", err)
+	}
+}
+
 func TestEmptySessionListEndpointsReturnArrays(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)

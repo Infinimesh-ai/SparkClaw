@@ -120,6 +120,8 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				result.Completed = true
 				return result
 			}
+			result.Halted = true
+			result.Cancelled = ctx.Err() != nil
 			result.FinalAnswer = workflowStepBudgetLimitMessage(content, reason, result.ToolCalls, result.Observations)
 			r.store.AddAudit(app.AuditEvent{
 				SessionID: sessionID,
@@ -151,7 +153,12 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		result.Chat = chat
 		r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, fmt.Sprintf("workflow_step_%d", stepNumber), chat, err, started, completed))
 		if err != nil {
+			result.Halted = true
+			result.Cancelled = ctx.Err() != nil
 			result.FinalAnswer = err.Error()
+			if result.Cancelled {
+				result.FinalAnswer = workflowStepBudgetLimitMessage(content, "运行已被取消或请求上下文已结束。", result.ToolCalls, result.Observations)
+			}
 			return result
 		}
 		run.ModelLane = chat.Lane

@@ -48,6 +48,8 @@ import (
 
 const sseHeartbeatInterval = 15 * time.Second
 
+type streamMessageExecutor func(context.Context, string, string, []agent.MessageAttachment, agent.StreamHandler) (agent.Result, error)
+
 type Server struct {
 	cfg           config.Config
 	store         store.Store
@@ -70,6 +72,10 @@ type Server struct {
 	mux           *http.ServeMux
 	started       time.Time
 	limiter       *rateLimiter
+	lifecycleMu   sync.RWMutex
+	lifecycleCtx  context.Context
+	streamMessage streamMessageExecutor
+	streamWG      sync.WaitGroup
 }
 
 type Option func(*Server)
@@ -135,9 +141,13 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 			Key:     cfg.State.CredentialKey,
 			KeyFile: cfg.State.CredentialKeyFile,
 		}),
-		mux:     http.NewServeMux(),
-		started: time.Now().UTC(),
-		limiter: newRateLimiter(cfg.Gateway.RateLimit),
+		mux:          http.NewServeMux(),
+		started:      time.Now().UTC(),
+		limiter:      newRateLimiter(cfg.Gateway.RateLimit),
+		lifecycleCtx: context.Background(),
+	}
+	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, emit agent.StreamHandler) (agent.Result, error) {
+		return s.runtime.HandleMessageStreamWithAttachments(ctx, sessionID, content, attachments, emit)
 	}
 	for _, option := range options {
 		option(s)
@@ -157,6 +167,35 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) Addr() string {
 	return fmt.Sprintf("%s:%d", s.cfg.Gateway.Bind, s.cfg.Gateway.Port)
+}
+
+func (s *Server) BindLifecycleContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.lifecycleMu.Lock()
+	s.lifecycleCtx = ctx
+	s.lifecycleMu.Unlock()
+}
+
+func (s *Server) executionContext() context.Context {
+	s.lifecycleMu.RLock()
+	defer s.lifecycleMu.RUnlock()
+	return s.lifecycleCtx
+}
+
+func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		s.streamWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *Server) routes() {
@@ -967,11 +1006,14 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	}
 	modelEvents := make(chan agent.StreamEvent, 16)
 	results := make(chan streamResult, 1)
+	executionCtx := s.executionContext()
+	s.streamWG.Add(1)
 	go func() {
-		result, err := s.runtime.HandleMessageStreamWithAttachments(r.Context(), sessionID, input.Content, attachments, func(event agent.StreamEvent) error {
+		defer s.streamWG.Done()
+		result, err := s.streamMessage(executionCtx, sessionID, input.Content, attachments, func(event agent.StreamEvent) error {
 			select {
 			case <-r.Context().Done():
-				return r.Context().Err()
+				return nil
 			case modelEvents <- event:
 				return nil
 			}

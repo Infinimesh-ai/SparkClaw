@@ -37,7 +37,7 @@ func (r Runtime) buildAgentContextSnapshot(sessionID, currentRunID, currentConte
 	}
 }
 
-func (snapshot agentContextSnapshot) ForTaskHint() string {
+func (snapshot agentContextSnapshot) ForIntentRouting() string {
 	sections := []string{}
 	if messages := formatContextMessages(snapshot.Messages); messages != "" {
 		sections = append(sections, "Recent conversation:\n"+messages)

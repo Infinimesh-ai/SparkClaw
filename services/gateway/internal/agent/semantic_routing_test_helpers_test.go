@@ -8,7 +8,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -134,7 +133,7 @@ func TestRuntimeStartupFailsWhenSemanticEmbeddingIndexCannotBuild(t *testing.T) 
 	defer hub.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewRuntimeWithSkillsContext(ctx, st, hub, policy.New(cfg), modelrouter.New(cfg), nil, skills.Registry{}); err == nil {
+	if _, err := NewRuntimeWithContext(ctx, st, hub, policy.New(cfg), modelrouter.New(cfg), nil); err == nil {
 		t.Fatal("runtime started without a valid semantic embedding index")
 	}
 	failedStartupCall := false

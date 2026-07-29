@@ -123,10 +123,3 @@ func TestWeatherPayloadOutcomeRequiresDedicatedTypedBoundary(t *testing.T) {
 		}
 	}
 }
-
-func TestLegacyTaskHintDoesNotSelectWeatherTools(t *testing.T) {
-	hint := heuristicTaskHint("杭州今天天气怎么样")
-	if containsString(hint.CandidateSkills, "weather_lookup") || containsString(hint.CandidateTools, "media.render_weather_card") || containsString(hint.CandidateTools, "info.query") {
-		t.Fatalf("weather routing leaked back into TaskHint: %#v", hint)
-	}
-}

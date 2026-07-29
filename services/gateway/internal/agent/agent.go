@@ -14,7 +14,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
@@ -27,7 +26,6 @@ type Runtime struct {
 	policy         policy.Engine
 	models         modelrouter.Router
 	traces         *trace.Writer
-	skills         skills.Registry
 	artifacts      artifact.Store
 	exposure       *toolExposureEngine
 	profiles       workflowProfileRegistry
@@ -52,26 +50,14 @@ type StreamHandler func(StreamEvent) error
 type MessageAttachment = app.MessageAttachment
 
 func NewRuntime(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) Runtime {
-	runtime, err := newRuntime(context.Background(), st, tools, policyEngine, models, traces, skills.Registry{})
+	runtime, err := NewRuntimeWithContext(context.Background(), st, tools, policyEngine, models, traces)
 	if err != nil {
 		panic("initialize agent runtime: " + err.Error())
 	}
 	return runtime
 }
 
-func NewRuntimeWithSkills(st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) Runtime {
-	runtime, err := NewRuntimeWithSkillsContext(context.Background(), st, tools, policyEngine, models, traces, skillRegistry)
-	if err != nil {
-		panic("initialize agent runtime: " + err.Error())
-	}
-	return runtime
-}
-
-func NewRuntimeWithSkillsContext(ctx context.Context, st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) (Runtime, error) {
-	return newRuntime(ctx, st, tools, policyEngine, models, traces, skillRegistry)
-}
-
-func newRuntime(ctx context.Context, st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer, skillRegistry skills.Registry) (Runtime, error) {
+func NewRuntimeWithContext(ctx context.Context, st store.Store, tools *toolhub.ToolHub, policyEngine policy.Engine, models modelrouter.Router, traces *trace.Writer) (Runtime, error) {
 	profiles := defaultWorkflowProfileRegistry()
 	catalog := capability.MustDefaultCatalog()
 	graph, err := profiles.SemanticGraph(catalog)
@@ -93,7 +79,6 @@ func newRuntime(ctx context.Context, st store.Store, tools *toolhub.ToolHub, pol
 		policy:         policyEngine,
 		models:         models,
 		traces:         traces,
-		skills:         skillRegistry,
 		artifacts:      artifact.NewStore(tools.Config().Storage),
 		exposure:       newToolExposureEngine(st, tools, policyEngine),
 		profiles:       profiles,

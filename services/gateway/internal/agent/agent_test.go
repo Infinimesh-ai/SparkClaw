@@ -63,7 +63,7 @@ func TestHandleMessageWithAttachmentsIdempotentReusesRunAndMessages(t *testing.T
 	}
 }
 
-func TestHeuristicTaskHintFlagsFileDeleteAsDangerous(t *testing.T) {
+func TestIntentRoutingFlagsFileDeleteAsDangerous(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "Delete the document stale-notes.txt")
 	if route.Status != app.RouteUnmatched {
@@ -74,16 +74,6 @@ func TestHeuristicTaskHintFlagsFileDeleteAsDangerous(t *testing.T) {
 	}
 	if got := extractPath("Delete stale-notes.txt"); got != "stale-notes.txt" {
 		t.Fatalf("delete path = %q", got)
-	}
-}
-
-func TestHeuristicTaskHintSensitiveMemoryUsesApprovalGatedTool(t *testing.T) {
-	hint := heuristicTaskHint("Remember sensitive api_key sk-approved-sensitive-test")
-	if !containsString(hint.CandidateTools, "memory.write_sensitive") {
-		t.Fatalf("sensitive memory hint should offer memory.write_sensitive: %#v", hint.CandidateTools)
-	}
-	if hint.ToolMode != "draft" || hint.EstimatedRisk != string(app.RiskDraft) {
-		t.Fatalf("sensitive memory hint = %q/%q, want draft/draft", hint.ToolMode, hint.EstimatedRisk)
 	}
 }
 
@@ -1820,7 +1810,7 @@ func TestToolResultAdapterReportsFailures(t *testing.T) {
 	}
 }
 
-func TestTaskHintUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) {
+func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
 	session := st.CreateSession("document follow up")
@@ -1875,7 +1865,7 @@ func TestTaskHintUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) {
 		t.Fatalf("missing follow-up file must not bypass deterministic preflight: route=%#v err=%v", route, err)
 	}
 	snapshot := runtime.buildAgentContextSnapshot(session.ID, "run_current", "把张三的学号改为6")
-	contextText := snapshot.ForTaskHint()
+	contextText := snapshot.ForIntentRouting()
 	if !strings.Contains(contextText, "Recent tool results") ||
 		!strings.Contains(contextText, "example.xlsx") ||
 		!strings.Contains(contextText, "张三") ||
@@ -1886,7 +1876,7 @@ func TestTaskHintUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) {
 	}
 }
 
-func TestTaskHintTreatsImproveDocumentSectionAsEdit(t *testing.T) {
+func TestIntentRoutingTreatsImproveDocumentSectionAsEdit(t *testing.T) {
 	cfg := agentTestConfig()
 	st := store.NewMemoryStore()
 	session := st.CreateSession("document improve follow up")
@@ -2804,40 +2794,7 @@ func TestUnregisteredDangerousToolRequestBlocksBeforeVerifier(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesProjectFactsAsWorkspaceEvidence(t *testing.T) {
-	hint := heuristicTaskHint("你的后端是什么语言")
-	if hint.EvidenceNeed != "workspace" || hint.ToolMode != "read_only" {
-		t.Fatalf("project fact question should require workspace evidence: %#v", hint)
-	}
-	if !slicesContainsString(hint.CandidateTools, "files.search") || !slicesContainsString(hint.CandidateTools, "files.read") {
-		t.Fatalf("project fact question should suggest read-only file tools: %#v", hint.CandidateTools)
-	}
-}
-
-func TestTaskHintPromptConstrainsEstimatedRiskEnum(t *testing.T) {
-	prompt := taskHintRoutingPrompt()
-	for _, want := range []string{"estimated_risk", "read", "draft", "reversible", "dangerous", "Do not use numeric risk levels"} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("TaskHint prompt should constrain estimated_risk enum, missing %q:\n%s", want, prompt)
-		}
-	}
-}
-
-func TestTaskHintClassifiesUploadedImageAsImageInspection(t *testing.T) {
-	content := "这张图里有什么文字？\n\nAttached files for this user turn:\n- test.png path=uploads/20260701/test.png content_type=image/png bytes=128"
-	hint := heuristicTaskHint(content)
-	if hint.EvidenceNeed != "workspace" || hint.ToolMode != "read_only" || hint.ModelLaneHint != "fast" {
-		t.Fatalf("image question should need read-only workspace multimodal inspection: %#v", hint)
-	}
-	if !slicesContainsString(hint.CandidateSkills, "image_assistant") {
-		t.Fatalf("image question should suggest image_assistant: %#v", hint.CandidateSkills)
-	}
-	if !slicesContainsString(hint.CandidateTools, "images.inspect") {
-		t.Fatalf("image question should expose images.inspect: %#v", hint.CandidateTools)
-	}
-}
-
-func TestTaskHintDocumentEditAttachmentKeepsMutationTools(t *testing.T) {
+func TestIntentRoutingDocumentEditAttachmentRequiresPreflight(t *testing.T) {
 	content := "完善并修改文档中的心得与体会\n\nAttached files for this user turn:\n- report.docx path=uploads/report.docx content_type=application/zip bytes=17861"
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, content)
@@ -2846,45 +2803,7 @@ func TestTaskHintDocumentEditAttachmentKeepsMutationTools(t *testing.T) {
 	}
 }
 
-func TestParseTaskHintToleratesNumericEstimatedRisk(t *testing.T) {
-	fallback := heuristicTaskHint("完善并修改文档中的心得与体会")
-	raw := `{"task_type":"modify","evidence_need":"workspace","tool_mode":"action_required","estimated_risk":2,"model_lane_hint":"deep","candidate_skills":["document_assistant"],"candidate_tools":["files.read","docx.replace_paragraph"],"needs_clarification":false,"reason":"edit document"}`
-	hint, err := parseTaskHint(raw, fallback)
-	if err != nil {
-		t.Fatalf("numeric estimated_risk should not reject the whole TaskHint: %v", err)
-	}
-	if hint.TaskType != "modify" || hint.ToolMode != "action_required" {
-		t.Fatalf("parsed hint should preserve non-routing fields: %#v", hint)
-	}
-	if slicesContainsString(hint.CandidateSkills, "document_assistant") || slicesContainsString(hint.CandidateTools, "docx.replace_paragraph") {
-		t.Fatalf("TaskHint must not recreate migrated document routing: %#v", hint)
-	}
-}
-
-func TestParseTaskHintKeepsUnmigratedImageAndSensitiveMemoryTools(t *testing.T) {
-	for _, tc := range []struct {
-		content string
-		tool    string
-	}{
-		{content: "请看这张图片", tool: "images.inspect"},
-		{content: "记住这个敏感 token", tool: "memory.write_sensitive"},
-	} {
-		fallback := heuristicTaskHint(tc.content)
-		raw, err := json.Marshal(fallback)
-		if err != nil {
-			t.Fatal(err)
-		}
-		hint, err := parseTaskHint(string(raw), fallback)
-		if err != nil {
-			t.Fatalf("parse %q: %v", tc.content, err)
-		}
-		if !slicesContainsString(hint.CandidateTools, tc.tool) {
-			t.Fatalf("unmigrated tool %s was removed from %#v", tc.tool, hint.CandidateTools)
-		}
-	}
-}
-
-func TestStableIntentOwnsPublicWebSearchBeforeTaskHint(t *testing.T) {
+func TestStableIntentOwnsPublicWebSearch(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "帮我查一下今天的 AI 新闻")
 	resolved, err := defaultWorkflowProfileRegistry().Resolve(runtime.capabilities, route, "turn")
@@ -2893,7 +2812,7 @@ func TestStableIntentOwnsPublicWebSearchBeforeTaskHint(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesBrowserModes(t *testing.T) {
+func TestIntentRoutingRejectsNamedBrowserOpenWithoutURL(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	for _, content := range []string{"打开浙江理工大学官网", "打开这个视频并自动播放"} {
 		route := mustRouteIntent(t, runtime, content)
@@ -2903,7 +2822,7 @@ func TestTaskHintClassifiesBrowserModes(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesOwnerAuthenticatedBrowserData(t *testing.T) {
+func TestIntentRoutingRejectsOwnerAuthenticatedBrowserData(t *testing.T) {
 	prompts := []string{
 		"登录https://webvpn.zstu.edu.cn，查看我的课表",
 		"打开 https://example.com/account 完成统一认证后查询奖助学金复核状态",
@@ -2918,7 +2837,7 @@ func TestTaskHintClassifiesOwnerAuthenticatedBrowserData(t *testing.T) {
 	}
 }
 
-func TestNormalizeTaskHintPreservesOwnerAuthenticatedBrowserRouting(t *testing.T) {
+func TestIntentRoutingKeepsOwnerAuthenticatedBrowserWorkUnmatched(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "登录https://webvpn.zstu.edu.cn，查看我的课表")
 	if route.Status != app.RouteUnmatched {
@@ -2968,20 +2887,7 @@ func TestStableIntentOwnsPublicWebSearchPhrases(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesWeixinReminder(t *testing.T) {
-	hint := heuristicTaskHint("一分钟后给微信发送你好")
-	if hint.TaskType != "send" || hint.ToolMode != "action_required" {
-		t.Fatalf("weixin timed send should be treated as a reminder action: %#v", hint)
-	}
-	if !slicesContainsString(hint.CandidateSkills, "reminder_weixin") {
-		t.Fatalf("weixin timed send should suggest reminder_weixin skill: %#v", hint.CandidateSkills)
-	}
-	if !slicesContainsString(hint.CandidateTools, "reminders.create") {
-		t.Fatalf("weixin timed send should expose reminders.create: %#v", hint.CandidateTools)
-	}
-}
-
-func TestTaskHintClassifiesBrowserAutomation(t *testing.T) {
+func TestIntentRoutingBlocksUnsupportedBrowserInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "帮我在 Chrome 里点击当前页面的登录按钮")
 	if route.Status != app.RouteBlocked || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction {
@@ -2989,7 +2895,7 @@ func TestTaskHintClassifiesBrowserAutomation(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesCurrentTabClickAsBrowserInteraction(t *testing.T) {
+func TestIntentRoutingClassifiesCurrentTabClickAsBrowserInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	routing := mustRouteIntentOutput(t, runtime, "", "点击当前页面的下一步按钮", nil, app.MessageSourceWeb)
 	route := routing.Route
@@ -2999,7 +2905,7 @@ func TestTaskHintClassifiesCurrentTabClickAsBrowserInteraction(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesURLClickAsBrowserInteraction(t *testing.T) {
+func TestIntentRoutingClassifiesURLClickAsBrowserInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开 https://example.com/checkout 并点击下一步")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
@@ -3008,7 +2914,7 @@ func TestTaskHintClassifiesURLClickAsBrowserInteraction(t *testing.T) {
 	}
 }
 
-func TestTaskHintResolvesRegisteredQQMailDestination(t *testing.T) {
+func TestIntentRoutingResolvesRegisteredQQMailDestination(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "请在 Chromium 中打开 QQ 邮箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation ||
@@ -3017,7 +2923,7 @@ func TestTaskHintResolvesRegisteredQQMailDestination(t *testing.T) {
 	}
 }
 
-func TestTaskHintRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
+func TestIntentRoutingRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开 QQ 邮箱的草稿箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
@@ -3026,7 +2932,7 @@ func TestTaskHintRoutesRegisteredQQMailSubgoalToInteraction(t *testing.T) {
 	}
 }
 
-func TestTaskHintDoesNotInventUnknownNamedBrowserDestination(t *testing.T) {
+func TestIntentRoutingDoesNotInventUnknownNamedBrowserDestination(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开未知邮箱")
 	if route.Status != app.RouteClarify || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation || route.Slots.TargetRef != "" {
@@ -3034,7 +2940,7 @@ func TestTaskHintDoesNotInventUnknownNamedBrowserDestination(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesExplicitURLOpenAsBrowserAutomation(t *testing.T) {
+func TestIntentRoutingClassifiesExplicitURLOpenAsBrowserAutomation(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开https://www.apple.com.cn/")
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityBrowserAutomation || route.Slots.Operation != app.RouteOperationOpen {
@@ -3042,7 +2948,7 @@ func TestTaskHintClassifiesExplicitURLOpenAsBrowserAutomation(t *testing.T) {
 	}
 }
 
-func TestTaskHintClassifiesExplicitURLOpenAsActionCapableBrowserAutomation(t *testing.T) {
+func TestIntentRoutingBlocksUnsupportedExplicitURLInteraction(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
 	if route.Status != app.RouteBlocked || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
@@ -3051,7 +2957,7 @@ func TestTaskHintClassifiesExplicitURLOpenAsActionCapableBrowserAutomation(t *te
 	}
 }
 
-func TestNormalizeTaskHintKeepsExplicitURLOpenActionCapable(t *testing.T) {
+func TestIntentRoutingKeepsExplicitURLInteractionActionCapable(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开 https://the-internet.herokuapp.com/checkboxes，勾选第一个 checkbox")
 	if route.Status != app.RouteBlocked || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction ||
@@ -3060,7 +2966,7 @@ func TestNormalizeTaskHintKeepsExplicitURLOpenActionCapable(t *testing.T) {
 	}
 }
 
-func TestTaskHintUsesSnapshotForBrowserStructure(t *testing.T) {
+func TestIntentRoutingLeavesBrowserStructureInspectionUnmatched(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "查看当前 Chrome 页面结构")
 	if route.Status != app.RouteUnmatched {
@@ -3068,7 +2974,7 @@ func TestTaskHintUsesSnapshotForBrowserStructure(t *testing.T) {
 	}
 }
 
-func TestNormalizeTaskHintCorrectsStructureScreenshotSuggestion(t *testing.T) {
+func TestIntentRoutingLeavesStructureQuestionUnmatched(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "查看当前页面结构，然后告诉我页面主标题是什么")
 	if route.Status != app.RouteUnmatched {
@@ -3107,7 +3013,7 @@ func TestAgentContextSnapshotIncludesEpisodeSummariesAndMemories(t *testing.T) {
 			Content: "用户希望追问时沿用上一轮主题。",
 		}},
 	}
-	context := snapshot.ForTaskHint()
+	context := snapshot.ForIntentRouting()
 	if !strings.Contains(context, "Recent episode summaries") ||
 		!strings.Contains(context, "Relevant accepted memories") ||
 		!strings.Contains(context, "2026年全国高考报名人数") ||
@@ -3252,7 +3158,7 @@ func TestWorkflowStepParserRejectsInvisibleTool(t *testing.T) {
 	}
 }
 
-func TestURLTaskHintPrefersBrowserReadOnly(t *testing.T) {
+func TestIntentRoutingLeavesExplicitURLReadingUnmatched(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "https://github.com/Infinimesh-ai/SparkClaw 这个项目是干什么的")
 	if route.Status != app.RouteUnmatched {

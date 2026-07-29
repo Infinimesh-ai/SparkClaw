@@ -17,7 +17,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -53,7 +52,7 @@ func main() {
 	}
 	defer transcriber.Close()
 	traces := trace.NewWriterFromConfig(cfg)
-	runtime, err := agent.NewRuntimeWithSkillsContext(context.Background(), st, tools, policyEngine, models, traces, skills.NewRegistry(cfg))
+	runtime, err := agent.NewRuntimeWithContext(context.Background(), st, tools, policyEngine, models, traces)
 	if err != nil {
 		slog.Error("failed to initialize agent runtime", "error", err)
 		os.Exit(1)

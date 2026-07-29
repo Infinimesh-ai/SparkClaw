@@ -2635,9 +2635,6 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 	if hasServerTestModelCall(decoded.ModelCalls, "request_normalization", "fast") {
 		t.Fatalf("trace included a model call for the removed request normalizer: %#v", decoded.ModelCalls)
 	}
-	if hasServerTestModelCall(decoded.ModelCalls, "task_hint", "fast") {
-		t.Fatalf("migrated workspace search unexpectedly used TaskHint: %#v", decoded.ModelCalls)
-	}
 	listResp, err := http.Get(ts.URL + "/api/traces")
 	if err != nil {
 		t.Fatal(err)

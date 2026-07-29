@@ -462,7 +462,7 @@ func (r Runtime) semanticRoutingContext(sessionID, runID, currentOwnerText strin
 	if documentContext := formatDocumentRoutingContext(documentResolution); documentContext != "" {
 		sections = append(sections, "Resolved governed document context:\n"+documentContext)
 	}
-	if context := snapshot.ForTaskHint(); context != "" {
+	if context := snapshot.ForIntentRouting(); context != "" {
 		sections = append(sections, "Recent Agent context:\n"+trimForEpisode(context, 12000))
 	}
 	return strings.Join(sections, "\n\n")

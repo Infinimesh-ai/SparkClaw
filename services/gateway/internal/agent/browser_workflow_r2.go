@@ -42,8 +42,8 @@ func (browserAutomationProfile) Prepare(state *app.WorkflowState) (workflowPrepa
 func (browserAutomationProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	return assessBrowserRevision2(state, outcome, false)
 }
-func (browserAutomationProfile) StageContext(state *app.WorkflowState) workflowStageContext {
-	return browserRevision2StageContext(state, false)
+func (browserAutomationProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+	return browserRevision2Hint(state, false)
 }
 func (browserAutomationProfile) TransitionInstruction(_ app.ToolOutcome, assessment app.NodeAssessment) string {
 	return browserRevision2TransitionInstruction(assessment)
@@ -90,8 +90,8 @@ func (browserInteractionProfile) Prepare(state *app.WorkflowState) (workflowPrep
 func (browserInteractionProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	return assessBrowserRevision2(state, outcome, true)
 }
-func (browserInteractionProfile) StageContext(state *app.WorkflowState) workflowStageContext {
-	return browserRevision2StageContext(state, true)
+func (browserInteractionProfile) Hint(state *app.WorkflowState) workflowExecutionHint {
+	return browserRevision2Hint(state, true)
 }
 func (browserInteractionProfile) TransitionInstruction(_ app.ToolOutcome, assessment app.NodeAssessment) string {
 	return browserRevision2TransitionInstruction(assessment)
@@ -303,7 +303,7 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 	return args
 }
 
-func browserRevision2StageContext(state *app.WorkflowState, interaction bool) workflowStageContext {
+func browserRevision2Hint(state *app.WorkflowState, interaction bool) workflowExecutionHint {
 	stage := browserActiveStage(state)
 	mode := "autonomous"
 	if stage == "present_visible" || stage == "settle_visible" || stage == "snapshot_visible" || stage == "assess_goal_visible" {
@@ -313,7 +313,7 @@ func browserRevision2StageContext(state *app.WorkflowState, interaction bool) wo
 	if interaction && strings.HasPrefix(stage, "assess_goal") {
 		reason += " Assess the frozen owner goal independently and cite only refs from the bound current snapshot."
 	}
-	hint := workflowStageContextForState(state, "browse", "web", "public", mode, reason)
+	hint := workflowHint(state, "browse", "web", "public", mode, reason)
 	if interaction {
 		hint.EstimatedRisk = app.RiskDraft
 	}

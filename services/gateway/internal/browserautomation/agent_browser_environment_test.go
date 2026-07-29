@@ -207,6 +207,33 @@ func TestBrowserEnvironmentHelpersValidateARM64LocaleAndProfileState(t *testing.
 	}
 }
 
+func TestBrowserEnvironmentPreflightReportsDetectedArchitecture(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		architecture string
+		want         string
+	}{
+		{name: "unsupported architecture", architecture: "x86-64", want: "x86-64"},
+		{name: "probe failed", want: "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := (browserEnvironmentPreflight{
+				chromiumReady:        true,
+				chromiumArchitecture: test.architecture,
+			}).output()
+			if got := output["chromium_architecture"]; got != test.want {
+				t.Fatalf("chromium_architecture = %q, want %q", got, test.want)
+			}
+			if output["chromium_arm64"] != false {
+				t.Fatalf("failed architecture probe reported ARM64: %#v", output)
+			}
+			if output["chromium_architecture"] == "aarch64" {
+				t.Fatalf("failed preflight falsely reported aarch64: %#v", output)
+			}
+		})
+	}
+}
+
 func environmentMap(entries []string) map[string]string {
 	result := make(map[string]string, len(entries))
 	for _, entry := range entries {

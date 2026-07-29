@@ -25,6 +25,7 @@ type browserEnvironmentPreflight struct {
 	providerVersionPinned bool
 	chromiumReady         bool
 	chromiumVersion       string
+	chromiumArchitecture  string
 	chromiumARM64         bool
 	profileAvailable      bool
 	profileInitialized    bool
@@ -42,6 +43,10 @@ func (p browserEnvironmentPreflight) output() map[string]any {
 	if p.ok {
 		status = "ok"
 	}
+	architecture := strings.TrimSpace(p.chromiumArchitecture)
+	if architecture == "" {
+		architecture = "unknown"
+	}
 	return map[string]any{
 		"ok":                      p.ok,
 		"status":                  status,
@@ -51,7 +56,7 @@ func (p browserEnvironmentPreflight) output() map[string]any {
 		"provider_version_pinned": p.providerVersionPinned,
 		"chromium_ready":          p.chromiumReady,
 		"chromium_version":        p.chromiumVersion,
-		"chromium_architecture":   "aarch64",
+		"chromium_architecture":   architecture,
 		"chromium_arm64":          p.chromiumARM64,
 		"profile_available":       p.profileAvailable,
 		"profile_initialized":     p.profileInitialized,
@@ -86,7 +91,8 @@ func inspectBrowserEnvironment(
 		result.reasonCodes = append(result.reasonCodes, "system_chromium_unavailable")
 	} else {
 		result.chromiumReady = true
-		if browserExecutableArchitecture(chromium) == "aarch64" {
+		result.chromiumArchitecture = browserExecutableArchitecture(chromium)
+		if result.chromiumArchitecture == "aarch64" {
 			result.chromiumARM64 = true
 		} else {
 			result.reasonCodes = append(result.reasonCodes, "chromium_architecture_unsupported")
@@ -274,7 +280,8 @@ func browserExecutableArchitecture(path string) string {
 	if binary.Machine == elf.EM_AARCH64 && binary.Class == elf.ELFCLASS64 {
 		return "aarch64"
 	}
-	return strings.ToLower(binary.Machine.String())
+	architecture := strings.ToLower(strings.TrimPrefix(binary.Machine.String(), "EM_"))
+	return strings.ReplaceAll(architecture, "_", "-")
 }
 
 func readChromiumVersion(ctx context.Context, executable string, startupTimeoutMS int) (string, error) {

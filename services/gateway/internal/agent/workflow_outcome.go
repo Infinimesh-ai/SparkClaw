@@ -28,7 +28,6 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterBrowserSnapshot:   adaptBrowserSnapshotOutcome,
 	app.OutcomeAdapterBrowserWait:       adaptBrowserWaitOutcome,
 	app.OutcomeAdapterBrowserClick:      adaptBrowserClickOutcome,
-	app.OutcomeAdapterBrowserVerify:     adaptBrowserVerifyOutcome,
 	app.OutcomeAdapterBrowserTransition: adaptBrowserTransitionOutcome,
 	app.OutcomeAdapterBrowserGoal:       adaptBrowserGoalOutcome,
 	app.OutcomeAdapterDocumentEdit:      adaptDocumentEditOutcome,
@@ -447,36 +446,6 @@ func adaptBrowserClickOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 		"snapshot_id":     firstNonEmptyString(payload["snapshot_id"], call.Arguments["snapshot_id"]),
 		"page_id":         firstNonEmptyString(payload["page_id"], call.Arguments["page_id"]),
 		"expected_effect": firstNonEmptyString(call.Arguments["expected_effect"]),
-	}}}
-	return outcome
-}
-
-func adaptBrowserVerifyOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
-	outcome := adaptGenericWorkflowOutcome(call, nodeID)
-	if !toolCallCompleted(call) {
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
-		return outcome
-	}
-	payload, _ := anyMap(call.Result)
-	status := strings.TrimSpace(stringValue(payload["status"]))
-	code := strings.TrimSpace(stringValue(payload["code"]))
-	switch {
-	case status == "succeeded" && boolValue(payload["goal_satisfied"]):
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionGoalSatisfied}
-	case status == "progress":
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionProgress}
-	case code == "interaction_loop_detected":
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionLoopDetected}
-	case code == "interaction_attempt_limit":
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionAttemptLimit}
-	case code == "unsafe_click_target":
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
-	default:
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionVerificationFailed}
-	}
-	outcome.Refs = []app.ResourceRef{{Kind: "browser_verification", Ref: call.ID, Provenance: call.ID, Attributes: map[string]string{
-		"status": status, "code": code, "reason": strings.TrimSpace(stringValue(payload["reason"])),
-		"after_snapshot_id": strings.TrimSpace(stringValue(payload["after_snapshot_id"])),
 	}}}
 	return outcome
 }

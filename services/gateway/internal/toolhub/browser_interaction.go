@@ -127,69 +127,6 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 	}}, nil
 }
 
-func (h *ToolHub) verifyBrowserInteraction(_ context.Context, args map[string]any, sessionID, runID string) (Result, error) {
-	beforeID := strings.TrimSpace(browserAutomationStringValue(args["before_snapshot_id"]))
-	afterID := strings.TrimSpace(browserAutomationStringValue(args["after_snapshot_id"]))
-	elementRef := strings.TrimSpace(browserAutomationStringValue(args["element_ref"]))
-	verdict := strings.ToLower(strings.TrimSpace(browserAutomationStringValue(args["verdict"])))
-	reason := strings.TrimSpace(browserAutomationStringValue(args["reason"]))
-	if beforeID == afterID {
-		return Result{}, errors.New("browser.verify requires two different snapshot IDs")
-	}
-
-	calls := h.store.ListToolCalls(sessionID)
-	before, beforeOK := findBrowserSnapshotRecord(calls, runID, beforeID)
-	after, afterOK := findBrowserSnapshotRecord(calls, runID, afterID)
-	if !beforeOK || !afterOK || before.Index >= after.Index {
-		return Result{}, errors.New("browser.verify snapshots are unavailable or out of order in the current run")
-	}
-	click, clickIndex, ok := findBrowserClickBetween(calls, runID, before.Index, after.Index, beforeID, elementRef)
-	if !ok || !before.Refs[elementRef] {
-		return Result{}, errors.New("browser.verify could not bind the requested element to one click after the before snapshot")
-	}
-	if after.PreviousSnapshotID != "" && after.PreviousSnapshotID != beforeID {
-		return Result{}, errors.New("browser.verify after snapshot does not follow the bound click snapshot")
-	}
-	if clicked := browserClickOutputRef(click); clicked != "" && clicked != elementRef {
-		return Result{}, errors.New("browser.verify click result does not match the selected snapshot element")
-	}
-
-	clickCount := completedBrowserClickCount(calls, runID, after.Index)
-	stateChanged := before.Digest != "" && after.Digest != "" && before.Digest != after.Digest
-	code := "ok"
-	status := verdict
-	if verdict == "success" {
-		status = "succeeded"
-	}
-	goalSatisfied := verdict == "success"
-	switch {
-	case !stateChanged || priorVerifiedBrowserState(calls, runID, clickIndex, after.Digest):
-		status, code, goalSatisfied = "failed", "interaction_loop_detected", false
-	case verdict == "failure":
-		status, code, goalSatisfied = "failed", "interaction_verification_failed", false
-	case verdict == "progress" && clickCount >= 3:
-		status, code, goalSatisfied = "failed", "interaction_attempt_limit", false
-	case verdict != "success" && verdict != "progress":
-		return Result{}, errors.New("browser.verify verdict is unsupported")
-	}
-
-	return Result{Output: map[string]any{
-		"schema_version":     1,
-		"status":             status,
-		"code":               code,
-		"before_snapshot_id": beforeID,
-		"after_snapshot_id":  afterID,
-		"page_id":            after.PageID,
-		"element_ref":        elementRef,
-		"state_changed":      stateChanged,
-		"goal_satisfied":     goalSatisfied,
-		"reason":             trimBrowserVerificationReason(reason),
-		"before_digest":      before.Digest,
-		"after_digest":       after.Digest,
-		"click_count":        clickCount,
-	}}, nil
-}
-
 func findBrowserSnapshotRecord(calls []app.ToolCall, runID, snapshotID string) (browserSnapshotRecord, bool) {
 	for index, call := range calls {
 		if call.RunID != runID || call.Tool != "browser.snapshot" || call.Status != "completed" {
@@ -287,25 +224,6 @@ func completedBrowserClickCount(calls []app.ToolCall, runID string, throughIndex
 		}
 	}
 	return count
-}
-
-func priorVerifiedBrowserState(calls []app.ToolCall, runID string, beforeIndex int, digest string) bool {
-	if digest == "" {
-		return false
-	}
-	for index, call := range calls {
-		if index >= beforeIndex {
-			break
-		}
-		if call.RunID != runID || call.Tool != "browser.verify" || call.Status != "completed" {
-			continue
-		}
-		output, ok := browserInteractionMap(call.Result)
-		if ok && strings.TrimSpace(browserAutomationStringValue(output["after_digest"])) == digest {
-			return true
-		}
-	}
-	return false
 }
 
 func priorValidatedBrowserState(calls []app.ToolCall, runID string, beforeIndex int, digest string) bool {

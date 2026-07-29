@@ -382,6 +382,61 @@ func TestBrowserLoginHiddenContinuityLossReturnsToVisibleWaiting(t *testing.T) {
 	}
 }
 
+func TestPersistedBrowserRevision1LoginHandoffsRetireBeforeBrowserAccess(t *testing.T) {
+	for _, workflowID := range []app.WorkflowID{app.WorkflowBrowserAutomation, app.WorkflowBrowserInteraction} {
+		t.Run(string(workflowID), func(t *testing.T) {
+			runtime, st, sessionID, adapter := newBrowserLoginStateMachineTest(t, "retire persisted browser r1 handoff")
+			first := startBrowserLoginStateMachineTest(t, runtime, sessionID)
+			run, ok := st.GetRun(first.Run.ID)
+			if !ok || run.Workflow == nil {
+				t.Fatal("persisted browser workflow fixture is missing")
+			}
+			run.Workflow.Plan.ProfileID = workflowID
+			run.Workflow.Plan.ProfileRevision = 1
+			run.Workflow.PlanDigest = workflowPlanDigest(run.Workflow.Plan)
+			run.Workflow.Status = app.WorkflowStatusRunning
+			st.SaveRun(run)
+
+			block, ok := st.FindActiveBrowserLoginBlock(sessionID)
+			if !ok {
+				t.Fatal("persisted browser handoff fixture is missing")
+			}
+			block.WorkflowID = workflowID
+			block.WorkflowRevision = 1
+			if _, err := st.UpdateBrowserLoginBlock(block, block.Version); err != nil {
+				t.Fatal(err)
+			}
+			before := browserLoginAdapterCallCounts(adapter)
+
+			result, err := runtime.HandleMessage(context.Background(), sessionID, "登录完成")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Run.ID != first.Run.ID || result.Run.State != "blocked" || result.Run.CompletedAt == nil ||
+				result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusBlocked {
+				t.Fatalf("persisted r1 handoff did not terminate as retired: %#v", result.Run)
+			}
+			if result.Message.Content != retiredLegacyRunMessage {
+				t.Fatalf("retired r1 handoff returned an ambiguous owner message: %q", result.Message.Content)
+			}
+			if got := browserLoginAdapterCallCounts(adapter); got != before {
+				t.Fatalf("retired r1 handoff accessed the browser: before=%#v after=%#v", before, got)
+			}
+			if _, ok := st.FindActiveBrowserLoginBlock(sessionID); ok {
+				t.Fatal("retired r1 handoff remained active")
+			}
+			blocks := st.ListBrowserLoginBlocks(sessionID, app.BrowserHandoffStatusResolved)
+			if len(blocks) != 1 || blocks[0].LastError != "browser_login_workflow_revision_retired" ||
+				blocks[0].ResolvedAt == nil {
+				t.Fatalf("retired r1 handoff was not resolved explicitly: %#v", blocks)
+			}
+			if !hasAgentAuditType(st.ListAudit(sessionID), "workflow.legacy_login_resume_retired") {
+				t.Fatalf("retired r1 handoff audit is missing: %#v", st.ListAudit(sessionID))
+			}
+		})
+	}
+}
+
 type browserLoginCallCounts struct {
 	listTabs  int
 	snapshots int

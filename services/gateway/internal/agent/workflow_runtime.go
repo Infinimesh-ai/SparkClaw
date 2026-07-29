@@ -79,11 +79,6 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 			return errors.New("tool arguments are outside the frozen workflow resource boundary")
 		}
 	}
-	if isDOCXReplaceParagraphDefinition(definition, plan) {
-		if err := r.validateDOCXReplaceParagraphEvidence(run, plan.Args); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -112,12 +107,6 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 		args[key] = value
 	}
 	changed := false
-	if plan.WorkflowID == app.WorkflowBrowserInteraction && plan.Capability == app.ToolCapabilityBrowserVerify {
-		if verdict, ok := canonicalBrowserVerificationVerdict(stringValue(args["verdict"])); ok && verdict != stringValue(args["verdict"]) {
-			args["verdict"] = verdict
-			changed = true
-		}
-	}
 	for _, binding := range node.ArgumentBindings {
 		if binding.Capability != plan.Capability {
 			continue
@@ -152,17 +141,6 @@ func toolDefinitionDeclaresArgument(definition app.ToolDefinition, argument stri
 	properties, _ := definition.InputSchema["properties"].(map[string]any)
 	_, ok := properties[argument]
 	return ok
-}
-
-func canonicalBrowserVerificationVerdict(value string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "success", "progress", "failure":
-		return strings.ToLower(strings.TrimSpace(value)), true
-	case "partial_progress", "in_progress":
-		return "progress", true
-	default:
-		return "", false
-	}
 }
 
 func materializedWorkflowResourceKind(kind string) bool {
@@ -308,9 +286,6 @@ func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[stri
 	if isPPTXSlideUpdateDefinition(r.tools, plan) {
 		args = r.bindPPTXSlideUpdateArguments(run, args)
 	}
-	if definition, ok := r.tools.Definition(plan.Name); ok && isDOCXReplaceParagraphDefinition(definition, plan) {
-		args = r.bindDOCXReplaceParagraphEvidence(run, args)
-	}
 	return args
 }
 
@@ -406,6 +381,10 @@ func (r Runtime) bindPPTXSlideUpdateArguments(run app.AgentRun, args map[string]
 		}
 		delete(update, "new_text")
 		shapeIndex := intLikeValue(update["shape_index"])
+		oldText := strings.TrimSpace(stringValue(update["old_text"]))
+		if oldText != "" && oldText != "<nil>" {
+			continue
+		}
 		if exact, ok := shapeText[shapeIndex]; ok {
 			update["old_text"] = exact
 		}
@@ -415,31 +394,6 @@ func (r Runtime) bindPPTXSlideUpdateArguments(run app.AgentRun, args map[string]
 }
 
 func (r Runtime) pptxSlideShapeText(run app.AgentRun, expectedPath string, slideIndex int) map[int]string {
-	document, ok := r.currentPPTXReadDocument(run, expectedPath)
-	if !ok {
-		return nil
-	}
-	shapeText := map[int]string{}
-	for _, value := range documentAnySliceFromAny(document["blocks"]) {
-		block, ok := anyMap(value)
-		if !ok {
-			continue
-		}
-		location, _ := anyMap(block["location"])
-		if intLikeValue(location["slide_index"]) != slideIndex ||
-			strings.TrimSpace(stringValue(firstNonNil(block["type"], location["block_type"]))) != "shape_text" {
-			continue
-		}
-		shapeIndex := intLikeValue(location["shape_index"])
-		text := stringValue(block["text"])
-		if shapeIndex > 0 && strings.TrimSpace(text) != "" && text != "<nil>" {
-			shapeText[shapeIndex] = text
-		}
-	}
-	return shapeText
-}
-
-func (r Runtime) currentPPTXReadDocument(run app.AgentRun, expectedPath string) (map[string]any, bool) {
 	calls := toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID)
 	for i := len(calls) - 1; i >= 0; i-- {
 		call := calls[i]
@@ -454,9 +408,26 @@ func (r Runtime) currentPPTXReadDocument(run app.AgentRun, expectedPath string) 
 		if !ok || strings.ToLower(strings.TrimSpace(stringValue(document["format"]))) != app.DocumentFormatPPTX {
 			continue
 		}
-		return document, true
+		shapeText := map[int]string{}
+		for _, value := range documentAnySliceFromAny(document["blocks"]) {
+			block, ok := anyMap(value)
+			if !ok {
+				continue
+			}
+			location, _ := anyMap(block["location"])
+			if intLikeValue(location["slide_index"]) != slideIndex ||
+				strings.TrimSpace(stringValue(firstNonNil(block["type"], location["block_type"]))) != "shape_text" {
+				continue
+			}
+			shapeIndex := intLikeValue(location["shape_index"])
+			text := stringValue(block["text"])
+			if shapeIndex > 0 && strings.TrimSpace(text) != "" && text != "<nil>" {
+				shapeText[shapeIndex] = text
+			}
+		}
+		return shapeText
 	}
-	return nil, false
+	return nil
 }
 
 func sameDocumentReadPath(expectedPath string, call app.ToolCall, result map[string]any) bool {
@@ -572,15 +543,15 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	return Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 }
 
-func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint workflowStageContext, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {
+func (r Runtime) runWorkflowStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, emit StreamHandler) workflowExecutionResult {
 	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, hint, visibleTools, nil, nil, emit)
 }
 
-func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
+func (r Runtime) runWorkflowWithSeed(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
 	return r.runWorkflowWithSeedAndStream(ctx, sessionID, run, content, profile, hint, visibleTools, seedCalls, seedObservations, nil)
 }
 
-func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) workflowExecutionResult {
+func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID string, run app.AgentRun, content string, profile workflowProfile, hint TaskHint, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, emit StreamHandler) workflowExecutionResult {
 	actorRef := r.workflowActorRef(sessionID)
 	allCalls := append([]app.ToolCall(nil), seedCalls...)
 	allApprovals := []app.Approval{}
@@ -705,7 +676,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		if !transitioned {
 			allObservations = append(allObservations, "workflow_requirement: The active workflow completion rule is not satisfied. Call the single materialized capability before returning a final answer.")
 		}
-		stageContext := profile.StageContext(run.Workflow)
+		stageContext := profile.Hint(run.Workflow)
 		var err error
 		visibleTools, err = r.materializeActiveWorkflowTools(ctx, run, actorRef, &stageContext)
 		if err != nil {
@@ -714,7 +685,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			latest.Cancelled = ctx.Err() != nil
 			break
 		}
-		hint = stageContext
+		hint = stageContext.taskHint()
 		if refreshed, ok := r.store.GetRun(run.ID); ok {
 			run = refreshed
 		}
@@ -738,7 +709,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		case storedRun.Workflow.Status == app.WorkflowStatusSucceeded && strings.TrimSpace(latest.FinalAnswer) == "" && profile.Finalization() == workflowFinalizationModel:
 			chat, answer, err := r.synthesizeWorkflowFinalAnswer(
 				ctx, storedRun, content, allCalls, allObservations,
-				workflowModelLaneForProfile(profile.ID()), emit,
+				workflowExecutionModelLane, emit,
 			)
 			latest.FinalAnswerStreamed = emit != nil
 			if err == nil {
@@ -774,15 +745,15 @@ func activeWorkflowNodeUsesDirectToolOnce(state *app.WorkflowState) bool {
 	return ok && node.InvocationMode == app.WorkflowInvocationDirectOnce
 }
 
-func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, hint workflowStageContext, visibleTools []app.ToolDefinition, observations []string) workflowExecutionResult {
+func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string) workflowExecutionResult {
 	return r.runWorkflowDirectTool(ctx, sessionID, run, hint, visibleTools, observations, nil, true)
 }
 
-func (r Runtime) runWorkflowDirectStage(ctx context.Context, sessionID string, run app.AgentRun, hint workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any) workflowExecutionResult {
+func (r Runtime) runWorkflowDirectStage(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string, args map[string]any) workflowExecutionResult {
 	return r.runWorkflowDirectTool(ctx, sessionID, run, hint, visibleTools, observations, args, false)
 }
 
-func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, run app.AgentRun, hint workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any, requireDirectOnce bool) workflowExecutionResult {
+func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, run app.AgentRun, hint TaskHint, visibleTools []app.ToolDefinition, observations []string, args map[string]any, requireDirectOnce bool) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]string(nil), observations...)}
 	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 || len(visibleTools) != 1 ||
 		hint.WorkflowID != run.Workflow.Plan.ProfileID || hint.WorkflowNodeID != run.Workflow.ActiveNodeIDs[0] || hint.ScopeRevision <= 0 {

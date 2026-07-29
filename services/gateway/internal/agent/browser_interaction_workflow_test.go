@@ -10,21 +10,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestCanonicalBrowserVerificationVerdictAcceptsBoundedProgressAliases(t *testing.T) {
-	for input, expected := range map[string]string{
-		"success": "success", "progress": "progress", "failure": "failure",
-		"partial_progress": "progress", "in_progress": "progress",
-	} {
-		actual, ok := canonicalBrowserVerificationVerdict(input)
-		if !ok || actual != expected {
-			t.Fatalf("verdict %q normalized to %q ok=%v, want %q", input, actual, ok, expected)
-		}
-	}
-	if _, ok := canonicalBrowserVerificationVerdict("maybe"); ok {
-		t.Fatal("unsupported verification verdict must remain invalid")
-	}
-}
-
 func TestAdaptBrowserHealthOutcomeAcceptsStableAndAgentBrowserResults(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -86,8 +71,8 @@ func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *
 	if got := visibleToolNames(dispatch.Tools); len(got) != 1 || got[0] != "browser.status" {
 		t.Fatalf("health_check exposed an out-of-stage browser tool: %#v", got)
 	}
-	if dispatch.Context.Capability != app.ToolCapabilityBrowserHealth {
-		t.Fatalf("health_check context selected the wrong capability: %#v", dispatch.Context)
+	if dispatch.Hint.Capability != app.ToolCapabilityBrowserHealth {
+		t.Fatalf("health_check hint selected the wrong capability: %#v", dispatch.Hint)
 	}
 	stored, ok := st.GetRun(dispatch.Run.ID)
 	if !ok || stored.Workflow == nil {
@@ -133,13 +118,13 @@ func TestBrowserWorkflowStageContextsStayHiddenUntilPresentation(t *testing.T) {
 				"browser": {Stage: "scan_tabs"},
 			},
 		}
-		var context workflowStageContext
+		var hint workflowExecutionHint
 		if workflowID == app.WorkflowBrowserAutomation {
-			context = (browserAutomationProfile{}).StageContext(state)
+			hint = (browserAutomationProfile{}).Hint(state)
 		} else {
-			context = (browserInteractionProfile{}).StageContext(state)
+			hint = (browserInteractionProfile{}).Hint(state)
 		}
-		plan := enrichPlanWithBrowserMode(context, toolPlan{Name: "browser.list_tabs", Args: map[string]any{}})
+		plan := enrichPlanWithBrowserMode(hint.taskHint(), toolPlan{Name: "browser.list_tabs", Args: map[string]any{}})
 		if plan.Args["browser_mode"] != "autonomous" || plan.Args["presentation"] != "hidden" || boolValue(plan.Args["surface_visible"]) {
 			t.Fatalf("%s execution stage was not hidden: %#v", workflowID, plan.Args)
 		}
@@ -515,10 +500,10 @@ func TestBrowserInteractionConsequentialClicksFailRoutingClosed(t *testing.T) {
 }
 
 func TestWorkflowPromptContextKeepsStageAndProvidedToolList(t *testing.T) {
-	hint := workflowStageContext{WorkflowID: app.WorkflowBrowserInteraction, Reason: "workflow_stage: verify_action. Verify before another click."}
-	tools := []app.ToolDefinition{{Name: "browser.snapshot"}, {Name: "browser.click"}, {Name: "browser.verify"}}
+	hint := TaskHint{WorkflowID: app.WorkflowBrowserInteraction, Reason: "workflow_stage: validate_transition. Validate before goal assessment."}
+	tools := []app.ToolDefinition{{Name: "browser.snapshot"}, {Name: "browser.click"}, {Name: "browser.validate_transition"}}
 	prompt := appendWorkflowStepContext("WORKFLOW_STEP_REQUEST", hint, tools)
-	for _, expected := range []string{"workflow_stage: verify_action", "browser.snapshot", "browser.click", "browser.verify"} {
+	for _, expected := range []string{"workflow_stage: validate_transition", "browser.snapshot", "browser.click", "browser.validate_transition"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("workflow prompt context lost %q: %s", expected, prompt)
 		}

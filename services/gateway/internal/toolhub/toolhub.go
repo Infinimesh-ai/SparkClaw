@@ -764,32 +764,6 @@ func defaultDefinitions() []app.ToolDefinition {
 		browserAutomationDefinition("browser.wait", "Wait for visible text or observable page state before continuing.", app.RiskRead, false, nil, []string{"page_id", "text"}, []string{"tool", "raw_tool", "output", "text", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.click", "Click a clear element ref from the latest browser snapshot.", app.RiskDraft, false, []string{"uid"}, []string{"page_id", "snapshot_id", "expected_effect"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		{
-			Name:        "browser.verify",
-			Description: "Verify a browser click from its before/after structured snapshots and record success or bounded progress.",
-			InputSchema: schema("object", []string{"before_snapshot_id", "after_snapshot_id", "element_ref", "verdict", "reason"}, map[string]any{
-				"before_snapshot_id": stringSchema(),
-				"after_snapshot_id":  stringSchema(),
-				"element_ref":        stringSchema(),
-				"verdict":            map[string]any{"type": "string", "enum": []any{"success", "progress", "failure"}},
-				"reason":             stringSchema(),
-			}),
-			OutputSchema: objectSchema([]string{"schema_version", "status", "code", "before_snapshot_id", "after_snapshot_id", "state_changed", "goal_satisfied", "reason"}, map[string]any{
-				"schema_version":     integerSchema(),
-				"status":             stringSchema(),
-				"code":               stringSchema(),
-				"before_snapshot_id": stringSchema(),
-				"after_snapshot_id":  stringSchema(),
-				"state_changed":      booleanSchema(),
-				"goal_satisfied":     booleanSchema(),
-				"reason":             stringSchema(),
-				"before_digest":      stringSchema(),
-				"after_digest":       stringSchema(),
-				"click_count":        integerSchema(),
-			}),
-			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
-			TimeoutMS: 5000, Sandbox: "forbidden", Audit: "always",
-		},
-		{
 			Name:        "browser.validate_transition",
 			Description: "Deterministically validate one before/click/after browser transition without deciding whether the owner goal is satisfied.",
 			InputSchema: schema("object", []string{"before_snapshot_id", "after_snapshot_id", "element_ref"}, map[string]any{

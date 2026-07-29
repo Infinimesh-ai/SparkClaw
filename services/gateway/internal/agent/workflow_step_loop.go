@@ -39,6 +39,8 @@ type workflowExecutionResult struct {
 	FinalAnswer         string
 	FinalAnswerStreamed bool
 	Completed           bool
+	Halted              bool
+	Cancelled           bool
 	BrowserLoginBlock   *app.BrowserLoginBlock
 	WorkflowFailure     string
 }

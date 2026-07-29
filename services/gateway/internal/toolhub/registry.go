@@ -298,12 +298,6 @@ var toolRegistry = map[string]toolRegistration{
 	"browser.screenshot": browserScreenshotRegistration(),
 	"browser.wait":       browserAutomationRegistration(app.ToolCapabilityBrowserWait, app.OutcomeAdapterBrowserWait, "Wait for observable browser state.", app.ToolEffectExternalRead),
 	"browser.click":      browserInteractionClickRegistration(),
-	"browser.verify": workflowRegistration(
-		toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).verifyBrowserInteraction)},
-		app.ToolCapabilityBrowserVerify, nil, app.OutcomeAdapterBrowserVerify,
-		"Verify one browser click against its before/after snapshots.",
-		"Use after every browser.interaction click and post-click snapshot.",
-		"Do not use without one bound click and two snapshots from the current run.", app.ToolEffectLocalCompute),
 	"browser.validate_transition": workflowRegistration(
 		toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).validateBrowserTransition)},
 		app.ToolCapabilityBrowserTransitionValidate, nil, app.OutcomeAdapterBrowserTransition,

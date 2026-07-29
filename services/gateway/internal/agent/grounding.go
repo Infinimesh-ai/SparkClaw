@@ -329,9 +329,6 @@ func failureNextStepHint(goal string, call app.ToolCall) string {
 }
 
 func groundedBrowserAutomationSummary(goal, fallback string, calls []app.ToolCall) (string, bool) {
-	if verification, ok := browserInteractionVerificationAnswerFromCalls(calls); ok {
-		return verification, true
-	}
 	if failure, ok := browserInteractionFailureAnswerFromCalls(calls); ok {
 		return failure, true
 	}
@@ -352,37 +349,6 @@ func browserInteractionFailureAnswerFromCalls(calls []app.ToolCall) (string, boo
 		}
 		if strings.Contains(strings.ToLower(call.Error), "unsafe click target") {
 			return "页面交互已阻止：目标点击可能产生不允许的后果。", true
-		}
-	}
-	return "", false
-}
-
-func browserInteractionVerificationAnswerFromCalls(calls []app.ToolCall) (string, bool) {
-	for index := len(calls) - 1; index >= 0; index-- {
-		call := calls[index]
-		if call.Tool != "browser.verify" || !toolCallCompleted(call) {
-			continue
-		}
-		result, ok := anyMap(call.Result)
-		if !ok {
-			continue
-		}
-		status := strings.TrimSpace(stringValue(result["status"]))
-		code := strings.TrimSpace(stringValue(result["code"]))
-		if status == "succeeded" && boolValue(result["goal_satisfied"]) {
-			return "已完成页面点击，并通过点击后 snapshot 验证。", true
-		}
-		if status == "failed" {
-			message := map[string]string{
-				"interaction_loop_detected":       "页面交互陷入循环",
-				"interaction_attempt_limit":       "已达到三次点击上限",
-				"interaction_verification_failed": "点击后的页面变化不符合预期",
-				"unsafe_click_target":             "目标点击可能产生不允许的后果",
-			}[code]
-			if message == "" {
-				message = "页面点击验证失败"
-			}
-			return message + "。", true
 		}
 	}
 	return "", false
@@ -501,7 +467,7 @@ func asksForBrowserScreenshot(goal string) bool {
 
 func isBrowserAutomationPlan(name string) bool {
 	switch name {
-	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.verify", "browser.type", "browser.select":
+	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.validate_transition", "browser.assess_goal", "browser.type", "browser.select":
 		return true
 	default:
 		return false

@@ -23,13 +23,14 @@ func TestAgentBrowserEnvironmentRequiresRealDisplayForVisibleSession(t *testing.
 	t.Setenv("XAUTHORITY", "/tmp/sparkclaw-test-xauthority")
 	t.Setenv("AGENT_BROWSER_NO_XVFB", "false")
 
-	env := environmentMap(agentBrowserEnvironment(
+	env := environmentMap(agentBrowserEnvironmentResolved(
 		agentBrowserAdapterConfig{DaemonIdleTimeoutMS: 2500},
 		"namespace",
 		"session",
 		"/tmp/profile",
 		"/usr/bin/chromium",
 		false,
+		&visibleBrowserEnvironment{display: ":19", xauthority: "/tmp/sparkclaw-test-xauthority"},
 	))
 
 	for key, want := range map[string]string{
@@ -53,13 +54,14 @@ func TestAgentBrowserEnvironmentKeepsHiddenSessionHeadless(t *testing.T) {
 	t.Setenv("XAUTHORITY", "/tmp/sparkclaw-test-xauthority")
 	t.Setenv("AGENT_BROWSER_NO_XVFB", "true")
 
-	env := environmentMap(agentBrowserEnvironment(
+	env := environmentMap(agentBrowserEnvironmentResolved(
 		agentBrowserAdapterConfig{},
 		"namespace",
 		"session",
 		"/tmp/profile",
 		"",
 		true,
+		nil,
 	))
 
 	if got := env["AGENT_BROWSER_HEADED"]; got != "false" {

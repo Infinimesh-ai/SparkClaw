@@ -54,8 +54,8 @@ func agentBrowserSnapshotRawArgs() map[string]any {
 	return map[string]any{"compact": true, "includeUrls": true}
 }
 
-func (a *AgentBrowserAdapter) takeSnapshotLocked(ctx context.Context, session *agentBrowserSession, args, rawArgs map[string]any) (map[string]any, error) {
-	result, err := a.callAgentToolLocked(ctx, session, "agent_browser_snapshot", rawArgs)
+func (e *agentBrowserSessionEntry) takeSnapshotLocked(ctx context.Context, args, rawArgs map[string]any) (map[string]any, error) {
+	result, err := e.callAgentToolLocked(ctx, "agent_browser_snapshot", rawArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -69,23 +69,23 @@ func (a *AgentBrowserAdapter) takeSnapshotLocked(ctx context.Context, session *a
 		return nil, errorsForSnapshot("agent-browser omitted the structured refs map")
 	}
 	enrichAgentBrowserRefsFromTree(refs, rawTree)
-	pageID := a.currentPageIDLocked(ctx, session)
+	pageID := e.currentPageIDLocked(ctx)
 	if pageID == "" {
 		return nil, errorsForSnapshot("agent-browser did not report an active tab")
 	}
-	url, _ := a.currentURLLocked(ctx, session)
-	title, _ := a.currentTitleLocked(ctx, session)
-	metadata := a.snapshotVisibleTextLocked(ctx, session)
+	url, _ := e.currentURLLocked(ctx)
+	title, _ := e.currentTitleLocked(ctx)
+	metadata := e.snapshotVisibleTextLocked(ctx)
 
-	a.nextSnapshotID++
+	e.nextSnapshotID++
 	pageNumber := strings.TrimPrefix(pageID, "page_")
-	snapshotID := fmt.Sprintf("snapshot_%s_%d", pageNumber, a.nextSnapshotID)
+	snapshotID := fmt.Sprintf("snapshot_%s_%d", pageNumber, e.nextSnapshotID)
 	goal := strings.TrimSpace(stringArg(args, "interaction_goal"))
 	allRefs := buildAgentBrowserSnapshotRefs(refs, goal)
 	metadata["tree"] = rawTree
 	metadata = inferAgentBrowserSnapshotAuth(metadata, title, url, allRefs)
 	digest := digestAgentBrowserSnapshot(url, title, rawTree, firstStringValue(metadata, "text"), allRefs)
-	previous := a.snapshots[pageID]
+	previous := e.snapshots[pageID]
 	repeated := previous != nil && previous.ActionTaken && previous.Digest == digest
 	previousID := ""
 	if previous != nil && previous.ActionTaken {
@@ -117,8 +117,8 @@ func (a *AgentBrowserAdapter) takeSnapshotLocked(ctx context.Context, session *a
 	}
 	safeTree := projectAgentBrowserTreeRefs(ranked)
 	text := strings.Join(nonEmptyStrings("Page: "+url, safeTree), "\n")
-	a.snapshots[pageID] = state
-	a.activeSnapshotPage = pageID
+	e.snapshots[pageID] = state
+	e.activeSnapshotPage = pageID
 
 	authState := firstStringValue(metadata, "authState", "auth_state")
 	authConfidence := firstStringValue(metadata, "authConfidence", "auth_confidence")
@@ -326,9 +326,9 @@ func appendUniqueString(values []string, value string) []string {
 	return append(values, value)
 }
 
-func (a *AgentBrowserAdapter) snapshotVisibleTextLocked(ctx context.Context, session *agentBrowserSession) map[string]any {
+func (e *agentBrowserSessionEntry) snapshotVisibleTextLocked(ctx context.Context) map[string]any {
 	metadata := map[string]any{}
-	if result, err := a.callAgentToolLocked(ctx, session, "agent_browser_get_text", map[string]any{"selector": "body"}); err == nil {
+	if result, err := e.callAgentToolLocked(ctx, "agent_browser_get_text", map[string]any{"selector": "body"}); err == nil {
 		metadata["text"] = firstStringValue(mapValue(result.Data), "text", "value", "result")
 	}
 	return metadata
@@ -531,7 +531,7 @@ func digestAgentBrowserSnapshot(url, title, tree, pageText string, refs []*agent
 	return hex.EncodeToString(digest[:])
 }
 
-func (a *AgentBrowserAdapter) resolveSnapshotRefLocked(args map[string]any) (string, string, *agentBrowserSnapshotRef, *agentBrowserSnapshotState, error) {
+func (e *agentBrowserSessionEntry) resolveSnapshotRefLocked(args map[string]any) (string, string, *agentBrowserSnapshotRef, *agentBrowserSnapshotState, error) {
 	external := strings.TrimSpace(stringArg(args, "uid"))
 	if external == "" {
 		external = strings.TrimSpace(stringArg(args, "ref"))
@@ -541,14 +541,14 @@ func (a *AgentBrowserAdapter) resolveSnapshotRefLocked(args map[string]any) (str
 	}
 	pageID := strings.TrimSpace(stringArg(args, "page_id"))
 	if pageID == "" {
-		for candidatePage, state := range a.snapshots {
+		for candidatePage, state := range e.snapshots {
 			if state.Refs[external] != nil {
 				pageID = candidatePage
 				break
 			}
 		}
 	}
-	state := a.snapshots[pageID]
+	state := e.snapshots[pageID]
 	if state == nil || state.ActionTaken {
 		return "", "", nil, nil, errorsForSnapshot("stale or unknown snapshot; take a new browser.snapshot")
 	}
@@ -562,18 +562,18 @@ func (a *AgentBrowserAdapter) resolveSnapshotRefLocked(args map[string]any) (str
 	return pageID, descriptor.RawRef, descriptor, state, nil
 }
 
-func (a *AgentBrowserAdapter) refreshSnapshotRefLocked(ctx context.Context, session *agentBrowserSession, pageID string, state *agentBrowserSnapshotState, descriptor *agentBrowserSnapshotRef) (string, error) {
-	if err := a.ensureSnapshotPageActiveLocked(ctx, session, pageID); err != nil {
+func (e *agentBrowserSessionEntry) refreshSnapshotRefLocked(ctx context.Context, pageID string, state *agentBrowserSnapshotState, descriptor *agentBrowserSnapshotRef) (string, error) {
+	if err := e.ensureSnapshotPageActiveLocked(pageID); err != nil {
 		return "", err
 	}
-	currentURL, err := a.currentURLLocked(ctx, session)
+	currentURL, err := e.currentURLLocked(ctx)
 	if err != nil {
 		return "", err
 	}
 	if currentURL != state.URL {
 		return "", errorsForSnapshot("active page URL changed; take a new browser.snapshot")
 	}
-	result, err := a.callAgentToolLocked(ctx, session, "agent_browser_snapshot", agentBrowserSnapshotRawArgs())
+	result, err := e.callAgentToolLocked(ctx, "agent_browser_snapshot", agentBrowserSnapshotRawArgs())
 	if err != nil {
 		return "", err
 	}
@@ -597,9 +597,9 @@ func (a *AgentBrowserAdapter) refreshSnapshotRefLocked(ctx context.Context, sess
 	return "", errorsForSnapshot("snapshot ref changed or is unavailable; take a new browser.snapshot")
 }
 
-func (a *AgentBrowserAdapter) invalidateSnapshotsLocked() {
-	a.snapshots = map[string]*agentBrowserSnapshotState{}
-	a.activeSnapshotPage = ""
+func (e *agentBrowserSessionEntry) invalidateSnapshotsLocked() {
+	e.snapshots = map[string]*agentBrowserSnapshotState{}
+	e.activeSnapshotPage = ""
 }
 
 func agentBrowserRefNumber(value string) int {

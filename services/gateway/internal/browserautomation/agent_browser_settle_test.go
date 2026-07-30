@@ -9,9 +9,16 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+func settleSessionEntryFixture(generation uint64, observe func(context.Context, *agentBrowserSession) (browserStableObservation, error)) *agentBrowserSessionEntry {
+	return &agentBrowserSessionEntry{
+		adapter:    &AgentBrowserAdapter{observeStableState: observe},
+		generation: generation,
+	}
+}
+
 func TestBrowserStableStateRejectsStaleSessionGeneration(t *testing.T) {
-	adapter := &AgentBrowserAdapter{sessionGeneration: 9}
-	_, err := adapter.waitForStableStateLocked(context.Background(), nil, map[string]any{
+	entry := settleSessionEntryFixture(9, nil)
+	_, err := entry.waitForStableStateLocked(context.Background(), map[string]any{
 		"session_generation": 8,
 	})
 	if err == nil || !strings.Contains(err.Error(), "browser_session_stale") {
@@ -20,13 +27,10 @@ func TestBrowserStableStateRejectsStaleSessionGeneration(t *testing.T) {
 }
 
 func TestBrowserStableStateReportsRendererFailure(t *testing.T) {
-	adapter := &AgentBrowserAdapter{
-		sessionGeneration: 1,
-		observeStableState: func(context.Context, *agentBrowserSession) (browserStableObservation, error) {
-			return browserStableObservation{}, errors.New("renderer process exited")
-		},
-	}
-	_, err := adapter.waitForStableStateLocked(context.Background(), nil, map[string]any{
+	entry := settleSessionEntryFixture(1, func(context.Context, *agentBrowserSession) (browserStableObservation, error) {
+		return browserStableObservation{}, errors.New("renderer process exited")
+	})
+	_, err := entry.waitForStableStateLocked(context.Background(), map[string]any{
 		"session_generation": 1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "browser_renderer_unavailable") {
@@ -35,15 +39,12 @@ func TestBrowserStableStateReportsRendererFailure(t *testing.T) {
 }
 
 func TestBrowserStableStateTimesOutWithoutRequiredChange(t *testing.T) {
-	adapter := &AgentBrowserAdapter{
-		sessionGeneration: 1,
-		observeStableState: func(context.Context, *agentBrowserSession) (browserStableObservation, error) {
-			return browserStableObservation{
-				URL: "https://example.com/app", Title: "App", Digest: "unchanged",
-			}, nil
-		},
-	}
-	_, err := adapter.waitForStableStateLocked(context.Background(), nil, map[string]any{
+	entry := settleSessionEntryFixture(1, func(context.Context, *agentBrowserSession) (browserStableObservation, error) {
+		return browserStableObservation{
+			URL: "https://example.com/app", Title: "App", Digest: "unchanged",
+		}, nil
+	})
+	_, err := entry.waitForStableStateLocked(context.Background(), map[string]any{
 		"session_generation": 1,
 		"before_digest":      "unchanged",
 		"allow_no_change":    false,
@@ -59,8 +60,8 @@ func TestBrowserStableStateTimesOutWithoutRequiredChange(t *testing.T) {
 func TestBrowserStableStatePreservesCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	adapter := &AgentBrowserAdapter{sessionGeneration: 1}
-	_, err := adapter.waitForStableStateLocked(ctx, nil, map[string]any{
+	entry := settleSessionEntryFixture(1, nil)
+	_, err := entry.waitForStableStateLocked(ctx, map[string]any{
 		"session_generation": 1,
 	})
 	if !errors.Is(err, context.Canceled) {

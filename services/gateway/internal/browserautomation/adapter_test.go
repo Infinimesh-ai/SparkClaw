@@ -70,32 +70,32 @@ func TestAgentBrowserOpenReusesOnlySoleBlankPage(t *testing.T) {
 }
 
 func TestAgentBrowserObservedTabsAreClonedAndConsumedOnce(t *testing.T) {
-	adapter := &AgentBrowserAdapter{}
+	entry := &agentBrowserSessionEntry{}
 	pages := []any{map[string]any{"page_id": "page_1", "url": "about:blank", "selected": true}}
-	adapter.rememberObservedTabsLocked(pages)
+	entry.rememberObservedTabsLocked(pages)
 	mapValue(pages[0])["url"] = "https://unrelated.example/"
 
-	observed, ok := adapter.takeObservedTabsLocked()
+	observed, ok := entry.takeObservedTabsLocked()
 	if !ok || !canReuseAgentBrowserBlankPage(observed) {
 		t.Fatalf("verified blank-tab observation was not isolated from caller mutation: %#v", observed)
 	}
-	if second, ok := adapter.takeObservedTabsLocked(); ok || second != nil {
+	if second, ok := entry.takeObservedTabsLocked(); ok || second != nil {
 		t.Fatalf("tab observation was reusable more than once: %#v ok=%t", second, ok)
 	}
 }
 
 func TestFreshVisibleSessionOpensTargetBeforeTabDiscovery(t *testing.T) {
-	adapter := &AgentBrowserAdapter{freshSession: true, activePresentation: "visible"}
-	if !adapter.shouldOpenFreshVisibleSessionDirect(true) {
+	entry := &agentBrowserSessionEntry{freshSession: true, presentation: "visible"}
+	if !entry.shouldOpenFreshVisibleSessionDirect(true) {
 		t.Fatal("fresh visible browser.open should navigate directly to its target")
 	}
-	adapter.activePresentation = "hidden"
-	if adapter.shouldOpenFreshVisibleSessionDirect(true) {
+	entry.presentation = "hidden"
+	if entry.shouldOpenFreshVisibleSessionDirect(true) {
 		t.Fatal("hidden sessions must keep the existing automation path")
 	}
-	adapter.activePresentation = "visible"
-	adapter.freshSession = false
-	if adapter.shouldOpenFreshVisibleSessionDirect(true) {
+	entry.presentation = "visible"
+	entry.freshSession = false
+	if entry.shouldOpenFreshVisibleSessionDirect(true) {
 		t.Fatal("an established visible session must inspect existing tabs before opening another")
 	}
 }

@@ -13,15 +13,48 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
+// agentBrowserSessionCacheLimit bounds how many live sessions (each backed by
+// its own Chromium) the adapter keeps warm at once; the least recently used
+// entry is closed when the limit is exceeded.
+const agentBrowserSessionCacheLimit = 4
+
 type AgentBrowserAdapter struct {
-	cfg                config.Config
+	cfg config.Config
+	// mu guards the entry map, per-entry lastUsed stamps, and the command
+	// cache. It is never held while waiting on an entry's own lock, so map
+	// lookups and Health stay responsive while sessions run long calls.
 	mu                 sync.Mutex
-	session            *agentBrowserSession
-	activeProfile      string
-	activePresentation string
+	entries            map[agentBrowserSessionKey]*agentBrowserSessionEntry
 	commandPath        string
 	commandValidated   bool
 	namespace          string
+	nextGeneration     uint64
+	observeStableState func(context.Context, *agentBrowserSession) (browserStableObservation, error)
+}
+
+type agentBrowserSessionKey struct {
+	profile      string
+	presentation string
+}
+
+// agentBrowserSessionEntry owns one live agent-browser session together with
+// every piece of adapter state scoped to that session: the snapshot registry,
+// tab observations, and the generation reported to callers.
+type agentBrowserSessionEntry struct {
+	// mu serializes all browser calls against this session. Long operations
+	// (settle polling, page reads) hold only this lock, so one slow session
+	// never blocks Health or calls that target other profiles.
+	mu           sync.Mutex
+	adapter      *AgentBrowserAdapter
+	profile      string
+	presentation string
+	// session and generation are written while holding both mu and the
+	// adapter lock, so Health can read them under the adapter lock alone.
+	session    *agentBrowserSession
+	generation uint64
+	// lastUsed is guarded by the adapter lock.
+	lastUsed time.Time
+	// The remaining per-session state is guarded by mu.
 	snapshots          map[string]*agentBrowserSnapshotState
 	activeSnapshotPage string
 	nextSnapshotID     uint64
@@ -29,24 +62,30 @@ type AgentBrowserAdapter struct {
 	observedTabs       []any
 	observedTabsValid  bool
 	freshSession       bool
-	sessionGeneration  uint64
-	nextGeneration     uint64
-	observeStableState func(context.Context, *agentBrowserSession) (browserStableObservation, error)
+}
+
+func (e *agentBrowserSessionEntry) sessionKey() agentBrowserSessionKey {
+	return agentBrowserSessionKey{profile: e.profile, presentation: e.presentation}
 }
 
 func NewAdapter(cfg config.Config) Adapter {
 	return &AgentBrowserAdapter{
 		cfg:            cfg,
+		entries:        map[agentBrowserSessionKey]*agentBrowserSessionEntry{},
 		namespace:      newAgentBrowserNamespace(),
-		snapshots:      map[string]*agentBrowserSnapshotState{},
 		nextGeneration: uint64(time.Now().UTC().UnixMicro()),
 	}
 }
 
 func (a *AgentBrowserAdapter) Close() error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.resetSessionLocked()
+	entries := make([]*agentBrowserSessionEntry, 0, len(a.entries))
+	for key, entry := range a.entries {
+		entries = append(entries, entry)
+		delete(a.entries, key)
+	}
+	a.mu.Unlock()
+	closeSessionEntries(entries)
 	return nil
 }
 
@@ -64,7 +103,13 @@ func (a *AgentBrowserAdapter) Health(ctx context.Context, args map[string]any) (
 		}
 		a.commandPath = command
 	}
-	profileOwned := a.session != nil && a.session.alive() && a.activeProfile == profileKey
+	profileOwned := false
+	for key, entry := range a.entries {
+		if key.profile == profileKey && entry.session != nil && entry.session.alive() {
+			profileOwned = true
+			break
+		}
+	}
 	preflight := inspectBrowserEnvironment(
 		ctx,
 		adapterCfg,
@@ -97,20 +142,19 @@ func (a *AgentBrowserAdapter) Call(ctx context.Context, tool string, args map[st
 	hidden := shouldUseHiddenAutomationTool(tool, metadata, args)
 	profileKey := a.browserProfileKey(args)
 
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	session, err := a.ensureSessionLocked(ctx, hidden, profileKey)
+	entry, err := a.acquireSessionEntry(ctx, hidden, profileKey)
 	if err != nil {
 		return Result{}, err
 	}
-	rawTool, _, output, err := a.executeLocked(ctx, session, tool, args)
+	defer entry.mu.Unlock()
+	rawTool, _, output, err := entry.executeLocked(ctx, tool, args)
 	if err != nil {
 		return Result{}, err
 	}
 	if shouldAttachHiddenPageState(tool, hidden) {
-		output = a.withHiddenPageStateLocked(ctx, session, output)
+		output = entry.withHiddenPageStateLocked(ctx, output)
 	}
-	output = a.withSessionMetadataLocked(output, metadata, session)
+	output = entry.withSessionMetadataLocked(output, metadata)
 	result := Result{
 		Tool:               tool,
 		RawTool:            rawTool,
@@ -121,8 +165,8 @@ func (a *AgentBrowserAdapter) Call(ctx context.Context, tool string, args map[st
 		BrowserMode:        metadata.BrowserMode,
 		Presentation:       metadata.Presentation,
 		SurfaceVisible:     metadata.SurfaceVisible,
-		SessionGeneration:  a.sessionGeneration,
-		ProviderSessionRef: session.sessionName,
+		SessionGeneration:  entry.generation,
+		ProviderSessionRef: entry.session.sessionName,
 		Untrusted:          true,
 		Provider:           browserProviderName(hidden),
 		DurationMS:         time.Since(started).Milliseconds(),
@@ -136,46 +180,46 @@ func (a *AgentBrowserAdapter) Call(ctx context.Context, tool string, args map[st
 	return result, nil
 }
 
-func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentBrowserSession, tool string, args map[string]any) (string, map[string]any, any, error) {
+func (e *agentBrowserSessionEntry) executeLocked(ctx context.Context, tool string, args map[string]any) (string, map[string]any, any, error) {
 	if tool != "browser.list_tabs" && tool != "browser.open" {
-		a.clearObservedTabsLocked()
+		e.clearObservedTabsLocked()
 	}
 	switch tool {
 	case "browser.list_tabs":
-		if a.noOpenTabs {
-			a.rememberObservedTabsLocked(nil)
+		if e.noOpenTabs {
+			e.rememberObservedTabsLocked(nil)
 			return "agent_browser_tab_list", map[string]any{}, normalizedPagesOutput(nil), nil
 		}
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_list", nil)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_tab_list", nil)
 		if err != nil {
-			a.clearObservedTabsLocked()
+			e.clearObservedTabsLocked()
 			return "agent_browser_tab_list", map[string]any{}, nil, err
 		}
 		pages := normalizeAgentBrowserTabs(result.Data)
-		a.rememberObservedTabsLocked(pages)
+		e.rememberObservedTabsLocked(pages)
 		return "agent_browser_tab_list", map[string]any{}, normalizedPagesOutput(pages), nil
 	case "browser.open":
 		url := strings.TrimSpace(stringArg(args, "url"))
 		if url == "" {
 			return "", nil, nil, errors.New("browser.open requires url")
 		}
-		rawTool, rawArgs, knownPages, err := a.openURLLocked(ctx, session, url, true)
+		rawTool, rawArgs, knownPages, err := e.openURLLocked(ctx, url, true)
 		if err != nil {
 			return rawTool, rawArgs, nil, err
 		}
-		a.invalidateSnapshotsLocked()
-		a.noOpenTabs = false
+		e.invalidateSnapshotsLocked()
+		e.noOpenTabs = false
 		if knownPages != nil {
-			a.rememberObservedTabsLocked(knownPages)
+			e.rememberObservedTabsLocked(knownPages)
 			return rawTool, rawArgs, normalizedPagesOutput(knownPages), nil
 		}
-		tabs, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_list", nil)
+		tabs, err := e.callAgentToolLocked(ctx, "agent_browser_tab_list", nil)
 		if err != nil {
-			a.clearObservedTabsLocked()
+			e.clearObservedTabsLocked()
 			return rawTool, rawArgs, nil, err
 		}
 		pages := normalizeAgentBrowserTabs(tabs.Data)
-		a.rememberObservedTabsLocked(pages)
+		e.rememberObservedTabsLocked(pages)
 		return rawTool, rawArgs, normalizedPagesOutput(pages), nil
 	case "browser.focus":
 		tab, err := agentBrowserTabID(args)
@@ -183,9 +227,9 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 			return "", nil, nil, err
 		}
 		rawArgs := map[string]any{"tab": tab}
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_switch", rawArgs)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_tab_switch", rawArgs)
 		if err == nil {
-			a.invalidateSnapshotsLocked()
+			e.invalidateSnapshotsLocked()
 		}
 		output := agentBrowserOutput(result)
 		output["page_id"] = "page_" + strings.TrimPrefix(tab, "t")
@@ -197,7 +241,7 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 			return "", nil, nil, err
 		}
 		rawArgs := map[string]any{"tab": tab}
-		tabsBefore, listErr := a.callAgentToolLocked(ctx, session, "agent_browser_tab_list", nil)
+		tabsBefore, listErr := e.callAgentToolLocked(ctx, "agent_browser_tab_list", nil)
 		if listErr != nil {
 			return "agent_browser_tab_list", nil, nil, listErr
 		}
@@ -208,24 +252,24 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 			closeTool = "agent_browser_close"
 			closeArgs = map[string]any{}
 		}
-		_, err = a.callAgentToolLocked(ctx, session, closeTool, closeArgs)
+		_, err = e.callAgentToolLocked(ctx, closeTool, closeArgs)
 		if err != nil {
 			return closeTool, closeArgs, nil, err
 		}
-		a.invalidateSnapshotsLocked()
+		e.invalidateSnapshotsLocked()
 		if lastTab {
-			a.noOpenTabs = true
+			e.noOpenTabs = true
 			return closeTool, closeArgs, normalizedPagesOutput(nil), nil
 		}
-		tabs, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_list", nil)
+		tabs, err := e.callAgentToolLocked(ctx, "agent_browser_tab_list", nil)
 		if err != nil {
 			return closeTool, closeArgs, nil, err
 		}
 		pages := normalizeAgentBrowserTabs(tabs.Data)
-		a.rememberObservedTabsLocked(pages)
+		e.rememberObservedTabsLocked(pages)
 		return closeTool, closeArgs, normalizedPagesOutput(pages), nil
 	case "browser.navigate":
-		if err := a.selectRequestedTabLocked(ctx, session, args, true); err != nil {
+		if err := e.selectRequestedTabLocked(ctx, args, true); err != nil {
 			return "", nil, nil, err
 		}
 		url := strings.TrimSpace(stringArg(args, "url"))
@@ -233,21 +277,21 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 			return "", nil, nil, errors.New("browser.navigate requires url")
 		}
 		rawArgs := map[string]any{"url": url}
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_open", rawArgs)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_open", rawArgs)
 		if err == nil {
-			a.invalidateSnapshotsLocked()
-			a.noOpenTabs = false
+			e.invalidateSnapshotsLocked()
+			e.noOpenTabs = false
 		}
 		return "agent_browser_open", rawArgs, agentBrowserOutput(result), err
 	case "browser.snapshot":
-		if err := a.ensureSnapshotTargetLocked(ctx, session, args); err != nil {
+		if err := e.ensureSnapshotTargetLocked(ctx, args); err != nil {
 			return "", nil, nil, err
 		}
 		rawArgs := agentBrowserSnapshotRawArgs()
-		output, err := a.takeSnapshotLocked(ctx, session, args, rawArgs)
+		output, err := e.takeSnapshotLocked(ctx, args, rawArgs)
 		return "agent_browser_snapshot", rawArgs, output, err
 	case "browser.screenshot":
-		if err := a.selectRequestedTabLocked(ctx, session, args, false); err != nil {
+		if err := e.selectRequestedTabLocked(ctx, args, false); err != nil {
 			return "", nil, nil, err
 		}
 		rawArgs := map[string]any{}
@@ -257,51 +301,51 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 		if path := strings.TrimSpace(stringArg(args, "path")); path != "" {
 			rawArgs["path"] = path
 		}
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_screenshot", rawArgs)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_screenshot", rawArgs)
 		output := agentBrowserOutput(result)
 		if err == nil {
 			output["content"] = agentBrowserImageContent(result.Content)
 		}
 		return "agent_browser_screenshot", rawArgs, output, err
 	case "browser.wait":
-		if err := a.selectRequestedTabLocked(ctx, session, args, false); err != nil {
+		if err := e.selectRequestedTabLocked(ctx, args, false); err != nil {
 			return "", nil, nil, err
 		}
 		if strings.EqualFold(strings.TrimSpace(stringArg(args, "mode")), "stable_state") {
-			output, err := a.waitForStableStateLocked(ctx, session, args)
+			output, err := e.waitForStableStateLocked(ctx, args)
 			return "agent_browser_stable_state", browserResultArguments(args), output, err
 		}
 		if value := strings.TrimSpace(stringArg(args, "text")); value != "" {
 			rawArgs := map[string]any{"text": value}
-			result, err := a.callAgentToolLocked(ctx, session, "agent_browser_wait_for_text", rawArgs)
+			result, err := e.callAgentToolLocked(ctx, "agent_browser_wait_for_text", rawArgs)
 			return "agent_browser_wait_for_text", rawArgs, agentBrowserOutput(result), err
 		}
 		if duration := intArg(args, "ms", intArg(args, "duration_ms", 0)); duration > 0 {
 			rawArgs := map[string]any{"ms": duration}
-			result, err := a.callAgentToolLocked(ctx, session, "agent_browser_wait_ms", rawArgs)
+			result, err := e.callAgentToolLocked(ctx, "agent_browser_wait_ms", rawArgs)
 			return "agent_browser_wait_ms", rawArgs, agentBrowserOutput(result), err
 		}
 		rawArgs := map[string]any{"state": "domcontentloaded"}
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_wait_for_load", rawArgs)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_wait_for_load", rawArgs)
 		return "agent_browser_wait_for_load", rawArgs, agentBrowserOutput(result), err
 	case "browser.click":
-		pageID, _, descriptor, state, err := a.resolveSnapshotRefLocked(args)
+		pageID, _, descriptor, state, err := e.resolveSnapshotRefLocked(args)
 		if err != nil {
 			return "", nil, nil, err
 		}
-		rawRef, err := a.refreshSnapshotRefLocked(ctx, session, pageID, state, descriptor)
+		rawRef, err := e.refreshSnapshotRefLocked(ctx, pageID, state, descriptor)
 		if err != nil {
 			return "", nil, nil, err
 		}
 		rawArgs := map[string]any{"selector": rawRef}
-		beforeURL, _ := a.currentURLLocked(ctx, session)
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_click", rawArgs)
+		beforeURL, _ := e.currentURLLocked(ctx)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_click", rawArgs)
 		if err != nil {
 			return "agent_browser_click", rawArgs, nil, err
 		}
 		state.ActionTaken = true
-		a.activeSnapshotPage = ""
-		afterURL, _ := a.currentURLLocked(ctx, session)
+		e.activeSnapshotPage = ""
+		afterURL, _ := e.currentURLLocked(ctx)
 		output := agentBrowserOutput(result)
 		output["clicked"] = descriptor.ExternalRef
 		output["snapshot_id"] = state.SnapshotID
@@ -319,21 +363,21 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 			text = stringArg(args, "value")
 		}
 		if hasElementRef(args) {
-			pageID, _, descriptor, state, err := a.resolveSnapshotRefLocked(args)
+			pageID, _, descriptor, state, err := e.resolveSnapshotRefLocked(args)
 			if err != nil {
 				return "", nil, nil, err
 			}
-			rawRef, err := a.refreshSnapshotRefLocked(ctx, session, pageID, state, descriptor)
+			rawRef, err := e.refreshSnapshotRefLocked(ctx, pageID, state, descriptor)
 			if err != nil {
 				return "", nil, nil, err
 			}
 			rawArgs := map[string]any{"selector": rawRef, "text": text}
-			result, err := a.callAgentToolLocked(ctx, session, "agent_browser_fill", rawArgs)
+			result, err := e.callAgentToolLocked(ctx, "agent_browser_fill", rawArgs)
 			output := agentBrowserOutput(result)
 			output["filled"] = descriptor.ExternalRef
 			if err == nil {
 				state.ActionTaken = true
-				a.activeSnapshotPage = ""
+				e.activeSnapshotPage = ""
 				output["snapshot_id"] = state.SnapshotID
 			}
 			return "agent_browser_fill", rawArgs, output, err
@@ -342,14 +386,14 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 			return "", nil, nil, errors.New("browser.type requires a snapshot ref or a focused-input mode")
 		}
 		rawArgs := map[string]any{"selector": ":focus", "text": text}
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_type", rawArgs)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_type", rawArgs)
 		return "agent_browser_type", rawArgs, agentBrowserOutput(result), err
 	case "browser.select":
-		pageID, _, descriptor, state, err := a.resolveSnapshotRefLocked(args)
+		pageID, _, descriptor, state, err := e.resolveSnapshotRefLocked(args)
 		if err != nil {
 			return "", nil, nil, err
 		}
-		rawRef, err := a.refreshSnapshotRefLocked(ctx, session, pageID, state, descriptor)
+		rawRef, err := e.refreshSnapshotRefLocked(ctx, pageID, state, descriptor)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -358,12 +402,12 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 			return "", nil, nil, errors.New("browser.select requires value or values")
 		}
 		rawArgs := map[string]any{"selector": rawRef, "values": values}
-		result, err := a.callAgentToolLocked(ctx, session, "agent_browser_select", rawArgs)
+		result, err := e.callAgentToolLocked(ctx, "agent_browser_select", rawArgs)
 		output := agentBrowserOutput(result)
 		output["ref"] = descriptor.ExternalRef
 		if err == nil {
 			state.ActionTaken = true
-			a.activeSnapshotPage = ""
+			e.activeSnapshotPage = ""
 			output["snapshot_id"] = state.SnapshotID
 		}
 		return "agent_browser_select", rawArgs, output, err
@@ -372,80 +416,185 @@ func (a *AgentBrowserAdapter) executeLocked(ctx context.Context, session *agentB
 	}
 }
 
-func (a *AgentBrowserAdapter) ensureSessionLocked(ctx context.Context, hidden bool, profileKey string) (*agentBrowserSession, error) {
+// acquireSessionEntry returns a live session entry for the profile and
+// presentation with the entry's own lock held; the caller must release
+// entry.mu when the browser call completes. Sessions for other profiles stay
+// warm in the entry map, so alternating owners no longer tear Chromium down
+// on every call.
+func (a *AgentBrowserAdapter) acquireSessionEntry(ctx context.Context, hidden bool, profileKey string) (*agentBrowserSessionEntry, error) {
 	presentation := "visible"
 	if hidden {
 		presentation = "hidden"
 	}
-	if a.session != nil && a.session.alive() && a.activeProfile == profileKey && a.activePresentation == presentation {
-		return a.session, nil
+	entry, victims := a.resolveSessionEntry(agentBrowserSessionKey{profile: profileKey, presentation: presentation})
+	// Evicted entries must be fully closed before a launch: entries for the
+	// same profile hold the Chromium profile flock the new session needs.
+	closeSessionEntries(victims)
+	entry.mu.Lock()
+	if entry.session == nil || !entry.session.alive() {
+		if err := entry.initializeSessionLocked(ctx); err != nil {
+			entry.mu.Unlock()
+			return nil, err
+		}
 	}
-	preserveEmptyTabs := a.noOpenTabs && a.activeProfile == profileKey && a.activePresentation == presentation
-	a.resetSessionLocked()
-	a.noOpenTabs = preserveEmptyTabs
+	return entry, nil
+}
+
+// resolveSessionEntry finds or creates the entry for key and detaches every
+// entry that must not stay warm: same-profile entries with another
+// presentation (both presentations contend for one profile flock), entries
+// idle beyond their daemon idle bound, and the least recently used entries
+// beyond the cache limit. Detached entries are returned for the caller to
+// close outside the adapter lock.
+func (a *AgentBrowserAdapter) resolveSessionEntry(key agentBrowserSessionKey) (*agentBrowserSessionEntry, []*agentBrowserSessionEntry) {
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var victims []*agentBrowserSessionEntry
+	for other, entry := range a.entries {
+		if other == key {
+			continue
+		}
+		if other.profile == key.profile || now.Sub(entry.lastUsed) > a.sessionIdleBoundLocked(other) {
+			victims = append(victims, entry)
+			delete(a.entries, other)
+		}
+	}
+	entry := a.entries[key]
+	if entry == nil {
+		entry = &agentBrowserSessionEntry{
+			adapter:      a,
+			profile:      key.profile,
+			presentation: key.presentation,
+			snapshots:    map[string]*agentBrowserSnapshotState{},
+		}
+		a.entries[key] = entry
+	}
+	entry.lastUsed = now
+	for len(a.entries) > agentBrowserSessionCacheLimit {
+		var oldest *agentBrowserSessionEntry
+		var oldestKey agentBrowserSessionKey
+		for candidateKey, candidate := range a.entries {
+			if candidate == entry {
+				continue
+			}
+			if oldest == nil || candidate.lastUsed.Before(oldest.lastUsed) {
+				oldest, oldestKey = candidate, candidateKey
+			}
+		}
+		if oldest == nil {
+			break
+		}
+		victims = append(victims, oldest)
+		delete(a.entries, oldestKey)
+	}
+	return entry, victims
+}
+
+// sessionIdleBoundLocked mirrors the idle timeout the agent-browser daemon
+// itself applies, so the gateway-side session (and its profile lease) is
+// reaped on the same schedule as the browser it manages.
+func (a *AgentBrowserAdapter) sessionIdleBoundLocked(key agentBrowserSessionKey) time.Duration {
+	timeoutMS := a.cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS
+	if key.presentation == "visible" {
+		return time.Duration(visibleBrowserIdleTimeoutMS(timeoutMS)) * time.Millisecond
+	}
+	return time.Duration(adapterDaemonIdleTimeoutMS(timeoutMS)) * time.Millisecond
+}
+
+// initializeSessionLocked launches (or relaunches) the entry's agent-browser
+// session. Called with entry.mu held; briefly takes the adapter lock to
+// publish the session pointer and generation for lock-free-ish Health reads.
+func (e *agentBrowserSessionEntry) initializeSessionLocked(ctx context.Context) error {
+	a := e.adapter
+	a.mu.Lock()
 	adapterCfg := a.cfg.Adapters.BrowserAutomation
-	if a.commandPath == "" {
+	commandPath := a.commandPath
+	commandValidated := a.commandValidated
+	a.mu.Unlock()
+	if commandPath == "" {
 		command, err := resolveAgentBrowserCommand(adapterCfg.Command)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		a.commandPath = command
+		commandPath = command
 	}
-	if !a.commandValidated {
-		if err := validateAgentBrowserVersion(ctx, a.commandPath, adapterCfg.StartupTimeoutMS); err != nil {
-			return nil, err
+	if !commandValidated {
+		if err := validateAgentBrowserVersion(ctx, commandPath, adapterCfg.StartupTimeoutMS); err != nil {
+			return err
 		}
-		a.commandValidated = true
+	}
+	// A replaced session keeps its profile lease until closed, so shut the
+	// previous session down before launching against the same profile.
+	preserveEmptyTabs := false
+	if e.session != nil {
+		preserveEmptyTabs = e.noOpenTabs
+		e.session.close()
+		e.setSessionLocked(nil, e.generation)
 	}
 	startupCtx, cancel := context.WithTimeout(ctx, time.Duration(adapterStartupTimeoutMS(adapterCfg.StartupTimeoutMS))*time.Millisecond)
 	defer cancel()
-	session, err := newAgentBrowserSession(startupCtx, adapterCfg, a.commandPath, a.namespace, hidden, profileKey)
+	session, err := newAgentBrowserSession(startupCtx, adapterCfg, commandPath, a.namespace, e.presentation == "hidden", e.profile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := session.initialize(startupCtx); err != nil {
 		session.abort()
-		return nil, fmt.Errorf("start agent-browser MCP session: %w", err)
+		return fmt.Errorf("start agent-browser MCP session: %w", err)
 	}
-	a.session = session
-	a.activeProfile = profileKey
-	a.activePresentation = presentation
-	a.freshSession = true
+	e.snapshots = map[string]*agentBrowserSnapshotState{}
+	e.activeSnapshotPage = ""
+	e.observedTabs = nil
+	e.observedTabsValid = false
+	e.noOpenTabs = preserveEmptyTabs
+	e.freshSession = true
+	a.mu.Lock()
+	a.commandPath = commandPath
+	a.commandValidated = true
 	a.nextGeneration++
-	a.sessionGeneration = a.nextGeneration
-	return session, nil
+	generation := a.nextGeneration
+	a.mu.Unlock()
+	e.setSessionLocked(session, generation)
+	return nil
 }
 
-func (a *AgentBrowserAdapter) callAgentToolLocked(ctx context.Context, session *agentBrowserSession, name string, args map[string]any) (agentBrowserToolResult, error) {
-	result, err := session.callTool(ctx, name, args)
-	if a.session == session {
-		a.freshSession = false
+// setSessionLocked publishes the session pointer and generation under both
+// entry.mu (already held) and the adapter lock, keeping them readable from
+// Health without waiting on a busy entry.
+func (e *agentBrowserSessionEntry) setSessionLocked(session *agentBrowserSession, generation uint64) {
+	e.adapter.mu.Lock()
+	e.session = session
+	e.generation = generation
+	e.adapter.mu.Unlock()
+}
+
+// closeSessionEntry waits for any in-flight call against the entry to finish,
+// then shuts its session down. The entry must already be detached from the
+// entry map so no new caller can resolve it.
+func closeSessionEntry(e *agentBrowserSessionEntry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.session != nil {
+		e.session.close()
+		e.setSessionLocked(nil, e.generation)
 	}
+}
+
+func closeSessionEntries(entries []*agentBrowserSessionEntry) {
+	for _, entry := range entries {
+		closeSessionEntry(entry)
+	}
+}
+
+func (e *agentBrowserSessionEntry) callAgentToolLocked(ctx context.Context, name string, args map[string]any) (agentBrowserToolResult, error) {
+	result, err := e.session.callTool(ctx, name, args)
+	e.freshSession = false
 	if err != nil && !isAgentBrowserActionError(err) {
-		session.abort()
-		if a.session == session {
-			a.session = nil
-			a.activeProfile = ""
-			a.activePresentation = ""
-			a.invalidateSnapshotsLocked()
-			a.clearObservedTabsLocked()
-		}
+		e.session.abort()
+		e.invalidateSnapshotsLocked()
+		e.clearObservedTabsLocked()
 	}
 	return result, err
-}
-
-func (a *AgentBrowserAdapter) resetSessionLocked() {
-	if a.session != nil {
-		a.session.close()
-		a.session = nil
-	}
-	a.activeProfile = ""
-	a.activePresentation = ""
-	a.invalidateSnapshotsLocked()
-	a.noOpenTabs = false
-	a.freshSession = false
-	a.sessionGeneration = 0
-	a.clearObservedTabsLocked()
 }
 
 func (a *AgentBrowserAdapter) browserProfileKey(args map[string]any) string {
@@ -463,33 +612,33 @@ func (a *AgentBrowserAdapter) browserProfileKey(args map[string]any) string {
 	return ownerID + "\x00" + profileID
 }
 
-func (a *AgentBrowserAdapter) openURLLocked(ctx context.Context, session *agentBrowserSession, url string, reuseBlank bool) (string, map[string]any, []any, error) {
+func (e *agentBrowserSessionEntry) openURLLocked(ctx context.Context, url string, reuseBlank bool) (string, map[string]any, []any, error) {
 	if strings.TrimSpace(url) == "" {
 		return "", nil, nil, errors.New("browser URL is required")
 	}
-	if a.shouldOpenFreshVisibleSessionDirect(reuseBlank) {
+	if e.shouldOpenFreshVisibleSessionDirect(reuseBlank) {
 		args := map[string]any{"url": url}
-		_, err := a.callAgentToolLocked(ctx, session, "agent_browser_open", args)
+		_, err := e.callAgentToolLocked(ctx, "agent_browser_open", args)
 		if err == nil {
-			err = a.preserveFreshVisibleURLFragmentLocked(ctx, session, url)
+			err = e.preserveFreshVisibleURLFragmentLocked(ctx, url)
 		}
 		if err == nil {
-			a.noOpenTabs = false
+			e.noOpenTabs = false
 		}
 		return "agent_browser_open", args, nil, err
 	}
-	if a.noOpenTabs {
+	if e.noOpenTabs {
 		args := map[string]any{"url": url}
-		_, err := a.callAgentToolLocked(ctx, session, "agent_browser_open", args)
+		_, err := e.callAgentToolLocked(ctx, "agent_browser_open", args)
 		if err == nil {
-			a.noOpenTabs = false
+			e.noOpenTabs = false
 		}
 		return "agent_browser_open", args, nil, err
 	}
 	if reuseBlank {
-		pages, observed := a.takeObservedTabsLocked()
+		pages, observed := e.takeObservedTabsLocked()
 		if !observed {
-			tabs, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_list", nil)
+			tabs, err := e.callAgentToolLocked(ctx, "agent_browser_tab_list", nil)
 			if err != nil {
 				return "agent_browser_tab_list", nil, nil, err
 			}
@@ -497,7 +646,7 @@ func (a *AgentBrowserAdapter) openURLLocked(ctx context.Context, session *agentB
 		}
 		if canReuseAgentBrowserBlankPage(pages) {
 			args := map[string]any{"url": url}
-			_, err := a.callAgentToolLocked(ctx, session, "agent_browser_open", args)
+			_, err := e.callAgentToolLocked(ctx, "agent_browser_open", args)
 			if err != nil {
 				return "agent_browser_open", args, nil, err
 			}
@@ -510,26 +659,26 @@ func (a *AgentBrowserAdapter) openURLLocked(ctx context.Context, session *agentB
 		}
 	}
 	args := map[string]any{"url": url}
-	_, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_new", args)
+	_, err := e.callAgentToolLocked(ctx, "agent_browser_tab_new", args)
 	return "agent_browser_tab_new", args, nil, err
 }
 
-func (a *AgentBrowserAdapter) shouldOpenFreshVisibleSessionDirect(reuseBlank bool) bool {
-	return reuseBlank && a.freshSession && a.activePresentation == "visible"
+func (e *agentBrowserSessionEntry) shouldOpenFreshVisibleSessionDirect(reuseBlank bool) bool {
+	return reuseBlank && e.freshSession && e.presentation == "visible"
 }
 
-func (a *AgentBrowserAdapter) preserveFreshVisibleURLFragmentLocked(ctx context.Context, session *agentBrowserSession, targetURL string) error {
+func (e *agentBrowserSessionEntry) preserveFreshVisibleURLFragmentLocked(ctx context.Context, targetURL string) error {
 	target, err := url.Parse(strings.TrimSpace(targetURL))
 	if err != nil || target.Fragment == "" {
 		return nil
 	}
-	if _, err := a.waitForStableStateLocked(ctx, session, map[string]any{
+	if _, err := e.waitForStableStateLocked(ctx, map[string]any{
 		"expected_url":    browserURLOrigin(target),
 		"allow_no_change": true,
 	}); err != nil {
 		return err
 	}
-	currentURL, err := a.currentURLLocked(ctx, session)
+	currentURL, err := e.currentURLLocked(ctx)
 	if err != nil {
 		return err
 	}
@@ -537,7 +686,7 @@ func (a *AgentBrowserAdapter) preserveFreshVisibleURLFragmentLocked(ctx context.
 	if !ok {
 		return nil
 	}
-	_, err = a.callAgentToolLocked(ctx, session, "agent_browser_open", map[string]any{"url": reboundURL})
+	_, err = e.callAgentToolLocked(ctx, "agent_browser_open", map[string]any{"url": reboundURL})
 	return err
 }
 
@@ -576,23 +725,23 @@ func canReuseAgentBrowserBlankPage(pages []any) bool {
 	return len(pages) == 1 && isAboutBlank(firstStringValue(mapValue(pages[0]), "url"))
 }
 
-func (a *AgentBrowserAdapter) rememberObservedTabsLocked(pages []any) {
-	a.observedTabs = cloneAgentBrowserPages(pages)
-	a.observedTabsValid = true
+func (e *agentBrowserSessionEntry) rememberObservedTabsLocked(pages []any) {
+	e.observedTabs = cloneAgentBrowserPages(pages)
+	e.observedTabsValid = true
 }
 
-func (a *AgentBrowserAdapter) takeObservedTabsLocked() ([]any, bool) {
-	if !a.observedTabsValid {
+func (e *agentBrowserSessionEntry) takeObservedTabsLocked() ([]any, bool) {
+	if !e.observedTabsValid {
 		return nil, false
 	}
-	pages := a.observedTabs
-	a.clearObservedTabsLocked()
+	pages := e.observedTabs
+	e.clearObservedTabsLocked()
 	return pages, true
 }
 
-func (a *AgentBrowserAdapter) clearObservedTabsLocked() {
-	a.observedTabs = nil
-	a.observedTabsValid = false
+func (e *agentBrowserSessionEntry) clearObservedTabsLocked() {
+	e.observedTabs = nil
+	e.observedTabsValid = false
 }
 
 func cloneAgentBrowserPages(pages []any) []any {
@@ -603,7 +752,7 @@ func cloneAgentBrowserPages(pages []any) []any {
 	return cloned
 }
 
-func (a *AgentBrowserAdapter) selectRequestedTabLocked(ctx context.Context, session *agentBrowserSession, args map[string]any, invalidate bool) error {
+func (e *agentBrowserSessionEntry) selectRequestedTabLocked(ctx context.Context, args map[string]any, invalidate bool) error {
 	if strings.TrimSpace(stringArg(args, "page_id")) == "" {
 		return nil
 	}
@@ -611,38 +760,38 @@ func (a *AgentBrowserAdapter) selectRequestedTabLocked(ctx context.Context, sess
 	if err != nil {
 		return err
 	}
-	if _, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_switch", map[string]any{"tab": tab}); err != nil {
+	if _, err := e.callAgentToolLocked(ctx, "agent_browser_tab_switch", map[string]any{"tab": tab}); err != nil {
 		return err
 	}
 	if invalidate {
-		a.invalidateSnapshotsLocked()
+		e.invalidateSnapshotsLocked()
 	}
 	return nil
 }
 
-func (a *AgentBrowserAdapter) ensureSnapshotTargetLocked(ctx context.Context, session *agentBrowserSession, args map[string]any) error {
+func (e *agentBrowserSessionEntry) ensureSnapshotTargetLocked(ctx context.Context, args map[string]any) error {
 	if pageID := strings.TrimSpace(stringArg(args, "page_id")); pageID != "" {
-		return a.selectRequestedTabLocked(ctx, session, args, false)
+		return e.selectRequestedTabLocked(ctx, args, false)
 	}
 	if url := strings.TrimSpace(stringArg(args, "url")); url != "" {
-		_, _, _, err := a.openURLLocked(ctx, session, url, true)
+		_, _, _, err := e.openURLLocked(ctx, url, true)
 		if err == nil {
-			a.invalidateSnapshotsLocked()
+			e.invalidateSnapshotsLocked()
 		}
 		return err
 	}
 	return nil
 }
 
-func (a *AgentBrowserAdapter) ensureSnapshotPageActiveLocked(_ context.Context, _ *agentBrowserSession, pageID string) error {
-	if a.activeSnapshotPage != pageID {
+func (e *agentBrowserSessionEntry) ensureSnapshotPageActiveLocked(pageID string) error {
+	if e.activeSnapshotPage != pageID {
 		return fmt.Errorf("stale or inactive snapshot for %s; take a new browser.snapshot", pageID)
 	}
 	return nil
 }
 
-func (a *AgentBrowserAdapter) currentURLLocked(ctx context.Context, session *agentBrowserSession) (string, error) {
-	result, err := a.callAgentToolLocked(ctx, session, "agent_browser_get_url", nil)
+func (e *agentBrowserSessionEntry) currentURLLocked(ctx context.Context) (string, error) {
+	result, err := e.callAgentToolLocked(ctx, "agent_browser_get_url", nil)
 	if err != nil {
 		return "", err
 	}
@@ -650,8 +799,8 @@ func (a *AgentBrowserAdapter) currentURLLocked(ctx context.Context, session *age
 	return firstStringValue(data, "url", "value", "result"), nil
 }
 
-func (a *AgentBrowserAdapter) currentTitleLocked(ctx context.Context, session *agentBrowserSession) (string, error) {
-	result, err := a.callAgentToolLocked(ctx, session, "agent_browser_get_title", nil)
+func (e *agentBrowserSessionEntry) currentTitleLocked(ctx context.Context) (string, error) {
+	result, err := e.callAgentToolLocked(ctx, "agent_browser_get_title", nil)
 	if err != nil {
 		return "", err
 	}
@@ -659,8 +808,8 @@ func (a *AgentBrowserAdapter) currentTitleLocked(ctx context.Context, session *a
 	return firstStringValue(data, "title", "value", "result"), nil
 }
 
-func (a *AgentBrowserAdapter) currentPageIDLocked(ctx context.Context, session *agentBrowserSession) string {
-	result, err := a.callAgentToolLocked(ctx, session, "agent_browser_tab_list", nil)
+func (e *agentBrowserSessionEntry) currentPageIDLocked(ctx context.Context) string {
+	result, err := e.callAgentToolLocked(ctx, "agent_browser_tab_list", nil)
 	if err != nil {
 		return ""
 	}
@@ -677,15 +826,15 @@ func shouldAttachHiddenPageState(tool string, hidden bool) bool {
 	return hidden && tool != "browser.close" && tool != "browser.list_tabs"
 }
 
-func (a *AgentBrowserAdapter) withHiddenPageStateLocked(ctx context.Context, session *agentBrowserSession, output any) any {
+func (e *agentBrowserSessionEntry) withHiddenPageStateLocked(ctx context.Context, output any) any {
 	normalized := map[string]any{}
 	if current, ok := output.(map[string]any); ok {
 		normalized = cloneArgs(current)
 	} else {
 		normalized["raw_output"] = output
 	}
-	url, urlErr := a.currentURLLocked(ctx, session)
-	title, titleErr := a.currentTitleLocked(ctx, session)
+	url, urlErr := e.currentURLLocked(ctx)
+	title, titleErr := e.currentTitleLocked(ctx)
 	state := map[string]any{"url": url, "title": title}
 	if urlErr != nil {
 		state["url_error"] = urlErr.Error()
@@ -744,25 +893,25 @@ func normalizedPagesOutput(pages []any) map[string]any {
 	return map[string]any{"pages": pages, "text": strings.Join(lines, "\n")}
 }
 
-func (a *AgentBrowserAdapter) withSessionMetadataLocked(output any, metadata browserModeFields, session *agentBrowserSession) map[string]any {
+func (e *agentBrowserSessionEntry) withSessionMetadataLocked(output any, metadata browserModeFields) map[string]any {
 	normalized := map[string]any{}
 	if current, ok := output.(map[string]any); ok {
 		normalized = cloneArgs(current)
 	} else if output != nil {
 		normalized["raw_output"] = output
 	}
-	normalized["session_generation"] = a.sessionGeneration
-	normalized["provider_session_ref"] = session.sessionName
+	normalized["session_generation"] = e.generation
+	normalized["provider_session_ref"] = e.session.sessionName
 	normalized["presentation"] = metadata.Presentation
-	ownerID, profileID := splitBrowserProfileKey(a.activeProfile)
+	ownerID, profileID := splitBrowserProfileKey(e.profile)
 	normalized["owner_id"] = ownerID
 	normalized["profile_id"] = profileID
 	if pages, ok := normalized["pages"].([]any); ok {
 		annotated := make([]any, 0, len(pages))
 		for _, raw := range pages {
 			page := cloneArgs(mapValue(raw))
-			page["session_generation"] = a.sessionGeneration
-			page["provider_session_ref"] = session.sessionName
+			page["session_generation"] = e.generation
+			page["provider_session_ref"] = e.session.sessionName
 			page["presentation"] = metadata.Presentation
 			page["owner_id"] = ownerID
 			page["profile_id"] = profileID
@@ -772,8 +921,8 @@ func (a *AgentBrowserAdapter) withSessionMetadataLocked(output any, metadata bro
 	}
 	if snapshot := mapValue(normalized["snapshot"]); snapshot != nil {
 		snapshot = cloneArgs(snapshot)
-		snapshot["session_generation"] = a.sessionGeneration
-		snapshot["provider_session_ref"] = session.sessionName
+		snapshot["session_generation"] = e.generation
+		snapshot["provider_session_ref"] = e.session.sessionName
 		snapshot["presentation"] = metadata.Presentation
 		snapshot["owner_id"] = ownerID
 		snapshot["profile_id"] = profileID

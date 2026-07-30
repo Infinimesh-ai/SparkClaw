@@ -39,13 +39,13 @@ func TestAgentBrowserEnvironmentRequiresRealDisplayForVisibleSession(t *testing.
 		"AGENT_BROWSER_HEADED":          "true",
 		"AGENT_BROWSER_NO_XVFB":         "true",
 		"AGENT_BROWSER_EXECUTABLE_PATH": "/usr/bin/chromium",
+		// Visible sessions get a generous idle bound (6x the hidden one) so an
+		// abandoned visible Chromium does not survive until gateway exit.
+		"AGENT_BROWSER_IDLE_TIMEOUT_MS": "15000",
 	} {
 		if got := env[key]; got != want {
 			t.Fatalf("%s = %q, want %q", key, got, want)
 		}
-	}
-	if _, exists := env["AGENT_BROWSER_IDLE_TIMEOUT_MS"]; exists {
-		t.Fatal("visible sessions must remain open until the owner or runtime closes them")
 	}
 }
 
@@ -115,8 +115,8 @@ func TestPassiveHealthDoesNotStartBrowserSessionOrExposeEnvironmentPaths(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if adapter.session != nil || adapter.sessionGeneration != 0 {
-		t.Fatalf("passive health started a browser session: session=%#v generation=%d", adapter.session, adapter.sessionGeneration)
+	if len(adapter.entries) != 0 {
+		t.Fatalf("passive health started a browser session: entries=%#v", adapter.entries)
 	}
 	assertChromiumSingletonsPresent(t, profileDir)
 	if result.RawTool != "linux_environment_preflight" || result.ProviderSessionRef != "" || len(result.Pages) != 0 {

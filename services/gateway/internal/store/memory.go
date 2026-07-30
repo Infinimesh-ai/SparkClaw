@@ -1796,8 +1796,11 @@ func (s *MemoryStore) ListBrowserLoginBlocks(sessionID, status string) []app.Bro
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []app.BrowserLoginBlock{}
+	// Read path: return stored values verbatim. Normalization that stamps
+	// SchemaVersion/Version/UpdatedAt happens only on write (and once at
+	// snapshot load), otherwise reads would destroy migration evidence,
+	// degrade UpdatedAt ordering, and break CAS against the stored Version.
 	for _, block := range s.browserLoginBlocks {
-		block = normalizeBrowserLoginBlock(block, app.BrowserLoginBlock{})
 		if sessionID != "" && block.SessionID != sessionID {
 			continue
 		}
@@ -1807,7 +1810,10 @@ func (s *MemoryStore) ListBrowserLoginBlocks(sessionID, status string) []app.Bro
 		out = append(out, block)
 	}
 	slices.SortFunc(out, func(a, b app.BrowserLoginBlock) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
+		if c := b.UpdatedAt.Compare(a.UpdatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(b.ID, a.ID)
 	})
 	return out
 }
@@ -2311,9 +2317,21 @@ func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLogi
 	if block.Version <= 0 {
 		block.Version = 1
 	}
+	// Read paths no longer normalize, so the resume defaults formerly
+	// injected on read must be materialized here for legacy rows.
+	if strings.TrimSpace(block.ResumeTool) == "" {
+		block.ResumeTool = "browser.read"
+	}
+	if block.ResumeArgs == nil {
+		block.ResumeArgs = map[string]any{}
+	}
 	return block
 }
 
+// normalizeBrowserLoginBlock is a WRITE-path helper (Save/Update in every
+// backend): it stamps SchemaVersion, bumps Version past current, and sets
+// UpdatedAt to now. It must never run on read paths — see
+// migrateLegacyBrowserLoginBlock for the one-time snapshot-load fix-up.
 func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.BrowserLoginBlock) app.BrowserLoginBlock {
 	now := time.Now().UTC()
 	if block.SchemaVersion <= 0 {

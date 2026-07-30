@@ -160,7 +160,7 @@ func TestWeatherLookupMapsDedicatedTypedResponseWithoutCoordinates(t *testing.T)
 		t.Fatalf("weather lookup did not preserve the dedicated request contract: %#v", stub.request)
 	}
 	payload, ok := result.Output.(weatherPayload)
-	if !ok || payload.SchemaVersion != weatherPayloadSchemaVersion || payload.RequestID != "weather-request" ||
+	if !ok || payload.SchemaVersion != WeatherPayloadSchemaVersion || payload.RequestID != "weather-request" ||
 		payload.Location != "杭州市" || payload.Provider != "caiyun_weather" ||
 		payload.Current.TemperatureC == nil || *payload.Current.TemperatureC != 31.2 ||
 		len(payload.Hourly) != 1 || len(payload.Daily) != 1 || payload.SourceCount != 1 ||
@@ -234,7 +234,7 @@ func TestRenderWeatherCardRejectsIncompleteOrLegacyPayloadReferences(t *testing.
 	session := st.CreateSessionWithScope("weather invalid", app.DefaultOwnerID, t.TempDir(), "web", false)
 	st.SaveToolCall(app.ToolCall{
 		ID: "tc_incomplete", SessionID: session.ID, RunID: "run", Tool: "weather.lookup", Status: "completed",
-		Result: weatherPayload{Status: "completed", SchemaVersion: weatherPayloadSchemaVersion, RequestID: "request", Location: "杭州"},
+		Result: weatherPayload{Status: "completed", SchemaVersion: WeatherPayloadSchemaVersion, RequestID: "request", Location: "杭州"},
 	})
 	st.SaveToolCall(app.ToolCall{
 		ID: "tc_wrong_tool", SessionID: session.ID, RunID: "run", Tool: "web.search", Status: "completed",

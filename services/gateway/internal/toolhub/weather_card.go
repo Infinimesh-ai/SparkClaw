@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/opentype"
@@ -365,7 +366,7 @@ func upcomingHourlyForecast(hours []weatherForecastHour, updatedAt string, limit
 }
 
 func classifyConditionText(condition string) string {
-	return classifyWeatherKind(weatherCardData{Condition: condition})
+	return weatherConditionDisplayFor(condition).kind
 }
 
 func displayHourLabel(value string) string {
@@ -839,28 +840,44 @@ func displayTemperature(value string) string {
 	return value
 }
 
-func displayCondition(condition string) string {
-	condition = strings.TrimSpace(condition)
-	lower := strings.ToLower(condition)
-	switch {
-	case condition == "":
-		return "暂无数据"
-	case strings.Contains(condition, "晴") || strings.Contains(lower, "sunny") || strings.Contains(lower, "clear"):
-		if strings.Contains(condition, "云") || strings.Contains(lower, "cloud") {
-			return "晴转多云"
-		}
-		return "晴"
-	case strings.Contains(condition, "雨") || strings.Contains(lower, "rain") || strings.Contains(lower, "shower"):
-		return "有雨"
-	case strings.Contains(condition, "雪") || strings.Contains(lower, "snow"):
-		return "有雪"
-	case strings.Contains(condition, "阴") || strings.Contains(lower, "overcast"):
-		return "阴"
-	case strings.Contains(condition, "云") || strings.Contains(lower, "cloud"):
-		return "多云"
-	default:
-		return condition
+// weatherConditionDisplays maps every value of the closed contract condition
+// set to its Chinese card label and the icon/advice kind consumed by the
+// drawing and tip helpers. TestWeatherConditionDisplayCoversContract keeps it
+// exhaustive over infinimeshinfo.AllWeatherConditions.
+type weatherConditionDisplay struct {
+	label string
+	kind  string
+}
+
+var weatherConditionDisplays = map[infinimeshinfo.WeatherCondition]weatherConditionDisplay{
+	infinimeshinfo.WeatherConditionClear:        {label: "晴", kind: "clear"},
+	infinimeshinfo.WeatherConditionPartlyCloudy: {label: "多云", kind: "partly"},
+	infinimeshinfo.WeatherConditionCloudy:       {label: "阴", kind: "partly"},
+	infinimeshinfo.WeatherConditionHaze:         {label: "霾", kind: "partly"},
+	infinimeshinfo.WeatherConditionFog:          {label: "雾", kind: "partly"},
+	infinimeshinfo.WeatherConditionDust:         {label: "浮尘", kind: "partly"},
+	infinimeshinfo.WeatherConditionSand:         {label: "沙尘", kind: "partly"},
+	infinimeshinfo.WeatherConditionWind:         {label: "大风", kind: "partly"},
+	infinimeshinfo.WeatherConditionLightRain:    {label: "小雨", kind: "rain"},
+	infinimeshinfo.WeatherConditionModerateRain: {label: "中雨", kind: "rain"},
+	infinimeshinfo.WeatherConditionHeavyRain:    {label: "大雨", kind: "rain"},
+	infinimeshinfo.WeatherConditionStormRain:    {label: "暴雨", kind: "rain"},
+	infinimeshinfo.WeatherConditionLightSnow:    {label: "小雪", kind: "snow"},
+	infinimeshinfo.WeatherConditionModerateSnow: {label: "中雪", kind: "snow"},
+	infinimeshinfo.WeatherConditionHeavySnow:    {label: "大雪", kind: "snow"},
+	infinimeshinfo.WeatherConditionStormSnow:    {label: "暴雪", kind: "snow"},
+	infinimeshinfo.WeatherConditionUnknown:      {label: "暂无数据", kind: "unknown"},
+}
+
+func weatherConditionDisplayFor(condition string) weatherConditionDisplay {
+	if display, ok := weatherConditionDisplays[infinimeshinfo.WeatherCondition(strings.TrimSpace(condition))]; ok {
+		return display
 	}
+	return weatherConditionDisplays[infinimeshinfo.WeatherConditionUnknown]
+}
+
+func displayCondition(condition string) string {
+	return weatherConditionDisplayFor(condition).label
 }
 
 func displayUpdateTime(value string) string {
@@ -904,23 +921,7 @@ func mustWeatherCardLocation() *time.Location {
 }
 
 func classifyWeatherKind(data weatherCardData) string {
-	if strings.TrimSpace(data.Condition) == "" {
-		return "unknown"
-	}
-	text := strings.ToLower(data.Condition + " " + data.Precip + " " + data.Suggestion)
-	switch {
-	case strings.Contains(text, "snow") || strings.Contains(text, "雪"):
-		return "snow"
-	case strings.Contains(text, "rain") || strings.Contains(text, "shower") || strings.Contains(text, "雨"):
-		return "rain"
-	case strings.Contains(text, "clear") || strings.Contains(text, "sun") || strings.Contains(text, "晴"):
-		if strings.Contains(text, "cloud") || strings.Contains(text, "云") {
-			return "partly"
-		}
-		return "clear"
-	default:
-		return "partly"
-	}
+	return weatherConditionDisplayFor(data.Condition).kind
 }
 
 func weatherAlert(data weatherCardData, kind string) (string, string) {
@@ -1049,13 +1050,12 @@ func weatherSuggestion(data weatherCardData) string {
 	if data.MissingData {
 		return "部分实时天气数据暂缺，卡片仅显示 Info 返回的内容。"
 	}
-	text := strings.ToLower(data.Condition + " " + data.Precip)
-	switch {
-	case strings.Contains(text, "rain") || strings.Contains(text, "雨"):
+	switch classifyWeatherKind(data) {
+	case "rain":
 		return "有降雨可能，出门建议带伞并留意路面湿滑。"
-	case strings.Contains(text, "snow") || strings.Contains(text, "雪"):
+	case "snow":
 		return "有降雪可能，注意保暖和交通延误。"
-	case strings.Contains(text, "clear") || strings.Contains(text, "sun") || strings.Contains(text, "晴"):
+	case "clear":
 		return "天气较好，注意补水和防晒。"
 	default:
 		return "出门前再确认一次实时天气，按体感增减衣物。"

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 type workflowOutcomeAdapter func(app.ToolCall, app.WorkflowNodeID) app.ToolOutcome
@@ -38,7 +39,7 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 func adaptWeatherPayloadWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	output, ok := anyMap(call.Result)
-	if ok && toolCallCompleted(call) && intLikeValue(output["schema_version"]) == 3 &&
+	if ok && toolCallCompleted(call) && intLikeValue(output["schema_version"]) == toolhub.WeatherPayloadSchemaVersion &&
 		firstNonEmptyString(output["request_id"]) != "" &&
 		firstNonEmptyString(output["location"]) != "" {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalWeatherPayloadAvailable}

@@ -12,7 +12,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 )
 
-const weatherPayloadSchemaVersion = 3
+// WeatherPayloadSchemaVersion is the source of truth for the weather.lookup
+// payload schema version. The agent workflow adapter gates the card-render
+// stage on this exact value, so it must reference this constant.
+const WeatherPayloadSchemaVersion = 3
 
 type weatherPayload struct {
 	Status        string                `json:"status"`
@@ -93,8 +96,8 @@ func weatherLookupDefinition() app.ToolDefinition {
 				"timezone":       stringSchema(),
 				"retrieved_at":   stringSchema(),
 				"current":        current,
-				"hourly":         boundedArraySchema(hour, 1, 24),
-				"daily":          boundedArraySchema(day, 1, 7),
+				"hourly":         boundedArraySchema(hour, 1, infinimeshinfo.MaxHourlyForecastHours),
+				"daily":          boundedArraySchema(day, 1, infinimeshinfo.MaxDailyForecastDays),
 				"source_count":   integerSchema(),
 				"cache_hit":      booleanSchema(),
 				"untrusted":      booleanSchema(),
@@ -169,7 +172,7 @@ func weatherPayloadFromResponse(requestedLocation string, response infinimeshinf
 	current := response.Weather.Current
 	payload := weatherPayload{
 		Status:        "completed",
-		SchemaVersion: weatherPayloadSchemaVersion,
+		SchemaVersion: WeatherPayloadSchemaVersion,
 		RequestID:     response.RequestID,
 		Location:      strings.TrimSpace(response.Weather.Location.Name),
 		Provider:      strings.TrimSpace(response.Weather.Provider),
@@ -214,7 +217,7 @@ func weatherPayloadFromCall(call app.ToolCall) (weatherPayload, error) {
 	if err := decodeJSONValue(call.Result, &payload); err != nil {
 		return weatherPayload{}, errors.New("dedicated weather payload is invalid")
 	}
-	if payload.Status != "completed" || payload.SchemaVersion != weatherPayloadSchemaVersion ||
+	if payload.Status != "completed" || payload.SchemaVersion != WeatherPayloadSchemaVersion ||
 		strings.TrimSpace(payload.RequestID) == "" || strings.TrimSpace(payload.Location) == "" ||
 		strings.TrimSpace(payload.Provider) == "" || strings.TrimSpace(payload.RetrievedAt) == "" ||
 		payload.Current.TemperatureC == nil || strings.TrimSpace(payload.Current.Condition) == "" ||

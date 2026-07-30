@@ -5,6 +5,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 func TestWeatherRouteRecognizesGroundedLocations(t *testing.T) {
@@ -104,16 +105,16 @@ func TestWeatherTransitionInstructionOnlyRendersBoundTypedPayload(t *testing.T) 
 func TestWeatherPayloadOutcomeRequiresDedicatedTypedBoundary(t *testing.T) {
 	valid := adaptWeatherPayloadWorkflowOutcome(app.ToolCall{
 		ID: "tc_weather", Tool: "weather.lookup", Status: "completed",
-		Result: map[string]any{"schema_version": 3, "request_id": "request", "location": "杭州"},
+		Result: map[string]any{"schema_version": toolhub.WeatherPayloadSchemaVersion, "request_id": "request", "location": "杭州"},
 	}, "weather")
 	if !containsOutcomeSignal(valid.Signals, app.OutcomeSignalWeatherPayloadAvailable) ||
 		len(valid.Refs) != 1 || valid.Refs[0].Kind != "weather_payload" || valid.Refs[0].Ref != "tc_weather" {
 		t.Fatalf("dedicated weather payload did not advance the workflow: %#v", valid)
 	}
 	for _, result := range []map[string]any{
-		{"schema_version": 2, "request_id": "request", "location": "杭州"},
-		{"schema_version": 3, "location": "杭州"},
-		{"schema_version": 3, "request_id": "request"},
+		{"schema_version": toolhub.WeatherPayloadSchemaVersion - 1, "request_id": "request", "location": "杭州"},
+		{"schema_version": toolhub.WeatherPayloadSchemaVersion, "location": "杭州"},
+		{"schema_version": toolhub.WeatherPayloadSchemaVersion, "request_id": "request"},
 	} {
 		outcome := adaptWeatherPayloadWorkflowOutcome(app.ToolCall{
 			ID: "tc_invalid", Tool: "weather.lookup", Status: "completed", Result: result,

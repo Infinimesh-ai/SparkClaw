@@ -853,13 +853,9 @@ func parseGuardContent(content string) GuardResult {
 		result.Categories = categories
 		return result
 	}
-	lower := strings.ToLower(content)
-	for _, verdict := range []string{"allow", "review", "block"} {
-		if strings.Contains(lower, verdict) {
-			result.Verdict = verdict
-			break
-		}
-	}
+	// A reply that matches neither the JSON nor the native format stays at
+	// the "review" default. Never scan prose for verdict words: a reply like
+	// "unsafe, do not allow" must not weaken the verdict to allow.
 	return result
 }
 

@@ -415,6 +415,21 @@ func TestParseGuardContentSupportsQwen3GuardNativeOutput(t *testing.T) {
 			verdict:    "review",
 			categories: []string{"Politically Sensitive Topics"},
 		},
+		{
+			name:    "prose with verdict words must not weaken to allow",
+			content: "This content is unsafe, do not allow it.",
+			verdict: "review",
+		},
+		{
+			name:    "empty reply defaults to review",
+			content: "",
+			verdict: "review",
+		},
+		{
+			name:    "truncated non-verdict reply defaults to review",
+			content: "Analyzing the request for safety implications",
+			verdict: "review",
+		},
 	}
 
 	for _, tt := range tests {

@@ -199,6 +199,9 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.credentialSecrets = ensureMap(snapshot.CredentialSecrets)
 	s.browserAuthRecords = ensureMap(snapshot.BrowserAuthRecords)
 	s.browserLoginBlocks = ensureMap(snapshot.BrowserLoginBlocks)
+	for id, block := range s.browserLoginBlocks {
+		s.browserLoginBlocks[id] = migrateLegacyBrowserLoginBlock(block)
+	}
 	s.memories = ensureMap(snapshot.Memories)
 	s.memoryCandidates = ensureMap(snapshot.MemoryCandidates)
 	s.auditEvents = append([]app.AuditEvent(nil), snapshot.AuditEvents...)
@@ -1745,6 +1748,7 @@ func (s *MemoryStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAut
 func (s *MemoryStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	block.ID = strings.TrimSpace(block.ID)
 	block = normalizeBrowserLoginBlock(block, s.browserLoginBlocks[block.ID])
 	s.browserLoginBlocks[block.ID] = block
 	s.appendAuditLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
@@ -1780,7 +1784,7 @@ func (s *MemoryStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bo
 func (s *MemoryStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
 	blocks := s.ListBrowserLoginBlocks(sessionID, "")
 	for _, block := range blocks {
-		if browserLoginBlockActive(block.Status) {
+		if app.BrowserHandoffStatusActive(block.Status) {
 			return block, true
 		}
 	}
@@ -1793,8 +1797,11 @@ func (s *MemoryStore) ListBrowserLoginBlocks(sessionID, status string) []app.Bro
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []app.BrowserLoginBlock{}
+	// Read path: return stored values verbatim. Normalization that stamps
+	// SchemaVersion/Version/UpdatedAt happens only on write (and once at
+	// snapshot load), otherwise reads would destroy migration evidence,
+	// degrade UpdatedAt ordering, and break CAS against the stored Version.
 	for _, block := range s.browserLoginBlocks {
-		block = normalizeBrowserLoginBlock(block, app.BrowserLoginBlock{})
 		if sessionID != "" && block.SessionID != sessionID {
 			continue
 		}
@@ -1804,7 +1811,10 @@ func (s *MemoryStore) ListBrowserLoginBlocks(sessionID, status string) []app.Bro
 		out = append(out, block)
 	}
 	slices.SortFunc(out, func(a, b app.BrowserLoginBlock) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
+		if c := b.UpdatedAt.Compare(a.UpdatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(b.ID, a.ID)
 	})
 	return out
 }
@@ -2283,6 +2293,46 @@ func normalizeBrowserAuthRecord(record app.BrowserAuthRecord, current app.Browse
 	return record
 }
 
+// Legacy schema-v1 browser login block status strings, kept only so
+// previously persisted snapshots can be migrated at load time.
+const (
+	legacyBrowserHandoffStatusWaiting  = "waiting"
+	legacyBrowserHandoffStatusResuming = "resuming"
+)
+
+// migrateLegacyBrowserLoginBlock upgrades a schema-v1 block persisted by an
+// older build to the v2 shape. It runs once at snapshot load — never on read
+// paths — and deliberately leaves CreatedAt/UpdatedAt untouched so stored
+// ordering and migration evidence survive. The postgres schema performs the
+// same status mapping in SQL; keep the two in sync.
+func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+	switch strings.TrimSpace(block.Status) {
+	case legacyBrowserHandoffStatusWaiting:
+		block.Status = app.BrowserHandoffStatusWaitingOwner
+	case legacyBrowserHandoffStatusResuming:
+		block.Status = app.BrowserHandoffStatusValidatingVisible
+	}
+	if block.SchemaVersion <= 0 {
+		block.SchemaVersion = app.BrowserHandoffSchemaVersion
+	}
+	if block.Version <= 0 {
+		block.Version = 1
+	}
+	// Read paths no longer normalize, so the resume defaults formerly
+	// injected on read must be materialized here for legacy rows.
+	if strings.TrimSpace(block.ResumeTool) == "" {
+		block.ResumeTool = "browser.read"
+	}
+	if block.ResumeArgs == nil {
+		block.ResumeArgs = map[string]any{}
+	}
+	return block
+}
+
+// normalizeBrowserLoginBlock is a WRITE-path helper (Save/Update in every
+// backend): it stamps SchemaVersion, bumps Version past current, and sets
+// UpdatedAt to now. It must never run on read paths — see
+// migrateLegacyBrowserLoginBlock for the one-time snapshot-load fix-up.
 func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.BrowserLoginBlock) app.BrowserLoginBlock {
 	now := time.Now().UTC()
 	if block.SchemaVersion <= 0 {
@@ -2321,10 +2371,11 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 	block.BrowserAuthStatus = strings.TrimSpace(block.BrowserAuthStatus)
 	block.LastUserReply = strings.TrimSpace(block.LastUserReply)
 	block.LastError = strings.TrimSpace(block.LastError)
-	if block.Status == app.BrowserHandoffStatusWaitingOwner || !browserLoginBlockActive(block.Status) {
+	if block.Status == app.BrowserHandoffStatusWaitingOwner || !app.BrowserHandoffStatusActive(block.Status) {
 		block.TransitionOwnerID = ""
 		block.TransitionLeaseUntil = nil
 	}
+	block.ID = strings.TrimSpace(block.ID)
 	if block.ID == "" {
 		block.ID = app.NewID("blogin")
 	}
@@ -2334,25 +2385,11 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 	if block.CreatedAt.IsZero() {
 		block.CreatedAt = now
 	}
-	if !browserLoginBlockActive(block.Status) && block.ResolvedAt == nil {
+	if !app.BrowserHandoffStatusActive(block.Status) && block.ResolvedAt == nil {
 		block.ResolvedAt = current.ResolvedAt
 	}
 	block.UpdatedAt = now
 	return block
-}
-
-func browserLoginBlockActive(status string) bool {
-	switch strings.TrimSpace(status) {
-	case app.BrowserHandoffStatusWaitingOwner,
-		app.BrowserHandoffStatusReopeningVisible,
-		app.BrowserHandoffStatusValidatingVisible,
-		app.BrowserHandoffStatusTransferring,
-		app.BrowserHandoffStatusValidatingHidden,
-		app.BrowserHandoffStatusResumingWorkflow:
-		return true
-	default:
-		return false
-	}
 }
 
 func normalizeBrowserAuthLookup(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (string, string, string, string, string) {

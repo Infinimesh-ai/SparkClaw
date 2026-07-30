@@ -384,12 +384,8 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	}
 	run, ok := r.store.GetRun(block.RunID)
 	if !ok || run.SessionID != sessionID {
-		block.Status = app.BrowserLoginBlockStatusFailed
-		block.LastUserReply = userReply
-		block.LastError = "original run for browser login block was not found"
-		now := time.Now().UTC()
-		block.ResolvedAt = &now
-		_, _ = r.store.UpdateBrowserLoginBlock(block, block.Version)
+		r.finishBrowserLoginBlockTerminal(block, app.BrowserLoginBlockStatusFailed,
+			"original run for browser login block was not found", userReply)
 		return Result{}, false, nil
 	}
 	if run.Workflow != nil && run.Workflow.Browser != nil &&
@@ -740,10 +736,10 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		return result, true, transitionErr
 	}
 
-	now := time.Now().UTC()
-	block.Status = app.BrowserHandoffStatusResolved
-	block.ResolvedAt = &now
-	_, _ = r.store.UpdateBrowserLoginBlock(block, block.Version)
+	// The retired-legacy run completion below is the user-visible outcome; the
+	// block must still leave the active set or it would hijack every later
+	// message in this session into the resume flow.
+	r.finishBrowserLoginBlockTerminal(block, app.BrowserHandoffStatusResolved, "", "")
 	return r.completeRetiredLegacyRun(ctx, run, goal, "workflow.legacy_login_resume_retired",
 		"Resolved a browser login block for a run without a persisted workflow plan"), true, nil
 }
@@ -1051,11 +1047,11 @@ func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.
 		return result, nil
 	}
 	if result.Run.State != "completed" || result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
-		current.Status = app.BrowserHandoffStatusFailed
-		current.LastError = "browser_login_hidden_validation_failed"
-		now := time.Now().UTC()
-		current.ResolvedAt = &now
-		_, _ = r.store.UpdateBrowserLoginBlock(current, current.Version)
+		// The run result already reports the failure to the user; the block
+		// still has to be marked failed or it would stay active and keep
+		// capturing this session's messages.
+		r.finishBrowserLoginBlockTerminal(current, app.BrowserHandoffStatusFailed,
+			"browser_login_hidden_validation_failed", "")
 		return result, nil
 	}
 	current.Status = app.BrowserHandoffStatusResumingWorkflow
@@ -1100,6 +1096,43 @@ func (r Runtime) resolveBrowserHandoffResult(result Result, block app.BrowserLog
 		Fields: browserLoginBlockRuntimeFields(block, nil),
 	})
 	return result, nil
+}
+
+// finishBrowserLoginBlockTerminal persists a terminal (resolved/canceled/
+// failed) transition for a block whose run outcome is already decided, so the
+// caller has no user-facing channel left for a CAS error. On conflict it
+// retries once against a freshly read copy — unless another writer already
+// made the block terminal — and audits an update that still cannot be
+// persisted, so a silently-still-active block never goes unnoticed.
+func (r Runtime) finishBrowserLoginBlockTerminal(block app.BrowserLoginBlock, status, lastError, lastUserReply string) {
+	now := time.Now().UTC()
+	apply := func(target app.BrowserLoginBlock) app.BrowserLoginBlock {
+		target.Status = status
+		target.LastError = lastError
+		if lastUserReply != "" {
+			target.LastUserReply = lastUserReply
+		}
+		target.ResolvedAt = &now
+		return target
+	}
+	_, err := r.store.UpdateBrowserLoginBlock(apply(block), block.Version)
+	if errors.Is(err, store.ErrBrowserHandoffConflict) {
+		current, ok := r.store.GetBrowserLoginBlock(block.ID)
+		if ok && !app.BrowserHandoffStatusActive(current.Status) {
+			return
+		}
+		if ok {
+			_, err = r.store.UpdateBrowserLoginBlock(apply(current), current.Version)
+		}
+	}
+	if err != nil {
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: block.SessionID, RunID: block.RunID, Actor: "runtime",
+			Type:    "browser_login_block.terminal_update_failed",
+			Summary: err.Error(),
+			Fields:  browserLoginBlockRuntimeFields(block, map[string]any{"target_status": status}),
+		})
+	}
 }
 
 func beginBrowserHandoffTransition(block *app.BrowserLoginBlock, runtimeID string) {

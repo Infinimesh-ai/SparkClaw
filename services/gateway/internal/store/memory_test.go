@@ -309,6 +309,145 @@ func TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t *testing.T) {
+	statuses := append(app.BrowserHandoffActiveStatuses(),
+		app.BrowserHandoffStatusResolved,
+		app.BrowserHandoffStatusCanceled,
+		app.BrowserHandoffStatusFailed,
+	)
+	for _, status := range statuses {
+		st := NewMemoryStore()
+		session := st.CreateSession("active predicate " + status)
+		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+		st.SaveRun(run)
+		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+			SessionID: session.ID, RunID: run.ID, Status: status, SiteOrigin: "https://example.com",
+		})
+		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		if want := app.BrowserHandoffStatusActive(status); ok != want {
+			t.Fatalf("status %q: FindActiveBrowserLoginBlock ok=%v, shared predicate active=%v", status, ok, want)
+		} else if ok && found.ID != block.ID {
+			t.Fatalf("status %q: FindActiveBrowserLoginBlock returned %q, want %q", status, found.ID, block.ID)
+		}
+	}
+}
+
+func TestMemoryStoreBrowserLoginBlockReadsDoNotMutateStoredState(t *testing.T) {
+	st := NewMemoryStore()
+	session := st.CreateSession("read stability")
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID: session.ID, RunID: run.ID, SiteOrigin: "https://example.com",
+	})
+	time.Sleep(2 * time.Millisecond)
+	for i := 0; i < 3; i++ {
+		listed := st.ListBrowserLoginBlocks(session.ID, "")
+		if len(listed) != 1 || listed[0].Version != saved.Version ||
+			listed[0].SchemaVersion != saved.SchemaVersion || !listed[0].UpdatedAt.Equal(saved.UpdatedAt) {
+			t.Fatalf("list read did not return stored values: %#v want %#v", listed, saved)
+		}
+		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		if !ok || found.Version != saved.Version || !found.UpdatedAt.Equal(saved.UpdatedAt) {
+			t.Fatalf("find-active read did not return stored values: %#v ok=%v want %#v", found, ok, saved)
+		}
+	}
+	found, _ := st.FindActiveBrowserLoginBlock(session.ID)
+	update := found
+	update.Status = app.BrowserHandoffStatusValidatingVisible
+	if _, err := st.UpdateBrowserLoginBlock(update, found.Version); err != nil {
+		t.Fatalf("version observed on a read path failed CAS: %v", err)
+	}
+}
+
+func TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate(t *testing.T) {
+	base := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+	st := NewMemoryStore()
+	st.loadSnapshot(Snapshot{
+		BrowserLoginBlocks: map[string]app.BrowserLoginBlock{
+			"blogin-old": {
+				ID: "blogin-old", SessionID: "s1", RunID: "r1", Version: 2,
+				SchemaVersion: app.BrowserHandoffSchemaVersion,
+				Status:        app.BrowserHandoffStatusWaitingOwner,
+				CreatedAt:     base, UpdatedAt: base.Add(time.Minute),
+			},
+			"blogin-new": {
+				ID: "blogin-new", SessionID: "s1", RunID: "r2", Version: 4,
+				SchemaVersion: app.BrowserHandoffSchemaVersion,
+				Status:        app.BrowserHandoffStatusValidatingVisible,
+				CreatedAt:     base, UpdatedAt: base.Add(2 * time.Minute),
+			},
+			"blogin-resolved": {
+				ID: "blogin-resolved", SessionID: "s1", RunID: "r3", Version: 9,
+				SchemaVersion: app.BrowserHandoffSchemaVersion,
+				Status:        app.BrowserHandoffStatusResolved,
+				CreatedAt:     base, UpdatedAt: base.Add(3 * time.Minute),
+			},
+			"blogin-tie-a": {
+				ID: "blogin-tie-a", SessionID: "s2", RunID: "r4", Version: 1,
+				SchemaVersion: app.BrowserHandoffSchemaVersion,
+				Status:        app.BrowserHandoffStatusWaitingOwner,
+				CreatedAt:     base, UpdatedAt: base,
+			},
+			"blogin-tie-b": {
+				ID: "blogin-tie-b", SessionID: "s2", RunID: "r5", Version: 1,
+				SchemaVersion: app.BrowserHandoffSchemaVersion,
+				Status:        app.BrowserHandoffStatusWaitingOwner,
+				CreatedAt:     base, UpdatedAt: base,
+			},
+		},
+	})
+	for i := 0; i < 5; i++ {
+		active, ok := st.FindActiveBrowserLoginBlock("s1")
+		if !ok || active.ID != "blogin-new" || active.Version != 4 ||
+			!active.UpdatedAt.Equal(base.Add(2*time.Minute)) {
+			t.Fatalf("find-active did not pick newest stored active block: %#v ok=%v", active, ok)
+		}
+		tie, ok := st.FindActiveBrowserLoginBlock("s2")
+		if !ok || tie.ID != "blogin-tie-b" {
+			t.Fatalf("find-active tie-break is not deterministic: %#v ok=%v", tie, ok)
+		}
+	}
+}
+
+func TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite(t *testing.T) {
+	st := NewMemoryStore()
+	session := st.CreateSession("trim id")
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		ID: "  blogin-trim  ", SessionID: session.ID, RunID: run.ID, SiteOrigin: "https://example.com",
+	})
+	if saved.ID != "blogin-trim" {
+		t.Fatalf("save did not trim block ID: %q", saved.ID)
+	}
+	if _, ok := st.GetBrowserLoginBlock("blogin-trim"); !ok {
+		t.Fatal("block is not stored under the trimmed ID")
+	}
+	resaved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		ID: " blogin-trim ", SessionID: session.ID, RunID: run.ID,
+		Status: app.BrowserHandoffStatusValidatingVisible, SiteOrigin: "https://example.com",
+	})
+	if resaved.Version != saved.Version+1 {
+		t.Fatalf("padded-ID save forked a new record instead of updating: %#v", resaved)
+	}
+	if blocks := st.ListBrowserLoginBlocks(session.ID, ""); len(blocks) != 1 {
+		t.Fatalf("padded-ID writes produced duplicate records: %#v", blocks)
+	}
+	update := resaved
+	update.ID = "  blogin-trim "
+	update.Status = app.BrowserHandoffStatusTransferring
+	updated, err := st.UpdateBrowserLoginBlock(update, resaved.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := st.GetBrowserLoginBlock("blogin-trim")
+	if !ok || updated.ID != "blogin-trim" || current.Version != updated.Version ||
+		current.Status != app.BrowserHandoffStatusTransferring {
+		t.Fatalf("padded-ID CAS update wrote back under the wrong key: %#v ok=%v", current, ok)
+	}
+}
+
 func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	st := NewMemoryStore()
 	session := st.CreateSession("delete blocked browser session")

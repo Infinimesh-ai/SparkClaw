@@ -546,6 +546,12 @@ ALTER TABLE browser_login_blocks
 ALTER TABLE browser_login_blocks
   ADD COLUMN IF NOT EXISTS transition_lease_until TIMESTAMPTZ;
 
+UPDATE browser_login_blocks SET status = 'waiting_owner', schema_version = 2
+  WHERE status = 'waiting';
+UPDATE browser_login_blocks SET status = 'validating_visible', schema_version = 2
+  WHERE status = 'resuming';
+UPDATE browser_login_blocks SET version = 1 WHERE version <= 0;
+
 CREATE INDEX IF NOT EXISTS browser_login_blocks_active_idx
   ON browser_login_blocks(session_id, status, updated_at DESC);
 
@@ -2660,10 +2666,10 @@ func (s *PostgresStore) FindActiveBrowserLoginBlock(sessionID string) (app.Brows
 			site_realm, account_hint, browser_auth_status, target, visible_evidence, last_user_reply, last_error,
 			transition_owner_id, transition_lease_until, created_at, updated_at, resolved_at
 		FROM browser_login_blocks
-		WHERE session_id = $1 AND status NOT IN ($2, $3, $4)
-		ORDER BY updated_at DESC
+		WHERE session_id = $1 AND status = ANY($2)
+		ORDER BY updated_at DESC, id DESC
 		LIMIT 1
-	`, strings.TrimSpace(sessionID), app.BrowserHandoffStatusResolved, app.BrowserHandoffStatusCanceled, app.BrowserHandoffStatusFailed)
+	`, strings.TrimSpace(sessionID), app.BrowserHandoffActiveStatuses())
 	block, err := scanBrowserLoginBlock(row)
 	return block, err == nil
 }
@@ -2678,7 +2684,7 @@ func (s *PostgresStore) ListBrowserLoginBlocks(sessionID, status string) []app.B
 			transition_owner_id, transition_lease_until, created_at, updated_at, resolved_at
 		FROM browser_login_blocks
 		WHERE ($1 = '' OR session_id = $1) AND ($2 = '' OR status = $2)
-		ORDER BY updated_at DESC
+		ORDER BY updated_at DESC, id DESC
 	`, strings.TrimSpace(sessionID), strings.TrimSpace(status))
 	if err != nil {
 		return []app.BrowserLoginBlock{}

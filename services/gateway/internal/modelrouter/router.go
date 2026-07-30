@@ -826,10 +826,18 @@ func modelID(profile config.ModelProfile) string {
 	return profile.Name
 }
 
+// GuardVerdictUnknown marks a guard reply that produced no recognizable
+// verdict (unparseable, empty, or truncated). It is deliberately distinct
+// from "review": review is an explicit model verdict and stops the run,
+// while unknown is a classifier infrastructure failure and must not brick
+// the gateway — the caller audits it and lets the run proceed, matching the
+// fail-open posture of the transport-failure fallback.
+const GuardVerdictUnknown = "unknown"
+
 func parseGuardContent(content string) GuardResult {
 	content = strings.TrimSpace(content)
 	result := GuardResult{
-		Verdict: "review",
+		Verdict: GuardVerdictUnknown,
 		Reason:  content,
 	}
 	var decoded struct {
@@ -854,8 +862,8 @@ func parseGuardContent(content string) GuardResult {
 		return result
 	}
 	// A reply that matches neither the JSON nor the native format stays at
-	// the "review" default. Never scan prose for verdict words: a reply like
-	// "unsafe, do not allow" must not weaken the verdict to allow.
+	// the "unknown" default. Never scan prose for verdict words: a reply
+	// like "unsafe, do not allow" must not weaken the verdict to allow.
 	return result
 }
 

@@ -164,6 +164,9 @@ func TestGuardReviewFailsClosed(t *testing.T) {
 		"review": true,
 		"block":  true,
 		"":       false,
+		// Unknown is a classifier infrastructure failure, not a verdict:
+		// it is audited but must not brick the gateway.
+		modelrouter.GuardVerdictUnknown: false,
 	}
 	for verdict, want := range tests {
 		if got := guardStopsRun(verdict); got != want {

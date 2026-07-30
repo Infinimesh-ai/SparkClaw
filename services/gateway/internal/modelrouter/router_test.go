@@ -418,17 +418,22 @@ func TestParseGuardContentSupportsQwen3GuardNativeOutput(t *testing.T) {
 		{
 			name:    "prose with verdict words must not weaken to allow",
 			content: "This content is unsafe, do not allow it.",
-			verdict: "review",
+			verdict: GuardVerdictUnknown,
 		},
 		{
-			name:    "empty reply defaults to review",
+			name:    "empty reply yields unknown",
 			content: "",
-			verdict: "review",
+			verdict: GuardVerdictUnknown,
 		},
 		{
-			name:    "truncated non-verdict reply defaults to review",
+			name:    "truncated non-verdict reply yields unknown",
 			content: "Analyzing the request for safety implications",
-			verdict: "review",
+			verdict: GuardVerdictUnknown,
+		},
+		{
+			name:    "parsed JSON with unrecognized verdict yields unknown",
+			content: `{"verdict":"maybe"}`,
+			verdict: GuardVerdictUnknown,
 		},
 	}
 

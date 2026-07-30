@@ -724,12 +724,21 @@ func (r Runtime) classifyWithGuard(ctx context.Context, sessionID, runID, conten
 	if guard.Verdict == "allow" {
 		return guard, nil
 	}
+	auditType := "guard.reviewed"
+	summary := "Guard classified content as " + guard.Verdict
+	if guard.Verdict == modelrouter.GuardVerdictUnknown {
+		// Classifier infrastructure failure, not a verdict: the run is
+		// allowed to proceed (guardStopsRun ignores unknown) but the
+		// unparsed reply must be visible in the audit trail.
+		auditType = "guard.verdict_unknown"
+		summary = "Guard reply produced no recognizable verdict; run proceeds"
+	}
 	r.store.AddAudit(app.AuditEvent{
 		SessionID: sessionID,
 		RunID:     runID,
 		Actor:     "guard",
-		Type:      "guard.reviewed",
-		Summary:   "Guard classified content as " + guard.Verdict,
+		Type:      auditType,
+		Summary:   summary,
 		Fields: map[string]any{
 			"verdict":    guard.Verdict,
 			"categories": guard.Categories,

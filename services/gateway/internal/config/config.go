@@ -672,7 +672,10 @@ func Default() Config {
 		Model: ModelConfig{
 			Mock:               false,
 			HTTPTimeoutSeconds: 300,
-			DisableThinking:    false,
+			// Matches configs/sparkclaw.default.json: the local model
+			// lanes run without thinking so bounded max_tokens (e.g. the
+			// guard lane's 128) are spent on the answer, not reasoning.
+			DisableThinking:    true,
 			Fast: ModelProfile{
 				Name:          "sparkclaw-fast",
 				BaseURL:       "http://127.0.0.1:8001/v1",

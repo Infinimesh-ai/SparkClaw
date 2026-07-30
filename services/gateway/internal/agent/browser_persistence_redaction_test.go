@@ -47,8 +47,10 @@ func TestBrowserPersistenceKeepsOnlyFrozenOwnerQuery(t *testing.T) {
 		QueryProvenance: app.BrowserQueryOwnerSupplied,
 		CanonicalURL:    "https://example.com/report?owner_filter=active",
 	}
+	// "#summary" is not a route-shaped fragment, so the persisted projection
+	// drops it along with the provider-volatile query part.
 	got := browserSafePersistenceURL(target, "https://example.com/report?owner_filter=active&sid=provider#summary")
-	if got != "https://example.com/report?owner_filter=active#summary" {
+	if got != "https://example.com/report?owner_filter=active" {
 		t.Fatalf("owner query persistence projection = %q", got)
 	}
 }

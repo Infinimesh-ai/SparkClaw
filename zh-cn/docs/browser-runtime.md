@@ -99,7 +99,8 @@ snapshot 和 interaction。最终呈现是同一冻结 r2 Workflow 内的必需�
 替换为空白登录提示。已验证结果页面不受 headless daemon 空闲超时影响并保持打开，生产
 完成流程不会调用 `browser.close`。
 
-持久化的安全结果 descriptor 保存 origin、path、fragment 和 query provenance，不保存
+持久化的安全结果 descriptor 保存 origin、path、路由型 fragment（`#/...` 页内路由；
+携带值的 fragment 如 OAuth `#access_token=...` 会被丢弃）和 query provenance，不保存
 provider session token。QQ 邮箱等应用可能在新进程中替换易失 `sid`；Runtime 保留新的
 session query，只重新应用已验证的同源 hash route，并从 artifact、audit、episode 和 API
 响应中移除 provider 注入 token。owner 明确提供的 query parameter 仍属于冻结目标。

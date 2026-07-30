@@ -118,7 +118,9 @@ profile is never replaced with a blank login prompt. The verified result remains
 open without the headless daemon idle timeout, and production completion does
 not call `browser.close`.
 
-Safe result descriptors persist origin, path, fragment, and query provenance
+Safe result descriptors persist origin, path, route-shaped fragments
+(`#/...` in-page routes; value-carrying fragments such as OAuth
+`#access_token=...` are dropped), and query provenance
 rather than provider session tokens. For applications such as QQ Mail, a new
 process may replace a volatile `sid`; Runtime preserves the new session query,
 reapplies only the verified same-origin hash route, and removes provider-injected

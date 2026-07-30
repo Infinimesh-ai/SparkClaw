@@ -82,6 +82,12 @@ func canonicalBrowserURL(mode browserURLMode, target app.BrowserTargetDescriptor
 	case browserURLNormalizeEvidence:
 		// Keep query and fragment verbatim.
 	default:
+		// The safe modes feed persisted records: keep only route-shaped
+		// fragments ("#/inbox", "#!/legacy") and drop value-carrying ones —
+		// OAuth implicit flows return credentials as "#access_token=…".
+		if !browserRouteShapedFragment(parsed.Fragment) {
+			parsed.Fragment = ""
+		}
 		parsed.RawQuery = ""
 		parsed.ForceQuery = false
 		if mode != browserURLSafeHandoff && target.QueryProvenance == app.BrowserQueryOwnerSupplied {
@@ -93,6 +99,15 @@ func canonicalBrowserURL(mode browserURLMode, target app.BrowserTargetDescriptor
 		}
 	}
 	return parsed.String()
+}
+
+// browserRouteShapedFragment reports whether a URL fragment names an in-page
+// route rather than carrying data. Empty fragments are trivially safe.
+func browserRouteShapedFragment(fragment string) bool {
+	if fragment == "" {
+		return true
+	}
+	return strings.HasPrefix(fragment, "/") || strings.HasPrefix(fragment, "!/")
 }
 
 func normalizeBrowserURL(raw string) string {

@@ -45,10 +45,11 @@ func TestCanonicalBrowserURLModes(t *testing.T) {
 			want: "https://example.com/Path?q=1#section",
 		},
 		{
-			// Result recording drops the provider-volatile live query.
+			// Result recording drops the provider-volatile live query and,
+			// like every persisted projection, non-route fragments.
 			name: "safe result drops volatile query",
 			got:  browserSafeResultURL(volatileTarget, "https://example.com/live?sid=secret#part"),
-			want: "https://example.com/live#part",
+			want: "https://example.com/live",
 		},
 		{
 			// ...but merges the frozen owner query into the live URL.
@@ -82,9 +83,22 @@ func TestCanonicalBrowserURLModes(t *testing.T) {
 			want: "ftp://example.com/file",
 		},
 		{
-			name: "safe persistence drops volatile query keeps fragment",
+			// Persisted URLs keep only route-shaped fragments; a bare token
+			// like "#part" carries no route and is dropped with the query.
+			name: "safe persistence drops volatile query and non-route fragment",
 			got:  browserSafePersistenceURL(volatileTarget, "https://example.com/live?sid=secret#part"),
-			want: "https://example.com/live#part",
+			want: "https://example.com/live",
+		},
+		{
+			name: "safe persistence keeps route-shaped fragment",
+			got:  browserSafePersistenceURL(volatileTarget, "https://example.com/live#/inbox"),
+			want: "https://example.com/live#/inbox",
+		},
+		{
+			// OAuth implicit flows return credentials in the fragment.
+			name: "safe persistence drops credential-bearing fragment",
+			got:  browserSafePersistenceURL(volatileTarget, "https://example.com/callback#access_token=secret&expires=3600"),
+			want: "https://example.com/callback",
 		},
 		{
 			name: "safe persistence merges owner query",

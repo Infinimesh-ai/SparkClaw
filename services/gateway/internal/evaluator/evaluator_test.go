@@ -21,8 +21,6 @@ func TestRunnerProducesPassingReport(t *testing.T) {
 			writeTestJSON(w, map[string]any{"ok": true, "workspace_root": t.TempDir()})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/tools":
 			writeTestJSON(w, map[string]any{"tools": requiredToolDefinitions()})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/skills":
-			writeTestJSON(w, map[string]any{"skills": []map[string]string{{"name": "local_files"}}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/evals/run":
 			writeTestJSON(w, app.EvalRun{ID: "eval_1", Profile: "smoke", Status: "passed", Summary: "ok"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/evals/eval_1":
@@ -37,7 +35,7 @@ func TestRunnerProducesPassingReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Status != "passed" || len(report.Cases) != 6 || report.GatewayEval == nil {
+	if report.Status != "passed" || len(report.Cases) != 5 || report.GatewayEval == nil {
 		t.Fatalf("unexpected report: %#v", report)
 	}
 	names := make([]string, 0, len(report.Cases))
@@ -58,8 +56,6 @@ func TestRunnerFailsWhenToolMissing(t *testing.T) {
 			writeTestJSON(w, map[string]any{"ok": true, "workspace_root": t.TempDir()})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/tools":
 			writeTestJSON(w, map[string]any{"tools": []app.ToolDefinition{{Name: "files.search"}}})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/skills":
-			writeTestJSON(w, map[string]any{"skills": []map[string]string{{"name": "local_files"}}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/evals/run":
 			writeTestJSON(w, app.EvalRun{ID: "eval_1", Profile: "smoke", Status: "passed", Summary: "ok"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/evals/eval_1":
@@ -88,8 +84,6 @@ func TestRunnerFailsWhenMTPABProfileIsIncomplete(t *testing.T) {
 			writeTestJSON(w, map[string]any{"ok": true, "workspace_root": t.TempDir()})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/tools":
 			writeTestJSON(w, map[string]any{"tools": requiredToolDefinitions()})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/skills":
-			writeTestJSON(w, map[string]any{"skills": []map[string]string{{"name": "local_files"}}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/evals/run":
 			writeTestJSON(w, app.EvalRun{ID: "eval_1", Profile: "smoke", Status: "passed", Summary: "ok"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/evals/eval_1":
@@ -153,7 +147,6 @@ func writeEvalProfileFixture(t *testing.T, complete bool) string {
         "gateway_health",
         "gateway_ready",
         "tool_registry",
-        "skill_registry",
         "mtp_ab_eval_profile",
         "persisted_smoke_eval"
       ]

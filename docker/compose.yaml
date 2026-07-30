@@ -119,7 +119,6 @@ services:
       - ../data/memory:/var/lib/sparkclaw/memory
       - ../data/logs:/var/log/sparkclaw
       - ../data/browser-profiles:/var/lib/sparkclaw/browser-profiles
-      - ../skills:/app/skills:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ${SPARKCLAW_BROWSER_XAUTHORITY:-/dev/null}:/run/sparkclaw-browser/Xauthority:ro
     healthcheck:

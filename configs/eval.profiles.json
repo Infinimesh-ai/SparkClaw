@@ -12,7 +12,6 @@
         "gateway_health",
         "gateway_ready",
         "tool_registry",
-        "skill_registry",
         "mtp_ab_eval_profile",
         "persisted_smoke_eval"
       ],

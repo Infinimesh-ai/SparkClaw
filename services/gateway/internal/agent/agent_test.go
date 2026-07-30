@@ -2273,17 +2273,6 @@ func TestGroundedShellAndPatchSummariesFromToolCalls(t *testing.T) {
 	}
 }
 
-func writeAgentTestSkill(t *testing.T, root, name, body string) {
-	t.Helper()
-	path := filepath.Join(root, name, "SKILL.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestRuntimeDoesNotExposeAdvancedBrowserActionsInRevisionOne(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig()

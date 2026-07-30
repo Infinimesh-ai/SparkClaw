@@ -20,7 +20,6 @@ const (
 	workflowStepPromptCompressionThreshold  = 0.80
 	promptEstimateBytesPerToken             = 4
 	promptEstimateChatOverheadTokens        = 12
-	compactWorkflowStepSkillLimit           = 320
 	compactWorkflowStepToolDescriptionLimit = 180
 	maxRequiredToolFinalResponses           = 2
 

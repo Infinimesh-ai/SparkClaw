@@ -41,7 +41,6 @@ import type {
   ReadyStatus,
   RunTrace,
   Session,
-  Skill,
   ToolCall,
   TraceMetadata
 } from "./api/types";
@@ -70,7 +69,6 @@ export function App() {
   const [traceRun, setTraceRun] = useState<RunTrace | null>(null);
   const [traceList, setTraceList] = useState<TraceMetadata[]>([]);
   const [traceLoading, setTraceLoading] = useState(false);
-  const [skills, setSkills] = useState<Skill[]>([]);
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
   const [busy, setBusy] = useState(false);
@@ -152,7 +150,7 @@ export function App() {
   });
 
   const refreshGlobal = useCallback(async () => {
-    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces, scheduleList] =
+    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
       await Promise.all([
         api.ready(),
         api.config(),
@@ -162,7 +160,6 @@ export function App() {
         api.approvals(),
         api.memoryCandidates(),
         api.memories(),
-        api.skills(),
         api.evalRuns(),
         api.artifacts(),
         api.traces(),
@@ -176,7 +173,6 @@ export function App() {
     setApprovals(approvalList.approvals);
     setCandidates(candidateList.memory_candidates);
     setMemories(memoryList.memories);
-    setSkills(skillList.skills);
     setEvalRuns(evalList.eval_runs ?? []);
     setArtifacts(artifactList.artifacts ?? []);
     setTraceList(traces.traces ?? []);
@@ -647,7 +643,6 @@ export function App() {
         artifacts={artifacts}
         episodes={episodes}
         evalRuns={evalRuns}
-        skills={skills}
         runtimeConfig={runtimeConfig}
         ownerProfile={ownerProfile}
         clients={clients}

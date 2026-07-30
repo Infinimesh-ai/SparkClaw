@@ -267,9 +267,7 @@ export const dictionaries = {
       episodes: "Episodes",
       noEpisodes: "No episodes yet.",
       smokeEval: "Smoke Eval",
-      noEval: "No eval run in this view.",
-      skills: "Skills",
-      noSkills: "No skills registered."
+      noEval: "No eval run in this view."
     },
     settings: {
       title: "Settings",
@@ -357,7 +355,6 @@ export const dictionaries = {
       remote: "Remote",
       artifacts: "Artifacts",
       memory: "Memory",
-      skills: "Skills",
       localFiles: "local files",
       noAutoPrune: "no auto prune",
       encrypted: "encrypted",
@@ -384,9 +381,6 @@ export const dictionaries = {
       bytes: "bytes",
       tools: "tools",
       tokens: "tokens",
-      deps: "deps",
-      evals: "evals",
-      schema: "schema",
       ctx: "ctx",
       max: "max",
       avg: "avg",
@@ -657,9 +651,7 @@ export const dictionaries = {
       episodes: "Episodes",
       noEpisodes: "还没有 episode。",
       smokeEval: "Smoke Eval",
-      noEval: "当前视图没有 eval run。",
-      skills: "Skills",
-      noSkills: "没有注册技能。"
+      noEval: "当前视图没有 eval run。"
     },
     settings: {
       title: "设置",
@@ -747,7 +739,6 @@ export const dictionaries = {
       remote: "远程",
       artifacts: "产物",
       memory: "记忆",
-      skills: "技能",
       localFiles: "本地文件",
       noAutoPrune: "不自动清理",
       encrypted: "已加密",
@@ -774,9 +765,6 @@ export const dictionaries = {
       bytes: "字节",
       tools: "个工具",
       tokens: "tokens",
-      deps: "依赖",
-      evals: "eval",
-      schema: "schema",
       ctx: "上下文",
       max: "最大",
       avg: "平均",

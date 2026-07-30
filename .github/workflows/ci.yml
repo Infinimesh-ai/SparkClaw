@@ -33,8 +33,6 @@ jobs:
                   continue
               if path.parts and path.parts[0] == "zh-cn":
                   continue
-              if path.parts and path.parts[0] == "skills":
-                  continue
               base.append(path)
 
           errors = []
@@ -48,9 +46,6 @@ jobs:
 
           for path in sorted(Path("zh-cn").rglob("*.md")):
               if any(part in ignored for part in path.parts):
-                  continue
-              if len(path.parts) > 1 and path.parts[1] == "skills":
-                  errors.append(f"zh-cn skills mirror is intentionally disabled: {path}")
                   continue
               counterpart = Path(*path.parts[1:])
               if not counterpart.exists():

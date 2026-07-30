@@ -59,7 +59,7 @@ file、browser 和 external adapter content 都必须视为 untrusted data。Rev
 
 如果变更影响 commands、configuration、environment variables、deployment、safety boundaries、APIs 或 user workflows，请更新 docs。
 
-默认文档为英文。中文文档位于 `zh-cn/`。`skills/` 下的 runtime skill packages 会独立演进，不需要中文镜像。
+默认文档为英文。中文文档位于 `zh-cn/`。
 
 ## Pull Request Checklist
 

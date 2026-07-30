@@ -71,12 +71,6 @@ cases:
       endpoint: /api/tools
       required_tools: ["files.read", "file.delete", "memory.write_candidate", "memory.propose", "memory.write_sensitive", "notify.ask_approval"]
       exposes_output_schema: true
-  - id: skills_registry_returns_list
-    prompt: "Read /api/skills"
-    expected:
-      endpoint: /api/skills
-      returns_array: true
-      includes_contract_metadata: true
   - id: files_search_readonly
     prompt: "Search for SparkClaw in the workspace"
     expected:

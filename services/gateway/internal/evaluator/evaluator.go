@@ -73,7 +73,6 @@ func (r Runner) Run(ctx context.Context) (Report, error) {
 		r.caseHealth(ctx),
 		r.caseReady(ctx),
 		r.caseToolRegistry(ctx),
-		r.caseSkillRegistry(ctx),
 		r.caseMTPABEvalProfile(ctx),
 		r.casePersistedSmokeEval(ctx, &gatewayEval),
 	}
@@ -166,23 +165,6 @@ func (r Runner) caseToolRegistry(ctx context.Context) app.EvalCase {
 			if !slices.Contains(names, name) {
 				return fmt.Errorf("missing tool %s", name)
 			}
-		}
-		return nil
-	})
-}
-
-func (r Runner) caseSkillRegistry(ctx context.Context) app.EvalCase {
-	return evalCase("skill_registry", func() error {
-		var body struct {
-			Skills []struct {
-				Name string `json:"name"`
-			} `json:"skills"`
-		}
-		if err := r.get(ctx, "/api/skills", &body); err != nil {
-			return err
-		}
-		if len(body.Skills) == 0 {
-			return errors.New("skill registry returned no skills")
 		}
 		return nil
 	})

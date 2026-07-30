@@ -15,7 +15,9 @@
 
 ## Telegram
 
-Telegram 是可选 private-chat connector，可同时存在多个 Bot binding。每个 Bot token 激活前
+Telegram 是可选 private-chat connector，出厂默认关闭：除 Bot token 外还需设置
+`tools.notifications.channels.telegram.enabled`（或 `SPARKCLAW_TELEGRAM_ENABLED=true`），
+与其余 connector 的 opt-in 约定一致。可同时存在多个 Bot binding。每个 Bot token 激活前
 先验证，再通过 credential vault 独立加密；持久化状态只保存 ciphertext envelope。
 
 已验证 Bot 初始没有 recipient。第一条 fresh authorized private message 原子 claim user/chat；

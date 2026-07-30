@@ -427,6 +427,26 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 6. Run mock golden eval.
 7. For DGX Spark model changes, run endpoint checks and append a new benchmark section.
 
+### Behavior changes to check when upgrading past 2026-07-30
+
+- Visible-browser login handoffs now require stacking the
+  `docker/compose.visible-browser.yaml` overlay; the base compose file no
+  longer exposes the host X11 socket. `scripts/restart_runtime_compose.sh`
+  applies the overlay automatically when a display resolves.
+- The Telegram channel ships disabled. Deployments that set only the Bot
+  token must also set `tools.notifications.channels.telegram.enabled`
+  (or `SPARKCLAW_TELEGRAM_ENABLED=true`).
+- The transitional skills registry was removed, including `GET /api/skills`
+  and the `skills` config section; workflows are the only execution path.
+- Guard replies that parse to no recognizable verdict resolve to a
+  non-blocking `unknown` verdict recorded as a `guard.verdict_unknown`
+  audit event; explicit `review`/`block` verdicts still stop the run.
+  Config-less boots now run with model thinking disabled, matching the
+  shipped default config.
+- Runtime budget keys split into `workflow_stage_max_*` and
+  `workflow_run_max_*` (legacy `workflow_step_max_*`/`react_max_*` keys
+  still map; see [Workflow execution](workflow-execution.md)).
+
 ## Secure Defaults
 
 - Expose only WebChat on `0.0.0.0:18790`; keep Gateway and other service ports

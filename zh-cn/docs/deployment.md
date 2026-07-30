@@ -430,6 +430,24 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 6. 运行 mock golden eval。
 7. DGX Spark 模型变更需要运行 endpoint checks，并追加新的 benchmark section。
 
+### 2026-07-30 之后升级需要注意的行为变化
+
+- 可见浏览器登录接管现在必须叠加 `docker/compose.visible-browser.yaml`
+  overlay；base compose 不再暴露宿主 X11 socket。
+  `scripts/restart_runtime_compose.sh` 在解析到显示器时会自动叠加。
+- Telegram 渠道出厂默认关闭：只设了 Bot token 的部署还需设置
+  `tools.notifications.channels.telegram.enabled`
+  （或 `SPARKCLAW_TELEGRAM_ENABLED=true`）。
+- 过渡期 skills registry 已删除，包括 `GET /api/skills` 与 `skills`
+  配置段；workflow 是唯一执行路径。
+- guard 回复解析不出有效裁决时按不阻断的 `unknown` 处理，并记录
+  `guard.verdict_unknown` audit event；显式 `review`/`block` 仍会阻断。
+  无配置文件启动现在默认关闭模型思考，与出厂配置一致。
+- Runtime 预算键拆分为 `workflow_stage_max_*` 与 `workflow_run_max_*`
+  （旧的 `workflow_step_max_*`/`react_max_*` 仍可回退映射；见
+  [Workflow execution](workflow-execution.md)）。
+
+
 ## Secure Defaults
 
 - 只把 WebChat 暴露在 `0.0.0.0:18790`；Gateway 和其他服务端口仍绑定

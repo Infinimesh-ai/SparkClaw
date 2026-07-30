@@ -20,7 +20,10 @@ commands live in [Deployment](deployment.md).
 
 ## Telegram
 
-Telegram is an optional private-chat connector. Multiple Bot bindings may
+Telegram is an optional private-chat connector and ships disabled: set
+`tools.notifications.channels.telegram.enabled` (or
+`SPARKCLAW_TELEGRAM_ENABLED=true`) in addition to the Bot token, matching
+the opt-in contract of every other connector. Multiple Bot bindings may
 coexist. Each Bot token is verified before activation and encrypted separately
 through the credential vault; persisted state stores ciphertext envelopes, not
 plaintext tokens.

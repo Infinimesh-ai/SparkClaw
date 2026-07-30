@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -300,7 +301,7 @@ func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_COMMAND", "/opt/test/agent-browser")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_TIMEOUT_MS", "31000")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_STARTUP_TIMEOUT_MS", "11000")
-	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "61000")
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1210000")
 	t.Setenv("SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE", "/opt/test/chromium")
 	t.Setenv("SPARKCLAW_BROWSER_PROFILE_DIR", profileDir)
 
@@ -314,11 +315,31 @@ func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
 	if cfg.Adapters.BrowserAutomation.Command != "/opt/test/agent-browser" ||
 		cfg.Adapters.BrowserAutomation.TimeoutMS != 31000 ||
 		cfg.Adapters.BrowserAutomation.StartupTimeoutMS != 11000 ||
-		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS != 61000 {
+		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS != 1210000 {
 		t.Fatalf("agent-browser adapter env did not apply: %#v", cfg.Adapters.BrowserAutomation)
 	}
 	if cfg.Adapters.BrowserAutomation.ProfileDir != profileDir || !filepath.IsAbs(cfg.Adapters.BrowserAutomation.ProfileDir) {
 		t.Fatalf("browser profile directory was not normalized: %#v", cfg.Adapters.BrowserAutomation)
+	}
+}
+
+func TestLoadRejectsBrowserDaemonIdleTimeoutShorterThanWorkflowGap(t *testing.T) {
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "60000")
+
+	_, err := Load("")
+	if err == nil || !strings.Contains(err.Error(), "daemonIdleTimeoutMs must be at least") {
+		t.Fatalf("short browser daemon idle timeout error = %v", err)
+	}
+}
+
+func TestLoadRejectsBrowserDaemonIdleTimeoutCalculationOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", strconv.Itoa(maxInt))
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", strconv.Itoa(maxInt))
+
+	_, err := Load("")
+	if err == nil || !strings.Contains(err.Error(), "timeouts exceed the supported browser daemon idle timeout range") {
+		t.Fatalf("browser daemon idle timeout overflow error = %v", err)
 	}
 }
 
@@ -516,6 +537,7 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_DEEP_CONTEXT_TOKENS", "12288")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", "555")
 	t.Setenv("SPARKCLAW_MODEL_DISABLE_THINKING", "true")
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "1600000")
 
 	cfg, err := Load("")
 	if err != nil {

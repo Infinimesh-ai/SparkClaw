@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
+
 type Config struct {
 	Gateway    GatewayConfig   `json:"gateway"`
 	Model      ModelConfig     `json:"model"`
@@ -354,7 +356,7 @@ func Load(path string) (Config, error) {
 		cfg.Adapters.BrowserAutomation.StartupTimeoutMS = 10000
 	}
 	if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS <= 0 {
-		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = 60000
+		cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS = DefaultBrowserDaemonIdleTimeoutMS
 	}
 	if cfg.Adapters.BrowserAutomation.SettleTimeoutMS <= 0 {
 		cfg.Adapters.BrowserAutomation.SettleTimeoutMS = 15000
@@ -386,6 +388,16 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
 	normalizeRuntimeLimits(&cfg.Runtime)
+	minimumBrowserIdleTimeoutMS, err := minimumBrowserDaemonIdleTimeoutMS(cfg)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS < minimumBrowserIdleTimeoutMS {
+		return Config{}, fmt.Errorf(
+			"adapters.browserAutomation.daemonIdleTimeoutMs must be at least %d for the configured model and workflow timeouts",
+			minimumBrowserIdleTimeoutMS,
+		)
+	}
 	if err := normalizeInfinimeshInfoConfig(&cfg.Plugins.Entries.InfinimeshInfo.Config); err != nil {
 		return Config{}, err
 	}
@@ -453,6 +465,31 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	if rt.StepMaxRepeatedToolCalls <= 0 {
 		rt.StepMaxRepeatedToolCalls = defaults.StepMaxRepeatedToolCalls
 	}
+}
+
+func minimumBrowserDaemonIdleTimeoutMS(cfg Config) (int, error) {
+	modelWindowSeconds := cfg.Model.HTTPTimeoutSeconds
+	if modelWindowSeconds <= 0 {
+		modelWindowSeconds = Default().Model.HTTPTimeoutSeconds
+	}
+	workflowWindowSeconds := cfg.Runtime.StepMaxDurationSeconds
+	if workflowWindowSeconds <= 0 {
+		workflowWindowSeconds = Default().Runtime.StepMaxDurationSeconds
+	}
+	toolHeadroomMS := cfg.Adapters.BrowserAutomation.TimeoutMS
+	if toolHeadroomMS <= 0 {
+		toolHeadroomMS = Default().Adapters.BrowserAutomation.TimeoutMS
+	}
+	// Interaction can run goal assessment and action selection between two
+	// Chromium commands. Each model stage may consume its workflow window and
+	// finish one in-flight request before the next browser command resets idle.
+	maxInt := int(^uint(0) >> 1)
+	maxReasoningWindowSeconds := (maxInt - toolHeadroomMS) / 2000
+	if modelWindowSeconds > maxReasoningWindowSeconds ||
+		workflowWindowSeconds > maxReasoningWindowSeconds-modelWindowSeconds {
+		return 0, errors.New("configured model and workflow timeouts exceed the supported browser daemon idle timeout range")
+	}
+	return 2*(modelWindowSeconds+workflowWindowSeconds)*1000 + toolHeadroomMS, nil
 }
 
 func normalizeInfinimeshInfoConfig(cfg *InfinimeshInfoConfig) error {
@@ -741,7 +778,7 @@ func Default() Config {
 				Command:              "agent-browser",
 				TimeoutMS:            30000,
 				StartupTimeoutMS:     10000,
-				DaemonIdleTimeoutMS:  60000,
+				DaemonIdleTimeoutMS:  DefaultBrowserDaemonIdleTimeoutMS,
 				SettleTimeoutMS:      15000,
 				SettleQuietPeriodMS:  500,
 				SettlePollIntervalMS: 100,

@@ -68,8 +68,8 @@ func TestAgentBrowserEnvironmentKeepsHiddenSessionHeadless(t *testing.T) {
 	if _, exists := env["AGENT_BROWSER_NO_XVFB"]; exists {
 		t.Fatal("hidden sessions must not inherit the visible-display Xvfb policy")
 	}
-	if got := env["AGENT_BROWSER_IDLE_TIMEOUT_MS"]; got != "60000" {
-		t.Fatalf("AGENT_BROWSER_IDLE_TIMEOUT_MS = %q, want 60000", got)
+	if got := env["AGENT_BROWSER_IDLE_TIMEOUT_MS"]; got != "1200000" {
+		t.Fatalf("AGENT_BROWSER_IDLE_TIMEOUT_MS = %q, want 1200000", got)
 	}
 }
 
@@ -83,6 +83,16 @@ func TestPassiveHealthDoesNotStartBrowserSessionOrExposeEnvironmentPaths(t *test
 		t.Skipf("system Chromium is not installed: %v", err)
 	}
 	profileRoot := t.TempDir()
+	profileDir, err := resolveSharedProfileDir(profileRoot, "owner-a\x00work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeChromiumSingletonSymlinks(
+		t,
+		profileDir,
+		"retired-container-424242",
+		filepath.Join(t.TempDir(), "missing", "SingletonSocket"),
+	)
 	xauthority := filepath.Join(t.TempDir(), "Xauthority")
 	if err := os.WriteFile(xauthority, []byte("authority"), 0o600); err != nil {
 		t.Fatal(err)
@@ -103,6 +113,7 @@ func TestPassiveHealthDoesNotStartBrowserSessionOrExposeEnvironmentPaths(t *test
 	if adapter.session != nil || adapter.sessionGeneration != 0 {
 		t.Fatalf("passive health started a browser session: session=%#v generation=%d", adapter.session, adapter.sessionGeneration)
 	}
+	assertChromiumSingletonsPresent(t, profileDir)
 	if result.RawTool != "linux_environment_preflight" || result.ProviderSessionRef != "" || len(result.Pages) != 0 {
 		t.Fatalf("passive health returned active browser state: %#v", result)
 	}

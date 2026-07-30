@@ -79,6 +79,18 @@ bounded startup、bounded command execution 和 owned child process cleanup。Co
 Gateway 使用 init 进程回收 browser session 退出后的 Chromium 后代进程。visible handoff
 前先停止 hidden owner；转回 hidden 时也遵循相同顺序。
 
+hidden Chromium 默认使用 20 分钟的 daemon idle window。配置加载会要求该窗口覆盖
+snapshot 与其绑定 click 之间可能连续出现的两个 model-owned stage，并计入已配置的
+model request 与 Workflow step 上限。这样，较慢的模型推理不会在仍有效的 snapshot
+下方关闭并重新拉起 Chromium。visible session 不使用 daemon idle timeout，会继续为
+owner 保持打开。
+
+session startup 取得 exclusive profile lock 后，还会校验 Chromium 原生的
+`SingletonLock`、`SingletonSocket` 和 `SingletonCookie`。同主机 PID 仍存活或 Unix
+socket 可连接时继续报告 busy；只有确认没有存活 owner 的失效符号链接才会被移除。
+格式异常条目、普通文件和无法判定的 ownership 一律 fail closed。这样，重建后的 Gateway
+可以回收已终止容器遗留的 profile，而不会抢占仍在运行的浏览器。
+
 browser automation 和 interaction 在 hidden Chromium 中完成 acquire、navigate、settle、
 snapshot 和 interaction。最终呈现是同一冻结 r2 Workflow 内的必需节点：Runtime 以 visible
 方式 open/focus 结果 URL，等待稳定，获取 visible snapshot，重新校验冻结 route；interaction
@@ -147,7 +159,7 @@ Linux setup 检查还要求 fontconfig 和已安装的中文字体。Debian 和 
 | `adapters.browserAutomation.command` | 固定的 `agent-browser` executable |
 | `adapters.browserAutomation.chromiumExecutable` | 可选系统 Chromium 明确路径 |
 | `adapters.browserAutomation.profileDir` | SparkClaw-owned persistent profile root |
-| `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | 有界进程 lifecycle |
+| `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | 有界 lifecycle；hidden idle 覆盖已配置的 model/Workflow reasoning gap |
 | `security.browser_read_allow_hosts` | private-host 明确例外，主要用于测试 fixture |
 | `SPARKCLAW_BROWSER_DISPLAY` | 仅用于 Compose 的 Linux host display，例如 `:1` |
 | `SPARKCLAW_BROWSER_XAUTHORITY` | 仅用于 Compose 的可读 host Xauthority 文件 |

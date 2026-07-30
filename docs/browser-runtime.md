@@ -93,6 +93,20 @@ Gateway uses an init process to reap Chromium descendants after a browser
 session exits. A visible handoff stops hidden ownership before acquiring the
 same profile; transfer back to hidden follows the same ordering.
 
+Hidden Chromium uses a 20-minute daemon idle window by default. Configuration
+loading requires that window to cover the two consecutive model-owned stages
+that can occur between a snapshot and its bound click, including the configured
+model request and Workflow step limits. This prevents slow model reasoning from
+closing and relaunching Chromium underneath a still-current snapshot. Visible
+sessions do not use the daemon idle timeout and remain open for the owner.
+
+After acquiring the exclusive profile lock, session startup validates Chromium's
+native `SingletonLock`, `SingletonSocket`, and `SingletonCookie`. A live
+same-host PID or reachable Unix socket remains busy. Only stale symbolic links
+with no live owner are removed; malformed entries, regular files, and
+indeterminate ownership fail closed. This lets a recreated Gateway reclaim a
+profile left by a terminated container without stealing it from a live browser.
+
 Browser automation and interaction acquire, navigate, settle, snapshot, and
 interact in hidden Chromium. Final presentation is a required node in the same
 frozen r2 Workflow: Runtime opens or focuses the result URL visibly, settles it,
@@ -178,7 +192,7 @@ by `docker/env/sparkclaw.example.env`:
 | `adapters.browserAutomation.command` | Pinned `agent-browser` executable |
 | `adapters.browserAutomation.chromiumExecutable` | Optional explicit system Chromium path |
 | `adapters.browserAutomation.profileDir` | SparkClaw-owned persistent profile root |
-| `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | Bounded process lifecycle |
+| `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | Bounded lifecycle; hidden idle covers the configured model/Workflow reasoning gap |
 | `security.browser_read_allow_hosts` | Explicit private-host exceptions, primarily test fixtures |
 | `SPARKCLAW_BROWSER_DISPLAY` | Compose-only Linux host display, such as `:1` |
 | `SPARKCLAW_BROWSER_XAUTHORITY` | Compose-only readable host Xauthority file |

@@ -12,8 +12,9 @@ import (
 var errBrowserProfileBusy = errors.New("browser_profile_busy")
 
 type browserProfileLease struct {
-	mu   sync.Mutex
-	file *os.File
+	mu         sync.Mutex
+	file       *os.File
+	profileDir string
 }
 
 func acquireBrowserProfileLease(profileDir string) (*browserProfileLease, error) {
@@ -29,7 +30,7 @@ func acquireBrowserProfileLease(profileDir string) (*browserProfileLease, error)
 		}
 		return nil, fmt.Errorf("acquire browser profile lease: %w", err)
 	}
-	return &browserProfileLease{file: file}, nil
+	return &browserProfileLease{file: file, profileDir: filepath.Clean(profileDir)}, nil
 }
 
 func (l *browserProfileLease) release() {

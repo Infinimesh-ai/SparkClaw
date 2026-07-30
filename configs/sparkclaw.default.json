@@ -150,7 +150,7 @@
       "command": "agent-browser",
       "timeoutMs": 30000,
       "startupTimeoutMs": 10000,
-      "daemonIdleTimeoutMs": 60000,
+      "daemonIdleTimeoutMs": 1200000,
       "settleTimeoutMs": 15000,
       "settleQuietPeriodMs": 500,
       "settlePollIntervalMs": 100,

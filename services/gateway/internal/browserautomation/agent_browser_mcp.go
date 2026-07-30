@@ -136,6 +136,12 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 			profileLease.release()
 		}
 	}()
+	if _, err := profileLease.recoverStaleChromiumSingletons(profileDir); err != nil {
+		if errors.Is(err, errBrowserProfileBusy) {
+			return nil, errBrowserProfileBusy
+		}
+		return nil, fmt.Errorf("prepare browser shared profile: %w", err)
+	}
 	executable, err := resolveChromiumExecutable(cfg.ChromiumExecutable)
 	if err != nil {
 		return nil, err
@@ -669,7 +675,7 @@ func adapterStartupTimeoutMS(timeoutMS int) int {
 
 func adapterDaemonIdleTimeoutMS(timeoutMS int) int {
 	if timeoutMS <= 0 {
-		return 60000
+		return config.DefaultBrowserDaemonIdleTimeoutMS
 	}
 	return timeoutMS
 }

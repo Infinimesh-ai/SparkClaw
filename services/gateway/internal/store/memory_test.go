@@ -410,6 +410,44 @@ func TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate(t *testin
 	}
 }
 
+func TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite(t *testing.T) {
+	st := NewMemoryStore()
+	session := st.CreateSession("trim id")
+	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	saved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		ID: "  blogin-trim  ", SessionID: session.ID, RunID: run.ID, SiteOrigin: "https://example.com",
+	})
+	if saved.ID != "blogin-trim" {
+		t.Fatalf("save did not trim block ID: %q", saved.ID)
+	}
+	if _, ok := st.GetBrowserLoginBlock("blogin-trim"); !ok {
+		t.Fatal("block is not stored under the trimmed ID")
+	}
+	resaved := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		ID: " blogin-trim ", SessionID: session.ID, RunID: run.ID,
+		Status: app.BrowserHandoffStatusValidatingVisible, SiteOrigin: "https://example.com",
+	})
+	if resaved.Version != saved.Version+1 {
+		t.Fatalf("padded-ID save forked a new record instead of updating: %#v", resaved)
+	}
+	if blocks := st.ListBrowserLoginBlocks(session.ID, ""); len(blocks) != 1 {
+		t.Fatalf("padded-ID writes produced duplicate records: %#v", blocks)
+	}
+	update := resaved
+	update.ID = "  blogin-trim "
+	update.Status = app.BrowserHandoffStatusTransferring
+	updated, err := st.UpdateBrowserLoginBlock(update, resaved.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := st.GetBrowserLoginBlock("blogin-trim")
+	if !ok || updated.ID != "blogin-trim" || current.Version != updated.Version ||
+		current.Status != app.BrowserHandoffStatusTransferring {
+		t.Fatalf("padded-ID CAS update wrote back under the wrong key: %#v ok=%v", current, ok)
+	}
+}
+
 func TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	st := NewMemoryStore()
 	session := st.CreateSession("delete blocked browser session")

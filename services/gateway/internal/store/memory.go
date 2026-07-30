@@ -1748,6 +1748,7 @@ func (s *MemoryStore) RevokeBrowserAuthRecord(id, reason string) (app.BrowserAut
 func (s *MemoryStore) SaveBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	block.ID = strings.TrimSpace(block.ID)
 	block = normalizeBrowserLoginBlock(block, s.browserLoginBlocks[block.ID])
 	s.browserLoginBlocks[block.ID] = block
 	s.appendAuditLocked("browser_login_block."+block.Status, block.SessionID, block.RunID, "runtime", block.SiteOrigin, browserLoginBlockAuditFields(block, nil))
@@ -2374,6 +2375,7 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 		block.TransitionOwnerID = ""
 		block.TransitionLeaseUntil = nil
 	}
+	block.ID = strings.TrimSpace(block.ID)
 	if block.ID == "" {
 		block.ID = app.NewID("blogin")
 	}

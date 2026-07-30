@@ -32,15 +32,15 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	session, err := a.ensureSessionLocked(readCtx, hidden, profileKey)
+	entry, err := a.ensureSessionLocked(readCtx, hidden, profileKey)
 	if err != nil {
 		return PageReadResult{}, err
 	}
-	openTool, _, _, err := a.openURLLocked(readCtx, session, targetURL, true)
+	openTool, _, _, err := entry.openURLLocked(readCtx, targetURL, true)
 	if err != nil {
 		return PageReadResult{}, err
 	}
-	a.invalidateSnapshotsLocked()
+	entry.invalidateSnapshotsLocked()
 
 	readMode := "browser_session"
 	if hidden {
@@ -50,18 +50,18 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 		URL: targetURL, Provider: browserProviderName(hidden), Untrusted: true,
 		Actions: []string{openTool}, ReadMode: readMode, Errors: map[string]any{},
 		BrowserMode: metadata.BrowserMode, Presentation: metadata.Presentation, SurfaceVisible: metadata.SurfaceVisible,
-		SessionGeneration: a.sessionGeneration, ProviderSessionRef: session.sessionName, Rendered: true,
+		SessionGeneration: entry.generation, ProviderSessionRef: entry.session.sessionName, Rendered: true,
 	}
 
 	result.Actions = append(result.Actions, "agent_browser_wait_for_load")
-	if _, waitErr := a.callAgentToolLocked(readCtx, session, "agent_browser_wait_for_load", map[string]any{"state": "domcontentloaded"}); waitErr != nil {
+	if _, waitErr := entry.callAgentToolLocked(readCtx, "agent_browser_wait_for_load", map[string]any{"state": "domcontentloaded"}); waitErr != nil {
 		result.Errors["agent_browser_wait_for_load"] = waitErr.Error()
 	} else {
 		result.ReadyState = "domcontentloaded"
 	}
 
 	maxChars := intArg(args, "max_chars", 120000)
-	state, stateErrors := a.readCurrentPageLocked(readCtx, session, maxChars)
+	state, stateErrors := entry.readCurrentPageLocked(readCtx, maxChars)
 	for key, value := range stateErrors {
 		result.Errors[key] = value
 	}
@@ -78,7 +78,7 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 	result.ContentType = "text/plain; source=agent-browser-read"
 	result.ReadSource = firstNonEmptyAgentBrowserString(state.Source, "active-tab-rendered-dom")
 
-	auth, authErr := a.snapshotAuthMetadataLocked(readCtx, session, state)
+	auth, authErr := entry.snapshotAuthMetadataLocked(readCtx, state)
 	result.Actions = append(result.Actions, "agent_browser_snapshot")
 	if authErr != nil {
 		result.Errors["agent_browser_snapshot"] = authErr.Error()
@@ -96,11 +96,11 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 	return result, nil
 }
 
-func (a *AgentBrowserAdapter) readCurrentPageLocked(ctx context.Context, session *agentBrowserSession, maxChars int) (agentBrowserPageState, map[string]any) {
+func (e *agentBrowserSessionEntry) readCurrentPageLocked(ctx context.Context, maxChars int) (agentBrowserPageState, map[string]any) {
 	state := agentBrowserPageState{}
 	errorsByTool := map[string]any{}
 
-	readResult, err := a.callAgentToolLocked(ctx, session, "agent_browser_read", nil)
+	readResult, err := e.callAgentToolLocked(ctx, "agent_browser_read", nil)
 	if err != nil {
 		errorsByTool["agent_browser_read"] = err.Error()
 	} else {
@@ -114,18 +114,18 @@ func (a *AgentBrowserAdapter) readCurrentPageLocked(ctx context.Context, session
 		state.SourceTruncated = boolValue(data["truncated"])
 	}
 
-	textResult, err := a.callAgentToolLocked(ctx, session, "agent_browser_get_text", map[string]any{"selector": "body"})
+	textResult, err := e.callAgentToolLocked(ctx, "agent_browser_get_text", map[string]any{"selector": "body"})
 	if err != nil {
 		errorsByTool["agent_browser_get_text"] = err.Error()
 	} else {
 		state.VisibleText = firstStringValue(mapValue(textResult.Data), "text", "value", "result")
 	}
-	if url, err := a.currentURLLocked(ctx, session); err != nil {
+	if url, err := e.currentURLLocked(ctx); err != nil {
 		errorsByTool["agent_browser_get_url"] = err.Error()
 	} else if url != "" {
 		state.URL = url
 	}
-	if title, err := a.currentTitleLocked(ctx, session); err != nil {
+	if title, err := e.currentTitleLocked(ctx); err != nil {
 		errorsByTool["agent_browser_get_title"] = err.Error()
 	} else {
 		state.Title = title
@@ -142,8 +142,8 @@ func (a *AgentBrowserAdapter) readCurrentPageLocked(ctx context.Context, session
 	return state, errorsByTool
 }
 
-func (a *AgentBrowserAdapter) snapshotAuthMetadataLocked(ctx context.Context, session *agentBrowserSession, state agentBrowserPageState) (map[string]any, error) {
-	result, err := a.callAgentToolLocked(ctx, session, "agent_browser_snapshot", agentBrowserSnapshotRawArgs())
+func (e *agentBrowserSessionEntry) snapshotAuthMetadataLocked(ctx context.Context, state agentBrowserPageState) (map[string]any, error) {
+	result, err := e.callAgentToolLocked(ctx, "agent_browser_snapshot", agentBrowserSnapshotRawArgs())
 	if err != nil {
 		return nil, err
 	}

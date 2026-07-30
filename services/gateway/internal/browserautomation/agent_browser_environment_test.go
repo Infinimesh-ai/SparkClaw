@@ -115,8 +115,8 @@ func TestPassiveHealthDoesNotStartBrowserSessionOrExposeEnvironmentPaths(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if adapter.session != nil || adapter.sessionGeneration != 0 {
-		t.Fatalf("passive health started a browser session: session=%#v generation=%d", adapter.session, adapter.sessionGeneration)
+	if adapter.entry != nil {
+		t.Fatalf("passive health started a browser session: entry=%#v", adapter.entry)
 	}
 	assertChromiumSingletonsPresent(t, profileDir)
 	if result.RawTool != "linux_environment_preflight" || result.ProviderSessionRef != "" || len(result.Pages) != 0 {

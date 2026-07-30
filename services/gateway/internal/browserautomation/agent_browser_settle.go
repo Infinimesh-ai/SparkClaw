@@ -19,36 +19,37 @@ type browserStableObservation struct {
 	Digest string
 }
 
-func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, session *agentBrowserSession, args map[string]any) (map[string]any, error) {
-	if requested := uint64Value(args["session_generation"]); requested != 0 && requested != a.sessionGeneration {
+func (e *agentBrowserSessionEntry) waitForStableStateLocked(ctx context.Context, args map[string]any) (map[string]any, error) {
+	if requested := uint64Value(args["session_generation"]); requested != 0 && requested != e.generation {
 		return nil, errors.New("browser_session_stale: requested session generation is no longer active")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if a.observeStableState == nil && (session == nil || !session.alive()) {
+	if e.adapter.observeStableState == nil && (e.session == nil || !e.session.alive()) {
 		return nil, errors.New("browser_renderer_unavailable: agent-browser session is not active")
 	}
+	adapterCfg := e.adapter.cfg.Adapters.BrowserAutomation
 	timeoutMS := boundedBrowserSettleValue(
-		intArg(args, "timeout_ms", a.cfg.Adapters.BrowserAutomation.SettleTimeoutMS),
+		intArg(args, "timeout_ms", adapterCfg.SettleTimeoutMS),
 		500,
 		120000,
 	)
 	quietMS := boundedBrowserSettleValue(
-		intArg(args, "quiet_period_ms", a.cfg.Adapters.BrowserAutomation.SettleQuietPeriodMS),
+		intArg(args, "quiet_period_ms", adapterCfg.SettleQuietPeriodMS),
 		100,
 		10000,
 	)
 	pollMS := boundedBrowserSettleValue(
-		intArg(args, "poll_interval_ms", a.cfg.Adapters.BrowserAutomation.SettlePollIntervalMS),
+		intArg(args, "poll_interval_ms", adapterCfg.SettlePollIntervalMS),
 		25,
 		quietMS,
 	)
 	settleCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
 
-	if a.observeStableState == nil {
-		_, _ = a.callAgentToolLocked(settleCtx, session, "agent_browser_wait_for_load", map[string]any{"state": "domcontentloaded"})
+	if e.adapter.observeStableState == nil {
+		_, _ = e.callAgentToolLocked(settleCtx, "agent_browser_wait_for_load", map[string]any{"state": "domcontentloaded"})
 	}
 	expectedURL := firstNonEmptyAgentBrowserString(stringArg(args, "expected_url"), stringArg(args, "canonical_url"))
 	targetKind := app.BrowserTargetKind(strings.TrimSpace(stringArg(args, "target_kind")))
@@ -73,7 +74,7 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 	}
 
 	for {
-		observation, err := a.observeStableBrowserState(settleCtx, session)
+		observation, err := e.observeStableBrowserState(settleCtx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -90,10 +91,10 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 				return nil, routeErr
 			}
 			if rebound != "" && rebound != observation.URL {
-				if routeRebinds >= a.cfg.Adapters.BrowserAutomation.RouteRebindLimit {
+				if routeRebinds >= adapterCfg.RouteRebindLimit {
 					return nil, errors.New("browser_route_diverged: same-origin route rebind limit exceeded")
 				}
-				if _, err := a.callAgentToolLocked(settleCtx, session, "agent_browser_open", map[string]any{"url": rebound}); err != nil {
+				if _, err := e.callAgentToolLocked(settleCtx, "agent_browser_open", map[string]any{"url": rebound}); err != nil {
 					return nil, fmt.Errorf("browser_renderer_unavailable: rebind route: %w", err)
 				}
 				routeRebinds++
@@ -118,7 +119,7 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 				"status":               "stable",
 				"reason_code":          "browser_target_settled",
 				"text":                 "browser page reached a stable observable state",
-				"page_id":              a.currentPageIDLocked(settleCtx, session),
+				"page_id":              e.currentPageIDLocked(settleCtx),
 				"url":                  observation.URL,
 				"title":                observation.Title,
 				"state_digest":         observation.Digest,
@@ -126,8 +127,8 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 				"observations":         observations,
 				"quiet_period_ms":      quietMS,
 				"route_rebinds":        routeRebinds,
-				"session_generation":   a.sessionGeneration,
-				"provider_session_ref": session.sessionName,
+				"session_generation":   e.generation,
+				"provider_session_ref": e.session.sessionName,
 			}, nil
 		}
 		if err := awaitNextPoll(); err != nil {
@@ -136,15 +137,15 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 	}
 }
 
-func (a *AgentBrowserAdapter) observeStableBrowserState(ctx context.Context, session *agentBrowserSession) (browserStableObservation, error) {
-	if a.observeStableState != nil {
-		return a.observeStableState(ctx, session)
+func (e *agentBrowserSessionEntry) observeStableBrowserState(ctx context.Context) (browserStableObservation, error) {
+	if e.adapter.observeStableState != nil {
+		return e.adapter.observeStableState(ctx, e.session)
 	}
-	return a.observeStableBrowserStateLocked(ctx, session)
+	return e.observeStableBrowserStateLocked(ctx)
 }
 
-func (a *AgentBrowserAdapter) observeStableBrowserStateLocked(ctx context.Context, session *agentBrowserSession) (browserStableObservation, error) {
-	pageURL, err := a.currentURLLocked(ctx, session)
+func (e *agentBrowserSessionEntry) observeStableBrowserStateLocked(ctx context.Context) (browserStableObservation, error) {
+	pageURL, err := e.currentURLLocked(ctx)
 	if err != nil {
 		return browserStableObservation{}, err
 	}
@@ -152,11 +153,11 @@ func (a *AgentBrowserAdapter) observeStableBrowserStateLocked(ctx context.Contex
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return browserStableObservation{}, fmt.Errorf("page URL %q is not a usable HTTP(S) document", pageURL)
 	}
-	title, err := a.currentTitleLocked(ctx, session)
+	title, err := e.currentTitleLocked(ctx)
 	if err != nil {
 		return browserStableObservation{}, err
 	}
-	textResult, err := a.callAgentToolLocked(ctx, session, "agent_browser_get_text", map[string]any{"selector": "body"})
+	textResult, err := e.callAgentToolLocked(ctx, "agent_browser_get_text", map[string]any{"selector": "body"})
 	if err != nil {
 		return browserStableObservation{}, err
 	}

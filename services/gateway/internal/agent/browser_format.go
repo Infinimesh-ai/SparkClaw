@@ -283,8 +283,3 @@ func hasBrowserState(line, state string) bool {
 		strings.Contains(line, " "+state+"=")
 }
 
-func compactBrowserSnapshotLine(line string, limit int) string {
-	line = strings.Join(strings.Fields(line), " ")
-	line = strings.ReplaceAll(line, " StaticText ", " ")
-	return trimForEpisode(line, limit)
-}

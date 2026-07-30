@@ -1120,7 +1120,7 @@ func TestCompactWorkflowStepPromptKeepsCurrentDocumentOperationContext(t *testin
 	}
 
 	message := adaptToolResult(toolResultAdapterInput{Call: call, Output: output, MaxBytes: 9000, EvidenceLimit: 5000})
-	prompt := workflowStepUserPromptWithOptions("修改心得与体会", 2, []string{message}, workflowStepPromptOptions{Compact: true})
+	prompt := workflowStepUserPrompt("修改心得与体会", 2, []string{message})
 	for _, want := range []string{
 		"document.operation_context",
 		"五、心得与体会",
@@ -3185,22 +3185,6 @@ func TestVisibleToolDefinitionsBrowserAutomationSkillControlsToolSet(t *testing.
 	names := visibleToolNames(dispatch.Tools)
 	if len(names) != 1 || names[0] != "browser.status" {
 		t.Fatalf("browser automation preflight stage must expose only browser.status: %#v", names)
-	}
-}
-
-func TestEnrichPlanWithWebFreshnessPreservesLatestIntent(t *testing.T) {
-	plan := enrichPlanWithWebFreshness("最新的巴威台风信息", toolPlan{
-		Name: "web.search",
-		Args: map[string]any{
-			"query": "台风巴威 登陆信息 时间 地点",
-		},
-	})
-	query := fmt.Sprint(plan.Args["query"])
-	if plan.Args["freshness"] != "latest" {
-		t.Fatalf("expected freshness=latest, got %#v", plan.Args)
-	}
-	if !strings.Contains(query, "最新") || !strings.Contains(query, "当前") || !strings.Contains(query, currentSearchDate()) {
-		t.Fatalf("fresh web query should retain latest/current/date intent, got %q", query)
 	}
 }
 

@@ -420,36 +420,6 @@ func findLocalToolGlob(pattern string) string {
 	}
 }
 
-func documentNodeModulesPath() string {
-	path := findLocalToolPath(filepath.Join(".tools", "document-node", "node_modules"))
-	if path != "" {
-		return path
-	}
-	path, err := filepath.Abs(filepath.Join(".tools", "document-node", "node_modules"))
-	if err != nil {
-		return filepath.Join(".tools", "document-node", "node_modules")
-	}
-	return path
-}
-
-func findLocalToolPath(rel string) string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	for {
-		candidate := filepath.Join(cwd, rel)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-		next := filepath.Dir(cwd)
-		if next == cwd {
-			return ""
-		}
-		cwd = next
-	}
-}
-
 func fileSize(path string) int {
 	info, err := os.Stat(path)
 	if err != nil {

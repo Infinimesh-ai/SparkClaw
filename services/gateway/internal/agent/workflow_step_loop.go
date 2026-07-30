@@ -244,7 +244,6 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			}
 			plan.Capability = capability
 		}
-		plan = enrichPlanWithWebFreshness(content, plan)
 		plan = enrichPlanWithBrowserMode(stageContext, plan)
 		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
 		result.ToolCalls = append(result.ToolCalls, call)
@@ -564,12 +563,9 @@ func compactToolArgsFingerprint(args map[string]any) string {
 	return string(raw)
 }
 
+// Current-run observations are execution state and must stay uncompressed,
+// so the user prompt takes no compaction options.
 func workflowStepUserPrompt(goal string, step int, observations []string) string {
-	return workflowStepUserPromptWithOptions(goal, step, observations, workflowStepPromptOptions{})
-}
-
-func workflowStepUserPromptWithOptions(goal string, step int, observations []string, options workflowStepPromptOptions) string {
-	_ = options // Current-run observations are execution state and must stay uncompressed.
 	lines := []string{
 		"WORKFLOW_STEP_REQUEST",
 		fmt.Sprintf("step=%d", step),

@@ -49,10 +49,6 @@ func canonicalizeWebSearchQuery(goal, query, date string) string {
 	return query
 }
 
-func queryWithFreshnessIntent(goal, query, date string) string {
-	return canonicalizeWebSearchQuery(goal, query, date)
-}
-
 func goalNeedsFreshWeb(goal string) bool {
 	lower := strings.ToLower(goal)
 	freshTerms := []string{

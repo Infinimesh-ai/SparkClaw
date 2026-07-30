@@ -861,14 +861,6 @@ func hasWorkflowStepModelCall(calls []app.ModelCall) bool {
 	return false
 }
 
-func toolCallIDs(calls []app.ToolCall) []string {
-	ids := make([]string, 0, len(calls))
-	for _, call := range calls {
-		ids = append(ids, call.ID)
-	}
-	return ids
-}
-
 func modelCallFromChat(sessionID, runID, operation string, chat modelrouter.ChatResult, err error, started, completed time.Time) app.ModelCall {
 	status := "completed"
 	errorText := ""
@@ -1107,26 +1099,6 @@ func (r Runtime) toolResultObservationBudget(tool string) (int, int) {
 		}
 	}
 	return maxBytes, evidenceLimit
-}
-
-func enrichPlanWithWebFreshness(goal string, plan toolPlan) toolPlan {
-	if plan.WorkflowID != "" || plan.Name != "web.search" || !goalNeedsFreshWeb(goal) {
-		return plan
-	}
-	query := strings.TrimSpace(stringValue(plan.Args["query"]))
-	if query == "" {
-		return plan
-	}
-	args := map[string]any{}
-	for key, value := range plan.Args {
-		args[key] = value
-	}
-	if !hasNonEmptyStringArg(args, "freshness") {
-		args["freshness"] = "latest"
-	}
-	args["query"] = queryWithFreshnessIntent(goal, query, currentSearchDate())
-	plan.Args = args
-	return plan
 }
 
 func enrichPlanWithBrowserMode(stageContext workflowStageContext, plan toolPlan) toolPlan {

@@ -803,16 +803,6 @@ func currentBrowserSnapshotRefs(refs []app.ResourceRef) []app.ResourceRef {
 	return out
 }
 
-func completedBrowserClicksInState(state app.WorkflowNodeState) int {
-	count := 0
-	for _, ref := range state.OutcomeRefs {
-		if ref.Kind == "browser_click" {
-			count++
-		}
-	}
-	return count
-}
-
 func browserGoalEvidenceRefs(refs []app.ResourceRef) []string {
 	out := []string{}
 	for _, ref := range refs {

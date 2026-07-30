@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"unicode"
 )
 
 type browserDestination struct {
@@ -85,22 +84,3 @@ func browserTargetMatchesURL(targetURL, destinationID, candidateURL string) bool
 	return destinationID != "" && registeredBrowserDestinationMatchesURL(destinationID, candidateURL)
 }
 
-func registeredBrowserDestinationHasInteractionGoal(content string, match browserDestinationMatch) bool {
-	lower := strings.ToLower(content)
-	lower = strings.Replace(lower, strings.ToLower(match.Alias), " ", 1)
-	for _, phrase := range []string{
-		"please", "help me", "could you", "would you", "in chromium", "in the browser",
-		"open", "visit", "launch", "focus", "go to",
-		"麻烦", "请", "帮我", "给我", "现在", "在chromium中", "在浏览器中", "在浏览器里",
-		"浏览器", "chromium", "打开", "访问", "进入", "前往", "去", "一下", "页面", "网页", "的", "在", "中", "里",
-	} {
-		lower = strings.ReplaceAll(lower, phrase, " ")
-	}
-	lower = strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) || unicode.IsPunct(r) {
-			return -1
-		}
-		return r
-	}, lower)
-	return lower != ""
-}

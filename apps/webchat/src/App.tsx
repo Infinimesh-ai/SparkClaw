@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Bot, KeyRound, RefreshCw } from "lucide-react";
+import { Activity, Bot, KeyRound, RefreshCw, X } from "lucide-react";
 import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
@@ -75,6 +75,7 @@ export function App() {
   const [pairing, setPairing] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeMessageStreamRef = useRef<string>("");
@@ -323,6 +324,7 @@ export function App() {
     try {
       setBusy(true);
       setError("");
+      setNotice("");
       setDraftsBySession((current) => ({ ...current, [sessionId]: "" }));
       activeMessageStreamRef.current = sessionId;
       const now = new Date().toISOString();
@@ -394,11 +396,15 @@ export function App() {
       if (disposition === "restore_draft") {
         setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
+        setError(err instanceof Error ? err.message : text.errors.message);
       } else {
+        // The gateway accepted the run and keeps executing it server-side;
+        // losing the stream is not a failure, so surface an informational
+        // notice instead of an error banner.
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
         resetSessionDraft(sessionId);
+        setNotice(text.chat.streamDetached);
       }
-      setError(err instanceof Error ? err.message : text.errors.message);
       try {
         const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
         setSessions(sessionList.sessions ?? []);
@@ -551,6 +557,15 @@ export function App() {
                 </button>
               </div>
             ) : null}
+          </div>
+        )}
+
+        {notice && (
+          <div className="noticeBanner" role="status">
+            <span>{notice}</span>
+            <button className="iconButton" onClick={() => setNotice("")} title={text.chat.dismissNotice} aria-label={text.chat.dismissNotice}>
+              <X size={15} />
+            </button>
           </div>
         )}
 

@@ -995,6 +995,9 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		return nil
 	}
+	// Event name must stay in sync with MESSAGE_STREAM_STARTED_EVENT in
+	// apps/webchat/src/lib/messageStream.ts: the webchat client keys its
+	// accepted/not-accepted failure disposition on this exact string.
 	if err := send("message.stream.started", map[string]string{"session_id": sessionID}); err != nil {
 		return
 	}

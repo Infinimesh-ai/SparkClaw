@@ -21,7 +21,7 @@ import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { sortNotificationBindings, isVisibleNotificationBinding } from "./lib/format";
-import { messageStreamFailureDisposition } from "./lib/messageStream";
+import { MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
 import type {
   Approval,
@@ -343,7 +343,7 @@ export function App() {
       let receivedDelta = false;
       await api.sendMessageStream(sessionId, trimmed || attachmentOnlyPrompt(language), attachments, {
         onEvent: (event, data) => {
-          if (event === "message.stream.started") {
+          if (event === MESSAGE_STREAM_STARTED_EVENT) {
             streamAccepted = true;
           }
           const status = streamStatusFromEvent(event, data, text);
@@ -403,8 +403,12 @@ export function App() {
         resetSessionDraft(sessionId);
       }
       setError(err instanceof Error ? err.message : text.errors.message);
-      const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
-      setSessions(sessionList.sessions ?? []);
+      try {
+        const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
+        setSessions(sessionList.sessions ?? []);
+      } catch {
+        // Best-effort recovery refresh; surface only the original stream error.
+      }
     } finally {
       if (activeMessageStreamRef.current === sessionId) {
         activeMessageStreamRef.current = "";

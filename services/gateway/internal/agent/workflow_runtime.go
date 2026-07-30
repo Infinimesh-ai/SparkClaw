@@ -565,17 +565,37 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 	allApprovals := []app.Approval{}
 	allObservations := append([]string(nil), seedObservations...)
 	latest := workflowExecutionResult{}
+	runBudget := r.newWorkflowRunBudget(seedCalls)
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
+		if stop, reason := runBudget.exceeded(allObservations); stop {
+			latest.Halted = true
+			latest.Cancelled = ctx.Err() != nil
+			latest.FinalAnswer = workflowStepBudgetLimitMessage(content, reason, allCalls, allObservations)
+			r.store.AddAudit(app.AuditEvent{
+				SessionID: sessionID,
+				RunID:     run.ID,
+				Actor:     "runtime",
+				Type:      "workflow_run.budget_stopped",
+				Summary:   reason,
+				Fields: map[string]any{
+					"run_tool_calls":      runBudget.ToolCalls,
+					"observation_bytes":   observationsBytes(allObservations),
+					"repeated_tool":       runBudget.RepeatedRun.Tool,
+					"repeated_tool_calls": runBudget.RepeatedRun.Count,
+				},
+			})
+			break
+		}
 		stageResult := workflowExecutionResult{}
 		if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
 		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {
-			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, stageContext, visibleTools, allObservations)
+			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, stageContext, visibleTools, allObservations, runBudget)
 		} else if directProfile, ok := profile.(workflowDirectStageProfile); ok && directProfile.DirectStage(run.Workflow) {
-			stageResult = r.runWorkflowDirectStage(ctx, sessionID, run, stageContext, visibleTools, allObservations, directProfile.DirectStageArguments(run.Workflow))
+			stageResult = r.runWorkflowDirectStage(ctx, sessionID, run, stageContext, visibleTools, allObservations, directProfile.DirectStageArguments(run.Workflow), runBudget)
 		} else {
-			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, stageContext, visibleTools, allCalls, allObservations)
+			stageResult = r.runWorkflowModelStep(ctx, sessionID, run, content, stageContext, visibleTools, allCalls, allObservations, runBudget)
 		}
 		allCalls = append(allCalls, stageResult.ToolCalls...)
 		allApprovals = append(allApprovals, stageResult.Approvals...)
@@ -752,15 +772,15 @@ func activeWorkflowNodeUsesDirectToolOnce(state *app.WorkflowState) bool {
 	return ok && node.InvocationMode == app.WorkflowInvocationDirectOnce
 }
 
-func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string) workflowExecutionResult {
-	return r.runWorkflowDirectTool(ctx, sessionID, run, stageContext, visibleTools, observations, nil, true)
+func (r Runtime) runWorkflowDirectToolOnce(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string, runBudget *workflowRunBudget) workflowExecutionResult {
+	return r.runWorkflowDirectTool(ctx, sessionID, run, stageContext, visibleTools, observations, nil, true, runBudget)
 }
 
-func (r Runtime) runWorkflowDirectStage(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any) workflowExecutionResult {
-	return r.runWorkflowDirectTool(ctx, sessionID, run, stageContext, visibleTools, observations, args, false)
+func (r Runtime) runWorkflowDirectStage(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any, runBudget *workflowRunBudget) workflowExecutionResult {
+	return r.runWorkflowDirectTool(ctx, sessionID, run, stageContext, visibleTools, observations, args, false, runBudget)
 }
 
-func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any, requireDirectOnce bool) workflowExecutionResult {
+func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, run app.AgentRun, stageContext workflowStageContext, visibleTools []app.ToolDefinition, observations []string, args map[string]any, requireDirectOnce bool, runBudget *workflowRunBudget) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]string(nil), observations...)}
 	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 || len(visibleTools) != 1 ||
 		stageContext.WorkflowID != run.Workflow.Plan.ProfileID || stageContext.WorkflowNodeID != run.Workflow.ActiveNodeIDs[0] || stageContext.ScopeRevision <= 0 {
@@ -788,6 +808,7 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 	}
 	plan = enrichPlanWithBrowserMode(stageContext, plan)
 	call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
+	runBudget.observeToolCall(call)
 	result.ToolCalls = []app.ToolCall{call}
 	if approval != nil {
 		result.Approvals = []app.Approval{*approval}

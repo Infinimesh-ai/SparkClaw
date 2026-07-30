@@ -26,7 +26,7 @@ func TestWorkflowModelStepHonorsExplicitLaneAndDefaultsDeep(t *testing.T) {
 				t.Context(), session.ID, workflowRun,
 				`workflow goal
 MOCK_STEP_RESPONSE:{"type":"final","answer":"done"}`,
-				workflowStageContext{WorkflowID: app.WorkflowBrowserInternetSearch, ModelLaneHint: test.laneHint}, nil, nil, nil,
+				workflowStageContext{WorkflowID: app.WorkflowBrowserInternetSearch, ModelLaneHint: test.laneHint}, nil, nil, nil, nil,
 			)
 			if workflowResult.Chat.Lane != test.wantLane ||
 				!hasModelCallOperation(st.ListModelCalls(session.ID, workflowRun.ID), "workflow_step_1", test.wantLane) {

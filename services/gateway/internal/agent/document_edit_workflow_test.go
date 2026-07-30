@@ -232,7 +232,7 @@ func TestDocumentEditDirectLocalizationRejectsMismatchedWorkflowHint(t *testing.
 	}
 	dispatch.Context.WorkflowNodeID = "document_edit"
 
-	result := runtime.runWorkflowDirectToolOnce(context.Background(), session.ID, dispatch.Run, dispatch.Context, dispatch.Tools, nil)
+	result := runtime.runWorkflowDirectToolOnce(context.Background(), session.ID, dispatch.Run, dispatch.Context, dispatch.Tools, nil, nil)
 
 	if result.WorkflowFailure != workflowFailureDirectToolInvocationInvalid || len(result.ToolCalls) != 0 {
 		t.Fatalf("mismatched direct localization hint was not rejected before execution: %#v", result)

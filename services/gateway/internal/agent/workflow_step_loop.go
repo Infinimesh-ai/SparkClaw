@@ -45,13 +45,31 @@ type workflowExecutionResult struct {
 	WorkflowFailure     string
 }
 
-type workflowStepBudget struct {
+// workflowStageBudget bounds one stage invocation of the step loop: a stage
+// starts fresh wall-clock and no-progress allowances every time the workflow
+// runtime re-enters the loop under a scope revision.
+type workflowStageBudget struct {
+	StartedAt            time.Time
+	MaxDuration          time.Duration
+	MaxNoProgressActions int
+}
+
+// workflowRunBudget bounds one whole workflow run. A single instance is
+// created per run and threaded through every stage (including direct tool
+// invocations), so tool-call count and the repeated-call fingerprint survive
+// the per-tool-call stage boundary; observations accumulate across stages by
+// construction. On resume after an approval, seed calls are replayed into a
+// fresh budget so the resumed segment keeps counting from the approved work,
+// while the wall clock deliberately restarts (the owner's decision time must
+// not consume the run budget).
+type workflowRunBudget struct {
 	StartedAt            time.Time
 	MaxDuration          time.Duration
 	MaxToolCalls         int
 	MaxObservationBytes  int
-	MaxNoProgressActions int
 	MaxRepeatedToolCalls int
+	ToolCalls            int
+	RepeatedRun          repeatedToolCallRun
 }
 
 type repeatedToolCallRun struct {
@@ -60,11 +78,28 @@ type repeatedToolCallRun struct {
 	Count       int
 }
 
-func (r Runtime) stepBudget() workflowStepBudget {
+func (r Runtime) newWorkflowStageBudget() workflowStageBudget {
 	cfg := r.tools.Config().Runtime
 	maxDurationSeconds := cfg.StageMaxDurationSeconds
 	if maxDurationSeconds <= 0 {
 		maxDurationSeconds = 180
+	}
+	maxNoProgressActions := cfg.StageMaxNoProgressActions
+	if maxNoProgressActions <= 0 {
+		maxNoProgressActions = 3
+	}
+	return workflowStageBudget{
+		StartedAt:            time.Now().UTC(),
+		MaxDuration:          time.Duration(maxDurationSeconds) * time.Second,
+		MaxNoProgressActions: maxNoProgressActions,
+	}
+}
+
+func (r Runtime) newWorkflowRunBudget(seedCalls []app.ToolCall) *workflowRunBudget {
+	cfg := r.tools.Config().Runtime
+	maxDurationSeconds := cfg.RunMaxDurationSeconds
+	if maxDurationSeconds <= 0 {
+		maxDurationSeconds = 1800
 	}
 	maxToolCalls := cfg.RunMaxToolCalls
 	if maxToolCalls <= 0 {
@@ -74,49 +109,80 @@ func (r Runtime) stepBudget() workflowStepBudget {
 	if maxObservationBytes <= 0 {
 		maxObservationBytes = 48000
 	}
-	maxNoProgressActions := cfg.StageMaxNoProgressActions
-	if maxNoProgressActions <= 0 {
-		maxNoProgressActions = 3
-	}
 	maxRepeatedToolCalls := cfg.RunMaxRepeatedToolCalls
 	if maxRepeatedToolCalls <= 0 {
 		maxRepeatedToolCalls = 3
 	}
-	return workflowStepBudget{
+	budget := &workflowRunBudget{
 		StartedAt:            time.Now().UTC(),
 		MaxDuration:          time.Duration(maxDurationSeconds) * time.Second,
 		MaxToolCalls:         maxToolCalls,
 		MaxObservationBytes:  maxObservationBytes,
-		MaxNoProgressActions: maxNoProgressActions,
 		MaxRepeatedToolCalls: maxRepeatedToolCalls,
 	}
+	for _, call := range seedCalls {
+		budget.observeToolCall(call)
+	}
+	return budget
 }
 
-func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
+// observeToolCall accounts one executed tool call against the run budget.
+// Only executed calls advance or reset the repeated-call streak; parse
+// failures and rejected finals between two identical calls do not launder
+// the repetition.
+func (b *workflowRunBudget) observeToolCall(call app.ToolCall) {
+	if b == nil {
+		return
+	}
+	b.ToolCalls++
+	b.RepeatedRun = advanceRepeatedToolCallRun(b.RepeatedRun, call)
+}
+
+func (b *workflowRunBudget) exceeded(observations []string) (bool, string) {
+	if b == nil {
+		return false, ""
+	}
+	if b.MaxDuration > 0 && time.Since(b.StartedAt) >= b.MaxDuration {
+		return true, "本轮运行超过时间预算。"
+	}
+	if b.MaxToolCalls > 0 && b.ToolCalls >= b.MaxToolCalls {
+		return true, "本轮工具调用已达到运行预算。"
+	}
+	if b.MaxObservationBytes > 0 && observationsBytes(observations) >= b.MaxObservationBytes {
+		return true, "本轮工具结果上下文已接近预算上限。"
+	}
+	if b.MaxRepeatedToolCalls > 0 && b.RepeatedRun.Count >= b.MaxRepeatedToolCalls && b.RepeatedRun.Tool != "" {
+		return true, fmt.Sprintf("连续重复调用 %s，缺少后续推进动作。", b.RepeatedRun.Tool)
+	}
+	return false, ""
+}
+
+func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, runBudget *workflowRunBudget) workflowExecutionResult {
 	if strings.TrimSpace(stageContext.ModelLaneHint) == "" {
 		stageContext.ModelLaneHint = workflowExecutionModelLane
 	}
-	return r.runWorkflowStepLoop(ctx, sessionID, run, content, stageContext, visibleTools, seedCalls, seedObservations)
+	return r.runWorkflowStepLoop(ctx, sessionID, run, content, stageContext, visibleTools, seedCalls, seedObservations, runBudget)
 }
 
 // runWorkflowStepLoop is the shared model/tool execution primitive. Matched
 // workflows invoke it only within their persisted fixed scope.
-func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string) workflowExecutionResult {
+func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, runBudget *workflowRunBudget) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]string(nil), seedObservations...)}
-	completedSoFar := append([]app.ToolCall(nil), seedCalls...)
 	contextSnapshot := r.buildAgentContextSnapshot(sessionID, run.ID, content)
 	contextText := contextSnapshot.ForWorkflowStep()
 	compactContextText := contextSnapshot.ForWorkflowStepCompact()
 	systemPrompt := workflowStepSystemPrompt(contextSnapshot.Episodes, stageContext, visibleTools, contextText)
 	compactSystemPrompt := workflowStepSystemPrompt(contextSnapshot.Episodes, stageContext, visibleTools, compactContextText, workflowStepPromptOptions{Compact: true})
 	task := workflowStepModelTask(run, stageContext)
-	budget := r.stepBudget()
+	stageBudget := r.newWorkflowStageBudget()
+	if runBudget == nil {
+		runBudget = r.newWorkflowRunBudget(seedCalls)
+	}
 	noProgressActions := 0
-	repeatedRun := repeatedToolCallRun{}
 	requiredToolFinalResponses := 0
 	attempts := 0
 	for {
-		if stop, reason := shouldStopWorkflowStepLoop(ctx, budget, result.ToolCalls, result.Observations, noProgressActions, repeatedRun.Count, repeatedRun.Tool); stop {
+		if stop, reason := shouldStopWorkflowStepLoop(ctx, stageBudget, runBudget, result.Observations, noProgressActions); stop {
 			if grounded, ok := groundedImageInspectSummary(content, "", result.ToolCalls); ok {
 				result.FinalAnswer = grounded
 				result.Completed = true
@@ -132,11 +198,12 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 				Type:      "workflow_step.budget_stopped",
 				Summary:   reason,
 				Fields: map[string]any{
-					"tool_calls":          len(result.ToolCalls),
+					"stage_tool_calls":    len(result.ToolCalls),
+					"run_tool_calls":      runBudget.ToolCalls,
 					"observation_bytes":   observationsBytes(result.Observations),
 					"no_progress_actions": noProgressActions,
-					"repeated_tool":       repeatedRun.Tool,
-					"repeated_tool_calls": repeatedRun.Count,
+					"repeated_tool":       runBudget.RepeatedRun.Tool,
+					"repeated_tool_calls": runBudget.RepeatedRun.Count,
 				},
 			})
 			return result
@@ -182,7 +249,6 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			})
 			result.Observations = append(result.Observations, observation)
 			noProgressActions++
-			repeatedRun = repeatedToolCallRun{}
 			continue
 		}
 		r.store.AddAudit(app.AuditEvent{
@@ -201,7 +267,6 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			if stageContext.WorkflowID != "" && stageContext.RequiresToolEvidence && len(stepVisibleTools) > 0 {
 				requiredToolFinalResponses++
 				noProgressActions++
-				repeatedRun = repeatedToolCallRun{}
 				result.Observations = append(result.Observations, requiredWorkflowToolCallObservation(stepVisibleTools))
 				r.store.AddAudit(app.AuditEvent{
 					SessionID: sessionID,
@@ -247,8 +312,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		plan = enrichPlanWithBrowserMode(stageContext, plan)
 		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
 		result.ToolCalls = append(result.ToolCalls, call)
-		completedSoFar = append(completedSoFar, call)
-		repeatedRun = advanceRepeatedToolCallRun(repeatedRun, call)
+		runBudget.observeToolCall(call)
 		if approval != nil {
 			result.Approvals = append(result.Approvals, *approval)
 		}
@@ -382,24 +446,18 @@ func estimatePromptTokens(values ...string) int {
 	return total
 }
 
-func shouldStopWorkflowStepLoop(ctx context.Context, budget workflowStepBudget, calls []app.ToolCall, observations []string, noProgressActions int, repeatedToolCalls int, repeatedTool string) (bool, string) {
+func shouldStopWorkflowStepLoop(ctx context.Context, stageBudget workflowStageBudget, runBudget *workflowRunBudget, observations []string, noProgressActions int) (bool, string) {
 	if err := ctx.Err(); err != nil {
 		return true, "运行已被取消或请求上下文已结束。"
 	}
-	if budget.MaxDuration > 0 && time.Since(budget.StartedAt) >= budget.MaxDuration {
-		return true, "本轮运行超过时间预算。"
+	if stop, reason := runBudget.exceeded(observations); stop {
+		return true, reason
 	}
-	if budget.MaxToolCalls > 0 && len(calls) >= budget.MaxToolCalls {
-		return true, "本轮工具调用已达到运行预算。"
+	if stageBudget.MaxDuration > 0 && time.Since(stageBudget.StartedAt) >= stageBudget.MaxDuration {
+		return true, "当前执行阶段超过时间预算。"
 	}
-	if budget.MaxObservationBytes > 0 && observationsBytes(observations) >= budget.MaxObservationBytes {
-		return true, "本轮工具结果上下文已接近预算上限。"
-	}
-	if budget.MaxNoProgressActions > 0 && noProgressActions >= budget.MaxNoProgressActions {
+	if stageBudget.MaxNoProgressActions > 0 && noProgressActions >= stageBudget.MaxNoProgressActions {
 		return true, "连续工具调用没有产生新的可推进信息。"
-	}
-	if budget.MaxRepeatedToolCalls > 0 && repeatedToolCalls >= budget.MaxRepeatedToolCalls && repeatedTool != "" {
-		return true, fmt.Sprintf("连续重复调用 %s，缺少后续推进动作。", repeatedTool)
 	}
 	return false, ""
 }

@@ -1060,6 +1060,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	if err != nil {
 		call.Status = "failed"
 		call.Error = err.Error()
+		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		if strings.HasPrefix(call.Tool, "browser.") {
 			call.Error = redactBrowserPersistenceText(app.BrowserTargetDescriptor{
 				QueryProvenance: app.BrowserQueryProviderVolatile,

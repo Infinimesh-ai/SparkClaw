@@ -395,11 +395,20 @@ func adaptBrowserSnapshotOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 func adaptBrowserClickOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if !toolCallCompleted(call) {
-		lowerError := strings.ToLower(call.Error)
-		if strings.Contains(lowerError, "unsafe click target") {
+		switch app.ToolErrorCode(call.ErrorCode) {
+		case app.ToolErrorUnsafeClickTarget:
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
-		} else if strings.Contains(lowerError, "stale") || strings.Contains(lowerError, "snapshot") {
+		case app.ToolErrorSnapshotStale:
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotStale}
+		case "":
+			// Fallback prose matching for tool calls persisted before
+			// ErrorCode existed and for unclassified adapter errors.
+			lowerError := strings.ToLower(call.Error)
+			if strings.Contains(lowerError, "unsafe click target") {
+				outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
+			} else if strings.Contains(lowerError, "stale") || strings.Contains(lowerError, "snapshot") {
+				outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotStale}
+			}
 		}
 		return outcome
 	}

@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   arguments JSONB NOT NULL,
 	  result JSONB,
 	  error TEXT,
+	  error_code TEXT,
 	  approval_id TEXT,
 	  observation_ref TEXT,
 	  observation_summary TEXT NOT NULL DEFAULT '',
@@ -161,6 +162,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS workflow_node_id TEXT NOT NULL DEFAULT '';
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS scope_revision INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT '';
+	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS error_code TEXT;
 
 	CREATE TABLE IF NOT EXISTS document_records (
 	  id TEXT PRIMARY KEY,
@@ -1326,10 +1328,10 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO tool_calls (
 			id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
-			tool, risk_level, status, arguments, result, error,
+			tool, risk_level, status, arguments, result, error, error_code,
 			approval_id, observation_ref, observation_summary, started_at, completed_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), nullif($14, ''), nullif($15, ''), $16, $17, $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), nullif($14, ''), nullif($15, ''), nullif($16, ''), $17, $18, $19)
 		ON CONFLICT (id) DO UPDATE SET
 			workflow_id = EXCLUDED.workflow_id,
 			workflow_node_id = EXCLUDED.workflow_node_id,
@@ -1340,13 +1342,14 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 			arguments = EXCLUDED.arguments,
 			result = EXCLUDED.result,
 			error = EXCLUDED.error,
+			error_code = EXCLUDED.error_code,
 			approval_id = EXCLUDED.approval_id,
 			observation_ref = EXCLUDED.observation_ref,
 			observation_summary = EXCLUDED.observation_summary,
 			started_at = EXCLUDED.started_at,
 			completed_at = EXCLUDED.completed_at
 	`, call.ID, call.SessionID, call.RunID, string(call.WorkflowID), string(call.WorkflowNodeID), call.ScopeRevision, call.Capability,
-		call.Tool, string(call.Risk), call.Status, args, result, call.Error, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt)
+		call.Tool, string(call.Risk), call.Status, args, result, call.Error, call.ErrorCode, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt)
 	s.appendAudit(ctx, "tool_call."+call.Status, call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 		"risk": call.Risk,
 		"id":   call.ID,
@@ -1357,7 +1360,7 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 func (s *PostgresStore) GetToolCall(id string) (app.ToolCall, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
-			tool, risk_level, status, arguments, result, coalesce(error, ''),
+			tool, risk_level, status, arguments, result, coalesce(error, ''), coalesce(error_code, ''),
 			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, '')
 		FROM tool_calls
 		WHERE id = $1
@@ -1369,7 +1372,7 @@ func (s *PostgresStore) GetToolCall(id string) (app.ToolCall, bool) {
 func (s *PostgresStore) ListToolCalls(sessionID string) []app.ToolCall {
 	rows, err := s.db.Query(context.Background(), `
 		SELECT id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
-			tool, risk_level, status, arguments, result, coalesce(error, ''),
+			tool, risk_level, status, arguments, result, coalesce(error, ''), coalesce(error_code, ''),
 			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, '')
 		FROM tool_calls
 		WHERE $1 = '' OR session_id = $1
@@ -3319,7 +3322,7 @@ func scanToolCall(row scanner) (app.ToolCall, error) {
 	var args []byte
 	var result []byte
 	err := row.Scan(&call.ID, &call.SessionID, &call.RunID, &call.WorkflowID, &call.WorkflowNodeID, &call.ScopeRevision, &call.Capability,
-		&call.Tool, &risk, &call.Status, &args, &result, &call.Error, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary)
+		&call.Tool, &risk, &call.Status, &args, &result, &call.Error, &call.ErrorCode, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary)
 	if err != nil {
 		return app.ToolCall{}, err
 	}

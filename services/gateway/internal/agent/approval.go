@@ -28,6 +28,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		call.CompletedAt = &now
 		call.Result = map[string]any{"status": "approval_confirmed"}
 		call.Error = ""
+		call.ErrorCode = ""
 		call.ObservationSummary = CompressObservation(call.Tool, call.Result, r.observationSummaryLimit())
 		call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
 		r.store.SaveToolCall(call)
@@ -54,6 +55,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if err != nil {
 		call.Status = "failed_after_approval"
 		call.Error = err.Error()
+		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		if result.Output != nil {
 			call.Result = result.Output
 		}
@@ -63,6 +65,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	call.Status = "completed_after_approval"
 	call.Result = result.Output
 	call.Error = ""
+	call.ErrorCode = ""
 	call.ObservationSummary = CompressObservation(call.Tool, result.Output, r.observationSummaryLimit())
 	call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, result.Output)
 	r.store.SaveToolCall(call)

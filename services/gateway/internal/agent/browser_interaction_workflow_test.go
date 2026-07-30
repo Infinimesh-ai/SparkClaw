@@ -678,6 +678,52 @@ func TestWorkflowPromptContextKeepsStageAndProvidedToolList(t *testing.T) {
 	}
 }
 
+func TestAdaptBrowserClickOutcomeClassifiesFailuresByTypedCodeWithProseFallback(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call app.ToolCall
+		want app.OutcomeSignal
+	}{
+		{
+			// The typed code decides even when the redacted prose carries none
+			// of the legacy marker words.
+			name: "typed unsafe click code",
+			call: app.ToolCall{Tool: "browser.click", Status: "failed", ErrorCode: string(app.ToolErrorUnsafeClickTarget), Error: "rejected"},
+			want: app.OutcomeSignalUnsafeClickTarget,
+		},
+		{
+			name: "typed stale snapshot code",
+			call: app.ToolCall{Tool: "browser.click", Status: "failed", ErrorCode: string(app.ToolErrorSnapshotStale), Error: "rejected"},
+			want: app.OutcomeSignalSnapshotStale,
+		},
+		{
+			// Records persisted before ErrorCode existed still classify
+			// through the documented prose fallback.
+			name: "legacy record falls back to prose",
+			call: app.ToolCall{Tool: "browser.click", Status: "failed", Error: "stale or unknown snapshot; take a new browser.snapshot"},
+			want: app.OutcomeSignalSnapshotStale,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			outcome := adaptBrowserClickOutcome(test.call, "browser_result")
+			if len(outcome.Signals) != 1 || outcome.Signals[0] != test.want {
+				t.Fatalf("click failure was misclassified: %#v", outcome.Signals)
+			}
+		})
+	}
+}
+
+func TestUnsafeBrowserClickGroundingUsesTypedErrorCode(t *testing.T) {
+	calls := []app.ToolCall{{
+		Tool: "browser.click", Status: "failed",
+		ErrorCode: string(app.ToolErrorUnsafeClickTarget), Error: "交互被拒绝",
+	}}
+	answer, ok := groundedBrowserAutomationSummary("点击当前页面的下一步", "fallback", calls)
+	if !ok || answer != "页面交互已阻止：目标点击可能产生不允许的后果。" {
+		t.Fatalf("typed unsafe click code was not grounded: %q ok=%v", answer, ok)
+	}
+}
+
 func TestUnsafeBrowserClickGroundingOverridesEarlierTabEvidence(t *testing.T) {
 	calls := []app.ToolCall{
 		{Tool: "browser.list_tabs", Status: "completed", Result: map[string]any{"pages": []any{map[string]any{"page_id": "page_1", "selected": true}}}},

@@ -117,6 +117,9 @@ func TestBrowserInteractionClickRejectsUnsafeControlBeforeAdapter(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "unsafe click target") {
 		t.Fatalf("unsafe control reached the browser adapter: %v", err)
 	}
+	if code := app.ToolErrorCodeFrom(err); code != app.ToolErrorUnsafeClickTarget {
+		t.Fatalf("unsafe click rejection lost its typed code: %q (%v)", code, err)
+	}
 }
 
 func newBrowserVerificationHub() (*store.MemoryStore, *ToolHub) {

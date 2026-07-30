@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
@@ -636,7 +637,10 @@ func (a *AgentBrowserAdapter) ensureSnapshotTargetLocked(ctx context.Context, se
 
 func (a *AgentBrowserAdapter) ensureSnapshotPageActiveLocked(_ context.Context, _ *agentBrowserSession, pageID string) error {
 	if a.activeSnapshotPage != pageID {
-		return fmt.Errorf("stale or inactive snapshot for %s; take a new browser.snapshot", pageID)
+		return &app.CodedToolError{
+			Code: app.ToolErrorSnapshotStale,
+			Err:  fmt.Errorf("stale or inactive snapshot for %s; take a new browser.snapshot", pageID),
+		}
 	}
 	return nil
 }

@@ -403,8 +403,12 @@ export function App() {
         resetSessionDraft(sessionId);
       }
       setError(err instanceof Error ? err.message : text.errors.message);
-      const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
-      setSessions(sessionList.sessions ?? []);
+      try {
+        const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
+        setSessions(sessionList.sessions ?? []);
+      } catch {
+        // Best-effort recovery refresh; surface only the original stream error.
+      }
     } finally {
       if (activeMessageStreamRef.current === sessionId) {
         activeMessageStreamRef.current = "";

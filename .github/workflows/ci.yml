@@ -120,3 +120,9 @@ jobs:
       - uses: actions/checkout@v4
       - run: cp docker/env/sparkclaw.example.env .env
       - run: docker compose --env-file .env -f docker/compose.yaml config --quiet
+      - run: >-
+          SPARKCLAW_BROWSER_DISPLAY=:1
+          SPARKCLAW_BROWSER_XAUTHORITY=/tmp/Xauthority
+          docker compose --env-file .env
+          -f docker/compose.yaml -f docker/compose.visible-browser.yaml
+          config --quiet

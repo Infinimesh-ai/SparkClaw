@@ -76,8 +76,13 @@ state remains inside Chromium. SparkClaw does not copy credentials into another
 process or attach to the owner's daily browser profile.
 
 On the Linux ARM64 Compose runtime, a visible session uses the owner's real
-X11/XWayland desktop. `npm run dev` discovers one unambiguous local display and
-its Xauthority file, then mounts the X socket and authority into Gateway. The
+X11/XWayland desktop. The desktop bridge is an opt-in Compose overlay,
+`docker/compose.visible-browser.yaml`; the base `docker/compose.yaml` mounts no
+X socket and passes no display environment into Gateway. `npm run dev` discovers
+one unambiguous local display and its Xauthority file, then applies the overlay
+so the X socket and authority are mounted into Gateway. On a headless host it
+starts the same stack without the overlay and only hidden automation is
+available. The
 adapter disables agent-browser's Xvfb fallback for visible sessions: a missing
 or inaccessible desktop now fails explicitly instead of reporting success for
 a browser that can only be seen inside a virtual display. Headless automation
@@ -169,9 +174,10 @@ not a model-visible tool.
   snapshot. Model output cannot bypass ref ownership or Policy.
 - Screenshots, raw responses, and rendered text are artifacts/evidence, never
   trusted instructions.
-- The Compose Xauthority mount is read-only but grants Gateway access to the
-  owner's desktop display. Enable visible forwarding only on the trusted,
-  single-owner local runtime.
+- The base Compose file exposes no X11 socket or Xauthority to Gateway. The
+  `docker/compose.visible-browser.yaml` overlay mounts both read-only, which
+  still grants Gateway access to the owner's desktop display. Apply the overlay
+  only on the trusted, single-owner local runtime.
 
 ## Configuration And Setup
 
@@ -196,8 +202,8 @@ by `docker/env/sparkclaw.example.env`:
 | `adapters.browserAutomation.profileDir` | SparkClaw-owned persistent profile root |
 | `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | Bounded lifecycle; hidden idle covers the configured model/Workflow reasoning gap |
 | `security.browser_read_allow_hosts` | Explicit private-host exceptions, primarily test fixtures |
-| `SPARKCLAW_BROWSER_DISPLAY` | Compose-only Linux host display, such as `:1` |
-| `SPARKCLAW_BROWSER_XAUTHORITY` | Compose-only readable host Xauthority file |
+| `SPARKCLAW_BROWSER_DISPLAY` | Visible-browser overlay only: Linux host display, such as `:1` |
+| `SPARKCLAW_BROWSER_XAUTHORITY` | Visible-browser overlay only: readable host Xauthority file (no default) |
 
 Environment overrides use `SPARKCLAW_BROWSER_AUTOMATION_*`,
 `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`,
@@ -205,15 +211,20 @@ Environment overrides use `SPARKCLAW_BROWSER_AUTOMATION_*`,
 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`. See [Deployment](deployment.md) for the
 normal host and Compose commands.
 
-`npm run dev` resolves the two Compose-only desktop values automatically. For a
-direct Compose invocation, export them first:
+`npm run dev` resolves the two desktop values and applies the
+`docker/compose.visible-browser.yaml` overlay automatically. For a direct
+Compose invocation, export them and stack the overlay explicitly:
 
 ```bash
 mapfile -t browser_display < <(scripts/resolve-browser-display.sh)
 export SPARKCLAW_BROWSER_DISPLAY="${browser_display[0]}"
 export SPARKCLAW_BROWSER_XAUTHORITY="${browser_display[1]}"
-docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d gateway
+docker compose --env-file .env -f docker/compose.yaml \
+  -f docker/compose.visible-browser.yaml --profile models-local up -d gateway
 ```
+
+Without the overlay the same command starts a fully headless Gateway with no
+access to the host desktop.
 
 ## Verification
 

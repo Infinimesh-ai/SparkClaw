@@ -205,6 +205,8 @@ scripts/restart_runtime_compose.sh
 
 Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for model-backed runs. It loads `docker/env/sparkclaw.external-postgres.env` after `.env`, so Compose cannot fall back to the `mock/file` defaults from `docker/env/sparkclaw.example.env`. It also checks `/readyz` after restart and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`.
 
+When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
+
 ## DGX Spark Model Services
 
 Host-side vLLM scripts:
@@ -434,6 +436,10 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 - Keep dangerous and reversible tools approval-gated.
 - Keep shell execution sandboxed and network-disabled.
 - Treat browser/email/file observations as untrusted.
+- Keep the host desktop closed to containers: the base compose file mounts no
+  X11 socket, and the `docker/compose.visible-browser.yaml` overlay belongs
+  only on the trusted single-owner desktop runtime that needs visible login
+  handoffs.
 - Keep `.env`, model weights, state encryption keys and downloaded data out of git.
 - Scan diffs for tokens before handoff.
 

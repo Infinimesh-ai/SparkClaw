@@ -39,8 +39,6 @@ services:
       SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT: ${SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT:-2}
       SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE: ${SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE:-/usr/bin/chromium}
       SPARKCLAW_BROWSER_PROFILE_DIR: ${SPARKCLAW_BROWSER_PROFILE_DIR:-/var/lib/sparkclaw/browser-profiles}
-      DISPLAY: ${SPARKCLAW_BROWSER_DISPLAY:-}
-      XAUTHORITY: /run/sparkclaw-browser/Xauthority
       SPARKCLAW_ARTIFACT_BACKEND: ${SPARKCLAW_ARTIFACT_BACKEND:-filesystem}
       SPARKCLAW_ARTIFACT_DIR: ${SPARKCLAW_ARTIFACT_DIR:-/var/lib/sparkclaw/artifacts}
       SPARKCLAW_ARTIFACT_BUCKET: ${SPARKCLAW_ARTIFACT_BUCKET:-sparkclaw}
@@ -119,8 +117,6 @@ services:
       - ../data/memory:/var/lib/sparkclaw/memory
       - ../data/logs:/var/log/sparkclaw
       - ../data/browser-profiles:/var/lib/sparkclaw/browser-profiles
-      - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      - ${SPARKCLAW_BROWSER_XAUTHORITY:-/dev/null}:/run/sparkclaw-browser/Xauthority:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18789/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s

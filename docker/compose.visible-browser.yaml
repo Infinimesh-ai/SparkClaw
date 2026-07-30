@@ -1,0 +1,18 @@
+name: sparkclaw
+
+# Opt-in desktop handoff overlay. Stacking this file on docker/compose.yaml
+# grants Gateway access to the host X11/XWayland display so login handoffs can
+# open a visible Chromium. Apply it only on the trusted, single-owner desktop
+# runtime, and only after scripts/resolve-browser-display.sh has resolved
+# SPARKCLAW_BROWSER_DISPLAY and SPARKCLAW_BROWSER_XAUTHORITY (npm run dev does
+# both automatically). The Xauthority mount has no default on purpose: the
+# overlay is only valid when a real authority file was resolved.
+
+services:
+  gateway:
+    environment:
+      DISPLAY: ${SPARKCLAW_BROWSER_DISPLAY}
+      XAUTHORITY: /run/sparkclaw-browser/Xauthority
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${SPARKCLAW_BROWSER_XAUTHORITY}:/run/sparkclaw-browser/Xauthority:ro

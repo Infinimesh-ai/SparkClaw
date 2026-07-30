@@ -240,6 +240,7 @@ func agentBrowserEnvironmentResolved(cfg agentBrowserAdapterConfig, namespace, s
 	if hidden {
 		values["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = strconv.Itoa(adapterDaemonIdleTimeoutMS(cfg.DaemonIdleTimeoutMS))
 	} else {
+		values["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = strconv.Itoa(visibleBrowserIdleTimeoutMS(cfg.DaemonIdleTimeoutMS))
 		// A virtual X server is not a user-visible handoff surface.
 		values["AGENT_BROWSER_NO_XVFB"] = "true"
 		if visibleEnvironment != nil {
@@ -671,6 +672,16 @@ func adapterDaemonIdleTimeoutMS(timeoutMS int) int {
 		return config.DefaultBrowserDaemonIdleTimeoutMS
 	}
 	return timeoutMS
+}
+
+// visibleBrowserIdleTimeoutMultiplier scales the hidden-session idle timeout
+// for visible sessions. They are user-facing handoff surfaces, so the bound is
+// generous (two hours with the default configuration) — but it must stay
+// finite, or an abandoned visible Chromium lives until gateway exit.
+const visibleBrowserIdleTimeoutMultiplier = 6
+
+func visibleBrowserIdleTimeoutMS(timeoutMS int) int {
+	return adapterDaemonIdleTimeoutMS(timeoutMS) * visibleBrowserIdleTimeoutMultiplier
 }
 
 type boundedBuffer struct {

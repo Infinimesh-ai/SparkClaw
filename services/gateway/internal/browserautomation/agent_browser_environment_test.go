@@ -39,13 +39,13 @@ func TestAgentBrowserEnvironmentRequiresRealDisplayForVisibleSession(t *testing.
 		"AGENT_BROWSER_HEADED":          "true",
 		"AGENT_BROWSER_NO_XVFB":         "true",
 		"AGENT_BROWSER_EXECUTABLE_PATH": "/usr/bin/chromium",
+		// Visible sessions get a generous idle bound (6x the hidden one) so an
+		// abandoned visible Chromium does not survive until gateway exit.
+		"AGENT_BROWSER_IDLE_TIMEOUT_MS": "15000",
 	} {
 		if got := env[key]; got != want {
 			t.Fatalf("%s = %q, want %q", key, got, want)
 		}
-	}
-	if _, exists := env["AGENT_BROWSER_IDLE_TIMEOUT_MS"]; exists {
-		t.Fatal("visible sessions must remain open until the owner or runtime closes them")
 	}
 }
 

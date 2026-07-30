@@ -2,11 +2,14 @@ package browserautomation
 
 import (
 	"context"
+	"debug/elf"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,13 +23,14 @@ func TestAgentBrowserEnvironmentRequiresRealDisplayForVisibleSession(t *testing.
 	t.Setenv("XAUTHORITY", "/tmp/sparkclaw-test-xauthority")
 	t.Setenv("AGENT_BROWSER_NO_XVFB", "false")
 
-	env := environmentMap(agentBrowserEnvironment(
+	env := environmentMap(agentBrowserEnvironmentResolved(
 		agentBrowserAdapterConfig{DaemonIdleTimeoutMS: 2500},
 		"namespace",
 		"session",
 		"/tmp/profile",
 		"/usr/bin/chromium",
 		false,
+		&visibleBrowserEnvironment{display: ":19", xauthority: "/tmp/sparkclaw-test-xauthority"},
 	))
 
 	for key, want := range map[string]string{
@@ -50,13 +54,14 @@ func TestAgentBrowserEnvironmentKeepsHiddenSessionHeadless(t *testing.T) {
 	t.Setenv("XAUTHORITY", "/tmp/sparkclaw-test-xauthority")
 	t.Setenv("AGENT_BROWSER_NO_XVFB", "true")
 
-	env := environmentMap(agentBrowserEnvironment(
+	env := environmentMap(agentBrowserEnvironmentResolved(
 		agentBrowserAdapterConfig{},
 		"namespace",
 		"session",
 		"/tmp/profile",
 		"",
 		true,
+		nil,
 	))
 
 	if got := env["AGENT_BROWSER_HEADED"]; got != "false" {
@@ -215,31 +220,16 @@ func TestBrowserProfileLeaseRejectsContentionAndReleases(t *testing.T) {
 }
 
 func TestBrowserExecutableArchitectureResolvesChromiumLauncher(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	installRoot := t.TempDir()
 	launcherPath := filepath.Join(installRoot, "bin", "chromium")
 	binaryPath := filepath.Join(installRoot, "lib", "chromium", "chromium")
 	if err := os.MkdirAll(filepath.Dir(launcherPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(launcherPath, []byte("#!/bin/sh\nexec /usr/lib/chromium/chromium \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Link(executable, binaryPath); err != nil {
-		input, readErr := os.ReadFile(executable)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if writeErr := os.WriteFile(binaryPath, input, 0o755); writeErr != nil {
-			t.Fatal(writeErr)
-		}
-	}
+	writeELFExecutableFixture(t, binaryPath, elf.EM_AARCH64)
 
 	if got := browserExecutableArchitecture(launcherPath); got != "aarch64" {
 		t.Fatalf("Chromium launcher architecture = %q, want aarch64", got)
@@ -247,12 +237,25 @@ func TestBrowserExecutableArchitectureResolvesChromiumLauncher(t *testing.T) {
 }
 
 func TestBrowserEnvironmentHelpersValidateARM64LocaleAndProfileState(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	fixtureDir := t.TempDir()
+	arm64Binary := filepath.Join(fixtureDir, "chromium-arm64")
+	writeELFExecutableFixture(t, arm64Binary, elf.EM_AARCH64)
+	if got := browserExecutableArchitecture(arm64Binary); got != "aarch64" {
+		t.Fatalf("aarch64 ELF fixture architecture = %q, want aarch64", got)
 	}
-	if got := browserExecutableArchitecture(executable); got != "aarch64" {
-		t.Fatalf("test process architecture = %q, want aarch64", got)
+	amd64Binary := filepath.Join(fixtureDir, "chromium-amd64")
+	writeELFExecutableFixture(t, amd64Binary, elf.EM_X86_64)
+	if got := browserExecutableArchitecture(amd64Binary); got != "x86-64" {
+		t.Fatalf("x86-64 ELF fixture architecture = %q, want x86-64", got)
+	}
+	if runtime.GOOS == "linux" && runtime.GOARCH == "arm64" {
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := browserExecutableArchitecture(executable); got != "aarch64" {
+			t.Fatalf("test process architecture = %q, want aarch64", got)
+		}
 	}
 	t.Setenv("LC_ALL", "C.UTF-8")
 	t.Setenv("LC_CTYPE", "")
@@ -303,6 +306,43 @@ func TestBrowserEnvironmentPreflightReportsDetectedArchitecture(t *testing.T) {
 	}
 }
 
+func TestBrowserEnvironmentPreflightArchitectureIsAdvisory(t *testing.T) {
+	preflight := browserEnvironmentPreflight{
+		providerReady:         true,
+		providerVersionPinned: true,
+		chromiumReady:         true,
+		chromiumVersion:       "Chromium 126.0.6478.126",
+		chromiumArchitecture:  "x86-64",
+		warningCodes:          []string{"chromium_architecture_unexpected"},
+		profileAvailable:      true,
+		utf8Locale:            true,
+		cjkFonts:              true,
+	}
+	preflight.finalize(false)
+	if !preflight.hiddenReady || !preflight.ok {
+		t.Fatalf("non-arm64 Chromium gated hidden readiness: %#v", preflight)
+	}
+	output := preflight.output()
+	if output["ok"] != true || output["status"] != "ok" {
+		t.Fatalf("non-arm64 preflight status = %#v", output)
+	}
+	if output["chromium_arm64"] != false || output["chromium_architecture"] != "x86-64" {
+		t.Fatalf("detected architecture reporting was lost: %#v", output)
+	}
+	warnings, ok := output["warning_codes"].([]string)
+	if !ok || len(warnings) != 1 || warnings[0] != "chromium_architecture_unexpected" {
+		t.Fatalf("warning_codes = %#v, want [chromium_architecture_unexpected]", output["warning_codes"])
+	}
+	if reasons, _ := output["reason_codes"].([]string); len(reasons) != 0 {
+		t.Fatalf("advisory architecture leaked into reason_codes: %#v", reasons)
+	}
+
+	preflight.finalize(true)
+	if preflight.ok || preflight.visibleReady {
+		t.Fatalf("missing display no longer gates visible readiness: %#v", preflight)
+	}
+}
+
 func TestNewAdapterUsesJSONSafeSessionGenerationSeed(t *testing.T) {
 	adapter, ok := NewAdapter(config.Config{}).(*AgentBrowserAdapter)
 	if !ok {
@@ -323,6 +363,28 @@ func TestRequestTimeoutMSReservesAgentBrowserTransportHeadroom(t *testing.T) {
 	defer cancel()
 	if got := requestTimeoutMS(ctx, 30000); got < 6900 || got > 7000 {
 		t.Fatalf("deadline-bounded request timeout = %dms, want about 7000ms", got)
+	}
+}
+
+// writeELFExecutableFixture writes a minimal but valid 64-bit little-endian ELF
+// header (no program or section headers) so browserExecutableArchitecture can
+// probe the machine field deterministically on every host platform.
+func writeELFExecutableFixture(t *testing.T, path string, machine elf.Machine) {
+	t.Helper()
+	header := make([]byte, 64)
+	copy(header, elf.ELFMAG)
+	header[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+	header[elf.EI_DATA] = byte(elf.ELFDATA2LSB)
+	header[elf.EI_VERSION] = byte(elf.EV_CURRENT)
+	binary.LittleEndian.PutUint16(header[16:], uint16(elf.ET_EXEC))
+	binary.LittleEndian.PutUint16(header[18:], uint16(machine))
+	binary.LittleEndian.PutUint32(header[20:], uint32(elf.EV_CURRENT))
+	binary.LittleEndian.PutUint16(header[52:], 64) // e_ehsize
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, header, 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

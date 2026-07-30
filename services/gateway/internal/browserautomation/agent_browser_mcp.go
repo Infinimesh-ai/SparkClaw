@@ -210,16 +210,6 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 	return session, nil
 }
 
-func agentBrowserEnvironment(cfg agentBrowserAdapterConfig, namespace, sessionName, profileDir, executable string, hidden bool) []string {
-	var visibleEnvironment *visibleBrowserEnvironment
-	if !hidden {
-		if resolved, err := resolveVisibleBrowserEnvironment(); err == nil {
-			visibleEnvironment = &resolved
-		}
-	}
-	return agentBrowserEnvironmentResolved(cfg, namespace, sessionName, profileDir, executable, hidden, visibleEnvironment)
-}
-
 func agentBrowserEnvironmentResolved(cfg agentBrowserAdapterConfig, namespace, sessionName, profileDir, executable string, hidden bool, visibleEnvironment *visibleBrowserEnvironment) []string {
 	env := make([]string, 0, len(os.Environ())+10)
 	for _, entry := range os.Environ() {
@@ -497,9 +487,6 @@ func (s *agentBrowserSession) closeOwnedBrowser() {
 	configureAdapterCommand(cmd)
 	cmd.Env = append([]string(nil), s.environment...)
 	_ = cmd.Run()
-	if ctx.Err() != nil {
-		terminateAdapterProcess(cmd)
-	}
 }
 
 func resolveAgentBrowserCommand(configured string) (string, error) {

@@ -60,6 +60,17 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 	routeRebinds := 0
 	var last browserStableObservation
 	var stableSince time.Time
+	awaitNextPoll := func() error {
+		select {
+		case <-settleCtx.Done():
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return errors.New("browser_settle_timeout: required page signals did not remain stable")
+		case <-time.After(time.Duration(pollMS) * time.Millisecond):
+			return nil
+		}
+	}
 
 	for {
 		observation, err := a.observeStableBrowserState(settleCtx, session)
@@ -88,6 +99,9 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 				routeRebinds++
 				stableCount = 0
 				last = browserStableObservation{}
+				if err := awaitNextPoll(); err != nil {
+					return nil, err
+				}
 				continue
 			}
 		}
@@ -116,13 +130,8 @@ func (a *AgentBrowserAdapter) waitForStableStateLocked(ctx context.Context, sess
 				"provider_session_ref": session.sessionName,
 			}, nil
 		}
-		select {
-		case <-settleCtx.Done():
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			return nil, errors.New("browser_settle_timeout: required page signals did not remain stable")
-		case <-time.After(time.Duration(pollMS) * time.Millisecond):
+		if err := awaitNextPoll(); err != nil {
+			return nil, err
 		}
 	}
 }

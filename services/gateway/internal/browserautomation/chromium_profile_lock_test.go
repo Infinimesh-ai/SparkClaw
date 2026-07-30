@@ -89,7 +89,15 @@ func TestBrowserProfileLeaseRecoversDeadSameHostChromiumOwner(t *testing.T) {
 
 func TestBrowserProfileLeasePreservesReachableChromiumSocket(t *testing.T) {
 	profileDir := t.TempDir()
-	socketPath := filepath.Join(t.TempDir(), "SingletonSocket")
+	// Unix socket paths must stay below the platform sun_path limit (104
+	// bytes on darwin); t.TempDir() embeds the long test name, so bind a
+	// short os.MkdirTemp directory instead.
+	socketDir, err := os.MkdirTemp("", "sc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "SingletonSocket")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)

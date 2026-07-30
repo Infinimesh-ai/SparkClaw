@@ -1050,7 +1050,7 @@ func browserRevision2HandoffResetPersisted(run app.AgentRun, nodeID app.Workflow
 		return false
 	}
 	node, ok := run.Workflow.Nodes[nodeID]
-	return ok && node.Stage == "scan_tabs" && len(node.OutcomeRefs) == 0 &&
+	return ok && node.Stage == browserStageScanTabs && len(node.OutcomeRefs) == 0 &&
 		run.Workflow.Browser != nil && run.Workflow.Browser.Result == nil
 }
 
@@ -1182,7 +1182,7 @@ func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNod
 	if !ok || node.Status != app.WorkflowNodeActive || node.Attempts >= nodePlan.MaxAttempts {
 		return errors.New("browser handoff workflow node is not resumable")
 	}
-	node.Stage = "scan_tabs"
+	node.Stage = browserStageScanTabs
 	node.CurrentScope = nodePlan.InitialScope
 	node.ScopeRevision++
 	node.LastDirectory = nil

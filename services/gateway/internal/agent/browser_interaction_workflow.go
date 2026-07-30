@@ -64,11 +64,11 @@ func selectBrowserInteractionTab(route app.RouteDecision, refs []app.ResourceRef
 func browserInteractionStageForTabSignal(signal app.OutcomeSignal) string {
 	switch signal {
 	case app.OutcomeSignalTargetTabExists:
-		return "focus_existing"
+		return browserStageFocusExisting
 	case app.OutcomeSignalTargetTabBlank:
-		return "navigate_blank"
+		return browserStageNavigateBlank
 	default:
-		return "open_new"
+		return browserStageOpenNew
 	}
 }
 

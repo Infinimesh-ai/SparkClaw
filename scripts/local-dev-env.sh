@@ -16,12 +16,6 @@ if [ -z "$SPARKCLAW_ROOT" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-for tool_bin in "$SPARKCLAW_ROOT"/.tools/node-*/bin "$SPARKCLAW_ROOT"/.tools/go*/bin; do
-  [ -d "$tool_bin" ] && export PATH="$tool_bin:$PATH"
-done
-export GOCACHE="$SPARKCLAW_ROOT/.tools/go-cache"
-export GOMODCACHE="$SPARKCLAW_ROOT/.tools/go-mod-cache"
-
 export SPARKCLAW_MODEL_MODE="${SPARKCLAW_MODEL_MODE:-mock}"
 export SPARKCLAW_MODEL_DISABLE_THINKING="${SPARKCLAW_MODEL_DISABLE_THINKING:-true}"
 export SPARKCLAW_FAST_BASE_URL="${SPARKCLAW_FAST_BASE_URL:-}"

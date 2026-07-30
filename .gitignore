@@ -48,3 +48,7 @@ services/gateway/internal/*/data/artifacts/
 !data/models/.gitkeep
 !data/workspaces/.gitkeep
 services/gateway/internal/weixin/data/
+
+# Retired repository-private toolchain layout; ignore stragglers so caches
+# rooted here can never be committed.
+.tools/

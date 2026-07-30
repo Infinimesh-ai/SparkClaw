@@ -11,6 +11,11 @@ import (
 
 var errBrowserProfileBusy = errors.New("browser_profile_busy")
 
+// browserProfileLockName is the flock file guarding a shared browser profile.
+// It lives in the parent of the profile's user-data directory, so it never
+// appears among the profile contents themselves.
+const browserProfileLockName = ".sparkclaw-profile.lock"
+
 type browserProfileLease struct {
 	mu         sync.Mutex
 	file       *os.File
@@ -18,7 +23,7 @@ type browserProfileLease struct {
 }
 
 func acquireBrowserProfileLease(profileDir string) (*browserProfileLease, error) {
-	lockPath := filepath.Join(filepath.Dir(profileDir), ".sparkclaw-profile.lock")
+	lockPath := filepath.Join(filepath.Dir(profileDir), browserProfileLockName)
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open browser profile lease: %w", err)

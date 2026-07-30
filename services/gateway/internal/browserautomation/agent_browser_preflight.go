@@ -359,15 +359,11 @@ func browserCJKFontsAvailable(ctx context.Context, startupTimeoutMS int) bool {
 	return err == nil && strings.TrimSpace(string(output)) != ""
 }
 
+// browserProfileInitialized reports whether Chromium has written any state
+// into the profile's user-data directory. The profile lease lock
+// (browserProfileLockName) lives one level above profileDir, so any entry
+// found here is real profile content.
 func browserProfileInitialized(profileDir string) bool {
 	entries, err := os.ReadDir(profileDir)
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if entry.Name() != ".sparkclaw-profile.lock" {
-			return true
-		}
-	}
-	return false
+	return err == nil && len(entries) > 0
 }

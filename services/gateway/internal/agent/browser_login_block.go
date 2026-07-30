@@ -953,24 +953,6 @@ func browserHandoffVisibleEvidence(state *app.WorkflowState, block app.BrowserLo
 	}, ""
 }
 
-func browserSafeHandoffURL(target app.BrowserTargetDescriptor, liveRaw string) string {
-	if target.TargetKind == app.BrowserTargetExplicitURL && target.QueryProvenance == app.BrowserQueryOwnerSupplied {
-		return target.CanonicalURL
-	}
-	parsed, err := url.Parse(strings.TrimSpace(liveRaw))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return target.CanonicalURL
-	}
-	parsed.Scheme = strings.ToLower(parsed.Scheme)
-	parsed.Host = strings.ToLower(parsed.Host)
-	if parsed.Path == "" {
-		parsed.Path = "/"
-	}
-	parsed.RawQuery = ""
-	parsed.ForceQuery = false
-	return parsed.String()
-}
-
 func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.AgentRun, goal string, block app.BrowserLoginBlock, interruptedCallID string, emit StreamHandler) (Result, error) {
 	if run.Workflow == nil || run.Workflow.Plan.ProfileRevision != app.BrowserWorkflowRevision2 {
 		return Result{}, errors.New("browser handoff revision does not match the persisted workflow")
@@ -1068,7 +1050,7 @@ func browserRevision2HandoffResetPersisted(run app.AgentRun, nodeID app.Workflow
 		return false
 	}
 	node, ok := run.Workflow.Nodes[nodeID]
-	return ok && node.Stage == "scan_tabs" && len(node.OutcomeRefs) == 0 &&
+	return ok && node.Stage == browserStageScanTabs && len(node.OutcomeRefs) == 0 &&
 		run.Workflow.Browser != nil && run.Workflow.Browser.Result == nil
 }
 
@@ -1200,19 +1182,18 @@ func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNod
 	if !ok || node.Status != app.WorkflowNodeActive || node.Attempts >= nodePlan.MaxAttempts {
 		return errors.New("browser handoff workflow node is not resumable")
 	}
-	node.Stage = "scan_tabs"
+	node.Stage = browserStageScanTabs
 	node.CurrentScope = nodePlan.InitialScope
 	node.ScopeRevision++
 	node.LastDirectory = nil
 	node.SelectedEntries = nil
 	node.OutcomeRefs = nil
 	node.LastAssessment = nil
-	for _, transitionID := range []app.TransitionID{
-		"reuse_existing", "reuse_blank", "open_missing",
-		"focus_acquired", "open_acquired", "navigate_acquired",
-		"hidden_settled", "hidden_validated", "assess_initial",
-	} {
-		delete(node.TransitionActivations, transitionID)
+	for _, transition := range nodePlan.Transitions {
+		if browserHandoffPreservedTransitions[transition.ID] {
+			continue
+		}
+		delete(node.TransitionActivations, transition.ID)
 	}
 	run.Workflow.Nodes[nodeID] = node
 	run.Workflow.Status = app.WorkflowStatusRunning

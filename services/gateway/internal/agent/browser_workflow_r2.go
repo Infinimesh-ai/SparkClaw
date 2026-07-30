@@ -13,6 +13,32 @@ const browserWorkflowRevision2 = 2
 const browserResultPresentationReason = "workflow_result_presentation"
 const browserSnapshotSettleRetryLimit = 2
 
+// Browser revision-2 stage names. The frozen plan table, the direct-stage
+// dispatch, the direct-argument and assessment switches, the collaborative
+// stage-context list, and the login-handoff reset all reference these
+// constants; never restate a stage as a string literal.
+const (
+	browserStageHealthCheck           = "health_check"
+	browserStageScanTabs              = "scan_tabs"
+	browserStageFocusExisting         = "focus_existing"
+	browserStageNavigateBlank         = "navigate_blank"
+	browserStageOpenNew               = "open_new"
+	browserStageSettleHidden          = "settle_hidden"
+	browserStageSnapshotHidden        = "snapshot_hidden"
+	browserStagePresentVisible        = "present_visible"
+	browserStageSettleVisible         = "settle_visible"
+	browserStageSnapshotVisible       = "snapshot_visible"
+	browserStageAssessGoalInitial     = "assess_goal_initial"
+	browserStageChooseAndClick        = "choose_and_click"
+	browserStageSettleAfterAction     = "settle_after_action"
+	browserStageSnapshotAfterAction   = "snapshot_after_action"
+	browserStageValidateTransition    = "validate_transition"
+	browserStageAssessGoalAfterAction = "assess_goal_after_action"
+	browserStageAssessGoalVisible     = "assess_goal_visible"
+	// browserStageAssessGoalPrefix matches every assess_goal_* stage.
+	browserStageAssessGoalPrefix = "assess_goal"
+)
+
 type browserAutomationProfile struct{}
 
 func (browserAutomationProfile) ID() app.WorkflowID           { return app.WorkflowBrowserAutomation }
@@ -108,37 +134,37 @@ func browserRevision2Plan(id app.WorkflowID, revision int, interaction bool) app
 	nodeID := app.WorkflowNodeID("browser_result")
 	scope := browserRevision2Scope(interaction)
 	transitions := []app.ScopeTransition{
-		browserRevision2Transition("health_ready", "scan_tabs", app.OutcomeSignalBrowserHealthy, 1, scope),
-		browserRevision2Transition("reuse_existing", "focus_existing", app.OutcomeSignalTargetTabExists, 1, scope),
-		browserRevision2Transition("reuse_blank", "navigate_blank", app.OutcomeSignalTargetTabBlank, 1, scope),
-		browserRevision2Transition("open_missing", "open_new", app.OutcomeSignalTargetTabMissing, 1, scope),
+		browserRevision2Transition("health_ready", browserStageScanTabs, app.OutcomeSignalBrowserHealthy, 1, scope),
+		browserRevision2Transition("reuse_existing", browserStageFocusExisting, app.OutcomeSignalTargetTabExists, 1, scope),
+		browserRevision2Transition("reuse_blank", browserStageNavigateBlank, app.OutcomeSignalTargetTabBlank, 1, scope),
+		browserRevision2Transition("open_missing", browserStageOpenNew, app.OutcomeSignalTargetTabMissing, 1, scope),
 		// Presentation also uses browser.open, so its assessment-specific signal
 		// must be considered before the generic open outcome.
-		browserRevision2Transition("visible_opened", "settle_visible", app.OutcomeSignalPresentationOpened, 2, scope),
-		browserRevision2Transition("focus_acquired", "settle_hidden", app.OutcomeSignalFocusCompleted, 1, scope),
-		browserRevision2Transition("open_acquired", "settle_hidden", app.OutcomeSignalOpenCompleted, 2, scope),
-		browserRevision2Transition("navigate_acquired", "settle_hidden", app.OutcomeSignalNavigateCompleted, 1, scope),
-		browserRevision2Transition("hidden_settled", "snapshot_hidden", app.OutcomeSignalHiddenTargetSettled, 4, scope),
-		browserRevision2Transition("visible_settled", "snapshot_visible", app.OutcomeSignalVisibleTargetSettled, 2, scope),
-		browserRevision2Transition("hidden_snapshot_drifted", "settle_hidden", app.OutcomeSignalHiddenSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
-		browserRevision2Transition("visible_snapshot_drifted", "settle_visible", app.OutcomeSignalVisibleSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
+		browserRevision2Transition("visible_opened", browserStageSettleVisible, app.OutcomeSignalPresentationOpened, 2, scope),
+		browserRevision2Transition("focus_acquired", browserStageSettleHidden, app.OutcomeSignalFocusCompleted, 1, scope),
+		browserRevision2Transition("open_acquired", browserStageSettleHidden, app.OutcomeSignalOpenCompleted, 2, scope),
+		browserRevision2Transition("navigate_acquired", browserStageSettleHidden, app.OutcomeSignalNavigateCompleted, 1, scope),
+		browserRevision2Transition("hidden_settled", browserStageSnapshotHidden, app.OutcomeSignalHiddenTargetSettled, 4, scope),
+		browserRevision2Transition("visible_settled", browserStageSnapshotVisible, app.OutcomeSignalVisibleTargetSettled, 2, scope),
+		browserRevision2Transition("hidden_snapshot_drifted", browserStageSettleHidden, app.OutcomeSignalHiddenSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
+		browserRevision2Transition("visible_snapshot_drifted", browserStageSettleVisible, app.OutcomeSignalVisibleSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
 	}
 	if !interaction {
 		transitions = append(transitions,
-			browserRevision2Transition("hidden_validated", "present_visible", app.OutcomeSignalTargetValidated, 1, scope),
+			browserRevision2Transition("hidden_validated", browserStagePresentVisible, app.OutcomeSignalTargetValidated, 1, scope),
 		)
 	}
 	stageCapabilities := []app.StageCapabilityRule{
-		{Stage: "health_check", Capabilities: []string{app.ToolCapabilityBrowserHealth}},
-		{Stage: "scan_tabs", Capabilities: []string{app.ToolCapabilityBrowserListTabs}},
-		{Stage: "focus_existing", Capabilities: []string{app.ToolCapabilityBrowserFocus}},
-		{Stage: "navigate_blank", Capabilities: []string{app.ToolCapabilityBrowserNavigate}},
-		{Stage: "open_new", Capabilities: []string{app.ToolCapabilityBrowserOpen}},
-		{Stage: "settle_hidden", Capabilities: []string{app.ToolCapabilityBrowserWait}},
-		{Stage: "snapshot_hidden", Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
-		{Stage: "present_visible", Capabilities: []string{app.ToolCapabilityBrowserOpen}},
-		{Stage: "settle_visible", Capabilities: []string{app.ToolCapabilityBrowserWait}},
-		{Stage: "snapshot_visible", Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
+		{Stage: browserStageHealthCheck, Capabilities: []string{app.ToolCapabilityBrowserHealth}},
+		{Stage: browserStageScanTabs, Capabilities: []string{app.ToolCapabilityBrowserListTabs}},
+		{Stage: browserStageFocusExisting, Capabilities: []string{app.ToolCapabilityBrowserFocus}},
+		{Stage: browserStageNavigateBlank, Capabilities: []string{app.ToolCapabilityBrowserNavigate}},
+		{Stage: browserStageOpenNew, Capabilities: []string{app.ToolCapabilityBrowserOpen}},
+		{Stage: browserStageSettleHidden, Capabilities: []string{app.ToolCapabilityBrowserWait}},
+		{Stage: browserStageSnapshotHidden, Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
+		{Stage: browserStagePresentVisible, Capabilities: []string{app.ToolCapabilityBrowserOpen}},
+		{Stage: browserStageSettleVisible, Capabilities: []string{app.ToolCapabilityBrowserWait}},
+		{Stage: browserStageSnapshotVisible, Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
 	}
 	bindings := []app.ArgumentBinding{
 		{Capability: app.ToolCapabilityBrowserFocus, Argument: "page_id", ResourceKind: "browser_tab", Source: app.ArgumentBindingOutcomeRef},
@@ -151,25 +177,25 @@ func browserRevision2Plan(id app.WorkflowID, revision int, interaction bool) app
 	}
 	if interaction {
 		transitions = append(transitions,
-			browserRevision2Transition("assess_initial", "assess_goal_initial", app.OutcomeSignalTargetValidated, 1, scope),
-			browserRevision2Transition("initial_needs_action", "choose_and_click", app.OutcomeSignalInteractionProgress, 1, scope),
-			browserRevision2Transition("click_recorded", "settle_after_action", app.OutcomeSignalClickCompleted, browserInteractionMaxClicks, scope),
-			browserRevision2Transition("action_settled", "snapshot_after_action", app.OutcomeSignalActionTargetSettled, browserInteractionMaxClicks, scope),
-			browserRevision2Transition("action_snapshot_drifted", "settle_after_action", app.OutcomeSignalActionSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
-			browserRevision2Transition("validate_transition", "validate_transition", app.OutcomeSignalInteractionVerificationRequired, browserInteractionMaxClicks, scope),
-			browserRevision2Transition("assess_after_action", "assess_goal_after_action", app.OutcomeSignalTargetValidated, browserInteractionMaxClicks, scope),
-			browserRevision2Transition("continue_interaction", "choose_and_click", app.OutcomeSignalInteractionProgress, browserInteractionMaxClicks-1, scope),
-			browserRevision2Transition("goal_satisfied", "present_visible", app.OutcomeSignalInteractionGoalSatisfied, 2, scope),
-			browserRevision2Transition("assess_visible", "assess_goal_visible", app.OutcomeSignalPresentationValidated, 1, scope),
+			browserRevision2Transition("assess_initial", browserStageAssessGoalInitial, app.OutcomeSignalTargetValidated, 1, scope),
+			browserRevision2Transition("initial_needs_action", browserStageChooseAndClick, app.OutcomeSignalInteractionProgress, 1, scope),
+			browserRevision2Transition("click_recorded", browserStageSettleAfterAction, app.OutcomeSignalClickCompleted, browserInteractionMaxClicks, scope),
+			browserRevision2Transition("action_settled", browserStageSnapshotAfterAction, app.OutcomeSignalActionTargetSettled, browserInteractionMaxClicks, scope),
+			browserRevision2Transition("action_snapshot_drifted", browserStageSettleAfterAction, app.OutcomeSignalActionSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
+			browserRevision2Transition("validate_transition", browserStageValidateTransition, app.OutcomeSignalInteractionVerificationRequired, browserInteractionMaxClicks, scope),
+			browserRevision2Transition("assess_after_action", browserStageAssessGoalAfterAction, app.OutcomeSignalTargetValidated, browserInteractionMaxClicks, scope),
+			browserRevision2Transition("continue_interaction", browserStageChooseAndClick, app.OutcomeSignalInteractionProgress, browserInteractionMaxClicks-1, scope),
+			browserRevision2Transition("goal_satisfied", browserStagePresentVisible, app.OutcomeSignalInteractionGoalSatisfied, 2, scope),
+			browserRevision2Transition("assess_visible", browserStageAssessGoalVisible, app.OutcomeSignalPresentationValidated, 1, scope),
 		)
 		stageCapabilities = append(stageCapabilities,
-			app.StageCapabilityRule{Stage: "assess_goal_initial", Capabilities: []string{app.ToolCapabilityBrowserGoalAssess}},
-			app.StageCapabilityRule{Stage: "choose_and_click", Capabilities: []string{app.ToolCapabilityBrowserClick}},
-			app.StageCapabilityRule{Stage: "settle_after_action", Capabilities: []string{app.ToolCapabilityBrowserWait}},
-			app.StageCapabilityRule{Stage: "snapshot_after_action", Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
-			app.StageCapabilityRule{Stage: "validate_transition", Capabilities: []string{app.ToolCapabilityBrowserTransitionValidate}},
-			app.StageCapabilityRule{Stage: "assess_goal_after_action", Capabilities: []string{app.ToolCapabilityBrowserGoalAssess}},
-			app.StageCapabilityRule{Stage: "assess_goal_visible", Capabilities: []string{app.ToolCapabilityBrowserGoalAssess}},
+			app.StageCapabilityRule{Stage: browserStageAssessGoalInitial, Capabilities: []string{app.ToolCapabilityBrowserGoalAssess}},
+			app.StageCapabilityRule{Stage: browserStageChooseAndClick, Capabilities: []string{app.ToolCapabilityBrowserClick}},
+			app.StageCapabilityRule{Stage: browserStageSettleAfterAction, Capabilities: []string{app.ToolCapabilityBrowserWait}},
+			app.StageCapabilityRule{Stage: browserStageSnapshotAfterAction, Capabilities: []string{app.ToolCapabilityBrowserSnapshot}},
+			app.StageCapabilityRule{Stage: browserStageValidateTransition, Capabilities: []string{app.ToolCapabilityBrowserTransitionValidate}},
+			app.StageCapabilityRule{Stage: browserStageAssessGoalAfterAction, Capabilities: []string{app.ToolCapabilityBrowserGoalAssess}},
+			app.StageCapabilityRule{Stage: browserStageAssessGoalVisible, Capabilities: []string{app.ToolCapabilityBrowserGoalAssess}},
 		)
 		bindings = append(bindings,
 			app.ArgumentBinding{Capability: app.ToolCapabilityBrowserClick, Argument: "page_id", ResourceKind: "browser_page", Source: app.ArgumentBindingOutcomeRef},
@@ -185,7 +211,7 @@ func browserRevision2Plan(id app.WorkflowID, revision int, interaction bool) app
 		SchemaVersion: 1, ProfileID: id, ProfileRevision: revision,
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
-			ID: nodeID, InitialStage: "health_check",
+			ID: nodeID, InitialStage: browserStageHealthCheck,
 			Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Produce one settled and verified visible browser result", Completion: app.CompletionEvidence},
 			InitialScope: scope, Transitions: transitions, ArgumentBindings: bindings,
 			StageCapabilities: stageCapabilities,
@@ -212,6 +238,20 @@ func browserRevision2Scope(interaction bool) app.CapabilityScope {
 		)
 	}
 	return app.CapabilityScope{MaterializeAll: true, Requirements: requirements}
+}
+
+// browserHandoffPreservedTransitions names the plan-table transitions that
+// meter the bounded click budget. A login handoff resets the node for a fresh
+// hidden acquisition and re-arms every other transition budget so the replay
+// can repeat settling, snapshots, and presentation — but consumed click
+// accounting must survive the reset or a handoff would widen the interaction
+// budget.
+var browserHandoffPreservedTransitions = map[app.TransitionID]bool{
+	"click_recorded":       true,
+	"action_settled":       true,
+	"validate_transition":  true,
+	"assess_after_action":  true,
+	"continue_interaction": true,
 }
 
 func browserRevision2Transition(id, stage string, signal app.OutcomeSignal, max int, scope app.CapabilityScope) app.ScopeTransition {
@@ -260,10 +300,10 @@ func browserTargetDescriptor(route app.RouteDecision) app.BrowserTargetDescripto
 func browserRevision2DirectStage(state *app.WorkflowState, interaction bool) bool {
 	stage := browserActiveStage(state)
 	switch stage {
-	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new",
-		"settle_hidden", "snapshot_hidden", "present_visible", "settle_visible", "snapshot_visible":
+	case browserStageHealthCheck, browserStageScanTabs, browserStageFocusExisting, browserStageNavigateBlank, browserStageOpenNew,
+		browserStageSettleHidden, browserStageSnapshotHidden, browserStagePresentVisible, browserStageSettleVisible, browserStageSnapshotVisible:
 		return true
-	case "settle_after_action", "snapshot_after_action", "validate_transition":
+	case browserStageSettleAfterAction, browserStageSnapshotAfterAction, browserStageValidateTransition:
 		return interaction
 	default:
 		return false
@@ -274,16 +314,16 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 	stage := browserActiveStage(state)
 	args := map[string]any{}
 	switch stage {
-	case "health_check":
+	case browserStageHealthCheck:
 		args["require_visible_environment"] = true
-	case "settle_hidden", "settle_visible", "settle_after_action":
+	case browserStageSettleHidden, browserStageSettleVisible, browserStageSettleAfterAction:
 		args["mode"] = "stable_state"
 		args["require_url_stable"] = true
 		args["require_ready_state"] = true
-		args["allow_no_change"] = stage != "settle_after_action"
+		args["allow_no_change"] = stage != browserStageSettleAfterAction
 		if state != nil && state.Browser != nil {
 			expectedURL := state.Browser.Target.CanonicalURL
-			if stage == "settle_visible" && state.Browser.Result != nil &&
+			if stage == browserStageSettleVisible && state.Browser.Result != nil &&
 				state.Browser.Result.Target.CanonicalURL != "" {
 				expectedURL = state.Browser.Result.Target.CanonicalURL
 			}
@@ -294,7 +334,7 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 				args["target_kind"] = string(state.Browser.Target.TargetKind)
 			}
 		}
-		if stage == "settle_after_action" && state != nil && len(state.ActiveNodeIDs) == 1 {
+		if stage == browserStageSettleAfterAction && state != nil && len(state.ActiveNodeIDs) == 1 {
 			node := state.Nodes[state.ActiveNodeIDs[0]]
 			for _, ref := range currentBrowserSnapshotRefs(node.OutcomeRefs) {
 				if ref.Kind == "browser_snapshot" {
@@ -303,13 +343,13 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 				}
 			}
 		}
-	case "snapshot_hidden", "snapshot_after_action", "snapshot_visible":
+	case browserStageSnapshotHidden, browserStageSnapshotAfterAction, browserStageSnapshotVisible:
 		if state != nil && state.Route.Slots.Query != "" {
 			args["interaction_goal"] = state.Route.Slots.Query
 		}
-	case "present_visible":
+	case browserStagePresentVisible:
 		args["reason"] = browserResultPresentationReason
-	case "validate_transition":
+	case browserStageValidateTransition:
 		args["schema_version"] = 2
 	}
 	return args
@@ -318,11 +358,11 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 func browserRevision2StageContext(state *app.WorkflowState, interaction bool) workflowStageContext {
 	stage := browserActiveStage(state)
 	mode := "autonomous"
-	if stage == "present_visible" || stage == "settle_visible" || stage == "snapshot_visible" || stage == "assess_goal_visible" {
+	if stage == browserStagePresentVisible || stage == browserStageSettleVisible || stage == browserStageSnapshotVisible || stage == browserStageAssessGoalVisible {
 		mode = "collaborative"
 	}
 	reason := "workflow_stage: " + stage + ". Structural browser stages are Runtime-owned and every page action is followed by stable settle and a fresh snapshot."
-	if interaction && strings.HasPrefix(stage, "assess_goal") {
+	if interaction && strings.HasPrefix(stage, browserStageAssessGoalPrefix) {
 		reason += " Assess the frozen owner goal independently and cite only refs from the bound current snapshot."
 	}
 	stageContext := workflowStageContextForState(state, "browse", "web", "public", mode, reason)
@@ -347,12 +387,12 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 	}
 	node := state.Nodes[outcome.NodeID]
 	switch node.Stage {
-	case "health_check":
+	case browserStageHealthCheck:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalBrowserHealthy) {
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalBrowserHealthy, "scan_tabs", nil)
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalBrowserHealthy, browserStageScanTabs, nil)
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_environment_unavailable"
-	case "scan_tabs":
+	case browserStageScanTabs:
 		selected, signal, reason := selectBrowserInteractionTab(state.Route, outcome.Refs)
 		if reason != "" {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
@@ -363,33 +403,33 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 			refs = []app.ResourceRef{*selected}
 		}
 		return browserRevision2NeedsMore(assessment, signal, browserInteractionStageForTabSignal(signal), refs)
-	case "focus_existing":
+	case browserStageFocusExisting:
 		return browserRevision2Acquired(assessment, outcome, app.OutcomeSignalFocusCompleted, "browser_focus_failed")
-	case "open_new":
+	case browserStageOpenNew:
 		return browserRevision2Acquired(assessment, outcome, app.OutcomeSignalOpenCompleted, "browser_open_failed")
-	case "navigate_blank":
+	case browserStageNavigateBlank:
 		return browserRevision2Acquired(assessment, outcome, app.OutcomeSignalNavigateCompleted, "browser_navigate_failed")
-	case "settle_hidden", "settle_after_action", "settle_visible":
+	case browserStageSettleHidden, browserStageSettleAfterAction, browserStageSettleVisible:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalTargetSettled) {
-			next := "snapshot_hidden"
+			next := browserStageSnapshotHidden
 			signal := app.OutcomeSignalHiddenTargetSettled
-			if node.Stage == "settle_after_action" {
-				next = "snapshot_after_action"
+			if node.Stage == browserStageSettleAfterAction {
+				next = browserStageSnapshotAfterAction
 				signal = app.OutcomeSignalActionTargetSettled
-			} else if node.Stage == "settle_visible" {
-				next = "snapshot_visible"
+			} else if node.Stage == browserStageSettleVisible {
+				next = browserStageSnapshotVisible
 				signal = app.OutcomeSignalVisibleTargetSettled
 			}
 			return browserRevision2NeedsMore(assessment, signal, next, outcome.Refs)
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_settle_timeout"
-	case "snapshot_hidden":
+	case browserStageSnapshotHidden:
 		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationHidden)
 		if reason == "" && interaction && !browserSnapshotHasInteractionEvidence(refs) {
 			reason = "browser_snapshot_not_ready"
 		}
 		if reason == "browser_snapshot_route_changed" || reason == "browser_snapshot_not_ready" {
-			return browserRevision2SnapshotRetry(state, assessment, "hidden_snapshot_drifted", app.OutcomeSignalHiddenSnapshotDrifted, "settle_hidden")
+			return browserRevision2SnapshotRetry(state, assessment, "hidden_snapshot_drifted", app.OutcomeSignalHiddenSnapshotDrifted, browserStageSettleHidden)
 		}
 		if reason != "" {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
@@ -397,11 +437,11 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		}
 		if interaction {
 			freezeBrowserGoalContract(state, refs)
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, "assess_goal_initial", refs)
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, browserStageAssessGoalInitial, refs)
 		}
 		recordBrowserHiddenResult(state, refs, outcome.ToolCallID, nil)
-		return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, "present_visible", browserPresentationRefs(state, refs))
-	case "choose_and_click":
+		return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, browserStagePresentVisible, browserPresentationRefs(state, refs))
+	case browserStageChooseAndClick:
 		switch {
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalUnsafeClickTarget):
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "unsafe_click_target"
@@ -409,11 +449,11 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "snapshot_stale"
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalClickCompleted):
 			state.Browser.CompletedClicks++
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalClickCompleted, "settle_after_action", outcome.Refs)
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalClickCompleted, browserStageSettleAfterAction, outcome.Refs)
 		default:
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_click_failed"
 		}
-	case "snapshot_after_action":
+	case browserStageSnapshotAfterAction:
 		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationHidden)
 		if reason == "" && browserSnapshotOutcomeRepeated(refs) {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_loop_detected"
@@ -423,47 +463,47 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 			reason = "browser_snapshot_not_ready"
 		}
 		if reason == "browser_snapshot_route_changed" || reason == "browser_snapshot_not_ready" {
-			return browserRevision2SnapshotRetry(state, assessment, "action_snapshot_drifted", app.OutcomeSignalActionSnapshotDrifted, "settle_after_action")
+			return browserRevision2SnapshotRetry(state, assessment, "action_snapshot_drifted", app.OutcomeSignalActionSnapshotDrifted, browserStageSettleAfterAction)
 		}
 		if reason != "" {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
 			return assessment
 		}
 		refs = browserTransitionRefs(node.OutcomeRefs, refs)
-		return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionVerificationRequired, "validate_transition", refs)
-	case "validate_transition":
+		return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionVerificationRequired, browserStageValidateTransition, refs)
+	case browserStageValidateTransition:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalTargetValidated) {
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, "assess_goal_after_action", append(node.OutcomeRefs, outcome.Refs...))
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, browserStageAssessGoalAfterAction, append(node.OutcomeRefs, outcome.Refs...))
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_transition_invalid"
-	case "assess_goal_initial", "assess_goal_after_action":
+	case browserStageAssessGoalInitial, browserStageAssessGoalAfterAction:
 		switch {
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied):
 			refs := currentBrowserSnapshotRefs(node.OutcomeRefs)
 			recordBrowserHiddenResult(state, refs, outcome.ToolCallID, browserGoalEvidenceRefs(outcome.Refs))
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionGoalSatisfied, "present_visible", browserPresentationRefs(state, refs))
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionGoalSatisfied, browserStagePresentVisible, browserPresentationRefs(state, refs))
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionProgress):
 			if state.Browser.CompletedClicks >= browserInteractionMaxClicks {
 				assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_attempt_limit"
 				return assessment
 			}
 			refs := currentBrowserSnapshotRefs(node.OutcomeRefs)
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionProgress, "choose_and_click", refs)
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionProgress, browserStageChooseAndClick, refs)
 		default:
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_goal_not_satisfied"
 		}
-	case "present_visible":
+	case browserStagePresentVisible:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalOpenCompleted) {
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalPresentationOpened, "settle_visible", outcome.Refs)
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalPresentationOpened, browserStageSettleVisible, outcome.Refs)
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_presentation_failed"
-	case "snapshot_visible":
+	case browserStageSnapshotVisible:
 		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationVisible)
 		if reason == "" && interaction && !browserSnapshotHasInteractionEvidence(refs) {
 			reason = "browser_snapshot_not_ready"
 		}
 		if reason == "browser_snapshot_route_changed" || reason == "browser_snapshot_not_ready" {
-			return browserRevision2SnapshotRetry(state, assessment, "visible_snapshot_drifted", app.OutcomeSignalVisibleSnapshotDrifted, "settle_visible")
+			return browserRevision2SnapshotRetry(state, assessment, "visible_snapshot_drifted", app.OutcomeSignalVisibleSnapshotDrifted, browserStageSettleVisible)
 		}
 		if reason != "" {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
@@ -471,11 +511,11 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		}
 		recordBrowserVisibleResult(state, refs, outcome.ToolCallID)
 		if interaction {
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalPresentationValidated, "assess_goal_visible", refs)
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalPresentationValidated, browserStageAssessGoalVisible, refs)
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "browser_visible_result_verified"
 		assessment.SelectedRefs = refs
-	case "assess_goal_visible":
+	case browserStageAssessGoalVisible:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied) {
 			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "browser_visible_goal_verified"
 			assessment.SelectedRefs = append(currentBrowserSnapshotRefs(node.OutcomeRefs), outcome.Refs...)
@@ -495,7 +535,7 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 
 func browserRevision2Acquired(assessment app.NodeAssessment, outcome app.ToolOutcome, signal app.OutcomeSignal, failure string) app.NodeAssessment {
 	if containsOutcomeSignal(outcome.Signals, signal) {
-		return browserRevision2NeedsMore(assessment, signal, "settle_hidden", outcome.Refs)
+		return browserRevision2NeedsMore(assessment, signal, browserStageSettleHidden, outcome.Refs)
 	}
 	assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, failure
 	return assessment
@@ -701,28 +741,6 @@ func browserPresentationRefs(state *app.WorkflowState, refs []app.ResourceRef) [
 		Provenance: state.Browser.Result.HiddenSnapshotID,
 		Attributes: map[string]string{"redacted_url": state.Browser.Result.Target.RedactedURL},
 	}}
-}
-
-func browserSafeResultURL(target app.BrowserTargetDescriptor, liveRaw string) string {
-	live, err := url.Parse(strings.TrimSpace(liveRaw))
-	if err != nil || live.Scheme == "" || live.Host == "" {
-		return target.CanonicalURL
-	}
-	live.Scheme = strings.ToLower(live.Scheme)
-	live.Host = strings.ToLower(live.Host)
-	if live.Path == "" {
-		live.Path = "/"
-	}
-	live.RawQuery = ""
-	live.ForceQuery = false
-	if target.QueryProvenance == app.BrowserQueryOwnerSupplied {
-		if frozen, frozenErr := url.Parse(strings.TrimSpace(target.CanonicalURL)); frozenErr == nil &&
-			frozen.Scheme != "" && frozen.Host != "" {
-			live.RawQuery = frozen.RawQuery
-			live.ForceQuery = frozen.ForceQuery
-		}
-	}
-	return live.String()
 }
 
 func browserPresentationURLMatchesRoute(state *app.WorkflowState, candidateURL string) bool {

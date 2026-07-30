@@ -29,7 +29,10 @@ func (h *ToolHub) clickBrowserInteraction(ctx context.Context, args map[string]a
 		elementRef := strings.TrimSpace(browserAutomationStringValue(args["uid"]))
 		if snapshot, found := findBrowserSnapshotRecord(h.store.ListToolCalls(sessionID), runID, snapshotID); found {
 			if label := strings.TrimSpace(snapshot.Labels[elementRef]); unsafeBrowserInteractionLabel(label) {
-				return Result{}, fmt.Errorf("unsafe click target %q is outside the bounded browser.interaction contract", label)
+				return Result{}, &app.CodedToolError{
+					Code: app.ToolErrorUnsafeClickTarget,
+					Err:  fmt.Errorf("unsafe click target %q is outside the bounded browser.interaction contract", label),
+				}
 			}
 		}
 	}

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-	"net/url"
 	"regexp"
 	"strings"
 
@@ -86,26 +85,4 @@ func redactBrowserPersistenceText(target app.BrowserTargetDescriptor, text strin
 	return browserPersistenceURLPattern.ReplaceAllStringFunc(text, func(raw string) string {
 		return browserSafePersistenceURL(target, raw)
 	})
-}
-
-func browserSafePersistenceURL(target app.BrowserTargetDescriptor, raw string) string {
-	live, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || (live.Scheme != "http" && live.Scheme != "https") || live.Host == "" {
-		return raw
-	}
-	live.Scheme = strings.ToLower(live.Scheme)
-	live.Host = strings.ToLower(live.Host)
-	if live.Path == "" {
-		live.Path = "/"
-	}
-	live.RawQuery = ""
-	live.ForceQuery = false
-	if target.QueryProvenance == app.BrowserQueryOwnerSupplied {
-		if frozen, frozenErr := url.Parse(strings.TrimSpace(target.CanonicalURL)); frozenErr == nil &&
-			frozen.Scheme != "" && frozen.Host != "" {
-			live.RawQuery = frozen.RawQuery
-			live.ForceQuery = frozen.ForceQuery
-		}
-	}
-	return live.String()
 }

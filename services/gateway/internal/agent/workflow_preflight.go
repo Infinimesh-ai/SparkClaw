@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -169,18 +168,4 @@ func documentOutputFamily(inputStem string) (string, int) {
 		}
 	}
 	return inputStem + marker, 1
-}
-
-func normalizeBrowserURL(raw string) string {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return strings.TrimSpace(raw)
-	}
-	parsed.Scheme = strings.ToLower(parsed.Scheme)
-	parsed.Host = strings.ToLower(parsed.Host)
-	parsed.Fragment = ""
-	if parsed.Path == "" {
-		parsed.Path = "/"
-	}
-	return parsed.String()
 }

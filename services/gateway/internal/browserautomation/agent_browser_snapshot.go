@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const agentBrowserSnapshotControlLimit = 24
@@ -610,8 +612,14 @@ func agentBrowserRefNumber(value string) int {
 	return number
 }
 
+// errorsForSnapshot classifies every snapshot-binding failure as
+// app.ToolErrorSnapshotStale: whatever the specific cause, the caller's
+// remedy is the same — take a fresh browser.snapshot.
 func errorsForSnapshot(message string) error {
-	return fmt.Errorf("agent-browser snapshot: %s", message)
+	return &app.CodedToolError{
+		Code: app.ToolErrorSnapshotStale,
+		Err:  fmt.Errorf("agent-browser snapshot: %s", message),
+	}
 }
 
 func nonEmptyStrings(values ...string) []string {

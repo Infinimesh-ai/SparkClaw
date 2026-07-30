@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"errors"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -396,11 +395,20 @@ func adaptBrowserSnapshotOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 func adaptBrowserClickOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	if !toolCallCompleted(call) {
-		lowerError := strings.ToLower(call.Error)
-		if strings.Contains(lowerError, "unsafe click target") {
+		switch app.ToolErrorCode(call.ErrorCode) {
+		case app.ToolErrorUnsafeClickTarget:
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
-		} else if strings.Contains(lowerError, "stale") || strings.Contains(lowerError, "snapshot") {
+		case app.ToolErrorSnapshotStale:
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotStale}
+		case "":
+			// Fallback prose matching for tool calls persisted before
+			// ErrorCode existed and for unclassified adapter errors.
+			lowerError := strings.ToLower(call.Error)
+			if strings.Contains(lowerError, "unsafe click target") {
+				outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
+			} else if strings.Contains(lowerError, "stale") || strings.Contains(lowerError, "snapshot") {
+				outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotStale}
+			}
 		}
 		return outcome
 	}
@@ -522,19 +530,6 @@ func browserPageRefs(value any, provenance string) []app.ResourceRef {
 		}
 	}
 	return refs
-}
-
-func normalizeBrowserEvidenceURL(raw string) string {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return strings.TrimSpace(raw)
-	}
-	parsed.Scheme = strings.ToLower(parsed.Scheme)
-	parsed.Host = strings.ToLower(parsed.Host)
-	if parsed.Path == "" {
-		parsed.Path = "/"
-	}
-	return parsed.String()
 }
 
 func browserOutcomeIdentityAttributes(payload map[string]any, attributes map[string]string) map[string]string {

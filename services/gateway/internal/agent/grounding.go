@@ -385,7 +385,10 @@ func browserInteractionFailureAnswerFromCalls(calls []app.ToolCall) (string, boo
 		if call.Tool != "browser.click" || call.Status == "completed" {
 			continue
 		}
-		if strings.Contains(strings.ToLower(call.Error), "unsafe click target") {
+		// Prose matching is the fallback for records persisted before
+		// ErrorCode existed; new failures carry the typed code.
+		if call.ErrorCode == string(app.ToolErrorUnsafeClickTarget) ||
+			strings.Contains(strings.ToLower(call.Error), "unsafe click target") {
 			return "页面交互已阻止：目标点击可能产生不允许的后果。", true
 		}
 	}

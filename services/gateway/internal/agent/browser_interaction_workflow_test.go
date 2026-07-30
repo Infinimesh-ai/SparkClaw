@@ -363,7 +363,9 @@ func TestBrowserInteractionHandoffResetDiscardsPreLoginRefsAndPreservesClickBudg
 				},
 				TransitionActivations: map[app.TransitionID]int{
 					"reuse_existing": 1, "focus_acquired": 1, "hidden_settled": 1,
-					"click_recorded": 1,
+					"hidden_snapshot_drifted":  browserSnapshotSettleRetryLimit,
+					"visible_snapshot_drifted": 1, "visible_opened": 1, "visible_settled": 1,
+					"click_recorded": 1, "continue_interaction": 1,
 				},
 			},
 		},
@@ -381,9 +383,18 @@ func TestBrowserInteractionHandoffResetDiscardsPreLoginRefsAndPreservesClickBudg
 	if run.Workflow.Browser.CompletedClicks != 1 {
 		t.Fatalf("handoff reset widened the click budget: %#v", run.Workflow.Browser)
 	}
-	if node.TransitionActivations["reuse_existing"] != 0 || node.TransitionActivations["focus_acquired"] != 0 ||
-		node.TransitionActivations["hidden_settled"] != 0 || node.TransitionActivations["click_recorded"] != 1 {
-		t.Fatalf("handoff reset changed the wrong transition bounds: %#v", node.TransitionActivations)
+	for _, reset := range []app.TransitionID{
+		"reuse_existing", "focus_acquired", "hidden_settled",
+		// The pre-fix reset omitted the drift-retry and presentation budgets,
+		// so a run that used them before login resumed already exhausted.
+		"hidden_snapshot_drifted", "visible_snapshot_drifted", "visible_opened", "visible_settled",
+	} {
+		if node.TransitionActivations[reset] != 0 {
+			t.Fatalf("handoff reset kept transition %s consumed: %#v", reset, node.TransitionActivations)
+		}
+	}
+	if node.TransitionActivations["click_recorded"] != 1 || node.TransitionActivations["continue_interaction"] != 1 {
+		t.Fatalf("handoff reset widened the click accounting bounds: %#v", node.TransitionActivations)
 	}
 }
 
@@ -664,6 +675,52 @@ func TestWorkflowPromptContextKeepsStageAndProvidedToolList(t *testing.T) {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("workflow prompt context lost %q: %s", expected, prompt)
 		}
+	}
+}
+
+func TestAdaptBrowserClickOutcomeClassifiesFailuresByTypedCodeWithProseFallback(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call app.ToolCall
+		want app.OutcomeSignal
+	}{
+		{
+			// The typed code decides even when the redacted prose carries none
+			// of the legacy marker words.
+			name: "typed unsafe click code",
+			call: app.ToolCall{Tool: "browser.click", Status: "failed", ErrorCode: string(app.ToolErrorUnsafeClickTarget), Error: "rejected"},
+			want: app.OutcomeSignalUnsafeClickTarget,
+		},
+		{
+			name: "typed stale snapshot code",
+			call: app.ToolCall{Tool: "browser.click", Status: "failed", ErrorCode: string(app.ToolErrorSnapshotStale), Error: "rejected"},
+			want: app.OutcomeSignalSnapshotStale,
+		},
+		{
+			// Records persisted before ErrorCode existed still classify
+			// through the documented prose fallback.
+			name: "legacy record falls back to prose",
+			call: app.ToolCall{Tool: "browser.click", Status: "failed", Error: "stale or unknown snapshot; take a new browser.snapshot"},
+			want: app.OutcomeSignalSnapshotStale,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			outcome := adaptBrowserClickOutcome(test.call, "browser_result")
+			if len(outcome.Signals) != 1 || outcome.Signals[0] != test.want {
+				t.Fatalf("click failure was misclassified: %#v", outcome.Signals)
+			}
+		})
+	}
+}
+
+func TestUnsafeBrowserClickGroundingUsesTypedErrorCode(t *testing.T) {
+	calls := []app.ToolCall{{
+		Tool: "browser.click", Status: "failed",
+		ErrorCode: string(app.ToolErrorUnsafeClickTarget), Error: "交互被拒绝",
+	}}
+	answer, ok := groundedBrowserAutomationSummary("点击当前页面的下一步", "fallback", calls)
+	if !ok || answer != "页面交互已阻止：目标点击可能产生不允许的后果。" {
+		t.Fatalf("typed unsafe click code was not grounded: %q ok=%v", answer, ok)
 	}
 }
 

@@ -193,6 +193,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		})
 		call.Status = "failed"
 		call.Error = err.Error()
+		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		r.store.SaveToolCall(call)
 		return ManualInvocation{Call: call}, ManualExecutionError{Err: err}
 	}

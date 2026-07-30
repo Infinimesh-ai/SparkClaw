@@ -42,6 +42,7 @@ type ToolCall struct {
 	Arguments          map[string]any `json:"arguments"`
 	Result             any            `json:"result,omitempty"`
 	Error              string         `json:"error,omitempty"`
+	ErrorCode          string         `json:"error_code,omitempty"`
 	ApprovalID         string         `json:"approval_id,omitempty"`
 	StartedAt          time.Time      `json:"started_at"`
 	CompletedAt        *time.Time     `json:"completed_at,omitempty"`

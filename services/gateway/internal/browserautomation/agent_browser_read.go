@@ -30,12 +30,11 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 	}
 	defer cancel()
 
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	entry, err := a.ensureSessionLocked(readCtx, hidden, profileKey)
+	entry, err := a.acquireSessionEntry(readCtx, hidden, profileKey)
 	if err != nil {
 		return PageReadResult{}, err
 	}
+	defer entry.mu.Unlock()
 	openTool, _, _, err := entry.openURLLocked(readCtx, targetURL, true)
 	if err != nil {
 		return PageReadResult{}, err

@@ -13,10 +13,18 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
+// agentBrowserSessionCacheLimit bounds how many live sessions (each backed by
+// its own Chromium) the adapter keeps warm at once; the least recently used
+// entry is closed when the limit is exceeded.
+const agentBrowserSessionCacheLimit = 4
+
 type AgentBrowserAdapter struct {
-	cfg                config.Config
+	cfg config.Config
+	// mu guards the entry map, per-entry lastUsed stamps, and the command
+	// cache. It is never held while waiting on an entry's own lock, so map
+	// lookups and Health stay responsive while sessions run long calls.
 	mu                 sync.Mutex
-	entry              *agentBrowserSessionEntry
+	entries            map[agentBrowserSessionKey]*agentBrowserSessionEntry
 	commandPath        string
 	commandValidated   bool
 	namespace          string
@@ -24,15 +32,29 @@ type AgentBrowserAdapter struct {
 	observeStableState func(context.Context, *agentBrowserSession) (browserStableObservation, error)
 }
 
+type agentBrowserSessionKey struct {
+	profile      string
+	presentation string
+}
+
 // agentBrowserSessionEntry owns one live agent-browser session together with
 // every piece of adapter state scoped to that session: the snapshot registry,
 // tab observations, and the generation reported to callers.
 type agentBrowserSessionEntry struct {
-	adapter            *AgentBrowserAdapter
-	profile            string
-	presentation       string
-	session            *agentBrowserSession
-	generation         uint64
+	// mu serializes all browser calls against this session. Long operations
+	// (settle polling, page reads) hold only this lock, so one slow session
+	// never blocks Health or calls that target other profiles.
+	mu           sync.Mutex
+	adapter      *AgentBrowserAdapter
+	profile      string
+	presentation string
+	// session and generation are written while holding both mu and the
+	// adapter lock, so Health can read them under the adapter lock alone.
+	session    *agentBrowserSession
+	generation uint64
+	// lastUsed is guarded by the adapter lock.
+	lastUsed time.Time
+	// The remaining per-session state is guarded by mu.
 	snapshots          map[string]*agentBrowserSnapshotState
 	activeSnapshotPage string
 	nextSnapshotID     uint64
@@ -42,9 +64,14 @@ type agentBrowserSessionEntry struct {
 	freshSession       bool
 }
 
+func (e *agentBrowserSessionEntry) sessionKey() agentBrowserSessionKey {
+	return agentBrowserSessionKey{profile: e.profile, presentation: e.presentation}
+}
+
 func NewAdapter(cfg config.Config) Adapter {
 	return &AgentBrowserAdapter{
 		cfg:            cfg,
+		entries:        map[agentBrowserSessionKey]*agentBrowserSessionEntry{},
 		namespace:      newAgentBrowserNamespace(),
 		nextGeneration: uint64(time.Now().UTC().UnixMicro()),
 	}
@@ -52,8 +79,13 @@ func NewAdapter(cfg config.Config) Adapter {
 
 func (a *AgentBrowserAdapter) Close() error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.resetSessionLocked()
+	entries := make([]*agentBrowserSessionEntry, 0, len(a.entries))
+	for key, entry := range a.entries {
+		entries = append(entries, entry)
+		delete(a.entries, key)
+	}
+	a.mu.Unlock()
+	closeSessionEntries(entries)
 	return nil
 }
 
@@ -71,7 +103,13 @@ func (a *AgentBrowserAdapter) Health(ctx context.Context, args map[string]any) (
 		}
 		a.commandPath = command
 	}
-	profileOwned := a.entry != nil && a.entry.session.alive() && a.entry.profile == profileKey
+	profileOwned := false
+	for key, entry := range a.entries {
+		if key.profile == profileKey && entry.session != nil && entry.session.alive() {
+			profileOwned = true
+			break
+		}
+	}
 	preflight := inspectBrowserEnvironment(
 		ctx,
 		adapterCfg,
@@ -104,12 +142,11 @@ func (a *AgentBrowserAdapter) Call(ctx context.Context, tool string, args map[st
 	hidden := shouldUseHiddenAutomationTool(tool, metadata, args)
 	profileKey := a.browserProfileKey(args)
 
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	entry, err := a.ensureSessionLocked(ctx, hidden, profileKey)
+	entry, err := a.acquireSessionEntry(ctx, hidden, profileKey)
 	if err != nil {
 		return Result{}, err
 	}
+	defer entry.mu.Unlock()
 	rawTool, _, output, err := entry.executeLocked(ctx, tool, args)
 	if err != nil {
 		return Result{}, err
@@ -379,53 +416,174 @@ func (e *agentBrowserSessionEntry) executeLocked(ctx context.Context, tool strin
 	}
 }
 
-func (a *AgentBrowserAdapter) ensureSessionLocked(ctx context.Context, hidden bool, profileKey string) (*agentBrowserSessionEntry, error) {
+// acquireSessionEntry returns a live session entry for the profile and
+// presentation with the entry's own lock held; the caller must release
+// entry.mu when the browser call completes. Sessions for other profiles stay
+// warm in the entry map, so alternating owners no longer tear Chromium down
+// on every call.
+func (a *AgentBrowserAdapter) acquireSessionEntry(ctx context.Context, hidden bool, profileKey string) (*agentBrowserSessionEntry, error) {
 	presentation := "visible"
 	if hidden {
 		presentation = "hidden"
 	}
-	if a.entry != nil && a.entry.session.alive() && a.entry.profile == profileKey && a.entry.presentation == presentation {
-		return a.entry, nil
+	entry, victims := a.resolveSessionEntry(agentBrowserSessionKey{profile: profileKey, presentation: presentation})
+	// Evicted entries must be fully closed before a launch: entries for the
+	// same profile hold the Chromium profile flock the new session needs.
+	closeSessionEntries(victims)
+	entry.mu.Lock()
+	if entry.session == nil || !entry.session.alive() {
+		if err := entry.initializeSessionLocked(ctx); err != nil {
+			entry.mu.Unlock()
+			return nil, err
+		}
 	}
-	preserveEmptyTabs := a.entry != nil && a.entry.noOpenTabs && a.entry.profile == profileKey && a.entry.presentation == presentation
-	a.resetSessionLocked()
+	return entry, nil
+}
+
+// resolveSessionEntry finds or creates the entry for key and detaches every
+// entry that must not stay warm: same-profile entries with another
+// presentation (both presentations contend for one profile flock), entries
+// idle beyond their daemon idle bound, and the least recently used entries
+// beyond the cache limit. Detached entries are returned for the caller to
+// close outside the adapter lock.
+func (a *AgentBrowserAdapter) resolveSessionEntry(key agentBrowserSessionKey) (*agentBrowserSessionEntry, []*agentBrowserSessionEntry) {
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var victims []*agentBrowserSessionEntry
+	for other, entry := range a.entries {
+		if other == key {
+			continue
+		}
+		if other.profile == key.profile || now.Sub(entry.lastUsed) > a.sessionIdleBoundLocked(other) {
+			victims = append(victims, entry)
+			delete(a.entries, other)
+		}
+	}
+	entry := a.entries[key]
+	if entry == nil {
+		entry = &agentBrowserSessionEntry{
+			adapter:      a,
+			profile:      key.profile,
+			presentation: key.presentation,
+			snapshots:    map[string]*agentBrowserSnapshotState{},
+		}
+		a.entries[key] = entry
+	}
+	entry.lastUsed = now
+	for len(a.entries) > agentBrowserSessionCacheLimit {
+		var oldest *agentBrowserSessionEntry
+		var oldestKey agentBrowserSessionKey
+		for candidateKey, candidate := range a.entries {
+			if candidate == entry {
+				continue
+			}
+			if oldest == nil || candidate.lastUsed.Before(oldest.lastUsed) {
+				oldest, oldestKey = candidate, candidateKey
+			}
+		}
+		if oldest == nil {
+			break
+		}
+		victims = append(victims, oldest)
+		delete(a.entries, oldestKey)
+	}
+	return entry, victims
+}
+
+// sessionIdleBoundLocked mirrors the idle timeout the agent-browser daemon
+// itself applies, so the gateway-side session (and its profile lease) is
+// reaped on the same schedule as the browser it manages.
+func (a *AgentBrowserAdapter) sessionIdleBoundLocked(key agentBrowserSessionKey) time.Duration {
+	timeoutMS := a.cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS
+	if key.presentation == "visible" {
+		return time.Duration(visibleBrowserIdleTimeoutMS(timeoutMS)) * time.Millisecond
+	}
+	return time.Duration(adapterDaemonIdleTimeoutMS(timeoutMS)) * time.Millisecond
+}
+
+// initializeSessionLocked launches (or relaunches) the entry's agent-browser
+// session. Called with entry.mu held; briefly takes the adapter lock to
+// publish the session pointer and generation for lock-free-ish Health reads.
+func (e *agentBrowserSessionEntry) initializeSessionLocked(ctx context.Context) error {
+	a := e.adapter
+	a.mu.Lock()
 	adapterCfg := a.cfg.Adapters.BrowserAutomation
-	if a.commandPath == "" {
+	commandPath := a.commandPath
+	commandValidated := a.commandValidated
+	a.mu.Unlock()
+	if commandPath == "" {
 		command, err := resolveAgentBrowserCommand(adapterCfg.Command)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		a.commandPath = command
+		commandPath = command
 	}
-	if !a.commandValidated {
-		if err := validateAgentBrowserVersion(ctx, a.commandPath, adapterCfg.StartupTimeoutMS); err != nil {
-			return nil, err
+	if !commandValidated {
+		if err := validateAgentBrowserVersion(ctx, commandPath, adapterCfg.StartupTimeoutMS); err != nil {
+			return err
 		}
-		a.commandValidated = true
+	}
+	// A replaced session keeps its profile lease until closed, so shut the
+	// previous session down before launching against the same profile.
+	preserveEmptyTabs := false
+	if e.session != nil {
+		preserveEmptyTabs = e.noOpenTabs
+		e.session.close()
+		e.setSessionLocked(nil, e.generation)
 	}
 	startupCtx, cancel := context.WithTimeout(ctx, time.Duration(adapterStartupTimeoutMS(adapterCfg.StartupTimeoutMS))*time.Millisecond)
 	defer cancel()
-	session, err := newAgentBrowserSession(startupCtx, adapterCfg, a.commandPath, a.namespace, hidden, profileKey)
+	session, err := newAgentBrowserSession(startupCtx, adapterCfg, commandPath, a.namespace, e.presentation == "hidden", e.profile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := session.initialize(startupCtx); err != nil {
 		session.abort()
-		return nil, fmt.Errorf("start agent-browser MCP session: %w", err)
+		return fmt.Errorf("start agent-browser MCP session: %w", err)
 	}
+	e.snapshots = map[string]*agentBrowserSnapshotState{}
+	e.activeSnapshotPage = ""
+	e.observedTabs = nil
+	e.observedTabsValid = false
+	e.noOpenTabs = preserveEmptyTabs
+	e.freshSession = true
+	a.mu.Lock()
+	a.commandPath = commandPath
+	a.commandValidated = true
 	a.nextGeneration++
-	entry := &agentBrowserSessionEntry{
-		adapter:      a,
-		profile:      profileKey,
-		presentation: presentation,
-		session:      session,
-		generation:   a.nextGeneration,
-		snapshots:    map[string]*agentBrowserSnapshotState{},
-		noOpenTabs:   preserveEmptyTabs,
-		freshSession: true,
+	generation := a.nextGeneration
+	a.mu.Unlock()
+	e.setSessionLocked(session, generation)
+	return nil
+}
+
+// setSessionLocked publishes the session pointer and generation under both
+// entry.mu (already held) and the adapter lock, keeping them readable from
+// Health without waiting on a busy entry.
+func (e *agentBrowserSessionEntry) setSessionLocked(session *agentBrowserSession, generation uint64) {
+	e.adapter.mu.Lock()
+	e.session = session
+	e.generation = generation
+	e.adapter.mu.Unlock()
+}
+
+// closeSessionEntry waits for any in-flight call against the entry to finish,
+// then shuts its session down. The entry must already be detached from the
+// entry map so no new caller can resolve it.
+func closeSessionEntry(e *agentBrowserSessionEntry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.session != nil {
+		e.session.close()
+		e.setSessionLocked(nil, e.generation)
 	}
-	a.entry = entry
-	return entry, nil
+}
+
+func closeSessionEntries(entries []*agentBrowserSessionEntry) {
+	for _, entry := range entries {
+		closeSessionEntry(entry)
+	}
 }
 
 func (e *agentBrowserSessionEntry) callAgentToolLocked(ctx context.Context, name string, args map[string]any) (agentBrowserToolResult, error) {
@@ -435,18 +593,8 @@ func (e *agentBrowserSessionEntry) callAgentToolLocked(ctx context.Context, name
 		e.session.abort()
 		e.invalidateSnapshotsLocked()
 		e.clearObservedTabsLocked()
-		if e.adapter.entry == e {
-			e.adapter.entry = nil
-		}
 	}
 	return result, err
-}
-
-func (a *AgentBrowserAdapter) resetSessionLocked() {
-	if a.entry != nil {
-		a.entry.session.close()
-		a.entry = nil
-	}
 }
 
 func (a *AgentBrowserAdapter) browserProfileKey(args map[string]any) string {

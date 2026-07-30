@@ -145,6 +145,7 @@ func dedicatedWeatherResponse() infinimeshinfo.WeatherResponse {
 func TestWeatherLookupMapsDedicatedTypedResponseWithoutCoordinates(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.Web.Search.Enabled = true
+	configureTestInfoCredentials(&cfg)
 	stub := &weatherInfoStub{response: dedicatedWeatherResponse()}
 	hub := New(cfg, store.NewMemoryStore()).WithWeatherInfoAdapter(stub)
 
@@ -180,6 +181,7 @@ func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()
 	cfg.Tools.Web.Search.Enabled = true
+	configureTestInfoCredentials(&cfg)
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	st, err := store.NewFileStore(filepath.Join(root, "gateway-state.json"))

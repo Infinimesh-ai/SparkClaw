@@ -3211,6 +3211,9 @@ func TestMigratedWorkflowToolsRemainRegistered(t *testing.T) {
 	cfg.Tools.BrowserAutomation.Enabled = true
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
+	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-proof"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "device-attestation"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-proof"
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
 	for _, name := range []string{

@@ -30,6 +30,7 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.Web.Search.Enabled = true
 	cfg.Tools.BrowserAutomation.Enabled = true
+	configureTestInfoCredentials(&cfg)
 	hub := New(cfg, store.NewMemoryStore())
 
 	capabilityCounts := map[string]int{}

@@ -68,6 +68,14 @@ func infoEnabled(cfg config.Config) bool {
 	return cfg.Tools.Web.Search.Enabled
 }
 
+// infoWeatherEnabled gates weather.lookup on the Infinimesh Info credentials
+// it actually calls with, not on the unrelated web-search toggle: an
+// unconfigured deployment must not offer the tool, and a configured one must
+// not lose it because web search is off.
+func infoWeatherEnabled(cfg config.Config) bool {
+	return cfg.Plugins.Entries.InfinimeshInfo.Config.Configured()
+}
+
 func browserAutomationPassthrough() toolExecutor {
 	return func(h *ToolHub, ctx context.Context, name string, args map[string]any, sessionID, _ string) (Result, error) {
 		return h.browserAutomationTool(ctx, name, args, sessionID)
@@ -245,7 +253,7 @@ var toolRegistry = map[string]toolRegistration{
 	),
 	"images.inspect": documentReadRegistration(ctxArgs((*ToolHub).imageInspect), []string{app.DocumentFormatImage},
 		"Inspect one explicitly identified image with the Fast multimodal model."),
-	"weather.lookup": workflowRegistration(toolRegistration{enabled: infoEnabled, run: ctxArgs((*ToolHub).lookupWeather)}, app.ToolCapabilityInfoQuestion,
+	"weather.lookup": workflowRegistration(toolRegistration{enabled: infoWeatherEnabled, run: ctxArgs((*ToolHub).lookupWeather)}, app.ToolCapabilityInfoQuestion,
 		map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWeatherPayload,
 		"Read normalized metric weather for one bound city from the dedicated Infinimesh Info weather endpoint.",
 		"Use only as the lookup stage of browser.weather.",

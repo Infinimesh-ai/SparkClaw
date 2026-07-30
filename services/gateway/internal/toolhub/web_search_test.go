@@ -14,6 +14,14 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
 
+// configureTestInfoCredentials satisfies InfinimeshInfoConfig.Configured so
+// tests can register the credential-gated weather.lookup tool.
+func configureTestInfoCredentials(cfg *config.Config) {
+	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-proof"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "device-attestation"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-proof"
+}
+
 func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
 	cfg := config.Default()
 	disabled := New(cfg, store.NewMemoryStore())
@@ -21,7 +29,7 @@ func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
 		t.Fatal("web.search should not register when disabled")
 	}
 	if _, ok := disabled.Definition("weather.lookup"); ok {
-		t.Fatal("weather.lookup should not register when Info is disabled")
+		t.Fatal("weather.lookup should not register without Info credentials")
 	}
 
 	cfg.Tools.Web.Search.Enabled = true
@@ -29,11 +37,32 @@ func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
 	if _, ok := enabled.Definition("web.search"); !ok {
 		t.Fatal("web.search should register when enabled")
 	}
-	if _, ok := enabled.Definition("weather.lookup"); !ok {
-		t.Fatal("weather.lookup should register when Info is enabled")
+	if _, ok := enabled.Definition("weather.lookup"); ok {
+		t.Fatal("weather.lookup must not register from the web-search toggle alone")
+	}
+
+	cfg.Tools.Web.Search.Enabled = false
+	configureTestInfoCredentials(&cfg)
+	configured := New(cfg, store.NewMemoryStore())
+	if _, ok := configured.Definition("weather.lookup"); !ok {
+		t.Fatal("weather.lookup should register when Info credentials are configured")
 	}
 	if _, ok := enabled.Definition("info.query"); ok {
 		t.Fatal("legacy info.query must not remain registered")
+	}
+}
+
+func TestWeatherLookupDegradesWithoutUsableInfoClient(t *testing.T) {
+	cfg := config.Default()
+	configureTestInfoCredentials(&cfg)
+	cfg.Plugins.Entries.InfinimeshInfo.Config.BaseURL = "not-an-absolute-url"
+	hub := New(cfg, store.NewMemoryStore())
+
+	// The client constructor fails on the base URL; the tool must surface a
+	// clean unavailability error instead of dereferencing a typed-nil client.
+	_, err := hub.Execute(context.Background(), "weather.lookup", map[string]any{"location": "Shanghai"}, "s", "run")
+	if err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("expected adapter-unavailable error, got %v", err)
 	}
 }
 

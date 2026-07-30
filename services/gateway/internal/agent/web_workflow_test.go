@@ -154,6 +154,9 @@ func TestFusionRouterKeepsWeatherCardBoundaryNarrow(t *testing.T) {
 func TestBrowserWeatherDispatchesOnlyInfoQuestionInitially(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		cfg.config.Tools.Web.Search.Enabled = true
+		cfg.config.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-proof"
+		cfg.config.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "device-attestation"
+		cfg.config.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-proof"
 	})
 	defer closeRuntime()
 	route := app.RouteDecision{

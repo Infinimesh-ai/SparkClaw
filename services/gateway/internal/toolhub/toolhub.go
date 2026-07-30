@@ -53,7 +53,10 @@ type WeatherInfoAdapter interface {
 
 func New(cfg config.Config, st store.Store) *ToolHub {
 	infoCfg := cfg.Plugins.Entries.InfinimeshInfo.Config
-	weatherInfo, _ := infinimeshinfo.NewClient(infinimeshinfo.Config{
+	// A failed constructor must leave the interface field nil, not hold a
+	// typed-nil *Client that defeats the availability guard in lookupWeather.
+	var weatherInfo WeatherInfoAdapter
+	if client, err := infinimeshinfo.NewClient(infinimeshinfo.Config{
 		BaseURL:              infoCfg.BaseURL,
 		EntitlementProof:     infoCfg.EntitlementProof,
 		DeviceAttestation:    infoCfg.DeviceAttestation,
@@ -63,7 +66,9 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		RetryBaseDelay:       time.Duration(infoCfg.RetryBaseDelayMS) * time.Millisecond,
 		RequestTimeout:       time.Duration(infoCfg.RequestTimeoutSeconds) * time.Second,
 		ResponseBodyMaxBytes: infoCfg.ResponseBodyMaxBytes,
-	}, nil)
+	}, nil); err == nil {
+		weatherInfo = client
+	}
 	h := &ToolHub{
 		cfg:         cfg,
 		store:       st,

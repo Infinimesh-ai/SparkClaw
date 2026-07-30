@@ -102,7 +102,7 @@
           "cdnBaseUrl": "https://novac2c.cdn.weixin.qq.com/c2c"
         },
         "telegram": {
-          "enabled": true,
+          "enabled": false,
           "provider": "telegram-bot-api",
           "baseUrl": "https://api.telegram.org",
           "updateMode": "long-polling",

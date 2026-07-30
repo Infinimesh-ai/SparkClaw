@@ -36,6 +36,7 @@ type browserEnvironmentPreflight struct {
 	hiddenReady           bool
 	visibleReady          bool
 	reasonCodes           []string
+	warningCodes          []string
 }
 
 func (p browserEnvironmentPreflight) output() map[string]any {
@@ -67,6 +68,7 @@ func (p browserEnvironmentPreflight) output() map[string]any {
 		"hidden_ready":            p.hiddenReady,
 		"visible_ready":           p.visibleReady,
 		"reason_codes":            append([]string(nil), p.reasonCodes...),
+		"warning_codes":           append([]string(nil), p.warningCodes...),
 	}
 }
 
@@ -95,7 +97,10 @@ func inspectBrowserEnvironment(
 		if result.chromiumArchitecture == "aarch64" {
 			result.chromiumARM64 = true
 		} else {
-			result.reasonCodes = append(result.reasonCodes, "chromium_architecture_unsupported")
+			// The pinned deployment target is linux/arm64, but sessions
+			// launch fine on other architectures: report the mismatch as
+			// an advisory warning instead of gating readiness on it.
+			result.warningCodes = append(result.warningCodes, "chromium_architecture_unexpected")
 		}
 		version, versionErr := readChromiumVersion(ctx, chromium, cfg.StartupTimeoutMS)
 		if versionErr != nil {
@@ -145,17 +150,20 @@ func inspectBrowserEnvironment(
 		}
 	}
 
-	result.hiddenReady = result.providerReady &&
-		result.providerVersionPinned &&
-		result.chromiumReady &&
-		result.chromiumVersion != "" &&
-		result.chromiumARM64 &&
-		result.profileAvailable &&
-		result.utf8Locale &&
-		result.cjkFonts
-	result.visibleReady = result.hiddenReady && result.displayReady && result.xauthorityReady
-	result.ok = result.hiddenReady && (!requireVisible || result.visibleReady)
+	result.finalize(requireVisible)
 	return result
+}
+
+func (p *browserEnvironmentPreflight) finalize(requireVisible bool) {
+	p.hiddenReady = p.providerReady &&
+		p.providerVersionPinned &&
+		p.chromiumReady &&
+		p.chromiumVersion != "" &&
+		p.profileAvailable &&
+		p.utf8Locale &&
+		p.cjkFonts
+	p.visibleReady = p.hiddenReady && p.displayReady && p.xauthorityReady
+	p.ok = p.hiddenReady && (!requireVisible || p.visibleReady)
 }
 
 type visibleEnvironmentError struct {

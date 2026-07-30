@@ -304,6 +304,43 @@ func TestBrowserEnvironmentPreflightReportsDetectedArchitecture(t *testing.T) {
 	}
 }
 
+func TestBrowserEnvironmentPreflightArchitectureIsAdvisory(t *testing.T) {
+	preflight := browserEnvironmentPreflight{
+		providerReady:         true,
+		providerVersionPinned: true,
+		chromiumReady:         true,
+		chromiumVersion:       "Chromium 126.0.6478.126",
+		chromiumArchitecture:  "x86-64",
+		warningCodes:          []string{"chromium_architecture_unexpected"},
+		profileAvailable:      true,
+		utf8Locale:            true,
+		cjkFonts:              true,
+	}
+	preflight.finalize(false)
+	if !preflight.hiddenReady || !preflight.ok {
+		t.Fatalf("non-arm64 Chromium gated hidden readiness: %#v", preflight)
+	}
+	output := preflight.output()
+	if output["ok"] != true || output["status"] != "ok" {
+		t.Fatalf("non-arm64 preflight status = %#v", output)
+	}
+	if output["chromium_arm64"] != false || output["chromium_architecture"] != "x86-64" {
+		t.Fatalf("detected architecture reporting was lost: %#v", output)
+	}
+	warnings, ok := output["warning_codes"].([]string)
+	if !ok || len(warnings) != 1 || warnings[0] != "chromium_architecture_unexpected" {
+		t.Fatalf("warning_codes = %#v, want [chromium_architecture_unexpected]", output["warning_codes"])
+	}
+	if reasons, _ := output["reason_codes"].([]string); len(reasons) != 0 {
+		t.Fatalf("advisory architecture leaked into reason_codes: %#v", reasons)
+	}
+
+	preflight.finalize(true)
+	if preflight.ok || preflight.visibleReady {
+		t.Fatalf("missing display no longer gates visible readiness: %#v", preflight)
+	}
+}
+
 func TestNewAdapterUsesJSONSafeSessionGenerationSeed(t *testing.T) {
 	adapter, ok := NewAdapter(config.Config{}).(*AgentBrowserAdapter)
 	if !ok {

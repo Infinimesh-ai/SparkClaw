@@ -72,6 +72,10 @@ func canonicalBrowserURL(mode browserURLMode, target app.BrowserTargetDescriptor
 	if parsed.Path == "" {
 		parsed.Path = "/"
 	}
+	if mode == browserURLSafePersistence {
+		// Persisted records must never retain user:password@ credentials.
+		parsed.User = nil
+	}
 	switch mode {
 	case browserURLNormalize:
 		parsed.Fragment = ""

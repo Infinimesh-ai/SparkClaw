@@ -91,6 +91,12 @@ func TestCanonicalBrowserURLModes(t *testing.T) {
 			got:  browserSafePersistenceURL(ownerTarget, "https://example.com/live?sid=secret"),
 			want: "https://example.com/live?owner=1",
 		},
+		{
+			// Credentials must never survive into persisted records.
+			name: "safe persistence clears URL userinfo",
+			got:  browserSafePersistenceURL(volatileTarget, "https://user:pass@example.com/live"),
+			want: "https://example.com/live",
+		},
 	}
 	for _, testCase := range cases {
 		if testCase.got != testCase.want {

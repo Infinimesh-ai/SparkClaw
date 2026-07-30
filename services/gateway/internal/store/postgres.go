@@ -546,6 +546,12 @@ ALTER TABLE browser_login_blocks
 ALTER TABLE browser_login_blocks
   ADD COLUMN IF NOT EXISTS transition_lease_until TIMESTAMPTZ;
 
+UPDATE browser_login_blocks SET status = 'waiting_owner', schema_version = 2
+  WHERE status = 'waiting';
+UPDATE browser_login_blocks SET status = 'validating_visible', schema_version = 2
+  WHERE status = 'resuming';
+UPDATE browser_login_blocks SET version = 1 WHERE version <= 0;
+
 CREATE INDEX IF NOT EXISTS browser_login_blocks_active_idx
   ON browser_login_blocks(session_id, status, updated_at DESC);
 

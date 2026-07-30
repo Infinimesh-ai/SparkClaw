@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -96,6 +97,59 @@ func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	if !ok || current.Version != updated.Version || current.Status != app.BrowserHandoffStatusTransferring ||
 		current.LastError == "stale" {
 		t.Fatalf("file CAS result did not persist: %#v ok=%v", current, ok)
+	}
+}
+
+func TestFileStoreMigratesLegacyBrowserLoginBlocksAtLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-browser-state.json")
+	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	updatedWaiting := created.Add(time.Hour)
+	updatedResuming := created.Add(2 * time.Hour)
+	snapshot := Snapshot{
+		BrowserLoginBlocks: map[string]app.BrowserLoginBlock{
+			"blogin-legacy-waiting": {
+				ID: "blogin-legacy-waiting", SessionID: "session-legacy", RunID: "run-legacy",
+				Status:     legacyBrowserHandoffStatusWaiting,
+				ResumeArgs: map[string]any{"url": "https://example.com/a"},
+				CreatedAt:  created, UpdatedAt: updatedWaiting,
+			},
+			"blogin-legacy-resuming": {
+				ID: "blogin-legacy-resuming", SessionID: "session-legacy-2", RunID: "run-legacy-2",
+				Status:    legacyBrowserHandoffStatusResuming,
+				CreatedAt: created, UpdatedAt: updatedResuming,
+			},
+		},
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, ok := st.GetBrowserLoginBlock("blogin-legacy-waiting")
+	if !ok || waiting.Status != app.BrowserHandoffStatusWaitingOwner ||
+		waiting.SchemaVersion != app.BrowserHandoffSchemaVersion || waiting.Version != 1 ||
+		!waiting.CreatedAt.Equal(created) || !waiting.UpdatedAt.Equal(updatedWaiting) {
+		t.Fatalf("legacy waiting block was not migrated at load: %#v ok=%v", waiting, ok)
+	}
+	resuming, ok := st.GetBrowserLoginBlock("blogin-legacy-resuming")
+	if !ok || resuming.Status != app.BrowserHandoffStatusValidatingVisible ||
+		resuming.SchemaVersion != app.BrowserHandoffSchemaVersion || resuming.Version != 1 ||
+		!resuming.UpdatedAt.Equal(updatedResuming) {
+		t.Fatalf("legacy resuming block was not migrated at load: %#v ok=%v", resuming, ok)
+	}
+	if active, ok := st.FindActiveBrowserLoginBlock("session-legacy"); !ok || active.ID != "blogin-legacy-waiting" {
+		t.Fatalf("migrated legacy block is not active: %#v ok=%v", active, ok)
+	}
+	update := waiting
+	update.Status = app.BrowserHandoffStatusValidatingVisible
+	if _, err := st.UpdateBrowserLoginBlock(update, waiting.Version); err != nil {
+		t.Fatalf("migrated legacy block rejected CAS update: %v", err)
 	}
 }
 

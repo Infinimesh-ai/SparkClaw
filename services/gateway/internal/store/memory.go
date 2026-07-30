@@ -199,6 +199,9 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.credentialSecrets = ensureMap(snapshot.CredentialSecrets)
 	s.browserAuthRecords = ensureMap(snapshot.BrowserAuthRecords)
 	s.browserLoginBlocks = ensureMap(snapshot.BrowserLoginBlocks)
+	for id, block := range s.browserLoginBlocks {
+		s.browserLoginBlocks[id] = migrateLegacyBrowserLoginBlock(block)
+	}
 	s.memories = ensureMap(snapshot.Memories)
 	s.memoryCandidates = ensureMap(snapshot.MemoryCandidates)
 	s.auditEvents = append([]app.AuditEvent(nil), snapshot.AuditEvents...)
@@ -2281,6 +2284,34 @@ func normalizeBrowserAuthRecord(record app.BrowserAuthRecord, current app.Browse
 	}
 	record.UpdatedAt = now
 	return record
+}
+
+// Legacy schema-v1 browser login block status strings, kept only so
+// previously persisted snapshots can be migrated at load time.
+const (
+	legacyBrowserHandoffStatusWaiting  = "waiting"
+	legacyBrowserHandoffStatusResuming = "resuming"
+)
+
+// migrateLegacyBrowserLoginBlock upgrades a schema-v1 block persisted by an
+// older build to the v2 shape. It runs once at snapshot load — never on read
+// paths — and deliberately leaves CreatedAt/UpdatedAt untouched so stored
+// ordering and migration evidence survive. The postgres schema performs the
+// same status mapping in SQL; keep the two in sync.
+func migrateLegacyBrowserLoginBlock(block app.BrowserLoginBlock) app.BrowserLoginBlock {
+	switch strings.TrimSpace(block.Status) {
+	case legacyBrowserHandoffStatusWaiting:
+		block.Status = app.BrowserHandoffStatusWaitingOwner
+	case legacyBrowserHandoffStatusResuming:
+		block.Status = app.BrowserHandoffStatusValidatingVisible
+	}
+	if block.SchemaVersion <= 0 {
+		block.SchemaVersion = app.BrowserHandoffSchemaVersion
+	}
+	if block.Version <= 0 {
+		block.Version = 1
+	}
+	return block
 }
 
 func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.BrowserLoginBlock) app.BrowserLoginBlock {

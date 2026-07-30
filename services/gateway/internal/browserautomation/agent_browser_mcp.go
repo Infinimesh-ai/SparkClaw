@@ -497,9 +497,6 @@ func (s *agentBrowserSession) closeOwnedBrowser() {
 	configureAdapterCommand(cmd)
 	cmd.Env = append([]string(nil), s.environment...)
 	_ = cmd.Run()
-	if ctx.Err() != nil {
-		terminateAdapterProcess(cmd)
-	}
 }
 
 func resolveAgentBrowserCommand(configured string) (string, error) {

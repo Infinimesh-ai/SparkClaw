@@ -2660,10 +2660,10 @@ func (s *PostgresStore) FindActiveBrowserLoginBlock(sessionID string) (app.Brows
 			site_realm, account_hint, browser_auth_status, target, visible_evidence, last_user_reply, last_error,
 			transition_owner_id, transition_lease_until, created_at, updated_at, resolved_at
 		FROM browser_login_blocks
-		WHERE session_id = $1 AND status NOT IN ($2, $3, $4)
+		WHERE session_id = $1 AND status = ANY($2)
 		ORDER BY updated_at DESC
 		LIMIT 1
-	`, strings.TrimSpace(sessionID), app.BrowserHandoffStatusResolved, app.BrowserHandoffStatusCanceled, app.BrowserHandoffStatusFailed)
+	`, strings.TrimSpace(sessionID), app.BrowserHandoffActiveStatuses())
 	block, err := scanBrowserLoginBlock(row)
 	return block, err == nil
 }

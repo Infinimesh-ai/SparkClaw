@@ -1780,7 +1780,7 @@ func (s *MemoryStore) GetBrowserLoginBlock(id string) (app.BrowserLoginBlock, bo
 func (s *MemoryStore) FindActiveBrowserLoginBlock(sessionID string) (app.BrowserLoginBlock, bool) {
 	blocks := s.ListBrowserLoginBlocks(sessionID, "")
 	for _, block := range blocks {
-		if browserLoginBlockActive(block.Status) {
+		if app.BrowserHandoffStatusActive(block.Status) {
 			return block, true
 		}
 	}
@@ -2321,7 +2321,7 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 	block.BrowserAuthStatus = strings.TrimSpace(block.BrowserAuthStatus)
 	block.LastUserReply = strings.TrimSpace(block.LastUserReply)
 	block.LastError = strings.TrimSpace(block.LastError)
-	if block.Status == app.BrowserHandoffStatusWaitingOwner || !browserLoginBlockActive(block.Status) {
+	if block.Status == app.BrowserHandoffStatusWaitingOwner || !app.BrowserHandoffStatusActive(block.Status) {
 		block.TransitionOwnerID = ""
 		block.TransitionLeaseUntil = nil
 	}
@@ -2334,25 +2334,11 @@ func normalizeBrowserLoginBlock(block app.BrowserLoginBlock, current app.Browser
 	if block.CreatedAt.IsZero() {
 		block.CreatedAt = now
 	}
-	if !browserLoginBlockActive(block.Status) && block.ResolvedAt == nil {
+	if !app.BrowserHandoffStatusActive(block.Status) && block.ResolvedAt == nil {
 		block.ResolvedAt = current.ResolvedAt
 	}
 	block.UpdatedAt = now
 	return block
-}
-
-func browserLoginBlockActive(status string) bool {
-	switch strings.TrimSpace(status) {
-	case app.BrowserHandoffStatusWaitingOwner,
-		app.BrowserHandoffStatusReopeningVisible,
-		app.BrowserHandoffStatusValidatingVisible,
-		app.BrowserHandoffStatusTransferring,
-		app.BrowserHandoffStatusValidatingHidden,
-		app.BrowserHandoffStatusResumingWorkflow:
-		return true
-	default:
-		return false
-	}
 }
 
 func normalizeBrowserAuthLookup(ownerID, browserProfileID, siteOrigin, siteRealm, accountHint string) (string, string, string, string, string) {

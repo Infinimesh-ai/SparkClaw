@@ -2,6 +2,8 @@ package app
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -236,6 +238,31 @@ const (
 	BrowserLoginBlockStatusCanceled = BrowserHandoffStatusCanceled
 	BrowserLoginBlockStatusFailed   = BrowserHandoffStatusFailed
 )
+
+// browserHandoffActiveStatuses is the single source of truth for the handoff
+// statuses that count as "still in progress". Store backends must derive
+// their active-block predicates (the memory allowlist and the postgres SQL
+// status list) from this list so the backends cannot disagree.
+var browserHandoffActiveStatuses = []string{
+	BrowserHandoffStatusWaitingOwner,
+	BrowserHandoffStatusReopeningVisible,
+	BrowserHandoffStatusValidatingVisible,
+	BrowserHandoffStatusTransferring,
+	BrowserHandoffStatusValidatingHidden,
+	BrowserHandoffStatusResumingWorkflow,
+}
+
+// BrowserHandoffActiveStatuses returns the statuses in which a browser login
+// handoff is still in progress.
+func BrowserHandoffActiveStatuses() []string {
+	return slices.Clone(browserHandoffActiveStatuses)
+}
+
+// BrowserHandoffStatusActive reports whether status marks a browser login
+// handoff that is still in progress.
+func BrowserHandoffStatusActive(status string) bool {
+	return slices.Contains(browserHandoffActiveStatuses, strings.TrimSpace(status))
+}
 
 type BrowserAuthRecord struct {
 	ID               string     `json:"id"`

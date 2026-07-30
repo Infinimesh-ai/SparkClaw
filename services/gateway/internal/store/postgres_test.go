@@ -387,6 +387,39 @@ func TestPostgresStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t *testing.T) {
+	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SPARKCLAW_TEST_POSTGRES_DSN to run postgres store integration tests")
+	}
+	st, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	truncatePostgresStore(t, st)
+
+	statuses := append(app.BrowserHandoffActiveStatuses(),
+		app.BrowserHandoffStatusResolved,
+		app.BrowserHandoffStatusCanceled,
+		app.BrowserHandoffStatusFailed,
+	)
+	for _, status := range statuses {
+		session := st.CreateSession("active predicate " + status)
+		run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "browser_login_blocked", ModelLane: "deep", Risk: app.RiskRead, StartedAt: time.Now().UTC()}
+		st.SaveRun(run)
+		block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+			SessionID: session.ID, RunID: run.ID, Status: status, SiteOrigin: "https://example.com",
+		})
+		found, ok := st.FindActiveBrowserLoginBlock(session.ID)
+		if want := app.BrowserHandoffStatusActive(status); ok != want {
+			t.Fatalf("status %q: FindActiveBrowserLoginBlock ok=%v, shared predicate active=%v", status, ok, want)
+		} else if ok && found.ID != block.ID {
+			t.Fatalf("status %q: FindActiveBrowserLoginBlock returned %q, want %q", status, found.ID, block.ID)
+		}
+	}
+}
+
 func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 	t.Helper()
 	_, err := st.db.Exec(context.Background(), `

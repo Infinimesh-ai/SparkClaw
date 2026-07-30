@@ -18,7 +18,6 @@ scripts/                   Setup, doctor, eval, and model helpers
 eval/golden/               Golden cases and fixtures
 benchmarks/                Model endpoint evidence
 packages/                  Portable protocol/policy/schema notes
-skills/                    Transitional procedures kept for reference; not loaded into execution
 tools/document-runtime/    Declared document adapter dependencies
 docs/                      Current English documentation
 zh-cn/                     Simplified Chinese documentation mirror
@@ -134,8 +133,8 @@ To add a user-facing capability:
    terminal failures, semantic confusion cases, and end-to-end delivery.
 8. Update [Workflow capabilities](workflow-capabilities.md).
 
-Only the active Workflow node exposes tools. A matched Workflow does not load a
-Skill or fall back to a generic loop; the workflow step loop (see
+Only the active Workflow node exposes tools. A matched Workflow does not fall
+back to a generic loop; the workflow step loop (see
 [Workflow execution](workflow-execution.md)) is the only execution primitive.
 Tools outside the matrix may remain registered for
 future migration but are not advertised as current user features.

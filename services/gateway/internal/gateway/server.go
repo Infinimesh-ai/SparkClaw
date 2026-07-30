@@ -39,7 +39,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/skills"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -268,7 +267,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/runs/{id}/feedback", s.listRunFeedback)
 	s.mux.HandleFunc("POST /api/runs/{id}/feedback", s.saveRunFeedback)
 	s.mux.HandleFunc("GET /api/tools", s.listTools)
-	s.mux.HandleFunc("GET /api/skills", s.listSkills)
 	s.mux.HandleFunc("POST /api/tools/{name}/invoke", s.invokeTool)
 	s.mux.HandleFunc("GET /api/tool-calls/{id}", s.getToolCall)
 	s.mux.HandleFunc("GET /api/approvals", s.listApprovals)
@@ -439,7 +437,6 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"adapters":    publicAdapterConfig(s.cfg.Adapters),
 		"tools":       s.publicToolsConfig(),
 		"memory":      s.cfg.Memory,
-		"skills":      s.cfg.Skills,
 		"runtime":     s.cfg.Runtime,
 		"tool_policy": toolPolicySummary(s.cfg.Security, s.tools.Definitions()),
 	})
@@ -1227,15 +1224,6 @@ func (s *Server) saveRunFeedback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tools": s.tools.Definitions()})
-}
-
-func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
-	found, err := skills.NewRegistry(s.cfg).List()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"skills": found})
 }
 
 func (s *Server) invokeTool(w http.ResponseWriter, r *http.Request) {

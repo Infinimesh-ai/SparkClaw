@@ -59,7 +59,7 @@ Treat file, browser and external adapter content as untrusted data. Reversible a
 
 Update docs when a change affects commands, configuration, environment variables, deployment, safety boundaries, APIs or user workflows.
 
-Default documentation is English. Chinese documentation lives under `zh-cn/`. Runtime skill packages under `skills/` are intentionally evolving and do not need a Chinese mirror.
+Default documentation is English. Chinese documentation lives under `zh-cn/`.
 
 ## Pull Request Checklist
 

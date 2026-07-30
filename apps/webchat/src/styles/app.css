@@ -611,6 +611,24 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.noticeBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px var(--gutter) 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(59, 130, 246, 0.38);
+  border-radius: var(--radius-control);
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.noticeBanner > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .scheduleBar {
   min-width: 0;
   margin: 12px var(--gutter) 0;
@@ -2100,8 +2118,7 @@ button.finderRow {
 .traceRow,
 .diagnosticRow,
 .episodeItem,
-.settingsBlock,
-.skillItem {
+.settingsBlock {
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -2135,8 +2152,7 @@ button.finderRow {
 .evalResult p,
 .traceSummary p,
 .episodeItem p,
-.settingsBlock p,
-.skillItem p {
+.settingsBlock p {
   margin: 0;
   color: var(--text-primary);
   line-height: 1.45;
@@ -2706,8 +2722,7 @@ button.finderRow {
   border-color: rgba(239, 68, 68, 0.5);
 }
 
-.evalCases,
-.skillMeta {
+.evalCases {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -2715,8 +2730,7 @@ button.finderRow {
   max-width: 100%;
 }
 
-.evalCases span,
-.skillMeta small {
+.evalCases span {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -2895,7 +2909,8 @@ button.finderRow {
     overflow: visible;
   }
 
-  .errorBanner {
+  .errorBanner,
+  .noticeBanner {
     align-items: stretch;
     flex-direction: column;
     margin-inline: 16px;

@@ -27,7 +27,6 @@ import type {
   Schedule,
   ScheduleAction,
   Session,
-  Skill,
   SpeechStatus,
   SpeechTranscriptionResult,
   TraceMetadata,
@@ -355,6 +354,5 @@ export const api = {
   evalRun: (id: string) => request<EvalRun>(`/api/evals/${id}`),
   artifacts: () => request<{ artifacts: ArtifactObject[] }>("/api/artifacts"),
   traces: () => request<{ traces: TraceMetadata[] }>("/api/traces"),
-  trace: (runId: string) => request<RunTrace>(`/api/traces/${runId}`),
-  skills: () => request<{ skills: Skill[] }>("/api/skills")
+  trace: (runId: string) => request<RunTrace>(`/api/traces/${runId}`)
 };

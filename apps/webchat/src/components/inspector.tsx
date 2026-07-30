@@ -33,7 +33,6 @@ import type {
   PublicConfig,
   ReadyStatus,
   RunTrace,
-  Skill,
   ToolCall,
   TraceMetadata
 } from "../api/types";
@@ -60,7 +59,6 @@ type InspectorColumnProps = {
   artifacts: ArtifactObject[];
   episodes: EpisodeSummary[];
   evalRuns: EvalRun[];
-  skills: Skill[];
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
@@ -96,7 +94,6 @@ export function InspectorColumn({
   artifacts,
   episodes,
   evalRuns,
-  skills,
   runtimeConfig,
   ownerProfile,
   clients,
@@ -313,7 +310,6 @@ export function InspectorColumn({
           episodes={episodes}
           evalRun={evalRun}
           evalRuns={evalRuns}
-          skills={skills}
           text={text}
           language={language}
           onRunEval={async () => {

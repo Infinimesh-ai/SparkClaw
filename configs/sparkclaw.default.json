@@ -181,9 +181,6 @@
     "credential_key": "",
     "credential_key_file": "./data/memory/gateway-credentials.key"
   },
-  "skills": {
-    "dirs": ["./skills", "./data/skills"]
-  },
   "runtime": {
     "observation_summary_max_bytes": 2400,
     "workflow_stage_max_duration_seconds": 180,

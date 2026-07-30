@@ -108,7 +108,6 @@ check_status "owner-update" "200" "POST" "/api/owner" '{"display_name":"Golden O
 check_status "owner-updated" "200" "GET" "/api/owner"
 check_status "clients-empty" "200" "GET" "/api/clients"
 check_status "tools" "200" "GET" "/api/tools"
-check_status "skills" "200" "GET" "/api/skills"
 
 SESSION_JSON="$(curl -fsS -X POST "$GATEWAY_URL/api/sessions" -H 'Content-Type: application/json' -d '{"title":"Golden Eval"}')"
 SESSION_ID="$(printf '%s' "$SESSION_JSON" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
@@ -297,7 +296,6 @@ owner_update = load("owner-update.json")
 owner_updated = load("owner-updated.json")
 clients_empty = load("clients-empty.json")
 tools = load("tools.json")
-skills = load("skills.json")
 eval_profiles = json.loads(pathlib.Path("configs/eval.profiles.json").read_text())
 policy_updated = load("policy-updated.json")
 policy_read = load("policy-read-approval.json")
@@ -374,8 +372,6 @@ require(memory_sensitive_tool.get("requires_approval") is True, "/api/tools memo
 require("sensitivity" in memory_sensitive_tool.get("output_schema", {}).get("properties", {}), "/api/tools memory.write_sensitive output schema missing sensitivity")
 require(memory_propose_tool is not None and memory_propose_tool["risk"] == "draft", "/api/tools missing memory.propose draft alias")
 require(memory_propose_tool.get("requires_approval") is False, "/api/tools memory.propose should not require approval")
-require(isinstance(skills["skills"], list), "/api/skills did not return a skills list")
-require(any(skill.get("input_schema") and skill.get("dependencies") and skill.get("eval_cases") for skill in skills["skills"]), "/api/skills missing contract metadata")
 require("files.write_draft" in policy_updated["denied_tools"], "tool policy editor did not add denied tool")
 require("files.read" in policy_updated["configured_approval_required_tools"], "tool policy editor did not add approval-required tool")
 require(policy_read["tool_call"]["status"] == "approval_pending", "updated policy did not require files.read approval")

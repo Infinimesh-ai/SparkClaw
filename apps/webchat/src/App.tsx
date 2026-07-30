@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Bot, KeyRound, RefreshCw } from "lucide-react";
+import { Activity, Bot, KeyRound, RefreshCw, X } from "lucide-react";
 import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
@@ -41,7 +41,6 @@ import type {
   ReadyStatus,
   RunTrace,
   Session,
-  Skill,
   ToolCall,
   TraceMetadata
 } from "./api/types";
@@ -70,13 +69,13 @@ export function App() {
   const [traceRun, setTraceRun] = useState<RunTrace | null>(null);
   const [traceList, setTraceList] = useState<TraceMetadata[]>([]);
   const [traceLoading, setTraceLoading] = useState(false);
-  const [skills, setSkills] = useState<Skill[]>([]);
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeMessageStreamRef = useRef<string>("");
@@ -152,7 +151,7 @@ export function App() {
   });
 
   const refreshGlobal = useCallback(async () => {
-    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, skillList, evalList, artifactList, traces, scheduleList] =
+    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
       await Promise.all([
         api.ready(),
         api.config(),
@@ -162,7 +161,6 @@ export function App() {
         api.approvals(),
         api.memoryCandidates(),
         api.memories(),
-        api.skills(),
         api.evalRuns(),
         api.artifacts(),
         api.traces(),
@@ -176,7 +174,6 @@ export function App() {
     setApprovals(approvalList.approvals);
     setCandidates(candidateList.memory_candidates);
     setMemories(memoryList.memories);
-    setSkills(skillList.skills);
     setEvalRuns(evalList.eval_runs ?? []);
     setArtifacts(artifactList.artifacts ?? []);
     setTraceList(traces.traces ?? []);
@@ -327,6 +324,7 @@ export function App() {
     try {
       setBusy(true);
       setError("");
+      setNotice("");
       setDraftsBySession((current) => ({ ...current, [sessionId]: "" }));
       activeMessageStreamRef.current = sessionId;
       const now = new Date().toISOString();
@@ -398,11 +396,15 @@ export function App() {
       if (disposition === "restore_draft") {
         setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
+        setError(err instanceof Error ? err.message : text.errors.message);
       } else {
+        // The gateway accepted the run and keeps executing it server-side;
+        // losing the stream is not a failure, so surface an informational
+        // notice instead of an error banner.
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
         resetSessionDraft(sessionId);
+        setNotice(text.chat.streamDetached);
       }
-      setError(err instanceof Error ? err.message : text.errors.message);
       try {
         const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
         setSessions(sessionList.sessions ?? []);
@@ -558,6 +560,15 @@ export function App() {
           </div>
         )}
 
+        {notice && (
+          <div className="noticeBanner" role="status">
+            <span>{notice}</span>
+            <button className="iconButton" onClick={() => setNotice("")} title={text.chat.dismissNotice} aria-label={text.chat.dismissNotice}>
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
         <ScheduleBar
           schedules={schedules}
           open={scheduleBarOpen}
@@ -647,7 +658,6 @@ export function App() {
         artifacts={artifacts}
         episodes={episodes}
         evalRuns={evalRuns}
-        skills={skills}
         runtimeConfig={runtimeConfig}
         ownerProfile={ownerProfile}
         clients={clients}

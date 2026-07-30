@@ -2730,55 +2730,6 @@ type appEpisode struct {
 	RunID string `json:"run_id"`
 }
 
-func TestSkillsEndpointListsLocalSkills(t *testing.T) {
-	root := t.TempDir()
-	skillsDir := filepath.Join(root, "skills")
-	skillPath := filepath.Join(skillsDir, "local_files", "SKILL.md")
-	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(skillPath, []byte(`---
-name: local_files
-description: Search and read local workspace files.
-risk_level: low
-allowed_tools: ["files.search", "files.read"]
-activation:
-  keywords: ["file", "workspace"]
----
-
-Use read-only file tools first.
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := testConfig(root)
-	cfg.Skills.Dirs = []string{skillsDir}
-
-	st := store.NewMemoryStore()
-	tools := toolhub.New(cfg, st)
-	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
-	server := New(cfg, st, tools, runtime)
-	ts := httptest.NewServer(server.Handler())
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/api/skills")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var decoded struct {
-		Skills []struct {
-			Name         string   `json:"name"`
-			AllowedTools []string `json:"allowed_tools"`
-		} `json:"skills"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		t.Fatal(err)
-	}
-	if len(decoded.Skills) != 1 || decoded.Skills[0].Name != "local_files" || decoded.Skills[0].AllowedTools[0] != "files.search" {
-		t.Fatalf("unexpected skills response: %#v", decoded.Skills)
-	}
-}
-
 func createTestSession(t *testing.T, baseURL string) string {
 	t.Helper()
 	resp, err := http.Post(baseURL+"/api/sessions", "application/json", bytes.NewBufferString(`{"title":"test"}`))

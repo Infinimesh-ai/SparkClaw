@@ -1,5 +1,5 @@
 // Side panel components: timeline, trace, approvals, memory, status,
-// artifacts, episodes, evals, skills, and settings.
+// artifacts, episodes, evals, and settings.
 import { useEffect, useState } from "react";
 import type * as React from "react";
 import {
@@ -15,7 +15,6 @@ import {
   Globe2,
   Inbox,
   KeyRound,
-  Library,
   ListChecks,
   MemoryStick,
   Pencil,
@@ -48,7 +47,6 @@ import type {
   PublicConfig,
   ReadyStatus,
   RunTrace,
-  Skill,
   ToolCall,
   TraceMetadata
 } from "../api/types";
@@ -496,7 +494,6 @@ export function StatusStack({
   episodes,
   evalRun,
   evalRuns,
-  skills,
   text,
   language,
   onRunEval,
@@ -510,7 +507,6 @@ export function StatusStack({
   episodes: EpisodeSummary[];
   evalRun: EvalRun | null;
   evalRuns: EvalRun[];
-  skills: Skill[];
   text: CopyText;
   language: Language;
   onRunEval: () => Promise<void>;
@@ -523,7 +519,6 @@ export function StatusStack({
       <ArtifactPanel artifacts={artifacts} text={text} />
       <EpisodePanel episodes={episodes} text={text} />
       <EvalPanel evalRun={evalRun} evalRuns={evalRuns} text={text} language={language} onRun={onRunEval} onSelect={onSelectEval} onError={onError} />
-      <SkillsPanel skills={skills} text={text} />
     </div>
   );
 }
@@ -759,39 +754,6 @@ export function EvalPanel({
             </button>
           ))}
         </div>
-      )}
-    </div>
-  );
-}
-
-export function SkillsPanel({ skills, text }: { skills: Skill[]; text: CopyText }) {
-  return (
-    <div className="panelStack nestedPanel">
-      <SectionHeader icon={<Library size={17} />} title={text.status.skills} />
-      {skills.length === 0 ? (
-        <span className="muted">{text.status.noSkills}</span>
-      ) : (
-        skills.map((skill) => (
-          <article className="skillItem" key={skill.name}>
-            <div className="approvalTop">
-              <strong>{skill.name}</strong>
-              <span className="pill">{skill.risk_level}</span>
-            </div>
-            <p>{skill.description}</p>
-            <div className="evalCases">
-              {skill.allowed_tools.slice(0, 4).map((tool) => (
-                <span key={tool}>{tool}</span>
-              ))}
-            </div>
-            {(skill.dependencies.length > 0 || skill.eval_cases.length > 0) && (
-              <div className="skillMeta">
-                {skill.dependencies.length > 0 && <small>{skill.dependencies.length} {text.units.deps}</small>}
-                {skill.eval_cases.length > 0 && <small>{skill.eval_cases.length} {text.units.evals}</small>}
-                {skill.input_schema && <small>{text.units.schema}</small>}
-              </div>
-            )}
-          </article>
-        ))
       )}
     </div>
   );
@@ -1338,8 +1300,6 @@ export function SettingsPanel({
               ? `${runtimeConfig.memory.write_policy} · ${retentionLabel(runtimeConfig.memory.retention_days, text)}`
               : text.common.disabled}
           </dd>
-          <dt>{text.settings.skills}</dt>
-          <dd>{runtimeConfig.skills.dirs.join(", ")}</dd>
         </dl>
       </article>
     </div>

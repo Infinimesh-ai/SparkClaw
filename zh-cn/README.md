@@ -39,7 +39,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 - 在已验证的 GB10 机器上，full 128K context 且启用 MTP 时，fast 和 deep chat lanes 应视为不能同时常驻，除非降低 context、MTP 或 GPU memory utilization 后重新测量。
 - 已验证的单机常驻 profile 是 `dual-light-v1`：fast 使用 32K context + 8G KV cache，deep 使用 64K context + 12G KV cache，二者都关闭 MTP。Deep 是稠密模型，慢是预期内；更广的产品验收仍需使用与当前能力对齐的端到端矩阵。
 - 决定调用哪个 chat lane 的是 Gateway，不是 `fast` 模型本身。代码、terminal、危险、repair 或显式 deep/review 请求会走 `deep`；常规有边界任务走 `fast`。只有 fast 调用失败时，才会把 deep 作为 fallback。
-- `skills/` 下只保留尚未迁移领域的过渡 ReAct procedure。已迁移 Workflow 不再加载 Skill；当前能力以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
+- Workflow capability 是唯一执行路径；当前能力面以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
 
 ## 快速开始
 
@@ -110,7 +110,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-当前 golden eval 覆盖 43 个 case，验证 direct chat、config/tool/skill visibility、auth/rate-limit surfaces、grounded file/browser answers、approval lifecycle、memory review、sensitive-memory handling、prompt-injection chaos、trace refresh、artifact catalog、model-call telemetry 和 eval history。
+当前 golden eval 覆盖 43 个 case，验证 direct chat、config/tool visibility、auth/rate-limit surfaces、grounded file/browser answers、approval lifecycle、memory review、sensitive-memory handling、prompt-injection chaos、trace refresh、artifact catalog、model-call telemetry 和 eval history。
 
 ## 开源
 
@@ -166,7 +166,6 @@ eval/golden/               Golden task definitions
 benchmarks/                DGX Spark model baseline evidence
 docs/                      Current project architecture, deployment and development docs
 packages/                  Portable protocol, policy and tool-schema notes
-skills/                    尚未迁移领域的过渡 ReAct skill packages
 zh-cn/                     Chinese documentation mirror
 ```
 

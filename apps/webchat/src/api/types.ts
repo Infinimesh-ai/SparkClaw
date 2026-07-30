@@ -471,9 +471,6 @@ export type PublicConfig = {
     retention_days: number;
     redact_patterns: string[];
   };
-  skills: {
-    dirs: string[];
-  };
   runtime: {
     observation_summary_max_bytes: number;
   };
@@ -669,18 +666,4 @@ export type TraceMetadata = {
   model_call_count: number;
   artifact_uri?: string;
   artifact_path?: string;
-};
-
-export type Skill = {
-  name: string;
-  description: string;
-  risk_level: string;
-  input_schema?: Record<string, unknown>;
-  dependencies: string[];
-  eval_cases: string[];
-  allowed_tools: string[];
-  denied_tools: string[];
-  keywords: string[];
-  path: string;
-  body_preview: string;
 };

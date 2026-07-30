@@ -40,7 +40,7 @@ Known operating boundary:
 - On the validated GB10 machine, full 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
 - The validated single-machine residency profile is `dual-light-v1`: fast runs at 32K context with 8G KV cache, deep runs at 64K context with 12G KV cache, both with MTP off. Deep is intentionally slower because it is a dense model; broader product acceptance still depends on a current capability-aligned end-to-end matrix.
 - Gateway, not the `fast` model, decides which chat lane to call. It routes code, terminal, dangerous, repair or explicitly deep/review requests to `deep`; routine bounded work goes to `fast`, with deep fallback only if a fast call fails.
-- Skill packages under `skills/` are transitional procedures for unmigrated ReAct domains only. Migrated Workflow capabilities do not load Skills; see the [Workflow capability matrix](docs/workflow-capabilities.md).
+- Workflow capabilities are the only execution path; see the [Workflow capability matrix](docs/workflow-capabilities.md) for the current capability surface.
 
 ## Quick Start
 
@@ -113,7 +113,7 @@ bash scripts/run-eval.sh
 docker compose --env-file .env -f docker/compose.yaml config --quiet
 ```
 
-Current golden eval coverage is 43 cases. It verifies direct chat, config/tool/skill visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
+Current golden eval coverage is 43 cases. It verifies direct chat, config/tool visibility, auth and rate-limit surfaces, grounded file/browser answers, approval lifecycles, memory review, sensitive-memory handling, prompt-injection chaos, trace refresh, artifact catalog entries, model-call telemetry and eval history.
 
 ## Open Source
 
@@ -169,7 +169,6 @@ eval/golden/               Golden task definitions
 benchmarks/                DGX Spark model baseline evidence
 docs/                      Current project architecture, deployment and development docs
 packages/                  Portable protocol, policy and tool-schema notes
-skills/                    Transitional ReAct skill packages for unmigrated domains
 zh-cn/                     Chinese documentation mirror
 ```
 

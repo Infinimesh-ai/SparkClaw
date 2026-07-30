@@ -27,7 +27,6 @@ type Config struct {
 	Workspaces WorkspaceConfig `json:"workspaces"`
 	Storage    StorageConfig   `json:"storage"`
 	State      StateConfig     `json:"state"`
-	Skills     SkillsConfig    `json:"skills"`
 	Runtime    RuntimeConfig   `json:"runtime"`
 	Logging    LoggingConfig   `json:"logging"`
 }
@@ -234,10 +233,6 @@ type StateConfig struct {
 	EncryptionKeyFile string `json:"encryption_key_file,omitempty"`
 	CredentialKey     string `json:"credential_key,omitempty"`
 	CredentialKeyFile string `json:"credential_key_file,omitempty"`
-}
-
-type SkillsConfig struct {
-	Dirs []string `json:"dirs"`
 }
 
 type RuntimeConfig struct {
@@ -843,9 +838,6 @@ func Default() Config {
 			CredentialKey:     "",
 			CredentialKeyFile: "./data/memory/gateway-credentials.key",
 		},
-		Skills: SkillsConfig{
-			Dirs: []string{"./skills", "./data/skills"},
-		},
 		Runtime: RuntimeConfig{
 			ObservationSummaryMaxBytes: 2400,
 			StageMaxDurationSeconds:    180,
@@ -1291,9 +1283,6 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_SANDBOX_NETWORK"); v != "" {
 		cfg.Sandbox.Network = v
 	}
-	if v := os.Getenv("SPARKCLAW_SKILLS_DIRS"); v != "" {
-		cfg.Skills.Dirs = splitCSV(v)
-	}
 	if v := os.Getenv("SPARKCLAW_OBSERVATION_SUMMARY_MAX_BYTES"); v != "" {
 		if maxBytes, err := strconv.Atoi(v); err == nil {
 			cfg.Runtime.ObservationSummaryMaxBytes = maxBytes
@@ -1332,11 +1321,6 @@ func applyEnv(cfg *Config) {
 	if cfg.Storage.ArtifactDir != "" {
 		if abs, err := filepath.Abs(cfg.Storage.ArtifactDir); err == nil {
 			cfg.Storage.ArtifactDir = abs
-		}
-	}
-	for i, p := range cfg.Skills.Dirs {
-		if abs, err := filepath.Abs(p); err == nil {
-			cfg.Skills.Dirs[i] = abs
 		}
 	}
 }

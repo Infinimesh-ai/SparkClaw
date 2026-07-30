@@ -60,6 +60,12 @@ the run as `cancelled`; a model timeout or other execution error records
 `failed`. Neither state may be projected as `completed`, and a running Workflow
 is complete only after its persisted status is `succeeded`.
 
+A detached execution never runs on the bare lifecycle context: the gateway
+wraps it with a hard deadline derived from `workflow_run_max_duration_seconds`
+plus the model HTTP timeout and a fixed grace (`detachedExecutionContext`).
+The run budget below is the graceful stop; this deadline only backstops a
+request that is still in flight when the budget trips.
+
 ## The Workflow Step Loop
 
 `workflow_step_loop.go` holds the only model/tool execution primitive:
@@ -105,22 +111,39 @@ blocked with reason `required_tool_not_called`.
 
 ### Budgets And Stop Conditions
 
-`stepBudget()` reads `RuntimeConfig` and stops the loop on whichever limit
-trips first (audited as `workflow_step.budget_stopped`):
+Budgets exist at two scopes. A **stage budget** (`newWorkflowStageBudget`)
+starts fresh on every step-loop entry and bounds the model retry loop inside
+one scope revision. A **run budget** (`newWorkflowRunBudget`) is created once
+per run by `runWorkflowWithSeedAndStream` and threaded through every stage —
+model steps and direct tool invocations alike — so its counters survive the
+one-tool-call-per-stage boundary. On resume after an approval, seed calls are
+replayed into a fresh run budget while the run wall clock restarts (owner
+decision time is not charged).
 
-| Config key (`runtime` section) | Default | Stops the loop when |
+Stage budgets stop the step loop (audited as `workflow_step.budget_stopped`):
+
+| Config key (`runtime` section) | Default | Stops the stage when |
 |---|---|---|
-| `workflow_step_max_duration_seconds` | 180 | wall-clock time is exhausted |
-| `workflow_step_max_tool_calls` | 16 | executed tool calls reach the cap |
-| `workflow_step_max_observation_bytes` | 48000 | accumulated observations reach the cap |
-| `workflow_step_max_no_progress_actions` | 3 | consecutive actions produce no new evidence |
-| `workflow_step_max_repeated_tool_calls` | 3 | one tool repeats with identical fingerprint |
+| `workflow_stage_max_duration_seconds` | 180 | the stage's wall-clock time is exhausted |
+| `workflow_stage_max_no_progress_actions` | 3 | consecutive actions produce no new evidence |
 
-`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` overrides the observation
-budget. The deprecated `react_max_*` keys and
-`SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` still load as fallbacks (the new
-names win when both are present); new configuration must use the
-`workflow_step_max_*` names.
+Run budgets stop the whole run, checked both inside the step loop and before
+each stage (the latter audited as `workflow_run.budget_stopped`):
+
+| Config key (`runtime` section) | Default | Stops the run when |
+|---|---|---|
+| `workflow_run_max_duration_seconds` | 1800 | the run's wall-clock time is exhausted |
+| `workflow_run_max_tool_calls` | 32 | executed tool calls across all stages reach the cap |
+| `workflow_run_max_observation_bytes` | 48000 | observations accumulated across the run reach the cap |
+| `workflow_run_max_repeated_tool_calls` | 3 | one tool repeats with an identical fingerprint in consecutive executed calls, across stage boundaries |
+
+`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` overrides the observation
+budget. The deprecated `workflow_step_max_*` and `react_max_*` keys (and the
+`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` /
+`SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` overrides) still load as fallbacks
+(the newest name wins when several are present; the old step duration fills
+the stage duration, never the run duration); new configuration must use the
+`workflow_stage_max_*` / `workflow_run_max_*` names.
 
 ### Scope Enforcement
 
@@ -154,7 +177,8 @@ Key audit event types emitted by the executor:
 | `workflow_step.output` | Parsed one step envelope (action or final) |
 | `workflow_step.parse_failed` | Recoverable step-protocol parse failure |
 | `workflow_step.prompt_compressed` | Compact system prompt substituted before a model call |
-| `workflow_step.budget_stopped` | A step budget stopped the loop |
+| `workflow_step.budget_stopped` | A stage or run budget stopped the step loop |
+| `workflow_run.budget_stopped` | The run budget stopped the stage loop before a stage |
 | `workflow.required_tool_not_called` | Rejected a final answer that skipped required tool evidence |
 | `workflow.transitioned` | A tool outcome was assessed and applied to node state |
 | `workflow.direct_tool_invoked` | A direct-invocation node ran its single bound tool |
@@ -252,8 +276,9 @@ anchors are:
 - **Argument bindings** — bind tool arguments to intent targets, route slots,
   route facts, or prior outcome refs so values are materialized from
   persisted state instead of trusted from model output.
-- **Budgets** — tune the `workflow_step_max_*` keys per deployment in the
-  `runtime` config section; do not add per-workflow bypasses.
+- **Budgets** — tune the `workflow_stage_max_*` / `workflow_run_max_*` keys
+  per deployment in the `runtime` config section; do not add per-workflow
+  bypasses.
 
 When changing prompt assembly, keep the invariants covered by
 `agent_test.go`: observations appear once in the user prompt, the step output
@@ -274,5 +299,5 @@ loop. Old identifiers appear only in persisted data compatibility shims:
 | `react.*` audit events | `workflow_step.*` |
 | run states `reacting` / `react_step` | `executing` / `workflow_step` |
 | model call operation `react_step_<n>` | `workflow_step_<n>` (old prefix still recognized on resume) |
-| config `react_max_*`, `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` | `workflow_step_max_*`, `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` (old keys load as fallbacks) |
+| config `react_max_*` and `workflow_step_max_*`, `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` / `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` | `workflow_stage_max_*` / `workflow_run_max_*`, `SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` (old keys load as fallbacks; the old step duration maps to the stage duration only) |
 | unmatched contract ref `react.unmatched` | `legacy.unmatched` |

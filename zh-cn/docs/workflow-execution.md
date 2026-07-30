@@ -48,6 +48,11 @@ Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后
 记为 `failed`。两者都不得投影为 `completed`，只有持久化 Workflow 状态已经是
 `succeeded` 时，运行才算完成。
 
+脱离连接的执行绝不会直接跑在裸生命周期上下文上：Gateway 会用
+`workflow_run_max_duration_seconds` 加模型 HTTP 超时和固定宽限推导出的硬截止
+时间包裹它（`detachedExecutionContext`）。下文的运行预算才是优雅停止；这个截止
+时间只兜底预算触发时仍在途的请求。
+
 ## Workflow 步骤循环
 
 `workflow_step_loop.go` 持有唯一的模型/工具执行原语：
@@ -88,20 +93,36 @@ JSON 对象：
 
 ### 预算与停止条件
 
-`stepBudget()` 读取 `RuntimeConfig`，任一上限先触发即停止循环（审计
-`workflow_step.budget_stopped`）：
+预算分两个作用域。**阶段预算**（`newWorkflowStageBudget`）在每次进入步骤循环
+时重新开始，约束单个 scope revision 内的模型重试循环。**运行预算**
+（`newWorkflowRunBudget`）由 `runWorkflowWithSeedAndStream` 每次运行只创建一
+次，并穿过所有阶段——模型步骤与直接工具调用同样计入——因此其计数器能跨越
+"每阶段一次工具调用"的边界。审批后恢复时，种子调用会重放进新的运行预算，而
+运行墙钟重新计时（owner 的决策时间不计入预算）。
+
+阶段预算停止步骤循环（审计 `workflow_step.budget_stopped`）：
 
 | 配置键（`runtime` 段） | 默认值 | 触发停止的条件 |
 |---|---|---|
-| `workflow_step_max_duration_seconds` | 180 | 墙钟时间耗尽 |
-| `workflow_step_max_tool_calls` | 16 | 已执行工具调用达到上限 |
-| `workflow_step_max_observation_bytes` | 48000 | 累积 observation 达到上限 |
-| `workflow_step_max_no_progress_actions` | 3 | 连续动作未产生新证据 |
-| `workflow_step_max_repeated_tool_calls` | 3 | 同一工具以相同指纹重复调用 |
+| `workflow_stage_max_duration_seconds` | 180 | 该阶段墙钟时间耗尽 |
+| `workflow_stage_max_no_progress_actions` | 3 | 连续动作未产生新证据 |
 
-`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` 可覆盖 observation 预算。已废
-弃的 `react_max_*` 键与 `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` 仍作为回退加
-载（两者同时存在时新键优先）；新配置必须使用 `workflow_step_max_*` 命名。
+运行预算停止整个运行，既在步骤循环内检查，也在每个阶段开始前检查（后者审计
+`workflow_run.budget_stopped`）：
+
+| 配置键（`runtime` 段） | 默认值 | 触发停止的条件 |
+|---|---|---|
+| `workflow_run_max_duration_seconds` | 1800 | 整个运行的墙钟时间耗尽 |
+| `workflow_run_max_tool_calls` | 32 | 所有阶段累计的已执行工具调用达到上限 |
+| `workflow_run_max_observation_bytes` | 48000 | 整个运行累积的 observation 达到上限 |
+| `workflow_run_max_repeated_tool_calls` | 3 | 同一工具在连续已执行调用中以相同指纹重复，可跨阶段累计 |
+
+`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` 可覆盖 observation 预算。已废
+弃的 `workflow_step_max_*` 与 `react_max_*` 键（以及
+`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` /
+`SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` 覆盖）仍作为回退加载（多个同时存在时
+最新命名优先；旧的 step duration 只回填阶段时长，绝不回填运行时长）；新配置必
+须使用 `workflow_stage_max_*` / `workflow_run_max_*` 命名。
 
 ### Scope 约束
 
@@ -134,7 +155,8 @@ JSON 对象：
 | `workflow_step.output` | 解析出一个步骤封套（action 或 final） |
 | `workflow_step.parse_failed` | 可恢复的步骤协议解析失败 |
 | `workflow_step.prompt_compressed` | 模型调用前替换为 compact system prompt |
-| `workflow_step.budget_stopped` | 某步骤预算停止了循环 |
+| `workflow_step.budget_stopped` | 阶段或运行预算停止了步骤循环 |
+| `workflow_run.budget_stopped` | 运行预算在阶段开始前停止了阶段循环 |
 | `workflow.required_tool_not_called` | 拒绝了跳过必需工具证据的最终回答 |
 | `workflow.transitioned` | 工具结果被评估并应用到节点状态 |
 | `workflow.direct_tool_invoked` | 直接调用节点执行了唯一绑定工具 |
@@ -215,8 +237,8 @@ transition。memory、file 和 PostgreSQL store 实现同一契约。
   （`workflow_outcome.go`、`tool_result_adapter.go`）。
 - **参数绑定** —— 把工具参数绑定到 intent target、route slot、route fact 或先
   前的 outcome ref，让取值从持久化状态物化，而不是信任模型输出。
-- **预算** —— 按部署在 `runtime` 配置段调整 `workflow_step_max_*` 键；不要为
-  单个 workflow 开旁路。
+- **预算** —— 按部署在 `runtime` 配置段调整 `workflow_stage_max_*` /
+  `workflow_run_max_*` 键；不要为单个 workflow 开旁路。
 
 修改 prompt 组装时,保持 `agent_test.go` 覆盖的不变量：observation 在 user
 prompt 中只出现一次、步骤输出契约位于 user prompt 尾部、system prompt 各节保
@@ -236,5 +258,5 @@ prompt 中只出现一次、步骤输出契约位于 user prompt 尾部、system
 | 审计事件 `react.*` | `workflow_step.*` |
 | 运行状态 `reacting` / `react_step` | `executing` / `workflow_step` |
 | 模型调用 operation `react_step_<n>` | `workflow_step_<n>`（恢复时仍识别旧前缀） |
-| 配置 `react_max_*`、`SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` | `workflow_step_max_*`、`SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES`（旧键作为回退加载） |
+| 配置 `react_max_*` 与 `workflow_step_max_*`、`SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` / `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` | `workflow_stage_max_*` / `workflow_run_max_*`、`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES`（旧键作为回退加载；旧 step duration 只映射到阶段时长） |
 | unmatched 契约引用 `react.unmatched` | `legacy.unmatched` |

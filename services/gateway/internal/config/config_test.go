@@ -324,6 +324,7 @@ func TestLoadAppliesSharedChromiumProfileEnvironment(t *testing.T) {
 }
 
 func TestLoadRejectsBrowserDaemonIdleTimeoutShorterThanWorkflowGap(t *testing.T) {
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED", "true")
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "60000")
 
 	_, err := Load("")
@@ -332,8 +333,17 @@ func TestLoadRejectsBrowserDaemonIdleTimeoutShorterThanWorkflowGap(t *testing.T)
 	}
 }
 
+func TestLoadAllowsShortBrowserDaemonIdleTimeoutWhenDisabled(t *testing.T) {
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", "60000")
+
+	if _, err := Load(""); err != nil {
+		t.Fatalf("disabled browser automation must not gate boot on the idle-timeout floor: %v", err)
+	}
+}
+
 func TestLoadRejectsBrowserDaemonIdleTimeoutCalculationOverflow(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
+	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_ENABLED", "true")
 	t.Setenv("SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS", strconv.Itoa(maxInt))
 	t.Setenv("SPARKCLAW_BROWSER_AUTOMATION_DAEMON_IDLE_TIMEOUT_MS", strconv.Itoa(maxInt))
 

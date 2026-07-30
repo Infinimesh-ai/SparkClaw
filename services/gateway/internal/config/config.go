@@ -388,15 +388,20 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
 	normalizeRuntimeLimits(&cfg.Runtime)
-	minimumBrowserIdleTimeoutMS, err := minimumBrowserDaemonIdleTimeoutMS(cfg)
-	if err != nil {
-		return Config{}, err
-	}
-	if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS < minimumBrowserIdleTimeoutMS {
-		return Config{}, fmt.Errorf(
-			"adapters.browserAutomation.daemonIdleTimeoutMs must be at least %d for the configured model and workflow timeouts",
-			minimumBrowserIdleTimeoutMS,
-		)
+	// The idle-timeout floor couples the browser daemon to the model and
+	// workflow windows; a deployment with browser automation disabled must
+	// not be refused boot over knobs its daemon will never use.
+	if cfg.Tools.BrowserAutomation.Enabled {
+		minimumBrowserIdleTimeoutMS, err := minimumBrowserDaemonIdleTimeoutMS(cfg)
+		if err != nil {
+			return Config{}, err
+		}
+		if cfg.Adapters.BrowserAutomation.DaemonIdleTimeoutMS < minimumBrowserIdleTimeoutMS {
+			return Config{}, fmt.Errorf(
+				"adapters.browserAutomation.daemonIdleTimeoutMs must be at least %d for the configured model and workflow timeouts",
+				minimumBrowserIdleTimeoutMS,
+			)
+		}
 	}
 	if err := normalizeInfinimeshInfoConfig(&cfg.Plugins.Entries.InfinimeshInfo.Config); err != nil {
 		return Config{}, err

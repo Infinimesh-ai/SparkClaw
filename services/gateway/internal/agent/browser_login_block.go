@@ -1189,12 +1189,11 @@ func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNod
 	node.SelectedEntries = nil
 	node.OutcomeRefs = nil
 	node.LastAssessment = nil
-	for _, transitionID := range []app.TransitionID{
-		"reuse_existing", "reuse_blank", "open_missing",
-		"focus_acquired", "open_acquired", "navigate_acquired",
-		"hidden_settled", "hidden_validated", "assess_initial",
-	} {
-		delete(node.TransitionActivations, transitionID)
+	for _, transition := range nodePlan.Transitions {
+		if browserHandoffPreservedTransitions[transition.ID] {
+			continue
+		}
+		delete(node.TransitionActivations, transition.ID)
 	}
 	run.Workflow.Nodes[nodeID] = node
 	run.Workflow.Status = app.WorkflowStatusRunning

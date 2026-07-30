@@ -363,7 +363,9 @@ func TestBrowserInteractionHandoffResetDiscardsPreLoginRefsAndPreservesClickBudg
 				},
 				TransitionActivations: map[app.TransitionID]int{
 					"reuse_existing": 1, "focus_acquired": 1, "hidden_settled": 1,
-					"click_recorded": 1,
+					"hidden_snapshot_drifted":  browserSnapshotSettleRetryLimit,
+					"visible_snapshot_drifted": 1, "visible_opened": 1, "visible_settled": 1,
+					"click_recorded": 1, "continue_interaction": 1,
 				},
 			},
 		},
@@ -381,9 +383,18 @@ func TestBrowserInteractionHandoffResetDiscardsPreLoginRefsAndPreservesClickBudg
 	if run.Workflow.Browser.CompletedClicks != 1 {
 		t.Fatalf("handoff reset widened the click budget: %#v", run.Workflow.Browser)
 	}
-	if node.TransitionActivations["reuse_existing"] != 0 || node.TransitionActivations["focus_acquired"] != 0 ||
-		node.TransitionActivations["hidden_settled"] != 0 || node.TransitionActivations["click_recorded"] != 1 {
-		t.Fatalf("handoff reset changed the wrong transition bounds: %#v", node.TransitionActivations)
+	for _, reset := range []app.TransitionID{
+		"reuse_existing", "focus_acquired", "hidden_settled",
+		// The pre-fix reset omitted the drift-retry and presentation budgets,
+		// so a run that used them before login resumed already exhausted.
+		"hidden_snapshot_drifted", "visible_snapshot_drifted", "visible_opened", "visible_settled",
+	} {
+		if node.TransitionActivations[reset] != 0 {
+			t.Fatalf("handoff reset kept transition %s consumed: %#v", reset, node.TransitionActivations)
+		}
+	}
+	if node.TransitionActivations["click_recorded"] != 1 || node.TransitionActivations["continue_interaction"] != 1 {
+		t.Fatalf("handoff reset widened the click accounting bounds: %#v", node.TransitionActivations)
 	}
 }
 

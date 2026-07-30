@@ -240,6 +240,20 @@ func browserRevision2Scope(interaction bool) app.CapabilityScope {
 	return app.CapabilityScope{MaterializeAll: true, Requirements: requirements}
 }
 
+// browserHandoffPreservedTransitions names the plan-table transitions that
+// meter the bounded click budget. A login handoff resets the node for a fresh
+// hidden acquisition and re-arms every other transition budget so the replay
+// can repeat settling, snapshots, and presentation — but consumed click
+// accounting must survive the reset or a handoff would widen the interaction
+// budget.
+var browserHandoffPreservedTransitions = map[app.TransitionID]bool{
+	"click_recorded":       true,
+	"action_settled":       true,
+	"validate_transition":  true,
+	"assess_after_action":  true,
+	"continue_interaction": true,
+}
+
 func browserRevision2Transition(id, stage string, signal app.OutcomeSignal, max int, scope app.CapabilityScope) app.ScopeTransition {
 	return app.ScopeTransition{
 		ID: app.TransitionID(id), NextStage: stage,

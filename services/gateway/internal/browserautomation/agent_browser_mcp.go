@@ -136,19 +136,25 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 			profileLease.release()
 		}
 	}()
+	presentation := "visible"
+	if hidden {
+		presentation = "hidden"
+	}
+	sessionName := agentBrowserSessionName(profileKey, presentation)
 	if _, err := profileLease.recoverStaleChromiumSingletons(profileDir); err != nil {
 		if errors.Is(err, errBrowserProfileBusy) {
-			return nil, errBrowserProfileBusy
+			err = reclaimLeakedBrowserProfile(ctx, profileLease, commandPath, profileDir, namespace, sessionName)
 		}
-		return nil, fmt.Errorf("prepare browser shared profile: %w", err)
+		if err != nil {
+			if errors.Is(err, errBrowserProfileBusy) {
+				return nil, errBrowserProfileBusy
+			}
+			return nil, fmt.Errorf("prepare browser shared profile: %w", err)
+		}
 	}
 	executable, err := resolveChromiumExecutable(cfg.ChromiumExecutable)
 	if err != nil {
 		return nil, err
-	}
-	presentation := "visible"
-	if hidden {
-		presentation = "hidden"
 	}
 	var visibleEnvironment *visibleBrowserEnvironment
 	if !hidden {
@@ -158,7 +164,6 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 		}
 		visibleEnvironment = &resolved
 	}
-	sessionName := agentBrowserSessionName(profileKey, presentation)
 	procCtx, cancel := context.WithCancel(context.Background())
 	environment := agentBrowserEnvironmentResolved(cfg, namespace, sessionName, profileDir, executable, hidden, visibleEnvironment)
 	cmd := exec.CommandContext(procCtx, commandPath, "mcp", "--tools", "core")
@@ -183,6 +188,7 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 		cancel()
 		return nil, fmt.Errorf("start agent-browser MCP server: %w", err)
 	}
+	recordBrowserDaemonOwner(profileDir, namespace, sessionName)
 	errs := &boundedBuffer{limit: 8192}
 	go func() { _, _ = io.Copy(errs, stderr) }()
 	scanner := bufio.NewScanner(stdout)

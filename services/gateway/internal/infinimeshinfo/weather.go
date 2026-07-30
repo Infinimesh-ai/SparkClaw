@@ -11,12 +11,13 @@ import (
 
 const weatherPath = "/v1/info/weather"
 
-var supportedWeatherConditions = map[WeatherCondition]struct{}{
-	"clear": {}, "partly_cloudy": {}, "cloudy": {}, "haze": {}, "fog": {},
-	"dust": {}, "sand": {}, "wind": {}, "light_rain": {}, "moderate_rain": {},
-	"heavy_rain": {}, "storm_rain": {}, "light_snow": {}, "moderate_snow": {},
-	"heavy_snow": {}, "storm_snow": {}, "unknown": {},
-}
+var supportedWeatherConditions = func() map[WeatherCondition]struct{} {
+	set := make(map[WeatherCondition]struct{}, len(AllWeatherConditions))
+	for _, condition := range AllWeatherConditions {
+		set[condition] = struct{}{}
+	}
+	return set
+}()
 
 type weatherRequestEnvelope struct {
 	RequestID   string                 `json:"request_id"`
@@ -127,13 +128,13 @@ func normalizeWeatherRequest(request WeatherRequest) (WeatherRequest, error) {
 	if request.Days == 0 {
 		request.Days = 3
 	}
-	if request.Days < 1 || request.Days > 7 {
+	if request.Days < 1 || request.Days > MaxDailyForecastDays {
 		return WeatherRequest{}, errors.New("infinimesh info weather days must be between 1 and 7")
 	}
 	if request.HourlySteps == 0 {
 		request.HourlySteps = 24
 	}
-	if request.HourlySteps < 1 || request.HourlySteps > 48 {
+	if request.HourlySteps < 1 || request.HourlySteps > MaxHourlyForecastHours {
 		return WeatherRequest{}, errors.New("infinimesh info weather hourly steps must be between 1 and 48")
 	}
 	if request.Units == "" {
@@ -186,7 +187,7 @@ func validateWeatherResponse(response WeatherResponse, requestID string, request
 	if err := validateWeatherCurrent(response.Weather.Current); err != nil {
 		return err
 	}
-	if len(response.Weather.Hourly) > 48 || len(response.Weather.Daily) > 7 {
+	if len(response.Weather.Hourly) > MaxHourlyForecastHours || len(response.Weather.Daily) > MaxDailyForecastDays {
 		return errors.New("infinimesh info weather response exceeds forecast limits")
 	}
 	for _, hour := range response.Weather.Hourly {

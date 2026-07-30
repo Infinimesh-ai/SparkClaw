@@ -6,7 +6,47 @@ const (
 	WeatherGranularityDaily   WeatherGranularity = "daily"
 
 	WeatherUnitsMetric WeatherUnits = "metric"
+
+	// MaxHourlyForecastHours bounds both the requestable hourly steps and the
+	// hourly entries accepted in a response; MaxDailyForecastDays likewise for
+	// requested days and daily entries.
+	MaxHourlyForecastHours = 48
+	MaxDailyForecastDays   = 7
 )
+
+const (
+	WeatherConditionClear        WeatherCondition = "clear"
+	WeatherConditionPartlyCloudy WeatherCondition = "partly_cloudy"
+	WeatherConditionCloudy       WeatherCondition = "cloudy"
+	WeatherConditionHaze         WeatherCondition = "haze"
+	WeatherConditionFog          WeatherCondition = "fog"
+	WeatherConditionDust         WeatherCondition = "dust"
+	WeatherConditionSand         WeatherCondition = "sand"
+	WeatherConditionWind         WeatherCondition = "wind"
+	WeatherConditionLightRain    WeatherCondition = "light_rain"
+	WeatherConditionModerateRain WeatherCondition = "moderate_rain"
+	WeatherConditionHeavyRain    WeatherCondition = "heavy_rain"
+	WeatherConditionStormRain    WeatherCondition = "storm_rain"
+	WeatherConditionLightSnow    WeatherCondition = "light_snow"
+	WeatherConditionModerateSnow WeatherCondition = "moderate_snow"
+	WeatherConditionHeavySnow    WeatherCondition = "heavy_snow"
+	WeatherConditionStormSnow    WeatherCondition = "storm_snow"
+	WeatherConditionUnknown      WeatherCondition = "unknown"
+)
+
+// AllWeatherConditions is the closed condition set of the weather contract.
+// Response validation accepts exactly these values, so consumers rendering
+// conditions can (and should) be exhaustive over this list.
+var AllWeatherConditions = []WeatherCondition{
+	WeatherConditionClear, WeatherConditionPartlyCloudy, WeatherConditionCloudy,
+	WeatherConditionHaze, WeatherConditionFog, WeatherConditionDust,
+	WeatherConditionSand, WeatherConditionWind,
+	WeatherConditionLightRain, WeatherConditionModerateRain,
+	WeatherConditionHeavyRain, WeatherConditionStormRain,
+	WeatherConditionLightSnow, WeatherConditionModerateSnow,
+	WeatherConditionHeavySnow, WeatherConditionStormSnow,
+	WeatherConditionUnknown,
+}
 
 type WeatherGranularity string
 type WeatherUnits string

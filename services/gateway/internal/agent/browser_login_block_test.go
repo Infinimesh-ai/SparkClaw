@@ -497,3 +497,52 @@ func browserLoginTestVisibleEvidence(block app.BrowserLoginBlock) *app.BrowserRe
 		VisibleSnapshotDigest: "visible-restart-digest", VerifiedAt: time.Now().UTC(),
 	}
 }
+
+func TestFinishBrowserLoginBlockTerminalRetriesOnCASConflict(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSession("terminal retry")
+	runtime := Runtime{store: st}
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID: session.ID, RunID: "run-terminal",
+		Status: app.BrowserHandoffStatusWaitingOwner, SiteOrigin: "https://example.com",
+	})
+	stale := block
+	concurrent := block
+	concurrent.LastUserReply = "concurrent writer"
+	if _, err := st.UpdateBrowserLoginBlock(concurrent, block.Version); err != nil {
+		t.Fatal(err)
+	}
+	runtime.finishBrowserLoginBlockTerminal(stale, app.BrowserLoginBlockStatusFailed,
+		"original run for browser login block was not found", "done?")
+	current, ok := st.GetBrowserLoginBlock(block.ID)
+	if !ok || current.Status != app.BrowserLoginBlockStatusFailed || current.ResolvedAt == nil ||
+		current.LastError != "original run for browser login block was not found" {
+		t.Fatalf("terminal transition was not retried after CAS conflict: %#v ok=%v", current, ok)
+	}
+	if _, found := st.FindActiveBrowserLoginBlock(session.ID); found {
+		t.Fatal("block remained active after terminal transition")
+	}
+}
+
+func TestFinishBrowserLoginBlockTerminalKeepsExistingTerminalState(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSession("terminal keep")
+	runtime := Runtime{store: st}
+	block := st.SaveBrowserLoginBlock(app.BrowserLoginBlock{
+		SessionID: session.ID, RunID: "run-keep",
+		Status: app.BrowserHandoffStatusWaitingOwner, SiteOrigin: "https://example.com",
+	})
+	stale := block
+	resolved := block
+	resolved.Status = app.BrowserHandoffStatusResolved
+	now := time.Now().UTC()
+	resolved.ResolvedAt = &now
+	if _, err := st.UpdateBrowserLoginBlock(resolved, block.Version); err != nil {
+		t.Fatal(err)
+	}
+	runtime.finishBrowserLoginBlockTerminal(stale, app.BrowserLoginBlockStatusFailed, "should not stomp", "")
+	current, _ := st.GetBrowserLoginBlock(block.ID)
+	if current.Status != app.BrowserHandoffStatusResolved || current.LastError == "should not stomp" {
+		t.Fatalf("terminal helper stomped an already-terminal block: %#v", current)
+	}
+}

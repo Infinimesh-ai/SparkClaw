@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { Bot, Check, Download, FileSearch, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
 import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
+import { MESSAGE_STREAM_STARTED_EVENT } from "../lib/messageStream";
 import type { Message, MessageAttachment } from "../api/types";
 import type { Copy, Language } from "../i18n";
 
@@ -167,7 +168,7 @@ export function StreamStatusList({ statuses }: { statuses: StreamStatus[] }) {
 }
 
 export function streamStatusFromEvent(event: string, data: unknown, text: Copy): StreamStatus | null {
-  if (event === "message.stream.started") {
+  if (event === MESSAGE_STREAM_STARTED_EVENT) {
     return { id: "waiting", type: "waiting", text: text.chat.waiting };
   }
   const payload = streamPayload(data);

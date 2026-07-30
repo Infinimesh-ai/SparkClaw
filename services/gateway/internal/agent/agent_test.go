@@ -2019,7 +2019,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Runtime.ObservationSummaryMaxBytes = 140
-	cfg.Runtime.StepMaxObservationBytes = 140
+	cfg.Runtime.RunMaxObservationBytes = 140
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
@@ -2090,7 +2090,7 @@ func TestRuntimeKeepsSmallDocumentContentFullInCurrentToolObservation(t *testing
 	if !strings.Contains(evidence.Text, "小文档开始") || !strings.Contains(evidence.Text, "小文档结束") || strings.Contains(evidence.Text, "[truncated:") {
 		t.Fatalf("full evidence should keep complete small document boundaries:\n%s", evidence.Text)
 	}
-	if len(calls[0].ObservationSummary) > cfg.Runtime.StepMaxObservationBytes {
+	if len(calls[0].ObservationSummary) > cfg.Runtime.RunMaxObservationBytes {
 		t.Fatalf("observation should still respect current workflow step observation budget: %d", len(calls[0].ObservationSummary))
 	}
 }

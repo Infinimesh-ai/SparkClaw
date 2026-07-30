@@ -1087,7 +1087,7 @@ func (r Runtime) toolResultObservationBudget(tool string) (int, int) {
 	}
 	evidenceLimit := defaultToolResultEvidenceLimit
 	if tool == "files.read" || tool == "browser.snapshot" {
-		currentObservationMax := runtime.StepMaxObservationBytes
+		currentObservationMax := runtime.RunMaxObservationBytes
 		if currentObservationMax <= 0 {
 			currentObservationMax = 48000
 		}

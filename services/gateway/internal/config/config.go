@@ -242,20 +242,36 @@ type SkillsConfig struct {
 
 type RuntimeConfig struct {
 	ObservationSummaryMaxBytes int `json:"observation_summary_max_bytes"`
-	StepMaxDurationSeconds     int `json:"workflow_step_max_duration_seconds"`
-	StepMaxToolCalls           int `json:"workflow_step_max_tool_calls"`
-	StepMaxObservationBytes    int `json:"workflow_step_max_observation_bytes"`
-	StepMaxNoProgressActions   int `json:"workflow_step_max_no_progress_actions"`
-	StepMaxRepeatedToolCalls   int `json:"workflow_step_max_repeated_tool_calls"`
+
+	// Stage budgets bound one workflow stage invocation (one model/tool
+	// step-loop entry inside a workflow scope revision).
+	StageMaxDurationSeconds   int `json:"workflow_stage_max_duration_seconds"`
+	StageMaxNoProgressActions int `json:"workflow_stage_max_no_progress_actions"`
+
+	// Run budgets bound one whole workflow run across all of its stages.
+	RunMaxDurationSeconds   int `json:"workflow_run_max_duration_seconds"`
+	RunMaxToolCalls         int `json:"workflow_run_max_tool_calls"`
+	RunMaxObservationBytes  int `json:"workflow_run_max_observation_bytes"`
+	RunMaxRepeatedToolCalls int `json:"workflow_run_max_repeated_tool_calls"`
 }
 
-// UnmarshalJSON accepts both the workflow_step_max_* keys and the deprecated
-// pre-workflow react_max_* names. A workflow_step_* key always wins; a legacy
-// key only fills a budget its new name did not set; unset budgets keep the
-// values already present (the defaults pre-filled by Load).
+// UnmarshalJSON accepts the workflow_stage_max_* / workflow_run_max_* keys
+// plus the deprecated workflow_step_max_* and pre-workflow react_max_* names.
+// A new-name key always wins; a deprecated key only fills a budget its new
+// name did not set (workflow_step_* wins over react_*); unset budgets keep
+// the values already present (the defaults pre-filled by Load).
+// workflow_run_max_duration_seconds has no deprecated alias: the old step
+// duration bounded a single stage and must not shrink the whole run.
 func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 	var keys struct {
 		ObservationSummaryMaxBytes *int `json:"observation_summary_max_bytes"`
+
+		StageMaxDurationSeconds   *int `json:"workflow_stage_max_duration_seconds"`
+		StageMaxNoProgressActions *int `json:"workflow_stage_max_no_progress_actions"`
+		RunMaxDurationSeconds     *int `json:"workflow_run_max_duration_seconds"`
+		RunMaxToolCalls           *int `json:"workflow_run_max_tool_calls"`
+		RunMaxObservationBytes    *int `json:"workflow_run_max_observation_bytes"`
+		RunMaxRepeatedToolCalls   *int `json:"workflow_run_max_repeated_tool_calls"`
 
 		StepMaxDurationSeconds   *int `json:"workflow_step_max_duration_seconds"`
 		StepMaxToolCalls         *int `json:"workflow_step_max_tool_calls"`
@@ -275,20 +291,20 @@ func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 	if keys.ObservationSummaryMaxBytes != nil {
 		rt.ObservationSummaryMaxBytes = *keys.ObservationSummaryMaxBytes
 	}
-	applyBudget := func(target *int, preferred, legacy *int) {
-		if preferred != nil {
-			*target = *preferred
-			return
-		}
-		if legacy != nil {
-			*target = *legacy
+	applyBudget := func(target *int, candidates ...*int) {
+		for _, candidate := range candidates {
+			if candidate != nil {
+				*target = *candidate
+				return
+			}
 		}
 	}
-	applyBudget(&rt.StepMaxDurationSeconds, keys.StepMaxDurationSeconds, keys.LegacyMaxDurationSeconds)
-	applyBudget(&rt.StepMaxToolCalls, keys.StepMaxToolCalls, keys.LegacyMaxToolCalls)
-	applyBudget(&rt.StepMaxObservationBytes, keys.StepMaxObservationBytes, keys.LegacyMaxObservationBytes)
-	applyBudget(&rt.StepMaxNoProgressActions, keys.StepMaxNoProgressActions, keys.LegacyMaxNoProgressActions)
-	applyBudget(&rt.StepMaxRepeatedToolCalls, keys.StepMaxRepeatedToolCalls, keys.LegacyMaxRepeatedToolCalls)
+	applyBudget(&rt.StageMaxDurationSeconds, keys.StageMaxDurationSeconds, keys.StepMaxDurationSeconds, keys.LegacyMaxDurationSeconds)
+	applyBudget(&rt.StageMaxNoProgressActions, keys.StageMaxNoProgressActions, keys.StepMaxNoProgressActions, keys.LegacyMaxNoProgressActions)
+	applyBudget(&rt.RunMaxDurationSeconds, keys.RunMaxDurationSeconds)
+	applyBudget(&rt.RunMaxToolCalls, keys.RunMaxToolCalls, keys.StepMaxToolCalls, keys.LegacyMaxToolCalls)
+	applyBudget(&rt.RunMaxObservationBytes, keys.RunMaxObservationBytes, keys.StepMaxObservationBytes, keys.LegacyMaxObservationBytes)
+	applyBudget(&rt.RunMaxRepeatedToolCalls, keys.RunMaxRepeatedToolCalls, keys.StepMaxRepeatedToolCalls, keys.LegacyMaxRepeatedToolCalls)
 	return nil
 }
 
@@ -450,25 +466,28 @@ func validateModelConfig(model *ModelConfig) error {
 	return nil
 }
 
-// normalizeRuntimeLimits backfills non-positive workflow step budgets with the
+// normalizeRuntimeLimits backfills non-positive workflow budgets with the
 // defaults so a partial runtime section in JSON cannot silently disable the
-// loop's stop conditions.
+// stage or run stop conditions.
 func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	defaults := Default().Runtime
-	if rt.StepMaxDurationSeconds <= 0 {
-		rt.StepMaxDurationSeconds = defaults.StepMaxDurationSeconds
+	if rt.StageMaxDurationSeconds <= 0 {
+		rt.StageMaxDurationSeconds = defaults.StageMaxDurationSeconds
 	}
-	if rt.StepMaxToolCalls <= 0 {
-		rt.StepMaxToolCalls = defaults.StepMaxToolCalls
+	if rt.StageMaxNoProgressActions <= 0 {
+		rt.StageMaxNoProgressActions = defaults.StageMaxNoProgressActions
 	}
-	if rt.StepMaxObservationBytes <= 0 {
-		rt.StepMaxObservationBytes = defaults.StepMaxObservationBytes
+	if rt.RunMaxDurationSeconds <= 0 {
+		rt.RunMaxDurationSeconds = defaults.RunMaxDurationSeconds
 	}
-	if rt.StepMaxNoProgressActions <= 0 {
-		rt.StepMaxNoProgressActions = defaults.StepMaxNoProgressActions
+	if rt.RunMaxToolCalls <= 0 {
+		rt.RunMaxToolCalls = defaults.RunMaxToolCalls
 	}
-	if rt.StepMaxRepeatedToolCalls <= 0 {
-		rt.StepMaxRepeatedToolCalls = defaults.StepMaxRepeatedToolCalls
+	if rt.RunMaxObservationBytes <= 0 {
+		rt.RunMaxObservationBytes = defaults.RunMaxObservationBytes
+	}
+	if rt.RunMaxRepeatedToolCalls <= 0 {
+		rt.RunMaxRepeatedToolCalls = defaults.RunMaxRepeatedToolCalls
 	}
 }
 
@@ -477,9 +496,9 @@ func minimumBrowserDaemonIdleTimeoutMS(cfg Config) (int, error) {
 	if modelWindowSeconds <= 0 {
 		modelWindowSeconds = Default().Model.HTTPTimeoutSeconds
 	}
-	workflowWindowSeconds := cfg.Runtime.StepMaxDurationSeconds
+	workflowWindowSeconds := cfg.Runtime.StageMaxDurationSeconds
 	if workflowWindowSeconds <= 0 {
-		workflowWindowSeconds = Default().Runtime.StepMaxDurationSeconds
+		workflowWindowSeconds = Default().Runtime.StageMaxDurationSeconds
 	}
 	toolHeadroomMS := cfg.Adapters.BrowserAutomation.TimeoutMS
 	if toolHeadroomMS <= 0 {
@@ -826,11 +845,12 @@ func Default() Config {
 		},
 		Runtime: RuntimeConfig{
 			ObservationSummaryMaxBytes: 2400,
-			StepMaxDurationSeconds:     180,
-			StepMaxToolCalls:           16,
-			StepMaxObservationBytes:    48000,
-			StepMaxNoProgressActions:   3,
-			StepMaxRepeatedToolCalls:   3,
+			StageMaxDurationSeconds:    180,
+			StageMaxNoProgressActions:  3,
+			RunMaxDurationSeconds:      1800,
+			RunMaxToolCalls:            32,
+			RunMaxObservationBytes:     48000,
+			RunMaxRepeatedToolCalls:    3,
 		},
 		Logging: LoggingConfig{
 			Level:          "info",
@@ -1276,14 +1296,19 @@ func applyEnv(cfg *Config) {
 			cfg.Runtime.ObservationSummaryMaxBytes = maxBytes
 		}
 	}
-	if v := os.Getenv("SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES"); v != "" {
+	if v := os.Getenv("SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"); v != "" {
 		if maxBytes, err := strconv.Atoi(v); err == nil {
-			cfg.Runtime.StepMaxObservationBytes = maxBytes
+			cfg.Runtime.RunMaxObservationBytes = maxBytes
+		}
+	} else if v := os.Getenv("SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES"); v != "" {
+		// Deprecated environment override, kept for pre-rename deployments.
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Runtime.RunMaxObservationBytes = maxBytes
 		}
 	} else if v := os.Getenv("SPARKCLAW_REACT_MAX_OBSERVATION_BYTES"); v != "" {
 		// Deprecated environment override, kept for pre-workflow deployments.
 		if maxBytes, err := strconv.Atoi(v); err == nil {
-			cfg.Runtime.StepMaxObservationBytes = maxBytes
+			cfg.Runtime.RunMaxObservationBytes = maxBytes
 		}
 	}
 	if cfg.State.Path != "" {

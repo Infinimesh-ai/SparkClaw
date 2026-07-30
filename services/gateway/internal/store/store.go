@@ -113,3 +113,10 @@ type Store interface {
 	SaveEpisodeSummary(summary app.EpisodeSummary)
 	ListEpisodeSummaries(sessionID string) []app.EpisodeSummary
 }
+
+// Compile-time checks that every backend implements the full Store interface.
+var (
+	_ Store = (*MemoryStore)(nil)
+	_ Store = (*FileStore)(nil)
+	_ Store = (*PostgresStore)(nil)
+)

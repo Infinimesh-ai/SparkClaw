@@ -184,6 +184,31 @@ func (s *Server) executionContext() context.Context {
 	return s.lifecycleCtx
 }
 
+// detachedExecutionGraceSeconds covers the gap between the agent's own
+// run-budget check and the moment an in-flight model or tool request
+// actually returns: the budget is only consulted between requests.
+const detachedExecutionGraceSeconds = 60
+
+// detachedExecutionContext bounds work that outlives its HTTP request. The
+// agent's run budget is the graceful stop; this deadline is the hard backstop
+// so a client-disconnected execution can never ride the process lifetime
+// context indefinitely.
+func (s *Server) detachedExecutionContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(s.executionContext(), detachedExecutionTimeout(s.cfg))
+}
+
+func detachedExecutionTimeout(cfg config.Config) time.Duration {
+	runSeconds := cfg.Runtime.RunMaxDurationSeconds
+	if runSeconds <= 0 {
+		runSeconds = config.Default().Runtime.RunMaxDurationSeconds
+	}
+	modelSeconds := cfg.Model.HTTPTimeoutSeconds
+	if modelSeconds <= 0 {
+		modelSeconds = config.Default().Model.HTTPTimeoutSeconds
+	}
+	return time.Duration(runSeconds+modelSeconds+detachedExecutionGraceSeconds) * time.Second
+}
+
 func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -1009,10 +1034,11 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	}
 	modelEvents := make(chan agent.StreamEvent, 16)
 	results := make(chan streamResult, 1)
-	executionCtx := s.executionContext()
+	executionCtx, finishExecution := s.detachedExecutionContext()
 	s.streamWG.Add(1)
 	go func() {
 		defer s.streamWG.Done()
+		defer finishExecution()
 		result, err := s.streamMessage(executionCtx, sessionID, input.Content, attachments, func(event agent.StreamEvent) error {
 			select {
 			case <-r.Context().Done():

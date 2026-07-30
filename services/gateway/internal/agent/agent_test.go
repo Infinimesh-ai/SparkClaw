@@ -1976,16 +1976,25 @@ func TestCompressBrowserSnapshotIncludesElementsFromResultStruct(t *testing.T) {
 	}
 }
 
-func TestReactBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {
-	budget := workflowStepBudget{
-		StartedAt:            time.Now().UTC(),
-		MaxDuration:          time.Minute,
-		MaxToolCalls:         16,
-		MaxObservationBytes:  24000,
-		MaxNoProgressActions: 3,
-		MaxRepeatedToolCalls: 3,
-	}
-	stop, reason := shouldStopWorkflowStepLoop(context.Background(), budget, nil, nil, 0, 3, "files.read")
+func testWorkflowBudgets() (workflowStageBudget, *workflowRunBudget) {
+	now := time.Now().UTC()
+	return workflowStageBudget{
+			StartedAt:            now,
+			MaxDuration:          time.Minute,
+			MaxNoProgressActions: 3,
+		}, &workflowRunBudget{
+			StartedAt:            now,
+			MaxDuration:          time.Hour,
+			MaxToolCalls:         16,
+			MaxObservationBytes:  24000,
+			MaxRepeatedToolCalls: 3,
+		}
+}
+
+func TestRunBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {
+	stage, runBudget := testWorkflowBudgets()
+	runBudget.RepeatedRun = repeatedToolCallRun{Tool: "files.read", Fingerprint: "fp", Count: 3}
+	stop, reason := shouldStopWorkflowStepLoop(context.Background(), stage, runBudget, nil, 0)
 	if !stop {
 		t.Fatal("expected repeated same tool calls to stop the run")
 	}
@@ -1994,18 +2003,73 @@ func TestReactBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {
 	}
 }
 
-func TestReactBudgetAllowsRepeatedToolWhenFollowedByDifferentAction(t *testing.T) {
-	budget := workflowStepBudget{
-		StartedAt:            time.Now().UTC(),
-		MaxDuration:          time.Minute,
-		MaxToolCalls:         16,
-		MaxObservationBytes:  24000,
-		MaxNoProgressActions: 3,
-		MaxRepeatedToolCalls: 3,
-	}
-	stop, reason := shouldStopWorkflowStepLoop(context.Background(), budget, nil, nil, 0, 1, "docx.insert_paragraph")
+func TestRunBudgetAllowsRepeatedToolWhenFollowedByDifferentAction(t *testing.T) {
+	stage, runBudget := testWorkflowBudgets()
+	runBudget.RepeatedRun = repeatedToolCallRun{Tool: "docx.insert_paragraph", Fingerprint: "fp", Count: 1}
+	stop, reason := shouldStopWorkflowStepLoop(context.Background(), stage, runBudget, nil, 0)
 	if stop {
 		t.Fatalf("different follow-up action should reset repeated-tool budget, got %q", reason)
+	}
+}
+
+func TestRunBudgetSurvivesStageBoundaries(t *testing.T) {
+	// One identical call per stage: the stage-local view never sees more
+	// than one call, but the run budget must accumulate the streak and the
+	// call count across stages.
+	_, runBudget := testWorkflowBudgets()
+	runBudget.MaxToolCalls = 16
+	call := app.ToolCall{
+		Tool:      "browser.read",
+		Status:    "completed",
+		Arguments: map[string]any{"url": "https://example.test/same"},
+		Result:    map[string]any{"status_code": 200, "text": "same page body"},
+	}
+	for i := 0; i < 2; i++ {
+		runBudget.observeToolCall(call)
+		if stop, _ := runBudget.exceeded(nil); stop {
+			t.Fatalf("run budget stopped before the repeated threshold at call %d: %#v", i+1, runBudget)
+		}
+	}
+	runBudget.observeToolCall(call)
+	stop, reason := runBudget.exceeded(nil)
+	if !stop || !strings.Contains(reason, "browser.read") {
+		t.Fatalf("three identical calls across stages should stop the run, got stop=%v reason=%q", stop, reason)
+	}
+	if runBudget.ToolCalls != 3 {
+		t.Fatalf("run budget should count every stage's tool call, got %d", runBudget.ToolCalls)
+	}
+}
+
+func TestRunBudgetStopsAtRunToolCallCap(t *testing.T) {
+	stage, runBudget := testWorkflowBudgets()
+	runBudget.MaxToolCalls = 4
+	for i := 0; i < 4; i++ {
+		runBudget.observeToolCall(app.ToolCall{
+			Tool:      "files.read",
+			Status:    "completed",
+			Arguments: map[string]any{"path": fmt.Sprintf("note-%d.txt", i)},
+		})
+	}
+	stop, reason := shouldStopWorkflowStepLoop(context.Background(), stage, runBudget, nil, 0)
+	if !stop || !strings.Contains(reason, "运行预算") {
+		t.Fatalf("run tool-call cap should stop the run, got stop=%v reason=%q", stop, reason)
+	}
+}
+
+func TestRunBudgetReplaysSeedCallsOnResume(t *testing.T) {
+	cfg := agentTestConfig()
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+	seed := app.ToolCall{
+		Tool:      "browser.read",
+		Status:    "completed",
+		Arguments: map[string]any{"url": "https://example.test/same"},
+		Result:    map[string]any{"status_code": 200, "text": "same page body"},
+	}
+	runBudget := runtime.newWorkflowRunBudget([]app.ToolCall{seed, seed})
+	if runBudget.ToolCalls != 2 || runBudget.RepeatedRun.Count != 2 || runBudget.RepeatedRun.Tool != "browser.read" {
+		t.Fatalf("seed calls should be replayed into the resumed run budget: %#v", runBudget)
 	}
 }
 
@@ -2019,7 +2083,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Runtime.ObservationSummaryMaxBytes = 140
-	cfg.Runtime.StepMaxObservationBytes = 140
+	cfg.Runtime.RunMaxObservationBytes = 140
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
@@ -2090,7 +2154,7 @@ func TestRuntimeKeepsSmallDocumentContentFullInCurrentToolObservation(t *testing
 	if !strings.Contains(evidence.Text, "小文档开始") || !strings.Contains(evidence.Text, "小文档结束") || strings.Contains(evidence.Text, "[truncated:") {
 		t.Fatalf("full evidence should keep complete small document boundaries:\n%s", evidence.Text)
 	}
-	if len(calls[0].ObservationSummary) > cfg.Runtime.StepMaxObservationBytes {
+	if len(calls[0].ObservationSummary) > cfg.Runtime.RunMaxObservationBytes {
 		t.Fatalf("observation should still respect current workflow step observation budget: %d", len(calls[0].ObservationSummary))
 	}
 }

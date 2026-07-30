@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"errors"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -522,19 +521,6 @@ func browserPageRefs(value any, provenance string) []app.ResourceRef {
 		}
 	}
 	return refs
-}
-
-func normalizeBrowserEvidenceURL(raw string) string {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return strings.TrimSpace(raw)
-	}
-	parsed.Scheme = strings.ToLower(parsed.Scheme)
-	parsed.Host = strings.ToLower(parsed.Host)
-	if parsed.Path == "" {
-		parsed.Path = "/"
-	}
-	return parsed.String()
 }
 
 func browserOutcomeIdentityAttributes(payload map[string]any, attributes map[string]string) map[string]string {

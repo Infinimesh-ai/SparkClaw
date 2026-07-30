@@ -703,28 +703,6 @@ func browserPresentationRefs(state *app.WorkflowState, refs []app.ResourceRef) [
 	}}
 }
 
-func browserSafeResultURL(target app.BrowserTargetDescriptor, liveRaw string) string {
-	live, err := url.Parse(strings.TrimSpace(liveRaw))
-	if err != nil || live.Scheme == "" || live.Host == "" {
-		return target.CanonicalURL
-	}
-	live.Scheme = strings.ToLower(live.Scheme)
-	live.Host = strings.ToLower(live.Host)
-	if live.Path == "" {
-		live.Path = "/"
-	}
-	live.RawQuery = ""
-	live.ForceQuery = false
-	if target.QueryProvenance == app.BrowserQueryOwnerSupplied {
-		if frozen, frozenErr := url.Parse(strings.TrimSpace(target.CanonicalURL)); frozenErr == nil &&
-			frozen.Scheme != "" && frozen.Host != "" {
-			live.RawQuery = frozen.RawQuery
-			live.ForceQuery = frozen.ForceQuery
-		}
-	}
-	return live.String()
-}
-
 func browserPresentationURLMatchesRoute(state *app.WorkflowState, candidateURL string) bool {
 	if state == nil || !browserLoginResumeURLUsable(candidateURL) {
 		return false

@@ -2,11 +2,14 @@ package browserautomation
 
 import (
 	"context"
+	"debug/elf"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -215,31 +218,16 @@ func TestBrowserProfileLeaseRejectsContentionAndReleases(t *testing.T) {
 }
 
 func TestBrowserExecutableArchitectureResolvesChromiumLauncher(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	installRoot := t.TempDir()
 	launcherPath := filepath.Join(installRoot, "bin", "chromium")
 	binaryPath := filepath.Join(installRoot, "lib", "chromium", "chromium")
 	if err := os.MkdirAll(filepath.Dir(launcherPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(launcherPath, []byte("#!/bin/sh\nexec /usr/lib/chromium/chromium \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Link(executable, binaryPath); err != nil {
-		input, readErr := os.ReadFile(executable)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if writeErr := os.WriteFile(binaryPath, input, 0o755); writeErr != nil {
-			t.Fatal(writeErr)
-		}
-	}
+	writeELFExecutableFixture(t, binaryPath, elf.EM_AARCH64)
 
 	if got := browserExecutableArchitecture(launcherPath); got != "aarch64" {
 		t.Fatalf("Chromium launcher architecture = %q, want aarch64", got)
@@ -247,12 +235,25 @@ func TestBrowserExecutableArchitectureResolvesChromiumLauncher(t *testing.T) {
 }
 
 func TestBrowserEnvironmentHelpersValidateARM64LocaleAndProfileState(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	fixtureDir := t.TempDir()
+	arm64Binary := filepath.Join(fixtureDir, "chromium-arm64")
+	writeELFExecutableFixture(t, arm64Binary, elf.EM_AARCH64)
+	if got := browserExecutableArchitecture(arm64Binary); got != "aarch64" {
+		t.Fatalf("aarch64 ELF fixture architecture = %q, want aarch64", got)
 	}
-	if got := browserExecutableArchitecture(executable); got != "aarch64" {
-		t.Fatalf("test process architecture = %q, want aarch64", got)
+	amd64Binary := filepath.Join(fixtureDir, "chromium-amd64")
+	writeELFExecutableFixture(t, amd64Binary, elf.EM_X86_64)
+	if got := browserExecutableArchitecture(amd64Binary); got != "x86-64" {
+		t.Fatalf("x86-64 ELF fixture architecture = %q, want x86-64", got)
+	}
+	if runtime.GOOS == "linux" && runtime.GOARCH == "arm64" {
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := browserExecutableArchitecture(executable); got != "aarch64" {
+			t.Fatalf("test process architecture = %q, want aarch64", got)
+		}
 	}
 	t.Setenv("LC_ALL", "C.UTF-8")
 	t.Setenv("LC_CTYPE", "")
@@ -323,6 +324,28 @@ func TestRequestTimeoutMSReservesAgentBrowserTransportHeadroom(t *testing.T) {
 	defer cancel()
 	if got := requestTimeoutMS(ctx, 30000); got < 6900 || got > 7000 {
 		t.Fatalf("deadline-bounded request timeout = %dms, want about 7000ms", got)
+	}
+}
+
+// writeELFExecutableFixture writes a minimal but valid 64-bit little-endian ELF
+// header (no program or section headers) so browserExecutableArchitecture can
+// probe the machine field deterministically on every host platform.
+func writeELFExecutableFixture(t *testing.T, path string, machine elf.Machine) {
+	t.Helper()
+	header := make([]byte, 64)
+	copy(header, elf.ELFMAG)
+	header[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+	header[elf.EI_DATA] = byte(elf.ELFDATA2LSB)
+	header[elf.EI_VERSION] = byte(elf.EV_CURRENT)
+	binary.LittleEndian.PutUint16(header[16:], uint16(elf.ET_EXEC))
+	binary.LittleEndian.PutUint16(header[18:], uint16(machine))
+	binary.LittleEndian.PutUint32(header[20:], uint32(elf.EV_CURRENT))
+	binary.LittleEndian.PutUint16(header[52:], 64) // e_ehsize
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, header, 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

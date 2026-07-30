@@ -303,6 +303,21 @@ func exposureViewKey(runID string, nodeID app.WorkflowNodeID) string {
 	return runID + "\x00" + string(nodeID)
 }
 
+// releaseRun drops every cached view for the run. Views are only consumed
+// between a Search and the Materialize of the same stage invocation, and a
+// resumed run re-Searches, so anything left after an execution finishes would
+// stay in the map for the life of the process.
+func (e *toolExposureEngine) releaseRun(runID string) {
+	prefix := runID + "\x00"
+	e.mu.Lock()
+	for key := range e.latest {
+		if strings.HasPrefix(key, prefix) {
+			delete(e.latest, key)
+		}
+	}
+	e.mu.Unlock()
+}
+
 func directoryEntryIDs(entries []app.ToolDirectoryEntry) []app.ToolDirectoryEntryID {
 	out := make([]app.ToolDirectoryEntryID, 0, len(entries))
 	for _, entry := range entries {

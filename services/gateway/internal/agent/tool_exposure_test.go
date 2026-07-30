@@ -49,6 +49,43 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 	}
 }
 
+func TestToolExposureReleaseRunEvictsCachedViews(t *testing.T) {
+	_, engine, request := newWebExposureFixture(t, nil)
+
+	view, err := engine.Search(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	engine.releaseRun("run_unrelated")
+	engine.mu.Lock()
+	kept := len(engine.latest)
+	engine.mu.Unlock()
+	if kept != 1 {
+		t.Fatalf("releasing an unrelated run must keep cached views, have %d", kept)
+	}
+
+	engine.releaseRun(request.RunID)
+	engine.mu.Lock()
+	remaining := len(engine.latest)
+	engine.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("run release left %d cached views", remaining)
+	}
+
+	if _, err := engine.Materialize(context.Background(), app.MaterializeRequest{
+		ViewID:        view.ViewID,
+		RunID:         request.RunID,
+		WorkflowID:    request.WorkflowID,
+		NodeID:        request.NodeID,
+		ScopeRevision: request.ScopeRevision,
+		EntryIDs:      []app.ToolDirectoryEntryID{view.Entries[0].ID},
+		ActorRef:      request.ActorRef,
+	}); err == nil {
+		t.Fatal("materializing a released view must fail as stale")
+	}
+}
+
 func TestToolExposureRejectsSelectionOutsideLatestView(t *testing.T) {
 	_, engine, request := newWebExposureFixture(t, nil)
 	view, err := engine.Search(context.Background(), request)

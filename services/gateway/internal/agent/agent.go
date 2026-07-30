@@ -302,6 +302,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	r.store.SaveRun(run)
 
 	execution := r.runWorkflowStream(ctx, sessionID, run, executionContent, dispatch.Profile, dispatch.Context, dispatch.Tools, emit)
+	r.exposure.releaseRun(run.ID)
 	if refreshed, ok := r.store.GetRun(run.ID); ok {
 		run = refreshed
 	}

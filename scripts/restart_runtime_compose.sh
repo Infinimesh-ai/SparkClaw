@@ -11,7 +11,8 @@ PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
 GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18789/readyz}"
 services=("$@")
 browser_display=""
-browser_xauthority="/dev/null"
+browser_xauthority=""
+visible_browser=false
 
 if [[ ${#services[@]} -eq 0 ]]; then
   services=(gateway webchat)
@@ -50,27 +51,34 @@ if [[ "$start_gateway" == true ]]; then
   if browser_display_info="$(bash scripts/resolve-browser-display.sh)"; then
     browser_display="${browser_display_info%%$'\n'*}"
     browser_xauthority="${browser_display_info#*$'\n'}"
+    visible_browser=true
     echo "Visible Chromium display: $browser_display"
   else
     echo "warn visible Chromium is unavailable; hidden browser automation remains enabled" >&2
   fi
 fi
-export SPARKCLAW_BROWSER_DISPLAY="$browser_display"
-export SPARKCLAW_BROWSER_XAUTHORITY="$browser_xauthority"
-if [[ "${docker_cmd[0]}" == "sudo" ]]; then
-  docker_cmd=(
-    sudo -n env
-    "SPARKCLAW_BROWSER_DISPLAY=$SPARKCLAW_BROWSER_DISPLAY"
-    "SPARKCLAW_BROWSER_XAUTHORITY=$SPARKCLAW_BROWSER_XAUTHORITY"
-    "$DOCKER_BIN"
-  )
+if [[ "$visible_browser" == true ]]; then
+  export SPARKCLAW_BROWSER_DISPLAY="$browser_display"
+  export SPARKCLAW_BROWSER_XAUTHORITY="$browser_xauthority"
+  if [[ "${docker_cmd[0]}" == "sudo" ]]; then
+    docker_cmd=(
+      sudo -n env
+      "SPARKCLAW_BROWSER_DISPLAY=$SPARKCLAW_BROWSER_DISPLAY"
+      "SPARKCLAW_BROWSER_XAUTHORITY=$SPARKCLAW_BROWSER_XAUTHORITY"
+      "$DOCKER_BIN"
+    )
+  fi
 fi
 
 compose_args=(compose)
 if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
 fi
-compose_args+=(--env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" --profile "$PROFILE")
+compose_args+=(--env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE")
+if [[ "$visible_browser" == true ]]; then
+  compose_args+=(-f docker/compose.visible-browser.yaml)
+fi
+compose_args+=(--profile "$PROFILE")
 
 "${docker_cmd[@]}" "${compose_args[@]}" up -d --build --force-recreate "${services[@]}"
 

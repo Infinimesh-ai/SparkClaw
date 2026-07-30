@@ -66,8 +66,12 @@ profile 的 visible Chromium，但 hidden 与 visible 进程绝不能同时持�
 日常浏览器 profile。
 
 在 Linux ARM64 Compose runtime 中，visible session 使用 owner 的真实 X11/XWayland
-桌面。`npm run dev` 自动发现唯一的本地 display 及其 Xauthority 文件，再将 X socket
-和 authority 挂载进 Gateway。adapter 对 visible session 禁用 agent-browser 的 Xvfb
+桌面。desktop bridge 是一个 opt-in Compose overlay：
+`docker/compose.visible-browser.yaml`；基础 `docker/compose.yaml` 不挂载 X socket，
+也不向 Gateway 传递任何 display 环境变量。`npm run dev` 自动发现唯一的本地 display
+及其 Xauthority 文件，并应用该 overlay，把 X socket 和 authority 挂载进 Gateway；
+headless 主机上则以不带 overlay 的相同 stack 启动，只提供 hidden 自动化。
+adapter 对 visible session 禁用 agent-browser 的 Xvfb
 fallback：desktop 缺失或不可访问时会明确失败，不再把只能在虚拟显示中看到的浏览器
 报告为成功。headless 自动化不依赖该 desktop bridge。Gateway 镜像同时提供 UTF-8
 locale 以及 Noto CJK/emoji 字体，使 Chromium 能正确显示 QQ 邮箱等中文应用，而不会
@@ -136,8 +140,10 @@ compare-and-swap、transition owner 和有界 lease 让 memory、file、PostgreS
   Xauthority 文件，不启动 Chromium，也不创建 `about:blank`。
 - 即使 snapshot 中存在 unsafe 或 consequential control，也会阻止。模型输出不能绕过 ref ownership 或 Policy。
 - screenshot、raw response 和 rendered text 都是 artifact/evidence，不是可信指令。
-- Compose Xauthority 虽然是 read-only mount，但会授予 Gateway 访问 owner 桌面 display
-  的权限。只在受信任、单 owner 的本地 runtime 中启用 visible forwarding。
+- 基础 Compose 文件不向 Gateway 暴露任何 X11 socket 或 Xauthority。
+  `docker/compose.visible-browser.yaml` overlay 以 read-only 方式挂载两者，但仍会
+  授予 Gateway 访问 owner 桌面 display 的权限。只在受信任、单 owner 的本地 runtime
+  中应用该 overlay。
 
 ## 配置与安装
 
@@ -161,21 +167,26 @@ Linux setup 检查还要求 fontconfig 和已安装的中文字体。Debian 和 
 | `adapters.browserAutomation.profileDir` | SparkClaw-owned persistent profile root |
 | `timeoutMs` / `startupTimeoutMs` / `daemonIdleTimeoutMs` | 有界 lifecycle；hidden idle 覆盖已配置的 model/Workflow reasoning gap |
 | `security.browser_read_allow_hosts` | private-host 明确例外，主要用于测试 fixture |
-| `SPARKCLAW_BROWSER_DISPLAY` | 仅用于 Compose 的 Linux host display，例如 `:1` |
-| `SPARKCLAW_BROWSER_XAUTHORITY` | 仅用于 Compose 的可读 host Xauthority 文件 |
+| `SPARKCLAW_BROWSER_DISPLAY` | 仅用于 visible-browser overlay 的 Linux host display，例如 `:1` |
+| `SPARKCLAW_BROWSER_XAUTHORITY` | 仅用于 visible-browser overlay 的可读 host Xauthority 文件（无默认值） |
 
 环境变量覆盖使用 `SPARKCLAW_BROWSER_AUTOMATION_*`、
 `SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE`、`SPARKCLAW_BROWSER_PROFILE_DIR` 和
 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS`。常规 host 与 Compose 命令见[部署](deployment.md)。
 
-`npm run dev` 会自动解析这两个仅用于 Compose 的 desktop 值。直接调用 Compose 时先导出：
+`npm run dev` 会自动解析这两个 desktop 值并应用
+`docker/compose.visible-browser.yaml` overlay。直接调用 Compose 时先导出，并显式
+叠加 overlay：
 
 ```bash
 mapfile -t browser_display < <(scripts/resolve-browser-display.sh)
 export SPARKCLAW_BROWSER_DISPLAY="${browser_display[0]}"
 export SPARKCLAW_BROWSER_XAUTHORITY="${browser_display[1]}"
-docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d gateway
+docker compose --env-file .env -f docker/compose.yaml \
+  -f docker/compose.visible-browser.yaml --profile models-local up -d gateway
 ```
+
+不带 overlay 时，同一命令启动的是完全 headless、无法访问 host 桌面的 Gateway。
 
 ## 验证
 

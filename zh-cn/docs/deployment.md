@@ -207,6 +207,11 @@ scripts/restart_runtime_compose.sh
 `/readyz`，只有 Gateway 报告 `model_mode=external` 且
 `state_backend=postgres` 时才成功退出。
 
+当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
+`docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
+打开 visible Chromium。headless 主机上则以不带 overlay 的相同 stack 启动；hidden
+浏览器自动化仍然可用，基础 compose 文件不授予 Gateway 任何 host display 访问权限。
+
 ## DGX Spark Model Services
 
 Host-side vLLM scripts：
@@ -434,6 +439,9 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 - dangerous 和 reversible tools 保持 approval-gated。
 - shell execution 保持 sandboxed 且 network-disabled。
 - browser/email/file observations 视为 untrusted。
+- 保持 host 桌面对容器关闭：基础 compose 文件不挂载 X11 socket；
+  `docker/compose.visible-browser.yaml` overlay 只应在需要 visible 登录 handoff
+  的受信任单 owner 桌面 runtime 上使用。
 - `.env`、model weights、state encryption keys 和下载数据不进入 git。
 - 交付前扫描 diff 中的 token。
 

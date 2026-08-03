@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -113,6 +114,56 @@ func TestRegistryDynamicallyReconcilesPersistedOptInAndGatesDelivery(t *testing.
 	}
 	if receipt, err := providers.Deliver(context.Background(), endpoint, request); err == nil || delivery.ErrorCode(err) != delivery.CodeConnectorDisabled || receipt.ErrorCode != delivery.CodeConnectorDisabled {
 		t.Fatalf("disabled connector delivery was not blocked: receipt=%#v err=%v", receipt, err)
+	}
+}
+
+func TestManagedProviderGatesSourceReplyByAuthorizedEndpointOwner(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.Notifications.Channels = map[string]config.NotificationChannelConfig{
+		"alpha": {Enabled: false, Provider: "alpha-v1"},
+	}
+	st := store.NewMemoryStore()
+	if _, err := st.UpdateConnectorSetting(app.ConnectorSetting{
+		OwnerID: "owner-a", Channel: "alpha", Enabled: true, UpdatedBy: "owner-a",
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+	bindingRecord := st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "bind-alpha", OwnerID: "owner-a", ActorID: "owner-a", Channel: "alpha", Status: "active",
+		Scopes: []string{app.BindingScopeMessageSendSelf},
+	})
+	st.SaveExternalChatSession(app.ExternalChatSession{
+		ID: "chat-alpha", OwnerID: "external-actor-a", AuthorizedOwnerID: "owner-a", AuthorizedActorID: "owner-a",
+		BindingID: bindingRecord.ID, Channel: "alpha", ExternalUserID: "user-a", ExternalChatID: "chat-a", Status: "active",
+	})
+
+	provider := &managedTestProvider{}
+	registry := NewRegistry(cfg, st)
+	if err := registry.Register(Registration{Channel: "alpha", Provider: provider}); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := registry.ProviderRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(registry.Enabled)
+	routes := messagecontrol.NewReturnRouteResolver(endpoints)
+	deliverer := delivery.NewWorkflowResultDeliverer(routes, delivery.NewGateway(endpoints, providers, nil))
+	_, err = deliverer.DeliverWorkflowResult(t.Context(), app.WorkflowResult{
+		SchemaVersion: app.WorkflowResultSchemaVersion,
+		ID:            "result-alpha",
+		OwnerID:       "external-actor-a",
+		Authorization: app.MessageAuthorization{PrincipalID: "external-actor-a"},
+		Content: app.MessageContent{Parts: []app.MessagePart{{
+			ID: "part-1", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "reply",
+		}}},
+		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: "chat-alpha"},
+	})
+	if err != nil {
+		t.Fatalf("enabled authorized owner source reply failed: %v", err)
+	}
+	if provider.deliveries.Load() != 1 {
+		t.Fatalf("source reply deliveries = %d, want 1", provider.deliveries.Load())
 	}
 }
 

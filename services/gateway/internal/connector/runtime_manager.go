@@ -222,7 +222,7 @@ func (p managedProvider) Capabilities() app.DeliveryCapabilities {
 }
 
 func (p managedProvider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	if p.registry == nil || !p.registry.Enabled(request.OwnerID, p.Key()) {
+	if p.registry == nil || !p.registry.Enabled(endpoint.OwnerID, p.Key()) {
 		err := delivery.NewError(delivery.CodeConnectorDisabled, "delivery connector is disabled", "blocked")
 		return app.DeliveryReceipt{
 			DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed,

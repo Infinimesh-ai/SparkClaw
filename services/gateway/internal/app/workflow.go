@@ -169,6 +169,7 @@ const (
 	ToolCapabilityDocumentRead              = "document.read"
 	ToolCapabilityDocumentEdit              = "document.edit"
 	ToolCapabilityScheduleManage            = "schedule.manage"
+	ToolCapabilityObservationRead           = "observation.read"
 
 	CapabilityQualifierFormat   = "format"
 	CapabilityQualifierProvider = "provider"

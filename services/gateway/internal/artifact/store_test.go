@@ -29,6 +29,10 @@ func TestFileStorePutCleansKey(t *testing.T) {
 	if string(raw) != `{"ok":true}` {
 		t.Fatalf("unexpected artifact content: %s", raw)
 	}
+	loaded, err := store.Get(context.Background(), object.Key)
+	if err != nil || string(loaded) != `{"ok":true}` {
+		t.Fatalf("artifact did not read back: raw=%s err=%v", loaded, err)
+	}
 }
 
 func TestS3StorePutObject(t *testing.T) {
@@ -72,5 +76,28 @@ func TestS3StorePutObject(t *testing.T) {
 	}
 	if object.URI != "s3://spark bucket/traces/run 1.json" || object.Backend != "s3" {
 		t.Fatalf("unexpected S3 object metadata: %#v", object)
+	}
+}
+
+func TestS3StoreGetObject(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.EscapedPath()
+		_, _ = w.Write([]byte(`{"stored":true}`))
+	}))
+	defer server.Close()
+
+	store := S3Store{
+		Endpoint: server.URL, Region: "us-test-1", Bucket: "spark bucket",
+		AccessKey: "access", SecretKey: "secret", Client: server.Client(),
+	}
+	raw, err := store.Get(context.Background(), "observations/run 1/call.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/spark%20bucket/observations/run%201/call.json" || string(raw) != `{"stored":true}` {
+		t.Fatalf("unexpected S3 read: method=%s path=%s raw=%s", gotMethod, gotPath, raw)
 	}
 }

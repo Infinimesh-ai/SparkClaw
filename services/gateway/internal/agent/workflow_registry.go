@@ -63,19 +63,35 @@ type workflowRoutingVariant = semanticrouting.IntentVariant
 type workflowRouteTemplate = semanticrouting.RouteTemplate
 
 type workflowStageContext struct {
-	TaskType             string             `json:"task_type"`
-	EvidenceNeed         string             `json:"evidence_need"`
-	DataScope            string             `json:"data_scope,omitempty"`
-	ToolMode             string             `json:"tool_mode"`
-	BrowserMode          string             `json:"browser_mode,omitempty"`
-	RequiresToolEvidence bool               `json:"requires_tool_evidence,omitempty"`
-	EstimatedRisk        app.RiskLevel      `json:"estimated_risk"`
-	ModelLaneHint        string             `json:"model_lane_hint"`
-	Reason               string             `json:"reason"`
-	WorkflowID           app.WorkflowID     `json:"-"`
-	WorkflowNodeID       app.WorkflowNodeID `json:"-"`
-	ScopeRevision        int                `json:"-"`
-	Capability           string             `json:"-"`
+	TaskType             string                        `json:"task_type"`
+	EvidenceNeed         string                        `json:"evidence_need"`
+	DataScope            string                        `json:"data_scope,omitempty"`
+	ToolMode             string                        `json:"tool_mode"`
+	BrowserMode          string                        `json:"browser_mode,omitempty"`
+	RequiresToolEvidence bool                          `json:"requires_tool_evidence,omitempty"`
+	EstimatedRisk        app.RiskLevel                 `json:"estimated_risk"`
+	ModelLaneHint        string                        `json:"model_lane_hint"`
+	Reason               string                        `json:"reason"`
+	WorkflowID           app.WorkflowID                `json:"-"`
+	WorkflowNodeID       app.WorkflowNodeID            `json:"-"`
+	ScopeRevision        int                           `json:"-"`
+	Capability           string                        `json:"-"`
+	EvidenceRequirements []workflowEvidenceRequirement `json:"-"`
+}
+
+type workflowEvidenceSliceMode string
+
+const (
+	workflowEvidenceHead       workflowEvidenceSliceMode = "head"
+	workflowEvidenceStructured workflowEvidenceSliceMode = "structured"
+)
+
+type workflowEvidenceRequirement struct {
+	SourceNodeID app.WorkflowNodeID
+	ResourceKind string
+	Mode         workflowEvidenceSliceMode
+	MaxBytes     int
+	Optional     bool
 }
 
 type workflowProfileRegistry struct {

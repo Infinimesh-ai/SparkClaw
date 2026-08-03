@@ -2,9 +2,12 @@
 
 > 语言： [English](../../docs/context-assembly-plan.md) | 简体中文
 
-状态：2026-07-27 部分实施。阶段 0.1、0.3 的代码部分和阶段 0.4 已实施；0.3
-在 dual-light 上的 prefix-cache 性能测量、0.2 滚动压缩和全部阶段 1 项目仍待
-完成。本文档继续作为待完成改动的设计依据；全部交付后其长期决策并入
+状态：2026-08-03 部分实施。阶段 0.1、0.2 滚动压缩、0.3 的代码部分、阶段
+0.4、1.1 ContextBuilder 与 1.2 `observation.read` 已实施。
+[观测压缩重构](observation-compression-redesign.md) 将 0.2、1.1、1.2 与统一
+观测信封、运行时证据供给一并交付。0.3 在 dual-light 上的 prefix-cache 性能
+测量和 1.3 模型生成的情节摘要仍待完成。本文档继续作为这些待完成改动的设计
+依据；全部交付后其长期决策并入
 [架构文档](architecture.md)，本方案按文档规则移除。
 
 范围：`services/gateway/internal/agent` 内的 prompt 组装与工具结果拼装。不改

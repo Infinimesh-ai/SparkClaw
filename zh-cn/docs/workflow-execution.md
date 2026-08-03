@@ -69,6 +69,20 @@ Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后
   型 profile，并带 85% 上下文窗口安全系数
   （`effectiveWorkflowStepPromptBudget`）。
 
+### 工具结果与证据
+
+每个工具结果都会完整归档，而模型可见 observation 不再按工具名放宽，统一使用
+`observation_summary_max_bytes` 信封（默认 2400）。截断信封保留 artifact URI，并
+提示模型使用 `observation.read`；该辅助工具只读取当前 session 所属 artifact 的有界、
+UTF-8 安全窗口。它仅暴露给模型步骤，调用后继续当前步骤循环，不推进 workflow 节点。
+
+Profile 在阶段上下文中声明必需或可选的证据来源。模型调用前，Runtime 从已完成节点或
+当前 workflow resource 解析来源、读取归档完整输出，并在 output contract 前插入有界
+`PROVISIONED_EVIDENCE` 小节。文档切片保留完整段落或行，浏览器结构化切片保留完整
+control ref。缺少必需证据时在模型调用前阻断。`ContextBuilder` 对联合 prompt 依次压缩
+session/tool 上下文、缩小供给切片、压缩较旧的本轮 observations；最新两条 observation
+与末尾 output contract 保持不变。
+
 ### 步骤协议
 
 每个步骤发送以 `WORKFLOW_STEP_REQUEST` 开头的 user prompt,要求模型只返回一个
@@ -107,6 +121,10 @@ JSON 对象：
 | `workflow_stage_max_duration_seconds` | 180 | 该阶段墙钟时间耗尽 |
 | `workflow_stage_max_no_progress_actions` | 3 | 连续动作未产生新证据 |
 
+`workflow_stage_evidence_max_bytes`（默认 8000）限制单阶段供给的持久化证据总量。
+必需来源缺失、为空或无法装入预算时，阶段 fail closed 阻断；环境变量
+`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` 可覆盖该上限。
+
 运行预算停止整个运行，既在步骤循环内检查，也在每个阶段开始前检查（后者审计
 `workflow_run.budget_stopped`）：
 
@@ -114,11 +132,13 @@ JSON 对象：
 |---|---|---|
 | `workflow_run_max_duration_seconds` | 1800 | 整个运行的墙钟时间耗尽 |
 | `workflow_run_max_tool_calls` | 32 | 所有阶段累计的已执行工具调用达到上限 |
-| `workflow_run_max_observation_bytes` | 48000 | 整个运行累积的 observation 达到上限 |
+| `workflow_run_max_observation_bytes` | 48000 | 较旧条目压缩后 observation 仍达到上限 |
 | `workflow_run_max_repeated_tool_calls` | 3 | 同一工具在连续已执行调用中以相同指纹重复，可跨阶段累计 |
 
-`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` 可覆盖 observation 预算。已废
-弃的 `workflow_step_max_*` 与 `react_max_*` 键（以及
+`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` 可覆盖 observation 预算。达到
+上限时先压缩可压缩条目中最旧的一半，始终保留最新两条；必要时继续压缩其余较旧
+条目，仅当压缩后仍超限才停止运行。已废弃的 `workflow_step_max_*` 与
+`react_max_*` 键（以及
 `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` /
 `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` 覆盖）仍作为回退加载（多个同时存在时
 最新命名优先；旧的 step duration 只回填阶段时长，绝不回填运行时长）；新配置必
@@ -155,6 +175,9 @@ JSON 对象：
 | `workflow_step.output` | 解析出一个步骤封套（action 或 final） |
 | `workflow_step.parse_failed` | 可恢复的步骤协议解析失败 |
 | `workflow_step.prompt_compressed` | 模型调用前替换为 compact system prompt |
+| `workflow_step.evidence_provisioned` | 已为 active 阶段解析并切片持久化证据 |
+| `workflow_step.evidence_blocked` | 必需阶段证据无法解析或装入预算 |
+| `workflow_step.observations_compacted` | 预算检查前已压缩较旧的 run observations |
 | `workflow_step.budget_stopped` | 阶段或运行预算停止了步骤循环 |
 | `workflow_run.budget_stopped` | 运行预算在阶段开始前停止了阶段循环 |
 | `workflow.required_tool_not_called` | 拒绝了跳过必需工具证据的最终回答 |
@@ -237,6 +260,8 @@ transition。memory、file 和 PostgreSQL store 实现同一契约。
   （`workflow_outcome.go`、`tool_result_adapter.go`）。
 - **参数绑定** —— 把工具参数绑定到 intent target、route slot、route fact 或先
   前的 outcome ref，让取值从持久化状态物化，而不是信任模型输出。
+- **证据需求** —— 在 `StageContext` 中声明持久化来源节点或当前 workflow
+  resource kind，选择 `head` 或 `structured` 切片，并让必需来源保持 fail closed。
 - **预算** —— 按部署在 `runtime` 配置段调整 `workflow_stage_max_*` /
   `workflow_run_max_*` 键；不要为单个 workflow 开旁路。
 

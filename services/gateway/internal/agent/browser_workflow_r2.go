@@ -374,6 +374,12 @@ func browserRevision2StageContext(state *app.WorkflowState, interaction bool) wo
 		}
 	}
 	stageContext := workflowStageContextForState(state, "browse", "web", "public", mode, reason)
+	switch stage {
+	case browserStageAssessGoalInitial, browserStageChooseAndClick, browserStageAssessGoalAfterAction, browserStageAssessGoalVisible:
+		stageContext.EvidenceRequirements = []workflowEvidenceRequirement{{
+			ResourceKind: "browser_snapshot", Mode: workflowEvidenceStructured, MaxBytes: 8000,
+		}}
+	}
 	if interaction {
 		stageContext.EstimatedRisk = app.RiskDraft
 	}

@@ -38,57 +38,57 @@ func (r Runtime) buildAgentContextSnapshot(sessionID, currentRunID, currentConte
 }
 
 func (snapshot agentContextSnapshot) ForIntentRouting() string {
-	sections := []string{}
-	if messages := formatContextMessages(snapshot.Messages); messages != "" {
-		sections = append(sections, "Recent conversation:\n"+messages)
-	}
-	if episodes := formatContextEpisodes(snapshot.Episodes); episodes != "" {
-		sections = append(sections, "Recent episode summaries:\n"+episodes)
-	}
-	if toolResults := formatContextToolResults(snapshot.ToolResults); toolResults != "" {
-		sections = append(sections, "Recent tool results / current working context:\n"+toolResults)
-	}
-	if images := formatContextImages(snapshot.RecentImages); images != "" {
-		sections = append(sections, "Recent session images available for image understanding or final Markdown media replies:\n"+images)
-	}
-	if memories := formatContextMemories(snapshot.Memories); memories != "" {
-		sections = append(sections, "Relevant accepted memories:\n"+memories)
-	}
-	return strings.Join(sections, "\n\n")
+	return snapshot.contextBuilder(contextRenderIntent).Render(0)
 }
 
 func (snapshot agentContextSnapshot) ForWorkflowStep() string {
-	sections := []string{}
-	if messages := formatContextMessages(snapshot.Messages); messages != "" {
-		sections = append(sections, "Recent conversation:\n"+messages)
-	}
-	if toolResults := formatContextToolResults(snapshot.ToolResults); toolResults != "" {
-		sections = append(sections, "Recent tool results / current working context:\n"+toolResults)
-	}
-	if images := formatContextImages(snapshot.RecentImages); images != "" {
-		sections = append(sections, "Recent session images available for image understanding or final Markdown media replies:\n"+images)
-	}
-	if memories := formatContextMemories(snapshot.Memories); memories != "" {
-		sections = append(sections, "Relevant accepted memories:\n"+memories)
-	}
-	return strings.Join(sections, "\n\n")
+	return snapshot.contextBuilder(contextRenderWorkflow).Render(0)
 }
 
 func (snapshot agentContextSnapshot) ForWorkflowStepCompact() string {
-	sections := []string{}
-	if messages := formatContextMessages(tailMessages(snapshot.Messages, 4)); messages != "" {
-		sections = append(sections, "Recent conversation (older context compacted):\n"+messages)
+	builder := snapshot.contextBuilder(contextRenderWorkflow)
+	for index := range builder.Sections {
+		if len(builder.Sections[index].Variants) > 1 {
+			builder.Sections[index].level = 1
+		}
 	}
-	if toolResults := formatContextToolResultsWithLimit(tailToolCalls(snapshot.ToolResults, compactContextToolLimit), compactContextToolSummaryLimit); toolResults != "" {
-		sections = append(sections, "Recent tool results / prior working context (old session context compacted; current workflow step observations are preserved separately):\n"+toolResults)
+	return builder.Render(0)
+}
+
+type contextRenderMode string
+
+const (
+	contextRenderIntent   contextRenderMode = "intent"
+	contextRenderWorkflow contextRenderMode = "workflow"
+)
+
+func (snapshot agentContextSnapshot) contextBuilder(mode contextRenderMode) contextBuilder {
+	messageFull := titledContextSection("Recent conversation:", formatContextMessages(snapshot.Messages))
+	messageCompact := titledContextSection("Recent conversation (older context compacted):", formatContextMessages(tailMessages(snapshot.Messages, 4)))
+	toolFull := titledContextSection("Recent tool results / current working context:", formatContextToolResults(snapshot.ToolResults))
+	toolCompact := titledContextSection("Recent tool results / prior working context (old session context compacted; current workflow step observations are preserved separately):", formatContextToolResultsWithLimit(tailToolCalls(snapshot.ToolResults, compactContextToolLimit), compactContextToolSummaryLimit))
+	images := titledContextSection("Recent session images available for image understanding or final Markdown media replies:", formatContextImages(snapshot.RecentImages))
+	memories := titledContextSection("Relevant accepted memories:", formatContextMemories(snapshot.Memories))
+	sections := []contextSection{
+		degradingContextSection("recent_conversation", 40, messageFull, messageCompact, true),
 	}
-	if images := formatContextImages(snapshot.RecentImages); images != "" {
-		sections = append(sections, "Recent session images available for image understanding or final Markdown media replies:\n"+images)
+	if mode == contextRenderIntent {
+		episodes := titledContextSection("Recent episode summaries:", formatContextEpisodes(snapshot.Episodes))
+		sections = append(sections, degradingContextSection("episodes", 10, episodes, episodes, true))
 	}
-	if memories := formatContextMemories(snapshot.Memories); memories != "" {
-		sections = append(sections, "Relevant accepted memories:\n"+memories)
+	sections = append(sections,
+		degradingContextSection("session_tool_results", 50, toolFull, toolCompact, true),
+		degradingContextSection("recent_images", 20, images, images, true),
+		degradingContextSection("memories", 20, memories, memories, true),
+	)
+	return contextBuilder{Sections: sections, Joiner: "\n\n"}
+}
+
+func titledContextSection(title, body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
 	}
-	return strings.Join(sections, "\n\n")
+	return title + "\n" + body
 }
 
 func tailMessages(messages []app.Message, limit int) []app.Message {
@@ -361,7 +361,7 @@ func compactObservationSummaryForContext(summary string) string {
 	if err := json.Unmarshal([]byte(summary), &decoded); err != nil {
 		return strings.Join(strings.Fields(summary), " ")
 	}
-	parts := []string{}
+	parts := []string{"tool=" + decoded.Tool, "status=" + decoded.Status, "compacted=true"}
 	if decoded.Category != "" {
 		parts = append(parts, "category="+decoded.Category)
 	}
@@ -374,7 +374,7 @@ func compactObservationSummaryForContext(summary string) string {
 		}
 	}
 	if len(decoded.Structured) > 0 {
-		keys := []string{"path", "output_path", "url", "final_url", "title", "query", "count", "status_code", "truncated"}
+		keys := []string{"artifact_uri", "path", "output_path", "url", "final_url", "title", "query", "count", "status_code", "truncated"}
 		structured := []string{}
 		for _, key := range keys {
 			if value, ok := decoded.Structured[key]; ok && usefulStructuredValue(value) {

@@ -179,7 +179,7 @@ func newDocumentDecisionFixture(t *testing.T, request string) (Runtime, *store.M
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatch.Run = advanceDocumentEditToDecision(t, st, dispatch, route.Slots.TargetRef)
+	dispatch.Run = advanceDocumentEditToDecision(t, runtime, st, dispatch, route.Slots.TargetRef)
 	return runtime, st, session, dispatch
 }
 

@@ -237,6 +237,7 @@ type StateConfig struct {
 
 type RuntimeConfig struct {
 	ObservationSummaryMaxBytes int `json:"observation_summary_max_bytes"`
+	StageEvidenceMaxBytes      int `json:"workflow_stage_evidence_max_bytes"`
 
 	// Stage budgets bound one workflow stage invocation (one model/tool
 	// step-loop entry inside a workflow scope revision).
@@ -260,6 +261,7 @@ type RuntimeConfig struct {
 func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 	var keys struct {
 		ObservationSummaryMaxBytes *int `json:"observation_summary_max_bytes"`
+		StageEvidenceMaxBytes      *int `json:"workflow_stage_evidence_max_bytes"`
 
 		StageMaxDurationSeconds   *int `json:"workflow_stage_max_duration_seconds"`
 		StageMaxNoProgressActions *int `json:"workflow_stage_max_no_progress_actions"`
@@ -285,6 +287,9 @@ func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 	}
 	if keys.ObservationSummaryMaxBytes != nil {
 		rt.ObservationSummaryMaxBytes = *keys.ObservationSummaryMaxBytes
+	}
+	if keys.StageEvidenceMaxBytes != nil {
+		rt.StageEvidenceMaxBytes = *keys.StageEvidenceMaxBytes
 	}
 	applyBudget := func(target *int, candidates ...*int) {
 		for _, candidate := range candidates {
@@ -466,6 +471,12 @@ func validateModelConfig(model *ModelConfig) error {
 // stage or run stop conditions.
 func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	defaults := Default().Runtime
+	if rt.ObservationSummaryMaxBytes <= 0 {
+		rt.ObservationSummaryMaxBytes = defaults.ObservationSummaryMaxBytes
+	}
+	if rt.StageEvidenceMaxBytes <= 0 {
+		rt.StageEvidenceMaxBytes = defaults.StageEvidenceMaxBytes
+	}
 	if rt.StageMaxDurationSeconds <= 0 {
 		rt.StageMaxDurationSeconds = defaults.StageMaxDurationSeconds
 	}
@@ -670,7 +681,7 @@ func Default() Config {
 			// Matches configs/sparkclaw.default.json: the local model
 			// lanes run without thinking so bounded max_tokens (e.g. the
 			// guard lane's 128) are spent on the answer, not reasoning.
-			DisableThinking:    true,
+			DisableThinking: true,
 			Fast: ModelProfile{
 				Name:          "sparkclaw-fast",
 				BaseURL:       "http://127.0.0.1:8001/v1",
@@ -840,6 +851,7 @@ func Default() Config {
 		},
 		Runtime: RuntimeConfig{
 			ObservationSummaryMaxBytes: 2400,
+			StageEvidenceMaxBytes:      8000,
 			StageMaxDurationSeconds:    180,
 			StageMaxNoProgressActions:  3,
 			RunMaxDurationSeconds:      1800,
@@ -1286,6 +1298,11 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_OBSERVATION_SUMMARY_MAX_BYTES"); v != "" {
 		if maxBytes, err := strconv.Atoi(v); err == nil {
 			cfg.Runtime.ObservationSummaryMaxBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"); v != "" {
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Runtime.StageEvidenceMaxBytes = maxBytes
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"); v != "" {

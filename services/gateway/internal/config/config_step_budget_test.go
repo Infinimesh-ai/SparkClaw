@@ -22,6 +22,7 @@ func writeRuntimeBudgetConfig(t *testing.T, runtime map[string]any) string {
 
 func TestRuntimeBudgetReadsStageAndRunKeys(t *testing.T) {
 	cfg, err := Load(writeRuntimeBudgetConfig(t, map[string]any{
+		"workflow_stage_evidence_max_bytes":      6400,
 		"workflow_stage_max_duration_seconds":    90,
 		"workflow_stage_max_no_progress_actions": 5,
 		"workflow_run_max_duration_seconds":      600,
@@ -34,6 +35,9 @@ func TestRuntimeBudgetReadsStageAndRunKeys(t *testing.T) {
 	}
 	if cfg.Runtime.StageMaxDurationSeconds != 90 || cfg.Runtime.StageMaxNoProgressActions != 5 {
 		t.Fatalf("workflow_stage_* keys were not applied: %#v", cfg.Runtime)
+	}
+	if cfg.Runtime.StageEvidenceMaxBytes != 6400 {
+		t.Fatalf("workflow stage evidence budget was not applied: %#v", cfg.Runtime)
 	}
 	if cfg.Runtime.RunMaxDurationSeconds != 600 || cfg.Runtime.RunMaxToolCalls != 12 ||
 		cfg.Runtime.RunMaxObservationBytes != 32000 || cfg.Runtime.RunMaxRepeatedToolCalls != 4 {
@@ -50,11 +54,23 @@ func TestRuntimeBudgetKeepsDefaultsForUnsetKeys(t *testing.T) {
 	}
 	defaults := Default().Runtime
 	if cfg.Runtime.StageMaxNoProgressActions != defaults.StageMaxNoProgressActions ||
+		cfg.Runtime.StageEvidenceMaxBytes != defaults.StageEvidenceMaxBytes ||
 		cfg.Runtime.RunMaxDurationSeconds != defaults.RunMaxDurationSeconds ||
 		cfg.Runtime.RunMaxToolCalls != defaults.RunMaxToolCalls ||
 		cfg.Runtime.RunMaxObservationBytes != defaults.RunMaxObservationBytes ||
 		cfg.Runtime.RunMaxRepeatedToolCalls != defaults.RunMaxRepeatedToolCalls {
 		t.Fatalf("unset budgets should keep defaults: %#v", cfg.Runtime)
+	}
+}
+
+func TestRuntimeStageEvidenceEnvOverride(t *testing.T) {
+	t.Setenv("SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES", "7200")
+	cfg, err := Load(writeRuntimeBudgetConfig(t, map[string]any{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Runtime.StageEvidenceMaxBytes != 7200 {
+		t.Fatalf("stage evidence env override was not applied: %#v", cfg.Runtime)
 	}
 }
 

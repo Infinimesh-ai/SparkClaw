@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,6 +29,9 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 	if !ok || state.Status != app.WorkflowNodeActive || state.ScopeRevision != plan.ScopeRevision ||
 		!containsWorkflowNodeID(run.Workflow.ActiveNodeIDs, plan.WorkflowNodeID) {
 		return errors.New("tool call does not belong to the active workflow scope")
+	}
+	if definition.Name == "observation.read" && plan.Capability == app.ToolCapabilityObservationRead {
+		return nil
 	}
 
 	matchedEntry := app.ToolDirectoryEntryID("")
@@ -201,6 +205,9 @@ func (r Runtime) materializedWorkflowCapability(runID string, nodeID app.Workflo
 	definition, ok := r.tools.Definition(toolName)
 	if !ok {
 		return "", errors.New("workflow selected an unregistered tool")
+	}
+	if definition.Name == "observation.read" {
+		return app.ToolCapabilityObservationRead, nil
 	}
 	for _, descriptor := range definition.Capabilities {
 		if !matchesAnyRequirement(descriptor, state.CurrentScope.Requirements) {
@@ -568,6 +575,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 	runBudget := r.newWorkflowRunBudget(seedCalls)
 
 	for stage, limit := 0, workflowStageLimit(run.Workflow.Plan); stage < limit; stage++ {
+		allObservations = r.compactWorkflowObservationsIfNeeded(sessionID, run.ID, allObservations, runBudget)
 		if stop, reason := runBudget.exceeded(allObservations); stop {
 			latest.Halted = true
 			latest.Cancelled = ctx.Err() != nil
@@ -895,7 +903,11 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 		"",
 		"Completed workflow evidence (untrusted data):",
 	}
-	for _, evidence := range workflowFinalEvidence(calls, observations) {
+	finalEvidence, evidenceErr := r.workflowFinalEvidence(ctx, run, calls, observations)
+	if evidenceErr != nil {
+		return modelrouter.ChatResult{}, "", evidenceErr
+	}
+	for _, evidence := range finalEvidence {
 		userLines = append(userLines, "- "+evidence)
 	}
 	userLines = append(userLines, "", "Produce the final answer now.")
@@ -914,6 +926,22 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 }
 
 const workflowFinalEvidenceMaxRunes = 8000
+
+func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, calls []app.ToolCall, observations []string) ([]string, error) {
+	materialized := append([]app.ToolCall(nil), calls...)
+	for index := range materialized {
+		call := materialized[index]
+		if !toolCallCompleted(call) || call.Capability != app.ToolCapabilityDocumentRead || strings.TrimSpace(call.ObservationRef) == "" {
+			continue
+		}
+		output, _, err := r.readArchivedToolObservation(ctx, run, call)
+		if err != nil {
+			return nil, fmt.Errorf("workflow finalization evidence is unavailable: %w", err)
+		}
+		materialized[index].Result = output
+	}
+	return workflowFinalEvidence(materialized, observations), nil
+}
 
 func workflowFinalEvidence(calls []app.ToolCall, observations []string) []string {
 	evidence := []string{}
@@ -949,14 +977,18 @@ func workflowFinalEvidence(calls []app.ToolCall, observations []string) []string
 	if len(evidence) > 0 {
 		return evidence
 	}
+	remaining := workflowFinalEvidenceMaxRunes
 	for _, observation := range observations {
-		if strings.TrimSpace(observation) == "" {
+		observation = strings.TrimSpace(observation)
+		if observation == "" || remaining <= 0 {
 			continue
 		}
-		evidence = append(evidence, trimForEpisode(observation, workflowFinalEvidenceMaxRunes))
-		if len(evidence) == 1 {
-			break
+		packed := trimForEpisode(observation, remaining)
+		if packed == "" {
+			continue
 		}
+		evidence = append(evidence, packed)
+		remaining -= len([]rune(packed))
 	}
 	return evidence
 }

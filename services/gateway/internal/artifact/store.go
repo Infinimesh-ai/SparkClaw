@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,7 +32,10 @@ type Object struct {
 
 type Store interface {
 	Put(ctx context.Context, key string, contentType string, raw []byte) (Object, error)
+	Get(ctx context.Context, key string) ([]byte, error)
 }
+
+const maxArtifactReadBytes = 64 << 20
 
 func NewStore(cfg config.StorageConfig) Store {
 	switch strings.ToLower(strings.TrimSpace(cfg.ArtifactBackend)) {
@@ -87,6 +91,26 @@ func (s FileStore) Put(ctx context.Context, key string, contentType string, raw 
 	}, nil
 }
 
+func (s FileStore) Get(ctx context.Context, key string) ([]byte, error) {
+	if strings.TrimSpace(s.Root) == "" {
+		return nil, errors.New("artifact filesystem root is empty")
+	}
+	if strings.TrimSpace(s.Bucket) == "" {
+		s.Bucket = "sparkclaw"
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	file, err := os.Open(filepath.Join(s.Root, s.Bucket, cleanKey(key)))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return readBounded(file)
+}
+
 type NotImplementedStore struct {
 	Backend string
 }
@@ -96,6 +120,13 @@ func (s NotImplementedStore) Put(context.Context, string, string, []byte) (Objec
 		s.Backend = "unknown"
 	}
 	return Object{}, errors.New("artifact backend is not implemented: " + s.Backend)
+}
+
+func (s NotImplementedStore) Get(context.Context, string) ([]byte, error) {
+	if s.Backend == "" {
+		s.Backend = "unknown"
+	}
+	return nil, errors.New("artifact backend is not implemented: " + s.Backend)
 }
 
 func cleanKey(key string) string {
@@ -172,6 +203,60 @@ func (s S3Store) Put(ctx context.Context, key string, contentType string, raw []
 		ContentType: contentType,
 		Bytes:       len(raw),
 	}, nil
+}
+
+func (s S3Store) Get(ctx context.Context, key string) ([]byte, error) {
+	if strings.TrimSpace(s.Endpoint) == "" {
+		return nil, errors.New("s3 artifact endpoint is empty")
+	}
+	if strings.TrimSpace(s.Bucket) == "" {
+		return nil, errors.New("s3 artifact bucket is empty")
+	}
+	if strings.TrimSpace(s.AccessKey) == "" || strings.TrimSpace(s.SecretKey) == "" {
+		return nil, errors.New("s3 artifact credentials are empty")
+	}
+	if s.Region == "" {
+		s.Region = "us-east-1"
+	}
+	if s.Client == nil {
+		s.Client = &http.Client{Timeout: 30 * time.Second}
+	}
+	key = cleanKey(key)
+	endpoint := strings.TrimRight(s.Endpoint, "/")
+	objectURL := endpoint + "/" + pathEscape(s.Bucket) + "/" + pathEscapeKey(key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, objectURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	payloadHash := sha256Hex(nil)
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+	req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
+	signV4(req, s.Region, s.AccessKey, s.SecretKey, payloadHash, now)
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("s3 get object returned HTTP %d", resp.StatusCode)
+	}
+	return readBounded(resp.Body)
+}
+
+func readBounded(reader io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(reader, maxArtifactReadBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxArtifactReadBytes {
+		return nil, fmt.Errorf("artifact exceeds read limit of %d bytes", maxArtifactReadBytes)
+	}
+	return raw, nil
 }
 
 func signV4(req *http.Request, region, accessKey, secretKey, payloadHash string, now time.Time) {

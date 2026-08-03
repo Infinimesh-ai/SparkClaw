@@ -1082,33 +1082,20 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	call.Status = "completed"
 	call.Arguments, call.Result = r.redactBrowserToolPersistence(runID, call.Tool, call.Arguments, result.Output)
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
-	maxBytes, evidenceLimit := r.toolResultObservationBudget(call.Tool)
+	maxBytes, evidenceLimit := r.toolResultObservationBudget()
 	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
 	r.store.SaveToolCall(call)
 	r.recordDocumentToolActivity(call)
 	return call, nil, call.ObservationSummary
 }
 
-func (r Runtime) toolResultObservationBudget(tool string) (int, int) {
+func (r Runtime) toolResultObservationBudget() (int, int) {
 	runtime := r.tools.Config().Runtime
 	maxBytes := runtime.ObservationSummaryMaxBytes
 	if maxBytes <= 0 {
 		maxBytes = defaultToolResultMessageMaxBytes
 	}
-	evidenceLimit := defaultToolResultEvidenceLimit
-	if tool == "files.read" || tool == "browser.snapshot" {
-		currentObservationMax := runtime.RunMaxObservationBytes
-		if currentObservationMax <= 0 {
-			currentObservationMax = 48000
-		}
-		if currentObservationMax > maxBytes {
-			maxBytes = currentObservationMax
-		}
-		if maxBytes > 4000 {
-			evidenceLimit = maxBytes - 4000
-		}
-	}
-	return maxBytes, evidenceLimit
+	return maxBytes, defaultToolResultEvidenceLimit
 }
 
 func enrichPlanWithBrowserMode(stageContext workflowStageContext, plan toolPlan) toolPlan {

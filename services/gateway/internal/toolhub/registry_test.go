@@ -73,10 +73,16 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 		app.ToolCapabilityDocumentRead,
 		app.ToolCapabilityDocumentEdit,
 		app.ToolCapabilityScheduleManage,
+		app.ToolCapabilityObservationRead,
 	} {
 		if capabilityCounts[capability] == 0 {
 			t.Fatalf("workflow capability %q has no registered tools: %#v", capability, capabilityCounts)
 		}
+	}
+	observationRead, ok := hub.Definition("observation.read")
+	if !ok || observationRead.Risk != app.RiskRead || observationRead.RequiresApproval || len(observationRead.Capabilities) != 1 ||
+		observationRead.Capabilities[0].Name != app.ToolCapabilityObservationRead {
+		t.Fatalf("observation.read is outside its read-only capability boundary: %#v", observationRead)
 	}
 	weather, ok := hub.Definition("media.render_weather_card")
 	if !ok || weather.OutcomeAdapter != app.OutcomeAdapterWeatherCard || len(weather.Directory.OutputKinds) != 1 || weather.Directory.OutputKinds[0] != app.OutputKindImage {

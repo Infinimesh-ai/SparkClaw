@@ -129,12 +129,18 @@ Workflow failure remains explicit and never falls through to another router or
 a generic fallback loop; the workflow step loop is the only execution
 primitive and the legacy ReAct path has been removed.
 
-Each bounded model/tool loop freezes its full and compact system prompts at loop
-start. Current-run observations appear once, in causal order in the user prompt,
-followed by the output contract. Prompt admission uses the model profile selected
-by the same Router task policy as execution, with an 85% context-window safety
-factor and an offline-calibrated conservative token estimate. Compact fallback
-changes the frozen system variant but preserves current-run observations.
+`ContextBuilder` assembles each bounded model/tool loop from prioritized,
+degradable sections. Current-run observations use one uniform small envelope,
+appear once in causal order, and retain their artifact references. A stage may
+materialize declared, consumer-sized slices of persisted evidence into a
+`PROVISIONED_EVIDENCE` section; `observation.read` supplies bounded,
+session-scoped read-back when the declared slice is insufficient. Prompt
+admission uses the model profile selected by the same Router task policy as
+execution, an 85% context-window safety factor, and an offline-calibrated
+conservative token estimate. It degrades session/tool context first, then
+provisioned slices, then older observations while preserving the newest two;
+the output contract remains the user-prompt tail. Run-level observation
+pressure similarly compacts the oldest entries before it stops execution.
 
 ### Model Router
 

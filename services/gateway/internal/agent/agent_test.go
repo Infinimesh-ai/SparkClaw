@@ -2120,7 +2120,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	}
 }
 
-func TestRuntimeKeepsSmallDocumentContentFullInCurrentToolObservation(t *testing.T) {
+func TestRuntimeKeepsCompleteDocumentRecoverableUnderUniformObservationCap(t *testing.T) {
 	root := t.TempDir()
 	content := "小文档开始。\n" + strings.Repeat("complete small document body should remain visible in the current tool observation.\n", 205) + "小文档结束。"
 	if err := os.WriteFile(filepath.Join(root, "small-doc.txt"), []byte(content), 0o644); err != nil {
@@ -2147,18 +2147,21 @@ func TestRuntimeKeepsSmallDocumentContentFullInCurrentToolObservation(t *testing
 	if err := json.Unmarshal([]byte(calls[0].ObservationSummary), &adapted); err != nil {
 		t.Fatalf("summary should be valid adapted tool result JSON: %v\n%s", err, calls[0].ObservationSummary)
 	}
-	if len(adapted.Evidence) == 0 || adapted.Evidence[0].Kind != "content_full" {
-		t.Fatalf("small complete document should be model-visible as full content: %#v", adapted.Evidence)
+	if len(adapted.Evidence) == 0 || adapted.Evidence[0].Kind != "content_excerpt" {
+		t.Fatalf("large complete document should use a bounded envelope excerpt: %#v", adapted.Evidence)
 	}
 	evidence := adapted.Evidence[0]
-	if evidence.Excerpt || evidence.Omitted || evidence.SourceTruncated || !evidence.ReadComplete {
-		t.Fatalf("small complete document evidence should not be marked excerpted: %#v", evidence)
+	if !evidence.Excerpt || !evidence.Omitted || evidence.SourceTruncated || !evidence.ReadComplete {
+		t.Fatalf("envelope truncation must remain separate from source coverage: %#v", evidence)
 	}
-	if !strings.Contains(evidence.Text, "小文档开始") || !strings.Contains(evidence.Text, "小文档结束") || strings.Contains(evidence.Text, "[truncated:") {
-		t.Fatalf("full evidence should keep complete small document boundaries:\n%s", evidence.Text)
+	if !strings.Contains(evidence.Text, "小文档开始") || !strings.Contains(evidence.Text, "[truncated:") {
+		t.Fatalf("bounded evidence should keep a marked source excerpt:\n%s", evidence.Text)
 	}
-	if len(calls[0].ObservationSummary) > cfg.Runtime.RunMaxObservationBytes {
-		t.Fatalf("observation should still respect current workflow step observation budget: %d", len(calls[0].ObservationSummary))
+	if len(calls[0].ObservationSummary) > cfg.Runtime.ObservationSummaryMaxBytes {
+		t.Fatalf("every observation must respect the uniform envelope cap: %d", len(calls[0].ObservationSummary))
+	}
+	if calls[0].ObservationRef == "" || !strings.Contains(stringValue(adapted.Structured["next_step_hint"]), "observation.read") {
+		t.Fatalf("bounded evidence must advertise persisted recovery: ref=%q structured=%#v", calls[0].ObservationRef, adapted.Structured)
 	}
 }
 

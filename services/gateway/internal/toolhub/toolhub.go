@@ -218,6 +218,28 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 func defaultDefinitions() []app.ToolDefinition {
 	return []app.ToolDefinition{
 		{
+			Name:        "observation.read",
+			Description: "Read one bounded byte window from a persisted artifact owned by the current session.",
+			InputSchema: schema("object", []string{"artifact_uri"}, map[string]any{
+				"artifact_uri": stringSchema(),
+				"offset":       map[string]any{"type": "integer", "minimum": float64(0)},
+				"max_bytes":    map[string]any{"type": "integer", "minimum": float64(1), "maximum": float64(maxObservationReadBytes)},
+			}),
+			OutputSchema: objectSchema([]string{"artifact_uri", "offset", "max_bytes", "bytes", "total_bytes", "content", "truncated", "next_offset", "untrusted"}, map[string]any{
+				"artifact_uri": stringSchema(),
+				"offset":       integerSchema(),
+				"max_bytes":    integerSchema(),
+				"bytes":        integerSchema(),
+				"total_bytes":  integerSchema(),
+				"content":      stringSchema(),
+				"truncated":    booleanSchema(),
+				"next_offset":  integerSchema(),
+				"untrusted":    booleanSchema(),
+			}),
+			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
+			TimeoutMS: 5000, Sandbox: "forbidden", Audit: "always",
+		},
+		{
 			Name:        "files.search",
 			Description: "Search file names and small text content inside an allowed workspace.",
 			InputSchema: schema("object", []string{"query"}, map[string]any{

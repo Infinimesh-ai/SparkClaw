@@ -85,6 +85,25 @@ request that is still in flight when the budget trips.
   profile chosen by the same router task policy as execution, with an 85%
   context-window safety factor (`effectiveWorkflowStepPromptBudget`).
 
+### Tool Results And Evidence
+
+Every tool result is archived in full, while its model-visible observation uses
+the same `observation_summary_max_bytes` envelope (default 2400) regardless of
+tool name. A truncated envelope retains its artifact URI and directs the model
+to `observation.read`, which reads a bounded UTF-8-safe window from an artifact
+owned by the current session. The helper is exposed only to model steps; using
+it continues the current step loop and does not advance the workflow node.
+
+Profiles declare required or optional evidence sources in their stage context.
+Before the model call, Runtime resolves each source against completed nodes or
+current workflow resources, reads the archived output, and inserts a bounded
+`PROVISIONED_EVIDENCE` section before the output contract. Document slices keep
+whole paragraphs or rows; browser structured slices keep complete control refs.
+Missing required evidence blocks before the model call. `ContextBuilder` admits
+the combined prompt by compacting session/tool context, then reducing
+provisioned slices, then compacting older current-run observations; the newest
+two observations and the output-contract tail are preserved.
+
 ### Step Protocol
 
 Each step sends a user prompt headed `WORKFLOW_STEP_REQUEST` and requires the
@@ -127,6 +146,12 @@ Stage budgets stop the step loop (audited as `workflow_step.budget_stopped`):
 | `workflow_stage_max_duration_seconds` | 180 | the stage's wall-clock time is exhausted |
 | `workflow_stage_max_no_progress_actions` | 3 | consecutive actions produce no new evidence |
 
+`workflow_stage_evidence_max_bytes` (default 8000) clamps total persisted
+evidence provisioned to one stage. A required source that is missing, empty, or
+cannot fit blocks the stage fail closed. The
+`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` environment variable overrides
+this limit.
+
 Run budgets stop the whole run, checked both inside the step loop and before
 each stage (the latter audited as `workflow_run.budget_stopped`):
 
@@ -134,11 +159,14 @@ each stage (the latter audited as `workflow_run.budget_stopped`):
 |---|---|---|
 | `workflow_run_max_duration_seconds` | 1800 | the run's wall-clock time is exhausted |
 | `workflow_run_max_tool_calls` | 32 | executed tool calls across all stages reach the cap |
-| `workflow_run_max_observation_bytes` | 48000 | observations accumulated across the run reach the cap |
+| `workflow_run_max_observation_bytes` | 48000 | observations remain at the cap after older entries are compacted |
 | `workflow_run_max_repeated_tool_calls` | 3 | one tool repeats with an identical fingerprint in consecutive executed calls, across stage boundaries |
 
 `SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` overrides the observation
-budget. The deprecated `workflow_step_max_*` and `react_max_*` keys (and the
+budget. Reaching it first compacts the oldest half of eligible observations,
+never the newest two, and continues compacting older entries if needed; the run
+stops only when the compacted list still exceeds the limit. The deprecated
+`workflow_step_max_*` and `react_max_*` keys (and the
 `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` /
 `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` overrides) still load as fallbacks
 (the newest name wins when several are present; the old step duration fills
@@ -177,6 +205,9 @@ Key audit event types emitted by the executor:
 | `workflow_step.output` | Parsed one step envelope (action or final) |
 | `workflow_step.parse_failed` | Recoverable step-protocol parse failure |
 | `workflow_step.prompt_compressed` | Compact system prompt substituted before a model call |
+| `workflow_step.evidence_provisioned` | Persisted evidence was resolved and sliced for the active stage |
+| `workflow_step.evidence_blocked` | Required stage evidence could not be resolved or admitted |
+| `workflow_step.observations_compacted` | Older run observations were compacted before budget enforcement |
 | `workflow_step.budget_stopped` | A stage or run budget stopped the step loop |
 | `workflow_run.budget_stopped` | The run budget stopped the stage loop before a stage |
 | `workflow.required_tool_not_called` | Rejected a final answer that skipped required tool evidence |
@@ -276,6 +307,9 @@ anchors are:
 - **Argument bindings** — bind tool arguments to intent targets, route slots,
   route facts, or prior outcome refs so values are materialized from
   persisted state instead of trusted from model output.
+- **Evidence requirements** — declare persisted source nodes or current
+  workflow resource kinds in `StageContext`; choose `head` or `structured`
+  slicing and keep required sources fail closed.
 - **Budgets** — tune the `workflow_stage_max_*` / `workflow_run_max_*` keys
   per deployment in the `runtime` config section; do not add per-workflow
   bypasses.

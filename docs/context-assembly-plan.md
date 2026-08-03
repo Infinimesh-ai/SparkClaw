@@ -2,10 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/context-assembly-plan.md)
 
-Status: Partially implemented 2026-07-27. Phase 0.1, the code portion of 0.3,
-and Phase 0.4 are implemented. The dual-light prefix-cache performance
-measurement for 0.3, rolling compaction in 0.2, and all Phase 1 items remain
-open. This document remains the design authority for those pending changes;
+Status: Partially implemented 2026-08-03. Phase 0.1, rolling compaction in
+0.2, the code portion of 0.3, Phase 0.4, ContextBuilder in 1.1, and
+`observation.read` in 1.2 are implemented. The
+[Observation compression redesign](observation-compression-redesign.md)
+delivered 0.2, 1.1, and 1.2 together with the uniform observation envelope and
+runtime evidence provisioning. The dual-light prefix-cache performance
+measurement for 0.3 and model-generated episode summaries in 1.3 remain open.
+This document remains the design authority for those pending changes;
 after delivery its durable decisions merge into
 [Architecture](architecture.md) and this plan is removed per the documentation
 rules.

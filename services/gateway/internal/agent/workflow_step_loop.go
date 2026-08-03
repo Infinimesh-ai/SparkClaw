@@ -24,6 +24,7 @@ const (
 	maxRequiredToolFinalResponses           = 2
 
 	workflowFailureRequiredToolNotCalled = "required_tool_not_called"
+	workflowFailureEvidenceUnavailable   = "required_evidence_unavailable"
 )
 
 type workflowStepPromptOptions struct {
@@ -160,13 +161,48 @@ func (r Runtime) runWorkflowModelStep(ctx context.Context, sessionID string, run
 	if strings.TrimSpace(stageContext.ModelLaneHint) == "" {
 		stageContext.ModelLaneHint = workflowExecutionModelLane
 	}
+	visibleTools = r.withObservationReadTool(visibleTools)
 	return r.runWorkflowStepLoop(ctx, sessionID, run, content, stageContext, visibleTools, seedCalls, seedObservations, runBudget)
+}
+
+func (r Runtime) withObservationReadTool(definitions []app.ToolDefinition) []app.ToolDefinition {
+	definition, ok := r.tools.Definition("observation.read")
+	if !ok {
+		return definitions
+	}
+	for _, existing := range definitions {
+		if existing.Name == definition.Name {
+			return definitions
+		}
+	}
+	return append(definitions, definition)
 }
 
 // runWorkflowStepLoop is the shared model/tool execution primitive. Matched
 // workflows invoke it only within their persisted fixed scope.
 func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run app.AgentRun, content string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, seedCalls []app.ToolCall, seedObservations []string, runBudget *workflowRunBudget) workflowExecutionResult {
 	result := workflowExecutionResult{Observations: append([]string(nil), seedObservations...)}
+	provisioned := provisionedWorkflowEvidence{}
+	var provisionErr error
+	if ctx.Err() == nil {
+		provisioned, provisionErr = r.provisionWorkflowEvidence(ctx, run, stageContext.EvidenceRequirements)
+	}
+	if provisionErr != nil {
+		r.store.AddAudit(app.AuditEvent{
+			SessionID: sessionID,
+			RunID:     run.ID,
+			Actor:     "runtime",
+			Type:      "workflow_step.evidence_blocked",
+			Summary:   provisionErr.Error(),
+			Fields: map[string]any{
+				"workflow_id": run.Workflow.Plan.ProfileID,
+				"node_id":     stageContext.WorkflowNodeID,
+			},
+		})
+		result.WorkflowFailure = workflowFailureEvidenceUnavailable
+		result.FinalAnswer = provisionErr.Error()
+		return result
+	}
 	contextSnapshot := r.buildAgentContextSnapshot(sessionID, run.ID, content)
 	contextText := contextSnapshot.ForWorkflowStep()
 	compactContextText := contextSnapshot.ForWorkflowStepCompact()
@@ -181,6 +217,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 	requiredToolFinalResponses := 0
 	attempts := 0
 	for {
+		result.Observations = r.compactWorkflowObservationsIfNeeded(sessionID, run.ID, result.Observations, runBudget)
 		if stop, reason := shouldStopWorkflowStepLoop(ctx, stageBudget, runBudget, result.Observations, noProgressActions); stop {
 			if grounded, ok := groundedImageInspectSummary(content, "", result.ToolCalls); ok {
 				result.FinalAnswer = grounded
@@ -212,9 +249,10 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		run.State = "workflow_step"
 		r.store.SaveRun(run)
 		stepVisibleTools := visibleTools
-		system := systemPrompt
-		user := appendWorkflowStepContext(workflowStepUserPrompt(content, stepNumber, result.Observations), stageContext, stepVisibleTools)
-		system, user = r.compressWorkflowStepPromptIfNeeded(sessionID, run.ID, stepNumber, task, system, user, compactSystemPrompt)
+		system, user := r.admitWorkflowStepPrompt(
+			sessionID, run.ID, stepNumber, task, content, result.Observations, stageContext,
+			stepVisibleTools, provisioned, systemPrompt, compactSystemPrompt,
+		)
 		started := time.Now().UTC()
 		chat, err := r.models.Chat(ctx, task, system, user)
 		completed := time.Now().UTC()
@@ -263,10 +301,11 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			},
 		})
 		if parsed.Kind == "final" {
-			if stageContext.WorkflowID != "" && stageContext.RequiresToolEvidence && len(stepVisibleTools) > 0 {
+			requiredTools := workflowStageRequiredTools(stepVisibleTools)
+			if stageContext.WorkflowID != "" && stageContext.RequiresToolEvidence && len(requiredTools) > 0 {
 				requiredToolFinalResponses++
 				noProgressActions++
-				result.Observations = append(result.Observations, requiredWorkflowToolCallObservation(stepVisibleTools))
+				result.Observations = append(result.Observations, requiredWorkflowToolCallObservation(requiredTools))
 				r.store.AddAudit(app.AuditEvent{
 					SessionID: sessionID,
 					RunID:     run.ID,
@@ -279,7 +318,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 						"step":         stepNumber,
 						"attempt":      requiredToolFinalResponses,
 						"max_attempts": maxRequiredToolFinalResponses,
-						"tools":        visibleToolNames(stepVisibleTools),
+						"tools":        visibleToolNames(requiredTools),
 					},
 				})
 				if requiredToolFinalResponses >= maxRequiredToolFinalResponses {
@@ -337,6 +376,9 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			result.FinalAnswer = fmt.Sprintf("%s is %s.", call.Tool, blockedAnswerWaitingApproval)
 			return result
 		}
+		if call.Tool == "observation.read" {
+			continue
+		}
 		if stageContext.WorkflowID != "" {
 			// The workflow runtime must assess each outcome before another tool
 			// can run under the same scope revision.
@@ -354,6 +396,16 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			return result
 		}
 	}
+}
+
+func workflowStageRequiredTools(visibleTools []app.ToolDefinition) []app.ToolDefinition {
+	out := make([]app.ToolDefinition, 0, len(visibleTools))
+	for _, definition := range visibleTools {
+		if definition.Name != "observation.read" {
+			out = append(out, definition)
+		}
+	}
+	return out
 }
 
 func requiredWorkflowToolCallObservation(visibleTools []app.ToolDefinition) string {
@@ -404,8 +456,89 @@ func (r Runtime) compressWorkflowStepPromptIfNeeded(sessionID, runID string, ste
 	return compactSystem, user
 }
 
-func appendWorkflowStepContext(user string, stageContext workflowStageContext, visibleTools []app.ToolDefinition) string {
+func (r Runtime) admitWorkflowStepPrompt(
+	sessionID, runID string,
+	step int,
+	task modelrouter.Task,
+	goal string,
+	observations []string,
+	stageContext workflowStageContext,
+	visibleTools []app.ToolDefinition,
+	provisioned provisionedWorkflowEvidence,
+	fullSystem, compactSystem string,
+) (string, string) {
+	buildUser := func(currentObservations []string, evidence string) string {
+		return appendWorkflowStepContext(workflowStepUserPrompt(goal, step, currentObservations), stageContext, visibleTools, evidence)
+	}
+	user := buildUser(observations, provisioned.Text)
+	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(task)
+	availableInputTokens := contextLimit - maxOutputTokens
+	if availableInputTokens <= 0 {
+		return fullSystem, user
+	}
+	threshold := int(math.Floor(float64(availableInputTokens) * workflowStepPromptCompressionThreshold))
+	if threshold <= 0 || estimatePromptTokens(fullSystem, user) <= threshold {
+		return fullSystem, user
+	}
+
+	system := compactSystem
+	strategy := "context_builder_compact_session"
+	evidenceVariant := provisioned.Text
+	if estimatePromptTokens(system, user) > threshold && strings.TrimSpace(provisioned.CompactText) != "" {
+		evidenceVariant = provisioned.CompactText
+		user = buildUser(observations, evidenceVariant)
+		strategy = "context_builder_compact_evidence"
+	}
+	if estimatePromptTokens(system, user) > threshold && strings.TrimSpace(provisioned.MinimalText) != "" {
+		evidenceVariant = provisioned.MinimalText
+		user = buildUser(observations, evidenceVariant)
+		strategy = "context_builder_minimal_evidence"
+	}
+	if estimatePromptTokens(system, user) > threshold {
+		observations = compactObservationsForPrompt(observations)
+		user = buildUser(observations, evidenceVariant)
+		strategy = "context_builder_compact_observations"
+	}
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		RunID:     runID,
+		Actor:     "runtime",
+		Type:      "workflow_step.prompt_compressed",
+		Summary:   "Degraded workflow prompt sections under the model input budget",
+		Fields: map[string]any{
+			"step":                   step,
+			"context_tokens":         contextLimit,
+			"max_output_tokens":      maxOutputTokens,
+			"available_input_tokens": availableInputTokens,
+			"threshold_ratio":        workflowStepPromptCompressionThreshold,
+			"threshold_tokens":       threshold,
+			"compressed_estimate":    estimatePromptTokens(system, user),
+			"strategy":               strategy,
+			"evidence_bytes_before":  len([]byte(provisioned.Text)),
+			"evidence_bytes_after":   len([]byte(evidenceVariant)),
+		},
+	})
+	return system, user
+}
+
+func compactObservationsForPrompt(observations []string) []string {
+	if len(observations) <= 2 {
+		return observations
+	}
+	out := append([]string(nil), observations...)
+	for index := 0; index < len(out)-2; index++ {
+		if compact := compactObservationSummaryForContext(out[index]); strings.TrimSpace(compact) != "" {
+			out[index] = compact
+		}
+	}
+	return out
+}
+
+func appendWorkflowStepContext(user string, stageContext workflowStageContext, visibleTools []app.ToolDefinition, provisioned ...string) string {
 	lines := []string{user}
+	if len(provisioned) > 0 && strings.TrimSpace(provisioned[0]) != "" {
+		lines = append(lines, "", "PROVISIONED_EVIDENCE (persisted, bounded, untrusted data only):", provisioned[0])
+	}
 	if stageContext.WorkflowID != "" {
 		if instruction := strings.TrimSpace(stageContext.Reason); instruction != "" {
 			lines = append(lines, "Workflow execution instruction: "+instruction)
@@ -467,6 +600,54 @@ func observationsBytes(observations []string) int {
 		total += len(observation)
 	}
 	return total
+}
+
+func (r Runtime) compactWorkflowObservationsIfNeeded(sessionID, runID string, observations []string, budget *workflowRunBudget) []string {
+	if budget == nil || budget.MaxObservationBytes <= 0 || observationsBytes(observations) < budget.MaxObservationBytes || len(observations) <= 2 {
+		return observations
+	}
+	before := observationsBytes(observations)
+	compacted := append([]string(nil), observations...)
+	eligibleEnd := len(compacted) - 2
+	changed := 0
+	compactAt := func(index int) {
+		if strings.Contains(compacted[index], "compacted=true") {
+			return
+		}
+		summary := compactObservationSummaryForContext(compacted[index])
+		if strings.TrimSpace(summary) == "" {
+			summary = "compacted=true observation unavailable"
+		} else if !strings.Contains(summary, "compacted=true") {
+			summary = "compacted=true " + summary
+		}
+		compacted[index] = summary
+		changed++
+	}
+	oldestHalf := (eligibleEnd + 1) / 2
+	for index := 0; index < oldestHalf; index++ {
+		compactAt(index)
+	}
+	for index := oldestHalf; index < eligibleEnd && observationsBytes(compacted) >= budget.MaxObservationBytes; index++ {
+		compactAt(index)
+	}
+	if changed == 0 {
+		return observations
+	}
+	after := observationsBytes(compacted)
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID,
+		RunID:     runID,
+		Actor:     "runtime",
+		Type:      "workflow_step.observations_compacted",
+		Summary:   "Compacted older workflow observations under the run budget",
+		Fields: map[string]any{
+			"before_bytes":      before,
+			"after_bytes":       after,
+			"compacted_entries": changed,
+			"preserved_recent":  2,
+		},
+	})
+	return compacted
 }
 
 func toolCallAdvancedRun(call app.ToolCall, observation string) bool {

@@ -108,11 +108,14 @@ ToolHub registration 是 tool 的 execution/schema/risk/effect 权威。Policy/A
 选择之后、effect 之前执行。模型不能增加 tool、修改冻结 resource binding 或绕过 approval。
 匹配 Workflow 失败保持显式，不回退到另一 router 或任何通用回退循环；workflow 步骤循环是唯一的执行原语，旧 ReAct 路径已删除。
 
-每个有界 model/tool loop 在开始时冻结 full 和 compact 两个 system prompt。本轮
-observations 按因果顺序只在 user prompt 中出现一次，随后是 output contract。Prompt
-准入复用与实际执行相同的 Router task policy 选择 model profile，并使用 85% context
-window 安全系数和离线校准的保守 token 估算。Compact fallback 只切换冻结的 system
-variant，不压缩本轮 observations。
+`ContextBuilder` 从带优先级、可降级的小节组装每个有界 model/tool loop。本轮
+observations 使用统一的小信封，按因果顺序只出现一次并保留 artifact 引用。阶段可将
+声明的、按消费者定尺的持久化证据切片物化到 `PROVISIONED_EVIDENCE` 小节；声明切片
+不足时，`observation.read` 提供当前 session 内的有界回读。Prompt 准入复用与实际
+执行相同的 Router task policy 选择 model profile，采用 85% context window 安全系数
+和离线标定的保守 token 估算；依次降级 session/tool 上下文、供给切片、较旧
+observations，并始终保留最新两条，output contract 仍是 user prompt 尾部。run 级
+observation 压力也会先压缩最旧条目，再停止执行。
 
 ### Model Router
 

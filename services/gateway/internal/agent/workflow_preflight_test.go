@@ -377,7 +377,7 @@ func TestUnsupportedDocumentContentMutationStillRoutesToEditR2(t *testing.T) {
 
 func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.MemoryStore, dispatch matchedWorkflowDispatch, inputPath, selectedTool, selectedOperation string) (app.AgentRun, []app.ToolDefinition) {
 	t.Helper()
-	dispatch.Run = advanceDocumentEditToDecision(t, st, dispatch, inputPath)
+	dispatch.Run = advanceDocumentEditToDecision(t, runtime, st, dispatch, inputPath)
 	selectedDefinition, ok := runtime.tools.Definition(selectedTool)
 	if !ok {
 		t.Fatalf("selected test editor %q is unavailable", selectedTool)
@@ -411,7 +411,7 @@ func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.Memory
 	return dispatch.Run, tools
 }
 
-func advanceDocumentEditToDecision(t *testing.T, st *store.MemoryStore, dispatch matchedWorkflowDispatch, inputPath string) app.AgentRun {
+func advanceDocumentEditToDecision(t *testing.T, runtime Runtime, st *store.MemoryStore, dispatch matchedWorkflowDispatch, inputPath string) app.AgentRun {
 	t.Helper()
 	if len(dispatch.Tools) != 1 {
 		t.Fatalf("document edit read stage is not singular: %#v", visibleToolNames(dispatch.Tools))
@@ -423,6 +423,14 @@ func advanceDocumentEditToDecision(t *testing.T, st *store.MemoryStore, dispatch
 		Result:     map[string]any{"path": inputPath, "rel_path": inputPath, "content": "structured evidence"},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_locate_evidence", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentRead,
 	}
+	call.ObservationRef = store.ArchiveToolObservation(context.Background(), st, runtime.artifacts, call, call.Result)
+	if call.ObservationRef == "" {
+		t.Fatal("document decision fixture failed to archive its read evidence")
+	}
+	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{
+		Call: call, Output: call.Result, ObservationRef: call.ObservationRef,
+		MaxBytes: runtime.tools.Config().Runtime.ObservationSummaryMaxBytes,
+	})
 	st.SaveToolCall(call)
 	outcome, err := adaptWorkflowOutcome(definition, call)
 	if err != nil {
@@ -457,6 +465,7 @@ func newDocumentDispatchRuntime(t *testing.T, root string) (Runtime, *store.Memo
 	cfg := agentTestConfig()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
+	cfg.Storage.ArtifactDir = filepath.Join(root, ".artifacts")
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("document dispatch", app.DefaultOwnerID, root, "web", false)
 	hub := toolhub.New(cfg, st)

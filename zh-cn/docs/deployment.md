@@ -454,9 +454,10 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
 - 可见浏览器登录接管现在必须叠加 `docker/compose.visible-browser.yaml`
   overlay；base compose 不再暴露宿主 X11 socket。
   `scripts/restart_runtime_compose.sh` 在解析到显示器时会自动叠加。
-- Telegram 渠道出厂默认关闭：只设了 Bot token 的部署还需设置
-  `tools.notifications.channels.telegram.enabled`
-  （或 `SPARKCLAW_TELEGRAM_ENABLED=true`）。
+- Telegram 和微信现在在 typed config、Compose 与示例环境中都出厂默认关闭；账号设置前需从
+  WebChat 显式开启渠道。`SPARKCLAW_TELEGRAM_ENABLED` 和
+  `SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED` 只在 owner 尚无持久化选择时提供初始值；binding
+  和 credential 绝不会自动开启渠道。
 - 过渡期 skills registry 已删除，包括 `GET /api/skills` 与 `skills`
   配置段；workflow 是唯一执行路径。
 - guard 回复解析不出有效裁决时按不阻断的 `unknown` 处理，并记录

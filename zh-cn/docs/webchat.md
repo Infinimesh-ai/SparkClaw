@@ -18,7 +18,7 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
 - 显式第三方 destination 选择、multipart review、delivery history 和安全 retry；
 - 把 microphone transcription 插入 draft；
 - tool timeline、approval inbox、memory review、trace、model call、audit、episode summary、
-  artifact、eval、status、owner/client setting、connector binding 和 policy setting；
+  artifact、eval、status、owner/client setting、connector activation/binding 和 policy setting；
 - 简体中文和英文 UI。
 
 ## 状态与刷新
@@ -31,7 +31,7 @@ polling 兜底。原生 `EventSource` 不能附带 bearer header，因此 authen
 兼容路径，不打开 unauthenticated stream。
 
 mutation 后立即刷新相关状态：chat send、schedule change、delivery、approval resolution、
-memory action、feedback、owner/client/policy change、connector binding 和 eval run。
+memory action、feedback、owner/client/policy change、connector activation/binding 和 eval run。
 
 ## Typed 控制面
 
@@ -42,6 +42,8 @@ memory action、feedback、owner/client/policy change、connector binding 和 ev
 - approval modification 校验 JSON，并让 verifier-owned field 保持只读。
 - workspace file 通过 authenticated document API 上传和读取。
 - speech transcription 只返回 draft text，绝不调用 message send。
+- connector setting 从 `/api/connectors` 渲染已注册渠道列表；版本化 toggle 只改变 activation，
+  credential/QR binding 保持独立 action，并且只有渠道开启后才可操作。
 
 UI 使用 Gateway 提供的具体软件、账号、接收人、会话和 status 展示提醒端和 delivery target。
 第三方 destination 不可用时绝不默认切换到 WebChat。
@@ -58,9 +60,9 @@ apps/webchat/src/api/types.ts
 Gateway route 和 public projection 位于 `services/gateway/internal/gateway`。前端消费这些 typed
 projection，不读取 Store record，也不重建后端规则。
 
-主要 API 组包括 session/message/event、schedule、delivery endpoint/delivery、notification
-binding、speech、document、approval、memory、trace、artifact、eval、owner/client setting、
-config 和 policy。
+主要 API 组包括 session/message/event、schedule、delivery endpoint/delivery、connector
+setting、notification binding、speech、document、approval、memory、trace、artifact、eval、
+owner/client setting、config 和 policy。
 
 ## UX 与安全规则
 

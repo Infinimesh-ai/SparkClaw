@@ -7,6 +7,8 @@
 
 ## 共同规则
 
+- 所有第三方消息 connector 出厂默认关闭；owner 必须先在 WebChat 中显式开启已注册渠道，
+  再开始账号设置。
 - credential、readiness 或 capability 检查失败时，集成保持 disabled 或关闭失败。
 - secret 从环境变量或文件注入，不出现在公开 Gateway 配置中。
 - 外部内容是不可信证据，绝不成为 system instruction。
@@ -15,10 +17,14 @@
 
 ## Telegram
 
-Telegram 是可选 private-chat connector，出厂默认关闭：除 Bot token 外还需设置
-`tools.notifications.channels.telegram.enabled`（或 `SPARKCLAW_TELEGRAM_ENABLED=true`），
-与其余 connector 的 opt-in 约定一致。可同时存在多个 Bot binding。每个 Bot token 激活前
-先验证，再通过 credential vault 独立加密；持久化状态只保存 ciphertext envelope。
+Telegram 是可选 private-chat connector，出厂默认关闭。先通过 WebChat 的统一 connector
+控制开启渠道，再提供 Bot token 创建独立账号 binding。可同时存在多个 Bot binding。每个
+Bot token 在绑定前先验证，再通过 credential vault 独立加密；持久化状态只保存 ciphertext
+envelope。
+
+`tools.notifications.channels.telegram.enabled` 和 `SPARKCLAW_TELEGRAM_ENABLED` 仍可作为
+尚无 owner 持久化选择时的部署启动默认值；它们不会覆盖之后的 WebChat 选择，已保存的 Bot
+binding 也绝不会自行开启 Telegram。
 
 已验证 Bot 初始没有 recipient。第一条 fresh authorized private message 原子 claim user/chat；
 历史 update 和 group 不能 claim。每个 binding 独立拥有 cursor、inbox identity、ordering 和
@@ -37,8 +43,9 @@ Outbound text/media、定时结果和 approval prompt 使用[消息与定时任�
 address 和 acknowledgement 留在微信 package 内。Agent Runtime、Timer 和 Delivery Gateway
 不按微信名称分支。
 
-配置使用 notification channel block 和对应环境变量。被撤销或不可用 binding 仍可见，
-但不能选作 delivery target。
+微信同样出厂默认关闭，必须先用相同 WebChat 控制开启，再开始 QR 设置。notification channel
+block 和对应环境变量只在尚无 owner 持久化选择时作为启动默认值。被撤销或不可用 binding
+仍可见，但不能选作 delivery target。
 
 ## 语音转写
 
@@ -90,17 +97,24 @@ Bridge 不接收 ITES token，也不暴露无认证的局域网 listener。生�
 keyring，Relay credential 独立轮换，Gateway 不支持的能力不会进入 manifest。注册、版本化
 schema、App CI mock 和 GB10 运维见 [ISCP Bridge](iscp-bridge.md)。
 
-## Binding 与状态 API
+## Connector 控制、Binding 与状态 API
 
-WebChat 通过 Gateway API 管理当前 connector binding：
+WebChat 通过统一、版本化 API 发现已注册渠道并管理显式 opt-in；账号设置保持独立 lifecycle：
 
 ```text
+GET    /api/connectors
+PATCH  /api/connectors/{channel}
 GET    /api/notification-bindings
 POST   /api/notification-bindings/{channel}/start
 GET    /api/notification-bindings/{id}
 DELETE /api/notification-bindings/{id}
 GET    /api/delivery-endpoints
 ```
+
+PATCH body 包含 `enabled` 和最后观察到的 `expected_version`。关闭渠道会取消 inbound runtime，
+并阻止 outbound Provider 和 Endpoint Registry 项；加密 credential 与 binding 会保留，owner
+重新开启时不必重复设置。现有 binding 绝不表示已 opt-in；持久化的开启选择会在 Gateway
+重启时恢复。
 
 UI 展示 Endpoint Registry 提供的软件、账号、接收人、会话、capability 和 status，不从
 channel name 推断 destination，也不暴露 native recipient ID。

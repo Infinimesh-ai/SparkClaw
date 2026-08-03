@@ -64,9 +64,9 @@ binary 中。Compose 分离 WebChat、Gateway、sandbox、Postgres、MinIO 和�
 
 ### WebChat
 
-WebChat 是 owner 工作台，展示 chat、schedule、direct delivery、connector binding、tool、
-approval、memory、trace、artifact、eval 和 runtime setting。它发送 typed action，但不决定
-route、Policy 或 delivery。见 [WebChat](webchat.md)。
+WebChat 是 owner 工作台，展示 chat、schedule、direct delivery、connector activation/binding、
+tool、approval、memory、trace、artifact、eval 和 runtime setting。它发送 typed action，但不
+决定 route、Policy 或 delivery。见 [WebChat](webchat.md)。
 
 ### Gateway 与 Message Plane
 
@@ -140,6 +140,10 @@ Endpoint Registry 解析 Web/第三方 destination。Schedule Registry 持久化
 send 都创建 `DeliveryRequest` 并调用 Delivery Gateway。`LocalWebDelivery` 是同一 Gateway
 中的 Web provider adapter，不是平行 Web send API。见[消息与定时任务](messaging-and-scheduling.md)。
 
+Connector Registry 为所有已注册第三方消息渠道提供统一 provider-neutral control plane。
+持久化 owner `ConnectorSetting` 控制 inbound Runtime、Endpoint Registry 可见性和 outbound
+Provider 访问。binding record 和加密 credential 是独立保留的账号状态，绝不表示渠道已开启。
+
 ### 浏览器、文档与集成
 
 浏览器使用固定 agent-browser 和 SparkClaw-owned Chromium profile，没有备用 browser backend。
@@ -166,8 +170,8 @@ cursor 和 audit 仍由 Gateway 负责。
 
 Store interface 负责 session、message、Agent run、route/fusion evidence、Workflow state、
 tool/model call、持久文档记录与谱系、approval、schedule、endpoint、delivery、connector
-binding、inbox、memory、eval 和 audit event。memory、file snapshot 和 PostgreSQL 后端实现
-相同的文档记录契约。
+binding、connector setting、inbox、memory、eval 和 audit event。memory、file snapshot 和
+PostgreSQL 后端实现相同的 durable state contract。
 
 Artifact 保存大型或可检查输出，例如 tool observation、browser evidence、generated
 document/media、可替换的文档解析 observation、memory export、rollback file 和 eval failure
@@ -194,6 +198,7 @@ audio 不是 artifact。
 - `ToolCall`、`ToolOutcome`、`Approval`；
 - `DocumentRecord`；
 - `MessageEndpoint`、`MessageSchedule`、`DeliveryRequest`、`DeliveryReceipt`；
+- `ConnectorSetting`、`ConnectorStatus`、`NotificationBinding`；
 - `ArtifactObject`、trace、audit event 和 model call。
 
 Provider/UI 通过 owner package 和 public projection 消费这些契约，不能维护竞争 literal map 或重复 Store。

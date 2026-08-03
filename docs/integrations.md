@@ -8,6 +8,8 @@ commands live in [Deployment](deployment.md).
 
 ## Shared Rules
 
+- Every third-party messaging connector ships disabled. The owner explicitly
+  enables registered channels in WebChat before starting account setup.
 - Integrations are disabled or fail closed when credentials, readiness, or
   capability checks fail.
 - Secrets come from environment variables or files and are omitted from public
@@ -20,13 +22,16 @@ commands live in [Deployment](deployment.md).
 
 ## Telegram
 
-Telegram is an optional private-chat connector and ships disabled: set
-`tools.notifications.channels.telegram.enabled` (or
-`SPARKCLAW_TELEGRAM_ENABLED=true`) in addition to the Bot token, matching
-the opt-in contract of every other connector. Multiple Bot bindings may
-coexist. Each Bot token is verified before activation and encrypted separately
-through the credential vault; persisted state stores ciphertext envelopes, not
-plaintext tokens.
+Telegram is an optional private-chat connector and ships disabled. Enable it
+from the common connector controls in WebChat, then supply a Bot token to create
+a separate account binding. Multiple Bot bindings may coexist. Each Bot token
+is verified before binding and encrypted separately through the credential
+vault; persisted state stores ciphertext envelopes, not plaintext tokens.
+
+`tools.notifications.channels.telegram.enabled` and
+`SPARKCLAW_TELEGRAM_ENABLED` remain bootstrap defaults for deployments without
+a persisted owner choice. They do not override a later WebChat choice, and a
+stored Bot binding never enables Telegram by itself.
 
 A verified Bot starts without a recipient. The first fresh authorized private
 message atomically claims its user/chat; historical updates and groups cannot
@@ -49,9 +54,10 @@ interfaces. Its QR/binding lifecycle, polling/media behavior, addresses, and
 acknowledgements stay in the Weixin packages. Agent Runtime, Timer, and Delivery
 Gateway do not branch on Weixin names.
 
-Weixin configuration uses the notification channel block and corresponding
-environment overrides. Revoked or unavailable bindings remain visible but
-cannot be selected for delivery.
+Weixin also ships disabled. Enable it through the same WebChat control before
+starting QR setup. Its notification channel block and environment overrides are
+only bootstrap defaults when no persisted owner choice exists. Revoked or
+unavailable bindings remain visible but cannot be selected for delivery.
 
 ## Speech Transcription
 
@@ -118,17 +124,26 @@ Relay credentials rotate independently, and unsupported Gateway capabilities
 are absent from the manifest. See [ISCP Bridge](iscp-bridge.md) for enrollment,
 the versioned schema, App CI mock, and GB10 operation.
 
-## Binding And Status APIs
+## Connector Control, Binding, And Status APIs
 
-WebChat manages current connector bindings through Gateway APIs:
+WebChat discovers registered channels and manages their explicit opt-in through
+one versioned API. Account setup remains a separate lifecycle:
 
 ```text
+GET    /api/connectors
+PATCH  /api/connectors/{channel}
 GET    /api/notification-bindings
 POST   /api/notification-bindings/{channel}/start
 GET    /api/notification-bindings/{id}
 DELETE /api/notification-bindings/{id}
 GET    /api/delivery-endpoints
 ```
+
+The PATCH body contains `enabled` and the last observed `expected_version`.
+Disabling a channel cancels its inbound runtime and blocks its outbound Provider
+and Endpoint Registry entries. It retains encrypted credentials and bindings so
+the owner can re-enable the channel without repeating setup. Existing bindings
+never imply opt-in. A persisted enabled choice is restored on Gateway restart.
 
 The UI displays software, account, recipient, conversation, capabilities, and
 status from the Endpoint Registry. It does not infer a destination from channel

@@ -453,9 +453,12 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal 
   `docker/compose.visible-browser.yaml` overlay; the base compose file no
   longer exposes the host X11 socket. `scripts/restart_runtime_compose.sh`
   applies the overlay automatically when a display resolves.
-- The Telegram channel ships disabled. Deployments that set only the Bot
-  token must also set `tools.notifications.channels.telegram.enabled`
-  (or `SPARKCLAW_TELEGRAM_ENABLED=true`).
+- Telegram and Weixin now both ship disabled in typed config, Compose, and the
+  example environment. Enable a channel from WebChat before account setup.
+  `SPARKCLAW_TELEGRAM_ENABLED` and
+  `SPARKCLAW_WEIXIN_NOTIFICATION_ENABLED` only provide the initial value when
+  no persisted owner choice exists; bindings and credentials never auto-enable
+  a channel.
 - The transitional skills registry was removed, including `GET /api/skills`
   and the `skills` config section; workflows are the only execution path.
 - Guard replies that parse to no recognizable verdict resolve to a

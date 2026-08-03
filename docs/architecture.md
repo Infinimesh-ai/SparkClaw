@@ -72,9 +72,9 @@ the domain contracts.
 ### WebChat
 
 WebChat is the owner workbench. It presents chat, schedules, direct delivery,
-connector bindings, tools, approvals, memories, traces, artifacts, evals, and
-runtime settings. It sends typed actions but does not decide routes, Policy, or
-delivery. See [WebChat](webchat.md).
+connector activation and bindings, tools, approvals, memories, traces,
+artifacts, evals, and runtime settings. It sends typed actions but does not
+decide routes, Policy, or delivery. See [WebChat](webchat.md).
 
 ### Gateway And Message Plane
 
@@ -172,6 +172,12 @@ the Delivery Gateway. `LocalWebDelivery` is the Web provider adapter inside that
 same gateway, not a parallel Web send API. See
 [Messaging and scheduling](messaging-and-scheduling.md).
 
+Connector Registry exposes one provider-neutral control plane for every
+registered third-party message channel. A durable owner `ConnectorSetting`
+controls inbound Runtime, Endpoint Registry visibility, and outbound Provider
+access. Binding records and encrypted credentials are separate retained account
+state and never imply that a channel is enabled.
+
 ### Browser, Documents, And Integrations
 
 Browser execution uses pinned agent-browser with a SparkClaw-owned Chromium
@@ -208,8 +214,8 @@ owned by Gateway.
 Store interfaces own sessions, messages, Agent runs, route/fusion evidence,
 Workflow state, tool/model calls, durable document records and lineage,
 approvals, schedules, endpoints, deliveries, connector bindings, inbox records,
-memories, evals, and audit events. Memory, file snapshot, and PostgreSQL
-backends implement the same document-record contract.
+connector settings, memories, evals, and audit events. Memory, file snapshot,
+and PostgreSQL backends implement the same durable state contracts.
 
 Artifacts hold large or inspectable outputs such as tool observations, browser
 evidence, replaceable parsed-document observations, generated documents/media,
@@ -243,6 +249,7 @@ Important cross-package contracts live in `internal/app`:
 - `ToolCall`, `ToolOutcome`, `Approval`;
 - `DocumentRecord`;
 - `MessageEndpoint`, `MessageSchedule`, `DeliveryRequest`, `DeliveryReceipt`;
+- `ConnectorSetting`, `ConnectorStatus`, `NotificationBinding`;
 - `ArtifactObject`, traces, audit events, and model calls.
 
 Providers and UIs consume these contracts through owner packages and public

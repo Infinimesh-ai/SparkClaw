@@ -117,6 +117,11 @@ Gateway assembly 遍历 registry。Message Control 和 Agent Runtime 不按 Tele
 分支。新 provider 必须复用现有 Endpoint、MessageContent、DeliveryRequest、receipt、Policy、
 audit 和 Store 契约。provider 细节见[外部集成](integrations.md)。
 
+同一个 registry 负责渠道 lifecycle control。`ConnectorSetting` 独立于账号 binding 保存 owner
+的版本化 opt-in。静态 channel 配置只在 setting 不存在时作为初始回退。开启渠道会启动可选
+inbound Runtime；关闭会取消该 Runtime，并 gate endpoint resolution 与 outbound delivery，
+同时保留 binding。创建或发现 binding 绝不会改变 setting。
+
 ## 失败与 Audit 语义
 
 - endpoint 缺失、撤销、未授权或不可用时，在发送前阻止。

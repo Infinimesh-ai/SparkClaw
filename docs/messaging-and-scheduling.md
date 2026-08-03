@@ -137,6 +137,13 @@ Gateway assembly iterates this registry. Message Control and Agent Runtime do
 not branch on Telegram or Weixin names. A new provider must use current Endpoint,
 MessageContent, DeliveryRequest, receipt, policy, audit, and store contracts.
 
+The same registry owns channel lifecycle control. `ConnectorSetting` stores the
+owner's versioned opt-in independently from account bindings. Static channel
+configuration is only the initial fallback when no setting exists. Enabling a
+channel starts its optional inbound Runtime; disabling cancels that Runtime and
+gates endpoint resolution and outbound delivery while retaining bindings.
+Creating or discovering a binding never changes the setting.
+
 Provider-specific behavior is documented in [External integrations](integrations.md).
 
 ## Failure And Audit Semantics

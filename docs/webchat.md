@@ -23,7 +23,7 @@ The workbench includes:
 - microphone transcription into the draft;
 - tool timeline, approval inbox, memory review, traces, model calls, audits,
   episode summaries, artifacts, evals, status, owner/client settings, connector
-  bindings, and policy settings;
+  activation and bindings, and policy settings;
 - Simplified Chinese and English UI.
 
 ## State And Refresh
@@ -40,7 +40,7 @@ implemented compatible path rather than opening an unauthenticated stream.
 
 Mutations refresh their affected state immediately: chat send, schedule change,
 delivery, approval resolution, memory action, feedback, owner/client/policy
-change, connector binding, and eval run.
+change, connector activation or binding, and eval run.
 
 ## Typed Control Surfaces
 
@@ -54,6 +54,9 @@ Structured owner actions are not converted back into ambiguous prose:
 - approval modifications validate JSON and keep verifier-owned fields read-only;
 - workspace files are uploaded and fetched through authenticated document APIs;
 - speech transcription returns text to the draft and never calls message send.
+- connector settings render the registered channel list from `/api/connectors`;
+  a versioned toggle changes activation, while credential or QR binding remains
+  a separate action that is unavailable until the channel is enabled.
 
 The UI shows reminder and delivery destinations as concrete software, account,
 recipient, conversation, and status values supplied by Gateway. It never
@@ -73,8 +76,9 @@ Gateway routes and public projections live in
 projections instead of reading Store records or reconstructing backend rules.
 
 Important API groups include sessions/messages/events, schedules, delivery
-endpoints/deliveries, notification bindings, speech, documents, approvals,
-memory, traces, artifacts, evals, owner/client settings, config, and policy.
+endpoints/deliveries, connector settings, notification bindings, speech,
+documents, approvals, memory, traces, artifacts, evals, owner/client settings,
+config, and policy.
 
 ## UX And Safety Rules
 

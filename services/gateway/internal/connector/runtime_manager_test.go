@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -134,6 +135,32 @@ func TestActiveBindingDoesNotAutoEnableConnector(t *testing.T) {
 	}
 	if status.Enabled || status.State != app.ConnectorStateDisabled || status.BindingStatus != "active" {
 		t.Fatalf("binding incorrectly enabled connector: %#v", status)
+	}
+}
+
+type unavailableBindingAdapter struct {
+	registryBindingAdapter
+}
+
+func (unavailableBindingAdapter) Availability() error {
+	return &binding.BindingError{Code: binding.CodeConnectorUnavailable}
+}
+
+func TestConnectorStatusReportsAdapterAvailabilityFailure(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.Notifications.Channels = map[string]config.NotificationChannelConfig{
+		"alpha": {Enabled: true, Provider: "alpha-v1"},
+	}
+	registry := NewRegistry(cfg)
+	if err := registry.Register(Registration{Channel: "alpha", Binding: unavailableBindingAdapter{}}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := registry.Status(app.DefaultOwnerID, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != app.ConnectorStateUnavailable || status.BindingStartable || status.DisabledReason != binding.CodeConnectorUnavailable {
+		t.Fatalf("unexpected unavailable connector status: %#v", status)
 	}
 }
 

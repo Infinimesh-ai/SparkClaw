@@ -98,6 +98,9 @@ func (r *Registry) Status(ownerID, channel string) (app.ConnectorStatus, error) 
 	case !status.Available:
 		status.State = app.ConnectorStateUnavailable
 		status.DisabledReason = capability.DisabledReason
+	case capabilityUnavailable(capability):
+		status.State = app.ConnectorStateUnavailable
+		status.DisabledReason = capability.DisabledReason
 	case runtimeError != "" && !running:
 		status.State = app.ConnectorStateError
 		status.DisabledReason = "connector_runtime_failed"
@@ -118,6 +121,15 @@ func (r *Registry) Status(ownerID, channel string) (app.ConnectorStatus, error) 
 		status.UpdatedAt = time.Time{}
 	}
 	return status, nil
+}
+
+func capabilityUnavailable(capability binding.ConnectorCapability) bool {
+	switch capability.DisabledReason {
+	case "", binding.CodeUserDisabled, binding.CodeOperatorDisabled, binding.CodeBindingInProgress, binding.CodeBindingActive:
+		return false
+	default:
+		return true
+	}
 }
 
 func (r *Registry) Start(ctx context.Context) {

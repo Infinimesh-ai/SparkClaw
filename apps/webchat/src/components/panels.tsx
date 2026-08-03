@@ -1011,7 +1011,7 @@ export function SettingsPanel({
                 type="checkbox"
                 checked={connector.enabled}
                 onChange={() => void toggleConnector(connector)}
-                disabled={connectorBusy !== "" || !connector.available}
+                disabled={connectorBusy !== ""}
                 aria-label={toggleTitle}
               />
               <span aria-hidden="true" />

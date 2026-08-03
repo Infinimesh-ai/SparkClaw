@@ -595,6 +595,15 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	if attemptsAfterFirstTick != 1 {
 		t.Fatalf("expected one send attempt on first tick, got %d", attemptsAfterFirstTick)
 	}
+	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	if !ok {
+		t.Fatal("weixin chat session missing after failed delivery")
+	}
+	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-1")
+	if !ok || failed.Status != "delivery_failed" {
+		t.Fatalf("failed reply was not retained for delivery retry: %#v ok=%v", failed, ok)
+	}
+	runsAfterFirstTick := len(st.ListRuns(chatSession.LinkedSessionID))
 
 	syncer.Tick(t.Context())
 	syncer.Wait()
@@ -605,11 +614,18 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if sendAttempts != 1 {
-		t.Fatalf("already-processed message should not rerun the agent, got %d send attempts", sendAttempts)
+	if sendAttempts != 2 {
+		t.Fatalf("failed reply should be retried once, got %d send attempts", sendAttempts)
 	}
 	if strings.Join(polledCursors, ",") != "cursor-1,cursor-1" {
 		t.Fatalf("second poll should reuse the unadvanced cursor: %#v", polledCursors)
+	}
+	if runsAfterRetry := len(st.ListRuns(chatSession.LinkedSessionID)); runsAfterRetry != runsAfterFirstTick {
+		t.Fatalf("delivery retry reran the agent: before=%d after=%d", runsAfterFirstTick, runsAfterRetry)
+	}
+	delivered, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-1")
+	if delivered.Status != "processed" || delivered.Error != "" {
+		t.Fatalf("successful reply retry did not finalize the inbound record: %#v", delivered)
 	}
 }
 

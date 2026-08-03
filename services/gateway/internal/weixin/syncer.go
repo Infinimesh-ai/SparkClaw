@@ -294,7 +294,10 @@ func (s *Syncer) processBatch(ctx context.Context, batch inboundBatch) {
 		receives := messagecontrol.NewReceiveLifecycle(s.store)
 		receive, fresh := receives.Begin(endpoint, inbound.ExternalID)
 		if !fresh {
-			continue
+			existing, ok := s.store.FindExternalChatMessageByExternalID(chatSession.ID, inbound.ExternalID)
+			if !ok || (existing.Status != "failed" && existing.Status != "delivery_failed") {
+				continue
+			}
 		}
 		inbound.ReceiveRecord = receives.Advance(receive, "authorized", "", "")
 		attemptKey := binding.ID + "\x00" + inbound.ExternalID

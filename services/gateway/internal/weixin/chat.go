@@ -84,7 +84,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	// its record so the retry does not duplicate the chat history.
 	retryID := ""
 	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
-		if existing.Status != "failed" {
+		if existing.Status != "failed" && existing.Status != "delivery_failed" {
 			return nil
 		}
 		retryID = existing.ID
@@ -164,15 +164,25 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		return err
 	}
 	processing.LinkedRunID = result.Run.ID
-	processing.Status = "processed"
-	processing = d.store.SaveExternalChatMessage(processing)
-	receives.Advance(receive, "processed", inboundMsg.ID, result.Run.ID)
-
+	var deliveryErr error
 	if len(result.Approvals) > 0 {
 		answer := weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1])
-		return d.sendControlResult(ctx, inbound, chatSession, answer, result.Run.ID)
+		deliveryErr = d.sendControlResult(ctx, inbound, chatSession, answer, result.Run.ID)
+	} else {
+		deliveryErr = d.deliverAgentResult(ctx, result, ingress)
 	}
-	return d.deliverAgentResult(ctx, result, ingress)
+	if deliveryErr != nil {
+		processing.Status = "delivery_failed"
+		processing.Error = deliveryErr.Error()
+		d.store.SaveExternalChatMessage(processing)
+		receives.Advance(receive, "delivery_failed", inboundMsg.ID, result.Run.ID)
+		return deliveryErr
+	}
+	processing.Status = "processed"
+	processing.Error = ""
+	d.store.SaveExternalChatMessage(processing)
+	receives.Advance(receive, "processed", inboundMsg.ID, result.Run.ID)
+	return nil
 }
 
 // handleControlText intercepts text-only messages that must not reach the

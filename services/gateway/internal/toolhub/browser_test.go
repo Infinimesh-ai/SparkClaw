@@ -26,6 +26,13 @@ func TestExtractReadableText(t *testing.T) {
 	}
 }
 
+func TestBrowserReadUserAgentTargetsLinux(t *testing.T) {
+	const want = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+	if browserReadUserAgent != want {
+		t.Fatalf("browser.read user agent = %q, want %q", browserReadUserAgent, want)
+	}
+}
+
 func TestBrowserReadAuthDetectionDoesNotTreatAuthenticatedNavigationAsLoginWall(t *testing.T) {
 	authenticated := "浙江理工大学 WebVPN 退出登录 软件正版化（激活需登录SSLVPN） 电子资源导航"
 	if browserReadDetectAuthChallenge(authenticated) {

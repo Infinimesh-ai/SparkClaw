@@ -18,7 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 )
 
-const browserReadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+const browserReadUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
 // browserReadDirectClient serves every sessionless direct fetch; the request
 // context supplies the caller's bound, the client timeout is the hard cap.

@@ -1152,7 +1152,7 @@ func TestToolResultAdapterPrefersRelativePathForFileRead(t *testing.T) {
 		},
 	}
 	output := map[string]any{
-		"path":         "/Users/dev/Desktop/SparkClaw/data/workspaces/uploads/sample.docx",
+		"path":         "/home/dev/SparkClaw/data/workspaces/uploads/sample.docx",
 		"rel_path":     "uploads/sample.docx",
 		"already_read": true,
 		"content":      "alpha beta",
@@ -1168,7 +1168,7 @@ func TestToolResultAdapterPrefersRelativePathForFileRead(t *testing.T) {
 	if decoded.Structured["path"] != "uploads/sample.docx" {
 		t.Fatalf("files.read should expose relative path, got %#v", decoded.Structured["path"])
 	}
-	if strings.Contains(message, "/Users/dev/Desktop") {
+	if strings.Contains(message, "/home/dev/SparkClaw") {
 		t.Fatalf("model-visible files.read observation should not expose absolute path:\n%s", message)
 	}
 	if decoded.Structured["already_read"] != true || !strings.Contains(stringValue(decoded.Structured["next_step_hint"]), "Use returned content") {
@@ -1186,7 +1186,7 @@ func TestToolResultAdapterSeparatesSourceAndMessageTruncation(t *testing.T) {
 		},
 	}
 	output := map[string]any{
-		"path":      "/Users/dev/Desktop/SparkClaw/data/workspaces/uploads/small.docx",
+		"path":      "/home/dev/SparkClaw/data/workspaces/uploads/small.docx",
 		"rel_path":  "uploads/small.docx",
 		"kind":      "docx",
 		"content":   strings.Repeat("完整源文档内容。", 500),

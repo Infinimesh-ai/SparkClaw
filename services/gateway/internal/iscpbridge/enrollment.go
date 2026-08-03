@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -329,7 +328,7 @@ func requirePrivateFile(path string) error {
 	if !info.Mode().IsRegular() {
 		return errors.New("private path must be a regular file")
 	}
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+	if info.Mode().Perm()&0o077 != 0 {
 		return errors.New("private file permissions must not allow group or other access")
 	}
 	return nil

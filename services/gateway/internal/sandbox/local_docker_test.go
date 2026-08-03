@@ -4,14 +4,14 @@ import "testing"
 
 func TestLocalDockerRunnerMapsContainerWorkspaceToHostMount(t *testing.T) {
 	runner := LocalDockerRunner{
-		HostWorkspaceRoot:      "/Users/owner/sparkclaw/data/workspaces",
+		HostWorkspaceRoot:      "/home/owner/sparkclaw/data/workspaces",
 		ContainerWorkspaceRoot: "/var/lib/sparkclaw/workspaces",
 	}
 
-	if got := runner.workspaceRootForDocker("/var/lib/sparkclaw/workspaces"); got != "/Users/owner/sparkclaw/data/workspaces" {
+	if got := runner.workspaceRootForDocker("/var/lib/sparkclaw/workspaces"); got != "/home/owner/sparkclaw/data/workspaces" {
 		t.Fatalf("root mapping = %q", got)
 	}
-	if got := runner.workspaceRootForDocker("/var/lib/sparkclaw/workspaces/project"); got != "/Users/owner/sparkclaw/data/workspaces/project" {
+	if got := runner.workspaceRootForDocker("/var/lib/sparkclaw/workspaces/project"); got != "/home/owner/sparkclaw/data/workspaces/project" {
 		t.Fatalf("nested mapping = %q", got)
 	}
 	if got := runner.workspaceRootForDocker("/tmp/other"); got != "/tmp/other" {

@@ -248,7 +248,7 @@ func TestBrowserEnvironmentHelpersValidateARM64LocaleAndProfileState(t *testing.
 	if got := browserExecutableArchitecture(amd64Binary); got != "x86-64" {
 		t.Fatalf("x86-64 ELF fixture architecture = %q, want x86-64", got)
 	}
-	if runtime.GOOS == "linux" && runtime.GOARCH == "arm64" {
+	if runtime.GOARCH == "arm64" {
 		executable, err := os.Executable()
 		if err != nil {
 			t.Fatal(err)

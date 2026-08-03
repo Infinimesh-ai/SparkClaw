@@ -23,6 +23,7 @@ import type {
   ArtifactObject,
   AuditEvent,
   Client,
+  ConnectorStatus,
   EpisodeSummary,
   EvalRun,
   Memory,
@@ -62,14 +63,15 @@ type InspectorColumnProps = {
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
-  weixinBindings: NotificationBinding[];
-  telegramBindings: NotificationBinding[];
+  connectors: ConnectorStatus[];
+  notificationBindings: NotificationBinding[];
   onOpenTrace: (runId: string) => void;
   setError: (message: string) => void;
   refreshGlobal: () => Promise<void>;
   refreshActiveSession: () => Promise<void>;
   setEvalRuns: (runs: EvalRun[]) => void;
   setNotificationBindings: Dispatch<SetStateAction<NotificationBinding[]>>;
+  setConnectors: Dispatch<SetStateAction<ConnectorStatus[]>>;
   setRuntimeConfig: (config: PublicConfig) => void;
   setOwnerProfile: (owner: OwnerProfile) => void;
 };
@@ -97,14 +99,15 @@ export function InspectorColumn({
   runtimeConfig,
   ownerProfile,
   clients,
-  weixinBindings,
-  telegramBindings,
+  connectors,
+  notificationBindings,
   onOpenTrace,
   setError,
   refreshGlobal,
   refreshActiveSession,
   setEvalRuns,
   setNotificationBindings,
+  setConnectors,
   setRuntimeConfig,
   setOwnerProfile
 }: InspectorColumnProps) {
@@ -201,6 +204,19 @@ export function InspectorColumn({
       const message = notificationBindingErrorMessage(err, text);
       setError(message);
       throw new Error(message);
+    }
+  }
+
+  async function updateConnector(channel: string, enabled: boolean, expectedVersion: number) {
+    try {
+      setError("");
+      const updated = await api.updateConnector(channel, enabled, expectedVersion);
+      setConnectors((current) => current.map((item) => item.channel === updated.channel ? updated : item));
+      await refreshGlobal();
+      return updated;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.connectorUpdate);
+      throw err;
     }
   }
 
@@ -330,8 +346,8 @@ export function InspectorColumn({
           runtimeConfig={runtimeConfig}
           ownerProfile={ownerProfile}
           clients={clients}
-          weixinBindings={weixinBindings}
-          telegramBindings={telegramBindings}
+          connectors={connectors}
+          notificationBindings={notificationBindings}
           text={text}
           language={language}
           onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
@@ -339,6 +355,7 @@ export function InspectorColumn({
           onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
           onRefreshNotificationBinding={(id) => refreshNotificationBinding(id)}
           onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
+          onUpdateConnector={(channel, enabled, version) => updateConnector(channel, enabled, version)}
           onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}
         />
       )}

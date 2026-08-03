@@ -37,6 +37,7 @@ import type {
   ArtifactObject,
   AuditEvent,
   Client,
+  ConnectorStatus,
   EpisodeSummary,
   EvalRun,
   Memory,
@@ -70,6 +71,7 @@ import {
   shortId,
   stripSystemArgs
 } from "../lib/format";
+import { bindingsForConnector, connectorBindingStartDisabled } from "../lib/connectors";
 
 function isBindingSetupPending(binding: NotificationBinding) {
   return isBindingPending(binding.status) || (
@@ -763,8 +765,8 @@ export function SettingsPanel({
   runtimeConfig,
   ownerProfile,
   clients,
-  weixinBindings,
-  telegramBindings,
+  connectors,
+  notificationBindings,
   text,
   language,
   onUpdateOwner,
@@ -772,13 +774,14 @@ export function SettingsPanel({
   onStartNotificationBinding,
   onRefreshNotificationBinding,
   onRevokeNotificationBinding,
+  onUpdateConnector,
   onUpdatePolicy
 }: {
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
-  weixinBindings: NotificationBinding[];
-  telegramBindings: NotificationBinding[];
+  connectors: ConnectorStatus[];
+  notificationBindings: NotificationBinding[];
   text: CopyText;
   language: Language;
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
@@ -786,6 +789,7 @@ export function SettingsPanel({
   onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
   onRefreshNotificationBinding: (id: string) => Promise<NotificationBinding>;
   onRevokeNotificationBinding: (id: string) => Promise<void>;
+  onUpdateConnector: (channel: string, enabled: boolean, expectedVersion: number) => Promise<ConnectorStatus>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
 }) {
   const [editingOwner, setEditingOwner] = useState(false);
@@ -800,11 +804,12 @@ export function SettingsPanel({
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [revokingClient, setRevokingClient] = useState("");
   const [bindingBusy, setBindingBusy] = useState(false);
+  const [connectorBusy, setConnectorBusy] = useState("");
   const [bindingError, setBindingError] = useState("");
   const [telegramToken, setTelegramToken] = useState("");
 
   useEffect(() => {
-    const pending = [...weixinBindings, ...telegramBindings].filter(isBindingSetupPending);
+    const pending = notificationBindings.filter(isBindingSetupPending);
     if (pending.length === 0) return;
     let cancelled = false;
     let timer = 0;
@@ -834,7 +839,7 @@ export function SettingsPanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [onRefreshNotificationBinding, telegramBindings, text.errors.binding, weixinBindings]);
+  }, [notificationBindings, onRefreshNotificationBinding, text.errors.binding]);
 
   if (!runtimeConfig) {
     return (
@@ -845,7 +850,6 @@ export function SettingsPanel({
     );
   }
   const policy = runtimeConfig.tool_policy;
-  const notificationChannels = runtimeConfig.tools.notifications.channels;
   const riskCounts = Object.entries(policy.risk_counts).sort(([left], [right]) => left.localeCompare(right));
   const preferences = ownerProfile?.preferences ?? {};
 
@@ -916,10 +920,12 @@ export function SettingsPanel({
     }
   }
 
-  async function startBinding(channel: "weixin" | "telegram") {
+  async function startBinding(channel: string) {
     if (bindingBusy) return;
-    const botToken = channel === "telegram" ? telegramToken.trim() : "";
-    if (channel === "telegram" && !botToken) {
+    const connector = connectors.find((item) => item.channel === channel);
+    const needsSecret = connector?.setup_kind === "secret";
+    const botToken = needsSecret ? telegramToken.trim() : "";
+    if (needsSecret && !botToken) {
       setBindingError(text.settings.telegramTokenRequired);
       return;
     }
@@ -927,13 +933,26 @@ export function SettingsPanel({
     setBindingError("");
     try {
       await onStartNotificationBinding(channel, botToken);
-      if (channel === "telegram") {
+      if (needsSecret) {
         setTelegramToken("");
       }
     } catch (err) {
       setBindingError(err instanceof Error ? err.message : text.errors.binding);
     } finally {
       setBindingBusy(false);
+    }
+  }
+
+  async function toggleConnector(connector: ConnectorStatus) {
+    if (connectorBusy) return;
+    setConnectorBusy(connector.channel);
+    setBindingError("");
+    try {
+      await onUpdateConnector(connector.channel, !connector.enabled, connector.version);
+    } catch (err) {
+      setBindingError(err instanceof Error ? err.message : text.errors.connectorUpdate);
+    } finally {
+      setConnectorBusy("");
     }
   }
 
@@ -963,37 +982,47 @@ export function SettingsPanel({
     }
   }
 
-  function renderNotificationBindingSection(channel: "weixin" | "telegram", bindings: NotificationBinding[]) {
+  function renderNotificationBindingSection(connector: ConnectorStatus) {
+    const channel = connector.channel;
+    const bindings = bindingsForConnector(notificationBindings, channel);
     const isTelegram = channel === "telegram";
+    const isSecret = connector.setup_kind === "secret";
     const Icon = isTelegram ? Send : KeyRound;
-    const title = isTelegram ? text.settings.telegramBinding : text.settings.weixinBinding;
+    const title = isTelegram ? text.settings.telegramBinding : channel === "weixin" ? text.settings.weixinBinding : channel;
     const addTitle = isTelegram ? text.settings.addTelegramBinding : text.settings.addWeixinBinding;
     const bindLabel = isTelegram ? text.settings.bindTelegram : text.settings.bindWeixin;
     const missing = isTelegram ? text.settings.telegramBindingMissing : text.settings.bindingMissing;
     const waitingInstruction = text.settings.scanWeixin;
     const scannedInstruction = text.settings.scannedWeixin;
-    const channelConfig = notificationChannels[channel];
-    const startable = isTelegram ? channelConfig?.startable === true : channelConfig?.enabled !== false;
-    const tokenEditable = isTelegram && channelConfig?.available === true && channelConfig?.operator_enabled === true && channelConfig?.startable === true;
-    const startDisabled = bindingBusy || !startable || (isTelegram && !telegramToken.trim());
-    const capabilityNote = isTelegram
-      ? notificationCapabilityLabel(channelConfig?.disabled_reason ?? "", channelConfig?.binding_status ?? "", text)
-      : channelConfig?.enabled === false ? text.settings.bindingOperatorDisabled : channelConfig?.provider;
+    const tokenEditable = isSecret && connector.enabled && connector.binding_startable;
+    const startDisabled = connectorBindingStartDisabled(connector, bindingBusy || connectorBusy !== "", Boolean(telegramToken.trim()));
+    const capabilityNote = connectorStatusLabel(connector, text);
+    const toggleTitle = connector.enabled ? text.settings.disableConnector : text.settings.enableConnector;
     return (
-      <article className="settingsBlock">
+      <article className="settingsBlock" key={channel}>
         <div className="approvalTop">
           <span className="settingsTitle">
             <Icon size={15} />
             <strong>{title}</strong>
           </span>
           <div className="buttonRow compactButtons">
+            <label className="connectorToggle" title={toggleTitle}>
+              <input
+                type="checkbox"
+                checked={connector.enabled}
+                onChange={() => void toggleConnector(connector)}
+                disabled={connectorBusy !== "" || !connector.available}
+                aria-label={toggleTitle}
+              />
+              <span aria-hidden="true" />
+            </label>
             <button className="approve" onClick={() => void startBinding(channel)} disabled={startDisabled} title={addTitle}>
               <Plus size={15} />
             </button>
           </div>
         </div>
         {capabilityNote && <span className="muted bindingCapability">{capabilityNote}</span>}
-        {isTelegram && (
+        {isSecret && (
           <label className="inputGroup compact telegramTokenInput">
             <span>{text.settings.telegramToken}</span>
             <input
@@ -1003,7 +1032,7 @@ export function SettingsPanel({
               placeholder={text.settings.telegramTokenPlaceholder}
               autoComplete="new-password"
               spellCheck={false}
-              disabled={bindingBusy || !tokenEditable}
+              disabled={bindingBusy || connectorBusy !== "" || !tokenEditable}
             />
           </label>
         )}
@@ -1055,7 +1084,7 @@ export function SettingsPanel({
                     <span>{scannedInstruction}</span>
                   </div>
                 )}
-                {isTelegram && binding.status === "active" && !binding.external_user_id && !binding.context_token && (
+                {isSecret && binding.status === "active" && !binding.external_user_id && !binding.context_token && (
                   <div className="bindingScanned">
                     <Send size={18} />
                     <span>{text.settings.telegramAwaitingMessage}</span>
@@ -1081,8 +1110,7 @@ export function SettingsPanel({
   return (
     <div className="panelStack">
       <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
-      {renderNotificationBindingSection("weixin", weixinBindings)}
-      {renderNotificationBindingSection("telegram", telegramBindings)}
+      {connectors.map(renderNotificationBindingSection)}
       {bindingError && <span className="compactError">{bindingError}</span>}
       <article className="settingsBlock">
         <div className="approvalTop">
@@ -1306,20 +1334,26 @@ export function SettingsPanel({
   );
 }
 
-function notificationCapabilityLabel(reason: string, status: string, text: CopyText) {
-  switch (reason) {
-    case "connector_unavailable":
-      return text.settings.bindingUnavailable;
-    case "operator_disabled":
-      return text.settings.bindingOperatorDisabled;
-    case "credential_key_unavailable":
-      return text.settings.bindingCredentialUnavailable;
-    case "binding_in_progress":
-      return bindingStatusLabel(status, text);
-    case "binding_active":
+function connectorStatusLabel(connector: ConnectorStatus, text: CopyText) {
+  switch (connector.state) {
+    case "disabled":
+      return text.settings.connectorDisabled;
+    case "unavailable":
+      return connector.disabled_reason === "credential_key_unavailable"
+        ? text.settings.bindingCredentialUnavailable
+        : text.settings.bindingUnavailable;
+    case "starting":
+      return text.settings.connectorStarting;
+    case "setup_required":
+      return text.settings.connectorNeedsSetup;
+    case "setup_pending":
+      return bindingStatusLabel(connector.binding_status, text);
+    case "active":
       return text.settings.bound;
+    case "error":
+      return text.settings.connectorError;
     default:
-      return status === "unbound" ? text.settings.bindingReady : bindingStatusLabel(status, text);
+      return connector.provider;
   }
 }
 

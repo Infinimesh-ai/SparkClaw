@@ -5,6 +5,7 @@ import type {
   Approval,
   ApprovalResolution,
   Client,
+  ConnectorStatus,
   DocumentUploadResult,
   DeliveryEndpoint,
   DeliveryPart,
@@ -246,10 +247,16 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
+  connectors: () => request<{ connectors: ConnectorStatus[] }>("/api/connectors"),
+  updateConnector: (channel: string, enabled: boolean, expectedVersion: number) =>
+    request<ConnectorStatus>(`/api/connectors/${encodeURIComponent(channel)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled, expected_version: expectedVersion })
+    }),
   startNotificationBinding: (channel = "weixin", botToken = "") =>
     request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
       method: "POST",
-      body: JSON.stringify({ default_for_channel: false, bot_token: botToken })
+      body: JSON.stringify({ default_for_channel: false, credential_secret: botToken })
     }),
   notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),

@@ -2658,6 +2658,63 @@ button.finderRow {
   overflow-wrap: anywhere;
 }
 
+.connectorToggle {
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.connectorToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.connectorToggle > span {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-deep);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.connectorToggle > span::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  content: "";
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.connectorToggle input:checked + span {
+  border-color: var(--cyber-blue);
+  background: rgba(96, 208, 68, 0.16);
+}
+
+.connectorToggle input:checked + span::after {
+  background: var(--cyber-blue);
+  transform: translateX(16px);
+}
+
+.connectorToggle input:focus-visible + span {
+  outline: 2px solid var(--cyber-blue);
+  outline-offset: 2px;
+}
+
+.connectorToggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .inputGroup.compact {
   display: grid;
   gap: 5px;

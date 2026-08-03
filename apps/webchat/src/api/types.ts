@@ -382,6 +382,23 @@ export type NotificationBinding = {
   last_error?: string;
 };
 
+export type ConnectorStatus = {
+  channel: string;
+  provider: string;
+  setup_kind: "qr" | "secret" | string;
+  available: boolean;
+  enabled: boolean;
+  running: boolean;
+  state: "disabled" | "unavailable" | "starting" | "setup_required" | "setup_pending" | "active" | "error" | string;
+  binding_status: string;
+  binding_startable: boolean;
+  supports_multiple_bindings: boolean;
+  disabled_reason?: string;
+  last_error?: string;
+  version: number;
+  updated_at?: string;
+};
+
 export type PublicModelProfile = {
   name: string;
   base_url: string;

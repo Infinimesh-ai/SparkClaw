@@ -21,7 +21,6 @@ import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
-import { sortNotificationBindings, isVisibleNotificationBinding } from "./lib/format";
 import { MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
 import type {
@@ -29,6 +28,7 @@ import type {
   ArtifactObject,
   AuditEvent,
   Client,
+  ConnectorStatus,
   EpisodeSummary,
   EvalRun,
   Memory,
@@ -65,6 +65,7 @@ export function App() {
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [notificationBindings, setNotificationBindings] = useState<NotificationBinding[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
   const [evalRuns, setEvalRuns] = useState<EvalRun[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactObject[]>([]);
   const [traceRun, setTraceRun] = useState<RunTrace | null>(null);
@@ -150,12 +151,13 @@ export function App() {
   });
 
   const refreshGlobal = useCallback(async () => {
-    const [readyStatus, configStatus, owner, clientList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
+    const [readyStatus, configStatus, owner, clientList, connectorList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
       await Promise.all([
         api.ready(),
         api.config(),
         api.owner(),
         api.clients(),
+        api.connectors(),
         api.notificationBindings(),
         api.approvals(),
         api.memoryCandidates(),
@@ -169,6 +171,7 @@ export function App() {
     setRuntimeConfig(configStatus);
     setOwnerProfile(owner);
     setClients(clientList.clients ?? []);
+    setConnectors(connectorList.connectors ?? []);
     setNotificationBindings(bindingList.bindings ?? []);
     setApprovals(approvalList.approvals);
     setCandidates(candidateList.memory_candidates);
@@ -278,14 +281,6 @@ export function App() {
 
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
-  const weixinBindings = useMemo(
-    () => sortNotificationBindings(notificationBindings.filter((binding) => binding.channel === "weixin" && isVisibleNotificationBinding(binding.status))),
-    [notificationBindings]
-  );
-  const telegramBindings = useMemo(
-    () => sortNotificationBindings(notificationBindings.filter((binding) => binding.channel === "telegram" && isVisibleNotificationBinding(binding.status))),
-    [notificationBindings]
-  );
   const active = sessions.find((session) => session.id === activeSession);
   const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
     let nextCaret = 0;
@@ -660,14 +655,15 @@ export function App() {
         runtimeConfig={runtimeConfig}
         ownerProfile={ownerProfile}
         clients={clients}
-        weixinBindings={weixinBindings}
-        telegramBindings={telegramBindings}
+        connectors={connectors}
+        notificationBindings={notificationBindings}
         onOpenTrace={(runId) => void openTrace(runId)}
         setError={setError}
         refreshGlobal={refreshGlobal}
         refreshActiveSession={() => refreshSession(activeSession)}
         setEvalRuns={setEvalRuns}
         setNotificationBindings={setNotificationBindings}
+        setConnectors={setConnectors}
         setRuntimeConfig={setRuntimeConfig}
         setOwnerProfile={setOwnerProfile}
       />

@@ -26,6 +26,7 @@ type MemoryStore struct {
 	approvals            map[string]app.Approval
 	reminders            map[string]app.Reminder
 	reminderDelivery     map[string]app.ReminderDelivery
+	connectorSettings    map[string]app.ConnectorSetting
 	notificationBindings map[string]app.NotificationBinding
 	externalChatSessions map[string]app.ExternalChatSession
 	externalChatMessages map[string]app.ExternalChatMessage
@@ -60,6 +61,7 @@ func NewMemoryStore() *MemoryStore {
 		approvals:            map[string]app.Approval{},
 		reminders:            map[string]app.Reminder{},
 		reminderDelivery:     map[string]app.ReminderDelivery{},
+		connectorSettings:    map[string]app.ConnectorSetting{},
 		notificationBindings: map[string]app.NotificationBinding{},
 		externalChatSessions: map[string]app.ExternalChatSession{},
 		externalChatMessages: map[string]app.ExternalChatMessage{},
@@ -97,6 +99,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		Approvals:            cloneMap(s.approvals),
 		Reminders:            cloneMap(s.reminders),
 		ReminderDelivery:     cloneMap(s.reminderDelivery),
+		ConnectorSettings:    cloneMap(s.connectorSettings),
 		NotificationBindings: cloneMap(s.notificationBindings),
 		ExternalChatSessions: cloneMap(s.externalChatSessions),
 		ExternalChatMessages: cloneMap(s.externalChatMessages),
@@ -142,6 +145,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.approvals = ensureMap(snapshot.Approvals)
 	s.reminders = ensureMap(snapshot.Reminders)
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
+	s.connectorSettings = ensureMap(snapshot.ConnectorSettings)
 	s.notificationBindings = ensureMap(snapshot.NotificationBindings)
 	for id, binding := range s.notificationBindings {
 		if strings.TrimSpace(binding.OwnerID) == "" {
@@ -1132,6 +1136,63 @@ func (s *MemoryStore) ListReminderDeliveries(reminderID string) []app.ReminderDe
 	return out
 }
 
+func (s *MemoryStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	setting, ok := s.connectorSettings[connectorSettingKey(ownerID, channel)]
+	return setting, ok
+}
+
+func (s *MemoryStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ownerID = normalizeConnectorOwner(ownerID)
+	out := []app.ConnectorSetting{}
+	for _, setting := range s.connectorSettings {
+		if setting.OwnerID == ownerID {
+			out = append(out, setting)
+		}
+	}
+	slices.SortFunc(out, func(a, b app.ConnectorSetting) int {
+		return strings.Compare(a.Channel, b.Channel)
+	})
+	return out
+}
+
+func (s *MemoryStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	setting.OwnerID = normalizeConnectorOwner(setting.OwnerID)
+	setting.Channel = normalizeConnectorChannel(setting.Channel)
+	if setting.Channel == "" || expectedVersion < 0 {
+		return app.ConnectorSetting{}, ErrConnectorSettingConflict
+	}
+	key := connectorSettingKey(setting.OwnerID, setting.Channel)
+	current, exists := s.connectorSettings[key]
+	if (!exists && expectedVersion != 0) || (exists && current.Version != expectedVersion) {
+		return app.ConnectorSetting{}, ErrConnectorSettingConflict
+	}
+	setting.Version = expectedVersion + 1
+	setting.UpdatedBy = strings.TrimSpace(setting.UpdatedBy)
+	if setting.UpdatedBy == "" {
+		setting.UpdatedBy = setting.OwnerID
+	}
+	setting.UpdatedAt = time.Now().UTC()
+	s.connectorSettings[key] = setting
+	state := "disabled"
+	if setting.Enabled {
+		state = "enabled"
+	}
+	s.appendAuditLocked("connector."+state, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
+		"owner_id": setting.OwnerID,
+		"channel":  setting.Channel,
+		"enabled":  setting.Enabled,
+		"version":  setting.Version,
+	})
+	s.appendEventLocked("connector."+state, "", "", setting)
+	return setting, nil
+}
+
 func (s *MemoryStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1170,6 +1231,22 @@ func (s *MemoryStore) SaveNotificationBinding(binding app.NotificationBinding) a
 	})
 	s.appendEventLocked("notification_binding."+binding.Status, "", "", binding)
 	return binding
+}
+
+func normalizeConnectorOwner(ownerID string) string {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return app.DefaultOwnerID
+	}
+	return ownerID
+}
+
+func normalizeConnectorChannel(channel string) string {
+	return strings.ToLower(strings.TrimSpace(channel))
+}
+
+func connectorSettingKey(ownerID, channel string) string {
+	return normalizeConnectorOwner(ownerID) + "\x1f" + normalizeConnectorChannel(channel)
 }
 
 func (s *MemoryStore) GetNotificationBinding(id string) (app.NotificationBinding, bool) {

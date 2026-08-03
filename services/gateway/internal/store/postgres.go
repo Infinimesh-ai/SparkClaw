@@ -254,6 +254,16 @@ CREATE TABLE IF NOT EXISTS reminder_deliveries (
 
 CREATE INDEX IF NOT EXISTS reminder_deliveries_reminder_id_idx ON reminder_deliveries (reminder_id);
 
+CREATE TABLE IF NOT EXISTS connector_settings (
+  owner_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  version BIGINT NOT NULL DEFAULT 1,
+  updated_by TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (owner_id, channel)
+);
+
 CREATE TABLE IF NOT EXISTS notification_bindings (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,
@@ -1800,6 +1810,101 @@ func (s *PostgresStore) ListReminderDeliveries(reminderID string) []app.Reminder
 	}
 	defer rows.Close()
 	return collectRows(rows, scanReminderDelivery)
+}
+
+func (s *PostgresStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT owner_id, channel, enabled, version, updated_by, updated_at
+		FROM connector_settings
+		WHERE owner_id = $1 AND channel = $2
+	`, normalizeConnectorOwner(ownerID), normalizeConnectorChannel(channel))
+	setting, err := scanConnectorSetting(row)
+	return setting, err == nil
+}
+
+func (s *PostgresStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
+	rows, err := s.db.Query(context.Background(), `
+		SELECT owner_id, channel, enabled, version, updated_by, updated_at
+		FROM connector_settings
+		WHERE owner_id = $1
+		ORDER BY channel ASC
+	`, normalizeConnectorOwner(ownerID))
+	if err != nil {
+		return []app.ConnectorSetting{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanConnectorSetting)
+}
+
+func (s *PostgresStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
+	setting.OwnerID = normalizeConnectorOwner(setting.OwnerID)
+	setting.Channel = normalizeConnectorChannel(setting.Channel)
+	setting.UpdatedBy = strings.TrimSpace(setting.UpdatedBy)
+	if setting.UpdatedBy == "" {
+		setting.UpdatedBy = setting.OwnerID
+	}
+	if setting.Channel == "" || expectedVersion < 0 {
+		return app.ConnectorSetting{}, ErrConnectorSettingConflict
+	}
+	ctx := context.Background()
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return app.ConnectorSetting{}, err
+	}
+	defer tx.Rollback(ctx)
+	var currentVersion int64
+	err = tx.QueryRow(ctx, `
+		SELECT version FROM connector_settings
+		WHERE owner_id = $1 AND channel = $2
+		FOR UPDATE
+	`, setting.OwnerID, setting.Channel).Scan(&currentVersion)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows) && expectedVersion != 0:
+		return app.ConnectorSetting{}, ErrConnectorSettingConflict
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		return app.ConnectorSetting{}, err
+	case err == nil && currentVersion != expectedVersion:
+		return app.ConnectorSetting{}, ErrConnectorSettingConflict
+	}
+	setting.Version = expectedVersion + 1
+	setting.UpdatedAt = time.Now().UTC()
+	if expectedVersion == 0 {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO connector_settings (owner_id, channel, enabled, version, updated_by, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt)
+	} else {
+		result, updateErr := tx.Exec(ctx, `
+			UPDATE connector_settings
+			SET enabled = $3, version = $4, updated_by = $5, updated_at = $6
+			WHERE owner_id = $1 AND channel = $2 AND version = $7
+		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt, expectedVersion)
+		err = updateErr
+		if err == nil && result.RowsAffected() != 1 {
+			return app.ConnectorSetting{}, ErrConnectorSettingConflict
+		}
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
+			return app.ConnectorSetting{}, ErrConnectorSettingConflict
+		}
+		return app.ConnectorSetting{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.ConnectorSetting{}, err
+	}
+	state := "disabled"
+	if setting.Enabled {
+		state = "enabled"
+	}
+	s.appendAudit(ctx, "connector."+state, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
+		"owner_id": setting.OwnerID,
+		"channel":  setting.Channel,
+		"enabled":  setting.Enabled,
+		"version":  setting.Version,
+	})
+	s.appendEvent(ctx, "connector."+state, "", "", setting)
+	return setting, nil
 }
 
 func (s *PostgresStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {
@@ -3400,6 +3505,12 @@ func scanReminderDelivery(row scanner) (app.ReminderDelivery, error) {
 		&delivery.Status, &delivery.ProviderStatus, &delivery.Error, &delivery.RetryState, &delivery.Attempt,
 		&delivery.SentAt, &delivery.CreatedAt)
 	return delivery, err
+}
+
+func scanConnectorSetting(row scanner) (app.ConnectorSetting, error) {
+	var setting app.ConnectorSetting
+	err := row.Scan(&setting.OwnerID, &setting.Channel, &setting.Enabled, &setting.Version, &setting.UpdatedBy, &setting.UpdatedAt)
+	return setting, err
 }
 
 func scanNotificationBinding(row scanner) (app.NotificationBinding, error) {

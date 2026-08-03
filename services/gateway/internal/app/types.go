@@ -149,6 +149,18 @@ type NotificationBinding struct {
 	LastError         string     `json:"last_error,omitempty"`
 }
 
+// ConnectorSetting is the owner's explicit opt-in for a third-party message
+// channel. Account bindings remain separate so disabling a channel does not
+// silently delete encrypted credentials or account setup.
+type ConnectorSetting struct {
+	OwnerID   string    `json:"owner_id"`
+	Channel   string    `json:"channel"`
+	Enabled   bool      `json:"enabled"`
+	Version   int64     `json:"version"`
+	UpdatedBy string    `json:"updated_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type ExternalChatSession struct {
 	ID                string    `json:"id"`
 	OwnerID           string    `json:"owner_id,omitempty"`

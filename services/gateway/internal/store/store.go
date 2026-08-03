@@ -9,6 +9,7 @@ import (
 
 var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
 var ErrBrowserHandoffConflict = errors.New("browser handoff changed or is no longer available")
+var ErrConnectorSettingConflict = errors.New("connector setting changed")
 
 type Store interface {
 	CreateSession(title string) app.Session
@@ -57,6 +58,9 @@ type Store interface {
 	ClaimDueReminders(now, staleBefore time.Time, limit int) []app.Reminder
 	SaveReminderDelivery(delivery app.ReminderDelivery) app.ReminderDelivery
 	ListReminderDeliveries(reminderID string) []app.ReminderDelivery
+	GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool)
+	ListConnectorSettings(ownerID string) []app.ConnectorSetting
+	UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error)
 	SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding
 	GetNotificationBinding(id string) (app.NotificationBinding, bool)
 	ListNotificationBindings(channel, status string) []app.NotificationBinding

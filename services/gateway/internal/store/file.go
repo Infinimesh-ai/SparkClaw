@@ -48,6 +48,7 @@ type Snapshot struct {
 	Approvals            map[string]app.Approval              `json:"approvals"`
 	Reminders            map[string]app.Reminder              `json:"reminders"`
 	ReminderDelivery     map[string]app.ReminderDelivery      `json:"reminder_delivery"`
+	ConnectorSettings    map[string]app.ConnectorSetting      `json:"connector_settings,omitempty"`
 	NotificationBindings map[string]app.NotificationBinding   `json:"notification_bindings"`
 	ExternalChatSessions map[string]app.ExternalChatSession   `json:"external_chat_sessions,omitempty"`
 	ExternalChatMessages map[string]app.ExternalChatMessage   `json:"external_chat_messages,omitempty"`
@@ -336,6 +337,22 @@ func (s *FileStore) SaveReminderDelivery(delivery app.ReminderDelivery) app.Remi
 
 func (s *FileStore) ListReminderDeliveries(reminderID string) []app.ReminderDelivery {
 	return s.inner.ListReminderDeliveries(reminderID)
+}
+
+func (s *FileStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
+	return s.inner.GetConnectorSetting(ownerID, channel)
+}
+
+func (s *FileStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
+	return s.inner.ListConnectorSettings(ownerID)
+}
+
+func (s *FileStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
+	out, err := s.inner.UpdateConnectorSetting(setting, expectedVersion)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
 }
 
 func (s *FileStore) SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding {

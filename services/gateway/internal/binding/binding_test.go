@@ -230,8 +230,8 @@ func TestRouterTelegramCapabilityAllowsMultipleBindings(t *testing.T) {
 	channel.Enabled = false
 	cfg.Tools.Notifications.Channels["telegram"] = channel
 	capability = NewRouter(cfg, vault).Capability("telegram", nil)
-	if capability.OperatorEnabled || capability.DisabledReason != CodeOperatorDisabled {
-		t.Fatalf("operator kill switch mismatch: %#v", capability)
+	if capability.OperatorEnabled || capability.DisabledReason != CodeUserDisabled {
+		t.Fatalf("user opt-in mismatch: %#v", capability)
 	}
 
 	missingKeyCfg := config.Default()

@@ -31,6 +31,7 @@ type StartOptions struct {
 const (
 	CodeConnectorUnavailable = "connector_unavailable"
 	CodeOperatorDisabled     = "operator_disabled"
+	CodeUserDisabled         = "connector_disabled"
 	CodeBindingInProgress    = "binding_in_progress"
 	CodeBindingActive        = "binding_active"
 	CodeInvalidBotToken      = "invalid_bot_token"
@@ -50,6 +51,8 @@ func (e *BindingError) Error() string {
 		return "connector is unavailable"
 	case CodeOperatorDisabled:
 		return "connector is disabled by the operator"
+	case CodeUserDisabled:
+		return "connector is disabled"
 	case CodeBindingInProgress:
 		return "a binding is already waiting for confirmation"
 	case CodeBindingActive:
@@ -118,8 +121,9 @@ type Adapter interface {
 }
 
 type Router struct {
-	adapters map[string]Adapter
-	configs  map[string]config.NotificationChannelConfig
+	adapters       map[string]Adapter
+	configs        map[string]config.NotificationChannelConfig
+	channelEnabled func(ownerID, channel string) bool
 }
 
 const bindingSessionTTL = 365 * 24 * time.Hour
@@ -176,10 +180,19 @@ func (r Router) WithAdapter(channel string, adapter Adapter) Router {
 	return r
 }
 
+func (r Router) WithChannelEnabled(enabled func(ownerID, channel string) bool) Router {
+	r.channelEnabled = enabled
+	return r
+}
+
 func (r Router) Start(ctx context.Context, binding app.NotificationBinding, options ...StartOptions) (app.NotificationBinding, error) {
-	adapter, ok := r.adapters[strings.ToLower(strings.TrimSpace(binding.Channel))]
+	channel := strings.ToLower(strings.TrimSpace(binding.Channel))
+	adapter, ok := r.adapters[channel]
 	if !ok {
 		return app.NotificationBinding{}, &BindingError{Code: CodeConnectorUnavailable}
+	}
+	if r.channelEnabled != nil && !r.channelEnabled(binding.OwnerID, channel) {
+		return app.NotificationBinding{}, &BindingError{Code: CodeUserDisabled}
 	}
 	var startOptions StartOptions
 	if len(options) > 0 {
@@ -189,20 +202,28 @@ func (r Router) Start(ctx context.Context, binding app.NotificationBinding, opti
 }
 
 func (r Router) Capability(channel string, bindings []app.NotificationBinding) ConnectorCapability {
+	return r.CapabilityForOwner(app.DefaultOwnerID, channel, bindings)
+}
+
+func (r Router) CapabilityForOwner(ownerID, channel string, bindings []app.NotificationBinding) ConnectorCapability {
 	channel = strings.ToLower(strings.TrimSpace(channel))
 	cfg, configured := r.configs[channel]
 	adapter, available := r.adapters[channel]
+	enabled := cfg.Enabled
+	if r.channelEnabled != nil {
+		enabled = r.channelEnabled(ownerID, channel)
+	}
 	capability := ConnectorCapability{
 		Channel:         channel,
 		Provider:        strings.ToLower(strings.TrimSpace(cfg.Provider)),
 		Available:       configured && available,
-		OperatorEnabled: cfg.Enabled,
+		OperatorEnabled: enabled,
 		BindingStatus:   currentBindingStatus(bindings),
 	}
 	if !capability.Available {
 		capability.DisabledReason = CodeConnectorUnavailable
 	} else if !capability.OperatorEnabled {
-		capability.DisabledReason = CodeOperatorDisabled
+		capability.DisabledReason = CodeUserDisabled
 	} else if err := adapter.Availability(); err != nil {
 		capability.DisabledReason = availabilityErrorCode(err)
 	} else if adapter.Policy().ExclusiveBinding && (capability.BindingStatus == "waiting_confirm" || capability.BindingStatus == "waiting_scan") {
@@ -261,9 +282,6 @@ func (a *TelegramAdapter) Policy() AdapterPolicy {
 }
 
 func (a *TelegramAdapter) Start(ctx context.Context, binding app.NotificationBinding, options StartOptions) (app.NotificationBinding, error) {
-	if !a.cfg.Enabled {
-		return app.NotificationBinding{}, &BindingError{Code: CodeOperatorDisabled}
-	}
 	if a.vault == nil {
 		return app.NotificationBinding{}, &credential.Error{Code: credential.CodeKeyUnavailable}
 	}

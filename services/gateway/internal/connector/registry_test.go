@@ -70,7 +70,7 @@ func TestRegistryBuildsCapabilityRoutersAndRunsEnabledConnectors(t *testing.T) {
 		t.Fatalf("unexpected enabled capability: %#v", alpha)
 	}
 	beta := bindingRouter.Capability("beta", nil)
-	if !beta.Available || beta.OperatorEnabled || beta.Startable || beta.DisabledReason != binding.CodeOperatorDisabled {
+	if !beta.Available || beta.OperatorEnabled || beta.Startable || beta.DisabledReason != binding.CodeUserDisabled {
 		t.Fatalf("unexpected disabled capability: %#v", beta)
 	}
 

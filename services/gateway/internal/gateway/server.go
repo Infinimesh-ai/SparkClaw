@@ -65,6 +65,7 @@ type Server struct {
 	delivery      *delivery.Gateway
 	endpoints     *messagecontrol.EndpointRegistry
 	providers     *delivery.ProviderRegistry
+	connectors    ConnectorController
 	bridge        *iscpbridge.GatewayAdapter
 	deliveryMu    sync.Mutex
 	bindingsSet   bool
@@ -78,6 +79,18 @@ type Server struct {
 }
 
 type Option func(*Server)
+
+type ConnectorController interface {
+	ListStatus(ownerID string) []app.ConnectorStatus
+	Status(ownerID, channel string) (app.ConnectorStatus, error)
+	SetEnabled(ctx context.Context, ownerID, actorID, channel string, enabled bool, expectedVersion int64) (app.ConnectorStatus, error)
+}
+
+func WithConnectorController(controller ConnectorController) Option {
+	return func(server *Server) {
+		server.connectors = controller
+	}
+}
 
 func WithSpeechTranscriber(transcriber speech.Transcriber) Option {
 	return func(server *Server) {
@@ -239,6 +252,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/pairing/start", s.startPairing)
 	s.mux.HandleFunc("POST /api/pairing/claim", s.claimPairing)
 	s.mux.HandleFunc("GET /api/notification-bindings", s.listNotificationBindings)
+	s.mux.HandleFunc("GET /api/connectors", s.listConnectors)
+	s.mux.HandleFunc("PATCH /api/connectors/{channel}", s.updateConnector)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
 	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
 	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)
@@ -425,6 +440,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
+	principal := principalForRequest(r)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"gateway":     publicGatewayConfig(s.cfg.Gateway),
 		"model":       publicModelConfig(s.cfg.Model),
@@ -435,7 +451,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"storage":     publicStorageConfig(s.cfg.Storage),
 		"state":       publicStateConfig(s.cfg.State),
 		"adapters":    publicAdapterConfig(s.cfg.Adapters),
-		"tools":       s.publicToolsConfig(),
+		"tools":       s.publicToolsConfig(principal.OwnerID),
 		"memory":      s.cfg.Memory,
 		"runtime":     s.cfg.Runtime,
 		"tool_policy": toolPolicySummary(s.cfg.Security, s.tools.Definitions()),
@@ -720,6 +736,47 @@ func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (s *Server) listConnectors(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
+	principal := principalForRequest(r)
+	writeJSON(w, http.StatusOK, map[string]any{"connectors": s.connectors.ListStatus(principal.OwnerID)})
+}
+
+func (s *Server) updateConnector(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+		return
+	}
+	channel := strings.ToLower(strings.TrimSpace(r.PathValue("channel")))
+	if channel == "" {
+		writeError(w, http.StatusBadRequest, errors.New("channel is required"))
+		return
+	}
+	var input struct {
+		Enabled         *bool  `json:"enabled"`
+		ExpectedVersion *int64 `json:"expected_version"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := readJSON(r, &input); err != nil || input.Enabled == nil || input.ExpectedVersion == nil || *input.ExpectedVersion < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("enabled and a non-negative expected_version are required"))
+		return
+	}
+	principal := principalForRequest(r)
+	status, err := s.connectors.SetEnabled(r.Context(), principal.OwnerID, principal.ActorID, channel, *input.Enabled, *input.ExpectedVersion)
+	if err != nil {
+		httpStatus := http.StatusBadRequest
+		if errors.Is(err, store.ErrConnectorSettingConflict) {
+			httpStatus = http.StatusConflict
+		}
+		writeError(w, httpStatus, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
 func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request) {
 	channel := strings.ToLower(strings.TrimSpace(r.PathValue("channel")))
 	if channel == "" {
@@ -738,13 +795,13 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	capability := s.bindings.Capability(channel, s.store.ListNotificationBindings(channel, ""))
+	principal := principalForRequest(r)
+	capability := s.bindings.CapabilityForOwner(principal.OwnerID, channel, s.store.ListNotificationBindings(channel, ""))
 	if !capability.Startable {
 		writeError(w, connectorStartStatus(capability.DisabledReason), &binding.BindingError{Code: capability.DisabledReason})
 		return
 	}
 	now := time.Now().UTC()
-	principal := principalForRequest(r)
 	pendingBinding := app.NotificationBinding{
 		ID:                app.NewID("bind"),
 		OwnerID:           principal.OwnerID,
@@ -2395,6 +2452,8 @@ func connectorStartStatus(code string) int {
 	switch code {
 	case binding.CodeOperatorDisabled:
 		return http.StatusForbidden
+	case binding.CodeUserDisabled:
+		return http.StatusConflict
 	case binding.CodeBindingInProgress, binding.CodeBindingActive:
 		return http.StatusConflict
 	case binding.CodeConnectorUnavailable:
@@ -2511,7 +2570,7 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 	}
 }
 
-func (s *Server) publicToolsConfig() map[string]any {
+func (s *Server) publicToolsConfig(ownerID string) map[string]any {
 	cfg := s.cfg
 	notificationChannels := map[string]any{}
 	for name, channel := range cfg.Tools.Notifications.Channels {
@@ -2522,12 +2581,22 @@ func (s *Server) publicToolsConfig() map[string]any {
 			"token_configured": strings.TrimSpace(channel.Token) != "",
 			"recipient_set":    strings.TrimSpace(channel.Recipient) != "",
 		}
-		capability := s.bindings.Capability(name, s.store.ListNotificationBindings(name, ""))
+		capability := s.bindings.CapabilityForOwner(ownerID, name, s.store.ListNotificationBindings(name, ""))
 		publicChannel["available"] = capability.Available
 		publicChannel["operator_enabled"] = capability.OperatorEnabled
 		publicChannel["binding_status"] = capability.BindingStatus
 		publicChannel["startable"] = capability.Startable
 		publicChannel["disabled_reason"] = capability.DisabledReason
+		if s.connectors != nil {
+			if status, err := s.connectors.Status(ownerID, name); err == nil {
+				publicChannel["enabled"] = status.Enabled
+				publicChannel["operator_enabled"] = true
+				publicChannel["available"] = status.Available
+				publicChannel["binding_status"] = status.BindingStatus
+				publicChannel["startable"] = status.BindingStartable
+				publicChannel["disabled_reason"] = status.DisabledReason
+			}
+		}
 		notificationChannels[name] = publicChannel
 	}
 	return map[string]any{

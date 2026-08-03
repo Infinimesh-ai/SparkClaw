@@ -128,6 +128,34 @@ func TestEndpointRegistryDirectSendRejectsBindingFallback(t *testing.T) {
 	}
 }
 
+func TestEndpointRegistryHidesDisabledConnectorEndpoints(t *testing.T) {
+	st := store.NewMemoryStore()
+	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
+	enabled := false
+	registry := NewEndpointRegistry(st).WithChannelEnabled(func(ownerID, channel string) bool {
+		return enabled && ownerID == "owner-a" && channel == "telegram"
+	})
+	if endpoints, err := registry.List(t.Context(), "owner-a", "actor-a"); err != nil || len(endpoints) != 0 {
+		t.Fatalf("disabled connector endpoints remained visible: %#v err=%v", endpoints, err)
+	}
+	_, err := registry.Get(t.Context(), "chat-a")
+	if errorCode := targetErrorCode(err); errorCode != CodeConnectorDisabled {
+		t.Fatalf("disabled connector get error = %q (%v)", errorCode, err)
+	}
+	enabled = true
+	if endpoints, err := registry.List(t.Context(), "owner-a", "actor-a"); err != nil || len(endpoints) != 1 || endpoints[0].ID != "chat-a" {
+		t.Fatalf("enabled connector endpoint missing: %#v err=%v", endpoints, err)
+	}
+}
+
+func targetErrorCode(err error) string {
+	var targetErr *TargetError
+	if errors.As(err, &targetErr) {
+		return targetErr.Code
+	}
+	return ""
+}
+
 func saveEndpointFixture(st *store.MemoryStore, bindingID, chatID, ownerID, actorID, channel, displayName, externalUserID, externalChatID string, scopes []string) {
 	st.SaveNotificationBinding(app.NotificationBinding{
 		ID: bindingID, OwnerID: ownerID, ActorID: actorID, Channel: channel, Provider: channel + "-provider",

@@ -41,7 +41,7 @@ func newConnectorAssembly(
 	vault := credential.New(st, credential.Options{
 		Key:        cfg.State.CredentialKey,
 		KeyFile:    cfg.State.CredentialKeyFile,
-		AutoCreate: telegramConfig.Enabled,
+		AutoCreate: true,
 	})
 	if telegramConfig.Enabled {
 		if err := vault.Ready(); err != nil {
@@ -49,7 +49,8 @@ func newConnectorAssembly(
 		}
 	}
 
-	registry := connector.NewRegistry(cfg)
+	registry := connector.NewRegistry(cfg, st)
+	endpoints.WithChannelEnabled(registry.Enabled)
 	providers, err := registry.ProviderRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("assemble delivery providers: %w", err)
@@ -65,10 +66,11 @@ func newConnectorAssembly(
 		telegram.NewDispatcher(st, runtime, cfg, telegramSpeechTranscriber{transcriber: transcriber}).WithResultDeliverer(resultDeliverer),
 	)
 	if err := registry.Register(connector.Registration{
-		Channel:  "telegram",
-		Binding:  binding.NewTelegramAdapter("telegram", telegramConfig, vault),
-		Provider: telegramNotifications,
-		Runtime:  telegramService,
+		Channel:   "telegram",
+		SetupKind: app.ConnectorSetupSecret,
+		Binding:   binding.NewTelegramAdapter("telegram", telegramConfig, vault),
+		Provider:  telegramNotifications,
+		Runtime:   telegramService,
 		CancelBinding: func(record app.NotificationBinding) {
 			telegramService.CancelBinding(record.ID)
 		},
@@ -82,10 +84,11 @@ func newConnectorAssembly(
 		WithDispatcher(weixin.NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(resultDeliverer))
 	weixinNotifications := notification.NewWeixinAdapter("weixin", weixinConfig, st)
 	if err := registry.Register(connector.Registration{
-		Channel:  "weixin",
-		Binding:  binding.NewWeixinAdapter("weixin", weixinConfig),
-		Provider: weixinNotifications,
-		Runtime:  weixinSyncer,
+		Channel:   "weixin",
+		SetupKind: app.ConnectorSetupQR,
+		Binding:   binding.NewWeixinAdapter("weixin", weixinConfig),
+		Provider:  weixinNotifications,
+		Runtime:   weixinSyncer,
 	}); err != nil {
 		return nil, fmt.Errorf("register Weixin connector: %w", err)
 	}

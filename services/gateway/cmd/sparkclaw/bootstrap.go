@@ -56,6 +56,7 @@ func newGatewayServices(
 			gateway.WithSpeechTranscriber(transcriber),
 			gateway.WithCredentialVault(connectors.credentials),
 			gateway.WithBindingRouter(connectors.registry.BindingRouter()),
+			gateway.WithConnectorController(connectors.registry),
 			gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 		),

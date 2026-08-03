@@ -66,9 +66,6 @@ func (s *Service) WithClientFactory(factory ClientFactory) *Service {
 }
 
 func (s *Service) Run(ctx context.Context) error {
-	if !s.cfg.Enabled {
-		return nil
-	}
 	if s.store == nil || s.dispatcher == nil || s.clientFactory == nil {
 		return errors.New("Telegram service dependencies are incomplete")
 	}

@@ -87,6 +87,7 @@ func (e DeliveryError) Retryable() bool    { return e.State == "retryable" }
 
 const (
 	CodeBindingUnavailable  = "delivery_binding_unavailable"
+	CodeConnectorDisabled   = "delivery_connector_disabled"
 	CodeScopeDenied         = "delivery_scope_denied"
 	CodeCrossUserDenied     = "delivery_cross_user_denied"
 	CodePartUnsupported     = "delivery_part_unsupported"

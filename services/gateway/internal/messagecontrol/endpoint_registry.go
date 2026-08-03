@@ -19,11 +19,17 @@ type endpointStore interface {
 }
 
 type EndpointRegistry struct {
-	store endpointStore
+	store          endpointStore
+	channelEnabled func(ownerID, channel string) bool
 }
 
 func NewEndpointRegistry(st endpointStore) *EndpointRegistry {
 	return &EndpointRegistry{store: st}
+}
+
+func (r *EndpointRegistry) WithChannelEnabled(enabled func(ownerID, channel string) bool) *EndpointRegistry {
+	r.channelEnabled = enabled
+	return r
 }
 
 func WebEndpointID(sessionID string) app.EndpointID {
@@ -78,6 +84,9 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
+	if !r.connectorEnabled(ownerID, providerKey) {
+		return app.MessageEndpoint{}, newTargetError(CodeConnectorDisabled, "delivery connector is disabled")
+	}
 	return app.MessageEndpoint{
 		ID:                   id,
 		OwnerID:              ownerID,
@@ -117,6 +126,9 @@ func (r *EndpointRegistry) endpointForChat(id app.EndpointID, chat app.ExternalC
 	actorID := firstEndpointValue(chat.AuthorizedActorID, binding.ActorID, ownerID)
 	if ownerID == "" || actorID == "" {
 		return app.MessageEndpoint{}, newTargetError(CodeCrossUserDenied, "delivery endpoint authorization is incomplete")
+	}
+	if !r.connectorEnabled(ownerID, providerKey) {
+		return app.MessageEndpoint{}, newTargetError(CodeConnectorDisabled, "delivery connector is disabled")
 	}
 	accountName := firstEndpointValue(binding.DisplayName, binding.AccountID, providerKey)
 	recipientName := firstEndpointValue(chat.DisplayName, "Recipient")
@@ -284,6 +296,7 @@ func (r *EndpointRegistry) GetForDirectSend(_ context.Context, id app.EndpointID
 
 const (
 	CodeBindingUnavailable = "delivery_binding_unavailable"
+	CodeConnectorDisabled  = "delivery_connector_disabled"
 	CodeScopeDenied        = "delivery_scope_denied"
 	CodeCrossUserDenied    = "delivery_cross_user_denied"
 )
@@ -297,6 +310,10 @@ func (e *TargetError) Error() string     { return e.Message }
 func (e *TargetError) ErrorCode() string { return e.Code }
 
 func newTargetError(code, message string) error { return &TargetError{Code: code, Message: message} }
+
+func (r *EndpointRegistry) connectorEnabled(ownerID, channel string) bool {
+	return r.channelEnabled == nil || r.channelEnabled(ownerID, channel)
+}
 
 func bindingUsable(binding app.NotificationBinding, now time.Time) bool {
 	return binding.Status == string(app.EndpointActive) && binding.RevokedAt == nil && (binding.ExpiresAt == nil || binding.ExpiresAt.After(now))

@@ -4,7 +4,7 @@
 
 **Reliable local agent runtime for DGX Spark.**
 
-SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape is a full single-machine dual-lane stack: a responsive `fast` MoE lane, a dense `deep` lane for harder or higher-risk work, and a resident embedding endpoint for semantic routing.
+SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape uses one responsive `fast` MoE chat model, plus resident embedding and guard endpoints. The `deep` model is temporarily excluded from the default product runtime.
 
 The project is past the initial planning stage. This README is the entry point;
 the [documentation index](docs/index.md) lists the complete current set. Start
@@ -25,7 +25,7 @@ Implemented and validated:
 
 - Go Gateway API with health, readiness, direct chat, sessions, messages, events, tools, approvals, memories, traces, artifacts, eval reports, feedback, client pairing, token auth and rate limiting.
 - Agent Runtime with a Catalog-derived semantic graph, full-candidate embedding and Fast/Tree score fusion, deterministic Top-2 and one-leaf Workflow dispatch, grounded execution, repair, and trace snapshots.
-- Single-machine `dual-light-v1` model profile for NVIDIA GB10: `fast` and `deep` chat lanes plus embedding resident together, with explicit context, KV cache and sequence caps.
+- Single-machine `single-fast-v1` product profile for NVIDIA GB10: one `fast` chat model plus embedding and guard, with the logical deep Workflow profile routed to the same Fast endpoint.
 - ToolHub with JSON-schema-validated tools for files, memory, browser access, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application and sensitive memory writes.
 - File, browser and external adapter observations are treated as untrusted data and are summarized before being used for answers.
@@ -38,8 +38,8 @@ Implemented and validated:
 Known operating boundary:
 
 - On the validated GB10 machine, full 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
-- The validated single-machine residency profile is `dual-light-v1`: fast runs at 32K context with 8G KV cache, deep runs at 64K context with 12G KV cache, both with MTP off. Deep is intentionally slower because it is a dense model; broader product acceptance still depends on a current capability-aligned end-to-end matrix.
-- Gateway, not the `fast` model, decides which chat lane to call. It routes code, terminal, dangerous, repair or explicitly deep/review requests to `deep`; routine bounded work goes to `fast`, with deep fallback only if a fast call fails.
+- The current single-machine product profile is `single-fast-v1`: fast runs at 32K context with an 8G KV cache and MTP off; embedding and guard retain their bounded auxiliary profiles. The historical `dual-light-v1` measurements remain as evidence, not as the startup default.
+- Gateway still records its logical fast/deep Workflow choice, but both chat profiles resolve to `sparkclaw-fast` in the current deployment configuration. No `sparkclaw-deep` model process is started.
 - Workflow capabilities are the only execution path; see the [Workflow capability matrix](docs/workflow-capabilities.md) for the current capability surface.
 
 ## Quick Start
@@ -125,14 +125,14 @@ The npm workspace root is intentionally marked `private` to prevent accidental p
 
 ## DGX Spark Models
 
-For the current full local-model path, start the validated single-machine residency profile first:
+For the current local-model path, start the single-Fast product profile first:
 
 ```bash
-scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-`dual-light` starts all resident product model services: `fast`, `deep`, and embedding. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat in `external/postgres` mode and fails if Gateway is not ready.
+`single-fast` stops any old `sparkclaw-deep` container and starts only the `fast`, embedding, and guard model services. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat with `docker/env/sparkclaw.single-fast.env`, which maps both logical chat profiles to `sparkclaw-fast` and fails if Gateway is not ready.
 
 Other serving entrypoints are available for targeted tests and controls:
 
@@ -141,6 +141,7 @@ scripts/serve_fast.sh
 scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
+scripts/serve_models_compose.sh dual-light
 scripts/serve_models_compose.sh dual-light-chat
 scripts/serve_models_compose.sh embedding
 ```
@@ -153,7 +154,7 @@ Default served lanes:
 | deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 
-The validated single-machine residency profile is intentionally conservative: `fast` is the responsive MoE lane, `deep` is the dense stability/quality lane, MTP is off, and embedding uses a small explicit KV budget so the current model stack fits. `dual-light-chat` is only for chat-lane controls without the embedding endpoint.
+The current single-machine product profile is intentionally conservative: only `fast` serves chat, MTP is off, and embedding and guard use small explicit KV budgets. Deep and dual-light commands remain available only for targeted tests and historical comparisons.
 
 Loading strategy lives in [docs/model-loading.md](docs/model-loading.md). Benchmark evidence, endpoint snapshots and operating notes live in [benchmarks/model_baseline.md](benchmarks/model_baseline.md).
 

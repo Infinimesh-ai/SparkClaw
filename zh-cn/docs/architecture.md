@@ -124,7 +124,9 @@ variant，不压缩本轮 observations。
 | `guard` | routing 或 tool execution 前执行 prompt moderation 的专用 Qwen3Guard |
 | `mock` | 确定性本地开发/eval |
 
-Gateway 选择 lane，模型输出不能自选。加载和容量策略见[模型加载](model-loading.md)。
+Gateway 选择逻辑 lane，模型输出不能自选。当前 `single-fast-v1` 部署把两个逻辑 chat
+profiles 都解析到 Fast endpoint，因此不会加载 Deep 模型进程；为保持 Workflow 兼容，
+trace 中仍保留 lane 标签。加载和容量策略见[模型加载](model-loading.md)。
 
 ### Message Control 与 Delivery
 

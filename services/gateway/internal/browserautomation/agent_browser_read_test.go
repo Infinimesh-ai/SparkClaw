@@ -12,10 +12,13 @@ import (
 )
 
 func TestAgentBrowserToolAllowlistUsesNativeReadWithoutEvaluation(t *testing.T) {
-	for _, name := range []string{"agent_browser_read", "agent_browser_get_text", "agent_browser_snapshot"} {
+	for _, name := range []string{"agent_browser_read", "agent_browser_get_text", "agent_browser_snapshot", "agent_browser_reload"} {
 		if _, ok := requiredAgentBrowserTools[name]; !ok {
 			t.Fatalf("native browser tool %q is missing from the adapter allowlist", name)
 		}
+	}
+	if agentBrowserMCPToolsProfile != "core,tabs" {
+		t.Fatalf("agent-browser MCP profile must include native reload support: %q", agentBrowserMCPToolsProfile)
 	}
 	if _, ok := requiredAgentBrowserTools["agent_browser_eval"]; ok {
 		t.Fatal("browser evaluation must not be available through the SparkClaw adapter")

@@ -31,7 +31,7 @@ func TestBrowserValidateTransitionAcceptsBoundChangedSnapshots(t *testing.T) {
 }
 
 func TestBrowserAssessGoalAcceptsCurrentSnapshotEvidence(t *testing.T) {
-	for _, verdict := range []string{"satisfied", "success"} {
+	for _, verdict := range []string{"satisfied", "success", "succeeded"} {
 		t.Run(verdict, func(t *testing.T) {
 			st, hub := newBrowserVerificationHub()
 			seedBrowserVerificationCycle(st, "session", "run", 1, "before", "after")
@@ -52,6 +52,65 @@ func TestBrowserAssessGoalAcceptsCurrentSnapshotEvidence(t *testing.T) {
 	}
 }
 
+func TestBrowserAssessGoalTreatsInitialClickableEvidenceAsProgress(t *testing.T) {
+	st, hub := newBrowserVerificationHub()
+	ref := browserVerificationRef(1)
+	call := browserVerificationSnapshotCall("session", "run", 1, "", "inbox", "inbox", ref)
+	result := call.Result.(browserautomation.Result)
+	snapshot := result.Output.(map[string]any)["snapshot"].(map[string]any)
+	snapshot["controls"] = []any{map[string]any{
+		"ref": ref, "role": "generic", "accessible_name": "Drafts",
+	}}
+	snapshot["action_refs"] = []string{ref}
+	call.Result = result
+	st.SaveToolCall(call)
+
+	assessment, err := hub.Execute(context.Background(), "browser.assess_goal", map[string]any{
+		"snapshot_id": "snapshot_1", "verdict": "succeeded",
+		"evidence_refs": []string{ref}, "reason": "Drafts is available in the sidebar",
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := assessment.Output.(map[string]any)
+	if output["status"] != "progress" || output["code"] != "action_required" || output["goal_satisfied"] != false {
+		t.Fatalf("initial actionable evidence was accepted as completion: %#v", output)
+	}
+}
+
+func TestBrowserAssessGoalUsesLatestSnapshotWhenLegacyIDsCollide(t *testing.T) {
+	st, hub := newBrowserVerificationHub()
+	ref := browserVerificationRef(1)
+	hidden := browserVerificationSnapshotCall("session", "run", 1, "", "inbox", "inbox", ref)
+	st.SaveToolCall(hidden)
+	st.SaveToolCall(app.ToolCall{
+		ID: "click_hidden", SessionID: "session", RunID: "run", Tool: "browser.click", Status: "completed",
+		Arguments: map[string]any{"snapshot_id": "snapshot_1", "uid": ref, "page_id": "page_1"},
+		StartedAt: browserVerificationCallTime(3),
+	})
+	visible := browserVerificationSnapshotCall("session", "run", 1, "", "drafts", "drafts", ref)
+	visible.ID = "call_visible_snapshot"
+	visible.StartedAt = browserVerificationCallTime(4)
+	visibleResult := visible.Result.(browserautomation.Result)
+	visibleSnapshot := visibleResult.Output.(map[string]any)["snapshot"].(map[string]any)
+	visibleSnapshot["session_generation"] = uint64(8)
+	visibleSnapshot["action_refs"] = []string{ref}
+	visible.Result = visibleResult
+	st.SaveToolCall(visible)
+
+	assessment, err := hub.Execute(context.Background(), "browser.assess_goal", map[string]any{
+		"snapshot_id": "snapshot_1", "verdict": "succeeded",
+		"evidence_refs": []string{ref}, "reason": "current route and content prove the drafts view",
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := assessment.Output.(map[string]any)
+	if output["status"] != "succeeded" || output["session_generation"] != uint64(8) || output["click_count"] != 1 {
+		t.Fatalf("legacy snapshot collision did not bind the latest visible state: %#v", output)
+	}
+}
+
 func TestBrowserValidateTransitionRejectsRepeatedState(t *testing.T) {
 	st, hub := newBrowserVerificationHub()
 	seedBrowserVerificationCycle(st, "session", "run", 1, "same", "same")
@@ -62,6 +121,19 @@ func TestBrowserValidateTransitionRejectsRepeatedState(t *testing.T) {
 	}, "session", "run")
 	if err == nil || !strings.Contains(err.Error(), "no new page state") {
 		t.Fatalf("repeated state did not fail closed: %v", err)
+	}
+}
+
+func TestBrowserValidateTransitionRejectsRouteOnlyChange(t *testing.T) {
+	st, hub := newBrowserVerificationHub()
+	seedBrowserVerificationCycle(st, "session", "run", 1, "inbox-route", "drafts-route", "same-content", "same-content")
+
+	_, err := hub.Execute(context.Background(), "browser.validate_transition", map[string]any{
+		"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2",
+		"element_ref": browserVerificationRef(1),
+	}, "session", "run")
+	if err == nil || !strings.Contains(err.Error(), "no new page state") {
+		t.Fatalf("route-only transition did not fail closed: %v", err)
 	}
 }
 
@@ -104,7 +176,7 @@ func TestBrowserInteractionClickRejectsUnsafeControlBeforeAdapter(t *testing.T) 
 		Workflow: &app.WorkflowState{Plan: app.WorkflowPlan{ProfileID: app.WorkflowBrowserInteraction}},
 	})
 	ref := browserVerificationRef(1)
-	call := browserVerificationSnapshotCall("session", "run", 1, "", "state", ref)
+	call := browserVerificationSnapshotCall("session", "run", 1, "", "state", "state", ref)
 	result := call.Result.(browserautomation.Result)
 	payload := result.Output.(map[string]any)["snapshot"].(map[string]any)
 	payload["controls"] = []any{map[string]any{"ref": ref, "role": "button", "accessible_name": "Delete account"}}
@@ -129,22 +201,26 @@ func newBrowserVerificationHub() (*store.MemoryStore, *ToolHub) {
 	return st, New(cfg, st)
 }
 
-func seedBrowserVerificationCycle(st *store.MemoryStore, sessionID, runID string, cycle int, beforeDigest, afterDigest string) {
+func seedBrowserVerificationCycle(st *store.MemoryStore, sessionID, runID string, cycle int, beforeDigest, afterDigest string, contentDigests ...string) {
+	beforeContentDigest, afterContentDigest := beforeDigest, afterDigest
+	if len(contentDigests) == 2 {
+		beforeContentDigest, afterContentDigest = contentDigests[0], contentDigests[1]
+	}
 	beforeNumber := cycle*2 - 1
 	afterNumber := cycle * 2
 	beforeID := browserVerificationSnapshotID(beforeNumber)
 	ref := browserVerificationRef(beforeNumber)
-	st.SaveToolCall(browserVerificationSnapshotCall(sessionID, runID, beforeNumber, "", beforeDigest, ref))
+	st.SaveToolCall(browserVerificationSnapshotCall(sessionID, runID, beforeNumber, "", beforeDigest, beforeContentDigest, ref))
 	st.SaveToolCall(app.ToolCall{
 		ID: "click_" + beforeID, SessionID: sessionID, RunID: runID, Tool: "browser.click", Status: "completed",
 		Arguments: map[string]any{"snapshot_id": beforeID, "uid": ref, "page_id": "page_1"},
 		Result:    browserautomation.Result{Output: map[string]any{"snapshot_id": beforeID, "clicked": ref, "page_id": "page_1"}},
 		StartedAt: browserVerificationCallTime(beforeNumber*2 + 1),
 	})
-	st.SaveToolCall(browserVerificationSnapshotCall(sessionID, runID, afterNumber, beforeID, afterDigest, browserVerificationRef(afterNumber)))
+	st.SaveToolCall(browserVerificationSnapshotCall(sessionID, runID, afterNumber, beforeID, afterDigest, afterContentDigest, browserVerificationRef(afterNumber)))
 }
 
-func browserVerificationSnapshotCall(sessionID, runID string, number int, previousID, digest, ref string) app.ToolCall {
+func browserVerificationSnapshotCall(sessionID, runID string, number int, previousID, digest, contentDigest, ref string) app.ToolCall {
 	controls := []any{}
 	if ref != "" {
 		controls = append(controls, map[string]any{"ref": ref, "role": "button", "accessible_name": "Next"})
@@ -155,7 +231,7 @@ func browserVerificationSnapshotCall(sessionID, runID string, number int, previo
 		StartedAt: browserVerificationCallTime(number * 2),
 		Result: browserautomation.Result{Output: map[string]any{"snapshot": map[string]any{
 			"snapshot_id": snapshotID, "previous_snapshot_id": previousID, "page_id": "page_1",
-			"digest": digest, "session_generation": uint64(7), "controls": controls,
+			"digest": digest, "content_digest": contentDigest, "session_generation": uint64(7), "controls": controls,
 		}}},
 	}
 }

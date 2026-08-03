@@ -358,6 +358,7 @@ func adaptBrowserSnapshotOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 	}
 	common := map[string]string{
 		"page_id": pageID, "digest": strings.TrimSpace(stringValue(snapshot["digest"])),
+		"content_digest":       strings.TrimSpace(stringValue(snapshot["content_digest"])),
 		"previous_snapshot_id": strings.TrimSpace(stringValue(snapshot["previous_snapshot_id"])),
 		"repeated":             strings.TrimSpace(stringValue(snapshot["repeated"])),
 	}

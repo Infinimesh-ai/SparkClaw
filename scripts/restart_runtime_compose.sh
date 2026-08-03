@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.external-postgres.env}"
+RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.single-fast.env}"
 COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
 GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18789/readyz}"

@@ -52,7 +52,8 @@ Browser evidence uses separate contracts:
   the current stage explicitly.
 - `browser.snapshot` creates a structured accessibility projection with
   executable wrapped refs, page identity, presentation mode, and session
-  generation for the selected page state.
+  generation for the selected page state. Snapshot IDs include that generation,
+  so hidden and visible sessions cannot bind the same run to an older snapshot.
 - `browser.click` accepts only a persisted ref from that snapshot.
 - `browser.validate_transition` compares the persisted before/after snapshots;
   `browser.assess_goal` independently evaluates the frozen goal against one
@@ -60,6 +61,13 @@ Browser evidence uses separate contracts:
 - Every navigation and click is followed by settle and a fresh snapshot. A
   stale generation, stale ref, repeated state, route divergence, or missing
   semantic evidence fails closed.
+
+Settle and snapshots share one `content_digest` over the rendered title and
+body. The URL is validated separately and is intentionally excluded from this
+digest, so a hash-route or address-bar-only change cannot prove a new page
+state. Goal assessment likewise treats a matching clickable control as an
+available next action, not completion; before any validated click, evidence
+made only of actionable refs is returned as `progress/action_required`.
 
 Agent-browser's accessibility snapshot and native refs are the provider-owned
 interaction truth. SparkClaw adds bounded model projection, relevance checks,
@@ -130,7 +138,9 @@ rather than provider session tokens. For applications such as QQ Mail, a new
 process may replace a volatile `sid`; Runtime preserves the new session query,
 reapplies only the verified same-origin hash route, and removes provider-injected
 tokens from artifacts, audit records, episodes, and API responses. Owner-supplied
-query parameters remain part of the frozen target.
+query parameters remain part of the frozen target. When a fresh visible process
+must reapply such a route, Runtime performs one native reload and requires the
+rendered content digest to change and settle before presentation can continue.
 
 When a browser tool detects a login or human-verification gate, the Runtime
 persists a handoff and asks the owner to complete it in visible Chromium.

@@ -819,10 +819,10 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "browser.assess_goal",
-			Description: "Assess the frozen browser goal against one current snapshot using explicit snapshot-owned evidence citations. Use satisfied or success only when the cited snapshot proves the frozen goal is met.",
+			Description: "Assess the frozen browser goal against one current snapshot using explicit snapshot-owned evidence citations. A matching clickable control proves only that a next action is available, so use progress until current page state proves the requested effect. Use satisfied, success, or succeeded only when the cited snapshot proves the frozen goal is met.",
 			InputSchema: schema("object", []string{"snapshot_id", "verdict", "evidence_refs", "reason"}, map[string]any{
 				"snapshot_id":   stringSchema(),
-				"verdict":       map[string]any{"type": "string", "enum": []any{"satisfied", "success", "progress", "failure"}},
+				"verdict":       map[string]any{"type": "string", "enum": []any{"satisfied", "success", "succeeded", "progress", "failure"}},
 				"evidence_refs": stringArraySchema(),
 				"reason":        stringSchema(),
 			}),

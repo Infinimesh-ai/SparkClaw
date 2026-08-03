@@ -148,8 +148,11 @@ The current model lanes are:
 | `guard` | Dedicated Qwen3Guard prompt moderation before routing or tool execution |
 | `mock` | Deterministic local development/eval behavior |
 
-Gateway selects lanes. Model output never chooses its own lane. Loading and
-capacity policy is documented in [Model loading](model-loading.md).
+Gateway selects logical lanes. Model output never chooses its own lane. In the
+current `single-fast-v1` deployment, both logical chat profiles resolve to the
+Fast endpoint, so no Deep model process is loaded; the lane labels remain in
+traces for Workflow compatibility. Loading and capacity policy is documented
+in [Model loading](model-loading.md).
 
 ### Message Control And Delivery
 

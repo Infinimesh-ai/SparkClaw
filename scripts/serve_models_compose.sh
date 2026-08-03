@@ -4,10 +4,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-LANES="${1:-fast}"
+LANES="${1:-single-fast}"
 MODEL_PROFILE="${SPARKCLAW_MODEL_LOADING_PROFILE:-}"
 INCLUDE_ASR=false
-if [[ "$LANES" == "all" ]]; then
+SINGLE_FAST=false
+if [[ "$LANES" == "single-fast" || "$LANES" == "fast-only" ]]; then
+  LANES="fast,embedding,guard"
+  MODEL_PROFILE="single-fast"
+  SINGLE_FAST=true
+elif [[ "$LANES" == "all" ]]; then
   LANES="fast,deep,embedding,guard"
 elif [[ "$LANES" == "all-with-asr" ]]; then
   LANES="fast,deep,embedding,guard,asr"
@@ -25,8 +30,9 @@ elif [[ "$LANES" == "dual-light-chat" || "$LANES" == "light-dual-chat" ]]; then
 fi
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+docker_cmd=("$DOCKER_BIN")
 if ! "$DOCKER_BIN" ps >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n "$DOCKER_BIN" ps >/dev/null 2>&1; then
-  DOCKER_BIN="sudo -n $DOCKER_BIN"
+  docker_cmd=(sudo -n "$DOCKER_BIN")
 fi
 
 services=()
@@ -48,7 +54,7 @@ for lane in "${requested[@]}"; do
 done
 
 if [[ "${#services[@]}" -eq 0 ]]; then
-  echo "usage: $0 fast|deep|embedding|guard|asr|all|all-with-asr|dual-light|dual-light-asr|dual-light-chat|lane,lane" >&2
+  echo "usage: $0 single-fast|fast|deep|embedding|guard|asr|all|all-with-asr|dual-light|dual-light-asr|dual-light-chat|lane,lane" >&2
   exit 1
 fi
 
@@ -57,7 +63,10 @@ compose_args=(compose)
 if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
 fi
-if [[ "$MODEL_PROFILE" == "dual-light" ]]; then
+if [[ "$MODEL_PROFILE" == "single-fast" ]]; then
+  compose_args+=(--env-file docker/env/sparkclaw.single-fast.env)
+  compose_args+=(-f docker/compose.yaml -f docker/compose.dual-light.yaml)
+elif [[ "$MODEL_PROFILE" == "dual-light" ]]; then
   compose_args+=(--env-file docker/env/sparkclaw.dual-light.env)
   compose_args+=(-f docker/compose.yaml -f docker/compose.dual-light.yaml)
 else
@@ -67,6 +76,10 @@ if [[ "$INCLUDE_ASR" == "true" ]]; then
   compose_args+=(--env-file docker/env/sparkclaw.asr.env)
   compose_args+=(-f docker/compose.asr.yaml)
 fi
-compose_args+=(--profile models-local up -d "${services[@]}")
+compose_args+=(--profile models-local)
 
-exec $DOCKER_BIN "${compose_args[@]}"
+if [[ "$SINGLE_FAST" == "true" ]]; then
+  "${docker_cmd[@]}" "${compose_args[@]}" stop sparkclaw-deep
+fi
+
+exec "${docker_cmd[@]}" "${compose_args[@]}" up -d "${services[@]}"

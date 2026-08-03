@@ -4,7 +4,7 @@
 
 本文记录 SparkClaw 在 DGX Spark 级硬件上的模型加载策略。它补充 [模型基线](../benchmarks/model_baseline.md) 中的实测证据，以及 [部署文档](deployment.md) 中的运行步骤。
 
-简短结论：单机 SparkClaw 优先追求稳定常驻、可预测的 agent 行为和产品综合体验，不优先追求最大解码速度。`fast` 是响应快的 MoE lane；`deep` 是稠密模型 lane，解码更慢属于预期内。Deep 的判断标准是任务稳定性、推理质量和 eval 表现，而不是追平 fast lane 吞吐。MTP 和 DFlash 这类加速项先留到双 DGX Spark 方案里再打开。
+简短结论：当前单机产品 runtime 只加载响应快的 `fast` MoE chat 模型，并常驻 embedding 与 guard。逻辑 Deep Workflow profile 暂时别名到 Fast endpoint，因此不会启动 Deep 模型进程。历史 Deep 与双常驻实测继续保留给后续评估，但不再是当前启动策略。
 
 ## 当前基线
 
@@ -21,12 +21,11 @@
 
 ## 单机策略
 
-单机默认应一次运行一个 full chat lane：
+单机默认使用 `single-fast-v1` profile：
 
-- 日常交互、草稿、搜索归纳、轻规划，运行 `fast` full profile。
-- 代码、高风险审查、repair verification、terminal 相关任务、显式 deep 请求，运行 `deep` full profile。
-- 把 `deep` 的较低吞吐视为稠密模型的预期成本。`deep` 优化方向是稳定性和答案质量；`fast` 负责交互响应和短轮次体验。
-- eval 或受限运行时，必要情况下可以把 Gateway 的两个 profiles 都临时路由到已加载 lane。
+- 所有 Workflow 模型调用只运行一个 Fast chat endpoint。
+- trace 保留逻辑 fast/deep profile 选择，但两个 profiles 都通过 `SPARKCLAW_DEEP_BASE_URL=http://sparkclaw-fast:8001/v1` 与 `SPARKCLAW_DEEP_MODEL=sparkclaw-fast` 指向 Fast。
+- 产品启动路径不启动 `sparkclaw-deep` 容器。
 - embedding 和专用 guard 保持小型并在产品 profile 中常驻。Embedding 构建 semantic
   routing index 并为请求评分；guard 在 routing 或 tool execution 前审核 owner prompt。
 
@@ -37,7 +36,21 @@
 - 加速项放在 residency 稳定之后再评估。
 - 每次修改 context、KV budget、MTP、serving image 或 model checkpoint 后，都重新跑 endpoint benchmark 和 golden eval。
 
-## 轻量双常驻实验
+## 当前单 Fast Profile
+
+当前 profile 实现为 `dgx-spark-single-fast-v1`：
+
+- 环境变量：`docker/env/sparkclaw.single-fast.env`
+- Compose 资源 override：`docker/compose.dual-light.yaml`
+- Profile 元数据：`configs/model.profiles.json`
+- 启动快捷方式：`scripts/serve_models_compose.sh single-fast`
+
+快捷方式会先停止此前运行的 Deep 容器，再只启动 Fast、embedding 和 guard。随后运行
+`scripts/restart_runtime_compose.sh`；该脚本默认使用同一个单 Fast 环境。当前 Fast
+容量仍保持在已实际运行过的 32K context 与 8 GiB KV cache，不把 Deep 释放的内存
+直接当作未经测量的容量提升。
+
+## 历史轻量双常驻实验
 
 如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。
 
@@ -106,7 +119,8 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 ```
 
 只在 chat-only 对照实验中使用 `scripts/serve_models_compose.sh dual-light-chat`。
-产品 profile 是 `dual-light`，包含 fast、deep、embedding 和专用 guard。
+历史 `dual-light` profile 包含 fast、deep、embedding 和专用 guard；它不再是产品
+默认启动项。
 
 失败的 profile 也要记录。启动失败加上 logs 和 GPU process state，本身就是有价值的证据。
 
@@ -114,7 +128,8 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 
 | 选择 | 收益 | 代价 | 适用场景 |
 |---|---|---|---|
-| 一次一个 full lane | 最稳定，保留完整 128K context | 需要切 lane 或 profile aliasing | 单机默认模式 |
+| 单 Fast + profile aliasing | 只需一个 chat 模型进程，常驻可预测 | 暂无 Deep 专项质量 | 当前单机产品模式 |
+| 一次一个 full lane | 最稳定，保留完整 128K context | 需要切 lane | 定向模型评估 |
 | 轻量双常驻 | 两个 lanes 都是 warm | context、并发降低，且先不开 MTP/DFlash | 单机演示或必须快速切 lane 的工作流 |
 | `deep` priority | 高风险/代码审查质量更稳 | `fast` 变成短上下文助手 | 单机上的最佳 SparkClaw 取舍 |
 | `fast` priority | 日常 chat 响应更强 | `deep` 失去长上下文优势 | UI-heavy 或短轮次工作流 |

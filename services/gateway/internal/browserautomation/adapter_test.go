@@ -281,6 +281,14 @@ func TestAgentBrowserSnapshotControlKeepsExecutionIdentityCompact(t *testing.T) 
 	}
 }
 
+func TestAgentBrowserSnapshotIDIsUniqueAcrossPresentationSessions(t *testing.T) {
+	hidden := agentBrowserSnapshotID(41, "page_1", 1)
+	visible := agentBrowserSnapshotID(42, "page_1", 1)
+	if hidden == visible || hidden != "snapshot_41_1_1" || visible != "snapshot_42_1_1" {
+		t.Fatalf("snapshot IDs are not generation-scoped: hidden=%q visible=%q", hidden, visible)
+	}
+}
+
 func TestAgentBrowserSnapshotFingerprintSurvivesRawRefRenumbering(t *testing.T) {
 	before := buildAgentBrowserSnapshotRefs(map[string]any{
 		"e1": map[string]any{"role": "link", "name": "Inbox"},
@@ -615,6 +623,10 @@ func TestRealChromiumSnapshotAndLocatorInteractions(t *testing.T) {
 	interactionPayload, ok := interactionOutput["snapshot"].(map[string]any)
 	if !ok || stringValue(interactionPayload["schema_version"]) != "browser_interaction_snapshot_v1" || stringValue(interactionPayload["page_id"]) != pageID {
 		t.Fatalf("interaction snapshot contract is incomplete: %#v", interactionOutput)
+	}
+	if stringValue(interactionPayload["content_digest"]) == "" ||
+		stringValue(interactionOutput["content_digest"]) != stringValue(interactionPayload["content_digest"]) {
+		t.Fatalf("interaction snapshot content digest is missing or inconsistent: %#v", interactionOutput)
 	}
 	if stringValue(interactionOutput["browser_page_auth_state"]) != "authenticated" ||
 		stringValue(interactionOutput["browser_page_auth_confidence"]) != "application_continuity" {

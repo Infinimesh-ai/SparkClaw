@@ -1107,7 +1107,7 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 		snapshot := map[string]any{
 			"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": snapshotID,
 			"previous_snapshot_id": previousID, "page_id": pageID, "url": a.currentURL,
-			"title": "Checkout", "digest": digest, "repeated": false,
+			"title": "Checkout", "digest": digest, "content_digest": digest, "repeated": false,
 			"session_generation": generation, "presentation": presentation,
 			"provider_session_ref": "fake-" + presentation, "owner_id": app.DefaultOwnerID, "profile_id": "default",
 			"controls_total": 1, "controls_returned": 1, "truncated": false, "controls": controls, "refs": controls,

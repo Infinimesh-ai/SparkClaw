@@ -31,6 +31,7 @@ type AgentBrowserAdapter struct {
 	namespace          string
 	nextGeneration     uint64
 	observeStableState func(context.Context, *agentBrowserSession) (browserStableObservation, error)
+	callAgentTool      func(context.Context, *agentBrowserSession, string, map[string]any) (agentBrowserToolResult, error)
 }
 
 type agentBrowserSessionKey struct {
@@ -588,7 +589,13 @@ func closeSessionEntries(entries []*agentBrowserSessionEntry) {
 }
 
 func (e *agentBrowserSessionEntry) callAgentToolLocked(ctx context.Context, name string, args map[string]any) (agentBrowserToolResult, error) {
-	result, err := e.session.callTool(ctx, name, args)
+	var result agentBrowserToolResult
+	var err error
+	if e.adapter.callAgentTool != nil {
+		result, err = e.adapter.callAgentTool(ctx, e.session, name, args)
+	} else {
+		result, err = e.session.callTool(ctx, name, args)
+	}
 	e.freshSession = false
 	if err != nil && !isAgentBrowserActionError(err) {
 		e.session.abort()
@@ -673,10 +680,11 @@ func (e *agentBrowserSessionEntry) preserveFreshVisibleURLFragmentLocked(ctx con
 	if err != nil || target.Fragment == "" {
 		return nil
 	}
-	if _, err := e.waitForStableStateLocked(ctx, map[string]any{
+	initialState, err := e.waitForStableStateLocked(ctx, map[string]any{
 		"expected_url":    browserURLOrigin(target),
 		"allow_no_change": true,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 	currentURL, err := e.currentURLLocked(ctx)
@@ -687,7 +695,17 @@ func (e *agentBrowserSessionEntry) preserveFreshVisibleURLFragmentLocked(ctx con
 	if !ok {
 		return nil
 	}
-	_, err = e.callAgentToolLocked(ctx, "agent_browser_open", map[string]any{"url": reboundURL})
+	if _, err = e.callAgentToolLocked(ctx, "agent_browser_open", map[string]any{"url": reboundURL}); err != nil {
+		return err
+	}
+	if _, err = e.callAgentToolLocked(ctx, "agent_browser_reload", nil); err != nil {
+		return err
+	}
+	_, err = e.waitForStableStateLocked(ctx, map[string]any{
+		"expected_url":    reboundURL,
+		"before_digest":   stringArg(initialState, "state_digest"),
+		"allow_no_change": false,
+	})
 	return err
 }
 

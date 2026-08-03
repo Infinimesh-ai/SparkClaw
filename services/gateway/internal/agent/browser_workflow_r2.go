@@ -338,7 +338,7 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 			node := state.Nodes[state.ActiveNodeIDs[0]]
 			for _, ref := range currentBrowserSnapshotRefs(node.OutcomeRefs) {
 				if ref.Kind == "browser_snapshot" {
-					args["before_digest"] = ref.Attributes["digest"]
+					args["before_digest"] = ref.Attributes["content_digest"]
 					args["session_generation"] = browserRefGeneration(ref)
 				}
 			}
@@ -364,6 +364,14 @@ func browserRevision2StageContext(state *app.WorkflowState, interaction bool) wo
 	reason := "workflow_stage: " + stage + ". Structural browser stages are Runtime-owned and every page action is followed by stable settle and a fresh snapshot."
 	if interaction && strings.HasPrefix(stage, browserStageAssessGoalPrefix) {
 		reason += " Assess the frozen owner goal independently and cite only refs from the bound current snapshot."
+		switch stage {
+		case browserStageAssessGoalInitial:
+			reason += " A matching clickable control proves only that a next action is available, not that its destination or effect is already active. Return progress when the evidence only offers that control. Return success only when explicit current or selected state or destination-specific rendered content proves the requested effect already holds, with any current route consistent with that evidence; a route alone is insufficient."
+		case browserStageAssessGoalAfterAction:
+			reason += " Runtime has already validated that the cited click produced a new rendered-content digest. Decide whether that verified transition and the current route/snapshot evidence semantically satisfy the goal; return progress only when another distinct action is still required. Do not require raw body text or an explicit selected marker when the bounded projection and verified transition otherwise prove the requested destination."
+		case browserStageAssessGoalVisible:
+			reason += " Runtime has already verified the hidden result, transferred its profile, settled the visible rendered content, and revalidated the result route. Confirm that the current visible snapshot remains semantically consistent with that verified result; do not demote it merely because the bounded projection exposes the matching destination as a control."
+		}
 	}
 	stageContext := workflowStageContextForState(state, "browse", "web", "public", mode, reason)
 	if interaction {
@@ -582,7 +590,7 @@ func browserRevision2ValidatedSnapshot(state *app.WorkflowState, outcome app.Too
 	if browserSnapshotRouteChangedAfterSettle(state, outcome.NodeID, liveURL) {
 		return nil, "browser_snapshot_route_changed"
 	}
-	if strings.TrimSpace(snapshot.Attributes["digest"]) == "" {
+	if strings.TrimSpace(snapshot.Attributes["digest"]) == "" || strings.TrimSpace(snapshot.Attributes["content_digest"]) == "" {
 		return nil, "browser_snapshot_empty"
 	}
 	generation := browserRefGeneration(snapshot)

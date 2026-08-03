@@ -24,6 +24,7 @@ import (
 const (
 	agentBrowserVersion             = "0.32.3"
 	agentBrowserProtocolVersion     = "2025-11-25"
+	agentBrowserMCPToolsProfile     = "core,tabs"
 	agentBrowserMaxMessageBytes     = 16 << 20
 	hiddenBrowserViewport           = "1365x768"
 	agentBrowserFallbackClose       = 10 * time.Second
@@ -32,6 +33,7 @@ const (
 
 var requiredAgentBrowserTools = map[string][]string{
 	"agent_browser_open":          {},
+	"agent_browser_reload":        {},
 	"agent_browser_read":          {},
 	"agent_browser_snapshot":      {},
 	"agent_browser_click":         {"selector"},
@@ -166,7 +168,7 @@ func newAgentBrowserSession(ctx context.Context, cfg agentBrowserAdapterConfig, 
 	}
 	procCtx, cancel := context.WithCancel(context.Background())
 	environment := agentBrowserEnvironmentResolved(cfg, namespace, sessionName, profileDir, executable, hidden, visibleEnvironment)
-	cmd := exec.CommandContext(procCtx, commandPath, "mcp", "--tools", "core")
+	cmd := exec.CommandContext(procCtx, commandPath, "mcp", "--tools", agentBrowserMCPToolsProfile)
 	configureAdapterCommand(cmd)
 	cmd.Env = environment
 	stdin, err := cmd.StdinPipe()

@@ -203,7 +203,7 @@ For model-backed operation, recreate Gateway in external mode after the selected
 scripts/restart_runtime_compose.sh
 ```
 
-Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for model-backed runs. It loads `docker/env/sparkclaw.external-postgres.env` after `.env`, so Compose cannot fall back to the `mock/file` defaults from `docker/env/sparkclaw.example.env`. It also checks `/readyz` after restart and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`.
+Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for model-backed runs. It loads `docker/env/sparkclaw.single-fast.env` after `.env`, so Compose cannot fall back to the `mock/file` defaults from `docker/env/sparkclaw.example.env`. The same file maps the logical Deep profile to the Fast endpoint. The script also checks `/readyz` after restart and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another runtime profile.
 
 When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
 
@@ -219,6 +219,7 @@ scripts/serve_deep.sh
 Compose vLLM services:
 
 ```bash
+scripts/serve_models_compose.sh single-fast
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
 scripts/serve_models_compose.sh dual-light
@@ -230,6 +231,12 @@ scripts/serve_models_compose.sh asr
 scripts/serve_models_compose.sh all
 scripts/serve_models_compose.sh all-with-asr
 ```
+
+With no argument, `serve_models_compose.sh` also selects `single-fast`. This is
+the current product startup path: it stops a previously running Deep container
+and starts Fast, embedding, and guard with
+`docker/env/sparkclaw.single-fast.env`. Deep and dual-light commands are
+explicit test/benchmark entrypoints.
 
 Default endpoints:
 
@@ -245,11 +252,13 @@ Check endpoints:
 
 ```bash
 curl -fsS http://127.0.0.1:8001/v1/models
-curl -fsS http://127.0.0.1:8002/v1/models
 curl -fsS http://127.0.0.1:8003/v1/models
 curl -fsS http://127.0.0.1:8005/v1/models
 curl -fsS http://127.0.0.1:8006/v1/models
 ```
+
+Port `8002` is available only after an explicit `deep`, `dual-light`, or `all`
+startup and is not part of the current single-Fast readiness check.
 
 Important environment variables:
 
@@ -273,11 +282,11 @@ The guard lane uses the public generative checkpoint
 checkpoint ID. Start only this endpoint with:
 
 ```bash
-SPARKCLAW_MODEL_LOADING_PROFILE=dual-light scripts/serve_models_compose.sh guard
+SPARKCLAW_MODEL_LOADING_PROFILE=single-fast scripts/serve_models_compose.sh guard
 curl -fsS http://127.0.0.1:8005/v1/models
 ```
 
-The single-GB10 `dual-light` profile limits guard to 16K context, 2 GiB KV
+The single-GB10 `single-fast` profile limits guard to 16K context, 2 GiB KV
 cache, one sequence and eager execution. Qwen3Guard returns its native
 `Safety: Safe|Unsafe|Controversial` and `Categories:` format; Gateway maps
 those severities to `allow`, `block` and `review`. Because SparkClaw has no
@@ -356,7 +365,18 @@ Validated DGX Spark notes from 2026-05-24:
 - `Qwen/Qwen3.6-27B-FP8`, `Qwen/Qwen3.6-35B-A3B-FP8`, `Qwen/Qwen3-Embedding-0.6B`, and `Qwen/Qwen3Guard-Gen-0.6B` were validated.
 - Full-context fast+deep dual residency did not fit with both chat lanes at 128K context and MTP enabled. Operate one 128K/MTP chat lane at a time, route both Gateway profiles to the loaded lane for evals, or reduce context/MTP and re-measure.
 
-Light dual-residency experiment:
+Current single-Fast product startup:
+
+```bash
+scripts/serve_models_compose.sh single-fast
+scripts/restart_runtime_compose.sh
+```
+
+This applies `docker/env/sparkclaw.single-fast.env` and the bounded Fast and
+auxiliary settings from `docker/compose.dual-light.yaml`. Only Fast, embedding,
+and guard start. Gateway sends both logical chat profiles to `sparkclaw-fast`.
+
+Historical light dual-residency experiment:
 
 ```bash
 scripts/serve_models_compose.sh dual-light

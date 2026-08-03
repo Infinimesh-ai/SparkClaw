@@ -202,10 +202,11 @@ scripts/restart_runtime_compose.sh
 
 模型运行态应使用该脚本，而不是直接执行
 `docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
-`docker/env/sparkclaw.external-postgres.env`，避免 Compose 退回
-`docker/env/sparkclaw.example.env` 的 `mock/file` 默认值；重启后还会检查
-`/readyz`，只有 Gateway 报告 `model_mode=external` 且
-`state_backend=postgres` 时才成功退出。
+`docker/env/sparkclaw.single-fast.env`，避免 Compose 退回
+`docker/env/sparkclaw.example.env` 的 `mock/file` 默认值；同一个文件还会把逻辑
+Deep profile 映射到 Fast endpoint。重启后脚本检查 `/readyz`，只有 Gateway 报告
+`model_mode=external` 且 `state_backend=postgres` 时才成功退出。需要其他 runtime
+profile 时应显式设置 `SPARKCLAW_RUNTIME_ENV`。
 
 当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
 `docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
@@ -224,6 +225,7 @@ scripts/serve_deep.sh
 Compose vLLM services：
 
 ```bash
+scripts/serve_models_compose.sh single-fast
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
 scripts/serve_models_compose.sh dual-light
@@ -235,6 +237,10 @@ scripts/serve_models_compose.sh asr
 scripts/serve_models_compose.sh all
 scripts/serve_models_compose.sh all-with-asr
 ```
+
+不传参数时，`serve_models_compose.sh` 也会选择 `single-fast`。这是当前产品启动路径：
+它会停止此前运行的 Deep 容器，并使用 `docker/env/sparkclaw.single-fast.env`
+启动 Fast、embedding 和 guard。Deep 与 dual-light 命令仅作为显式测试/benchmark 入口。
 
 默认 endpoints：
 
@@ -250,11 +256,13 @@ scripts/serve_models_compose.sh all-with-asr
 
 ```bash
 curl -fsS http://127.0.0.1:8001/v1/models
-curl -fsS http://127.0.0.1:8002/v1/models
 curl -fsS http://127.0.0.1:8003/v1/models
 curl -fsS http://127.0.0.1:8005/v1/models
 curl -fsS http://127.0.0.1:8006/v1/models
 ```
+
+只有显式执行 `deep`、`dual-light` 或 `all` 启动后才会使用 `8002`；当前单 Fast
+ready 检查不包含该端口。
 
 重要环境变量：
 
@@ -277,11 +285,11 @@ guard lane 使用公开的生成式 checkpoint `Qwen/Qwen3Guard-Gen-0.6B`；
 `Qwen/Qwen3Guard-0.6B` 不是有效的公开 checkpoint ID。只启动 guard endpoint：
 
 ```bash
-SPARKCLAW_MODEL_LOADING_PROFILE=dual-light scripts/serve_models_compose.sh guard
+SPARKCLAW_MODEL_LOADING_PROFILE=single-fast scripts/serve_models_compose.sh guard
 curl -fsS http://127.0.0.1:8005/v1/models
 ```
 
-单台 GB10 的 `dual-light` profile 把 guard 限制为 16K context、2 GiB KV cache、
+单台 GB10 的 `single-fast` profile 把 guard 限制为 16K context、2 GiB KV cache、
 单序列和 eager execution。Qwen3Guard 返回原生
 `Safety: Safe|Unsafe|Controversial` 与 `Categories:` 格式；Gateway 分别映射为
 `allow`、`block` 和 `review`。SparkClaw 当前没有人工安全复核队列，因此 `review`
@@ -359,7 +367,18 @@ SPARKCLAW_SPEECH_BASE_URL=http://127.0.0.1:8006 scripts/doctor.sh
 - `Qwen/Qwen3.6-27B-FP8`、`Qwen/Qwen3.6-35B-A3B-FP8`、`Qwen/Qwen3-Embedding-0.6B` 和 `Qwen/Qwen3Guard-Gen-0.6B` 已验证。
 - full-context fast+deep dual residency 在两个 chat lanes 都为 128K context 且启用 MTP 时未能同时容纳。可一次运行一个 128K/MTP chat lane，把两个 Gateway profiles 都路由到已加载 lane，或降低 context/MTP 后重新测量。
 
-轻量双常驻实验：
+当前单 Fast 产品启动：
+
+```bash
+scripts/serve_models_compose.sh single-fast
+scripts/restart_runtime_compose.sh
+```
+
+该命令应用 `docker/env/sparkclaw.single-fast.env`，并复用
+`docker/compose.dual-light.yaml` 中有界的 Fast 与辅助模型设置；只启动 Fast、
+embedding 和 guard，Gateway 的两个逻辑 chat profiles 都发送到 `sparkclaw-fast`。
+
+历史轻量双常驻实验：
 
 ```bash
 scripts/serve_models_compose.sh dual-light

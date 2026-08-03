@@ -4,7 +4,7 @@
 
 **面向 DGX Spark 的可靠本地 Agent Runtime。**
 
-SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态已经是完整的单机双 lane 栈：响应快的 `fast` MoE lane、用于更难或更高风险工作的稠密 `deep` lane，以及为 semantic routing 常驻的 embedding 端点。
+SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态使用一个响应快的 `fast` MoE chat 模型，并常驻 embedding 与 guard 端点；`deep` 模型暂不接入默认产品 runtime。
 
 项目已经过了早期规划阶段。本 README 是入口；完整当前文档集合见
 [文档索引](docs/index.md)。建议从以下文档开始：
@@ -24,7 +24,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 
 - Go Gateway API：健康检查、ready 检查、direct chat、sessions、messages、events、tools、approvals、memories、traces、artifacts、eval reports、feedback、client pairing、token auth 和 rate limiting。
 - Agent Runtime：Catalog 派生语义图、全候选 embedding 与 Fast/Tree 分数融合、确定性 Top-2 和单叶子 Workflow 分发、grounded execution、repair 和 trace snapshot。
-- 单机 `dual-light-v1` 模型 profile 已在 NVIDIA GB10 上验证：`fast` 与 `deep` chat lanes 加上 embedding 可以同时常驻，并使用显式 context、KV cache 和 sequence caps。
+- NVIDIA GB10 当前使用单机 `single-fast-v1` 产品 profile：一个 `fast` chat 模型加 embedding 与 guard；逻辑 deep Workflow profile 也路由到同一个 Fast endpoint。
 - ToolHub：为文件、memory、browser access、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
 - approval-first policy：file deletion、shell execution、patch application 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
 - file、browser 和 external adapter observation 都被当作 untrusted data，并在进入回答前被摘要。
@@ -37,8 +37,8 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 已知运行边界：
 
 - 在已验证的 GB10 机器上，full 128K context 且启用 MTP 时，fast 和 deep chat lanes 应视为不能同时常驻，除非降低 context、MTP 或 GPU memory utilization 后重新测量。
-- 已验证的单机常驻 profile 是 `dual-light-v1`：fast 使用 32K context + 8G KV cache，deep 使用 64K context + 12G KV cache，二者都关闭 MTP。Deep 是稠密模型，慢是预期内；更广的产品验收仍需使用与当前能力对齐的端到端矩阵。
-- 决定调用哪个 chat lane 的是 Gateway，不是 `fast` 模型本身。代码、terminal、危险、repair 或显式 deep/review 请求会走 `deep`；常规有边界任务走 `fast`。只有 fast 调用失败时，才会把 deep 作为 fallback。
+- 当前单机产品 profile 是 `single-fast-v1`：fast 使用 32K context + 8G KV cache 并关闭 MTP；embedding 与 guard 保持有界的辅助配置。历史 `dual-light-v1` 实测仍作为证据保留，但不再是默认启动项。
+- Gateway 仍记录逻辑 fast/deep Workflow 选择，但当前部署配置把两个 chat profiles 都解析到 `sparkclaw-fast`，不会启动 `sparkclaw-deep` 模型进程。
 - Workflow capability 是唯一执行路径；当前能力面以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
 
 ## 快速开始
@@ -122,14 +122,14 @@ npm workspace root 保持 `private`，用于避免误发布 package。仓库本�
 
 ## DGX Spark 模型
 
-当前完整本地模型路径先启动已验证的单机常驻 profile：
+当前本地模型路径先启动单 Fast 产品 profile：
 
 ```bash
-scripts/serve_models_compose.sh dual-light
+scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-`dual-light` 会启动完整产品模型常驻服务：`fast`、`deep` 和 embedding。`scripts/restart_runtime_compose.sh` 随后以 `external/postgres` mode 重启 Gateway/WebChat，如果 Gateway 未 ready 会失败退出。
+`single-fast` 会停止遗留的 `sparkclaw-deep` 容器，只启动 `fast`、embedding 和 guard 模型服务。`scripts/restart_runtime_compose.sh` 随后使用 `docker/env/sparkclaw.single-fast.env` 重启 Gateway/WebChat；该配置把两个逻辑 chat profiles 都映射到 `sparkclaw-fast`，Gateway 未 ready 时脚本会失败退出。
 
 其他服务入口用于定向测试和对照实验：
 
@@ -138,6 +138,7 @@ scripts/serve_fast.sh
 scripts/serve_deep.sh
 scripts/serve_models_compose.sh fast
 scripts/serve_models_compose.sh deep
+scripts/serve_models_compose.sh dual-light
 scripts/serve_models_compose.sh dual-light-chat
 scripts/serve_models_compose.sh embedding
 ```
@@ -150,7 +151,7 @@ scripts/serve_models_compose.sh embedding
 | deep | `sparkclaw-deep` | 8002 | `Qwen/Qwen3.6-27B-FP8` |
 | embedding | `sparkclaw-embedding` | 8003 | `Qwen/Qwen3-Embedding-0.6B` |
 
-已验证的单机常驻 profile 是保守取舍：`fast` 是响应快的 MoE lane，`deep` 是稠密的稳定性/质量 lane，MTP 关闭，embedding 使用小的显式 KV budget 以保证当前模型栈能放下。`dual-light-chat` 只用于不带 embedding 端点的 chat-lane 对照实验。
+当前单机产品 profile 保持保守：chat 只由 `fast` 提供，MTP 关闭，embedding 与 guard 使用较小的显式 KV budget。Deep 和 dual-light 命令只保留给定向测试与历史对照。
 
 加载策略见 [docs/model-loading.md](docs/model-loading.md)。Benchmark 证据、endpoint 快照和运行说明见 [benchmarks/model_baseline.md](benchmarks/model_baseline.md)。
 

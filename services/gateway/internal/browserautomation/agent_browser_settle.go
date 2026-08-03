@@ -82,28 +82,23 @@ func (e *agentBrowserSessionEntry) waitForStableStateLocked(ctx context.Context,
 			if errors.Is(settleCtx.Err(), context.DeadlineExceeded) {
 				return nil, errors.New("browser_settle_timeout: page did not become observable before the configured deadline")
 			}
-			return nil, fmt.Errorf("browser_renderer_unavailable: %w", err)
-		}
-		observations++
-		if expectedURL != "" {
-			rebound, routeErr := settleBrowserRoute(expectedURL, observation.URL, targetKind)
-			if routeErr != nil {
-				return nil, routeErr
-			}
-			if rebound != "" && rebound != observation.URL {
-				if routeRebinds >= adapterCfg.RouteRebindLimit {
-					return nil, errors.New("browser_route_diverged: same-origin route rebind limit exceeded")
-				}
-				if _, err := e.callAgentToolLocked(settleCtx, "agent_browser_open", map[string]any{"url": rebound}); err != nil {
-					return nil, fmt.Errorf("browser_renderer_unavailable: rebind route: %w", err)
-				}
-				routeRebinds++
+			if isAgentBrowserActionError(err) {
 				stableCount = 0
 				last = browserStableObservation{}
 				if err := awaitNextPoll(); err != nil {
 					return nil, err
 				}
 				continue
+			}
+			return nil, fmt.Errorf("browser_renderer_unavailable: %w", err)
+		}
+		observations++
+		rebound := ""
+		if expectedURL != "" {
+			var routeErr error
+			rebound, routeErr = settleBrowserRoute(expectedURL, observation.URL, targetKind)
+			if routeErr != nil {
+				return nil, routeErr
 			}
 		}
 		if observation == last {
@@ -113,13 +108,37 @@ func (e *agentBrowserSessionEntry) waitForStableStateLocked(ctx context.Context,
 			stableCount = 1
 			stableSince = time.Now().UTC()
 		}
+		if rebound != "" && rebound != observation.URL {
+			// SPA bootstraps can briefly expose their default route before
+			// restoring the requested fragment. Only spend a bounded rebind
+			// attempt after the divergent same-origin state has itself settled.
+			if stableCount >= requiredStable && time.Since(stableSince) >= time.Duration(quietMS)*time.Millisecond {
+				if routeRebinds >= adapterCfg.RouteRebindLimit {
+					return nil, errors.New("browser_route_diverged: same-origin route rebind limit exceeded")
+				}
+				if _, err := e.callAgentToolLocked(settleCtx, "agent_browser_open", map[string]any{"url": rebound}); err != nil {
+					return nil, fmt.Errorf("browser_renderer_unavailable: rebind route: %w", err)
+				}
+				routeRebinds++
+				stableCount = 0
+				last = browserStableObservation{}
+			}
+			if err := awaitNextPoll(); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		changed := beforeDigest == "" || observation.Digest != beforeDigest
 		if stableCount >= requiredStable && time.Since(stableSince) >= time.Duration(quietMS)*time.Millisecond && (changed || allowNoChange) {
+			pageID := strings.TrimSpace(stringArg(args, "page_id"))
+			if pageID == "" {
+				pageID = e.currentPageIDLocked(settleCtx)
+			}
 			return map[string]any{
 				"status":               "stable",
 				"reason_code":          "browser_target_settled",
 				"text":                 "browser page reached a stable observable state",
-				"page_id":              e.currentPageIDLocked(settleCtx),
+				"page_id":              pageID,
 				"url":                  observation.URL,
 				"title":                observation.Title,
 				"state_digest":         observation.Digest,
@@ -162,8 +181,12 @@ func (e *agentBrowserSessionEntry) observeStableBrowserStateLocked(ctx context.C
 		return browserStableObservation{}, err
 	}
 	body := firstStringValue(mapValue(textResult.Data), "text", "value", "result")
-	raw := sha256.Sum256([]byte(pageURL + "\x00" + title + "\x00" + body))
-	return browserStableObservation{URL: pageURL, Title: title, Digest: hex.EncodeToString(raw[:])}, nil
+	return browserStableObservation{URL: pageURL, Title: title, Digest: digestBrowserStableContent(title, body)}, nil
+}
+
+func digestBrowserStableContent(title, body string) string {
+	raw := sha256.Sum256([]byte(title + "\x00" + body))
+	return hex.EncodeToString(raw[:])
 }
 
 func settleBrowserRoute(expectedRaw, currentRaw string, targetKind app.BrowserTargetKind) (string, error) {

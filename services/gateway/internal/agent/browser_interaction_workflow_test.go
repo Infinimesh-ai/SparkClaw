@@ -131,6 +131,33 @@ func TestBrowserWorkflowStageContextsStayHiddenUntilPresentation(t *testing.T) {
 	}
 }
 
+func TestBrowserGoalAssessmentInstructionDistinguishesActionFromCompletion(t *testing.T) {
+	for _, test := range []struct {
+		stage    string
+		expected []string
+	}{
+		{stage: browserStageAssessGoalInitial, expected: []string{"clickable control", "next action", "Return progress", "a route alone is insufficient"}},
+		{stage: browserStageAssessGoalAfterAction, expected: []string{"validated", "new rendered-content digest", "another distinct action"}},
+		{stage: browserStageAssessGoalVisible, expected: []string{"verified the hidden result", "settled the visible rendered content", "matching destination as a control"}},
+	} {
+		t.Run(test.stage, func(t *testing.T) {
+			state := &app.WorkflowState{
+				Plan:          app.WorkflowPlan{ProfileID: app.WorkflowBrowserInteraction},
+				ActiveNodeIDs: []app.WorkflowNodeID{"browser"},
+				Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+					"browser": {Stage: test.stage},
+				},
+			}
+			context := (browserInteractionProfile{}).StageContext(state)
+			for _, expected := range test.expected {
+				if !strings.Contains(context.Reason, expected) {
+					t.Fatalf("goal assessment instruction is missing %q: %s", expected, context.Reason)
+				}
+			}
+		})
+	}
+}
+
 func TestBrowserInteractionReusesOnlyMatchingTargetTabs(t *testing.T) {
 	registeredRoute := app.RouteDecision{
 		Slots: app.RouteSlots{TargetKind: "url", TargetRef: "https://mail.qq.com/"},
@@ -586,7 +613,7 @@ func TestBrowserInteractionRetriesSnapshotThatChangedAfterSettleOrHasNoEvidence(
 				{
 					Kind: "browser_snapshot", Ref: "snapshot_1",
 					Attributes: map[string]string{
-						"digest": "digest_1", "session_generation": "7", "presentation": "hidden",
+						"digest": "digest_1", "content_digest": "content_1", "session_generation": "7", "presentation": "hidden",
 					},
 				},
 			}
@@ -640,7 +667,7 @@ func TestBrowserInteractionRepeatedPostSnapshotFailsClosed(t *testing.T) {
 			{
 				Kind: "browser_snapshot", Ref: "snapshot_2",
 				Attributes: map[string]string{
-					"digest": "digest_2", "session_generation": "2",
+					"digest": "digest_2", "content_digest": "content_2", "session_generation": "2",
 					"previous_snapshot_id": "snapshot_1", "repeated": "true",
 				},
 			},

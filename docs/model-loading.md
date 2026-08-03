@@ -4,7 +4,7 @@
 
 This document records the current model-loading strategy for SparkClaw on DGX Spark-class hardware. It complements the measured endpoint evidence in [Model baseline](../benchmarks/model_baseline.md) and the operational steps in [Deployment](deployment.md).
 
-The short version: single-machine SparkClaw should prioritize stable residency, predictable agent behavior and the combined product experience over maximum decoding speed. `fast` is the responsive MoE lane; `deep` is a dense model lane whose slower decoding is expected. Deep is judged by task stability, reasoning quality and eval behavior, not by matching fast-lane throughput. MTP and DFlash-style acceleration are deferred until a two-DGX-Spark layout has enough memory headroom to make performance tuning useful.
+The short version: the current single-machine product runtime loads only the responsive `fast` MoE chat model, plus embedding and guard. The logical Deep Workflow profile is temporarily aliased to the Fast endpoint, so no Deep model process starts. Historical Deep and dual-residency measurements remain below for future evaluation; they are not the current startup policy.
 
 ## Current Baseline
 
@@ -21,12 +21,11 @@ The failed dual-residency attempt was close only because it failed during an inc
 
 ## Single-Machine Policy
 
-Default single-machine operation should use one full chat lane at a time:
+Default single-machine operation uses the `single-fast-v1` profile:
 
-- Run `fast` full profile for normal interactive work, drafting, search-grounded answers and light planning.
-- Run `deep` full profile for code work, high-risk review, repair verification, terminal-related tasks and explicit deep requests.
-- Treat lower `deep` throughput as an expected dense-model cost. Optimize `deep` for reliability and answer quality, while using `fast` for responsive interaction and short-turn flow.
-- During evals or constrained runs, route both Gateway profiles to the loaded lane when necessary.
+- Run one Fast chat endpoint for all Workflow model calls.
+- Preserve the logical fast/deep profile choice in traces, but configure both profiles with `SPARKCLAW_DEEP_BASE_URL=http://sparkclaw-fast:8001/v1` and `SPARKCLAW_DEEP_MODEL=sparkclaw-fast`.
+- Do not start the `sparkclaw-deep` container in the product startup path.
 - Keep embedding and the dedicated guard small but resident in the product
   profile. Embedding builds the semantic routing index and scores each request;
   guard moderates the owner prompt before routing or tool execution.
@@ -38,7 +37,22 @@ Single-machine performance features are intentionally conservative:
 - Treat acceleration features as second-order tuning after the residency plan is stable.
 - Re-run endpoint benchmarks and the golden eval after any change to context, KV budget, MTP, serving image or model checkpoint.
 
-## Light Dual-Residency Experiment
+## Active Single-Fast Profile
+
+The current profile is implemented as `dgx-spark-single-fast-v1`:
+
+- Environment: `docker/env/sparkclaw.single-fast.env`
+- Compose resource override: `docker/compose.dual-light.yaml`
+- Profile metadata: `configs/model.profiles.json`
+- Startup shortcut: `scripts/serve_models_compose.sh single-fast`
+
+The shortcut first stops a previously running Deep container, then starts only
+Fast, embedding, and guard. Run `scripts/restart_runtime_compose.sh` afterward;
+it uses the same single-Fast environment by default. The current Fast capacity
+remains at the previously exercised 32K context and 8 GiB KV cache rather than
+claiming an unmeasured capacity increase from the memory freed by Deep.
+
+## Historical Light Dual-Residency Experiment
 
 If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.
 
@@ -112,8 +126,8 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 ```
 
 Use `scripts/serve_models_compose.sh dual-light-chat` only for chat-only controls.
-The product profile is `dual-light`, which includes fast, deep, embedding, and
-the dedicated guard.
+The historical `dual-light` profile includes fast, deep, embedding, and the
+dedicated guard; it is no longer the product startup default.
 
 Record rejected profiles too. A failed startup with logs and GPU process state is still useful evidence.
 
@@ -121,7 +135,8 @@ Record rejected profiles too. A failed startup with logs and GPU process state i
 
 | Choice | Gains | Costs | When to choose |
 |---|---|---|---|
-| One full lane at a time | Maximum stability and full 128K context | Lane switching or profile aliasing is required | Default single-machine mode |
+| Single Fast with profile aliasing | One chat model process and predictable residency | Deep-specific quality is unavailable | Current single-machine product mode |
+| One full lane at a time | Maximum stability and full 128K context | Lane switching is required | Targeted model evaluation |
 | Light dual residency | Both lanes stay warm | Lower context, lower concurrency and no MTP/DFlash | Single-machine demos or workflows that need instant lane switching |
 | `deep` priority | Keeps high-risk/code review quality higher | `fast` becomes a short-context helper | Best SparkClaw compromise on one machine |
 | `fast` priority | Better daily chat responsiveness | `deep` loses long-context advantage | UI-heavy or short-turn workflows |

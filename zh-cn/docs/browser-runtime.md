@@ -47,12 +47,18 @@ handoff。底层 browser tool 不会扩大已支持 Workflow 表面；以
 - `browser.wait` 根据有界可观察 readiness signal 等待 navigation 或 interaction 稳定；
   timeout、renderer failure 或 caller cancellation 会明确终止当前阶段。
 - `browser.snapshot` 为选定页面状态创建带可执行 wrapped ref、page identity、
-  presentation mode 和 session generation 的结构化 accessibility projection。
+  presentation mode 和 session generation 的结构化 accessibility projection。snapshot
+  ID 包含该 generation，避免同一 run 的 hidden 与 visible session 绑定到旧 snapshot。
 - `browser.click` 只能接收该 snapshot 中持久化的 ref。
 - `browser.validate_transition` 对比持久化 before/after snapshot；
   `browser.assess_goal` 针对一个精确 snapshot 独立评估冻结目标。
 - 每次 navigation 与 click 后都必须 settle 并生成 fresh snapshot。stale generation/ref、
   repeated state、route divergence 或 semantic evidence 缺失都会 fail closed。
+
+settle 与 snapshot 使用同一份 `content_digest`：只对 rendered title 与 body 计算摘要。
+URL 独立校验且不进入摘要，因此仅有 hash route 或地址栏变化不能证明页面状态已更新。
+目标评估也不会把名称匹配的可点击控件当作完成证据；在任何已验证点击之前，如果证据
+全部只是 actionable ref，结果会被确定性降级为 `progress/action_required`。
 
 Agent-browser 的 accessibility snapshot 和 native ref 是 provider 侧交互事实。SparkClaw
 只在其上增加有界模型投影、相关性检查、page identity、semantic fingerprint、重复状态
@@ -108,6 +114,8 @@ snapshot 和 interaction。最终呈现是同一冻结 r2 Workflow 内的必需�
 provider session token。QQ 邮箱等应用可能在新进程中替换易失 `sid`；Runtime 保留新的
 session query，只重新应用已验证的同源 hash route，并从 artifact、audit、episode 和 API
 响应中移除 provider 注入 token。owner 明确提供的 query parameter 仍属于冻结目标。
+fresh visible process 需要重新应用这类 route 时，Runtime 会执行一次原生 reload，并要求
+rendered content digest 确实发生变化且稳定后，才允许继续呈现。
 
 browser tool 检测到登录或人工验证界面后，Runtime 持久化 handoff，暂停原 Workflow，
 并要求 owner 在 visible Chromium 中完成验证。歧义回复不会产生任何 browser call；明确

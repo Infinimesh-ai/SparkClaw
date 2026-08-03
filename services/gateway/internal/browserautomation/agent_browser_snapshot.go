@@ -44,12 +44,13 @@ type agentBrowserSnapshotRef struct {
 }
 
 type agentBrowserSnapshotState struct {
-	SnapshotID  string
-	PageID      string
-	URL         string
-	Digest      string
-	ActionTaken bool
-	Refs        map[string]*agentBrowserSnapshotRef
+	SnapshotID    string
+	PageID        string
+	URL           string
+	Digest        string
+	ContentDigest string
+	ActionTaken   bool
+	Refs          map[string]*agentBrowserSnapshotRef
 }
 
 func agentBrowserSnapshotRawArgs() map[string]any {
@@ -80,15 +81,19 @@ func (e *agentBrowserSessionEntry) takeSnapshotLocked(ctx context.Context, args,
 	metadata := e.snapshotVisibleTextLocked(ctx)
 
 	e.nextSnapshotID++
-	pageNumber := strings.TrimPrefix(pageID, "page_")
-	snapshotID := fmt.Sprintf("snapshot_%s_%d", pageNumber, e.nextSnapshotID)
+	snapshotID := agentBrowserSnapshotID(e.generation, pageID, e.nextSnapshotID)
 	goal := strings.TrimSpace(stringArg(args, "interaction_goal"))
 	allRefs := buildAgentBrowserSnapshotRefs(refs, goal)
 	metadata["tree"] = rawTree
 	metadata = inferAgentBrowserSnapshotAuth(metadata, title, url, allRefs)
-	digest := digestAgentBrowserSnapshot(url, title, rawTree, firstStringValue(metadata, "text"), allRefs)
+	pageText, pageTextObserved := metadata["text"].(string)
+	contentDigest := ""
+	if pageTextObserved {
+		contentDigest = digestBrowserStableContent(title, pageText)
+	}
+	digest := digestAgentBrowserSnapshot(url, title, rawTree, pageText, allRefs)
 	previous := e.snapshots[pageID]
-	repeated := previous != nil && previous.ActionTaken && previous.Digest == digest
+	repeated := previous != nil && previous.ActionTaken && contentDigest != "" && previous.ContentDigest == contentDigest
 	previousID := ""
 	if previous != nil && previous.ActionTaken {
 		previousID = previous.SnapshotID
@@ -105,17 +110,22 @@ func (e *agentBrowserSessionEntry) takeSnapshotLocked(ctx context.Context, args,
 		ranked = ranked[:agentBrowserSnapshotControlLimit]
 	}
 	state := &agentBrowserSnapshotState{
-		SnapshotID: snapshotID,
-		PageID:     pageID,
-		URL:        url,
-		Digest:     digest,
-		Refs:       map[string]*agentBrowserSnapshotRef{},
+		SnapshotID:    snapshotID,
+		PageID:        pageID,
+		URL:           url,
+		Digest:        digest,
+		ContentDigest: contentDigest,
+		Refs:          map[string]*agentBrowserSnapshotRef{},
 	}
 	controls := make([]any, 0, len(ranked))
+	actionRefs := make([]string, 0, len(ranked))
 	for _, descriptor := range ranked {
 		descriptor.ExternalRef = snapshotID + ":" + descriptor.RawRef + ":" + descriptor.Fingerprint[:16]
 		state.Refs[descriptor.ExternalRef] = descriptor
 		controls = append(controls, agentBrowserSnapshotControl(descriptor))
+		if descriptor.Clickable {
+			actionRefs = append(actionRefs, descriptor.ExternalRef)
+		}
 	}
 	safeTree := projectAgentBrowserTreeRefs(ranked)
 	text := strings.Join(nonEmptyStrings("Page: "+url, safeTree), "\n")
@@ -134,6 +144,7 @@ func (e *agentBrowserSessionEntry) takeSnapshotLocked(ctx context.Context, args,
 		"title":                        title,
 		"interaction_goal":             goal,
 		"digest":                       digest,
+		"content_digest":               contentDigest,
 		"repeated":                     repeated,
 		"controls_total":               len(allRefs),
 		"controls_returned":            len(controls),
@@ -144,12 +155,14 @@ func (e *agentBrowserSessionEntry) takeSnapshotLocked(ctx context.Context, args,
 		"aria":                         safeTree,
 		"controls":                     controls,
 		"refs":                         controls,
+		"action_refs":                  actionRefs,
 	}
 	return map[string]any{
 		"text":                         text,
 		"snapshot_id":                  snapshotID,
 		"page_id":                      pageID,
 		"digest":                       digest,
+		"content_digest":               contentDigest,
 		"repeated":                     repeated,
 		"snapshot":                     snapshot,
 		"browser_page_auth_state":      authState,
@@ -158,6 +171,11 @@ func (e *agentBrowserSessionEntry) takeSnapshotLocked(ctx context.Context, args,
 		"auth_challenge_detected":      boolValue(metadata["authChallengeDetected"]),
 		"content":                      []any{map[string]any{"type": "text", "text": text}},
 	}, nil
+}
+
+func agentBrowserSnapshotID(generation uint64, pageID string, sequence uint64) string {
+	pageNumber := strings.TrimPrefix(strings.TrimSpace(pageID), "page_")
+	return fmt.Sprintf("snapshot_%d_%s_%d", generation, pageNumber, sequence)
 }
 
 func agentBrowserSnapshotControl(descriptor *agentBrowserSnapshotRef) map[string]any {

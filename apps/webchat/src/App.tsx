@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Bot, KeyRound, RefreshCw, X } from "lucide-react";
+import { Activity, KeyRound, RefreshCw, X } from "lucide-react";
 import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
@@ -13,6 +13,7 @@ import type { StreamStatus } from "./components/messages";
 import { InspectorColumn } from "./components/inspector";
 import type { PanelTab } from "./components/inspector";
 import { ComposerDock } from "./components/composer";
+import { DeliveryTargetPicker } from "./components/deliveryTargetPicker";
 import { ScheduleBar } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { useExternalDelivery } from "./hooks/useExternalDelivery";
@@ -122,8 +123,7 @@ export function App() {
     deliveryBusy,
     deliveryReviewOpen,
     setDeliveryReviewOpen,
-    deliverySoftwareOptions,
-    activeDeliveryCandidates,
+    deliveryEndpoints,
     activeDeliveryEndpoint,
     activeExternalDraft,
     externalDeliveryIntent,
@@ -131,7 +131,6 @@ export function App() {
     activeLastDelivery,
     refreshDeliverySurface,
     updateExternalDraft,
-    chooseDeliverySoftware,
     selectDeliveryTarget,
     updateExternalPart,
     removeExternalPart,
@@ -524,10 +523,14 @@ export function App() {
             <p>{ready ? `${ready.model_mode} ${text.topbar.modelMode} · ${ready.workspace_root}` : text.topbar.connecting}</p>
           </div>
           <div className="topbarActions">
-            <span className="statusChip">
-              <Bot size={14} />
-              {ready?.ok ? text.nav.ready : text.nav.offline}
-            </span>
+            <DeliveryTargetPicker
+              endpoints={deliveryEndpoints}
+              activeEndpoint={activeDeliveryEndpoint}
+              hasExternalIntent={externalDeliveryIntent}
+              disabled={busy || deliveryBusy || voice.active}
+              text={text}
+              onSelect={selectDeliveryTarget}
+            />
             <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), refreshDeliverySurface(), refreshSession(activeSession)])} title={text.common.refresh}>
               <RefreshCw size={18} />
             </button>
@@ -619,16 +622,12 @@ export function App() {
             deliveryBusy={deliveryBusy}
             deliveryReviewOpen={deliveryReviewOpen}
             setDeliveryReviewOpen={setDeliveryReviewOpen}
-            deliverySoftwareOptions={deliverySoftwareOptions}
-            activeDeliveryCandidates={activeDeliveryCandidates}
             activeDeliveryEndpoint={activeDeliveryEndpoint}
             activeExternalDraft={activeExternalDraft}
             externalDeliveryIntent={externalDeliveryIntent}
             activeDeliveryValidation={activeDeliveryValidation}
             activeLastDelivery={activeLastDelivery}
             updateExternalDraft={updateExternalDraft}
-            chooseDeliverySoftware={chooseDeliverySoftware}
-            selectDeliveryTarget={selectDeliveryTarget}
             updateExternalPart={updateExternalPart}
             removeExternalPart={removeExternalPart}
             openDeliveryReview={openDeliveryReview}

@@ -37,16 +37,12 @@ type DeliveryProps = Pick<
   | "deliveryBusy"
   | "deliveryReviewOpen"
   | "setDeliveryReviewOpen"
-  | "deliverySoftwareOptions"
-  | "activeDeliveryCandidates"
   | "activeDeliveryEndpoint"
   | "activeExternalDraft"
   | "externalDeliveryIntent"
   | "activeDeliveryValidation"
   | "activeLastDelivery"
   | "updateExternalDraft"
-  | "chooseDeliverySoftware"
-  | "selectDeliveryTarget"
   | "updateExternalPart"
   | "removeExternalPart"
   | "openDeliveryReview"
@@ -87,16 +83,12 @@ export function ComposerDock({
   deliveryBusy,
   deliveryReviewOpen,
   setDeliveryReviewOpen,
-  deliverySoftwareOptions,
-  activeDeliveryCandidates,
   activeDeliveryEndpoint,
   activeExternalDraft,
   externalDeliveryIntent,
   activeDeliveryValidation,
   activeLastDelivery,
   updateExternalDraft,
-  chooseDeliverySoftware,
-  selectDeliveryTarget,
   updateExternalPart,
   removeExternalPart,
   openDeliveryReview,
@@ -251,44 +243,6 @@ export function ComposerDock({
           text={text}
           onRetry={() => void retryExternalDelivery()}
         />
-        <div className="composerToolbar">
-          <div className="deliveryTargetControl">
-            <Send size={15} aria-hidden="true" />
-            <div className="deliveryTargetSelectors">
-              <label>
-                <span>{text.chat.software}</span>
-                <select
-                  aria-label={text.chat.software}
-                  value={activeExternalDraft.software}
-                  onChange={(event) => chooseDeliverySoftware(event.target.value)}
-                  disabled={busy || deliveryBusy || voice.active || deliverySoftwareOptions.length === 0}
-                >
-                  <option value="">{deliverySoftwareOptions.length === 0 ? text.chat.noDeliveryEndpoints : text.chat.chooseSoftware}</option>
-                  {deliverySoftwareOptions.map((software) => (
-                    <option key={software.value} value={software.value}>{software.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>{text.chat.recipient}</span>
-                <select
-                  aria-label={text.chat.recipient}
-                  value={activeExternalDraft.endpointId}
-                  onChange={(event) => selectDeliveryTarget(event.target.value)}
-                  disabled={busy || deliveryBusy || voice.active || !externalDeliveryIntent}
-                >
-                  <option value="">{text.chat.chooseRecipient}</option>
-                  {activeDeliveryCandidates.map((endpoint) => (
-                    <option key={endpoint.id} value={endpoint.id}>
-                      {endpoint.recipient.display_name} · {endpoint.account_display_name}
-                      {endpoint.conversation_label ? ` · ${endpoint.conversation_label}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
-        </div>
         {!externalDeliveryIntent && activeAttachments.length > 0 && (
           <div className="attachmentTray">
             {activeAttachments.map((attachment) => (

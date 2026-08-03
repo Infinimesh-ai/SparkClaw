@@ -9,8 +9,7 @@ import {
   deliveryPartFromAttachment,
   deliveryPartIDFromAttachment,
   emptyExternalDeliveryDraft,
-  endpointsForSoftware,
-  selectDeliverySoftware,
+  selectDeliveryEndpoint,
   validateDeliveryDraft
 } from "../lib/deliveryDraft";
 import type { ExternalDeliveryDraft } from "../lib/deliveryDraft";
@@ -120,21 +119,11 @@ export function useExternalDelivery({
     ? sessionState.draftsBySession[activeSession] ?? emptyExternalDeliveryDraft()
     : emptyExternalDeliveryDraft();
   const activeExternalDraft = { ...storedExternalDraft, software: storedExternalDraft.software ?? "", text: activeInput };
-  const deliverySoftwareOptions = useMemo(() => {
-    const options = new Map<string, string>();
-    for (const endpoint of deliveryEndpoints) {
-      if (endpoint.channel && !options.has(endpoint.channel)) {
-        options.set(endpoint.channel, endpoint.software_display_name || endpoint.channel);
-      }
-    }
-    return [...options].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [deliveryEndpoints]);
-  const activeDeliveryCandidates = useMemo(
-    () => endpointsForSoftware(deliveryEndpoints, activeExternalDraft.software),
-    [deliveryEndpoints, activeExternalDraft.software]
+  const activeDeliveryEndpoint = useMemo(
+    () => deliveryEndpoints.find((endpoint) => endpoint.id === activeExternalDraft.endpointId),
+    [deliveryEndpoints, activeExternalDraft.endpointId]
   );
-  const activeDeliveryEndpoint = activeDeliveryCandidates.find((endpoint) => endpoint.id === activeExternalDraft.endpointId);
-  const externalDeliveryIntent = activeExternalDraft.software !== "";
+  const externalDeliveryIntent = activeExternalDraft.endpointId !== "";
   const activeDeliveryValidation = validateDeliveryDraft(activeExternalDraft, activeDeliveryEndpoint);
   const activeLastDelivery = activeSession ? sessionState.lastDeliveriesBySession[activeSession] ?? null : null;
 
@@ -143,27 +132,17 @@ export function useExternalDelivery({
     dispatch({ type: "draft.update", sessionId: activeSession, update });
   }
 
-  function chooseDeliverySoftware(software: string) {
+  function selectDeliveryTarget(endpointId: string) {
+    const endpoint = deliveryEndpoints.find((candidate) => candidate.id === endpointId);
     updateExternalDraft((draft) => {
-      const selected = selectDeliverySoftware(draft, software);
+      const selected = selectDeliveryEndpoint(draft, endpoint);
       return {
         ...selected,
-        parts: software && draft.parts.length === 0
+        parts: endpoint && draft.parts.length === 0
           ? activeAttachments.map((attachment) => deliveryPartFromAttachment(deliveryPartIDFromAttachment(attachment), attachment))
           : draft.parts
       };
     });
-    setDeliveryReviewOpen(false);
-  }
-
-  function selectDeliveryTarget(endpointId: string) {
-    updateExternalDraft((draft) => ({
-      ...draft,
-      endpointId,
-      parts: endpointId && draft.parts.length === 0
-        ? activeAttachments.map((attachment) => deliveryPartFromAttachment(deliveryPartIDFromAttachment(attachment), attachment))
-        : draft.parts
-    }));
     setDeliveryReviewOpen(false);
   }
 
@@ -258,8 +237,7 @@ export function useExternalDelivery({
     deliveryBusy,
     deliveryReviewOpen,
     setDeliveryReviewOpen,
-    deliverySoftwareOptions,
-    activeDeliveryCandidates,
+    deliveryEndpoints,
     activeDeliveryEndpoint,
     activeExternalDraft,
     externalDeliveryIntent,
@@ -267,7 +245,6 @@ export function useExternalDelivery({
     activeLastDelivery,
     refreshDeliverySurface,
     updateExternalDraft,
-    chooseDeliverySoftware,
     selectDeliveryTarget,
     updateExternalPart,
     removeExternalPart,

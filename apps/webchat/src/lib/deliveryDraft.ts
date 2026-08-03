@@ -18,12 +18,12 @@ export function emptyExternalDeliveryDraft(): ExternalDeliveryDraft {
   return { software: "", endpointId: "", text: "", parts: [] };
 }
 
-export function endpointsForSoftware(endpoints: DeliveryEndpoint[], software: string) {
-  return software ? endpoints.filter((endpoint) => endpoint.channel === software) : [];
-}
-
-export function selectDeliverySoftware(draft: ExternalDeliveryDraft, software: string): ExternalDeliveryDraft {
-  return { ...draft, software, endpointId: "" };
+export function selectDeliveryEndpoint(draft: ExternalDeliveryDraft, endpoint?: DeliveryEndpoint): ExternalDeliveryDraft {
+  return {
+    ...draft,
+    software: endpoint?.channel ?? "",
+    endpointId: endpoint?.id ?? ""
+  };
 }
 
 export function deliveryDraftParts(draft: ExternalDeliveryDraft): DeliveryPart[] {

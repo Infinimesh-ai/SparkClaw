@@ -97,7 +97,10 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 	if strings.TrimSpace(data.Suggestion) == "" {
 		data.Suggestion = weatherSuggestion(data)
 	}
-	img := drawWeatherCard(data)
+	img, err := drawWeatherCard(data)
+	if err != nil {
+		return Result{}, err
+	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return Result{}, err
@@ -161,10 +164,13 @@ func (h *ToolHub) writeMediaPNG(raw []byte, sessionID, prefix string) (string, s
 	return filepath.ToSlash(relPath), absPath, nil
 }
 
-func drawWeatherCard(data weatherCardData) image.Image {
+func drawWeatherCard(data weatherCardData) (image.Image, error) {
 	img := image.NewRGBA(image.Rect(0, 0, weatherCardWidth, weatherCardHeight))
 	drawVerticalGradient(img, color.RGBA{70, 126, 208, 255}, color.RGBA{165, 202, 235, 255})
-	faces := loadWeatherCardFaces()
+	faces, err := loadWeatherCardFaces(weatherCardFontPaths())
+	if err != nil {
+		return nil, fmt.Errorf("weather card font unavailable: %w", err)
+	}
 
 	temp := displayTemperature(data.Temperature)
 	condition := displayCondition(data.Condition)
@@ -192,11 +198,20 @@ func drawWeatherCard(data weatherCardData) image.Image {
 
 	drawHourlyForecastCard(img, faces, 52, 946, 796, 214, data, weatherKind)
 
-	return img
+	return img, nil
 }
 
-func loadWeatherCardFaces() weatherCardFaces {
-	parsed, err := firstWeatherCardFont([]string{
+func weatherCardFontPaths() []string {
+	return []string{
+		"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+		"/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+		"/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+		"/usr/share/fonts/truetype/arphic/ukai.ttc",
+		"/usr/share/fonts/truetype/arphic/uming.ttc",
 		"/System/Library/Fonts/PingFang.ttc",
 		"/System/Library/Fonts/STHeiti Medium.ttc",
 		"/System/Library/Fonts/STHeiti Light.ttc",
@@ -205,18 +220,33 @@ func loadWeatherCardFaces() weatherCardFaces {
 		"/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
 		"/System/Library/Fonts/Supplemental/Arial.ttf",
 		"/System/Library/Fonts/SFNS.ttf",
-	})
+	}
+}
+
+func loadWeatherCardFaces(paths []string) (weatherCardFaces, error) {
+	parsed, err := firstWeatherCardFont(paths)
 	if err != nil {
-		return weatherCardFaces{Title: basicfont.Face7x13, Hero: basicfont.Face7x13, H2: basicfont.Face7x13, Body: basicfont.Face7x13, Small: basicfont.Face7x13, Icon: basicfont.Face7x13}
+		return weatherCardFaces{}, err
 	}
-	return weatherCardFaces{
-		Title: mustNewFace(parsed, 76),
-		Hero:  mustNewFace(parsed, 228),
-		H2:    mustNewFace(parsed, 38),
-		Body:  mustNewFace(parsed, 30),
-		Small: mustNewFace(parsed, 24),
-		Icon:  mustNewFace(parsed, 60),
+	faces := weatherCardFaces{}
+	for _, entry := range []struct {
+		destination *font.Face
+		size        float64
+	}{
+		{destination: &faces.Title, size: 76},
+		{destination: &faces.Hero, size: 228},
+		{destination: &faces.H2, size: 38},
+		{destination: &faces.Body, size: 30},
+		{destination: &faces.Small, size: 24},
+		{destination: &faces.Icon, size: 60},
+	} {
+		face, err := opentype.NewFace(parsed, &opentype.FaceOptions{Size: entry.size, DPI: 72, Hinting: font.HintingNone})
+		if err != nil {
+			return weatherCardFaces{}, fmt.Errorf("create %.0fpx font face: %w", entry.size, err)
+		}
+		*entry.destination = face
 	}
+	return faces, nil
 }
 
 func drawCenteredTemperature(img *image.RGBA, faces weatherCardFaces, cx, baseline int, value string, c color.Color) {
@@ -517,13 +547,39 @@ func parseWeatherCardFont(raw []byte) (*opentype.Font, error) {
 	if err != nil {
 		return nil, err
 	}
+	var fallback *opentype.Font
 	for i := 0; i < collection.NumFonts(); i++ {
 		font, err := collection.Font(i)
-		if err == nil && weatherFontSupportsChinese(font) {
+		if err != nil || !weatherFontSupportsChinese(font) {
+			continue
+		}
+		if weatherFontIsSimplifiedChinese(font) {
 			return font, nil
 		}
+		if fallback == nil {
+			fallback = font
+		}
+	}
+	if fallback != nil {
+		return fallback, nil
 	}
 	return nil, errors.New("no usable font in collection")
+}
+
+func weatherFontIsSimplifiedChinese(font *opentype.Font) bool {
+	var buf sfnt.Buffer
+	for _, id := range []sfnt.NameID{sfnt.NameIDFamily, sfnt.NameIDFull, sfnt.NameIDPostScript} {
+		name, err := font.Name(&buf, id)
+		if err != nil {
+			continue
+		}
+		name = strings.ToLower(name)
+		if strings.Contains(name, "cjk sc") || strings.Contains(name, "pingfang sc") ||
+			strings.Contains(name, "simplified chinese") || strings.Contains(name, "gb") {
+			return true
+		}
+	}
+	return false
 }
 
 func weatherFontSupportsChinese(font *opentype.Font) bool {
@@ -538,14 +594,6 @@ func weatherFontSupportsChinese(font *opentype.Font) bool {
 		}
 	}
 	return true
-}
-
-func mustNewFace(f *opentype.Font, size float64) font.Face {
-	face, err := opentype.NewFace(f, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
-	if err != nil {
-		return basicfont.Face7x13
-	}
-	return face
 }
 
 func drawInfoCard(img *image.RGBA, faces weatherCardFaces, x, y, w, h int, bg color.RGBA, title, body string, accent, text color.Color) {

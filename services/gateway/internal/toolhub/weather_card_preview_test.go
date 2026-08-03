@@ -29,7 +29,10 @@ func TestWeatherCardPreview(t *testing.T) {
 
 func writeWeatherCardPreview(t *testing.T, path string, data weatherCardData) {
 	t.Helper()
-	img := drawWeatherCard(data)
+	img, err := drawWeatherCard(data)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)

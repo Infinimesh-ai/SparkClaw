@@ -1,11 +1,50 @@
 package toolhub
 
 import (
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
+	"golang.org/x/image/font/sfnt"
 )
+
+func TestWeatherCardFontPathsIncludeGatewayNotoCJK(t *testing.T) {
+	want := "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+	if !slices.Contains(weatherCardFontPaths(), want) {
+		t.Fatalf("weather card font candidates do not include the Gateway image font %q", want)
+	}
+}
+
+func TestWeatherCardFontLoaderRejectsMissingCJKFont(t *testing.T) {
+	if _, err := loadWeatherCardFaces([]string{t.TempDir() + "/missing-font.ttc"}); err == nil {
+		t.Fatal("weather card font loader silently accepted a missing CJK font")
+	}
+}
+
+func TestWeatherCardFontLoaderSelectsSimplifiedChineseFace(t *testing.T) {
+	path := "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		t.Skip("Gateway Noto Sans CJK font is not installed on this host")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseWeatherCardFont(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf sfnt.Buffer
+	name, err := parsed.Name(&buf, sfnt.NameIDFamily)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(name, "CJK SC") {
+		t.Fatalf("weather card selected %q from Noto collection, want the Simplified Chinese face", name)
+	}
+}
 
 func TestWeatherConditionDisplayCoversContract(t *testing.T) {
 	validKinds := map[string]bool{"clear": true, "partly": true, "rain": true, "snow": true, "unknown": true}

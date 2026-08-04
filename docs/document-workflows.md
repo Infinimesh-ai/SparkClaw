@@ -8,7 +8,7 @@ its durable format, evidence, and preservation contracts.
 
 ## Workflow Boundary
 
-`document.read` revision 3 reads or summarizes one exact governed workspace
+`document.read` revision 4 reads, summarizes, or extracts verbatim in-image text from one exact governed workspace
 file. Its format-qualified reader is a `direct_once` node: Runtime invokes the
 single reader with the frozen path, and Fast only synthesizes the final
 answer from completed evidence. `document.edit` revision 5 reads one exact
@@ -123,6 +123,15 @@ lane: Fast still owns visual description and Workflow reasoning. Successful
 scanned-page OCR is promoted into the matching stable PDF page and block;
 formulas and table markup remain in the Markdown evidence. Model-derived
 image/OCR observations remain `untrusted` and carry model-call provenance.
+
+For a directly inspected image, `images.inspect` runs optional OCR in parallel
+with Fast visual understanding. Non-empty cleaned Markdown sets
+`text_detected=true` and is retained beside Fast layout/semantic evidence; an
+empty cleaned result sets `text_detected=false` and omits every `ocr_*` field.
+Disabled or failed OCR stays explicit through `ocr_status` and, on failure, a
+bounded warning. In document context, successful non-empty OCR is the verbatim
+text source, so the Fast semantic segment omits its duplicate `Visible text`;
+Fast text remains the fallback for disabled, failed, or empty OCR.
 
 The full tool observation may be archived for traceability, while model context
 receives selected segments with category, anchor, priority, and bounded text.

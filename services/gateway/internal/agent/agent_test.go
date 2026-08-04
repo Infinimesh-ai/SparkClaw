@@ -252,7 +252,7 @@ func TestRuntimeAnswersFileSearchWithGroundedResults(t *testing.T) {
 	}
 	calls := st.ListToolCalls(session.ID)
 	if len(calls) != 0 {
-		t.Fatalf("document.read revision 3 must not expose file search: %#v", calls)
+		t.Fatalf("document.read revision 4 must not expose file search: %#v", calls)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.Workflow != nil {
 		t.Fatalf("file search must remain on the unmatched path: route=%#v workflow=%#v", result.RouteDecision, result.Run.Workflow)

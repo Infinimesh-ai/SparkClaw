@@ -98,7 +98,7 @@ func TestAttachmentClarificationPromptDistinguishesDocuments(t *testing.T) {
 		RelPath:     "media/20260707/photo.png",
 		ContentType: "image/png",
 	}})
-	if !strings.Contains(image, "我已收到图片") || !strings.Contains(image, "你想让我") {
+	if !strings.Contains(image, "我已收到图片") || !strings.Contains(image, "你想让我") || !strings.Contains(image, "直接读出图片内原文") {
 		t.Fatalf("unexpected image attachment prompt: %q", image)
 	}
 }

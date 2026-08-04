@@ -77,7 +77,7 @@ func (browserInternetSearchProfile) TransitionInstruction(app.ToolOutcome, app.N
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 3 }
+func (documentReadProfile) Revision() int                { return 4 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
@@ -85,7 +85,7 @@ func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 		EmbedTexts: []string{
 			"读取这个文档", "总结 report.pdf", "查看附件里的表格", "Explain the attached presentation", "检查工作区中的 notes.md",
 		},
-		TreeDescription: "Read, inspect, summarize, or explain exactly one governed workspace document or attachment without modifying it.",
+		TreeDescription: "Read, inspect, summarize, explain, or extract verbatim in-image text from exactly one governed workspace document or attachment without modifying it. Optional OCR is evidence inside this workflow, not a separate route.",
 		HardNegatives:   []string{"修改这个文档", "打开网页", "搜索整个代码仓库", "创建一个新文件"},
 	}}}
 }

@@ -308,7 +308,7 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "images.inspect",
-			Description: "Inspect an uploaded workspace image with the Fast multimodal model and, when enabled, OvisOCR2 page parsing. Use for bounded image description, readable text, formulas, tables, diagrams, and chart trends.",
+			Description: "Inspect an uploaded workspace image with Fast visual semantics and, when OCR is enabled, extract verbatim in-image text as Markdown with explicit text/no-text classification. Text-bearing results retain OCR evidence, text-free results use visual understanding, and mixed images combine both.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":         stringSchema(),
 				"question":     stringSchema(),

@@ -51,7 +51,7 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			wantRevision = app.BrowserWorkflowRevision2
 		}
 		if test.want == app.WorkflowDocumentRead {
-			wantRevision = 3
+			wantRevision = 4
 		}
 		if test.want == app.WorkflowDocumentEdit {
 			wantRevision = 5

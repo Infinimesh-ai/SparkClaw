@@ -106,6 +106,11 @@ schedule ID、endpoint ID 和任务栏 typed value 由受限、候选无关的 p
 ambiguous，不会压缩成一个。唯一的最近文档可以在无需再次附加的情况下满足追问，但仍
 必须通过 workspace、普通文件、符号链接、扩展名和文件签名 preflight。
 
+“逐字提取这张图片里的文字”这类请求仍选择已绑定图片的 `document.read` candidate。OCR
+是否可用不会创建 candidate、改变语义分数或选择模型 lane：冻结的图片格式只会选择
+`images.inspect`，后者可以在已选 Workflow 内补充带分类的 OCR 证据。渠道图片仅在 owner
+要求检查或转录时走同一路径；ingest 本身不会自动执行 OCR。
+
 只有 Agent Runtime 能把一个 clear 候选转换成 `RouteDecision`：
 
 1. 在冻结的图 revision 中解析候选。

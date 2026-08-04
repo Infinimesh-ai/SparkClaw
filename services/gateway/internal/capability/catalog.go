@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-04.v14"
+	DefaultCatalogRevision = "2026-08-04.v15"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -139,7 +139,7 @@ func DefaultCatalog() (Catalog, error) {
 			Operations: []app.RouteOperation{app.RouteOperationInteract}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab)}, RequireQuery: true, RequireTarget: true,
 		}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
-		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type.", 3, RouteContract{
+		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type, using optional OCR for verbatim in-image text and scanned PDF pages.", 4, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 5, RouteContract{

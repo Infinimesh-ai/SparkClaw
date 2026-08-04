@@ -256,7 +256,7 @@ var toolRegistry = map[string]toolRegistration{
 		"Read one explicitly identified file inside the configured workspace.",
 	),
 	"images.inspect": documentReadRegistration(ctxArgs((*ToolHub).imageInspect), []string{app.DocumentFormatImage},
-		"Inspect one explicitly identified image with Fast visual semantics and optional OvisOCR2 page parsing."),
+		"Inspect one explicitly identified image with Fast visual semantics and, when OCR is enabled, verbatim in-image Markdown with explicit text/no-text classification."),
 	"weather.lookup": workflowRegistration(toolRegistration{enabled: infoWeatherEnabled, run: ctxArgs((*ToolHub).lookupWeather)}, app.ToolCapabilityInfoQuestion,
 		map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWeatherPayload,
 		"Read normalized metric weather for one bound city from the dedicated Infinimesh Info weather endpoint.",

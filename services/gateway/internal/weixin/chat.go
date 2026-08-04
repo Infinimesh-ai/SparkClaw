@@ -406,7 +406,7 @@ func attachmentClarificationPrompt(attachments []app.MessageAttachment) string {
 	case hasDocument && !hasImage && !hasOther:
 		return "我已收到文档。你想让我对它做什么？\n\n我可以帮你：总结内容、提取关键信息、按问题查找答案、检查风险点、修改 Word/Excel/PPT/PDF 并把新文件发回。"
 	case hasImage && !hasDocument && !hasOther:
-		return "我已收到图片。你想让我对它做什么？\n\n我可以帮你：描述图片内容、提取文字、整理要点、生成说明，或按你的要求继续处理。"
+		return "我已收到图片。你想让我对它做什么？\n\n我可以帮你：描述图片内容、直接读出图片内原文、整理要点、生成说明，或按你的要求继续处理。"
 	case hasDocument:
 		return "我已收到附件。你想让我对它们做什么？\n\n我可以读取文档内容、查看图片、总结/提取/问答，也可以按要求修改文档并把新文件发回。"
 	default:

@@ -7,7 +7,7 @@
 
 ## Workflow 边界
 
-`document.read` revision 3 读取或总结一个明确的受治理 workspace 文件。其格式限定 reader
+`document.read` revision 4 读取、总结一个明确的受治理 workspace 文件，或逐字提取图片内原文。其格式限定 reader
 是 `direct_once` 节点：Runtime 使用冻结路径直接调用唯一 reader，Fast 只根据已完成证据生成
 最终回答。`document.edit` revision 5 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级
@@ -101,6 +101,13 @@ DOCX/PPTX 使用 Python high-level library，XLSX 使用 ExcelJS，PDF 使用 Py
 仍负责视觉描述和 Workflow 推理。成功的扫描页 OCR 会提升到对应稳定 PDF page/block，
 公式和表格 markup 保留在 Markdown 证据中。模型生成的 image/OCR observation 始终标记
 `untrusted` 并保留 model-call provenance。
+
+直接检查图片时，`images.inspect` 会并行运行可选 OCR 与 Fast 视觉理解。清理后的非空
+Markdown 设置 `text_detected=true`，并与 Fast layout/semantic 证据一起保留；清理后为空则
+设置 `text_detected=false`，且不输出任何 `ocr_*` 字段。OCR 禁用或失败时通过
+`ocr_status` 明确呈现，失败还带有有界 warning。在文档上下文中，成功且非空的 OCR 是逐字
+文本来源，因此 Fast semantic segment 不再重复 `Visible text`；OCR 禁用、失败或为空时仍由
+Fast 文字提取兜底。
 
 完整 tool observation 可以为可追溯性归档，模型上下文只接收带 category、anchor、priority
 和有界文本的选定 segment。文档身份不要求解析 representation 被精确保存。category budget

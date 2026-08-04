@@ -130,6 +130,13 @@ A unique recent document can satisfy a follow-up without being attached again,
 but it still has to pass workspace, regular-file, symlink, extension, and
 signature preflight.
 
+Requests such as "extract the text in this image verbatim" remain the
+`document.read` candidate for the bound image. OCR availability never creates a
+candidate, changes semantic scores, or selects a model lane: the frozen image
+format selects `images.inspect`, which may add classified OCR evidence inside
+the already selected Workflow. Channel images use this same path only when the
+owner asks to inspect or transcribe them; ingestion itself does not run OCR.
+
 Only Agent Runtime turns one clear candidate into `RouteDecision`:
 
 1. Resolve the candidate against the frozen graph revision.

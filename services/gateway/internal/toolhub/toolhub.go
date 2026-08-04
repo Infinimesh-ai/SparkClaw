@@ -334,6 +334,7 @@ func defaultDefinitions() []app.ToolDefinition {
 				"profile":            stringSchema(),
 				"lane":               stringSchema(),
 				"mock":               booleanSchema(),
+				"text_detected":      booleanSchema(),
 				"ocr_status":         stringSchema(),
 				"ocr_markdown":       stringSchema(),
 				"ocr_model":          stringSchema(),

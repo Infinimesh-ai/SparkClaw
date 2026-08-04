@@ -163,9 +163,6 @@ func (a *OpenAIHTTP) Parse(ctx context.Context, input Request) (Result, error) {
 		return Result{}, errors.New("document OCR service returned no completion")
 	}
 	markdown := cleanOvisOCR2Output(decoded.Choices[0].Message.Content)
-	if strings.TrimSpace(markdown) == "" {
-		return Result{}, errors.New("document OCR service returned no readable content")
-	}
 	if len([]byte(markdown)) > a.cfg.MaxOutputBytes {
 		return Result{}, errors.New("document OCR output exceeds the configured limit")
 	}
@@ -226,6 +223,10 @@ func cleanOvisOCR2Output(value string) string {
 		kept = append(kept, block)
 	}
 	return cleanTruncatedRepeats(strings.TrimSpace(strings.Join(kept, "\n\n")))
+}
+
+func IsTrivialMarkdown(value string) bool {
+	return strings.TrimSpace(cleanOvisOCR2Output(value)) == ""
 }
 
 func cleanTruncatedRepeats(value string) string {

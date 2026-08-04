@@ -88,6 +88,17 @@ func TestCleanTruncatedRepeatsKeepsOneTailUnit(t *testing.T) {
 	}
 }
 
+func TestIsTrivialMarkdownIgnoresOvisImageResidue(t *testing.T) {
+	for _, value := range []string{"", "  \n", `<img src="images/bbox_1_2_3_4.jpg" />`} {
+		if !IsTrivialMarkdown(value) {
+			t.Fatalf("OCR cleanup residue was classified as readable text: %q", value)
+		}
+	}
+	if IsTrivialMarkdown("# Receipt\n\nTotal: 42") {
+		t.Fatal("readable OCR Markdown was classified as trivial")
+	}
+}
+
 func testConfig(t *testing.T, baseURL string) config.DocumentOCRAdapterConfig {
 	t.Helper()
 	parsed, err := url.Parse(baseURL)

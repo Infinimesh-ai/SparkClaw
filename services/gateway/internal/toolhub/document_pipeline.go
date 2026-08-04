@@ -172,38 +172,50 @@ func smallDocumentContextSegments(relPath, content string, document map[string]a
 	}
 	assets, _ := documentAnyMap(enrichment["assets"])
 	imageBudget := 4000
-	seenHashes := map[string]struct{}{}
+	ocrBudget := 8000
+	seenSemanticHashes := map[string]struct{}{}
+	seenOCRHashes := map[string]struct{}{}
 	for _, value := range documentAnySlice(assets["images"]) {
 		image, ok := documentAnyMap(value)
-		if !ok || imageBudget <= 0 {
-			continue
-		}
-		semantic, ok := documentAnyMap(image["semantic"])
-		if !ok || stringArg(semantic, "status", "") != "succeeded" {
+		if !ok {
 			continue
 		}
 		hash := stringArg(image, "sha256", "")
-		if _, exists := seenHashes[hash]; hash != "" && exists {
-			continue
-		}
-		seenHashes[hash] = struct{}{}
-		parts := []string{stringArg(semantic, "description", "")}
-		if relationship := stringArg(semantic, "relationship_to_text", ""); relationship != "" {
-			parts = append(parts, relationship)
-		}
-		if ocr := outputStringArray(semantic["ocr_text"]); len(ocr) > 0 {
-			parts = append(parts, "Visible text: "+strings.Join(ocr, " | "))
-		}
-		text := trimDocumentText(strings.Join(parts, " "), min(800, imageBudget))
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
 		location, _ := documentAnyMap(image["location"])
-		segments = append(segments, map[string]any{
-			"category": "image_semantic", "anchor": stringArg(location, "path", ""), "text": text, "priority": 80,
-			"provenance": stringArg(semantic, "model_call_id", ""), "untrusted": true,
-		})
-		imageBudget -= utf8.RuneCountInString(text)
+		semantic, hasSemantic := documentAnyMap(image["semantic"])
+		_, semanticSeen := seenSemanticHashes[hash]
+		if imageBudget > 0 && hasSemantic && stringArg(semantic, "status", "") == "succeeded" && (hash == "" || !semanticSeen) {
+			seenSemanticHashes[hash] = struct{}{}
+			parts := []string{stringArg(semantic, "description", "")}
+			if relationship := stringArg(semantic, "relationship_to_text", ""); relationship != "" {
+				parts = append(parts, relationship)
+			}
+			if visibleText := outputStringArray(semantic["ocr_text"]); len(visibleText) > 0 {
+				parts = append(parts, "Visible text: "+strings.Join(visibleText, " | "))
+			}
+			text := trimDocumentText(strings.Join(parts, " "), min(800, imageBudget))
+			if strings.TrimSpace(text) != "" {
+				segments = append(segments, map[string]any{
+					"category": "image_semantic", "anchor": stringArg(location, "path", ""), "text": text, "priority": 80,
+					"provenance": stringArg(semantic, "model_call_id", ""), "untrusted": true,
+				})
+				imageBudget -= utf8.RuneCountInString(text)
+			}
+		}
+		ocr, hasOCR := documentAnyMap(image["ocr"])
+		_, ocrSeen := seenOCRHashes[hash]
+		promotedPDFPage := stringArg(document, "format", "") == "pdf" && stringArg(image, "kind", "") == "page_image"
+		if !promotedPDFPage && ocrBudget > 0 && hasOCR && stringArg(ocr, "status", "") == "succeeded" && (hash == "" || !ocrSeen) {
+			seenOCRHashes[hash] = struct{}{}
+			text := trimDocumentText(stringArg(ocr, "markdown", ""), min(2000, ocrBudget))
+			if strings.TrimSpace(text) != "" {
+				segments = append(segments, map[string]any{
+					"category": "ocr", "anchor": stringArg(location, "path", ""), "text": text, "priority": 90,
+					"provenance": stringArg(ocr, "model_call_id", ""), "untrusted": true,
+				})
+				ocrBudget -= utf8.RuneCountInString(text)
+			}
+		}
 	}
 	annotations, _ := documentAnyMap(enrichment["annotations"])
 	annotationCount := 0

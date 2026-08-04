@@ -61,7 +61,10 @@ func newDocumentPipeline(hub *ToolHub) *document.Pipeline {
 		})
 	}
 	strategy := document.NewSmallFileStrategy(parsers, editors)
-	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy).WithEnrichers(&fastDocumentImageEnricher{hub: hub})
+	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy).WithEnrichers(
+		&ovisDocumentOCREnricher{hub: hub},
+		&fastDocumentImageEnricher{hub: hub},
+	)
 }
 
 func applyTextReplacement(_ context.Context, request document.ApplyRequest) (document.ApplyResult, error) {

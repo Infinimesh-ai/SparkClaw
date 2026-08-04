@@ -21,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
@@ -40,6 +41,7 @@ type ToolHub struct {
 	webSearch   websearch.Adapter
 	weatherInfo WeatherInfoAdapter
 	browser     browserautomation.Adapter
+	ocr         documentocr.Adapter
 	documents   *document.Pipeline
 }
 
@@ -69,6 +71,10 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 	}, nil); err == nil {
 		weatherInfo = client
 	}
+	ocrAdapter, err := documentocr.New(cfg.Adapters.DocumentOCR)
+	if err != nil {
+		panic(fmt.Sprintf("toolhub: initialize document OCR adapter: %v", err))
+	}
 	h := &ToolHub{
 		cfg:         cfg,
 		store:       st,
@@ -80,6 +86,7 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		webSearch:   websearch.NewAdapter(cfg),
 		weatherInfo: weatherInfo,
 		browser:     browserautomation.NewAdapter(cfg),
+		ocr:         ocrAdapter,
 	}
 	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {
@@ -100,13 +107,16 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 	return h
 }
 
-// Close releases resources held by tool adapters (currently the browser
-// automation subprocess). Safe to call multiple times.
+// Close releases resources held by tool adapters. Safe to call multiple times.
 func (h *ToolHub) Close() error {
+	var errs []error
 	if h.browser != nil {
-		return h.browser.Close()
+		errs = append(errs, h.browser.Close())
 	}
-	return nil
+	if h.ocr != nil {
+		errs = append(errs, h.ocr.Close())
+	}
+	return errors.Join(errs...)
 }
 
 func (h *ToolHub) ArtifactStore() artifact.Store {
@@ -125,6 +135,11 @@ func (h *ToolHub) WithBrowserAutomationAdapter(adapter browserautomation.Adapter
 
 func (h *ToolHub) WithWeatherInfoAdapter(adapter WeatherInfoAdapter) *ToolHub {
 	h.weatherInfo = adapter
+	return h
+}
+
+func (h *ToolHub) WithDocumentOCRAdapter(adapter documentocr.Adapter) *ToolHub {
+	h.ocr = adapter
 	return h
 }
 
@@ -262,7 +277,7 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "files.read",
-			Description: "Inspect and completely parse one small workspace document into stable blocks, format-specific locations, and categorized high-level evidence. Embedded image semantics use only the Fast model when explicitly targeted or requested for the full document.",
+			Description: "Inspect and completely parse one small workspace document into stable blocks, format-specific locations, and categorized high-level evidence. Optional OvisOCR2 page parsing augments explicitly selected images and scanned PDF pages; Fast remains responsible for visual semantics.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":               map[string]any{"type": "string"},
 				"max_bytes":          map[string]any{"type": "number"},
@@ -291,7 +306,7 @@ func defaultDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "images.inspect",
-			Description: "Inspect an uploaded workspace image with the Fast multimodal model. Use for bounded image description, key visible text, diagrams, and chart trends.",
+			Description: "Inspect an uploaded workspace image with the Fast multimodal model and, when enabled, OvisOCR2 page parsing. Use for bounded image description, readable text, formulas, tables, diagrams, and chart trends.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":         stringSchema(),
 				"question":     stringSchema(),
@@ -317,6 +332,11 @@ func defaultDefinitions() []app.ToolDefinition {
 				"profile":            stringSchema(),
 				"lane":               stringSchema(),
 				"mock":               booleanSchema(),
+				"ocr_status":         stringSchema(),
+				"ocr_markdown":       stringSchema(),
+				"ocr_model":          stringSchema(),
+				"ocr_inference_ms":   integerSchema(),
+				"ocr_warning":        stringSchema(),
 				"untrusted":          booleanSchema(),
 			}),
 			Risk:             app.RiskRead,
@@ -534,7 +554,7 @@ func defaultDefinitions() []app.ToolDefinition {
 		}),
 		{
 			Name:        "pdf.extract_text",
-			Description: "Extract text from a standard text PDF inside the workspace. Scanned/OCR PDFs are not supported.",
+			Description: "Extract text and stable page blocks from a workspace PDF. When OvisOCR2 is enabled, scanned pages are rasterized and parsed under bounded page and byte budgets; unavailable or failed OCR remains explicit partial evidence.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":      stringSchema(),
 				"max_bytes": map[string]any{"type": "number"},
@@ -551,7 +571,7 @@ func defaultDefinitions() []app.ToolDefinition {
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
 			Idempotent:       true,
-			TimeoutMS:        10000,
+			TimeoutMS:        125000,
 			Sandbox:          "optional",
 			Audit:            "always",
 		},

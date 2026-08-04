@@ -38,7 +38,6 @@
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
 | [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
 | [观测压缩重构](observation-compression-redesign.md) | 已实施的统一工具结果信封、运行时证据供给与无损压缩 |
-| [OCR 深化使用与重构方案](ocr-usage-refactor-plan.md) | 拟议的 OvisOCR2 使用策略（渠道按需 OCR、智能合并、去重）及落地重构阶段 |
 | [暂缓能力](deferred-email-calendar-knowledge.md) | 已移除的邮件、日历、workspace knowledge 原型及重新引入门槛 |
 
 仓库协作流程见[贡献指南](../CONTRIBUTING.md)、[安全策略](../SECURITY.md)、

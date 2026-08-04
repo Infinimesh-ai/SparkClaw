@@ -40,7 +40,6 @@ documentation tree.
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
 | [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
 | [Observation compression redesign](observation-compression-redesign.md) | Implemented uniform tool-result envelope, runtime evidence provisioning, and lossless compaction |
-| [OCR usage & refactor plan](ocr-usage-refactor-plan.md) | Planned OvisOCR2 usage policy (on-demand channel OCR, smart merge, dedup) and the refactor phases to land it |
 | [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |
 
 Repository process is documented in [Contributing](../CONTRIBUTING.md),

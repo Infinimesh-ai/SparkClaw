@@ -182,6 +182,8 @@ func smallDocumentContextSegments(relPath, content string, document map[string]a
 		}
 		hash := stringArg(image, "sha256", "")
 		location, _ := documentAnyMap(image["location"])
+		ocr, hasOCR := documentAnyMap(image["ocr"])
+		hasReadableOCR := hasOCR && stringArg(ocr, "status", "") == "succeeded" && strings.TrimSpace(stringArg(ocr, "markdown", "")) != ""
 		semantic, hasSemantic := documentAnyMap(image["semantic"])
 		_, semanticSeen := seenSemanticHashes[hash]
 		if imageBudget > 0 && hasSemantic && stringArg(semantic, "status", "") == "succeeded" && (hash == "" || !semanticSeen) {
@@ -190,7 +192,7 @@ func smallDocumentContextSegments(relPath, content string, document map[string]a
 			if relationship := stringArg(semantic, "relationship_to_text", ""); relationship != "" {
 				parts = append(parts, relationship)
 			}
-			if visibleText := outputStringArray(semantic["ocr_text"]); len(visibleText) > 0 {
+			if visibleText := outputStringArray(semantic["ocr_text"]); !hasReadableOCR && len(visibleText) > 0 {
 				parts = append(parts, "Visible text: "+strings.Join(visibleText, " | "))
 			}
 			text := trimDocumentText(strings.Join(parts, " "), min(800, imageBudget))
@@ -202,7 +204,6 @@ func smallDocumentContextSegments(relPath, content string, document map[string]a
 				imageBudget -= utf8.RuneCountInString(text)
 			}
 		}
-		ocr, hasOCR := documentAnyMap(image["ocr"])
 		_, ocrSeen := seenOCRHashes[hash]
 		promotedPDFPage := stringArg(document, "format", "") == "pdf" && stringArg(image, "kind", "") == "page_image"
 		if !promotedPDFPage && ocrBudget > 0 && hasOCR && stringArg(ocr, "status", "") == "succeeded" && (hash == "" || !ocrSeen) {

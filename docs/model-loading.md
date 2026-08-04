@@ -50,7 +50,10 @@ The shortcut first stops a previously running Deep container, then starts only
 Fast, embedding, and guard. Run `scripts/restart_runtime_compose.sh` afterward;
 it uses the same single-Fast environment by default. The current Fast capacity
 remains at the previously exercised 32K context and 8 GiB KV cache rather than
-claiming an unmeasured capacity increase from the memory freed by Deep.
+claiming an unmeasured capacity increase from the memory freed by Deep. Model
+startup waits for Docker health. Guard health includes one real bounded chat
+completion per container start, so its first user moderation request does not
+pay the serving runtime's lazy-initialization cost.
 
 ## Historical Light Dual-Residency Experiment
 

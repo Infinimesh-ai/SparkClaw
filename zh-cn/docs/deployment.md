@@ -240,7 +240,10 @@ scripts/serve_models_compose.sh all-with-asr
 
 不传参数时，`serve_models_compose.sh` 也会选择 `single-fast`。这是当前产品启动路径：
 它会停止此前运行的 Deep 容器，并使用 `docker/env/sparkclaw.single-fast.env`
-启动 Fast、embedding 和 guard。Deep 与 dual-light 命令仅作为显式测试/benchmark 入口。
+启动 Fast、embedding 和 guard。Deep 与 dual-light 命令仅作为显式测试/benchmark
+入口。命令会等待所有选中服务进入 healthy。Guard 必须先成功完成一次有界的真实
+`/chat/completions` 请求才会变为 healthy；一次性预热完成后，周期健康检查改用轻量的
+模型列表 endpoint。
 
 默认 endpoints：
 
@@ -294,7 +297,9 @@ curl -fsS http://127.0.0.1:8005/v1/models
 `Safety: Safe|Unsafe|Controversial` 与 `Categories:` 格式；Gateway 分别映射为
 `allow`、`block` 和 `review`。SparkClaw 当前没有人工安全复核队列，因此 `review`
 和 `block` 都会在 routing 或 tool execution 前终止 run。外部 endpoint 不可用时，
-Gateway 会记录 `mock=true` 并使用本地 heuristic fallback。
+Gateway 会记录 `mock=true` 并使用本地 heuristic fallback。Compose 最多允许首次真实
+推理 readiness 探针运行 110 秒，并且只有探针生成非空 completion 后才把 Guard
+容器标记为 healthy。
 
 ### 从魔塔加载 Qwen3-ASR
 

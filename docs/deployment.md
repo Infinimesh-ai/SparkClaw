@@ -236,7 +236,10 @@ With no argument, `serve_models_compose.sh` also selects `single-fast`. This is
 the current product startup path: it stops a previously running Deep container
 and starts Fast, embedding, and guard with
 `docker/env/sparkclaw.single-fast.env`. Deep and dual-light commands are
-explicit test/benchmark entrypoints.
+explicit test/benchmark entrypoints. The command waits for every selected
+service to become healthy. Guard is not healthy until an actual bounded
+`/chat/completions` request succeeds; after that one-time warmup, its periodic
+health check uses the lightweight model listing endpoint.
 
 Default endpoints:
 
@@ -292,7 +295,9 @@ cache, one sequence and eager execution. Qwen3Guard returns its native
 those severities to `allow`, `block` and `review`. Because SparkClaw has no
 human safety-review queue, both `review` and `block` stop the run before routing
 or tool execution. If the external endpoint is unavailable, Gateway records
-`mock=true` and uses the local heuristic fallback.
+`mock=true` and uses the local heuristic fallback. Compose allows the initial
+real-inference readiness probe up to 110 seconds and does not report the Guard
+container healthy until that probe has produced a non-empty completion.
 
 ### Qwen3-ASR From ModelScope
 

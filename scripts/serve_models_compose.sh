@@ -82,4 +82,4 @@ if [[ "$SINGLE_FAST" == "true" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" stop sparkclaw-deep
 fi
 
-exec "${docker_cmd[@]}" "${compose_args[@]}" up -d "${services[@]}"
+exec "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait --wait-timeout 900 "${services[@]}"

@@ -13,6 +13,7 @@ x-vllm-common: &vllm-common
     VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
   volumes:
     - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
+    - ../scripts/model_readiness.py:/opt/sparkclaw/model_readiness.py:ro
   networks:
     - sparkclaw_internal
 
@@ -268,9 +269,22 @@ services:
     ports:
       - "127.0.0.1:8005:8005"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8005/v1/models', timeout=3).read()"]
+      test:
+        - CMD
+        - python3
+        - /opt/sparkclaw/model_readiness.py
+        - --base-url
+        - http://127.0.0.1:8005/v1
+        - --model
+        - ${SPARKCLAW_GUARD_SERVED_NAME:-Qwen/Qwen3Guard-Gen-0.6B}
+        - --marker
+        - /tmp/sparkclaw-guard-warmed
+        - --health-timeout
+        - "3"
+        - --warmup-timeout
+        - "110"
       interval: 30s
-      timeout: 5s
+      timeout: 120s
       retries: 20
 
   postgres:

@@ -48,7 +48,9 @@
 快捷方式会先停止此前运行的 Deep 容器，再只启动 Fast、embedding 和 guard。随后运行
 `scripts/restart_runtime_compose.sh`；该脚本默认使用同一个单 Fast 环境。当前 Fast
 容量仍保持在已实际运行过的 32K context 与 8 GiB KV cache，不把 Deep 释放的内存
-直接当作未经测量的容量提升。
+直接当作未经测量的容量提升。模型启动会等待 Docker health；Guard health 在每次
+容器启动时包含一次有界的真实 chat completion，因此第一条用户审核请求不会再承担
+serving runtime 的懒初始化开销。
 
 ## 历史轻量双常驻实验
 

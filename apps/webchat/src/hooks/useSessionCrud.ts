@@ -33,8 +33,7 @@ type Options = {
   setEpisodes: (episodes: EpisodeSummary[]) => void;
   setTab: (tab: PanelTab) => void;
   setTraceRun: (trace: RunTrace | null) => void;
-  resetSessionDraft: (sessionId: string) => void;
-  clearSessionState: (sessionId: string) => void;
+  clearSessionTarget: (sessionId: string) => void;
   refreshSession: (sessionId: string) => Promise<void>;
   refreshGlobal: () => Promise<void>;
 };
@@ -54,8 +53,7 @@ export function useSessionCrud({
   setEpisodes,
   setTab,
   setTraceRun,
-  resetSessionDraft,
-  clearSessionState,
+  clearSessionTarget,
   refreshSession,
   refreshGlobal
 }: Options) {
@@ -71,7 +69,6 @@ export function useSessionCrud({
       setActiveSession(session.id);
       setMessages([]);
       setAttachmentsBySession((current) => ({ ...current, [session.id]: [] }));
-      resetSessionDraft(session.id);
       setToolCalls([]);
       setModelCalls([]);
       setAuditEvents([]);
@@ -123,7 +120,7 @@ export function useSessionCrud({
         return nextDrafts;
       });
       setAttachmentsBySession((current) => omitSession(current, id));
-      clearSessionState(id);
+      clearSessionTarget(id);
       setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
       setActiveSession(next.id);
       cancelRenameSession();

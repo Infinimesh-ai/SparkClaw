@@ -8,14 +8,12 @@ import type {
   ConnectorStatus,
   DocumentUploadResult,
   DeliveryEndpoint,
-  DeliveryPart,
   EpisodeSummary,
   EvalRun,
   Memory,
   MemoryCandidate,
   MemoryExportArchive,
   Message,
-  MessageDelivery,
   MessageAttachment,
   ModelStreamEvent,
   ModelCall,
@@ -91,11 +89,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 type SendMessageStreamHandlers = {
   signal?: AbortSignal;
+  targetEndpointId?: string;
   onEvent?: (event: string, data: unknown) => void;
   onTextDelta?: (text: string, event: ModelStreamEvent) => void;
   onFinal?: (result: AgentResult) => void;
   onError?: (error: Error) => void;
 };
+
+export function messageStreamRequestBody(content: string, attachments: MessageAttachment[], targetEndpointId = "") {
+  return {
+    content,
+    attachments,
+    ...(targetEndpointId ? { target_endpoint_id: targetEndpointId } : {})
+  };
+}
 
 async function requestEventStream(path: string, init: RequestInit, onBlock: (event: string, data: string) => void) {
   const headers: Record<string, string> = {
@@ -261,13 +268,6 @@ export const api = {
   notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
   deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),
-  deliveries: () => request<{ deliveries: MessageDelivery[] }>("/api/deliveries"),
-  createDelivery: (target: string, idempotencyKey: string, parts: DeliveryPart[]) =>
-    request<MessageDelivery>("/api/deliveries", {
-      method: "POST",
-      body: JSON.stringify({ target, idempotency_key: idempotencyKey, confirmed: true, content: { parts } })
-    }),
-  retryDelivery: (id: string) => request<MessageDelivery>(`/api/deliveries/${id}/retry`, { method: "POST", body: JSON.stringify({ confirmed: true }) }),
   schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),
   scheduleAction: (sessionId: string, content: string, action: ScheduleAction) =>
     request<AgentResult>(`/api/sessions/${sessionId}/messages`, {
@@ -293,12 +293,14 @@ export const api = {
   deleteSession: (sessionId: string) =>
     request<Session>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
   messages: (sessionId: string) => request<{ messages: Message[] }>(`/api/sessions/${sessionId}/messages`),
-  sendMessage: (sessionId: string, content: string, attachments: MessageAttachment[] = []) =>
-    request<AgentResult>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ content, attachments }) }),
   sendMessageStream: async (sessionId: string, content: string, attachments: MessageAttachment[] = [], handlers: SendMessageStreamHandlers = {}) => {
     await requestEventStream(
       `/api/sessions/${sessionId}/messages/stream`,
-      { method: "POST", body: JSON.stringify({ content, attachments }), signal: handlers.signal },
+      {
+        method: "POST",
+        body: JSON.stringify(messageStreamRequestBody(content, attachments, handlers.targetEndpointId)),
+        signal: handlers.signal
+      },
       (event, rawData) => {
         let data: unknown = rawData;
         try {

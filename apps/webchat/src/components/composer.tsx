@@ -1,18 +1,15 @@
-// Composer dock: delivery target toolbar, attachment/external-part trays,
-// the message form with voice input, the workspace document picker overlay,
-// and the delivery review dialog. Extracted from App.tsx so the root
+// Composer dock: attachment tray, message form with voice input, and the
+// workspace document picker overlay. Extracted from App.tsx so the root
 // component stays below the size baseline; document-picker and IME
 // composition state is local because nothing outside the dock reads it.
-// Message sending and the voice/delivery hooks stay in the parent.
+// Message sending and the voice hook stay in the parent.
 import { useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, KeyboardEvent, MutableRefObject, SetStateAction } from "react";
 import { FileSearch, Send, Upload, X } from "lucide-react";
 import { api, openDocumentFile } from "../api/client";
 import type { Copy as CopyText, Language } from "../i18n";
 import { isImageAttachment, isImageContentType, WorkspaceFileImage } from "./messages";
-import { DeliveryReceiptSummary, DeliveryReviewDialog, ExternalPartTray } from "./delivery";
 import { VoiceInputButton, VoiceInputStatus } from "./VoiceInputButton";
-import type { useExternalDelivery } from "../hooks/useExternalDelivery";
 import type { useVoiceInput } from "../hooks/useVoiceInput";
 import type { VoiceInputState } from "../hooks/useVoiceInput";
 import {
@@ -25,32 +22,9 @@ import {
   sortDocumentsByUsage
 } from "../lib/format";
 import type { DocumentUsage } from "../lib/format";
-import {
-  deliveryPartIDFromAttachment,
-  deliveryPartFromAttachment,
-  moveDeliveryPart
-} from "../lib/deliveryDraft";
 import type { ArtifactObject, MessageAttachment } from "../api/types";
 
-type DeliveryProps = Pick<
-  ReturnType<typeof useExternalDelivery>,
-  | "deliveryBusy"
-  | "deliveryReviewOpen"
-  | "setDeliveryReviewOpen"
-  | "activeDeliveryEndpoint"
-  | "activeExternalDraft"
-  | "externalDeliveryIntent"
-  | "activeDeliveryValidation"
-  | "activeLastDelivery"
-  | "updateExternalDraft"
-  | "updateExternalPart"
-  | "removeExternalPart"
-  | "openDeliveryReview"
-  | "confirmExternalDelivery"
-  | "retryExternalDelivery"
->;
-
-type ComposerDockProps = DeliveryProps & {
+type ComposerDockProps = {
   text: CopyText;
   language: Language;
   activeSession: string;
@@ -79,21 +53,7 @@ export function ComposerDock({
   setAttachmentsBySession,
   setError,
   refreshGlobal,
-  onSend,
-  deliveryBusy,
-  deliveryReviewOpen,
-  setDeliveryReviewOpen,
-  activeDeliveryEndpoint,
-  activeExternalDraft,
-  externalDeliveryIntent,
-  activeDeliveryValidation,
-  activeLastDelivery,
-  updateExternalDraft,
-  updateExternalPart,
-  removeExternalPart,
-  openDeliveryReview,
-  confirmExternalDelivery,
-  retryExternalDelivery
+  onSend
 }: ComposerDockProps) {
   const [availableDocuments, setAvailableDocuments] = useState<ArtifactObject[]>([]);
   const [choosingDocument, setChoosingDocument] = useState(false);
@@ -114,11 +74,7 @@ export function ComposerDock({
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (isComposingInput || Date.now() - compositionEndedAt < 80) return;
-    if (externalDeliveryIntent) {
-      openDeliveryReview();
-    } else {
-      onSend();
-    }
+    onSend();
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -127,28 +83,16 @@ export function ComposerDock({
       return;
     }
     event.preventDefault();
-    if (externalDeliveryIntent) {
-      openDeliveryReview();
-    } else {
-      onSend();
-    }
+    onSend();
   }
 
   function stageAttachment(attachment: MessageAttachment) {
     if (!activeSession) return;
-    const partID = deliveryPartIDFromAttachment(attachment);
     setAttachmentsBySession((current) => {
-      const existing = externalDeliveryIntent ? current[activeSession] ?? [] : [];
+      const existing = current[activeSession] ?? [];
       return {
         ...current,
-        [activeSession]: [...existing.filter((item) => deliveryPartIDFromAttachment(item) !== partID), attachment]
-      };
-    });
-    updateExternalDraft((draft) => {
-      const existing = externalDeliveryIntent ? draft.parts : [];
-      return {
-        ...draft,
-        parts: [...existing.filter((part) => part.id !== partID), deliveryPartFromAttachment(partID, attachment)]
+        [activeSession]: [...existing.filter((item) => (item.artifact_id ?? item.rel_path) !== (attachment.artifact_id ?? attachment.rel_path)), attachment]
       };
     });
   }
@@ -224,26 +168,16 @@ export function ComposerDock({
 
   function removeAttachment(sessionId: string, attachment: MessageAttachment) {
     if (!sessionId) return;
-    const partID = deliveryPartIDFromAttachment(attachment);
     setAttachmentsBySession((current) => ({
       ...current,
       [sessionId]: (current[sessionId] ?? []).filter((item) => item !== attachment)
     }));
-    if (sessionId === activeSession) {
-      updateExternalDraft((draft) => ({ ...draft, parts: draft.parts.filter((part) => part.id !== partID) }));
-    }
   }
 
   return (
     <>
       <div className="composerDock">
-        <DeliveryReceiptSummary
-          delivery={activeLastDelivery}
-          retrying={deliveryBusy}
-          text={text}
-          onRetry={() => void retryExternalDelivery()}
-        />
-        {!externalDeliveryIntent && activeAttachments.length > 0 && (
+        {activeAttachments.length > 0 && (
           <div className="attachmentTray">
             {activeAttachments.map((attachment) => (
               <div className="attachmentChip" key={`${attachment.artifact_id ?? attachment.rel_path}-${attachment.rel_path}`}>
@@ -272,32 +206,18 @@ export function ComposerDock({
             ))}
           </div>
         )}
-        {externalDeliveryIntent && (
-          <ExternalPartTray
-            parts={activeExternalDraft.parts}
-            fallbackPartIds={activeDeliveryValidation.fallbackPartIds}
-            supportsCaption={activeDeliveryEndpoint?.capabilities.supports_caption === true}
-            text={text}
-            onChange={updateExternalPart}
-            onMove={(index, offset) => updateExternalDraft((draft) => ({ ...draft, parts: moveDeliveryPart(draft.parts, index, offset) }))}
-            onRemove={removeExternalPart}
-          />
-        )}
-        {externalDeliveryIntent && activeDeliveryValidation.error && (
-          <span className="deliveryValidation">{deliveryValidationMessage(activeDeliveryValidation.error, text)}</span>
-        )}
-        <form className={`composer ${externalDeliveryIntent ? "external" : ""}`} onSubmit={onSubmit}>
+        <form className="composer" onSubmit={onSubmit}>
           <input
             ref={uploadInputRef}
             className="documentUploadInput"
             type="file"
-            accept={externalDeliveryIntent ? undefined : ".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"}
+            accept=".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"
             onChange={(event) => void uploadDocument(event.target.files?.[0] ?? null)}
           />
           <button
             className="uploadButton"
             type="button"
-            disabled={busy || deliveryBusy || uploadingDocument || !activeSession}
+            disabled={busy || uploadingDocument || !activeSession}
             title={uploadingDocument ? text.chat.uploading : text.chat.upload}
             onClick={() => uploadInputRef.current?.click()}
           >
@@ -306,28 +226,26 @@ export function ComposerDock({
           <button
             className="uploadButton"
             type="button"
-            disabled={busy || deliveryBusy || choosingDocument || !activeSession}
+            disabled={busy || choosingDocument || !activeSession}
             title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile}
             onClick={() => void openDocumentPicker()}
           >
             <FileSearch size={18} />
           </button>
-          {!externalDeliveryIntent && (
-            <VoiceInputButton
-              state={voice.state}
-              disabled={voice.disabled}
-              title={voiceTitle}
-              onClick={() => {
-                const input = composerInputRef.current;
-                voice.toggle({
-                  sessionId: activeSession,
-                  draft: activeInput,
-                  selectionStart: input?.selectionStart ?? activeInput.length,
-                  selectionEnd: input?.selectionEnd ?? activeInput.length
-                });
-              }}
-            />
-          )}
+          <VoiceInputButton
+            state={voice.state}
+            disabled={voice.disabled}
+            title={voiceTitle}
+            onClick={() => {
+              const input = composerInputRef.current;
+              voice.toggle({
+                sessionId: activeSession,
+                draft: activeInput,
+                selectionStart: input?.selectionStart ?? activeInput.length,
+                selectionEnd: input?.selectionEnd ?? activeInput.length
+              });
+            }}
+          />
           <textarea
             ref={composerInputRef}
             value={activeInput}
@@ -342,22 +260,16 @@ export function ComposerDock({
               setCompositionEndedAt(Date.now());
             }}
             placeholder={text.chat.placeholder}
-            disabled={busy || deliveryBusy}
+            disabled={busy}
           />
           <button
             className="sendButton"
-            disabled={
-              externalDeliveryIntent
-                ? deliveryBusy || !activeDeliveryValidation.valid
-                : busy || voice.active || (!activeInput.trim() && activeAttachments.length === 0)
-            }
-            title={externalDeliveryIntent ? text.chat.reviewSend : text.chat.send}
+            disabled={busy || voice.active || (!activeInput.trim() && activeAttachments.length === 0)}
+            title={text.chat.send}
           >
             <Send size={18} />
           </button>
-          {!externalDeliveryIntent && (
-            <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} label={voiceLabel} />
-          )}
+          <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} label={voiceLabel} />
         </form>
       </div>
       {documentPickerOpen && (
@@ -399,17 +311,6 @@ export function ComposerDock({
             )}
           </div>
         </div>
-      )}
-      {deliveryReviewOpen && activeDeliveryEndpoint && activeDeliveryValidation.valid && (
-        <DeliveryReviewDialog
-          endpoint={activeDeliveryEndpoint}
-          draft={activeExternalDraft}
-          validation={activeDeliveryValidation}
-          busy={deliveryBusy}
-          text={text}
-          onCancel={() => setDeliveryReviewOpen(false)}
-          onConfirm={() => void confirmExternalDelivery()}
-        />
       )}
     </>
   );
@@ -454,22 +355,5 @@ function voiceInputLabel(state: VoiceInputState, errorCode: string, errorDetail:
       return errorDetail || text.chat.voiceFailed;
     default:
       return state === "error" ? errorDetail || text.chat.voiceFailed : text.chat.voiceUnavailable;
-  }
-}
-
-function deliveryValidationMessage(error: string, text: CopyText) {
-  switch (error) {
-    case "recipient_required":
-      return text.chat.recipientRequired;
-    case "content_required":
-      return text.chat.contentRequired;
-    case "part_unsupported":
-      return text.chat.partUnsupported;
-    case "too_many_parts":
-      return text.chat.tooManyParts;
-    case "payload_too_large":
-      return text.chat.payloadTooLarge;
-    default:
-      return "";
   }
 }

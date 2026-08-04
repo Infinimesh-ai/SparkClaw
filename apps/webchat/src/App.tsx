@@ -4,7 +4,6 @@ import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
 import {
-  attachmentOnlyPrompt,
   MessageBubble,
   streamStatusFromEvent,
   upsertStreamStatus
@@ -16,12 +15,12 @@ import { ComposerDock } from "./components/composer";
 import { DeliveryTargetPicker } from "./components/deliveryTargetPicker";
 import { ScheduleBar } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
-import { useExternalDelivery } from "./hooks/useExternalDelivery";
+import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
 import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
-import { MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
+import { hasPersistedResultMessage, MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
 import type {
   Approval,
@@ -121,34 +120,14 @@ export function App() {
   } = useSchedules({ activeSession, language, text, setError, refreshSession });
 
   const {
-    deliveryBusy,
-    deliveryReviewOpen,
-    setDeliveryReviewOpen,
     deliveryEndpoints,
+    activeTargetEndpointID,
     activeDeliveryEndpoint,
-    activeExternalDraft,
     externalDeliveryIntent,
-    activeDeliveryValidation,
-    activeLastDelivery,
     refreshDeliverySurface,
-    updateExternalDraft,
     selectDeliveryTarget,
-    updateExternalPart,
-    removeExternalPart,
-    openDeliveryReview,
-    confirmExternalDelivery,
-    retryExternalDelivery,
-    resetSessionDraft,
-    clearSessionState
-  } = useExternalDelivery({
-    activeSession,
-    activeInput,
-    activeAttachments,
-    setDraftsBySession,
-    setAttachmentsBySession,
-    setError,
-    deliveryErrorFallback: text.errors.message
-  });
+    clearSessionTarget
+  } = useDeliveryTarget(activeSession);
 
   const refreshGlobal = useCallback(async () => {
     const [readyStatus, configStatus, owner, clientList, connectorList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces, scheduleList] =
@@ -207,8 +186,7 @@ export function App() {
     setEpisodes,
     setTab,
     setTraceRun,
-    resetSessionDraft,
-    clearSessionState,
+    clearSessionTarget,
     refreshSession,
     refreshGlobal
   });
@@ -305,7 +283,7 @@ export function App() {
     speech: ready?.speech ?? null,
     sessionId: activeSession,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || deliveryBusy || externalDeliveryIntent || !activeSession,
+    externallyDisabled: busy || !activeSession,
     onTranscript: applyVoiceTranscript
   });
   async function send(content = activeInput, sessionId = activeSession) {
@@ -333,7 +311,8 @@ export function App() {
         [assistantMessageId]: [{ id: "waiting", type: "waiting", text: text.chat.waiting }]
       }));
       let receivedDelta = false;
-      await api.sendMessageStream(sessionId, trimmed || attachmentOnlyPrompt(language), attachments, {
+      await api.sendMessageStream(sessionId, trimmed, attachments, {
+        targetEndpointId: sessionId === activeSession ? activeTargetEndpointID : "",
         onEvent: (event, data) => {
           if (event === MESSAGE_STREAM_STARTED_EVENT) {
             streamAccepted = true;
@@ -357,6 +336,15 @@ export function App() {
           );
         },
         onFinal: (result) => {
+          if (!hasPersistedResultMessage(result.message)) {
+            setMessages((current) => current.filter((message) => message.id !== assistantMessageId));
+            setStreamStatusesByMessage((current) => {
+              const next = { ...current };
+              delete next[assistantMessageId];
+              return next;
+            });
+            return;
+          }
           setMessages((current) =>
             current.map((message) => {
               if (message.id !== assistantMessageId) return message;
@@ -375,7 +363,6 @@ export function App() {
       const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
       setSessions(sessionList.sessions ?? []);
       setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
-      resetSessionDraft(sessionId);
     } catch (err) {
       setMessages((current) => current.filter((message) => message.id !== userMessageId && message.id !== assistantMessageId));
       setStreamStatusesByMessage((current) => {
@@ -396,7 +383,6 @@ export function App() {
         // losing the stream is not a failure, so surface an informational
         // notice instead of an error banner.
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
-        resetSessionDraft(sessionId);
         setNotice(text.chat.streamDetached);
       }
       try {
@@ -500,7 +486,6 @@ export function App() {
         onCreateSession={() => void createSession()}
         onSelectSession={(session) => {
           setActiveSession(session.id);
-          setDeliveryReviewOpen(false);
           setTab("timeline");
           void refreshSession(session.id);
         }}
@@ -522,7 +507,7 @@ export function App() {
               endpoints={deliveryEndpoints}
               activeEndpoint={activeDeliveryEndpoint}
               hasExternalIntent={externalDeliveryIntent}
-              disabled={busy || deliveryBusy || voice.active}
+              disabled={busy || voice.active}
               text={text}
               onSelect={selectDeliveryTarget}
             />
@@ -614,20 +599,6 @@ export function App() {
             setError={setError}
             refreshGlobal={refreshGlobal}
             onSend={() => void send()}
-            deliveryBusy={deliveryBusy}
-            deliveryReviewOpen={deliveryReviewOpen}
-            setDeliveryReviewOpen={setDeliveryReviewOpen}
-            activeDeliveryEndpoint={activeDeliveryEndpoint}
-            activeExternalDraft={activeExternalDraft}
-            externalDeliveryIntent={externalDeliveryIntent}
-            activeDeliveryValidation={activeDeliveryValidation}
-            activeLastDelivery={activeLastDelivery}
-            updateExternalDraft={updateExternalDraft}
-            updateExternalPart={updateExternalPart}
-            removeExternalPart={removeExternalPart}
-            openDeliveryReview={openDeliveryReview}
-            confirmExternalDelivery={confirmExternalDelivery}
-            retryExternalDelivery={retryExternalDelivery}
           />
         </section>
       </section>

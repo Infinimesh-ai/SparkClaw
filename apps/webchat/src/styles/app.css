@@ -1471,185 +1471,6 @@ button:disabled {
   font-size: 11px;
 }
 
-.externalPart select,
-.externalPart input {
-  min-width: 0;
-  height: 36px;
-  padding: 0 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  color: var(--text-primary);
-  background: var(--surface);
-  font-size: 12px;
-}
-
-.externalPart select:focus,
-.externalPart input:focus {
-  border-color: rgba(96, 208, 68, 0.48);
-  outline: 0;
-}
-
-.externalPartTray {
-  display: grid;
-  gap: 7px;
-  padding: 10px var(--gutter) 0;
-}
-
-.externalPart {
-  display: grid;
-  grid-template-columns: minmax(160px, 1fr) minmax(130px, 0.45fr) minmax(140px, 0.65fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: rgba(233, 239, 234, 0.025);
-}
-
-.externalPartSummary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.externalPartSummary > span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.externalPartSummary strong,
-.externalPartSummary small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.externalPartSummary small {
-  color: var(--text-secondary);
-  font-size: 10px;
-}
-
-.externalPartActions {
-  display: flex;
-  gap: 3px;
-}
-
-.deliveryValidation {
-  padding: 8px var(--gutter) 0;
-  color: var(--amber-warning);
-  font-size: 11px;
-}
-
-.deliveryReceiptSummary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 10px var(--gutter) 0;
-  padding: 9px 10px;
-  border-left: 3px solid var(--emerald-success);
-  background: rgba(96, 208, 68, 0.06);
-}
-
-.deliveryReceiptSummary.partially_sent,
-.deliveryReceiptSummary.failed,
-.deliveryReceiptSummary.outcome_unknown {
-  border-left-color: var(--amber-warning);
-  background: rgba(245, 158, 11, 0.06);
-}
-
-.deliveryReceiptSummary > span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.deliveryReceiptSummary small {
-  color: var(--text-secondary);
-  overflow-wrap: anywhere;
-}
-
-.deliveryReview {
-  display: grid;
-  gap: 14px;
-  width: min(620px, calc(100vw - 48px));
-  max-height: min(720px, calc(100vh - 64px));
-  padding: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--surface-deep);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
-  overflow-y: auto;
-}
-
-.deliveryReviewDestination {
-  display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
-  gap: 10px;
-  margin: 0;
-  padding: 12px;
-  border-top: 1px solid var(--border-subtle);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.deliveryReviewDestination dt {
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.deliveryReviewDestination dd {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  margin: 0;
-}
-
-.deliveryReviewDestination span {
-  color: var(--text-secondary);
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-
-.deliveryReviewParts {
-  display: grid;
-  gap: 7px;
-}
-
-.deliveryReviewParts > div {
-  display: grid;
-  grid-template-columns: 70px minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: start;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.deliveryReviewParts strong,
-.deliveryReviewParts small {
-  color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
-.deliveryReviewParts span {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.deliveryReviewFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
 .attachmentTray {
   display: flex;
   flex-wrap: wrap;
@@ -1841,10 +1662,6 @@ button.finderRow {
   border-radius: 16px;
   background: var(--surface-muted);
   box-shadow: 0 16px 38px rgba(0, 0, 0, 0.22);
-}
-
-.composer.external {
-  grid-template-columns: 42px 42px minmax(0, 1fr) 42px;
 }
 
 .documentUploadInput {
@@ -3125,14 +2942,6 @@ button.finderRow {
     padding: 16px;
   }
 
-  .externalPartTray {
-    padding-inline: 16px;
-  }
-
-  .deliveryReceiptSummary {
-    margin-inline: 16px;
-  }
-
   .composer {
     margin: 0 16px 16px;
   }
@@ -3161,34 +2970,6 @@ button.finderRow {
 	.scheduleEndpoint {
 		display: none;
 	}
-  .externalPart {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .externalPartActions {
-    justify-content: flex-end;
-  }
-
-  .deliveryReceiptSummary,
-  .deliveryReviewFooter {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .deliveryReceiptSummary .secondaryButton,
-  .deliveryReviewFooter .buttonRow {
-    width: 100%;
-  }
-
-  .deliveryReviewFooter .buttonRow > button {
-    flex: 1 1 0;
-  }
-
-  .deliveryReviewDestination,
-  .deliveryReviewParts > div {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .bindingItemTop {
     grid-template-columns: minmax(0, 1fr);
   }

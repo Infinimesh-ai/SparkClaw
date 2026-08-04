@@ -222,10 +222,6 @@ export function upsertStreamStatus(statuses: StreamStatus[], next: StreamStatus)
   return [...filtered, next].slice(-5);
 }
 
-export function attachmentOnlyPrompt(language: Language) {
-  return language === "zh" ? "请处理我发送的附件。" : "Please work with the attached file.";
-}
-
 export function MessageContent({ content, sessionId, text }: { content: string; sessionId: string; text: Copy }) {
   const documentResult = parseDocumentResultContent(content);
   if (documentResult) return <WorkspaceDocumentResult path={documentResult.path} sessionId={sessionId} label={documentResult.label || text.chat.modifiedFile} text={text} />;

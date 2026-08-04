@@ -55,6 +55,25 @@ startup waits for Docker health. Guard health includes one real bounded chat
 completion per container start, so its first user moderation request does not
 pay the serving runtime's lazy-initialization cost.
 
+OvisOCR2 is an optional document adapter, not a fifth Model Router lane. The
+`single-fast` product profile therefore leaves it unloaded. When OCR is needed,
+`scripts/serve_models_compose.sh single-fast-with-ocr` adds
+`ATH-MaaS/OvisOCR2` through `docker/compose.ocr.yaml` on port `8007`. That
+overlay pins the model's documented vLLM `0.22.1` runtime, disables thinking,
+uses deterministic generation, assigns a fixed 2 GiB KV cache, and keeps
+response, concurrency, and queue limits in Gateway. On the GB10, combined
+startup was validated only after stopping the already-resident model services
+and reloading Fast, embedding, guard, and OCR together. Adding OCR to the
+already-resident stack failed during CUDA initialization. OvisOCR2 then loaded
+1.72 GiB of weights, but `gpu-memory-utilization=0.12` alone calculated
+`-1.96 GiB` of available KV cache; the explicit 2 GiB KV cache is therefore a
+required part of this profile, not optional tuning. With that cap, vLLM
+reported 53.26 GiB initially free, a 2 GiB cache with 164,352-token capacity,
+and 5.02x estimated 32K concurrency. This validates combined startup, not a
+steady-state residency budget or OCR quality baseline. A concurrent image and
+scanned-PDF smoke call succeeded, but broader quality measurements are still
+required before claiming model quality.
+
 ## Historical Light Dual-Residency Experiment
 
 If a single DGX Spark needs both chat lanes resident, the experiment should start from reduced residency profiles rather than from the full 128K/MTP profiles.
@@ -171,6 +190,8 @@ Every new loading profile should record:
 - Startup success, idle memory, first-request latency and warmed-request latency.
 - Throughput for chat, summary, email triage and coding scenarios.
 - Embedding and guard availability plus Gateway semantic-router readiness.
+- Optional OCR startup, page latency, scanned-PDF recovery, and malformed or
+  incomplete Markdown behavior when the OCR overlay is under evaluation.
 - Golden eval result and any regression notes.
 
 Append durable measurements to [Model baseline](../benchmarks/model_baseline.md). Keep this document focused on strategy and accepted loading profiles.

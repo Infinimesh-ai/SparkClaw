@@ -254,6 +254,7 @@ scripts/serve_models_compose.sh all-with-asr
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
 | guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
 | asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
+| 可选 OCR | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
 
 检查 endpoints：
 
@@ -262,6 +263,7 @@ curl -fsS http://127.0.0.1:8001/v1/models
 curl -fsS http://127.0.0.1:8003/v1/models
 curl -fsS http://127.0.0.1:8005/v1/models
 curl -fsS http://127.0.0.1:8006/v1/models
+curl -fsS http://127.0.0.1:8007/v1/models
 ```
 
 只有显式执行 `deep`、`dual-light` 或 `all` 启动后才会使用 `8002`；当前单 Fast
@@ -276,6 +278,8 @@ ready 检查不包含该端口。
 - `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
 - `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
 - `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
+- `SPARKCLAW_OCR_ENABLED`, `SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_TOKENS`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
+- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_MAX_MODEL_LEN`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` 或 `HUGGING_FACE_HUB_TOKEN`
@@ -300,6 +304,50 @@ curl -fsS http://127.0.0.1:8005/v1/models
 Gateway 会记录 `mock=true` 并使用本地 heuristic fallback。Compose 最多允许首次真实
 推理 readiness 探针运行 110 秒，并且只有探针生成非空 completion 后才把 Guard
 容器标记为 healthy。
+
+### OvisOCR2 文档 OCR
+
+可选 document OCR adapter 通过 OpenAI-compatible vLLM chat-completions endpoint 使用
+[`ATH-MaaS/OvisOCR2`](https://huggingface.co/ATH-MaaS/OvisOCR2)，把 page image 按自然阅读
+顺序解析为 Markdown，并保留公式和表格。Fast 仍负责 visual semantic 和 Workflow 推理；
+OCR 输出是不可信文档证据，不能选择 model lane 或授权 edit。
+
+overlay 固定 vLLM `0.22.1`，只在 loopback 暴露 `8007`，使用显式 2 GiB KV cache budget，
+并复用 Hugging Face cache。首次组合加载前先停止常驻模型服务以释放 unified memory，
+再启动当前单 Fast profile 并带 OCR：
+
+```bash
+scripts/serve_models_compose.sh single-fast-with-ocr
+curl -fsS http://127.0.0.1:8007/v1/models
+```
+
+启动启用 OCR adapter 的 Gateway 和 WebChat：
+
+```bash
+docker compose \
+  --env-file docker/env/sparkclaw.single-fast.env \
+  --env-file docker/env/sparkclaw.ocr.env \
+  -f docker/compose.yaml \
+  -f docker/compose.dual-light.yaml \
+  -f docker/compose.ocr.yaml \
+  --profile models-local up -d gateway webchat
+```
+
+host 侧 doctor 保留 Gateway 使用的 Compose service URL，只覆盖检查目标：
+
+```bash
+set -a
+. docker/env/sparkclaw.ocr.env
+set +a
+SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 scripts/doctor.sh
+```
+
+OCR 默认关闭。选中的 Office/PDF 图片会得到有界 OCR Markdown；扫描 PDF 页自动调用 OCR。
+页面栅格化限制为八页、单页 4 MiB、每次 PDF 读取总计 16 MiB。adapter 关闭、busy、timeout、
+返回 malformed 或 incomplete 时都会明确报告 partial evidence。GB10 上已经按上述“先停止、
+再一起加载”的流程验证组合启动；直接向已常驻栈增加 OCR 会在 CUDA 初始化阶段失败。必须保留
+显式 2 GiB KV cache，仅依赖 utilization 分配会得到负数的可用 cache 计算结果。一次并发图片
+与扫描 PDF 冒烟调用已成功，但它不是 OCR 质量基线，仍需覆盖更多真实文档的质量测量。
 
 ### 从魔塔加载 Qwen3-ASR
 

@@ -12,7 +12,9 @@
       "embedding_base_url_env": "SPARKCLAW_EMBEDDING_BASE_URL",
       "embedding_model_env": "SPARKCLAW_EMBEDDING_MODEL",
       "guard_base_url_env": "SPARKCLAW_GUARD_BASE_URL",
-      "guard_model_env": "SPARKCLAW_GUARD_MODEL"
+      "guard_model_env": "SPARKCLAW_GUARD_MODEL",
+      "optional_ocr_base_url_env": "SPARKCLAW_OCR_BASE_URL",
+      "optional_ocr_model_env": "SPARKCLAW_OCR_MODEL"
     },
     "dgx-spark-local": {
       "description": "DGX Spark dual-lane local model profile for vLLM or SGLang.",
@@ -20,6 +22,7 @@
       "deep": "Qwen/Qwen3.6-27B-FP8",
       "embedding": "Qwen/Qwen3-Embedding-0.6B",
       "guard": "Qwen/Qwen3Guard-Gen-0.6B",
+      "optional_ocr": "ATH-MaaS/OvisOCR2",
       "context_tokens": 131072,
       "serialized_active_generation": true
     },
@@ -55,6 +58,16 @@
         "gpu_memory_utilization": 0.04,
         "max_num_seqs": 1,
         "max_tokens": 128
+      },
+      "optional_ocr": {
+        "model": "ATH-MaaS/OvisOCR2",
+        "served_name": "sparkclaw-ocr",
+        "context_tokens": 32768,
+        "gpu_memory_utilization": 0.12,
+        "kv_cache_memory_bytes": "2G",
+        "max_num_seqs": 2,
+        "max_tokens": 16384,
+        "compose_override": "docker/compose.ocr.yaml"
       },
       "compose_override": "docker/compose.dual-light.yaml",
       "env_file": "docker/env/sparkclaw.single-fast.env",
@@ -98,6 +111,16 @@
         "gpu_memory_utilization": 0.04,
         "max_num_seqs": 1,
         "max_tokens": 128
+      },
+      "optional_ocr": {
+        "model": "ATH-MaaS/OvisOCR2",
+        "served_name": "sparkclaw-ocr",
+        "context_tokens": 32768,
+        "gpu_memory_utilization": 0.12,
+        "kv_cache_memory_bytes": "2G",
+        "max_num_seqs": 2,
+        "max_tokens": 16384,
+        "compose_override": "docker/compose.ocr.yaml"
       },
       "compose_override": "docker/compose.dual-light.yaml",
       "env_file": "docker/env/sparkclaw.dual-light.env",

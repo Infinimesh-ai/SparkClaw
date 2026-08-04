@@ -2594,6 +2594,17 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 			"startup_timeout_ms":     cfg.BrowserAutomation.StartupTimeoutMS,
 			"daemon_idle_timeout_ms": cfg.BrowserAutomation.DaemonIdleTimeoutMS,
 		},
+		"documentOCR": map[string]any{
+			"enabled":          cfg.DocumentOCR.Enabled,
+			"provider":         cfg.DocumentOCR.Provider,
+			"model":            cfg.DocumentOCR.Model,
+			"timeout_seconds":  cfg.DocumentOCR.TimeoutSeconds,
+			"max_upload_bytes": cfg.DocumentOCR.MaxUploadBytes,
+			"max_output_bytes": cfg.DocumentOCR.MaxOutputBytes,
+			"max_tokens":       cfg.DocumentOCR.MaxTokens,
+			"max_concurrency":  cfg.DocumentOCR.MaxConcurrency,
+			"max_pending":      cfg.DocumentOCR.MaxPending,
+		},
 	}
 }
 

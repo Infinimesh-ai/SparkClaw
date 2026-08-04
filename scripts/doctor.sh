@@ -32,7 +32,10 @@ for name in \
   SPARKCLAW_SPEECH_ENABLED \
   SPARKCLAW_SPEECH_BASE_URL \
   SPARKCLAW_SPEECH_MODEL \
-  SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION; do
+  SPARKCLAW_SPEECH_EXPECTED_RUNTIME_VERSION \
+  SPARKCLAW_OCR_ENABLED \
+  SPARKCLAW_OCR_BASE_URL \
+  SPARKCLAW_OCR_MODEL; do
   load_dotenv_var "$name"
 done
 
@@ -106,7 +109,7 @@ check "npm install scripts approved" check_npm_install_script_approvals
 check "Node document dependencies" node -e 'for (const name of ["@mozilla/readability", "jsdom", "exceljs"]) require(name)'
 check "Python 3.12" python3 -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'
 check "pip" python3 -m pip --version
-check "Python document dependencies" python3 -c 'import docx, pptx, pypdf'
+check "Python document dependencies" python3 -c 'import docx, PIL, pptx, pypdf, pypdfium2'
 check "repository-private .tools absent" test ! -e "$ROOT/.tools"
 check "agent-browser 0.32.3" bash -lc '[[ "$(./node_modules/.bin/agent-browser --version)" == "agent-browser 0.32.3" ]]'
 CHROMIUM_EXECUTABLE=""
@@ -209,6 +212,22 @@ if [[ "$SPEECH_ENABLED" == "true" || "$SPEECH_ENABLED" == "1" ]]; then
   ' _ "$SPEECH_BASE_URL" "$SPEECH_MODEL"
 else
   echo "ok  speech disabled"
+fi
+
+OCR_ENABLED="${SPARKCLAW_OCR_ENABLED:-false}"
+if is_true "$OCR_ENABLED"; then
+  OCR_BASE_URL="${SPARKCLAW_OCR_BASE_URL:-}"
+  OCR_MODEL="${SPARKCLAW_OCR_MODEL:-sparkclaw-ocr}"
+  if [[ -z "$OCR_BASE_URL" ]]; then
+    echo "err document OCR endpoint missing"
+    exit 1
+  fi
+  check "document OCR model" bash -lc '
+    payload="$(curl --fail --silent --show-error --max-time 5 "$1/models")" || exit 1
+    node -e '\''const body = JSON.parse(process.argv[1]); if (!body.data?.some((item) => item.id === process.argv[2])) { throw new Error(`served model ${process.argv[2]} is unavailable`); }'\'' "$payload" "$2"
+  ' _ "${OCR_BASE_URL%/}" "$OCR_MODEL"
+else
+  echo "ok  document OCR disabled"
 fi
 
 echo "done"

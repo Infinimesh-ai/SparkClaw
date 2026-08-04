@@ -250,6 +250,7 @@ Default endpoints:
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
 | guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
 | asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
+| optional OCR | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
 
 Check endpoints:
 
@@ -258,6 +259,7 @@ curl -fsS http://127.0.0.1:8001/v1/models
 curl -fsS http://127.0.0.1:8003/v1/models
 curl -fsS http://127.0.0.1:8005/v1/models
 curl -fsS http://127.0.0.1:8006/v1/models
+curl -fsS http://127.0.0.1:8007/v1/models
 ```
 
 Port `8002` is available only after an explicit `deep`, `dual-light`, or `all`
@@ -272,6 +274,8 @@ Important environment variables:
 - `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
 - `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
 - `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
+- `SPARKCLAW_OCR_ENABLED`, `SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_TOKENS`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
+- `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_MAX_MODEL_LEN`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
 - `SPARKCLAW_MODEL_DISABLE_THINKING`
 - `SPARKCLAW_MODEL_HTTP_TIMEOUT_SECONDS`
 - `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`
@@ -298,6 +302,58 @@ or tool execution. If the external endpoint is unavailable, Gateway records
 `mock=true` and uses the local heuristic fallback. Compose allows the initial
 real-inference readiness probe up to 110 seconds and does not report the Guard
 container healthy until that probe has produced a non-empty completion.
+
+### OvisOCR2 Document OCR
+
+The optional document OCR adapter uses
+[`ATH-MaaS/OvisOCR2`](https://huggingface.co/ATH-MaaS/OvisOCR2) through an
+OpenAI-compatible vLLM chat-completions endpoint. It parses page images into
+Markdown while preserving readable order, formulas, and tables. Fast remains
+the visual-semantics and Workflow-reasoning model; OCR output is untrusted
+document evidence and never selects a model lane or authorizes an edit.
+
+The overlay pins vLLM `0.22.1`, exposes port `8007` only on loopback, uses an
+explicit 2 GiB KV cache budget, and shares the Hugging Face cache. Stop the
+resident model services before the first combined load so unified memory is
+released, then start the current single-Fast profile with OCR:
+
+```bash
+scripts/serve_models_compose.sh single-fast-with-ocr
+curl -fsS http://127.0.0.1:8007/v1/models
+```
+
+Run Gateway and WebChat with the OCR adapter enabled:
+
+```bash
+docker compose \
+  --env-file docker/env/sparkclaw.single-fast.env \
+  --env-file docker/env/sparkclaw.ocr.env \
+  -f docker/compose.yaml \
+  -f docker/compose.dual-light.yaml \
+  -f docker/compose.ocr.yaml \
+  --profile models-local up -d gateway webchat
+```
+
+For host-side doctor checks, keep the Compose service URL for Gateway and
+override only the check destination:
+
+```bash
+set -a
+. docker/env/sparkclaw.ocr.env
+set +a
+SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 scripts/doctor.sh
+```
+
+OCR is opt-in. Selected Office/PDF images receive bounded OCR Markdown;
+scanned PDF pages invoke it automatically. Page rendering is limited to eight
+pages, 4 MiB per rendered page, and 16 MiB total per PDF read. A disabled,
+busy, timed-out, malformed, or incomplete OCR response is reported as partial
+evidence. Combined startup on the GB10 has been validated with the
+stop-and-reload procedure above; adding OCR to the already-resident stack failed during
+CUDA initialization. Keep the explicit 2 GiB KV cache: utilization-based
+allocation alone produced a negative available-cache calculation. One
+concurrent image and scanned-PDF smoke call completed successfully, but it is
+not an OCR quality baseline; broader document measurements are still required.
 
 ### Qwen3-ASR From ModelScope
 

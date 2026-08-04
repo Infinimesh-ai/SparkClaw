@@ -52,6 +52,19 @@
 容器启动时包含一次有界的真实 chat completion，因此第一条用户审核请求不会再承担
 serving runtime 的懒初始化开销。
 
+OvisOCR2 是可选 document adapter，不是第五个 Model Router lane，因此 `single-fast` 产品
+profile 默认不加载它。需要 OCR 时，`scripts/serve_models_compose.sh single-fast-with-ocr`
+通过 `docker/compose.ocr.yaml` 在端口 `8007` 增加 `ATH-MaaS/OvisOCR2`。该 overlay 固定使用
+模型文档要求的 vLLM `0.22.1`，关闭 thinking、使用确定性生成，并由 Gateway 限制响应、并发
+和队列，同时给 OCR 分配固定 2 GiB KV cache。在 GB10 上，只有先停止已常驻的模型服务，
+再一起加载 Fast、embedding、guard 和 OCR，组合启动才验证成功；直接向已常驻栈增加 OCR
+会在 CUDA 初始化阶段失败。OvisOCR2 随后成功加载 1.72 GiB 权重，但仅设置
+`gpu-memory-utilization=0.12` 会算出 -1.96 GiB 可用 KV cache，因此显式 2 GiB KV cache
+是该 profile 的必需配置，不是可选调优。设置后 vLLM 报告初始空闲 53.26 GiB、2 GiB cache
+可容纳 164,352 tokens，预计 32K 并发为 5.02x。这验证了组合启动，不代表已经建立稳定常驻
+预算或 OCR 质量基线。一次并发图片与扫描 PDF 冒烟调用已成功，但宣称模型质量前仍需更广泛
+的质量测量。
+
 ## 历史轻量双常驻实验
 
 如果单台 DGX Spark 需要两个 chat lanes 同时常驻，实验应从 reduced residency profiles 开始，而不是从 full 128K/MTP profiles 开始。
@@ -163,6 +176,8 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 - Startup success、idle memory、first-request latency、warmed-request latency。
 - Chat、summary、email triage、coding 场景吞吐。
 - 记录 embedding、guard 可用性和 Gateway semantic-router readiness。
+- 评估 OCR overlay 时记录 OCR 启动、单页延迟、扫描 PDF 恢复，以及 malformed/incomplete
+  Markdown 行为。
 - Golden eval 结果和 regression notes。
 
 长期测量结果追加到 [模型基线](../benchmarks/model_baseline.md)。本文档只维护策略和被接受的加载方案。

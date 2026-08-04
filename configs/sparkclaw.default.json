@@ -157,6 +157,19 @@
       "routeRebindLimit": 2,
       "chromiumExecutable": "",
       "profileDir": "./data/browser-profiles"
+    },
+    "documentOCR": {
+      "enabled": false,
+      "provider": "openai-http",
+      "baseUrl": "",
+      "allowedHosts": [],
+      "model": "sparkclaw-ocr",
+      "timeoutSeconds": 120,
+      "maxUploadBytes": 12582912,
+      "maxOutputBytes": 1048576,
+      "maxTokens": 16384,
+      "maxConcurrency": 2,
+      "maxPending": 2
     }
   },
   "workspaces": {

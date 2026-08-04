@@ -1,0 +1,61 @@
+name: sparkclaw
+
+services:
+  gateway:
+    environment:
+      SPARKCLAW_OCR_ENABLED: ${SPARKCLAW_OCR_ENABLED:-true}
+      SPARKCLAW_OCR_PROVIDER: ${SPARKCLAW_OCR_PROVIDER:-openai-http}
+      SPARKCLAW_OCR_BASE_URL: ${SPARKCLAW_OCR_BASE_URL:-http://sparkclaw-ocr:8007/v1}
+      SPARKCLAW_OCR_ALLOWED_HOSTS: ${SPARKCLAW_OCR_ALLOWED_HOSTS:-sparkclaw-ocr,127.0.0.1,localhost}
+      SPARKCLAW_OCR_MODEL: ${SPARKCLAW_OCR_MODEL:-sparkclaw-ocr}
+      SPARKCLAW_OCR_TIMEOUT_SECONDS: ${SPARKCLAW_OCR_TIMEOUT_SECONDS:-120}
+      SPARKCLAW_OCR_MAX_UPLOAD_BYTES: ${SPARKCLAW_OCR_MAX_UPLOAD_BYTES:-12582912}
+      SPARKCLAW_OCR_MAX_OUTPUT_BYTES: ${SPARKCLAW_OCR_MAX_OUTPUT_BYTES:-1048576}
+      SPARKCLAW_OCR_MAX_TOKENS: ${SPARKCLAW_OCR_MAX_TOKENS:-16384}
+      SPARKCLAW_OCR_MAX_CONCURRENCY: ${SPARKCLAW_OCR_MAX_CONCURRENCY:-2}
+      SPARKCLAW_OCR_MAX_PENDING: ${SPARKCLAW_OCR_MAX_PENDING:-2}
+    depends_on:
+      sparkclaw-ocr:
+        condition: service_healthy
+
+  sparkclaw-ocr:
+    profiles: ["models-local"]
+    image: ${SPARKCLAW_OCR_IMAGE:-vllm/vllm-openai:v0.22.1}
+    ipc: host
+    shm_size: ${SPARKCLAW_OCR_SHM_SIZE:-4gb}
+    gpus: all
+    environment:
+      HF_HOME: /models/huggingface
+      HF_TOKEN: ${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}
+      VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
+    volumes:
+      - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
+    command:
+      - ${SPARKCLAW_OCR_MODEL_ID:-ATH-MaaS/OvisOCR2}
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${SPARKCLAW_OCR_PORT:-8007}
+      - --served-model-name
+      - ${SPARKCLAW_OCR_SERVED_NAME:-sparkclaw-ocr}
+      - --gpu-memory-utilization
+      - ${SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION:-0.12}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES:-2G}
+      - --max-model-len
+      - ${SPARKCLAW_OCR_MAX_MODEL_LEN:-32768}
+      - --max-num-seqs
+      - ${SPARKCLAW_OCR_MAX_NUM_SEQS:-2}
+      - --gdn-prefill-backend
+      - triton
+      - --enforce-eager
+    ports:
+      - "127.0.0.1:${SPARKCLAW_OCR_PORT:-8007}:${SPARKCLAW_OCR_PORT:-8007}"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SPARKCLAW_OCR_PORT:-8007}/v1/models', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+    networks:
+      - sparkclaw_internal

@@ -192,6 +192,7 @@ type SandboxConfig struct {
 
 type AdapterConfig struct {
 	BrowserAutomation BrowserAutomationAdapterConfig `json:"browserAutomation"`
+	DocumentOCR       DocumentOCRAdapterConfig       `json:"documentOCR"`
 }
 
 type BrowserAutomationAdapterConfig struct {
@@ -205,6 +206,20 @@ type BrowserAutomationAdapterConfig struct {
 	RouteRebindLimit     int    `json:"routeRebindLimit"`
 	ChromiumExecutable   string `json:"chromiumExecutable"`
 	ProfileDir           string `json:"profileDir"`
+}
+
+type DocumentOCRAdapterConfig struct {
+	Enabled        bool     `json:"enabled"`
+	Provider       string   `json:"provider"`
+	BaseURL        string   `json:"baseUrl"`
+	AllowedHosts   []string `json:"allowedHosts"`
+	Model          string   `json:"model"`
+	TimeoutSeconds int      `json:"timeoutSeconds"`
+	MaxUploadBytes int64    `json:"maxUploadBytes"`
+	MaxOutputBytes int      `json:"maxOutputBytes"`
+	MaxTokens      int      `json:"maxTokens"`
+	MaxConcurrency int      `json:"maxConcurrency"`
+	MaxPending     int      `json:"maxPending"`
 }
 
 type WorkspaceConfig struct {
@@ -425,6 +440,9 @@ func Load(path string) (Config, error) {
 	if err := normalizeSpeechConfig(&cfg.Speech); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeDocumentOCRConfig(&cfg.Adapters.DocumentOCR); err != nil {
+		return Config{}, err
+	}
 	if err := validateModelConfig(&cfg.Model); err != nil {
 		return Config{}, err
 	}
@@ -630,6 +648,77 @@ func normalizeSpeechConfig(speech *SpeechConfig) error {
 	return nil
 }
 
+func normalizeDocumentOCRConfig(ocr *DocumentOCRAdapterConfig) error {
+	defaults := Default().Adapters.DocumentOCR
+	if ocr.TimeoutSeconds <= 0 {
+		ocr.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if ocr.MaxUploadBytes <= 0 {
+		ocr.MaxUploadBytes = defaults.MaxUploadBytes
+	}
+	if ocr.MaxOutputBytes <= 0 {
+		ocr.MaxOutputBytes = defaults.MaxOutputBytes
+	}
+	if ocr.MaxTokens <= 0 {
+		ocr.MaxTokens = defaults.MaxTokens
+	}
+	if ocr.MaxConcurrency <= 0 {
+		ocr.MaxConcurrency = defaults.MaxConcurrency
+	}
+	if ocr.MaxPending < 0 {
+		return errors.New("document OCR maxPending cannot be negative")
+	}
+	ocr.AllowedHosts = normalizeHostList(ocr.AllowedHosts)
+	if !ocr.Enabled {
+		ocr.Provider = "disabled"
+		return nil
+	}
+
+	ocr.Provider = strings.ToLower(strings.TrimSpace(ocr.Provider))
+	if ocr.Provider != "openai-http" {
+		return fmt.Errorf("unsupported document OCR provider %q", ocr.Provider)
+	}
+	if strings.TrimSpace(ocr.Model) == "" {
+		return errors.New("document OCR model is required")
+	}
+	parsed, err := url.Parse(strings.TrimSpace(ocr.BaseURL))
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		return errors.New("document OCR base URL must be an absolute http or https URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("document OCR base URL must use http or https")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("document OCR base URL must not contain credentials, query, or fragment")
+	}
+	if !containsFold(ocr.AllowedHosts, parsed.Hostname()) {
+		return fmt.Errorf("document OCR base URL host %q is not allowlisted", parsed.Hostname())
+	}
+	if parsed.Scheme == "http" && !isLocalHTTPHost(parsed.Hostname()) {
+		return errors.New("document OCR base URL may use http only for loopback, private, or local container hosts")
+	}
+	ocr.BaseURL = strings.TrimRight(parsed.String(), "/")
+	if ocr.TimeoutSeconds > 600 {
+		return errors.New("document OCR timeout must not exceed 600 seconds")
+	}
+	if ocr.MaxUploadBytes > 32<<20 {
+		return errors.New("document OCR upload limit must not exceed 33554432 bytes")
+	}
+	if ocr.MaxOutputBytes < 1024 || ocr.MaxOutputBytes > 2<<20 {
+		return errors.New("document OCR output limit must be between 1024 and 2097152 bytes")
+	}
+	if ocr.MaxTokens > 32768 {
+		return errors.New("document OCR maxTokens must not exceed 32768")
+	}
+	if ocr.MaxConcurrency > 8 {
+		return errors.New("document OCR maxConcurrency must not exceed 8")
+	}
+	if ocr.MaxPending > 32 {
+		return errors.New("document OCR maxPending must not exceed 32")
+	}
+	return nil
+}
+
 func isLocalHTTPHost(host string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
 	if host == "localhost" {
@@ -817,6 +906,17 @@ func Default() Config {
 				SettlePollIntervalMS: 100,
 				RouteRebindLimit:     2,
 				ProfileDir:           "./data/browser-profiles",
+			},
+			DocumentOCR: DocumentOCRAdapterConfig{
+				Enabled:        false,
+				Provider:       "openai-http",
+				Model:          "sparkclaw-ocr",
+				TimeoutSeconds: 120,
+				MaxUploadBytes: 12 << 20,
+				MaxOutputBytes: 1 << 20,
+				MaxTokens:      16384,
+				MaxConcurrency: 2,
+				MaxPending:     2,
 			},
 		},
 		Memory: MemoryConfig{
@@ -1134,6 +1234,51 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_BROWSER_PROFILE_DIR"); v != "" {
 		cfg.Adapters.BrowserAutomation.ProfileDir = v
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_ENABLED"); v != "" {
+		cfg.Adapters.DocumentOCR.Enabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_PROVIDER"); v != "" {
+		cfg.Adapters.DocumentOCR.Provider = v
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_BASE_URL"); v != "" {
+		cfg.Adapters.DocumentOCR.BaseURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_ALLOWED_HOSTS"); v != "" {
+		cfg.Adapters.DocumentOCR.AllowedHosts = splitCSV(v)
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_MODEL"); v != "" {
+		cfg.Adapters.DocumentOCR.Model = v
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_TIMEOUT_SECONDS"); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.DocumentOCR.TimeoutSeconds = seconds
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_MAX_UPLOAD_BYTES"); v != "" {
+		if maxBytes, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Adapters.DocumentOCR.MaxUploadBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_MAX_OUTPUT_BYTES"); v != "" {
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.DocumentOCR.MaxOutputBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_MAX_TOKENS"); v != "" {
+		if tokens, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.DocumentOCR.MaxTokens = tokens
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_MAX_CONCURRENCY"); v != "" {
+		if maxConcurrency, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.DocumentOCR.MaxConcurrency = maxConcurrency
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_OCR_MAX_PENDING"); v != "" {
+		if maxPending, err := strconv.Atoi(v); err == nil {
+			cfg.Adapters.DocumentOCR.MaxPending = maxPending
+		}
 	}
 	if v := os.Getenv("SPARKCLAW_REMINDERS_ENABLED"); v != "" {
 		cfg.Tools.Reminders.Enabled = parseBool(v)

@@ -116,6 +116,12 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if cfg.Speech.MaxAudioSeconds != 60 || cfg.Speech.MaxUploadBytes != 3<<20 || cfg.Speech.MaxConcurrency != 1 {
 		t.Fatalf("speech limits missing: %#v", cfg.Speech)
 	}
+	if cfg.Adapters.DocumentOCR.Enabled || cfg.Adapters.DocumentOCR.Provider != "disabled" || cfg.Adapters.DocumentOCR.BaseURL != "" || len(cfg.Adapters.DocumentOCR.AllowedHosts) != 0 {
+		t.Fatalf("document OCR should require explicit configuration: %#v", cfg.Adapters.DocumentOCR)
+	}
+	if cfg.Adapters.DocumentOCR.Model != "sparkclaw-ocr" || cfg.Adapters.DocumentOCR.MaxTokens != 16384 || cfg.Adapters.DocumentOCR.MaxUploadBytes != 12<<20 || cfg.Adapters.DocumentOCR.MaxOutputBytes != 1<<20 || cfg.Adapters.DocumentOCR.MaxConcurrency != 2 {
+		t.Fatalf("document OCR limits missing: %#v", cfg.Adapters.DocumentOCR)
+	}
 	if cfg.Tools.Web.Search.Enabled {
 		t.Fatalf("Infinimesh web search should be disabled by default: %#v", cfg.Tools.Web.Search)
 	}
@@ -136,6 +142,9 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 		"SPARKCLAW_SPEECH_ENABLED",
 		"SPARKCLAW_SPEECH_BASE_URL",
 		"SPARKCLAW_SPEECH_ALLOWED_HOSTS",
+		"SPARKCLAW_OCR_ENABLED",
+		"SPARKCLAW_OCR_BASE_URL",
+		"SPARKCLAW_OCR_ALLOWED_HOSTS",
 	} {
 		t.Setenv(name, "")
 	}
@@ -159,6 +168,47 @@ func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T)
 	}
 	if cfg.Speech.Enabled || cfg.Speech.BaseURL != "" || len(cfg.Speech.AllowedHosts) != 0 {
 		t.Fatalf("speech remote endpoint should require explicit configuration: %#v", cfg.Speech)
+	}
+	if cfg.Adapters.DocumentOCR.Enabled || cfg.Adapters.DocumentOCR.BaseURL != "" || len(cfg.Adapters.DocumentOCR.AllowedHosts) != 0 {
+		t.Fatalf("document OCR remote endpoint should require explicit configuration: %#v", cfg.Adapters.DocumentOCR)
+	}
+}
+
+func TestLoadAppliesDocumentOCREnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_OCR_ENABLED", "true")
+	t.Setenv("SPARKCLAW_OCR_PROVIDER", "openai-http")
+	t.Setenv("SPARKCLAW_OCR_BASE_URL", "https://ocr.example.test/v1/")
+	t.Setenv("SPARKCLAW_OCR_ALLOWED_HOSTS", "ocr.example.test")
+	t.Setenv("SPARKCLAW_OCR_MODEL", "ATH-MaaS/OvisOCR2")
+	t.Setenv("SPARKCLAW_OCR_TIMEOUT_SECONDS", "90")
+	t.Setenv("SPARKCLAW_OCR_MAX_UPLOAD_BYTES", "8388608")
+	t.Setenv("SPARKCLAW_OCR_MAX_OUTPUT_BYTES", "524288")
+	t.Setenv("SPARKCLAW_OCR_MAX_TOKENS", "12000")
+	t.Setenv("SPARKCLAW_OCR_MAX_CONCURRENCY", "3")
+	t.Setenv("SPARKCLAW_OCR_MAX_PENDING", "4")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ocr := cfg.Adapters.DocumentOCR
+	if !ocr.Enabled || ocr.Provider != "openai-http" || ocr.BaseURL != "https://ocr.example.test/v1" || ocr.Model != "ATH-MaaS/OvisOCR2" || ocr.TimeoutSeconds != 90 || ocr.MaxUploadBytes != 8388608 || ocr.MaxOutputBytes != 524288 || ocr.MaxTokens != 12000 || ocr.MaxConcurrency != 3 || ocr.MaxPending != 4 {
+		t.Fatalf("document OCR environment did not apply: %#v", ocr)
+	}
+}
+
+func TestLoadRejectsUnsafeDocumentOCREndpoint(t *testing.T) {
+	t.Setenv("SPARKCLAW_OCR_ENABLED", "true")
+	t.Setenv("SPARKCLAW_OCR_BASE_URL", "http://ocr.example.test/v1")
+	t.Setenv("SPARKCLAW_OCR_ALLOWED_HOSTS", "ocr.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "http only") {
+		t.Fatalf("insecure public OCR endpoint was accepted: %v", err)
+	}
+
+	t.Setenv("SPARKCLAW_OCR_BASE_URL", "https://ocr.example.test/v1")
+	t.Setenv("SPARKCLAW_OCR_ALLOWED_HOSTS", "other.example.test")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("OCR endpoint outside the allowlist was accepted: %v", err)
 	}
 }
 

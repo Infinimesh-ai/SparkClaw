@@ -66,10 +66,10 @@ func (r Runtime) resolveMessageControl(ctx context.Context, sessionID string, di
 			return DeliveryTargetSelection{}, app.ReturnRoute{}, err
 		}
 		selection = resolved
-	} else if normalized.ExplicitExternal {
+	} else if normalized.ExplicitExternal && envelope.ReturnRoute.Mode != app.ReturnToEndpoint {
 		return DeliveryTargetSelection{}, app.ReturnRoute{}, errors.New("external delivery target resolver is unavailable")
 	}
-	if err := validateDeliveryTargetSelection(selection, normalized); err != nil {
+	if err := validateDeliveryTargetSelection(selection, normalized, envelope.ReturnRoute); err != nil {
 		return DeliveryTargetSelection{}, app.ReturnRoute{}, err
 	}
 	returnRoute := envelope.ReturnRoute
@@ -80,6 +80,12 @@ func (r Runtime) resolveMessageControl(ctx context.Context, sessionID string, di
 }
 
 func defaultDeliveryTargetSelection(envelope app.MessageEnvelope) DeliveryTargetSelection {
+	if envelope.ReturnRoute.Mode == app.ReturnToEndpoint && envelope.ReturnRoute.EndpointID != "" {
+		return DeliveryTargetSelection{
+			Status: TargetResolved, ResolvedEndpointID: envelope.ReturnRoute.EndpointID,
+			ResolutionRule: "frozen_explicit_endpoint",
+		}
+	}
 	if envelope.Source.Kind == app.MessageSourceThirdPartyDevice && envelope.ReturnRoute.Mode == app.ReturnToSource && envelope.ReturnRoute.SourceEndpointID != "" {
 		return DeliveryTargetSelection{
 			Status: TargetSourceReply, ResolvedEndpointID: envelope.ReturnRoute.SourceEndpointID,
@@ -109,11 +115,19 @@ func normalizeDeliveryDirective(directive DeliveryDirective) (DeliveryDirective,
 	return directive, nil
 }
 
-func validateDeliveryTargetSelection(selection DeliveryTargetSelection, directive DeliveryDirective) error {
+func validateDeliveryTargetSelection(selection DeliveryTargetSelection, directive DeliveryDirective, returnRoute app.ReturnRoute) error {
 	if strings.TrimSpace(selection.ResolutionRule) == "" {
 		return errors.New("message control selection requires a resolution rule")
 	}
-	if directive.ExplicitExternal {
+	frozenEndpoint := returnRoute.Mode == app.ReturnToEndpoint && returnRoute.EndpointID != ""
+	if frozenEndpoint {
+		if selection.Status != TargetResolved || selection.ResolvedEndpointID != returnRoute.EndpointID {
+			return errors.New("frozen explicit return route must resolve to its exact endpoint")
+		}
+		if directive.ExplicitExternal && (selection.RequestedProviderKey != directive.RequestedProviderKey || selection.RequestedRecipientText != directive.RequestedRecipientText) {
+			return errors.New("message control selection changed the typed software or recipient request")
+		}
+	} else if directive.ExplicitExternal {
 		if selection.Status == TargetDefaultWeb || selection.Status == TargetSourceReply {
 			return errors.New("explicit external delivery cannot fall back to the current Web or source route")
 		}

@@ -32,6 +32,9 @@ func (r Runtime) queueExternalSendApproval(run *app.AgentRun) (app.ToolCall, app
 	if run == nil || run.State != "completed" || approvalsStillPending(r.store.ListApprovals("pending"), run.ID) {
 		return app.ToolCall{}, app.Approval{}, false
 	}
+	if r.isExternalMediaPublication(*run) {
+		return app.ToolCall{}, app.Approval{}, false
+	}
 	metadata, required := r.externalSendMetadata(*run)
 	if !required || r.externalSendApprovalForRun(run.ID) != nil {
 		return app.ToolCall{}, app.Approval{}, false
@@ -74,8 +77,21 @@ func (r Runtime) queueExternalSendApproval(run *app.AgentRun) (app.ToolCall, app
 	return call, approval, true
 }
 
+func (r Runtime) isExternalMediaPublication(run app.AgentRun) bool {
+	if !isOrdinaryMediaPublication(run) {
+		return false
+	}
+	_, external := r.externalSendMetadata(run)
+	return external
+}
+
 func (r Runtime) externalSendMetadata(run app.AgentRun) (externalSendMetadata, bool) {
 	if run.MessageContext == nil || run.MessageContext.ReturnRoute.Mode != app.ReturnToEndpoint || run.MessageContext.ReturnRoute.EndpointID == "" {
+		return externalSendMetadata{}, false
+	}
+	// Timer routes were authorized and frozen when the schedule was created;
+	// due-time execution must not stop for a second interactive send approval.
+	if run.MessageContext.Source.Kind == app.MessageSourceTimer {
 		return externalSendMetadata{}, false
 	}
 	for _, event := range r.store.ListAudit(run.SessionID) {
@@ -192,6 +208,9 @@ func (r Runtime) blockExternalSendResume(run app.AgentRun, err error) Result {
 func (r Runtime) protectExternalSendResult(run app.AgentRun, result *app.WorkflowResult) *app.WorkflowResult {
 	if result == nil {
 		return nil
+	}
+	if r.isExternalMediaPublication(run) {
+		return result
 	}
 	_, required := r.externalSendMetadata(run)
 	if !required || r.externalSendApproved(run) {

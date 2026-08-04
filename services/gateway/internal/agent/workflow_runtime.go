@@ -596,7 +596,9 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			break
 		}
 		stageResult := workflowExecutionResult{}
-		if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
+		if activeWorkflowNodeUsesMessageContent(run.Workflow) {
+			stageResult = r.runWorkflowMessageContentStep(run)
+		} else if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, emit)
 		} else if activeWorkflowNodeUsesDirectToolOnce(run.Workflow) {
 			stageResult = r.runWorkflowDirectToolOnce(ctx, sessionID, run, stageContext, visibleTools, allObservations, runBudget)
@@ -626,16 +628,24 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		}
 		if stageResult.Completed && strings.TrimSpace(stageResult.FinalAnswer) != "" {
 			storedRun, ok := r.store.GetRun(run.ID)
-			if ok && storedRun.Workflow != nil && activeWorkflowNodeUsesModelAnswer(storedRun.Workflow) {
-				if err := completeActiveModelAnswerNode(&storedRun); err != nil {
-					latest.FinalAnswer = "The model-answer workflow could not record completion: " + err.Error()
+			if ok && storedRun.Workflow != nil && (activeWorkflowNodeUsesModelAnswer(storedRun.Workflow) || activeWorkflowNodeUsesMessageContent(storedRun.Workflow)) {
+				completion := app.CompletionModelAnswer
+				auditType := "workflow.model_answer_completed"
+				auditSummary := "Completed a no-tool model-answer workflow"
+				if activeWorkflowNodeUsesMessageContent(storedRun.Workflow) {
+					completion = app.CompletionMessage
+					auditType = "workflow.message_completed"
+					auditSummary = "Completed a normalized multipart message workflow"
+				}
+				if err := completeActiveNoToolNode(&storedRun, completion); err != nil {
+					latest.FinalAnswer = "The no-tool workflow could not record completion: " + err.Error()
 					latest.Halted = true
 					break
 				}
 				r.store.SaveRun(storedRun)
 				r.store.AddAudit(app.AuditEvent{
-					SessionID: sessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: "workflow.model_answer_completed",
-					Summary: "Completed a no-tool model-answer workflow",
+					SessionID: sessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType,
+					Summary: auditSummary,
 				})
 				run = storedRun
 				break

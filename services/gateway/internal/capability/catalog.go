@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-07-29.v12"
+	DefaultCatalogRevision = "2026-08-04.v14"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -31,13 +31,14 @@ type Node struct {
 }
 
 type RouteContract struct {
-	Operations      []app.RouteOperation `json:"operations"`
-	FactScopes      []app.RouteFactScope `json:"fact_scopes,omitempty"`
-	TargetKinds     []string             `json:"target_kinds,omitempty"`
-	RequireQuery    bool                 `json:"require_query,omitempty"`
-	RequireLocation bool                 `json:"require_location,omitempty"`
-	RequireTarget   bool                 `json:"require_target,omitempty"`
-	RequiredFacts   []string             `json:"required_facts,omitempty"`
+	Operations              []app.RouteOperation `json:"operations"`
+	FactScopes              []app.RouteFactScope `json:"fact_scopes,omitempty"`
+	TargetKinds             []string             `json:"target_kinds,omitempty"`
+	RequireQuery            bool                 `json:"require_query,omitempty"`
+	QueryOptionalOperations []app.RouteOperation `json:"query_optional_operations,omitempty"`
+	RequireLocation         bool                 `json:"require_location,omitempty"`
+	RequireTarget           bool                 `json:"require_target,omitempty"`
+	RequiredFacts           []string             `json:"required_facts,omitempty"`
 }
 
 type RouteOption struct {
@@ -118,9 +119,10 @@ func DefaultCatalog() (Catalog, error) {
 	}
 	return NewCatalog(DefaultCatalogRevision, []Node{
 		branch(string(RootID), "", "Registered user-visible product capabilities."),
-		branch("conversation", string(RootID), "Answer simple questions that need no tools or external evidence."),
-		leaf(string(app.CapabilityConversationAnswer), "conversation", "Answer greetings, stable common knowledge, and simple explanations using only the owner request and conversation context. Current facts, workspace evidence, tools, and actions belong to other capabilities.", RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationAnswer}, RequireQuery: true,
+		branch("conversation", string(RootID), "Handle ordinary conversation answers and owner-authored multipart messages."),
+		leafRevision(string(app.CapabilityConversationAnswer), "conversation", "Handle ordinary conversation answers and publish owner-authored multipart messages. Current facts, governed-resource inspection, tools, and unrelated actions belong to other capabilities.", 2, RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationAnswer, app.RouteOperationPublish}, RequireQuery: true,
+			QueryOptionalOperations: []app.RouteOperation{app.RouteOperationPublish},
 		}),
 		branch("browser", string(RootID), "Use current Internet facts, a single-location weather card, or a managed browser session."),
 		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", RouteContract{
@@ -277,7 +279,7 @@ func validateMatchedSlots(leaf Node, decision app.RouteDecision) error {
 	if slots.TargetKind != "" && !slices.Contains(contract.TargetKinds, slots.TargetKind) {
 		return fmt.Errorf("target kind %q is not valid for capability %q", slots.TargetKind, leaf.ID)
 	}
-	if contract.RequireQuery && strings.TrimSpace(slots.Query) == "" {
+	if contract.RequireQuery && !slices.Contains(contract.QueryOptionalOperations, slots.Operation) && strings.TrimSpace(slots.Query) == "" {
 		return fmt.Errorf("capability %q requires a query", leaf.ID)
 	}
 	if contract.RequireLocation && strings.TrimSpace(slots.Location) == "" {
@@ -340,6 +342,11 @@ func validateNodeShape(node Node) error {
 		if node.Route.RequireTarget && len(node.Route.TargetKinds) == 0 {
 			return fmt.Errorf("capability leaf %q requires registered target kinds", node.ID)
 		}
+		for _, operation := range node.Route.QueryOptionalOperations {
+			if !node.Route.RequireQuery || !slices.Contains(node.Route.Operations, operation) {
+				return fmt.Errorf("capability leaf %q has invalid query-optional operation %q", node.ID, operation)
+			}
+		}
 	default:
 		return fmt.Errorf("capability %q has invalid kind %q", node.ID, node.Kind)
 	}
@@ -379,6 +386,7 @@ func cloneRouteContract(route RouteContract) RouteContract {
 	route.Operations = append([]app.RouteOperation(nil), route.Operations...)
 	route.FactScopes = append([]app.RouteFactScope(nil), route.FactScopes...)
 	route.TargetKinds = append([]string(nil), route.TargetKinds...)
+	route.QueryOptionalOperations = append([]app.RouteOperation(nil), route.QueryOptionalOperations...)
 	route.RequiredFacts = append([]string(nil), route.RequiredFacts...)
 	return route
 }

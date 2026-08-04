@@ -265,14 +265,14 @@ func (r *EndpointRegistry) ResolveTarget(ctx context.Context, request TargetRequ
 	return selection, nil
 }
 
-func (r *EndpointRegistry) GetForDirectSend(_ context.Context, id app.EndpointID, ownerID, actorID string) (app.MessageEndpoint, error) {
+func (r *EndpointRegistry) GetForMessageSend(_ context.Context, id app.EndpointID, ownerID, actorID string) (app.MessageEndpoint, error) {
 	if r == nil || r.store == nil {
 		return app.MessageEndpoint{}, errors.New("endpoint registry is unavailable")
 	}
 	value := strings.TrimSpace(string(id))
 	chat, ok := r.store.GetExternalChatSession(value)
 	if !ok {
-		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "direct delivery requires an exact recipient endpoint")
+		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "message delivery requires an exact recipient endpoint")
 	}
 	endpoint, err := r.endpointForChat(id, chat)
 	if err != nil {

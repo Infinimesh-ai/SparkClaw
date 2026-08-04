@@ -112,7 +112,7 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal := principalForRequest(r)
-	endpoint, err := s.endpoints.GetForDirectSend(r.Context(), input.Target, principal.OwnerID, principal.ActorID)
+	endpoint, err := s.endpoints.GetForMessageSend(r.Context(), input.Target, principal.OwnerID, principal.ActorID)
 	if err != nil {
 		writeError(w, deliveryHTTPStatus(errorCode(err)), err)
 		return
@@ -122,7 +122,7 @@ func (s *Server) createDelivery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	content, err = delivery.ResolveBrowserContent(s.store, principal.OwnerID, content)
+	content, err = delivery.ResolveBrowserContent(s.store, principal.OwnerID, s.cfg.Workspaces.DefaultRoot, content)
 	if err != nil {
 		writeError(w, deliveryHTTPStatus(delivery.ErrorCode(err)), err)
 		return
@@ -231,7 +231,7 @@ func (s *Server) retryDelivery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("delivery is not safe to retry"))
 		return
 	}
-	if _, err := s.endpoints.GetForDirectSend(r.Context(), record.Request.Target, principal.OwnerID, principal.ActorID); err != nil {
+	if _, err := s.endpoints.GetForMessageSend(r.Context(), record.Request.Target, principal.OwnerID, principal.ActorID); err != nil {
 		writeError(w, deliveryHTTPStatus(errorCode(err)), err)
 		return
 	}

@@ -18,8 +18,8 @@ The workbench includes:
 - session navigation, chat, streaming responses, uploads, and assistant
   attachments;
 - task toolbar with current schedules and typed edit/delete actions;
-- explicit third-party destination selection, multipart review, delivery
-  history, and safe retry;
+- per-session third-party result destination selection on the ordinary message
+  composer, including text, uploads, workspace files, and voice drafts;
 - microphone transcription into the draft;
 - tool timeline, approval inbox, memory review, traces, model calls, audits,
   episode summaries, artifacts, evals, status, owner/client settings, connector
@@ -49,8 +49,10 @@ Structured owner actions are not converted back into ambiguous prose:
 - schedule toolbar actions submit `schedule_action` with selected ID and
   observed `updated_at`; Agent Runtime validates and executes the registered
   Workflow;
-- direct sends submit one opaque endpoint, ordered message parts, confirmation,
-  and idempotency key to `/api/deliveries`;
+- the delivery target picker submits one optional opaque `target_endpoint_id`
+  with the ordinary session message; it does not change or duplicate the
+  composer, attachments, streaming, routing, or Workflow path; an attachment-only
+  send submits empty text and lets Message Runtime route the typed media parts;
 - approval modifications validate JSON and keep verifier-owned fields read-only;
 - workspace files are uploaded and fetched through authenticated document APIs;
 - speech transcription returns text to the draft and never calls message send.
@@ -76,7 +78,7 @@ Gateway routes and public projections live in
 projections instead of reading Store records or reconstructing backend rules.
 
 Important API groups include sessions/messages/events, schedules, delivery
-endpoints/deliveries, connector settings, notification bindings, speech,
+endpoints, connector settings, notification bindings, speech,
 documents, approvals, memory, traces, artifacts, evals, owner/client settings,
 config, and policy.
 
@@ -84,8 +86,11 @@ config, and policy.
 
 - Present a quiet operational workbench, not a marketing page.
 - Keep risky, pending, failed, unavailable, and unknown-outcome states visible.
-- Require explicit review for third-party direct sends and explicit confirmation
-  for retry.
+- Suppress the source-WebChat assistant result for ordinary pure-media
+  publications sent to a selected third-party endpoint; those explicit sends do
+  not require approval. Keep text-only and other third-party Workflow results
+  behind Gateway-owned send approval. Explicit direct-send API clients still
+  require confirmation for send and retry.
 - Preserve API IDs, paths, tool names, user text, and model output exactly; do
   not translate or normalize them for display.
 - Localize static UI copy only. Persist the selected language.
@@ -119,4 +124,5 @@ npm --workspace @sparkclaw/webchat run build
 For user-visible changes, also run Gateway contract tests for the touched API
 and inspect desktop/mobile layouts against a running local Gateway. Verify
 loading, empty, offline, unauthorized, disabled, pending, successful, failed,
-and retry states, plus long Chinese/English labels and multipart attachments.
+and approval states, plus long Chinese/English labels and multipart attachments
+with both Web and third-party targets.

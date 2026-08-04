@@ -146,6 +146,9 @@ func TestWorkflowAndExplicitSendShareDeliveryRequest(t *testing.T) {
 	if workflowRequest.Target != explicitRequest.Target || len(workflowRequest.Content.Parts) != len(explicitRequest.Content.Parts) {
 		t.Fatalf("delivery paths diverged: workflow=%#v explicit=%#v", workflowRequest, explicitRequest)
 	}
+	if workflowRequest.Origin != app.DeliveryOriginAgentWorkflow {
+		t.Fatalf("Web return-to-source was mislabeled as a third-party source reply: %#v", workflowRequest)
+	}
 }
 
 func TestGatewayRejectsEndpointOwnedByAnotherPrincipal(t *testing.T) {

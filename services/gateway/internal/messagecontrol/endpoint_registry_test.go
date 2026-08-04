@@ -97,12 +97,12 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 	st.SaveNotificationBinding(binding)
 	registry := NewEndpointRegistry(st)
 
-	_, err := registry.GetForDirectSend(t.Context(), "chat-a", "owner-a", "actor-a")
+	_, err := registry.GetForMessageSend(t.Context(), "chat-a", "owner-a", "actor-a")
 	var targetErr *TargetError
 	if !errors.As(err, &targetErr) || targetErr.Code != CodeScopeDenied {
 		t.Fatalf("expected scope denial, got %v", err)
 	}
-	_, err = registry.GetForDirectSend(t.Context(), "chat-a", "owner-a", "actor-b")
+	_, err = registry.GetForMessageSend(t.Context(), "chat-a", "owner-a", "actor-b")
 	if !errors.As(err, &targetErr) || targetErr.Code != CodeCrossUserDenied {
 		t.Fatalf("expected cross-actor denial, got %v", err)
 	}
@@ -112,17 +112,17 @@ func TestEndpointRegistryRejectsWrongActorScopeAndExpiredBinding(t *testing.T) {
 	}
 }
 
-func TestEndpointRegistryDirectSendRejectsBindingFallback(t *testing.T) {
+func TestEndpointRegistryMessageSendRejectsBindingFallback(t *testing.T) {
 	st := store.NewMemoryStore()
 	saveEndpointFixture(st, "bind-a", "chat-a", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
 	registry := NewEndpointRegistry(st)
 
-	_, err := registry.GetForDirectSend(t.Context(), "bind-a", "owner-a", "actor-a")
+	_, err := registry.GetForMessageSend(t.Context(), "bind-a", "owner-a", "actor-a")
 	var targetErr *TargetError
 	if !errors.As(err, &targetErr) || targetErr.Code != CodeBindingUnavailable {
-		t.Fatalf("binding ID was accepted as a direct recipient: %v", err)
+		t.Fatalf("binding ID was accepted as an exact message recipient: %v", err)
 	}
-	endpoint, err := registry.GetForDirectSend(t.Context(), "chat-a", "owner-a", "actor-a")
+	endpoint, err := registry.GetForMessageSend(t.Context(), "chat-a", "owner-a", "actor-a")
 	if err != nil || endpoint.ID != "chat-a" || endpoint.BindingRef != "bind-a" || endpoint.ExternalUserRef != "user-1" || endpoint.Address != "chat-1" {
 		t.Fatalf("exact chat endpoint was rejected: endpoint=%#v err=%v", endpoint, err)
 	}

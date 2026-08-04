@@ -20,7 +20,7 @@ type governedArtifactStore interface {
 	GetSession(string) (app.Session, bool)
 }
 
-func ResolveBrowserContent(st governedArtifactStore, ownerID string, content app.MessageContent) (app.MessageContent, error) {
+func ResolveBrowserContent(st governedArtifactStore, ownerID, defaultWorkspaceRoot string, content app.MessageContent) (app.MessageContent, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	if st == nil || ownerID == "" {
 		return app.MessageContent{}, NewError(CodeArtifactInvalid, "artifact authorization is unavailable", "blocked")
@@ -44,7 +44,7 @@ func ResolveBrowserContent(st governedArtifactStore, ownerID string, content app
 		if !ok || normalizedOwnerID(session.OwnerID) != ownerID {
 			return app.MessageContent{}, NewError(CodeCrossUserDenied, "artifact is outside the actor owner scope", "blocked")
 		}
-		path, info, err := validateArtifactPath(session, object)
+		path, info, err := validateArtifactPath(session, object, defaultWorkspaceRoot)
 		if err != nil {
 			return app.MessageContent{}, NewError(CodeArtifactInvalid, fmt.Sprintf("artifact for part %q is invalid", part.ID), "blocked")
 		}
@@ -96,7 +96,7 @@ func findArtifact(st governedArtifactStore, id string) (app.ArtifactObject, bool
 	return app.ArtifactObject{}, false
 }
 
-func validateArtifactPath(session app.Session, object app.ArtifactObject) (string, os.FileInfo, error) {
+func validateArtifactPath(session app.Session, object app.ArtifactObject, defaultWorkspaceRoot string) (string, os.FileInfo, error) {
 	path := strings.TrimSpace(object.Path)
 	if path == "" {
 		return "", nil, errors.New("artifact has no local path")
@@ -114,6 +114,9 @@ func validateArtifactPath(session app.Session, object app.ArtifactObject) (strin
 		return "", nil, err
 	}
 	root := strings.TrimSpace(session.WorkspaceRoot)
+	if root == "" {
+		root = strings.TrimSpace(defaultWorkspaceRoot)
+	}
 	if root == "" {
 		return "", nil, errors.New("artifact session has no workspace")
 	}

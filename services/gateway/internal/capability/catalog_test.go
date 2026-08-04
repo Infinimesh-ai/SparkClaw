@@ -28,6 +28,9 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 			t.Fatalf("resolve %v: %v", path, err)
 		}
 		wantRevision := 1
+		if leaf.ID == app.CapabilityConversationAnswer {
+			wantRevision = 2
+		}
 		if leaf.ID == app.CapabilityScheduleManage {
 			wantRevision = 2
 		}
@@ -111,6 +114,22 @@ func TestCatalogRejectsOperationOutsideLeafSlotContract(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "not valid") {
 		t.Fatalf("expected typed operation rejection, got %v", err)
+	}
+}
+
+func TestConversationPublishAllowsMediaOnlyRouteWithoutWeakeningAnswerQuery(t *testing.T) {
+	catalog := MustDefaultCatalog()
+	decision := app.RouteDecision{
+		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
+		CapabilityPath: []app.CapabilityID{"conversation", app.CapabilityConversationAnswer},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationPublish},
+	}
+	if err := catalog.ValidateDecision(decision); err != nil {
+		t.Fatalf("media-only publication requires an invented query: %v", err)
+	}
+	decision.Slots.Operation = app.RouteOperationAnswer
+	if err := catalog.ValidateDecision(decision); err == nil || !strings.Contains(err.Error(), "requires a query") {
+		t.Fatalf("conversation answer accepted a missing owner query: %v", err)
 	}
 }
 

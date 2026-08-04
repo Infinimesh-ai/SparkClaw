@@ -19,21 +19,26 @@
 2. **Guard + 路由** —— 安全 guard 可直接终止运行；意图路由返回唯一的
    `RouteDecision`。`clarify` / `blocked` / `unmatched` 是终态：直接产出结果，
    绝不执行工具。
+   Web 请求没有 owner 文本且只有 image/audio/file part 时，typed media-content route
+   直接选择已注册的 `conversation.answer#publish` candidate，不合成文本，也不调用语义路由模型。
 3. **分发** —— `dispatchMatchedWorkflow`（`workflow_dispatcher.go`）把匹配叶子
    解析为一个带版本的 Workflow Profile，冻结计划（节点、迁移、参数绑定、完成
-   证据、计划摘要），持久化到运行记录上，并为第一个 active scope 物化工具。
+   证据、计划摘要），持久化到运行记录上，并为第一个 active scope 物化工具。规范化后的
+   请求 `MessageContent` 也随 run 持久化，使无工具发布可以治理媒体、保持媒体 part 顺序并
+   移除命令文本。
 4. **阶段循环** —— `runWorkflowStream`（`workflow_runtime.go`）驱动有界阶段，
-   直到 workflow 成功、阻断，或等待审批 / 浏览器登录交接。每个阶段执行三种节
+   直到 workflow 成功、阻断，或等待审批 / 浏览器登录交接。每个阶段执行四种节
    点调用形态之一：
    - **无工具模型回答**节点（`conversation_workflow.go`）；
+   - **无工具消息完成**节点，不调用模型，只治理并冻结规范化后的 multipart 请求；
    - **直接工具调用**节点（`runWorkflowDirectToolOnce`），不经过模型步骤直接
      调用唯一绑定的工具；
    - 经 `runWorkflowModelStep` 的**模型步骤**，即共享步骤循环。
 5. **评估 + 迁移** —— 每次 workflow 工具调用都被适配为类型化的
    `ToolOutcome`，由 Profile 评估并应用到持久化的节点状态；Profile 决策与迁移
    指令进入下一阶段的 observation。工具物化按 scope revision 重新计算。
-6. **终结** —— 成功的 workflow 依据 `profile.Finalization()`，要么通过
-   grounded 结果适配器投影类型化结果，要么用模型合成最终回答
+6. **终结** —— 成功的 workflow 按冻结的 Profile 契约，通过 grounded 结果适配器投影
+   类型化结果、为消息完成保留受治理的 multipart 请求内容，或用模型合成最终回答
    （`synthesizeWorkflowFinalAnswer`）。
 
 ### 流式执行所有权
@@ -184,6 +189,8 @@ JSON 对象：
 | `workflow.transitioned` | 工具结果被评估并应用到节点状态 |
 | `workflow.direct_tool_invoked` | 直接调用节点执行了唯一绑定工具 |
 | `workflow.model_answer_completed` | 无工具模型回答 workflow 完成 |
+| `workflow.message_content_governed` | 来源 session 的 multipart 请求 part 已校验并绑定到受治理 artifact |
+| `workflow.message_completed` | 无工具普通 multipart 消息 workflow 完成 |
 | `workflow.blocked` / `workflow.protocol_blocked` | 装配或协议失败阻断了 workflow |
 | `workflow.execution_cancelled` | Gateway 关闭取消了 active Workflow |
 | `workflow.finalization_failed` | 已完成证据无法渲染为最终回答 |
@@ -253,7 +260,7 @@ transition。memory、file 和 PostgreSQL store 实现同一契约。
   投影）。
 - **节点调用形态** —— 默认模型步骤；设置
   `InvocationMode: app.WorkflowInvocationDirectOnce` 表示免模型的单次工具调
-  用；无工具会话 Profile 使用模型回答节点。
+  用；无工具会话 Profile 按冻结 completion rule 使用模型回答或消息完成节点。
 - **工具** —— 在 `internal/toolhub/registry.go` 注册（一致性测试禁止按名
   switch 注册）。声明带 qualifier 的能力,使物化与阶段规则可以绑定它们；当
   workflow 需要从工具结果提取类型化信号时,补充结果适配器

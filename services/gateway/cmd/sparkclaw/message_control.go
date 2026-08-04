@@ -20,6 +20,27 @@ func (r endpointMessageControlRouter) ResolveMessageControl(ctx context.Context,
 	if request.ActorID == "" || request.Authorization.PrincipalID != request.ActorID {
 		return app.DeliveryTargetSelection{}, errors.New("message control actor does not match authorization")
 	}
+	if request.ReturnRoute.Mode == app.ReturnToEndpoint {
+		var endpoint app.MessageEndpoint
+		var err error
+		if request.Source.Kind == app.MessageSourceTimer {
+			endpoint, err = r.endpoints.Get(ctx, request.ReturnRoute.EndpointID)
+			if err == nil && (endpoint.OwnerID != request.OwnerID || endpoint.ActorID != request.ActorID) {
+				err = errors.New("scheduled return endpoint is outside the actor scope")
+			}
+		} else {
+			endpoint, err = r.endpoints.GetForMessageSend(ctx, request.ReturnRoute.EndpointID, request.OwnerID, request.ActorID)
+		}
+		if err != nil {
+			return app.DeliveryTargetSelection{}, err
+		}
+		return app.DeliveryTargetSelection{
+			Status: app.TargetResolved, ResolvedEndpointID: endpoint.ID,
+			RequestedProviderKey:   request.Directive.RequestedProviderKey,
+			RequestedRecipientText: request.Directive.RequestedRecipientText,
+			ResolutionRule:         "frozen_explicit_endpoint",
+		}, nil
+	}
 	sourceEndpointID, err := frozenSourceEndpoint(request)
 	if err != nil {
 		return app.DeliveryTargetSelection{}, err

@@ -47,7 +47,7 @@ import (
 
 const sseHeartbeatInterval = 15 * time.Second
 
-type streamMessageExecutor func(context.Context, string, string, []agent.MessageAttachment, agent.StreamHandler) (agent.Result, error)
+type streamMessageExecutor func(context.Context, string, string, []agent.MessageAttachment, app.MessageIngressContext, agent.StreamHandler) (agent.Result, error)
 
 type Server struct {
 	cfg           config.Config
@@ -158,8 +158,8 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		limiter:      newRateLimiter(cfg.Gateway.RateLimit),
 		lifecycleCtx: context.Background(),
 	}
-	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, emit agent.StreamHandler) (agent.Result, error) {
-		return s.runtime.HandleMessageStreamWithAttachments(ctx, sessionID, content, attachments, emit)
+	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
+		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
 	}
 	for _, option := range options {
 		option(s)
@@ -989,21 +989,18 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	if _, ok := s.store.GetSession(sessionID); !ok {
+	session, ok := s.store.GetSession(sessionID)
+	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
-	var input struct {
-		Content     string                    `json:"content"`
-		Attachments []agent.MessageAttachment `json:"attachments"`
-		Schedule    *scheduleActionInput      `json:"schedule_action,omitempty"`
-	}
+	var input webMessageInput
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(input.Content) == "" {
-		writeError(w, http.StatusBadRequest, errors.New("content is required"))
+	if strings.TrimSpace(input.Content) == "" && len(input.Attachments) == 0 {
+		writeError(w, http.StatusBadRequest, errors.New("content or an attachment is required"))
 		return
 	}
 	var result agent.Result
@@ -1011,10 +1008,23 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	if input.Schedule != nil {
 		result, err = s.runtime.HandleScheduleAction(r.Context(), sessionID, input.Content, input.Schedule.agentAction())
 	} else {
-		result, err = s.runtime.HandleMessageWithAttachments(r.Context(), sessionID, input.Content, sanitizeMessageAttachments(input.Attachments))
+		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID)
+		if ingressErr != nil {
+			status := deliveryHTTPStatus(errorCode(ingressErr))
+			if input.TargetEndpointID != "" && errorCode(ingressErr) == "" {
+				status = http.StatusServiceUnavailable
+			}
+			writeError(w, status, ingressErr)
+			return
+		}
+		result, err = s.runtime.HandleMessageWithIngress(r.Context(), sessionID, "", "", input.Content, sanitizeMessageAttachments(input.Attachments), ingress)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if _, err := s.deliverAgentResult(r.Context(), result); err != nil {
+		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -1039,20 +1049,27 @@ func (input scheduleActionInput) agentAction() agent.ScheduleAction {
 
 func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	if _, ok := s.store.GetSession(sessionID); !ok {
+	session, ok := s.store.GetSession(sessionID)
+	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
-	var input struct {
-		Content     string                    `json:"content"`
-		Attachments []agent.MessageAttachment `json:"attachments"`
-	}
+	var input webMessageInput
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(input.Content) == "" {
-		writeError(w, http.StatusBadRequest, errors.New("content is required"))
+	if strings.TrimSpace(input.Content) == "" && len(input.Attachments) == 0 {
+		writeError(w, http.StatusBadRequest, errors.New("content or an attachment is required"))
+		return
+	}
+	ingress, err := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID)
+	if err != nil {
+		status := deliveryHTTPStatus(errorCode(err))
+		if input.TargetEndpointID != "" && errorCode(err) == "" {
+			status = http.StatusServiceUnavailable
+		}
+		writeError(w, status, err)
 		return
 	}
 	after := lastEventID(s.store.EventsAfter(sessionID, ""))
@@ -1093,7 +1110,7 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer s.streamWG.Done()
 		defer finishExecution()
-		result, err := s.streamMessage(executionCtx, sessionID, input.Content, attachments, func(event agent.StreamEvent) error {
+		result, err := s.streamMessage(executionCtx, sessionID, input.Content, attachments, ingress, func(event agent.StreamEvent) error {
 			select {
 			case <-r.Context().Done():
 				return nil
@@ -1101,6 +1118,9 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 				return nil
 			}
 		})
+		if err == nil {
+			_, err = s.deliverAgentResult(executionCtx, result)
+		}
 		results <- streamResult{result: result, err: err}
 		close(modelEvents)
 	}()
@@ -1420,6 +1440,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	}
 	var call *app.ToolCall
 	var workflowResult *app.WorkflowResult
+	var deliveryReceipt *app.DeliveryReceipt
 	resumed := false
 	if status == "approved" {
 		executed, err := s.runtime.ExecuteApprovedToolCall(r.Context(), approval)
@@ -1434,6 +1455,12 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		} else if ok {
 			resumed = true
 			workflowResult = result.WorkflowResult
+			if receipt, err := s.deliverAgentResult(r.Context(), result); err != nil {
+				writeError(w, http.StatusBadGateway, err)
+				return
+			} else {
+				deliveryReceipt = receipt
+			}
 		}
 	}
 	if status == "rejected" {
@@ -1450,7 +1477,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 	}
 	s.refreshTrace(r.Context(), approval.RunID)
-	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call, "workflow_result": workflowResult})
+	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call, "workflow_result": workflowResult, "delivery_receipt": deliveryReceipt})
 }
 
 func (s *Server) findApproval(id string) (app.Approval, bool) {

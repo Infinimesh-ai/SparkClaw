@@ -50,8 +50,11 @@ func (p *scheduledRequestPublisher) Publish(ctx context.Context, envelope app.Me
 		return fmt.Errorf("scheduled request is waiting in workflow result state %q", workflowResult.Status)
 	}
 	request, deliverResult, err := delivery.RequestFromWorkflowResult(ctx, workflowResult, p.routes)
-	if err != nil || !deliverResult {
+	if err != nil {
 		return err
+	}
+	if !deliverResult {
+		return errors.New("scheduled workflow result has no delivery route")
 	}
 	_, err = p.gateway.Deliver(ctx, request)
 	return err

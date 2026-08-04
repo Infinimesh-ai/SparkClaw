@@ -24,6 +24,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -699,7 +701,7 @@ func TestMessageStreamExecutionSurvivesClientDisconnect(t *testing.T) {
 	executionStarted := make(chan struct{})
 	releaseExecution := make(chan struct{})
 	executionFinished := make(chan error, 1)
-	server.streamMessage = func(ctx context.Context, _ string, _ string, _ []agent.MessageAttachment, _ agent.StreamHandler) (agent.Result, error) {
+	server.streamMessage = func(ctx context.Context, _ string, _ string, _ []agent.MessageAttachment, _ app.MessageIngressContext, _ agent.StreamHandler) (agent.Result, error) {
 		close(executionStarted)
 		select {
 		case <-releaseExecution:
@@ -756,6 +758,149 @@ func TestMessageStreamExecutionSurvivesClientDisconnect(t *testing.T) {
 	defer cancelWait()
 	if err := server.WaitForBackgroundWork(waitCtx); err != nil {
 		t.Fatalf("Gateway did not release completed background stream work: %v", err)
+	}
+}
+
+func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	binding := st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "bind-stream-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
+	})
+	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+		ID: "endpoint-stream-target", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
+		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
+		ExternalUserID: "user", ExternalChatID: "chat", DisplayName: "Selected recipient", Status: "active",
+	})
+	provider := &gatewayDeliveryProvider{key: "testchat"}
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime, WithMessageDelivery(endpoints, providers, delivery.NewGateway(endpoints, providers, nil)))
+
+	type capturedMessage struct {
+		content     string
+		attachments []agent.MessageAttachment
+		ingress     app.MessageIngressContext
+	}
+	captured := make(chan capturedMessage, 1)
+	server.streamMessage = func(_ context.Context, _ string, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, _ agent.StreamHandler) (agent.Result, error) {
+		captured <- capturedMessage{content: content, attachments: attachments, ingress: ingress}
+		return agent.Result{}, nil
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	attachment := agent.MessageAttachment{ArtifactID: "artifact-file", Name: "report.txt", RelPath: "uploads/report.txt", ContentType: "text/plain", Bytes: 12}
+	response := postJSON(t, ts.URL+"/api/sessions/"+session.ID+"/messages/stream", map[string]any{
+		"content": "Summarize the attached report", "attachments": []agent.MessageAttachment{attachment},
+		"target_endpoint_id": chat.ID,
+	})
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("selected-target stream returned %d: %s", response.StatusCode, readResponse(t, response))
+	}
+	_ = readResponse(t, response)
+
+	got := <-captured
+	if got.content != "Summarize the attached report" || len(got.attachments) != 1 || got.attachments[0] != attachment {
+		t.Fatalf("target selection changed the message input: %#v", got)
+	}
+	if got.ingress.Source.Kind != app.MessageSourceWeb || got.ingress.Source.EndpointID != messagecontrol.WebEndpointID(session.ID) ||
+		got.ingress.ReturnRoute.Mode != app.ReturnToEndpoint || got.ingress.ReturnRoute.EndpointID != app.EndpointID(chat.ID) {
+		t.Fatalf("selected target was not isolated to the return route: %#v", got.ingress)
+	}
+}
+
+func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebResult(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	if err := os.MkdirAll(filepath.Join(root, "uploads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := []struct {
+		name        string
+		contentType string
+		content     string
+	}{
+		{name: "photo.png", contentType: "image/png", content: "image bytes"},
+		{name: "voice.wav", contentType: "audio/wav", content: "audio bytes"},
+		{name: "report.pdf", contentType: "application/pdf", content: "file bytes"},
+	}
+	attachments := make([]agent.MessageAttachment, 0, len(files))
+	for _, file := range files {
+		path := filepath.Join(root, "uploads", file.name)
+		if err := os.WriteFile(path, []byte(file.content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		attachments = append(attachments, agent.MessageAttachment{
+			ArtifactID: "workspace:uploads/" + file.name, Name: file.name, RelPath: "uploads/" + file.name,
+			ContentType: file.contentType, Bytes: len(file.content),
+		})
+	}
+	binding := st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "bind-media-target", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
+	})
+	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+		ID: "endpoint-media-target", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
+		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
+		ExternalUserID: "selected-user", ExternalChatID: "selected-chat", DisplayName: "Selected recipient", Status: "active",
+	})
+	provider := &gatewayDeliveryProvider{key: "testchat"}
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime, WithMessageDelivery(endpoints, providers, delivery.NewGateway(endpoints, providers, nil)))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	response := postJSON(t, ts.URL+"/api/sessions/"+session.ID+"/messages/stream", map[string]any{
+		"content": "", "attachments": attachments, "target_endpoint_id": chat.ID,
+	})
+	raw := string(readResponse(t, response))
+	if response.StatusCode != http.StatusCreated || !strings.Contains(raw, "event: message.stream.final") || strings.Contains(raw, "event: text_delta") {
+		t.Fatalf("media publication stream returned a WebChat answer: status=%d body=%s", response.StatusCode, raw)
+	}
+	if len(provider.calls) != 1 || provider.calls[0].Target != app.EndpointID(chat.ID) || len(provider.calls[0].Content.Parts) != len(files) {
+		t.Fatalf("media publication did not create one exact delivery request: %#v", provider.calls)
+	}
+	wantKinds := []app.MessagePartKind{app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile}
+	for index, part := range provider.calls[0].Content.Parts {
+		if part.Kind != wantKinds[index] || part.Kind == app.MessagePartText || part.Resource == nil || part.Resource.Ref != attachments[index].RelPath {
+			t.Fatalf("provider received command text or the wrong media part: index=%d part=%#v", index, part)
+		}
+	}
+	if approvals := st.ListApprovals("pending"); len(approvals) != 0 {
+		t.Fatalf("external media publication unexpectedly requested approval: %#v", approvals)
+	}
+	messagesResponse, err := http.Get(ts.URL + "/api/sessions/" + session.ID + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer messagesResponse.Body.Close()
+	var history struct {
+		Messages []app.Message `json:"messages"`
+	}
+	if err := json.NewDecoder(messagesResponse.Body).Decode(&history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Messages) != 1 || history.Messages[0].Role != "user" {
+		t.Fatalf("external media publication created a WebChat assistant result: %#v", history.Messages)
 	}
 }
 

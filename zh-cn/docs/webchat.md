@@ -15,7 +15,8 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
 
 - session navigation、chat、stream response、upload 和 assistant attachment；
 - 带当前 schedule 和 typed edit/delete 的任务栏；
-- 显式第三方 destination 选择、multipart review、delivery history 和安全 retry；
+- 普通消息 composer 上按 session 选择第三方 result destination，覆盖 text、upload、workspace
+  file 和 voice draft；
 - 把 microphone transcription 插入 draft；
 - tool timeline、approval inbox、memory review、trace、model call、audit、episode summary、
   artifact、eval、status、owner/client setting、connector activation/binding 和 policy setting；
@@ -38,7 +39,9 @@ memory action、feedback、owner/client/policy change、connector activation/bin
 结构化 owner action 不会重新转换为歧义文本：
 
 - 任务栏提交包含选中 ID 和观察到的 `updated_at` 的 `schedule_action`；Agent Runtime 校验并执行注册 Workflow。
-- direct send 向 `/api/deliveries` 提交一个 opaque endpoint、有序 message part、confirmation 和 idempotency key。
+- delivery target picker 随普通 session message 提交一个可选 opaque `target_endpoint_id`；它不改变或
+  复制 composer、attachment、streaming、routing 或 Workflow path；仅附件发送提交空文本，由
+  Message Runtime 路由 typed media part。
 - approval modification 校验 JSON，并让 verifier-owned field 保持只读。
 - workspace file 通过 authenticated document API 上传和读取。
 - speech transcription 只返回 draft text，绝不调用 message send。
@@ -60,7 +63,7 @@ apps/webchat/src/api/types.ts
 Gateway route 和 public projection 位于 `services/gateway/internal/gateway`。前端消费这些 typed
 projection，不读取 Store record，也不重建后端规则。
 
-主要 API 组包括 session/message/event、schedule、delivery endpoint/delivery、connector
+主要 API 组包括 session/message/event、schedule、delivery endpoint、connector
 setting、notification binding、speech、document、approval、memory、trace、artifact、eval、
 owner/client setting、config 和 policy。
 
@@ -68,7 +71,9 @@ owner/client setting、config 和 policy。
 
 - 使用安静的工作控制台，不做 marketing page。
 - risk、pending、failed、unavailable 和 unknown-outcome 状态必须可见。
-- 第三方 direct send 必须显式 review，retry 必须显式确认。
+- 普通纯媒体消息发往当前选中的第三方 endpoint 时，不显示来源 WebChat assistant result，且该明确
+  发送无需审批。纯文本和其他第三方 Workflow result 仍由 Gateway 管理 send approval；显式
+  direct-send API client 仍必须确认 send 和 retry。
 - API ID、path、tool name、user text 和 model output 原样保留，不翻译或规范化。
 - 只本地化静态 UI copy，并持久化选定语言。
 - icon-only control 必须有 accessible label、tooltip 和 visible focus。
@@ -94,5 +99,5 @@ npm --workspace @sparkclaw/webchat run build
 ```
 
 用户可见改动还要运行对应 Gateway contract test，并在运行中的本地 Gateway 上检查 desktop/mobile。
-验证 loading、empty、offline、unauthorized、disabled、pending、success、failed、retry 状态，
-以及长中英文 label 和 multipart attachment。
+验证 loading、empty、offline、unauthorized、disabled、pending、success、failed、approval 状态，
+以及长中英文 label 和 Web/第三方 target 下的 multipart attachment。

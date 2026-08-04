@@ -34,6 +34,9 @@ func NewEndpointResourceResolver(st endpointResourceStore, endpoint app.MessageE
 }
 
 func (r EndpointResourceResolver) Resolve(ctx context.Context, part app.MessagePart) (string, error) {
+	if strings.TrimSpace(part.ArtifactID) != "" {
+		return NewStoreResourceResolver(r.store).Resolve(ctx, part)
+	}
 	if part.Resource != nil && part.Resource.Kind == "workspace_file" {
 		if r.store == nil || strings.TrimSpace(r.endpoint.SessionID) == "" {
 			return "", errors.New("workspace delivery endpoint has no linked session")

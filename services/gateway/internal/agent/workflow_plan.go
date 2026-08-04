@@ -38,6 +38,7 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 			return fmt.Errorf("workflow node ID %q is duplicated", node.ID)
 		}
 		modelAnswerNode := node.Goal.Completion == app.CompletionModelAnswer
+		messageNode := node.Goal.Completion == app.CompletionMessage
 		deterministicNode := node.Goal.Completion == app.CompletionDeterministic
 		decisionNode := node.Goal.Completion == app.CompletionDecision
 		directOnceNode := node.InvocationMode == app.WorkflowInvocationDirectOnce
@@ -48,16 +49,16 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 			node.InitialScope.MaterializeAll || len(node.InitialScope.Requirements) != 1 || len(node.Transitions) != 0) {
 			return fmt.Errorf("workflow node %q direct-once invocation requires one evidence capability, one attempt, and no transitions", node.ID)
 		}
-		if (modelAnswerNode || deterministicNode) && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0 || len(node.InitialScope.Requirements) != 0) {
+		if (modelAnswerNode || messageNode || deterministicNode) && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0 || len(node.InitialScope.Requirements) != 0) {
 			return fmt.Errorf("workflow node %q non-tool completion contract cannot expose tools, bindings, scopes, or transitions", node.ID)
 		}
 		if decisionNode && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll) {
 			return fmt.Errorf("workflow decision node %q cannot declare transitions, bindings, stage capabilities, or materialize all", node.ID)
 		}
-		if node.Goal.Completion != app.CompletionEvidence && !modelAnswerNode && !deterministicNode && !decisionNode {
+		if node.Goal.Completion != app.CompletionEvidence && !modelAnswerNode && !messageNode && !deterministicNode && !decisionNode {
 			return fmt.Errorf("workflow node %q has unsupported completion rule %q", node.ID, node.Goal.Completion)
 		}
-		allowEmptyInitialScope := modelAnswerNode || deterministicNode
+		allowEmptyInitialScope := modelAnswerNode || messageNode || deterministicNode
 		for _, transition := range node.Transitions {
 			allowEmptyInitialScope = allowEmptyInitialScope || transition.Deterministic
 		}

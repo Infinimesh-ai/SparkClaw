@@ -23,16 +23,23 @@ Every inbound message follows one pipeline (`agent.go` `handleMessage`):
 2. **Guard + route** — the safety guard can terminate the run; intent routing
    returns exactly one `RouteDecision`. `clarify` / `blocked` / `unmatched`
    are terminal: they produce a result without ever executing tools.
+   A Web request with no owner text and only image/audio/file parts takes the
+   typed media-content route to the registered `conversation.answer#publish`
+   candidate without synthesizing text or invoking semantic routing models.
 3. **Dispatch** — `dispatchMatchedWorkflow` (`workflow_dispatcher.go`)
    resolves the matched leaf to one versioned workflow profile, freezes the
    plan (nodes, transitions, argument bindings, completion evidence, plan
    digest), persists it on the run, and materializes the tools for the first
-   active scope.
+   active scope. The normalized request `MessageContent` is persisted with the
+   run so no-tool publication can govern its media and preserve media-part
+   order while removing command text.
 4. **Stage loop** — `runWorkflowStream` (`workflow_runtime.go`) drives
    bounded stages until the workflow succeeds, blocks, or waits on an
-   approval or a browser login handoff. Each stage executes one of three
+   approval or a browser login handoff. Each stage executes one of four
    node invocation shapes:
    - a **no-tool model answer** node (`conversation_workflow.go`),
+   - a **no-tool message completion** node that governs and freezes the
+     normalized multipart request without calling a model,
    - a **direct tool invocation** node (`runWorkflowDirectToolOnce`) that
      calls the single bound tool without a model step, or
    - a **model step** through `runWorkflowModelStep`, the shared step loop.
@@ -41,9 +48,9 @@ Every inbound message follows one pipeline (`agent.go` `handleMessage`):
    state; profile decisions and transition instructions feed the next stage's
    observations. Tool materialization is recomputed per scope revision.
 6. **Finalize** — a succeeded workflow either projects its typed outcome
-   through the grounded result adapter or synthesizes a final answer with the
-   model (`synthesizeWorkflowFinalAnswer`), depending on
-   `profile.Finalization()`.
+   through the grounded result adapter, preserves governed multipart request
+   content for message completion, or synthesizes a final answer with the model
+   (`synthesizeWorkflowFinalAnswer`), depending on the frozen profile contract.
 
 ### Streaming Ownership
 
@@ -214,6 +221,8 @@ Key audit event types emitted by the executor:
 | `workflow.transitioned` | A tool outcome was assessed and applied to node state |
 | `workflow.direct_tool_invoked` | A direct-invocation node ran its single bound tool |
 | `workflow.model_answer_completed` | A no-tool model-answer workflow completed |
+| `workflow.message_content_governed` | Source-session multipart request parts were validated and bound to governed artifacts |
+| `workflow.message_completed` | A no-tool ordinary multipart message workflow completed |
 | `workflow.blocked` / `workflow.protocol_blocked` | Setup or protocol failure blocked the workflow |
 | `workflow.execution_cancelled` | Gateway shutdown cancelled an active Workflow |
 | `workflow.finalization_failed` | Completed evidence could not be rendered into a final answer |
@@ -298,7 +307,8 @@ anchors are:
   (`workflowFinalizationModel` vs. grounded projection).
 - **Node invocation modes** — default model step; set
   `InvocationMode: app.WorkflowInvocationDirectOnce` for a no-model single
-  tool call; model-answer nodes for no-tool conversation profiles.
+  tool call; no-tool conversation profiles use either model-answer or message
+  completion according to their frozen completion rule.
 - **Tools** — register in `internal/toolhub/registry.go` (the consistency
   test forbids per-name switch registration). Declare capabilities with
   qualifiers so materialization and stage rules can bind them; add an

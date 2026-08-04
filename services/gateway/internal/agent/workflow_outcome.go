@@ -714,17 +714,33 @@ func activeWorkflowNodeUsesModelAnswer(state *app.WorkflowState) bool {
 	return ok && node.Goal.Completion == app.CompletionModelAnswer
 }
 
+func activeWorkflowNodeUsesMessageContent(state *app.WorkflowState) bool {
+	if state == nil || len(state.ActiveNodeIDs) != 1 {
+		return false
+	}
+	node, ok := workflowPlanNode(state.Plan, state.ActiveNodeIDs[0])
+	return ok && node.Goal.Completion == app.CompletionMessage
+}
+
 func completeActiveModelAnswerNode(run *app.AgentRun) error {
+	return completeActiveNoToolNode(run, app.CompletionModelAnswer)
+}
+
+func completeActiveNoToolNode(run *app.AgentRun, completion app.CompletionRule) error {
 	if run.Workflow == nil || workflowPlanDigest(run.Workflow.Plan) != run.Workflow.PlanDigest {
 		return errors.New("persisted workflow plan digest mismatch")
 	}
-	if !activeWorkflowNodeUsesModelAnswer(run.Workflow) {
-		return errors.New("active workflow node is not a model-answer node")
+	if len(run.Workflow.ActiveNodeIDs) != 1 {
+		return errors.New("no-tool workflow requires one active node")
 	}
 	nodeID := run.Workflow.ActiveNodeIDs[0]
+	node, ok := workflowPlanNode(run.Workflow.Plan, nodeID)
+	if !ok || node.Goal.Completion != completion || (completion != app.CompletionModelAnswer && completion != app.CompletionMessage) {
+		return errors.New("active workflow node has the wrong no-tool completion rule")
+	}
 	state := run.Workflow.Nodes[nodeID]
 	if state.Status != app.WorkflowNodeActive || len(state.CurrentScope.Requirements) != 0 {
-		return errors.New("model-answer node has an invalid active scope")
+		return errors.New("no-tool workflow node has an invalid active scope")
 	}
 	state.Attempts++
 	state.Status = app.WorkflowNodeSucceeded

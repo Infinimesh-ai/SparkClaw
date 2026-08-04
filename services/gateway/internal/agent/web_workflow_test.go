@@ -804,6 +804,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	if _, err := applyWorkflowOutcome(&dispatch.Run, outcome, assessment); err != nil {
 		t.Fatal(err)
 	}
+	writeTestOfficePackage(t, filepath.Join(session.WorkspaceRoot, "note-sparkclaw-edit.docx"), "word/document.xml")
 	dispatch.Run.State = "completed"
 	result := runtime.workflowResultForRun(dispatch.Run, route, dispatch.Run.Workflow.ReturnRoute, "Document copy created.")
 	if result == nil || result.Status != app.WorkflowResultSucceeded || len(result.Content.Parts) != 1 {
@@ -814,8 +815,18 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 	}
 	filePart := result.Content.Parts[0]
 	if filePart.Kind != app.MessagePartFile || filePart.Disposition != app.MessageDispositionAttachment || filePart.Resource == nil ||
-		filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "note-sparkclaw-edit.docx" {
+		filePart.Resource.Kind != "workspace_file" || filePart.Resource.Ref != "note-sparkclaw-edit.docx" || filePart.ArtifactID == "" {
 		t.Fatalf("unexpected document output part: %#v", filePart)
+	}
+	foundArtifact := false
+	for _, object := range st.ListArtifactObjects(0) {
+		if object.ID == filePart.ArtifactID && object.RunID == dispatch.Run.ID && object.SessionID == session.ID && object.Kind == "workflow_output" {
+			foundArtifact = true
+			break
+		}
+	}
+	if !foundArtifact {
+		t.Fatalf("document output was not registered as a governed artifact: %#v", st.ListArtifactObjects(0))
 	}
 	message := runtime.messageWithWorkflowResult(app.Message{Role: "assistant", Content: "Modified file: note-sparkclaw-edit.docx"}, result)
 	if message.Content != "" || len(message.Attachments) != 1 || message.Attachments[0].RelPath != "note-sparkclaw-edit.docx" ||

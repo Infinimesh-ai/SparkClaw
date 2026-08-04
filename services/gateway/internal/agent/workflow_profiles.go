@@ -437,14 +437,14 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if ok && node.Goal.Completion == app.CompletionDecision {
 		return nil, errors.New("workflow decision node must be resolved before tool materialization")
 	}
-	if ok && node.Goal.Completion == app.CompletionModelAnswer {
+	if ok && (node.Goal.Completion == app.CompletionModelAnswer || node.Goal.Completion == app.CompletionMessage) {
 		if len(state.CurrentScope.Requirements) != 0 {
-			return nil, errors.New("model-answer workflow node cannot materialize tools")
+			return nil, errors.New("no-tool workflow node cannot materialize tools")
 		}
 		stageContext.Capability = ""
 		r.store.AddAudit(app.AuditEvent{
 			SessionID: run.SessionID, RunID: run.ID, Actor: "tool-exposure", Type: "tools.exposure.none",
-			Summary: "Model-answer workflow intentionally exposes no tools",
+			Summary: "No-tool workflow intentionally exposes no tools",
 			Fields: map[string]any{
 				"workflow_id": run.Workflow.Plan.ProfileID, "node_id": stageContext.WorkflowNodeID, "scope_revision": state.ScopeRevision,
 			},

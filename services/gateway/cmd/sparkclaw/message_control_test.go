@@ -31,6 +31,11 @@ func TestEndpointMessageControlRouterMapsTypedDirectivesToCanonicalResolution(t 
 	sourceRequest := webRequest
 	sourceRequest.Source = app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, EndpointID: "chat-source"}
 	sourceRequest.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: "chat-source"}
+	selectedRequest := webRequest
+	selectedRequest.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "chat-c"}
+	timerRequest := webRequest
+	timerRequest.Source = app.MessageSourceContext{Kind: app.MessageSourceTimer, Adapter: "timer", ScheduleID: "schedule-a"}
+	timerRequest.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "chat-c"}
 
 	tests := []struct {
 		name       string
@@ -41,6 +46,8 @@ func TestEndpointMessageControlRouterMapsTypedDirectivesToCanonicalResolution(t 
 	}{
 		{name: "web_default", request: webRequest, status: app.TargetDefaultWeb, endpointID: messagecontrol.WebEndpointID(web.ID)},
 		{name: "frozen_source_reply", request: sourceRequest, status: app.TargetSourceReply, endpointID: "chat-source"},
+		{name: "frozen_web_selection", request: selectedRequest, status: app.TargetResolved, endpointID: "chat-c"},
+		{name: "frozen_timer_target", request: timerRequest, status: app.TargetResolved, endpointID: "chat-c"},
 		{name: "software_and_recipient", request: withDeliveryDirective(webRequest, "weixin", "Chen"), status: app.TargetResolved, endpointID: "chat-c", candidates: 1},
 		{name: "software_only_unique", request: withDeliveryDirective(webRequest, "weixin", ""), status: app.TargetResolved, endpointID: "chat-c", candidates: 1},
 		{name: "software_only_multiple", request: withDeliveryDirective(webRequest, "telegram", ""), status: app.TargetNeedsRecipient, candidates: 3},

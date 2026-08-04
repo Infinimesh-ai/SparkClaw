@@ -11,7 +11,7 @@ Control 迁移、connector/Gateway assembly 计划、Web outbound 设计、workt
 Web、第三方 connector 和 Timer 都是同一个 Message Runtime 的输入来源，不拥有独立 Agent loop。
 
 ```text
-provider input 或 Timer claim
+Web/provider input 或 Timer claim
   -> MessageEnvelope + authorization + ReturnRoute
   -> normalization 和 intent routing
   -> 一个 WorkflowResult
@@ -23,6 +23,19 @@ provider input 或 Timer claim
 `MessageContent` 保留有序 text、image、audio 和 file part。`MessageEnvelope` 保留来源
 endpoint、native message/thread identity、owner/actor authorization 和 return route。
 这些契约位于 `internal/app`，与 provider 无关。
+
+发布当前消息的普通请求使用 `conversation.answer` revision 2 的 `publish` 变体。它不会
+创建第二条文件发送路径：Workflow 不调用模型或工具，直接把规范化后的请求
+`MessageContent` 冻结为 channel-neutral result。text、image、audio 和 file 始终是同级
+message part，共用同一条 Message Plane、路由、Workflow、Policy 和 delivery 链路。请求中
+包含 image、audio 或 file part 时，`publish` 会移除 owner 的命令文本，只按原顺序返回
+治理后的媒体 part。Web 消息只有媒体 part 时，Message Runtime 直接按 typed content 选择同一
+个已注册 `publish` 变体，不合成 owner 文本，也不创建独立的文件发送请求。
+
+附件中的 workspace part 成为 result 前，Workflow 会在来源 session workspace 内校验它，
+拒绝路径逃逸与符号链接，核对实际大小和 SHA-256，并注册或复用受治理的
+`ArtifactObject`。该步骤发生在外部分发或任何适用审批之前，因此 Delivery Gateway 始终解析
+准确的来源 session artifact，而不会按目标 endpoint 的 workspace 重新解释文件。
 
 ## 职责
 
@@ -54,13 +67,23 @@ Web delivery 把 text 保存为 assistant content，把受治理 image/audio/fil
 attachment。typing state、approval button 等 connector control traffic 留在 provider 内，
 不是第二条 result path。
 
-WebChat 还提供 owner 自行编写消息的显式 direct-send surface：列出 opaque owner-scoped
-endpoint，校验全部 part，要求 review confirmation，创建 durable delivery record，然后调用
-同一个 Delivery Gateway。只有旧 receipt 明确哪些 part 失败且 outcome 已知时才允许 retry。
+WebChat 的 delivery target picker 随普通 session message 提交可选的 opaque
+`target_endpoint_id`。Message Plane 保持同一份 text、attachment、source、authorization、
+normalization、routing 和 Workflow path，只冻结 result 的 `ReturnRoute`。向当前选中的第三方
+endpoint 发布纯 image、audio 或 file 消息无需发送审批，只为该精确 endpoint 创建一个
+`DeliveryRequest`，也不会在来源 WebChat 持久化或流式显示对应的 assistant result。纯文本和
+其他第三方 Workflow result 仍保留既有 send-approval 边界。picker 不会把 attachment 转换成
+direct-send draft，也不会调用 `/api/deliveries`。
+
+Gateway 另外为已经持有最终 message content 的 client 提供显式 direct send API。该 API
+校验全部 part，要求 confirmation，创建 durable delivery record，然后调用同一个 Delivery
+Gateway。只有旧 receipt 明确哪些 part 失败且 outcome 已知时才允许 retry。
 
 主要 API：
 
 ```text
+POST /api/sessions/{id}/messages
+POST /api/sessions/{id}/messages/stream
 GET  /api/delivery-endpoints
 GET  /api/deliveries
 POST /api/deliveries
@@ -133,6 +156,7 @@ inbound Runtime；关闭会取消该 Runtime，并 gate endpoint resolution 与 
 
 ## 验证
 
-改动应覆盖 Endpoint/Provider registry、Web projection、multipart preflight、direct-send
-confirmation/idempotency、retry、schema-v2 persistence、Timer worker bound、到期路由、
-schedule target resolution、optimistic concurrency、任务栏 API type 和 Web/第三方 return route。
+改动应覆盖 Endpoint/Provider registry、Web projection、保持 multipart ingress 不变的 target-picker
+return route、multipart preflight、direct-send confirmation/idempotency、retry、schema-v2
+persistence、Timer worker bound、到期路由、schedule target resolution、optimistic concurrency、
+任务栏 API type 和 Web/第三方 return route。

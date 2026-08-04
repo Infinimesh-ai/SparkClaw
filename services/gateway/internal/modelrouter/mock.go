@@ -651,6 +651,14 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 		if contains("pdf") && contains("修改", "旋转", "拆分", "调整", "transform", "rotate", "split", "edit") {
 			return 0.97
 		}
+	case "conversation.answer#publish":
+		publish := contains("发送", "发出去", "转发", "投递", "send", "forward", "deliver", "publish")
+		troubleshooting := contains("为什么", "失败", "没发", "无法发送", "why", "failed", "failure", "cannot send")
+		contentWork := contains("总结", "读取", "查看", "修改", "编辑", "分析", "summarize", "read", "inspect", "edit", "analyze")
+		browserAction := contains("点击", "按钮", "当前页面", "当前标签", "click", "button", "current page", "current tab")
+		if publish && !troubleshooting && !contentWork && !browserAction && !temporal {
+			return 0.97
+		}
 	case "conversation.answer#answer":
 		reserved := contains(
 			"打开", "点击", "登录", "提醒", "定时", "文件", "文档", "附件", "图片", "图像", "照片", "天气", "气温", "温度", "下雨", "下雪", "预报", "空气质量",

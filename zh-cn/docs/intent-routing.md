@@ -44,6 +44,8 @@ Gateway 启动时通过配置的 embedding 模型构建索引。图或 calibrati
 `<capability>#<variant>`，例如：
 
 ```text
+conversation.answer#answer
+conversation.answer#publish
 schedule.manage#create
 schedule.manage#read
 schedule.manage#edit
@@ -146,10 +148,18 @@ mutation 和外部 delivery 使用更严格的分数与 margin。语义已明确
 Delivery 目标选择与业务意图分离。明确的第三方目标通过 Message Control 投影和解析，
 不改变语义候选分数。选中的 Workflow 始终返回一个 channel-neutral `WorkflowResult`，
 之后才进入 Delivery Gateway。
+例如，带附件的 `发送文件` 无论冻结的 `ReturnRoute` 指向 Web 还是外部 endpoint，都选择
+`conversation.answer#publish`。选中目标只改变 delivery：外部纯媒体 result 只包含受治理的
+image/audio/file part，无需发送审批，也不在来源 WebChat 投影 assistant result。
+`为什么文件发送失败` 这类故障排查请求是 `publish` 的 hard negative，不能被当成重新发送请求。
 
 WebChat 的 typed schedule edit/delete 和持久化 resume 已携带校验过的 route identity，
 可以绕过自然语言分类，但仍要经过 Catalog 校验、owner 检查、fresh target lookup 和
 Workflow 执行。
+
+只有附件的 Web 消息同样是 typed input，而不是自然语言。没有 owner 文本且全部 part 都是
+image、audio 或 file 时，Runtime 直接选择已注册的 `conversation.answer#publish` candidate。
+Catalog 只允许该 `publish` operation 的 query 为空；普通对话 `answer` 仍必须保留原始 owner query。
 
 ## 失败与降级
 

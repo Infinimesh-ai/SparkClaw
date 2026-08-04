@@ -27,6 +27,7 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 		want     app.WorkflowID
 	}{
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"conversation", app.CapabilityConversationAnswer}, Slots: app.RouteSlots{Operation: app.RouteOperationAnswer, Query: "hello"}}, app.WorkflowConversationAnswer},
+		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"conversation", app.CapabilityConversationAnswer}, Slots: app.RouteSlots{Operation: app.RouteOperationPublish, Query: "send this file"}}, app.WorkflowConversationAnswer},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch}, Slots: app.RouteSlots{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet, Query: "test"}}, app.WorkflowBrowserInternetSearch},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserWeather}, Slots: app.RouteSlots{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot, Query: "今天杭州天气", TargetKind: string(app.TargetKindLocation), TargetRef: "杭州", Location: "杭州"}, Facts: map[string]string{"location_source": "current_turn"}}, app.WorkflowBrowserWeather},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserAutomation}, Slots: app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: "url", TargetRef: "https://example.com/"}, Facts: map[string]string{"url": "https://example.com/"}}, app.WorkflowBrowserAutomation},
@@ -43,6 +44,9 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			t.Fatalf("resolve %v: %v", test.decision.CapabilityPath, err)
 		}
 		wantRevision := 1
+		if test.want == app.WorkflowConversationAnswer {
+			wantRevision = 2
+		}
 		if test.want == app.WorkflowBrowserAutomation || test.want == app.WorkflowBrowserInteraction {
 			wantRevision = app.BrowserWorkflowRevision2
 		}
@@ -100,6 +104,9 @@ func TestWorkflowSemanticGraphIsCatalogValidatedAndCoversScheduleVariants(t *tes
 	}
 	if candidate, ok := graph.Candidate("conversation.answer#answer"); !ok || candidate.Route.Operation != app.RouteOperationAnswer {
 		t.Fatal("semantic graph is missing the timer-eligible conversation candidate")
+	}
+	if candidate, ok := graph.Candidate("conversation.answer#publish"); !ok || candidate.Route.Operation != app.RouteOperationPublish {
+		t.Fatal("semantic graph is missing the ordinary multipart message candidate")
 	}
 }
 

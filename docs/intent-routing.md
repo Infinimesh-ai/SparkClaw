@@ -55,6 +55,8 @@ One leaf may register multiple route variants. Candidate IDs are stable within
 the graph and use `<capability>#<variant>`, for example:
 
 ```text
+conversation.answer#answer
+conversation.answer#publish
 schedule.manage#create
 schedule.manage#read
 schedule.manage#edit
@@ -175,11 +177,24 @@ Delivery selection is independent from business intent. An explicit third-party
 destination is projected and resolved through Message Control; it does not
 change semantic candidate scores. The selected Workflow always returns one
 channel-neutral `WorkflowResult`, which then enters the Delivery Gateway.
+For example, `发送文件` with an attachment selects
+`conversation.answer#publish` whether the frozen `ReturnRoute` points to Web or
+an external endpoint. The selected target changes only delivery: an external
+pure-media result contains only its governed image/audio/file parts, requires no
+send approval, and has no source-WebChat assistant projection. A troubleshooting
+request such as `为什么文件发送失败` is a hard negative for `publish` and must not be
+treated as a request to resend.
 
 Typed WebChat schedule edit/delete actions and persisted resumes already carry
 validated route identity. They bypass natural-language classification but still
 pass Catalog validation, owner checks, fresh target lookup, and Workflow
 execution.
+
+An attachment-only Web message is also typed input rather than natural
+language. When it has no owner text and every part is image, audio, or file,
+Runtime selects the registered `conversation.answer#publish` candidate directly.
+The Catalog permits an empty query only for that `publish` operation; ordinary
+conversation `answer` still requires the untouched owner query.
 
 ## Failure And Degradation
 

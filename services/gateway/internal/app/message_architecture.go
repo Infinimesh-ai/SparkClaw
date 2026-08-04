@@ -247,18 +247,20 @@ type IntentFusionDecision struct {
 // MessageRunContext persists the identity and return boundary needed by
 // idempotent replay and approval/login resume, including runs persisted by the retired pre-workflow runtime.
 type MessageRunContext struct {
-	OwnerID       string                `json:"owner_id"`
-	Authorization MessageAuthorization  `json:"authorization"`
-	Source        MessageSourceContext  `json:"source"`
-	ReturnRoute   ReturnRoute           `json:"return_route"`
-	Route         RouteDecision         `json:"route"`
-	IntentFusion  *IntentFusionDecision `json:"intent_fusion,omitempty"`
+	OwnerID        string                `json:"owner_id"`
+	Authorization  MessageAuthorization  `json:"authorization"`
+	Source         MessageSourceContext  `json:"source"`
+	RequestContent MessageContent        `json:"request_content,omitempty"`
+	ReturnRoute    ReturnRoute           `json:"return_route"`
+	Route          RouteDecision         `json:"route"`
+	IntentFusion   *IntentFusionDecision `json:"intent_fusion,omitempty"`
 }
 
 type RouteOperation string
 
 const (
 	RouteOperationAnswer    RouteOperation = "answer"
+	RouteOperationPublish   RouteOperation = "publish"
 	RouteOperationSearch    RouteOperation = "search"
 	RouteOperationRender    RouteOperation = "render"
 	RouteOperationRead      RouteOperation = "read"

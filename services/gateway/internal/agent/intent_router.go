@@ -72,6 +72,9 @@ func (r Runtime) routeIntent(ctx context.Context, sessionID, runID, content stri
 }
 
 func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, sourceKind app.MessageSourceKind) (IntentRoutingOutput, error) {
+	if routing, mediaOnly, err := r.routeMediaOnlyMessage(sessionID, runID, ownerText, resources, sourceKind); mediaOnly || err != nil {
+		return routing, err
+	}
 	if r.semanticRouter == nil || r.semanticRouter.graph == nil {
 		return IntentRoutingOutput{}, errors.New("semantic intent router is unavailable")
 	}
@@ -139,6 +142,45 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 		},
 	})
 	return IntentRoutingOutput{Route: route, Delivery: delivery, Fusion: &fusion}, nil
+}
+
+func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resources []app.MessagePart, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {
+	if sourceKind != app.MessageSourceWeb || strings.TrimSpace(ownerText) != "" || len(resources) == 0 {
+		return IntentRoutingOutput{}, false, nil
+	}
+	for _, resource := range resources {
+		if !isMediaMessagePart(resource.Kind) {
+			return IntentRoutingOutput{}, false, nil
+		}
+	}
+	if r.semanticRouter == nil || r.semanticRouter.graph == nil {
+		return IntentRoutingOutput{}, true, errors.New("semantic routing graph is unavailable")
+	}
+	candidate, ok := r.semanticRouter.graph.Candidate(conversationPublishCandidateID)
+	if !ok || !candidate.SupportsSource(sourceKind) {
+		return IntentRoutingOutput{}, true, errors.New("ordinary media publication is unavailable")
+	}
+	route := app.RouteDecision{
+		SchemaVersion:   app.RouteDecisionSchemaVersion,
+		Status:          app.RouteMatched,
+		CatalogRevision: r.capabilities.Revision(),
+		CapabilityPath:  append([]app.CapabilityID(nil), candidate.CapabilityPath...),
+		Slots:           app.RouteSlots{Operation: candidate.Route.Operation},
+		Confidence:      1,
+		Reason:          "media_only_message",
+	}
+	if err := r.capabilities.ValidateDecision(route); err != nil {
+		return IntentRoutingOutput{}, true, err
+	}
+	r.store.AddAudit(app.AuditEvent{
+		SessionID: sessionID, RunID: runID, Actor: "message-router", Type: "capability.routed",
+		Summary: "media_only_message",
+		Fields: map[string]any{
+			"catalog_revision": route.CatalogRevision, "candidate_id": candidate.ID,
+			"route_status": route.Status, "capability_path": route.CapabilityPath, "route_source": "message_content",
+		},
+	})
+	return IntentRoutingOutput{Route: route}, true, nil
 }
 
 type semanticChannelInputs struct {

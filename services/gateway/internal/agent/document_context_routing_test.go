@@ -91,7 +91,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"not
 	}
 }
 
-func TestAttachmentOnlyDocumentDoesNotInventReadIntent(t *testing.T) {
+func TestAttachmentOnlyDocumentRoutesAsOrdinaryMediaPublication(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		if err := os.WriteFile(filepath.Join(cfg.root, "note.txt"), []byte("attachment evidence"), 0o644); err != nil {
 			t.Fatal(err)
@@ -101,8 +101,9 @@ func TestAttachmentOnlyDocumentDoesNotInventReadIntent(t *testing.T) {
 	route := mustRouteIntentWithResources(t, runtime, session.ID, "", []app.MessagePart{{
 		Kind: app.MessagePartFile, Resource: &app.ResourceRef{Kind: "workspace_file", Ref: "note.txt"},
 	}}, app.MessageSourceWeb)
-	if route.Status == app.RouteMatched {
-		t.Fatalf("an attachment without an owner question invented a read intent: %#v", route)
+	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityConversationAnswer ||
+		route.Slots.Operation != app.RouteOperationPublish || route.Slots.Query != "" || route.Reason != "media_only_message" {
+		t.Fatalf("an attachment without an owner question did not remain an ordinary media message: %#v", route)
 	}
 }
 

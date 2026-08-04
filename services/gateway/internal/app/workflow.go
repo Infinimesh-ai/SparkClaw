@@ -23,6 +23,7 @@ type IntentOperation string
 
 const (
 	IntentOperationAnswer   IntentOperation = "answer"
+	IntentOperationPublish  IntentOperation = "publish"
 	IntentOperationSearch   IntentOperation = "search"
 	IntentOperationRender   IntentOperation = "render"
 	IntentOperationRead     IntentOperation = "read"
@@ -46,9 +47,10 @@ const (
 type OutputKind string
 
 const (
-	OutputKindText  OutputKind = "text"
-	OutputKindFile  OutputKind = "file"
-	OutputKindImage OutputKind = "image"
+	OutputKindText    OutputKind = "text"
+	OutputKindMessage OutputKind = "message"
+	OutputKindFile    OutputKind = "file"
+	OutputKindImage   OutputKind = "image"
 )
 
 type DataScope string
@@ -256,6 +258,7 @@ const (
 
 	CompletionEvidence      CompletionRule = "evidence"
 	CompletionModelAnswer   CompletionRule = "model_answer"
+	CompletionMessage       CompletionRule = "message"
 	CompletionDeterministic CompletionRule = "deterministic"
 	CompletionDecision      CompletionRule = "decision"
 

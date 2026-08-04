@@ -63,6 +63,23 @@ func TestDefaultMessageControlRoutesWebAndThirdPartyReplyWithoutCapabilityLeaf(t
 	}
 }
 
+func TestDefaultMessageControlChangesOnlyFrozenDeliveryEndpoint(t *testing.T) {
+	want := app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "endpoint_selected"}
+	selection, route, err := (Runtime{}).resolveMessageControl(context.Background(), "session_web", DeliveryDirective{}, app.MessageEnvelope{
+		Source:      app.MessageSourceContext{Kind: app.MessageSourceWeb, EndpointID: "session:session_web"},
+		ReturnRoute: want,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Status != TargetResolved || selection.ResolvedEndpointID != want.EndpointID || selection.ResolutionRule != "frozen_explicit_endpoint" {
+		t.Fatalf("selected endpoint was not frozen: %#v", selection)
+	}
+	if route != want {
+		t.Fatalf("message control changed the typed return route: got=%#v want=%#v", route, want)
+	}
+}
+
 func TestIntentRouterSuppliesTypedDirectiveToMessageControl(t *testing.T) {
 	tests := []struct {
 		name      string

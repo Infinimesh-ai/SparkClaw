@@ -13,7 +13,7 @@ Web, third-party connectors, and Timer are input sources for the same Message
 Runtime. They do not own separate Agent loops.
 
 ```text
-provider input or Timer claim
+Web or provider input, or Timer claim
   -> MessageEnvelope + authorization + ReturnRoute
   -> normalization and intent routing
   -> one WorkflowResult
@@ -26,6 +26,25 @@ provider input or Timer claim
 `MessageEnvelope` preserves source endpoint, native message/thread identity,
 owner/actor authorization, and return routing. These contracts live in
 `internal/app` and are provider-neutral.
+
+An ordinary request to publish the current message uses
+`conversation.answer` revision 2's `publish` variant. It does not create a
+second file-send path: the Workflow freezes the normalized request
+`MessageContent` as its channel-neutral result without calling a model or a
+tool. Text, image, audio, and file remain peer message parts throughout the
+same Message Plane, routing, Workflow, Policy, and delivery chain. When the
+request contains image, audio, or file parts, `publish` removes the owner command
+text and returns only the governed media parts, preserving their order.
+For a Web message containing only media parts, Message Runtime selects the same
+registered `publish` variant directly from typed content; no synthetic owner
+text or separate file-send request is created.
+
+Before an attached workspace part can become that result, the Workflow
+validates it against the source session workspace, rejects path escape and
+symlinks, verifies its size and SHA-256, and registers or reuses a governed
+`ArtifactObject`. This happens before external dispatch or any applicable
+approval, so Delivery Gateway always resolves the exact source-session artifact
+rather than interpreting the destination endpoint's workspace.
 
 ## Ownership
 
@@ -61,15 +80,28 @@ parts as message attachments. Connector control traffic such as typing states
 or approval buttons remains local to the provider and is not another result
 path.
 
-WebChat also supports an explicit direct-send surface for owner-composed
-messages. It lists opaque owner-scoped endpoints, validates all parts, requires
-review confirmation, creates a durable delivery record, and then calls the
-same Delivery Gateway. A retry is allowed only when the previous receipt proves
-which parts failed and the outcome is known.
+WebChat's delivery target picker submits an optional opaque
+`target_endpoint_id` with the ordinary session message. Message Plane keeps the
+same text, attachments, source, authorization, normalization, routing, and
+Workflow path, and freezes only the result's `ReturnRoute`. A pure image, audio,
+or file publication to the selected third-party endpoint requires no send
+approval, creates one `DeliveryRequest` for only that exact endpoint, and does
+not persist or stream a corresponding assistant result in the source WebChat.
+Text-only and other third-party Workflow results retain the existing
+send-approval boundary. The picker never converts attachments into a direct-send
+draft or calls `/api/deliveries`.
+
+Gateway separately supports explicit direct sends for clients that already own
+final message content. That API validates all parts, requires confirmation,
+creates a durable delivery record, and then calls the same Delivery Gateway. A
+retry is allowed only when the previous receipt proves which parts failed and
+the outcome is known.
 
 Primary APIs:
 
 ```text
+POST /api/sessions/{id}/messages
+POST /api/sessions/{id}/messages/stream
 GET  /api/delivery-endpoints
 GET  /api/deliveries
 POST /api/deliveries
@@ -161,7 +193,7 @@ Provider-specific behavior is documented in [External integrations](integrations
 ## Verification
 
 Changes should cover Endpoint and Provider registry behavior, Web projection,
-multipart preflight, direct-send confirmation and idempotency, retry semantics,
-schema-v2 persistence, Timer worker bounds, due-time routing, schedule target
-resolution, optimistic concurrency, toolbar API types, and Web/third-party
-return routes.
+target-picker return routes with unchanged multipart ingress, multipart
+preflight, direct-send confirmation and idempotency, retry semantics, schema-v2
+persistence, Timer worker bounds, due-time routing, schedule target resolution,
+optimistic concurrency, toolbar API types, and Web/third-party return routes.

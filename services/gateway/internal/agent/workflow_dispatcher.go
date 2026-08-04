@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -129,8 +132,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	r.store.SaveEpisodeSummary(episode)
 	route := run.Workflow.Route
 	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
-	assistantMessage := r.messageWithWorkflowResult(app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now}, workflowResult)
-	assistant := r.store.AddMessage(assistantMessage)
+	assistant := r.persistWorkflowAssistantMessage(run, workflowResult, now)
 	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType, Summary: string(run.Workflow.Status)})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	return Result{
@@ -278,6 +280,10 @@ func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.Mes
 	if run.Workflow == nil {
 		return workflowResultTextContent(summary)
 	}
+	if run.Workflow.Plan.ProfileID == app.WorkflowConversationAnswer && run.Workflow.Route.Slots.Operation == app.RouteOperationPublish &&
+		run.MessageContext != nil && len(run.MessageContext.RequestContent.Parts) > 0 {
+		return cloneMessageContent(run.MessageContext.RequestContent)
+	}
 	for refIndex, ref := range workflowResourceRefs(run.Workflow) {
 		if ref.Kind != "path" || strings.TrimSpace(ref.Ref) == "" || strings.TrimSpace(ref.Provenance) == "" {
 			continue
@@ -294,6 +300,144 @@ func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.Mes
 		return app.MessageContent{Parts: outputParts}
 	}
 	return workflowResultTextContent(summary)
+}
+
+func (r Runtime) governWorkflowRequestContent(run app.AgentRun) (app.MessageContent, error) {
+	if run.MessageContext == nil || len(run.MessageContext.RequestContent.Parts) == 0 {
+		return app.MessageContent{}, errors.New("normalized request content is empty")
+	}
+	content := cloneMessageContent(run.MessageContext.RequestContent)
+	hasMedia := false
+	for _, part := range content.Parts {
+		if isMediaMessagePart(part.Kind) {
+			hasMedia = true
+			break
+		}
+	}
+	governed := make([]app.MessagePart, 0, len(content.Parts))
+	for index := range content.Parts {
+		if content.Parts[index].Kind == app.MessagePartText {
+			if !hasMedia {
+				governed = append(governed, content.Parts[index])
+			}
+			continue
+		}
+		part, err := r.governWorkflowRequestPart(run, content.Parts[index])
+		if err != nil {
+			return app.MessageContent{}, fmt.Errorf("message part %q: %w", content.Parts[index].ID, err)
+		}
+		governed = append(governed, part)
+	}
+	content.Parts = governed
+	return content, nil
+}
+
+func (r Runtime) governWorkflowRequestPart(run app.AgentRun, part app.MessagePart) (app.MessagePart, error) {
+	if r.store == nil || part.Resource == nil || part.Resource.Kind != "workspace_file" {
+		return app.MessagePart{}, errors.New("binary message part is not a governed workspace file")
+	}
+	ref := filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(part.Resource.Ref))))
+	if ref == "." || filepath.IsAbs(filepath.FromSlash(ref)) || ref == ".." || strings.HasPrefix(ref, "../") {
+		return app.MessagePart{}, errors.New("workspace file reference is invalid")
+	}
+	root := strings.TrimSpace(r.workspaceRootForSession(run.SessionID))
+	if root == "" {
+		return app.MessagePart{}, errors.New("source workspace is unavailable")
+	}
+	root, err := filepath.Abs(root)
+	if err == nil {
+		root, err = filepath.EvalSymlinks(root)
+	}
+	if err != nil {
+		return app.MessagePart{}, errors.New("source workspace is unavailable")
+	}
+	candidate, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(ref)))
+	if err != nil || candidate == root || !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+		return app.MessagePart{}, errors.New("workspace file escapes the source workspace")
+	}
+	lstat, err := os.Lstat(candidate)
+	if err != nil || lstat.Mode()&os.ModeSymlink != 0 || !lstat.Mode().IsRegular() {
+		return app.MessagePart{}, errors.New("workspace file is unavailable or not regular")
+	}
+	candidate, err = filepath.EvalSymlinks(candidate)
+	if err != nil || !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+		return app.MessagePart{}, errors.New("workspace file resolves outside the source workspace")
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || !info.Mode().IsRegular() {
+		return app.MessagePart{}, errors.New("workspace file is unavailable")
+	}
+
+	object := app.ArtifactObject{}
+	for _, existing := range r.store.ListArtifactObjects(0) {
+		if existing.SessionID != run.SessionID {
+			continue
+		}
+		matchesID := strings.TrimSpace(part.ArtifactID) != "" && existing.ID == strings.TrimSpace(part.ArtifactID)
+		matchesFile := filepath.ToSlash(filepath.Clean(existing.Key)) == ref || filepath.Clean(existing.Path) == filepath.Clean(candidate)
+		if matchesID && !matchesFile {
+			return app.MessagePart{}, errors.New("artifact identity does not match the source workspace file")
+		}
+		if matchesID || matchesFile {
+			object = existing
+			break
+		}
+	}
+	if object.ID != "" && object.Bytes > 0 && int64(object.Bytes) != info.Size() {
+		return app.MessagePart{}, errors.New("workspace artifact changed after it was registered")
+	}
+	contentType := strings.TrimSpace(part.ContentType)
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = mime.TypeByExtension(strings.ToLower(filepath.Ext(ref)))
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if object.ID == "" {
+		object = app.ArtifactObject{
+			ID: app.NewID("obj"), Kind: "message_attachment", RunID: run.ID, SessionID: run.SessionID,
+			Backend: "workspace", Key: ref, URI: "workspace://" + ref, Path: candidate,
+			ContentType: contentType, Bytes: int(info.Size()), CreatedAt: time.Now().UTC(),
+		}
+		r.store.SaveArtifactObject(object)
+	}
+	digest, err := workflowFileSHA256(candidate)
+	if err != nil {
+		return app.MessagePart{}, errors.New("workspace file could not be verified")
+	}
+	part.ArtifactID = object.ID
+	part.Resource = &app.ResourceRef{Kind: "workspace_file", Ref: ref, Provenance: "message_publish"}
+	if strings.TrimSpace(part.Name) == "" {
+		part.Name = filepath.Base(ref)
+	}
+	part.ContentType = contentType
+	part.Bytes = int(info.Size())
+	part.SHA256 = digest
+	return part, nil
+}
+
+func cloneMessageContent(content app.MessageContent) app.MessageContent {
+	clone := app.MessageContent{Parts: append([]app.MessagePart(nil), content.Parts...)}
+	for index := range clone.Parts {
+		if clone.Parts[index].Resource != nil {
+			resource := *clone.Parts[index].Resource
+			clone.Parts[index].Resource = &resource
+		}
+	}
+	return clone
+}
+
+func workflowFileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (r Runtime) workflowResultContentFromToolCalls(run app.AgentRun, summary string) app.MessageContent {
@@ -351,11 +495,54 @@ func (r Runtime) workflowOutputPart(sessionID string, call app.ToolCall, ref app
 	}
 	return app.MessagePart{
 		ID: fmt.Sprintf("%s:output:%d", call.ID, index), Kind: kind, Disposition: disposition,
-		Resource: &resourceRef,
-		Name:     name, ContentType: contentType, Bytes: intLikeValue(output["bytes"]),
+		ArtifactID: r.persistWorkflowOutputArtifact(sessionID, call, resourceRef, contentType), Resource: &resourceRef,
+		Name: name, ContentType: contentType, Bytes: intLikeValue(output["bytes"]),
 		Width: intLikeValue(output["width"]), Height: intLikeValue(output["height"]),
 		SHA256: cleanOptionalString(output["sha256"]), Caption: caption,
 	}, true
+}
+
+func (r Runtime) persistWorkflowOutputArtifact(sessionID string, call app.ToolCall, resource app.ResourceRef, contentType string) string {
+	if r.store == nil || resource.Kind != "workspace_file" || strings.TrimSpace(resource.Ref) == "" {
+		return ""
+	}
+	workspaceRoot := r.workspaceRootForSession(sessionID)
+	root, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		return ""
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return ""
+	}
+	candidate, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(resource.Ref)))
+	if err != nil || candidate == root || !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+		return ""
+	}
+	lstat, err := os.Lstat(candidate)
+	if err != nil || lstat.Mode()&os.ModeSymlink != 0 || !lstat.Mode().IsRegular() {
+		return ""
+	}
+	candidate, err = filepath.EvalSymlinks(candidate)
+	if err != nil || !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+		return ""
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	for _, object := range r.store.ListArtifactObjects(0) {
+		if object.RunID == call.RunID && object.SessionID == sessionID && filepath.Clean(object.Path) == candidate && object.Bytes == int(info.Size()) {
+			return object.ID
+		}
+	}
+	object := app.ArtifactObject{
+		ID: app.NewID("obj"), Kind: "workflow_output", RunID: call.RunID, SessionID: sessionID,
+		Backend: "workspace", Key: resource.Ref, URI: "workspace://" + filepath.ToSlash(resource.Ref),
+		Path: candidate, ContentType: contentType, Bytes: int(info.Size()), CreatedAt: completedToolCallTime(call),
+	}
+	r.store.SaveArtifactObject(object)
+	return object.ID
 }
 
 func toolCallOutputRefs(call app.ToolCall, tools interface {
@@ -406,6 +593,19 @@ func (r Runtime) messageWithWorkflowResult(message app.Message, result *app.Work
 	message.Content = content
 	message.Attachments = attachments
 	return message
+}
+
+func (r Runtime) persistWorkflowAssistantMessage(run app.AgentRun, result *app.WorkflowResult, now time.Time) app.Message {
+	if r.isExternalMediaPublication(run) {
+		return app.Message{}
+	}
+	return r.store.AddMessage(r.messageWithWorkflowResult(app.Message{
+		SessionID: run.SessionID,
+		RunID:     run.ID,
+		Role:      "assistant",
+		Content:   run.Summary,
+		CreatedAt: now,
+	}, result))
 }
 
 func (r Runtime) workflowOutputResourceRef(sessionID string, ref app.ResourceRef) (app.ResourceRef, bool) {

@@ -114,6 +114,10 @@ func (r Runtime) HandleMessageStreamWithAttachments(ctx context.Context, session
 	return r.handleMessage(ctx, sessionID, content, attachments, emit, "", "", nil, nil)
 }
 
+func (r Runtime) HandleMessageStreamWithIngress(ctx context.Context, sessionID, content string, attachments []MessageAttachment, ingress app.MessageIngressContext, emit StreamHandler) (Result, error) {
+	return r.handleMessage(ctx, sessionID, content, attachments, emit, "", "", &ingress, nil)
+}
+
 func (r Runtime) HandleMessageWithAttachmentsIdempotent(ctx context.Context, sessionID, messageID, runID, content string, attachments []MessageAttachment) (Result, error) {
 	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, nil, nil)
 }
@@ -179,7 +183,8 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		Risk:      classifyRisk(agentContent),
 		StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{
-			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, Source: envelope.Source, ReturnRoute: envelope.ReturnRoute,
+			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, Source: envelope.Source,
+			RequestContent: envelope.Content, ReturnRoute: envelope.ReturnRoute,
 		},
 	}
 	if run.ID == "" {
@@ -331,7 +336,8 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		}
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
-	if emit != nil && run.State == "completed" && !execution.FinalAnswerStreamed && len(approvals) == 0 && execution.BrowserLoginBlock == nil {
+	if emit != nil && run.State == "completed" && !execution.FinalAnswerStreamed && len(approvals) == 0 &&
+		execution.BrowserLoginBlock == nil && !r.isExternalMediaPublication(run) {
 		if err := emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit); err != nil {
 			r.store.AddAudit(app.AuditEvent{
 				SessionID: sessionID,
@@ -358,14 +364,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	r.store.SaveEpisodeSummary(episode)
 
 	workflowResult := r.workflowResultForRun(run, route, returnRoute, run.Summary)
-	assistantMessage := r.messageWithWorkflowResult(app.Message{
-		SessionID: sessionID,
-		RunID:     run.ID,
-		Role:      "assistant",
-		Content:   run.Summary,
-		CreatedAt: now,
-	}, workflowResult)
-	assistant := r.store.AddMessage(assistantMessage)
+	assistant := r.persistWorkflowAssistantMessage(run, workflowResult, now)
 	r.writeTrace(ctx, run, execution.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}
 	return result, nil
@@ -398,12 +397,16 @@ func finalizeWorkflowRunState(run *app.AgentRun, execution workflowExecutionResu
 }
 
 func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
-	message := app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary}
-	messages := r.store.ListMessages(run.SessionID)
-	for index := len(messages) - 1; index >= 0; index-- {
-		if messages[index].RunID == run.ID && messages[index].Role == "assistant" {
-			message = messages[index]
-			break
+	suppressAssistant := r.isExternalMediaPublication(run)
+	message := app.Message{}
+	if !suppressAssistant {
+		message = app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary}
+		messages := r.store.ListMessages(run.SessionID)
+		for index := len(messages) - 1; index >= 0; index-- {
+			if messages[index].RunID == run.ID && messages[index].Role == "assistant" {
+				message = messages[index]
+				break
+			}
 		}
 	}
 	result := Result{
@@ -415,7 +418,7 @@ func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, message.Content)
+		result.WorkflowResult = r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
 	} else if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route
@@ -426,7 +429,9 @@ func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
 			result.WorkflowResult = r.workflowResultForDispatchFailure(run, route, run.MessageContext.ReturnRoute, message.Content)
 		}
 	}
-	result.Message = r.messageWithWorkflowResult(result.Message, result.WorkflowResult)
+	if !suppressAssistant {
+		result.Message = r.messageWithWorkflowResult(result.Message, result.WorkflowResult)
+	}
 	return result
 }
 

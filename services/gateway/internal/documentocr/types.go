@@ -24,9 +24,11 @@ type Adapter interface {
 	Close() error
 }
 
+func Disabled() Adapter { return disabledAdapter{} }
+
 func New(cfg config.DocumentOCRAdapterConfig) (Adapter, error) {
 	if !cfg.Enabled || cfg.Provider == "" || cfg.Provider == "disabled" {
-		return disabledAdapter{}, nil
+		return Disabled(), nil
 	}
 	switch cfg.Provider {
 	case "openai-http":

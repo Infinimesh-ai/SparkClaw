@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -73,7 +74,8 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 	}
 	ocrAdapter, err := documentocr.New(cfg.Adapters.DocumentOCR)
 	if err != nil {
-		panic(fmt.Sprintf("toolhub: initialize document OCR adapter: %v", err))
+		slog.Warn("document OCR adapter unavailable; continuing with OCR disabled", "error", err)
+		ocrAdapter = documentocr.Disabled()
 	}
 	h := &ToolHub{
 		cfg:         cfg,

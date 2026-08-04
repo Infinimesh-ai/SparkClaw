@@ -212,6 +212,29 @@ func TestLoadRejectsUnsafeDocumentOCREndpoint(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidDocumentOCRConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		provider string
+		baseURL  string
+		want     string
+	}{
+		{name: "unsupported provider", provider: "custom-http", baseURL: "https://ocr.example.test/v1", want: "unsupported document OCR provider"},
+		{name: "relative endpoint", provider: "openai-http", baseURL: "/v1", want: "absolute http or https URL"},
+		{name: "endpoint credentials", provider: "openai-http", baseURL: "https://user@ocr.example.test/v1", want: "must not contain credentials"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("SPARKCLAW_OCR_ENABLED", "true")
+			t.Setenv("SPARKCLAW_OCR_PROVIDER", test.provider)
+			t.Setenv("SPARKCLAW_OCR_BASE_URL", test.baseURL)
+			t.Setenv("SPARKCLAW_OCR_ALLOWED_HOSTS", "ocr.example.test")
+			if _, err := Load(""); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid OCR configuration was accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoadOptionalFeatureCompatibilityMatrix(t *testing.T) {
 	tests := []struct {
 		name      string

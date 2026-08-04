@@ -54,3 +54,30 @@ func TestImageInspectCombinesOvisOCR2MarkdownWithFastSummary(t *testing.T) {
 		t.Fatalf("image inspection did not combine OCR and Fast evidence: %#v", output)
 	}
 }
+
+func TestNewDegradesInvalidDocumentOCRConfiguration(t *testing.T) {
+	root := t.TempDir()
+	imagePath := filepath.Join(root, "evidence.png")
+	writeEmbeddedImageDocumentFixtures(t, root, imagePath)
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	cfg.Adapters.DocumentOCR.Enabled = true
+	cfg.Adapters.DocumentOCR.Provider = "openai-http"
+	cfg.Adapters.DocumentOCR.BaseURL = "://invalid"
+	cfg.Adapters.DocumentOCR.AllowedHosts = []string{"invalid"}
+
+	hub := New(cfg, store.NewMemoryStore())
+	if hub.ocr == nil || hub.ocr.Enabled() {
+		t.Fatalf("invalid OCR configuration did not degrade to the disabled adapter: %#v", hub.ocr)
+	}
+	result, err := hub.Execute(context.Background(), "images.inspect", map[string]any{"path": "evidence.png"}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.Output.(map[string]any)
+	if output["ocr_status"] != "disabled" {
+		t.Fatalf("image inspection did not report disabled OCR after constructor failure: %#v", output)
+	}
+}

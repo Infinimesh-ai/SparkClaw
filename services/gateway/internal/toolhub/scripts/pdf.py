@@ -1,13 +1,44 @@
 
-import base64, json, sys, os
+import base64, io, json, sys, os
 try:
     from pypdf import PdfReader, PdfWriter
 except Exception:
     print(json.dumps({"error":"PDF adapter requires pypdf"}))
     sys.exit(0)
+try:
+    import pypdfium2 as pdfium
+    from PIL import Image
+except Exception:
+    pdfium = None
+    Image = None
 
 req = json.load(sys.stdin)
 op = req.get("operation")
+
+MAX_OCR_PAGES = 8
+MAX_OCR_PAGE_BYTES = 4 << 20
+MAX_OCR_TOTAL_BYTES = 16 << 20
+
+def render_page_for_ocr(document, page_index):
+    if document is None or Image is None:
+        return None
+    page = document[page_index]
+    bitmap = page.render(scale=2.0)
+    try:
+        image = bitmap.to_pil().convert("RGB")
+        if max(image.size) > 2400:
+            image.thumbnail((2400, 2400), Image.Resampling.LANCZOS)
+        for attempt in range(6):
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=max(62, 92 - attempt * 6), optimize=True)
+            data = output.getvalue()
+            if len(data) <= MAX_OCR_PAGE_BYTES:
+                return data
+            image = image.resize((max(1, image.width * 4 // 5), max(1, image.height * 4 // 5)), Image.Resampling.LANCZOS)
+        return None
+    finally:
+        bitmap.close()
+        page.close()
 
 def page_indexes(pages, count):
     if not pages:
@@ -30,6 +61,10 @@ try:
         annotations = []
         page_settings = []
         extracted_bytes = 0
+        scanned_pages = 0
+        rendered_ocr_pages = 0
+        rendered_ocr_bytes = 0
+        pdfium_document = pdfium.PdfDocument(req["path"]) if pdfium is not None else None
         for index, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
             extracted_bytes += len(text.encode("utf-8")) + (2 if chunks else 0)
@@ -41,6 +76,20 @@ try:
             crop_box = [float(value) for value in page.cropbox]
             pages.append({"index": index, "text": text.strip(), "rotation": rotation, "media_box": media_box, "crop_box": crop_box})
             page_settings.append({"index": index, "rotation": rotation, "media_box": media_box, "crop_box": crop_box, "path": "document.page[%d]" % index})
+            if not text.strip():
+                scanned_pages += 1
+                if rendered_ocr_pages < MAX_OCR_PAGES:
+                    data = render_page_for_ocr(pdfium_document, index - 1)
+                    if data is not None and rendered_ocr_bytes + len(data) <= MAX_OCR_TOTAL_BYTES:
+                        resource_key = "pdf:page:%d:ocr" % index
+                        images.append({
+                            "kind": "page_image", "resource_key": resource_key, "parent_path": "document.page[%d]" % index,
+                            "location": {"page_index": index, "path": "document.page[%d]" % index},
+                            "source": {"parser": "pypdfium2", "part_name": "page-%d.jpg" % index}, "content_type": "image/jpeg",
+                        })
+                        resources.append({"key": resource_key, "kind": "page_image", "content_type": "image/jpeg", "data_base64": base64.b64encode(data).decode("ascii")})
+                        rendered_ocr_pages += 1
+                        rendered_ocr_bytes += len(data)
             try:
                 for image_index, image in enumerate(page.images, start=1):
                     data = bytes(image.data)
@@ -72,6 +121,8 @@ try:
             except Exception:
                 pass
             chunks.append(text)
+        if pdfium_document is not None:
+            pdfium_document.close()
         text = "\n\n".join(chunks).strip()
         if not text:
             out = {"content":"","truncated":False,"extracted_bytes":0,"scanned_unsupported":True,"resources":resources}
@@ -86,7 +137,7 @@ try:
                         "extensions":{"status":"deferred","parts":[]},
                         "coverage":{"content":"partial","assets":"partial","annotations":"partial","layout":"partial","extensions":"deferred"},
                     },
-                    "stats":{"pages":len(pages),"images":len(images),"annotations":len(annotations),"scanned_unsupported":True}
+                    "stats":{"pages":len(pages),"images":len(images),"annotations":len(annotations),"scanned_pages":scanned_pages,"ocr_page_images":rendered_ocr_pages,"ocr_pages_omitted":max(0,scanned_pages-rendered_ocr_pages),"scanned_unsupported":True}
                 }
             print(json.dumps(out))
             sys.exit(0)
@@ -95,7 +146,7 @@ try:
         truncated = len(raw) > max_bytes
         if truncated:
             text = raw[:max_bytes].decode("utf-8", errors="ignore")
-        out = {"content":text,"truncated":truncated,"extracted_bytes":extracted_bytes,"scanned_unsupported":False,"resources":resources}
+        out = {"content":text,"truncated":truncated,"extracted_bytes":extracted_bytes,"scanned_unsupported":scanned_pages > 0,"resources":resources}
         if op == "read":
             out["document"] = {
                 "schema_version":"document_read_v1","format":"pdf","source":"pypdf","pages":pages,
@@ -105,9 +156,9 @@ try:
                     "annotations":{"comments":annotations,"notes":[],"hyperlinks":[]},
                     "layout":{"sections":[],"page_settings":page_settings,"slide_layouts":[],"merged_ranges":[]},
                     "extensions":{"status":"deferred","parts":[]},
-                    "coverage":{"content":"complete","assets":"partial","annotations":"partial","layout":"partial","extensions":"deferred"},
+                    "coverage":{"content":"partial" if scanned_pages else "complete","assets":"partial","annotations":"partial","layout":"partial","extensions":"deferred"},
                 },
-                "stats":{"pages":len(pages),"images":len(images),"annotations":len(annotations),"scanned_unsupported":False}
+                "stats":{"pages":len(pages),"images":len(images),"annotations":len(annotations),"scanned_pages":scanned_pages,"ocr_page_images":rendered_ocr_pages,"ocr_pages_omitted":max(0,scanned_pages-rendered_ocr_pages),"scanned_unsupported":scanned_pages > 0}
             }
         print(json.dumps(out))
     elif op == "merge":

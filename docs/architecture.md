@@ -198,6 +198,11 @@ inline secondary directory router remains removed. Approval, output-copy writes,
 preservation checks remain on the shared path. Parsed representations may be
 incomplete, replaced, or regenerated without losing document identity or
 activity lineage.
+An optional bounded `internal/documentocr` adapter sends selected page images
+to OvisOCR2 and retains Markdown as untrusted evidence. Scanned PDF pages are
+rasterized under page/byte budgets and successful OCR is promoted into the
+stable PDF page blocks. OCR is not a Workflow-selected chat lane and its
+failure leaves the read explicitly partial.
 See [Document workflows](document-workflows.md).
 
 Telegram, Weixin, speech, and Infinimesh Info are optional adapters behind
@@ -264,6 +269,7 @@ projections. They must not maintain competing literal maps or duplicate stores.
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |
 | Fast / Deep / Embedding / Guard | `8001` / `8002` / `8003` / `8005` |
+| Optional ASR / OvisOCR2 | `8006` / `8007` |
 | PostgreSQL / MinIO | `15432` / `19000` (`19001` console) |
 
 ## Extension Rules

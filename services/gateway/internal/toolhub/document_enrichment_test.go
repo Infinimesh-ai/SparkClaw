@@ -2,6 +2,7 @@ package toolhub
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,8 +10,25 @@ import (
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+type fakeDocumentOCR struct {
+	markdown string
+}
+
+func (fakeDocumentOCR) Enabled() bool { return true }
+
+func (f fakeDocumentOCR) Parse(_ context.Context, input documentocr.Request) (documentocr.Result, error) {
+	if len(input.Content) == 0 || !strings.HasPrefix(input.ContentType, "image/") {
+		return documentocr.Result{}, errors.New("invalid fake OCR input")
+	}
+	return documentocr.Result{Markdown: f.markdown, Model: "ATH-MaaS/OvisOCR2", InferenceMS: 7}, nil
+}
+
+func (fakeDocumentOCR) Close() error { return nil }
 
 func TestFilesReadRegistersEmbeddedImagesAndUsesFastSemantics(t *testing.T) {
 	root := t.TempDir()
@@ -190,6 +208,47 @@ func TestPDFExtractTextReportsScannedContentAsUnsupported(t *testing.T) {
 	output := result.Output.(map[string]any)
 	if output["scanned_unsupported"] != true || output["content"] != "" {
 		t.Fatalf("blank/scanned PDF boundary was not explicit: %#v", output)
+	}
+}
+
+func TestPDFExtractTextUsesOvisOCR2ForScannedPage(t *testing.T) {
+	root := t.TempDir()
+	writePDFBlankFixture(t, root, "scanned.pdf", 1)
+	cfg := config.Default()
+	cfg.Model.Mock = true
+	cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore()).WithDocumentOCRAdapter(fakeDocumentOCR{markdown: "# Invoice\n\nTotal: 42"})
+
+	result, err := hub.Execute(context.Background(), "pdf.extract_text", map[string]any{"path": "scanned.pdf"}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.Output.(map[string]any)
+	if output["scanned_unsupported"] != false || !strings.Contains(stringArg(output, "content", ""), "Total: 42") {
+		t.Fatalf("scanned PDF OCR was not promoted to document content: %#v", output)
+	}
+	documentValue := output["document"].(map[string]any)
+	stats := documentValue["stats"].(map[string]any)
+	pages := documentAnySlice(documentValue["pages"])
+	blocks := documentAnySlice(documentValue["blocks"])
+	if intArg(stats, "ocr_pages", 0) != 1 || stats["complete"] != true || len(pages) != 1 || len(blocks) != 1 || !strings.Contains(stringArg(pages[0].(map[string]any), "text", ""), "Invoice") || !strings.Contains(stringArg(blocks[0].(map[string]any), "text", ""), "Total") {
+		t.Fatalf("OCR page evidence did not retain stable PDF structure: %#v", documentValue)
+	}
+}
+
+func TestPDFExtractTextKeepsOCRContentWithinRequestedLimit(t *testing.T) {
+	root := t.TempDir()
+	writePDFBlankFixture(t, root, "scanned.pdf", 1)
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore()).WithDocumentOCRAdapter(fakeDocumentOCR{markdown: strings.Repeat("recognized text ", 20)})
+
+	_, err := hub.Execute(context.Background(), "pdf.extract_text", map[string]any{"path": "scanned.pdf", "max_bytes": 32}, "session", "run")
+	if !document.IsErrorCode(err, document.CodeStrategyDeferred) {
+		t.Fatalf("oversized OCR content did not preserve the document read limit: %v", err)
 	}
 }
 

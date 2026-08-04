@@ -78,6 +78,7 @@ representation 刻意不属于 `DocumentRecord`：它们可以不完整、作为
   -> 通过 small_file_v1 high-level adapter 解析
   -> normalize 为 structured_document_v1
   -> enrich 支持的 evidence category
+  -> 把成功的扫描页 OCR 提升为 PDF page block 和正文
   -> 按需归档/投影可替换的解析证据
   -> 用结构化 observation 完成 document_locate_evidence
   -> 在冻结 format scope 内消解 select_edit_operation
@@ -89,13 +90,17 @@ representation 刻意不属于 `DocumentRecord`：它们可以不完整、作为
 ```
 
 DOCX/PPTX 使用 Python high-level library，XLSX 使用 ExcelJS，PDF 使用 Python PDF tooling，
-文本使用 native adapter。项目不声明拥有完整 OOXML/PDF object model。
+文本使用 native adapter。扫描 PDF 页会通过有界 `pypdfium2`/Pillow 资源栅格化并交给
+可选 OvisOCR2 adapter。项目不声明拥有完整 OOXML/PDF object model。
 
 ## 结构化 Representation
 
 规范化记录以稳定 location 分离 content、layout、asset、annotation 和 chart category。
-`document_enrichment_v1` 在支持范围内增加 Fast image semantic 和有界 layout evidence。
-模型生成的 image/OCR observation 始终标记 `untrusted` 并保留 provenance。
+`document_enrichment_v1` 在支持范围内增加 Fast image semantic、可选 OvisOCR2 Markdown
+和有界 layout evidence。OvisOCR2 是专用 document adapter，不是 Model Router lane；Fast
+仍负责视觉描述和 Workflow 推理。成功的扫描页 OCR 会提升到对应稳定 PDF page/block，
+公式和表格 markup 保留在 Markdown 证据中。模型生成的 image/OCR observation 始终标记
+`untrusted` 并保留 model-call provenance。
 
 完整 tool observation 可以为可追溯性归档，模型上下文只接收带 category、anchor、priority
 和有界文本的选定 segment。文档身份不要求解析 representation 被精确保存。category budget
@@ -126,8 +131,10 @@ PowerPoint soft break，保留现有文本样式，并独占全部确定性布�
 关系不一致，或修改后的 shape 会越过相邻内容或 slide canvas，则编辑显式失败。模型只
 选择由证据绑定的 shape target 并填写 replacement text，不选择 layout value。
 
-不支持的 asset、annotation、chart、animation、SmartArt internal、macro、tracked change、
-scanned-PDF OCR 和 package extension 可以作为 partial evidence 读取，但不是隐式 mutation target。
+不支持的 asset、annotation、chart、animation、SmartArt internal、macro、tracked change 和
+package extension 可以作为 partial evidence 读取，但不是隐式 mutation target。adapter 开启时，
+扫描 PDF 会自动调用 OvisOCR2；页面栅格化、OCR 或页数预算不可用时，读取仍明确保持
+`partial` 和 `scanned_unsupported=true`。
 
 ## Mutation 安全
 
@@ -154,5 +161,6 @@ scanned-PDF OCR 和 package extension 可以作为 partial evidence 读取，但
 5. 测试 malformed package、path escape、output conflict、model-derived evidence、preservation failure 和成功 reread。
 6. 用户可见 operation 变化时更新 [Workflow 能力矩阵](workflow-capabilities.md)。
 
-核心契约位于 `internal/document`；ToolHub 负责具体 adapter 和 Fast image enrichment；Workflow
-Runtime 负责 staged tool exposure、binding、Policy 和最终 `WorkflowResult` projection。
+核心契约位于 `internal/document`；`internal/documentocr` 负责有界 OvisOCR2 HTTP contract；
+ToolHub 负责具体 reader 以及 Fast/OCR enrichment；Workflow Runtime 负责 staged tool exposure、
+binding、Policy 和最终 `WorkflowResult` projection。

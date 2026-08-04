@@ -97,6 +97,7 @@ record or resolve durable document identity
   -> parse with small_file_v1 high-level adapter
   -> normalize structured_document_v1
   -> enrich supported evidence categories
+  -> promote successful scanned-page OCR into PDF page blocks and content
   -> archive/project replaceable parse evidence as needed
   -> complete document_locate_evidence with structured observations
   -> resolve select_edit_operation inside the frozen format scope
@@ -108,15 +109,20 @@ record or resolve durable document identity
 ```
 
 DOCX and PPTX use Python high-level libraries, XLSX uses ExcelJS, PDF uses
-Python PDF tooling, and text uses the native adapter. The project does not claim
-a complete OOXML/PDF object model.
+Python PDF tooling, and text uses the native adapter. Scanned PDF pages are
+rasterized with bounded `pypdfium2`/Pillow resources for the optional OvisOCR2
+adapter. The project does not claim a complete OOXML/PDF object model.
 
 ## Structured Representation
 
 The normalized record keeps content, layout, assets, annotations, and charts in
 separate categories with stable locations. `document_enrichment_v1` adds Fast
-image semantics and bounded layout evidence where supported. Model-derived
-image/OCR observations remain `untrusted` and carry provenance.
+image semantics, optional OvisOCR2 Markdown, and bounded layout evidence where
+supported. OvisOCR2 is a dedicated document adapter rather than a Model Router
+lane: Fast still owns visual description and Workflow reasoning. Successful
+scanned-page OCR is promoted into the matching stable PDF page and block;
+formulas and table markup remain in the Markdown evidence. Model-derived
+image/OCR observations remain `untrusted` and carry model-call provenance.
 
 The full tool observation may be archived for traceability, while model context
 receives selected segments with category, anchor, priority, and bounded text.
@@ -156,8 +162,11 @@ cross nearby content or the slide canvas. The model only selects evidence-bound
 shape targets and supplies replacement text; it does not choose layout values.
 
 Unsupported assets, annotations, charts, animations, SmartArt internals,
-macros, tracked changes, scanned-PDF OCR, and package extensions may be read as
-partial evidence but are not implicit mutation targets.
+macros, tracked changes, and package extensions may be read as partial evidence
+but are not implicit mutation targets. Scanned PDF reads invoke OvisOCR2
+automatically when the adapter is enabled; if page rendering, OCR, or the page
+budget is unavailable, the read remains explicitly `partial` with
+`scanned_unsupported=true`.
 
 ## Mutation Safety
 
@@ -193,6 +202,7 @@ partial evidence but are not implicit mutation targets.
 6. Update [Workflow capabilities](workflow-capabilities.md) for user-visible
    operations.
 
-The core contracts live under `internal/document`; ToolHub owns concrete
-adapters and Fast image enrichment; Workflow Runtime owns staged tool exposure,
-binding, Policy, and final `WorkflowResult` projection.
+The core contracts live under `internal/document`; `internal/documentocr` owns
+the bounded OvisOCR2 HTTP contract; ToolHub owns concrete readers plus Fast/OCR
+enrichment; Workflow Runtime owns staged tool exposure, binding, Policy, and
+final `WorkflowResult` projection.

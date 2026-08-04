@@ -29,6 +29,6 @@ fi
 python3 -m pip install "${pip_args[@]}" -r "$MANIFEST_DIR/requirements.txt"
 
 node -e 'for (const name of ["@mozilla/readability", "jsdom", "exceljs"]) require(name)'
-python3 -c 'import docx, pptx, pypdf'
+python3 -c 'import docx, PIL, pptx, pypdf, pypdfium2'
 
 echo "Host document dependencies are ready."

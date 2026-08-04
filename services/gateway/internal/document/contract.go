@@ -337,7 +337,18 @@ func (p *Pipeline) Read(ctx context.Context, request ReadRequest) (ReadResult, e
 	if err != nil {
 		return ReadResult{}, err
 	}
-	return p.enrich(ctx, read, request.Enrichment)
+	read, err = p.enrich(ctx, read, request.Enrichment)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	maxExtracted := request.MaxBytes
+	if maxExtracted <= 0 || maxExtracted > SmallExtractedMaxBytes {
+		maxExtracted = SmallExtractedMaxBytes
+	}
+	if len([]byte(read.Content)) > maxExtracted {
+		return ReadResult{}, deferredExtractedError(metadata, int64(len([]byte(read.Content))), maxExtracted)
+	}
+	return read, nil
 }
 
 func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, error) {

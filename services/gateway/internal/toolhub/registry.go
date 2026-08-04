@@ -281,7 +281,7 @@ var toolRegistry = map[string]toolRegistration{
 	"xlsx.update_row":           documentEditRegistration(structureOp((*ToolHub).xlsxStructureEdit, "update_row"), app.DocumentFormatXLSX, "update_row", "Update one XLSX row and write a new workbook."),
 	"xlsx.append_row":           documentEditRegistration(structureOp((*ToolHub).xlsxStructureEdit, "append_row"), app.DocumentFormatXLSX, "append_row", "Append one XLSX row and write a new workbook."),
 	"pdf.extract_text": documentReadRegistration(ctxArgs((*ToolHub).pdfExtractText), []string{app.DocumentFormatPDF},
-		"Extract bounded text from a workspace PDF."),
+		"Extract bounded text and stable page evidence from a workspace PDF, using configured OCR for scanned pages."),
 	"pdf.transform":          pdfTransformRegistration(),
 	"memory.search":          {run: argsSession((*ToolHub).memorySearch)},
 	"memory.write_candidate": {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},

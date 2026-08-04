@@ -157,6 +157,9 @@ parsing 和显式 `select_edit_operation` 决策节点。编辑定位节点使�
 精确 ToolHub entry；原内联目录二次路由仍保持删除。
 approval、output-copy write 和 post-edit preservation check 继续走共享路径。解析
 representation 可以不完整、被替换或重新生成，而不会丢失文档身份和活动谱系。
+可选的有界 `internal/documentocr` adapter 会把选中的 page image 发送给 OvisOCR2，并把
+Markdown 作为不可信证据保留。扫描 PDF 页在 page/byte budget 内栅格化，成功 OCR 会提升到
+稳定 PDF page block。OCR 不是 Workflow 选择的 chat lane；失败时读取明确保持 partial。
 见[文档 Workflow](document-workflows.md)。
 
 Telegram、微信、speech 和 Infinimesh Info 是共享 connector、delivery、transcription 或 search
@@ -212,6 +215,7 @@ Provider/UI 通过 owner package 和 public projection 消费这些契约，不�
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |
 | Fast / Deep / Embedding / Guard | `8001` / `8002` / `8003` / `8005` |
+| 可选 ASR / OvisOCR2 | `8006` / `8007` |
 | PostgreSQL / MinIO | `15432` / `19000`（`19001` console） |
 
 ## 扩展规则

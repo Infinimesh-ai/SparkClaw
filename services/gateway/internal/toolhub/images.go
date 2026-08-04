@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -37,6 +38,11 @@ type preparedImageForModel struct {
 	Resized        bool
 	ResizeNote     string
 	FallbackPolicy string
+}
+
+type imageOCRResult struct {
+	result documentocr.Result
+	err    error
 }
 
 func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any) (Result, error) {
@@ -81,15 +87,32 @@ func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any) (Result
 		"Model input content type: " + imageForModel.ContentType,
 		"User question: " + question,
 	}, "\n")
-	chat, err := h.models.ChatWithImage(ctx, "fast", system, user, modelrouter.ImageInput{
+	ocrStatus := "disabled"
+	var ocrResult <-chan imageOCRResult
+	modelCtx, cancelModels := context.WithCancel(ctx)
+	defer cancelModels()
+	if h.ocr != nil && h.ocr.Enabled() {
+		ocrStatus = "pending"
+		results := make(chan imageOCRResult, 1)
+		ocrResult = results
+		go func() {
+			result, parseErr := h.ocr.Parse(modelCtx, documentocr.Request{Content: imageForModel.Content, ContentType: imageForModel.ContentType})
+			results <- imageOCRResult{result: result, err: parseErr}
+		}()
+	}
+	chat, err := h.models.ChatWithImage(modelCtx, "fast", system, user, modelrouter.ImageInput{
 		Path:        path,
 		Content:     imageForModel.Content,
 		ContentType: imageForModel.ContentType,
 	})
 	if err != nil {
+		cancelModels()
+		if ocrResult != nil {
+			<-ocrResult
+		}
 		return Result{}, err
 	}
-	return Result{Output: map[string]any{
+	output := map[string]any{
 		"status":             "completed",
 		"path":               path,
 		"content_type":       contentType,
@@ -109,8 +132,22 @@ func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any) (Result
 		"profile":            chat.Profile,
 		"lane":               chat.Lane,
 		"mock":               chat.Mock,
+		"ocr_status":         ocrStatus,
 		"untrusted":          true,
-	}}, nil
+	}
+	if ocrResult != nil {
+		parsed := <-ocrResult
+		if parsed.err != nil {
+			output["ocr_status"] = "failed"
+			output["ocr_warning"] = parsed.err.Error()
+		} else {
+			output["ocr_status"] = "succeeded"
+			output["ocr_markdown"] = parsed.result.Markdown
+			output["ocr_model"] = parsed.result.Model
+			output["ocr_inference_ms"] = parsed.result.InferenceMS
+		}
+	}
+	return Result{Output: output}, nil
 }
 
 func supportedImageContentType(contentType string) bool {

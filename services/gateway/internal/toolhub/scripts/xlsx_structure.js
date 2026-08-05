@@ -41,18 +41,69 @@ process.stdin.on("end", async () => {
       return row;
     }
 
-    function valuesArray(value) {
+    function valuesArray(value, nonEmpty = false) {
       if (!Array.isArray(value)) throw new Error("values must be an array");
+      if (nonEmpty && value.length === 0) throw new Error("values must be a non-empty array");
       return value;
     }
 
-    function writeRow(rowNumber, values) {
+    function writeNewRow(rowNumber, values) {
       const row = sheet.getRow(rowNumber);
       row.values = [];
       values.forEach((value, index) => {
         row.getCell(index + 1).value = value;
       });
       row.commit();
+    }
+
+    function cellSnapshot(cell) {
+      const value = cell.value;
+      const formula = cell.formula || (value && typeof value === "object" && value.formula) || "";
+      let rawValue = value;
+      let valueKind = typeof value;
+      if (formula) {
+        valueKind = "formula";
+        rawValue = cell.result ?? (value && typeof value === "object" ? value.result : null);
+      } else if (value === null || value === undefined || value === "") {
+        valueKind = "blank";
+        rawValue = null;
+      } else if (value instanceof Date) {
+        valueKind = "date";
+        rawValue = value.toISOString();
+      } else if (value && typeof value === "object" && Array.isArray(value.richText)) {
+        valueKind = "rich_text";
+        rawValue = String(cell.text || "");
+      } else if (value && typeof value === "object" && value.error !== undefined) {
+        valueKind = "error";
+        rawValue = String(value.error);
+      } else if (value && typeof value === "object" && value.text !== undefined) {
+        valueKind = "string";
+        rawValue = String(value.text);
+      } else if (!["string", "number", "boolean"].includes(typeof value)) {
+        valueKind = "unknown";
+        rawValue = String(cell.text || "");
+      }
+      return {
+        address: cell.address,
+        value_kind: valueKind,
+        raw_value: rawValue,
+        display_text: String(cell.text || ""),
+        formula: String(formula || ""),
+        number_format: String(cell.numFmt || "")
+      };
+    }
+
+    function updateCells(cells) {
+      const changed = [];
+      for (const [cell, value] of cells) {
+        const before = cellSnapshot(cell);
+        cell.value = value;
+        const after = cellSnapshot(cell);
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          changed.push({ address: cell.address, before, after });
+        }
+      }
+      return changed;
     }
 
     function rowHasContent(rowNumber) {
@@ -72,7 +123,8 @@ process.stdin.on("end", async () => {
 
     if (operation === "update_cell") {
       const cellAddress = assertCell(req.cell);
-      sheet.getCell(cellAddress).value = req.value;
+      result.changed_cells = updateCells([[sheet.getCell(cellAddress), req.value]]);
+      result.changed = result.changed_cells.length;
       result.cell = cellAddress;
       result.value = req.value;
     } else if (operation === "insert_row") {
@@ -82,17 +134,21 @@ process.stdin.on("end", async () => {
       const insertAt = position === "before" ? row : row + 1;
       const values = valuesArray(req.values);
       sheet.spliceRows(insertAt, 0, values);
+      result.changed = 1;
       result.row = row;
       result.inserted_row = insertAt;
       result.values = values;
     } else if (operation === "delete_row") {
       const row = existingRow(req.row);
       sheet.spliceRows(row, 1);
+      result.changed = 1;
       result.row = row;
     } else if (operation === "update_row") {
       const row = existingRow(req.row);
-      const values = valuesArray(req.values);
-      writeRow(row, values);
+      const values = valuesArray(req.values, true);
+      const targetRow = sheet.getRow(row);
+      result.changed_cells = updateCells(values.map((value, index) => [targetRow.getCell(index + 1), value]));
+      result.changed = result.changed_cells.length;
       result.row = row;
       result.values = values;
     } else if (operation === "append_row") {
@@ -103,7 +159,8 @@ process.stdin.on("end", async () => {
       }
       const newRow = appendAfterRow + 1;
       if (rowHasContent(newRow)) throw new Error("append target row is not empty: " + newRow);
-      writeRow(newRow, values);
+      writeNewRow(newRow, values);
+      result.changed = 1;
       result.row = newRow;
       result.values = values;
     } else {

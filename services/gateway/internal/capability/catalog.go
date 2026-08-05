@@ -142,7 +142,7 @@ func DefaultCatalog() (Catalog, error) {
 		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type, using optional OCR for verbatim in-image text and scanned PDF pages.", 4, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
-		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 5, RouteContract{
+		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 6, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),

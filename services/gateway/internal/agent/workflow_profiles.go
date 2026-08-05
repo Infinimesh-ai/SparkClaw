@@ -135,7 +135,7 @@ func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 type documentEditProfile struct{}
 
 func (documentEditProfile) ID() app.WorkflowID           { return app.WorkflowDocumentEdit }
-func (documentEditProfile) Revision() int                { return 5 }
+func (documentEditProfile) Revision() int                { return 6 }
 func (documentEditProfile) Capability() app.CapabilityID { return app.CapabilityDocumentEdit }
 func (documentEditProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentEditRoutingSemantics()

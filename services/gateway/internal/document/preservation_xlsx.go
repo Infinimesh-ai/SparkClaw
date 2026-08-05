@@ -9,7 +9,7 @@ import (
 func verifyXLSXExpectedMutation(operation string, before, after Representation, edit EditRequest) (bool, error) {
 	switch operation {
 	case "update_cell":
-		if !cellHasValue(after, stringValue(edit.Arguments["sheet"]), stringValue(edit.Arguments["cell"]), stringValue(edit.Arguments["value"])) {
+		if !xlsxCellHasTypedValue(after, stringValue(edit.Arguments["sheet"]), stringValue(edit.Arguments["cell"]), edit.Arguments["value"]) {
 			return true, fmt.Errorf("the target cell does not contain the expected after-value")
 		}
 	case "insert_row", "append_row":
@@ -22,8 +22,8 @@ func verifyXLSXExpectedMutation(operation string, before, after Representation, 
 			return true, fmt.Errorf("the deleted row count was not reflected in the structured output")
 		}
 	case "update_row":
-		if !sheetRowAtIndexHasValues(after, stringValue(edit.Arguments["sheet"]), intValue(edit.Arguments["row"]), anySlice(edit.Arguments["values"])) {
-			return true, fmt.Errorf("the target row does not contain the expected after-values")
+		if err := verifyXLSXRowPrefixMutation(before, after, stringValue(edit.Arguments["sheet"]), intValue(edit.Arguments["row"]), anySlice(edit.Arguments["values"])); err != nil {
+			return true, err
 		}
 	default:
 		return false, nil
@@ -35,7 +35,9 @@ func xlsxMutationAllowsBlock(operation string, edit EditRequest, block Block) (b
 	if operation != "update_row" {
 		return false, false
 	}
-	return equalFoldValue(block.Location["sheet"], stringValue(edit.Arguments["sheet"])) && intValue(block.Location["row_index"]) == intValue(edit.Arguments["row"]), true
+	return equalFoldValue(block.Location["sheet"], stringValue(edit.Arguments["sheet"])) &&
+		intValue(block.Location["row_index"]) == intValue(edit.Arguments["row"]) &&
+		intValue(block.Location["column_index"]) <= len(anySlice(edit.Arguments["values"])), true
 }
 
 func xlsxOperationChangesEntityIndexes(operation string) bool {
@@ -80,20 +82,74 @@ func mergedRangeBeforeCoordinates(value string, edit EditRequest) string {
 	return fmt.Sprintf("%s%d:%s%d", strings.ToUpper(matches[1]), startRow, strings.ToUpper(matches[3]), endRow)
 }
 
-func cellHasValue(document Representation, sheetName, address, expected string) bool {
+func xlsxCellHasTypedValue(document Representation, sheetName, address string, expected any) bool {
 	for _, sheet := range document.Sheets {
 		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {
 			continue
 		}
 		for _, row := range mapSlice(sheet["rows"]) {
 			for _, cell := range mapSlice(row["cells"]) {
-				if strings.EqualFold(stringValue(cell["address"]), address) && stringValue(cell["value"]) == expected {
+				if strings.EqualFold(stringValue(cell["address"]), address) && sameJSON(cell["raw_value"], expected) && stringValue(cell["formula"]) == "" {
 					return true
 				}
 			}
 		}
 	}
 	return false
+}
+
+func verifyXLSXRowPrefixMutation(before, after Representation, sheetName string, index int, values []any) error {
+	if len(values) == 0 {
+		return fmt.Errorf("the target row update has no supplied values")
+	}
+	beforeRow, beforeFound := xlsxRepresentationRow(before, sheetName, index)
+	afterRow, afterFound := xlsxRepresentationRow(after, sheetName, index)
+	if !beforeFound || !afterFound {
+		return fmt.Errorf("the target row was not found before and after the edit")
+	}
+	beforeCells := mapSlice(beforeRow["cells"])
+	afterCells := mapSlice(afterRow["cells"])
+	for offset, value := range values {
+		column := offset + 1
+		cell, found := xlsxCellByColumn(afterCells, column)
+		if !found || !sameJSON(cell["raw_value"], value) || stringValue(cell["formula"]) != "" {
+			return fmt.Errorf("the target row cell at column %d does not contain the expected typed after-value", column)
+		}
+	}
+	for _, beforeCell := range beforeCells {
+		column := intValue(beforeCell["column"])
+		if column <= len(values) {
+			continue
+		}
+		afterCell, found := xlsxCellByColumn(afterCells, column)
+		if !found || stringValue(beforeCell["source_hash"]) == "" || stringValue(beforeCell["source_hash"]) != stringValue(afterCell["source_hash"]) {
+			return fmt.Errorf("the trailing cell at column %d changed outside the supplied row prefix", column)
+		}
+	}
+	return nil
+}
+
+func xlsxRepresentationRow(representation Representation, sheetName string, index int) (map[string]any, bool) {
+	for _, sheet := range representation.Sheets {
+		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {
+			continue
+		}
+		for _, row := range mapSlice(sheet["rows"]) {
+			if intValue(row["index"]) == index {
+				return row, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func xlsxCellByColumn(cells []map[string]any, column int) (map[string]any, bool) {
+	for _, cell := range cells {
+		if intValue(cell["column"]) == column {
+			return cell, true
+		}
+	}
+	return nil, false
 }
 
 func sheetRowCount(document Representation, sheetName string) int {
@@ -119,27 +175,13 @@ func sheetContainsValues(document Representation, sheetName string, values []any
 	return false
 }
 
-func sheetRowAtIndexHasValues(document Representation, sheetName string, index int, values []any) bool {
-	for _, sheet := range document.Sheets {
-		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {
-			continue
-		}
-		for _, row := range mapSlice(sheet["rows"]) {
-			if intValue(row["index"]) == index && rowHasValues(row, values) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func rowHasValues(row map[string]any, values []any) bool {
 	cells := mapSlice(row["cells"])
 	if len(cells) < len(values) {
 		return false
 	}
 	for index, value := range values {
-		if stringValue(cells[index]["value"]) != stringValue(value) {
+		if !sameJSON(cells[index]["raw_value"], value) {
 			return false
 		}
 	}

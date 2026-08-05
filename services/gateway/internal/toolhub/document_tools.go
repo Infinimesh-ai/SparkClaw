@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
@@ -42,6 +43,13 @@ func (h *ToolHub) replaceDocumentText(ctx context.Context, args map[string]any, 
 		return Result{}, err
 	}
 	expected := intArg(args, "expected_replacements", 0)
+	sourceSHA256 := strings.TrimSpace(stringArg(args, "source_sha256", ""))
+	if format, detectErr := document.DetectFormat(inputPath); detectErr == nil && format == app.DocumentFormatXLSX && sourceSHA256 == "" {
+		return Result{}, &document.PipelineError{
+			Code: document.CodeResourceInvalid, Stage: document.StageConstrain, Format: format,
+			Detail: "XLSX text replacement requires trusted workbook source evidence",
+		}
+	}
 	targets := make([]document.LocatorRequest, 0, len(replacements))
 	for _, replacement := range replacements {
 		targets = append(targets, document.LocatorRequest{
@@ -49,7 +57,7 @@ func (h *ToolHub) replaceDocumentText(ctx context.Context, args map[string]any, 
 		})
 	}
 	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
-		Path: inputPath, OutputPath: outputPath, Operation: "replace_text", Targets: targets, ExpectedMatches: expected,
+		Path: inputPath, OutputPath: outputPath, SourceSHA256: sourceSHA256, Operation: "replace_text", Targets: targets, ExpectedMatches: expected,
 		Arguments: map[string]any{"replacements": args["replacements"]}, MaxBytes: document.SmallExtractedMaxBytes,
 	})
 	if err != nil {

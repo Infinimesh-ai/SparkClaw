@@ -111,6 +111,12 @@ func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T
 			args := cloneTestMap(test.args)
 			args["path"] = test.input
 			args["output_path"] = test.output
+			if test.name == "xlsx" {
+				read := executeDocumentRead(t, hub, test.input)
+				for key, value := range xlsxBoundTestArgs(t, read, stringArg(args, "sheet", ""), "update_cell", 2, stringArg(args, "cell", "")) {
+					args[key] = value
+				}
+			}
 			result, err := hub.Execute(context.Background(), test.tool, args, "session", "run")
 			if err != nil {
 				t.Fatal(err)

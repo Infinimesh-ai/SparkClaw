@@ -88,6 +88,11 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 			return err
 		}
 	}
+	if operation, ok := xlsxEditOperation(definition, plan); ok {
+		if err := r.validateXLSXEditEvidence(run, operation, plan.Args); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -300,6 +305,11 @@ func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[stri
 	}
 	if definition, ok := r.tools.Definition(plan.Name); ok && isDOCXReplaceParagraphDefinition(definition, plan) {
 		args = r.bindDOCXReplaceParagraphEvidence(run, args)
+	}
+	if definition, ok := r.tools.Definition(plan.Name); ok {
+		if operation, xlsx := xlsxEditOperation(definition, plan); xlsx {
+			args = r.bindXLSXEditEvidence(run, operation, args)
+		}
 	}
 	return args
 }

@@ -208,6 +208,7 @@ type EditRequest struct {
 	Root            string
 	Path            string
 	OutputPath      string
+	SourceSHA256    string
 	Operation       string
 	Target          LocatorRequest
 	Targets         []LocatorRequest
@@ -355,6 +356,9 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 	metadata, strategy, err := p.inspectAndSelect(ctx, request.Root, request.Path)
 	if err != nil {
 		return EditResult{}, err
+	}
+	if expected := strings.TrimSpace(request.SourceSHA256); expected != "" && !strings.EqualFold(expected, metadata.SHA256) {
+		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "input document does not match the trusted source hash"}
 	}
 	read, err := strategy.Read(ctx, metadata, request.MaxBytes)
 	if err != nil {

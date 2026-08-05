@@ -157,6 +157,10 @@ parsing 和显式 `select_edit_operation` 决策节点。编辑定位节点使�
 精确 ToolHub entry；原内联目录二次路由仍保持删除。
 approval、output-copy write 和 post-edit preservation check 继续走共享路径。解析
 representation 可以不完整、被替换或重新生成，而不会丢失文档身份和活动谱系。
+XLSX 读取还会投影带稳定 source hash 的有界类型化 sheet/row/cell 证据。revision 6 在
+approval 前把每次电子表格修改绑定到该读取，并且只有通过 OOXML feature gate、类型化重读和
+package part 保真校验后才接纳成功输出；不支持的特性或未声明 package drift 会失败关闭且不留下
+输出副本。
 可选的有界 `internal/documentocr` adapter 会把选中的 page image 发送给 OvisOCR2，并把
 Markdown 作为不可信证据保留。扫描 PDF 页在 page/byte budget 内栅格化，成功 OCR 会提升到
 稳定 PDF page block。OCR 不是 Workflow 选择的 chat lane；失败时读取明确保持 partial。

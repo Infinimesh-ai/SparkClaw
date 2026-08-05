@@ -198,6 +198,11 @@ inline secondary directory router remains removed. Approval, output-copy writes,
 preservation checks remain on the shared path. Parsed representations may be
 incomplete, replaced, or regenerated without losing document identity or
 activity lineage.
+XLSX reads additionally project bounded typed sheet/row/cell evidence with
+stable source hashes. Revision 6 binds every spreadsheet edit to that read
+before approval and admits a successful output only after OOXML feature gating,
+typed reread checks, and package-part preservation verification; unsupported
+features or undeclared package drift fail closed and leave no output copy.
 An optional bounded `internal/documentocr` adapter sends selected page images
 to OvisOCR2 and retains Markdown as untrusted evidence. Scanned PDF pages are
 rasterized under page/byte budgets and successful OCR is promoted into the

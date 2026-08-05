@@ -17,6 +17,9 @@
 
 ### Changed
 
+- 将 `document.edit` 升级到 revision 6：XLSX 现在使用类型化有界 sheet 证据、绑定证据的
+  workbook/cell/row/sheet 修改、只更新前缀的 `update_row`、六种明确 operation 选择边界和
+  失败关闭的 OOXML package 校验来保护每个生成副本。
 - 用当前可维护文档替换旧 planning、audit 和 handoff documents。
 - 将 intent routing、messaging/scheduling、browser、document、integration 和 WebChat
   文档合并为六份当前专项手册和一份文档索引；删除 29 对已完成或被替代文档。

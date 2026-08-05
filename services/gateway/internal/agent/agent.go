@@ -1043,7 +1043,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			Tool:       plan.Name,
 			Risk:       def.Risk,
 			Status:     "pending",
-			Summary:    approvalSummary(plan.Name, plan.Args),
+			Summary:    r.approvalSummaryForPlan(runID, plan.Name, plan.Args),
 			Reason:     decision.Reason,
 			Resources:  decision.Resources,
 			Arguments:  plan.Args,
@@ -1382,4 +1382,36 @@ func approvalSummary(name string, args map[string]any) string {
 	default:
 		return "Approve " + name
 	}
+}
+
+func (r Runtime) approvalSummaryForPlan(runID, name string, args map[string]any) string {
+	if name != "browser.type" && name != "browser.select" {
+		return approvalSummary(name, args)
+	}
+	run, ok := r.store.GetRun(runID)
+	if !ok || run.Workflow == nil || run.Workflow.Plan.ProfileID != app.WorkflowBrowserFormDraft {
+		return approvalSummary(name, args)
+	}
+	field := "ordinary form field"
+	ref := strings.TrimSpace(stringValue(args["uid"]))
+	if len(run.Workflow.ActiveNodeIDs) == 1 {
+		node, exists := run.Workflow.Nodes[run.Workflow.ActiveNodeIDs[0]]
+		if exists {
+			for _, resource := range node.OutcomeRefs {
+				if resource.Kind == "browser_element" && resource.Ref == ref && strings.TrimSpace(resource.Attributes["name"]) != "" {
+					field = resource.Attributes["name"]
+					break
+				}
+			}
+		}
+	}
+	site := "current managed page"
+	if run.Workflow.Browser != nil && strings.TrimSpace(run.Workflow.Browser.Target.RedactedURL) != "" {
+		site = run.Workflow.Browser.Target.RedactedURL
+	}
+	operation := "Fill"
+	if name == "browser.select" {
+		operation = "Select"
+	}
+	return fmt.Sprintf("%s draft field %q on %s (value hidden)", operation, field, site)
 }

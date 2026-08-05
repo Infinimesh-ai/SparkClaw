@@ -364,7 +364,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		} else if !toolCallAdvancedRun(call, observation) {
 			noProgressActions++
 		}
-		if stageContext.WorkflowID == app.WorkflowBrowserAutomation || stageContext.WorkflowID == app.WorkflowBrowserInteraction {
+		if isManagedBrowserWorkflow(stageContext.WorkflowID) {
 			if block, ok := r.recordBrowserLoginBlockFromToolCall(sessionID, run.ID, content, plan, call); ok {
 				result.BrowserLoginBlock = &block
 				result.FinalAnswer = browserLoginBlockedMessage(block)

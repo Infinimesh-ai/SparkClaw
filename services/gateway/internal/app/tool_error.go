@@ -15,7 +15,14 @@ const (
 	ToolErrorUnsafeClickTarget ToolErrorCode = "unsafe_click_target"
 	// ToolErrorSnapshotStale: the referenced browser snapshot no longer
 	// binds to live page state; the caller must take a fresh snapshot.
-	ToolErrorSnapshotStale ToolErrorCode = "snapshot_stale"
+	ToolErrorSnapshotStale                   ToolErrorCode = "snapshot_stale"
+	ToolErrorPublicTargetNotFound            ToolErrorCode = "public_target_not_found"
+	ToolErrorPublicTargetUnsafe              ToolErrorCode = "public_target_unsafe"
+	ToolErrorPublicTargetProviderUnavailable ToolErrorCode = "public_target_provider_unavailable"
+	ToolErrorBrowserSessionRequired          ToolErrorCode = "browser_session_required"
+	ToolErrorDraftActionStale                ToolErrorCode = "draft_action_stale"
+	ToolErrorDraftForbiddenControl           ToolErrorCode = "draft_forbidden_control"
+	ToolErrorVisualEvidenceStale             ToolErrorCode = "visual_evidence_stale"
 )
 
 // CodedToolError attaches a ToolErrorCode to a tool failure. The message is

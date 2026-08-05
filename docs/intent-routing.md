@@ -57,6 +57,10 @@ the graph and use `<capability>#<variant>`, for example:
 ```text
 conversation.answer#answer
 conversation.answer#publish
+browser.automation#open
+browser.page_read#read
+browser.interaction#interact
+browser.form_draft#draft
 schedule.manage#create
 schedule.manage#read
 schedule.manage#edit
@@ -137,6 +141,18 @@ format selects `images.inspect`, which may add classified OCR evidence inside
 the already selected Workflow. Channel images use this same path only when the
 owner asks to inspect or transcribe them; ingestion itself does not run OCR.
 
+Managed-browser routing keeps meaning selection separate from public target
+identification. An explicit URL or current managed tab is grounded directly,
+while the unchanged destination registry is checked during candidate-independent
+grounding. On a registry miss, Runtime may freeze the owner's named target as
+`public_named_target`; only after a browser leaf that permits public Workflow
+target resolution is selected does that Workflow run one Info-backed search.
+Only ordered structured `results[].url` values can become the bound target, and
+Runtime applies public-HTTPS, DNS/IP, redirect, and final-URL safety checks
+without adding another relevance classifier. This resource-resolution stage
+does not create or rescore semantic candidates, so adding registry entries does
+not increase Top-2 selection cost.
+
 Only Agent Runtime turns one clear candidate into `RouteDecision`:
 
 1. Resolve the candidate against the frozen graph revision.
@@ -149,6 +165,12 @@ Only Agent Runtime turns one clear candidate into `RouteDecision`:
 The Tree model never emits `RouteDecision`, and no routing stage selects a tool.
 Tool Exposure is derived after leaf selection from the active Workflow node,
 registered capability descriptors, argument bindings, and Policy.
+
+There is no post-fusion browser keyword veto. Search, page read, open, click,
+and form-draft meaning is distinguished by Profile semantics and hard negatives;
+after a clear route, the selected Profile and concrete ToolHub control checks
+enforce effect boundaries. Unsupported or forbidden effects block within that
+route instead of being reclassified as `unmatched`.
 
 ## Decision States
 

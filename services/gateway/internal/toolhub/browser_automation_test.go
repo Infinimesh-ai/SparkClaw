@@ -31,6 +31,7 @@ func TestBrowserAutomationToolsRegisterOnlyWhenEnabled(t *testing.T) {
 		"browser.navigate",
 		"browser.snapshot",
 		"browser.screenshot",
+		"browser.visual_inspect",
 		"browser.wait",
 		"browser.click",
 		"browser.validate_transition",
@@ -59,8 +60,18 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 		"browser.navigate": {"url": "https://example.com/settings"},
 		"browser.wait":     {"text": "Loaded"},
 		"browser.click":    {"uid": "button_1"},
-		"browser.type":     {"text": "hello"},
-		"browser.select":   {"uid": "select_1", "value": "A"},
+		"browser.type": {
+			"uid": "field_1", "page_id": "page_1", "snapshot_id": "snapshot_1",
+			"session_generation": 1, "page_generation": 1, "text": "hello",
+		},
+		"browser.select": {
+			"uid": "select_1", "page_id": "page_1", "snapshot_id": "snapshot_1",
+			"session_generation": 1, "page_generation": 1, "value": "A",
+		},
+		"browser.visual_inspect": {
+			"page_id": "page_1", "snapshot_id": "snapshot_1", "snapshot_digest": "digest_1",
+			"session_generation": 1, "page_generation": 1, "reason": "owner_requested",
+		},
 		"browser.validate_transition": {
 			"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2", "element_ref": "element_1",
 		},
@@ -84,6 +95,12 @@ func TestBrowserAutomationToolSchemas(t *testing.T) {
 	closeTab, _ := hub.Definition("browser.close")
 	if closeTab.RequiresApproval || closeTab.Risk != app.RiskDraft {
 		t.Fatalf("workflow-owned tab cleanup should remain bounded and approval-free: %#v", closeTab)
+	}
+	for _, name := range []string{"browser.type", "browser.select"} {
+		definition, ok := hub.Definition(name)
+		if !ok || !definition.RequiresApproval || definition.Risk != app.RiskDraft {
+			t.Fatalf("%s must require an independent draft approval: %#v", name, definition)
+		}
 	}
 }
 

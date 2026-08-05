@@ -60,6 +60,7 @@ type agentBrowserSessionEntry struct {
 	snapshots          map[string]*agentBrowserSnapshotState
 	activeSnapshotPage string
 	nextSnapshotID     uint64
+	pageGeneration     uint64
 	noOpenTabs         bool
 	observedTabs       []any
 	observedTabsValid  bool
@@ -296,6 +297,22 @@ func (e *agentBrowserSessionEntry) executeLocked(ctx context.Context, tool strin
 		if err := e.selectRequestedTabLocked(ctx, args, false); err != nil {
 			return "", nil, nil, err
 		}
+		if snapshotID := strings.TrimSpace(stringArg(args, "snapshot_id")); snapshotID != "" {
+			pageID := strings.TrimSpace(stringArg(args, "page_id"))
+			state := e.snapshots[pageID]
+			if state == nil || state.ActionTaken || state.SnapshotID != snapshotID {
+				return "", nil, nil, errorsForSnapshot("visual inspection snapshot is stale")
+			}
+			if requested := uint64Value(args["session_generation"]); requested != 0 && requested != e.generation {
+				return "", nil, nil, errorsForSnapshot("visual inspection session generation is stale")
+			}
+			if requested := uint64Value(args["page_generation"]); requested != 0 && requested != e.pageGeneration {
+				return "", nil, nil, errorsForSnapshot("visual inspection page generation is stale")
+			}
+			if requested := strings.TrimSpace(stringArg(args, "snapshot_digest")); requested != "" && requested != state.Digest {
+				return "", nil, nil, errorsForSnapshot("visual inspection snapshot digest is stale")
+			}
+		}
 		rawArgs := map[string]any{}
 		if boolArg(args, "full_page") {
 			rawArgs["fullPage"] = true
@@ -346,6 +363,7 @@ func (e *agentBrowserSessionEntry) executeLocked(ctx context.Context, tool strin
 			return "agent_browser_click", rawArgs, nil, err
 		}
 		state.ActionTaken = true
+		e.pageGeneration++
 		e.activeSnapshotPage = ""
 		afterURL, _ := e.currentURLLocked(ctx)
 		output := agentBrowserOutput(result)
@@ -379,8 +397,12 @@ func (e *agentBrowserSessionEntry) executeLocked(ctx context.Context, tool strin
 			output["filled"] = descriptor.ExternalRef
 			if err == nil {
 				state.ActionTaken = true
+				e.pageGeneration++
 				e.activeSnapshotPage = ""
 				output["snapshot_id"] = state.SnapshotID
+				output["page_id"] = pageID
+				output["role"] = descriptor.Role
+				output["accessible_name"] = descriptor.Name
 			}
 			return "agent_browser_fill", rawArgs, output, err
 		}
@@ -409,8 +431,12 @@ func (e *agentBrowserSessionEntry) executeLocked(ctx context.Context, tool strin
 		output["ref"] = descriptor.ExternalRef
 		if err == nil {
 			state.ActionTaken = true
+			e.pageGeneration++
 			e.activeSnapshotPage = ""
 			output["snapshot_id"] = state.SnapshotID
+			output["page_id"] = pageID
+			output["role"] = descriptor.Role
+			output["accessible_name"] = descriptor.Name
 		}
 		return "agent_browser_select", rawArgs, output, err
 	default:
@@ -465,10 +491,11 @@ func (a *AgentBrowserAdapter) resolveSessionEntry(key agentBrowserSessionKey) (*
 	entry := a.entries[key]
 	if entry == nil {
 		entry = &agentBrowserSessionEntry{
-			adapter:      a,
-			profile:      key.profile,
-			presentation: key.presentation,
-			snapshots:    map[string]*agentBrowserSnapshotState{},
+			adapter:        a,
+			profile:        key.profile,
+			presentation:   key.presentation,
+			snapshots:      map[string]*agentBrowserSnapshotState{},
+			pageGeneration: 1,
 		}
 		a.entries[key] = entry
 	}
@@ -923,6 +950,7 @@ func (e *agentBrowserSessionEntry) withSessionMetadataLocked(output any, metadat
 		normalized["raw_output"] = output
 	}
 	normalized["session_generation"] = e.generation
+	normalized["page_generation"] = e.pageGeneration
 	normalized["provider_session_ref"] = e.session.sessionName
 	normalized["presentation"] = metadata.Presentation
 	ownerID, profileID := splitBrowserProfileKey(e.profile)
@@ -933,6 +961,7 @@ func (e *agentBrowserSessionEntry) withSessionMetadataLocked(output any, metadat
 		for _, raw := range pages {
 			page := cloneArgs(mapValue(raw))
 			page["session_generation"] = e.generation
+			page["page_generation"] = e.pageGeneration
 			page["provider_session_ref"] = e.session.sessionName
 			page["presentation"] = metadata.Presentation
 			page["owner_id"] = ownerID
@@ -944,6 +973,7 @@ func (e *agentBrowserSessionEntry) withSessionMetadataLocked(output any, metadat
 	if snapshot := mapValue(normalized["snapshot"]); snapshot != nil {
 		snapshot = cloneArgs(snapshot)
 		snapshot["session_generation"] = e.generation
+		snapshot["page_generation"] = e.pageGeneration
 		snapshot["provider_session_ref"] = e.session.sessionName
 		snapshot["presentation"] = metadata.Presentation
 		snapshot["owner_id"] = ownerID

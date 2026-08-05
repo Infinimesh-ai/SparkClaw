@@ -29,27 +29,42 @@ Workflow leaf
 |---|---|
 | `browser.internet_search` r1 | 通过 `web.search` 搜索公开当前信息，不打开来源页面 |
 | `browser.weather` r1 | 通过 Infinimesh Info `POST /v1/info/weather` 查询 typed metric 数据，并为一个明确地点生成天气卡片 |
-| `browser.automation` r2 | 在 hidden Chromium 中取得一个目标并完成 settle/snapshot，再在 visible Chromium 中呈现并独立验证同一结果 |
-| `browser.interaction` r2 | 在相同 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
+| `browser.automation` r2 | 取得明确 URL、注册 destination 或由 Info 识别的命名公网目标，在 hidden Chromium 校验后，再在 visible Chromium 呈现并独立验证 |
+| `browser.page_read` r1 | 执行固定 hidden health -> open -> session-required read 链，从一个明确或经 Info 识别的 URL 返回有界内容 |
+| `browser.interaction` r2 | 在托管 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
+| `browser.form_draft` r1 | 在普通可逆字段中 type 或 select 最多五个经独立审批、由 owner 原文提供的精确值，再 visibly 验证未提交草稿 |
 
-`browser.interaction` r2 不执行 type、select、upload、download、form submit、凭据输入、
-captcha/2FA、payment/purchase、页面脚本或自动登录。登录和人工验证使用显式 owner
-handoff。底层 browser tool 不会扩大已支持 Workflow 表面；以
+`browser.interaction` r2 保持 click-only。`browser.form_draft` r1 只在 action stage 暴露
+type/select，绝不暴露 click、submit、send、publish、upload、download、凭据、captcha/2FA、
+payment/purchase 或页面脚本动作。登录和人工验证使用显式 owner handoff。底层 browser
+tool 不会扩大已支持 Workflow 表面；以
 [Workflow 能力矩阵](workflow-capabilities.md)为准。浏览器 r1 profile 及其完成后呈现
 兼容路径已经退役。
 
-## Read 与 Interaction 证据
+## 页面、草稿与视觉证据
 
 浏览器证据分为不同契约：
 
-- `browser.read` 为非 Workflow 调用者从 active page 提取有界 rendered text 和 typed page
-  metadata，永不执行页面脚本，也不是 r2 的第二条 perception 路径。
+- `browser.read` 提取有界 rendered text 和 typed page metadata。`browser.page_read`
+  Profile 只会在 hidden health/open 之后调用，并设置 `require_browser_session=true` 和
+  `reuse_active_page=true`；托管 session 失败会明确返回，绝不回退 direct HTTP。
 - `browser.wait` 根据有界可观察 readiness signal 等待 navigation 或 interaction 稳定；
   timeout、renderer failure 或 caller cancellation 会明确终止当前阶段。
 - `browser.snapshot` 为选定页面状态创建带可执行 wrapped ref、page identity、
-  presentation mode 和 session generation 的结构化 accessibility projection。snapshot
-  ID 包含该 generation，避免同一 run 的 hidden 与 visible session 绑定到旧 snapshot。
+  presentation mode、session generation 和 page generation 的结构化 accessibility
+  projection。snapshot ID 包含 session generation；navigation 和成功 interaction 会推进
+  page generation，并使旧 action/visual evidence 失效。
 - `browser.click` 只能接收该 snapshot 中持久化的 ref。
+- `browser.type` 与 `browser.select` 只有在 `browser.form_draft` 中才能作为页面 mutation
+  使用。Runtime 在 approval 前和已审批 call 执行时都会校验 active Profile、latest
+  snapshot、page/ref identity、session/page generation、普通字段 allowlist、禁用 control
+  metadata 和 owner 原文中的精确值。每次 action 独立审批；public summary 和持久化浏览器
+  projection 会脱敏 value。
+- Workflow-only `browser.visual_inspect` 先校验最新 structured snapshot，捕获 screenshot，
+  复用 Fast 图片检查，再捕获一份 structured snapshot。session/page generation、page ID、
+  URL 或 snapshot digest 任一变化都会返回 `visual_evidence_stale`。其有界不可信输出不包含
+  coordinate 或 executable ref。当前 Profile 只有在 owner 明确要求 screenshot 或视觉确认
+  时才暴露该 stage。
 - `browser.validate_transition` 对比持久化 before/after snapshot；
   `browser.assess_goal` 针对一个精确 snapshot 独立评估冻结目标。
 - 每次 navigation 与 click 后都必须 settle 并生成 fresh snapshot。stale generation/ref、
@@ -63,6 +78,22 @@ URL 独立校验且不进入摘要，因此仅有 hash route 或地址栏变化�
 Agent-browser 的 accessibility snapshot 和 native ref 是 provider 侧交互事实。SparkClaw
 只在其上增加有界模型投影、相关性检查、page identity、semantic fingerprint、重复状态
 检测和明确错误码。页面文本始终是不可信证据，不会成为指令来源。
+
+## 注册目标与动态公网目标
+
+现有 destination registry 及其匹配行为保持不变，并始终作为命名目标的第一层 lookup。
+registry hit 保留原有 descriptor、host scope、route hint 和认证处理。向 registry 增加网站
+只是数据维护，不会增加 Catalog leaf 或 semantic candidate，因此不会增加 Top-2 意图选择成本。
+
+托管浏览器 leaf 选定后，未注册的命名公网目标执行一次有界 Info-backed `web.search`。
+Runtime 只消费已持久化、有序的 `results[].url` 字段，并选择第一个通过强制安全检查的 URL。
+它不会从 answer prose 或 snippet 解析 URL，不会调用 Fast/embedding、重排相关性，也不会把
+动态结果写回 registry。识别延迟是一轮 Info 请求加有界 DNS/redirect 检查；明确 URL、当前
+tab 和 registry hit 都会跳过该阶段。
+
+动态目标必须使用无 userinfo 的 HTTPS。hostname、每个 resolved address、每次 redirect 和
+最终 URL 都必须位于公网；loopback、private、link-local、multicast 和 unspecified address
+会被拒绝。Provider 不可用、无可用有序结果和全部结果不安全会产生不同 typed failure，不会猜 URL。
 
 ## 托管 Chromium Profile
 
@@ -101,13 +132,14 @@ socket 可连接时继续报告 busy；只有确认没有存活 owner 的失效�
 格式异常条目、普通文件和无法判定的 ownership 一律 fail closed。这样，重建后的 Gateway
 可以回收已终止容器遗留的 profile，而不会抢占仍在运行的浏览器。
 
-browser automation 和 interaction 在 hidden Chromium 中完成 acquire、navigate、settle、
-snapshot 和 interaction。最终呈现是同一冻结 r2 Workflow 内的必需节点：Runtime 以 visible
-方式 open/focus 结果 URL，等待稳定，获取 visible snapshot，重新校验冻结 route；interaction
-还会独立复核目标。没有这些 visible evidence，run 不能成功。全新的 visible session 会
-直接导航目标，不先暴露启动时的 `about:blank` tab；已经初始化且可复用的 profile 不会被
-替换为空白登录提示。已验证结果页面不受 headless daemon 空闲超时影响并保持打开，生产
-完成流程不会调用 `browser.close`。
+browser automation、interaction 和 form draft 在 hidden Chromium 中完成 acquire、
+navigate、settle、snapshot 和 action。最终呈现是冻结 Workflow 内的必需节点：Runtime
+以 visible 方式 open/focus 结果 URL，等待稳定，获取 visible snapshot，重新校验冻结 route；
+interaction 和 form draft 还会独立复核目标。没有这些 visible evidence，run 不能成功。
+`browser.page_read` 有意保持不同：其 health/open/read 全链路都是 hidden，成功读取不会创建
+visible 结果窗口。全新的 visible session 会直接导航目标，不先暴露启动时的 `about:blank`
+tab；已经初始化且可复用的 profile 不会被替换为空白登录提示。已验证 visible 结果页面不受
+headless daemon 空闲超时影响并保持打开，生产完成流程不会调用 `browser.close`。
 
 持久化的安全结果 descriptor 保存 origin、path、路由型 fragment（`#/...` 页内路由；
 携带值的 fragment 如 OAuth `#access_token=...` 会被丢弃）和 query provenance，不保存
@@ -139,7 +171,8 @@ compare-and-swap、transition owner 和有界 lease 让 memory、file、PostgreS
 
 ## 网络与安全边界
 
-- 明确目标必须是规范化 HTTP(S) URL。注册 destination 解析成冻结 runtime URL 和受限 host/subdomain 规则。
+- 明确目标必须是规范化 HTTP(S) URL。注册 destination 解析成冻结 runtime URL 和受限
+  host/subdomain 规则；动态 Info 目标要求公网 HTTPS，并保留 result-order provenance。
 - URL fetch 默认拒绝 loopback、private、link-local 等禁止 literal host；本地 fixture 必须明确 allowlist。
 - redirect 和最终 page identity 会重新校验。
 - 不复用无关现有 tab。成功 open 或 interaction 后，最终结果页面保持打开；关闭 tab
@@ -202,7 +235,12 @@ docker compose --env-file .env -f docker/compose.yaml \
 浏览器改动应覆盖：adapter 协议、timeout、进程 ownership 和 profile lock；被动 Linux
 ARM64 environment preflight 与 reason code；settle timeout/cancellation、snapshot
 规范化和不可信证据；明确 URL、注册 destination、tab focus 和 redirect；stale
-generation/ref、重复状态、unsafe control 和尝试上限；visible/hidden transfer、owner reply
+generation/ref、重复状态、unsafe control 和尝试上限；固定 hidden page-read 顺序、active-page
+reuse、required-session 禁止 HTTP fallback、final URL 校验、有界原文 fallback 和 login resume；
+Info 有序结果消费、不安全结果跳过、仅结构化 URL 绑定、provider failure、DNS/IP/redirect
+安全与 registry fast path；form-draft 精确值、独立 approval、public redaction、禁用字段、
+五次上限、无 click exposure 及 approval 前后 freshness；visual inspection fresh/stale、
+generation/digest 绑定及不输出 coordinate/executable ref；visible/hidden transfer、owner reply
 classification、restart recovery、CAS conflict 和 post-login 页面匹配/不匹配；UTF-8/CJK
 与 QQ 邮箱中文 snapshot/ref/auth evidence 往返；private-host 拒绝与 fixture allowlist；
 Workflow 路由和 stage-scoped tool exposure；以及 `npm run setup:browser`、Gateway 测试、

@@ -264,6 +264,7 @@ const (
 	RouteOperationSearch    RouteOperation = "search"
 	RouteOperationRender    RouteOperation = "render"
 	RouteOperationRead      RouteOperation = "read"
+	RouteOperationDraft     RouteOperation = "draft"
 	RouteOperationOpen      RouteOperation = "open"
 	RouteOperationNavigate  RouteOperation = "navigate"
 	RouteOperationInspect   RouteOperation = "inspect"

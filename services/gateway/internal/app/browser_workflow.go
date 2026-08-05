@@ -7,6 +7,7 @@ const (
 	BrowserHandoffSchemaVersion       = 2
 	BrowserGoalContractSchemaVersion  = 1
 	BrowserWorkflowRevision2          = 2
+	BrowserFormDraftMaxActions        = 5
 )
 
 type BrowserPresentation string
@@ -21,6 +22,8 @@ type BrowserTargetKind string
 const (
 	BrowserTargetExplicitURL           BrowserTargetKind = "explicit_url"
 	BrowserTargetRegisteredDestination BrowserTargetKind = "registered_destination"
+	BrowserTargetInfoSearch            BrowserTargetKind = "info_search"
+	BrowserTargetInfoResolved          BrowserTargetKind = "info_resolved"
 	BrowserTargetCurrentTab            BrowserTargetKind = "current_tab"
 )
 
@@ -44,6 +47,7 @@ type BrowserSessionRef struct {
 
 type BrowserTargetDescriptor struct {
 	TargetKind      BrowserTargetKind      `json:"target_kind"`
+	TargetPhrase    string                 `json:"target_phrase,omitempty"`
 	CanonicalURL    string                 `json:"canonical_url,omitempty"`
 	DestinationID   string                 `json:"destination_id,omitempty"`
 	RoutePath       string                 `json:"route_path,omitempty"`
@@ -82,10 +86,62 @@ type BrowserResultEvidence struct {
 	VerifiedAt            time.Time               `json:"verified_at,omitempty"`
 }
 
+type BrowserPublicTargetEvidence struct {
+	EvidenceID         string    `json:"evidence_id"`
+	ResolutionSource   string    `json:"resolution_source"`
+	OwnerTargetPhrase  string    `json:"owner_target_phrase"`
+	RequestedSurface   string    `json:"requested_surface_kind"`
+	InfoRequestID      string    `json:"info_request_id,omitempty"`
+	InfoResultIndex    *int      `json:"info_result_index,omitempty"`
+	SourceResultRef    string    `json:"source_result_ref,omitempty"`
+	CanonicalEntryURL  string    `json:"canonical_entry_url"`
+	NormalizedFinalURL string    `json:"normalized_final_url"`
+	ObservedRedirects  []string  `json:"observed_redirect_chain,omitempty"`
+	SafetyGateStatus   string    `json:"safety_gate_status"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+type BrowserDraftAction struct {
+	ActionID          string `json:"action_id"`
+	SessionGeneration uint64 `json:"session_generation"`
+	PageGeneration    uint64 `json:"page_generation"`
+	PageID            string `json:"page_id"`
+	SnapshotID        string `json:"snapshot_id"`
+	SnapshotDigest    string `json:"snapshot_digest"`
+	ElementRef        string `json:"element_ref"`
+	Role              string `json:"role,omitempty"`
+	AccessibleName    string `json:"accessible_name,omitempty"`
+	FormContext       string `json:"form_context,omitempty"`
+	Operation         string `json:"operation"`
+	ValueSource       string `json:"value_source"`
+	ValueDigest       string `json:"value_digest"`
+	Completed         bool   `json:"completed"`
+}
+
+type BrowserVisualEvidence struct {
+	EvidenceID        string    `json:"evidence_id"`
+	Reason            string    `json:"reason"`
+	SessionGeneration uint64    `json:"session_generation"`
+	PageGeneration    uint64    `json:"page_generation"`
+	PageID            string    `json:"page_id"`
+	SnapshotID        string    `json:"snapshot_id"`
+	SnapshotDigest    string    `json:"snapshot_digest"`
+	ScreenshotRef     string    `json:"screenshot_ref"`
+	ScreenshotDigest  string    `json:"screenshot_digest"`
+	NormalizedURL     string    `json:"normalized_url"`
+	Summary           string    `json:"summary"`
+	Model             string    `json:"model"`
+	Stale             bool      `json:"stale"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
 type BrowserWorkflowState struct {
-	SchemaVersion   int                     `json:"schema_version"`
-	Target          BrowserTargetDescriptor `json:"target"`
-	Goal            *BrowserGoalContract    `json:"goal,omitempty"`
-	Result          *BrowserResultEvidence  `json:"result,omitempty"`
-	CompletedClicks int                     `json:"completed_clicks,omitempty"`
+	SchemaVersion   int                          `json:"schema_version"`
+	Target          BrowserTargetDescriptor      `json:"target"`
+	Goal            *BrowserGoalContract         `json:"goal,omitempty"`
+	Result          *BrowserResultEvidence       `json:"result,omitempty"`
+	PublicTarget    *BrowserPublicTargetEvidence `json:"public_target,omitempty"`
+	DraftActions    []BrowserDraftAction         `json:"draft_actions,omitempty"`
+	VisualEvidence  []BrowserVisualEvidence      `json:"visual_evidence,omitempty"`
+	CompletedClicks int                          `json:"completed_clicks,omitempty"`
 }

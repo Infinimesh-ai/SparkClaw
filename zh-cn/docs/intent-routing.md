@@ -46,6 +46,10 @@ Gateway 启动时通过配置的 embedding 模型构建索引。图或 calibrati
 ```text
 conversation.answer#answer
 conversation.answer#publish
+browser.automation#open
+browser.page_read#read
+browser.interaction#interact
+browser.form_draft#draft
 schedule.manage#create
 schedule.manage#read
 schedule.manage#edit
@@ -111,6 +115,14 @@ ambiguous，不会压缩成一个。唯一的最近文档可以在无需再次�
 `images.inspect`，后者可以在已选 Workflow 内补充带分类的 OCR 证据。渠道图片仅在 owner
 要求检查或转录时走同一路径；ingest 本身不会自动执行 OCR。
 
+托管浏览器路由把语义选择与公网目标识别分开。明确 URL 或当前托管 tab 会直接 grounding，
+不变的 destination registry 则在 candidate-independent grounding 阶段查询。registry miss 时，
+Runtime 可以把 owner 的命名目标冻结成 `public_named_target`；只有允许在 Workflow 内解析公网
+目标的 browser leaf 被选中后，该 Workflow 才会执行一次 Info-backed search。只有有序结构化
+`results[].url` 可以成为绑定目标；Runtime 执行公网 HTTPS、DNS/IP、redirect 和最终 URL
+安全检查，但不增加第二个相关性分类器。该资源解析 stage 不创建或重排 semantic candidate，
+所以增加 registry entry 不会提高 Top-2 选择成本。
+
 只有 Agent Runtime 能把一个 clear 候选转换成 `RouteDecision`：
 
 1. 在冻结的图 revision 中解析候选。
@@ -123,6 +135,11 @@ ambiguous，不会压缩成一个。唯一的最近文档可以在无需再次�
 Tree 模型不输出 `RouteDecision`，任何路由阶段都不选 tool。叶子选定后，
 Tool Exposure 才根据当前 Workflow node、注册 capability descriptor、
 argument binding 和 Policy 派生。
+
+系统不存在 post-fusion 浏览器关键词 veto。search、page read、open、click 和 form draft 的
+含义通过 Profile 语义与 hard negative 区分；route clear 后，由选定 Profile 和具体 ToolHub
+control 检查执行 effect boundary。超出范围或禁止的 effect 会在该 route 内明确 block，不会
+被重新分类为 `unmatched`。
 
 ## 决策状态
 

@@ -17,12 +17,16 @@ type browserSnapshotRecord struct {
 	SnapshotID         string
 	PreviousSnapshotID string
 	PageID             string
+	URL                string
 	Digest             string
 	ContentDigest      string
 	Generation         uint64
+	PageGeneration     uint64
 	Refs               map[string]bool
 	ClickableRefs      map[string]bool
 	Labels             map[string]string
+	Roles              map[string]string
+	Containers         map[string]string
 }
 
 func (h *ToolHub) clickBrowserInteraction(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
@@ -108,9 +112,20 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 			return Result{}, fmt.Errorf("browser.assess_goal evidence ref %q is foreign to the current snapshot", ref)
 		}
 	}
-	clickCount := completedBrowserClickCount(calls, runID, snapshot.Index)
+	draftProfile := false
+	if run, found := h.store.GetRun(runID); found && run.Workflow != nil {
+		draftProfile = run.Workflow.Plan.ProfileID == app.WorkflowBrowserFormDraft
+	}
+	actionCount := completedBrowserClickCount(calls, runID, snapshot.Index)
+	actionLimit := 3
+	actionOnlyEvidence := browserGoalEvidenceOnlyOffersActions(snapshot, evidenceRefs)
+	if draftProfile {
+		actionCount = completedBrowserDraftCount(calls, runID, snapshot.Index)
+		actionLimit = app.BrowserFormDraftMaxActions
+		actionOnlyEvidence = browserGoalEvidenceOnlyOffersControls(snapshot, evidenceRefs)
+	}
 	if (verdict == "satisfied" || verdict == "success" || verdict == "succeeded") &&
-		clickCount == 0 && browserGoalEvidenceOnlyOffersActions(snapshot, evidenceRefs) {
+		actionCount == 0 && actionOnlyEvidence {
 		verdict = "progress"
 	}
 	status, code := verdict, "ok"
@@ -119,9 +134,9 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 	}
 	if verdict == "failure" {
 		status, code = "failed", "interaction_goal_failed"
-	} else if verdict == "progress" && clickCount >= 3 {
+	} else if verdict == "progress" && actionCount >= actionLimit {
 		status, code = "failed", "interaction_attempt_limit"
-	} else if verdict == "progress" && clickCount == 0 && browserGoalEvidenceOnlyOffersActions(snapshot, evidenceRefs) {
+	} else if verdict == "progress" && actionCount == 0 && actionOnlyEvidence {
 		code = "action_required"
 	}
 	return Result{Output: map[string]any{
@@ -134,7 +149,8 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 		"goal_satisfied":     status == "succeeded",
 		"evidence_refs":      evidenceRefs,
 		"reason":             trimBrowserVerificationReason(reason),
-		"click_count":        clickCount,
+		"click_count":        completedBrowserClickCount(calls, runID, snapshot.Index),
+		"draft_action_count": completedBrowserDraftCount(calls, runID, snapshot.Index),
 	}}, nil
 }
 
@@ -152,12 +168,16 @@ func findBrowserSnapshotRecord(calls []app.ToolCall, runID, snapshotID string) (
 			CallID: call.ID, Index: index, SnapshotID: snapshotID,
 			PreviousSnapshotID: strings.TrimSpace(browserAutomationStringValue(snapshot["previous_snapshot_id"])),
 			PageID:             strings.TrimSpace(browserAutomationStringValue(snapshot["page_id"])),
+			URL:                strings.TrimSpace(browserAutomationStringValue(snapshot["url"])),
 			Digest:             strings.TrimSpace(browserAutomationStringValue(snapshot["digest"])),
 			ContentDigest:      strings.TrimSpace(browserAutomationStringValue(snapshot["content_digest"])),
 			Generation:         uint64(intLikeBrowserValue(snapshot["session_generation"])),
+			PageGeneration:     uint64(intLikeBrowserValue(snapshot["page_generation"])),
 			Refs:               map[string]bool{},
 			ClickableRefs:      map[string]bool{},
 			Labels:             map[string]string{},
+			Roles:              map[string]string{},
+			Containers:         map[string]string{},
 		}
 		for _, raw := range browserInteractionSlice(firstBrowserValue(snapshot["controls"], snapshot["refs"])) {
 			control, ok := browserInteractionMap(raw)
@@ -167,6 +187,8 @@ func findBrowserSnapshotRecord(calls []app.ToolCall, runID, snapshotID string) (
 			if ref := strings.TrimSpace(firstBrowserString(control["ref"], control["element_ref"])); ref != "" {
 				record.Refs[ref] = true
 				record.Labels[ref] = strings.TrimSpace(firstBrowserString(control["accessible_name"], control["name"]))
+				record.Roles[ref] = strings.TrimSpace(firstBrowserString(control["role"]))
+				record.Containers[ref] = strings.TrimSpace(firstBrowserString(control["container"]))
 			}
 		}
 		for _, ref := range browserInteractionStringSlice(snapshot["action_refs"]) {
@@ -185,6 +207,18 @@ func browserGoalEvidenceOnlyOffersActions(snapshot browserSnapshotRecord, eviden
 	}
 	for _, ref := range evidenceRefs {
 		if !snapshot.ClickableRefs[ref] {
+			return false
+		}
+	}
+	return true
+}
+
+func browserGoalEvidenceOnlyOffersControls(snapshot browserSnapshotRecord, evidenceRefs []string) bool {
+	if len(evidenceRefs) == 0 {
+		return false
+	}
+	for _, ref := range evidenceRefs {
+		if !snapshot.Refs[ref] {
 			return false
 		}
 	}
@@ -251,6 +285,19 @@ func completedBrowserClickCount(calls []app.ToolCall, runID string, throughIndex
 			break
 		}
 		if call.RunID == runID && call.Tool == "browser.click" && call.Status == "completed" {
+			count++
+		}
+	}
+	return count
+}
+
+func completedBrowserDraftCount(calls []app.ToolCall, runID string, throughIndex int) int {
+	count := 0
+	for index, call := range calls {
+		if index > throughIndex {
+			break
+		}
+		if call.RunID == runID && (call.Tool == "browser.type" || call.Tool == "browser.select") && call.Status == "completed" {
 			count++
 		}
 	}

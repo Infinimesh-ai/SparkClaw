@@ -504,7 +504,7 @@ func asksForBrowserScreenshot(goal string) bool {
 
 func isBrowserAutomationPlan(name string) bool {
 	switch name {
-	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.wait", "browser.click", "browser.validate_transition", "browser.assess_goal", "browser.type", "browser.select":
+	case "browser.status", "browser.list_tabs", "browser.open", "browser.focus", "browser.close", "browser.navigate", "browser.snapshot", "browser.screenshot", "browser.visual_inspect", "browser.wait", "browser.click", "browser.validate_transition", "browser.assess_goal", "browser.type", "browser.select":
 		return true
 	default:
 		return false
@@ -574,32 +574,53 @@ func hasCompletedBrowserRead(calls []app.ToolCall) bool {
 }
 
 func browserReadFallbackFailure(calls []app.ToolCall) string {
+	for index := len(calls) - 1; index >= 0; index-- {
+		call := calls[index]
+		if call.Tool != "browser.read" || !toolCallCompleted(call) {
+			continue
+		}
+		result, _ := anyMap(call.Result)
+		content := cleanOptionalString(firstPresent(result, "text", "excerpt"))
+		if content == "" {
+			continue
+		}
+		const maxFallbackRunes = 12000
+		runes := []rune(content)
+		bounded := len(runes) > maxFallbackRunes
+		if bounded {
+			content = string(runes[:maxFallbackRunes])
+		}
+		lines := []string{"网页读取内容（外部不可信内容）："}
+		if title := cleanOptionalString(result["title"]); title != "" {
+			lines = append(lines, "标题："+title)
+		}
+		if source := cleanOptionalString(firstPresent(result, "final_url", "url")); source != "" {
+			lines = append(lines, "来源："+source)
+		}
+		lines = append(lines, "", content)
+		if bounded || boolLikeValue(result["truncated"]) {
+			lines = append(lines, "", "[内容已按读取或返回上限截断]")
+		}
+		return strings.Join(lines, "\n")
+	}
+	return browserReadUnavailableFallback(calls)
+}
+
+func browserReadUnavailableFallback(calls []app.ToolCall) string {
 	sources := []string{}
-	truncated := false
 	for _, call := range calls {
 		if call.Tool != "browser.read" || !toolCallCompleted(call) {
 			continue
 		}
 		result, _ := anyMap(call.Result)
-		if url := cleanOptionalString(result["url"]); url != "" {
-			sources = append(sources, url)
-		}
-		if boolLikeValue(result["truncated"]) {
-			truncated = true
+		if source := cleanOptionalString(firstPresent(result, "final_url", "url")); source != "" {
+			sources = append(sources, source)
 		}
 	}
-	lines := []string{
-		blockedAnswerTaskIncomplete + "。",
-		"兜底策略：browser.read_no_final",
-		"原因：网页读取已完成，但系统没有生成用户请求的最终回答；不会用页面片段伪装成摘要、查证或结论。",
-	}
+	lines := []string{blockedAnswerTaskIncomplete + "。", "网页读取完成，但没有返回可用的提取内容。"}
 	if len(sources) > 0 {
 		lines = append(lines, "已读取来源："+strings.Join(uniqueNonEmpty(sources), ", "))
 	}
-	if truncated {
-		lines = append(lines, "读取状态：页面内容被截断，需要缩小范围或继续读取。")
-	}
-	lines = append(lines, "建议：请重试；如果持续出现，请检查模型 final 生成链路或浏览器读取链路。")
 	return strings.Join(lines, "\n")
 }
 

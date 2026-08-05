@@ -679,7 +679,7 @@ func TestBrowserInteractionRepeatedPostSnapshotFailsClosed(t *testing.T) {
 	}
 }
 
-func TestBrowserInteractionConsequentialClicksFailRoutingClosed(t *testing.T) {
+func TestBrowserInteractionConsequentialWordsDoNotOverrideSemanticRouting(t *testing.T) {
 	runtime, _, _, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	for _, goal := range []string{
@@ -688,8 +688,8 @@ func TestBrowserInteractionConsequentialClicksFailRoutingClosed(t *testing.T) {
 		"点击当前页面的确认订单按钮",
 	} {
 		route := mustRouteIntent(t, runtime, goal)
-		if route.Status != app.RouteBlocked {
-			t.Fatalf("consequential click did not fail routing closed: goal=%q route=%#v", goal, route)
+		if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserInteraction {
+			t.Fatalf("consequential control words overrode semantic routing: goal=%q route=%#v", goal, route)
 		}
 	}
 }

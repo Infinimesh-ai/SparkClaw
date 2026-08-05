@@ -73,8 +73,13 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 		app.ToolCapabilityBrowserHealth,
 		app.ToolCapabilityBrowserNavigate,
 		app.ToolCapabilityBrowserSnapshot,
+		app.ToolCapabilityBrowserPageRead,
+		app.ToolCapabilityBrowserPublicTarget,
+		app.ToolCapabilityBrowserVisualInspect,
 		app.ToolCapabilityBrowserWait,
 		app.ToolCapabilityBrowserClick,
+		app.ToolCapabilityBrowserFormType,
+		app.ToolCapabilityBrowserFormSelect,
 		app.ToolCapabilityBrowserTransitionValidate,
 		app.ToolCapabilityBrowserGoalAssess,
 		app.ToolCapabilityDocumentRead,
@@ -104,6 +109,24 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	if _, ok := hub.Definition("info.query"); ok {
 		t.Fatal("legacy direct Info query remains registered")
 	}
+	publicTarget, ok := hub.Definition("browser.identify_public_target")
+	if !ok || publicTarget.RequiresApproval || publicTarget.Risk != app.RiskRead ||
+		len(publicTarget.Capabilities) != 1 || publicTarget.Capabilities[0].Name != app.ToolCapabilityBrowserPublicTarget ||
+		publicTarget.OutcomeAdapter != app.OutcomeAdapterBrowserPublicTarget {
+		t.Fatalf("public target identifier is outside its read-only Workflow boundary: %#v", publicTarget)
+	}
+	if err := hub.Validate("browser.identify_public_target", map[string]any{}); err != nil {
+		t.Fatalf("public target identifier rejected its no-model-argument schema: %v", err)
+	}
+	visual, ok := hub.Definition("browser.visual_inspect")
+	if !ok || visual.RequiresApproval || visual.Risk != app.RiskRead || len(visual.Capabilities) != 1 ||
+		visual.Capabilities[0].Name != app.ToolCapabilityBrowserVisualInspect || visual.OutcomeAdapter != app.OutcomeAdapterBrowserVisual {
+		t.Fatalf("visual inspection is outside its generation-bound read scope: %#v", visual)
+	}
+	pageRead, ok := hub.Definition("browser.read")
+	if !ok || !definitionHasCapability(pageRead, app.ToolCapabilityBrowserPageRead) {
+		t.Fatalf("browser.read did not enter the page-read capability boundary: %#v", pageRead)
+	}
 	imageInspect, ok := hub.Definition("images.inspect")
 	if !ok || imageInspect.OutcomeAdapter != app.OutcomeAdapterWorkspaceRead || len(imageInspect.Capabilities) != 1 ||
 		imageInspect.Capabilities[0].Name != app.ToolCapabilityDocumentRead ||
@@ -126,6 +149,15 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 			}
 		}
 	}
+}
+
+func definitionHasCapability(definition app.ToolDefinition, name string) bool {
+	for _, descriptor := range definition.Capabilities {
+		if descriptor.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDOCXParagraphDirectoryMetadataDistinguishesRevisionFromInsertion(t *testing.T) {

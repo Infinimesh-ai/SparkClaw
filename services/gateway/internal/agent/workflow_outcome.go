@@ -13,27 +13,114 @@ import (
 type workflowOutcomeAdapter func(app.ToolCall, app.WorkflowNodeID) app.ToolOutcome
 
 var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
-	app.OutcomeAdapterGeneric:           adaptGenericWorkflowOutcome,
-	app.OutcomeAdapterWebSearch:         adaptWebSearchWorkflowOutcome,
-	app.OutcomeAdapterWeatherPayload:    adaptWeatherPayloadWorkflowOutcome,
-	app.OutcomeAdapterWeatherCard:       adaptWeatherCardWorkflowOutcome,
-	app.OutcomeAdapterWebPage:           adaptWebPageWorkflowOutcome,
-	app.OutcomeAdapterWorkspaceSearch:   adaptWorkspaceSearchOutcome,
-	app.OutcomeAdapterWorkspaceRead:     adaptWorkspaceReadOutcome,
-	app.OutcomeAdapterBrowserHealth:     adaptBrowserHealthOutcome,
-	app.OutcomeAdapterBrowserTabs:       adaptBrowserTabsOutcome,
-	app.OutcomeAdapterBrowserFocus:      adaptBrowserFocusOutcome,
-	app.OutcomeAdapterBrowserOpen:       adaptBrowserOpenOutcome,
-	app.OutcomeAdapterBrowserClose:      adaptBrowserCloseOutcome,
-	app.OutcomeAdapterBrowserNavigate:   adaptBrowserNavigateOutcome,
-	app.OutcomeAdapterBrowserSnapshot:   adaptBrowserSnapshotOutcome,
-	app.OutcomeAdapterBrowserWait:       adaptBrowserWaitOutcome,
-	app.OutcomeAdapterBrowserClick:      adaptBrowserClickOutcome,
-	app.OutcomeAdapterBrowserTransition: adaptBrowserTransitionOutcome,
-	app.OutcomeAdapterBrowserGoal:       adaptBrowserGoalOutcome,
-	app.OutcomeAdapterDocumentEdit:      adaptDocumentEditOutcome,
-	app.OutcomeAdapterScheduleList:      adaptScheduleListOutcome,
-	app.OutcomeAdapterScheduleChange:    adaptScheduleChangeOutcome,
+	app.OutcomeAdapterGeneric:             adaptGenericWorkflowOutcome,
+	app.OutcomeAdapterWebSearch:           adaptWebSearchWorkflowOutcome,
+	app.OutcomeAdapterWeatherPayload:      adaptWeatherPayloadWorkflowOutcome,
+	app.OutcomeAdapterWeatherCard:         adaptWeatherCardWorkflowOutcome,
+	app.OutcomeAdapterWebPage:             adaptWebPageWorkflowOutcome,
+	app.OutcomeAdapterWorkspaceSearch:     adaptWorkspaceSearchOutcome,
+	app.OutcomeAdapterWorkspaceRead:       adaptWorkspaceReadOutcome,
+	app.OutcomeAdapterBrowserHealth:       adaptBrowserHealthOutcome,
+	app.OutcomeAdapterBrowserTabs:         adaptBrowserTabsOutcome,
+	app.OutcomeAdapterBrowserFocus:        adaptBrowserFocusOutcome,
+	app.OutcomeAdapterBrowserOpen:         adaptBrowserOpenOutcome,
+	app.OutcomeAdapterBrowserClose:        adaptBrowserCloseOutcome,
+	app.OutcomeAdapterBrowserNavigate:     adaptBrowserNavigateOutcome,
+	app.OutcomeAdapterBrowserSnapshot:     adaptBrowserSnapshotOutcome,
+	app.OutcomeAdapterBrowserPublicTarget: adaptBrowserPublicTargetOutcome,
+	app.OutcomeAdapterBrowserVisual:       adaptBrowserVisualOutcome,
+	app.OutcomeAdapterBrowserWait:         adaptBrowserWaitOutcome,
+	app.OutcomeAdapterBrowserClick:        adaptBrowserClickOutcome,
+	app.OutcomeAdapterBrowserForm:         adaptBrowserFormOutcome,
+	app.OutcomeAdapterBrowserTransition:   adaptBrowserTransitionOutcome,
+	app.OutcomeAdapterBrowserGoal:         adaptBrowserGoalOutcome,
+	app.OutcomeAdapterDocumentEdit:        adaptDocumentEditOutcome,
+	app.OutcomeAdapterScheduleList:        adaptScheduleListOutcome,
+	app.OutcomeAdapterScheduleChange:      adaptScheduleChangeOutcome,
+}
+
+func adaptBrowserPublicTargetOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalPublicTargetUnavailable}
+		return outcome
+	}
+	output, ok := anyMap(call.Result)
+	if !ok || firstNonEmptyString(output["status"]) != "resolved" {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalPublicTargetUnavailable}
+		return outcome
+	}
+	finalURL := normalizeBrowserURL(firstNonEmptyString(output["normalized_final_url"]))
+	evidenceID := firstNonEmptyString(output["evidence_id"])
+	if finalURL == "" || evidenceID == "" {
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalPublicTargetUnavailable}
+		return outcome
+	}
+	attributes := map[string]string{}
+	for _, key := range []string{"resolution_source", "owner_target_phrase", "requested_surface_kind", "info_request_id", "source_result_ref", "canonical_entry_url", "normalized_final_url", "safety_gate_status", "created_at"} {
+		if value := firstNonEmptyString(output[key]); value != "" {
+			attributes[key] = value
+		}
+	}
+	attributes["info_result_index"] = strconv.Itoa(intLikeValue(output["info_result_index"]))
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalPublicTargetResolved}
+	outcome.Refs = []app.ResourceRef{
+		{Kind: "public_target_evidence", Ref: evidenceID, Provenance: call.ID, Attributes: attributes},
+		{Kind: "public_target_url", Ref: finalURL, Provenance: call.ID, Attributes: map[string]string{"evidence_id": evidenceID}},
+	}
+	return outcome
+}
+
+func adaptBrowserFormOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		switch app.ToolErrorCode(call.ErrorCode) {
+		case app.ToolErrorDraftActionStale:
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotStale}
+		case app.ToolErrorDraftForbiddenControl:
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalDraftActionForbidden}
+		}
+		return outcome
+	}
+	operation := strings.TrimPrefix(call.Tool, "browser.")
+	elementRef := firstNonEmptyString(call.Arguments["uid"])
+	payload := browserOutcomePayload(call.Result)
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalDraftActionCompleted}
+	outcome.Refs = []app.ResourceRef{{Kind: "browser_draft", Ref: elementRef, Provenance: call.ID, Attributes: map[string]string{
+		"action_id": firstNonEmptyString(payload["draft_action_id"], call.ID),
+		"operation": operation, "page_id": firstNonEmptyString(payload["page_id"], call.Arguments["page_id"]), "snapshot_id": firstNonEmptyString(payload["snapshot_id"], call.Arguments["snapshot_id"]),
+		"session_generation": firstNonEmptyString(payload["session_generation"], call.Arguments["session_generation"]),
+		"page_generation":    firstNonEmptyString(payload["page_generation"], call.Arguments["page_generation"]),
+		"snapshot_digest":    firstNonEmptyString(payload["snapshot_digest"]), "role": firstNonEmptyString(payload["role"]),
+		"name": firstNonEmptyString(payload["accessible_name"]), "container": firstNonEmptyString(payload["form_context"]),
+		"value_source": firstNonEmptyString(payload["value_source"]), "value_digest": firstNonEmptyString(payload["value_digest"]),
+	}}}
+	return outcome
+}
+
+func adaptBrowserVisualOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if !toolCallCompleted(call) {
+		if app.ToolErrorCode(call.ErrorCode) == app.ToolErrorVisualEvidenceStale {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalVisualEvidenceStale}
+		}
+		return outcome
+	}
+	output, ok := anyMap(call.Result)
+	if !ok || firstNonEmptyString(output["status"]) != "completed" || firstNonEmptyString(output["evidence_id"]) == "" {
+		return outcome
+	}
+	attributes := map[string]string{}
+	for _, key := range []string{"reason", "page_id", "snapshot_id", "snapshot_digest", "normalized_url", "screenshot_ref", "screenshot_digest", "summary", "model", "profile", "lane", "created_at"} {
+		if value := firstNonEmptyString(output[key]); value != "" {
+			attributes[key] = value
+		}
+	}
+	attributes["session_generation"] = browserSessionGenerationString(output["session_generation"])
+	attributes["page_generation"] = browserSessionGenerationString(output["page_generation"])
+	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalVisualEvidenceAvailable}
+	outcome.Refs = []app.ResourceRef{{Kind: "browser_visual_evidence", Ref: firstNonEmptyString(output["evidence_id"]), Provenance: call.ID, Attributes: attributes}}
+	return outcome
 }
 
 func adaptWeatherPayloadWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -542,7 +629,7 @@ func browserOutcomeIdentityAttributes(payload map[string]any, attributes map[str
 		attributes["session_generation"] = generation
 	}
 	for _, key := range []string{
-		"provider_session_ref", "presentation",
+		"provider_session_ref", "presentation", "page_generation",
 		"owner_id", "profile_id", "browser_profile_id",
 	} {
 		if value := firstNonEmptyString(payload[key]); value != "" {

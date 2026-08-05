@@ -229,6 +229,227 @@ with ZipFile(path, "w", ZIP_DEFLATED) as output:
 	}
 }
 
+func TestDOCXTextReplacementPreservesRunsRelationshipsAndUnsupportedSiblings(t *testing.T) {
+	root := t.TempDir()
+	writeDOCXRunPreservationFixture(t, root)
+	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
+
+	t.Run("single_run", func(t *testing.T) {
+		output := executeDOCXTextReplacement(t, hub, root, "runs.docx", "outputs/single.docx", "solo-target", "replacement")
+		paragraph := docxParagraphForTest(t, output, 1)
+		runs := testAnySlice(paragraph["runs"])
+		if len(runs) != 3 || runs[0].(map[string]any)["text"] != "Alpha " ||
+			runs[1].(map[string]any)["text"] != "replacement" || runs[2].(map[string]any)["text"] != " omega" {
+			t.Fatalf("single-run replacement changed sibling text or run structure: %#v", runs)
+		}
+		if runs[1].(map[string]any)["bold"] != true || runs[2].(map[string]any)["italic"] != true {
+			t.Fatalf("single-run replacement changed run formatting: %#v", runs)
+		}
+	})
+
+	t.Run("homogeneous_cross_run", func(t *testing.T) {
+		output := executeDOCXTextReplacement(t, hub, root, "runs.docx", "outputs/cross.docx", "ss boundary", "span")
+		runs := testAnySlice(docxParagraphForTest(t, output, 2)["runs"])
+		if len(runs) != 3 || runs[0].(map[string]any)["text"] != "Crospan" ||
+			runs[1].(map[string]any)["text"] != "" || runs[2].(map[string]any)["text"] != " tail" {
+			t.Fatalf("homogeneous cross-run replacement did not retain run structure: %#v", runs)
+		}
+		if runs[0].(map[string]any)["bold"] != true || runs[1].(map[string]any)["bold"] != true ||
+			runs[2].(map[string]any)["italic"] != true {
+			t.Fatalf("homogeneous cross-run replacement changed formatting: %#v", runs)
+		}
+	})
+
+	t.Run("mixed_format_rejected", func(t *testing.T) {
+		outputRef := "outputs/mixed.docx"
+		_, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
+			"path": "runs.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
+			"output_path": outputRef, "expected_replacements": 1,
+			"replacements": []any{map[string]any{"find": "ed for", "replace": " across "}},
+		}, "session", "run")
+		if err == nil || !strings.Contains(err.Error(), "mixed run formatting") {
+			t.Fatalf("mixed-format replacement did not fail closed: %v", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(root, outputRef)); !os.IsNotExist(statErr) {
+			t.Fatalf("mixed-format failure left an output: %v", statErr)
+		}
+	})
+
+	t.Run("linked_run", func(t *testing.T) {
+		output := executeDOCXTextReplacement(t, hub, root, "runs.docx", "outputs/link.docx", "Linked target", "Linked update")
+		enrichment := output["enrichment"].(map[string]any)
+		hyperlinks := testAnySlice(enrichment["annotations"].(map[string]any)["hyperlinks"])
+		if len(hyperlinks) != 1 || hyperlinks[0].(map[string]any)["text"] != "Linked update" ||
+			hyperlinks[0].(map[string]any)["target"] != "https://example.com/report" {
+			t.Fatalf("linked-run replacement lost hyperlink evidence: %#v", hyperlinks)
+		}
+		images := testAnySlice(enrichment["assets"].(map[string]any)["images"])
+		if len(images) != 1 {
+			t.Fatalf("linked-run replacement lost the unchanged image: %#v", images)
+		}
+		boundaries := map[string]bool{}
+		for _, runValue := range testAnySlice(docxParagraphForTest(t, output, 4)["runs"]) {
+			for _, boundary := range testAnySlice(runValue.(map[string]any)["boundaries"]) {
+				boundaries[boundary.(string)] = true
+			}
+		}
+		if !boundaries["hyperlink"] || !boundaries["field"] || !boundaries["drawing"] {
+			t.Fatalf("linked-run replacement lost relationship/field/drawing boundaries: %#v", boundaries)
+		}
+	})
+}
+
+func TestDOCXParagraphReplacementPreservesPropertiesAndRejectsMixedRuns(t *testing.T) {
+	root := t.TempDir()
+	writeDOCXRunPreservationFixture(t, root)
+	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
+		"path": "runs.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
+		"paragraph_index": 5, "old_text": "Whole paragraph", "source_hash": sourceHash("Whole paragraph"),
+		"text": "Rewritten paragraph", "output_path": "outputs/paragraph.docx",
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := result.Output.(map[string]any)["output_path"].(string)
+	paragraph := docxParagraphForTest(t, readDOCXDocument(t, root, written), 5)
+	if paragraph["style"] != "Heading 2" || intArg(paragraph["format"].(map[string]any), "left_indent", 0) == 0 ||
+		intArg(paragraph["format"].(map[string]any), "space_after", 0) == 0 {
+		t.Fatalf("whole-paragraph replacement changed paragraph properties: %#v", paragraph)
+	}
+	runs := testAnySlice(paragraph["runs"])
+	if len(runs) != 2 || runs[0].(map[string]any)["text"] != "Rewritten paragraph" || runs[0].(map[string]any)["bold"] != true ||
+		runs[1].(map[string]any)["text"] != "" || runs[1].(map[string]any)["bold"] != true {
+		t.Fatalf("whole-paragraph replacement flattened homogeneous run formatting: %#v", runs)
+	}
+
+	mixedOutput := "outputs/paragraph-mixed.docx"
+	_, err = hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
+		"path": "runs.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
+		"paragraph_index": 6, "old_text": "Mixed paragraph", "source_hash": sourceHash("Mixed paragraph"),
+		"text": "Must not flatten", "output_path": mixedOutput,
+	}, "session", "run")
+	if err == nil || !strings.Contains(err.Error(), "homogeneous run formatting") {
+		t.Fatalf("mixed whole-paragraph replacement did not fail closed: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, mixedOutput)); !os.IsNotExist(statErr) {
+		t.Fatalf("mixed whole-paragraph failure left an output: %v", statErr)
+	}
+}
+
+func executeDOCXTextReplacement(t *testing.T, hub *ToolHub, root, input, output, find, replacement string) map[string]any {
+	t.Helper()
+	result, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
+		"path": input, "source_document_sha256": docxSourceSHA256ForTest(t, root, input),
+		"output_path": output, "expected_replacements": 1,
+		"replacements": []any{map[string]any{"find": find, "replace": replacement}},
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := result.Output.(map[string]any)["output_path"].(string)
+	return readDOCXDocument(t, root, written)
+}
+
+func docxParagraphForTest(t *testing.T, document map[string]any, index int) map[string]any {
+	t.Helper()
+	paragraphs := testAnySlice(document["paragraphs"])
+	if index <= 0 || index > len(paragraphs) {
+		t.Fatalf("DOCX paragraph %d is unavailable: %#v", index, paragraphs)
+	}
+	return paragraphs[index-1].(map[string]any)
+}
+
+func writeDOCXRunPreservationFixture(t *testing.T, root string) {
+	t.Helper()
+	pythonScript := `
+import base64
+from pathlib import Path
+from docx import Document
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
+from docx.text.run import Run
+
+root = Path(__import__("sys").argv[1])
+doc = Document()
+
+p = doc.add_paragraph()
+r = p.add_run("Alpha ")
+r.bold = True
+r.font.name = "Arial"
+r.font.size = Pt(13)
+r.font.color.rgb = RGBColor(0x11, 0x22, 0x33)
+r = p.add_run("solo-target")
+r.bold = True
+r.font.name = "Arial"
+r.font.size = Pt(13)
+r.font.color.rgb = RGBColor(0x11, 0x22, 0x33)
+r = p.add_run(" omega")
+r.italic = True
+
+p = doc.add_paragraph()
+for text in ("Cross ", "boundary"):
+    r = p.add_run(text)
+    r.bold = True
+r = p.add_run(" tail")
+r.italic = True
+
+p = doc.add_paragraph()
+r = p.add_run("Mixed ")
+r.bold = True
+r = p.add_run("format")
+r.bold = False
+
+p = doc.add_paragraph()
+rid = p.part.relate_to("https://example.com/report", RT.HYPERLINK, is_external=True)
+hyperlink = OxmlElement("w:hyperlink")
+hyperlink.set(qn("r:id"), rid)
+run_element = OxmlElement("w:r")
+hyperlink.append(run_element)
+p._p.append(hyperlink)
+linked_run = Run(run_element, p)
+linked_run.text = "Linked target"
+linked_run.underline = True
+field_run = p.add_run()
+begin = OxmlElement("w:fldChar")
+begin.set(qn("w:fldCharType"), "begin")
+field_run._r.append(begin)
+instruction = OxmlElement("w:instrText")
+instruction.set(qn("xml:space"), "preserve")
+instruction.text = " PAGE "
+field_run._r.append(instruction)
+end = OxmlElement("w:fldChar")
+end.set(qn("w:fldCharType"), "end")
+field_run._r.append(end)
+png = root / "pixel.png"
+png.write_bytes(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII="))
+p.add_run().add_picture(str(png), width=Inches(0.1))
+
+p = doc.add_paragraph()
+p.style = "Heading 2"
+p.paragraph_format.left_indent = Inches(0.25)
+p.paragraph_format.space_after = Pt(8)
+for text in ("Whole ", "paragraph"):
+    r = p.add_run(text)
+    r.bold = True
+
+p = doc.add_paragraph()
+r = p.add_run("Mixed ")
+r.bold = True
+r = p.add_run("paragraph")
+r.italic = True
+
+doc.save(root / "runs.docx")
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create DOCX run-preservation fixture: %v\n%s", err, output)
+	}
+}
+
 func readDOCXDocument(t *testing.T, root, path string) map[string]any {
 	t.Helper()
 	cfg := config.Default()

@@ -193,7 +193,7 @@ def paragraph_hyperlinks(paragraph, location, part, hyperlinks):
             target = str(part.rels[rel_id].target_ref)
         hyperlinks.append({
             "kind": "hyperlink",
-            "text": trim("".join(hyperlink.itertext())),
+            "text": trim("".join((Run(run_element, paragraph).text or "") for run_element in hyperlink.xpath(".//w:r"))),
             "target": target,
             "location": dict(location),
             "source": {"parser": "python_docx", "relationship_id": rel_id},

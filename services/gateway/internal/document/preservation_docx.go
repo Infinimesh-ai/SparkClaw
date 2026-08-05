@@ -3,6 +3,7 @@ package document
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -11,6 +12,11 @@ func verifyDOCXExpectedMutation(operation string, before, after Representation, 
 	case "replace_paragraph":
 		if !blockAtAnyMatchHasText(after, matches, stringValue(edit.Arguments["text"])) {
 			return true, fmt.Errorf("the replaced paragraph does not contain the expected after-value")
+		}
+		beforeParagraph, beforeOK := docxParagraphAtMatch(before.Paragraphs, matches, edit)
+		afterParagraph, afterOK := docxParagraphAtMatch(after.Paragraphs, matches, edit)
+		if !beforeOK || !afterOK || !docxParagraphStructurePreserved(beforeParagraph, afterParagraph) {
+			return true, fmt.Errorf("paragraph replacement changed paragraph or run formatting")
 		}
 	case "insert_paragraph":
 		if countBlockText(after.Blocks, stringValue(edit.Arguments["text"])) <= countBlockText(before.Blocks, stringValue(edit.Arguments["text"])) {
@@ -54,6 +60,184 @@ func verifyDOCXExpectedMutation(operation string, before, after Representation, 
 		return false, nil
 	}
 	return true, nil
+}
+
+type docxReplacementSpan struct {
+	Start       int
+	End         int
+	Replacement string
+}
+
+func verifyDOCXTextReplacementRuns(before, after Representation, edit EditRequest, matches []Match) error {
+	beforeByPath := docxParagraphsByPath(before.Paragraphs)
+	afterByPath := docxParagraphsByPath(after.Paragraphs)
+	checked := map[string]bool{}
+	for _, match := range matches {
+		path := strings.TrimSpace(stringValue(match.Location["path"]))
+		if path == "" || checked[path] {
+			continue
+		}
+		beforeParagraph, beforeOK := beforeByPath[path]
+		afterParagraph, afterOK := afterByPath[path]
+		if !beforeOK && !afterOK {
+			continue
+		}
+		if !beforeOK || !afterOK {
+			return fmt.Errorf("DOCX replacement target paragraph changed identity at %s", path)
+		}
+		if err := verifyDOCXParagraphTextReplacement(beforeParagraph, afterParagraph, edit); err != nil {
+			return fmt.Errorf("DOCX run preservation failed at %s: %w", path, err)
+		}
+		checked[path] = true
+	}
+	return nil
+}
+
+func verifyDOCXParagraphTextReplacement(before, after map[string]any, edit EditRequest) error {
+	if !sameJSON(docxParagraphProperties(before), docxParagraphProperties(after)) {
+		return fmt.Errorf("paragraph properties changed")
+	}
+	beforeRuns := mapSlice(before["runs"])
+	afterRuns := mapSlice(after["runs"])
+	if len(beforeRuns) == 0 || len(afterRuns) != len(beforeRuns) {
+		return fmt.Errorf("run structure changed")
+	}
+	beforeText := docxParagraphRawText(before, beforeRuns)
+	spans, expectedText, err := docxReplacementSpans(beforeText, mapSlice(edit.Arguments["replacements"]))
+	if err != nil {
+		return err
+	}
+	if docxParagraphRawText(after, afterRuns) != expectedText {
+		return fmt.Errorf("run text does not match the requested replacement")
+	}
+	affected := docxAffectedRunIndexes(beforeRuns, spans)
+	for index := range beforeRuns {
+		if !sameJSON(docxRunFormatting(beforeRuns[index]), docxRunFormatting(afterRuns[index])) {
+			return fmt.Errorf("run %d formatting or relationship changed", index+1)
+		}
+		if !affected[index] && stringValue(beforeRuns[index]["text"]) != stringValue(afterRuns[index]["text"]) {
+			return fmt.Errorf("unaffected run %d text changed", index+1)
+		}
+	}
+	return nil
+}
+
+func docxReplacementSpans(text string, replacements []map[string]any) ([]docxReplacementSpan, string, error) {
+	spans := []docxReplacementSpan{}
+	for _, replacement := range replacements {
+		find := stringValue(replacement["find"])
+		if find == "" {
+			continue
+		}
+		for cursor := 0; cursor <= len(text)-len(find); {
+			offset := strings.Index(text[cursor:], find)
+			if offset < 0 {
+				break
+			}
+			start := cursor + offset
+			spans = append(spans, docxReplacementSpan{Start: start, End: start + len(find), Replacement: stringValue(replacement["replace"])})
+			cursor = start + len(find)
+		}
+	}
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].Start != spans[j].Start {
+			return spans[i].Start < spans[j].Start
+		}
+		return spans[i].End < spans[j].End
+	})
+	for index := 1; index < len(spans); index++ {
+		if spans[index].Start < spans[index-1].End {
+			return nil, "", fmt.Errorf("replacement spans overlap")
+		}
+	}
+	var expected strings.Builder
+	cursor := 0
+	for _, span := range spans {
+		expected.WriteString(text[cursor:span.Start])
+		expected.WriteString(span.Replacement)
+		cursor = span.End
+	}
+	expected.WriteString(text[cursor:])
+	return spans, expected.String(), nil
+}
+
+func docxAffectedRunIndexes(runs []map[string]any, spans []docxReplacementSpan) map[int]bool {
+	affected := map[int]bool{}
+	offset := 0
+	for _, span := range spans {
+		first, last := -1, -1
+		offset = 0
+		for index, run := range runs {
+			text := stringValue(run["text"])
+			start, end := offset, offset+len(text)
+			if start < span.End && end > span.Start {
+				if first < 0 {
+					first = index
+				}
+				last = index
+			}
+			offset = end
+		}
+		for index := first; index >= 0 && index <= last; index++ {
+			affected[index] = true
+		}
+	}
+	return affected
+}
+
+func docxParagraphRawText(paragraph map[string]any, runs []map[string]any) string {
+	if raw, ok := paragraph["raw_text"].(string); ok {
+		return raw
+	}
+	var text strings.Builder
+	for _, run := range runs {
+		text.WriteString(stringValue(run["text"]))
+	}
+	return text.String()
+}
+
+func docxParagraphsByPath(paragraphs []map[string]any) map[string]map[string]any {
+	out := map[string]map[string]any{}
+	for _, paragraph := range paragraphs {
+		path := strings.TrimSpace(stringValue(mapValue(paragraph["location"])["path"]))
+		if path != "" {
+			out[path] = paragraph
+		}
+	}
+	return out
+}
+
+func docxParagraphStructurePreserved(before, after map[string]any) bool {
+	if !sameJSON(docxParagraphProperties(before), docxParagraphProperties(after)) {
+		return false
+	}
+	beforeRuns := mapSlice(before["runs"])
+	afterRuns := mapSlice(after["runs"])
+	if len(beforeRuns) != len(afterRuns) {
+		return false
+	}
+	for index := range beforeRuns {
+		if !sameJSON(docxRunFormatting(beforeRuns[index]), docxRunFormatting(afterRuns[index])) {
+			return false
+		}
+	}
+	return true
+}
+
+func docxParagraphProperties(paragraph map[string]any) map[string]any {
+	return map[string]any{
+		"style": paragraph["style"], "outline_level": paragraph["outline_level"], "list_id": paragraph["list_id"],
+		"format": paragraph["format"], "unsupported_boundaries": paragraph["unsupported_boundaries"],
+	}
+}
+
+func docxRunFormatting(run map[string]any) map[string]any {
+	return map[string]any{
+		"bold": run["bold"], "italic": run["italic"], "underline": run["underline"],
+		"font_name": run["font_name"], "font_size_pt": run["font_size_pt"], "font_color": run["font_color"],
+		"effective_bold": run["effective_bold"], "effective_font_size_pt": run["effective_font_size_pt"],
+		"relationship_id": run["relationship_id"], "boundaries": run["boundaries"],
+	}
 }
 
 func docxOperationChangesEntityIndexes(operation string) bool {

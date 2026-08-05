@@ -147,7 +147,6 @@ func (r Runner) caseToolRegistry(ctx context.Context) app.EvalCase {
 		"memory.write_sensitive",
 		"browser.read",
 		"shell.exec_sandboxed",
-		"code.apply_patch",
 		"notify.ask_approval",
 	}
 	return evalCase("tool_registry", func() error {
@@ -165,6 +164,9 @@ func (r Runner) caseToolRegistry(ctx context.Context) app.EvalCase {
 			if !slices.Contains(names, name) {
 				return fmt.Errorf("missing tool %s", name)
 			}
+		}
+		if slices.Contains(names, "code.apply_patch") {
+			return errors.New("tool registry still exposes retired code.apply_patch")
 		}
 		return nil
 	})

@@ -1365,8 +1365,6 @@ func approvalSummary(name string, args map[string]any) string {
 	switch name {
 	case "shell.exec_sandboxed":
 		return "Run sandboxed shell command: " + stringValue(args["command"])
-	case "code.apply_patch":
-		return "Apply proposed patch to workspace"
 	case "file.delete":
 		return "Move file to SparkClaw trash: " + stringValue(args["path"])
 	case "memory.write_sensitive":

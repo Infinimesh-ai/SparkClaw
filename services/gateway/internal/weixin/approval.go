@@ -177,8 +177,6 @@ func approvalActionText(approval app.Approval) string {
 		return "替换 Office 文档中的指定文本"
 	case "shell.exec_sandboxed":
 		return "执行一条沙箱命令"
-	case "code.apply_patch":
-		return "应用代码补丁"
 	case "file.delete":
 		return "删除文件到回收区"
 	case "memory.write_sensitive":

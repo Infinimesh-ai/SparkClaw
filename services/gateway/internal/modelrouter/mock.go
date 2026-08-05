@@ -142,8 +142,6 @@ func mockWorkflowStepResponse(user string) string {
 	switch {
 	case (strings.Contains(lowerGoal, "输入") || strings.Contains(lowerGoal, "type")) && (strings.Contains(lowerGoal, "截图") || strings.Contains(lowerGoal, "screenshot")):
 		return mockWorkflowStepAction("browser.type", map[string]any{"text": "苹果"})
-	case strings.Contains(lowerGoal, "apply patch"):
-		return mockWorkflowStepAction("code.apply_patch", map[string]any{"patch": mockPatch(goal)})
 	case strings.Contains(lowerGoal, "inspect repo"):
 		if strings.Contains(lowerGoal, "failing test") || strings.Contains(lowerGoal, "failed test") {
 			return mockWorkflowStepAction("files.search", map[string]any{"query": "test"})
@@ -386,18 +384,6 @@ func mockShellCommand(content string) string {
 		return "npm test"
 	}
 	return "ls -la"
-}
-
-func mockPatch(content string) string {
-	start := strings.Index(content, "```diff")
-	if start < 0 {
-		return content
-	}
-	patch := strings.TrimSpace(content[start+len("```diff"):])
-	if end := strings.LastIndex(patch, "```"); end >= 0 {
-		patch = patch[:end]
-	}
-	return strings.TrimSpace(patch)
 }
 
 func mockInjectedResponse(user, marker string) string {

@@ -28,7 +28,7 @@ cleanup() {
     kill "$FIXTURE_PID" >/dev/null 2>&1 || true
     wait "$FIXTURE_PID" >/dev/null 2>&1 || true
   fi
-  rm -f "$ROOT/data/workspaces/eval_patch_target.txt" "$ROOT/data/workspaces/go.mod" "$ROOT/data/workspaces/missing-before-restore.txt" "$ROOT/data/workspaces/golden-read-target.txt" "$ROOT/data/workspaces/golden-search-target.txt" "$ROOT/data/workspaces/golden-cross-a.txt" "$ROOT/data/workspaces/golden-cross-b.txt" "$ROOT/data/workspaces/golden-draft.md" "$ROOT/data/workspaces/golden-delete-target.txt"
+  rm -f "$ROOT/data/workspaces/go.mod" "$ROOT/data/workspaces/missing-before-restore.txt" "$ROOT/data/workspaces/golden-read-target.txt" "$ROOT/data/workspaces/golden-search-target.txt" "$ROOT/data/workspaces/golden-cross-a.txt" "$ROOT/data/workspaces/golden-cross-b.txt" "$ROOT/data/workspaces/golden-draft.md" "$ROOT/data/workspaces/golden-delete-target.txt"
   rm -rf "$ROOT/data/workspaces/.sparkclaw"
   rm -rf "$TMP_DIR"
 }
@@ -54,7 +54,7 @@ echo "browser_fixture_bind=$BROWSER_FIXTURE_BIND"
 echo "golden_cases=$GOLDEN_CASE_COUNT"
 echo "expect_real_models=$SPARKCLAW_EXPECT_REAL_MODELS"
 
-rm -f data/workspaces/eval_patch_target.txt data/workspaces/go.mod data/workspaces/missing-before-restore.txt data/workspaces/golden-read-target.txt data/workspaces/golden-search-target.txt data/workspaces/golden-cross-a.txt data/workspaces/golden-cross-b.txt data/workspaces/golden-draft.md data/workspaces/golden-delete-target.txt
+rm -f data/workspaces/go.mod data/workspaces/missing-before-restore.txt data/workspaces/golden-read-target.txt data/workspaces/golden-search-target.txt data/workspaces/golden-cross-a.txt data/workspaces/golden-cross-b.txt data/workspaces/golden-draft.md data/workspaces/golden-delete-target.txt
 rm -rf data/workspaces/.sparkclaw
 
 python3 -m http.server "$BROWSER_FIXTURE_PORT" \
@@ -361,6 +361,7 @@ files_read_tool = tool_defs.get("files.read")
 file_delete_tool = tool_defs.get("file.delete")
 memory_sensitive_tool = tool_defs.get("memory.write_sensitive")
 memory_propose_tool = tool_defs.get("memory.propose")
+require("code.apply_patch" not in tool_defs, "/api/tools still exposes retired code.apply_patch")
 require(files_read_tool is not None and files_read_tool["risk"] == "read", "/api/tools missing files.read")
 require(files_read_tool.get("input_schema") and files_read_tool.get("output_schema"), "/api/tools missing files.read contract schemas")
 require("content" in files_read_tool["output_schema"].get("properties", {}), "/api/tools files.read output schema missing content")
@@ -411,6 +412,12 @@ import sys
 print(json.loads(open(sys.argv[1]).read())["approval"]["id"])
 PY
 )"
+FILE_DELETE_RUN_ID="$(python3 - "$TMP_DIR/file-delete-manual.json" <<'PY'
+import json
+import sys
+print(json.loads(open(sys.argv[1]).read())["tool_call"]["run_id"])
+PY
+)"
 SENSITIVE_MEMORY_APPROVAL_ID="$(python3 - "$TMP_DIR/memory-sensitive-approval.json" <<'PY'
 import json
 import sys
@@ -424,9 +431,11 @@ print(json.loads(open(sys.argv[1]).read())["result"]["approval_id"])
 PY
 )"
 
+curl -fsS "$GATEWAY_URL/api/traces/$FILE_DELETE_RUN_ID" > "$TMP_DIR/file-delete-trace-before-approval.json"
 curl -fsS -X POST "$GATEWAY_URL/api/approvals/$FILE_DELETE_APPROVAL_ID/approve" \
   -H 'Content-Type: application/json' \
   -d '{"note":"golden approve file delete"}' > "$TMP_DIR/file-delete-approved.json"
+curl -fsS "$GATEWAY_URL/api/traces/$FILE_DELETE_RUN_ID" > "$TMP_DIR/file-delete-trace-after-approval.json"
 curl -fsS -X POST "$GATEWAY_URL/api/approvals/$SENSITIVE_MEMORY_APPROVAL_ID/approve" \
   -H 'Content-Type: application/json' \
   -d '{"note":"golden approve sensitive memory"}' > "$TMP_DIR/memory-sensitive-approved.json"
@@ -465,10 +474,15 @@ def local_path(value):
     return pathlib.Path(path)
 
 file_delete_approved = load("file-delete-approved.json")
+file_delete_before = load("file-delete-trace-before-approval.json")
+file_delete_after = load("file-delete-trace-after-approval.json")
 memory_sensitive_approved = load("memory-sensitive-approved.json")
 memory_sensitive_after = load("memory-sensitive-after-approval.json")
 notify_approved = load("notify-approved.json")
+require(file_delete_before["run"]["state"] == "approval_pending", "file.delete run did not remain approval_pending before approval")
+require(not file_delete_before["run"].get("completed_at"), "approval-pending file.delete run should not have completed_at")
 require(file_delete_approved["tool_call"]["status"] == "completed_after_approval", "approved file delete did not execute")
+require(file_delete_after["run"]["state"] == "completed" and file_delete_after["run"].get("completed_at"), "file.delete run did not complete after approval")
 delete_result = file_delete_approved["tool_call"]["result"]
 require(delete_result["status"] == "moved_to_trash", "approved file delete did not move to trash")
 require(not pathlib.Path("data/workspaces/golden-delete-target.txt").exists(), "file delete target still exists after approval")
@@ -508,22 +522,6 @@ send_prompt 'Run shell command `ls -la` in the sandbox'
 send_prompt "Run tests in the sandbox"
 send_prompt "Inspect repo and explain failing test"
 
-cat > data/workspaces/eval_patch_target.txt <<'EOF'
-alpha
-beta
-gamma
-EOF
-send_prompt 'apply patch
-```diff
---- a/eval_patch_target.txt
-+++ b/eval_patch_target.txt
-@@ -1,3 +1,3 @@
- alpha
--beta
-+bravo
- gamma
-```'
-
 CALLS="$(curl -fsS "$GATEWAY_URL/api/sessions/$SESSION_ID/tool-calls")"
 APPROVALS="$(curl -fsS "$GATEWAY_URL/api/approvals?status=pending")"
 CANDIDATES="$(curl -fsS "$GATEWAY_URL/api/memory-candidates?status=pending")"
@@ -535,6 +533,28 @@ printf '%s' "$APPROVALS" > "$TMP_DIR/approvals.json"
 printf '%s' "$CANDIDATES" > "$TMP_DIR/candidates.json"
 printf '%s' "$EVENTS" > "$TMP_DIR/events.json"
 printf '%s' "$MESSAGES" > "$TMP_DIR/messages.json"
+TRACE_RUN_ID="$(python3 - "$TMP_DIR/calls.json" "$TMP_DIR/messages.json" <<'PY'
+import json
+import sys
+
+calls = json.loads(open(sys.argv[1]).read())["tool_calls"]
+messages = json.loads(open(sys.argv[2]).read())["messages"]
+assistant_run_ids = {
+    message.get("run_id")
+    for message in messages
+    if message.get("role") == "assistant" and message.get("run_id")
+}
+for call in reversed(calls):
+    if call.get("tool") == "files.read" and call.get("status") == "completed" and call.get("run_id") in assistant_run_ids:
+        print(call["run_id"])
+        break
+PY
+)"
+if [[ -z "$TRACE_RUN_ID" ]]; then
+  echo "completed document-read trace run missing"
+  exit 1
+fi
+printf '%s' "$TRACE_RUN_ID" > "$TMP_DIR/trace-run-id.txt"
 EVENT_CURSOR="$(python3 - "$TMP_DIR/events.json" <<'PY'
 import json
 import sys
@@ -551,42 +571,6 @@ if [[ -z "$EVENT_CURSOR" ]]; then
 fi
 printf '%s' "$EVENT_CURSOR" > "$TMP_DIR/event-cursor.txt"
 curl -fsS "$GATEWAY_URL/api/sessions/$SESSION_ID/events?after=$EVENT_CURSOR" > "$TMP_DIR/events-after.json"
-
-PATCH_APPROVAL_ID="$(python3 - "$TMP_DIR/approvals.json" <<'PY'
-import json
-import sys
-approvals = json.loads(open(sys.argv[1]).read())["approvals"]
-for approval in approvals:
-    if approval["tool"] == "code.apply_patch":
-        print(approval["id"])
-        break
-PY
-)"
-if [[ -z "$PATCH_APPROVAL_ID" ]]; then
-  echo "pending code.apply_patch approval missing"
-  exit 1
-fi
-PATCH_RUN_ID="$(python3 - "$TMP_DIR/approvals.json" "$PATCH_APPROVAL_ID" <<'PY'
-import json
-import sys
-approvals = json.loads(open(sys.argv[1]).read())["approvals"]
-for approval in approvals:
-    if approval["id"] == sys.argv[2]:
-        print(approval.get("run_id", ""))
-        break
-PY
-)"
-if [[ -z "$PATCH_RUN_ID" ]]; then
-  echo "pending code.apply_patch run id missing"
-  exit 1
-fi
-printf '%s' "$PATCH_RUN_ID" > "$TMP_DIR/trace-run-id.txt"
-curl -fsS "$GATEWAY_URL/api/traces/$PATCH_RUN_ID" > "$TMP_DIR/trace-before-approval.json"
-curl -fsS -X POST "$GATEWAY_URL/api/approvals/$PATCH_APPROVAL_ID/approve" \
-  -H 'Content-Type: application/json' \
-  -d '{"note":"golden eval patch approval"}' > "$TMP_DIR/patch-approval.json"
-CALLS_AFTER="$(curl -fsS "$GATEWAY_URL/api/sessions/$SESSION_ID/tool-calls")"
-printf '%s' "$CALLS_AFTER" > "$TMP_DIR/calls-after.json"
 curl -fsS "$GATEWAY_URL/api/sessions/$SESSION_ID/model-calls" > "$TMP_DIR/model-calls.json"
 curl -fsS "$GATEWAY_URL/api/sessions/$SESSION_ID/audit" > "$TMP_DIR/audit.json"
 
@@ -597,7 +581,6 @@ import sys
 
 tmp = pathlib.Path(sys.argv[1])
 calls = json.loads((tmp / "calls.json").read_text())["tool_calls"]
-calls_after = json.loads((tmp / "calls-after.json").read_text())["tool_calls"]
 model_calls = json.loads((tmp / "model-calls.json").read_text())["model_calls"]
 audit_events = json.loads((tmp / "audit.json").read_text())["audit_events"]
 approvals = json.loads((tmp / "approvals.json").read_text())["approvals"]
@@ -605,8 +588,6 @@ candidates = json.loads((tmp / "candidates.json").read_text())["memory_candidate
 events = json.loads((tmp / "events.json").read_text())["events"]
 events_after = json.loads((tmp / "events-after.json").read_text())["events"]
 messages = json.loads((tmp / "messages.json").read_text())["messages"] if (tmp / "messages.json").exists() else []
-patch_resolution = json.loads((tmp / "patch-approval.json").read_text())
-trace_before_approval = json.loads((tmp / "trace-before-approval.json").read_text())
 session_id = calls[0]["session_id"] if calls else None
 session_approvals = [approval for approval in approvals if approval.get("session_id") == session_id]
 session_candidates = [candidate for candidate in candidates if candidate.get("session_id") == session_id]
@@ -614,21 +595,6 @@ session_candidates = [candidate for candidate in candidates if candidate.get("se
 def require(condition, message):
     if not condition:
         raise SystemExit(message)
-
-def local_path(value):
-    path = str(value or "")
-    root = pathlib.Path.cwd()
-    mappings = {
-        "/app/configs/": root / "configs",
-        "/var/lib/sparkclaw/workspaces/": root / "data" / "workspaces",
-        "/var/lib/sparkclaw/artifacts/": root / "data" / "artifacts",
-        "/var/lib/sparkclaw/traces/": root / "data" / "traces",
-        "/var/lib/sparkclaw/memory/": root / "data" / "memory",
-    }
-    for prefix, local_root in mappings.items():
-        if path.startswith(prefix):
-            return local_root / path[len(prefix):]
-    return pathlib.Path(path)
 
 require(any(call["tool"] == "files.search" and call["risk"] == "read" for call in calls), "files.search read tool did not run")
 file_read_calls = [call for call in calls if call["tool"] == "files.read"]
@@ -661,7 +627,6 @@ require(any(
     for call in calls
 ), "failing-test inspection did not search repo test evidence")
 require(any(approval["tool"] == "shell.exec_sandboxed" and approval["status"] == "pending" for approval in session_approvals), "pending shell approval missing")
-require(any(approval["tool"] == "code.apply_patch" and approval["status"] == "pending" for approval in session_approvals), "pending patch approval missing")
 event_types = [event["type"] for event in events]
 require("session.created" in event_types and event_types.count("message.created") >= 2, "session event log missing session/message events")
 require(any(event_type.startswith("tool_call.") for event_type in event_types), "session event log missing tool call events")
@@ -669,25 +634,11 @@ require("approval.pending" in event_types, "session event log missing approval p
 event_cursor = (tmp / "event-cursor.txt").read_text()
 require(any(event["id"] == event_cursor for event in events), "session event cursor was not in original event log")
 require(events_after and all(event["id"] != event_cursor for event in events_after), "session event cursor repeated the cursor event")
-require(trace_before_approval["run"]["id"] == (tmp / "trace-run-id.txt").read_text(), "pre-approval trace returned wrong run")
-require(trace_before_approval["run"]["state"] == "approval_pending", "run did not remain approval_pending before approval")
-require(not trace_before_approval["run"].get("completed_at"), "approval-pending run should not have completed_at")
-require(patch_resolution["tool_call"]["status"] == "completed_after_approval", "approved patch was not executed")
-require(any(call["tool"] == "code.apply_patch" and call["status"] == "completed_after_approval" for call in calls_after), "patch tool call status did not update")
-patch_result = patch_resolution["tool_call"].get("result", {})
-require(local_path(patch_result.get("manifest_path", "")).exists(), "patch rollback manifest missing")
-rollback_path = local_path(patch_result.get("rollback_patch_path", ""))
-require(rollback_path.exists() and "-bravo" in rollback_path.read_text() and "+beta" in rollback_path.read_text(), "patch rollback patch missing inverse diff")
-require(pathlib.Path("data/workspaces/eval_patch_target.txt").read_text() == "alpha\nbravo\ngamma", "patch target content did not change")
-trace_run = next((call["run_id"] for call in calls_after if call["tool"] == "code.apply_patch"), "")
-require(trace_run, "could not identify patch trace run")
-require(trace_run == (tmp / "trace-run-id.txt").read_text(), "patch run id changed after approval")
 
 print("ok golden tasks passed")
-print(f"tool_calls={len(calls_after)} approvals={len(session_approvals)} memory_candidates={len(session_candidates)}")
+print(f"tool_calls={len(calls)} approvals={len(session_approvals)} memory_candidates={len(session_candidates)}")
 PY
 
-TRACE_RUN_ID="$(cat "$TMP_DIR/trace-run-id.txt")"
 curl -fsS "$GATEWAY_URL/api/sessions/$SESSION_ID/messages" > "$TMP_DIR/messages.json"
 python3 - "$TMP_DIR/messages.json" <<'PY'
 import json
@@ -875,8 +826,8 @@ metrics = (tmp / "metrics.txt").read_text()
 require(trace["run"]["id"] == (tmp / "trace-run-id.txt").read_text(), "trace endpoint returned wrong run")
 require(trace["run"]["state"] == "completed", "trace did not include completed run state")
 require(trace["run"].get("completed_at"), "trace completed run missing completed_at")
-require(any(call["tool"] == "code.apply_patch" and call["status"] == "completed_after_approval" for call in trace["tool_calls"]), "trace did not include approved patch status")
-require(any(call["tool"] == "code.apply_patch" and call.get("observation_summary") for call in trace["tool_calls"]), "trace did not include compressed observation summary")
+require(any(call["tool"] == "files.read" and call["status"] == "completed" for call in trace["tool_calls"]), "trace did not include completed document read")
+require(any(call["tool"] == "files.read" and call.get("observation_summary") for call in trace["tool_calls"]), "trace did not include compressed document observation summary")
 require(trace.get("model_calls") and any(call["lane"] in {"fast", "deep"} for call in trace["model_calls"]), "trace did not include fast/deep inference telemetry")
 require(any(call["operation"] == "guard" and call["lane"] == "guard" for call in trace.get("model_calls", [])), "trace did not include guard model-call telemetry")
 require(run_feedback["rating"] == "corrected" and run_feedback["correction"].startswith("Golden correction"), "run feedback did not save correction")
@@ -884,7 +835,7 @@ require(any(item["id"] == run_feedback["id"] for item in run_feedback_list["feed
 require(any(item["id"] == run_feedback["id"] for item in trace.get("feedback", [])), "trace did not include run feedback")
 trace_run_id = (tmp / "trace-run-id.txt").read_text()
 trace_meta = next((item for item in traces.get("traces", []) if item.get("run_id") == trace_run_id), None)
-require(trace_meta is not None, "trace metadata list missing patch run")
+require(trace_meta is not None, "trace metadata list missing document-read run")
 require(trace_meta.get("tool_call_count", 0) > 0 and trace_meta.get("model_call_count", 0) > 0, "trace metadata missing counts")
 require(trace_meta.get("artifact_uri"), "trace metadata missing artifact uri")
 require(any(item.get("kind") == "trace" and item.get("run_id") == trace_run_id and item.get("uri") == trace_meta.get("artifact_uri") for item in artifacts_before_eval.get("artifacts", [])), "artifact catalog missing trace artifact")

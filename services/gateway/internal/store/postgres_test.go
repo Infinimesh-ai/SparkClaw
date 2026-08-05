@@ -135,13 +135,13 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		SessionID:  session.ID,
 		RunID:      run.ID,
 		ToolCallID: call.ID,
-		Tool:       "code.apply_patch",
-		Risk:       app.RiskReversible,
+		Tool:       "memory.write_sensitive",
+		Risk:       app.RiskDangerous,
 		Status:     "pending",
-		Summary:    "Apply patch",
+		Summary:    "Write sensitive memory",
 		Reason:     "test",
-		Resources:  []string{"example.txt"},
-		Arguments:  map[string]any{"patch": "---"},
+		Resources:  []string{"memory"},
+		Arguments:  map[string]any{"content": "test"},
 		CreatedAt:  time.Now().UTC(),
 	}
 	st.SaveApproval(approval)

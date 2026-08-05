@@ -26,6 +26,13 @@ func TestToolRegistryMatchesDefinitions(t *testing.T) {
 	}
 }
 
+func TestRetiredPatchToolIsNotRegistered(t *testing.T) {
+	hub := New(config.Default(), store.NewMemoryStore())
+	if _, ok := hub.Definition("code.apply_patch"); ok {
+		t.Fatal("retired code.apply_patch tool is still registered")
+	}
+}
+
 func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.Web.Search.Enabled = true

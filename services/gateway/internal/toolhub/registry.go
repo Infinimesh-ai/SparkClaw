@@ -329,7 +329,6 @@ var toolRegistry = map[string]toolRegistration{
 	"reminders.cancel": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSession((*ToolHub).remindersCancel)}, app.ToolCapabilityScheduleManage,
 		map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationDelete), "stage": "mutate"}, app.OutcomeAdapterScheduleChange,
 		"Cancel an existing scheduled task.", "Use only for schedule.manage delete operations.", "Do not permanently remove schedule history.", app.ToolEffectLocalWrite),
-	"code.apply_patch":     {run: ctxArgs((*ToolHub).codeApplyPatch)},
 	"shell.exec_sandboxed": {run: ctxArgs((*ToolHub).shellExecSandboxed)},
 	"notify.ask_approval":  {run: argsSessionRun((*ToolHub).notifyAskApproval)},
 }

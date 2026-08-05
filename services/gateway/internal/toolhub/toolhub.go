@@ -910,30 +910,6 @@ func defaultDefinitions() []app.ToolDefinition {
 			Audit:            "always",
 		},
 		{
-			Name:        "code.apply_patch",
-			Description: "Request a workspace patch. MVP queues reversible code changes for approval.",
-			InputSchema: schema("object", []string{"patch"}, map[string]any{
-				"patch": map[string]any{"type": "string"},
-				"path":  map[string]any{"type": "string"},
-			}),
-			OutputSchema: objectSchema([]string{"status", "patch_id", "patch_path", "backup_dir", "manifest_path", "rollback_patch_path", "changed_files", "applied_at"}, map[string]any{
-				"status":              stringSchema(),
-				"patch_id":            stringSchema(),
-				"patch_path":          stringSchema(),
-				"backup_dir":          stringSchema(),
-				"manifest_path":       stringSchema(),
-				"rollback_patch_path": stringSchema(),
-				"changed_files":       stringArraySchema(),
-				"applied_at":          stringSchema(),
-			}),
-			Risk:             app.RiskReversible,
-			RequiresApproval: true,
-			Idempotent:       false,
-			TimeoutMS:        5000,
-			Sandbox:          "required",
-			Audit:            "always",
-		},
-		{
 			Name:        "notify.ask_approval",
 			Description: "Create an approval request for a pending action.",
 			InputSchema: schema("object", []string{"summary"}, map[string]any{

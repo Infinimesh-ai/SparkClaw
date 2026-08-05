@@ -1,7 +1,6 @@
 {
   "approval_required": [
     "browser.submit_form",
-    "code.apply_patch",
     "file.delete",
     "memory.write_sensitive",
     "shell.exec_sandboxed"

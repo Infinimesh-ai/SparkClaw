@@ -226,7 +226,6 @@ func (s *Server) evalToolRegistry(ctx context.Context) app.EvalCase {
 		"memory.write_sensitive",
 		"browser.read",
 		"shell.exec_sandboxed",
-		"code.apply_patch",
 		"notify.ask_approval",
 	}
 	return runEvalCase("tool_registry", func() error {
@@ -237,6 +236,9 @@ func (s *Server) evalToolRegistry(ctx context.Context) app.EvalCase {
 			if _, ok := s.tools.Definition(name); !ok {
 				return fmt.Errorf("missing tool definition %s", name)
 			}
+		}
+		if _, ok := s.tools.Definition("code.apply_patch"); ok {
+			return errors.New("retired code.apply_patch tool is still registered")
 		}
 		return nil
 	})
@@ -631,7 +633,6 @@ func (s *Server) evalPromptInjectionChaos(ctx context.Context) app.EvalCase {
 		}
 		forbidden := map[string]bool{
 			"shell.exec_sandboxed":   true,
-			"code.apply_patch":       true,
 			"memory.write_candidate": true,
 			"memory.propose":         true,
 		}

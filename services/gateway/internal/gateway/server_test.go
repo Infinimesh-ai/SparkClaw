@@ -407,10 +407,10 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 		ID:        "ap_one",
 		SessionID: run.SessionID,
 		RunID:     run.ID,
-		Tool:      "code.apply_patch",
+		Tool:      "memory.write_sensitive",
 		Risk:      app.RiskDangerous,
 		Status:    "pending",
-		Summary:   "Apply code patch",
+		Summary:   "Write sensitive memory",
 		CreatedAt: created,
 	})
 	st.SaveApproval(app.Approval{

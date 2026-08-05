@@ -24,7 +24,6 @@ const (
 	strategyFileReadNoFinal    = "files.read_no_final"
 	strategyBrowserReadNoFinal = "browser.read_no_final"
 	strategySandboxShell       = "sandbox_shell_result"
-	strategyWorkspacePatch     = "workspace_patch_result"
 )
 
 func (r Runtime) applyGroundedSummary(sessionID, runID, goal, fallback string, calls []app.ToolCall) string {
@@ -109,9 +108,6 @@ func groundedSummaryWithStrategy(goal, fallback string, calls []app.ToolCall) (s
 	}
 	if grounded, ok := groundedShellSummary(goal, fallback, calls); ok {
 		return grounded, strategySandboxShell
-	}
-	if grounded, ok := groundedPatchSummary(goal, fallback, calls); ok {
-		return grounded, strategyWorkspacePatch
 	}
 	return fallback, strategyGroundedResult
 }
@@ -672,18 +668,6 @@ func groundedShellSummary(goal, fallback string, calls []app.ToolCall) (string, 
 	return strings.Join(lines, "\n"), true
 }
 
-func groundedPatchSummary(goal, fallback string, calls []app.ToolCall) (string, bool) {
-	answer, ok := patchAnswerFromCalls(goal, calls)
-	if !ok {
-		return "", false
-	}
-	lines := []string{
-		"Workspace patch result:",
-		answer,
-	}
-	return strings.Join(lines, "\n"), true
-}
-
 func webSearchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) {
 	for i := len(calls) - 1; i >= 0; i-- {
 		call := calls[i]
@@ -889,60 +873,6 @@ func indentBlock(value string) string {
 		lines[i] = "  " + line
 	}
 	return strings.Join(lines, "\n")
-}
-
-func patchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) {
-	for i := len(calls) - 1; i >= 0; i-- {
-		call := calls[i]
-		if call.Tool != "code.apply_patch" {
-			continue
-		}
-		if call.Status == "approval_pending" {
-			return pendingApprovalAnswer(call), true
-		}
-		if !strings.Contains(call.Status, "completed") && !strings.Contains(call.Status, "failed") {
-			continue
-		}
-		result, ok := anyMap(call.Result)
-		if !ok {
-			if call.Error != "" {
-				return "Tool status: " + call.Status + "\nError: " + call.Error, true
-			}
-			continue
-		}
-		lines := []string{
-			"Tool status: " + call.Status,
-		}
-		if status := cleanOptionalString(result["status"]); status != "" {
-			lines = append(lines, "Patch status: "+status)
-		}
-		if patchID := cleanOptionalString(result["patch_id"]); patchID != "" {
-			lines = append(lines, "Patch ID: "+patchID)
-		}
-		if changed := stringSliceValue(result["changed_files"]); len(changed) > 0 {
-			lines = append(lines, "Changed files:")
-			for _, path := range changed {
-				lines = append(lines, "- "+path)
-			}
-		}
-		if manifest := cleanOptionalString(result["manifest_path"]); manifest != "" {
-			lines = append(lines, "Rollback manifest: "+manifest)
-		}
-		if rollback := cleanOptionalString(result["rollback_patch_path"]); rollback != "" {
-			lines = append(lines, "Rollback patch: "+rollback)
-		}
-		if patchPath := cleanOptionalString(result["patch_path"]); patchPath != "" {
-			lines = append(lines, "Stored patch: "+patchPath)
-		}
-		if call.Error != "" {
-			lines = append(lines, "Error: "+call.Error)
-		}
-		if ref := cleanOptionalString(call.ObservationRef); ref != "" {
-			lines = append(lines, "Observation: "+ref)
-		}
-		return strings.Join(lines, "\n"), true
-	}
-	return "", false
 }
 
 func pendingApprovalAnswer(call app.ToolCall) string {

@@ -2227,7 +2227,7 @@ func TestRuntimeBlocksUnregisteredCodeAndShellWithoutReAct(t *testing.T) {
 	}
 }
 
-func TestGroundedShellAndPatchSummariesFromToolCalls(t *testing.T) {
+func TestGroundedShellSummaryFromToolCalls(t *testing.T) {
 	now := time.Now().UTC()
 	shellCall := app.ToolCall{
 		ID:        "tc_shell",
@@ -2251,31 +2251,6 @@ func TestGroundedShellAndPatchSummariesFromToolCalls(t *testing.T) {
 		!strings.Contains(shell, "Network: none") ||
 		!strings.Contains(shell, "ok ./pkg") {
 		t.Fatalf("unexpected shell summary:\n%s", shell)
-	}
-
-	patchCall := app.ToolCall{
-		ID:        "tc_patch",
-		Tool:      "code.apply_patch",
-		Status:    "completed_after_approval",
-		Arguments: map[string]any{"patch": "--- a/a.txt\n+++ b/a.txt\n"},
-		Result: map[string]any{
-			"status":              "patch_applied",
-			"patch_id":            "patch_123",
-			"changed_files":       []any{"/workspace/a.txt"},
-			"manifest_path":       "/workspace/.sparkclaw/patch-backups/patch_123/manifest.json",
-			"rollback_patch_path": "/workspace/.sparkclaw/patch-backups/patch_123/rollback.patch",
-			"patch_path":          "/workspace/.sparkclaw/patches/patch_123.patch",
-		},
-		ObservationRef: "artifact://sparkclaw/observations/run/tc_patch.json",
-		StartedAt:      now,
-	}
-	patch, ok := patchAnswerFromCalls("Apply patch", []app.ToolCall{patchCall})
-	if !ok ||
-		!strings.Contains(patch, "Patch status: patch_applied") ||
-		!strings.Contains(patch, "Patch ID: patch_123") ||
-		!strings.Contains(patch, "/workspace/a.txt") ||
-		!strings.Contains(patch, "Rollback patch:") {
-		t.Fatalf("unexpected patch summary:\n%s", patch)
 	}
 }
 

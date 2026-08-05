@@ -123,7 +123,6 @@ func requiredToolDefinitions() []app.ToolDefinition {
 		"memory.write_sensitive",
 		"browser.read",
 		"shell.exec_sandboxed",
-		"code.apply_patch",
 		"notify.ask_approval",
 	}
 	out := make([]app.ToolDefinition, 0, len(names))

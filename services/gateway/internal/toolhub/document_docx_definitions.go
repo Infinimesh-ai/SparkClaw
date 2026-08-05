@@ -27,18 +27,29 @@ func docxToolDefinitions() []app.ToolDefinition {
 			"location":        objectValueSchema(),
 			"output_path":     stringSchema(),
 		}),
-		docxToolDefinition("docx.set_text_style", "Set simple paragraph-level DOCX style by location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "style", "output_path"}, map[string]any{
-			"path":            stringSchema(),
-			"paragraph_index": integerSchema(),
-			"location":        objectValueSchema(),
-			"style": objectSchema([]string{}, map[string]any{
-				"builtin_style": stringSchema(),
-				"bold":          booleanSchema(),
-				"font_size_pt":  integerSchema(),
-			}),
-			"output_path": stringSchema(),
-		}),
+		docxSetTextStyleDefinition(),
 	}
+}
+
+func docxSetTextStyleDefinition() app.ToolDefinition {
+	style := strictObjectSchema([]string{}, map[string]any{
+		"builtin_style": stringSchema(),
+		"bold":          booleanSchema(),
+		"font_size_pt":  map[string]any{"type": "integer", "minimum": 1, "maximum": 200},
+	})
+	style["minProperties"] = 1
+	definition := docxToolDefinition("docx.set_text_style", "Set one or more paragraph-level DOCX style properties by a files.read location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "style", "output_path"}, map[string]any{
+		"path":            stringSchema(),
+		"paragraph_index": integerSchema(),
+		"location":        objectValueSchema(),
+		"style":           style,
+		"output_path":     stringSchema(),
+	})
+	definition.InputSchema["anyOf"] = []any{
+		map[string]any{"required": []string{"paragraph_index"}},
+		map[string]any{"required": []string{"location"}},
+	}
+	return definition
 }
 
 func docxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {

@@ -2,12 +2,96 @@ package toolhub
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+func TestDOCXSetTextStyleRoundTripsEveryRequestedProperty(t *testing.T) {
+	root := t.TempDir()
+	writeDocxFixture(t, root, "style.docx", "Styled paragraph")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	cases := []struct {
+		name  string
+		style map[string]any
+	}{
+		{name: "builtin", style: map[string]any{"builtin_style": "Heading 1"}},
+		{name: "bold_false", style: map[string]any{"bold": false}},
+		{name: "font_size", style: map[string]any{"font_size_pt": 17}},
+		{name: "combined", style: map[string]any{"builtin_style": "Heading 2", "bold": true, "font_size_pt": 19}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			output := filepath.Join("outputs", tc.name+".docx")
+			result, err := hub.Execute(context.Background(), "docx.set_text_style", map[string]any{
+				"path": "style.docx", "paragraph_index": 1, "style": tc.style, "output_path": output,
+			}, "session", "run")
+			if err != nil {
+				t.Fatal(err)
+			}
+			written := result.Output.(map[string]any)["output_path"].(string)
+			read := readDOCXDocument(t, root, written)
+			paragraph := testAnySlice(read["paragraphs"])[0].(map[string]any)
+			if paragraph["text"] != "Styled paragraph" {
+				t.Fatalf("style edit changed text: %#v", paragraph)
+			}
+			runs := testAnySlice(paragraph["runs"])
+			if len(runs) != 1 {
+				t.Fatalf("style edit changed run structure: %#v", runs)
+			}
+			run := runs[0].(map[string]any)
+			if value, ok := tc.style["builtin_style"]; ok && !strings.EqualFold(paragraph["style"].(string), value.(string)) {
+				t.Fatalf("built-in style did not round-trip: %#v", paragraph)
+			}
+			if value, ok := tc.style["bold"]; ok && run["effective_bold"] != value {
+				t.Fatalf("bold did not round-trip: %#v", run)
+			}
+			if value, ok := tc.style["font_size_pt"]; ok && intArg(run, "effective_font_size_pt", 0) != value.(int) {
+				t.Fatalf("font size did not round-trip: %#v", run)
+			}
+		})
+	}
+}
+
+func TestDOCXSetTextStyleRejectsInvalidContractBeforeWriting(t *testing.T) {
+	root := t.TempDir()
+	writeDocxFixture(t, root, "style.docx", "Styled paragraph")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	cases := []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "empty_style", args: map[string]any{"path": "style.docx", "paragraph_index": 1, "style": map[string]any{}, "output_path": "outputs/empty.docx"}},
+		{name: "missing_target", args: map[string]any{"path": "style.docx", "style": map[string]any{"bold": true}, "output_path": "outputs/missing.docx"}},
+		{name: "conflicting_target", args: map[string]any{"path": "style.docx", "paragraph_index": 1, "location": map[string]any{"part": "document", "block_type": "paragraph", "paragraph_index": 2}, "style": map[string]any{"bold": true}, "output_path": "outputs/conflict.docx"}},
+		{name: "size_out_of_range", args: map[string]any{"path": "style.docx", "paragraph_index": 1, "style": map[string]any{"font_size_pt": 201}, "output_path": "outputs/size.docx"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := hub.Execute(context.Background(), "docx.set_text_style", tc.args, "session", "run")
+			if err == nil {
+				t.Fatal("expected invalid style contract to fail")
+			}
+			output := filepath.Join(root, tc.args["output_path"].(string))
+			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+				t.Fatalf("invalid style call left an output: %v", statErr)
+			}
+		})
+	}
+}
 
 func TestDOCXReadExposesRunsAndStoryCoverage(t *testing.T) {
 	root := t.TempDir()

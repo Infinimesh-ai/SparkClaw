@@ -9,6 +9,9 @@ import (
 )
 
 func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args map[string]any) (Result, error) {
+	if err := validateDOCXStructureArguments(operation, args); err != nil {
+		return Result{}, err
+	}
 	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -29,6 +32,77 @@ func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args 
 		return Result{}, err
 	}
 	return Result{Output: documentChangeOutput(result, "docx_version_written")}, nil
+}
+
+func validateDOCXStructureArguments(operation string, args map[string]any) error {
+	position := strings.ToLower(strings.TrimSpace(stringArg(args, "position", "")))
+	index, locationIndex, hasTarget, err := docxArgumentTarget(args)
+	if err != nil {
+		return err
+	}
+	if operation == "insert_paragraph" {
+		switch position {
+		case "start", "end":
+			if hasTarget {
+				return errors.New("docx.insert_paragraph start/end must not include a paragraph target")
+			}
+		case "before", "after":
+			if !hasTarget {
+				return errors.New("docx.insert_paragraph before/after requires paragraph_index or location")
+			}
+		default:
+			return errors.New("docx.insert_paragraph position must be start, end, before, or after")
+		}
+	}
+	if operation == "replace_paragraph" || operation == "delete_paragraph" || operation == "set_text_style" {
+		if !hasTarget {
+			return errors.New("docx paragraph edit requires paragraph_index or location")
+		}
+	}
+	if index > 0 && locationIndex > 0 && index != locationIndex {
+		return errors.New("docx paragraph_index conflicts with location.paragraph_index")
+	}
+	if operation == "set_text_style" {
+		style, ok := args["style"].(map[string]any)
+		if !ok || len(style) == 0 {
+			return errors.New("docx.set_text_style style must contain builtin_style, bold, or font_size_pt")
+		}
+		if value, exists := style["builtin_style"]; exists && strings.TrimSpace(documentStringValue(value)) == "" {
+			return errors.New("docx.set_text_style builtin_style must not be empty")
+		}
+		if value, exists := style["font_size_pt"]; exists {
+			size := documentIntValue(value)
+			if size < 1 || size > 200 {
+				return errors.New("docx.set_text_style font_size_pt must be between 1 and 200")
+			}
+		}
+	}
+	return nil
+}
+
+func docxArgumentTarget(args map[string]any) (int, int, bool, error) {
+	index := intArg(args, "paragraph_index", 0)
+	if index < 0 {
+		return 0, 0, false, errors.New("docx paragraph_index must be a positive 1-based integer")
+	}
+	locationIndex := 0
+	if value, exists := args["location"]; exists && value != nil {
+		location, ok := value.(map[string]any)
+		if !ok {
+			return 0, 0, false, errors.New("docx location must be an object")
+		}
+		if part := strings.TrimSpace(documentStringValue(location["part"])); part != "" && part != "document" {
+			return 0, 0, false, errors.New("docx location must identify the document part")
+		}
+		if blockType := strings.TrimSpace(documentStringValue(location["block_type"])); blockType != "" && blockType != "paragraph" {
+			return 0, 0, false, errors.New("only top-level paragraph locations are currently editable")
+		}
+		locationIndex = intArg(location, "paragraph_index", 0)
+		if locationIndex <= 0 {
+			return 0, 0, false, errors.New("docx location.paragraph_index must be a positive 1-based integer")
+		}
+	}
+	return index, locationIndex, index > 0 || locationIndex > 0, nil
 }
 
 func docxEditTarget(operation string, args map[string]any) document.LocatorRequest {

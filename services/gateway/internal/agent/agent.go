@@ -1088,7 +1088,11 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	call.Arguments, call.Result = r.redactBrowserToolPersistence(runID, call.Tool, call.Arguments, result.Output)
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
 	maxBytes, evidenceLimit := r.toolResultObservationBudget()
-	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
+	ownerRequest := ""
+	if run, exists := r.store.GetRun(runID); exists {
+		ownerRequest = requestContentForRun(r.store.ListMessages(run.SessionID), run)
+	}
+	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, OwnerRequest: ownerRequest, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
 	r.store.SaveToolCall(call)
 	r.recordDocumentToolActivity(call)
 	return call, nil, call.ObservationSummary

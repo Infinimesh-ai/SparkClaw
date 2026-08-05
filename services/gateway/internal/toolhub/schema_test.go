@@ -520,9 +520,10 @@ func writeTestJPEG(path string, width, height int) error {
 }
 
 func TestValidateInputAllowsVerifierMetadataForApprovalArguments(t *testing.T) {
-	hub := New(config.Default(), store.NewMemoryStore())
-
-	err := hub.Validate("shell.exec_sandboxed", map[string]any{
+	definition := app.ToolDefinition{
+		Name: "strict.approval", InputSchema: strictObjectSchema([]string{"command"}, map[string]any{"command": stringSchema()}),
+	}
+	err := validateInput(definition, map[string]any{
 		"command": "ls -la",
 		"_verifier": app.VerifierDecision{
 			Verdict: "ask_user",
@@ -530,6 +531,9 @@ func TestValidateInputAllowsVerifierMetadataForApprovalArguments(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := validateInput(definition, map[string]any{"command": "ls -la", "invented": true}); err == nil {
+		t.Fatal("strict approval schema accepted non-verifier metadata")
 	}
 }
 

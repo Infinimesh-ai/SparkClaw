@@ -994,11 +994,20 @@ func validateInput(def app.ToolDefinition, args map[string]any) error {
 	if args == nil {
 		args = map[string]any{}
 	}
-	if err := validateSchemaValue(args, def.InputSchema, "arguments"); err != nil {
+	schemaArgs := args
+	if _, ok := args["_verifier"]; ok {
+		schemaArgs = make(map[string]any, len(args)-1)
+		for key, value := range args {
+			if key != "_verifier" {
+				schemaArgs[key] = value
+			}
+		}
+	}
+	if err := validateSchemaValue(schemaArgs, def.InputSchema, "arguments"); err != nil {
 		return fmt.Errorf("%s %w", def.Name, err)
 	}
 	if def.Name == "pdf.transform" {
-		if err := validatePDFTransformArguments(args); err != nil {
+		if err := validatePDFTransformArguments(schemaArgs); err != nil {
 			return err
 		}
 	}

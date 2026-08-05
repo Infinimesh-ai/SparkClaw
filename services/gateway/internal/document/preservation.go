@@ -22,6 +22,9 @@ func ValidatePreservation(before, after Representation, edit EditRequest, matche
 	if err := verifyExpectedMutation(before, after, edit, matches); err != nil {
 		return report, preservationError(before.Format, err.Error())
 	}
+	if err := verifyPPTXRichTextPreservation(before, after, edit, matches); err != nil {
+		return report, preservationError(before.Format, err.Error())
+	}
 	allowedLayoutShapes, err := verifyReportedLayoutChanges(before, after, edit, appliedDetails)
 	if err != nil {
 		return report, preservationError(before.Format, err.Error())
@@ -87,7 +90,7 @@ func verifyExpectedMutation(before, after Representation, edit EditRequest, matc
 func verifyUnchangedContent(before, after Representation, edit EditRequest, matches []Match, allowedLayoutShapes map[string]bool) error {
 	operation := strings.ToLower(strings.TrimSpace(edit.Operation))
 	switch operation {
-	case "replace_text", "replace_paragraph", "set_text_style", "update_cell", "update_row", "update_slide", "rotate_pages":
+	case "replace_text", "replace_paragraph", "set_text_style", "update_cell", "update_row", "update_slide", "update_deck", "rotate_pages":
 	default:
 		return nil
 	}
@@ -160,6 +163,9 @@ func evidenceFingerprints(enrichment map[string]any, category string, edit EditR
 		for _, key := range []string{"comments", "notes", "hyperlinks"} {
 			for _, item := range mapSlice(annotations[key]) {
 				projection := map[string]any{"kind": key, "text": item["text"], "target": item["target"], "author": item["author"]}
+				if key == "hyperlinks" && pptxMutationAllowsAnnotationText(edit, item) {
+					delete(projection, "text")
+				}
 				if !operationChangesEntityIndexes(edit.Operation) {
 					projection["anchor"] = mapValue(item["location"])["path"]
 				}
@@ -187,6 +193,12 @@ func evidenceFingerprints(enrichment map[string]any, category string, edit EditR
 				if operationChangesEntityIndexes(edit.Operation) {
 					for _, field := range []string{"index", "slide_index", "row_index", "path"} {
 						delete(projection, field)
+					}
+					if key == "page_markers" {
+						// The reader derives actual_total from physical slide count. A
+						// structural edit intentionally changes that value while preserving
+						// the marker text so it can be surfaced as a stale-marker warning.
+						delete(projection, "actual_total")
 					}
 				}
 				if key == "merged_ranges" && after {

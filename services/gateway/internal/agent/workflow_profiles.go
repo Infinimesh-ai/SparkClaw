@@ -135,7 +135,7 @@ func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 type documentEditProfile struct{}
 
 func (documentEditProfile) ID() app.WorkflowID           { return app.WorkflowDocumentEdit }
-func (documentEditProfile) Revision() int                { return 5 }
+func (documentEditProfile) Revision() int                { return 6 }
 func (documentEditProfile) Capability() app.CapabilityID { return app.CapabilityDocumentEdit }
 func (documentEditProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentEditRoutingSemantics()
@@ -229,6 +229,7 @@ func (documentEditProfile) DecisionRules(app.WorkflowNode) []string {
 		"Apply minimum-change semantics when the observation already contains the requested target: modify, improve, polish, complete, update, revise, or rewrite means replace/update that existing target, not insert or append another overlapping block.",
 		"Apply the same semantics across languages: 完善、润色、优化或改写 an existing located paragraph means replace that paragraph, not no match and not insertion.",
 		"Choose insert, add, or append only when the owner explicitly requests a new block, row, or slide, or when the structured observation shows that the requested target does not exist.",
+		"For PPTX, obey the frozen scope: single_slide selects update_slide, whole_deck selects update_deck, exact_text selects replace_text, and structural selects only add_slide, duplicate_slide, or delete_slide.",
 	}
 }
 func (documentEditProfile) DecisionResolvedInstruction(entry app.ToolDirectoryEntry) string {

@@ -4,11 +4,23 @@ import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 
 func pptxToolRegistrations() map[string]toolRegistration {
 	return map[string]toolRegistration{
+		"pptx.replace_text": documentEditRegistration(
+			ctxArgs((*ToolHub).pptxReplaceText),
+			app.DocumentFormatPPTX,
+			"replace_text",
+			"Replace exact PPTX text spans without flattening paragraph and run formatting.",
+		),
 		"pptx.add_slide": documentEditRegistration(
 			structureOp((*ToolHub).pptxSlideEdit, "add_slide"),
 			app.DocumentFormatPPTX,
 			"add_slide",
 			"Add one PPTX slide and write a new presentation.",
+		),
+		"pptx.update_deck": documentEditRegistration(
+			structureOp((*ToolHub).pptxSlideEdit, "update_deck"),
+			app.DocumentFormatPPTX,
+			"update_deck",
+			"Atomically improve a bounded whole PPTX deck through evidence-bound slide updates.",
 		),
 		"pptx.update_slide": documentEditRegistration(
 			structureOp((*ToolHub).pptxSlideEdit, "update_slide"),

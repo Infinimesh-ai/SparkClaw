@@ -1098,11 +1098,11 @@ func TestPptxSlideToolsWriteNewVersions(t *testing.T) {
 		{
 			tool: "pptx.add_slide",
 			args: map[string]any{
-				"path":         "deck.pptx",
-				"layout_index": 1,
-				"title":        "Added slide",
-				"body":         "Added body",
-				"output_path":  "outputs/added.pptx",
+				"path":        "deck.pptx",
+				"layout_ref":  "layout:/ppt/slideLayouts/slideLayout2.xml",
+				"title":       "Added slide",
+				"body":        "Added body",
+				"output_path": "outputs/added.pptx",
 			},
 			wantSlides: 3,
 			wantText:   "Added slide",

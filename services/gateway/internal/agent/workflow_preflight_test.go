@@ -93,7 +93,7 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 		{request: "Append a row to report.xlsx", format: app.DocumentFormatXLSX, operation: "append_row", tool: "xlsx.append_row", output: "report-sparkclaw-edit.xlsx"},
 		{request: "Insert a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "insert_row", tool: "xlsx.insert_row", output: "report-sparkclaw-edit.xlsx"},
 		{request: "Delete a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "delete_row", tool: "xlsx.delete_row", output: "report-sparkclaw-edit.xlsx"},
-		{request: "Replace text in report.pptx", format: app.DocumentFormatPPTX, operation: "replace_text", tool: "office.replace_text", output: "report-sparkclaw-edit.pptx"},
+		{request: "Replace text in report.pptx", format: app.DocumentFormatPPTX, operation: "replace_text", tool: "pptx.replace_text", output: "report-sparkclaw-edit.pptx"},
 		{request: "Improve slide 3 in report.pptx", format: app.DocumentFormatPPTX, operation: "update_slide", tool: "pptx.update_slide", output: "report-sparkclaw-edit.pptx"},
 		{request: "Rotate pages in report.pdf", format: app.DocumentFormatPDF, operation: "rotate_pages", tool: "pdf.transform", output: "report-sparkclaw-edit.pdf"},
 	} {
@@ -244,7 +244,7 @@ func TestDocumentEditUsesSingleGovernedAttachmentPath(t *testing.T) {
 	}
 }
 
-func TestDocumentContentMutationRoutesToEditR4ThenSelectsXLSXEditor(t *testing.T) {
+func TestDocumentContentMutationRoutesToEditR6ThenSelectsXLSXEditor(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "uploads", "people.xlsx")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -264,15 +264,15 @@ func TestDocumentContentMutationRoutesToEditR4ThenSelectsXLSXEditor(t *testing.T
 	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
-		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r5: route=%#v fusion=%+v", route, routing.Fusion)
+		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r6: route=%#v fusion=%+v", route, routing.Fusion)
 	}
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.Revision() != 5 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
-		t.Fatalf("XLSX edit did not start in document.edit r5 evidence stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
+	if dispatch.Profile.Revision() != 6 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
+		t.Fatalf("XLSX edit did not start in document.edit r6 evidence stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "xlsx.append_row", "append_row")
 	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "xlsx.append_row" {
@@ -303,7 +303,7 @@ func TestXLSXMutationSynonymsDoNotFreezeConcreteOperations(t *testing.T) {
 		}
 		if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 			route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
-			t.Fatalf("XLSX mutation synonym escaped generic document.edit r5 routing for %q: %#v", request, route)
+			t.Fatalf("XLSX mutation synonym escaped generic document.edit r6 routing for %q: %#v", request, route)
 		}
 	}
 }
@@ -327,7 +327,7 @@ func TestDocumentRoutingKeepsReadOnlyAndFileLifecycleOutsideEditR2(t *testing.T)
 			t.Fatal(err)
 		}
 		if route.Status == app.RouteMatched && len(route.CapabilityPath) > 1 && route.CapabilityPath[1] == app.CapabilityDocumentEdit {
-			t.Fatalf("file lifecycle request entered document.edit r5 for %q: %#v", request, route)
+			t.Fatalf("file lifecycle request entered document.edit r6 for %q: %#v", request, route)
 		}
 	}
 }
@@ -371,7 +371,7 @@ func TestUnsupportedDocumentContentMutationStillRoutesToEditR2(t *testing.T) {
 	}
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatPDF || route.Facts["document_operation"] != "" {
-		t.Fatalf("unsupported PDF content mutation degraded outside document.edit r5: %#v", route)
+		t.Fatalf("unsupported PDF content mutation degraded outside document.edit r6: %#v", route)
 	}
 }
 

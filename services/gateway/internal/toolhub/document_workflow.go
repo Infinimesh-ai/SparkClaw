@@ -20,9 +20,7 @@ func newDocumentPipeline(hub *ToolHub) *document.Pipeline {
 		app.DocumentFormatXLSX: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
 			return runNodeAdapter(ctx, xlsxReadAdapterScript, request)
 		}),
-		app.DocumentFormatPPTX: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
-			return runPythonAdapter(ctx, pptxReadAdapterScript, request)
-		}),
+		app.DocumentFormatPPTX: pptxDocumentParser(),
 		app.DocumentFormatPDF: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
 			request["operation"] = "read"
 			return runPDFPython(ctx, request)
@@ -30,19 +28,20 @@ func newDocumentPipeline(hub *ToolHub) *document.Pipeline {
 	}
 	editors := map[string]document.Editor{}
 	editors[document.EditorKey(app.DocumentFormatText, "replace_text")] = document.EditorFunc(applyTextReplacement)
-	for _, format := range []string{app.DocumentFormatDOCX, app.DocumentFormatXLSX, app.DocumentFormatPPTX} {
+	for _, format := range []string{app.DocumentFormatDOCX, app.DocumentFormatXLSX} {
 		format := format
 		editors[document.EditorKey(format, "replace_text")] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
 			return applyOfficeReplacement(ctx, format, request)
 		})
 	}
+	editors[document.EditorKey(app.DocumentFormatPPTX, "replace_text")] = document.EditorFunc(applyPPTXReplacement)
 	for _, operation := range []string{"replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style"} {
 		operation := operation
 		editors[document.EditorKey(app.DocumentFormatDOCX, operation)] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
 			return applyDOCXStructure(ctx, operation, request)
 		})
 	}
-	for _, operation := range []string{"add_slide", "update_slide", "duplicate_slide", "delete_slide"} {
+	for _, operation := range []string{"add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"} {
 		operation := operation
 		editors[document.EditorKey(app.DocumentFormatPPTX, operation)] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
 			return applyPPTXStructure(ctx, operation, request)

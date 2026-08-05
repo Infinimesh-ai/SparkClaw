@@ -27,7 +27,7 @@ func documentEditRoutingSemantics() workflowRoutingSemantics {
 			Key: "edit", Route: workflowRouteTemplate{Operation: app.RouteOperationEdit},
 			EmbedTexts:      embedTexts,
 			TreeDescription: "Edit a copy of one governed text, Word, spreadsheet, or presentation document. The request changes document content rather than deleting the file itself.",
-			HardNegatives:   []string{"读取并总结文档", "删除整个文件", "创建新文档", "修改网页内容"},
+			HardNegatives:   []string{"读取并总结文档", "删除整个文件", "创建新文档", "新建一个演示文稿", "发送演示文稿", "修改网页内容"},
 		},
 		documentPDFTransformRoutingVariant(),
 	}}

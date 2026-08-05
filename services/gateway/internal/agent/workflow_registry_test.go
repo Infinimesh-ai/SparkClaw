@@ -54,7 +54,7 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			wantRevision = 4
 		}
 		if test.want == app.WorkflowDocumentEdit {
-			wantRevision = 5
+			wantRevision = 6
 		}
 		if resolved.Profile.ID() != test.want || resolved.Plan.ProfileID != test.want || resolved.Plan.ProfileRevision != wantRevision {
 			t.Fatalf("leaf %v resolved wrong contract: %#v", test.decision.CapabilityPath, resolved)

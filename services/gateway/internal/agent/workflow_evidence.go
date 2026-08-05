@@ -63,7 +63,13 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		if limit <= 0 || limit > remaining {
 			limit = remaining
 		}
-		text := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, limit)
+		text, sliceErr := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, limit)
+		if sliceErr != nil {
+			if requirement.Optional {
+				continue
+			}
+			return provisionedWorkflowEvidence{}, sliceErr
+		}
 		if strings.TrimSpace(text) == "" {
 			if requirement.Optional {
 				continue
@@ -77,8 +83,8 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		sections = append(sections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, text))
 		compactLimit := min(limit, max(512, limit/2))
 		minimalLimit := min(compactLimit, max(256, limit/4))
-		compactText := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, compactLimit)
-		minimalText := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, minimalLimit)
+		compactText, _ := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, compactLimit)
+		minimalText, _ := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, minimalLimit)
 		if strings.TrimSpace(compactText) != "" {
 			compactSections = append(compactSections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, compactText))
 		}
@@ -112,6 +118,28 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		MinimalText: strings.Join(minimalSections, "\n\n"),
 		Bytes:       providedBytes,
 	}, nil
+}
+
+func sliceWorkflowEvidenceForRun(run app.AgentRun, tool string, output any, mode workflowEvidenceSliceMode, maxBytes int) (string, error) {
+	if mode == workflowEvidenceStructured && tool == "files.read" && run.Workflow != nil &&
+		strings.EqualFold(strings.TrimSpace(run.Workflow.Route.Facts["document_format"]), app.DocumentFormatPPTX) {
+		outputMap, ok := outputAsMap(output)
+		if !ok {
+			return slicePersistedToolEvidence(tool, output, mode, maxBytes), nil
+		}
+		document, hasDocument := anyMap(outputMap["document"])
+		if !hasDocument || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), app.DocumentFormatPPTX) ||
+			strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact]) == pptxScopeExactText {
+			return slicePersistedToolEvidence(tool, output, mode, maxBytes), nil
+		}
+		return pptxTargetStructuredEvidence(
+			outputMap,
+			strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact]),
+			decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact]),
+			maxBytes,
+		)
+	}
+	return slicePersistedToolEvidence(tool, output, mode, maxBytes), nil
 }
 
 func formatProvisionedEvidenceSection(ref, tool string, mode workflowEvidenceSliceMode, text string) string {

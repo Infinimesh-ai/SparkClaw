@@ -1,31 +1,37 @@
-# DOCX Editing Optimization Plan
+# DOCX Editing
 
 > Language: English | [简体中文](../zh-cn/docs/docx-editing-optimization.md)
 >
-> Status: Proposed implementation specification. This document does not describe
-> shipped behavior. The documentation-only change that introduced it does not
-> modify runtime code, schemas, configuration, or tests.
+> Status: Current behavior. This document describes the shipped DOCX read,
+> edit, approval, preservation, and evaluation contracts.
 
-## 1. Purpose And Scope
+## Scope
 
-This plan hardens the six highest-priority gaps in the existing DOCX read and
-edit path:
+SparkClaw supports five approval-gated DOCX operations:
 
-1. align `docx.set_text_style` input, readback, and preservation contracts;
-2. bind every DOCX mutation to current localization evidence and source version;
-3. preserve run-level formatting during text replacement or fail closed;
-4. report DOCX content coverage truthfully and expose high-value omitted parts;
-5. make operation-selection evidence target-aware within one byte budget;
-6. add multilingual routing, operation-selection, approval, and mutation evals.
+| Operation | Current editable scope |
+|---|---|
+| `replace_text` | Exact text in top-level body paragraphs |
+| `replace_paragraph` | One top-level body paragraph |
+| `insert_paragraph` | Start/end boundary or before/after one body paragraph |
+| `delete_paragraph` | One top-level body paragraph |
+| `set_text_style` | Built-in style, bold, and font size on one body paragraph |
 
-The existing semantic and Workflow architecture remains authoritative. This
-plan does not add keyword routing, a second capability map, a generic document
-mutation tool, or another model-owned directory selector. It also does not add
-table-cell editing or a large-document strategy; those remain later extensions.
+Headers, footers, tables, hyperlinks, images, fields, comments, and unsupported
+OOXML parts are read or inventoried where described below, but they are not
+implicit mutation targets. Table-cell, header/footer, footnote/endnote,
+text-box, tracked-change, field, drawing, image-replacement, and other
+unregistered mutations block at operation selection instead of materializing a
+substitute editor.
 
-## 2. Preserved Workflow Boundary
+SparkClaw does not use keyword routing, a second capability catalog, a generic
+document mutation tool, or a model-owned resource path. The semantic graph,
+Workflow profile, ToolHub directory, Policy, and Approval remain the only
+authorities.
 
-The edit path remains:
+## Workflow Boundary
+
+Every DOCX edit follows the same staged path:
 
 ```text
 semantic fusion
@@ -35,427 +41,189 @@ semantic fusion
   -> select_edit_operation (one persisted directory entry)
   -> document_edit (only the selected editor is materialized)
   -> Policy and Approval
-  -> output copy
+  -> source and target revalidation
+  -> new sibling output copy
   -> reread and preservation validation
+  -> completed WorkflowResult
 ```
 
-The implementation must preserve these invariants:
+Runtime freezes the governed input path and the next available sibling output
+path. The model cannot replace either path. The localization reader runs once
+and its archived structured observation is the only evidence source for
+operation selection and mutation binding. The original file remains unchanged.
 
-- The governed input and output paths are Runtime bindings, never model choices.
-- Operation selection stays inside the frozen DOCX scope and persists exactly
-  one eligible directory entry.
-- Evidence used to authorize a mutation comes from the single completed
-  `document_locate_evidence` call in the same run, session, node revision, and
-  governed path.
-- Approval authorizes only the persisted operation, arguments, source version,
-  and evidence-bound target that the owner reviewed.
-- The original file remains unchanged; only a new sibling output is accepted.
-- The output is reread through the same parser before the run can succeed.
+## Structured Read And Coverage
 
-## 3. Gap 1: Complete The Text-Style Contract
+The DOCX reader exposes body paragraphs, table cells, run spans, hyperlinks,
+images, section layout, comments, and deduplicated header/footer story parts.
+Body and story blocks receive stable locations such as `document.p[25]` and a
+story-part-qualified header/footer path. Shared linked headers and footers are
+represented once by package part identity while retaining all section
+references.
 
-### Current gap
-
-`docx.set_text_style` accepts `builtin_style`, `bold`, and `font_size_pt`, but
-the normalized DOCX representation and preservation validator only prove the
-paragraph's built-in style name. Bold-only and size-only edits therefore do not
-have a valid round-trip success condition, while a request containing all three
-properties can pass without independently proving bold and font size.
-
-The input schema also permits an empty `style` object and does not require a
-valid paragraph locator alternative, allowing invalid calls to progress farther
-than necessary.
-
-### Target input contract
-
-- `style` is a strict object with at least one of `builtin_style`, `bold`, or
-  `font_size_pt`; unknown fields are rejected.
-- `font_size_pt` remains an integer in the inclusive range `1..200`.
-- At least one of `paragraph_index` or `location` is required. If both are
-  present, Runtime requires them to identify the same paragraph.
-- `location` must identify a top-level DOCX body paragraph until another
-  editable story part is explicitly registered.
-- Invalid style or target arguments fail before Policy and do not create an
-  approval.
-
-### Parser and normalized representation
-
-The DOCX reader must expose enough deterministic evidence to verify the three
-properties after save and reload:
+Each paragraph run reports parser-visible text offsets and formatting:
 
 ```json
 {
-  "index": 3,
-  "style": "Heading 1",
-  "runs": [
-    {
-      "index": 1,
-      "text": "Quarterly summary",
-      "bold": true,
-      "font_size_pt": 18.0
-    }
-  ]
+  "index": 1,
+  "text": "Quarterly summary",
+  "bold": true,
+  "italic": false,
+  "underline": null,
+  "font_name": "Aptos",
+  "font_size_pt": 18.0,
+  "font_color": "1F4E78",
+  "effective_bold": true,
+  "effective_font_size_pt": 18.0,
+  "relationship_id": "",
+  "boundaries": []
 }
 ```
 
-Run fields represent effective values after the document has been reopened,
-not merely values reported by the editor subprocess. Missing or inherited
-values stay explicit as `null` or as a separately named effective field; they
-must not be guessed from display text.
+Explicit and effective values remain separate. Missing or inherited values are
+not guessed from rendered text.
 
-### Post-edit verification
+`coverage.content = complete` is emitted only when package inventory finds no
+text-bearing content outside the normalized representation. Coverage is
+reported per scope for body, tables, headers, footers, footnotes, endnotes,
+text boxes, and tracked changes. Footnotes, endnotes, text boxes, tracked
+changes, `altChunk`, content controls, nested tables, and unrecognized Word
+text parts remain visible in `content_omissions` and `unparsed_parts` until a
+parser represents them. Their presence makes content or the affected story
+scope `partial`/`unsupported`; it never silently becomes complete.
 
-- `builtin_style` is compared case-insensitively with the reread paragraph
-  style.
-- Requested `bold` must match every non-empty run in the target paragraph.
-- Requested `font_size_pt` must match every non-empty run using a small numeric
-  tolerance suitable for OOXML point conversion.
-- Unrequested style properties must retain their before-edit fingerprints.
-- Target text and location must remain unchanged.
-- A mismatch returns the existing typed preservation failure and removes the
-  generated output.
+## Text Style Contract
 
-### Acceptance cases
+`docx.set_text_style` accepts a strict `style` object with at least one of:
 
-- Built-in style only, bold only, font size only, and all supported combinations.
-- Explicit `bold: false` is distinguished from an omitted `bold` property.
-- Empty style objects, missing targets, conflicting target forms, and out-of-range
-  sizes fail before approval.
-- Save/reload disagreement fails preservation even if the editor reports success.
+- `builtin_style`;
+- `bold`, including explicit `false`;
+- integer `font_size_pt` in the inclusive range `1..200`.
 
-## 4. Gap 2: Evidence-Bind Every DOCX Mutation
+Unknown properties, an empty style object, a missing target, conflicting
+`paragraph_index` and `location`, a non-body location, or an invalid size fail
+before Policy and create no approval.
 
-### Target evidence contract
+After editing, the output is reopened through the same reader. The validator
+checks the built-in style case-insensitively, requires every non-empty target
+run to match requested bold and font size, preserves unrequested properties,
+and verifies that text and location did not change. A mismatch returns the
+typed preservation failure and removes the generated output.
 
-Replace the operation-specific `docx.replace_paragraph` special case with one
-DOCX mutation binding owned by Workflow Runtime. The persisted binding contains:
+## Evidence-Bound Mutations
 
-```text
-source_tool_call_id
-source_node_id and scope_revision
-session_id and run_id
-governed input path
-source_document_sha256
-operation
-target or anchor location
-target or anchor source_hash when applicable
-normalized before text when applicable
-```
+Before approval, Runtime derives one binding from the completed
+`document_locate_evidence` call in the same run, session, node, scope revision,
+and governed path. It persists the source tool call, source node, run/session,
+operation, input SHA-256, and the applicable target or boundary evidence.
+Model-supplied evidence fields are accepted only when they equal current
+evidence.
 
-`source_document_sha256` is the whole input-file version. `source_hash` remains
-the normalized paragraph or match fingerprint. They are separate facts and
-must not be overloaded.
-
-The binding is derived only from the completed `files.read` observation in the
-current `document_locate_evidence` node. A model may omit evidence-owned fields;
-Runtime fills them. A model-supplied value is accepted only when it equals the
-current evidence.
-
-### Operation matrix
-
-| Operation | Required bound evidence |
+| Operation | Bound evidence |
 |---|---|
-| `replace_text` | input SHA-256, exact matched locations and hashes, expected match counts |
-| `replace_paragraph` | input SHA-256, paragraph location, paragraph source hash, optional exact old-text guard |
-| `insert_paragraph` at `before` or `after` | input SHA-256 and anchor paragraph location/hash |
-| `insert_paragraph` at `start` or `end` | input SHA-256 and the corresponding document boundary |
-| `delete_paragraph` | input SHA-256, paragraph location/hash, normalized before text |
-| `set_text_style` | input SHA-256, paragraph location/hash, before-format fingerprint |
+| `replace_text` | Input SHA-256, exact match locations/hashes, expected counts |
+| `replace_paragraph` | Input SHA-256, paragraph location/hash, optional exact old text |
+| `insert_paragraph` before/after | Input SHA-256 and anchor location/hash |
+| `insert_paragraph` start/end | Input SHA-256 and the matching document boundary |
+| `delete_paragraph` | Input SHA-256, paragraph location/hash, normalized before text |
+| `set_text_style` | Input SHA-256, paragraph location/hash, before-format fingerprint |
 
-Schema validation must express target alternatives. `before` and `after`
-require an anchor; `start` and `end` reject an unrelated anchor. Delete, style,
-and paragraph replacement always require exactly one resolvable paragraph.
+Missing, conflicting, cross-run, cross-session, stale-node, wrong-path, or
+ambiguous evidence fails before approval. Immediately after approval and before
+adapter execution, Runtime reloads the persisted call, recomputes the governed
+file SHA-256, resolves the target again, and compares its current hash and
+before value. A source changed during the approval wait fails without invoking
+the editor or leaving an output.
 
-### Two validation points
+## Run-Level Preservation
 
-1. **Before Policy and Approval:** validate source provenance, path, operation,
-   locator uniqueness, source hash, and model-supplied consistency. Failure does
-   not create an approval.
-2. **Immediately after approval, before adapter execution:** reload the run and
-   call, recompute the governed input SHA-256, resolve the bound target again,
-   and compare its hash and before value. A stale source fails without invoking
-   the editor or writing an output.
+Text replacement maps logical paragraph offsets back to the minimum affected
+run spans. A match inside one run splices only that run. A cross-run match is
+allowed only when all affected text runs have the same formatting fingerprint
+and relationship ownership. Mixed formatting, hyperlink relationship
+crossings, fields, drawings, tracked changes, and other unsupported boundaries
+fail closed rather than flattening the paragraph.
 
-The second check closes the approval wait-time race. Approved calls must not
-execute solely because their persisted argument map was valid earlier.
+Whole-paragraph replacement preserves paragraph properties and reuses the
+source run formatting only when source text runs are homogeneous. Mixed-format
+paragraph replacement is rejected. Output validation compares unaffected run
+text, run formatting, paragraph properties, hyperlinks/relationships, fields,
+and images after save/reload. Only the requested text or style delta may differ.
 
-### Acceptance cases
+Successful edits report `high_level_preservation = verified` and
+`original_unchanged = true`. Any unrelated parser-visible change returns
+`preservation_mismatch` and deletes the output copy.
 
-- Every DOCX operation rejects evidence from another run, session, node, path,
-  or scope revision.
-- Missing and conflicting evidence fails before approval.
-- Changing the source file or bound paragraph after approval is requested makes
-  approval execution fail closed with no output.
-- An unrelated approved call cannot reuse a prior DOCX localization artifact.
-- Start/end insertion remains usable without inventing a paragraph index.
+## Target-Aware Decision Evidence
 
-## 5. Gap 3: Preserve Run-Level Formatting
+`Runtime.StageEvidenceMaxBytes`, configured by
+`workflow_stage_evidence_max_bytes`, is the single evidence budget. The default
+is 8,000 bytes. Decision and editor stages do not carry a second DOCX-specific
+byte or rune limit.
 
-### Replacement algorithm
+For a structured DOCX read, the decision projector ranks complete JSON records
+in this order:
 
-DOCX text replacement must edit the minimum affected run spans instead of
-clearing every run and writing all text into the first run.
+1. source metadata, format, coverage, truncation, and parser statistics;
+2. explicit `document.p[N]`, English `paragraph N`, Chinese `第 N 段`,
+   route-bound location, and quoted-text matches;
+3. the matched block and up to two same-story neighbors on each side;
+4. representative header/footer story blocks and eligible operation context;
+5. deterministic body head/tail samples when no explicit anchor matches;
+6. remaining records in stable document order when budget remains.
 
-For each paragraph:
+The projector ranks existing evidence only. It cannot select an operation or
+authorize a mutation target. Every byte ceiling uses the same ordering and
+packs only complete UTF-8 JSON records. Its first record reports selected and
+omitted counts, omitted body ranges, exact bytes used, and the anchors that
+caused prioritization. Legacy archived observations without a structured DOCX
+map retain the bounded generic evidence fallback.
 
-1. Build the logical paragraph text and a mapping from character offsets to
-   run indices and offsets.
-2. Resolve all non-overlapping exact matches before mutating the paragraph.
-3. For a match contained in one run, splice only that run's text; preserve its
-   run properties and all surrounding runs at the OOXML property level supported
-   by the parser.
-4. For a match crossing runs, permit replacement only when every affected text
-   run has the same formatting fingerprint and relationship boundary.
-5. If a match crosses mixed formatting, hyperlink, field, drawing, tracked
-   change, or another unsupported boundary, fail explicitly instead of
-   flattening the paragraph.
+## Deterministic Evaluation
 
-For whole-paragraph replacement, preserve paragraph properties and use the
-existing run style only when the source paragraph has one homogeneous text-run
-fingerprint. A mixed-format paragraph is rejected until an explicit replacement
-style policy is added to the public contract.
+The merge-gating suite includes:
 
-### Preservation fingerprints
+- strict style schema and save/reload checks for each supported style field;
+- current-evidence binding for all five operations, cross-run rejection, and
+  source mutation during approval wait;
+- real DOCX fixtures for bold, italic, underline, font, color, mixed runs,
+  hyperlinks, fields, drawings, images, indentation, spacing, and coverage;
+- late-target, Chinese/English anchor, early-reorder, no-anchor head/tail,
+  story-part, UTF-8, and 8K/4K/2K projector cases;
+- Chinese and English route/selection cases for all five operations;
+- read-vs-edit, paragraph-delete-vs-file-delete, create-vs-edit, and
+  browser-vs-local-document confusion pairs;
+- unsupported header, table-cell, footnote, and tracked-change mutations that
+  block without approval;
+- one real default file-backed owner path covering route, direct read,
+  operation selection, approval pending, approved execution, output reread,
+  preservation, Workflow resume, attachment result, and state reload.
 
-The reader and normalized representation must expose stable run spans and the
-parser-visible formatting needed to detect damage, including at minimum:
+These tests use the deterministic mock model. Live-model calibration is
+optional supplementary evidence and is not required for correctness.
 
-- bold, italic, underline, font name, font size, and color;
-- hyperlink or relationship ownership;
-- paragraph style and paragraph properties relevant to layout;
-- unsupported-boundary markers for fields, drawings, and tracked changes.
+Run the focused and full gates after document-tool setup:
 
-Post-edit validation compares unaffected run fingerprints and relationship
-boundaries. Only the expected text span and an explicitly requested style delta
-may differ. Parser coverage remains explicit: unknown formatting cannot be
-reported as preserved.
-
-### Acceptance cases
-
-- Replacement inside one bold or linked run preserves that run and its siblings.
-- Replacement spanning homogeneous runs preserves the common formatting.
-- Replacement spanning bold and non-bold runs fails without leaving an output.
-- Paragraph replacement preserves paragraph style, numbering, indentation, and
-  spacing when the source run formatting is homogeneous.
-- Unchanged hyperlinks, fields, images, and relationships survive save/reload.
-
-## 6. Gap 4: Make DOCX Coverage Truthful
-
-### Coverage semantics
-
-`coverage.content = complete` means every text-bearing DOCX story part detected
-by package inspection is represented in normalized evidence. It must not mean
-only that the adapter finished reading body paragraphs.
-
-Until that condition is met, the reader reports `partial` and lists why. The
-structured result adds per-scope status and omitted part evidence, for example:
-
-```json
-{
-  "coverage": {
-    "content": "partial",
-    "content_scopes": {
-      "body": "complete",
-      "tables": "complete",
-      "headers": "complete",
-      "footers": "complete",
-      "footnotes": "unsupported",
-      "endnotes": "unsupported",
-      "text_boxes": "unsupported",
-      "tracked_changes": "partial"
-    }
-  },
-  "extensions": {
-    "status": "partial",
-    "unparsed_parts": ["word/footnotes.xml"]
-  }
-}
+```bash
+npm run setup:document-tools
+cd services/gateway
+go test ./internal/document ./internal/toolhub ./internal/agent ./internal/modelrouter ./internal/semanticrouting
+go test ./...
+go vet ./...
+go build ./...
 ```
 
-The exact vocabulary must be shared with existing coverage normalization; no
-parallel coverage enum is introduced.
+## Current Boundaries
 
-### Delivery stages
+- DOCX mutations target top-level body paragraphs only.
+- Header/footer content is available to decision evidence but remains read-only.
+- Table-cell editing, footnote/endnote editing, tracked-change acceptance,
+  image replacement, and arbitrary OOXML mutation are not registered.
+- Cross-run formatting preservation is limited to parser-visible OOXML
+  properties; unsupported boundaries are explicit failures or partial coverage.
+- Large-document retrieval/indexing is separate from this bounded decision
+  projection and is not added by the DOCX editor.
 
-1. Correct the current declaration to `partial` whenever package inspection
-   cannot prove full text coverage.
-2. Extract header and footer paragraphs, tables, hyperlinks, and images with
-   stable section/story-part locations. Shared linked headers or footers are
-   deduplicated by package part identity while retaining section references.
-3. Inventory text-bearing OOXML parts and markers, including footnotes,
-   endnotes, text boxes, tracked insertions/deletions, and `altChunk` content.
-4. Add parsers in value order. Unsupported parts remain visible in coverage and
-   never become implicit mutation targets.
-
-Plain `content` may remain body-oriented for answer quality, but the structured
-representation and operation-selection projection must include labeled
-header/footer evidence when present.
-
-### Acceptance cases
-
-- A body-only fixture can be marked complete only after package inventory proves
-  no omitted text-bearing parts.
-- Header/footer text receives stable locations and appears once even when linked
-  across sections.
-- Documents containing footnotes, text boxes, or tracked changes report partial
-  coverage until those parts are represented.
-- Output reread preserves the same or better coverage status; a parser omission
-  cannot silently become a preservation success.
-
-## 7. Gap 5: Target-Aware Decision Evidence
-
-### One budget and one unit
-
-`Runtime.StageEvidenceMaxBytes`, backed by
-`workflow_stage_evidence_max_bytes`, is the single source of truth. Operation
-selection must not hardcode another `8000` limit, and documentation must describe
-the configured byte budget rather than a separate 20,000-rune contract.
-
-The default remains 8,000 bytes in this plan. The optimization changes evidence
-selection, not model context size.
-
-### DOCX decision projection
-
-Add a document decision projection that receives the frozen owner request,
-route target, eligible operation entries, and structured read result. It packs
-whole evidence records in this order:
-
-1. source metadata, format, coverage, and truncation state;
-2. exact route-bound locations and explicit quoted-text matches;
-3. matching paragraph/table anchors with bounded neighboring blocks;
-4. operation context needed to distinguish replace, insert, delete, and style;
-5. deterministic head/tail structural fallback when no target anchor exists.
-
-The projector may rank existing evidence but must not select a capability or
-operation. It is not a keyword router. It must never add a second catalog,
-invoke another model, or make a mutation target authoritative without Workflow
-binding.
-
-Only complete UTF-8 records are packed. The projection reports selected and
-omitted record counts, omitted location ranges, byte usage, and the anchors that
-caused prioritization. Compact and minimal projections repeat the same ordering
-at smaller budgets rather than reverting to a raw prefix.
-
-### Acceptance cases
-
-- A requested paragraph near the end of a long DOCX remains visible within the
-  default budget.
-- Chinese and English explicit anchors select the same stable location.
-- No-anchor requests receive metadata, operation context, and head/tail samples.
-- Reordering unrelated early paragraphs does not evict an explicitly targeted
-  late paragraph.
-- Every full, compact, and minimal projection remains valid UTF-8 and within its
-  byte ceiling.
-
-## 8. Gap 6: Route And End-To-End Evaluation Matrix
-
-Coverage is required at five layers. ToolHub-only tests do not prove that a
-user request can route, select, approve, execute, reread, and preserve a DOCX.
-
-### Layer A: parser, schema, and preservation units
-
-- Strict style object and target alternatives.
-- Run extraction, effective style readback, coverage inventory, and stable
-  locations.
-- Operation-specific expected deltas and unrelated run/relationship rejection.
-- Target-aware evidence packing at full, compact, and minimal budgets.
-
-### Layer B: ToolHub adapter integration
-
-Each of the five registered DOCX editors needs success, malformed input,
-target-not-found, ambiguity, stale hash, preservation mismatch, and save/reload
-cases against real fixtures. Fixtures include mixed runs, hyperlinks, multiple
-sections, headers/footers, tables, and unsupported OOXML parts.
-
-### Layer C: Workflow and approval integration
-
-For every operation, exercise:
-
-```text
-route -> confirm target -> direct_once read -> operation decision
-      -> one materialized editor -> approval_pending -> approve
-      -> adapter -> output reread -> completed WorkflowResult
-```
-
-Add negative cases for cross-run evidence, conflicting locators, source changes
-before approval, source changes while approval is pending, rejected approval,
-adapter failure, and preservation cleanup. At least one approved path runs with
-the default file-backed state configuration.
-
-### Layer D: multilingual semantic and operation selection
-
-Maintain deterministic labeled cases for Chinese and English, including:
-
-| Intent | Chinese example | English example | Expected operation |
-|---|---|---|---|
-| Replace text | 把“旧名称”改成“新名称” | Replace "Old Name" with "New Name" | `replace_text` |
-| Replace paragraph | 把第三段改写为这句话 | Rewrite paragraph three with this sentence | `replace_paragraph` |
-| Insert paragraph | 在结论前新增一段 | Insert a paragraph before the conclusion | `insert_paragraph` |
-| Delete paragraph | 删除重复的第二段 | Delete the duplicated second paragraph | `delete_paragraph` |
-| Set style | 把标题设为一级标题并加粗 | Make the title Heading 1 and bold | `set_text_style` |
-
-Include paraphrases, follow-ups using the latest edited document, explicit
-locations near the end of a long file, and confusion pairs such as replace vs
-insert and replace vs style. Hard negatives cover table-cell edits, tracked
-change acceptance, image replacement, and other unregistered operations. Those
-requests may enter `document.edit`, but operation selection must return no
-matching editor and block clearly without materializing a substitute tool.
-
-Real-model calibration remains opt-in evidence. Deterministic mock-router and
-golden cases are the merge gate.
-
-### Layer E: golden owner workflows
-
-Add approved end-to-end golden cases for all five operations and negative golden
-cases for unsupported mutation, stale approval, late-document evidence, mixed
-run rejection, and partial coverage disclosure. Assert the selected Workflow,
-operation, approval surface, output lineage, preservation result, and final
-owner-facing status instead of matching only tool names.
-
-## 9. Delivery Order And Ownership
-
-Implement in six reviewable behavior changes, each with focused tests and
-bilingual current-state documentation updates:
-
-1. **Coverage truthfulness first:** prevents later preservation work from
-   trusting a false completeness claim.
-2. **Run-aware representation:** provides shared readback evidence for style and
-   replacement preservation.
-3. **Style contract:** aligns schema, adapter result, reread, and preservation.
-4. **Generic DOCX evidence binding:** applies pre-approval and post-approval
-   source/target validation to every mutation.
-5. **Run-preserving editors:** changes replacement behavior only after the
-   parser can prove preservation.
-6. **Target-aware projection and full eval matrix:** removes the evidence budget
-   mismatch and closes routing plus end-to-end coverage.
-
-Ownership stays within existing boundaries:
-
-| Concern | Owner |
-|---|---|
-| DOCX schemas, adapters, parser scripts | `internal/toolhub` |
-| normalized run/coverage contract and preservation | `internal/document` |
-| evidence binding, approval revalidation, decision projection | `internal/agent` |
-| runtime budget default and validation | `internal/config` plus the existing default config |
-| semantic, Workflow, ToolHub, and golden cases | existing package tests and `eval/golden` |
-
-No new package or cross-layer import is required.
-
-## 10. Completion Gate
-
-The optimization is complete only when all of the following are true:
-
-- all five DOCX operations are evidence-bound before approval and revalidated
-  before approved execution;
-- style-only requests round-trip and verify every requested property;
-- supported text replacements retain parser-visible run formatting, while
-  ambiguous mixed-format changes fail closed;
-- DOCX content coverage never claims completeness for detected omitted text;
-- operation selection uses target-aware evidence within the configured byte
-  budget and the docs no longer claim a separate rune limit;
-- deterministic Chinese and English route, decision, approval, mutation,
-  reread, and negative golden cases pass;
-- the default file-backed runtime is included in validation;
-- current-state English and Chinese documentation is updated after behavior
-  lands, and this temporary plan is then removed according to the documentation
-  maintenance rules.
+The owning component contracts remain in
+[Document workflows](document-workflows.md); user-visible operations remain in
+[Workflow capabilities](workflow-capabilities.md).

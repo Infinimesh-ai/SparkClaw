@@ -39,7 +39,7 @@ documentation tree.
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
 | [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
-| [DOCX editing optimization](docx-editing-optimization.md) | Proposed hardening for DOCX style verification, evidence binding, run preservation, coverage, decision projection, and evals |
+| [DOCX editing](docx-editing-optimization.md) | Current DOCX style verification, evidence binding, run preservation, coverage, target-aware decision projection, and eval contracts |
 | [Observation compression redesign](observation-compression-redesign.md) | Implemented uniform tool-result envelope, runtime evidence provisioning, and lossless compaction |
 | [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |
 

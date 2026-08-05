@@ -55,12 +55,16 @@ with `required_tool_not_called` without starting a third model call.
 `select_edit_operation` never exposes a tool to the step model. Runtime searches its
 format-qualified `document.edit` scope directly. A single candidate is selected
 deterministically; multiple candidates are resolved by one retry-bounded Fast
-model decision over the owner request and up to 20,000 runes of dependency
-evidence. The selected directory entry, capability, format, operation, and
-selection path are persisted in the node's `OutcomeRefs`. The edit node can
-materialize only that entry. A missing, stale, ambiguous, or invalid decision
-blocks the Workflow. The former inline secondary directory router has been
-removed; any other multi-candidate scope must declare its own decision node.
+model decision over the owner request and dependency evidence bounded by
+`workflow_stage_evidence_max_bytes` (8,000 bytes by default). DOCX decisions
+prioritize explicit stable locations, paragraph ordinals, quoted text, bounded
+neighbors, story-part samples, and operation context before a deterministic
+head/tail fallback; other formats retain their structured projector. The
+selected directory entry, capability, format, operation, and selection path are
+persisted in the node's `OutcomeRefs`. The edit node can materialize only that
+entry. A missing, stale, ambiguous, or invalid decision blocks the Workflow.
+The former inline secondary directory router has been removed; any other
+multi-candidate scope must declare its own decision node.
 See the [operation-selection design record](document-edit-operation-selection.md).
 
 ## Durable Document Records
@@ -182,15 +186,18 @@ budget is unavailable, the read remains explicitly `partial` with
 - Image semantics may locate a target but cannot authorize an edit by itself.
 - Every mutation must match the persisted operation decision, selected
   format/operation schema, and frozen paths.
-- The model-visible `docx.replace_paragraph` schema declares `source_hash` as
-  required before model execution. Before Policy and Approval, Runtime binds a
-  missing value from the single completed `document_locate_evidence` read in
-  the current run and rejects a supplied value that conflicts with that
-  evidence. Missing, conflicting, unrelated-node, or prior-run evidence blocks
-  without creating an approval.
+- Every DOCX mutation binds the current input SHA-256 and its exact match,
+  paragraph, anchor, boundary, or before-format evidence from the single
+  completed `document_locate_evidence` read. Missing, conflicting,
+  unrelated-node, cross-run/session, wrong-path, or stale evidence blocks
+  without creating approval. Immediately after approval, Runtime recomputes the
+  file version and resolves the bound target again before adapter execution.
 - The original SHA-256 must remain unchanged.
 - Output is reread through the same normalized pipeline.
 - Expected after-values and operation-specific deltas are checked.
+- DOCX text replacement preserves parser-visible run and paragraph formatting;
+  mixed formatting or unsupported relationship/field/drawing/tracked-change
+  boundaries fail closed instead of flattening content.
 - Known evidence-only assets, annotations, and layout fingerprints must be
   preserved unless the operation explicitly allows their change.
 - Any unreported or unrelated change returns `preservation_mismatch` and removes

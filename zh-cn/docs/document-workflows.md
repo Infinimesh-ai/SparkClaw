@@ -44,10 +44,13 @@ confirm_document_target
 
 `select_edit_operation` 不会向步骤模型暴露工具。Runtime 直接检索它按格式限定的
 `document.edit` scope：单候选确定性选中；多候选由一次有重试上限的 Fast 模型决策处理，
-输入是 owner 请求和最多 20,000 字符的依赖证据。选中的 directory entry、capability、
-format、operation 与选择路径写入该节点的 `OutcomeRefs`，编辑节点只能 materialize 这一
-entry。决策缺失、过期、有歧义或无效时 Workflow 会显式 block。原内联目录二次路由已经
-删除；其他多候选 scope 也必须声明自己的决策节点。详见
+输入是 owner 请求和由 `workflow_stage_evidence_max_bytes` 限制的依赖证据，默认 8,000
+bytes。DOCX decision 会优先选择显式稳定 location、段落序号、引号文本、有界 neighbor、
+story-part 样本和 operation context，再使用确定性 head/tail fallback；其他格式保持原有
+结构化 projector。选中的 directory entry、capability、format、operation 与选择路径写入
+该节点的 `OutcomeRefs`，编辑节点只能 materialize 这一 entry。决策缺失、过期、有歧义或
+无效时 Workflow 会显式 block。原内联目录二次路由已经删除；其他多候选 scope 也必须声明
+自己的决策节点。详见
 [operation 选择设计记录](document-edit-operation-selection.md)。
 
 ## 持久文档记录
@@ -148,13 +151,15 @@ package extension 可以作为 partial evidence 读取，但不是隐式 mutatio
 - Image semantic 可以辅助定位，但不能单独授权 edit。
 - 每次 mutation 都必须匹配持久化 operation 决策、选中的 format/operation schema 和冻结
   path。
-- 模型执行前，可见的 `docx.replace_paragraph` schema 已将 `source_hash` 声明为 required。
-  在 Policy 和 Approval 之前，Runtime 会从当前 run 唯一已完成的
-  `document_locate_evidence` read 中绑定缺失值；如果模型提供的值与该证据冲突，则直接拒绝。
-  缺失、冲突、来自无关节点或旧 run 的 evidence 会直接阻断，不创建 approval。
+- 每个 DOCX mutation 都会从唯一已完成的 `document_locate_evidence` read 绑定当前输入
+  SHA-256，以及精确 match、paragraph、anchor、boundary 或编辑前格式证据。缺失、冲突、
+  来自无关节点、跨 run/session、path 错误或过期的 evidence 会直接阻断，不创建 approval。
+  Approval 通过后，Runtime 会在 adapter 执行前重新计算文件版本并再次解析绑定 target。
 - 原文件 SHA-256 必须不变。
 - 输出通过同一 normalize pipeline 重新读取。
 - 校验 expected after-value 和 operation-specific delta。
+- DOCX 文本替换会保留 parser 可见的 run 与 paragraph 格式；混合格式或不支持的
+  relationship/field/drawing/tracked-change 边界会显式失败，不会压平内容。
 - 已知 evidence-only asset、annotation 和 layout fingerprint 必须保留，除非 operation 明确允许变化。
 - 任何未报告或无关变化返回 `preservation_mismatch`，并删除非法生成输出。
 - 不支持的 category 报告为 `unknown` 或 `partial`，不虚假标记为 preserved。

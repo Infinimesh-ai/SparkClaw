@@ -1,6 +1,9 @@
 package toolhub
 
-import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+import (
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+)
 
 func pdfToolDefinitions() []app.ToolDefinition {
 	return []app.ToolDefinition{
@@ -9,16 +12,20 @@ func pdfToolDefinitions() []app.ToolDefinition {
 			Description: "Extract text and stable page blocks from a workspace PDF. When OvisOCR2 is enabled, scanned pages are rasterized and parsed under bounded page and byte budgets; unavailable or failed OCR remains explicit partial evidence.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":      stringSchema(),
-				"max_bytes": map[string]any{"type": "number"},
+				"max_bytes": map[string]any{"type": "integer", "minimum": float64(1), "maximum": float64(document.SmallExtractedMaxBytes)},
 			}),
-			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "scanned_unsupported", "document"}, map[string]any{
-				"path":                stringSchema(),
-				"content":             stringSchema(),
-				"bytes":               integerSchema(),
-				"truncated":           booleanSchema(),
-				"untrusted":           booleanSchema(),
-				"scanned_unsupported": booleanSchema(),
-				"document":            objectValueSchema(),
+			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "read_complete", "coverage_status", "missing_page_indexes", "page_status_counts", "scanned_unsupported", "document"}, map[string]any{
+				"path":                 stringSchema(),
+				"content":              stringSchema(),
+				"bytes":                integerSchema(),
+				"truncated":            booleanSchema(),
+				"untrusted":            booleanSchema(),
+				"read_complete":        booleanSchema(),
+				"coverage_status":      map[string]any{"enum": []any{"complete", "partial", "unavailable"}},
+				"missing_page_indexes": map[string]any{"type": "array", "items": integerSchema()},
+				"page_status_counts":   objectValueSchema(),
+				"scanned_unsupported":  booleanSchema(),
+				"document":             objectValueSchema(),
 			}),
 			Risk:             app.RiskRead,
 			RequiresApproval: false,

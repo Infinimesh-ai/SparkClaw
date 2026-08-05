@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
@@ -25,14 +26,30 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Resu
 	if err != nil {
 		return Result{}, err
 	}
+	stats := read.Document.Stats
+	structuredStats, _ := structured["stats"].(map[string]any)
+	readComplete := boolArg(stats, "read_complete", boolArg(stats, "complete", false))
+	coverageStatus := stringArg(stats, "coverage_status", "")
+	if coverageStatus == "" {
+		coverageStatus = "partial"
+		if readComplete {
+			coverageStatus = "complete"
+		} else if strings.TrimSpace(read.Content) == "" {
+			coverageStatus = "unavailable"
+		}
+	}
 	return Result{Output: map[string]any{
-		"path":                path,
-		"content":             read.Content,
-		"bytes":               len([]byte(read.Content)),
-		"truncated":           false,
-		"untrusted":           true,
-		"scanned_unsupported": boolArg(read.Document.Stats, "scanned_unsupported", false),
-		"document":            structured,
+		"path":                 path,
+		"content":              read.Content,
+		"bytes":                len([]byte(read.Content)),
+		"truncated":            false,
+		"untrusted":            true,
+		"read_complete":        readComplete,
+		"coverage_status":      coverageStatus,
+		"missing_page_indexes": structuredStats["missing_page_indexes"],
+		"page_status_counts":   structuredStats["page_status_counts"],
+		"scanned_unsupported":  boolArg(read.Document.Stats, "scanned_unsupported", false),
+		"document":             structured,
 	}}, nil
 }
 

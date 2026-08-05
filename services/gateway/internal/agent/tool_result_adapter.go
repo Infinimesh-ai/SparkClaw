@@ -143,7 +143,7 @@ func buildToolResultMessage(input toolResultAdapterInput) toolResultMessage {
 		ToolCallID: call.ID,
 		Tool:       call.Tool,
 		Status:     status,
-		Category:   toolResultCategory(call.Tool),
+		Category:   toolResultCategoryForCall(call),
 		Untrusted:  true,
 		Summary:    summary,
 		Structured: structured,
@@ -236,6 +236,17 @@ func toolResultCategory(tool string) string {
 	}
 }
 
+func toolResultCategoryForCall(call app.ToolCall) string {
+	switch call.Capability {
+	case app.ToolCapabilityDocumentRead:
+		return "file"
+	case app.ToolCapabilityDocumentEdit:
+		return "document_mutation"
+	default:
+		return toolResultCategory(call.Tool)
+	}
+}
+
 func modelVisibleToolOutput(call app.ToolCall, output any) any {
 	if call.Tool != "files.read" {
 		return output
@@ -324,7 +335,7 @@ func toolResultStructuredFields(call app.ToolCall, output any, observationRef st
 }
 
 func addTypedStructuredFields(fields map[string]any, call app.ToolCall, output map[string]any, projectionLimit int) {
-	switch toolResultCategory(call.Tool) {
+	switch toolResultCategoryForCall(call) {
 	case "observation":
 		fields["source_artifact_uri"] = strings.TrimSpace(stringValue(output["artifact_uri"]))
 		fields["next_step_hint"] = "Use source_artifact_uri with next_offset in observation.read when another persisted window is needed."
@@ -355,7 +366,7 @@ func addTypedStructuredFields(fields map[string]any, call app.ToolCall, output m
 			fields["next_step_hint"] = "If content is truncated or insufficient, read the same URL again with a narrower target or larger max_bytes."
 		}
 	case "file":
-		if call.Tool == "files.read" {
+		if call.Tool == "files.read" || call.Capability == app.ToolCapabilityDocumentRead {
 			fields["already_read"] = true
 			sourceTruncated := boolValue(output["truncated"])
 			readComplete := fileReadComplete(output)
@@ -373,8 +384,18 @@ func addTypedStructuredFields(fields map[string]any, call app.ToolCall, output m
 			if pipeline := documentPipelineFields(output); len(pipeline) > 0 {
 				fields["document_pipeline"] = pipeline
 			}
+			if coverage := projectPDFReadCoverage(call, output); coverage.Applies {
+				fields["coverage_status"] = coverage.CoverageStatus
+				fields["total_pages"] = coverage.TotalPages
+				fields["missing_page_indexes"] = coverage.MissingPageIndexes
+				fields["page_status_counts"] = coverage.PageStatusCounts
+				readComplete = coverage.ReadComplete
+				fields["read_complete"] = readComplete
+			}
 			if sourceTruncated {
 				fields["next_step_hint"] = "The source content was truncated by max_bytes. Increase max_bytes or use a more specific tool before claiming full-document coverage."
+			} else if !readComplete {
+				fields["next_step_hint"] = "The document read is partial. Use only covered pages, report missing page indexes and status reasons, and do not claim full-document coverage."
 			} else {
 				fields["next_step_hint"] = "Use returned content and document locations as evidence for answering or editing; avoid rereading unless the file changed or evidence is insufficient."
 			}
@@ -393,6 +414,11 @@ func fileReadSourceFields(output map[string]any) map[string]any {
 		"read_complete": fileReadComplete(output),
 	}
 	for _, key := range []string{"path", "rel_path", "kind", "bytes", "max_bytes", "content_type"} {
+		if value, ok := output[key]; ok && usefulStructuredValue(value) {
+			out[key] = value
+		}
+	}
+	for _, key := range []string{"coverage_status", "missing_page_indexes", "page_status_counts"} {
 		if value, ok := output[key]; ok && usefulStructuredValue(value) {
 			out[key] = value
 		}
@@ -424,6 +450,9 @@ func markToolMessageCompacted(structured map[string]any) {
 func fileReadComplete(output map[string]any) bool {
 	if boolValue(output["truncated"]) {
 		return false
+	}
+	if value, exists := output["read_complete"]; exists {
+		return boolValue(value)
 	}
 	document, ok := anyMap(output["document"])
 	if !ok {
@@ -553,10 +582,10 @@ func toolResultEvidence(call app.ToolCall, output any, evidenceLimit int) []tool
 		if evidence := imageEvidence(call.Tool, outputMap); len(evidence) > 0 {
 			return evidence
 		}
-		if evidence := documentMutationEvidence(call.Tool, outputMap); len(evidence) > 0 {
+		if evidence := documentMutationEvidence(call, outputMap); len(evidence) > 0 {
 			return evidence
 		}
-		if evidence := documentReadEvidence(call.Tool, outputMap, evidenceLimit); len(evidence) > 0 {
+		if evidence := documentReadEvidence(call, outputMap, evidenceLimit); len(evidence) > 0 {
 			return evidence
 		}
 		if text := preferredEvidenceText(outputMap); text != "" {
@@ -975,8 +1004,8 @@ func documentAnySliceFromAny(value any) []any {
 	}
 }
 
-func documentReadEvidence(tool string, output map[string]any, evidenceLimit int) []toolEvidence {
-	if tool != "files.read" && !strings.HasPrefix(tool, "pdf.") {
+func documentReadEvidence(call app.ToolCall, output map[string]any, evidenceLimit int) []toolEvidence {
+	if toolResultCategoryForCall(call) != "file" {
 		return nil
 	}
 	if evidenceLimit <= 0 {
@@ -1052,8 +1081,8 @@ func documentReadEvidence(tool string, output map[string]any, evidenceLimit int)
 	return evidence
 }
 
-func documentMutationEvidence(tool string, output map[string]any) []toolEvidence {
-	if toolResultCategory(tool) != "document_mutation" {
+func documentMutationEvidence(call app.ToolCall, output map[string]any) []toolEvidence {
+	if toolResultCategoryForCall(call) != "document_mutation" {
 		return nil
 	}
 	lines := []string{}

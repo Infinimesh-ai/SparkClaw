@@ -31,12 +31,14 @@ type documentOCRResult struct {
 func (e *ovisDocumentOCREnricher) Name() string { return "ovisocr2_page_parsing" }
 
 func (e *ovisDocumentOCREnricher) Supports(format string, category string) bool {
-	if e == nil || e.hub == nil || e.hub.ocr == nil || !e.hub.ocr.Enabled() || category != "assets" {
+	if e == nil || e.hub == nil || category != "assets" {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "docx", "xlsx", "pptx", "pdf":
+	case "pdf":
 		return true
+	case "docx", "xlsx", "pptx":
+		return e.hub.ocr != nil && e.hub.ocr.Enabled()
 	default:
 		return false
 	}
@@ -66,6 +68,15 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 	scannedPDF := request.Metadata.Format == "pdf" && boolArg(request.Document.Stats, "scanned_unsupported", false)
 	if scannedPDF {
 		mode = "all"
+		if e.hub.ocr == nil || !e.hub.ocr.Enabled() {
+			for _, value := range imageValues {
+				record, ok := documentAnyMap(value)
+				if ok && stringArg(record, "kind", "") == "page_image" {
+					record["ocr"] = skippedDocumentOCR("disabled", "document OCR adapter is disabled")
+				}
+			}
+			return document.EnrichmentResult{Enrichment: enrichment}, nil
+		}
 	}
 
 	representative := map[string]documentOCRTask{}
@@ -131,9 +142,16 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 	for _, result := range e.parseImages(ctx, tasks) {
 		if result.err != nil {
 			setOCRForRecords(recordsByHash[result.hash], map[string]any{
-				"status": "failed", "provider": "ovisocr2", "warning": result.err.Error(), "source_sha256": result.hash, "untrusted": true,
+				"status": "failed", "provider": "ovisocr2", "reason_code": "ocr_failed", "warning": result.err.Error(), "source_sha256": result.hash, "untrusted": true,
 			})
 			warnings = append(warnings, "OvisOCR2 page parsing failed: "+result.err.Error())
+			continue
+		}
+		if scannedPDF && documentocr.IsTrivialMarkdown(result.result.Markdown) {
+			setOCRForRecords(recordsByHash[result.hash], map[string]any{
+				"status": "failed", "provider": "ovisocr2", "reason_code": "no_usable_text", "source_sha256": result.hash, "untrusted": true,
+			})
+			warnings = append(warnings, "OvisOCR2 page parsing returned no usable text")
 			continue
 		}
 		setOCRForRecords(recordsByHash[result.hash], map[string]any{

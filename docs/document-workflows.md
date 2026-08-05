@@ -142,6 +142,39 @@ document content, and repeated images are deduplicated by source hash.
 Current image limits and budgets are enforced in code and tests. Any change to
 them is a contract change, not a prompt-only adjustment.
 
+## PDF Page Coverage And OCR Runtime
+
+Every PDF page is classified by the deterministic
+`pdf_native_text_quality_v1` policy before OCR selection. Final page states are
+`native`, `ocr_succeeded`, `ocr_disabled`, `ocr_failed`, `render_failed`, or
+`budget_omitted`; `ocr_pending` is only an intermediate parser state. Mixed
+pages keep separate native and OCR blocks unless their normalized text is
+exactly equal.
+
+PDF reads publish `read_complete`, `coverage_status`, `page_status_counts`, and
+sorted `missing_page_indexes`. A read is complete only when every page is
+native or successfully recognized. Partial reads with usable evidence can be
+summarized only with an explicit limitation; unavailable reads block. The
+finalizer receives a coverage manifest separately from its bounded 8000-rune
+content excerpt, so excerpt truncation is not reported as source-page loss and
+missing pages are never hidden by the excerpt budget.
+
+The public adapter status separates `configured_enabled`, `adapter_ready`, and
+`runtime_status` (`disabled`, `ready`, or `degraded`) while hiding the OCR
+endpoint and allowlist. `ready` means construction succeeded, not that the
+provider is warm or that a future request is guaranteed to succeed. Fresh-call
+health is reported separately.
+
+Validated OCR success and no-text results use a process-local owner-scoped LRU
+cache bounded to 128 entries and 32 MiB. Its path-free key includes prepared
+content hash, configured provider/model, and prompt, preprocessing, and
+normalization versions. Concurrent owner/key misses are coalesced; transient
+failures are not cached. A fresh call saves a durable `ModelCall` with operation
+`document_ocr`; cache hits reuse its provenance without creating a fake call.
+Audit/trace metadata never contains OCR text. `/metrics` exposes bounded OCR
+page/cache/duration/queue counters and PDF classification/coverage counters
+without content or run identifiers as labels.
+
 ## Current Operations
 
 | Format | Supported edit operations |
@@ -151,6 +184,13 @@ them is a contract change, not a prompt-only adjustment.
 | XLSX | `replace_text`, `update_cell`, `insert_row`, `delete_row`, `update_row`, `append_row` |
 | PPTX | `replace_text`, `add_slide`, `update_slide`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
+
+Each materialized PDF transform receives a strict operation-specific schema.
+Page arrays are non-empty, unique, positive one-based integers; rotation is one
+of `-270`, `-180`, `-90`, `90`, `180`, or `270`; and `split` rejects page,
+rotation, and input fields. Irrelevant fields and qualifier contradictions fail
+before approval. `merge` is not registered because ordered multi-document
+grounding and multi-parent lineage do not yet exist.
 
 `pptx.update_slide` has two explicit layout policies:
 
@@ -173,8 +213,9 @@ shape targets and supplies replacement text; it does not choose layout values.
 Unsupported assets, annotations, charts, animations, SmartArt internals,
 macros, tracked changes, and package extensions may be read as partial evidence
 but are not implicit mutation targets. Scanned PDF reads invoke OvisOCR2
-automatically when the adapter is enabled; if page rendering, OCR, or the page
-budget is unavailable, the read remains explicitly `partial` with
+automatically when the adapter is enabled; if page rendering, OCR, or a current
+budget is unavailable, the read reports exact missing pages and canonical
+reasons with `coverage_status=partial` or `unavailable` and
 `scanned_unsupported=true`.
 
 ## Mutation Safety

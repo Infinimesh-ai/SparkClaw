@@ -114,6 +114,31 @@ Fast 文字提取兜底。
 防止 image semantic/OCR 挤掉主要文档内容，重复图片按 source hash 去重。当前图片限制和
 budget 由代码与测试约束，修改它们属于契约变化。
 
+## PDF 页级覆盖与 OCR Runtime
+
+每个 PDF 页面在选择 OCR 前都经过确定性的 `pdf_native_text_quality_v1` 策略分类。
+最终页面状态为 `native`、`ocr_succeeded`、`ocr_disabled`、`ocr_failed`、
+`render_failed` 或 `budget_omitted`；`ocr_pending` 只作为 parser 中间状态。混合页面
+分别保留 native 和 OCR block，只有规范化文字完全相同时才合并。
+
+PDF read 会输出 `read_complete`、`coverage_status`、`page_status_counts` 和排序后的
+`missing_page_indexes`。只有全部页面为 native 或 OCR 成功时读取才完整。有可用证据的
+partial read 只能在明确说明限制后总结；unavailable read 会 block。finalizer 单独接收
+coverage manifest 和有界 8000 rune 正文摘录，因此摘录截断不会被误报为源页面丢失，
+缺失页面也不会被摘录预算隐藏。
+
+公共 adapter 状态会区分 `configured_enabled`、`adapter_ready` 和 `runtime_status`
+（`disabled`、`ready` 或 `degraded`），同时隐藏 OCR endpoint 与 allowlist。`ready` 只表示
+构造成功，不表示 provider 已预热或未来请求必然成功；fresh-call health 单独报告。
+
+经校验的 OCR success 和 no-text result 使用进程内、owner 隔离的 LRU cache，固定限制为
+128 个 entry 和 32 MiB。无 path 的 key 包含准备后内容 hash、配置 provider/model，以及
+prompt、preprocessing 和 normalization version。同一 owner/key 的并发 miss 会合并，
+瞬时失败不缓存。fresh call 会持久化 operation=`document_ocr` 的真实 `ModelCall`；cache
+hit 复用其 provenance，不创建虚假调用。Audit/trace metadata 不包含 OCR 正文；
+`/metrics` 提供有界 OCR page/cache/duration/queue 指标和 PDF classification/coverage
+指标，不把正文或 run identifier 作为 label。
+
 ## 当前 Operation
 
 | 格式 | 支持的 edit operation |
@@ -123,6 +148,11 @@ budget 由代码与测试约束，修改它们属于契约变化。
 | XLSX | `replace_text`, `update_cell`, `insert_row`, `delete_row`, `update_row`, `append_row` |
 | PPTX | `replace_text`, `add_slide`, `update_slide`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
+
+每个物化的 PDF transform 都使用 strict operation-specific schema。页码数组必须非空、
+唯一、为从 1 开始的正整数；rotation 只能是 `-270`、`-180`、`-90`、`90`、`180`
+或 `270`；`split` 拒绝 page、rotation 和 input 字段。无关字段与 qualifier 冲突会在
+审批前失败。由于尚无有序多文档 grounding 和多 parent lineage，`merge` 不注册。
 
 `pptx.update_slide` 有两个显式 layout policy：
 
@@ -140,8 +170,9 @@ PowerPoint soft break，保留现有文本样式，并独占全部确定性布�
 
 不支持的 asset、annotation、chart、animation、SmartArt internal、macro、tracked change 和
 package extension 可以作为 partial evidence 读取，但不是隐式 mutation target。adapter 开启时，
-扫描 PDF 会自动调用 OvisOCR2；页面栅格化、OCR 或页数预算不可用时，读取仍明确保持
-`partial` 和 `scanned_unsupported=true`。
+扫描 PDF 会自动调用 OvisOCR2；页面栅格化、OCR 或现有预算不可用时，读取会通过
+`coverage_status=partial` 或 `unavailable`、`scanned_unsupported=true` 和标准原因
+精确报告缺失页面。
 
 ## Mutation 安全
 

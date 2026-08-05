@@ -107,7 +107,11 @@ func (p *Pipeline) enrich(ctx context.Context, read ReadResult, options Enrichme
 			appendEnrichmentWarning(read.Document.Enrichment, warning)
 		}
 	}
-	promotePDFOCRContent(&read)
+	if policy, ok := registeredDocumentFormatPolicies.format(read.Metadata.Format); ok && policy.AfterEnrich != nil {
+		if err := policy.AfterEnrich(&read); err != nil {
+			return ReadResult{}, err
+		}
+	}
 	if options.Required && !hasSucceededImageEvidence(read.Document.Enrichment) {
 		return ReadResult{}, &PipelineError{Code: CodeEnrichmentFailed, Stage: StageEnrich, Format: read.Metadata.Format, Detail: "required image evidence was not produced"}
 	}

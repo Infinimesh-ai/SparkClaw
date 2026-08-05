@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const (
@@ -344,15 +342,11 @@ func (p *Pipeline) Read(ctx context.Context, request ReadRequest) (ReadResult, e
 	if err != nil {
 		return ReadResult{}, err
 	}
-	if metadata.Format == app.DocumentFormatXLSX {
-		manifest, inspectErr := InspectXLSXPackage(metadata.Path)
-		if inspectErr != nil {
-			return ReadResult{}, inspectErr
+	formatPolicy, _ := registeredDocumentFormatPolicies.format(metadata.Format)
+	if formatPolicy.AfterRead != nil {
+		if err := formatPolicy.AfterRead(&read); err != nil {
+			return ReadResult{}, err
 		}
-		if read.Document.ContentScope == nil {
-			read.Document.ContentScope = map[string]any{}
-		}
-		read.Document.ContentScope["package_coverage"] = XLSXPackageReadCoverage(manifest)
 	}
 	read, err = p.enrich(ctx, read, request.Enrichment)
 	if err != nil {
@@ -376,9 +370,10 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 	if expected := strings.TrimSpace(request.SourceSHA256); expected != "" && !strings.EqualFold(expected, metadata.SHA256) {
 		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "input document does not match the trusted source hash"}
 	}
-	var xlsxPackageBefore XLSXPackageManifest
-	if metadata.Format == app.DocumentFormatXLSX {
-		xlsxPackageBefore, err = ValidateXLSXPackageForOperation(metadata.Path, request.Operation, request.Arguments)
+	formatPolicy, _ := registeredDocumentFormatPolicies.format(metadata.Format)
+	var verifyPackage postEditVerifier
+	if formatPolicy.BeginEdit != nil {
+		verifyPackage, err = formatPolicy.BeginEdit(metadata, request)
 		if err != nil {
 			return EditResult{}, err
 		}
@@ -445,24 +440,19 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 			return EditResult{}, err
 		}
 		preservationWarnings = append(preservationWarnings, report.Warnings...)
-		if metadata.Format == app.DocumentFormatXLSX {
-			xlsxPackageAfter, inspectErr := InspectXLSXPackage(outputPath)
-			if inspectErr != nil {
-				cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
-				return EditResult{}, inspectErr
-			}
-			packageReport, verifyErr := VerifyXLSXPackagePreservation(xlsxPackageBefore, xlsxPackageAfter, request, matches)
+		if verifyPackage != nil {
+			packageReport, verifyErr := verifyPackage(outputPath, request, matches)
 			if verifyErr != nil {
 				cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
 				return EditResult{}, verifyErr
 			}
-			packagePreservation = "verified"
-			packageCheckedFeatures = append(packageCheckedFeatures, packageReport.CheckedFeatureClasses...)
+			packagePreservation = packageReport.Status
+			packageCheckedFeatures = append(packageCheckedFeatures, packageReport.CheckedFeatures...)
 			packageCoverageNotes = append(packageCoverageNotes, packageReport.CoverageNotes...)
 		}
 	}
 	preservationWarnings = append(preservationWarnings, stringSlice(applied.Details["warnings"])...)
-	if metadata.Format == app.DocumentFormatXLSX {
+	if verifyPackage != nil {
 		if applied.Details == nil {
 			applied.Details = map[string]any{}
 		}
@@ -616,8 +606,8 @@ func validateOutputPath(root string, metadata Metadata, outputPath string) error
 		return &PipelineError{Code: CodeOutputConflict, Stage: StageConstrain, Format: metadata.Format, Detail: "output path must not overwrite the input file"}
 	}
 	wantedExtension := ExtensionForFormat(metadata.Format)
-	if metadata.Format == "text" {
-		wantedExtension = strings.ToLower(filepath.Ext(metadata.Path))
+	if policy, ok := registeredDocumentFormatPolicies.format(metadata.Format); ok && policy.OutputExtension != nil {
+		wantedExtension = policy.OutputExtension(metadata)
 	}
 	if wantedExtension == "" || strings.ToLower(filepath.Ext(outputAbs)) != wantedExtension {
 		return &PipelineError{Code: CodeOutputConflict, Stage: StageConstrain, Format: metadata.Format, Detail: "output path does not match the detected format"}

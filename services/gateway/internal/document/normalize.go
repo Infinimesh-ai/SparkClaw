@@ -25,7 +25,9 @@ func Normalize(metadata Metadata, strategy, content string, raw map[string]any) 
 		Slides: []map[string]any{}, Sections: []map[string]any{}, Pages: []map[string]any{}, Stats: map[string]any{},
 	}
 	if representation.Source == "" {
-		representation.Source = sourceForFormat(metadata.Format)
+		if policy, ok := registeredDocumentFormatPolicies.format(metadata.Format); ok {
+			representation.Source = policy.NormalizationSource
+		}
 	}
 	for key, value := range mapValue(raw["stats"]) {
 		representation.Stats[key] = value
@@ -44,13 +46,8 @@ func Normalize(metadata Metadata, strategy, content string, raw map[string]any) 
 	representation.Enrichment = normalizeEnrichment(documentID, raw["enrichment"])
 
 	if len(representation.Blocks) == 0 {
-		switch metadata.Format {
-		case "xlsx":
-			representation.Blocks = blocksFromSheets(documentID, representation.Sheets)
-		case "pptx":
-			representation.Blocks = blocksFromSlides(documentID, representation.Slides)
-		case "pdf":
-			representation.Blocks = blocksFromPages(documentID, representation.Pages)
+		if policy, ok := registeredDocumentFormatPolicies.format(metadata.Format); ok && policy.FallbackBlocks != nil {
+			representation.Blocks = policy.FallbackBlocks(documentID, representation)
 		}
 	}
 	if len(representation.Sections) == 0 {
@@ -245,23 +242,6 @@ func deriveSections(documentID string, blocks []Block, paragraphs []map[string]a
 		}
 	}
 	return out
-}
-
-func sourceForFormat(format string) string {
-	switch format {
-	case "text":
-		return "plain_text"
-	case "docx":
-		return "python_docx"
-	case "xlsx":
-		return "exceljs"
-	case "pptx":
-		return "python_pptx"
-	case "pdf":
-		return "pypdf"
-	default:
-		return ""
-	}
 }
 
 func stableID(kind, value string) string {

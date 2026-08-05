@@ -39,6 +39,7 @@ documentation tree.
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
 | [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
+| [XLSX workflow hardening plan](xlsx-workflow-hardening-plan.md) | Proposed XLSX evidence, mutation safety, package-preservation, and operation-selection hardening |
 | [Observation compression redesign](observation-compression-redesign.md) | Implemented uniform tool-result envelope, runtime evidence provisioning, and lossless compaction |
 | [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |
 

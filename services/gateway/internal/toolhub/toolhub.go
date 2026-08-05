@@ -233,6 +233,19 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 }
 
 func defaultDefinitions() []app.ToolDefinition {
+	definitions := defaultDefinitionsBeforeDocumentFormats()
+	for _, formatDefinitions := range [][]app.ToolDefinition{
+		docxToolDefinitions(),
+		pptxToolDefinitions(),
+		xlsxToolDefinitions(),
+		pdfToolDefinitions(),
+	} {
+		definitions = append(definitions, formatDefinitions...)
+	}
+	return append(definitions, defaultDefinitionsAfterDocumentFormats()...)
+}
+
+func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 	return []app.ToolDefinition{
 		{
 			Name:        "observation.read",
@@ -457,156 +470,11 @@ func defaultDefinitions() []app.ToolDefinition {
 			Sandbox:          "optional",
 			Audit:            "always",
 		},
-		docxToolDefinition("docx.replace_paragraph", "Replace one DOCX paragraph by location or 1-based paragraph_index and write a new DOCX file. Requires source_hash evidence from files.read preflight; old_text is an optional exact-text consistency guard.", []string{"path", "source_hash", "text", "output_path"}, map[string]any{
-			"path":            stringSchema(),
-			"paragraph_index": integerSchema(),
-			"location":        objectValueSchema(),
-			"old_text":        stringSchema(),
-			"source_hash":     stringSchema(),
-			"text":            stringSchema(),
-			"output_path":     stringSchema(),
-		}),
-		docxToolDefinition("docx.insert_paragraph", "Insert a DOCX paragraph at start/end or before/after a location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "position", "text", "output_path"}, map[string]any{
-			"path":            stringSchema(),
-			"position":        map[string]any{"enum": []any{"start", "end", "before", "after"}},
-			"paragraph_index": integerSchema(),
-			"location":        objectValueSchema(),
-			"text":            stringSchema(),
-			"output_path":     stringSchema(),
-		}),
-		docxToolDefinition("docx.delete_paragraph", "Delete one DOCX paragraph by location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "output_path"}, map[string]any{
-			"path":            stringSchema(),
-			"paragraph_index": integerSchema(),
-			"location":        objectValueSchema(),
-			"output_path":     stringSchema(),
-		}),
-		docxToolDefinition("docx.set_text_style", "Set simple paragraph-level DOCX style by location or 1-based paragraph_index and write a new DOCX file.", []string{"path", "style", "output_path"}, map[string]any{
-			"path":            stringSchema(),
-			"paragraph_index": integerSchema(),
-			"location":        objectValueSchema(),
-			"style": objectSchema([]string{}, map[string]any{
-				"builtin_style": stringSchema(),
-				"bold":          booleanSchema(),
-				"font_size_pt":  integerSchema(),
-			}),
-			"output_path": stringSchema(),
-		}),
-		pptxToolDefinition("pptx.add_slide", "Add a new PPTX slide using a layout index and write a new PPTX file.", []string{"path", "output_path"}, map[string]any{
-			"path":         stringSchema(),
-			"layout_index": integerSchema(),
-			"title":        stringSchema(),
-			"body":         stringSchema(),
-			"output_path":  stringSchema(),
-		}),
-		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating one or more selected text shapes from files.read evidence. Replacement text may contain line breaks. Use layout_policy=coordinated so wrapping, text-box height, verified companion backgrounds, and peer rows or cards adapt together; use preserve only when existing geometry already fits. Runtime owns layout changes. Never submit a whole slide as one replacement.", []string{"path", "slide_index", "updates", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"slide_index": integerSchema(),
-			"layout_policy": map[string]any{
-				"type": "string", "enum": []string{"preserve", "coordinated"},
-			},
-			"updates": arraySchema(strictObjectSchema([]string{"shape_index", "old_text", "text"}, map[string]any{
-				"shape_index": integerSchema(),
-				"old_text":    stringSchema(),
-				"text":        stringSchema(),
-			})),
-			"output_path": stringSchema(),
-		}),
-		pptxToolDefinition("pptx.duplicate_slide", "Duplicate one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"slide_index": integerSchema(),
-			"output_path": stringSchema(),
-		}),
-		pptxToolDefinition("pptx.delete_slide", "Delete one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"slide_index": integerSchema(),
-			"output_path": stringSchema(),
-		}),
-		xlsxToolDefinition("xlsx.update_cell", "Update one XLSX cell by sheet name and A1 cell address, then write a new XLSX file.", []string{"path", "sheet", "cell", "value", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"sheet":       stringSchema(),
-			"cell":        stringSchema(),
-			"value":       scalarValueSchema(),
-			"output_path": stringSchema(),
-		}),
-		xlsxToolDefinition("xlsx.insert_row", "Insert one XLSX row before or after a 1-based row index, then write a new XLSX file.", []string{"path", "sheet", "row", "position", "values", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"sheet":       stringSchema(),
-			"row":         integerSchema(),
-			"position":    map[string]any{"enum": []any{"before", "after"}},
-			"values":      arraySchema(scalarValueSchema()),
-			"output_path": stringSchema(),
-		}),
-		xlsxToolDefinition("xlsx.delete_row", "Delete one XLSX row by sheet name and 1-based row index, then write a new XLSX file.", []string{"path", "sheet", "row", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"sheet":       stringSchema(),
-			"row":         integerSchema(),
-			"output_path": stringSchema(),
-		}),
-		xlsxToolDefinition("xlsx.update_row", "Replace one XLSX row's leading cells with provided values, then write a new XLSX file.", []string{"path", "sheet", "row", "values", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"sheet":       stringSchema(),
-			"row":         integerSchema(),
-			"values":      arraySchema(scalarValueSchema()),
-			"output_path": stringSchema(),
-		}),
-		xlsxToolDefinition("xlsx.append_row", "Append one XLSX row to the end of a sheet, then write a new XLSX file.", []string{"path", "sheet", "values", "output_path"}, map[string]any{
-			"path":        stringSchema(),
-			"sheet":       stringSchema(),
-			"values":      arraySchema(scalarValueSchema()),
-			"output_path": stringSchema(),
-		}),
-		{
-			Name:        "pdf.extract_text",
-			Description: "Extract text and stable page blocks from a workspace PDF. When OvisOCR2 is enabled, scanned pages are rasterized and parsed under bounded page and byte budgets; unavailable or failed OCR remains explicit partial evidence.",
-			InputSchema: schema("object", []string{"path"}, map[string]any{
-				"path":      stringSchema(),
-				"max_bytes": map[string]any{"type": "number"},
-			}),
-			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "scanned_unsupported", "document"}, map[string]any{
-				"path":                stringSchema(),
-				"content":             stringSchema(),
-				"bytes":               integerSchema(),
-				"truncated":           booleanSchema(),
-				"untrusted":           booleanSchema(),
-				"scanned_unsupported": booleanSchema(),
-				"document":            objectValueSchema(),
-			}),
-			Risk:             app.RiskRead,
-			RequiresApproval: false,
-			Idempotent:       true,
-			TimeoutMS:        125000,
-			Sandbox:          "optional",
-			Audit:            "always",
-		},
-		{
-			Name:        "pdf.transform",
-			Description: "Perform a bounded PDF transform such as extract_pages, delete_pages, rotate_pages, merge, or split and write a new PDF.",
-			InputSchema: schema("object", []string{"operation", "output_path"}, map[string]any{
-				"path":        stringSchema(),
-				"inputs":      stringArraySchema(),
-				"operation":   map[string]any{"enum": []any{"extract_pages", "delete_pages", "rotate_pages", "merge", "split"}},
-				"pages":       map[string]any{"type": "array", "items": map[string]any{"type": "number"}},
-				"rotation":    map[string]any{"type": "number"},
-				"output_path": stringSchema(),
-			}),
-			OutputSchema: objectSchema([]string{"status", "operation", "output_path", "bytes"}, map[string]any{
-				"status":         stringSchema(),
-				"operation":      stringSchema(),
-				"path":           stringSchema(),
-				"inputs":         stringArraySchema(),
-				"output_path":    stringSchema(),
-				"outputs":        stringArraySchema(),
-				"bytes":          integerSchema(),
-				"pages":          integerSchema(),
-				"change_summary": objectValueSchema(),
-			}),
-			Risk:             app.RiskReversible,
-			RequiresApproval: true,
-			Idempotent:       false,
-			TimeoutMS:        15000,
-			Sandbox:          "optional",
-			Audit:            "always",
-		},
+	}
+}
+
+func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
+	return []app.ToolDefinition{
 		{
 			Name:        "memory.search",
 			Description: "Search accepted private memories.",
@@ -1063,103 +931,6 @@ func stringArraySchema() map[string]any {
 
 func scalarValueSchema() map[string]any {
 	return map[string]any{"type": []any{"string", "number", "integer", "boolean", "null"}}
-}
-
-func docxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {
-	return app.ToolDefinition{
-		Name:        name,
-		Description: description,
-		InputSchema: schema("object", required, input),
-		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "change_summary", "untrusted"}, map[string]any{
-			"status":          stringSchema(),
-			"operation":       stringSchema(),
-			"path":            stringSchema(),
-			"output_path":     stringSchema(),
-			"bytes":           integerSchema(),
-			"paragraph_index": integerSchema(),
-			"position":        stringSchema(),
-			"text":            stringSchema(),
-			"style":           objectValueSchema(),
-			"location":        objectValueSchema(),
-			"change_summary":  objectValueSchema(),
-			"untrusted":       booleanSchema(),
-		}),
-		Risk:             app.RiskReversible,
-		RequiresApproval: true,
-		Idempotent:       false,
-		TimeoutMS:        10000,
-		Sandbox:          "optional",
-		Audit:            "always",
-	}
-}
-
-func pptxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {
-	return app.ToolDefinition{
-		Name:        name,
-		Description: description,
-		InputSchema: schema("object", required, input),
-		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "slides", "change_summary", "untrusted"}, map[string]any{
-			"status":                        stringSchema(),
-			"operation":                     stringSchema(),
-			"path":                          stringSchema(),
-			"output_path":                   stringSchema(),
-			"bytes":                         integerSchema(),
-			"slides":                        integerSchema(),
-			"slide_index":                   integerSchema(),
-			"inserted_slide_index":          integerSchema(),
-			"layout_index":                  integerSchema(),
-			"title":                         stringSchema(),
-			"body":                          stringSchema(),
-			"updated_shapes":                integerSchema(),
-			"fitted_shapes":                 integerSchema(),
-			"wrapped_shapes":                integerSchema(),
-			"wrapped_shape_indexes":         arraySchema(integerSchema()),
-			"layout_policy":                 stringSchema(),
-			"layout_adjusted_shapes":        integerSchema(),
-			"layout_adjusted_shape_indexes": arraySchema(integerSchema()),
-			"layout_changes":                arraySchema(objectValueSchema()),
-			"layout_checks":                 objectValueSchema(),
-			"companion_groups_used":         integerSchema(),
-			"warnings":                      stringArraySchema(),
-			"change_summary":                objectValueSchema(),
-			"untrusted":                     booleanSchema(),
-		}),
-		Risk:             app.RiskReversible,
-		RequiresApproval: true,
-		Idempotent:       false,
-		TimeoutMS:        10000,
-		Sandbox:          "optional",
-		Audit:            "always",
-	}
-}
-
-func xlsxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {
-	return app.ToolDefinition{
-		Name:        name,
-		Description: description,
-		InputSchema: schema("object", required, input),
-		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "sheet", "change_summary", "untrusted"}, map[string]any{
-			"status":         stringSchema(),
-			"operation":      stringSchema(),
-			"path":           stringSchema(),
-			"output_path":    stringSchema(),
-			"bytes":          integerSchema(),
-			"sheet":          stringSchema(),
-			"cell":           stringSchema(),
-			"row":            integerSchema(),
-			"inserted_row":   integerSchema(),
-			"value":          scalarValueSchema(),
-			"values":         arraySchema(scalarValueSchema()),
-			"change_summary": objectValueSchema(),
-			"untrusted":      booleanSchema(),
-		}),
-		Risk:             app.RiskReversible,
-		RequiresApproval: true,
-		Idempotent:       false,
-		TimeoutMS:        10000,
-		Sandbox:          "optional",
-		Audit:            "always",
-	}
 }
 
 func browserAutomationDefinition(name, description string, risk app.RiskLevel, approval bool, required []string, extraInput []string, outputRequired []string) app.ToolDefinition {

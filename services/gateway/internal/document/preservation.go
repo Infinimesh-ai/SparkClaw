@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 )
@@ -55,8 +54,7 @@ func preservationError(format, detail string) error {
 
 func verifyExpectedMutation(before, after Representation, edit EditRequest, matches []Match) error {
 	operation := strings.ToLower(strings.TrimSpace(edit.Operation))
-	switch operation {
-	case "replace_text":
+	if operation == "replace_text" {
 		for _, replacement := range mapSlice(edit.Arguments["replacements"]) {
 			find := stringValue(replacement["find"])
 			replace := stringValue(replacement["replace"])
@@ -69,87 +67,19 @@ func verifyExpectedMutation(before, after Representation, edit EditRequest, matc
 				return fmt.Errorf("replacement value %q was not found in the structured output", replace)
 			}
 		}
-	case "replace_paragraph":
-		if !blockAtAnyMatchHasText(after, matches, stringValue(edit.Arguments["text"])) {
-			return fmt.Errorf("the replaced paragraph does not contain the expected after-value")
-		}
-	case "insert_paragraph":
-		if countBlockText(after.Blocks, stringValue(edit.Arguments["text"])) <= countBlockText(before.Blocks, stringValue(edit.Arguments["text"])) {
-			return fmt.Errorf("the inserted paragraph was not found in the structured output")
-		}
-	case "delete_paragraph":
-		for _, match := range matches {
-			if match.Text != "" && countBlockText(after.Blocks, match.Text) >= countBlockText(before.Blocks, match.Text) {
-				return fmt.Errorf("the deleted paragraph remains in the structured output")
-			}
-		}
-	case "set_text_style":
-		index := intValue(edit.Arguments["paragraph_index"])
-		style := stringValue(edit.Arguments["style"])
-		if styleObject := mapValue(edit.Arguments["style"]); len(styleObject) > 0 {
-			style = firstString(styleObject["builtin_style"], styleObject["style_name"])
-		}
-		if !paragraphHasStyle(after.Paragraphs, index, style) {
-			return fmt.Errorf("the target paragraph does not have the requested style")
-		}
-		if !blockAtAnyMatchHasText(after, matches, firstMatchText(matches)) {
-			return fmt.Errorf("styling unexpectedly changed the target paragraph text")
-		}
-	case "update_cell":
-		if !cellHasValue(after, stringValue(edit.Arguments["sheet"]), stringValue(edit.Arguments["cell"]), stringValue(edit.Arguments["value"])) {
-			return fmt.Errorf("the target cell does not contain the expected after-value")
-		}
-	case "insert_row", "append_row":
-		if sheetRowCount(after, stringValue(edit.Arguments["sheet"])) != sheetRowCount(before, stringValue(edit.Arguments["sheet"]))+1 ||
-			!sheetContainsValues(after, stringValue(edit.Arguments["sheet"]), anySlice(edit.Arguments["values"])) {
-			return fmt.Errorf("the inserted row was not found at the expected structural boundary")
-		}
-	case "delete_row":
-		if sheetRowCount(after, stringValue(edit.Arguments["sheet"])) != sheetRowCount(before, stringValue(edit.Arguments["sheet"]))-1 {
-			return fmt.Errorf("the deleted row count was not reflected in the structured output")
-		}
-	case "update_row":
-		if !sheetRowAtIndexHasValues(after, stringValue(edit.Arguments["sheet"]), intValue(edit.Arguments["row"]), anySlice(edit.Arguments["values"])) {
-			return fmt.Errorf("the target row does not contain the expected after-values")
-		}
-	case "update_slide":
-		for _, update := range mapSlice(edit.Arguments["updates"]) {
-			if !slideShapeHasText(after, intValue(edit.Arguments["slide_index"]), intValue(update["shape_index"]), stringValue(update["text"])) {
-				return fmt.Errorf("updated slide shape %d does not contain the expected after-value", intValue(update["shape_index"]))
-			}
-		}
-	case "add_slide", "duplicate_slide":
-		if len(after.Slides) != len(before.Slides)+1 {
-			return fmt.Errorf("the structured slide count did not increase by one")
-		}
-	case "delete_slide":
-		if len(after.Slides) != len(before.Slides)-1 {
-			return fmt.Errorf("the structured slide count did not decrease by one")
-		}
-	case "extract_pages":
-		if len(after.Pages) != len(intSlice(edit.Arguments["pages"])) {
-			return fmt.Errorf("the extracted PDF page count does not match the request")
-		}
-	case "delete_pages":
-		if len(after.Pages) != len(before.Pages)-len(intSlice(edit.Arguments["pages"])) {
-			return fmt.Errorf("the deleted PDF page count does not match the request")
-		}
-	case "split":
-		if len(after.Pages) != 1 {
-			return fmt.Errorf("each split PDF output must contain exactly one page")
-		}
-	case "rotate_pages":
-		if len(after.Pages) != len(before.Pages) {
-			return fmt.Errorf("rotating pages unexpectedly changed the PDF page count")
-		}
-		rotation := intValue(edit.Arguments["rotation"])
-		for _, pageIndex := range intSlice(edit.Arguments["pages"]) {
-			beforeRotation, beforeOK := pageRotation(before.Pages, pageIndex)
-			afterRotation, afterOK := pageRotation(after.Pages, pageIndex)
-			if !beforeOK || !afterOK || ((beforeRotation+rotation)%360+360)%360 != ((afterRotation%360)+360)%360 {
-				return fmt.Errorf("page %d does not have the requested rotation", pageIndex)
-			}
-		}
+		return nil
+	}
+	if handled, err := verifyDOCXExpectedMutation(operation, before, after, edit, matches); handled {
+		return err
+	}
+	if handled, err := verifyXLSXExpectedMutation(operation, before, after, edit); handled {
+		return err
+	}
+	if handled, err := verifyPPTXExpectedMutation(operation, before, after, edit); handled {
+		return err
+	}
+	if handled, err := verifyPDFExpectedMutation(operation, before, after, edit); handled {
+		return err
 	}
 	return nil
 }
@@ -187,18 +117,11 @@ func mutationAllowsBlock(edit EditRequest, matches []Match, block Block) bool {
 			return true
 		}
 	}
-	switch operation {
-	case "update_row":
-		return equalFoldValue(block.Location["sheet"], stringValue(edit.Arguments["sheet"])) && intValue(block.Location["row_index"]) == intValue(edit.Arguments["row"])
-	case "update_slide":
-		if intValue(block.Location["slide_index"]) != intValue(edit.Arguments["slide_index"]) {
-			return false
-		}
-		for _, update := range mapSlice(edit.Arguments["updates"]) {
-			if intValue(block.Location["shape_index"]) == intValue(update["shape_index"]) {
-				return true
-			}
-		}
+	if allowed, handled := xlsxMutationAllowsBlock(operation, edit, block); handled {
+		return allowed
+	}
+	if allowed, handled := pptxMutationAllowsBlock(operation, edit, block); handled {
+		return allowed
 	}
 	return false
 }
@@ -277,136 +200,23 @@ func evidenceFingerprints(enrichment map[string]any, category string, edit EditR
 	return values
 }
 
-func verifyReportedLayoutChanges(before, after Representation, edit EditRequest, details map[string]any) (map[string]bool, error) {
-	allowed := map[string]bool{}
-	if !strings.EqualFold(strings.TrimSpace(edit.Operation), "update_slide") {
-		return allowed, nil
-	}
-	changes := mapSlice(details["layout_changes"])
-	indexes := intSlice(details["layout_adjusted_shape_indexes"])
-	if len(changes) == 0 && len(indexes) == 0 {
-		return allowed, nil
-	}
-	if !strings.EqualFold(strings.TrimSpace(stringValue(details["layout_policy"])), "coordinated") {
-		return nil, fmt.Errorf("layout changes were reported without coordinated layout_policy")
-	}
-	slideIndex := intValue(edit.Arguments["slide_index"])
-	declared := map[int]bool{}
-	for _, index := range indexes {
-		if index <= 0 || declared[index] {
-			return nil, fmt.Errorf("layout_adjusted_shape_indexes contains an invalid or duplicate shape index")
-		}
-		declared[index] = true
-	}
-	for _, change := range changes {
-		shapeIndex := intValue(change["shape_index"])
-		if !declared[shapeIndex] {
-			return nil, fmt.Errorf("layout change for shape %d was not declared in the adjustment allowlist", shapeIndex)
-		}
-		beforeShape, beforeOK := layoutShape(before.Enrichment, slideIndex, shapeIndex)
-		afterShape, afterOK := layoutShape(after.Enrichment, slideIndex, shapeIndex)
-		if !beforeOK || !afterOK {
-			return nil, fmt.Errorf("layout change shape %d was not present in both structured reads", shapeIndex)
-		}
-		if !sameJSON(layoutShapeState(beforeShape), normalizedLayoutChangeState(mapValue(change["before"]))) ||
-			!sameJSON(layoutShapeState(afterShape), normalizedLayoutChangeState(mapValue(change["after"]))) {
-			return nil, fmt.Errorf("layout change for shape %d did not match the re-read geometry and style", shapeIndex)
-		}
-		allowed[layoutShapeKey(beforeShape)] = true
-	}
-	if len(allowed) != len(declared) {
-		return nil, fmt.Errorf("layout adjustment allowlist did not match the reported layout changes")
-	}
-	return allowed, nil
-}
-
-func layoutShape(enrichment map[string]any, slideIndex, shapeIndex int) (map[string]any, bool) {
-	layout := mapValue(enrichment["layout"])
-	for _, shape := range mapSlice(layout["shapes"]) {
-		if intValue(shape["slide_index"]) == slideIndex && intValue(shape["shape_index"]) == shapeIndex && intValue(shape["group_child_index"]) == 0 {
-			return shape, true
-		}
-	}
-	return nil, false
-}
-
-func layoutShapeKey(shape map[string]any) string {
-	return fmt.Sprintf("%d:%d:%d", intValue(shape["slide_index"]), intValue(shape["shape_index"]), intValue(shape["group_child_index"]))
-}
-
-func layoutShapeState(shape map[string]any) map[string]any {
-	style := mapValue(shape["text_style"])
-	return normalizedLayoutChangeState(map[string]any{
-		"x": shape["x"], "y": shape["y"], "width": shape["width"], "height": shape["height"],
-		"font_size_pt": style["font_size_pt"], "word_wrap": style["word_wrap"],
-	})
-}
-
-func normalizedLayoutChangeState(value map[string]any) map[string]any {
-	state := map[string]any{
-		"x": intValue(value["x"]), "y": intValue(value["y"]), "width": intValue(value["width"]), "height": intValue(value["height"]),
-		"font_size_pt": value["font_size_pt"], "word_wrap": value["word_wrap"],
-	}
-	if state["font_size_pt"] == nil {
-		state["font_size_pt"] = nil
-	}
-	if state["word_wrap"] == nil {
-		state["word_wrap"] = nil
-	}
-	return state
-}
-
-var mergedRangePattern = regexp.MustCompile(`^([A-Za-z]+)([0-9]+):([A-Za-z]+)([0-9]+)$`)
-
-func mergedRangeBeforeCoordinates(value string, edit EditRequest) string {
-	matches := mergedRangePattern.FindStringSubmatch(strings.TrimSpace(value))
-	if len(matches) != 5 {
-		return value
-	}
-	startRow := intValue(matches[2])
-	endRow := intValue(matches[4])
-	row := intValue(edit.Arguments["row"])
-	switch strings.ToLower(strings.TrimSpace(edit.Operation)) {
-	case "insert_row":
-		insertAt := row
-		if strings.EqualFold(strings.TrimSpace(stringValue(edit.Arguments["position"])), "after") {
-			insertAt++
-		}
-		if startRow >= insertAt {
-			startRow--
-			endRow--
-		} else if endRow >= insertAt {
-			endRow--
-		}
-	case "delete_row":
-		if startRow >= row {
-			startRow++
-			endRow++
-		} else if endRow >= row {
-			endRow++
-		}
-	}
-	return fmt.Sprintf("%s%d:%s%d", strings.ToUpper(matches[1]), startRow, strings.ToUpper(matches[3]), endRow)
-}
-
 func operationAllowsEvidenceDelta(operation string, before, after []string) bool {
-	switch strings.ToLower(strings.TrimSpace(operation)) {
-	case "add_slide", "duplicate_slide":
-		return multisetContains(after, before)
-	case "delete_slide", "extract_pages", "delete_pages", "split":
-		return multisetContains(before, after)
-	default:
-		return slices.Equal(before, after)
+	operation = strings.ToLower(strings.TrimSpace(operation))
+	if allowed, handled := pptxOperationAllowsEvidenceDelta(operation, before, after); handled {
+		return allowed
 	}
+	if allowed, handled := pdfOperationAllowsEvidenceDelta(operation, before, after); handled {
+		return allowed
+	}
+	return slices.Equal(before, after)
 }
 
 func operationChangesEntityIndexes(operation string) bool {
-	switch strings.ToLower(strings.TrimSpace(operation)) {
-	case "insert_paragraph", "delete_paragraph", "insert_row", "delete_row", "append_row", "add_slide", "duplicate_slide", "delete_slide", "extract_pages", "delete_pages", "split":
-		return true
-	default:
-		return false
-	}
+	operation = strings.ToLower(strings.TrimSpace(operation))
+	return docxOperationChangesEntityIndexes(operation) ||
+		xlsxOperationChangesEntityIndexes(operation) ||
+		pptxOperationChangesEntityIndexes(operation) ||
+		pdfOperationChangesEntityIndexes(operation)
 }
 
 func multisetContains(superset, subset []string) bool {
@@ -467,97 +277,6 @@ func firstMatchText(matches []Match) string {
 	return ""
 }
 
-func paragraphHasStyle(paragraphs []map[string]any, index int, style string) bool {
-	for _, paragraph := range paragraphs {
-		if intValue(paragraph["index"]) == index && strings.EqualFold(strings.TrimSpace(stringValue(paragraph["style"])), strings.TrimSpace(style)) {
-			return true
-		}
-	}
-	return false
-}
-
-func cellHasValue(document Representation, sheetName, address, expected string) bool {
-	for _, sheet := range document.Sheets {
-		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {
-			continue
-		}
-		for _, row := range mapSlice(sheet["rows"]) {
-			for _, cell := range mapSlice(row["cells"]) {
-				if strings.EqualFold(stringValue(cell["address"]), address) && stringValue(cell["value"]) == expected {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func sheetRowCount(document Representation, sheetName string) int {
-	for _, sheet := range document.Sheets {
-		if strings.EqualFold(stringValue(sheet["name"]), sheetName) {
-			return len(mapSlice(sheet["rows"]))
-		}
-	}
-	return 0
-}
-
-func sheetContainsValues(document Representation, sheetName string, values []any) bool {
-	for _, sheet := range document.Sheets {
-		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {
-			continue
-		}
-		for _, row := range mapSlice(sheet["rows"]) {
-			if rowHasValues(row, values) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func sheetRowAtIndexHasValues(document Representation, sheetName string, index int, values []any) bool {
-	for _, sheet := range document.Sheets {
-		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {
-			continue
-		}
-		for _, row := range mapSlice(sheet["rows"]) {
-			if intValue(row["index"]) == index && rowHasValues(row, values) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func rowHasValues(row map[string]any, values []any) bool {
-	cells := mapSlice(row["cells"])
-	if len(cells) < len(values) {
-		return false
-	}
-	for index, value := range values {
-		if stringValue(cells[index]["value"]) != stringValue(value) {
-			return false
-		}
-	}
-	return true
-}
-
-func slideShapeHasText(document Representation, slideIndex, shapeIndex int, expected string) bool {
-	expected = strings.Join(strings.Fields(expected), " ")
-	for _, slide := range document.Slides {
-		if intValue(slide["index"]) != slideIndex {
-			continue
-		}
-		for _, item := range mapSlice(slide["items"]) {
-			actual := strings.Join(strings.Fields(stringValue(item["text"])), " ")
-			if intValue(item["shape_index"]) == shapeIndex && actual == expected {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func intSlice(value any) []int {
 	out := []int{}
 	for _, item := range anySlice(value) {
@@ -566,13 +285,4 @@ func intSlice(value any) []int {
 		}
 	}
 	return out
-}
-
-func pageRotation(pages []map[string]any, index int) (int, bool) {
-	for _, page := range pages {
-		if intValue(page["index"]) == index {
-			return intValue(page["rotation"]), true
-		}
-	}
-	return 0, false
 }

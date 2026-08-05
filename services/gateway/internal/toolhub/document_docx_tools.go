@@ -3,43 +3,11 @@ package toolhub
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
-
-func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args map[string]any) (Result, error) {
-	if err := validateDOCXStructureArguments(operation, args); err != nil {
-		return Result{}, err
-	}
-	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	if err := h.validateDOCXSourceEvidence(ctx, inputPath, args); err != nil {
-		return Result{}, err
-	}
-	if operation != "insert_paragraph" || !isDOCXDocumentBoundaryPosition(args) {
-		if strings.TrimSpace(stringArg(args, "source_hash", "")) == "" {
-			return Result{}, fmt.Errorf("docx.%s requires source_hash preflight evidence", operation)
-		}
-	}
-	target := docxEditTarget(operation, args)
-	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
-		Path: inputPath, OutputPath: outputPath, Operation: operation, Target: target,
-		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
-	})
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{Output: documentChangeOutput(result, "docx_version_written")}, nil
-}
 
 func (h *ToolHub) validateDOCXSourceEvidence(ctx context.Context, inputPath string, args map[string]any) error {
 	expected := strings.TrimSpace(stringArg(args, "source_document_sha256", ""))

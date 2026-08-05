@@ -1,25 +1,41 @@
 package toolhub
 
-import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+import (
+	"context"
 
-func pdfToolRegistrations() map[string]toolRegistration {
-	return map[string]toolRegistration{
-		"pdf.extract_text": documentReadRegistration(
-			ctxArgsSessionRun((*ToolHub).pdfExtractText),
-			[]string{app.DocumentFormatPDF},
-			"Extract bounded text and stable page evidence from a workspace PDF, using configured OCR for scanned pages.",
-		),
-		"pdf.transform": pdfTransformRegistration(),
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+)
+
+func pdfDocumentFormatProvider() documentFormatProvider {
+	provider := documentFormatProvider{
+		Format: app.DocumentFormatPDF, ReadToolNames: []string{"pdf.extract_text"},
+		OperationOrder: []string{"extract_pages", "delete_pages", "rotate_pages", "split"},
+		Parser: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
+			request["operation"] = "read"
+			return runPDFPython(ctx, request)
+		}),
+		Operations: map[string]documentOperationProvider{},
 	}
-}
-
-func pdfTransformRegistration() toolRegistration {
-	registration := documentEditRegistration(ctxArgs((*ToolHub).pdfTransform), app.DocumentFormatPDF, "extract_pages", "Apply a bounded PDF transform and write an output copy.")
-	registration.capabilities = registration.capabilities[:0]
 	for _, operation := range []string{"extract_pages", "delete_pages", "rotate_pages", "split"} {
-		registration.capabilities = append(registration.capabilities, app.CapabilityDescriptor{
-			Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatPDF, app.CapabilityQualifierOperation: operation},
-		})
+		operation := operation
+		provider.Operations[operation] = documentOperationProvider{
+			ToolName: "pdf.transform", Summary: "Apply a bounded PDF transform and write an output copy.",
+			Validate: func(_ context.Context, _ *ToolHub, _ document.Metadata, args map[string]any) error {
+				return validatePDFTransformArguments(args)
+			},
+			BuildTargets: func(args map[string]any) ([]document.LocatorRequest, int, error) {
+				target := document.LocatorRequest{Kind: document.LocatorDocument}
+				if operation != "split" {
+					target = document.LocatorRequest{Kind: document.LocatorPages, PageIndexes: intList(args["pages"]), AllowMultiple: true}
+				}
+				return []document.LocatorRequest{target}, 0, nil
+			},
+			Editor: document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
+				return applyPDFTransform(ctx, operation, request)
+			}),
+			SuccessStatus: "pdf_version_written",
+		}
 	}
-	return registration
+	return provider
 }

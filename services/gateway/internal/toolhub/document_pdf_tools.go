@@ -56,33 +56,6 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessi
 	}}, nil
 }
 
-func (h *ToolHub) pdfTransform(ctx context.Context, args map[string]any) (Result, error) {
-	if err := validatePDFTransformArguments(args); err != nil {
-		return Result{}, err
-	}
-	operation := stringArg(args, "operation", "")
-	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	path, err := h.resolvePath(stringArg(args, "path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	target := document.LocatorRequest{Kind: document.LocatorDocument}
-	if operation != "split" {
-		target = document.LocatorRequest{Kind: document.LocatorPages, PageIndexes: intList(args["pages"]), AllowMultiple: true}
-	}
-	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
-		Path: path, OutputPath: outputPath, Operation: operation, Target: target,
-		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
-	})
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{Output: documentChangeOutput(result, "pdf_version_written")}, nil
-}
-
 func validatePDFTransformArguments(args map[string]any) error {
 	operation := strings.TrimSpace(stringArg(args, "operation", ""))
 	if strings.TrimSpace(stringArg(args, "path", "")) == "" {

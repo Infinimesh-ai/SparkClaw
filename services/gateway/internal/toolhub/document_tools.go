@@ -11,70 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 type textReplacement struct {
 	Find    string `json:"find"`
 	Replace string `json:"replace"`
-}
-
-func (h *ToolHub) officeReplaceText(ctx context.Context, args map[string]any) (Result, error) {
-	return h.replaceDocumentText(ctx, args, "office_version_written")
-}
-
-func (h *ToolHub) textReplaceText(ctx context.Context, args map[string]any) (Result, error) {
-	return h.replaceDocumentText(ctx, args, "text_version_written")
-}
-
-func (h *ToolHub) replaceDocumentText(ctx context.Context, args map[string]any, status string) (Result, error) {
-	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	metadata, err := document.InspectFile(ctx, h.cfg.Workspaces.DefaultRoot, inputPath)
-	if err != nil {
-		return Result{}, err
-	}
-	if metadata.Format == app.DocumentFormatDOCX {
-		if err := h.validateDOCXSourceEvidence(ctx, inputPath, args); err != nil {
-			return Result{}, err
-		}
-	}
-	replacements, err := replacementArgs(args["replacements"])
-	if err != nil {
-		return Result{}, err
-	}
-	expected := intArg(args, "expected_replacements", 0)
-	sourceSHA256 := strings.TrimSpace(stringArg(args, "source_sha256", ""))
-	if format, detectErr := document.DetectFormat(inputPath); detectErr == nil && format == app.DocumentFormatXLSX && sourceSHA256 == "" {
-		return Result{}, &document.PipelineError{
-			Code: document.CodeResourceInvalid, Stage: document.StageConstrain, Format: format,
-			Detail: "XLSX text replacement requires trusted workbook source evidence",
-		}
-	}
-	targets := make([]document.LocatorRequest, 0, len(replacements))
-	for _, replacement := range replacements {
-		targets = append(targets, document.LocatorRequest{
-			Kind: document.LocatorExactText, Text: replacement.Find, AllowMultiple: expected > 0,
-		})
-	}
-	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
-		Path: inputPath, OutputPath: outputPath, SourceSHA256: sourceSHA256, Operation: "replace_text", Targets: targets, ExpectedMatches: expected,
-		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
-	})
-	if err != nil {
-		return Result{}, err
-	}
-	output := documentChangeOutput(result, status)
-	output["replacements"] = result.Changed
-	return Result{Output: output}, nil
 }
 
 func (h *ToolHub) resolveNewOutputPath(path string) (string, error) {

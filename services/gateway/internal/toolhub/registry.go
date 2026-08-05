@@ -49,13 +49,6 @@ func argsSessionRun(fn func(*ToolHub, map[string]any, string, string) (Result, e
 	}
 }
 
-// structureOp binds an operation name for the docx/pptx/xlsx structure editors.
-func structureOp(fn func(*ToolHub, context.Context, string, map[string]any) (Result, error), operation string) toolExecutor {
-	return func(h *ToolHub, ctx context.Context, _ string, args map[string]any, _, _ string) (Result, error) {
-		return fn(h, ctx, operation, args)
-	}
-}
-
 func remindersEnabled(cfg config.Config) bool {
 	return cfg.Tools.Reminders.Enabled
 }
@@ -194,16 +187,6 @@ func documentEditRegistration(run toolExecutor, format, operation, summary strin
 	return registration
 }
 
-func officeReplaceRegistration() toolRegistration {
-	registration := documentEditRegistration(ctxArgs((*ToolHub).officeReplaceText), app.DocumentFormatDOCX, "replace_text", "Replace bounded text and write an Office output copy.")
-	applyXLSXOperationDirectoryBoundary(&registration, "replace_text")
-	registration.capabilities = []app.CapabilityDescriptor{
-		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatDOCX, app.CapabilityQualifierOperation: "replace_text"}},
-		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatXLSX, app.CapabilityQualifierOperation: "replace_text"}},
-	}
-	return registration
-}
-
 // toolRegistry maps tool name -> execution + availability. Adding a tool means
 // one entry here plus its definition in defaultDefinitions().
 var toolRegistry = func() map[string]toolRegistration {
@@ -216,9 +199,6 @@ var toolRegistry = func() map[string]toolRegistration {
 			"Search file names and bounded text content in the configured workspace.",
 			"Use when the owner asks to find local workspace files and no exact path is known.",
 			"Do not use for public Web search, knowledge-index search, or file mutation.", app.ToolEffectWorkspaceRead),
-		"files.read": documentReadRegistration(ctxArgsSessionRun((*ToolHub).filesRead), []string{app.DocumentFormatText, app.DocumentFormatDOCX, app.DocumentFormatXLSX, app.DocumentFormatPPTX},
-			"Read one explicitly identified file inside the configured workspace.",
-		),
 		"images.inspect": documentReadRegistration(ctxArgsSessionRun((*ToolHub).imageInspect), []string{app.DocumentFormatImage},
 			"Inspect one explicitly identified image with Fast visual semantics and, when OCR is enabled, verbatim in-image Markdown with explicit text/no-text classification."),
 		"weather.lookup": workflowRegistration(toolRegistration{enabled: infoWeatherEnabled, run: ctxArgs((*ToolHub).lookupWeather)}, app.ToolCapabilityInfoQuestion,
@@ -229,8 +209,6 @@ var toolRegistry = func() map[string]toolRegistration {
 		"media.render_weather_card": weatherRenderRegistration(),
 		"files.write_draft":         legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
 		"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
-		"text.replace_text":         documentEditRegistration(ctxArgs((*ToolHub).textReplaceText), app.DocumentFormatText, "replace_text", "Replace bounded text and write a new plain-text output copy."),
-		"office.replace_text":       officeReplaceRegistration(),
 		"memory.search":             {run: argsSession((*ToolHub).memorySearch)},
 		"memory.write_candidate":    {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
 		"memory.propose":            {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
@@ -280,15 +258,8 @@ var toolRegistry = func() map[string]toolRegistration {
 		"shell.exec_sandboxed": {run: ctxArgs((*ToolHub).shellExecSandboxed)},
 		"notify.ask_approval":  {run: argsSessionRun((*ToolHub).notifyAskApproval)},
 	}
-	for _, registrations := range []map[string]toolRegistration{
-		docxToolRegistrations(),
-		pptxToolRegistrations(),
-		xlsxToolRegistrations(),
-		pdfToolRegistrations(),
-	} {
-		for name, registration := range registrations {
-			registry[name] = registration
-		}
+	for name, registration := range documentToolRegistrations() {
+		registry[name] = registration
 	}
 	return registry
 }()

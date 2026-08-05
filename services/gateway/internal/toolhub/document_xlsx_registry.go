@@ -1,6 +1,82 @@
 package toolhub
 
-import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+import (
+	"context"
+	"strings"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+)
+
+func xlsxDocumentFormatProvider() documentFormatProvider {
+	provider := documentFormatProvider{
+		Format: app.DocumentFormatXLSX, ReadToolNames: []string{"files.read"},
+		OperationOrder: []string{"replace_text", "update_cell", "insert_row", "delete_row", "update_row", "append_row"},
+		Parser: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
+			return runNodeAdapter(ctx, xlsxReadAdapterScript, request)
+		}),
+		Operations: map[string]documentOperationProvider{},
+	}
+	provider.Operations["replace_text"] = documentOperationProvider{
+		ToolName: "office.replace_text", Summary: "Replace bounded text and write an Office output copy.",
+		Validate: func(_ context.Context, _ *ToolHub, metadata document.Metadata, args map[string]any) error {
+			if strings.TrimSpace(stringArg(args, "source_sha256", "")) == "" {
+				return &document.PipelineError{
+					Code: document.CodeResourceInvalid, Stage: document.StageConstrain, Format: metadata.Format,
+					Detail: "XLSX text replacement requires trusted workbook source evidence",
+				}
+			}
+			return nil
+		},
+		BuildTargets: exactTextTargets,
+		Editor: document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
+			return applyOfficeReplacement(ctx, request, func(ctx context.Context, adapterRequest map[string]any) (map[string]any, error) {
+				return runNodeAdapter(ctx, xlsxAdapterScript, adapterRequest)
+			})
+		}),
+		SourceSHA256:  func(args map[string]any) string { return stringArg(args, "source_sha256", "") },
+		ProjectResult: projectReplacementResult, SuccessStatus: "office_version_written",
+	}
+	for _, operation := range []string{"update_cell", "insert_row", "delete_row", "update_row", "append_row"} {
+		operation := operation
+		provider.Operations[operation] = documentOperationProvider{
+			ToolName: "xlsx." + operation, Summary: xlsxOperationSummary(operation),
+			BuildTargets: func(args map[string]any) ([]document.LocatorRequest, int, error) {
+				return []document.LocatorRequest{xlsxEditTarget(operation, args)}, 0, nil
+			},
+			Editor: document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
+				return applyXLSXStructure(ctx, operation, request)
+			}),
+			SourceSHA256:  func(args map[string]any) string { return stringArg(args, "source_sha256", "") },
+			SuccessStatus: "xlsx_version_written",
+		}
+	}
+	for operation, boundary := range xlsxOperationDirectoryBoundaries {
+		candidate, ok := provider.Operations[operation]
+		if !ok {
+			continue
+		}
+		provider.Operations[operation] = withDocumentDirectoryBoundary(candidate, boundary.whenToUse, boundary.whenNotToUse)
+	}
+	return provider
+}
+
+func xlsxOperationSummary(operation string) string {
+	switch operation {
+	case "update_cell":
+		return "Update one XLSX cell and write a new workbook."
+	case "insert_row":
+		return "Insert one XLSX row and write a new workbook."
+	case "delete_row":
+		return "Delete one XLSX row and write a new workbook."
+	case "update_row":
+		return "Update one XLSX row and write a new workbook."
+	case "append_row":
+		return "Append one XLSX row and write a new workbook."
+	default:
+		return "Apply a bounded XLSX edit and write a new workbook."
+	}
+}
 
 type xlsxOperationDirectoryBoundary struct {
 	whenToUse    string
@@ -32,52 +108,4 @@ var xlsxOperationDirectoryBoundaries = map[string]xlsxOperationDirectoryBoundary
 		whenToUse:    "Use only when the owner explicitly removes one complete evidence-bound row.",
 		whenNotToUse: "Do not use to clear one cell, remove matching text, delete a column, or delete the workbook file.",
 	},
-}
-
-func xlsxToolRegistrations() map[string]toolRegistration {
-	return map[string]toolRegistration{
-		"xlsx.update_cell": xlsxOperationRegistration(
-			structureOp((*ToolHub).xlsxStructureEdit, "update_cell"),
-			"update_cell",
-			"Update one XLSX cell and write a new workbook.",
-		),
-		"xlsx.insert_row": xlsxOperationRegistration(
-			structureOp((*ToolHub).xlsxStructureEdit, "insert_row"),
-			"insert_row",
-			"Insert one XLSX row and write a new workbook.",
-		),
-		"xlsx.delete_row": xlsxOperationRegistration(
-			structureOp((*ToolHub).xlsxStructureEdit, "delete_row"),
-			"delete_row",
-			"Delete one XLSX row and write a new workbook.",
-		),
-		"xlsx.update_row": xlsxOperationRegistration(
-			structureOp((*ToolHub).xlsxStructureEdit, "update_row"),
-			"update_row",
-			"Update one XLSX row and write a new workbook.",
-		),
-		"xlsx.append_row": xlsxOperationRegistration(
-			structureOp((*ToolHub).xlsxStructureEdit, "append_row"),
-			"append_row",
-			"Append one XLSX row and write a new workbook.",
-		),
-	}
-}
-
-func xlsxOperationRegistration(run toolExecutor, operation, summary string) toolRegistration {
-	registration := documentEditRegistration(run, app.DocumentFormatXLSX, operation, summary)
-	applyXLSXOperationDirectoryBoundary(&registration, operation)
-	return registration
-}
-
-func applyXLSXOperationDirectoryBoundary(registration *toolRegistration, operation string) {
-	if registration == nil {
-		return
-	}
-	boundary, ok := xlsxOperationDirectoryBoundaries[operation]
-	if !ok {
-		return
-	}
-	registration.directory.WhenToUse = boundary.whenToUse
-	registration.directory.WhenNotToUse = boundary.whenNotToUse
 }

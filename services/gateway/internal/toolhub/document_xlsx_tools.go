@@ -8,26 +8,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-func (h *ToolHub) xlsxStructureEdit(ctx context.Context, operation string, args map[string]any) (Result, error) {
-	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	target := xlsxEditTarget(operation, args)
-	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
-		Path: inputPath, OutputPath: outputPath, SourceSHA256: stringArg(args, "source_sha256", ""), Operation: operation, Target: target,
-		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
-	})
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{Output: documentChangeOutput(result, "xlsx_version_written")}, nil
-}
-
 func xlsxEditTarget(operation string, args map[string]any) document.LocatorRequest {
 	sheet := stringArg(args, "sheet", "")
 	switch operation {

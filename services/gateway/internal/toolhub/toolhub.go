@@ -256,14 +256,7 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 
 func defaultDefinitions() []app.ToolDefinition {
 	definitions := defaultDefinitionsBeforeDocumentFormats()
-	for _, formatDefinitions := range [][]app.ToolDefinition{
-		docxToolDefinitions(),
-		pptxToolDefinitions(),
-		xlsxToolDefinitions(),
-		pdfToolDefinitions(),
-	} {
-		definitions = append(definitions, formatDefinitions...)
-	}
+	definitions = append(definitions, documentToolDefinitions()...)
 	return append(definitions, defaultDefinitionsAfterDocumentFormats()...)
 }
 
@@ -309,35 +302,6 @@ func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 			RequiresApproval: false,
 			Idempotent:       true,
 			TimeoutMS:        5000,
-			Sandbox:          "forbidden",
-			Audit:            "always",
-		},
-		{
-			Name:        "files.read",
-			Description: "Inspect and completely parse one small workspace document into stable blocks, format-specific locations, and categorized high-level evidence. Optional OvisOCR2 page parsing augments explicitly selected images and scanned PDF pages; Fast remains responsible for visual semantics.",
-			InputSchema: schema("object", []string{"path"}, map[string]any{
-				"path":               map[string]any{"type": "string"},
-				"max_bytes":          map[string]any{"type": "number"},
-				"image_analysis":     map[string]any{"type": "string", "enum": []string{"none", "targeted", "all"}},
-				"image_target_paths": stringArraySchema(),
-				"image_question":     stringSchema(),
-				"image_required":     booleanSchema(),
-			}),
-			OutputSchema: objectSchema([]string{"path", "kind", "content", "bytes", "source_bytes", "max_bytes", "truncated", "untrusted", "document"}, map[string]any{
-				"path":         stringSchema(),
-				"kind":         stringSchema(),
-				"content":      stringSchema(),
-				"bytes":        integerSchema(),
-				"source_bytes": integerSchema(),
-				"max_bytes":    integerSchema(),
-				"truncated":    booleanSchema(),
-				"untrusted":    booleanSchema(),
-				"document":     objectValueSchema(),
-			}),
-			Risk:             app.RiskRead,
-			RequiresApproval: false,
-			Idempotent:       true,
-			TimeoutMS:        125000,
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
@@ -425,84 +389,6 @@ func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 			Idempotent:       false,
 			TimeoutMS:        3000,
 			Sandbox:          "required",
-			Audit:            "always",
-		},
-		{
-			Name:        "text.replace_text",
-			Description: "Replace explicit text pairs in a governed plain-text file and write a new file without overwriting the original.",
-			InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
-				"path":        stringSchema(),
-				"output_path": stringSchema(),
-				"replacements": arraySchema(map[string]any{
-					"type":     "object",
-					"required": []string{"find", "replace"},
-					"properties": map[string]any{
-						"find":    stringSchema(),
-						"replace": stringSchema(),
-					},
-				}),
-				"expected_replacements": integerSchema(),
-			}),
-			OutputSchema: objectSchema([]string{"status", "path", "output_path", "replacements", "bytes", "change_summary", "untrusted"}, map[string]any{
-				"status":         stringSchema(),
-				"path":           stringSchema(),
-				"output_path":    stringSchema(),
-				"replacements":   integerSchema(),
-				"bytes":          integerSchema(),
-				"change_summary": objectValueSchema(),
-				"untrusted":      booleanSchema(),
-			}),
-			Risk:             app.RiskReversible,
-			RequiresApproval: true,
-			Idempotent:       false,
-			TimeoutMS:        5000,
-			Sandbox:          "optional",
-			Audit:            "always",
-		},
-		{
-			Name:        "office.replace_text",
-			Description: "Replace explicit text pairs in a workspace docx/xlsx/pptx and write a new Office file without overwriting the original.",
-			InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
-				"path":                   stringSchema(),
-				"output_path":            stringSchema(),
-				"source_document_sha256": stringSchema(),
-				"source_sha256":          stringSchema(),
-				"source_evidence":        objectValueSchema(),
-				"evidence_targets": arraySchema(map[string]any{
-					"type":     "object",
-					"required": []string{"find", "occurrences", "source_hash", "location"},
-					"properties": map[string]any{
-						"find":        stringSchema(),
-						"occurrences": integerSchema(),
-						"source_hash": stringSchema(),
-						"location":    objectValueSchema(),
-					},
-				}),
-				"replacements": arraySchema(map[string]any{
-					"type":     "object",
-					"required": []string{"find", "replace"},
-					"properties": map[string]any{
-						"find":    stringSchema(),
-						"replace": stringSchema(),
-					},
-				}),
-				"expected_replacements": map[string]any{"type": "number"},
-			}),
-			OutputSchema: objectSchema([]string{"status", "path", "output_path", "replacements", "bytes", "change_summary", "untrusted"}, map[string]any{
-				"status":         stringSchema(),
-				"path":           stringSchema(),
-				"output_path":    stringSchema(),
-				"replacements":   integerSchema(),
-				"bytes":          integerSchema(),
-				"details":        arraySchema(objectValueSchema()),
-				"change_summary": objectValueSchema(),
-				"untrusted":      booleanSchema(),
-			}),
-			Risk:             app.RiskReversible,
-			RequiresApproval: true,
-			Idempotent:       false,
-			TimeoutMS:        5000,
-			Sandbox:          "optional",
 			Audit:            "always",
 		},
 	}

@@ -10,40 +10,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-func (h *ToolHub) pptxReplaceText(ctx context.Context, args map[string]any) (Result, error) {
-	if err := validatePPTXEditArguments("replace_text", args); err != nil {
-		return Result{}, err
-	}
-	result, err := h.replaceDocumentText(ctx, args, "pptx_version_written")
-	return result, wrapPPTXToolError(ctx, err)
-}
-
-func (h *ToolHub) pptxSlideEdit(ctx context.Context, operation string, args map[string]any) (Result, error) {
-	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
-	if err != nil {
-		return Result{}, wrapPPTXToolError(ctx, err)
-	}
-	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
-	if err != nil {
-		return Result{}, err
-	}
-	if err := validatePPTXEditArguments(operation, args); err != nil {
-		return Result{}, err
-	}
-	target := document.LocatorRequest{Kind: document.LocatorDocument}
-	if operation != "add_slide" && operation != "update_deck" {
-		target = document.LocatorRequest{Kind: document.LocatorSlide, SlideIndex: intArg(args, "slide_index", 0), AllowMultiple: true}
-	}
-	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
-		Path: inputPath, OutputPath: outputPath, Operation: operation, Target: target,
-		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
-	})
-	if err != nil {
-		return Result{}, wrapPPTXToolError(ctx, err)
-	}
-	return Result{Output: documentChangeOutput(result, "pptx_version_written")}, nil
-}
-
 func runPptxSlideAdapter(ctx context.Context, request map[string]any) (map[string]any, error) {
 	return runPythonAdapter(ctx, pptxSlideAdapterScript, request)
 }
@@ -62,7 +28,9 @@ func pptxDocumentParser() document.Parser {
 }
 
 func applyPPTXReplacement(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
-	result, err := applyOfficeReplacement(ctx, app.DocumentFormatPPTX, request)
+	result, err := applyOfficeReplacement(ctx, request, func(ctx context.Context, adapterRequest map[string]any) (map[string]any, error) {
+		return runPythonAdapter(ctx, pptxAdapterScript, adapterRequest)
+	})
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return document.ApplyResult{}, pptxTimeoutPipelineError(document.StageApply, "PPTX replacement adapter exceeded the operation deadline")
 	}

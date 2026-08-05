@@ -2,64 +2,16 @@ package toolhub
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 func newDocumentPipeline(hub *ToolHub) *document.Pipeline {
-	parsers := map[string]document.Parser{
-		app.DocumentFormatText: document.ParserFunc(parseTextDocument),
-		app.DocumentFormatDOCX: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
-			return runPythonAdapter(ctx, docxReadAdapterScript, request)
-		}),
-		app.DocumentFormatXLSX: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
-			return runNodeAdapter(ctx, xlsxReadAdapterScript, request)
-		}),
-		app.DocumentFormatPPTX: pptxDocumentParser(),
-		app.DocumentFormatPDF: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
-			request["operation"] = "read"
-			return runPDFPython(ctx, request)
-		}),
-	}
-	editors := map[string]document.Editor{}
-	editors[document.EditorKey(app.DocumentFormatText, "replace_text")] = document.EditorFunc(applyTextReplacement)
-	for _, format := range []string{app.DocumentFormatDOCX, app.DocumentFormatXLSX} {
-		format := format
-		editors[document.EditorKey(format, "replace_text")] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
-			return applyOfficeReplacement(ctx, format, request)
-		})
-	}
-	editors[document.EditorKey(app.DocumentFormatPPTX, "replace_text")] = document.EditorFunc(applyPPTXReplacement)
-	for _, operation := range []string{"replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style"} {
-		operation := operation
-		editors[document.EditorKey(app.DocumentFormatDOCX, operation)] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
-			return applyDOCXStructure(ctx, operation, request)
-		})
-	}
-	for _, operation := range []string{"add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"} {
-		operation := operation
-		editors[document.EditorKey(app.DocumentFormatPPTX, operation)] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
-			return applyPPTXStructure(ctx, operation, request)
-		})
-	}
-	for _, operation := range []string{"update_cell", "insert_row", "delete_row", "update_row", "append_row"} {
-		operation := operation
-		editors[document.EditorKey(app.DocumentFormatXLSX, operation)] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
-			return applyXLSXStructure(ctx, operation, request)
-		})
-	}
-	for _, operation := range []string{"extract_pages", "delete_pages", "rotate_pages", "split"} {
-		operation := operation
-		editors[document.EditorKey(app.DocumentFormatPDF, operation)] = document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
-			return applyPDFTransform(ctx, operation, request)
-		})
-	}
-	strategy := document.NewSmallFileStrategy(parsers, editors)
+	providers := toolhubDocumentProviderRegistry()
+	strategy := document.NewSmallFileStrategy(providers.parsers(), providers.editors())
 	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy).WithEnrichers(
 		&ovisDocumentOCREnricher{hub: hub},
 		&fastDocumentImageEnricher{hub: hub},
@@ -150,22 +102,11 @@ func parseTextDocument(ctx context.Context, metadata document.Metadata, maxBytes
 	return document.AdapterReadResult{Content: string(raw), ExtractedBytes: len(raw), Document: textDocumentReadEnvelope(string(raw), false, maxBytes)}, nil
 }
 
-func applyOfficeReplacement(ctx context.Context, format string, request document.ApplyRequest) (document.ApplyResult, error) {
+func applyOfficeReplacement(ctx context.Context, request document.ApplyRequest, run adapterReadFunc) (document.ApplyResult, error) {
 	adapterRequest := map[string]any{
 		"path": request.Metadata.Path, "output_path": request.Edit.OutputPath, "replacements": request.Edit.Arguments["replacements"],
 	}
-	var out map[string]any
-	var err error
-	switch format {
-	case app.DocumentFormatDOCX:
-		out, err = runPythonAdapter(ctx, docxAdapterScript, adapterRequest)
-	case app.DocumentFormatXLSX:
-		out, err = runNodeAdapter(ctx, xlsxAdapterScript, adapterRequest)
-	case app.DocumentFormatPPTX:
-		out, err = runPythonAdapter(ctx, pptxAdapterScript, adapterRequest)
-	default:
-		err = errors.New("unsupported Office replacement format")
-	}
+	out, err := run(ctx, adapterRequest)
 	if err != nil {
 		return document.ApplyResult{}, err
 	}
@@ -173,7 +114,7 @@ func applyOfficeReplacement(ctx context.Context, format string, request document
 	if changed != len(request.Matches) {
 		_ = os.Remove(request.Edit.OutputPath)
 		return document.ApplyResult{}, &document.PipelineError{
-			Code: document.CodeMatchCountMismatch, Stage: document.StageApply, Format: format,
+			Code: document.CodeMatchCountMismatch, Stage: document.StageApply, Format: request.Metadata.Format,
 			Detail: "editor change count did not match the constrained target set",
 		}
 	}

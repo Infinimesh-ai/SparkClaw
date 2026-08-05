@@ -20,3 +20,25 @@ func TestPromotePDFOCRContentLeavesTextOnlyPDFUnchanged(t *testing.T) {
 		t.Fatalf("text-only PDF state was rewritten by OCR promotion: %#v", read)
 	}
 }
+
+func TestFinalPDFOCRPageStatusKeepsUnavailableReasonsDistinct(t *testing.T) {
+	tests := []struct {
+		name       string
+		ocr        map[string]any
+		wantStatus string
+		wantReason string
+	}{
+		{name: "disabled", ocr: map[string]any{"status": "disabled"}, wantStatus: "ocr_disabled", wantReason: "ocr_adapter_disabled"},
+		{name: "failed", ocr: map[string]any{"status": "failed", "reason_code": "provider_timeout"}, wantStatus: "ocr_failed", wantReason: "provider_timeout"},
+		{name: "render", ocr: map[string]any{"status": "unsupported"}, wantStatus: "render_failed", wantReason: "ocr_page_resource_unavailable"},
+		{name: "budget", ocr: map[string]any{"status": "skipped", "reason": "OCR page budget was exhausted"}, wantStatus: "budget_omitted", wantReason: "ocr_page_budget_exhausted"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			status, reason := finalPDFOCRPageStatus(test.ocr)
+			if status != test.wantStatus || reason != test.wantReason {
+				t.Fatalf("unexpected OCR page outcome: status=%q reason=%v", status, reason)
+			}
+		})
+	}
+}

@@ -211,11 +211,11 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 		Capability: app.ToolCapabilityDocumentEdit,
 		Args:       map[string]any{"path": "report.pdf", "output_path": "report-sparkclaw-edit.pdf", "operation": "rotate_pages"},
 	}
-	if err := runtime.validateWorkflowToolPlan(dispatch.Run.ID, plan, definition); err != nil {
+	if err := runtime.validateWorkflowToolPlan(context.Background(), dispatch.Run.ID, plan, definition); err != nil {
 		t.Fatalf("matching PDF operation was rejected: %v", err)
 	}
 	plan.Args["operation"] = "delete_pages"
-	if err := runtime.validateWorkflowToolPlan(dispatch.Run.ID, plan, definition); err == nil {
+	if err := runtime.validateWorkflowToolPlan(context.Background(), dispatch.Run.ID, plan, definition); err == nil {
 		t.Fatal("PDF operation escaped the materialized rotate_pages qualifier")
 	}
 }

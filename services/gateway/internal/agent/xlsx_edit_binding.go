@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 type xlsxEditEvidence struct {
@@ -50,7 +53,7 @@ func (r Runtime) bindXLSXEditEvidence(run app.AgentRun, operation string, args m
 	return args
 }
 
-func (r Runtime) validateXLSXEditEvidence(run app.AgentRun, operation string, args map[string]any) error {
+func (r Runtime) validateXLSXEditEvidence(ctx context.Context, run app.AgentRun, operation string, args map[string]any) error {
 	evidence, ok := r.currentXLSXEditEvidence(run, operation, args)
 	if !ok {
 		return errors.New("XLSX edit target does not match current workflow localization evidence")
@@ -60,6 +63,22 @@ func (r Runtime) validateXLSXEditEvidence(run app.AgentRun, operation string, ar
 	}
 	if field := xlsxTargetHashArgument(operation); field != "" && cleanOptionalString(args[field]) != evidence.TargetHash {
 		return errors.New("XLSX " + field + " conflicts with current workflow localization evidence")
+	}
+	root := r.tools.Config().Workspaces.DefaultRoot
+	preflight, err := preflightDocumentPath(root, cleanOptionalString(args["path"]), false)
+	if err != nil || preflight.Format != app.DocumentFormatXLSX {
+		return errors.New("XLSX package preflight could not resolve the evidence-bound workbook")
+	}
+	packagePath := filepath.Join(root, filepath.FromSlash(preflight.InputRef))
+	metadata, err := document.InspectFile(ctx, root, packagePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(metadata.SHA256, evidence.SourceSHA256) {
+		return errors.New("XLSX workbook changed after current workflow localization evidence was read")
+	}
+	if _, err := document.ValidateXLSXPackageForOperation(packagePath, operation, args); err != nil {
+		return err
 	}
 	return nil
 }

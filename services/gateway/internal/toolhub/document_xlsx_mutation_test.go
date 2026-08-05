@@ -30,6 +30,11 @@ func TestXLSXUpdateRowChangesOnlySuppliedPrefix(t *testing.T) {
 		changedCells[0].(map[string]any)["address"] != "A2" || changedCells[1].(map[string]any)["address"] != "B2" {
 		t.Fatalf("update_row did not report exact cell deltas: %#v", output)
 	}
+	changeSummary := output["change_summary"].(map[string]any)
+	if output["package_preservation"] != "verified" || changeSummary["package_preservation"] != "verified" ||
+		len(testAnySlice(changeSummary["package_checked_features"])) == 0 || len(testAnySlice(changeSummary["target_deltas"])) != 2 {
+		t.Fatalf("verified XLSX package evidence is missing from the change result: %#v", output)
+	}
 
 	after := executeDocumentRead(t, hub, "outputs/updated.xlsx")
 	beforeCells := xlsxTestRowCells(t, before, "Data", 2)

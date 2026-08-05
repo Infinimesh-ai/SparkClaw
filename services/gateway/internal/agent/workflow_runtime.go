@@ -16,7 +16,7 @@ import (
 
 const workflowFailureDirectToolInvocationInvalid = "direct_tool_invocation_invalid"
 
-func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definition app.ToolDefinition) error {
+func (r Runtime) validateWorkflowToolPlan(ctx context.Context, runID string, plan toolPlan, definition app.ToolDefinition) error {
 	if plan.WorkflowID == "" {
 		return nil
 	}
@@ -89,7 +89,7 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 		}
 	}
 	if operation, ok := xlsxEditOperation(definition, plan); ok {
-		if err := r.validateXLSXEditEvidence(run, operation, plan.Args); err != nil {
+		if err := r.validateXLSXEditEvidence(ctx, run, operation, plan.Args); err != nil {
 			return err
 		}
 	}

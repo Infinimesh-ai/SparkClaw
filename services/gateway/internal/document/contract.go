@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const (
@@ -256,21 +258,24 @@ type ReadResult struct {
 }
 
 type ChangeSummary struct {
-	DocumentID            string         `json:"document_id"`
-	Operation             string         `json:"operation"`
-	InputPath             string         `json:"input_path"`
-	OutputPath            string         `json:"output_path"`
-	OutputPaths           []string       `json:"output_paths,omitempty"`
-	OriginalUnchanged     bool           `json:"original_unchanged"`
-	Matched               int            `json:"matched"`
-	Changed               int            `json:"changed"`
-	Targets               []Match        `json:"targets"`
-	HighLevelPreservation string         `json:"high_level_preservation"`
-	PackagePreservation   string         `json:"package_preservation"`
-	PreservationWarnings  []string       `json:"preservation_warnings,omitempty"`
-	LayoutPolicy          string         `json:"layout_policy,omitempty"`
-	LayoutAdjustedShapes  int            `json:"layout_adjusted_shapes,omitempty"`
-	LayoutChecks          map[string]any `json:"layout_checks,omitempty"`
+	DocumentID             string           `json:"document_id"`
+	Operation              string           `json:"operation"`
+	InputPath              string           `json:"input_path"`
+	OutputPath             string           `json:"output_path"`
+	OutputPaths            []string         `json:"output_paths,omitempty"`
+	OriginalUnchanged      bool             `json:"original_unchanged"`
+	Matched                int              `json:"matched"`
+	Changed                int              `json:"changed"`
+	Targets                []Match          `json:"targets"`
+	HighLevelPreservation  string           `json:"high_level_preservation"`
+	PackagePreservation    string           `json:"package_preservation"`
+	PackageCheckedFeatures []string         `json:"package_checked_features,omitempty"`
+	PackageCoverageNotes   []string         `json:"package_coverage_notes,omitempty"`
+	TargetDeltas           []map[string]any `json:"target_deltas,omitempty"`
+	PreservationWarnings   []string         `json:"preservation_warnings,omitempty"`
+	LayoutPolicy           string           `json:"layout_policy,omitempty"`
+	LayoutAdjustedShapes   int              `json:"layout_adjusted_shapes,omitempty"`
+	LayoutChecks           map[string]any   `json:"layout_checks,omitempty"`
 }
 
 func (s ChangeSummary) Map() (map[string]any, error) {
@@ -338,6 +343,16 @@ func (p *Pipeline) Read(ctx context.Context, request ReadRequest) (ReadResult, e
 	if err != nil {
 		return ReadResult{}, err
 	}
+	if metadata.Format == app.DocumentFormatXLSX {
+		manifest, inspectErr := InspectXLSXPackage(metadata.Path)
+		if inspectErr != nil {
+			return ReadResult{}, inspectErr
+		}
+		if read.Document.ContentScope == nil {
+			read.Document.ContentScope = map[string]any{}
+		}
+		read.Document.ContentScope["package_coverage"] = XLSXPackageReadCoverage(manifest)
+	}
 	read, err = p.enrich(ctx, read, request.Enrichment)
 	if err != nil {
 		return ReadResult{}, err
@@ -359,6 +374,13 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 	}
 	if expected := strings.TrimSpace(request.SourceSHA256); expected != "" && !strings.EqualFold(expected, metadata.SHA256) {
 		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "input document does not match the trusted source hash"}
+	}
+	var xlsxPackageBefore XLSXPackageManifest
+	if metadata.Format == app.DocumentFormatXLSX {
+		xlsxPackageBefore, err = ValidateXLSXPackageForOperation(metadata.Path, request.Operation, request.Arguments)
+		if err != nil {
+			return EditResult{}, err
+		}
 	}
 	read, err := strategy.Read(ctx, metadata, request.MaxBytes)
 	if err != nil {
@@ -407,6 +429,9 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: metadata.Format, Detail: "editor reported no output resources"}
 	}
 	preservationWarnings := []string{}
+	packagePreservation := "unknown"
+	packageCheckedFeatures := []string{}
+	packageCoverageNotes := []string{}
 	for _, outputPath := range outputPaths {
 		outputRead, err := p.validateProducedOutput(ctx, request.Root, metadata, strategy, request.MaxBytes, outputPath)
 		if err != nil {
@@ -419,8 +444,30 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 			return EditResult{}, err
 		}
 		preservationWarnings = append(preservationWarnings, report.Warnings...)
+		if metadata.Format == app.DocumentFormatXLSX {
+			xlsxPackageAfter, inspectErr := InspectXLSXPackage(outputPath)
+			if inspectErr != nil {
+				cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
+				return EditResult{}, inspectErr
+			}
+			packageReport, verifyErr := VerifyXLSXPackagePreservation(xlsxPackageBefore, xlsxPackageAfter, request, matches)
+			if verifyErr != nil {
+				cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
+				return EditResult{}, verifyErr
+			}
+			packagePreservation = "verified"
+			packageCheckedFeatures = append(packageCheckedFeatures, packageReport.CheckedFeatureClasses...)
+			packageCoverageNotes = append(packageCoverageNotes, packageReport.CoverageNotes...)
+		}
 	}
 	preservationWarnings = append(preservationWarnings, stringSlice(applied.Details["warnings"])...)
+	if metadata.Format == app.DocumentFormatXLSX {
+		if applied.Details == nil {
+			applied.Details = map[string]any{}
+		}
+		applied.Details["package_preservation"] = packagePreservation
+		applied.Details["package_checked_features"] = uniqueStrings(packageCheckedFeatures)
+	}
 	current, err = p.inspector.Inspect(ctx, request.Root, request.Path)
 	if err != nil || current.Size != metadata.Size || current.SHA256 != metadata.SHA256 {
 		cleanupOutputPaths(request.Root, metadata.Path, outputPaths)
@@ -438,7 +485,9 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 		ChangeSummary: ChangeSummary{
 			DocumentID: read.Document.ID, Operation: request.Operation, InputPath: metadata.Path, OutputPath: primaryOutput, OutputPaths: outputPaths,
 			OriginalUnchanged: true, Matched: len(matches), Changed: applied.Changed, Targets: matches,
-			HighLevelPreservation: "verified", PackagePreservation: "unknown", PreservationWarnings: uniqueStrings(preservationWarnings),
+			HighLevelPreservation: "verified", PackagePreservation: packagePreservation,
+			PackageCheckedFeatures: uniqueStrings(packageCheckedFeatures), PackageCoverageNotes: uniqueStrings(packageCoverageNotes),
+			TargetDeltas: mapSlice(applied.Details["changed_cells"]), PreservationWarnings: uniqueStrings(preservationWarnings),
 			LayoutPolicy: stringValue(applied.Details["layout_policy"]), LayoutAdjustedShapes: intValue(applied.Details["layout_adjusted_shapes"]),
 			LayoutChecks: cloneMap(mapValue(applied.Details["layout_checks"])),
 		},

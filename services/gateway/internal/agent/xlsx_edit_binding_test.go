@@ -156,6 +156,88 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 	assertAgentXLSXRow(t, inputRead.Output, "Alpha", float64(40), "B2*2")
 }
 
+func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing.T) {
+	root := t.TempDir()
+	inputRef := "table.xlsx"
+	outputRef := "table-sparkclaw-edit.xlsx"
+	writeAgentXLSXTableFixture(t, filepath.Join(root, inputRef))
+	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "Update Data!B2 in table.xlsx to 55", agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{
+		ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC(),
+	}, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedRun, tools := advanceDocumentEditToEditor(t, runtime, st, dispatch, inputRef, "xlsx.update_cell", "update_cell")
+	if len(tools) != 1 || tools[0].Name != "xlsx.update_cell" {
+		t.Fatalf("XLSX table fixture did not reach the selected editor: %#v", visibleToolNames(tools))
+	}
+	readOutput := replaceAgentXLSXLocateEvidence(t, runtime, st, storedRun, inputRef)
+	documentMap, _ := anyMap(readOutput["document"])
+	contentScope, _ := anyMap(documentMap["content_scope"])
+	coverage, _ := anyMap(contentScope["package_coverage"])
+	if coverage["status"] != "partial" || coverage["mutation_supported"] != false {
+		t.Fatalf("read-only unsupported package coverage is missing: %#v", coverage)
+	}
+	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+		Name:       "xlsx.update_cell",
+		Args:       map[string]any{"path": inputRef, "output_path": outputRef, "sheet": "Data", "cell": "B2", "value": 55},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
+	})
+	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "tables") {
+		t.Fatalf("unverified XLSX table feature reached approval: call=%#v approval=%#v", call, approval)
+	}
+	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+		t.Fatalf("unverified XLSX package created an owner approval: %#v", approvals)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, outputRef)); !os.IsNotExist(statErr) {
+		t.Fatalf("unverified XLSX package left an output: %v", statErr)
+	}
+}
+
+func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationBeforeApproval(t *testing.T) {
+	root := t.TempDir()
+	inputRef := "ledger.xlsx"
+	outputRef := "ledger-sparkclaw-edit.xlsx"
+	inputPath := filepath.Join(root, inputRef)
+	writeAgentXLSXFixture(t, inputPath)
+	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
+	defer closeRuntime()
+	route, err := runtime.routeIntentForTest(session.ID, "turn", "Update Data!B2 in ledger.xlsx to 55", agentContextSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{
+		ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC(),
+	}, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedRun, _ := advanceDocumentEditToEditor(t, runtime, st, dispatch, inputRef, "xlsx.update_cell", "update_cell")
+	replaceAgentXLSXLocateEvidence(t, runtime, st, storedRun, inputRef)
+	mutateAgentXLSXFixture(t, inputPath)
+
+	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+		Name:       "xlsx.update_cell",
+		Args:       map[string]any{"path": inputRef, "output_path": outputRef, "sheet": "Data", "cell": "B2", "value": 55},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
+	})
+	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "changed after current workflow localization evidence") {
+		t.Fatalf("physically stale XLSX evidence reached approval: call=%#v approval=%#v", call, approval)
+	}
+	if approvals := st.ListApprovals(""); len(approvals) != 0 {
+		t.Fatalf("physically stale XLSX evidence created an owner approval: %#v", approvals)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, outputRef)); !os.IsNotExist(statErr) {
+		t.Fatalf("physically stale XLSX evidence left an output: %v", statErr)
+	}
+}
+
 func writeAgentXLSXFixture(t *testing.T, path string) {
 	t.Helper()
 	script := `
@@ -177,6 +259,70 @@ const ExcelJS = require("exceljs");
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create agent XLSX fixture: %v\n%s", err, output)
 	}
+}
+
+func writeAgentXLSXTableFixture(t *testing.T, path string) {
+	t.Helper()
+	script := `
+const ExcelJS = require("exceljs");
+(async () => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Data");
+  sheet.addRows([["Name", "Score"], ["Alpha", 40], ["Bravo", 60]]);
+  sheet.addTable({name: "Scores", ref: "A1", headerRow: true, totalsRow: false, columns: [{name: "Name"}, {name: "Score"}], rows: [["Alpha", 40], ["Bravo", 60]]});
+  await workbook.xlsx.writeFile(process.argv[1]);
+})().catch(error => {
+  console.error(error && error.stack || error);
+  process.exit(1);
+});`
+	cmd := exec.Command("node", "-e", script, path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create agent XLSX table fixture: %v\n%s", err, output)
+	}
+}
+
+func mutateAgentXLSXFixture(t *testing.T, path string) {
+	t.Helper()
+	script := `
+const ExcelJS = require("exceljs");
+(async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(process.argv[1]);
+  workbook.getWorksheet("Data").getCell("D3").value = "external change";
+  await workbook.xlsx.writeFile(process.argv[1]);
+})().catch(error => {
+  console.error(error && error.stack || error);
+  process.exit(1);
+});`
+	cmd := exec.Command("node", "-e", script, path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("mutate agent XLSX fixture: %v\n%s", err, output)
+	}
+}
+
+func replaceAgentXLSXLocateEvidence(t *testing.T, runtime Runtime, st interface {
+	GetToolCall(string) (app.ToolCall, bool)
+	SaveToolCall(app.ToolCall)
+}, run app.AgentRun, inputRef string) map[string]any {
+	t.Helper()
+	read, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": inputRef}, run.SessionID, run.ID)
+	if err != nil {
+		t.Fatalf("read-only XLSX inspection failed: %v", err)
+	}
+	locateState := run.Workflow.Nodes[documentLocateEvidenceNodeID]
+	readCall, ok := st.GetToolCall(locateState.ToolCallIDs[0])
+	if !ok {
+		t.Fatal("XLSX locate call is missing")
+	}
+	readCall.Result = read.Output
+	readCall.Status = "completed"
+	readCall.Error = ""
+	st.SaveToolCall(readCall)
+	output, ok := anyMap(read.Output)
+	if !ok {
+		t.Fatalf("XLSX read output is not structured: %#v", read.Output)
+	}
+	return output
 }
 
 func assertAgentXLSXRow(t *testing.T, raw any, wantA string, wantB float64, wantFormula string) {

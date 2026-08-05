@@ -12,14 +12,9 @@ func verifyXLSXExpectedMutation(operation string, before, after Representation, 
 		if !xlsxCellHasTypedValue(after, stringValue(edit.Arguments["sheet"]), stringValue(edit.Arguments["cell"]), edit.Arguments["value"]) {
 			return true, fmt.Errorf("the target cell does not contain the expected after-value")
 		}
-	case "insert_row", "append_row":
-		if sheetRowCount(after, stringValue(edit.Arguments["sheet"])) != sheetRowCount(before, stringValue(edit.Arguments["sheet"]))+1 ||
-			!sheetContainsValues(after, stringValue(edit.Arguments["sheet"]), anySlice(edit.Arguments["values"])) {
-			return true, fmt.Errorf("the inserted row was not found at the expected structural boundary")
-		}
-	case "delete_row":
-		if sheetRowCount(after, stringValue(edit.Arguments["sheet"])) != sheetRowCount(before, stringValue(edit.Arguments["sheet"]))-1 {
-			return true, fmt.Errorf("the deleted row count was not reflected in the structured output")
+	case "insert_row", "append_row", "delete_row":
+		if err := verifyXLSXStructuralRowMutation(operation, before, after, edit); err != nil {
+			return true, err
 		}
 	case "update_row":
 		if err := verifyXLSXRowPrefixMutation(before, after, stringValue(edit.Arguments["sheet"]), intValue(edit.Arguments["row"]), anySlice(edit.Arguments["values"])); err != nil {
@@ -152,38 +147,151 @@ func xlsxCellByColumn(cells []map[string]any, column int) (map[string]any, bool)
 	return nil, false
 }
 
-func sheetRowCount(document Representation, sheetName string) int {
-	for _, sheet := range document.Sheets {
-		if strings.EqualFold(stringValue(sheet["name"]), sheetName) {
-			return len(mapSlice(sheet["rows"]))
-		}
+func verifyXLSXStructuralRowMutation(operation string, before, after Representation, edit EditRequest) error {
+	sheetName := stringValue(edit.Arguments["sheet"])
+	beforeRows := xlsxRepresentationRows(before, sheetName)
+	afterRows := xlsxRepresentationRows(after, sheetName)
+	if len(beforeRows) == 0 {
+		return fmt.Errorf("the target worksheet has no structured rows before the edit")
 	}
-	return 0
-}
-
-func sheetContainsValues(document Representation, sheetName string, values []any) bool {
-	for _, sheet := range document.Sheets {
-		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {
-			continue
+	switch operation {
+	case "append_row":
+		if len(afterRows) != len(beforeRows)+1 {
+			return fmt.Errorf("the appended row count was not reflected in the structured output")
 		}
-		for _, row := range mapSlice(sheet["rows"]) {
-			if rowHasValues(row, values) {
-				return true
+		for _, beforeRow := range beforeRows {
+			afterRow, ok := xlsxRowByRepresentationIndex(afterRows, intValue(beforeRow["index"]))
+			if !ok || stringValue(beforeRow["source_hash"]) != stringValue(afterRow["source_hash"]) {
+				return fmt.Errorf("an existing row changed while appending")
 			}
 		}
+		appendIndex := xlsxLastContentRow(beforeRows) + 1
+		appended, ok := xlsxRowByRepresentationIndex(afterRows, appendIndex)
+		if !ok || !xlsxRowHasTypedPrefix(appended, anySlice(edit.Arguments["values"])) {
+			return fmt.Errorf("the appended row was not found at the structured sheet boundary")
+		}
+		return nil
+	case "insert_row":
+		if len(afterRows) != len(beforeRows)+1 {
+			return fmt.Errorf("the inserted row count was not reflected in the structured output")
+		}
+		insertAt := intValue(edit.Arguments["row"])
+		if strings.EqualFold(stringValue(edit.Arguments["position"]), "after") {
+			insertAt++
+		}
+		inserted, ok := xlsxRowByRepresentationIndex(afterRows, insertAt)
+		if !ok || !xlsxRowHasTypedPrefix(inserted, anySlice(edit.Arguments["values"])) {
+			return fmt.Errorf("the inserted row was not found at the evidence-bound position")
+		}
+		for _, beforeRow := range beforeRows {
+			beforeIndex := intValue(beforeRow["index"])
+			afterIndex := beforeIndex
+			if beforeIndex >= insertAt {
+				afterIndex++
+			}
+			afterRow, found := xlsxRowByRepresentationIndex(afterRows, afterIndex)
+			if !found || !xlsxRowsSemanticallyEqual(beforeRow, afterRow) {
+				return fmt.Errorf("an unrelated row changed while inserting at row %d", insertAt)
+			}
+		}
+		return nil
+	case "delete_row":
+		if len(afterRows) != len(beforeRows)-1 {
+			return fmt.Errorf("the deleted row count was not reflected in the structured output")
+		}
+		deleteAt := intValue(edit.Arguments["row"])
+		if _, ok := xlsxRowByRepresentationIndex(beforeRows, deleteAt); !ok {
+			return fmt.Errorf("the evidence-bound deleted row was not present before the edit")
+		}
+		for _, beforeRow := range beforeRows {
+			beforeIndex := intValue(beforeRow["index"])
+			if beforeIndex == deleteAt {
+				continue
+			}
+			afterIndex := beforeIndex
+			if beforeIndex > deleteAt {
+				afterIndex--
+			}
+			afterRow, found := xlsxRowByRepresentationIndex(afterRows, afterIndex)
+			if !found || !xlsxRowsSemanticallyEqual(beforeRow, afterRow) {
+				return fmt.Errorf("an unrelated row changed while deleting row %d", deleteAt)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported XLSX structural verification operation %q", operation)
 	}
-	return false
 }
 
-func rowHasValues(row map[string]any, values []any) bool {
-	cells := mapSlice(row["cells"])
-	if len(cells) < len(values) {
+func xlsxRepresentationRows(representation Representation, sheetName string) []map[string]any {
+	for _, sheet := range representation.Sheets {
+		if strings.EqualFold(stringValue(sheet["name"]), sheetName) {
+			return mapSlice(sheet["rows"])
+		}
+	}
+	return nil
+}
+
+func xlsxRowByRepresentationIndex(rows []map[string]any, index int) (map[string]any, bool) {
+	for _, row := range rows {
+		if intValue(row["index"]) == index {
+			return row, true
+		}
+	}
+	return nil, false
+}
+
+func xlsxRowHasTypedPrefix(row map[string]any, values []any) bool {
+	if len(values) == 0 {
 		return false
 	}
-	for index, value := range values {
-		if !sameJSON(cells[index]["raw_value"], value) {
+	cells := mapSlice(row["cells"])
+	for offset, value := range values {
+		cell, ok := xlsxCellByColumn(cells, offset+1)
+		if !ok || !sameJSON(cell["raw_value"], value) || stringValue(cell["formula"]) != "" {
+			return false
+		}
+	}
+	for _, cell := range cells {
+		if intValue(cell["column"]) > len(values) && (cell["raw_value"] != nil || stringValue(cell["formula"]) != "") {
 			return false
 		}
 	}
 	return true
+}
+
+func xlsxRowsSemanticallyEqual(before, after map[string]any) bool {
+	if !sameJSON(before["hidden"], after["hidden"]) || !sameJSON(before["height"], after["height"]) {
+		return false
+	}
+	beforeCells := mapSlice(before["cells"])
+	afterCells := mapSlice(after["cells"])
+	if len(beforeCells) != len(afterCells) {
+		return false
+	}
+	for _, beforeCell := range beforeCells {
+		afterCell, ok := xlsxCellByColumn(afterCells, intValue(beforeCell["column"]))
+		if !ok {
+			return false
+		}
+		for _, field := range []string{"value_kind", "raw_value", "formula", "number_format", "hidden", "style_hash"} {
+			if !sameJSON(beforeCell[field], afterCell[field]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func xlsxLastContentRow(rows []map[string]any) int {
+	last := 0
+	for _, row := range rows {
+		for _, cell := range mapSlice(row["cells"]) {
+			if cell["raw_value"] != nil || stringValue(cell["formula"]) != "" || stringValue(cell["display_text"]) != "" {
+				last = max(last, intValue(row["index"]))
+				break
+			}
+		}
+	}
+	return last
 }

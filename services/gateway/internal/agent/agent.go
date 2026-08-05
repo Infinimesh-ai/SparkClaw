@@ -998,7 +998,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		r.store.SaveToolCall(call)
 		return call, nil, call.ObservationSummary
 	}
-	if err := r.validateWorkflowToolPlan(runID, plan, def); err != nil {
+	if err := r.validateWorkflowToolPlan(ctx, runID, plan, def); err != nil {
 		call.Status = "blocked"
 		call.Error = err.Error()
 		done := time.Now().UTC()

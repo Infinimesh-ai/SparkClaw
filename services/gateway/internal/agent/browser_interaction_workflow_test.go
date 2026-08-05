@@ -331,7 +331,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	if !ok {
 		t.Fatal("browser.click is unavailable")
 	}
-	if err := runtime.validateWorkflowToolPlan(stored.ID, plan, definition); err != nil {
+	if err := runtime.validateWorkflowToolPlan(context.Background(), stored.ID, plan, definition); err != nil {
 		t.Fatalf("materialized short ref did not pass the frozen workflow boundary: %v", err)
 	}
 }

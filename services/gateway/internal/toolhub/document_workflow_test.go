@@ -114,6 +114,12 @@ func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T
 			if test.name == "docx" {
 				args["source_document_sha256"] = docxSourceSHA256ForTest(t, root, test.input)
 			}
+			if test.name == "xlsx" {
+				read := executeDocumentRead(t, hub, test.input)
+				for key, value := range xlsxBoundTestArgs(t, read, stringArg(args, "sheet", ""), "update_cell", 2, stringArg(args, "cell", "")) {
+					args[key] = value
+				}
+			}
 			result, err := hub.Execute(context.Background(), test.tool, args, "session", "run")
 			if err != nil {
 				t.Fatal(err)

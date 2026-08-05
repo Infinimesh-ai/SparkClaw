@@ -9,7 +9,7 @@
 
 `document.read` revision 4 读取、总结一个明确的受治理 workspace 文件，或逐字提取图片内原文。其格式限定 reader
 是 `direct_once` 节点：Runtime 使用冻结路径直接调用唯一 reader，Fast 只根据已完成证据生成
-最终回答。`document.edit` revision 5 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
+最终回答。`document.edit` revision 6 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级
 `<name>-sparkclaw-edit.<ext>` 输出副本。如果该名称已存在，preflight 会选择第一个可用的
 带编号同级名称，例如 `<name>-sparkclaw-edit-2.<ext>`。继续编辑其中一个副本时，会沿用同一
@@ -44,13 +44,14 @@ confirm_document_target
 
 `select_edit_operation` 不会向步骤模型暴露工具。Runtime 直接检索它按格式限定的
 `document.edit` scope：单候选确定性选中；多候选由一次有重试上限的 Fast 模型决策处理，
-输入是 owner 请求和由 `workflow_stage_evidence_max_bytes` 限制的依赖证据，默认 8,000
-bytes。DOCX decision 会优先选择显式稳定 location、段落序号、引号文本、有界 neighbor、
-story-part 样本和 operation context，再使用确定性 head/tail fallback；其他格式保持原有
-结构化 projector。选中的 directory entry、capability、format、operation 与选择路径写入
-该节点的 `OutcomeRefs`，编辑节点只能 materialize 这一 entry。决策缺失、过期、有歧义或
-无效时 Workflow 会显式 block。原内联目录二次路由已经删除；其他多候选 scope 也必须声明
-自己的决策节点。详见
+输入是 owner 请求、operation 专属目录边界，以及由
+`workflow_stage_evidence_max_bytes` 限制的依赖证据，默认 8,000 bytes。DOCX decision 会
+优先选择显式稳定 location、段落序号、引号文本、有界 neighbor、story-part 样本和
+operation context，再使用确定性 head/tail fallback。XLSX 的 operation 选择与 editor
+参数生成使用同一份 `xlsx_sheet_evidence_v1` 投影。选中的 directory entry、capability、
+format、operation 与选择路径写入该节点的 `OutcomeRefs`，编辑节点只能 materialize 这一
+entry。决策缺失、过期、有歧义、不受支持或无效时 Workflow 会显式 block。原内联目录二次
+路由已经删除；其他多候选 scope 也必须声明自己的决策节点。详见
 [operation 选择设计记录](document-edit-operation-selection.md)。
 
 ## 持久文档记录
@@ -117,6 +118,18 @@ Fast 文字提取兜底。
 防止 image semantic/OCR 挤掉主要文档内容，重复图片按 source hash 去重。当前图片限制和
 budget 由代码与测试约束，修改它们属于契约变化。
 
+### XLSX 证据
+
+XLSX 读取把类型化 cell value 与 display text、formula、number format、style、hidden state 和
+merge anchor 分开规范化。每个 sheet、row 和 cell 都有基于修改与保真字段的稳定 source hash。
+有界 `xlsx_sheet_evidence_v1` 投影始终声明 source completeness、selection completeness 和省略的
+sheet/row/cell 数量；它优先保留显式命名的工作表、A1 cell 与行、精确值、表头行、末尾上下文和
+目标相邻行。如果已定位的强制目标无法放入证据预算，则 `selection_complete=false` 会阻断选择或
+编辑，而不是改用不相关的工作簿前缀。
+
+完整结构化读取继续保存在 tool observation artifact 中；模型上下文只接收面向当前消费者的有界
+投影，证据供给 audit 会记录选中与省略数量。
+
 ## 当前 Operation
 
 | 格式 | 支持的 edit operation |
@@ -126,6 +139,36 @@ budget 由代码与测试约束，修改它们属于契约变化。
 | XLSX | `replace_text`, `update_cell`, `insert_row`, `delete_row`, `update_row`, `append_row` |
 | PPTX | `replace_text`, `add_slide`, `update_slide`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
+
+### XLSX 编辑边界
+
+- `replace_text` 要求明确 old/new 文本，并修改匹配的文本值 cell；已定位 cell/row 或非文本
+  typed value 使用结构化 editor。
+- `update_cell` 只修改一个证据定位的 cell。`update_row` 只修改现有行已提供的行首前缀；省略的
+  尾部 value、formula、format、comment、hyperlink、row height 和 hidden state 都不属于目标。
+- `insert_row` 要求明确 before/after 行锚点；`append_row` 写在最后结构行之后；`delete_row`
+  要求明确删除完整行，清空 cell、删除列或删除工作簿都不是行删除。
+- 六个 entry 各有独立目录边界。否定编辑、仅引用指令、仅排障、目标歧义和不支持的 operation
+  返回空 entry 并阻断，不执行修改。
+
+每次 XLSX 编辑都会在 Policy 与 Approval 前绑定到当前 run 唯一已完成的定位读取。Runtime
+拥有 `source_sha256` 以及适用的 `source_cell_hash`、`source_row_hash` 或
+`source_sheet_hash`，规范化 sheet 名和 A1 地址，并在不创建 approval 的情况下拒绝冲突或物理
+过期证据。
+
+XLSX 修改还受 package gate 约束。OOXML inspector 会在编辑前校验 content type、relationship、
+package part、feature class 和 opaque hash。table、chart、conditional formatting、data
+validation、pivot、slicer、external link、connection、embedded object、custom XML、macro、
+signature、protection、encryption、calculation chain（`calc_chain`）、unknown part 和其他未
+验证特性会阻断修改。目标 sheet 的 insert/delete 在 formula、merged range、comment、
+hyperlink 或 image 需要未经验证的锚点/引用重写时也会阻断；读取仍可执行，并明确报告
+partial coverage。
+
+成功写入后，只允许证据绑定的 worksheet 以及必要时的 `sharedStrings.xml` 变化；package part
+集合、content type、relationship graph、无关 worksheet、style、theme、workbook property 和
+opaque part 必须保持 hash。输出会重新读取并校验类型化或结构化目标修改；成功返回
+`package_preservation=verified` 和已检查 feature class。任何未声明差异返回
+`preservation_mismatch` 并删除输出副本。
 
 `pptx.update_slide` 有两个显式 layout policy：
 
@@ -155,6 +198,7 @@ package extension 可以作为 partial evidence 读取，但不是隐式 mutatio
   SHA-256，以及精确 match、paragraph、anchor、boundary 或编辑前格式证据。缺失、冲突、
   来自无关节点、跨 run/session、path 错误或过期的 evidence 会直接阻断，不创建 approval。
   Approval 通过后，Runtime 会在 adapter 执行前重新计算文件版本并再次解析绑定 target。
+- XLSX editor 同样要求当前工作簿与目标 hash；工作簿或目标变化会在 approval 前被拒绝。
 - 原文件 SHA-256 必须不变。
 - 输出通过同一 normalize pipeline 重新读取。
 - 校验 expected after-value 和 operation-specific delta。

@@ -196,8 +196,7 @@ func documentEditRegistration(run toolExecutor, format, operation, summary strin
 
 func officeReplaceRegistration() toolRegistration {
 	registration := documentEditRegistration(ctxArgs((*ToolHub).officeReplaceText), app.DocumentFormatDOCX, "replace_text", "Replace bounded text and write an Office output copy.")
-	registration.directory.WhenToUse = "Use only for explicit old/new text pairs that appear as bounded structured text blocks."
-	registration.directory.WhenNotToUse = "Do not use for whole-slide improvement, slide-scoped rewriting, or text synthesized by concatenating multiple shapes; use a structure editor for those changes."
+	applyXLSXOperationDirectoryBoundary(&registration, "replace_text")
 	registration.capabilities = []app.CapabilityDescriptor{
 		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatDOCX, app.CapabilityQualifierOperation: "replace_text"}},
 		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatXLSX, app.CapabilityQualifierOperation: "replace_text"}},

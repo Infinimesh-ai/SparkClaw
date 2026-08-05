@@ -11,7 +11,7 @@ its durable format, evidence, and preservation contracts.
 `document.read` revision 4 reads, summarizes, or extracts verbatim in-image text from one exact governed workspace
 file. Its format-qualified reader is a `direct_once` node: Runtime invokes the
 single reader with the frozen path, and Fast only synthesizes the final
-answer from completed evidence. `document.edit` revision 5 reads one exact
+answer from completed evidence. `document.edit` revision 6 reads one exact
 file, resolves one supported
 operation through an explicit Workflow decision node, obtains approval for the
 reversible edit, and writes a new sibling output copy named
@@ -52,20 +52,22 @@ tool call is a protocol violation, not completion. Runtime returns one
 stage-scoped correction; a repeated premature `final` blocks the active node
 with `required_tool_not_called` without starting a third model call.
 
-`select_edit_operation` never exposes a tool to the step model. Runtime searches its
-format-qualified `document.edit` scope directly. A single candidate is selected
-deterministically; multiple candidates are resolved by one retry-bounded Fast
-model decision over the owner request and dependency evidence bounded by
+`select_edit_operation` never exposes a tool to the step model. Runtime searches
+its format-qualified `document.edit` scope directly. A single candidate is
+selected deterministically; multiple candidates are resolved by one
+retry-bounded Fast model decision over the owner request, operation-specific
+directory boundaries, and dependency evidence bounded by
 `workflow_stage_evidence_max_bytes` (8,000 bytes by default). DOCX decisions
 prioritize explicit stable locations, paragraph ordinals, quoted text, bounded
 neighbors, story-part samples, and operation context before a deterministic
-head/tail fallback; other formats retain their structured projector. The
-selected directory entry, capability, format, operation, and selection path are
-persisted in the node's `OutcomeRefs`. The edit node can materialize only that
-entry. A missing, stale, ambiguous, or invalid decision blocks the Workflow.
-The former inline secondary directory router has been removed; any other
-multi-candidate scope must declare its own decision node.
-See the [operation-selection design record](document-edit-operation-selection.md).
+head/tail fallback. XLSX uses the same `xlsx_sheet_evidence_v1` projection as
+editor argument generation. The selected directory entry, capability, format,
+operation, and selection path are persisted in the node's `OutcomeRefs`. The
+edit node can materialize only that entry. A missing, stale, ambiguous,
+unsupported, or invalid decision blocks the Workflow. The former inline
+secondary directory router has been removed; any other multi-candidate scope
+must declare its own decision node. See the [operation-selection design
+record](document-edit-operation-selection.md).
 
 ## Durable Document Records
 
@@ -146,6 +148,22 @@ document content, and repeated images are deduplicated by source hash.
 Current image limits and budgets are enforced in code and tests. Any change to
 them is a contract change, not a prompt-only adjustment.
 
+### XLSX Evidence
+
+XLSX reads normalize typed cell values separately from display text, formula,
+number format, style, hidden state, and merge anchor. Each sheet, row, and cell
+has a stable source hash over the fields used for mutation and preservation.
+The bounded `xlsx_sheet_evidence_v1` projection always identifies source
+completeness, selection completeness, and omitted sheet/row/cell counts. It
+prioritizes explicitly named sheets, A1 cells and rows, exact values, header
+rows, end-of-sheet context, and target neighbors. If a located mandatory target
+cannot fit the evidence budget, `selection_complete=false` blocks selection or
+editing instead of substituting an unrelated workbook prefix.
+
+The complete structured read remains in the tool observation artifact. Model
+context receives only this consumer-sized projection, and the provisioning
+audit records selected and omitted counts.
+
 ## Current Operations
 
 | Format | Supported edit operations |
@@ -155,6 +173,46 @@ them is a contract change, not a prompt-only adjustment.
 | XLSX | `replace_text`, `update_cell`, `insert_row`, `delete_row`, `update_row`, `append_row` |
 | PPTX | `replace_text`, `add_slide`, `update_slide`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
+
+### XLSX Edit Boundaries
+
+- `replace_text` requires explicit old/new text and changes matching text-valued
+  cells; a located cell or row and non-text typed values use a structural editor.
+- `update_cell` changes one evidence-located cell. `update_row` changes only the
+  supplied leading-cell prefix of one existing row; omitted trailing values,
+  formulas, formats, comments, hyperlinks, row height, and hidden state remain
+  outside the target.
+- `insert_row` requires an explicit before/after row anchor. `append_row` writes
+  after the last structured row. `delete_row` requires explicit removal of the
+  complete row; clearing a cell, deleting a column, or deleting the workbook is
+  not a row deletion.
+- The six entries have separate directory boundaries. Negated edits, quoted
+  instructions, troubleshooting-only requests, ambiguous targets, and
+  unsupported operations return no entry and block without mutation.
+
+Every XLSX edit is bound before Policy and Approval to the current run's single
+completed localization read. Runtime owns `source_sha256` plus the applicable
+`source_cell_hash`, `source_row_hash`, or `source_sheet_hash`, canonicalizes the
+sheet name and A1 address, and rejects conflicting or physically stale evidence
+without creating an approval.
+
+XLSX mutation is also package-gated. The OOXML inspector verifies content types,
+relationships, package parts, feature classes, and opaque hashes before an edit.
+Tables, charts, conditional formatting, data validation, pivots, slicers,
+external links, connections, embedded objects, custom XML, macros, signatures,
+protection, encryption, calculation chains (`calc_chain`), unknown parts, and
+other unverified features block mutation. Target-sheet insert/delete also block
+when formulas, merged ranges, comments, hyperlinks, or images would require
+unverified anchor/reference rewriting. Reads remain available with explicit
+partial coverage.
+
+After a successful edit, only the evidence-bound worksheet and, when required,
+`sharedStrings.xml` may differ; package part membership, content types,
+relationship graph, unrelated worksheets, styles, themes, workbook properties,
+and opaque parts must retain their hashes. The output is reread and the typed
+or structural target change is checked. Success returns
+`package_preservation=verified` and the checked feature classes. Any undeclared difference returns
+`preservation_mismatch` and deletes the output copy.
 
 `pptx.update_slide` has two explicit layout policies:
 
@@ -192,6 +250,8 @@ budget is unavailable, the read remains explicitly `partial` with
   unrelated-node, cross-run/session, wrong-path, or stale evidence blocks
   without creating approval. Immediately after approval, Runtime recomputes the
   file version and resolves the bound target again before adapter execution.
+- XLSX editors similarly require the current workbook and target hashes; a
+  changed workbook or target is rejected before approval.
 - The original SHA-256 must remain unchanged.
 - Output is reread through the same normalized pipeline.
 - Expected after-values and operation-specific deltas are checked.

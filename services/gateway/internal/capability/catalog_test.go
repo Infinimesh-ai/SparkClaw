@@ -38,7 +38,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 			wantRevision = 4
 		}
 		if leaf.ID == app.CapabilityDocumentEdit {
-			wantRevision = 5
+			wantRevision = 6
 		}
 		if leaf.ID == app.CapabilityBrowserAutomation || leaf.ID == app.CapabilityBrowserInteraction {
 			wantRevision = app.BrowserWorkflowRevision2

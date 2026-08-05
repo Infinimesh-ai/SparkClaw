@@ -31,6 +31,7 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 	}
 	stageLimit := r.workflowStageEvidenceLimit()
 	remaining := stageLimit
+	ownerRequest := requestContentForRun(r.store.ListMessages(run.SessionID), run)
 	sections := make([]string, 0, len(requirements))
 	compactSections := make([]string, 0, len(requirements))
 	minimalSections := make([]string, 0, len(requirements))
@@ -60,7 +61,7 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		if limit <= 0 || limit > remaining {
 			limit = remaining
 		}
-		text := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, limit)
+		text := slicePersistedToolEvidenceForRequest(call.Tool, output, requirement.Mode, limit, ownerRequest)
 		if strings.TrimSpace(text) == "" {
 			if requirement.Optional {
 				continue
@@ -71,11 +72,20 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		if used > remaining {
 			return provisionedWorkflowEvidence{}, errors.New("workflow evidence slicer exceeded the stage evidence budget")
 		}
+		if complete, handled := xlsxEvidenceSelectionState(text); handled && !complete {
+			return provisionedWorkflowEvidence{}, errors.New("required XLSX target evidence exceeds the stage evidence budget")
+		}
 		sections = append(sections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, text))
 		compactLimit := min(limit, max(512, limit/2))
 		minimalLimit := min(compactLimit, max(256, limit/4))
-		compactText := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, compactLimit)
-		minimalText := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, minimalLimit)
+		compactText := slicePersistedToolEvidenceForRequest(call.Tool, output, requirement.Mode, compactLimit, ownerRequest)
+		minimalText := slicePersistedToolEvidenceForRequest(call.Tool, output, requirement.Mode, minimalLimit, ownerRequest)
+		if complete, handled := xlsxEvidenceSelectionState(compactText); handled && !complete {
+			compactText = text
+		}
+		if complete, handled := xlsxEvidenceSelectionState(minimalText); handled && !complete {
+			minimalText = compactText
+		}
 		if strings.TrimSpace(compactText) != "" {
 			compactSections = append(compactSections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, compactText))
 		}
@@ -84,20 +94,20 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		}
 		providedBytes += used
 		remaining -= used
+		auditFields := map[string]any{
+			"source_ref": ref, "tool_call_id": call.ID, "tool": call.Tool, "mode": requirement.Mode,
+			"provisioned_bytes": used, "total_artifact_bytes": artifactBytes,
+		}
+		for key, value := range xlsxEvidenceAuditFields(text) {
+			auditFields[key] = value
+		}
 		r.store.AddAudit(app.AuditEvent{
 			SessionID: run.SessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
 			Type:      "workflow_step.evidence_provisioned",
 			Summary:   "Provisioned persisted evidence for the active workflow stage",
-			Fields: map[string]any{
-				"source_ref":           ref,
-				"tool_call_id":         call.ID,
-				"tool":                 call.Tool,
-				"mode":                 requirement.Mode,
-				"provisioned_bytes":    used,
-				"total_artifact_bytes": artifactBytes,
-			},
+			Fields:    auditFields,
 		})
 	}
 	if len(sections) == 0 {

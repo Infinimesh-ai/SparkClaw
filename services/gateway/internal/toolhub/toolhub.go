@@ -444,6 +444,7 @@ func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 				"path":                   stringSchema(),
 				"output_path":            stringSchema(),
 				"source_document_sha256": stringSchema(),
+				"source_sha256":          stringSchema(),
 				"source_evidence":        objectValueSchema(),
 				"evidence_targets": arraySchema(map[string]any{
 					"type":     "object",

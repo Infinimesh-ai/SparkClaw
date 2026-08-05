@@ -1622,6 +1622,12 @@ func TestXlsxStructureToolsWriteNewVersions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
+			evidence := executeDocumentRead(t, hub, "book.xlsx")
+			operation := strings.TrimPrefix(tc.tool, "xlsx.")
+			bound := xlsxBoundTestArgs(t, evidence, stringArg(tc.args, "sheet", ""), operation, intArg(tc.args, "row", 0), stringArg(tc.args, "cell", ""))
+			for key, value := range bound {
+				tc.args[key] = value
+			}
 			result, err := hub.Execute(context.Background(), tc.tool, tc.args, "s", "run")
 			if err != nil {
 				t.Fatal(err)
@@ -1659,12 +1665,16 @@ func TestXlsxStructureToolRejectsMissingSheet(t *testing.T) {
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
 
+	read := executeDocumentRead(t, hub, "book.xlsx")
+	metadata := read["document"].(map[string]any)["metadata"].(map[string]any)
 	_, err := hub.Execute(context.Background(), "xlsx.update_cell", map[string]any{
-		"path":        "book.xlsx",
-		"sheet":       "Missing",
-		"cell":        "A1",
-		"value":       "x",
-		"output_path": "outputs/missing.xlsx",
+		"path":             "book.xlsx",
+		"source_sha256":    metadata["sha256"],
+		"sheet":            "Missing",
+		"cell":             "A1",
+		"source_cell_hash": "sha256:unresolved",
+		"value":            "x",
+		"output_path":      "outputs/missing.xlsx",
 	}, "s", "run")
 	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
 		t.Fatalf("expected typed missing-sheet target error, got %v", err)
@@ -1679,15 +1689,19 @@ func TestXlsxStructureToolRejectsInvalidCell(t *testing.T) {
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
 
+	read := executeDocumentRead(t, hub, "book.xlsx")
+	metadata := read["document"].(map[string]any)["metadata"].(map[string]any)
 	_, err := hub.Execute(context.Background(), "xlsx.update_cell", map[string]any{
-		"path":        "book.xlsx",
-		"sheet":       "Sheet1",
-		"cell":        "bad",
-		"value":       "x",
-		"output_path": "outputs/bad.xlsx",
+		"path":             "book.xlsx",
+		"source_sha256":    metadata["sha256"],
+		"sheet":            "Sheet1",
+		"cell":             "bad",
+		"source_cell_hash": "sha256:unresolved",
+		"value":            "x",
+		"output_path":      "outputs/bad.xlsx",
 	}, "s", "run")
-	if err == nil || !strings.Contains(err.Error(), "cell must be a valid A1 address") {
-		t.Fatalf("expected invalid cell error, got %v", err)
+	if !document.IsErrorCode(err, document.CodeResourceInvalid) {
+		t.Fatalf("expected invalid cell to fail trusted evidence validation, got %v", err)
 	}
 }
 

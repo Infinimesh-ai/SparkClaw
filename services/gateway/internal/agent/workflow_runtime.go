@@ -16,7 +16,7 @@ import (
 
 const workflowFailureDirectToolInvocationInvalid = "direct_tool_invocation_invalid"
 
-func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definition app.ToolDefinition) error {
+func (r Runtime) validateWorkflowToolPlan(ctx context.Context, runID string, plan toolPlan, definition app.ToolDefinition) error {
 	if plan.WorkflowID == "" {
 		return nil
 	}
@@ -85,6 +85,11 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 	}
 	if _, isDOCXMutation := docxMutationOperation(run, definition, plan); isDOCXMutation {
 		if err := r.validateDOCXMutationEvidence(run, definition, plan, plan.Args); err != nil {
+			return err
+		}
+	}
+	if operation, ok := xlsxEditOperation(run, definition, plan); ok {
+		if err := r.validateXLSXEditEvidence(ctx, run, operation, plan.Args); err != nil {
 			return err
 		}
 	}
@@ -300,6 +305,11 @@ func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[stri
 	}
 	if definition, ok := r.tools.Definition(plan.Name); ok {
 		args = r.bindDOCXMutationEvidence(run, definition, plan, args)
+	}
+	if definition, ok := r.tools.Definition(plan.Name); ok {
+		if operation, xlsx := xlsxEditOperation(run, definition, plan); xlsx {
+			args = r.bindXLSXEditEvidence(run, operation, args)
+		}
 	}
 	return args
 }

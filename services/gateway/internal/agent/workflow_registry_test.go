@@ -54,7 +54,7 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			wantRevision = 4
 		}
 		if test.want == app.WorkflowDocumentEdit {
-			wantRevision = 5
+			wantRevision = 6
 		}
 		if resolved.Profile.ID() != test.want || resolved.Plan.ProfileID != test.want || resolved.Plan.ProfileRevision != wantRevision {
 			t.Fatalf("leaf %v resolved wrong contract: %#v", test.decision.CapabilityPath, resolved)
@@ -74,6 +74,12 @@ func TestWorkflowRegistryRejectsStaleInventedAndUnmatchedRoutes(t *testing.T) {
 		if _, err := registry.Resolve(catalog, decision, "turn"); err == nil {
 			t.Fatalf("invalid decision was dispatched: %#v", decision)
 		}
+	}
+}
+
+func TestWorkflowRegistryDoesNotResumeRetiredDocumentEditR5(t *testing.T) {
+	if _, err := defaultWorkflowProfileRegistry().Get(app.WorkflowDocumentEdit, 5); err == nil || !strings.Contains(err.Error(), "not registered") {
+		t.Fatalf("retired document.edit r5 remained resumable: %v", err)
 	}
 }
 

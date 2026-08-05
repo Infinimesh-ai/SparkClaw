@@ -144,6 +144,54 @@ func TestDOCXParagraphDirectoryMetadataDistinguishesRevisionFromInsertion(t *tes
 	}
 }
 
+func TestXLSXDirectoryMetadataDistinguishesAllSixOperations(t *testing.T) {
+	hub := New(config.Default(), store.NewMemoryStore())
+	defer hub.Close()
+	tests := []struct {
+		tool       string
+		operation  string
+		wantUse    string
+		wantReject string
+	}{
+		{tool: "office.replace_text", operation: "replace_text", wantUse: "explicit old and new text", wantReject: "values are typed"},
+		{tool: "xlsx.update_cell", operation: "update_cell", wantUse: "exactly one evidence-located cell", wantReject: "multiple cells"},
+		{tool: "xlsx.update_row", operation: "update_row", wantUse: "multiple leading cells", wantReject: "update only one explicit cell"},
+		{tool: "xlsx.insert_row", operation: "insert_row", wantUse: "before or after", wantReject: "end-of-sheet append"},
+		{tool: "xlsx.append_row", operation: "append_row", wantUse: "final structured row", wantReject: "before or after row anchor"},
+		{tool: "xlsx.delete_row", operation: "delete_row", wantUse: "complete evidence-bound row", wantReject: "clear one cell"},
+	}
+	for _, test := range tests {
+		t.Run(test.operation, func(t *testing.T) {
+			definition, ok := hub.Definition(test.tool)
+			if !ok {
+				t.Fatalf("XLSX editor %s is not registered", test.tool)
+			}
+			if !strings.Contains(definition.Directory.WhenToUse, test.wantUse) || !strings.Contains(definition.Directory.WhenNotToUse, test.wantReject) {
+				t.Fatalf("XLSX %s directory boundary is incomplete: %#v", test.operation, definition.Directory)
+			}
+			found := false
+			for _, capability := range definition.Capabilities {
+				if capability.Name == app.ToolCapabilityDocumentEdit && capability.Qualifiers[app.CapabilityQualifierFormat] == app.DocumentFormatXLSX &&
+					capability.Qualifiers[app.CapabilityQualifierOperation] == test.operation {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("XLSX %s boundary is not attached to its exact capability: %#v", test.operation, definition.Capabilities)
+			}
+		})
+	}
+}
+
+func TestOfficeReplaceDirectoryMetadataRetainsCrossFormatBoundary(t *testing.T) {
+	directory := toolRegistry["office.replace_text"].directory
+	for _, want := range []string{"structured text blocks", "text-valued cells", "whole-slide rewriting"} {
+		if !strings.Contains(directory.WhenToUse+" "+directory.WhenNotToUse, want) {
+			t.Fatalf("office.replace_text lost cross-format boundary %q: %#v", want, directory)
+		}
+	}
+}
+
 func TestReminderToolsExposeDiscoveryBeforeScheduleMutation(t *testing.T) {
 	want := map[string]app.RouteOperation{
 		"reminders.create": app.RouteOperationCreate,

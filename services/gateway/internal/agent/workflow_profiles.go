@@ -453,6 +453,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 		return nil, err
 	}
 	visibleDefinitions = materializeDocumentOperationSchemas(visibleDefinitions, view, entryIDs)
+	visibleDefinitions = materializeBrowserFormDraftSchemas(visibleDefinitions, run, stageContext.WorkflowNodeID)
 	r.auditWorkflowStageExposure(run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
 	return visibleDefinitions, nil
 }

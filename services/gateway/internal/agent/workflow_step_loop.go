@@ -946,6 +946,43 @@ func compactToolDefinitionForPrompt(def app.ToolDefinition) map[string]any {
 	if properties := toolDefinitionPropertyNames(def.InputSchema); len(properties) > 0 {
 		out["properties"] = properties
 	}
+	if enums := toolDefinitionBoundedArgumentEnums(def.InputSchema); len(enums) > 0 {
+		out["argument_enums"] = enums
+	}
+	return out
+}
+
+func toolDefinitionBoundedArgumentEnums(schema map[string]any) map[string]any {
+	properties, ok := anyMap(schema["properties"])
+	if !ok {
+		return nil
+	}
+	const maxEnumValues = 8
+	const maxEnumBytes = 2048
+	out := map[string]any{}
+	totalBytes := 0
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		rawProperty := properties[name]
+		property, ok := anyMap(rawProperty)
+		if !ok {
+			continue
+		}
+		values, ok := property["enum"].([]any)
+		if !ok || len(values) == 0 || len(values) > maxEnumValues {
+			continue
+		}
+		raw, err := json.Marshal(values)
+		if err != nil || totalBytes+len(raw) > maxEnumBytes {
+			continue
+		}
+		totalBytes += len(raw)
+		out[name] = values
+	}
 	return out
 }
 

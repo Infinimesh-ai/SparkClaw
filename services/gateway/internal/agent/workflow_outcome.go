@@ -84,18 +84,37 @@ func adaptBrowserFormOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 	}
 	operation := strings.TrimPrefix(call.Tool, "browser.")
 	elementRef := firstNonEmptyString(call.Arguments["uid"])
-	payload := browserOutcomePayload(call.Result)
+	payload := browserDraftOutcomePayload(call.Result)
+	sessionGeneration := browserSessionGenerationString(payload["session_generation"])
+	if sessionGeneration == "" {
+		sessionGeneration = browserSessionGenerationString(call.Arguments["session_generation"])
+	}
+	pageGeneration := browserSessionGenerationString(payload["page_generation"])
+	if pageGeneration == "" {
+		pageGeneration = browserSessionGenerationString(call.Arguments["page_generation"])
+	}
 	outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalDraftActionCompleted}
 	outcome.Refs = []app.ResourceRef{{Kind: "browser_draft", Ref: elementRef, Provenance: call.ID, Attributes: map[string]string{
 		"action_id": firstNonEmptyString(payload["draft_action_id"], call.ID),
 		"operation": operation, "page_id": firstNonEmptyString(payload["page_id"], call.Arguments["page_id"]), "snapshot_id": firstNonEmptyString(payload["snapshot_id"], call.Arguments["snapshot_id"]),
-		"session_generation": firstNonEmptyString(payload["session_generation"], call.Arguments["session_generation"]),
-		"page_generation":    firstNonEmptyString(payload["page_generation"], call.Arguments["page_generation"]),
+		"session_generation": sessionGeneration,
+		"page_generation":    pageGeneration,
 		"snapshot_digest":    firstNonEmptyString(payload["snapshot_digest"]), "role": firstNonEmptyString(payload["role"]),
 		"name": firstNonEmptyString(payload["accessible_name"]), "container": firstNonEmptyString(payload["form_context"]),
 		"value_source": firstNonEmptyString(payload["value_source"]), "value_digest": firstNonEmptyString(payload["value_digest"]),
 	}}}
 	return outcome
+}
+
+func browserDraftOutcomePayload(value any) map[string]any {
+	outer, ok := anyMap(value)
+	if !ok {
+		return map[string]any{}
+	}
+	if firstNonEmptyString(outer["draft_action_id"]) != "" {
+		return outer
+	}
+	return browserOutcomePayload(value)
 }
 
 func adaptBrowserVisualOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {

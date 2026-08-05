@@ -33,7 +33,7 @@ attachment, cookie export, or second DOM perception engine.
 | `browser.automation` r2 | Acquire an explicit URL, registered destination, or Info-identified named public target, validate it in hidden Chromium, then present and independently verify it in visible Chromium |
 | `browser.page_read` r1 | Run a fixed hidden health -> open -> session-required read chain and return bounded content from one explicit or Info-identified URL |
 | `browser.interaction` r2 | Use the managed acquisition and presentation chain around at most three bounded, ref-bound clicks with independent transition and goal validation |
-| `browser.form_draft` r1 | Type or select at most five independently approved, exact owner-supplied values in ordinary reversible fields, then visibly verify the uncommitted draft |
+| `browser.form_draft` r1 | Discover and assess ordinary reversible fields in hidden Chromium, then type or select at most five independently approved, exact owner-supplied values in one visible session and verify the uncommitted draft in place |
 
 `browser.interaction` r2 remains click-only. `browser.form_draft` r1 exposes only
 type and select during its action stage and never exposes click, submit, send,
@@ -160,18 +160,26 @@ with no live owner are removed; malformed entries, regular files, and
 indeterminate ownership fail closed. This lets a recreated Gateway reclaim a
 profile left by a terminated container without stealing it from a live browser.
 
-Browser automation, interaction, and form draft acquire, navigate, settle,
-snapshot, and act in hidden Chromium. Their final presentation is a required
-node in the frozen Workflow: Runtime opens or focuses the result URL visibly,
-settles it, captures a visible snapshot, revalidates the frozen route, and for
-interaction or form draft independently reassesses the goal. The run cannot
-succeed without that visible evidence. `browser.page_read` is intentionally
-different: its entire health/open/read path is hidden and successful reads do
-not create a visible result window. A fresh visible session navigates directly
-to the target instead of first exposing its startup `about:blank` tab; an
-already initialized reusable profile is never replaced with a blank login
-prompt. Verified visible results remain open without the headless daemon idle
-timeout, and production completion does not call `browser.close`.
+Browser automation and interaction acquire, navigate, settle, snapshot, and
+act in hidden Chromium before their required visible result presentation. Form
+draft uses hidden Chromium only to acquire the target, capture the initial
+structured controls, and assess what remains. Runtime then opens the target in
+visible Chromium before any approved `browser.type` or `browser.select`; every
+approved mutation, settle, higher-generation snapshot, and subsequent goal
+assessment stays in that same visible session. It verifies the final unsubmitted
+state in place instead of reopening the target and losing the draft.
+
+Visible presentation is a required node in each applicable frozen Workflow:
+Runtime settles the result, captures a visible snapshot, revalidates the frozen
+route, and independently reassesses interaction or form-draft goals. The run
+cannot succeed without that visible evidence. `browser.page_read` is
+intentionally different: its entire health/open/read path is hidden and
+successful reads do not create a visible result window. A fresh visible session
+navigates directly to the target instead of first exposing its startup
+`about:blank` tab; an already initialized reusable profile is never replaced
+with a blank login prompt. Verified visible results remain open without the
+headless daemon idle timeout, and production completion does not call
+`browser.close`.
 
 Safe result descriptors persist origin, path, route-shaped fragments
 (`#/...` in-page routes; value-carrying fragments such as OAuth
@@ -292,8 +300,10 @@ Browser changes should cover:
   fallback, final-URL validation, bounded raw-content fallback, and login resume;
 - ordered Info-result consumption, unsafe-result skipping, structured-URL-only
   binding, provider failures, DNS/IP/redirect safety, and registry fast paths;
-- form-draft exact values, separate approvals, public redaction, forbidden
-  fields, five-action bound, no click exposure, and pre/post-approval freshness;
+- form-draft hidden discovery followed by same-session visible mutations, exact
+  values, separate approvals, public redaction, forbidden fields, five-action
+  bound, no click exposure, pre/post-approval freshness, and in-place final
+  verification without reopening the form;
 - fresh and stale visual inspection with generation/digest binding and no
   coordinate or executable-ref projection;
 - visible/hidden transfer, owner reply classification, restart recovery, CAS

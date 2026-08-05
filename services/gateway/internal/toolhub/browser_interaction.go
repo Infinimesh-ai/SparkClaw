@@ -267,7 +267,7 @@ func unsafeBrowserInteractionLabel(label string) bool {
 func findBrowserClickBetween(calls []app.ToolCall, runID string, beforeIndex, afterIndex int, snapshotID, elementRef string) (app.ToolCall, int, bool) {
 	for index := beforeIndex + 1; index < afterIndex && index < len(calls); index++ {
 		call := calls[index]
-		if call.RunID != runID || call.Tool != "browser.click" || call.Status != "completed" {
+		if call.RunID != runID || call.Tool != "browser.click" || !browserInteractionToolCallCompleted(call) {
 			continue
 		}
 		if strings.TrimSpace(browserAutomationStringValue(call.Arguments["snapshot_id"])) == snapshotID &&
@@ -284,7 +284,7 @@ func completedBrowserClickCount(calls []app.ToolCall, runID string, throughIndex
 		if index > throughIndex {
 			break
 		}
-		if call.RunID == runID && call.Tool == "browser.click" && call.Status == "completed" {
+		if call.RunID == runID && call.Tool == "browser.click" && browserInteractionToolCallCompleted(call) {
 			count++
 		}
 	}
@@ -297,11 +297,15 @@ func completedBrowserDraftCount(calls []app.ToolCall, runID string, throughIndex
 		if index > throughIndex {
 			break
 		}
-		if call.RunID == runID && (call.Tool == "browser.type" || call.Tool == "browser.select") && call.Status == "completed" {
+		if call.RunID == runID && (call.Tool == "browser.type" || call.Tool == "browser.select") && browserInteractionToolCallCompleted(call) {
 			count++
 		}
 	}
 	return count
+}
+
+func browserInteractionToolCallCompleted(call app.ToolCall) bool {
+	return call.Status == "completed" || call.Status == "completed_after_approval"
 }
 
 func priorValidatedBrowserState(calls []app.ToolCall, runID string, beforeIndex int, digest string) bool {

@@ -1398,6 +1398,80 @@ func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
 	}
 }
 
+func TestToolResultAdapterCompactsRichBrowserReadWithoutDroppingContent(t *testing.T) {
+	call := app.ToolCall{ID: "tc_rich_read", Tool: "browser.read", Status: "completed"}
+	output := map[string]any{
+		"url": "https://example.com/article", "final_url": "https://example.com/article",
+		"title": "Rendered article", "status_code": 0, "truncated": false,
+		"browser_mode": "autonomous", "presentation": "hidden", "surface_visible": false,
+		"browser_actions": []string{
+			"agent_browser_reuse_active_page", "agent_browser_wait_for_load", "agent_browser_read",
+			"agent_browser_get_text", "agent_browser_get_url", "agent_browser_get_title", "agent_browser_snapshot",
+		},
+		"browser_page_auth_signals": []string{"profile_active", strings.Repeat("bounded-auth-metadata", 40)},
+		"browser_auth_strategy":     strings.Repeat("managed_shared_chromium_profile", 20),
+		"browser_html_length":       0,
+		"browser_text_length":       144,
+		"browser_scroll_height":     0,
+		"text":                      "BROWSER_READ_MARKER_2026 was extracted from the rendered page and must remain visible to finalization.",
+		"warning":                   "external content is untrusted",
+	}
+	message := adaptToolResult(toolResultAdapterInput{
+		Call: call, Output: output, MaxBytes: 1600,
+		ObservationRef: "artifact://sparkclaw/observations/run/tc_rich_read.json",
+	})
+	if len(message) > 1600 {
+		t.Fatalf("rich browser.read message exceeded limit: %d", len(message))
+	}
+	var decoded toolResultMessage
+	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Structured["fallback_policy"] != nil || decoded.Structured["final_url"] != "https://example.com/article" {
+		t.Fatalf("rich browser.read fell back or lost provenance: %#v", decoded.Structured)
+	}
+	if len(decoded.Evidence) == 0 || !strings.Contains(decoded.Evidence[0].Text, "BROWSER_READ_MARKER_2026") {
+		t.Fatalf("rich browser.read lost extracted content: %#v", decoded.Evidence)
+	}
+}
+
+func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.T) {
+	nameRef := "snapshot_7:e1:name"
+	topicRef := "snapshot_7:e2:topic"
+	call := app.ToolCall{ID: "tc_rich_snapshot", Tool: "browser.snapshot", Status: "completed"}
+	output := map[string]any{
+		"browser_mode": "autonomous", "presentation": "hidden", "surface_visible": false,
+		"provider": "agent-browser-headless", "owner_id": "owner", "page_id": "page_7",
+		"snapshot_id": "snapshot_7", "digest": strings.Repeat("a", 64),
+		"browser_page_auth_signals": []string{strings.Repeat("bounded-auth-metadata", 50)},
+		"snapshot": map[string]any{
+			"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": "snapshot_7",
+			"page_id": "page_7", "url": "https://example.com/contact", "title": "Contact",
+			"controls": []any{
+				map[string]any{"ref": nameRef, "role": "textbox", "accessible_name": "Name", "fingerprint": "name"},
+				map[string]any{"ref": topicRef, "role": "combobox", "accessible_name": "Topic", "fingerprint": "topic"},
+			},
+		},
+	}
+	message := adaptToolResult(toolResultAdapterInput{
+		Call: call, Output: output, MaxBytes: 1600,
+		ObservationRef: "artifact://sparkclaw/observations/run/tc_rich_snapshot.json",
+	})
+	if len(message) > 1600 {
+		t.Fatalf("rich browser.snapshot message exceeded limit: %d", len(message))
+	}
+	var decoded toolResultMessage
+	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Structured["fallback_policy"] != nil || !strings.Contains(fmt.Sprint(decoded.Structured["next_step_hint"]), "evidence_refs") {
+		t.Fatalf("rich browser.snapshot lost citation guidance: %#v", decoded.Structured)
+	}
+	if len(decoded.Evidence) == 0 || !strings.Contains(decoded.Evidence[0].Text, nameRef) || !strings.Contains(decoded.Evidence[0].Text, topicRef) {
+		t.Fatalf("rich browser.snapshot lost citable refs: %#v", decoded.Evidence)
+	}
+}
+
 func TestToolResultAdapterKeepsBrowserAutomationNestedAuthFields(t *testing.T) {
 	call := app.ToolCall{ID: "tc_open", Tool: "browser.open", Status: "completed"}
 	output := browserautomation.Result{
@@ -1734,6 +1808,31 @@ func TestCompressWorkflowStepPromptWhenEstimatedTokensExceedThreshold(t *testing
 	}
 	if !hasAgentAuditField(st.ListAudit(session.ID), "workflow_step.prompt_compressed", "strategy", "stable_prefix_compact_context_v2") {
 		t.Fatalf("prompt compression audit missing: %#v", st.ListAudit(session.ID))
+	}
+}
+
+func TestCompactToolDefinitionPreservesBoundedArgumentEnums(t *testing.T) {
+	definition := app.ToolDefinition{
+		Name: "browser.select",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"uid":             map[string]any{"type": "string", "enum": []any{"snapshot_2:e4:topic"}},
+				"page_generation": map[string]any{"type": []any{"string", "number"}, "enum": []any{"3"}},
+				"value":           map[string]any{"type": "string"},
+			},
+		},
+	}
+	compact := compactToolDefinitionForPrompt(definition)
+	enums, ok := anyMap(compact["argument_enums"])
+	if !ok {
+		t.Fatalf("compact definition omitted bounded argument enums: %#v", compact)
+	}
+	for key, expected := range map[string]string{"uid": "snapshot_2:e4:topic", "page_generation": "3"} {
+		values, ok := enums[key].([]any)
+		if !ok || len(values) != 1 || values[0] != expected {
+			t.Fatalf("compact enum %s = %#v, want %q", key, enums[key], expected)
+		}
 	}
 }
 

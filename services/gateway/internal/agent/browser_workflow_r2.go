@@ -1047,7 +1047,7 @@ func browserTransitionRefs(existing, after []app.ResourceRef) []app.ResourceRef 
 		case "browser_snapshot":
 			ref.Kind = "browser_before_snapshot"
 			refs = append(refs, ref)
-		case "browser_click":
+		case "browser_click", "browser_draft":
 			refs = append(refs, ref)
 		}
 	}

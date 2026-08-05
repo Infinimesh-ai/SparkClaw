@@ -145,6 +145,23 @@ func (r Runtime) materializeWorkflowBoundArguments(runID string, plan toolPlan) 
 		args[binding.Argument] = values[0]
 		changed = true
 	}
+	if run.Workflow.Plan.ProfileID == app.WorkflowBrowserFormDraft &&
+		(plan.Capability == app.ToolCapabilityBrowserFormType || plan.Capability == app.ToolCapabilityBrowserFormSelect) {
+		if snapshot, ok := currentBrowserFormDraftSnapshot(state.OutcomeRefs); ok {
+			for key, value := range map[string]string{
+				"page_id":            snapshot.Attributes["page_id"],
+				"snapshot_id":        snapshot.Ref,
+				"session_generation": snapshot.Attributes["session_generation"],
+				"page_generation":    snapshot.Attributes["page_generation"],
+			} {
+				if value == "" || !toolDefinitionDeclaresArgument(definition, key) {
+					continue
+				}
+				args[key] = value
+				changed = true
+			}
+		}
+	}
 	if changed {
 		plan.Args = args
 	}

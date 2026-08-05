@@ -78,6 +78,33 @@ func TestBrowserAssessGoalTreatsInitialClickableEvidenceAsProgress(t *testing.T)
 	}
 }
 
+func TestBrowserAssessGoalCountsApprovedDraftActions(t *testing.T) {
+	st, hub := newBrowserVerificationHub()
+	st.SaveRun(app.AgentRun{
+		ID: "run", SessionID: "session", StartedAt: browserVerificationCallTime(1),
+		Workflow: &app.WorkflowState{Plan: app.WorkflowPlan{ProfileID: app.WorkflowBrowserFormDraft}},
+	})
+	st.SaveToolCall(browserVerificationSnapshotCall("session", "run", 1, "", "before", "before", browserVerificationRef(1)))
+	st.SaveToolCall(app.ToolCall{
+		ID: "draft_1", SessionID: "session", RunID: "run", Tool: "browser.type", Status: "completed_after_approval",
+		Arguments: map[string]any{"snapshot_id": "snapshot_1", "uid": browserVerificationRef(1), "page_id": "page_1"},
+		StartedAt: browserVerificationCallTime(2),
+	})
+	st.SaveToolCall(browserVerificationSnapshotCall("session", "run", 2, "snapshot_1", "after", "after", browserVerificationRef(2)))
+
+	assessment, err := hub.Execute(context.Background(), "browser.assess_goal", map[string]any{
+		"snapshot_id": "snapshot_2", "verdict": "succeeded",
+		"evidence_refs": []string{browserVerificationRef(2)}, "reason": "the approved draft action produced the requested state",
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := assessment.Output.(map[string]any)
+	if output["status"] != "succeeded" || output["goal_satisfied"] != true || output["draft_action_count"] != 1 {
+		t.Fatalf("approved draft action was not counted as completed evidence: %#v", output)
+	}
+}
+
 func TestBrowserAssessGoalUsesLatestSnapshotWhenLegacyIDsCollide(t *testing.T) {
 	st, hub := newBrowserVerificationHub()
 	ref := browserVerificationRef(1)

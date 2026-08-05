@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 const browserFormDraftRevision1 = 1
@@ -48,7 +49,13 @@ func (browserFormDraftProfile) DirectStage(state *app.WorkflowState) bool {
 	return browserRevision2DirectStage(state, true)
 }
 func (browserFormDraftProfile) DirectStageArguments(state *app.WorkflowState) map[string]any {
-	return browserRevision2DirectArguments(state)
+	args := browserRevision2DirectArguments(state)
+	if browserActiveStage(state) == browserStageSettleAfterAction {
+		// Draft values are intentionally omitted from the rendered-content
+		// digest. Fresh snapshot generation and lineage verify the mutation.
+		args["allow_no_change"] = true
+	}
+	return args
 }
 func (browserFormDraftProfile) TransitionInstruction(_ app.ToolOutcome, assessment app.NodeAssessment) string {
 	return browserRevision2TransitionInstruction(assessment)
@@ -56,10 +63,17 @@ func (browserFormDraftProfile) TransitionInstruction(_ app.ToolOutcome, assessme
 func (browserFormDraftProfile) StageContext(state *app.WorkflowState) workflowStageContext {
 	stage := browserActiveStage(state)
 	mode := "autonomous"
-	if stage == browserStagePresentVisible || stage == browserStageSettleVisible || stage == browserStageSnapshotVisible || stage == browserStageAssessGoalVisible {
+	if stage == browserStagePresentVisible || stage == browserStageSettleVisible || stage == browserStageSnapshotVisible || stage == browserStageAssessGoalVisible ||
+		browserFormDraftCurrentPresentation(state) == app.BrowserPresentationVisible {
 		mode = "collaborative"
 	}
 	reason := "workflow_stage: " + stage + ". Bind only fresh structured browser refs and exact values from the frozen owner request. Draft actions never click, submit, send, publish, upload, enter credentials, or handle payment data."
+	if stage == browserStageChooseAndDraft {
+		reason += " For browser.type or browser.select, copy uid exactly from the current tool schema enum; never invent an alias or reuse an older snapshot ref."
+		if completed := completedBrowserDraftControlNames(state); len(completed) > 0 {
+			reason += " Completed draft controls: " + strings.Join(completed, ", ") + ". Choose a remaining requested control and never repeat a completed control."
+		}
+	}
 	context := workflowStageContextForState(state, "browse", "reversible_form_draft", "public", mode, reason)
 	context.EstimatedRisk = app.RiskDraft
 	switch stage {
@@ -67,6 +81,24 @@ func (browserFormDraftProfile) StageContext(state *app.WorkflowState) workflowSt
 		context.EvidenceRequirements = []workflowEvidenceRequirement{{ResourceKind: "browser_snapshot", Mode: workflowEvidenceStructured, MaxBytes: 8000}}
 	}
 	return context
+}
+
+func completedBrowserDraftControlNames(state *app.WorkflowState) []string {
+	if state == nil || state.Browser == nil {
+		return nil
+	}
+	names := []string{}
+	seen := map[string]bool{}
+	for _, action := range state.Browser.DraftActions {
+		name := strings.TrimSpace(action.AccessibleName)
+		key := strings.ToLower(name)
+		if !action.Completed || name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		names = append(names, name)
+	}
+	return names
 }
 func (browserFormDraftProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
@@ -108,7 +140,11 @@ func (browserFormDraftProfile) Assess(state *app.WorkflowState, outcome app.Tool
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_draft_action_failed"
 		}
 	case browserStageSnapshotAfterAction:
-		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationHidden)
+		expectedPresentation := app.BrowserPresentationHidden
+		if browserFormDraftCurrentPresentation(state) == app.BrowserPresentationVisible {
+			expectedPresentation = app.BrowserPresentationVisible
+		}
+		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, expectedPresentation)
 		if reason == "" && !browserSnapshotHasInteractionEvidence(refs) {
 			reason = "browser_snapshot_not_ready"
 		}
@@ -125,37 +161,106 @@ func (browserFormDraftProfile) Assess(state *app.WorkflowState, outcome app.Tool
 			return assessment
 		}
 		return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, browserStageAssessGoalAfterAction, refs)
-	case browserStageAssessGoalInitial, browserStageAssessGoalAfterAction:
+	case browserStageAssessGoalInitial:
 		switch {
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied):
 			refs := currentBrowserSnapshotRefs(node.OutcomeRefs)
 			recordBrowserHiddenResult(state, refs, outcome.ToolCallID, browserGoalEvidenceRefs(outcome.Refs))
 			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionGoalSatisfied, browserStagePresentVisible, browserPresentationRefs(state, refs))
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionProgress):
+			refs := currentBrowserSnapshotRefs(node.OutcomeRefs)
+			recordBrowserHiddenResult(state, refs, outcome.ToolCallID, browserGoalEvidenceRefs(outcome.Refs))
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionProgress, browserStagePresentVisible, browserPresentationRefs(state, refs))
+		default:
+			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "draft_goal_not_satisfied"
+		}
+	case browserStageAssessGoalAfterAction:
+		refs := currentBrowserSnapshotRefs(node.OutcomeRefs)
+		switch {
+		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied):
+			if browserFormDraftHasRequestedIncompleteControl(state, refs) {
+				return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionProgress, browserStageChooseAndDraft, refs)
+			}
+			recordBrowserVisibleResult(state, refs, outcome.ToolCallID)
+			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "browser_visible_draft_verified"
+			assessment.SelectedRefs = append(refs, outcome.Refs...)
+			updateBrowserDraftGoalEvidence(state, outcome)
+		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionProgress):
 			if len(state.Browser.DraftActions) >= app.BrowserFormDraftMaxActions {
 				assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "draft_action_limit"
 				return assessment
 			}
-			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionProgress, browserStageChooseAndDraft, currentBrowserSnapshotRefs(node.OutcomeRefs))
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionProgress, browserStageChooseAndDraft, refs)
 		default:
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "draft_goal_not_satisfied"
 		}
 	case browserStageAssessGoalVisible:
-		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied) {
+		refs := currentBrowserSnapshotRefs(node.OutcomeRefs)
+		switch {
+		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied) && !browserFormDraftHasRequestedIncompleteControl(state, refs):
 			assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "browser_visible_draft_verified"
-			assessment.SelectedRefs = append(currentBrowserSnapshotRefs(node.OutcomeRefs), outcome.Refs...)
-			if state.Browser.Result != nil {
-				state.Browser.Result.GoalEvidenceRefs = browserGoalEvidenceRefs(outcome.Refs)
-				state.Browser.Result.GoalAssessmentCallID = outcome.ToolCallID
-				state.Browser.Result.VerifiedAt = time.Now().UTC()
+			assessment.SelectedRefs = append(refs, outcome.Refs...)
+			updateBrowserDraftGoalEvidence(state, outcome)
+		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionGoalSatisfied), containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionProgress):
+			if len(state.Browser.DraftActions) >= app.BrowserFormDraftMaxActions {
+				assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "draft_action_limit"
+				return assessment
 			}
-		} else {
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalInteractionProgress, browserStageChooseAndDraft, refs)
+		default:
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_visible_draft_not_verified"
 		}
 	default:
 		return assessBrowserRevision2(state, outcome, true)
 	}
 	return assessment
+}
+
+func browserFormDraftCurrentPresentation(state *app.WorkflowState) app.BrowserPresentation {
+	if state == nil || len(state.ActiveNodeIDs) != 1 {
+		return ""
+	}
+	refs := currentBrowserSnapshotRefs(state.Nodes[state.ActiveNodeIDs[0]].OutcomeRefs)
+	for _, ref := range refs {
+		if ref.Kind == "browser_snapshot" {
+			return app.BrowserPresentation(ref.Attributes["presentation"])
+		}
+	}
+	return ""
+}
+
+func browserFormDraftHasRequestedIncompleteControl(state *app.WorkflowState, refs []app.ResourceRef) bool {
+	if state == nil || state.Browser == nil {
+		return true
+	}
+	request := strings.ToLower(strings.TrimSpace(state.Route.Slots.Query))
+	if request == "" {
+		return true
+	}
+	for _, ref := range currentBrowserSnapshotRefs(refs) {
+		name := strings.TrimSpace(ref.Attributes["name"])
+		if ref.Kind != "browser_element" || name == "" || !strings.Contains(request, strings.ToLower(name)) {
+			continue
+		}
+		role, container := ref.Attributes["role"], ref.Attributes["container"]
+		if !toolhub.BrowserDraftControlAllowed("browser.type", role, name, container) &&
+			!toolhub.BrowserDraftControlAllowed("browser.select", role, name, container) {
+			continue
+		}
+		if !browserDraftElementAlreadyCompleted(state.Browser.DraftActions, ref) {
+			return true
+		}
+	}
+	return false
+}
+
+func updateBrowserDraftGoalEvidence(state *app.WorkflowState, outcome app.ToolOutcome) {
+	if state == nil || state.Browser == nil || state.Browser.Result == nil {
+		return
+	}
+	state.Browser.Result.GoalEvidenceRefs = browserGoalEvidenceRefs(outcome.Refs)
+	state.Browser.Result.GoalAssessmentCallID = outcome.ToolCallID
+	state.Browser.Result.VerifiedAt = time.Now().UTC()
 }
 
 func browserFormDraftPlan() app.WorkflowPlan {
@@ -173,7 +278,7 @@ func browserFormDraftPlan() app.WorkflowPlan {
 		browserRevision2Transition("hidden_settled", browserStageSnapshotHidden, app.OutcomeSignalHiddenTargetSettled, app.BrowserFormDraftMaxActions+2, scope),
 		browserRevision2Transition("hidden_snapshot_drifted", browserStageSettleHidden, app.OutcomeSignalHiddenSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),
 		browserRevision2Transition("draft_assess_initial", browserStageAssessGoalInitial, app.OutcomeSignalTargetValidated, 1, scope),
-		browserRevision2Transition("draft_initial_action", browserStageChooseAndDraft, app.OutcomeSignalInteractionProgress, 1, scope),
+		browserRevision2Transition("draft_initial_action", browserStagePresentVisible, app.OutcomeSignalInteractionProgress, 1, scope),
 		browserRevision2Transition("draft_action_recorded", browserStageSettleAfterAction, app.OutcomeSignalDraftActionCompleted, app.BrowserFormDraftMaxActions, scope),
 		browserRevision2Transition("draft_action_settled", browserStageSnapshotAfterAction, app.OutcomeSignalActionTargetSettled, app.BrowserFormDraftMaxActions, scope),
 		browserRevision2Transition("draft_action_snapshot_drifted", browserStageSettleAfterAction, app.OutcomeSignalActionSnapshotDrifted, browserSnapshotSettleRetryLimit, scope),

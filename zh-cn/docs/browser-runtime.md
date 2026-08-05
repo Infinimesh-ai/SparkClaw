@@ -32,7 +32,7 @@ Workflow leaf
 | `browser.automation` r2 | 取得明确 URL、注册 destination 或由 Info 识别的命名公网目标，在 hidden Chromium 校验后，再在 visible Chromium 呈现并独立验证 |
 | `browser.page_read` r1 | 执行固定 hidden health -> open -> session-required read 链，从一个明确或经 Info 识别的 URL 返回有界内容 |
 | `browser.interaction` r2 | 在托管 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
-| `browser.form_draft` r1 | 在普通可逆字段中 type 或 select 最多五个经独立审批、由 owner 原文提供的精确值，再 visibly 验证未提交草稿 |
+| `browser.form_draft` r1 | 先在 hidden Chromium 中发现并评估普通可逆字段，再在同一 visible session 中 type 或 select 最多五个经独立审批、由 owner 原文提供的精确值，并原位验证未提交草稿 |
 
 `browser.interaction` r2 保持 click-only。`browser.form_draft` r1 只在 action stage 暴露
 type/select，绝不暴露 click、submit、send、publish、upload、download、凭据、captcha/2FA、
@@ -132,14 +132,20 @@ socket 可连接时继续报告 busy；只有确认没有存活 owner 的失效�
 格式异常条目、普通文件和无法判定的 ownership 一律 fail closed。这样，重建后的 Gateway
 可以回收已终止容器遗留的 profile，而不会抢占仍在运行的浏览器。
 
-browser automation、interaction 和 form draft 在 hidden Chromium 中完成 acquire、
-navigate、settle、snapshot 和 action。最终呈现是冻结 Workflow 内的必需节点：Runtime
-以 visible 方式 open/focus 结果 URL，等待稳定，获取 visible snapshot，重新校验冻结 route；
-interaction 和 form draft 还会独立复核目标。没有这些 visible evidence，run 不能成功。
-`browser.page_read` 有意保持不同：其 health/open/read 全链路都是 hidden，成功读取不会创建
-visible 结果窗口。全新的 visible session 会直接导航目标，不先暴露启动时的 `about:blank`
-tab；已经初始化且可复用的 profile 不会被替换为空白登录提示。已验证 visible 结果页面不受
-headless daemon 空闲超时影响并保持打开，生产完成流程不会调用 `browser.close`。
+browser automation 和 interaction 会在 hidden Chromium 中完成 acquire、navigate、settle、
+snapshot 与 action，再进入必需的 visible 结果呈现。form draft 只在 hidden Chromium 中取得
+目标、捕获初始结构化 control 并评估剩余动作；Runtime 会在任何已审批 `browser.type` 或
+`browser.select` 之前以 visible 方式打开目标。之后每次已审批 mutation、settle、更高 generation
+snapshot 与目标评估都留在同一个 visible session 中，最终原位验证未提交状态，不会重新打开
+目标而丢失草稿。
+
+visible 呈现是每个适用冻结 Workflow 的必需节点：Runtime 等待结果稳定、获取 visible
+snapshot、重新校验冻结 route，并独立复核 interaction 或 form-draft 目标。没有这些 visible
+evidence，run 不能成功。`browser.page_read` 有意保持不同：其 health/open/read 全链路都是
+hidden，成功读取不会创建 visible 结果窗口。全新的 visible session 会直接导航目标，不先暴露
+启动时的 `about:blank` tab；已经初始化且可复用的 profile 不会被替换为空白登录提示。已验证
+visible 结果页面不受 headless daemon 空闲超时影响并保持打开，生产完成流程不会调用
+`browser.close`。
 
 持久化的安全结果 descriptor 保存 origin、path、路由型 fragment（`#/...` 页内路由；
 携带值的 fragment 如 OAuth `#access_token=...` 会被丢弃）和 query provenance，不保存
@@ -238,8 +244,9 @@ ARM64 environment preflight 与 reason code；settle timeout/cancellation、snap
 generation/ref、重复状态、unsafe control 和尝试上限；固定 hidden page-read 顺序、active-page
 reuse、required-session 禁止 HTTP fallback、final URL 校验、有界原文 fallback 和 login resume；
 Info 有序结果消费、不安全结果跳过、仅结构化 URL 绑定、provider failure、DNS/IP/redirect
-安全与 registry fast path；form-draft 精确值、独立 approval、public redaction、禁用字段、
-五次上限、无 click exposure 及 approval 前后 freshness；visual inspection fresh/stale、
+安全与 registry fast path；form-draft hidden discovery 后在同一 visible session 中执行
+mutation、精确值、独立 approval、public redaction、禁用字段、五次上限、无 click exposure、
+approval 前后 freshness，以及不重新打开表单的原位最终验证；visual inspection fresh/stale、
 generation/digest 绑定及不输出 coordinate/executable ref；visible/hidden transfer、owner reply
 classification、restart recovery、CAS conflict 和 post-login 页面匹配/不匹配；UTF-8/CJK
 与 QQ 邮箱中文 snapshot/ref/auth evidence 往返；private-host 拒绝与 fixture allowlist；

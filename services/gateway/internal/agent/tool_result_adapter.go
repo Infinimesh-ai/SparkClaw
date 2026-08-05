@@ -15,6 +15,7 @@ const (
 	defaultToolResultMessageMaxBytes = 1600
 	minToolResultMessageMaxBytes     = 600
 	defaultToolResultEvidenceLimit   = 1400
+	browserSnapshotEvidenceHint      = "Use exact snapshot control refs as browser.assess_goal evidence_refs; artifact_uri is invalid. Use observation.read only for omitted controls."
 )
 
 type toolResultMessage struct {
@@ -66,6 +67,9 @@ func adaptToolResult(input toolResultAdapterInput) string {
 	}
 	if len(raw) <= maxBytes {
 		return string(raw)
+	}
+	if strings.HasPrefix(input.Call.Tool, "browser.") {
+		msg.Structured = compactBrowserToolStructuredFields(input.Call.Tool, msg.Structured)
 	}
 	markToolMessageCompacted(msg.Structured)
 	markObservationReadAvailable(msg.Structured, input.ObservationRef)
@@ -402,6 +406,9 @@ func addTypedStructuredFields(fields map[string]any, call app.ToolCall, output m
 			}
 		}
 	case "browser":
+		if call.Tool == "browser.snapshot" {
+			fields["next_step_hint"] = browserSnapshotEvidenceHint
+		}
 		fields["stale_refs_warning"] = "Browser refs can become stale after navigation or page changes; refresh snapshot before acting on old refs."
 	case "document_mutation":
 		fields["side_effect"] = documentMutationSideEffect(output)
@@ -446,6 +453,48 @@ func markToolMessageCompacted(structured map[string]any) {
 	message["compacted"] = true
 	message["note"] = "message compacted; source coverage unchanged"
 	structured["message"] = message
+}
+
+func compactBrowserToolStructuredFields(tool string, fields map[string]any) map[string]any {
+	if len(fields) == 0 {
+		return fields
+	}
+	compact := map[string]any{}
+	keys := []string{
+		"tool_call_id", "tool", "status", "untrusted", "approval_id", "artifact_uri",
+		"browser_mode", "presentation", "surface_visible", "next_step_hint",
+	}
+	switch tool {
+	case "browser.read":
+		keys = append(keys,
+			"url", "final_url", "title", "truncated", "status_code", "extractor", "readability_status",
+			"needs_structure_snapshot", "structure_snapshot_reasons", "read_mode", "rendered",
+			"auth_challenge_detected", "login_handoff_required", "browser_session_error",
+		)
+	case "browser.snapshot":
+		keys = append(keys,
+			"url", "title", "page_id", "snapshot_id", "previous_snapshot_id", "digest", "repeated",
+			"auth_challenge_detected", "login_handoff_required",
+		)
+	default:
+		keys = append(keys,
+			"url", "final_url", "title", "page_id", "snapshot_id", "previous_snapshot_id",
+			"digest", "repeated", "state_changed", "goal_satisfied", "code",
+			"auth_challenge_detected", "auth_challenge_kind", "auth_site_origin", "auth_site_realm",
+			"browser_auth_status", "browser_auth_strategy", "browser_profile_id",
+			"login_surface", "login_handoff_required", "login_handoff_opened", "login_handoff_url",
+			"browser_session_error",
+		)
+	}
+	for _, key := range keys {
+		if value, ok := fields[key]; ok && usefulStructuredValue(value) {
+			compact[key] = value
+		}
+	}
+	if tool == "browser.snapshot" {
+		compact["next_step_hint"] = browserSnapshotEvidenceHint
+	}
+	return compact
 }
 
 func fileReadComplete(output map[string]any) bool {

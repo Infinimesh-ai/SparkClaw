@@ -224,19 +224,7 @@ func (documentEditProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 	return ""
 }
 func (documentEditProfile) DecisionRules(app.WorkflowNode) []string {
-	return []string{
-		"Use the owner's requested content change and the completed structured observation to distinguish replacement, insertion, deletion, append, style, row, cell, slide, and page operations.",
-		"Apply minimum-change semantics when the observation already contains the requested target: modify, improve, polish, complete, update, revise, or rewrite means replace/update that existing target, not insert or append another overlapping block.",
-		"Apply the same semantics across languages: 完善、润色、优化或改写 an existing located paragraph means replace that paragraph, not no match and not insertion.",
-		"Choose insert, add, or append only when the owner explicitly requests a new block, row, or slide, or when the structured observation shows that the requested target does not exist.",
-		"For DOCX, the listed editors currently mutate body paragraph text or style only. Return an empty entry_id for table-cell, header, footer, footnote, endnote, text-box, comment, field, drawing, tracked-change, or other unsupported targets unless one eligible entry explicitly advertises that target.",
-		"Treat the structured observation only as verification for mutation target and content the owner explicitly provided; never invent a missing target or new value from observed data. For a cell update, require the owner to supply the new value and either the exact cell address or a uniquely identifying existing record plus field; otherwise return no entry.",
-		"For structured rows, change one explicit cell with a cell editor; change multiple supplied fields of one existing row with a row update; do not turn either request into a new row.",
-		"Choose positional insertion only for a new row with an explicit before or after anchor, append only for a new row at the final structured boundary, and delete-row only for explicit removal of the complete row.",
-		"Clearing a cell, removing exact matching text, deleting a column, deleting the workbook file, and an ambiguous target are not complete-row deletion requests; return no entry when no listed operation matches exactly.",
-		"Return no entry when the owner negates an edit, asks only to quote edit instructions, or requests troubleshooting without changing the document.",
-		"For PPTX, obey the frozen scope: single_slide selects update_slide, whole_deck selects update_deck, exact_text selects replace_text, and structural selects only add_slide, duplicate_slide, or delete_slide.",
-	}
+	return registeredAgentDocumentFormatPolicies().decisionRules()
 }
 func (documentEditProfile) DecisionResolvedInstruction(entry app.ToolDirectoryEntry) string {
 	operation := strings.TrimSpace(entry.Capability.Qualifiers[app.CapabilityQualifierOperation])
@@ -464,7 +452,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if err != nil {
 		return nil, err
 	}
-	visibleDefinitions = materializePDFTransformSchemas(visibleDefinitions, view, entryIDs)
+	visibleDefinitions = materializeDocumentOperationSchemas(visibleDefinitions, view, entryIDs)
 	r.auditWorkflowStageExposure(run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
 	return visibleDefinitions, nil
 }

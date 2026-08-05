@@ -26,7 +26,11 @@ type pptxEditScopeGrounding struct {
 	Reason       string
 }
 
-var englishOrdinalSlidePattern = regexp.MustCompile(`(?i)(?:slide|page)\s*(?:number\s*)?#?\s*([0-9]+)`)
+var (
+	arabicSlideOrdinalPattern  = regexp.MustCompile(`第\s*([0-9]+)\s*(页|张|个幻灯片)`)
+	chineseSlideOrdinalPattern = regexp.MustCompile(`第\s*([零〇一二两三四五六七八九十百]+)\s*(页|张|个幻灯片)`)
+	englishOrdinalSlidePattern = regexp.MustCompile(`(?i)(?:slide|page)\s*(?:number\s*)?#?\s*([0-9]+)`)
+)
 
 func documentPPTXReadRoutingExamples() []string {
 	return []string{"Explain the attached presentation"}
@@ -129,6 +133,37 @@ func explicitSlideIndexes(text string) []int {
 		}
 	}
 	return values
+}
+
+func explicitSlideIndex(text string) (int, bool) {
+	indexes := explicitSlideIndexes(text)
+	if len(indexes) == 0 {
+		return 0, false
+	}
+	return indexes[0], true
+}
+
+func chineseOrdinalValue(text string) (int, bool) {
+	digits := map[rune]int{'零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+	units := map[rune]int{'十': 10, '百': 100}
+	total, current := 0, 0
+	for _, char := range text {
+		if digit, ok := digits[char]; ok {
+			current = digit
+			continue
+		}
+		unit, ok := units[char]
+		if !ok {
+			return 0, false
+		}
+		if current == 0 {
+			current = 1
+		}
+		total += current * unit
+		current = 0
+	}
+	total += current
+	return total, total > 0
 }
 
 func encodePPTXSlideIndexes(indexes []int) string {

@@ -229,35 +229,7 @@ func governedDocumentFullPath(workspaceRoot, governedPath string) (string, bool)
 }
 
 func documentFormatFromMetadata(name, contentType string) string {
-	switch strings.ToLower(filepath.Ext(strings.TrimSpace(name))) {
-	case ".txt", ".md", ".csv", ".json", ".yaml", ".yml":
-		return app.DocumentFormatText
-	case ".docx":
-		return app.DocumentFormatDOCX
-	case ".xlsx":
-		return app.DocumentFormatXLSX
-	case ".pptx":
-		return app.DocumentFormatPPTX
-	case ".pdf":
-		return app.DocumentFormatPDF
-	}
-	contentType = strings.ToLower(strings.TrimSpace(contentType))
-	switch {
-	case strings.HasPrefix(contentType, "text/"):
-		return app.DocumentFormatText
-	case contentType == "application/pdf":
-		return app.DocumentFormatPDF
-	case strings.HasPrefix(contentType, "image/"):
-		return app.DocumentFormatImage
-	case strings.Contains(contentType, "wordprocessingml"):
-		return app.DocumentFormatDOCX
-	case strings.Contains(contentType, "spreadsheetml"):
-		return app.DocumentFormatXLSX
-	case strings.Contains(contentType, "presentationml"):
-		return app.DocumentFormatPPTX
-	default:
-		return ""
-	}
+	return document.InferFormatFromMetadata(name, contentType)
 }
 
 func documentOutputPaths(call app.ToolCall, workspaceRoot string) []string {

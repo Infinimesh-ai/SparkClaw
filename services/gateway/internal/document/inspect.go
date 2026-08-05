@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -171,6 +172,45 @@ func ExtensionForFormat(format string) string {
 
 func ContentTypeForFormat(format string) string {
 	return formatContentTypes[strings.ToLower(strings.TrimSpace(format))]
+}
+
+// InferFormatFromMetadata provides a best-effort format hint for resources
+// that have not yet entered signature-based inspection.
+func InferFormatFromMetadata(name, contentType string) string {
+	extension := strings.ToLower(filepath.Ext(strings.TrimSpace(name)))
+	switch extension {
+	case ".txt", ".md", ".csv", ".json", ".yaml", ".yml":
+		return app.DocumentFormatText
+	case formatExtensions[app.DocumentFormatDOCX]:
+		return app.DocumentFormatDOCX
+	case formatExtensions[app.DocumentFormatXLSX]:
+		return app.DocumentFormatXLSX
+	case formatExtensions[app.DocumentFormatPPTX]:
+		return app.DocumentFormatPPTX
+	case formatExtensions[app.DocumentFormatPDF]:
+		return app.DocumentFormatPDF
+	}
+	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	}
+	mediaType = strings.ToLower(mediaType)
+	switch {
+	case strings.HasPrefix(mediaType, "text/"):
+		return app.DocumentFormatText
+	case mediaType == "application/pdf":
+		return app.DocumentFormatPDF
+	case strings.HasPrefix(mediaType, "image/"):
+		return app.DocumentFormatImage
+	case strings.Contains(mediaType, "wordprocessingml"):
+		return app.DocumentFormatDOCX
+	case strings.Contains(mediaType, "spreadsheetml"):
+		return app.DocumentFormatXLSX
+	case strings.Contains(mediaType, "presentationml"):
+		return app.DocumentFormatPPTX
+	default:
+		return ""
+	}
 }
 
 func IsSupportedImageContentType(contentType string) bool {

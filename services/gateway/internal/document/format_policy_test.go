@@ -1,7 +1,9 @@
 package document
 
 import (
+	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -53,5 +55,43 @@ func TestTextOutputExtensionUsesInspectedInputExtension(t *testing.T) {
 	}
 	if got := policy.OutputExtension(Metadata{Path: "/workspace/notes.MD"}); got != ".md" {
 		t.Fatalf("text output extension = %q, want .md", got)
+	}
+}
+
+func TestDocumentFormatPolicyRegistrySupportsSyntheticOperation(t *testing.T) {
+	registry := newDocumentFormatPolicyRegistry(documentFormatPolicy{
+		Format: "synthetic", NormalizationSource: "fixture",
+		Operations: map[string]preservationPolicy{"rewrite": {CheckUnchangedContent: true}},
+	})
+	policy, ok := registry.operation("synthetic", "rewrite")
+	if !ok || !policy.CheckUnchangedContent {
+		t.Fatalf("synthetic format operation was not registered: %#v", policy)
+	}
+	if _, ok := registry.operation("synthetic", "missing"); ok {
+		t.Fatal("unknown synthetic operation unexpectedly resolved")
+	}
+}
+
+func TestDocumentFormatPolicyRegistryRejectsDuplicateFormats(t *testing.T) {
+	policy := documentFormatPolicy{Format: "synthetic"}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("duplicate document format policy did not fail closed")
+		}
+	}()
+	_ = newDocumentFormatPolicyRegistry(policy, policy)
+}
+
+func TestSharedDocumentPipelineDoesNotNameFormatPolicies(t *testing.T) {
+	for _, name := range []string{"contract.go", "normalize.go", "enrichment.go", "preservation.go"} {
+		raw, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{"DocumentFormatDOCX", "DocumentFormatXLSX", "DocumentFormatPPTX", "DocumentFormatPDF"} {
+			if strings.Contains(string(raw), forbidden) {
+				t.Errorf("shared document file %s names %s instead of using the policy registry", name, forbidden)
+			}
+		}
 	}
 }

@@ -38,36 +38,7 @@ type docxReadEvidence struct {
 	SourcePath          string
 }
 
-func docxMutationOperation(run app.AgentRun, definition app.ToolDefinition, plan toolPlan) (string, bool) {
-	if plan.WorkflowID != app.WorkflowDocumentEdit || run.Workflow == nil ||
-		strings.TrimSpace(run.Workflow.Route.Slots.Format) != app.DocumentFormatDOCX {
-		return "", false
-	}
-	for _, capability := range definition.Capabilities {
-		operation := strings.TrimSpace(capability.Qualifiers[app.CapabilityQualifierOperation])
-		if capability.Name == plan.Capability &&
-			capability.Qualifiers[app.CapabilityQualifierFormat] == app.DocumentFormatDOCX &&
-			isDOCXMutationOperation(operation) {
-			return operation, true
-		}
-	}
-	return "", false
-}
-
-func isDOCXMutationOperation(operation string) bool {
-	switch operation {
-	case "replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style":
-		return true
-	default:
-		return false
-	}
-}
-
-func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, definition app.ToolDefinition, plan toolPlan, args map[string]any) map[string]any {
-	operation, ok := docxMutationOperation(run, definition, plan)
-	if !ok {
-		return args
-	}
+func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, operation string, args map[string]any) map[string]any {
 	evidence, ok := r.currentDOCXReadEvidence(run, args)
 	if !ok {
 		return args
@@ -107,16 +78,12 @@ func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, definition app.ToolD
 	return args
 }
 
-func (r Runtime) validateDOCXMutationEvidence(run app.AgentRun, definition app.ToolDefinition, plan toolPlan, args map[string]any) error {
-	operation, ok := docxMutationOperation(run, definition, plan)
-	if !ok {
-		return nil
-	}
+func (r Runtime) validateDOCXMutationEvidence(run app.AgentRun, toolName, operation string, args map[string]any) error {
 	evidence, ok := r.currentDOCXReadEvidence(run, args)
 	if !ok {
-		return fmt.Errorf("%s does not have current workflow localization evidence", definition.Name)
+		return fmt.Errorf("%s does not have current workflow localization evidence", toolName)
 	}
-	return validateDOCXMutationAgainstEvidence(definition.Name, operation, args, evidence)
+	return validateDOCXMutationAgainstEvidence(toolName, operation, args, evidence)
 }
 
 func validateDOCXMutationAgainstEvidence(toolName, operation string, args map[string]any, evidence docxReadEvidence) error {
@@ -414,18 +381,10 @@ func normalizeDOCXEvidenceText(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func (r Runtime) revalidateApprovedDOCXMutation(ctx context.Context, call app.ToolCall, definition app.ToolDefinition) error {
+func (r Runtime) revalidateApprovedDOCXMutation(ctx context.Context, call app.ToolCall, operation string) error {
 	run, ok := r.store.GetRun(call.RunID)
 	if !ok {
 		return errors.New("approved DOCX mutation run is unavailable")
-	}
-	plan := toolPlan{
-		Name: call.Tool, Args: call.Arguments, WorkflowID: call.WorkflowID, WorkflowNodeID: call.WorkflowNodeID,
-		ScopeRevision: call.ScopeRevision, Capability: call.Capability,
-	}
-	operation, isDOCXMutation := docxMutationOperation(run, definition, plan)
-	if !isDOCXMutation {
-		return nil
 	}
 	initial, ok := r.currentDOCXReadEvidence(run, call.Arguments)
 	if !ok {

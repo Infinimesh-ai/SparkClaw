@@ -385,7 +385,7 @@ func addTypedStructuredFields(fields map[string]any, call app.ToolCall, output m
 			if pipeline := documentPipelineFields(output); len(pipeline) > 0 {
 				fields["document_pipeline"] = pipeline
 			}
-			if coverage := projectPDFReadCoverage(call, output); coverage.Applies {
+			if coverage := projectDocumentReadCoverage(call, output); coverage.Applies {
 				fields["coverage_status"] = coverage.CoverageStatus
 				fields["total_pages"] = coverage.TotalPages
 				fields["missing_page_indexes"] = coverage.MissingPageIndexes
@@ -883,8 +883,10 @@ func sliceDocumentStructuredEvidence(output map[string]any, maxBytes int) string
 }
 
 func sliceDocumentStructuredEvidenceForRequest(output map[string]any, maxBytes int, ownerRequest string) string {
-	if projection := xlsxSheetEvidenceProjection(output, ownerRequest, maxBytes); projection != "" {
-		return projection
+	if policy, ok := registeredAgentDocumentFormatPolicies().policyForResult(app.ToolCall{}, output); ok && policy.SliceStructuredEvidence != nil {
+		if projection := policy.SliceStructuredEvidence(output, maxBytes, ownerRequest); projection != "" {
+			return projection
+		}
 	}
 	lines := []string{}
 	metadata := map[string]any{"untrusted": true}
@@ -1029,8 +1031,9 @@ func documentReadEvidence(call app.ToolCall, output map[string]any, evidenceLimi
 	}
 	evidence := []toolEvidence{}
 	document, documentOK := anyMap(output["document"])
-	isXLSX := documentOK && strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), "xlsx")
-	if !isXLSX {
+	formatPolicy, hasFormatPolicy := registeredAgentDocumentFormatPolicies().policyForResult(call, output)
+	hasSpecializedEvidence := documentOK && hasFormatPolicy && formatPolicy.BuildReadEvidence != nil
+	if !hasSpecializedEvidence {
 		if text := strings.TrimSpace(stringValue(output["content"])); text != "" && text != "<nil>" {
 			processed := rangeOrHeadTailText(text, evidenceLimit)
 			sourceTruncated := boolValue(output["truncated"])
@@ -1057,8 +1060,8 @@ func documentReadEvidence(call app.ToolCall, output map[string]any, evidenceLimi
 	if !documentOK {
 		return evidence
 	}
-	if isXLSX {
-		return append(evidence, xlsxDocumentReadEvidence(output, ownerRequest, evidenceLimit)...)
+	if hasSpecializedEvidence {
+		return append(evidence, formatPolicy.BuildReadEvidence(output, ownerRequest, evidenceLimit)...)
 	}
 	if text := documentAnchorEvidence(document); text != "" {
 		evidence = append(evidence, toolEvidence{

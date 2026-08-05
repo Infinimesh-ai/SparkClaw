@@ -36,6 +36,10 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 	compactSections := make([]string, 0, len(requirements))
 	minimalSections := make([]string, 0, len(requirements))
 	providedBytes := 0
+	formatPolicy := agentDocumentFormatPolicy{}
+	if run.Workflow != nil {
+		formatPolicy, _ = registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route)
+	}
 	for _, requirement := range requirements {
 		if remaining <= 0 {
 			if requirement.Optional {
@@ -56,6 +60,12 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 				continue
 			}
 			return provisionedWorkflowEvidence{}, err
+		}
+		evidencePolicy := formatPolicy
+		if outputMap, ok := outputAsMap(output); ok {
+			if resultPolicy, registered := registeredAgentDocumentFormatPolicies().policyForResult(call, outputMap); registered {
+				evidencePolicy = resultPolicy
+			}
 		}
 		limit := requirement.MaxBytes
 		if limit <= 0 || limit > remaining {
@@ -78,19 +88,25 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		if used > remaining {
 			return provisionedWorkflowEvidence{}, errors.New("workflow evidence slicer exceeded the stage evidence budget")
 		}
-		if complete, handled := xlsxEvidenceSelectionState(text); handled && !complete {
-			return provisionedWorkflowEvidence{}, errors.New("required XLSX target evidence exceeds the stage evidence budget")
+		if evidencePolicy.ValidateEvidenceSlice != nil {
+			if err := evidencePolicy.ValidateEvidenceSlice(text); err != nil {
+				return provisionedWorkflowEvidence{}, err
+			}
 		}
 		sections = append(sections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, text))
 		compactLimit := min(limit, max(512, limit/2))
 		minimalLimit := min(compactLimit, max(256, limit/4))
 		compactText, _ := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, compactLimit, ownerRequest)
 		minimalText, _ := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, minimalLimit, ownerRequest)
-		if complete, handled := xlsxEvidenceSelectionState(compactText); handled && !complete {
-			compactText = text
+		if evidencePolicy.ValidateEvidenceSlice != nil {
+			if err := evidencePolicy.ValidateEvidenceSlice(compactText); err != nil {
+				compactText = text
+			}
 		}
-		if complete, handled := xlsxEvidenceSelectionState(minimalText); handled && !complete {
-			minimalText = compactText
+		if evidencePolicy.ValidateEvidenceSlice != nil {
+			if err := evidencePolicy.ValidateEvidenceSlice(minimalText); err != nil {
+				minimalText = compactText
+			}
 		}
 		if strings.TrimSpace(compactText) != "" {
 			compactSections = append(compactSections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, compactText))
@@ -104,8 +120,10 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 			"source_ref": ref, "tool_call_id": call.ID, "tool": call.Tool, "mode": requirement.Mode,
 			"provisioned_bytes": used, "total_artifact_bytes": artifactBytes,
 		}
-		for key, value := range xlsxEvidenceAuditFields(text) {
-			auditFields[key] = value
+		if evidencePolicy.ProjectEvidenceAudit != nil {
+			for key, value := range evidencePolicy.ProjectEvidenceAudit(text) {
+				auditFields[key] = value
+			}
 		}
 		r.store.AddAudit(app.AuditEvent{
 			SessionID: run.SessionID,
@@ -136,23 +154,10 @@ func (r Runtime) workflowStageEvidenceLimit() int {
 }
 
 func sliceWorkflowEvidenceForRun(run app.AgentRun, tool string, output any, mode workflowEvidenceSliceMode, maxBytes int, ownerRequest string) (string, error) {
-	if mode == workflowEvidenceStructured && tool == "files.read" && run.Workflow != nil &&
-		strings.EqualFold(strings.TrimSpace(run.Workflow.Route.Facts["document_format"]), app.DocumentFormatPPTX) {
-		outputMap, ok := outputAsMap(output)
-		if !ok {
-			return slicePersistedToolEvidenceForRequest(tool, output, mode, maxBytes, ownerRequest), nil
+	if run.Workflow != nil {
+		if policy, ok := registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route); ok && policy.SliceWorkflowEvidence != nil {
+			return policy.SliceWorkflowEvidence(run, tool, output, mode, maxBytes, ownerRequest)
 		}
-		document, hasDocument := anyMap(outputMap["document"])
-		if !hasDocument || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), app.DocumentFormatPPTX) ||
-			strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact]) == pptxScopeExactText {
-			return slicePersistedToolEvidenceForRequest(tool, output, mode, maxBytes, ownerRequest), nil
-		}
-		return pptxTargetStructuredEvidence(
-			outputMap,
-			strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact]),
-			decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact]),
-			maxBytes,
-		)
 	}
 	return slicePersistedToolEvidenceForRequest(tool, output, mode, maxBytes, ownerRequest), nil
 }

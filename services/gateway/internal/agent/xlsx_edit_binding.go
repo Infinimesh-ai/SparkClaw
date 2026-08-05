@@ -18,21 +18,6 @@ type xlsxEditEvidence struct {
 	TargetHash   string
 }
 
-func xlsxEditOperation(run app.AgentRun, definition app.ToolDefinition, plan toolPlan) (string, bool) {
-	if plan.WorkflowID != app.WorkflowDocumentEdit || run.Workflow == nil ||
-		strings.TrimSpace(run.Workflow.Route.Slots.Format) != app.DocumentFormatXLSX {
-		return "", false
-	}
-	for _, capability := range definition.Capabilities {
-		operation := strings.TrimSpace(capability.Qualifiers[app.CapabilityQualifierOperation])
-		if capability.Name == app.ToolCapabilityDocumentEdit && capability.Name == plan.Capability &&
-			capability.Qualifiers[app.CapabilityQualifierFormat] == app.DocumentFormatXLSX && operation != "" {
-			return operation, true
-		}
-	}
-	return "", false
-}
-
 func (r Runtime) bindXLSXEditEvidence(run app.AgentRun, operation string, args map[string]any) map[string]any {
 	evidence, ok := r.currentXLSXEditEvidence(run, operation, args)
 	if !ok {

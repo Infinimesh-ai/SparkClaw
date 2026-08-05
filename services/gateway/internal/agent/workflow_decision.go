@@ -50,7 +50,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 	if err != nil {
 		return "", false, err
 	}
-	view.Entries = scopePPTXDirectoryEntries(run.Workflow.Route, view.Entries)
+	view.Entries = scopeDocumentDirectoryEntries(run.Workflow.Route, view.Entries)
 	r.auditDirectorySearch(*run, view)
 	if refreshed, exists := r.store.GetRun(run.ID); exists {
 		*run = refreshed
@@ -191,8 +191,10 @@ func parseWorkflowDecisionSelection(content string) (workflowDecisionSelectionOu
 }
 
 func (r Runtime) workflowDecisionEvidence(ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry) (string, error) {
-	if run.Workflow != nil && strings.EqualFold(run.Workflow.Route.Facts["document_format"], app.DocumentFormatDOCX) {
-		return r.workflowDOCXDecisionEvidence(ctx, run, node, entries)
+	if run.Workflow != nil {
+		if policy, ok := registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route); ok && policy.DecisionEvidence != nil {
+			return policy.DecisionEvidence(r, ctx, run, node, entries)
+		}
 	}
 	requirements := []workflowEvidenceRequirement{}
 	for _, dependency := range node.DependsOn {

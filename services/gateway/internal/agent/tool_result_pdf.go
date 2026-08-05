@@ -10,7 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-type pdfReadCoverage struct {
+type documentReadCoverage struct {
 	Applies            bool
 	ReadComplete       bool
 	CoverageStatus     string
@@ -19,11 +19,11 @@ type pdfReadCoverage struct {
 	PageStatusCounts   map[string]int
 }
 
-func projectPDFReadCoverage(call app.ToolCall, output map[string]any) pdfReadCoverage {
+func projectPDFReadCoverage(call app.ToolCall, output map[string]any) documentReadCoverage {
 	document, _ := anyMap(output["document"])
 	format := strings.ToLower(strings.TrimSpace(firstNonEmptyString(document["format"], output["kind"])))
 	if call.Tool != "pdf.extract_text" && format != app.DocumentFormatPDF {
-		return pdfReadCoverage{}
+		return documentReadCoverage{}
 	}
 	stats, _ := anyMap(document["stats"])
 	readComplete := false
@@ -54,13 +54,13 @@ func projectPDFReadCoverage(call app.ToolCall, output map[string]any) pdfReadCov
 	if totalPages == 0 {
 		totalPages = len(anySlice(document["pages"]))
 	}
-	return pdfReadCoverage{
+	return documentReadCoverage{
 		Applies: true, ReadComplete: readComplete, CoverageStatus: status, TotalPages: totalPages,
 		MissingPageIndexes: missing, PageStatusCounts: counts,
 	}
 }
 
-func (coverage pdfReadCoverage) attributes() map[string]string {
+func (coverage documentReadCoverage) attributes() map[string]string {
 	if !coverage.Applies {
 		return nil
 	}
@@ -78,7 +78,7 @@ func (coverage pdfReadCoverage) attributes() map[string]string {
 	return attributes
 }
 
-func (coverage pdfReadCoverage) manifest() string {
+func (coverage documentReadCoverage) manifest() string {
 	if !coverage.Applies {
 		return ""
 	}

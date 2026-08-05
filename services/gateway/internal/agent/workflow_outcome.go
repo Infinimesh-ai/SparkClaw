@@ -186,7 +186,7 @@ func adaptWorkspaceReadOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	output, ok := anyMap(call.Result)
 	if ok && toolCallCompleted(call) {
-		coverage := projectPDFReadCoverage(call, output)
+		coverage := projectDocumentReadCoverage(call, output)
 		contentAvailable := !coverage.Applies || coverage.CoverageStatus == "complete" ||
 			(coverage.CoverageStatus == "partial" && strings.TrimSpace(firstNonEmptyString(output["content"])) != "")
 		if contentAvailable {

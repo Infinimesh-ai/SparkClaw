@@ -18,6 +18,128 @@ type pptxWorkflowEditEvidence struct {
 	readOnlyText []string
 }
 
+func (r Runtime) bindPPTXSlideUpdateArguments(run app.AgentRun, args map[string]any) map[string]any {
+	return r.bindPPTXEditArguments(run, "update_slide", args)
+}
+
+func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args map[string]any) map[string]any {
+	if run.Workflow == nil {
+		return args
+	}
+	indexes := decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact])
+	if len(indexes) == 0 {
+		indexes = explicitSlideIndexes(run.Workflow.Route.Slots.Query)
+	}
+	switch operation {
+	case "update_slide":
+		slideIndex := intLikeValue(args["slide_index"])
+		if len(indexes) > 0 {
+			slideIndex = indexes[0]
+			args["slide_index"] = slideIndex
+		}
+		args["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(args["updates"]))
+	case "update_deck":
+		for _, value := range anySlice(args["slide_updates"]) {
+			slideUpdate, ok := anyMap(value)
+			if !ok {
+				continue
+			}
+			slideIndex := intLikeValue(slideUpdate["slide_index"])
+			slideUpdate["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(slideUpdate["updates"]))
+		}
+	case "add_slide":
+		if len(indexes) > 0 {
+			args["after_slide_index"] = indexes[0]
+		}
+		query := strings.ToLower(run.Workflow.Route.Slots.Query)
+		if len(indexes) > 1 &&
+			(strings.Contains(query, "style") || strings.Contains(query, "template") || strings.Contains(query, "样式") || strings.Contains(query, "模板")) {
+			args["template_slide_ref"] = fmt.Sprintf("slide:%d", indexes[1])
+			delete(args, "layout_ref")
+		}
+		templateIndex := 0
+		if _, err := fmt.Sscanf(strings.TrimSpace(stringValue(args["template_slide_ref"])), "slide:%d", &templateIndex); err == nil && templateIndex > 0 {
+			args["template_updates"] = r.bindPPTXUpdates(run, args, templateIndex, anySlice(args["template_updates"]))
+		}
+	case "duplicate_slide", "delete_slide":
+		if len(indexes) > 0 {
+			args["slide_index"] = indexes[0]
+		}
+	}
+	return args
+}
+
+func (r Runtime) bindPPTXUpdates(run app.AgentRun, args map[string]any, slideIndex int, updates []any) []any {
+	if slideIndex <= 0 {
+		return updates
+	}
+	shapeText := r.pptxSlideShapeText(run, strings.TrimSpace(stringValue(args["path"])), slideIndex)
+	if len(shapeText) == 0 {
+		return updates
+	}
+	for _, value := range updates {
+		update, ok := anyMap(value)
+		if !ok {
+			continue
+		}
+		newText := strings.TrimSpace(stringValue(update["text"]))
+		if newText == "" || newText == "<nil>" {
+			if alias := strings.TrimSpace(stringValue(update["new_text"])); alias != "" && alias != "<nil>" {
+				update["text"] = update["new_text"]
+			}
+		}
+		delete(update, "new_text")
+		shapeIndex := intLikeValue(update["shape_index"])
+		oldText := strings.TrimSpace(stringValue(update["old_text"]))
+		if oldText != "" && oldText != "<nil>" {
+			continue
+		}
+		if exact, ok := shapeText[shapeIndex]; ok {
+			update["old_text"] = exact
+		}
+	}
+	return updates
+}
+
+func (r Runtime) pptxSlideShapeText(run app.AgentRun, expectedPath string, slideIndex int) map[int]string {
+	calls := toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID)
+	for i := len(calls) - 1; i >= 0; i-- {
+		call := calls[i]
+		if call.Tool != "files.read" || !toolCallCompleted(call) {
+			continue
+		}
+		result, ok := anyMap(call.Result)
+		if !ok || !sameDocumentReadPath(expectedPath, call, result) {
+			continue
+		}
+		document, ok := anyMap(result["document"])
+		if !ok || strings.ToLower(strings.TrimSpace(stringValue(document["format"]))) != app.DocumentFormatPPTX {
+			continue
+		}
+		shapeText := map[int]string{}
+		for _, value := range documentAnySliceFromAny(document["blocks"]) {
+			block, ok := anyMap(value)
+			if !ok {
+				continue
+			}
+			location, _ := anyMap(block["location"])
+			format, _ := anyMap(firstNonNil(block["format_metadata"], block["format"]))
+			if intLikeValue(location["slide_index"]) != slideIndex ||
+				strings.TrimSpace(stringValue(firstNonNil(block["type"], block["kind"], location["block_type"]))) != "shape_text" ||
+				intLikeValue(location["group_child_index"]) > 0 || (format["editable"] != nil && !boolValue(format["editable"])) {
+				continue
+			}
+			shapeIndex := intLikeValue(location["shape_index"])
+			text := stringValue(block["text"])
+			if shapeIndex > 0 && strings.TrimSpace(text) != "" && text != "<nil>" {
+				shapeText[shapeIndex] = text
+			}
+		}
+		return shapeText
+	}
+	return nil
+}
+
 func (r Runtime) validatePPTXEditEvidence(run app.AgentRun, operation string, args map[string]any) error {
 	evidence, err := r.currentPPTXWorkflowEditEvidence(run, args)
 	if err != nil {

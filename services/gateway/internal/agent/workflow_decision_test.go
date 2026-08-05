@@ -143,7 +143,8 @@ func TestDocumentEditDecisionRulesSeparateXLSXSiblingOperations(t *testing.T) {
 	for _, boundary := range []string{
 		"one explicit cell", "multiple supplied fields", "before or after anchor", "final structured boundary",
 		"complete row", "Clearing a cell", "deleting the workbook file", "ambiguous target", "negates an edit",
-		"quote edit instructions", "troubleshooting without changing",
+		"quote edit instructions", "troubleshooting without changing", "never invent a missing target or new value",
+		"exact cell address", "uniquely identifying existing record plus field", "otherwise return no entry",
 	} {
 		if !strings.Contains(rules, boundary) {
 			t.Fatalf("document edit decision rules omitted %q: %s", boundary, rules)

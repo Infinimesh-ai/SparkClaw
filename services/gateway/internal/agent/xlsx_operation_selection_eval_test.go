@@ -165,13 +165,36 @@ func TestXLSXOperationSelectionPromptUsesProductionDirectoryAndEvidence(t *testi
 			t.Fatalf("production prompt omitted XLSX %s directory boundary: %s", operation, user)
 		}
 	}
-	for _, want := range []string{"one explicit cell", "multiple supplied fields", "complete row", "schema_version", "formatted_numbers"} {
+	for _, want := range []string{"named sheet may narrow", "cannot supply a missing target or value", "multiple supplied fields", "complete row", "schema_version", "formatted_numbers"} {
 		if !strings.Contains(system+"\n"+user, want) {
 			t.Fatalf("production selection prompt omitted %q", want)
 		}
 	}
 	if got := len(xlsxOperationSelectionEvidence(t, "near_budget")); got < 7000 || got > 8000 {
 		t.Fatalf("near-budget evidence bytes=%d, want 7000..8000", got)
+	}
+}
+
+func TestXLSXOperationSelectionScoringRequiresCompletedSelection(t *testing.T) {
+	tests := []struct {
+		name      string
+		completed bool
+		selected  string
+		expected  string
+		want      bool
+	}{
+		{name: "completed positive", completed: true, selected: "update_cell", expected: "update_cell", want: true},
+		{name: "completed negative", completed: true, selected: "", expected: "", want: true},
+		{name: "model error negative", completed: false, selected: "", expected: "", want: false},
+		{name: "invalid json negative", completed: false, selected: "", expected: "", want: false},
+		{name: "wrong operation", completed: true, selected: "update_cell", expected: "replace_text", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := xlsxOperationSelectionCaseCorrect(test.completed, test.selected, test.expected); got != test.want {
+				t.Fatalf("case correctness=%t want=%t", got, test.want)
+			}
+		})
 	}
 }
 
@@ -208,6 +231,8 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 		profileName := ""
 		reason := ""
 		retries := 0
+		selectionCompleted := false
+		crossFormatSelected := false
 
 		for attempt := 0; attempt < 2; attempt++ {
 			run, node := xlsxOperationSelectionPromptFixture(testCase.Prompt, attempt)
@@ -237,7 +262,7 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 			selectedID = selection.EntryID
 			selectedOperation = directory.operationByID[selectedID]
 			if format := directory.formatByEntryID[selectedID]; selectedID != "" && format != "" && format != app.DocumentFormatXLSX {
-				crossFormatSelections++
+				crossFormatSelected = true
 			}
 			if selectedID != "" && selectedOperation == "" {
 				reason = "entry_outside_active_xlsx_view"
@@ -256,10 +281,14 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 				break
 			}
 			reason = "selection_completed"
+			selectionCompleted = true
 			break
 		}
+		if crossFormatSelected {
+			crossFormatSelections++
+		}
 
-		caseCorrect := selectedOperation == testCase.ExpectedOperation
+		caseCorrect := xlsxOperationSelectionCaseCorrect(selectionCompleted, selectedOperation, testCase.ExpectedOperation)
 		if caseCorrect {
 			correct++
 			reason = "exact_operation_match"
@@ -300,6 +329,10 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 	if crossFormatSelections != corpus.ReleaseGates.CrossFormatSelections {
 		t.Errorf("cross-format selections=%d want=%d", crossFormatSelections, corpus.ReleaseGates.CrossFormatSelections)
 	}
+}
+
+func xlsxOperationSelectionCaseCorrect(selectionCompleted bool, selectedOperation, expectedOperation string) bool {
+	return selectionCompleted && selectedOperation == expectedOperation
 }
 
 func loadXLSXOperationSelectionCorpus(t *testing.T) xlsxOperationSelectionCorpus {

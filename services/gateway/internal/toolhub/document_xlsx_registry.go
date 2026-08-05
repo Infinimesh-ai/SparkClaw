@@ -9,12 +9,12 @@ type xlsxOperationDirectoryBoundary struct {
 
 var xlsxOperationDirectoryBoundaries = map[string]xlsxOperationDirectoryBoundary{
 	"replace_text": {
-		whenToUse:    "Use when the owner supplies explicit old and new text and intends matching structured text blocks or text-valued cells to change.",
-		whenNotToUse: "Do not use when a cell or row location is explicit, values are typed, the requested change inserts, appends, or deletes a row, or the request requires whole-slide rewriting.",
+		whenToUse:    "Use when the owner supplies explicit old and new text and intends all matching structured text blocks or text-valued cells to change; a named sheet may narrow the replacement scope without turning it into a single-cell update.",
+		whenNotToUse: "Do not use when the owner identifies one unique cell or record field as the target, values are typed, the requested change inserts, appends, or deletes a row, or the request requires whole-slide rewriting.",
 	},
 	"update_cell": {
-		whenToUse:    "Use when exactly one evidence-located cell or one field in an existing row changes.",
-		whenNotToUse: "Do not use when multiple cells in one row change or when a row is inserted, appended, or deleted.",
+		whenToUse:    "Use only when the owner supplies a new value and identifies exactly one evidence-located cell by address or exactly one existing record plus field; evidence may verify that owner-specified target but cannot supply a missing target or value.",
+		whenNotToUse: "Do not use for old/new replacement across matching text-valued cells, even within one named sheet; do not infer an omitted unique target or new value from evidence, update multiple cells in one row, or insert, append, or delete a row.",
 	},
 	"update_row": {
 		whenToUse:    "Use when multiple leading cells of one existing evidence-bound row change while omitted trailing cells remain unchanged.",

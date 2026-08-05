@@ -1,7 +1,12 @@
 package agent
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -21,91 +26,230 @@ type docxParagraphEvidence struct {
 	SourceHash string
 }
 
-func isDOCXReplaceParagraphDefinition(definition app.ToolDefinition, plan toolPlan) bool {
-	if plan.WorkflowID != app.WorkflowDocumentEdit {
-		return false
-	}
-	for _, capability := range definition.Capabilities {
-		if capability.Name == plan.Capability &&
-			capability.Qualifiers[app.CapabilityQualifierFormat] == app.DocumentFormatDOCX &&
-			capability.Qualifiers[app.CapabilityQualifierOperation] == "replace_paragraph" {
-			return true
-		}
-	}
-	return false
+type docxReadEvidence struct {
+	SourceSHA256        string
+	Blocks              []any
+	Paragraphs          []any
+	SourceToolCallID    string
+	SourceNodeID        app.WorkflowNodeID
+	SourceScopeRevision int
+	SourceSessionID     string
+	SourceRunID         string
+	SourcePath          string
 }
 
-func (r Runtime) bindDOCXReplaceParagraphEvidence(run app.AgentRun, args map[string]any) map[string]any {
-	evidence, ok := r.currentDOCXParagraphEvidence(run, args)
+func docxMutationOperation(run app.AgentRun, definition app.ToolDefinition, plan toolPlan) (string, bool) {
+	if plan.WorkflowID != app.WorkflowDocumentEdit || run.Workflow == nil ||
+		strings.TrimSpace(run.Workflow.Route.Slots.Format) != app.DocumentFormatDOCX {
+		return "", false
+	}
+	for _, capability := range definition.Capabilities {
+		operation := strings.TrimSpace(capability.Qualifiers[app.CapabilityQualifierOperation])
+		if capability.Name == plan.Capability &&
+			capability.Qualifiers[app.CapabilityQualifierFormat] == app.DocumentFormatDOCX &&
+			isDOCXMutationOperation(operation) {
+			return operation, true
+		}
+	}
+	return "", false
+}
+
+func isDOCXMutationOperation(operation string) bool {
+	switch operation {
+	case "replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, definition app.ToolDefinition, plan toolPlan, args map[string]any) map[string]any {
+	operation, ok := docxMutationOperation(run, definition, plan)
 	if !ok {
 		return args
 	}
-	if cleanOptionalString(args["source_hash"]) == "" {
-		args["source_hash"] = evidence.SourceHash
+	evidence, ok := r.currentDOCXReadEvidence(run, args)
+	if !ok {
+		return args
 	}
-	if _, hasLocation := args["location"]; hasLocation {
-		location := map[string]any{
-			"part":            "document",
-			"block_type":      "paragraph",
-			"paragraph_index": evidence.Index,
+	if cleanOptionalString(args["source_document_sha256"]) == "" {
+		args["source_document_sha256"] = evidence.SourceSHA256
+	}
+	if _, supplied := anyMap(args["source_evidence"]); !supplied {
+		args["source_evidence"] = docxSourceEvidenceBinding(evidence, operation)
+	}
+	if operation == "replace_text" {
+		if len(documentAnySliceFromAny(args["evidence_targets"])) == 0 {
+			args["evidence_targets"] = docxReplacementEvidence(evidence.Blocks, args)
 		}
-		if evidence.Path != "" {
-			location["path"] = evidence.Path
-		}
-		args["location"] = location
+		return args
+	}
+	position := strings.ToLower(cleanOptionalString(args["position"]))
+	if operation == "insert_paragraph" && (position == "start" || position == "end") {
+		args["document_boundary"] = position
+		return args
+	}
+	paragraph, ok := matchDOCXParagraphEvidence(evidence.Blocks, mustDOCXParagraphTarget(args))
+	if !ok {
+		return args
+	}
+	args["location"] = canonicalDOCXParagraphLocation(paragraph)
+	args["paragraph_index"] = paragraph.Index
+	if cleanOptionalString(args["source_hash"]) == "" {
+		args["source_hash"] = paragraph.SourceHash
+	}
+	if cleanOptionalString(args["old_text"]) == "" {
+		args["old_text"] = paragraph.Text
+	}
+	if operation == "set_text_style" && cleanOptionalString(args["before_format_sha256"]) == "" {
+		args["before_format_sha256"] = docxParagraphFormatSHA256(evidence.Paragraphs, paragraph)
 	}
 	return args
 }
 
-func (r Runtime) validateDOCXReplaceParagraphEvidence(run app.AgentRun, args map[string]any) error {
-	evidence, ok := r.currentDOCXParagraphEvidence(run, args)
+func (r Runtime) validateDOCXMutationEvidence(run app.AgentRun, definition app.ToolDefinition, plan toolPlan, args map[string]any) error {
+	operation, ok := docxMutationOperation(run, definition, plan)
 	if !ok {
-		return errors.New("docx.replace_paragraph target does not match current workflow localization evidence")
+		return nil
 	}
-	if sourceHash := cleanOptionalString(args["source_hash"]); sourceHash != "" && sourceHash != evidence.SourceHash {
-		return errors.New("docx.replace_paragraph source_hash conflicts with current workflow localization evidence")
+	evidence, ok := r.currentDOCXReadEvidence(run, args)
+	if !ok {
+		return fmt.Errorf("%s does not have current workflow localization evidence", definition.Name)
+	}
+	return validateDOCXMutationAgainstEvidence(definition.Name, operation, args, evidence)
+}
+
+func validateDOCXMutationAgainstEvidence(toolName, operation string, args map[string]any, evidence docxReadEvidence) error {
+	if source := cleanOptionalString(args["source_document_sha256"]); source == "" {
+		return fmt.Errorf("%s requires current source_document_sha256 evidence", toolName)
+	} else if source != evidence.SourceSHA256 {
+		return fmt.Errorf("%s source_document_sha256 conflicts with current workflow localization evidence", toolName)
+	}
+	if !sameDOCXSourceEvidence(args["source_evidence"], docxSourceEvidenceBinding(evidence, operation)) {
+		return fmt.Errorf("%s source_evidence conflicts with current workflow localization evidence", toolName)
+	}
+	if operation == "replace_text" {
+		expected := docxReplacementEvidence(evidence.Blocks, args)
+		if len(expected) == 0 || !sameDOCXEvidence(expected, documentAnySliceFromAny(args["evidence_targets"])) {
+			return fmt.Errorf("%s replacement targets conflict with current workflow localization evidence", toolName)
+		}
+		return nil
+	}
+	position := strings.ToLower(cleanOptionalString(args["position"]))
+	if operation == "insert_paragraph" && (position == "start" || position == "end") {
+		if cleanOptionalString(args["document_boundary"]) != position {
+			return fmt.Errorf("%s document boundary conflicts with current workflow localization evidence", toolName)
+		}
+		if _, hasTarget := docxParagraphTargetFromArguments(args); hasTarget || cleanOptionalString(args["source_hash"]) != "" {
+			return fmt.Errorf("%s start/end insertion must not bind a paragraph target", toolName)
+		}
+		return nil
+	}
+	target, ok := docxParagraphTargetFromArguments(args)
+	if !ok {
+		return fmt.Errorf("%s target does not match current workflow localization evidence", toolName)
+	}
+	paragraph, ok := matchDOCXParagraphEvidence(evidence.Blocks, target)
+	if !ok {
+		return fmt.Errorf("%s target does not match current workflow localization evidence", toolName)
+	}
+	if sourceHash := cleanOptionalString(args["source_hash"]); sourceHash == "" {
+		return fmt.Errorf("%s requires current paragraph source_hash evidence", toolName)
+	} else if sourceHash != paragraph.SourceHash {
+		return fmt.Errorf("%s source_hash conflicts with current workflow localization evidence", toolName)
 	}
 	if oldText := cleanOptionalString(args["old_text"]); oldText != "" &&
-		normalizeDOCXEvidenceText(oldText) != normalizeDOCXEvidenceText(evidence.Text) {
-		return errors.New("docx.replace_paragraph old_text conflicts with current workflow localization evidence")
+		normalizeDOCXEvidenceText(oldText) != normalizeDOCXEvidenceText(paragraph.Text) {
+		return fmt.Errorf("%s old_text conflicts with current workflow localization evidence", toolName)
 	}
-	if cleanOptionalString(args["source_hash"]) == "" {
-		return errors.New("docx.replace_paragraph requires current workflow localization evidence")
+	if operation == "delete_paragraph" && cleanOptionalString(args["old_text"]) == "" {
+		return errors.New("docx.delete_paragraph requires current old_text evidence")
+	}
+	if operation == "set_text_style" {
+		style, ok := anyMap(args["style"])
+		if !ok || len(style) == 0 {
+			return errors.New("docx.set_text_style requires builtin_style, bold, or font_size_pt before approval")
+		}
+		expectedFormat := docxParagraphFormatSHA256(evidence.Paragraphs, paragraph)
+		if expectedFormat == "" || cleanOptionalString(args["before_format_sha256"]) != expectedFormat {
+			return errors.New("docx.set_text_style before_format_sha256 conflicts with current workflow localization evidence")
+		}
 	}
 	return nil
 }
 
-func (r Runtime) currentDOCXParagraphEvidence(run app.AgentRun, args map[string]any) (docxParagraphEvidence, bool) {
+func (r Runtime) currentDOCXReadEvidence(run app.AgentRun, args map[string]any) (docxReadEvidence, bool) {
 	if run.Workflow == nil || r.store == nil {
-		return docxParagraphEvidence{}, false
-	}
-	target, ok := docxParagraphTargetFromArguments(args)
-	if !ok {
-		return docxParagraphEvidence{}, false
+		return docxReadEvidence{}, false
 	}
 	locateState, ok := run.Workflow.Nodes[documentLocateEvidenceNodeID]
 	if !ok || locateState.Status != app.WorkflowNodeSucceeded || len(locateState.ToolCallIDs) != 1 {
-		return docxParagraphEvidence{}, false
+		return docxReadEvidence{}, false
 	}
 	call, ok := r.store.GetToolCall(locateState.ToolCallIDs[0])
 	if !ok || call.RunID != run.ID || call.SessionID != run.SessionID ||
 		call.WorkflowID != app.WorkflowDocumentEdit || call.WorkflowNodeID != documentLocateEvidenceNodeID ||
 		call.ScopeRevision != locateState.ScopeRevision || call.Tool != "files.read" || !toolCallCompleted(call) {
-		return docxParagraphEvidence{}, false
+		return docxReadEvidence{}, false
 	}
 	result, ok := anyMap(call.Result)
 	if !ok || !sameDocumentReadPath(strings.TrimSpace(stringValue(args["path"])), call, result) {
-		return docxParagraphEvidence{}, false
+		return docxReadEvidence{}, false
 	}
+	evidence, ok := docxReadEvidenceFromResult(result)
+	if !ok {
+		return docxReadEvidence{}, false
+	}
+	evidence.SourceToolCallID = call.ID
+	evidence.SourceNodeID = call.WorkflowNodeID
+	evidence.SourceScopeRevision = call.ScopeRevision
+	evidence.SourceSessionID = call.SessionID
+	evidence.SourceRunID = call.RunID
+	evidence.SourcePath = strings.TrimSpace(stringValue(firstNonNil(result["rel_path"], call.Arguments["path"])))
+	return evidence, true
+}
+
+func docxReadEvidenceFromResult(result map[string]any) (docxReadEvidence, bool) {
 	document, ok := anyMap(result["document"])
 	if !ok || strings.ToLower(strings.TrimSpace(stringValue(document["format"]))) != app.DocumentFormatDOCX {
-		return docxParagraphEvidence{}, false
+		return docxReadEvidence{}, false
 	}
+	metadata, _ := anyMap(document["metadata"])
+	sourceSHA := cleanOptionalString(firstNonNil(metadata["sha256"], result["source_sha256"]))
 	blocks := documentAnySliceFromAny(document["evidence_blocks"])
 	if len(blocks) == 0 {
 		blocks = documentAnySliceFromAny(document["blocks"])
 	}
-	return matchDOCXParagraphEvidence(blocks, target)
+	if sourceSHA == "" || len(blocks) == 0 {
+		return docxReadEvidence{}, false
+	}
+	return docxReadEvidence{
+		SourceSHA256: sourceSHA,
+		Blocks:       blocks,
+		Paragraphs:   documentAnySliceFromAny(document["paragraphs"]),
+	}, true
+}
+
+func docxSourceEvidenceBinding(evidence docxReadEvidence, operation string) map[string]any {
+	return map[string]any{
+		"tool_call_id":   evidence.SourceToolCallID,
+		"node_id":        string(evidence.SourceNodeID),
+		"scope_revision": evidence.SourceScopeRevision,
+		"session_id":     evidence.SourceSessionID,
+		"run_id":         evidence.SourceRunID,
+		"path":           evidence.SourcePath,
+		"operation":      operation,
+	}
+}
+
+func sameDOCXSourceEvidence(actual any, expected map[string]any) bool {
+	value, ok := anyMap(actual)
+	if !ok {
+		return false
+	}
+	actualJSON, actualErr := json.Marshal(value)
+	expectedJSON, expectedErr := json.Marshal(expected)
+	return actualErr == nil && expectedErr == nil && string(actualJSON) == string(expectedJSON)
 }
 
 func docxParagraphTargetFromArguments(args map[string]any) (docxParagraphTarget, bool) {
@@ -123,7 +267,15 @@ func docxParagraphTargetFromArguments(args map[string]any) (docxParagraphTarget,
 	return target, target.Index > 0 || target.Path != ""
 }
 
+func mustDOCXParagraphTarget(args map[string]any) docxParagraphTarget {
+	target, _ := docxParagraphTargetFromArguments(args)
+	return target
+}
+
 func matchDOCXParagraphEvidence(blocks []any, target docxParagraphTarget) (docxParagraphEvidence, bool) {
+	if target.Index <= 0 && target.Path == "" {
+		return docxParagraphEvidence{}, false
+	}
 	var matched docxParagraphEvidence
 	found := false
 	for _, value := range blocks {
@@ -153,6 +305,155 @@ func matchDOCXParagraphEvidence(blocks []any, target docxParagraphTarget) (docxP
 	return matched, found
 }
 
+func docxParagraphFormatSHA256(paragraphs []any, evidence docxParagraphEvidence) string {
+	var projection map[string]any
+	for _, value := range paragraphs {
+		paragraph, ok := anyMap(value)
+		if !ok {
+			continue
+		}
+		location, _ := anyMap(paragraph["location"])
+		index := intLikeValue(firstNonNil(paragraph["index"], location["paragraph_index"], location["paragraphIndex"]))
+		path := cleanOptionalString(location["path"])
+		if index != evidence.Index || evidence.Path != "" && path != evidence.Path ||
+			!strings.EqualFold(cleanOptionalString(paragraph["part_kind"]), "body") {
+			continue
+		}
+		if projection != nil {
+			return ""
+		}
+		runs := []any{}
+		for _, runValue := range documentAnySliceFromAny(paragraph["runs"]) {
+			run, ok := anyMap(runValue)
+			if !ok {
+				return ""
+			}
+			runs = append(runs, map[string]any{
+				"bold": run["bold"], "italic": run["italic"], "underline": run["underline"],
+				"font_name": run["font_name"], "font_size_pt": run["font_size_pt"], "font_color": run["font_color"],
+				"effective_bold": run["effective_bold"], "effective_font_size_pt": run["effective_font_size_pt"],
+				"relationship_id": run["relationship_id"], "boundaries": run["boundaries"],
+			})
+		}
+		projection = map[string]any{
+			"style": paragraph["style"], "outline_level": paragraph["outline_level"], "list_id": paragraph["list_id"],
+			"format": paragraph["format"], "unsupported_boundaries": paragraph["unsupported_boundaries"], "runs": runs,
+		}
+	}
+	if projection == nil {
+		return ""
+	}
+	raw, err := json.Marshal(projection)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:])
+}
+
+func canonicalDOCXParagraphLocation(evidence docxParagraphEvidence) map[string]any {
+	location := map[string]any{
+		"part": "document", "part_kind": "body", "block_type": "paragraph", "paragraph_index": evidence.Index,
+	}
+	if evidence.Path != "" {
+		location["path"] = evidence.Path
+	}
+	return location
+}
+
+func docxReplacementEvidence(blocks []any, args map[string]any) []any {
+	items := documentAnySliceFromAny(args["replacements"])
+	if len(items) == 0 {
+		return nil
+	}
+	targets := []any{}
+	total := 0
+	for _, itemValue := range items {
+		item, ok := anyMap(itemValue)
+		if !ok {
+			return nil
+		}
+		find := cleanOptionalString(item["find"])
+		if find == "" {
+			return nil
+		}
+		for _, blockValue := range blocks {
+			block, ok := anyMap(blockValue)
+			if !ok {
+				continue
+			}
+			text := stringValue(block["text"])
+			occurrences := strings.Count(text, find)
+			if occurrences == 0 {
+				continue
+			}
+			location, _ := anyMap(block["location"])
+			sourceHash := cleanOptionalString(firstNonNil(block["sourceHash"], block["source_hash"]))
+			if sourceHash == "" {
+				return nil
+			}
+			targets = append(targets, map[string]any{
+				"find": find, "occurrences": occurrences, "source_hash": sourceHash, "location": location,
+			})
+			total += occurrences
+		}
+	}
+	if expected := intLikeValue(args["expected_replacements"]); expected > 0 && total != expected {
+		return nil
+	}
+	return targets
+}
+
+func sameDOCXEvidence(expected, actual []any) bool {
+	expectedJSON, expectedErr := json.Marshal(expected)
+	actualJSON, actualErr := json.Marshal(actual)
+	return expectedErr == nil && actualErr == nil && string(expectedJSON) == string(actualJSON)
+}
+
 func normalizeDOCXEvidenceText(value string) string {
 	return strings.Join(strings.Fields(value), " ")
+}
+
+func (r Runtime) revalidateApprovedDOCXMutation(ctx context.Context, call app.ToolCall, definition app.ToolDefinition) error {
+	run, ok := r.store.GetRun(call.RunID)
+	if !ok {
+		return errors.New("approved DOCX mutation run is unavailable")
+	}
+	plan := toolPlan{
+		Name: call.Tool, Args: call.Arguments, WorkflowID: call.WorkflowID, WorkflowNodeID: call.WorkflowNodeID,
+		ScopeRevision: call.ScopeRevision, Capability: call.Capability,
+	}
+	operation, isDOCXMutation := docxMutationOperation(run, definition, plan)
+	if !isDOCXMutation {
+		return nil
+	}
+	initial, ok := r.currentDOCXReadEvidence(run, call.Arguments)
+	if !ok {
+		return errors.New("approved DOCX mutation lost its workflow localization evidence")
+	}
+	if err := validateDOCXMutationAgainstEvidence(call.Tool, operation, call.Arguments, initial); err != nil {
+		return err
+	}
+	read, err := r.tools.Execute(ctx, "files.read", map[string]any{"path": call.Arguments["path"]}, call.SessionID, call.RunID)
+	if err != nil {
+		return fmt.Errorf("approved DOCX mutation source could not be reread: %w", err)
+	}
+	result, ok := anyMap(read.Output)
+	if !ok {
+		return errors.New("approved DOCX mutation source reread is invalid")
+	}
+	fresh, ok := docxReadEvidenceFromResult(result)
+	if !ok {
+		return errors.New("approved DOCX mutation source reread lacks structured evidence")
+	}
+	fresh.SourceToolCallID = initial.SourceToolCallID
+	fresh.SourceNodeID = initial.SourceNodeID
+	fresh.SourceScopeRevision = initial.SourceScopeRevision
+	fresh.SourceSessionID = initial.SourceSessionID
+	fresh.SourceRunID = initial.SourceRunID
+	fresh.SourcePath = initial.SourcePath
+	if err := validateDOCXMutationAgainstEvidence(call.Tool, operation, call.Arguments, fresh); err != nil {
+		return fmt.Errorf("approved DOCX mutation is stale: %w", err)
+	}
+	return nil
 }

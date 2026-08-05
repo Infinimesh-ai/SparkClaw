@@ -146,6 +146,11 @@ try:
         idx = paragraph_index() if loc is not None else int(req.get("paragraph_index") or 0)
         if position in ("before", "after") and idx <= 0:
             raise ValueError("paragraph_index or location is required for before/after insertion")
+        if position in ("before", "after"):
+            anchor = paragraph_at(doc, idx)
+            before, before_hash = preflight_paragraph(anchor)
+            result["anchor_before"] = before
+            result["source_hash"] = before_hash
         insert_paragraph(doc, position, idx, text)
         result["position"] = position
         result["text"] = text
@@ -160,14 +165,19 @@ try:
     elif op == "delete_paragraph":
         idx = paragraph_index()
         paragraph = paragraph_at(doc, idx)
+        before, before_hash = preflight_paragraph(paragraph)
         result["paragraph_index"] = idx
-        result["text"] = paragraph.text
+        result["text"] = before
+        result["source_hash"] = before_hash
         delete_paragraph(paragraph)
     elif op == "set_text_style":
         idx = paragraph_index()
         paragraph = paragraph_at(doc, idx)
+        before, before_hash = preflight_paragraph(paragraph)
         applied = apply_style(paragraph, req.get("style"))
         result["paragraph_index"] = idx
+        result["before"] = before
+        result["source_hash"] = before_hash
         result["style"] = applied
     else:
         raise ValueError("unsupported docx operation: %s" % op)

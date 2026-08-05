@@ -2,6 +2,8 @@ package toolhub
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ func TestDOCXSetTextStyleRoundTripsEveryRequestedProperty(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
+	sourceSHA := docxSourceSHA256ForTest(t, root, "style.docx")
 
 	cases := []struct {
 		name  string
@@ -33,7 +36,9 @@ func TestDOCXSetTextStyleRoundTripsEveryRequestedProperty(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			output := filepath.Join("outputs", tc.name+".docx")
 			result, err := hub.Execute(context.Background(), "docx.set_text_style", map[string]any{
-				"path": "style.docx", "paragraph_index": 1, "style": tc.style, "output_path": output,
+				"path": "style.docx", "paragraph_index": 1, "source_document_sha256": sourceSHA,
+				"source_hash": sourceHash("Styled paragraph"), "old_text": "Styled paragraph",
+				"before_format_sha256": "direct-toolhub-preflight", "style": tc.style, "output_path": output,
 			}, "session", "run")
 			if err != nil {
 				t.Fatal(err)
@@ -69,6 +74,7 @@ func TestDOCXSetTextStyleRejectsInvalidContractBeforeWriting(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
+	sourceSHA := docxSourceSHA256ForTest(t, root, "style.docx")
 
 	cases := []struct {
 		name string
@@ -81,7 +87,12 @@ func TestDOCXSetTextStyleRejectsInvalidContractBeforeWriting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := hub.Execute(context.Background(), "docx.set_text_style", tc.args, "session", "run")
+			args := cloneTestMap(tc.args)
+			args["source_document_sha256"] = sourceSHA
+			args["source_hash"] = sourceHash("Styled paragraph")
+			args["old_text"] = "Styled paragraph"
+			args["before_format_sha256"] = "direct-toolhub-preflight"
+			_, err := hub.Execute(context.Background(), "docx.set_text_style", args, "session", "run")
 			if err == nil {
 				t.Fatal("expected invalid style contract to fail")
 			}
@@ -91,6 +102,16 @@ func TestDOCXSetTextStyleRejectsInvalidContractBeforeWriting(t *testing.T) {
 			}
 		})
 	}
+}
+
+func docxSourceSHA256ForTest(t *testing.T, root, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", digest)
 }
 
 func TestDOCXReadExposesRunsAndStoryCoverage(t *testing.T) {

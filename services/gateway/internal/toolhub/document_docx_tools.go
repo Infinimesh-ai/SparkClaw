@@ -3,8 +3,10 @@ package toolhub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
@@ -20,8 +22,13 @@ func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args 
 	if err != nil {
 		return Result{}, err
 	}
-	if operation == "replace_paragraph" && strings.TrimSpace(stringArg(args, "source_hash", "")) == "" {
-		return Result{}, errors.New("docx.replace_paragraph requires source_hash preflight evidence")
+	if err := h.validateDOCXSourceEvidence(ctx, inputPath, args); err != nil {
+		return Result{}, err
+	}
+	if operation != "insert_paragraph" || !isDOCXDocumentBoundaryPosition(args) {
+		if strings.TrimSpace(stringArg(args, "source_hash", "")) == "" {
+			return Result{}, fmt.Errorf("docx.%s requires source_hash preflight evidence", operation)
+		}
 	}
 	target := docxEditTarget(operation, args)
 	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
@@ -32,6 +39,29 @@ func (h *ToolHub) docxStructureEdit(ctx context.Context, operation string, args 
 		return Result{}, err
 	}
 	return Result{Output: documentChangeOutput(result, "docx_version_written")}, nil
+}
+
+func (h *ToolHub) validateDOCXSourceEvidence(ctx context.Context, inputPath string, args map[string]any) error {
+	expected := strings.TrimSpace(stringArg(args, "source_document_sha256", ""))
+	if expected == "" {
+		return errors.New("DOCX mutation requires source_document_sha256 preflight evidence")
+	}
+	metadata, err := document.InspectFile(ctx, h.cfg.Workspaces.DefaultRoot, inputPath)
+	if err != nil {
+		return err
+	}
+	if metadata.Format != app.DocumentFormatDOCX {
+		return errors.New("DOCX mutation source is not a DOCX document")
+	}
+	if metadata.SHA256 == "" || metadata.SHA256 != expected {
+		return errors.New("DOCX mutation source_document_sha256 does not match the current input file")
+	}
+	return nil
+}
+
+func isDOCXDocumentBoundaryPosition(args map[string]any) bool {
+	position := strings.ToLower(strings.TrimSpace(stringArg(args, "position", "")))
+	return position == "start" || position == "end"
 }
 
 func validateDOCXStructureArguments(operation string, args map[string]any) error {
@@ -46,9 +76,21 @@ func validateDOCXStructureArguments(operation string, args map[string]any) error
 			if hasTarget {
 				return errors.New("docx.insert_paragraph start/end must not include a paragraph target")
 			}
+			if boundary := strings.ToLower(strings.TrimSpace(stringArg(args, "document_boundary", ""))); boundary != position {
+				return errors.New("docx.insert_paragraph start/end requires the matching document_boundary evidence")
+			}
+			if strings.TrimSpace(stringArg(args, "source_hash", "")) != "" || strings.TrimSpace(stringArg(args, "old_text", "")) != "" {
+				return errors.New("docx.insert_paragraph start/end must not include paragraph evidence")
+			}
 		case "before", "after":
 			if !hasTarget {
 				return errors.New("docx.insert_paragraph before/after requires paragraph_index or location")
+			}
+			if strings.TrimSpace(stringArg(args, "source_hash", "")) == "" {
+				return errors.New("docx.insert_paragraph before/after requires source_hash preflight evidence")
+			}
+			if strings.TrimSpace(stringArg(args, "document_boundary", "")) != "" {
+				return errors.New("docx.insert_paragraph before/after must not include document_boundary evidence")
 			}
 		default:
 			return errors.New("docx.insert_paragraph position must be start, end, before, or after")
@@ -75,6 +117,9 @@ func validateDOCXStructureArguments(operation string, args map[string]any) error
 			if size < 1 || size > 200 {
 				return errors.New("docx.set_text_style font_size_pt must be between 1 and 200")
 			}
+		}
+		if strings.TrimSpace(stringArg(args, "before_format_sha256", "")) == "" {
+			return errors.New("docx.set_text_style requires before_format_sha256 preflight evidence")
 		}
 	}
 	return nil

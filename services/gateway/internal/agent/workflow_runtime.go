@@ -83,8 +83,8 @@ func (r Runtime) validateWorkflowToolPlan(runID string, plan toolPlan, definitio
 			return errors.New("tool arguments are outside the frozen workflow resource boundary")
 		}
 	}
-	if isDOCXReplaceParagraphDefinition(definition, plan) {
-		if err := r.validateDOCXReplaceParagraphEvidence(run, plan.Args); err != nil {
+	if _, isDOCXMutation := docxMutationOperation(run, definition, plan); isDOCXMutation {
+		if err := r.validateDOCXMutationEvidence(run, definition, plan, plan.Args); err != nil {
 			return err
 		}
 	}
@@ -298,8 +298,8 @@ func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[stri
 	if isPPTXSlideUpdateDefinition(r.tools, plan) {
 		args = r.bindPPTXSlideUpdateArguments(run, args)
 	}
-	if definition, ok := r.tools.Definition(plan.Name); ok && isDOCXReplaceParagraphDefinition(definition, plan) {
-		args = r.bindDOCXReplaceParagraphEvidence(run, args)
+	if definition, ok := r.tools.Definition(plan.Name); ok {
+		args = r.bindDOCXMutationEvidence(run, definition, plan, args)
 	}
 	return args
 }

@@ -144,6 +144,14 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 	if err != nil || executed.Status != "completed_after_approval" {
 		t.Fatalf("evidence-bound XLSX edit failed after approval: call=%#v err=%v", executed, err)
 	}
+	executedOutput, ok := anyMap(executed.Result)
+	if !ok || executedOutput["package_preservation"] != "verified" {
+		t.Fatalf("approved XLSX user path omitted verified package preservation: %#v", executed.Result)
+	}
+	changeSummary, ok := anyMap(executedOutput["change_summary"])
+	if !ok || changeSummary["package_preservation"] != "verified" || len(documentAnySliceFromAny(changeSummary["target_deltas"])) != 2 {
+		t.Fatalf("approved XLSX user path omitted typed target deltas: %#v", executedOutput)
+	}
 	outputRead, err := runtime.tools.Execute(context.Background(), "files.read", map[string]any{"path": outputRef}, session.ID, storedRun.ID)
 	if err != nil {
 		t.Fatal(err)

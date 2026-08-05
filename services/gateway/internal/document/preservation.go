@@ -190,7 +190,7 @@ func evidenceFingerprints(enrichment map[string]any, category string, edit EditR
 					}
 				}
 				if key == "merged_ranges" && after {
-					projection["range"] = mergedRangeBeforeCoordinates(stringValue(projection["range"]), edit)
+					projection["range"] = xlsxMergedRangeBeforeCoordinates(projection, edit)
 				}
 				values = append(values, fingerprint(projection))
 			}

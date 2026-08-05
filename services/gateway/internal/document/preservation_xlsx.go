@@ -77,6 +77,16 @@ func mergedRangeBeforeCoordinates(value string, edit EditRequest) string {
 	return fmt.Sprintf("%s%d:%s%d", strings.ToUpper(matches[1]), startRow, strings.ToUpper(matches[3]), endRow)
 }
 
+func xlsxMergedRangeBeforeCoordinates(item map[string]any, edit EditRequest) string {
+	value := stringValue(item["range"])
+	targetSheet := strings.TrimSpace(stringValue(edit.Arguments["sheet"]))
+	itemSheet := strings.TrimSpace(stringValue(item["sheet"]))
+	if targetSheet != "" && itemSheet != "" && !strings.EqualFold(targetSheet, itemSheet) {
+		return value
+	}
+	return mergedRangeBeforeCoordinates(value, edit)
+}
+
 func xlsxCellHasTypedValue(document Representation, sheetName, address string, expected any) bool {
 	for _, sheet := range document.Sheets {
 		if !strings.EqualFold(stringValue(sheet["name"]), sheetName) {

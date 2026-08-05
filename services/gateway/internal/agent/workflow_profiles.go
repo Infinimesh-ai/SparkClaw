@@ -235,6 +235,7 @@ func (documentEditProfile) DecisionRules(app.WorkflowNode) []string {
 		"Choose positional insertion only for a new row with an explicit before or after anchor, append only for a new row at the final structured boundary, and delete-row only for explicit removal of the complete row.",
 		"Clearing a cell, removing exact matching text, deleting a column, deleting the workbook file, and an ambiguous target are not complete-row deletion requests; return no entry when no listed operation matches exactly.",
 		"Return no entry when the owner negates an edit, asks only to quote edit instructions, or requests troubleshooting without changing the document.",
+		"For PPTX, obey the frozen scope: single_slide selects update_slide, whole_deck selects update_deck, exact_text selects replace_text, and structural selects only add_slide, duplicate_slide, or delete_slide.",
 	}
 }
 func (documentEditProfile) DecisionResolvedInstruction(entry app.ToolDirectoryEntry) string {

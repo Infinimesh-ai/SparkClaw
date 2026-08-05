@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-04.v15"
+	DefaultCatalogRevision = "2026-08-05.v16"
 	RootID                 = app.CapabilityID("capability")
 )
 

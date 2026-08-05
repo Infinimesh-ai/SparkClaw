@@ -193,6 +193,9 @@ func blocksFromSlides(documentID string, slides []map[string]any) []Block {
 				if editable, exists := item["editable"]; exists {
 					format["editable"] = editable
 				}
+				if structure, exists := item["text_structure"]; exists {
+					format["text_structure"] = structure
+				}
 				out = append(out, Block{ID: stableID("block", documentID+"\x00"+path), Kind: "shape_text", Text: stringValue(item["text"]), Location: location, Format: format})
 			}
 			if typ == "table" {

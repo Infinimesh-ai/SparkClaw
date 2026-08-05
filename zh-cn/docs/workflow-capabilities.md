@@ -28,7 +28,7 @@
 | `browser.automation` r2 | 取得一个明确 HTTP(S) URL 或运行时注册的站点，用 hidden 与 visible snapshot 证明结果，并保持已验证的可视页面打开。明确 URL 要求规范化后完全相等；注册站点还可以按 registry 约束匹配站点跳转后的主机或真实子域。初始注册项为 QQ 邮箱（`https://mail.qq.com/`）。 | 被动 `browser.status` -> `browser.list_tabs` -> focus/navigate/open -> settle -> hidden snapshot 与 route 校验 -> visible open/focus -> settle -> visible snapshot 与 route 校验。结构性阶段由 Runtime 直接调用，每次 navigation 后都有新的 settled snapshot。 | 不复用无关 tab。可复用且已初始化的 profile 会直接打开目标，不暴露 `about:blank` 或重新要求登录。visible 校验前 run 不能成功，生产流程不会关闭结果 tab。click、输入、表单、截图、任意网页读取和多 URL 操作不属于本 profile。浏览器 r1 已退役。 |
 | `browser.interaction` r2 | 检查一个托管当前 tab、明确 HTTP(S) URL 或带页内目标的注册站点，执行最多三次独立验证、ref-bound click，并保持已验证的可视结果打开。优先 focus 合格目标 tab；只有无目标匹配时，一个 selected 空白 tab 才作为后备。 | automation r2 acquisition 链 -> hidden `browser.assess_goal` -> 有界 `browser.click` -> settle -> fresh snapshot -> `browser.validate_transition` -> `browser.assess_goal`；有进展时可重复 action loop。完成时再执行 visible open/focus -> settle -> fresh snapshot -> 第二次 `browser.assess_goal`。持久化十 capability 边界按 active stage 投影。 | 所有参数都绑定到持久化、generation-scoped ref。stale ref/generation、重复状态、route divergence、transition failure 或第三次 progress 都会 fail closed。登录和人工验证进入持久化 owner handoff；歧义回复不调用浏览器，恢复要求可视认证/任务证据匹配，并生成 fresh hidden evidence。type、select、upload/download、凭据、captcha/2FA、payment/purchase、form submit、截图、任意脚本和 unsafe consequential action 不属于 r2。 |
 | `document.read` r4 | 读取、总结一个从当前请求或最近文档记录解析出的明确受治理 Workspace 文件，或逐字提取图片内原文。支持识别文本、DOCX、XLSX、PPTX、PDF 和图片。 | 最近文档解析和确定性路径/类型 preflight -> 持久化 `confirm_document_target` 证据 -> Runtime 按冻结格式直接调用一次 `files.read`、`pdf.extract_text` 或 `images.inspect` -> Fast 基于已完成证据生成最终回答。`images.inspect` 并行运行可选 OCR 与 Fast 视觉语义，并明确分类有文字/无文字；扫描 PDF 页使用同一个有界 OCR adapter。 | 唯一的格式限定 reader 是 `direct_once`，模型不决定是否调用它。OCR 始终是不可信证据，不是模型 lane 或独立 Workflow。OCR 禁用或失败时明确降级到 Fast 视觉证据；无文字图片不保留 OCR 字段噪声。唯一的最近文档可以在无需再次附加的情况下满足追问。路径必须指向 Workspace 内普通非符号链接文件。不支持文件搜索、多文件比较、修改和任意外部路径。 |
-| `document.edit` r6 | 对一个受治理的 text、DOCX、XLSX、PPTX 或 PDF 执行一次受支持的有界编辑，并写入一个或多个可追溯输出副本。XLSX 支持类型化 cell/row 证据、只更新前缀的行修改和已验证 OOXML package preservation。 | 确定性路径/类型 preflight -> `confirm_document_target` -> Runtime 在 `document_locate_evidence` 中按冻结格式直接调用一次 reader -> 显式且有重试上限的 `select_edit_operation` 决策 -> `document_edit` 只物化已持久化的格式/operation entry。XLSX 选择与执行共享有界 `xlsx_sheet_evidence_v1`，Runtime 在 approval 前绑定工作簿和目标 hash。默认输出为 `<name>-sparkclaw-edit.<ext>`，后续副本依次递增为 `-2`、`-3` 等。 | 所有由模型驱动的文档阶段都使用 Fast。定位阶段不会询问模型是否调用 reader，也不会重复读取。operation/target 证据缺失、无效、不受支持、过期或有歧义时，在修改前显式 block。含未验证特性的 XLSX package 在 approval 前阻断；写后出现未声明 part drift 时删除输出，成功则返回 `package_preservation=verified`。可逆写入需要审批，每个输出都关联 parent 和 activity；无关对话不会继承最新文档。 |
+| `document.edit` r6 | 对一个受治理的 text、DOCX、XLSX、PPTX 或 PDF 执行一次受支持的有界编辑，并写入一个或多个可追溯输出副本。XLSX 支持类型化 cell/row 证据、只更新前缀的行修改和已验证 OOXML package preservation；PPTX 支持精确文本、单页、有界整份及结构 scope。 | 确定性路径/类型与格式专属 scope preflight -> `confirm_document_target` -> Runtime 在 `document_locate_evidence` 中按冻结格式直接调用一次 reader -> 显式且有重试上限的 `select_edit_operation` 决策 -> `document_edit` 只物化已持久化的格式/operation entry。XLSX 选择与执行共享有界 `xlsx_sheet_evidence_v1`，Runtime 在 approval 前绑定工作簿和目标 hash；PPTX 绑定当前读取中的 slide、shape、layout 与 template 证据。默认输出为 `<name>-sparkclaw-edit.<ext>`，后续副本依次递增为 `-2`、`-3` 等。 | 所有由模型驱动的文档阶段都使用 Fast。定位阶段不会询问模型是否调用 reader，也不会重复读取。operation/target 证据缺失、无效、不受支持、过期或有歧义时，在修改前显式 block。含未验证特性的 XLSX package 在 approval 前阻断，写后出现未声明 part drift 时删除输出。PPTX scope 歧义会澄清，SmartArt、动画、图表数据、母版和宏目标会阻断。可逆写入需要审批，每个输出都关联 parent 和 activity；无关对话不会继承最新文档。 |
 | `schedule.manage` r2 | 通过对话或类型化 WebChat 任务栏操作创建、列出、修改或取消定时任务。 | Create/Read 为单阶段；Edit/Delete 执行 `reminders.list` -> 唯一 pending 目标与冻结版本 -> `reminders.update` 或 `reminders.cancel`；全部写入使用 `ScheduleRegistry` Compare-and-Swap。 | 任务栏 ID 只是 Hint，必须存在于最新 owner 范围列表。到期内容重新进入普通 Message Runtime，Timer 不选择能力也不直接发送；编辑保持原提醒端。 |
 
 ## 文档编辑操作
@@ -38,8 +38,14 @@
 | Text | `replace_text` |
 | DOCX | `replace_text`、`replace_paragraph`、`insert_paragraph`、`delete_paragraph`、`set_text_style` |
 | XLSX | `replace_text`、`update_cell`、`insert_row`、`delete_row`、`update_row`、`append_row` |
-| PPTX | `replace_text`、`add_slide`、`update_slide`、`duplicate_slide`、`delete_slide` |
+| PPTX | `replace_text`、`add_slide`、`update_slide`、`update_deck`、`duplicate_slide`、`delete_slide` |
 | PDF | `extract_pages`、`delete_pages`、`rotate_pages`、`split` |
+
+PPTX 文本编辑会保留受支持的 paragraph、run、bullet 与 hyperlink 结构，并拒绝含 field 的目标。
+整份更新是原子的，上限为 12 页、64 个形状与 32 KiB replacement text。新增页使用当前读取中的
+layout 或 template-slide 引用及证据绑定位置；含 notes 的 clone 来源会被拒绝。所有 PPTX 编辑
+共用 125,000 ms 端到端 deadline，超时会清理部分输出并返回
+`document_operation_timeout`。共享 Pipeline 尚不能精确区分 `reread`/`preserve` 超时 stage。
 
 ## 未迁移能力
 

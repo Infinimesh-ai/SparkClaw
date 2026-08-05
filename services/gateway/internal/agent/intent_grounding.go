@@ -183,6 +183,24 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 			if edit {
 				target.Facts["output_path"] = preflight.OutputRef
 			}
+			if candidate.Route.Operation == app.RouteOperationEdit && preflight.Format == app.DocumentFormatPPTX {
+				groundedScope := groundPPTXEditScope(content)
+				switch groundedScope.Scope {
+				case pptxScopeUnsupported:
+					base.Status, base.Slots, base.Facts = app.RouteBlocked, app.RouteSlots{}, nil
+					base.Reason = groundedScope.Reason
+					return base, nil
+				case pptxScopeUnspecified:
+					base.Status, base.Slots, base.Facts = app.RouteClarify, app.RouteSlots{}, nil
+					base.Reason = groundedScope.Reason
+					return base, nil
+				default:
+					target.Facts[pptxScopeFact] = groundedScope.Scope
+					if encoded := encodePPTXSlideIndexes(groundedScope.SlideIndexes); encoded != "" {
+						target.Facts[pptxSlideIndexesFact] = encoded
+					}
+				}
+			}
 		}
 		base.Slots.TargetKind, base.Slots.TargetRef = target.Kind, target.Ref
 		base.Facts = cloneFacts(target.Facts)

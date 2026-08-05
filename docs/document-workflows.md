@@ -69,6 +69,15 @@ secondary directory router has been removed; any other multi-candidate scope
 must declare its own decision node. See the [operation-selection design
 record](document-edit-operation-selection.md).
 
+For PPTX edits, deterministic grounding freezes one typed scope before the
+read: `single_slide`, `whole_deck`, `exact_text`, or `structural`. English,
+Arabic-number, and Chinese slide ordinals are normalized to stable 1-based
+slide indexes. A request that does not identify a slide, the whole deck, exact
+replacement text, or a structural action clarifies before mutation. SmartArt,
+animation, chart-data, slide-master, and macro edits block as unsupported targets. The
+scope narrows the decision directory to the corresponding exact operation; it
+does not create a second route or let grounding choose the operation.
+
 ## Durable Document Records
 
 `DocumentRecord` is the first-class identity and activity record for a governed
@@ -164,6 +173,18 @@ The complete structured read remains in the tool observation artifact. Model
 context receives only this consumer-sized projection, and the provisioning
 audit records selected and omitted counts.
 
+### PPTX Evidence
+
+PPTX reads additionally expose stable slide/template and layout references,
+plus bounded paragraph and run trees for editable top-level text shapes. The
+tree records paragraph level, bullets, alignment and spacing, and supported run
+font, color, language, and hyperlink properties. Field-bearing text and group
+children are explicitly non-editable. For slide-scoped edits, the 8,000-byte
+operation evidence projection places every required target-slide record before
+optional layout inventory records, excludes non-editable shapes, and never cuts
+a record. Missing or oversized required evidence blocks instead of truncating a
+target or asking the model to guess.
+
 ## Current Operations
 
 | Format | Supported edit operations |
@@ -171,7 +192,7 @@ audit records selected and omitted counts.
 | Text | `replace_text` |
 | DOCX | `replace_text`, `replace_paragraph`, `insert_paragraph`, `delete_paragraph`, `set_text_style` |
 | XLSX | `replace_text`, `update_cell`, `insert_row`, `delete_row`, `update_row`, `append_row` |
-| PPTX | `replace_text`, `add_slide`, `update_slide`, `duplicate_slide`, `delete_slide` |
+| PPTX | `replace_text`, `add_slide`, `update_slide`, `update_deck`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
 
 ### XLSX Edit Boundaries
@@ -221,9 +242,15 @@ or structural target change is checked. Success returns
 - `coordinated` may resize verified companion backgrounds and peer body columns,
   reports every layout change, and rejects output that still cannot fit.
 
-PPTX replacement text may wrap or contain explicit CR/LF line breaks. Runtime
-normalizes explicit breaks to PowerPoint soft breaks, preserves the existing
-text style, and owns all deterministic layout decisions. Under `coordinated`,
+PPTX text mutation supports `exact_span` and `rewrite_shape`. Exact-span
+replacement keeps unaffected runs and redistributes a cross-run replacement
+without flattening the paragraph. Shape rewrite retains the paragraph skeleton
+and supported run styles; `break_mode` maps explicit newlines to either
+PowerPoint soft breaks or paragraphs. Field-bearing targets fail closed.
+Post-edit verification compares the paragraph/run tree and hyperlink targets,
+so an unrequested formatting loss is a preservation mismatch.
+
+Runtime owns all deterministic layout decisions. Under `coordinated`,
 peer text boxes share the required height and font, verified backgrounds grow
 with their body text, and full-height accent bars extend with card backgrounds.
 Every geometry, font, or `word_wrap` mutation is reported from whole-slide
@@ -231,6 +258,17 @@ before/after evidence. The edit fails closed if the resulting text still does
 not fit, a companion relationship is inconsistent, or a changed shape would
 cross nearby content or the slide canvas. The model only selects evidence-bound
 shape targets and supplies replacement text; it does not choose layout values.
+
+`pptx.update_deck` applies a bounded batch as one atomic edit. The current
+limits are 12 slides, 64 updated shapes, and 32 KiB of replacement text; any
+stale target or failed update removes the entire output. `pptx.add_slide`
+requires exactly one current-read `layout_ref` or `template_slide_ref`, accepts
+an evidence-bound insertion position, and can clone supported text, groups,
+images, charts, hyperlinks, and package relationships while applying template
+text updates in the same invocation. A template or duplicate source with
+speaker notes is rejected rather than copied with loss. Structural edits
+recompute physical slide evidence and report stale page-marker text as a
+warning instead of rewriting it implicitly.
 
 Unsupported assets, annotations, charts, animations, SmartArt internals,
 macros, tracked changes, and package extensions may be read as partial evidence
@@ -252,6 +290,10 @@ budget is unavailable, the read remains explicitly `partial` with
   file version and resolves the bound target again before adapter execution.
 - XLSX editors similarly require the current workbook and target hashes; a
   changed workbook or target is rejected before approval.
+- PPTX slide, shape, old text, layout, template, and insertion references must
+  all exist in the single completed read for the current run. Stale,
+  non-editable, grouped, cross-scope, or note-bearing clone targets block before
+  an approval record is created.
 - The original SHA-256 must remain unchanged.
 - Output is reread through the same normalized pipeline.
 - Expected after-values and operation-specific deltas are checked.
@@ -264,6 +306,15 @@ budget is unavailable, the read remains explicitly `partial` with
   the invalid generated output.
 - Unsupported categories are reported as `unknown` or `partial`, never falsely
   marked preserved.
+
+All registered PPTX edit operations use one 125,000 ms end-to-end tool
+deadline, and subprocesses inherit the shorter remaining caller deadline. A
+deadline failure removes partial outputs and maps to the stable
+`document_operation_timeout` tool error. Reader and mutation-adapter expiry
+retain `read` and `apply` stage evidence. Exact `reread` versus `preserve`
+classification remains pending in the shared document Pipeline; a parent
+deadline outside the PPTX adapters is currently reported conservatively as a
+read-stage operation timeout.
 
 ## Extension Rules
 

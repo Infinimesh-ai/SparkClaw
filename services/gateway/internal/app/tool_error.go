@@ -16,6 +16,9 @@ const (
 	// ToolErrorSnapshotStale: the referenced browser snapshot no longer
 	// binds to live page state; the caller must take a fresh snapshot.
 	ToolErrorSnapshotStale ToolErrorCode = "snapshot_stale"
+	// ToolErrorDocumentOperationTimeout: a bounded document operation
+	// exhausted its end-to-end execution deadline.
+	ToolErrorDocumentOperationTimeout ToolErrorCode = "document_operation_timeout"
 )
 
 // CodedToolError attaches a ToolErrorCode to a tool failure. The message is

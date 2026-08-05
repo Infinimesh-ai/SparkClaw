@@ -93,6 +93,11 @@ func (r Runtime) validateWorkflowToolPlan(ctx context.Context, runID string, pla
 			return err
 		}
 	}
+	if operation := pptxDefinitionOperation(r.tools, plan); operation != "" {
+		if err := r.validatePPTXEditEvidence(run, operation, plan.Args); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -300,8 +305,8 @@ func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[stri
 			args[binding.Argument] = unique
 		}
 	}
-	if isPPTXSlideUpdateDefinition(r.tools, plan) {
-		args = r.bindPPTXSlideUpdateArguments(run, args)
+	if operation := pptxDefinitionOperation(r.tools, plan); operation != "" {
+		args = r.bindPPTXEditArguments(run, operation, args)
 	}
 	if definition, ok := r.tools.Definition(plan.Name); ok {
 		args = r.bindDOCXMutationEvidence(run, definition, plan, args)
@@ -314,21 +319,20 @@ func (r Runtime) bindWorkflowToolArguments(runID string, plan toolPlan) map[stri
 	return args
 }
 
-func isPPTXSlideUpdateDefinition(tools interface {
+func pptxDefinitionOperation(tools interface {
 	Definition(string) (app.ToolDefinition, bool)
-}, plan toolPlan) bool {
+}, plan toolPlan) string {
 	definition, ok := tools.Definition(plan.Name)
 	if !ok {
-		return false
+		return ""
 	}
 	for _, capability := range definition.Capabilities {
 		if capability.Name == plan.Capability &&
-			capability.Qualifiers[app.CapabilityQualifierFormat] == app.DocumentFormatPPTX &&
-			capability.Qualifiers[app.CapabilityQualifierOperation] == "update_slide" {
-			return true
+			capability.Qualifiers[app.CapabilityQualifierFormat] == app.DocumentFormatPPTX {
+			return capability.Qualifiers[app.CapabilityQualifierOperation]
 		}
 	}
-	return false
+	return ""
 }
 
 var (
@@ -338,21 +342,11 @@ var (
 )
 
 func explicitSlideIndex(text string) (int, bool) {
-	for _, pattern := range []*regexp.Regexp{arabicSlideOrdinalPattern, englishSlideOrdinalPattern} {
-		match := pattern.FindStringSubmatch(text)
-		if len(match) < 2 {
-			continue
-		}
-		value, err := strconv.Atoi(match[1])
-		if err == nil && value > 0 {
-			return value, true
-		}
-	}
-	match := chineseSlideOrdinalPattern.FindStringSubmatch(text)
-	if len(match) < 2 {
+	indexes := explicitSlideIndexes(text)
+	if len(indexes) == 0 {
 		return 0, false
 	}
-	return chineseOrdinalValue(match[1])
+	return indexes[0], true
 }
 
 func chineseOrdinalValue(text string) (int, bool) {
@@ -379,20 +373,64 @@ func chineseOrdinalValue(text string) (int, bool) {
 }
 
 func (r Runtime) bindPPTXSlideUpdateArguments(run app.AgentRun, args map[string]any) map[string]any {
-	slideIndex, explicit := explicitSlideIndex(run.Workflow.Route.Slots.Query)
-	if explicit {
-		args["slide_index"] = slideIndex
-	} else {
-		slideIndex = intLikeValue(args["slide_index"])
-	}
-	if slideIndex <= 0 {
+	return r.bindPPTXEditArguments(run, "update_slide", args)
+}
+
+func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args map[string]any) map[string]any {
+	if run.Workflow == nil {
 		return args
+	}
+	indexes := decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact])
+	if len(indexes) == 0 {
+		indexes = explicitSlideIndexes(run.Workflow.Route.Slots.Query)
+	}
+	switch operation {
+	case "update_slide":
+		slideIndex := intLikeValue(args["slide_index"])
+		if len(indexes) > 0 {
+			slideIndex = indexes[0]
+			args["slide_index"] = slideIndex
+		}
+		args["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(args["updates"]))
+	case "update_deck":
+		for _, value := range anySlice(args["slide_updates"]) {
+			slideUpdate, ok := anyMap(value)
+			if !ok {
+				continue
+			}
+			slideIndex := intLikeValue(slideUpdate["slide_index"])
+			slideUpdate["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(slideUpdate["updates"]))
+		}
+	case "add_slide":
+		if len(indexes) > 0 {
+			args["after_slide_index"] = indexes[0]
+		}
+		query := strings.ToLower(run.Workflow.Route.Slots.Query)
+		if len(indexes) > 1 &&
+			(strings.Contains(query, "style") || strings.Contains(query, "template") || strings.Contains(query, "样式") || strings.Contains(query, "模板")) {
+			args["template_slide_ref"] = fmt.Sprintf("slide:%d", indexes[1])
+			delete(args, "layout_ref")
+		}
+		templateIndex := 0
+		if _, err := fmt.Sscanf(strings.TrimSpace(stringValue(args["template_slide_ref"])), "slide:%d", &templateIndex); err == nil && templateIndex > 0 {
+			args["template_updates"] = r.bindPPTXUpdates(run, args, templateIndex, anySlice(args["template_updates"]))
+		}
+	case "duplicate_slide", "delete_slide":
+		if len(indexes) > 0 {
+			args["slide_index"] = indexes[0]
+		}
+	}
+	return args
+}
+
+func (r Runtime) bindPPTXUpdates(run app.AgentRun, args map[string]any, slideIndex int, updates []any) []any {
+	if slideIndex <= 0 {
+		return updates
 	}
 	shapeText := r.pptxSlideShapeText(run, strings.TrimSpace(stringValue(args["path"])), slideIndex)
 	if len(shapeText) == 0 {
-		return args
+		return updates
 	}
-	updates := anySlice(args["updates"])
 	for _, value := range updates {
 		update, ok := anyMap(value)
 		if !ok {
@@ -414,8 +452,7 @@ func (r Runtime) bindPPTXSlideUpdateArguments(run app.AgentRun, args map[string]
 			update["old_text"] = exact
 		}
 	}
-	args["updates"] = updates
-	return args
+	return updates
 }
 
 func (r Runtime) pptxSlideShapeText(run app.AgentRun, expectedPath string, slideIndex int) map[int]string {
@@ -440,8 +477,10 @@ func (r Runtime) pptxSlideShapeText(run app.AgentRun, expectedPath string, slide
 				continue
 			}
 			location, _ := anyMap(block["location"])
+			format, _ := anyMap(firstNonNil(block["format_metadata"], block["format"]))
 			if intLikeValue(location["slide_index"]) != slideIndex ||
-				strings.TrimSpace(stringValue(firstNonNil(block["type"], location["block_type"]))) != "shape_text" {
+				strings.TrimSpace(stringValue(firstNonNil(block["type"], block["kind"], location["block_type"]))) != "shape_text" ||
+				intLikeValue(location["group_child_index"]) > 0 || (format["editable"] != nil && !boolValue(format["editable"])) {
 				continue
 			}
 			shapeIndex := intLikeValue(location["shape_index"])

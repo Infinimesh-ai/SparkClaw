@@ -22,7 +22,7 @@ func documentEditRoutingSemantics() workflowRoutingSemantics {
 	embedTexts = append(embedTexts, documentXLSXEditRoutingExamples()...)
 	embedTexts = append(embedTexts, documentPPTXEditRoutingExamples()...)
 	embedTexts = append(embedTexts, "Edit notes.md and replace the heading")
-	hardNegatives := []string{"读取并总结文档", "删除整个文件", "创建新文档", "修改网页内容"}
+	hardNegatives := []string{"读取并总结文档", "删除整个文件", "创建新文档", "新建一个演示文稿", "发送演示文稿", "修改网页内容"}
 	hardNegatives = append(hardNegatives, documentDOCXEditRoutingHardNegatives()...)
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
 		{

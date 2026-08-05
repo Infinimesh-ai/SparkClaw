@@ -50,6 +50,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 	if err != nil {
 		return "", false, err
 	}
+	view.Entries = scopePPTXDirectoryEntries(run.Workflow.Route, view.Entries)
 	r.auditDirectorySearch(*run, view)
 	if refreshed, exists := r.store.GetRun(run.ID); exists {
 		*run = refreshed

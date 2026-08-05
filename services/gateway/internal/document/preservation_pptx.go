@@ -1,6 +1,7 @@
 package document
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -8,12 +9,27 @@ import (
 func verifyPPTXExpectedMutation(operation string, before, after Representation, edit EditRequest) (bool, error) {
 	switch operation {
 	case "update_slide":
-		for _, update := range mapSlice(edit.Arguments["updates"]) {
-			if !slideShapeHasText(after, intValue(edit.Arguments["slide_index"]), intValue(update["shape_index"]), stringValue(update["text"])) {
-				return true, fmt.Errorf("updated slide shape %d does not contain the expected after-value", intValue(update["shape_index"]))
+		if err := verifyPPTXSlideUpdates(after, intValue(edit.Arguments["slide_index"]), mapSlice(edit.Arguments["updates"])); err != nil {
+			return true, err
+		}
+	case "update_deck":
+		for _, slideUpdate := range mapSlice(edit.Arguments["slide_updates"]) {
+			if err := verifyPPTXSlideUpdates(after, intValue(slideUpdate["slide_index"]), mapSlice(slideUpdate["updates"])); err != nil {
+				return true, err
 			}
 		}
-	case "add_slide", "duplicate_slide":
+	case "add_slide":
+		if len(after.Slides) != len(before.Slides)+1 {
+			return true, fmt.Errorf("the structured slide count did not increase by one")
+		}
+		insertedIndex := intValue(edit.Arguments["after_slide_index"]) + 1
+		if intValue(edit.Arguments["after_slide_index"]) == 0 {
+			insertedIndex = len(after.Slides)
+		}
+		if err := verifyPPTXSlideUpdates(after, insertedIndex, mapSlice(edit.Arguments["template_updates"])); err != nil {
+			return true, err
+		}
+	case "duplicate_slide":
 		if len(after.Slides) != len(before.Slides)+1 {
 			return true, fmt.Errorf("the structured slide count did not increase by one")
 		}
@@ -27,16 +43,37 @@ func verifyPPTXExpectedMutation(operation string, before, after Representation, 
 	return true, nil
 }
 
+func verifyPPTXSlideUpdates(after Representation, slideIndex int, updates []map[string]any) error {
+	for _, update := range updates {
+		expected := stringValue(update["text"])
+		if strings.EqualFold(strings.TrimSpace(stringValue(update["mode"])), "exact_span") {
+			beforeText := stringValue(update["old_text"])
+			find := stringValue(update["find"])
+			expected = strings.Replace(beforeText, find, expected, 1)
+		}
+		if !slideShapeHasText(after, slideIndex, intValue(update["shape_index"]), expected) {
+			return fmt.Errorf("updated slide %d shape %d does not contain the expected after-value", slideIndex, intValue(update["shape_index"]))
+		}
+	}
+	return nil
+}
+
 func pptxMutationAllowsBlock(operation string, edit EditRequest, block Block) (bool, bool) {
-	if operation != "update_slide" {
+	if operation != "update_slide" && operation != "update_deck" {
 		return false, false
 	}
-	if intValue(block.Location["slide_index"]) != intValue(edit.Arguments["slide_index"]) {
-		return false, true
+	slideUpdates := []map[string]any{{"slide_index": edit.Arguments["slide_index"], "updates": edit.Arguments["updates"]}}
+	if operation == "update_deck" {
+		slideUpdates = mapSlice(edit.Arguments["slide_updates"])
 	}
-	for _, update := range mapSlice(edit.Arguments["updates"]) {
-		if intValue(block.Location["shape_index"]) == intValue(update["shape_index"]) {
-			return true, true
+	for _, slideUpdate := range slideUpdates {
+		if intValue(block.Location["slide_index"]) != intValue(slideUpdate["slide_index"]) {
+			continue
+		}
+		for _, update := range mapSlice(slideUpdate["updates"]) {
+			if intValue(block.Location["shape_index"]) == intValue(update["shape_index"]) {
+				return true, true
+			}
 		}
 	}
 	return false, true
@@ -62,9 +99,134 @@ func pptxOperationChangesEntityIndexes(operation string) bool {
 	}
 }
 
+func pptxMutationAllowsAnnotationText(edit EditRequest, annotation map[string]any) bool {
+	location := mapValue(annotation["location"])
+	operation := strings.ToLower(strings.TrimSpace(edit.Operation))
+	switch operation {
+	case "replace_text":
+		// Replacement targets are constrained by structured block matches, and
+		// unchanged-content validation still protects every unrelated shape. The
+		// hyperlink display text may span only part of a matched run range.
+		return strings.HasPrefix(stringValue(location["path"]), "presentation.slide[")
+	case "update_slide", "update_deck":
+		block := Block{Kind: "shape_text", Location: location}
+		allowed, handled := pptxMutationAllowsBlock(operation, edit, block)
+		return handled && allowed
+	}
+	return false
+}
+
+func verifyPPTXRichTextPreservation(before, after Representation, edit EditRequest, matches []Match) error {
+	if !strings.EqualFold(before.Format, "pptx") {
+		return nil
+	}
+	operation := strings.ToLower(strings.TrimSpace(edit.Operation))
+	targets := map[string]bool{}
+	switch operation {
+	case "replace_text":
+		for _, match := range matches {
+			targets[stringValue(match.Location["path"])] = true
+		}
+	case "update_slide", "update_deck":
+		for _, block := range before.Blocks {
+			if allowed, handled := pptxMutationAllowsBlock(operation, edit, block); handled && allowed {
+				targets[stringValue(block.Location["path"])] = true
+			}
+		}
+	default:
+		return nil
+	}
+	afterByPath := map[string]Block{}
+	for _, block := range after.Blocks {
+		afterByPath[stringValue(block.Location["path"])] = block
+	}
+	for _, block := range before.Blocks {
+		path := stringValue(block.Location["path"])
+		if !targets[path] || block.Kind != "shape_text" {
+			continue
+		}
+		other, ok := afterByPath[path]
+		if !ok {
+			return fmt.Errorf("target PPTX text structure disappeared at %s", path)
+		}
+		beforeStructure := mapValue(block.Format["text_structure"])
+		if len(beforeStructure) == 0 {
+			// Representations persisted before PPTX rich-text evidence shipped do not
+			// have enough information to prove or disprove run-level preservation.
+			continue
+		}
+		if err := comparePPTXTextStructure(beforeStructure, mapValue(other.Format["text_structure"])); err != nil {
+			return fmt.Errorf("target PPTX rich text changed at %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func comparePPTXTextStructure(before, after map[string]any) error {
+	if len(before) == 0 || len(after) == 0 {
+		return fmt.Errorf("paragraph and run evidence is unavailable")
+	}
+	if len(anySlice(before["unsupported"])) > 0 || len(anySlice(after["unsupported"])) > 0 {
+		return fmt.Errorf("unsupported text properties are present")
+	}
+	beforeParagraphs := mapSlice(before["paragraphs"])
+	afterParagraphs := mapSlice(after["paragraphs"])
+	if len(beforeParagraphs) != len(afterParagraphs) {
+		return fmt.Errorf("paragraph count changed")
+	}
+	for index := range beforeParagraphs {
+		beforeParagraph := cloneMap(beforeParagraphs[index])
+		afterParagraph := cloneMap(afterParagraphs[index])
+		beforeRuns := mapSlice(beforeParagraph["runs"])
+		afterRuns := mapSlice(afterParagraph["runs"])
+		for _, field := range []string{"path", "text", "runs", "soft_breaks"} {
+			delete(beforeParagraph, field)
+			delete(afterParagraph, field)
+		}
+		if !sameJSON(beforeParagraph, afterParagraph) {
+			return fmt.Errorf("paragraph properties changed at paragraph %d", index+1)
+		}
+		beforeStyles := pptxRunStyles(beforeRuns)
+		afterStyles := pptxRunStyles(afterRuns)
+		if len(afterStyles) < len(beforeStyles) {
+			return fmt.Errorf("run count decreased at paragraph %d", index+1)
+		}
+		for runIndex := range beforeStyles {
+			if !sameJSON(beforeStyles[runIndex], afterStyles[runIndex]) {
+				return fmt.Errorf("run style changed at paragraph %d run %d", index+1, runIndex+1)
+			}
+		}
+		if len(afterStyles) > len(beforeStyles) {
+			if len(beforeStyles) == 0 {
+				return fmt.Errorf("new runs appeared without an evidence style at paragraph %d", index+1)
+			}
+			last := beforeStyles[len(beforeStyles)-1]
+			for runIndex := len(beforeStyles); runIndex < len(afterStyles); runIndex++ {
+				if !sameJSON(last, afterStyles[runIndex]) {
+					return fmt.Errorf("new soft-break run changed style at paragraph %d", index+1)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func pptxRunStyles(runs []map[string]any) []map[string]any {
+	styles := make([]map[string]any, 0, len(runs))
+	for _, run := range runs {
+		style := cloneMap(mapValue(run["style"]))
+		raw, _ := json.Marshal(style)
+		var normalized map[string]any
+		_ = json.Unmarshal(raw, &normalized)
+		styles = append(styles, normalized)
+	}
+	return styles
+}
+
 func verifyReportedLayoutChanges(before, after Representation, edit EditRequest, details map[string]any) (map[string]bool, error) {
 	allowed := map[string]bool{}
-	if !strings.EqualFold(strings.TrimSpace(edit.Operation), "update_slide") {
+	operation := strings.ToLower(strings.TrimSpace(edit.Operation))
+	if operation != "update_slide" && operation != "update_deck" {
 		return allowed, nil
 	}
 	changes := mapSlice(details["layout_changes"])
@@ -72,24 +234,39 @@ func verifyReportedLayoutChanges(before, after Representation, edit EditRequest,
 	if len(changes) == 0 && len(indexes) == 0 {
 		return allowed, nil
 	}
-	if !strings.EqualFold(strings.TrimSpace(stringValue(details["layout_policy"])), "coordinated") {
+	if operation == "update_slide" && !strings.EqualFold(strings.TrimSpace(stringValue(details["layout_policy"])), "coordinated") {
 		return nil, fmt.Errorf("layout changes were reported without coordinated layout_policy")
 	}
 	slideIndex := intValue(edit.Arguments["slide_index"])
 	declared := map[int]bool{}
-	for _, index := range indexes {
-		if index <= 0 || declared[index] {
-			return nil, fmt.Errorf("layout_adjusted_shape_indexes contains an invalid or duplicate shape index")
+	declaredTargets := map[string]bool{}
+	if operation == "update_deck" {
+		for _, target := range mapSlice(details["layout_adjusted_targets"]) {
+			key := fmt.Sprintf("%d:%d", intValue(target["slide_index"]), intValue(target["shape_index"]))
+			if key == "0:0" || declaredTargets[key] {
+				return nil, fmt.Errorf("layout_adjusted_targets contains an invalid or duplicate target")
+			}
+			declaredTargets[key] = true
 		}
-		declared[index] = true
+	} else {
+		for _, index := range indexes {
+			if index <= 0 || declared[index] {
+				return nil, fmt.Errorf("layout_adjusted_shape_indexes contains an invalid or duplicate shape index")
+			}
+			declared[index] = true
+		}
 	}
 	for _, change := range changes {
 		shapeIndex := intValue(change["shape_index"])
-		if !declared[shapeIndex] {
+		currentSlide := slideIndex
+		if operation == "update_deck" {
+			currentSlide = intValue(change["slide_index"])
+		}
+		if operation == "update_deck" && !declaredTargets[fmt.Sprintf("%d:%d", currentSlide, shapeIndex)] || operation == "update_slide" && !declared[shapeIndex] {
 			return nil, fmt.Errorf("layout change for shape %d was not declared in the adjustment allowlist", shapeIndex)
 		}
-		beforeShape, beforeOK := layoutShape(before.Enrichment, slideIndex, shapeIndex)
-		afterShape, afterOK := layoutShape(after.Enrichment, slideIndex, shapeIndex)
+		beforeShape, beforeOK := layoutShape(before.Enrichment, currentSlide, shapeIndex)
+		afterShape, afterOK := layoutShape(after.Enrichment, currentSlide, shapeIndex)
 		if !beforeOK || !afterOK {
 			return nil, fmt.Errorf("layout change shape %d was not present in both structured reads", shapeIndex)
 		}
@@ -99,7 +276,11 @@ func verifyReportedLayoutChanges(before, after Representation, edit EditRequest,
 		}
 		allowed[layoutShapeKey(beforeShape)] = true
 	}
-	if len(allowed) != len(declared) {
+	declaredCount := len(declared)
+	if operation == "update_deck" {
+		declaredCount = len(declaredTargets)
+	}
+	if len(allowed) != declaredCount {
 		return nil, fmt.Errorf("layout adjustment allowlist did not match the reported layout changes")
 	}
 	return allowed, nil

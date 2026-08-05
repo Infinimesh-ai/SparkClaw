@@ -45,6 +45,7 @@ const (
 	CodeOutputConflict       ErrorCode = "output_conflict"
 	CodeEnrichmentFailed     ErrorCode = "enrichment_failed"
 	CodePreservationMismatch ErrorCode = "preservation_mismatch"
+	CodeOperationTimeout     ErrorCode = "operation_timeout"
 )
 
 type PipelineError struct {

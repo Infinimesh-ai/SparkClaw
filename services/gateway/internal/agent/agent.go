@@ -1366,6 +1366,9 @@ func quoteObservationField(value string, limit int) string {
 }
 
 func approvalSummary(name string, args map[string]any) string {
+	if strings.HasPrefix(name, "pptx.") {
+		return pptxApprovalSummary(name, args)
+	}
 	switch name {
 	case "shell.exec_sandboxed":
 		return "Run sandboxed shell command: " + stringValue(args["command"])

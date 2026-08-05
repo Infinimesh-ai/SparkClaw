@@ -200,7 +200,6 @@ func officeReplaceRegistration() toolRegistration {
 	registration.capabilities = []app.CapabilityDescriptor{
 		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatDOCX, app.CapabilityQualifierOperation: "replace_text"}},
 		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatXLSX, app.CapabilityQualifierOperation: "replace_text"}},
-		{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{app.CapabilityQualifierFormat: app.DocumentFormatPPTX, app.CapabilityQualifierOperation: "replace_text"}},
 	}
 	return registration
 }

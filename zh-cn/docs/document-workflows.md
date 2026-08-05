@@ -54,6 +54,13 @@ entry。决策缺失、过期、有歧义、不受支持或无效时 Workflow �
 路由已经删除；其他多候选 scope 也必须声明自己的决策节点。详见
 [operation 选择设计记录](document-edit-operation-selection.md)。
 
+对于 PPTX 编辑，确定性 grounding 会在读取前冻结一个类型化 scope：`single_slide`、
+`whole_deck`、`exact_text` 或 `structural`。英文、阿拉伯数字及中文页序数都会规范化为
+稳定的 1-based 页码。若请求没有明确指定某一页、整份演示文稿、精确替换文本或结构动作，
+则在 mutation 前要求澄清；SmartArt、动画、图表数据、幻灯片母版和宏编辑会作为不支持的目标阻断。
+该 scope 只把决策目录收窄到对应的精确 operation，不会新建第二条 route，也不会让
+grounding 直接选择 operation。
+
 ## 持久文档记录
 
 `DocumentRecord` 是受治理文档的一等身份与活动记录，保存稳定 ID、owner/session 范围、
@@ -130,6 +137,15 @@ sheet/row/cell 数量；它优先保留显式命名的工作表、A1 cell 与行
 完整结构化读取继续保存在 tool observation artifact 中；模型上下文只接收面向当前消费者的有界
 投影，证据供给 audit 会记录选中与省略数量。
 
+### PPTX 证据
+
+PPTX 读取还会为可编辑顶层文本形状暴露稳定的 slide/template 与 layout 引用，以及有界的
+paragraph/run 树。该树记录段落层级、项目符号、对齐与间距，以及受支持的 run 字体、颜色、
+语言和 hyperlink 属性。含 field 的文本和 group child 会明确标记为不可编辑。对于按页
+限定的编辑，8,000-byte operation 证据投影会先放入目标页所有必需记录，再放可选 layout
+inventory；它排除不可编辑形状且绝不截断记录。缺失或超出预算的必需证据会直接阻断，
+不会截断目标或要求模型猜测。
+
 ## 当前 Operation
 
 | 格式 | 支持的 edit operation |
@@ -137,7 +153,7 @@ sheet/row/cell 数量；它优先保留显式命名的工作表、A1 cell 与行
 | Text | `replace_text` |
 | DOCX | `replace_text`, `replace_paragraph`, `insert_paragraph`, `delete_paragraph`, `set_text_style` |
 | XLSX | `replace_text`, `update_cell`, `insert_row`, `delete_row`, `update_row`, `append_row` |
-| PPTX | `replace_text`, `add_slide`, `update_slide`, `duplicate_slide`, `delete_slide` |
+| PPTX | `replace_text`, `add_slide`, `update_slide`, `update_deck`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
 
 ### XLSX 编辑边界
@@ -176,13 +192,26 @@ opaque part 必须保持 hash。输出会重新读取并校验类型化或结构
 - `coordinated` 可以调整已验证 companion background 和 peer body column，报告全部 layout
   change；仍无法容纳时拒绝输出。
 
-PPTX replacement text 可以自动换行，也可以包含显式 CR/LF。Runtime 会把显式换行规范化为
-PowerPoint soft break，保留现有文本样式，并独占全部确定性布局决策。在 `coordinated`
+PPTX 文本 mutation 支持 `exact_span` 和 `rewrite_shape`。精确区间替换会保留未受影响的
+run，并在跨 run 替换时重新分配文本而不压平段落。形状重写会保留 paragraph skeleton 和
+受支持的 run style；`break_mode` 把显式换行映射为 PowerPoint soft break 或 paragraph。
+含 field 的目标会 fail closed。编辑后验证会比较 paragraph/run 树及 hyperlink 目标，因此
+未请求的格式丢失会成为 preservation mismatch。
+
+Runtime 独占全部确定性布局决策。在 `coordinated`
 策略下，同组 text box 使用一致的所需高度与字体，已验证 background 随 body text
 增长，贯穿卡片高度的 accent bar 也随 card background 延伸。系统根据整页修改前后证据
 报告每一项 geometry、font 或 `word_wrap` 变更。如果结果文本仍无法容纳、companion
 关系不一致，或修改后的 shape 会越过相邻内容或 slide canvas，则编辑显式失败。模型只
 选择由证据绑定的 shape target 并填写 replacement text，不选择 layout value。
+
+`pptx.update_deck` 会把一个有界 batch 作为单次原子编辑执行。当前上限为 12 页、64 个更新
+形状及 32 KiB replacement text；任一陈旧目标或失败更新都会删除整个输出。
+`pptx.add_slide` 必须使用当前读取中的一个 `layout_ref` 或 `template_slide_ref`，接受证据绑定
+的插入位置，并能在同一次调用中克隆受支持的文本、group、图片、chart、hyperlink 与 package
+relationship，同时应用 template text update。含 speaker notes 的模板或复制来源会被拒绝，
+不会带损复制。结构编辑会重新计算物理页证据，并把陈旧 page-marker 文本报告为 warning，
+不会隐式重写。
 
 不支持的 asset、annotation、chart、animation、SmartArt internal、macro、tracked change 和
 package extension 可以作为 partial evidence 读取，但不是隐式 mutation target。adapter 开启时，
@@ -199,6 +228,9 @@ package extension 可以作为 partial evidence 读取，但不是隐式 mutatio
   来自无关节点、跨 run/session、path 错误或过期的 evidence 会直接阻断，不创建 approval。
   Approval 通过后，Runtime 会在 adapter 执行前重新计算文件版本并再次解析绑定 target。
 - XLSX editor 同样要求当前工作簿与目标 hash；工作簿或目标变化会在 approval 前被拒绝。
+- PPTX 的 slide、shape、old text、layout、template 和插入引用必须全部存在于当前 run 唯一一次
+  已完成读取中。陈旧、不可编辑、分组、跨 scope 或含 notes 的 clone 目标会在创建 approval
+  记录前阻断。
 - 原文件 SHA-256 必须不变。
 - 输出通过同一 normalize pipeline 重新读取。
 - 校验 expected after-value 和 operation-specific delta。
@@ -207,6 +239,12 @@ package extension 可以作为 partial evidence 读取，但不是隐式 mutatio
 - 已知 evidence-only asset、annotation 和 layout fingerprint 必须保留，除非 operation 明确允许变化。
 - 任何未报告或无关变化返回 `preservation_mismatch`，并删除非法生成输出。
 - 不支持的 category 报告为 `unknown` 或 `partial`，不虚假标记为 preserved。
+
+所有已注册 PPTX edit operation 共用一个 125,000 ms 端到端工具 deadline，子进程继承调用方
+剩余时间中更短的 deadline。超时会删除部分输出，并映射为稳定的
+`document_operation_timeout` tool error。reader 和 mutation adapter 超时会保留 `read` 与
+`apply` stage 证据。精确区分 `reread` 与 `preserve` 仍需共享 document Pipeline 支持；发生在
+PPTX adapter 之外的 parent deadline 当前会保守地报告为 read-stage operation timeout。
 
 ## 扩展规则
 

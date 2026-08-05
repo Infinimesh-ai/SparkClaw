@@ -129,6 +129,17 @@ Workflow failure remains explicit and never falls through to another router or
 a generic fallback loop; the workflow step loop is the only execution
 primitive and the legacy ReAct path has been removed.
 
+Document format variation is registered independently at three owner boundaries.
+ToolHub format providers own parsers, editors, schemas, invocation validation,
+locators, and result projection. The `document` package owns normalization,
+fixed lifecycle hooks, and exact `(format, operation)` preservation policy.
+Agent format policies own route grounding, directory scope, decision evidence,
+argument binding, schema materialization, and result evidence projection. These
+registries join through canonical capability `format` and `operation` qualifiers;
+they do not share implementation types or form a cross-package registry. The
+common Workflow, Policy/Approval, inspection, output-copy, cleanup, and audit
+paths remain format-neutral.
+
 `ContextBuilder` assembles each bounded model/tool loop from prioritized,
 degradable sections. Current-run observations use one uniform small envelope,
 appear once in causal order, and retain their artifact references. A stage may

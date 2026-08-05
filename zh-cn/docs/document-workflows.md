@@ -284,9 +284,12 @@ PPTX adapter 之外的 parent deadline 当前会保守地报告为 read-stage op
 1. 暴露 editor 前先扩展 format inspection 和 high-level parsing。
 2. 为新 evidence 增加稳定 location 和有界 context projection。
 3. 按准确 format+operation 注册 editor，不暴露 generic document mutation tool。
-4. 定义 operation-specific argument binding、approval risk、delta allowlist 和 post-edit verification。
-5. 测试 malformed package、path escape、output conflict、model-derived evidence、preservation failure 和成功 reread。
-6. 用户可见 operation 变化时更新 [Workflow 能力矩阵](workflow-capabilities.md)。
+4. execution/schema/locator 事实放入 ToolHub format provider，lifecycle/preservation 事实放入
+   `document` format policy，编排 evidence/binding 事实放入 Agent format policy。
+5. 定义 operation-specific argument binding、approval risk、delta allowlist 和 post-edit
+   verification。共享 dispatch 只解析准确的冻结 `(format, operation)` qualifier，不探测其他格式。
+6. 测试 malformed package、path escape、output conflict、model-derived evidence、preservation failure 和成功 reread。
+7. 用户可见 operation 变化时更新 [Workflow 能力矩阵](workflow-capabilities.md)。
 
 核心契约位于 `internal/document`；`internal/documentocr` 负责有界 OvisOCR2 HTTP contract；
 ToolHub 负责具体 reader 以及 Fast/OCR enrichment；Workflow Runtime 负责 staged tool exposure、

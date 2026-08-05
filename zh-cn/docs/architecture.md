@@ -108,6 +108,14 @@ ToolHub registration 是 tool 的 execution/schema/risk/effect 权威。Policy/A
 选择之后、effect 之前执行。模型不能增加 tool、修改冻结 resource binding 或绕过 approval。
 匹配 Workflow 失败保持显式，不回退到另一 router 或任何通用回退循环；workflow 步骤循环是唯一的执行原语，旧 ReAct 路径已删除。
 
+文档格式差异在三个 owner boundary 内分别注册。ToolHub format provider 负责 parser、editor、
+schema、调用校验、locator 和结果投影；`document` package 负责 normalization、固定 lifecycle
+hook 和准确 `(format, operation)` preservation policy；Agent format policy 负责 route grounding、
+directory scope、decision evidence、argument binding、schema materialization 和结果 evidence
+投影。三套 registry 仅通过规范 capability `format`/`operation` qualifier 连接，不共享实现类型，
+也不形成跨 package mega-registry。公共 Workflow、Policy/Approval、inspection、output-copy、
+cleanup 和 audit 路径继续保持格式无关。
+
 `ContextBuilder` 从带优先级、可降级的小节组装每个有界 model/tool loop。本轮
 observations 使用统一的小信封，按因果顺序只出现一次并保留 artifact 引用。阶段可将
 声明的、按消费者定尺的持久化证据切片物化到 `PROVISIONED_EVIDENCE` 小节；声明切片

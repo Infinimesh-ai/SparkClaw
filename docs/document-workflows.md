@@ -365,11 +365,15 @@ read-stage operation timeout.
 2. Add stable locations and bounded context projection for new evidence.
 3. Register the editor by exact format and operation; do not expose a generic
    document mutation tool.
-4. Define operation-specific argument binding, approval risk, delta allowlist,
-   and post-edit verification.
-5. Test malformed packages, path escapes, output conflicts, model-derived
+4. Put execution/schema/locator facts in the ToolHub format provider, lifecycle
+   and preservation facts in the `document` format policy, and orchestration
+   evidence/binding facts in the Agent format policy.
+5. Define operation-specific argument binding, approval risk, delta allowlist,
+   and post-edit verification. Shared dispatch resolves the exact frozen
+   `(format, operation)` qualifier and never probes another format.
+6. Test malformed packages, path escapes, output conflicts, model-derived
    evidence, preservation failures, and successful rereads.
-6. Update [Workflow capabilities](workflow-capabilities.md) for user-visible
+7. Update [Workflow capabilities](workflow-capabilities.md) for user-visible
    operations.
 
 The core contracts live under `internal/document`; `internal/documentocr` owns

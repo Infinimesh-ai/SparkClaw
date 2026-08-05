@@ -50,11 +50,14 @@ func promotePDFOCRContent(read *ReadResult) {
 		}
 		if status == pdfPageTextOCRPending {
 			ocr := ocrByPage[pageIndex]
+			page["ocr_model_call_id"] = ocr["model_call_id"]
+			page["ocr_cache_result"] = ocr["cache_result"]
+			page["ocr_cache_record_id"] = ocr["cache_record_id"]
+			page["ocr_prepared_sha256"] = ocr["prepared_sha256"]
 			status, page["text_status_reason"] = finalPDFOCRPageStatus(ocr)
 			if status == pdfPageTextOCRSucceeded {
 				ocrText := strings.TrimSpace(stringValue(ocr["markdown"]))
 				page["ocr_text"] = ocrText
-				page["ocr_model_call_id"] = ocr["model_call_id"]
 				if nativeText == "" {
 					text = ocrText
 					page["text_source"] = "ocr"

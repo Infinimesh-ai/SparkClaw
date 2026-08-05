@@ -10,7 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Result, error) {
+func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	path, err := h.resolvePath(stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -19,8 +19,9 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Resu
 	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
 		maxBytes = document.SmallExtractedMaxBytes
 	}
-	read, err := h.readDocumentWorkflow(ctx, path, maxBytes)
+	read, err := h.readDocumentWorkflow(withDocumentOCRExecution(ctx, sessionID, runID), path, maxBytes)
 	if err != nil {
+		h.recordPDFReadMetrics(sessionID, runID, "unavailable", nil, nil)
 		return Result{}, err
 	}
 	structured, err := read.Document.Map()
@@ -39,6 +40,7 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Resu
 			coverageStatus = "unavailable"
 		}
 	}
+	h.recordPDFReadMetrics(sessionID, runID, coverageStatus, documentAnySlice(structured["pages"]), documentAnySlice(structuredStats["missing_page_indexes"]))
 	return Result{Output: map[string]any{
 		"path":                 path,
 		"content":              read.Content,

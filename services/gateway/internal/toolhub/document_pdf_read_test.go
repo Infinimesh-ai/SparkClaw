@@ -50,6 +50,10 @@ func TestPDFReadCoverageForNativePDF(t *testing.T) {
 			t.Fatalf("native page classification is unstable: %#v", page)
 		}
 	}
+	metrics := strings.Join(hub.DocumentMetrics(), "\n")
+	if !strings.Contains(metrics, `sparkclaw_pdf_page_classifications_total{classification="usable"} 2`) || !strings.Contains(metrics, `sparkclaw_pdf_reads_total{coverage="complete"} 1`) {
+		t.Fatalf("native PDF metrics are incomplete:\n%s", metrics)
+	}
 }
 
 func TestPDFReadCoverageForScannedAndMixedPDF(t *testing.T) {

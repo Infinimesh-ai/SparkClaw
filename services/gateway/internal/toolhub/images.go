@@ -45,7 +45,7 @@ type imageOCRResult struct {
 	err    error
 }
 
-func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any) (Result, error) {
+func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	path, err := h.resolvePath(stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -103,8 +103,10 @@ func (h *ToolHub) imageInspect(ctx context.Context, args map[string]any) (Result
 		results := make(chan imageOCRResult, 1)
 		ocrResult = results
 		go func() {
-			result, parseErr := h.ocr.Parse(modelCtx, documentocr.Request{Content: imageForModel.Content, ContentType: imageForModel.ContentType})
-			results <- imageOCRResult{result: result, err: parseErr}
+			invocation := h.parseDocumentOCR(modelCtx, documentocr.Request{Content: imageForModel.Content, ContentType: imageForModel.ContentType}, documentOCRCallMetadata{
+				SessionID: sessionID, RunID: runID, PreprocessingVersion: "image_inspect_prepare_v1",
+			})
+			results <- imageOCRResult{result: invocation.Result, err: invocation.Err}
 		}()
 	}
 	chat, err := h.models.ChatWithImage(modelCtx, "fast", system, user, modelrouter.ImageInput{

@@ -111,6 +111,9 @@ func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T
 			args := cloneTestMap(test.args)
 			args["path"] = test.input
 			args["output_path"] = test.output
+			if test.name == "docx" {
+				args["source_document_sha256"] = docxSourceSHA256ForTest(t, root, test.input)
+			}
 			result, err := hub.Execute(context.Background(), test.tool, args, "session", "run")
 			if err != nil {
 				t.Fatal(err)
@@ -209,12 +212,13 @@ func TestDocumentWorkflowReplacesStableDOCXParagraph25(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path":        "reflection.docx",
-		"location":    location,
-		"old_text":    "Original reflection",
-		"source_hash": sourceHash("Original reflection"),
-		"text":        "Improved reflection",
-		"output_path": "outputs/reflection.docx",
+		"path":                   "reflection.docx",
+		"location":               location,
+		"old_text":               "Original reflection",
+		"source_document_sha256": docxSourceSHA256ForTest(t, root, "reflection.docx"),
+		"source_hash":            sourceHash("Original reflection"),
+		"text":                   "Improved reflection",
+		"output_path":            "outputs/reflection.docx",
 	}, "session", "run")
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +253,8 @@ func TestDocumentWorkflowRejectsMissingAmbiguousAndUnsupportedInputs(t *testing.
 	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
 
 	baseArgs := map[string]any{
-		"path": "ambiguous.docx", "replacements": []any{map[string]any{"find": "Repeated target", "replace": "Updated"}},
+		"path": "ambiguous.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "ambiguous.docx"),
+		"replacements": []any{map[string]any{"find": "Repeated target", "replace": "Updated"}},
 	}
 	missing := cloneTestMap(baseArgs)
 	missing["output_path"] = "outputs/missing.docx"

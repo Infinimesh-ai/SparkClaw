@@ -67,6 +67,11 @@ func verifyExpectedMutation(before, after Representation, edit EditRequest, matc
 				return fmt.Errorf("replacement value %q was not found in the structured output", replace)
 			}
 		}
+		if strings.EqualFold(before.Format, "docx") {
+			if err := verifyDOCXTextReplacementRuns(before, after, edit, matches); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if handled, err := verifyDOCXExpectedMutation(operation, before, after, edit, matches); handled {
@@ -159,7 +164,11 @@ func evidenceFingerprints(enrichment map[string]any, category string, edit EditR
 		annotations := mapValue(enrichment["annotations"])
 		for _, key := range []string{"comments", "notes", "hyperlinks"} {
 			for _, item := range mapSlice(annotations[key]) {
-				projection := map[string]any{"kind": key, "text": item["text"], "target": item["target"], "author": item["author"]}
+				text := item["text"]
+				if key == "hyperlinks" && !after && strings.EqualFold(strings.TrimSpace(edit.Operation), "replace_text") {
+					text = replacementExpectedText(stringValue(text), mapSlice(edit.Arguments["replacements"]))
+				}
+				projection := map[string]any{"kind": key, "text": text, "target": item["target"], "author": item["author"]}
 				if !operationChangesEntityIndexes(edit.Operation) {
 					projection["anchor"] = mapValue(item["location"])["path"]
 				}
@@ -198,6 +207,14 @@ func evidenceFingerprints(enrichment map[string]any, category string, edit EditR
 	}
 	slices.Sort(values)
 	return values
+}
+
+func replacementExpectedText(text string, replacements []map[string]any) string {
+	_, expected, err := docxReplacementSpans(text, replacements)
+	if err != nil {
+		return text
+	}
+	return expected
 }
 
 func operationAllowsEvidenceDelta(operation string, before, after []string) bool {

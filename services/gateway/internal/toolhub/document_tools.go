@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
@@ -37,6 +38,15 @@ func (h *ToolHub) replaceDocumentText(ctx context.Context, args map[string]any, 
 	if err != nil {
 		return Result{}, err
 	}
+	metadata, err := document.InspectFile(ctx, h.cfg.Workspaces.DefaultRoot, inputPath)
+	if err != nil {
+		return Result{}, err
+	}
+	if metadata.Format == app.DocumentFormatDOCX {
+		if err := h.validateDOCXSourceEvidence(ctx, inputPath, args); err != nil {
+			return Result{}, err
+		}
+	}
 	replacements, err := replacementArgs(args["replacements"])
 	if err != nil {
 		return Result{}, err
@@ -50,7 +60,7 @@ func (h *ToolHub) replaceDocumentText(ctx context.Context, args map[string]any, 
 	}
 	result, err := h.editDocumentWorkflow(ctx, document.EditRequest{
 		Path: inputPath, OutputPath: outputPath, Operation: "replace_text", Targets: targets, ExpectedMatches: expected,
-		Arguments: map[string]any{"replacements": args["replacements"]}, MaxBytes: document.SmallExtractedMaxBytes,
+		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
 	})
 	if err != nil {
 		return Result{}, err

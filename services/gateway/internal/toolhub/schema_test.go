@@ -801,14 +801,12 @@ func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
 		t.Fatalf("expected full read blocks, got %#v", document)
 	}
 	location := blocks[1].(map[string]any)["location"].(map[string]any)
+	sourceSHA := document["metadata"].(map[string]any)["sha256"].(string)
 
 	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path":        "note.docx",
-		"location":    location,
-		"old_text":    "Second paragraph",
-		"source_hash": sourceHash("Second paragraph"),
-		"text":        "Replaced by location",
-		"output_path": "outputs/location-replaced.docx",
+		"path": "note.docx", "source_document_sha256": sourceSHA,
+		"location": location, "old_text": "Second paragraph", "source_hash": sourceHash("Second paragraph"),
+		"text": "Replaced by location", "output_path": "outputs/location-replaced.docx",
 	}, "s", "run")
 	if err != nil {
 		t.Fatal(err)
@@ -827,12 +825,9 @@ func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
 	}
 
 	_, err = hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path":        "note.docx",
-		"location":    location,
-		"old_text":    "Wrong paragraph",
-		"source_hash": sourceHash("Second paragraph"),
-		"text":        "Should not be written",
-		"output_path": "outputs/location-mismatch.docx",
+		"path": "note.docx", "source_document_sha256": sourceSHA,
+		"location": location, "old_text": "Wrong paragraph", "source_hash": sourceHash("Second paragraph"),
+		"text": "Should not be written", "output_path": "outputs/location-mismatch.docx",
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "old_text mismatch") {
 		t.Fatalf("expected old_text preflight mismatch, got %v", err)
@@ -867,9 +862,8 @@ doc.save(root / "table.docx")
 	blocks := document["blocks"].([]any)
 	location := blocks[0].(map[string]any)["location"].(map[string]any)
 	_, err = hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
-		"path":        "table.docx",
-		"location":    location,
-		"output_path": "outputs/deleted.docx",
+		"path": "table.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "table.docx"),
+		"location": location, "old_text": "Cell A", "source_hash": sourceHash("Cell A"), "output_path": "outputs/deleted.docx",
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "only top-level paragraph locations are currently editable") {
 		t.Fatalf("expected table cell location rejection, got %v", err)
@@ -964,7 +958,7 @@ func TestOfficeReplaceTextRequiresMappedLibrary(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
-		"path":        "note.docx",
+		"path": "note.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "note.docx"),
 		"output_path": "outputs/note.edited.docx",
 		"replacements": []any{
 			map[string]any{"find": "Alpha", "replace": "Beta"},
@@ -987,6 +981,7 @@ func TestDocxParagraphToolsWriteNewVersions(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
+	sourceSHA := docxSourceSHA256ForTest(t, root, "note.docx")
 
 	cases := []struct {
 		tool string
@@ -996,42 +991,53 @@ func TestDocxParagraphToolsWriteNewVersions(t *testing.T) {
 		{
 			tool: "docx.replace_paragraph",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 2,
-				"old_text":        "Second paragraph",
-				"source_hash":     sourceHash("Second paragraph"),
-				"text":            "Replaced second paragraph",
-				"output_path":     "outputs/replaced.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        2,
+				"old_text":               "Second paragraph",
+				"source_hash":            sourceHash("Second paragraph"),
+				"text":                   "Replaced second paragraph",
+				"output_path":            "outputs/replaced.docx",
 			},
 			want: "Replaced second paragraph",
 		},
 		{
 			tool: "docx.insert_paragraph",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 1,
-				"position":        "after",
-				"text":            "Inserted after first",
-				"output_path":     "outputs/inserted.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        1,
+				"position":               "after",
+				"old_text":               "First paragraph",
+				"source_hash":            sourceHash("First paragraph"),
+				"text":                   "Inserted after first",
+				"output_path":            "outputs/inserted.docx",
 			},
 			want: "Inserted after first",
 		},
 		{
 			tool: "docx.delete_paragraph",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 2,
-				"output_path":     "outputs/deleted.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        2,
+				"old_text":               "Second paragraph",
+				"source_hash":            sourceHash("Second paragraph"),
+				"output_path":            "outputs/deleted.docx",
 			},
 			want: "First paragraph",
 		},
 		{
 			tool: "docx.set_text_style",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 1,
-				"style":           map[string]any{"builtin_style": "Heading 1", "bold": true, "font_size_pt": 18},
-				"output_path":     "outputs/styled.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        1,
+				"old_text":               "First paragraph",
+				"source_hash":            sourceHash("First paragraph"),
+				"before_format_sha256":   "direct-toolhub-preflight",
+				"style":                  map[string]any{"builtin_style": "Heading 1", "bold": true, "font_size_pt": 18},
+				"output_path":            "outputs/styled.docx",
 			},
 			want: "First paragraph",
 		},
@@ -1071,9 +1077,12 @@ func TestDocxParagraphToolRejectsOutOfRangeParagraph(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
-		"path":            "note.docx",
-		"paragraph_index": 99,
-		"output_path":     "outputs/deleted.docx",
+		"path":                   "note.docx",
+		"source_document_sha256": docxSourceSHA256ForTest(t, root, "note.docx"),
+		"paragraph_index":        99,
+		"old_text":               "Only paragraph",
+		"source_hash":            sourceHash("Only paragraph"),
+		"output_path":            "outputs/deleted.docx",
 	}, "s", "run")
 	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
 		t.Fatalf("expected typed paragraph target error, got %v", err)

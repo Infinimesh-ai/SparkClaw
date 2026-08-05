@@ -47,6 +47,15 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if err := r.revalidateApprovedDOCXMutation(execCtx, call, def); err != nil {
+		now := time.Now().UTC()
+		call.Status = "failed_after_approval"
+		call.CompletedAt = &now
+		call.Error = err.Error()
+		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+		r.store.SaveToolCall(call)
+		return call, nil
+	}
 	call.Status = "running_after_approval"
 	r.store.SaveToolCall(call)
 	result, err := r.tools.Execute(execCtx, call.Tool, call.Arguments, call.SessionID, call.RunID)

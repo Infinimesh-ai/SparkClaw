@@ -215,7 +215,7 @@ func (documentEditProfile) StageContext(state *app.WorkflowState) workflowStageC
 	stageContext := workflowStageContextForState(state, operation, "workspace", "workspace", "", "Dispatched by the staged document.edit workflow contract.")
 	if len(state.ActiveNodeIDs) > 0 && state.ActiveNodeIDs[0] == "document_edit" {
 		stageContext.EvidenceRequirements = []workflowEvidenceRequirement{{
-			SourceNodeID: "document_locate_evidence", Mode: workflowEvidenceStructured, MaxBytes: 8000,
+			SourceNodeID: "document_locate_evidence", Mode: workflowEvidenceStructured,
 		}}
 	}
 	return stageContext
@@ -229,6 +229,7 @@ func (documentEditProfile) DecisionRules(app.WorkflowNode) []string {
 		"Apply minimum-change semantics when the observation already contains the requested target: modify, improve, polish, complete, update, revise, or rewrite means replace/update that existing target, not insert or append another overlapping block.",
 		"Apply the same semantics across languages: 完善、润色、优化或改写 an existing located paragraph means replace that paragraph, not no match and not insertion.",
 		"Choose insert, add, or append only when the owner explicitly requests a new block, row, or slide, or when the structured observation shows that the requested target does not exist.",
+		"For DOCX, the listed editors currently mutate body paragraph text or style only. Return an empty entry_id for table-cell, header, footer, footnote, endnote, text-box, comment, field, drawing, tracked-change, or other unsupported targets unless one eligible entry explicitly advertises that target.",
 	}
 }
 func (documentEditProfile) DecisionResolvedInstruction(entry app.ToolDirectoryEntry) string {

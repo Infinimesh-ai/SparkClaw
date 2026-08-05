@@ -441,8 +441,20 @@ func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 			Name:        "office.replace_text",
 			Description: "Replace explicit text pairs in a workspace docx/xlsx/pptx and write a new Office file without overwriting the original.",
 			InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
-				"path":        stringSchema(),
-				"output_path": stringSchema(),
+				"path":                   stringSchema(),
+				"output_path":            stringSchema(),
+				"source_document_sha256": stringSchema(),
+				"source_evidence":        objectValueSchema(),
+				"evidence_targets": arraySchema(map[string]any{
+					"type":     "object",
+					"required": []string{"find", "occurrences", "source_hash", "location"},
+					"properties": map[string]any{
+						"find":        stringSchema(),
+						"occurrences": integerSchema(),
+						"source_hash": stringSchema(),
+						"location":    objectValueSchema(),
+					},
+				}),
 				"replacements": arraySchema(map[string]any{
 					"type":     "object",
 					"required": []string{"find", "replace"},

@@ -29,10 +29,7 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 	if len(requirements) == 0 {
 		return provisionedWorkflowEvidence{}, nil
 	}
-	stageLimit := r.tools.Config().Runtime.StageEvidenceMaxBytes
-	if stageLimit <= 0 {
-		stageLimit = 8000
-	}
+	stageLimit := r.workflowStageEvidenceLimit()
 	remaining := stageLimit
 	sections := make([]string, 0, len(requirements))
 	compactSections := make([]string, 0, len(requirements))
@@ -112,6 +109,14 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		MinimalText: strings.Join(minimalSections, "\n\n"),
 		Bytes:       providedBytes,
 	}, nil
+}
+
+func (r Runtime) workflowStageEvidenceLimit() int {
+	stageLimit := r.tools.Config().Runtime.StageEvidenceMaxBytes
+	if stageLimit <= 0 {
+		return 8000
+	}
+	return stageLimit
 }
 
 func formatProvisionedEvidenceSection(ref, tool string, mode workflowEvidenceSliceMode, text string) string {

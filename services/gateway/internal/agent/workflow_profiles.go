@@ -215,7 +215,7 @@ func (documentEditProfile) StageContext(state *app.WorkflowState) workflowStageC
 	stageContext := workflowStageContextForState(state, operation, "workspace", "workspace", "", "Dispatched by the staged document.edit workflow contract.")
 	if len(state.ActiveNodeIDs) > 0 && state.ActiveNodeIDs[0] == "document_edit" {
 		stageContext.EvidenceRequirements = []workflowEvidenceRequirement{{
-			SourceNodeID: "document_locate_evidence", Mode: workflowEvidenceStructured, MaxBytes: 8000,
+			SourceNodeID: "document_locate_evidence", Mode: workflowEvidenceStructured,
 		}}
 	}
 	return stageContext

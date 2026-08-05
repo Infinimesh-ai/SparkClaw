@@ -30,31 +30,49 @@ attachment, cookie export, or second DOM perception engine.
 |---|---|
 | `browser.internet_search` r1 | Search public current information through `web.search`; it does not open source pages |
 | `browser.weather` r1 | Query typed metric data through Infinimesh Info `POST /v1/info/weather` and render one card for one explicit location |
-| `browser.automation` r2 | Acquire one target, settle and snapshot it in hidden Chromium, then present and independently verify the same result in visible Chromium |
-| `browser.interaction` r2 | Use the same acquisition and presentation chain around at most three bounded, ref-bound clicks with independent transition and goal validation |
+| `browser.automation` r2 | Acquire an explicit URL, registered destination, or Info-identified named public target, validate it in hidden Chromium, then present and independently verify it in visible Chromium |
+| `browser.page_read` r1 | Run a fixed hidden health -> open -> session-required read chain and return bounded content from one explicit or Info-identified URL |
+| `browser.interaction` r2 | Use the managed acquisition and presentation chain around at most three bounded, ref-bound clicks with independent transition and goal validation |
+| `browser.form_draft` r1 | Type or select at most five independently approved, exact owner-supplied values in ordinary reversible fields, then visibly verify the uncommitted draft |
 
-`browser.interaction` r2 does not type, select, upload, download, submit forms,
-enter credentials, solve captcha/2FA, perform payment/purchase, run page scripts,
-or automate login. Login and human verification are explicit owner handoffs.
+`browser.interaction` r2 remains click-only. `browser.form_draft` r1 exposes only
+type and select during its action stage and never exposes click, submit, send,
+publish, upload, download, credential, captcha/2FA, payment/purchase, or page
+script actions. Login and human verification are explicit owner handoffs.
 Low-level browser tools do not expand the supported Workflow surface;
 [Workflow capabilities](workflow-capabilities.md) is authoritative. Browser r1
 profiles and their post-completion presentation compatibility path are retired.
 
-## Read And Interaction Evidence
+## Page, Draft, And Visual Evidence
 
 Browser evidence uses separate contracts:
 
-- `browser.read` extracts bounded rendered text and typed page metadata from the
-  active page for non-Workflow callers. It never evaluates page scripts and is
-  not a second r2 perception path.
+- `browser.read` extracts bounded rendered text and typed page metadata. The
+  `browser.page_read` Profile calls it only after hidden health and open stages,
+  with `require_browser_session=true` and `reuse_active_page=true`; a managed
+  session failure is explicit and never falls back to direct HTTP.
 - `browser.wait` settles navigation or interaction against bounded observable
   readiness signals. A timeout, renderer failure, or caller cancellation fails
   the current stage explicitly.
 - `browser.snapshot` creates a structured accessibility projection with
-  executable wrapped refs, page identity, presentation mode, and session
-  generation for the selected page state. Snapshot IDs include that generation,
-  so hidden and visible sessions cannot bind the same run to an older snapshot.
+  executable wrapped refs, page identity, presentation mode, session generation,
+  and page generation for the selected page state. Snapshot IDs include the
+  session generation, while navigation and successful interaction advance the
+  page generation and invalidate older action and visual evidence.
 - `browser.click` accepts only a persisted ref from that snapshot.
+- `browser.type` and `browser.select` are usable as page mutations only inside
+  `browser.form_draft`. Runtime checks the active Profile, latest snapshot,
+  page/ref identity, session and page generations, ordinary-field allowlist,
+  forbidden control metadata, and exact owner-supplied value both before
+  approval and again when the approved call executes. Each action gets its own
+  approval; public summaries and persisted browser projections redact values.
+- Workflow-only `browser.visual_inspect` validates the latest structured
+  snapshot, captures a screenshot, reuses Fast image inspection, then captures
+  another structured snapshot. Any change in session/page generation, page ID,
+  URL, or snapshot digest returns `visual_evidence_stale`. Its bounded untrusted
+  output contains no coordinates or executable refs. Current Profiles expose
+  this stage only when the owner explicitly asks for a screenshot or visual
+  confirmation.
 - `browser.validate_transition` compares the persisted before/after snapshots;
   `browser.assess_goal` independently evaluates the frozen goal against one
   exact snapshot.
@@ -74,6 +92,28 @@ interaction truth. SparkClaw adds bounded model projection, relevance checks,
 page identity, semantic fingerprints, repeated-state detection, and explicit
 failure codes. Page text remains untrusted evidence and never becomes an
 instruction source.
+
+## Registered And Dynamic Public Targets
+
+The existing destination registry and its matching behavior are unchanged and
+remain the first named-target lookup. A registry hit keeps its existing
+descriptor, host scope, route hints, and authentication handling. Adding a site
+to this registry is data maintenance; it adds neither a Catalog leaf nor a
+semantic candidate, so it does not increase Top-2 intent-selection cost.
+
+After a managed-browser leaf is selected, an unregistered named public target
+runs one bounded Info-backed `web.search`. Runtime consumes only the persisted
+ordered `results[].url` fields and selects the first URL that passes mandatory
+safety checks. It does not parse answer prose or snippets, call Fast or
+embeddings, rescore relevance, reorder results, or write the result into the
+registry. Identification latency is one Info round trip plus bounded DNS and
+redirect checks; explicit URLs, current tabs, and registry hits bypass it.
+
+Every dynamic target must use HTTPS without userinfo. Its hostname, every
+resolved address, each redirect, and the final URL must remain on public
+networks; loopback, private, link-local, multicast, and unspecified addresses
+are rejected. Provider absence, no usable ordered result, and unsafe results
+produce distinct typed failures instead of a guessed URL.
 
 ## Managed Chromium Profile
 
@@ -120,16 +160,18 @@ with no live owner are removed; malformed entries, regular files, and
 indeterminate ownership fail closed. This lets a recreated Gateway reclaim a
 profile left by a terminated container without stealing it from a live browser.
 
-Browser automation and interaction acquire, navigate, settle, snapshot, and
-interact in hidden Chromium. Final presentation is a required node in the same
-frozen r2 Workflow: Runtime opens or focuses the result URL visibly, settles it,
-captures a visible snapshot, revalidates the frozen route, and for interaction
-independently reassesses the goal. The run cannot succeed without that visible
-evidence. A fresh visible session navigates directly to the target instead of
-first exposing its startup `about:blank` tab; an already initialized reusable
-profile is never replaced with a blank login prompt. The verified result remains
-open without the headless daemon idle timeout, and production completion does
-not call `browser.close`.
+Browser automation, interaction, and form draft acquire, navigate, settle,
+snapshot, and act in hidden Chromium. Their final presentation is a required
+node in the frozen Workflow: Runtime opens or focuses the result URL visibly,
+settles it, captures a visible snapshot, revalidates the frozen route, and for
+interaction or form draft independently reassesses the goal. The run cannot
+succeed without that visible evidence. `browser.page_read` is intentionally
+different: its entire health/open/read path is hidden and successful reads do
+not create a visible result window. A fresh visible session navigates directly
+to the target instead of first exposing its startup `about:blank` tab; an
+already initialized reusable profile is never replaced with a blank login
+prompt. Verified visible results remain open without the headless daemon idle
+timeout, and production completion does not call `browser.close`.
 
 Safe result descriptors persist origin, path, route-shaped fragments
 (`#/...` in-page routes; value-carrying fragments such as OAuth
@@ -170,7 +212,8 @@ not a model-visible tool.
 ## Network And Safety Boundary
 
 - Explicit targets must use normalized HTTP(S) URLs. Registered destinations
-  resolve to frozen runtime URLs and bounded host/subdomain rules.
+  resolve to frozen runtime URLs and bounded host/subdomain rules. Dynamic Info
+  targets require public HTTPS and preserve their result-order provenance.
 - URL fetch paths reject loopback, private, link-local, and otherwise forbidden
   literal hosts by default. Local fixtures require an explicit allowlist.
 - Redirects and final page identity are revalidated.
@@ -245,6 +288,14 @@ Browser changes should cover:
 - settle timeout/cancellation, snapshot normalization, and untrusted-evidence tests;
 - explicit URL, registered destination, tab focus, and redirect cases;
 - stale generations/refs, repeated state, unsafe controls, and attempt limits;
+- fixed hidden page-read ordering, active-page reuse, no required-session HTTP
+  fallback, final-URL validation, bounded raw-content fallback, and login resume;
+- ordered Info-result consumption, unsafe-result skipping, structured-URL-only
+  binding, provider failures, DNS/IP/redirect safety, and registry fast paths;
+- form-draft exact values, separate approvals, public redaction, forbidden
+  fields, five-action bound, no click exposure, and pre/post-approval freshness;
+- fresh and stale visual inspection with generation/digest binding and no
+  coordinate or executable-ref projection;
 - visible/hidden transfer, owner reply classification, restart recovery, CAS
   conflicts, and matching/non-matching post-login pages;
 - UTF-8/CJK and QQ Mail Chinese snapshot/ref/auth-evidence round trips;

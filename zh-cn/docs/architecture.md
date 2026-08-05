@@ -11,7 +11,8 @@ SparkClaw 是面向一个 owner、一个本地 Gateway 和 DGX Spark 级硬件�
 agent runtime。当前产品表面包括：
 
 - 本地文件、结构化文档和 approval-gated output-copy edit；
-- 公开搜索、直接天气卡片、托管浏览器 open/focus 和受限验证页面交互；
+- 公开搜索、直接天气卡片、托管浏览器 open/focus 与页面读取、受限验证 click 和经审批的
+  可逆表单草稿；
 - 基于稳定请求/上下文证据的普通聊天回答；
 - 到期 payload 重新进入正常路由的定时消息；
 - personal memory candidate 和 approval-gated sensitive memory；
@@ -155,7 +156,10 @@ Provider 访问。binding record 和加密 credential 是独立保留的账号�
 ### 浏览器、文档与集成
 
 浏览器使用固定 agent-browser 和 SparkClaw-owned Chromium profile，没有备用 browser backend。
-见[浏览器 Runtime](browser-runtime.md)。
+现有 destination registry 是 candidate-independent 的命名目标 fast path；它 miss 且 browser
+leaf 选定后，Workflow 可以使用 Info 的有序结构化 URL，不增加第二个 semantic classifier。页面读取保持全程 hidden 且必须
+使用托管 session；click 和已审批 form draft 绑定 fresh page-generation evidence，并对 visible
+结果进行验证。见[浏览器 Runtime](browser-runtime.md)。
 
 文档拥有独立于解析内容的持久化一等 `DocumentRecord` 身份。读取/编辑使用最近记录解析、
 确定性 format inspection、可追溯的 `confirm_document_target` Workflow 节点、structured

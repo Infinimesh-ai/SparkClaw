@@ -104,3 +104,18 @@ func TestCloseSessionEntryToleratesUninitializedEntries(t *testing.T) {
 		t.Fatalf("closing an uninitialized entry set a session: %#v", entry.session)
 	}
 }
+
+func TestInvalidateSnapshotsAdvancesPageGeneration(t *testing.T) {
+	entry := &agentBrowserSessionEntry{
+		snapshots:          map[string]*agentBrowserSnapshotState{"page_1": {}},
+		activeSnapshotPage: "page_1",
+		pageGeneration:     7,
+	}
+
+	entry.invalidateSnapshotsLocked()
+
+	if entry.pageGeneration != 8 || len(entry.snapshots) != 0 || entry.activeSnapshotPage != "" {
+		t.Fatalf("snapshot invalidation did not advance page identity: generation=%d snapshots=%d active=%q",
+			entry.pageGeneration, len(entry.snapshots), entry.activeSnapshotPage)
+	}
+}

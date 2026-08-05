@@ -35,11 +35,24 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 		return PageReadResult{}, err
 	}
 	defer entry.mu.Unlock()
-	openTool, _, _, err := entry.openURLLocked(readCtx, targetURL, true)
-	if err != nil {
-		return PageReadResult{}, err
+	actions := []string{}
+	if boolArg(args, "reuse_active_page") {
+		activeURL, currentErr := entry.currentURLLocked(readCtx)
+		if currentErr != nil {
+			return PageReadResult{}, fmt.Errorf("read active managed page URL: %w", currentErr)
+		}
+		if !sameAgentBrowserReadURL(activeURL, targetURL) {
+			return PageReadResult{}, fmt.Errorf("active managed page URL %q does not match bound read URL %q", activeURL, targetURL)
+		}
+		actions = append(actions, "agent_browser_reuse_active_page")
+	} else {
+		openTool, _, _, openErr := entry.openURLLocked(readCtx, targetURL, true)
+		if openErr != nil {
+			return PageReadResult{}, openErr
+		}
+		entry.invalidateSnapshotsLocked()
+		actions = append(actions, openTool)
 	}
-	entry.invalidateSnapshotsLocked()
 
 	readMode := "browser_session"
 	if hidden {
@@ -47,7 +60,7 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 	}
 	result := PageReadResult{
 		URL: targetURL, Provider: browserProviderName(hidden), Untrusted: true,
-		Actions: []string{openTool}, ReadMode: readMode, Errors: map[string]any{},
+		Actions: actions, ReadMode: readMode, Errors: map[string]any{},
 		BrowserMode: metadata.BrowserMode, Presentation: metadata.Presentation, SurfaceVisible: metadata.SurfaceVisible,
 		SessionGeneration: entry.generation, ProviderSessionRef: entry.session.sessionName, Rendered: true,
 	}
@@ -93,6 +106,12 @@ func (a *AgentBrowserAdapter) ReadPage(ctx context.Context, targetURL string, ar
 		result.Errors = nil
 	}
 	return result, nil
+}
+
+func sameAgentBrowserReadURL(left, right string) bool {
+	left = strings.TrimSuffix(strings.TrimSpace(left), "/")
+	right = strings.TrimSuffix(strings.TrimSpace(right), "/")
+	return left != "" && strings.EqualFold(left, right)
 }
 
 func (e *agentBrowserSessionEntry) readCurrentPageLocked(ctx context.Context, maxChars int) (agentBrowserPageState, map[string]any) {

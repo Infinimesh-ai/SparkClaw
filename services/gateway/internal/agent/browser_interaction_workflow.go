@@ -4,17 +4,6 @@ import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 
 const browserInteractionMaxClicks = 3
 
-func unsupportedBrowserInteractionIntent(lower string) bool {
-	return containsEnglishSemanticTerm(lower,
-		"type", "fill", "select", "check", "upload", "download", "login", "sign in", "authenticate", "submit",
-		"delete", "remove", "publish", "send", "buy", "purchase", "pay", "payment", "checkout", "place order", "confirm order",
-		"log out", "logout", "sign out", "authorize", "grant access",
-	) || containsAny(lower,
-		"输入", "填写", "选择", "勾选", "上传", "下载", "登录", "认证", "验证码", "提交表单",
-		"删除", "移除", "发布", "发送", "购买", "付款", "支付", "下单", "确认订单", "退出登录", "注销", "授权",
-	)
-}
-
 func explicitCurrentBrowserTab(lower string) bool {
 	return containsAny(lower, "current page", "current tab", "selected tab", "当前页面", "当前网页", "当前标签页", "当前tab", "这个页面")
 }

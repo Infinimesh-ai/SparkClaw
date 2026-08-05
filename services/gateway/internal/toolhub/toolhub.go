@@ -505,6 +505,8 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 				"surface_visible":         booleanSchema(),
 				"force_browser_session":   booleanSchema(),
 				"browser_session":         booleanSchema(),
+				"require_browser_session": booleanSchema(),
+				"reuse_active_page":       booleanSchema(),
 				"disable_hidden_browser":  booleanSchema(),
 				"visible_browser":         booleanSchema(),
 				"owner_id":                stringSchema(),
@@ -615,6 +617,50 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 			Sandbox:          "forbidden",
 			Audit:            "always",
 		},
+		{
+			Name:        "browser.identify_public_target",
+			Description: "Select the first provider-ranked structured Info result URL that passes mandatory public HTTPS and redirect validation.",
+			InputSchema: schema("object", nil, map[string]any{}),
+			OutputSchema: objectSchema([]string{"status", "evidence_id", "resolution_source", "owner_target_phrase", "requested_surface_kind", "info_result_index", "source_result_ref", "canonical_entry_url", "normalized_final_url", "safety_gate_status", "created_at", "untrusted"}, map[string]any{
+				"status":                  stringSchema(),
+				"evidence_id":             stringSchema(),
+				"resolution_source":       stringSchema(),
+				"owner_target_phrase":     stringSchema(),
+				"requested_surface_kind":  stringSchema(),
+				"info_request_id":         stringSchema(),
+				"info_result_index":       integerSchema(),
+				"source_result_ref":       stringSchema(),
+				"canonical_entry_url":     stringSchema(),
+				"normalized_final_url":    stringSchema(),
+				"observed_redirect_chain": stringArraySchema(),
+				"safety_gate_status":      stringSchema(),
+				"created_at":              stringSchema(),
+				"untrusted":               booleanSchema(),
+			}),
+			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
+			TimeoutMS: 10000, Sandbox: "forbidden", Audit: "always",
+		},
+		{
+			Name:        "browser.visual_inspect",
+			Description: "Capture and inspect one fresh generation-bound browser screenshot, then revalidate structured page identity after Fast inference.",
+			InputSchema: schema("object", []string{"page_id", "snapshot_id", "session_generation", "page_generation", "snapshot_digest", "reason"}, map[string]any{
+				"page_id": map[string]any{"type": []any{"string", "number"}}, "snapshot_id": stringSchema(),
+				"session_generation": map[string]any{"type": []any{"string", "number"}},
+				"page_generation":    map[string]any{"type": []any{"string", "number"}},
+				"snapshot_digest":    stringSchema(), "reason": stringSchema(), "question": stringSchema(),
+				"browser_mode": stringSchema(), "presentation": stringSchema(), "surface_visible": booleanSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"status", "evidence_id", "reason", "session_generation", "page_generation", "page_id", "snapshot_id", "snapshot_digest", "post_snapshot_id", "normalized_url", "screenshot_ref", "screenshot_digest", "summary", "model", "profile", "lane", "created_at", "untrusted"}, map[string]any{
+				"status": stringSchema(), "evidence_id": stringSchema(), "reason": stringSchema(),
+				"session_generation": integerSchema(), "page_generation": integerSchema(), "page_id": stringSchema(),
+				"snapshot_id": stringSchema(), "snapshot_digest": stringSchema(), "post_snapshot_id": stringSchema(),
+				"normalized_url": stringSchema(), "screenshot_ref": stringSchema(), "screenshot_digest": stringSchema(),
+				"summary": stringSchema(), "model": stringSchema(), "profile": stringSchema(), "lane": stringSchema(),
+				"created_at": stringSchema(), "untrusted": booleanSchema(),
+			}),
+			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
+			TimeoutMS: 125000, Sandbox: "forbidden", Audit: "always",
+		},
 		browserAutomationDefinition("browser.status", "Check whether the managed agent-browser automation adapter is available.", app.RiskRead, false, nil, nil, []string{"tool", "output", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.list_tabs", "List tabs/pages in the managed agent-browser Chromium session.", app.RiskRead, false, nil, nil, []string{"tool", "output", "pages", "untrusted", "provider"}),
 		browserAutomationDefinition("browser.open", "Open a URL in a managed agent-browser Chromium page/tab.", app.RiskRead, false, []string{"url"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
@@ -675,8 +721,8 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
 			TimeoutMS: 5000, Sandbox: "forbidden", Audit: "always",
 		},
-		browserAutomationDefinition("browser.type", "Type or fill text into a clear element ref or current focus.", app.RiskDraft, true, []string{"text"}, []string{"uid"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
-		browserAutomationDefinition("browser.select", "Select a dropdown or select-like value using a clear element ref.", app.RiskDraft, true, []string{"uid", "value"}, []string{"value"}, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.type", "Fill one ordinary draftable field using a ref from the latest bound snapshot.", app.RiskDraft, true, []string{"uid", "page_id", "snapshot_id", "session_generation", "page_generation", "text"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
+		browserAutomationDefinition("browser.select", "Select one ordinary reversible value using a ref from the latest bound snapshot.", app.RiskDraft, true, []string{"uid", "page_id", "snapshot_id", "session_generation", "page_generation", "value"}, nil, []string{"tool", "raw_tool", "output", "untrusted", "provider"}),
 		{
 			Name:        "shell.exec_sandboxed",
 			Description: "Request sandboxed shell execution. MVP queues this for approval and does not execute automatically.",
@@ -895,6 +941,8 @@ func browserAutomationInputProperties(required []string, extra []string) map[str
 			out[field] = stringSchema()
 		case "focused", "current_focus", "rich_text", "surface_visible", "disable_hidden_browser", "visible_browser", "verbose":
 			out[field] = booleanSchema()
+		case "session_generation", "page_generation":
+			out[field] = map[string]any{"type": []any{"string", "number"}}
 		case "timeout_ms":
 			out[field] = map[string]any{"type": "number"}
 		}

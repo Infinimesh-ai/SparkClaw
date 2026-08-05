@@ -31,11 +31,18 @@ func (h *ToolHub) browserRead(ctx context.Context, args map[string]any, sessionI
 	}
 	metadata := browserModeMetadataFromArgs(args, "autonomous")
 	authState := h.prepareBrowserAuth(parsed, args, metadata, sessionID, runID)
+	requireBrowserSession := boolArg(args, "require_browser_session", false)
+	if requireBrowserSession && !h.shouldUseBrowserSessionRead() {
+		return Result{}, &app.CodedToolError{Code: app.ToolErrorBrowserSessionRequired, Err: errors.New("browser.read requires an available managed browser session")}
+	}
 	if h.shouldUseBrowserSessionReadForMode(args, metadata) {
 		result, err := h.browserReadViaSession(ctx, parsed, args, maxBytes, metadata, sessionID, runID)
 		if err == nil {
 			h.finalizeBrowserAuth(ctx, result.Output, authState, args, metadata, sessionID, runID)
 			return result, nil
+		}
+		if requireBrowserSession {
+			return Result{}, &app.CodedToolError{Code: app.ToolErrorBrowserSessionRequired, Err: fmt.Errorf("managed browser session read failed: %w", err)}
 		}
 		fallback, fallbackErr := h.browserReadDirect(ctx, parsed, maxBytes, metadata, sessionID, runID, "direct_http_fallback", err)
 		if fallbackErr == nil {
@@ -395,6 +402,9 @@ func (h *ToolHub) browserReadViaSession(ctx context.Context, parsed *url.URL, ar
 		"browser_mode":    metadata.BrowserMode,
 		"presentation":    metadata.Presentation,
 		"surface_visible": metadata.SurfaceVisible,
+	}
+	if boolArg(args, "reuse_active_page", false) {
+		readArgs["reuse_active_page"] = true
 	}
 	for _, key := range []string{"owner_id", "browser_profile_id"} {
 		if value := strings.TrimSpace(stringArg(args, key, "")); value != "" {

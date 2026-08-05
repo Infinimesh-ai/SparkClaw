@@ -19,6 +19,8 @@ const browserSnapshotSettleRetryLimit = 2
 // constants; never restate a stage as a string literal.
 const (
 	browserStageHealthCheck           = "health_check"
+	browserStageDiscoverTarget        = "discover_target"
+	browserStageIdentifyTarget        = "identify_target"
 	browserStageScanTabs              = "scan_tabs"
 	browserStageFocusExisting         = "focus_existing"
 	browserStageNavigateBlank         = "navigate_blank"
@@ -34,6 +36,7 @@ const (
 	browserStageSnapshotAfterAction   = "snapshot_after_action"
 	browserStageValidateTransition    = "validate_transition"
 	browserStageAssessGoalAfterAction = "assess_goal_after_action"
+	browserStageVisualInspect         = "visual_inspect_hidden"
 	browserStageAssessGoalVisible     = "assess_goal_visible"
 	// browserStageAssessGoalPrefix matches every assess_goal_* stage.
 	browserStageAssessGoalPrefix = "assess_goal"
@@ -59,8 +62,15 @@ func (browserAutomationProfile) Finalization() workflowFinalizationMode {
 }
 func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationAutomate,
-		app.TargetRef{Kind: app.TargetKindExplicitURL, Ref: route.Slots.TargetRef}, app.DataScopePublic)
-	return intent, browserRevision2Plan(p.ID(), p.Revision(), false), nil
+		browserRouteIntentTarget(route), app.DataScopePublic)
+	plan := browserRevision2Plan(p.ID(), p.Revision(), false)
+	if browserVisualReason(route) != "" {
+		browserRevision2EnableVisualInspection(&plan)
+	}
+	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
+		browserRevision2EnableTargetDiscovery(&plan)
+	}
+	return intent, plan, nil
 }
 func (browserAutomationProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
 	ensureBrowserWorkflowState(state)
@@ -106,9 +116,29 @@ func (p browserInteractionProfile) Resolve(route app.RouteDecision, sourceTurnID
 	target := app.TargetRef{Kind: app.TargetKindBrowserCurrentTab, Ref: route.Slots.TargetRef}
 	if route.Slots.TargetKind == "url" {
 		target = app.TargetRef{Kind: app.TargetKindExplicitURL, Ref: route.Slots.TargetRef}
+	} else if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
+		target = app.TargetRef{Kind: app.TargetKindPublicNamedTarget, Ref: route.Slots.TargetRef}
 	}
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationAutomate, target, app.DataScopePublic)
-	return intent, browserRevision2Plan(p.ID(), p.Revision(), true), nil
+	plan := browserRevision2Plan(p.ID(), p.Revision(), true)
+	if browserVisualReason(route) != "" {
+		browserRevision2EnableVisualInspection(&plan)
+	}
+	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
+		browserRevision2EnableTargetDiscovery(&plan)
+	}
+	return intent, plan, nil
+}
+
+func browserRouteIntentTarget(route app.RouteDecision) app.TargetRef {
+	switch route.Slots.TargetKind {
+	case string(app.TargetKindPublicNamedTarget):
+		return app.TargetRef{Kind: app.TargetKindPublicNamedTarget, Ref: route.Slots.TargetRef}
+	case string(app.TargetKindBrowserCurrentTab):
+		return app.TargetRef{Kind: app.TargetKindBrowserCurrentTab, Ref: route.Slots.TargetRef}
+	default:
+		return app.TargetRef{Kind: app.TargetKindExplicitURL, Ref: route.Slots.TargetRef}
+	}
 }
 func (browserInteractionProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
 	ensureBrowserWorkflowState(state)
@@ -220,6 +250,88 @@ func browserRevision2Plan(id app.WorkflowID, revision int, interaction bool) app
 	}
 }
 
+func browserRevision2EnableTargetDiscovery(plan *app.WorkflowPlan) {
+	if plan == nil || len(plan.Nodes) != 1 {
+		return
+	}
+	node := &plan.Nodes[0]
+	baseScope := node.InitialScope
+	discoveryScope := baseScope
+	discoveryScope.Requirements = append(append([]app.CapabilityRequirement(nil), baseScope.Requirements...),
+		app.CapabilityRequirement{Name: app.ToolCapabilityWebDiscovery},
+		app.CapabilityRequirement{Name: app.ToolCapabilityBrowserPublicTarget},
+	)
+	node.InitialStage = browserStageDiscoverTarget
+	node.InitialScope = discoveryScope
+	node.Transitions = append([]app.ScopeTransition{
+		browserRevision2Transition("target_search_ready", browserStageIdentifyTarget, app.OutcomeSignalResultsAvailable, 1, discoveryScope),
+		browserRevision2Transition("target_identified", browserStageHealthCheck, app.OutcomeSignalPublicTargetResolved, 1, baseScope),
+	}, node.Transitions...)
+	node.StageCapabilities = append([]app.StageCapabilityRule{
+		{Stage: browserStageDiscoverTarget, Capabilities: []string{app.ToolCapabilityWebDiscovery}},
+		{Stage: browserStageIdentifyTarget, Capabilities: []string{app.ToolCapabilityBrowserPublicTarget}},
+	}, node.StageCapabilities...)
+	node.ArgumentBindings = append(node.ArgumentBindings,
+		app.ArgumentBinding{Capability: app.ToolCapabilityWebDiscovery, Argument: "query", ResourceKind: "query", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"},
+		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserOpen, Argument: "url", ResourceKind: "public_target_url", Source: app.ArgumentBindingOutcomeRef},
+		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserNavigate, Argument: "url", ResourceKind: "public_target_url", Source: app.ArgumentBindingOutcomeRef},
+	)
+}
+
+func browserRevision2EnableVisualInspection(plan *app.WorkflowPlan) {
+	if plan == nil || len(plan.Nodes) != 1 {
+		return
+	}
+	node := &plan.Nodes[0]
+	addRequirement := func(scope *app.CapabilityScope) {
+		if scope == nil {
+			return
+		}
+		for _, requirement := range scope.Requirements {
+			if requirement.Name == app.ToolCapabilityBrowserVisualInspect {
+				return
+			}
+		}
+		scope.Requirements = append(scope.Requirements, app.CapabilityRequirement{Name: app.ToolCapabilityBrowserVisualInspect})
+	}
+	addRequirement(&node.InitialScope)
+	for index := range node.Transitions {
+		transition := &node.Transitions[index]
+		if transition.Replace != nil {
+			addRequirement(transition.Replace)
+		}
+		if transition.NextStage == browserStagePresentVisible {
+			transition.NextStage = browserStageVisualInspect
+		}
+	}
+	visualScope := node.InitialScope
+	node.Transitions = append(node.Transitions,
+		browserRevision2Transition("visual_inspected", browserStagePresentVisible, app.OutcomeSignalVisualEvidenceAvailable, 1, visualScope),
+	)
+	node.StageCapabilities = append(node.StageCapabilities,
+		app.StageCapabilityRule{Stage: browserStageVisualInspect, Capabilities: []string{app.ToolCapabilityBrowserVisualInspect}},
+	)
+	node.ArgumentBindings = append(node.ArgumentBindings,
+		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserVisualInspect, Argument: "page_id", ResourceKind: "browser_page", Source: app.ArgumentBindingOutcomeRef},
+		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserVisualInspect, Argument: "snapshot_id", ResourceKind: "browser_snapshot", Source: app.ArgumentBindingOutcomeRef},
+		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserVisualInspect, Argument: "session_generation", ResourceKind: "browser_snapshot", Source: app.ArgumentBindingOutcomeRef, SourceKey: "session_generation"},
+		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserVisualInspect, Argument: "page_generation", ResourceKind: "browser_snapshot", Source: app.ArgumentBindingOutcomeRef, SourceKey: "page_generation"},
+		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserVisualInspect, Argument: "snapshot_digest", ResourceKind: "browser_snapshot", Source: app.ArgumentBindingOutcomeRef, SourceKey: "digest"},
+	)
+}
+
+func browserVisualReason(route app.RouteDecision) string {
+	if route.Facts == nil {
+		return ""
+	}
+	switch reason := strings.TrimSpace(route.Facts["browser_visual_reason"]); reason {
+	case "owner_requested":
+		return reason
+	default:
+		return ""
+	}
+}
+
 func browserRevision2Scope(interaction bool) app.CapabilityScope {
 	requirements := []app.CapabilityRequirement{
 		{Name: app.ToolCapabilityBrowserHealth},
@@ -247,11 +359,15 @@ func browserRevision2Scope(interaction bool) app.CapabilityScope {
 // accounting must survive the reset or a handoff would widen the interaction
 // budget.
 var browserHandoffPreservedTransitions = map[app.TransitionID]bool{
-	"click_recorded":       true,
-	"action_settled":       true,
-	"validate_transition":  true,
-	"assess_after_action":  true,
-	"continue_interaction": true,
+	"click_recorded":            true,
+	"action_settled":            true,
+	"validate_transition":       true,
+	"assess_after_action":       true,
+	"continue_interaction":      true,
+	"draft_action_recorded":     true,
+	"draft_action_settled":      true,
+	"draft_assess_after_action": true,
+	"draft_continue":            true,
 }
 
 func browserRevision2Transition(id, stage string, signal app.OutcomeSignal, max int, scope app.CapabilityScope) app.ScopeTransition {
@@ -279,6 +395,12 @@ func browserTargetDescriptor(route app.RouteDecision) app.BrowserTargetDescripto
 	if route.Slots.TargetKind == string(app.TargetKindBrowserCurrentTab) {
 		return app.BrowserTargetDescriptor{TargetKind: app.BrowserTargetCurrentTab}
 	}
+	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
+		return app.BrowserTargetDescriptor{
+			TargetKind: app.BrowserTargetInfoSearch, TargetPhrase: strings.TrimSpace(route.Slots.TargetRef),
+			QueryProvenance: app.BrowserQueryOwnerSupplied,
+		}
+	}
 	target := normalizeBrowserURL(route.Slots.TargetRef)
 	parsed, _ := url.Parse(target)
 	descriptor := app.BrowserTargetDescriptor{
@@ -300,8 +422,8 @@ func browserTargetDescriptor(route app.RouteDecision) app.BrowserTargetDescripto
 func browserRevision2DirectStage(state *app.WorkflowState, interaction bool) bool {
 	stage := browserActiveStage(state)
 	switch stage {
-	case browserStageHealthCheck, browserStageScanTabs, browserStageFocusExisting, browserStageNavigateBlank, browserStageOpenNew,
-		browserStageSettleHidden, browserStageSnapshotHidden, browserStagePresentVisible, browserStageSettleVisible, browserStageSnapshotVisible:
+	case browserStageDiscoverTarget, browserStageIdentifyTarget, browserStageHealthCheck, browserStageScanTabs, browserStageFocusExisting, browserStageNavigateBlank, browserStageOpenNew,
+		browserStageSettleHidden, browserStageSnapshotHidden, browserStageVisualInspect, browserStagePresentVisible, browserStageSettleVisible, browserStageSnapshotVisible:
 		return true
 	case browserStageSettleAfterAction, browserStageSnapshotAfterAction, browserStageValidateTransition:
 		return interaction
@@ -314,6 +436,11 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 	stage := browserActiveStage(state)
 	args := map[string]any{}
 	switch stage {
+	case browserStageDiscoverTarget:
+		if state != nil {
+			args["query"] = state.Route.Slots.TargetRef
+			args["max_results"] = 5
+		}
 	case browserStageHealthCheck:
 		args["require_visible_environment"] = true
 	case browserStageSettleHidden, browserStageSettleVisible, browserStageSettleAfterAction:
@@ -349,6 +476,9 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 		}
 	case browserStagePresentVisible:
 		args["reason"] = browserResultPresentationReason
+	case browserStageVisualInspect:
+		args["reason"] = browserVisualReason(state.Route)
+		args["question"] = state.Route.Slots.Query
 	case browserStageValidateTransition:
 		args["schema_version"] = 2
 	}
@@ -401,13 +531,32 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 	}
 	node := state.Nodes[outcome.NodeID]
 	switch node.Stage {
+	case browserStageDiscoverTarget:
+		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalResultsAvailable) {
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalResultsAvailable, browserStageIdentifyTarget, outcome.Refs)
+		}
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "public_target_not_found"
+	case browserStageIdentifyTarget:
+		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalPublicTargetResolved) {
+			if !recordBrowserPublicTarget(state, outcome.Refs) {
+				assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "public_target_evidence_invalid"
+				return assessment
+			}
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalPublicTargetResolved, browserStageHealthCheck, outcome.Refs)
+		}
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "public_target_unavailable"
 	case browserStageHealthCheck:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalBrowserHealthy) {
 			return browserRevision2NeedsMore(assessment, app.OutcomeSignalBrowserHealthy, browserStageScanTabs, nil)
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_environment_unavailable"
 	case browserStageScanTabs:
-		selected, signal, reason := selectBrowserInteractionTab(state.Route, outcome.Refs)
+		route := state.Route
+		if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) && state.Browser.Target.CanonicalURL != "" {
+			route.Slots.TargetKind = "url"
+			route.Slots.TargetRef = state.Browser.Target.CanonicalURL
+		}
+		selected, signal, reason := selectBrowserInteractionTab(route, outcome.Refs)
 		if reason != "" {
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, reason
 			return assessment
@@ -506,6 +655,11 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		default:
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_goal_not_satisfied"
 		}
+	case browserStageVisualInspect:
+		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalVisualEvidenceAvailable) && recordBrowserVisualEvidence(state, outcome.Refs) {
+			return browserRevision2NeedsMore(assessment, app.OutcomeSignalVisualEvidenceAvailable, browserStagePresentVisible, browserPresentationRefs(state, nil))
+		}
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_visual_inspection_failed"
 	case browserStagePresentVisible:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalOpenCompleted) {
 			return browserRevision2NeedsMore(assessment, app.OutcomeSignalPresentationOpened, browserStageSettleVisible, outcome.Refs)
@@ -545,6 +699,34 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_revision2_stage_invalid"
 	}
 	return assessment
+}
+
+func recordBrowserVisualEvidence(state *app.WorkflowState, refs []app.ResourceRef) bool {
+	if state == nil || state.Browser == nil {
+		return false
+	}
+	for _, ref := range refs {
+		if ref.Kind != "browser_visual_evidence" || strings.TrimSpace(ref.Ref) == "" {
+			continue
+		}
+		sessionGeneration, sessionErr := strconv.ParseUint(ref.Attributes["session_generation"], 10, 64)
+		pageGeneration, pageErr := strconv.ParseUint(ref.Attributes["page_generation"], 10, 64)
+		createdAt, timeErr := time.Parse(time.RFC3339Nano, ref.Attributes["created_at"])
+		if sessionErr != nil || pageErr != nil || timeErr != nil || sessionGeneration == 0 || pageGeneration == 0 ||
+			ref.Attributes["page_id"] == "" || ref.Attributes["snapshot_id"] == "" || ref.Attributes["snapshot_digest"] == "" ||
+			ref.Attributes["screenshot_ref"] == "" || ref.Attributes["screenshot_digest"] == "" {
+			return false
+		}
+		state.Browser.VisualEvidence = append(state.Browser.VisualEvidence, app.BrowserVisualEvidence{
+			EvidenceID: ref.Ref, Reason: ref.Attributes["reason"], SessionGeneration: sessionGeneration,
+			PageGeneration: pageGeneration, PageID: ref.Attributes["page_id"], SnapshotID: ref.Attributes["snapshot_id"],
+			SnapshotDigest: ref.Attributes["snapshot_digest"], ScreenshotRef: ref.Attributes["screenshot_ref"],
+			ScreenshotDigest: ref.Attributes["screenshot_digest"], NormalizedURL: ref.Attributes["normalized_url"],
+			Summary: ref.Attributes["summary"], Model: ref.Attributes["model"], Stale: false, CreatedAt: createdAt.UTC(),
+		})
+		return true
+	}
+	return false
 }
 
 func browserRevision2Acquired(assessment app.NodeAssessment, outcome app.ToolOutcome, signal app.OutcomeSignal, failure string) app.NodeAssessment {
@@ -767,9 +949,81 @@ func browserPresentationURLMatchesRoute(state *app.WorkflowState, candidateURL s
 		if browserTargetMatchesURL(targetURL, state.Route.Facts["browser_destination"], candidateURL) {
 			return true
 		}
-		return state.Plan.ProfileID == app.WorkflowBrowserInteraction && sameBrowserOrigin(targetURL, candidateURL)
+		return (state.Plan.ProfileID == app.WorkflowBrowserInteraction || state.Plan.ProfileID == app.WorkflowBrowserFormDraft) && sameBrowserOrigin(targetURL, candidateURL)
 	case string(app.TargetKindBrowserCurrentTab):
-		return state.Plan.ProfileID == app.WorkflowBrowserInteraction
+		return state.Plan.ProfileID == app.WorkflowBrowserInteraction || state.Plan.ProfileID == app.WorkflowBrowserFormDraft
+	case string(app.TargetKindPublicNamedTarget):
+		if state.Browser == nil || state.Browser.Target.TargetKind != app.BrowserTargetInfoResolved {
+			return false
+		}
+		targetURL := state.Browser.Target.CanonicalURL
+		if normalizeBrowserURL(targetURL) == normalizeBrowserURL(candidateURL) {
+			return true
+		}
+		return (state.Plan.ProfileID == app.WorkflowBrowserInteraction || state.Plan.ProfileID == app.WorkflowBrowserFormDraft) &&
+			sameBrowserOrigin(targetURL, candidateURL)
+	default:
+		return false
+	}
+}
+
+func recordBrowserPublicTarget(state *app.WorkflowState, refs []app.ResourceRef) bool {
+	if state == nil || state.Browser == nil {
+		return false
+	}
+	var evidence *app.ResourceRef
+	var targetURL string
+	for index := range refs {
+		switch refs[index].Kind {
+		case "public_target_evidence":
+			evidence = &refs[index]
+		case "public_target_url":
+			targetURL = normalizeBrowserURL(refs[index].Ref)
+		}
+	}
+	if evidence == nil || strings.TrimSpace(evidence.Ref) == "" || targetURL == "" ||
+		normalizeBrowserURL(evidence.Attributes["normalized_final_url"]) != targetURL ||
+		evidence.Attributes["safety_gate_status"] != "passed" {
+		return false
+	}
+	resultIndex, err := strconv.Atoi(evidence.Attributes["info_result_index"])
+	if err != nil || resultIndex < 0 {
+		return false
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, evidence.Attributes["created_at"])
+	if err != nil {
+		return false
+	}
+	state.Browser.PublicTarget = &app.BrowserPublicTargetEvidence{
+		EvidenceID:         evidence.Ref,
+		ResolutionSource:   evidence.Attributes["resolution_source"],
+		OwnerTargetPhrase:  evidence.Attributes["owner_target_phrase"],
+		RequestedSurface:   evidence.Attributes["requested_surface_kind"],
+		InfoRequestID:      evidence.Attributes["info_request_id"],
+		InfoResultIndex:    &resultIndex,
+		SourceResultRef:    evidence.Attributes["source_result_ref"],
+		CanonicalEntryURL:  normalizeBrowserURL(evidence.Attributes["canonical_entry_url"]),
+		NormalizedFinalURL: targetURL,
+		SafetyGateStatus:   evidence.Attributes["safety_gate_status"],
+		CreatedAt:          createdAt.UTC(),
+	}
+	state.Browser.Target.TargetKind = app.BrowserTargetInfoResolved
+	state.Browser.Target.CanonicalURL = targetURL
+	state.Browser.Target.RoutePath = ""
+	state.Browser.Target.RouteFragment = ""
+	if parsed, parseErr := url.Parse(targetURL); parseErr == nil {
+		state.Browser.Target.RoutePath = parsed.EscapedPath()
+		state.Browser.Target.RouteFragment = parsed.Fragment
+	}
+	state.Browser.Target.QueryProvenance = app.BrowserQueryProviderVolatile
+	state.Browser.Target.RedactedURL = targetURL
+	return true
+}
+
+func isManagedBrowserWorkflow(id app.WorkflowID) bool {
+	switch id {
+	case app.WorkflowBrowserAutomation, app.WorkflowBrowserPageRead, app.WorkflowBrowserInteraction, app.WorkflowBrowserFormDraft:
+		return true
 	default:
 		return false
 	}

@@ -95,7 +95,7 @@ func (r Runtime) recordBrowserLoginBlockFromToolCall(sessionID, runID, goal stri
 	if run, ok := r.store.GetRun(runID); ok && run.Workflow != nil {
 		block.WorkflowID = run.Workflow.Plan.ProfileID
 		block.WorkflowRevision = run.Workflow.Plan.ProfileRevision
-		if block.WorkflowRevision == app.BrowserWorkflowRevision2 {
+		if isManagedBrowserWorkflow(block.WorkflowID) {
 			block.ResumeTool = "browser.snapshot"
 		}
 		if len(run.Workflow.ActiveNodeIDs) == 1 {
@@ -401,13 +401,11 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 		goal = userReply
 	}
 	if run.Workflow != nil {
-		switch run.Workflow.Plan.ProfileID {
-		case app.WorkflowBrowserAutomation, app.WorkflowBrowserInteraction:
-			if run.Workflow.Plan.ProfileRevision != app.BrowserWorkflowRevision2 {
-				return r.finishRetiredBrowserLoginHandoff(ctx, run, block, goal, userReply)
-			}
-		default:
+		if !isManagedBrowserWorkflow(run.Workflow.Plan.ProfileID) {
 			return r.finishUnexpectedBrowserLoginHandoff(ctx, run, block, goal, userReply)
+		}
+		if !browserHandoffProfileRevisionSupported(run.Workflow.Plan.ProfileID, run.Workflow.Plan.ProfileRevision) {
+			return r.finishRetiredBrowserLoginHandoff(ctx, run, block, goal, userReply)
 		}
 	}
 	recoveringVisibleValidation := false
@@ -588,6 +586,14 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 				return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("browser resume lost the frozen workflow target")), true, nil
 			}
 			matchesTarget = browserTargetMatchesURL(expectedTarget, run.Workflow.Route.Facts["browser_destination"], target.URL)
+		case string(app.TargetKindPublicNamedTarget):
+			if run.Workflow.Browser != nil {
+				expectedTarget = normalizeBrowserURL(run.Workflow.Browser.Target.CanonicalURL)
+			}
+			if !browserLoginResumeURLUsable(expectedTarget) {
+				return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("browser resume lost the identified public target")), true, nil
+			}
+			matchesTarget = browserPresentationURLMatchesRoute(run.Workflow, target.URL)
 		default:
 			return r.blockPersistedWorkflowResume(ctx, run, goal, errors.New("browser resume has an unsupported frozen workflow target")), true, nil
 		}
@@ -954,7 +960,7 @@ func browserHandoffVisibleEvidence(state *app.WorkflowState, block app.BrowserLo
 }
 
 func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.AgentRun, goal string, block app.BrowserLoginBlock, interruptedCallID string, emit StreamHandler) (Result, error) {
-	if run.Workflow == nil || run.Workflow.Plan.ProfileRevision != app.BrowserWorkflowRevision2 {
+	if run.Workflow == nil || !browserHandoffProfileRevisionSupported(run.Workflow.Plan.ProfileID, run.Workflow.Plan.ProfileRevision) {
 		return Result{}, errors.New("browser handoff revision does not match the persisted workflow")
 	}
 	if block.WorkflowID != run.Workflow.Plan.ProfileID ||
@@ -974,8 +980,8 @@ func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.
 		if block.VisibleEvidence == nil {
 			return Result{}, errors.New("browser handoff lost its validated visible evidence")
 		}
-		if !browserRevision2HandoffResetPersisted(run, block.WorkflowNodeID) {
-			if err := resetBrowserRevision2AfterHandoff(&run, block.WorkflowNodeID); err != nil {
+		if !browserHandoffResetPersisted(run, block.WorkflowNodeID) {
+			if err := resetBrowserWorkflowAfterHandoff(&run, block.WorkflowNodeID); err != nil {
 				return Result{}, err
 			}
 			run.State = "executing"
@@ -984,7 +990,7 @@ func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.
 			r.store.AddAudit(app.AuditEvent{
 				SessionID: run.SessionID, RunID: run.ID, Actor: "runtime",
 				Type:    "browser_login_block.pre_login_refs_discarded",
-				Summary: "Reset browser revision 2 to hidden target reacquisition using a new session generation",
+				Summary: "Reset managed browser workflow to hidden target reacquisition using a new session generation",
 				Fields: browserLoginBlockRuntimeFields(block, map[string]any{
 					"interrupted_tool_call_id": interruptedCallID,
 					"visible_generation":       block.SessionGeneration,
@@ -1045,13 +1051,33 @@ func (r Runtime) finishMatchedBrowserHandoffResume(ctx context.Context, run app.
 	return r.resolveBrowserHandoffResult(result, current)
 }
 
-func browserRevision2HandoffResetPersisted(run app.AgentRun, nodeID app.WorkflowNodeID) bool {
+func browserHandoffResetPersisted(run app.AgentRun, nodeID app.WorkflowNodeID) bool {
 	if run.Workflow == nil || len(run.Workflow.ActiveNodeIDs) != 1 || run.Workflow.ActiveNodeIDs[0] != nodeID {
 		return false
 	}
 	node, ok := run.Workflow.Nodes[nodeID]
-	return ok && node.Stage == browserStageScanTabs && len(node.OutcomeRefs) == 0 &&
+	return ok && node.Stage == browserHandoffResetStage(run.Workflow.Plan.ProfileID) && len(node.OutcomeRefs) == 0 &&
 		run.Workflow.Browser != nil && run.Workflow.Browser.Result == nil
+}
+
+func browserHandoffProfileRevisionSupported(id app.WorkflowID, revision int) bool {
+	switch id {
+	case app.WorkflowBrowserAutomation, app.WorkflowBrowserInteraction:
+		return revision == app.BrowserWorkflowRevision2
+	case app.WorkflowBrowserPageRead:
+		return revision == browserPageReadRevision1
+	case app.WorkflowBrowserFormDraft:
+		return revision == browserFormDraftRevision1
+	default:
+		return false
+	}
+}
+
+func browserHandoffResetStage(id app.WorkflowID) string {
+	if id == app.WorkflowBrowserPageRead {
+		return browserPageReadStageHealth
+	}
+	return browserStageScanTabs
 }
 
 func browserWorkflowRunSucceeded(run app.AgentRun) bool {
@@ -1167,7 +1193,7 @@ func (r Runtime) browserHandoffInterruptedCallID(run app.AgentRun, block app.Bro
 	return ""
 }
 
-func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNodeID) error {
+func resetBrowserWorkflowAfterHandoff(run *app.AgentRun, nodeID app.WorkflowNodeID) error {
 	if run == nil || run.Workflow == nil || workflowPlanDigest(run.Workflow.Plan) != run.Workflow.PlanDigest {
 		return errors.New("persisted workflow plan digest mismatch during browser handoff")
 	}
@@ -1182,7 +1208,7 @@ func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNod
 	if !ok || node.Status != app.WorkflowNodeActive || node.Attempts >= nodePlan.MaxAttempts {
 		return errors.New("browser handoff workflow node is not resumable")
 	}
-	node.Stage = browserStageScanTabs
+	node.Stage = browserHandoffResetStage(run.Workflow.Plan.ProfileID)
 	node.CurrentScope = nodePlan.InitialScope
 	node.ScopeRevision++
 	node.LastDirectory = nil
@@ -1201,6 +1227,12 @@ func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNod
 		run.Workflow.Browser.Result = nil
 	}
 	return nil
+}
+
+// resetBrowserRevision2AfterHandoff preserves the package-local contract used
+// by revision-2 recovery tests while delegating to the profile-aware reset.
+func resetBrowserRevision2AfterHandoff(run *app.AgentRun, nodeID app.WorkflowNodeID) error {
+	return resetBrowserWorkflowAfterHandoff(run, nodeID)
 }
 
 func (r Runtime) blockPersistedWorkflowResume(ctx context.Context, run app.AgentRun, goal string, err error) Result {

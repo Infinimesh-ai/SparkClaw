@@ -18,7 +18,14 @@ const (
 	ToolErrorSnapshotStale ToolErrorCode = "snapshot_stale"
 	// ToolErrorDocumentOperationTimeout: a bounded document operation
 	// exhausted its end-to-end execution deadline.
-	ToolErrorDocumentOperationTimeout ToolErrorCode = "document_operation_timeout"
+	ToolErrorDocumentOperationTimeout        ToolErrorCode = "document_operation_timeout"
+	ToolErrorPublicTargetNotFound            ToolErrorCode = "public_target_not_found"
+	ToolErrorPublicTargetUnsafe              ToolErrorCode = "public_target_unsafe"
+	ToolErrorPublicTargetProviderUnavailable ToolErrorCode = "public_target_provider_unavailable"
+	ToolErrorBrowserSessionRequired          ToolErrorCode = "browser_session_required"
+	ToolErrorDraftActionStale                ToolErrorCode = "draft_action_stale"
+	ToolErrorDraftForbiddenControl           ToolErrorCode = "draft_forbidden_control"
+	ToolErrorVisualEvidenceStale             ToolErrorCode = "visual_evidence_stale"
 )
 
 // CodedToolError attaches a ToolErrorCode to a tool failure. The message is

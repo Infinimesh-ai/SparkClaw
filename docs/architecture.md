@@ -12,8 +12,8 @@ SparkClaw is a local-first personal agent runtime for one owner and one local
 Gateway on DGX Spark-class hardware. Its active product surface is:
 
 - local files, structured documents, and approval-gated output-copy edits;
-- public search, direct weather cards, managed browser open/focus, and bounded
-  verified page interaction;
+- public search, direct weather cards, managed browser open/focus and page
+  reading, bounded verified clicks, and approval-gated reversible form drafts;
 - ordinary conversation answers from stable request/context evidence;
 - scheduled messages whose payload re-enters normal routing at due time;
 - personal memory candidates and approval-gated sensitive memory;
@@ -192,7 +192,13 @@ state and never imply that a channel is enabled.
 ### Browser, Documents, And Integrations
 
 Browser execution uses pinned agent-browser with a SparkClaw-owned Chromium
-profile and no alternate browser backend. Details and Workflow limits are in
+profile and no alternate browser backend. The existing destination registry is
+the candidate-independent named-target fast path; after its miss and browser
+leaf selection, the Workflow may use Info's ordered structured URLs without
+another semantic classifier.
+Page reads remain fully hidden and session-required, while clicks and approved
+form drafts retain fresh page-generation evidence and visible result
+verification. Details and Workflow limits are in
 [Browser runtime](browser-runtime.md).
 
 Documents have durable first-class `DocumentRecord` identities independent of

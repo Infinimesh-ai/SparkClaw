@@ -21,6 +21,9 @@ func mockResponse(lane, user string) string {
 		if strings.Contains(user, "images.inspect") {
 			return "Mock image inspection completed from the workflow evidence."
 		}
+		if strings.Contains(user, "browser.read") {
+			return "Mock browser page answer grounded in the extracted page evidence."
+		}
 		return "Mock workflow answer grounded in the completed document evidence."
 	}
 	if strings.Contains(user, "WORKFLOW_MODEL_ANSWER_REQUEST") {
@@ -188,7 +191,7 @@ func mockBrowserInteractionStage(prompt string) string {
 	switch value {
 	case "health_check", "scan_tabs", "focus_existing", "navigate_blank", "open_new",
 		"snapshot_before_action", "choose_and_click", "snapshot_after_action",
-		"assess_goal_initial", "assess_goal_after_action", "assess_goal_visible":
+		"assess_goal_initial", "choose_and_draft", "assess_goal_after_action", "assess_goal_visible":
 		return value
 	default:
 		return ""
@@ -215,6 +218,11 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 		}
 	case "snapshot_before_action", "snapshot_after_action":
 		return mockWorkflowStepAction("browser.snapshot", map[string]any{})
+	case "choose_and_draft":
+		snapshotID, pageID, elementRef := mockLatestBrowserSnapshot(prompt)
+		return mockWorkflowStepAction("browser.type", map[string]any{
+			"page_id": pageID, "snapshot_id": snapshotID, "uid": elementRef, "text": mockBrowserDraftValue(goal),
+		})
 	case "choose_and_click":
 		snapshotID, pageID, elementRef := mockLatestBrowserSnapshot(prompt)
 		return mockWorkflowStepAction("browser.click", map[string]any{
@@ -234,6 +242,21 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 		})
 	}
 	return `{"type":"final","answer":"The browser interaction workflow could not select its required next action."}`
+}
+
+func mockBrowserDraftValue(goal string) string {
+	for _, marker := range []string{"输入", "填写", "填入", "type", "fill"} {
+		if index := strings.Index(strings.ToLower(goal), marker); index >= 0 {
+			value := strings.TrimSpace(goal[index+len(marker):])
+			if end := strings.IndexAny(value, "，,。.;；\n"); end >= 0 {
+				value = value[:end]
+			}
+			if fields := strings.Fields(value); len(fields) > 0 {
+				return fields[0]
+			}
+		}
+	}
+	return "owner supplied value"
 }
 
 func mockLatestBrowserSnapshot(prompt string) (string, string, string) {
@@ -612,8 +635,22 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 		if contains("打开", "访问", "切换到", "open", "visit", "focus") && !contains("点击", "点开", "输入", "填写", "选择", "勾选", "登录", "认证", "草稿箱", "收件箱", "click", "type", "select", "check", "login", "sign in", "authenticate", "drafts", "inbox") {
 			return 0.96
 		}
+	case "browser.page_read#read":
+		readRequest := contains("读取", "阅读", "总结", "提取", "read", "summarize", "extract")
+		browserTarget := contains("网页", "网址", "官网", "页面", "http://", "https://", "website", "web page", "official site", "current tab")
+		if readRequest && browserTarget && !contains("本地文件", "工作区", "附件", "local file", "workspace", "attached") {
+			return 0.97
+		}
+	case "browser.form_draft#draft":
+		draftAction := contains("输入", "填写", "填入", "选择", "type", "fill", "select")
+		browserContext := contains("网页", "网站", "页面", "表单", "字段", "输入框", "搜索框", "下拉", "当前标签", "http://", "https://", "browser", "web form", "website", "web page", "field", "textbox", "search box", "dropdown", "current tab")
+		commitAction := contains("提交", "发送", "发布", "购买", "付款", "支付", "登录", "验证码", "密码", "submit", "send", "publish", "purchase", "pay", "login", "password", "captcha")
+		checkboxClick := contains("勾选", "checkbox", "check the")
+		if draftAction && browserContext && !commitAction && !checkboxClick {
+			return 0.98
+		}
 	case "browser.interaction#interact":
-		if contains("点击", "点开", "按钮", "勾选", "选择", "输入", "草稿箱", "收件箱", "click", "tap", "check", "select", "type into", "enter into", "drafts", "inbox") {
+		if contains("点击", "点开", "按钮", "勾选", "草稿箱", "收件箱", "click", "tap", "check", "drafts", "inbox") {
 			return 0.97
 		}
 	case "document.read#read":

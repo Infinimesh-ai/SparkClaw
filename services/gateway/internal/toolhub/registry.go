@@ -152,13 +152,38 @@ func scheduleListRegistration() toolRegistration {
 
 func browserReadRegistration() toolRegistration {
 	registration := workflowRegistration(
-		toolRegistration{run: ctxArgsSessionRun((*ToolHub).browserRead)}, "web.page.read",
+		toolRegistration{run: ctxArgsSessionRun((*ToolHub).browserRead)}, app.ToolCapabilityBrowserPageRead,
 		map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationRead}, app.OutcomeAdapterWebPage,
-		"Read a known URL and extract source-page evidence.",
-		"Use for a known URL in browser.search or as bounded evidence in browser.automation.",
+		"Read the already opened managed browser page and extract bounded source-page evidence.",
+		"Use in browser.page_read after browser.status and browser.open have completed.",
 		"Do not use for public discovery or local document work.", app.ToolEffectExternalRead,
 	)
-	registration.capabilities = append(registration.capabilities, app.CapabilityDescriptor{Name: "browser.legacy"})
+	registration.capabilities = append(registration.capabilities,
+		app.CapabilityDescriptor{Name: "web.page.read", Qualifiers: map[string]string{app.CapabilityQualifierOperation: app.CapabilityOperationRead}},
+		app.CapabilityDescriptor{Name: "browser.legacy"},
+	)
+	return registration
+}
+
+func browserPublicTargetRegistration() toolRegistration {
+	return workflowRegistration(
+		toolRegistration{enabled: func(cfg config.Config) bool { return browserAutomationEnabled(cfg) && infoEnabled(cfg) }, run: ctxArgsSessionRun((*ToolHub).identifyPublicBrowserTarget)},
+		app.ToolCapabilityBrowserPublicTarget, nil, app.OutcomeAdapterBrowserPublicTarget,
+		"Bind the first Info-ranked structured URL that passes public HTTPS safety validation.",
+		"Use only after a registered browser target misses and web.search has completed in the active browser Workflow.",
+		"Do not parse answer prose, rescore results, write the destination registry, or accept a model-authored URL.", app.ToolEffectLocalCompute,
+	)
+}
+
+func browserVisualRegistration() toolRegistration {
+	registration := workflowRegistration(
+		toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).inspectBrowserVisual)},
+		app.ToolCapabilityBrowserVisualInspect, nil, app.OutcomeAdapterBrowserVisual,
+		"Inspect one generation-bound browser screenshot with the Fast image lane.",
+		"Use only in the optional visual stage of an active managed-browser Workflow with a frozen typed reason.",
+		"Do not return coordinates or executable element refs, and do not use outside a fresh structured snapshot.", app.ToolEffectExternalRead,
+	)
+	registration.directory.OutputKinds = []app.OutputKind{app.OutputKindImage}
 	return registration
 }
 
@@ -206,14 +231,16 @@ var toolRegistry = func() map[string]toolRegistration {
 			"Read normalized metric weather for one bound city from the dedicated Infinimesh Info weather endpoint.",
 			"Use only as the lookup stage of browser.weather.",
 			"Do not use generic Info query/search, rewrite the city, request non-metric units, or synthesize weather values.", app.ToolEffectExternalRead),
-		"media.render_weather_card": weatherRenderRegistration(),
-		"files.write_draft":         legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
-		"file.delete":               documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
-		"memory.search":             {run: argsSession((*ToolHub).memorySearch)},
-		"memory.write_candidate":    {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
-		"memory.propose":            {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
-		"memory.write_sensitive":    {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
-		"browser.read":              browserReadRegistration(),
+		"media.render_weather_card":      weatherRenderRegistration(),
+		"files.write_draft":              legacyDocumentMutationRegistration(ctxArgs((*ToolHub).filesWriteDraft), "Create a governed draft file in the workspace."),
+		"file.delete":                    documentDeletionRegistration(ctxArgs((*ToolHub).fileDelete), "Move a governed workspace file to recoverable trash."),
+		"memory.search":                  {run: argsSession((*ToolHub).memorySearch)},
+		"memory.write_candidate":         {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
+		"memory.propose":                 {run: argsSessionRun((*ToolHub).memoryWriteCandidate)},
+		"memory.write_sensitive":         {run: argsSessionRun((*ToolHub).memoryWriteSensitive)},
+		"browser.read":                   browserReadRegistration(),
+		"browser.identify_public_target": browserPublicTargetRegistration(),
+		"browser.visual_inspect":         browserVisualRegistration(),
 		"web.search": workflowRegistration(toolRegistration{enabled: infoEnabled, run: ctxArgs((*ToolHub).webSearchTool)}, app.ToolCapabilityWebDiscovery,
 			map[string]string{app.CapabilityQualifierProvider: app.CapabilityProviderInfo}, app.OutcomeAdapterWebSearch,
 			"Discover public web sources when the target URL is unknown.",
@@ -240,11 +267,19 @@ var toolRegistry = func() map[string]toolRegistration {
 		"browser.assess_goal": workflowRegistration(
 			toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).assessBrowserGoal)},
 			app.ToolCapabilityBrowserGoalAssess, nil, app.OutcomeAdapterBrowserGoal,
-			"Assess a frozen browser goal from current cited snapshot evidence.",
-			"Use only after target validation or deterministic transition validation in browser.interaction revision 2.",
+			"Assess a frozen browser interaction or form-draft goal from current cited snapshot evidence.",
+			"Use only after target validation in browser.interaction revision 2 or browser.form_draft revision 1.",
 			"Do not execute actions or cite an earlier snapshot.", app.ToolEffectLocalCompute),
-		"browser.type":   browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Type into a referenced page control.", app.ToolEffectExternalInteract),
-		"browser.select": browserAutomationRegistration("browser.legacy", app.OutcomeAdapterGeneric, "Select a value in a referenced page control.", app.ToolEffectExternalInteract),
+		"browser.type": workflowRegistration(
+			toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).typeBrowserFormDraft)},
+			app.ToolCapabilityBrowserFormType, nil, app.OutcomeAdapterBrowserForm,
+			"Fill one ordinary reversible form draft field.", "Use only in browser.form_draft with a current bound snapshot and exact owner value.",
+			"Do not enter credentials, codes, payment data, or submit/send/publish content.", app.ToolEffectExternalInteract),
+		"browser.select": workflowRegistration(
+			toolRegistration{enabled: browserAutomationEnabled, run: ctxArgsSessionRun((*ToolHub).selectBrowserFormDraft)},
+			app.ToolCapabilityBrowserFormSelect, nil, app.OutcomeAdapterBrowserForm,
+			"Select one ordinary reversible form draft value.", "Use only in browser.form_draft with a current bound snapshot and exact owner value.",
+			"Do not select consequential, payment, submit, send, or publish controls.", app.ToolEffectExternalInteract),
 		"reminders.create": workflowRegistration(toolRegistration{enabled: remindersEnabled, run: argsSessionRun((*ToolHub).remindersCreate)}, app.ToolCapabilityScheduleManage,
 			map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationCreate)}, app.OutcomeAdapterGeneric,
 			"Create a scheduled task in the existing Schedule Registry.", "Use only for schedule.manage create operations.", "Do not use to list, update, or cancel schedules.", app.ToolEffectLocalWrite),

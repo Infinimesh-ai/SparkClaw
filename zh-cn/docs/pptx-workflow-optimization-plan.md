@@ -14,7 +14,7 @@
 
 PPTX 继续位于既有 `document` capability branch 下。没有新增 PPTX 顶层 route、关键词 fallback、
 通用演示文稿 mutation tool 或第二份 capability map。Catalog revision 为
-`2026-08-05.v16`，当前 edit profile 为 revision 6。
+`2026-08-05.v17`，当前 edit profile 为 revision 6。
 
 ```text
 semantic document.edit match

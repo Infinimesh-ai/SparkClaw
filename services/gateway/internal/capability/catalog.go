@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-05.v16"
+	DefaultCatalogRevision = "2026-08-05.v17"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -38,7 +38,19 @@ type RouteContract struct {
 	QueryOptionalOperations []app.RouteOperation `json:"query_optional_operations,omitempty"`
 	RequireLocation         bool                 `json:"require_location,omitempty"`
 	RequireTarget           bool                 `json:"require_target,omitempty"`
+	TargetPolicy            RouteTargetPolicy    `json:"target_policy,omitempty"`
 	RequiredFacts           []string             `json:"required_facts,omitempty"`
+}
+
+type RouteTargetPolicy string
+
+const (
+	RouteTargetRouteBound                 RouteTargetPolicy = "route_bound"
+	RouteTargetRouteOrWorkflowPublicHTTPS RouteTargetPolicy = "route_or_workflow_public_https"
+)
+
+func (c RouteContract) AllowsWorkflowTargetResolution() bool {
+	return c.TargetPolicy == RouteTargetRouteOrWorkflowPublicHTTPS
 }
 
 type RouteOption struct {
@@ -132,11 +144,17 @@ func DefaultCatalog() (Catalog, error) {
 			Operations: []app.RouteOperation{app.RouteOperationRead}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, TargetKinds: []string{string(app.TargetKindLocation)},
 			RequireQuery: true, RequireLocation: true, RequireTarget: true, RequiredFacts: []string{"location_source"},
 		}),
-		leafRevision(string(app.CapabilityBrowserAutomation), "browser", "Open or focus an explicitly known URL in the managed browser.", app.BrowserWorkflowRevision2, RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url"}, RequireTarget: true, RequiredFacts: []string{"url"},
+		leafRevision(string(app.CapabilityBrowserAutomation), "browser", "Open or focus one explicit URL, registered destination, or named public website in the managed browser.", app.BrowserWorkflowRevision2, RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url", string(app.TargetKindPublicNamedTarget)}, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
+		}),
+		leaf(string(app.CapabilityBrowserPageRead), "browser", "Read and return bounded content from one explicit URL or named public page through managed headless Chromium.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url", string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
 		leafRevision(string(app.CapabilityBrowserInteraction), "browser", "Inspect a managed Chromium page and perform up to three verified clicks for one frozen interaction goal.", app.BrowserWorkflowRevision2, RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationInteract}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab)}, RequireQuery: true, RequireTarget: true,
+			Operations: []app.RouteOperation{app.RouteOperationInteract}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
+		}),
+		leaf(string(app.CapabilityBrowserFormDraft), "browser", "Fill or select reversible form draft values without clicking, submitting, sending, uploading, or entering credentials.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationDraft}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
 		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type, using optional OCR for verbatim in-image text and scanned PDF pages.", 4, RouteContract{
@@ -341,6 +359,9 @@ func validateNodeShape(node Node) error {
 		}
 		if node.Route.RequireTarget && len(node.Route.TargetKinds) == 0 {
 			return fmt.Errorf("capability leaf %q requires registered target kinds", node.ID)
+		}
+		if node.Route.TargetPolicy != "" && node.Route.TargetPolicy != RouteTargetRouteBound && node.Route.TargetPolicy != RouteTargetRouteOrWorkflowPublicHTTPS {
+			return fmt.Errorf("capability leaf %q has invalid target policy %q", node.ID, node.Route.TargetPolicy)
 		}
 		for _, operation := range node.Route.QueryOptionalOperations {
 			if !node.Route.RequireQuery || !slices.Contains(node.Route.Operations, operation) {

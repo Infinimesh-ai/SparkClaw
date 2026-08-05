@@ -87,6 +87,12 @@ func (r Runtime) validateWorkflowToolPlan(ctx context.Context, runID string, pla
 			return err
 		}
 	}
+	if plan.WorkflowID == app.WorkflowBrowserFormDraft &&
+		(plan.Capability == app.ToolCapabilityBrowserFormType || plan.Capability == app.ToolCapabilityBrowserFormSelect) {
+		if err := validateBrowserFormDraftPlan(run, plan); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -154,7 +160,7 @@ func toolDefinitionDeclaresArgument(definition app.ToolDefinition, argument stri
 func materializedWorkflowResourceKind(kind string) bool {
 	switch kind {
 	case "query", "location", "path", "weather_payload", "url", "browser_tab", "browser_page", "browser_snapshot",
-		"browser_before_snapshot", "browser_after_snapshot", "browser_result_url", "browser_click", "schedule", "schedule_patch":
+		"browser_before_snapshot", "browser_after_snapshot", "browser_result_url", "public_target_url", "browser_click", "browser_draft", "schedule", "schedule_patch":
 		return true
 	default:
 		return false
@@ -691,7 +697,7 @@ func (r Runtime) runWorkflowDirectTool(ctx context.Context, sessionID string, ru
 	if strings.TrimSpace(observation) != "" {
 		result.Observations = append(result.Observations, observation)
 	}
-	if stageContext.WorkflowID == app.WorkflowBrowserAutomation || stageContext.WorkflowID == app.WorkflowBrowserInteraction {
+	if isManagedBrowserWorkflow(stageContext.WorkflowID) {
 		goal := run.Workflow.Route.Slots.Query
 		if strings.TrimSpace(goal) == "" {
 			goal = run.Workflow.Route.Slots.TargetRef

@@ -620,6 +620,10 @@ func (e *agentBrowserSessionEntry) refreshSnapshotRefLocked(ctx context.Context,
 func (e *agentBrowserSessionEntry) invalidateSnapshotsLocked() {
 	e.snapshots = map[string]*agentBrowserSnapshotState{}
 	e.activeSnapshotPage = ""
+	e.pageGeneration++
+	if e.pageGeneration == 0 {
+		e.pageGeneration = 1
+	}
 }
 
 func agentBrowserRefNumber(value string) int {

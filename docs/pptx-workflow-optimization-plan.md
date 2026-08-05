@@ -18,7 +18,7 @@ without changing other document formats.
 
 PPTX remains inside the existing `document` capability branch. No PPTX
 top-level route, keyword fallback, generic presentation mutation tool, or
-second capability map was added. The Catalog revision is `2026-08-05.v16`, and
+second capability map was added. The Catalog revision is `2026-08-05.v17`, and
 the active edit profile is revision 6.
 
 ```text

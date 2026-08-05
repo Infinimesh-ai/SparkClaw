@@ -110,17 +110,6 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 		return app.RouteDecision{}, errors.New("semantic candidate no longer resolves to a Catalog route")
 	}
 	base.CapabilityPath = append([]app.CapabilityID(nil), candidate.CapabilityPath...)
-	if candidate.Capability == app.CapabilityBrowserInteraction {
-		intentLower := strings.ToLower(content)
-		for _, rawURL := range extractURLs(content) {
-			intentLower = strings.ReplaceAll(intentLower, strings.ToLower(rawURL), " ")
-		}
-		if unsupportedBrowserInteractionIntent(intentLower) {
-			base.Status = app.RouteBlocked
-			base.Reason = "browser_interaction_outside_registered_boundary"
-			return base, nil
-		}
-	}
 	base.Status = app.RouteMatched
 	base.Slots.Operation = candidate.Route.Operation
 	base.Slots.FactScope = candidate.Route.FactScope
@@ -133,6 +122,12 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 			if slices.Contains(node.Route.TargetKinds, target.Kind) {
 				compatible = append(compatible, target)
 			}
+		}
+		if len(compatible) == 0 && node.Route.AllowsWorkflowTargetResolution() {
+			compatible = append(compatible, groundedTarget{
+				Kind: string(app.TargetKindPublicNamedTarget), Ref: strings.TrimSpace(content),
+				Facts: map[string]string{"browser_target_source": "owner_named_public_target"},
+			})
 		}
 		if len(compatible) != 1 {
 			base.Status = app.RouteClarify
@@ -197,6 +192,12 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 		if target.Kind == string(app.TargetKindLocation) {
 			base.Slots.Location, base.Slots.Format = target.Ref, "image"
 		}
+	}
+	if isManagedBrowserWorkflow(candidate.Workflow.ID) && asksForBrowserScreenshot(content) {
+		if base.Facts == nil {
+			base.Facts = map[string]string{}
+		}
+		base.Facts["browser_visual_reason"] = "owner_requested"
 	}
 	if err := r.capabilities.ValidateDecision(base); err != nil {
 		return app.RouteDecision{}, err

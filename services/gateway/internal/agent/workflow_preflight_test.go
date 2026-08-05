@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -93,7 +94,7 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 		{request: "Append a row to report.xlsx", format: app.DocumentFormatXLSX, operation: "append_row", tool: "xlsx.append_row", output: "report-sparkclaw-edit.xlsx"},
 		{request: "Insert a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "insert_row", tool: "xlsx.insert_row", output: "report-sparkclaw-edit.xlsx"},
 		{request: "Delete a row in report.xlsx", format: app.DocumentFormatXLSX, operation: "delete_row", tool: "xlsx.delete_row", output: "report-sparkclaw-edit.xlsx"},
-		{request: "Replace text in report.pptx", format: app.DocumentFormatPPTX, operation: "replace_text", tool: "office.replace_text", output: "report-sparkclaw-edit.pptx"},
+		{request: "Replace text in report.pptx", format: app.DocumentFormatPPTX, operation: "replace_text", tool: "pptx.replace_text", output: "report-sparkclaw-edit.pptx"},
 		{request: "Improve slide 3 in report.pptx", format: app.DocumentFormatPPTX, operation: "update_slide", tool: "pptx.update_slide", output: "report-sparkclaw-edit.pptx"},
 		{request: "Rotate pages in report.pdf", format: app.DocumentFormatPDF, operation: "rotate_pages", tool: "pdf.transform", output: "report-sparkclaw-edit.pdf"},
 	} {
@@ -136,6 +137,42 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 				decision.OutcomeRefs[0].Attributes[app.CapabilityQualifierFormat] != test.format ||
 				decision.OutcomeRefs[0].Attributes[app.CapabilityQualifierOperation] != test.operation {
 				t.Fatalf("edit operation decision was not persisted with exact qualifiers: %#v", decision)
+			}
+		})
+	}
+}
+
+func TestPDFTransformMaterializesOperationSpecificSchemas(t *testing.T) {
+	definitions := []app.ToolDefinition{{Name: "pdf.transform", InputSchema: map[string]any{"type": "object"}}}
+	for _, test := range []struct {
+		operation      string
+		wantRequired   []string
+		wantProperties []string
+	}{
+		{operation: "extract_pages", wantRequired: []string{"operation", "output_path", "pages", "path"}, wantProperties: []string{"operation", "output_path", "pages", "path"}},
+		{operation: "delete_pages", wantRequired: []string{"operation", "output_path", "pages", "path"}, wantProperties: []string{"operation", "output_path", "pages", "path"}},
+		{operation: "rotate_pages", wantRequired: []string{"operation", "output_path", "pages", "path", "rotation"}, wantProperties: []string{"operation", "output_path", "pages", "path", "rotation"}},
+		{operation: "split", wantRequired: []string{"operation", "output_path", "path"}, wantProperties: []string{"operation", "output_path", "path"}},
+	} {
+		t.Run(test.operation, func(t *testing.T) {
+			entryID := app.ToolDirectoryEntryID("entry_pdf_" + test.operation)
+			view := app.DirectoryView{Entries: []app.ToolDirectoryEntry{{
+				ID: entryID,
+				Capability: app.CapabilityDescriptor{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{
+					app.CapabilityQualifierFormat: app.DocumentFormatPDF, app.CapabilityQualifierOperation: test.operation,
+				}},
+			}}}
+			projected := materializePDFTransformSchemas(definitions, view, []app.ToolDirectoryEntryID{entryID})
+			schema := projected[0].InputSchema
+			required := toolDefinitionRequiredArgs(schema)
+			properties := toolDefinitionPropertyNames(schema)
+			slices.Sort(required)
+			if !slices.Equal(required, test.wantRequired) || !slices.Equal(properties, test.wantProperties) || schema["additionalProperties"] != false {
+				t.Fatalf("unexpected %s schema: %#v", test.operation, schema)
+			}
+			operationSchema := schema["properties"].(map[string]any)["operation"].(map[string]any)
+			if values := operationSchema["enum"].([]any); len(values) != 1 || values[0] != test.operation {
+				t.Fatalf("operation enum was not narrowed: %#v", operationSchema)
 			}
 		})
 	}
@@ -211,11 +248,11 @@ func TestDocumentEditRejectsOperationContradictingMaterializedQualifier(t *testi
 		Capability: app.ToolCapabilityDocumentEdit,
 		Args:       map[string]any{"path": "report.pdf", "output_path": "report-sparkclaw-edit.pdf", "operation": "rotate_pages"},
 	}
-	if err := runtime.validateWorkflowToolPlan(dispatch.Run.ID, plan, definition); err != nil {
+	if err := runtime.validateWorkflowToolPlan(context.Background(), dispatch.Run.ID, plan, definition); err != nil {
 		t.Fatalf("matching PDF operation was rejected: %v", err)
 	}
 	plan.Args["operation"] = "delete_pages"
-	if err := runtime.validateWorkflowToolPlan(dispatch.Run.ID, plan, definition); err == nil {
+	if err := runtime.validateWorkflowToolPlan(context.Background(), dispatch.Run.ID, plan, definition); err == nil {
 		t.Fatal("PDF operation escaped the materialized rotate_pages qualifier")
 	}
 }
@@ -244,7 +281,7 @@ func TestDocumentEditUsesSingleGovernedAttachmentPath(t *testing.T) {
 	}
 }
 
-func TestDocumentContentMutationRoutesToEditR4ThenSelectsXLSXEditor(t *testing.T) {
+func TestDocumentContentMutationRoutesToEditR6ThenSelectsXLSXEditor(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "uploads", "people.xlsx")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -264,15 +301,15 @@ func TestDocumentContentMutationRoutesToEditR4ThenSelectsXLSXEditor(t *testing.T
 	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
-		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r5: route=%#v fusion=%+v", route, routing.Fusion)
+		t.Fatalf("XLSX content mutation did not route to format-bounded document.edit r6: route=%#v fusion=%+v", route, routing.Fusion)
 	}
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}
 	dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), run, route, app.ReturnRoute{Mode: app.ReturnToSource}, "turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.Revision() != 5 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
-		t.Fatalf("XLSX edit did not start in document.edit r5 evidence stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
+	if dispatch.Profile.Revision() != 6 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
+		t.Fatalf("XLSX edit did not start in document.edit r6 evidence stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "xlsx.append_row", "append_row")
 	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "xlsx.append_row" {
@@ -303,7 +340,7 @@ func TestXLSXMutationSynonymsDoNotFreezeConcreteOperations(t *testing.T) {
 		}
 		if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 			route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
-			t.Fatalf("XLSX mutation synonym escaped generic document.edit r5 routing for %q: %#v", request, route)
+			t.Fatalf("XLSX mutation synonym escaped generic document.edit r6 routing for %q: %#v", request, route)
 		}
 	}
 }
@@ -327,7 +364,7 @@ func TestDocumentRoutingKeepsReadOnlyAndFileLifecycleOutsideEditR2(t *testing.T)
 			t.Fatal(err)
 		}
 		if route.Status == app.RouteMatched && len(route.CapabilityPath) > 1 && route.CapabilityPath[1] == app.CapabilityDocumentEdit {
-			t.Fatalf("file lifecycle request entered document.edit r5 for %q: %#v", request, route)
+			t.Fatalf("file lifecycle request entered document.edit r6 for %q: %#v", request, route)
 		}
 	}
 }
@@ -371,7 +408,7 @@ func TestUnsupportedDocumentContentMutationStillRoutesToEditR2(t *testing.T) {
 	}
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatPDF || route.Facts["document_operation"] != "" {
-		t.Fatalf("unsupported PDF content mutation degraded outside document.edit r5: %#v", route)
+		t.Fatalf("unsupported PDF content mutation degraded outside document.edit r6: %#v", route)
 	}
 }
 

@@ -74,6 +74,90 @@ def shape_line(shape):
     except Exception:
         return {"color": "", "width": 0}
 
+def length_pt(value):
+    try:
+        return round(float(value.pt), 2) if value is not None else None
+    except Exception:
+        return None
+
+def paragraph_bullet(paragraph):
+    try:
+        properties = paragraph._p.pPr
+        if properties is None:
+            return {"state": "inherited"}
+        for child in properties:
+            tag = str(child.tag)
+            if tag.endswith("}buNone"):
+                return {"state": "none"}
+            if tag.endswith("}buChar"):
+                return {"state": "character", "character": str(child.get("char") or "")}
+            if tag.endswith("}buAutoNum"):
+                return {"state": "auto_number", "scheme": str(child.get("type") or "")}
+        return {"state": "inherited"}
+    except Exception:
+        return {"state": "unknown"}
+
+def run_hyperlink(run):
+    try:
+        return str(run.hyperlink.address or "")
+    except Exception:
+        return ""
+
+def run_style(run):
+    font = run.font
+    properties = run._r.get_or_add_rPr()
+    return {
+        "font_name": str(font.name or ""),
+        "font_size_pt": length_pt(font.size),
+        "bold": font.bold,
+        "italic": font.italic,
+        "underline": enum_value(font.underline),
+        "font_color": color_value(font.color),
+        "language": str(properties.get("lang") or ""),
+        "alternative_language": str(properties.get("altLang") or ""),
+        "baseline": str(properties.get("baseline") or ""),
+        "hyperlink": run_hyperlink(run),
+    }
+
+def shape_text_structure(shape, slide_index, shape_index, path):
+    if not getattr(shape, "has_text_frame", False):
+        return {"editable": False, "paragraphs": [], "unsupported": ["no_text_frame"]}
+    paragraphs = []
+    unsupported = []
+    for paragraph_index, paragraph in enumerate(shape.text_frame.paragraphs, start=1):
+        runs = []
+        for run_index, run in enumerate(paragraph.runs, start=1):
+            runs.append({
+                "path": "%s.paragraph[%d].run[%d]" % (path, paragraph_index, run_index),
+                "index": run_index,
+                "text": str(run.text or ""),
+                "style": run_style(run),
+            })
+        fields = paragraph._p.xpath("./a:fld")
+        if fields:
+            unsupported.append("field")
+        paragraphs.append({
+            "path": "%s.paragraph[%d]" % (path, paragraph_index),
+            "index": paragraph_index,
+            "text": str(paragraph.text or ""),
+            "level": int(paragraph.level or 0),
+            "alignment": enum_value(paragraph.alignment),
+            "space_before_pt": length_pt(paragraph.space_before),
+            "space_after_pt": length_pt(paragraph.space_after),
+            "line_spacing": str(paragraph.line_spacing or ""),
+            "bullet": paragraph_bullet(paragraph),
+            "soft_breaks": len(paragraph._p.xpath("./a:br")),
+            "runs": runs,
+        })
+    return {
+        "path": path + ".text_frame",
+        "slide_index": slide_index,
+        "shape_index": shape_index,
+        "editable": len(unsupported) == 0,
+        "paragraphs": paragraphs,
+        "unsupported": sorted(set(unsupported)),
+    }
+
 def first_text_run(shape):
     if not getattr(shape, "has_text_frame", False):
         return None
@@ -149,6 +233,7 @@ def shape_text_style(shape):
 
 def layout_shape_record(slide_index, shape_index, path, shape, geometry, group_child_index=0):
     text = trim(shape.text) if getattr(shape, "has_text_frame", False) else ""
+    structure = shape_text_structure(shape, slide_index, shape_index, path)
     record = dict(geometry)
     record.update({
         "slide_index": slide_index,
@@ -160,9 +245,11 @@ def layout_shape_record(slide_index, shape_index, path, shape, geometry, group_c
         "fill": shape_fill(shape),
         "line": shape_line(shape),
         "text_style": shape_text_style(shape),
+        "editable": bool(text) and bool(structure.get("editable")) and not group_child_index,
     })
     if group_child_index:
         record["group_child_index"] = group_child_index
+        record["editable"] = False
     return record
 
 def vertical_center(record):
@@ -253,11 +340,42 @@ try:
     hyperlinks = []
     charts = []
     slide_layouts = []
+    layout_inventory = []
     layout_shapes = []
     companion_groups = []
     page_markers = []
     layout_warnings = []
     resource_keys = set()
+
+    representative_slides = {}
+    for slide_index, slide in enumerate(prs.slides, start=1):
+        try:
+            part_name = str(slide.slide_layout.part.partname)
+        except Exception:
+            part_name = ""
+        representative_slides.setdefault(part_name, []).append(slide_index)
+    for layout in prs.slide_layouts:
+        try:
+            part_name = str(layout.part.partname)
+        except Exception:
+            part_name = ""
+        placeholders = []
+        try:
+            for placeholder in layout.placeholders:
+                placeholders.append({
+                    "name": str(getattr(placeholder, "name", "") or ""),
+                    "placeholder_index": int(placeholder.placeholder_format.idx),
+                    "role": enum_value(placeholder.placeholder_format.type),
+                })
+        except Exception:
+            placeholders = []
+        layout_inventory.append({
+            "layout_ref": "layout:" + part_name,
+            "name": str(getattr(layout, "name", "") or ""),
+            "part_name": part_name,
+            "placeholder_roles": placeholders,
+            "representative_slide_refs": ["slide:%d" % value for value in representative_slides.get(part_name, [])[:3]],
+        })
 
     def register_picture(slide, slide_index, shape, shape_index, path, geometry):
         try:
@@ -337,7 +455,14 @@ try:
         except Exception:
             layout_name = ""
             layout_part = ""
-        slide_layouts.append({"slide_index": slide_index, "name": layout_name, "part_name": layout_part, "path": "presentation.slide[%d]" % slide_index})
+        layout_ref = "layout:" + layout_part
+        slide_layouts.append({
+            "slide_index": slide_index,
+            "layout_ref": layout_ref,
+            "name": layout_name,
+            "part_name": layout_part,
+            "path": "presentation.slide[%d]" % slide_index,
+        })
         for shape_index, shape in enumerate(slide.shapes, start=1):
             path = "presentation.slide[%d].shape[%d]" % (slide_index, shape_index)
             geometry = shape_geometry(shape, shape_index)
@@ -351,6 +476,7 @@ try:
                 charts.append(chart)
                 items.append(dict(chart, type="chart", shape_index=shape_index, path=path))
             if getattr(shape, "has_text_frame", False) and trim(shape.text):
+                text_structure = shape_text_structure(shape, slide_index, shape_index, path)
                 marker_match = page_marker_pattern.search(trim(shape.text))
                 if marker_match and int(shape.top) >= int(prs.slide_height * 0.75):
                     page_markers.append({
@@ -367,6 +493,8 @@ try:
                     "text": trim(shape.text),
                     "path": path,
                     "layout": geometry,
+                    "editable": bool(text_structure.get("editable")),
+                    "text_structure": text_structure,
                 })
             if getattr(shape, "has_table", False):
                 rows = []
@@ -382,14 +510,23 @@ try:
                         register_picture(slide, slide_index, child, shape_index, child_path, child_geometry)
                     collect_hyperlinks(child, slide_index, shape_index, child_path)
                     if getattr(child, "has_text_frame", False) and trim(child.text):
+                        child_structure = shape_text_structure(child, slide_index, shape_index, child_path)
                         items.append({
                             "shape_index": shape_index, "group_child_index": child_index, "parent_group": path,
                             "type": "text", "text": trim(child.text), "path": child_path, "layout": child_geometry, "editable": False,
+                            "text_structure": child_structure,
                         })
         slide_groups = derive_companion_groups(slide_index, slide_shape_records)
         layout_shapes.extend(slide_shape_records)
         companion_groups.extend(slide_groups)
-        slides.append({"index": slide_index, "layout_name": layout_name, "layout_part": layout_part, "items": items})
+        slides.append({
+            "index": slide_index,
+            "template_ref": "slide:%d" % slide_index,
+            "layout_ref": layout_ref,
+            "layout_name": layout_name,
+            "layout_part": layout_part,
+            "items": items,
+        })
         if items:
             append_line(lines, "Slide %d:" % slide_index)
             for item in items:
@@ -439,6 +576,7 @@ try:
                     "sections": [],
                     "page_settings": [{"part": "presentation", "width": int(prs.slide_width), "height": int(prs.slide_height)}],
                     "slide_layouts": slide_layouts,
+                    "layout_inventory": layout_inventory,
                     "merged_ranges": [],
                     "shapes": layout_shapes,
                     "companion_groups": companion_groups,
@@ -450,7 +588,7 @@ try:
             },
             "stats": {
                 "slides": len(slides), "images": len(images), "charts": len(charts), "notes": len(notes), "hyperlinks": len(hyperlinks),
-                "layout_shapes": len(layout_shapes), "companion_groups": len(companion_groups), "page_markers": len(page_markers),
+                "layout_shapes": len(layout_shapes), "slide_layouts": len(layout_inventory), "companion_groups": len(companion_groups), "page_markers": len(page_markers),
             }
         }
     }, ensure_ascii=False))

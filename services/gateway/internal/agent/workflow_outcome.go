@@ -186,9 +186,14 @@ func adaptWorkspaceReadOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	output, ok := anyMap(call.Result)
 	if ok && toolCallCompleted(call) {
-		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalContentAvailable}
+		coverage := projectDocumentReadCoverage(call, output)
+		contentAvailable := !coverage.Applies || coverage.CoverageStatus == "complete" ||
+			(coverage.CoverageStatus == "partial" && strings.TrimSpace(firstNonEmptyString(output["content"])) != "")
+		if contentAvailable {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalContentAvailable}
+		}
 		if path := firstNonEmptyString(output["rel_path"], output["path"]); path != "" {
-			outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: path, Provenance: call.ID}}
+			outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: path, Provenance: call.ID, Attributes: coverage.attributes()}}
 		}
 	}
 	return outcome

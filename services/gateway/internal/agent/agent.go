@@ -998,7 +998,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		r.store.SaveToolCall(call)
 		return call, nil, call.ObservationSummary
 	}
-	if err := r.validateWorkflowToolPlan(runID, plan, def); err != nil {
+	if err := r.validateWorkflowToolPlan(ctx, runID, plan, def); err != nil {
 		call.Status = "blocked"
 		call.Error = err.Error()
 		done := time.Now().UTC()
@@ -1088,7 +1088,11 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	call.Arguments, call.Result = r.redactBrowserToolPersistence(runID, call.Tool, call.Arguments, result.Output)
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
 	maxBytes, evidenceLimit := r.toolResultObservationBudget()
-	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
+	ownerRequest := ""
+	if run, exists := r.store.GetRun(runID); exists {
+		ownerRequest = requestContentForRun(r.store.ListMessages(run.SessionID), run)
+	}
+	call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, OwnerRequest: ownerRequest, MaxBytes: maxBytes, EvidenceLimit: evidenceLimit})
 	r.store.SaveToolCall(call)
 	r.recordDocumentToolActivity(call)
 	return call, nil, call.ObservationSummary
@@ -1362,6 +1366,9 @@ func quoteObservationField(value string, limit int) string {
 }
 
 func approvalSummary(name string, args map[string]any) string {
+	if strings.HasPrefix(name, "pptx.") {
+		return pptxApprovalSummary(name, args)
+	}
 	switch name {
 	case "shell.exec_sandboxed":
 		return "Run sandboxed shell command: " + stringValue(args["command"])

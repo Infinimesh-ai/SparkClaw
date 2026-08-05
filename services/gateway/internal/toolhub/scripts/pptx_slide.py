@@ -7,6 +7,7 @@ import re
 import sys
 try:
     from pptx import Presentation
+    from pptx.oxml.ns import qn
     from pptx.util import Pt
 except Exception:
     print(json.dumps({"error":"PPTX slide adapter requires python-pptx"}))
@@ -551,33 +552,131 @@ def page_marker_warnings(prs):
                 )
     return warnings
 
-def replace_text_preserving_style(shape, text):
-    text = re.sub(r"\r\n?|\v", "\n", str(text or ""))
-    if not text.strip():
-        raise ValueError("updated shape text must not be empty")
-    text_frame = shape.text_frame
-    paragraph = text_frame.paragraphs[0]
-    if paragraph.runs:
-        first_run = paragraph.runs[0]
-    else:
-        first_run = paragraph.add_run()
-    run_properties = copy.deepcopy(first_run._r.get_or_add_rPr())
-    for child in list(paragraph._p):
-        if child is first_run._r:
-            continue
-        if child.tag.endswith(("}r", "}br", "}fld")):
-            paragraph._p.remove(child)
+def paragraph_has_fields(paragraph):
+    return bool(paragraph._p.xpath("./a:fld"))
+
+def copy_run_properties(source, destination):
+    source_properties = copy.deepcopy(source._r.get_or_add_rPr())
+    current_properties = destination._r.get_or_add_rPr()
+    destination._r.remove(current_properties)
+    destination._r.insert(0, source_properties)
+
+def distribute_text_across_runs(paragraph, text):
+    runs = list(paragraph.runs)
+    if not runs:
+        runs = [paragraph.add_run()]
+    original_lengths = [len(run.text) for run in runs]
+    original_total = sum(original_lengths)
+    if original_total <= 0:
+        runs[0].text = text
+        for run in runs[1:]:
+            run.text = ""
+        return
+    boundaries = []
+    cumulative = 0
+    for length in original_lengths[:-1]:
+        cumulative += length
+        boundaries.append(round(len(text) * cumulative / original_total))
+    start = 0
+    for index, run in enumerate(runs):
+        end = boundaries[index] if index < len(boundaries) else len(text)
+        run.text = text[start:end]
+        start = end
+
+def distribute_replacement(text, weights):
+    total = sum(weights)
+    if total <= 0:
+        return [text] + [""] * (len(weights) - 1)
+    boundaries = []
+    cumulative = 0
+    for weight in weights[:-1]:
+        cumulative += weight
+        boundaries.append(round(len(text) * cumulative / total))
+    parts = []
+    left = 0
+    for index in range(len(weights)):
+        right = boundaries[index] if index < len(boundaries) else len(text)
+        parts.append(text[left:right])
+        left = right
+    return parts
+
+def replace_exact_span(shape, find, replacement):
+    if not find:
+        raise ValueError("exact_span update requires find")
+    matches = []
+    match_count = 0
+    for paragraph in shape.text_frame.paragraphs:
+        if paragraph_has_fields(paragraph):
+            raise ValueError("PPTX text fields are not editable without loss")
+        full = "".join(run.text for run in paragraph.runs)
+        count = full.count(find)
+        if count > 0:
+            match_count += count
+            matches.append((paragraph, full.find(find)))
+    if match_count != 1:
+        raise ValueError("exact_span find must match exactly once within one paragraph")
+    paragraph, start = matches[0]
+    runs = list(paragraph.runs)
+    if not runs:
+        raise ValueError("exact_span target has no editable runs")
+    end = start + len(find)
+    offsets = []
+    cursor = 0
+    for run in runs:
+        next_cursor = cursor + len(run.text)
+        offsets.append((cursor, next_cursor))
+        cursor = next_cursor
+    start_index = next(index for index, (_, right) in enumerate(offsets) if start < right)
+    end_index = next(index for index, (_, right) in enumerate(offsets) if end <= right)
+    start_left, _ = offsets[start_index]
+    end_left, _ = offsets[end_index]
+    prefix = runs[start_index].text[:start - start_left]
+    suffix = runs[end_index].text[end - end_left:]
+    affected = offsets[start_index:end_index + 1]
+    weights = [max(0, min(end, right) - max(start, left)) for left, right in affected]
+    parts = distribute_replacement(replacement, weights)
+    for offset, index in enumerate(range(start_index, end_index + 1)):
+        runs[index].text = (prefix if index == start_index else "") + parts[offset] + (suffix if index == end_index else "")
+
+def rewrite_shape_text(shape, text, break_mode):
+    paragraphs = list(shape.text_frame.paragraphs)
+    if any(paragraph_has_fields(paragraph) for paragraph in paragraphs):
+        raise ValueError("PPTX text fields are not editable without loss")
     lines = text.split("\n")
-    first_run.text = lines[0]
+    if len(paragraphs) > 1:
+        if break_mode != "paragraph" or len(lines) != len(paragraphs):
+            raise ValueError("multi-paragraph shapes require break_mode=paragraph and one line per existing paragraph")
+        for paragraph, line in zip(paragraphs, lines):
+            distribute_text_across_runs(paragraph, line)
+        return
+    paragraph = paragraphs[0]
+    for child in list(paragraph._p):
+        if child.tag.endswith("}br"):
+            paragraph._p.remove(child)
+    distribute_text_across_runs(paragraph, lines[0])
+    if len(lines) <= 1:
+        return
+    if break_mode != "soft_break":
+        raise ValueError("single-paragraph multiline text requires break_mode=soft_break")
+    source_run = paragraph.runs[-1] if paragraph.runs else paragraph.add_run()
     for line in lines[1:]:
         paragraph.add_line_break()
         run = paragraph.add_run()
-        current_properties = run._r.get_or_add_rPr()
-        run._r.remove(current_properties)
-        run._r.insert(0, copy.deepcopy(run_properties))
+        copy_run_properties(source_run, run)
         run.text = line
-    for extra_paragraph in list(text_frame.paragraphs[1:]):
-        extra_paragraph._p.getparent().remove(extra_paragraph._p)
+
+def replace_text_preserving_style(shape, update):
+    text = re.sub(r"\r\n?|\v", "\n", str(update.get("text") or ""))
+    if not text.strip():
+        raise ValueError("updated shape text must not be empty")
+    mode = normalized_text(update.get("mode") or "rewrite_shape").lower()
+    if mode == "exact_span":
+        replace_exact_span(shape, str(update.get("find") or ""), text)
+        return
+    if mode != "rewrite_shape":
+        raise ValueError("PPTX text update mode must be rewrite_shape or exact_span")
+    break_mode = normalized_text(update.get("break_mode") or ("paragraph" if len(shape.text_frame.paragraphs) > 1 else "soft_break")).lower()
+    rewrite_shape_text(shape, text, break_mode)
 
 def update_slide(prs, slide, updates, layout_policy):
     if not isinstance(updates, list) or not updates:
@@ -603,7 +702,7 @@ def update_slide(prs, slide, updates, layout_policy):
         current = normalized_text(shape.text)
         if not expected or current != expected:
             raise ValueError("old_text does not match slide shape %s" % shape_index)
-        replace_text_preserving_style(shape, update.get("text"))
+        replace_text_preserving_style(shape, update)
 
     band_groups = derive_band_groups(slide)
     card_groups = derive_card_groups(slide)
@@ -657,23 +756,57 @@ def update_slide(prs, slide, updates, layout_policy):
         "companion_groups_used": len(coordinated_bands) + len(coordinated_cards),
     }
 
-def duplicate_slide(prs, idx):
+def move_last_slide_after(prs, after_slide_index):
+    if after_slide_index < 0 or after_slide_index >= len(prs.slides):
+        raise ValueError("after_slide_index out of range: %s" % after_slide_index)
+    slide_id_list = prs.slides._sldIdLst
+    new_slide_id = slide_id_list[-1]
+    slide_id_list.remove(new_slide_id)
+    slide_id_list.insert(after_slide_index, new_slide_id)
+
+def duplicate_slide(prs, idx, after_slide_index=None):
     source = slide_at(prs, idx)
+    if getattr(source, "has_notes_slide", False) and normalized_text(source.notes_slide.notes_text_frame.text):
+        raise ValueError("template or duplicate slide contains speaker notes, which cannot be cloned without loss")
     dest = prs.slides.add_slide(source.slide_layout)
-    for shape in source.shapes:
-        dest.shapes._spTree.insert_element_before(copy.deepcopy(shape.element), 'p:extLst')
+    for shape in list(dest.shapes):
+        element = shape.element
+        element.getparent().remove(element)
+    relationship_ids = {}
     for rel in source.part.rels.values():
         if "notesSlide" in rel.reltype or "slideLayout" in rel.reltype:
             continue
         if rel.is_external:
-            dest.part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
+            relationship_ids[rel.rId] = dest.part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
         else:
-            dest.part.rels.get_or_add(rel.reltype, rel._target)
-    slide_id_list = prs.slides._sldIdLst
-    new_slide_id = slide_id_list[-1]
-    slide_id_list.remove(new_slide_id)
-    slide_id_list.insert(idx, new_slide_id)
+            relationship_ids[rel.rId] = dest.part.rels.get_or_add(rel.reltype, rel._target)
+    relationship_attributes = (qn("r:embed"), qn("r:link"), qn("r:id"))
+    for shape in source.shapes:
+        element = copy.deepcopy(shape.element)
+        for child in element.iter():
+            for attribute in relationship_attributes:
+                old_id = child.get(attribute)
+                if old_id in relationship_ids:
+                    child.set(attribute, relationship_ids[old_id])
+        dest.shapes._spTree.insert_element_before(element, 'p:extLst')
+    if after_slide_index is None:
+        after_slide_index = idx
+    move_last_slide_after(prs, after_slide_index)
     return dest
+
+def layout_for_ref(prs, layout_ref):
+    for layout in prs.slide_layouts:
+        if "layout:" + str(layout.part.partname) == layout_ref:
+            return layout
+    raise ValueError("layout_ref is stale or does not belong to the current presentation")
+
+def slide_index_for_ref(prs, slide_ref):
+    match = re.fullmatch(r"slide:([1-9][0-9]*)", str(slide_ref or ""))
+    if not match:
+        raise ValueError("template_slide_ref is invalid")
+    index = int(match.group(1))
+    slide_at(prs, index)
+    return index
 
 try:
     prs = Presentation(req["path"])
@@ -684,32 +817,84 @@ try:
         "output_path": req["output_path"]
     }
     if op == "add_slide":
-        layout_index = int(req.get("layout_index") or 0)
-        if layout_index < 0 or layout_index >= len(prs.slide_layouts):
-            raise ValueError("layout_index out of range: %s" % layout_index)
-        slide = prs.slides.add_slide(prs.slide_layouts[layout_index])
-        fill_text_placeholders(slide, req.get("title"), req.get("body"))
-        result["slide_index"] = len(prs.slides)
-        result["layout_index"] = layout_index
+        before_count = len(prs.slides)
+        after_slide_index = int(req.get("after_slide_index") or before_count)
+        if after_slide_index < 1 or after_slide_index > before_count:
+            raise ValueError("after_slide_index out of range: %s" % after_slide_index)
+        layout_ref = str(req.get("layout_ref") or "")
+        template_slide_ref = str(req.get("template_slide_ref") or "")
+        if bool(layout_ref) == bool(template_slide_ref):
+            raise ValueError("exactly one of layout_ref or template_slide_ref is required")
+        if template_slide_ref:
+            template_index = slide_index_for_ref(prs, template_slide_ref)
+            slide = duplicate_slide(prs, template_index, after_slide_index)
+            updates = req.get("template_updates") or []
+            if updates:
+                result.update(update_slide(prs, slide, updates, req.get("layout_policy") or "coordinated"))
+            result["template_slide_ref"] = template_slide_ref
+        else:
+            slide = prs.slides.add_slide(layout_for_ref(prs, layout_ref))
+            move_last_slide_after(prs, after_slide_index)
+            fill_text_placeholders(slide, req.get("title"), req.get("body"))
+            result["layout_ref"] = layout_ref
+        result["slide_index"] = after_slide_index + 1
+        result["inserted_slide_index"] = after_slide_index + 1
+        result["after_slide_index"] = after_slide_index
         result["title"] = str(req.get("title") or "")
         result["body"] = str(req.get("body") or "")
+        result["warnings"] = page_marker_warnings(prs)
     elif op == "update_slide":
         idx = positive_index(req.get("slide_index"), "slide_index")
         slide = slide_at(prs, idx)
         result.update(update_slide(prs, slide, req.get("updates"), req.get("layout_policy")))
         result["warnings"] = page_marker_warnings(prs)
         result["slide_index"] = idx
+    elif op == "update_deck":
+        slide_updates = req.get("slide_updates") or []
+        if not isinstance(slide_updates, list) or not slide_updates:
+            raise ValueError("slide_updates must be a non-empty array")
+        seen_slides = set()
+        aggregate = {
+            "updated_slides": 0, "updated_shapes": 0, "wrapped_shapes": 0,
+            "layout_adjusted_shapes": 0, "companion_groups_used": 0,
+            "slide_indexes": [], "wrapped_shape_indexes": [],
+            "layout_adjusted_shape_indexes": [], "layout_adjusted_targets": [],
+            "layout_changes": [], "layout_checks": {},
+        }
+        for slide_update in slide_updates:
+            if not isinstance(slide_update, dict):
+                raise ValueError("each slide_updates item must be an object")
+            idx = positive_index(slide_update.get("slide_index"), "slide_index")
+            if idx in seen_slides:
+                raise ValueError("slide_index is duplicated: %s" % idx)
+            seen_slides.add(idx)
+            current = update_slide(prs, slide_at(prs, idx), slide_update.get("updates"), slide_update.get("layout_policy") or "coordinated")
+            aggregate["updated_slides"] += 1
+            aggregate["slide_indexes"].append(idx)
+            for key in ("updated_shapes", "wrapped_shapes", "layout_adjusted_shapes", "companion_groups_used"):
+                aggregate[key] += int(current.get(key) or 0)
+            aggregate["wrapped_shape_indexes"].extend(current.get("wrapped_shape_indexes") or [])
+            aggregate["layout_adjusted_shape_indexes"].extend(current.get("layout_adjusted_shape_indexes") or [])
+            for shape_index in current.get("layout_adjusted_shape_indexes") or []:
+                aggregate["layout_adjusted_targets"].append({"slide_index": idx, "shape_index": shape_index})
+            for change in current.get("layout_changes") or []:
+                aggregate["layout_changes"].append(dict(change, slide_index=idx))
+            aggregate["layout_checks"]["slide:%d" % idx] = current.get("layout_checks") or {}
+        aggregate["warnings"] = page_marker_warnings(prs)
+        result.update(aggregate)
     elif op == "duplicate_slide":
         idx = positive_index(req.get("slide_index"), "slide_index")
         duplicate_slide(prs, idx)
         result["slide_index"] = idx
         result["inserted_slide_index"] = idx + 1
+        result["warnings"] = page_marker_warnings(prs)
     elif op == "delete_slide":
         idx = positive_index(req.get("slide_index"), "slide_index")
         if len(prs.slides) <= 1:
             raise ValueError("cannot delete the only slide")
         delete_slide(prs, idx)
         result["slide_index"] = idx
+        result["warnings"] = page_marker_warnings(prs)
     else:
         raise ValueError("unsupported pptx operation: %s" % op)
     os.makedirs(os.path.dirname(req["output_path"]), exist_ok=True)

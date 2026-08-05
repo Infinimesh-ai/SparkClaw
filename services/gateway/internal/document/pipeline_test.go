@@ -287,4 +287,11 @@ func TestMergedRangeBeforeCoordinatesMapsStructuralRowChanges(t *testing.T) {
 	if got := mergedRangeBeforeCoordinates("A2:B3", deleteRequest); got != "A3:B4" {
 		t.Fatalf("deleted-row range was not mapped to its original identity: %q", got)
 	}
+	scopedInsert := EditRequest{Operation: "insert_row", Arguments: map[string]any{"sheet": "Data", "row": 2, "position": "before"}}
+	if got := xlsxMergedRangeBeforeCoordinates(map[string]any{"sheet": "Reference", "range": "A3:B4"}, scopedInsert); got != "A3:B4" {
+		t.Fatalf("insert-row changed unrelated-sheet merged range coordinates: %q", got)
+	}
+	if got := xlsxMergedRangeBeforeCoordinates(map[string]any{"sheet": "data", "range": "A3:B4"}, scopedInsert); got != "A2:B3" {
+		t.Fatalf("insert-row did not normalize target-sheet merged range coordinates: %q", got)
+	}
 }

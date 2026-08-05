@@ -1,0 +1,125 @@
+package toolhub
+
+import (
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+)
+
+const pptxEditTimeoutMS = 125000
+
+func pptxToolDefinitions() []app.ToolDefinition {
+	return []app.ToolDefinition{
+		pptxToolDefinition("pptx.replace_text", "Replace exact evidence-bound PPTX text spans while preserving paragraph and run formatting, then write a new PPTX file.", []string{"path", "replacements", "output_path"}, map[string]any{
+			"path": stringSchema(),
+			"replacements": arraySchema(strictObjectSchema([]string{"find", "replace"}, map[string]any{
+				"find": stringSchema(), "replace": stringSchema(),
+			})),
+			"expected_replacements": integerSchema(),
+			"output_path":           stringSchema(),
+		}),
+		pptxToolDefinition("pptx.add_slide", "Add one PPTX slide from a current-read layout_ref or template_slide_ref at an evidence-bound position, optionally applying template text updates atomically.", []string{"path", "output_path"}, map[string]any{
+			"path":               stringSchema(),
+			"layout_ref":         stringSchema(),
+			"template_slide_ref": stringSchema(),
+			"after_slide_index":  integerSchema(),
+			"title":              stringSchema(),
+			"body":               stringSchema(),
+			"template_updates":   arraySchema(pptxTextUpdateSchema()),
+			"output_path":        stringSchema(),
+		}),
+		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating one or more selected text shapes from files.read evidence. Replacement text may contain line breaks. Use layout_policy=coordinated so wrapping, text-box height, verified companion backgrounds, and peer rows or cards adapt together; use preserve only when existing geometry already fits. Runtime owns layout changes. Never submit a whole slide as one replacement.", []string{"path", "slide_index", "updates", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"slide_index": integerSchema(),
+			"layout_policy": map[string]any{
+				"type": "string", "enum": []string{"preserve", "coordinated"},
+			},
+			"updates":     arraySchema(pptxTextUpdateSchema()),
+			"output_path": stringSchema(),
+		}),
+		pptxToolDefinition("pptx.update_deck", "Atomically update a bounded whole PPTX deck through current-read slide and shape evidence; partial deck writes are forbidden.", []string{"path", "slide_updates", "output_path"}, map[string]any{
+			"path": stringSchema(),
+			"slide_updates": map[string]any{
+				"type": "array", "minItems": float64(1), "maxItems": float64(document.PPTXWholeDeckMaxSlides),
+				"items": strictObjectSchema([]string{"slide_index", "updates"}, map[string]any{
+					"slide_index": integerSchema(),
+					"layout_policy": map[string]any{
+						"type": "string", "enum": []string{"preserve", "coordinated"},
+					},
+					"updates": arraySchema(pptxTextUpdateSchema()),
+				}),
+			},
+			"output_path": stringSchema(),
+		}),
+		pptxToolDefinition("pptx.duplicate_slide", "Duplicate one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"slide_index": integerSchema(),
+			"output_path": stringSchema(),
+		}),
+		pptxToolDefinition("pptx.delete_slide", "Delete one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "slide_index", "output_path"}, map[string]any{
+			"path":        stringSchema(),
+			"slide_index": integerSchema(),
+			"output_path": stringSchema(),
+		}),
+	}
+}
+
+func pptxTextUpdateSchema() map[string]any {
+	return strictObjectSchema([]string{"shape_index", "old_text", "text"}, map[string]any{
+		"shape_index": integerSchema(),
+		"old_text":    stringSchema(),
+		"text":        stringSchema(),
+		"mode": map[string]any{
+			"type": "string", "enum": []string{"rewrite_shape", "exact_span"},
+		},
+		"find": stringSchema(),
+		"break_mode": map[string]any{
+			"type": "string", "enum": []string{"soft_break", "paragraph"},
+		},
+	})
+}
+
+func pptxToolDefinition(name, description string, required []string, input map[string]any) app.ToolDefinition {
+	return app.ToolDefinition{
+		Name:        name,
+		Description: description,
+		InputSchema: schema("object", required, input),
+		OutputSchema: objectSchema([]string{"status", "operation", "path", "output_path", "bytes", "slides", "change_summary", "untrusted"}, map[string]any{
+			"status":                        stringSchema(),
+			"operation":                     stringSchema(),
+			"path":                          stringSchema(),
+			"output_path":                   stringSchema(),
+			"bytes":                         integerSchema(),
+			"slides":                        integerSchema(),
+			"slide_index":                   integerSchema(),
+			"inserted_slide_index":          integerSchema(),
+			"after_slide_index":             integerSchema(),
+			"layout_index":                  integerSchema(),
+			"layout_ref":                    stringSchema(),
+			"template_slide_ref":            stringSchema(),
+			"title":                         stringSchema(),
+			"body":                          stringSchema(),
+			"updated_slides":                integerSchema(),
+			"slide_indexes":                 arraySchema(integerSchema()),
+			"updated_shapes":                integerSchema(),
+			"fitted_shapes":                 integerSchema(),
+			"wrapped_shapes":                integerSchema(),
+			"wrapped_shape_indexes":         arraySchema(integerSchema()),
+			"layout_policy":                 stringSchema(),
+			"layout_adjusted_shapes":        integerSchema(),
+			"change_summary":                objectValueSchema(),
+			"layout_adjusted_shape_indexes": arraySchema(integerSchema()),
+			"layout_changes":                arraySchema(objectValueSchema()),
+			"layout_adjusted_targets":       arraySchema(objectValueSchema()),
+			"layout_checks":                 objectValueSchema(),
+			"companion_groups_used":         integerSchema(),
+			"warnings":                      stringArraySchema(),
+			"untrusted":                     booleanSchema(),
+		}),
+		Risk:             app.RiskReversible,
+		RequiresApproval: true,
+		Idempotent:       false,
+		TimeoutMS:        pptxEditTimeoutMS,
+		Sandbox:          "optional",
+		Audit:            "always",
+	}
+}

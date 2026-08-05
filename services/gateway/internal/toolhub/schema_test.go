@@ -520,9 +520,10 @@ func writeTestJPEG(path string, width, height int) error {
 }
 
 func TestValidateInputAllowsVerifierMetadataForApprovalArguments(t *testing.T) {
-	hub := New(config.Default(), store.NewMemoryStore())
-
-	err := hub.Validate("shell.exec_sandboxed", map[string]any{
+	definition := app.ToolDefinition{
+		Name: "strict.approval", InputSchema: strictObjectSchema([]string{"command"}, map[string]any{"command": stringSchema()}),
+	}
+	err := validateInput(definition, map[string]any{
 		"command": "ls -la",
 		"_verifier": app.VerifierDecision{
 			Verdict: "ask_user",
@@ -530,6 +531,9 @@ func TestValidateInputAllowsVerifierMetadataForApprovalArguments(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := validateInput(definition, map[string]any{"command": "ls -la", "invented": true}); err == nil {
+		t.Fatal("strict approval schema accepted non-verifier metadata")
 	}
 }
 
@@ -801,14 +805,12 @@ func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
 		t.Fatalf("expected full read blocks, got %#v", document)
 	}
 	location := blocks[1].(map[string]any)["location"].(map[string]any)
+	sourceSHA := document["metadata"].(map[string]any)["sha256"].(string)
 
 	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path":        "note.docx",
-		"location":    location,
-		"old_text":    "Second paragraph",
-		"source_hash": sourceHash("Second paragraph"),
-		"text":        "Replaced by location",
-		"output_path": "outputs/location-replaced.docx",
+		"path": "note.docx", "source_document_sha256": sourceSHA,
+		"location": location, "old_text": "Second paragraph", "source_hash": sourceHash("Second paragraph"),
+		"text": "Replaced by location", "output_path": "outputs/location-replaced.docx",
 	}, "s", "run")
 	if err != nil {
 		t.Fatal(err)
@@ -827,12 +829,9 @@ func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
 	}
 
 	_, err = hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path":        "note.docx",
-		"location":    location,
-		"old_text":    "Wrong paragraph",
-		"source_hash": sourceHash("Second paragraph"),
-		"text":        "Should not be written",
-		"output_path": "outputs/location-mismatch.docx",
+		"path": "note.docx", "source_document_sha256": sourceSHA,
+		"location": location, "old_text": "Wrong paragraph", "source_hash": sourceHash("Second paragraph"),
+		"text": "Should not be written", "output_path": "outputs/location-mismatch.docx",
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "old_text mismatch") {
 		t.Fatalf("expected old_text preflight mismatch, got %v", err)
@@ -867,9 +866,8 @@ doc.save(root / "table.docx")
 	blocks := document["blocks"].([]any)
 	location := blocks[0].(map[string]any)["location"].(map[string]any)
 	_, err = hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
-		"path":        "table.docx",
-		"location":    location,
-		"output_path": "outputs/deleted.docx",
+		"path": "table.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "table.docx"),
+		"location": location, "old_text": "Cell A", "source_hash": sourceHash("Cell A"), "output_path": "outputs/deleted.docx",
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "only top-level paragraph locations are currently editable") {
 		t.Fatalf("expected table cell location rejection, got %v", err)
@@ -964,7 +962,7 @@ func TestOfficeReplaceTextRequiresMappedLibrary(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
-		"path":        "note.docx",
+		"path": "note.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "note.docx"),
 		"output_path": "outputs/note.edited.docx",
 		"replacements": []any{
 			map[string]any{"find": "Alpha", "replace": "Beta"},
@@ -987,6 +985,7 @@ func TestDocxParagraphToolsWriteNewVersions(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
+	sourceSHA := docxSourceSHA256ForTest(t, root, "note.docx")
 
 	cases := []struct {
 		tool string
@@ -996,42 +995,53 @@ func TestDocxParagraphToolsWriteNewVersions(t *testing.T) {
 		{
 			tool: "docx.replace_paragraph",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 2,
-				"old_text":        "Second paragraph",
-				"source_hash":     sourceHash("Second paragraph"),
-				"text":            "Replaced second paragraph",
-				"output_path":     "outputs/replaced.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        2,
+				"old_text":               "Second paragraph",
+				"source_hash":            sourceHash("Second paragraph"),
+				"text":                   "Replaced second paragraph",
+				"output_path":            "outputs/replaced.docx",
 			},
 			want: "Replaced second paragraph",
 		},
 		{
 			tool: "docx.insert_paragraph",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 1,
-				"position":        "after",
-				"text":            "Inserted after first",
-				"output_path":     "outputs/inserted.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        1,
+				"position":               "after",
+				"old_text":               "First paragraph",
+				"source_hash":            sourceHash("First paragraph"),
+				"text":                   "Inserted after first",
+				"output_path":            "outputs/inserted.docx",
 			},
 			want: "Inserted after first",
 		},
 		{
 			tool: "docx.delete_paragraph",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 2,
-				"output_path":     "outputs/deleted.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        2,
+				"old_text":               "Second paragraph",
+				"source_hash":            sourceHash("Second paragraph"),
+				"output_path":            "outputs/deleted.docx",
 			},
 			want: "First paragraph",
 		},
 		{
 			tool: "docx.set_text_style",
 			args: map[string]any{
-				"path":            "note.docx",
-				"paragraph_index": 1,
-				"style":           map[string]any{"builtin_style": "Heading 1", "bold": true, "font_size_pt": 18},
-				"output_path":     "outputs/styled.docx",
+				"path":                   "note.docx",
+				"source_document_sha256": sourceSHA,
+				"paragraph_index":        1,
+				"old_text":               "First paragraph",
+				"source_hash":            sourceHash("First paragraph"),
+				"before_format_sha256":   "direct-toolhub-preflight",
+				"style":                  map[string]any{"builtin_style": "Heading 1", "bold": true, "font_size_pt": 18},
+				"output_path":            "outputs/styled.docx",
 			},
 			want: "First paragraph",
 		},
@@ -1071,9 +1081,12 @@ func TestDocxParagraphToolRejectsOutOfRangeParagraph(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
-		"path":            "note.docx",
-		"paragraph_index": 99,
-		"output_path":     "outputs/deleted.docx",
+		"path":                   "note.docx",
+		"source_document_sha256": docxSourceSHA256ForTest(t, root, "note.docx"),
+		"paragraph_index":        99,
+		"old_text":               "Only paragraph",
+		"source_hash":            sourceHash("Only paragraph"),
+		"output_path":            "outputs/deleted.docx",
 	}, "s", "run")
 	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
 		t.Fatalf("expected typed paragraph target error, got %v", err)
@@ -1098,11 +1111,11 @@ func TestPptxSlideToolsWriteNewVersions(t *testing.T) {
 		{
 			tool: "pptx.add_slide",
 			args: map[string]any{
-				"path":         "deck.pptx",
-				"layout_index": 1,
-				"title":        "Added slide",
-				"body":         "Added body",
-				"output_path":  "outputs/added.pptx",
+				"path":        "deck.pptx",
+				"layout_ref":  "layout:/ppt/slideLayouts/slideLayout2.xml",
+				"title":       "Added slide",
+				"body":        "Added body",
+				"output_path": "outputs/added.pptx",
 			},
 			wantSlides: 3,
 			wantText:   "Added slide",
@@ -1613,6 +1626,12 @@ func TestXlsxStructureToolsWriteNewVersions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
+			evidence := executeDocumentRead(t, hub, "book.xlsx")
+			operation := strings.TrimPrefix(tc.tool, "xlsx.")
+			bound := xlsxBoundTestArgs(t, evidence, stringArg(tc.args, "sheet", ""), operation, intArg(tc.args, "row", 0), stringArg(tc.args, "cell", ""))
+			for key, value := range bound {
+				tc.args[key] = value
+			}
 			result, err := hub.Execute(context.Background(), tc.tool, tc.args, "s", "run")
 			if err != nil {
 				t.Fatal(err)
@@ -1650,12 +1669,16 @@ func TestXlsxStructureToolRejectsMissingSheet(t *testing.T) {
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
 
+	read := executeDocumentRead(t, hub, "book.xlsx")
+	metadata := read["document"].(map[string]any)["metadata"].(map[string]any)
 	_, err := hub.Execute(context.Background(), "xlsx.update_cell", map[string]any{
-		"path":        "book.xlsx",
-		"sheet":       "Missing",
-		"cell":        "A1",
-		"value":       "x",
-		"output_path": "outputs/missing.xlsx",
+		"path":             "book.xlsx",
+		"source_sha256":    metadata["sha256"],
+		"sheet":            "Missing",
+		"cell":             "A1",
+		"source_cell_hash": "sha256:unresolved",
+		"value":            "x",
+		"output_path":      "outputs/missing.xlsx",
 	}, "s", "run")
 	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
 		t.Fatalf("expected typed missing-sheet target error, got %v", err)
@@ -1670,22 +1693,29 @@ func TestXlsxStructureToolRejectsInvalidCell(t *testing.T) {
 	cfg.Workspaces.Allowlist = []string{root}
 	hub := New(cfg, store.NewMemoryStore())
 
+	read := executeDocumentRead(t, hub, "book.xlsx")
+	metadata := read["document"].(map[string]any)["metadata"].(map[string]any)
 	_, err := hub.Execute(context.Background(), "xlsx.update_cell", map[string]any{
-		"path":        "book.xlsx",
-		"sheet":       "Sheet1",
-		"cell":        "bad",
-		"value":       "x",
-		"output_path": "outputs/bad.xlsx",
+		"path":             "book.xlsx",
+		"source_sha256":    metadata["sha256"],
+		"sheet":            "Sheet1",
+		"cell":             "bad",
+		"source_cell_hash": "sha256:unresolved",
+		"value":            "x",
+		"output_path":      "outputs/bad.xlsx",
 	}, "s", "run")
-	if err == nil || !strings.Contains(err.Error(), "cell must be a valid A1 address") {
-		t.Fatalf("expected invalid cell error, got %v", err)
+	if !document.IsErrorCode(err, document.CodeResourceInvalid) {
+		t.Fatalf("expected invalid cell to fail trusted evidence validation, got %v", err)
 	}
 }
 
 func TestPDFTransformToolsWriteNewVersions(t *testing.T) {
 	root := t.TempDir()
-	writePDFBlankFixture(t, root, "first.pdf", 3)
-	writePDFBlankFixture(t, root, "second.pdf", 2)
+	writePDFReadFixture(t, root, "first.pdf", "native", 3)
+	original, err := os.ReadFile(filepath.Join(root, "first.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Default()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
@@ -1728,15 +1758,6 @@ func TestPDFTransformToolsWriteNewVersions(t *testing.T) {
 			wantPages: 3,
 		},
 		{
-			name: "merge",
-			args: map[string]any{
-				"operation":   "merge",
-				"inputs":      []any{"first.pdf", "second.pdf"},
-				"output_path": "outputs/merged.pdf",
-			},
-			wantPages: 5,
-		},
-		{
 			name: "split",
 			args: map[string]any{
 				"path":        "first.pdf",
@@ -1756,6 +1777,10 @@ func TestPDFTransformToolsWriteNewVersions(t *testing.T) {
 			if out["pages"] != tc.wantPages {
 				t.Fatalf("unexpected pages for %s: %#v", tc.name, out)
 			}
+			changeSummary := out["change_summary"].(map[string]any)
+			if changeSummary["original_unchanged"] != true {
+				t.Fatalf("transform did not report an unchanged original: %#v", changeSummary)
+			}
 			if tc.name == "split" {
 				outputs := out["outputs"].([]string)
 				if len(outputs) != tc.wantPages {
@@ -1764,6 +1789,10 @@ func TestPDFTransformToolsWriteNewVersions(t *testing.T) {
 				for _, path := range outputs {
 					if _, err := os.Stat(path); err != nil {
 						t.Fatalf("split output missing: %v", err)
+					}
+					read := executePDFReadFixture(t, hub, path)
+					if read["read_complete"] != true || len(documentAnySlice(read["document"].(map[string]any)["pages"])) != 1 {
+						t.Fatalf("split output did not re-read completely: %#v", read)
 					}
 				}
 				if out["output_path"] != outputs[0] {
@@ -1774,6 +1803,62 @@ func TestPDFTransformToolsWriteNewVersions(t *testing.T) {
 			outputPath := out["output_path"].(string)
 			if _, err := os.Stat(outputPath); err != nil {
 				t.Fatalf("expected output file: %v", err)
+			}
+			read := executePDFReadFixture(t, hub, outputPath)
+			pages := documentAnySlice(read["document"].(map[string]any)["pages"])
+			if read["read_complete"] != true || len(pages) != tc.wantPages {
+				t.Fatalf("transform output did not re-read completely: %#v", read)
+			}
+			if tc.name == "extract_pages" && (!strings.Contains(stringArg(read, "content", ""), "page 1") || !strings.Contains(stringArg(read, "content", ""), "page 3") || strings.Contains(stringArg(read, "content", ""), "page 2")) {
+				t.Fatalf("extracted pages lost source order or selected the wrong page: %#v", read)
+			}
+			if tc.name == "delete_pages" && strings.Contains(stringArg(read, "content", ""), "page 2") {
+				t.Fatalf("deleted page remained in output: %#v", read)
+			}
+			if tc.name == "rotate_pages" && intArg(pages[0].(map[string]any), "rotation", 0) != 90 {
+				t.Fatalf("rotated page did not retain the requested angle: %#v", pages[0])
+			}
+		})
+	}
+	current, err := os.ReadFile(filepath.Join(root, "first.pdf"))
+	if err != nil || !bytes.Equal(current, original) {
+		t.Fatalf("PDF transforms modified the original: %v", err)
+	}
+}
+
+func TestPDFTransformRejectsInvalidOperationContracts(t *testing.T) {
+	root := t.TempDir()
+	writePDFBlankFixture(t, root, "first.pdf", 3)
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+	base := map[string]any{"path": "first.pdf", "operation": "extract_pages", "pages": []any{1}, "output_path": "outputs/result.pdf"}
+
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+		want   string
+	}{
+		{name: "merge removed", mutate: func(args map[string]any) { args["operation"] = "merge" }, want: "must be one of"},
+		{name: "duplicate page", mutate: func(args map[string]any) { args["pages"] = []any{1, 1} }, want: "duplicate page 1"},
+		{name: "zero page", mutate: func(args map[string]any) { args["pages"] = []any{0} }, want: "must be >= 1"},
+		{name: "fractional page", mutate: func(args map[string]any) { args["pages"] = []any{1.5} }, want: "must be integer"},
+		{name: "unrelated rotation", mutate: func(args map[string]any) { args["rotation"] = 90 }, want: "does not accept rotation"},
+		{name: "missing rotation", mutate: func(args map[string]any) { args["operation"] = "rotate_pages" }, want: "rotation must be one of"},
+		{name: "invalid rotation", mutate: func(args map[string]any) { args["operation"], args["rotation"] = "rotate_pages", 360 }, want: "must be one of"},
+		{name: "split pages", mutate: func(args map[string]any) { args["operation"] = "split" }, want: "does not accept pages"},
+		{name: "inputs removed", mutate: func(args map[string]any) { args["inputs"] = []any{"other.pdf"} }, want: "is not allowed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := map[string]any{}
+			for key, value := range base {
+				args[key] = value
+			}
+			test.mutate(args)
+			if err := hub.Validate("pdf.transform", args); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid PDF transform contract was accepted: %v", err)
 			}
 		})
 	}

@@ -17,6 +17,10 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Advanced `document.edit` to revision 6 for XLSX: typed bounded sheet evidence,
+  evidence-bound workbook/cell/row/sheet edits, prefix-only `update_row`, six
+  explicit operation-selection boundaries, and fail-closed OOXML package
+  verification now protect every generated copy.
 - Replaced old planning, audit and handoff documents with current maintainable docs.
 - Consolidated intent routing, messaging/scheduling, browser, document,
   integration and WebChat documentation into six current component guides plus

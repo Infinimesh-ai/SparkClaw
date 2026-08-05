@@ -154,8 +154,8 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 				base.Reason = "document_preflight_failed: " + err.Error()
 				return base, nil
 			}
-			if candidate.Route.Operation == app.RouteOperationTransform && preflight.Format != app.DocumentFormatPDF ||
-				candidate.Route.Operation == app.RouteOperationEdit && preflight.Format == app.DocumentFormatPDF {
+			if (candidate.Route.Operation == app.RouteOperationTransform || candidate.Route.Operation == app.RouteOperationEdit) &&
+				!registeredAgentDocumentFormatPolicies().allowsRouteOperation(preflight.Format, candidate.Route.Operation) {
 				base.Status, base.Slots, base.Facts = app.RouteClarify, app.RouteSlots{}, nil
 				base.Reason = "document_operation_variant_conflicts_with_format"
 				return base, nil
@@ -182,6 +182,14 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 			base.Slots.OutputRef, base.Slots.Format = preflight.OutputRef, preflight.Format
 			if edit {
 				target.Facts["output_path"] = preflight.OutputRef
+			}
+			if policy, ok := registeredAgentDocumentFormatPolicies().format(preflight.Format); ok && policy.GroundRoute != nil {
+				grounding := policy.GroundRoute(content, candidate.Route.Operation, target.Facts)
+				if grounding.Status != "" {
+					base.Status, base.Slots, base.Facts = grounding.Status, app.RouteSlots{}, nil
+					base.Reason = grounding.Reason
+					return base, nil
+				}
 			}
 		}
 		base.Slots.TargetKind, base.Slots.TargetRef = target.Kind, target.Ref

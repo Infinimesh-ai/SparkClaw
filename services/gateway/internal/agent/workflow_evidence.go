@@ -29,15 +29,17 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 	if len(requirements) == 0 {
 		return provisionedWorkflowEvidence{}, nil
 	}
-	stageLimit := r.tools.Config().Runtime.StageEvidenceMaxBytes
-	if stageLimit <= 0 {
-		stageLimit = 8000
-	}
+	stageLimit := r.workflowStageEvidenceLimit()
 	remaining := stageLimit
+	ownerRequest := requestContentForRun(r.store.ListMessages(run.SessionID), run)
 	sections := make([]string, 0, len(requirements))
 	compactSections := make([]string, 0, len(requirements))
 	minimalSections := make([]string, 0, len(requirements))
 	providedBytes := 0
+	formatPolicy := agentDocumentFormatPolicy{}
+	if run.Workflow != nil {
+		formatPolicy, _ = registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route)
+	}
 	for _, requirement := range requirements {
 		if remaining <= 0 {
 			if requirement.Optional {
@@ -59,11 +61,23 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 			}
 			return provisionedWorkflowEvidence{}, err
 		}
+		evidencePolicy := formatPolicy
+		if outputMap, ok := outputAsMap(output); ok {
+			if resultPolicy, registered := registeredAgentDocumentFormatPolicies().policyForResult(call, outputMap); registered {
+				evidencePolicy = resultPolicy
+			}
+		}
 		limit := requirement.MaxBytes
 		if limit <= 0 || limit > remaining {
 			limit = remaining
 		}
-		text := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, limit)
+		text, sliceErr := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, limit, ownerRequest)
+		if sliceErr != nil {
+			if requirement.Optional {
+				continue
+			}
+			return provisionedWorkflowEvidence{}, sliceErr
+		}
 		if strings.TrimSpace(text) == "" {
 			if requirement.Optional {
 				continue
@@ -74,11 +88,26 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		if used > remaining {
 			return provisionedWorkflowEvidence{}, errors.New("workflow evidence slicer exceeded the stage evidence budget")
 		}
+		if evidencePolicy.ValidateEvidenceSlice != nil {
+			if err := evidencePolicy.ValidateEvidenceSlice(text); err != nil {
+				return provisionedWorkflowEvidence{}, err
+			}
+		}
 		sections = append(sections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, text))
 		compactLimit := min(limit, max(512, limit/2))
 		minimalLimit := min(compactLimit, max(256, limit/4))
-		compactText := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, compactLimit)
-		minimalText := slicePersistedToolEvidence(call.Tool, output, requirement.Mode, minimalLimit)
+		compactText, _ := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, compactLimit, ownerRequest)
+		minimalText, _ := sliceWorkflowEvidenceForRun(run, call.Tool, output, requirement.Mode, minimalLimit, ownerRequest)
+		if evidencePolicy.ValidateEvidenceSlice != nil {
+			if err := evidencePolicy.ValidateEvidenceSlice(compactText); err != nil {
+				compactText = text
+			}
+		}
+		if evidencePolicy.ValidateEvidenceSlice != nil {
+			if err := evidencePolicy.ValidateEvidenceSlice(minimalText); err != nil {
+				minimalText = compactText
+			}
+		}
 		if strings.TrimSpace(compactText) != "" {
 			compactSections = append(compactSections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, compactText))
 		}
@@ -87,20 +116,22 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		}
 		providedBytes += used
 		remaining -= used
+		auditFields := map[string]any{
+			"source_ref": ref, "tool_call_id": call.ID, "tool": call.Tool, "mode": requirement.Mode,
+			"provisioned_bytes": used, "total_artifact_bytes": artifactBytes,
+		}
+		if evidencePolicy.ProjectEvidenceAudit != nil {
+			for key, value := range evidencePolicy.ProjectEvidenceAudit(text) {
+				auditFields[key] = value
+			}
+		}
 		r.store.AddAudit(app.AuditEvent{
 			SessionID: run.SessionID,
 			RunID:     run.ID,
 			Actor:     "runtime",
 			Type:      "workflow_step.evidence_provisioned",
 			Summary:   "Provisioned persisted evidence for the active workflow stage",
-			Fields: map[string]any{
-				"source_ref":           ref,
-				"tool_call_id":         call.ID,
-				"tool":                 call.Tool,
-				"mode":                 requirement.Mode,
-				"provisioned_bytes":    used,
-				"total_artifact_bytes": artifactBytes,
-			},
+			Fields:    auditFields,
 		})
 	}
 	if len(sections) == 0 {
@@ -112,6 +143,23 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		MinimalText: strings.Join(minimalSections, "\n\n"),
 		Bytes:       providedBytes,
 	}, nil
+}
+
+func (r Runtime) workflowStageEvidenceLimit() int {
+	stageLimit := r.tools.Config().Runtime.StageEvidenceMaxBytes
+	if stageLimit <= 0 {
+		return 8000
+	}
+	return stageLimit
+}
+
+func sliceWorkflowEvidenceForRun(run app.AgentRun, tool string, output any, mode workflowEvidenceSliceMode, maxBytes int, ownerRequest string) (string, error) {
+	if run.Workflow != nil {
+		if policy, ok := registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route); ok && policy.SliceWorkflowEvidence != nil {
+			return policy.SliceWorkflowEvidence(run, tool, output, mode, maxBytes, ownerRequest)
+		}
+	}
+	return slicePersistedToolEvidenceForRequest(tool, output, mode, maxBytes, ownerRequest), nil
 }
 
 func formatProvisionedEvidenceSection(ref, tool string, mode workflowEvidenceSliceMode, text string) string {

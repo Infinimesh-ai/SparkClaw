@@ -298,4 +298,66 @@ cases:
     expected:
       endpoint: /api/evals
       includes_profiles: ["chaos", "smoke"]
+
+  - id: pptx_single_slide_scope_routes_to_exact_editor
+    prompt: "优化 deck.pptx 的第十页"
+    expected:
+      workflow: document.edit
+      workflow_revision: 6
+      route_operation: edit
+      pptx_scope: single_slide
+      pptx_slide_indexes: [10]
+      selected_tool: pptx.update_slide
+      operation_selected_after_read: true
+
+  - id: pptx_whole_deck_scope_routes_to_atomic_editor
+    prompt: "Polish the entire presentation deck.pptx"
+    expected:
+      workflow: document.edit
+      workflow_revision: 6
+      route_operation: edit
+      pptx_scope: whole_deck
+      selected_tool: pptx.update_deck
+      max_slides: 12
+      atomic_output: true
+
+  - id: pptx_ambiguous_edit_scope_clarifies
+    prompt: "Polish deck.pptx"
+    expected:
+      route_status: clarify
+      reason: pptx_edit_scope_unspecified
+      editor_exposed: false
+      approval_created: false
+
+  - id: pptx_unsupported_target_blocks
+    prompt: "Edit the SmartArt animation in deck.pptx"
+    expected:
+      route_status: blocked
+      reason: pptx_edit_target_unsupported
+      editor_exposed: false
+      fallback_used: false
+
+  - id: pptx_late_slide_evidence_is_complete
+    prompt: "Improve slide 10 in a ten-slide rich-deck.pptx"
+    expected:
+      workflow: document.edit
+      evidence_budget_bytes: 8000
+      includes_target_slide: 10
+      excludes_non_target_slides: true
+      excludes_group_children: true
+      complete_records_only: true
+
+  - id: pptx_route_approval_output_lineage
+    prompt: "Improve slide 3 in deck.pptx, approve the reversible edit, then reread the generated copy."
+    expected:
+      workflow: document.edit
+      stages: ["confirm_document_target", "document_locate_evidence", "select_edit_operation", "document_edit"]
+      selected_tool: pptx.update_slide
+      approval_required: true
+      auto_executed: false
+      approved_status: completed_after_approval
+      output_attachment: deck-sparkclaw-edit.pptx
+      output_reread: true
+      original_hash_unchanged: true
+      parent_lineage_persisted: true
       includes_statuses: ["passed", "failed"]

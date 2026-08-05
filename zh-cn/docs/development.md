@@ -144,6 +144,20 @@ Format inspection、high-level parse、normalized evidence、context projection�
 registration、approval、output-copy write 和 post-edit preservation 必须保持在同一 staged pipeline。
 新 editor 需要准确 format/operation schema 和 delta verification。见[文档 Workflow](document-workflows.md)。
 
+每个格式或 operation 都在事实所属 package 中注册：
+
+1. 把 ToolHub parser/editor 执行、调用校验、locator 构建、directory boundary 和输出投影加入
+   对应 format provider。
+2. 把 normalization、lifecycle、package verification 和 preservation delta 加入 `document`
+   format policy。
+3. 编排存在差异时，把 route grounding、decision evidence/rule、argument binding/validation、
+   schema materialization 和结果 evidence 投影加入 Agent format policy。
+4. signature inspection 保持集中，并以冻结 capability 的 `format`/`operation` qualifier 作为
+   连接点。不要让 Agent import ToolHub 实现类型，也不要创建共享 mega-registry。
+
+注册构造器必须拒绝重复 format/operation。扩展该抽象时增加 synthetic registration test 和
+共享 dispatch source guard；prompt 搬移必须先用严格有序快照锁定，任何 calibration 改动另行提交。
+
 ## WebChat 修改
 
 API transport 放在 `apps/webchat/src/api/client.ts`，共享 response/action type 放在

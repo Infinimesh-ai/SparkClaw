@@ -35,6 +35,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -434,6 +435,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		"# TYPE sparkclaw_episode_summaries_total gauge",
 		fmt.Sprintf("sparkclaw_episode_summaries_total %d", len(s.store.ListEpisodeSummaries(""))),
 	}
+	lines = append(lines, s.tools.DocumentMetrics()...)
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(strings.Join(lines, "\n") + "\n"))
@@ -450,7 +452,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"sandbox":     s.cfg.Sandbox,
 		"storage":     publicStorageConfig(s.cfg.Storage),
 		"state":       publicStateConfig(s.cfg.State),
-		"adapters":    publicAdapterConfig(s.cfg.Adapters),
+		"adapters":    publicAdapterConfig(s.cfg.Adapters, s.tools.DocumentOCRReadiness()),
 		"tools":       s.publicToolsConfig(principal.OwnerID),
 		"memory":      s.cfg.Memory,
 		"runtime":     s.cfg.Runtime,
@@ -2586,7 +2588,7 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 	}
 }
 
-func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
+func publicAdapterConfig(cfg config.AdapterConfig, ocrReadiness documentocr.RuntimeReadiness) map[string]any {
 	return map[string]any{
 		"browserAutomation": map[string]any{
 			"command":                cfg.BrowserAutomation.Command,
@@ -2595,15 +2597,21 @@ func publicAdapterConfig(cfg config.AdapterConfig) map[string]any {
 			"daemon_idle_timeout_ms": cfg.BrowserAutomation.DaemonIdleTimeoutMS,
 		},
 		"documentOCR": map[string]any{
-			"enabled":          cfg.DocumentOCR.Enabled,
-			"provider":         cfg.DocumentOCR.Provider,
-			"model":            cfg.DocumentOCR.Model,
-			"timeout_seconds":  cfg.DocumentOCR.TimeoutSeconds,
-			"max_upload_bytes": cfg.DocumentOCR.MaxUploadBytes,
-			"max_output_bytes": cfg.DocumentOCR.MaxOutputBytes,
-			"max_tokens":       cfg.DocumentOCR.MaxTokens,
-			"max_concurrency":  cfg.DocumentOCR.MaxConcurrency,
-			"max_pending":      cfg.DocumentOCR.MaxPending,
+			"configured_enabled":    ocrReadiness.ConfiguredEnabled,
+			"adapter_ready":         ocrReadiness.AdapterReady,
+			"runtime_status":        ocrReadiness.RuntimeStatus,
+			"reason_code":           ocrReadiness.ReasonCode,
+			"provider":              cfg.DocumentOCR.Provider,
+			"model":                 cfg.DocumentOCR.Model,
+			"last_call_status":      ocrReadiness.LastCallStatus,
+			"last_call_reason_code": ocrReadiness.LastCallReason,
+			"last_call_at":          ocrReadiness.LastCallAt,
+			"timeout_seconds":       cfg.DocumentOCR.TimeoutSeconds,
+			"max_upload_bytes":      cfg.DocumentOCR.MaxUploadBytes,
+			"max_output_bytes":      cfg.DocumentOCR.MaxOutputBytes,
+			"max_tokens":            cfg.DocumentOCR.MaxTokens,
+			"max_concurrency":       cfg.DocumentOCR.MaxConcurrency,
+			"max_pending":           cfg.DocumentOCR.MaxPending,
 		},
 	}
 }

@@ -43,6 +43,7 @@ const (
 	CodeOutputConflict       ErrorCode = "output_conflict"
 	CodeEnrichmentFailed     ErrorCode = "enrichment_failed"
 	CodePreservationMismatch ErrorCode = "preservation_mismatch"
+	CodeOperationTimeout     ErrorCode = "operation_timeout"
 )
 
 type PipelineError struct {
@@ -208,6 +209,7 @@ type EditRequest struct {
 	Root            string
 	Path            string
 	OutputPath      string
+	SourceSHA256    string
 	Operation       string
 	Target          LocatorRequest
 	Targets         []LocatorRequest
@@ -255,21 +257,24 @@ type ReadResult struct {
 }
 
 type ChangeSummary struct {
-	DocumentID            string         `json:"document_id"`
-	Operation             string         `json:"operation"`
-	InputPath             string         `json:"input_path"`
-	OutputPath            string         `json:"output_path"`
-	OutputPaths           []string       `json:"output_paths,omitempty"`
-	OriginalUnchanged     bool           `json:"original_unchanged"`
-	Matched               int            `json:"matched"`
-	Changed               int            `json:"changed"`
-	Targets               []Match        `json:"targets"`
-	HighLevelPreservation string         `json:"high_level_preservation"`
-	PackagePreservation   string         `json:"package_preservation"`
-	PreservationWarnings  []string       `json:"preservation_warnings,omitempty"`
-	LayoutPolicy          string         `json:"layout_policy,omitempty"`
-	LayoutAdjustedShapes  int            `json:"layout_adjusted_shapes,omitempty"`
-	LayoutChecks          map[string]any `json:"layout_checks,omitempty"`
+	DocumentID             string           `json:"document_id"`
+	Operation              string           `json:"operation"`
+	InputPath              string           `json:"input_path"`
+	OutputPath             string           `json:"output_path"`
+	OutputPaths            []string         `json:"output_paths,omitempty"`
+	OriginalUnchanged      bool             `json:"original_unchanged"`
+	Matched                int              `json:"matched"`
+	Changed                int              `json:"changed"`
+	Targets                []Match          `json:"targets"`
+	HighLevelPreservation  string           `json:"high_level_preservation"`
+	PackagePreservation    string           `json:"package_preservation"`
+	PackageCheckedFeatures []string         `json:"package_checked_features,omitempty"`
+	PackageCoverageNotes   []string         `json:"package_coverage_notes,omitempty"`
+	TargetDeltas           []map[string]any `json:"target_deltas,omitempty"`
+	PreservationWarnings   []string         `json:"preservation_warnings,omitempty"`
+	LayoutPolicy           string           `json:"layout_policy,omitempty"`
+	LayoutAdjustedShapes   int              `json:"layout_adjusted_shapes,omitempty"`
+	LayoutChecks           map[string]any   `json:"layout_checks,omitempty"`
 }
 
 func (s ChangeSummary) Map() (map[string]any, error) {
@@ -337,6 +342,12 @@ func (p *Pipeline) Read(ctx context.Context, request ReadRequest) (ReadResult, e
 	if err != nil {
 		return ReadResult{}, err
 	}
+	formatPolicy, _ := registeredDocumentFormatPolicies.format(metadata.Format)
+	if formatPolicy.AfterRead != nil {
+		if err := formatPolicy.AfterRead(&read); err != nil {
+			return ReadResult{}, err
+		}
+	}
 	read, err = p.enrich(ctx, read, request.Enrichment)
 	if err != nil {
 		return ReadResult{}, err
@@ -355,6 +366,17 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 	metadata, strategy, err := p.inspectAndSelect(ctx, request.Root, request.Path)
 	if err != nil {
 		return EditResult{}, err
+	}
+	if expected := strings.TrimSpace(request.SourceSHA256); expected != "" && !strings.EqualFold(expected, metadata.SHA256) {
+		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "input document does not match the trusted source hash"}
+	}
+	formatPolicy, _ := registeredDocumentFormatPolicies.format(metadata.Format)
+	var verifyPackage postEditVerifier
+	if formatPolicy.BeginEdit != nil {
+		verifyPackage, err = formatPolicy.BeginEdit(metadata, request)
+		if err != nil {
+			return EditResult{}, err
+		}
 	}
 	read, err := strategy.Read(ctx, metadata, request.MaxBytes)
 	if err != nil {
@@ -403,6 +425,9 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageApply, Format: metadata.Format, Detail: "editor reported no output resources"}
 	}
 	preservationWarnings := []string{}
+	packagePreservation := "unknown"
+	packageCheckedFeatures := []string{}
+	packageCoverageNotes := []string{}
 	for _, outputPath := range outputPaths {
 		outputRead, err := p.validateProducedOutput(ctx, request.Root, metadata, strategy, request.MaxBytes, outputPath)
 		if err != nil {
@@ -415,8 +440,25 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 			return EditResult{}, err
 		}
 		preservationWarnings = append(preservationWarnings, report.Warnings...)
+		if verifyPackage != nil {
+			packageReport, verifyErr := verifyPackage(outputPath, request, matches)
+			if verifyErr != nil {
+				cleanupOutputPaths(request.Root, metadata.Path, append(outputPaths, request.OutputPath))
+				return EditResult{}, verifyErr
+			}
+			packagePreservation = packageReport.Status
+			packageCheckedFeatures = append(packageCheckedFeatures, packageReport.CheckedFeatures...)
+			packageCoverageNotes = append(packageCoverageNotes, packageReport.CoverageNotes...)
+		}
 	}
 	preservationWarnings = append(preservationWarnings, stringSlice(applied.Details["warnings"])...)
+	if verifyPackage != nil {
+		if applied.Details == nil {
+			applied.Details = map[string]any{}
+		}
+		applied.Details["package_preservation"] = packagePreservation
+		applied.Details["package_checked_features"] = uniqueStrings(packageCheckedFeatures)
+	}
 	current, err = p.inspector.Inspect(ctx, request.Root, request.Path)
 	if err != nil || current.Size != metadata.Size || current.SHA256 != metadata.SHA256 {
 		cleanupOutputPaths(request.Root, metadata.Path, outputPaths)
@@ -434,7 +476,9 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 		ChangeSummary: ChangeSummary{
 			DocumentID: read.Document.ID, Operation: request.Operation, InputPath: metadata.Path, OutputPath: primaryOutput, OutputPaths: outputPaths,
 			OriginalUnchanged: true, Matched: len(matches), Changed: applied.Changed, Targets: matches,
-			HighLevelPreservation: "verified", PackagePreservation: "unknown", PreservationWarnings: uniqueStrings(preservationWarnings),
+			HighLevelPreservation: "verified", PackagePreservation: packagePreservation,
+			PackageCheckedFeatures: uniqueStrings(packageCheckedFeatures), PackageCoverageNotes: uniqueStrings(packageCoverageNotes),
+			TargetDeltas: mapSlice(applied.Details["changed_cells"]), PreservationWarnings: uniqueStrings(preservationWarnings),
 			LayoutPolicy: stringValue(applied.Details["layout_policy"]), LayoutAdjustedShapes: intValue(applied.Details["layout_adjusted_shapes"]),
 			LayoutChecks: cloneMap(mapValue(applied.Details["layout_checks"])),
 		},
@@ -562,8 +606,8 @@ func validateOutputPath(root string, metadata Metadata, outputPath string) error
 		return &PipelineError{Code: CodeOutputConflict, Stage: StageConstrain, Format: metadata.Format, Detail: "output path must not overwrite the input file"}
 	}
 	wantedExtension := ExtensionForFormat(metadata.Format)
-	if metadata.Format == "text" {
-		wantedExtension = strings.ToLower(filepath.Ext(metadata.Path))
+	if policy, ok := registeredDocumentFormatPolicies.format(metadata.Format); ok && policy.OutputExtension != nil {
+		wantedExtension = policy.OutputExtension(metadata)
 	}
 	if wantedExtension == "" || strings.ToLower(filepath.Ext(outputAbs)) != wantedExtension {
 		return &PipelineError{Code: CodeOutputConflict, Stage: StageConstrain, Format: metadata.Format, Detail: "output path does not match the detected format"}

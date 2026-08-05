@@ -129,6 +129,17 @@ Workflow failure remains explicit and never falls through to another router or
 a generic fallback loop; the workflow step loop is the only execution
 primitive and the legacy ReAct path has been removed.
 
+Document format variation is registered independently at three owner boundaries.
+ToolHub format providers own parsers, editors, schemas, invocation validation,
+locators, and result projection. The `document` package owns normalization,
+fixed lifecycle hooks, and exact `(format, operation)` preservation policy.
+Agent format policies own route grounding, directory scope, decision evidence,
+argument binding, schema materialization, and result evidence projection. These
+registries join through canonical capability `format` and `operation` qualifiers;
+they do not share implementation types or form a cross-package registry. The
+common Workflow, Policy/Approval, inspection, output-copy, cleanup, and audit
+paths remain format-neutral.
+
 `ContextBuilder` assembles each bounded model/tool loop from prioritized,
 degradable sections. Current-run observations use one uniform small envelope,
 appear once in causal order, and retain their artifact references. A stage may
@@ -198,6 +209,11 @@ inline secondary directory router remains removed. Approval, output-copy writes,
 preservation checks remain on the shared path. Parsed representations may be
 incomplete, replaced, or regenerated without losing document identity or
 activity lineage.
+XLSX reads additionally project bounded typed sheet/row/cell evidence with
+stable source hashes. Revision 6 binds every spreadsheet edit to that read
+before approval and admits a successful output only after OOXML feature gating,
+typed reread checks, and package-part preservation verification; unsupported
+features or undeclared package drift fail closed and leave no output copy.
 An optional bounded `internal/documentocr` adapter sends selected page images
 to OvisOCR2 and retains Markdown as untrusted evidence. Scanned PDF pages are
 rasterized under page/byte budgets and successful OCR is promoted into the

@@ -25,7 +25,9 @@ func Normalize(metadata Metadata, strategy, content string, raw map[string]any) 
 		Slides: []map[string]any{}, Sections: []map[string]any{}, Pages: []map[string]any{}, Stats: map[string]any{},
 	}
 	if representation.Source == "" {
-		representation.Source = sourceForFormat(metadata.Format)
+		if policy, ok := registeredDocumentFormatPolicies.format(metadata.Format); ok {
+			representation.Source = policy.NormalizationSource
+		}
 	}
 	for key, value := range mapValue(raw["stats"]) {
 		representation.Stats[key] = value
@@ -44,13 +46,8 @@ func Normalize(metadata Metadata, strategy, content string, raw map[string]any) 
 	representation.Enrichment = normalizeEnrichment(documentID, raw["enrichment"])
 
 	if len(representation.Blocks) == 0 {
-		switch metadata.Format {
-		case "xlsx":
-			representation.Blocks = blocksFromSheets(documentID, representation.Sheets)
-		case "pptx":
-			representation.Blocks = blocksFromSlides(documentID, representation.Slides)
-		case "pdf":
-			representation.Blocks = blocksFromPages(documentID, representation.Pages)
+		if policy, ok := registeredDocumentFormatPolicies.format(metadata.Format); ok && policy.FallbackBlocks != nil {
+			representation.Blocks = policy.FallbackBlocks(documentID, representation)
 		}
 	}
 	if len(representation.Sections) == 0 {
@@ -108,47 +105,6 @@ func normalizeParagraphs(documentID string, values []map[string]any) []map[strin
 		}
 		item["id"] = stableID("paragraph", documentID+"\x00"+firstString(location["path"], paragraphIndex))
 		out = append(out, item)
-	}
-	return out
-}
-
-func normalizeSheets(documentID string, values []map[string]any) []map[string]any {
-	out := make([]map[string]any, 0, len(values))
-	for sheetIndex, value := range values {
-		sheet := cloneMap(value)
-		name := stringValue(sheet["name"])
-		index := intValue(sheet["index"])
-		if index <= 0 {
-			index = sheetIndex + 1
-			sheet["index"] = index
-		}
-		sheetID := stableID("sheet", documentID+"\x00"+fmt.Sprintf("%d:%s", index, name))
-		sheet["id"] = sheetID
-		rows := mapSlice(sheet["rows"])
-		for rowOffset, row := range rows {
-			rowIndex := intValue(row["index"])
-			if rowIndex <= 0 {
-				rowIndex = rowOffset + 1
-				row["index"] = rowIndex
-			}
-			row["id"] = stableID("row", sheetID+"\x00"+strconv.Itoa(rowIndex))
-			cells := mapSlice(row["cells"])
-			for cellOffset, cell := range cells {
-				address := stringValue(cell["address"])
-				if address == "" {
-					address = fmt.Sprintf("R%dC%d", rowIndex, cellOffset+1)
-				}
-				cell["id"] = stableID("cell", sheetID+"\x00"+address)
-				cell["location"] = map[string]any{
-					"part": "workbook", "block_type": "cell", "sheet": name, "sheet_index": index,
-					"row_index": rowIndex, "column_index": intValue(cell["column"]), "cell": address,
-					"path": fmt.Sprintf("workbook.sheet[%s].cell[%s]", name, address),
-				}
-			}
-			row["cells"] = cells
-		}
-		sheet["rows"] = rows
-		out = append(out, sheet)
 	}
 	return out
 }
@@ -234,6 +190,9 @@ func blocksFromSlides(documentID string, slides []map[string]any) []Block {
 				if editable, exists := item["editable"]; exists {
 					format["editable"] = editable
 				}
+				if structure, exists := item["text_structure"]; exists {
+					format["text_structure"] = structure
+				}
 				out = append(out, Block{ID: stableID("block", documentID+"\x00"+path), Kind: "shape_text", Text: stringValue(item["text"]), Location: location, Format: format})
 			}
 			if typ == "table" {
@@ -283,23 +242,6 @@ func deriveSections(documentID string, blocks []Block, paragraphs []map[string]a
 		}
 	}
 	return out
-}
-
-func sourceForFormat(format string) string {
-	switch format {
-	case "text":
-		return "plain_text"
-	case "docx":
-		return "python_docx"
-	case "xlsx":
-		return "exceljs"
-	case "pptx":
-		return "python_pptx"
-	case "pdf":
-		return "pypdf"
-	default:
-		return ""
-	}
 }
 
 func stableID(kind, value string) string {

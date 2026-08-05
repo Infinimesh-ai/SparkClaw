@@ -2,8 +2,6 @@ package toolhub
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,23 +18,25 @@ type ovisDocumentOCREnricher struct {
 type documentOCRTask struct {
 	hash     string
 	resource document.Resource
+	metadata documentOCRCallMetadata
 }
 
 type documentOCRResult struct {
-	hash   string
-	result documentocr.Result
-	err    error
+	hash       string
+	invocation documentOCRInvocation
 }
 
 func (e *ovisDocumentOCREnricher) Name() string { return "ovisocr2_page_parsing" }
 
 func (e *ovisDocumentOCREnricher) Supports(format string, category string) bool {
-	if e == nil || e.hub == nil || e.hub.ocr == nil || !e.hub.ocr.Enabled() || category != "assets" {
+	if e == nil || e.hub == nil || category != "assets" {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "docx", "xlsx", "pptx", "pdf":
+	case "pdf":
 		return true
+	case "docx", "xlsx", "pptx":
+		return e.hub.ocr != nil && e.hub.ocr.Enabled()
 	default:
 		return false
 	}
@@ -64,8 +64,23 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 		return document.EnrichmentResult{}, fmt.Errorf("unsupported image_analysis mode %q", mode)
 	}
 	scannedPDF := request.Metadata.Format == "pdf" && boolArg(request.Document.Stats, "scanned_unsupported", false)
+	execution := documentOCRExecutionFromContext(ctx)
 	if scannedPDF {
 		mode = "all"
+		if e.hub.ocr == nil || !e.hub.ocr.Enabled() {
+			for _, value := range imageValues {
+				record, ok := documentAnyMap(value)
+				if ok && stringArg(record, "kind", "") == "page_image" {
+					record["ocr"] = skippedDocumentOCR("disabled", "document OCR adapter is disabled")
+					metadata := documentOCRMetadataForRecord(request.Document, record, execution)
+					if resource, exists := resources[strings.TrimSpace(stringArg(record, "resource_key", ""))]; exists {
+						metadata.SourceSHA256 = resource.SHA256
+					}
+					e.hub.recordDocumentOCRBypass(metadata, "disabled", "ocr_adapter_disabled")
+				}
+			}
+			return document.EnrichmentResult{Enrichment: enrichment}, nil
+		}
 	}
 
 	representative := map[string]documentOCRTask{}
@@ -83,6 +98,9 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 		resource, exists := resources[strings.TrimSpace(stringArg(record, "resource_key", ""))]
 		if !exists || len(resource.Content) == 0 {
 			record["ocr"] = skippedDocumentOCR("unsupported", "image bytes were not exposed by the document parser")
+			if scannedPDF && stringArg(record, "kind", "") == "page_image" {
+				e.hub.recordDocumentOCRBypass(documentOCRMetadataForRecord(request.Document, record, execution), "render_failed", "ocr_page_resource_unavailable")
+			}
 			continue
 		}
 		hash := resource.SHA256
@@ -105,7 +123,9 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 			continue
 		}
 		if _, exists := representative[hash]; !exists {
-			representative[hash] = documentOCRTask{hash: hash, resource: resource}
+			metadata := documentOCRMetadataForRecord(request.Document, record, execution)
+			metadata.SourceSHA256 = hash
+			representative[hash] = documentOCRTask{hash: hash, resource: resource, metadata: metadata}
 		}
 	}
 
@@ -122,6 +142,8 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 	for _, hash := range hashes {
 		if len(tasks) >= limit {
 			setOCRForRecords(recordsByHash[hash], skippedDocumentOCR("skipped", "OCR page budget was exhausted"))
+			invocation := e.hub.recordDocumentOCRBypass(representative[hash].metadata, "budget_omitted", "ocr_page_budget_exhausted")
+			e.hub.recordAdditionalDocumentOCRPages(invocation, len(recordsByHash[hash])-1)
 			warnings = append(warnings, "OvisOCR2 page budget was exhausted before all relevant images were parsed")
 			continue
 		}
@@ -129,18 +151,37 @@ func (e *ovisDocumentOCREnricher) Enrich(ctx context.Context, request document.E
 	}
 
 	for _, result := range e.parseImages(ctx, tasks) {
-		if result.err != nil {
-			setOCRForRecords(recordsByHash[result.hash], map[string]any{
-				"status": "failed", "provider": "ovisocr2", "warning": result.err.Error(), "source_sha256": result.hash, "untrusted": true,
-			})
-			warnings = append(warnings, "OvisOCR2 page parsing failed: "+result.err.Error())
+		invocation := result.invocation
+		e.hub.recordAdditionalDocumentOCRPages(invocation, len(recordsByHash[result.hash])-1)
+		if invocation.Err != nil {
+			ocr := documentOCRProvenance(invocation, result.hash)
+			ocr["status"] = "failed"
+			ocr["provider"] = "ovisocr2"
+			ocr["reason_code"] = invocation.ReasonCode
+			ocr["warning"] = invocation.Err.Error()
+			ocr["untrusted"] = true
+			setOCRForRecords(recordsByHash[result.hash], ocr)
+			warnings = append(warnings, "OvisOCR2 page parsing failed: "+invocation.Err.Error())
 			continue
 		}
-		setOCRForRecords(recordsByHash[result.hash], map[string]any{
-			"status": "succeeded", "provider": "ovisocr2", "model": result.result.Model,
-			"model_call_id": documentOCRCallID(result.hash, result.result.Model), "source_sha256": result.hash,
-			"markdown": result.result.Markdown, "inference_ms": result.result.InferenceMS, "untrusted": true,
-		})
+		if scannedPDF && documentocr.IsTrivialMarkdown(invocation.Result.Markdown) {
+			ocr := documentOCRProvenance(invocation, result.hash)
+			ocr["status"] = "failed"
+			ocr["provider"] = "ovisocr2"
+			ocr["reason_code"] = "no_usable_text"
+			ocr["untrusted"] = true
+			setOCRForRecords(recordsByHash[result.hash], ocr)
+			warnings = append(warnings, "OvisOCR2 page parsing returned no usable text")
+			continue
+		}
+		ocr := documentOCRProvenance(invocation, result.hash)
+		ocr["status"] = "succeeded"
+		ocr["provider"] = "ovisocr2"
+		ocr["model"] = invocation.Result.Model
+		ocr["markdown"] = invocation.Result.Markdown
+		ocr["inference_ms"] = invocation.Result.InferenceMS
+		ocr["untrusted"] = true
+		setOCRForRecords(recordsByHash[result.hash], ocr)
 	}
 	return document.EnrichmentResult{Enrichment: enrichment, Warnings: uniqueDocumentWarnings(warnings)}, nil
 }
@@ -161,17 +202,21 @@ func (e *ovisDocumentOCREnricher) parseImages(ctx context.Context, tasks []docum
 			select {
 			case semaphore <- struct{}{}:
 			case <-ctx.Done():
-				results <- documentOCRResult{hash: task.hash, err: ctx.Err()}
+				invocation := e.hub.recordDocumentOCRBypass(task.metadata, "cancelled", "request_cancelled")
+				invocation.Err = ctx.Err()
+				results <- documentOCRResult{hash: task.hash, invocation: invocation}
 				return
 			}
 			defer func() { <-semaphore }()
 			prepared, err := prepareImageForModel(task.resource.Content, task.resource.ContentType)
 			if err != nil {
-				results <- documentOCRResult{hash: task.hash, err: err}
+				invocation := e.hub.recordDocumentOCRBypass(task.metadata, "render_failed", "ocr_image_preparation_failed")
+				invocation.Err = err
+				results <- documentOCRResult{hash: task.hash, invocation: invocation}
 				return
 			}
-			parsed, err := e.hub.ocr.Parse(ctx, documentocr.Request{Content: prepared.Content, ContentType: prepared.ContentType})
-			results <- documentOCRResult{hash: task.hash, result: parsed, err: err}
+			invocation := e.hub.parseDocumentOCR(ctx, documentocr.Request{Content: prepared.Content, ContentType: prepared.ContentType}, task.metadata)
+			results <- documentOCRResult{hash: task.hash, invocation: invocation}
 		}()
 	}
 	wait.Wait()
@@ -193,7 +238,29 @@ func skippedDocumentOCR(status, reason string) map[string]any {
 	return map[string]any{"status": status, "provider": "ovisocr2", "reason": reason, "untrusted": true}
 }
 
-func documentOCRCallID(hash, model string) string {
-	digest := sha256.Sum256([]byte(hash + "\x00" + model + "\x00ovisocr2_page_parse_v1"))
-	return "mcall_" + hex.EncodeToString(digest[:8])
+func documentOCRMetadataForRecord(documentValue document.Representation, record map[string]any, execution documentOCRExecution) documentOCRCallMetadata {
+	location, _ := documentAnyMap(record["location"])
+	pageIndex := intArg(location, "page_index", 0)
+	metadata := documentOCRCallMetadata{
+		SessionID: execution.SessionID, RunID: execution.RunID, PageIndex: pageIndex,
+		SourceSHA256: stringArg(record, "sha256", ""), PreprocessingVersion: documentOCRDefaultPreprocessingVersion,
+	}
+	for _, pageValue := range documentValue.Pages {
+		if intArg(pageValue, "index", 0) != pageIndex {
+			continue
+		}
+		metadata.PreprocessingVersion = stringArg(pageValue, "ocr_preprocessing_version", metadata.PreprocessingVersion)
+		quality, _ := documentAnyMap(pageValue["native_text_quality"])
+		metadata.ClassifierVersion = stringArg(quality, "version", "")
+		break
+	}
+	return metadata
+}
+
+func documentOCRProvenance(invocation documentOCRInvocation, sourceSHA string) map[string]any {
+	out := map[string]any{
+		"model_call_id": invocation.ModelCallID, "source_sha256": sourceSHA, "prepared_sha256": invocation.PreparedSHA256,
+		"cache_result": invocation.CacheResult, "cache_record_id": invocation.CacheRecordID,
+	}
+	return out
 }

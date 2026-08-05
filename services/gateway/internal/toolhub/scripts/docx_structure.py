@@ -2,7 +2,9 @@
 import hashlib, json, sys, os
 try:
     from docx import Document
+    from docx.oxml.ns import qn
     from docx.shared import Pt
+    from docx.text.run import Run
 except Exception:
     print(json.dumps({"error":"DOCX structure adapter requires python-docx"}))
     sys.exit(0)
@@ -58,15 +60,52 @@ def preflight_paragraph(paragraph):
         raise ValueError("source_hash mismatch at target paragraph")
     return before, actual_hash
 
-def clear_paragraph(paragraph):
-    for run in paragraph.runs:
-        run.text = ""
-    if not paragraph.runs:
-        paragraph.add_run("")
+def replacement_run_boundary(run_element, paragraph_element):
+    relationship_id = ""
+    unsupported = []
+    current = run_element.getparent()
+    while current is not None and current is not paragraph_element:
+        if current.tag == qn("w:hyperlink"):
+            relationship_id = current.get(qn("r:id")) or ""
+        local_name = current.tag.rsplit("}", 1)[-1]
+        if local_name in ("ins", "del", "moveFrom", "moveTo"):
+            unsupported.append("tracked_change:%s" % local_name)
+        current = current.getparent()
+    if run_element.xpath(".//w:fldChar | .//w:instrText"):
+        unsupported.append("field")
+    if run_element.xpath(".//w:drawing | .//w:pict | .//w:object"):
+        unsupported.append("drawing")
+    return relationship_id, unsupported
+
+def homogeneous_replacement_runs(paragraph):
+    runs = []
+    for run_element in paragraph._p.xpath(".//w:r"):
+        run = Run(run_element, paragraph)
+        relationship_id, unsupported = replacement_run_boundary(run_element, paragraph._p)
+        if unsupported:
+            raise ValueError("DOCX paragraph replacement crosses unsupported %s boundary" % ", ".join(sorted(set(unsupported))))
+        runs.append({
+            "run": run,
+            "text": run.text or "",
+            "format": str(run_element.rPr.xml) if run_element.rPr is not None else "",
+            "relationship_id": relationship_id,
+        })
+    text_runs = [item for item in runs if item["text"]]
+    if len({item["format"] for item in text_runs}) > 1:
+        raise ValueError("DOCX paragraph replacement requires homogeneous run formatting")
+    if len({item["relationship_id"] for item in text_runs}) > 1:
+        raise ValueError("DOCX paragraph replacement crosses a hyperlink relationship boundary")
+    return runs, text_runs
 
 def set_paragraph_text(paragraph, text):
-    clear_paragraph(paragraph)
-    paragraph.runs[0].text = text
+    runs, text_runs = homogeneous_replacement_runs(paragraph)
+    if not runs:
+        paragraph.add_run(text)
+        return
+    target = text_runs[0] if text_runs else runs[0]
+    for item in runs:
+        item["run"].text = ""
+    target["run"].text = text
 
 def insert_paragraph(doc, position, idx, text):
     position = (position or "").strip().lower()
@@ -146,6 +185,11 @@ try:
         idx = paragraph_index() if loc is not None else int(req.get("paragraph_index") or 0)
         if position in ("before", "after") and idx <= 0:
             raise ValueError("paragraph_index or location is required for before/after insertion")
+        if position in ("before", "after"):
+            anchor = paragraph_at(doc, idx)
+            before, before_hash = preflight_paragraph(anchor)
+            result["anchor_before"] = before
+            result["source_hash"] = before_hash
         insert_paragraph(doc, position, idx, text)
         result["position"] = position
         result["text"] = text
@@ -160,14 +204,19 @@ try:
     elif op == "delete_paragraph":
         idx = paragraph_index()
         paragraph = paragraph_at(doc, idx)
+        before, before_hash = preflight_paragraph(paragraph)
         result["paragraph_index"] = idx
-        result["text"] = paragraph.text
+        result["text"] = before
+        result["source_hash"] = before_hash
         delete_paragraph(paragraph)
     elif op == "set_text_style":
         idx = paragraph_index()
         paragraph = paragraph_at(doc, idx)
+        before, before_hash = preflight_paragraph(paragraph)
         applied = apply_style(paragraph, req.get("style"))
         result["paragraph_index"] = idx
+        result["before"] = before
+        result["source_hash"] = before_hash
         result["style"] = applied
     else:
         raise ValueError("unsupported docx operation: %s" % op)

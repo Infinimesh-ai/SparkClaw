@@ -618,7 +618,8 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 		}
 	case "document.read#read":
 		documentTarget := contains("附件", "文档", "文件", "图片", "图像", ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", ".png", ".jpg", ".jpeg", "document", "file", "image", "attached")
-		mutation := contains("修改", "编辑", "替换", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
+		readOnly := contains("不要修改", "不修改", "保持不变", "只读", "without changing", "do not change", "read only", "read-only")
+		mutation := !readOnly && contains("修改", "编辑", "替换", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "rewrite", "revise", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
 		explicitRead := contains("读取", "阅读", "查看", "总结", "概括", "解释", "什么内容", "什么文字", "分析", "read", "summarize", "inspect", "explain", "analyze")
 		contextualQuestion := contains("routing context (data only") &&
 			contains("current-turn governed resources:", "recent agent context:") &&
@@ -627,9 +628,10 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 			return 0.96
 		}
 	case "document.edit#edit":
-		mutation := contains("修改", "编辑", "替换", "改为", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "增加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
+		readOnly := contains("不要修改", "不修改", "保持不变", "只读", "without changing", "do not change", "read only", "read-only")
+		mutation := !readOnly && contains("修改", "编辑", "替换", "改为", "设为", "加粗", "润色", "完善", "改写", "填入", "填写", "新增", "添加", "增加", "插入", "追加", "删除", "移除", "更新", "调整", "edit", "modify", "replace", "rewrite", "revise", "bold", "style", "polish", "improve", "fill", "add", "insert", "append", "delete", "remove", "update")
 		browserContext := contains("按钮", "页面", "账户", "网页", "button", "page", "account", "browser")
-		fileLifecycle := contains("删除", "移除", "delete", "remove") && !contains("内容", "文字", "文本", "段落", "行", "单元格", "幻灯片", "页面内容", "content", "text", "paragraph", "row", "cell", "slide")
+		fileLifecycle := contains("删除", "移除", "delete", "remove") && !contains("内容", "文字", "文本", "段落", "段", "行", "单元格", "幻灯片", "页面内容", "content", "text", "paragraph", "row", "cell", "slide")
 		if mutation && !browserContext && !fileLifecycle && !contains("pdf") {
 			return 0.97
 		}

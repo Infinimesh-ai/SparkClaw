@@ -171,6 +171,24 @@ post-edit preservation in one staged pipeline. New editors require exact
 format/operation schemas and delta verification. See
 [Document workflows](document-workflows.md).
 
+Register each format or operation in the package that owns the fact:
+
+1. Add ToolHub parser/editor execution, validation, locator construction,
+   directory boundaries, and output projection to that format provider.
+2. Add normalization, lifecycle, package verification, and preservation deltas
+   to the `document` format policy.
+3. Add route grounding, decision evidence/rules, argument binding/validation,
+   schema materialization, and result evidence projection to the Agent format
+   policy when orchestration differs.
+4. Keep signature inspection centralized and use frozen capability `format` and
+   `operation` qualifiers as the join. Do not import ToolHub implementation
+   types into Agent or create a shared mega-registry.
+
+Registration constructors must reject duplicate formats and operations. Add a
+synthetic registration test and a shared-dispatch source guard when extending
+the abstraction; prompt moves require an exact ordered snapshot before any
+separate calibration change.
+
 ## WebChat Changes
 
 Keep API transport in `apps/webchat/src/api/client.ts` and shared response/action

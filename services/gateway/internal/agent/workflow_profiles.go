@@ -80,14 +80,7 @@ func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDo
 func (documentReadProfile) Revision() int                { return 4 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
-	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
-		EmbedTexts: []string{
-			"读取这个文档", "总结 report.pdf", "查看附件里的表格", "Explain the attached presentation", "检查工作区中的 notes.md",
-		},
-		TreeDescription: "Read, inspect, summarize, explain, or extract verbatim in-image text from exactly one governed workspace document or attachment without modifying it. Optional OCR is evidence inside this workflow, not a separate route.",
-		HardNegatives:   []string{"修改这个文档", "打开网页", "搜索整个代码仓库", "创建一个新文件"},
-	}}}
+	return documentReadRoutingSemantics()
 }
 func (documentReadProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationModel
@@ -142,25 +135,10 @@ func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 type documentEditProfile struct{}
 
 func (documentEditProfile) ID() app.WorkflowID           { return app.WorkflowDocumentEdit }
-func (documentEditProfile) Revision() int                { return 5 }
+func (documentEditProfile) Revision() int                { return 6 }
 func (documentEditProfile) Capability() app.CapabilityID { return app.CapabilityDocumentEdit }
 func (documentEditProfile) RoutingSemantics() workflowRoutingSemantics {
-	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
-		{
-			Key: "edit", Route: workflowRouteTemplate{Operation: app.RouteOperationEdit},
-			EmbedTexts: []string{
-				"修改这个 Word 文档", "把表格中的标题改掉", "润色附件里的演示文稿", "Edit notes.md and replace the heading",
-			},
-			TreeDescription: "Edit a copy of one governed text, Word, spreadsheet, or presentation document. The request changes document content rather than deleting the file itself.",
-			HardNegatives:   []string{"读取并总结文档", "删除整个文件", "创建新文档", "修改网页内容"},
-		},
-		{
-			Key: "transform", Route: workflowRouteTemplate{Operation: app.RouteOperationTransform},
-			EmbedTexts:      []string{"旋转这个 PDF", "拆分附件里的 PDF", "Transform the PDF into an edited copy", "调整 PDF 页面"},
-			TreeDescription: "Transform a governed PDF into a modified output copy, including page-oriented PDF operations. Do not use for reading or deleting the source file.",
-			HardNegatives:   []string{"总结 PDF", "编辑 Word 文档", "删除 PDF 文件", "创建 PDF"},
-		},
-	}}
+	return documentEditRoutingSemantics()
 }
 func (documentEditProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
@@ -237,7 +215,7 @@ func (documentEditProfile) StageContext(state *app.WorkflowState) workflowStageC
 	stageContext := workflowStageContextForState(state, operation, "workspace", "workspace", "", "Dispatched by the staged document.edit workflow contract.")
 	if len(state.ActiveNodeIDs) > 0 && state.ActiveNodeIDs[0] == "document_edit" {
 		stageContext.EvidenceRequirements = []workflowEvidenceRequirement{{
-			SourceNodeID: "document_locate_evidence", Mode: workflowEvidenceStructured, MaxBytes: 8000,
+			SourceNodeID: "document_locate_evidence", Mode: workflowEvidenceStructured,
 		}}
 	}
 	return stageContext
@@ -246,12 +224,7 @@ func (documentEditProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 	return ""
 }
 func (documentEditProfile) DecisionRules(app.WorkflowNode) []string {
-	return []string{
-		"Use the owner's requested content change and the completed structured observation to distinguish replacement, insertion, deletion, append, style, row, cell, slide, and page operations.",
-		"Apply minimum-change semantics when the observation already contains the requested target: modify, improve, polish, complete, update, revise, or rewrite means replace/update that existing target, not insert or append another overlapping block.",
-		"Apply the same semantics across languages: 完善、润色、优化或改写 an existing located paragraph means replace that paragraph, not no match and not insertion.",
-		"Choose insert, add, or append only when the owner explicitly requests a new block, row, or slide, or when the structured observation shows that the requested target does not exist.",
-	}
+	return registeredAgentDocumentFormatPolicies().decisionRules()
 }
 func (documentEditProfile) DecisionResolvedInstruction(entry app.ToolDirectoryEntry) string {
 	operation := strings.TrimSpace(entry.Capability.Qualifiers[app.CapabilityQualifierOperation])
@@ -479,6 +452,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if err != nil {
 		return nil, err
 	}
+	visibleDefinitions = materializeDocumentOperationSchemas(visibleDefinitions, view, entryIDs)
 	r.auditWorkflowStageExposure(run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
 	return visibleDefinitions, nil
 }

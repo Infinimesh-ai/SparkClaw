@@ -89,10 +89,16 @@ def page_indexes(pages, count):
     if not pages:
         raise ValueError("pages are required")
     out = []
+    seen = set()
     for page in pages:
-        idx = int(page) - 1
+        if isinstance(page, bool) or not isinstance(page, int):
+            raise ValueError("pages must contain only positive integers")
+        idx = page - 1
         if idx < 0 or idx >= count:
             raise ValueError("page out of range: %s" % page)
+        if idx in seen:
+            raise ValueError("duplicate page: %s" % page)
+        seen.add(idx)
         out.append(idx)
     return out
 
@@ -232,24 +238,14 @@ try:
                 }
             }
         print(json.dumps(out))
-    elif op == "merge":
-        writer = PdfWriter()
-        for path in req["inputs"]:
-            reader = PdfReader(path)
-            for page in reader.pages:
-                writer.add_page(page)
-        os.makedirs(os.path.dirname(req["output_path"]), exist_ok=True)
-        with open(req["output_path"], "wb") as f:
-            writer.write(f)
-        print(json.dumps({"status":"pdf_version_written","operation":op,"output_path":req["output_path"],"bytes":os.path.getsize(req["output_path"]),"pages":len(writer.pages),"inputs":req["inputs"]}))
     elif op in ("extract_pages", "delete_pages", "rotate_pages"):
         reader = PdfReader(req["path"])
         writer = PdfWriter()
         selected = set(page_indexes(req.get("pages"), len(reader.pages)))
         if op == "rotate_pages":
-            rotation = int(req.get("rotation") or 90)
-            if rotation % 90 != 0:
-                raise ValueError("rotation must be a multiple of 90")
+            rotation = req.get("rotation")
+            if isinstance(rotation, bool) or rotation not in (-270, -180, -90, 90, 180, 270):
+                raise ValueError("rotation must be one of -270, -180, -90, 90, 180, or 270")
         for i, page in enumerate(reader.pages):
             if op == "extract_pages" and i not in selected:
                 continue

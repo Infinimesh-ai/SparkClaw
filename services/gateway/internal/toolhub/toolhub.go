@@ -997,6 +997,11 @@ func validateInput(def app.ToolDefinition, args map[string]any) error {
 	if err := validateSchemaValue(args, def.InputSchema, "arguments"); err != nil {
 		return fmt.Errorf("%s %w", def.Name, err)
 	}
+	if def.Name == "pdf.transform" {
+		if err := validatePDFTransformArguments(args); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

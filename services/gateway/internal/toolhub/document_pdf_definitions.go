@@ -36,20 +36,18 @@ func pdfToolDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "pdf.transform",
-			Description: "Perform a bounded PDF transform such as extract_pages, delete_pages, rotate_pages, merge, or split and write a new PDF.",
-			InputSchema: schema("object", []string{"operation", "output_path"}, map[string]any{
+			Description: "Perform a bounded extract_pages, delete_pages, rotate_pages, or split operation and write a new PDF copy.",
+			InputSchema: strictObjectSchema([]string{"operation", "path", "output_path"}, map[string]any{
 				"path":        stringSchema(),
-				"inputs":      stringArraySchema(),
-				"operation":   map[string]any{"enum": []any{"extract_pages", "delete_pages", "rotate_pages", "merge", "split"}},
-				"pages":       map[string]any{"type": "array", "items": map[string]any{"type": "number"}},
-				"rotation":    map[string]any{"type": "number"},
+				"operation":   map[string]any{"enum": []any{"extract_pages", "delete_pages", "rotate_pages", "split"}},
+				"pages":       pdfPageIndexesSchema(),
+				"rotation":    pdfRotationSchema(),
 				"output_path": stringSchema(),
 			}),
 			OutputSchema: objectSchema([]string{"status", "operation", "output_path", "bytes"}, map[string]any{
 				"status":         stringSchema(),
 				"operation":      stringSchema(),
 				"path":           stringSchema(),
-				"inputs":         stringArraySchema(),
 				"output_path":    stringSchema(),
 				"outputs":        stringArraySchema(),
 				"bytes":          integerSchema(),
@@ -64,4 +62,15 @@ func pdfToolDefinitions() []app.ToolDefinition {
 			Audit:            "always",
 		},
 	}
+}
+
+func pdfPageIndexesSchema() map[string]any {
+	return map[string]any{
+		"type": "array", "minItems": float64(1), "uniqueItems": true,
+		"items": map[string]any{"type": "integer", "minimum": float64(1)},
+	}
+}
+
+func pdfRotationSchema() map[string]any {
+	return map[string]any{"enum": []any{-270, -180, -90, 90, 180, 270}}
 }

@@ -3,7 +3,8 @@ package toolhub
 import (
 	"context"
 	"errors"
-	"os"
+	"fmt"
+	"math"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
@@ -54,37 +55,13 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any) (Resu
 }
 
 func (h *ToolHub) pdfTransform(ctx context.Context, args map[string]any) (Result, error) {
+	if err := validatePDFTransformArguments(args); err != nil {
+		return Result{}, err
+	}
 	operation := stringArg(args, "operation", "")
 	outputPath, err := h.resolveNewOutputPath(stringArg(args, "output_path", ""))
 	if err != nil {
 		return Result{}, err
-	}
-	if operation == "merge" {
-		inputs, err := resolveStringPaths(h, args["inputs"])
-		if err != nil {
-			return Result{}, err
-		}
-		if len(inputs) < 2 {
-			return Result{}, errors.New("merge requires at least two inputs")
-		}
-		for _, input := range inputs {
-			if input == outputPath {
-				return Result{}, errors.New("output_path must not overwrite an input file")
-			}
-		}
-		if _, err := os.Lstat(outputPath); err == nil {
-			return Result{}, errors.New("output_path already exists")
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return Result{}, errors.New("output_path is unavailable")
-		}
-		out, err := runPDFPython(ctx, map[string]any{"operation": operation, "output_path": outputPath, "inputs": inputs})
-		if err != nil {
-			return Result{}, err
-		}
-		return Result{Output: map[string]any{
-			"status": stringArg(out, "status", "pdf_version_written"), "operation": operation, "inputs": inputs,
-			"output_path": outputPath, "bytes": intArg(out, "bytes", fileSize(outputPath)), "pages": intArg(out, "pages", 0),
-		}}, nil
 	}
 	path, err := h.resolvePath(stringArg(args, "path", ""))
 	if err != nil {
@@ -104,6 +81,81 @@ func (h *ToolHub) pdfTransform(ctx context.Context, args map[string]any) (Result
 	return Result{Output: documentChangeOutput(result, "pdf_version_written")}, nil
 }
 
+func validatePDFTransformArguments(args map[string]any) error {
+	operation := strings.TrimSpace(stringArg(args, "operation", ""))
+	if strings.TrimSpace(stringArg(args, "path", "")) == "" {
+		return errors.New("pdf.transform path is required")
+	}
+	if strings.TrimSpace(stringArg(args, "output_path", "")) == "" {
+		return errors.New("pdf.transform output_path is required")
+	}
+	switch operation {
+	case "extract_pages", "delete_pages", "rotate_pages":
+		pages, err := validatedPDFPageIndexes(args["pages"])
+		if err != nil {
+			return err
+		}
+		if len(pages) == 0 {
+			return errors.New("pdf.transform pages must not be empty")
+		}
+		if operation == "rotate_pages" {
+			rotation, ok := integerArgument(args["rotation"])
+			if !ok || !validPDFRotation(rotation) {
+				return errors.New("pdf.transform rotation must be one of -270, -180, -90, 90, 180, or 270")
+			}
+		} else if _, supplied := args["rotation"]; supplied {
+			return fmt.Errorf("pdf.transform %s does not accept rotation", operation)
+		}
+	case "split":
+		for _, key := range []string{"pages", "rotation", "inputs"} {
+			if _, supplied := args[key]; supplied {
+				return fmt.Errorf("pdf.transform split does not accept %s", key)
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported pdf operation: %s", operation)
+	}
+	return nil
+}
+
+func validatedPDFPageIndexes(value any) ([]int, error) {
+	items, ok := arrayItems(value)
+	if !ok || len(items) == 0 {
+		return nil, errors.New("pdf.transform pages must be a non-empty array")
+	}
+	pages := make([]int, 0, len(items))
+	seen := map[int]bool{}
+	for _, item := range items {
+		page, ok := integerArgument(item)
+		if !ok || page < 1 {
+			return nil, errors.New("pdf.transform pages must contain only positive integers")
+		}
+		if seen[page] {
+			return nil, fmt.Errorf("pdf.transform pages contains duplicate page %d", page)
+		}
+		seen[page] = true
+		pages = append(pages, page)
+	}
+	return pages, nil
+}
+
+func integerArgument(value any) (int, bool) {
+	number, ok := numberValue(value)
+	if !ok || math.Trunc(number) != number {
+		return 0, false
+	}
+	return int(number), true
+}
+
+func validPDFRotation(rotation int) bool {
+	switch rotation {
+	case -270, -180, -90, 90, 180, 270:
+		return true
+	default:
+		return false
+	}
+}
+
 func intList(value any) []int {
 	items, ok := arrayItems(value)
 	if !ok {
@@ -116,26 +168,6 @@ func intList(value any) []int {
 		}
 	}
 	return out
-}
-
-func resolveStringPaths(h *ToolHub, value any) ([]string, error) {
-	items, ok := arrayItems(value)
-	if !ok {
-		return nil, errors.New("inputs must be an array")
-	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		text, ok := item.(string)
-		if !ok {
-			return nil, errors.New("inputs must contain only strings")
-		}
-		path, err := h.resolvePath(text)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, path)
-	}
-	return out, nil
 }
 
 func runPDFPython(ctx context.Context, request map[string]any) (map[string]any, error) {

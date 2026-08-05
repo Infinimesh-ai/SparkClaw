@@ -76,6 +76,9 @@ func TestNewDegradesInvalidDocumentOCRConfiguration(t *testing.T) {
 	if hub.ocr == nil || hub.ocr.Enabled() {
 		t.Fatalf("invalid OCR configuration did not degrade to the disabled adapter: %#v", hub.ocr)
 	}
+	if readiness := hub.DocumentOCRReadiness(); !readiness.ConfiguredEnabled || readiness.AdapterReady || readiness.RuntimeStatus != "degraded" || readiness.ReasonCode != "constructor_failed" {
+		t.Fatalf("constructor failure was not exposed as degraded readiness: %#v", readiness)
+	}
 	result, err := hub.Execute(context.Background(), "images.inspect", map[string]any{"path": "evidence.png"}, "session", "run")
 	if err != nil {
 		t.Fatal(err)

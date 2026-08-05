@@ -43,6 +43,7 @@ documentation tree.
 | [XLSX workflow hardening plan](xlsx-workflow-hardening-plan.md) | Proposed XLSX evidence, mutation safety, package-preservation, and operation-selection hardening |
 | [PPTX workflow optimization plan](pptx-workflow-optimization-plan.md) | Proposed routing, preservation, evidence, insertion, timeout, and validation improvements for PPTX workflows |
 | [Observation compression redesign](observation-compression-redesign.md) | Implemented uniform tool-result envelope, runtime evidence provisioning, and lossless compaction |
+| [PDF workflow optimization record](pdf-workflow-optimization-plan.md) | Implemented page-level coverage, scan classification, exact transforms, routing calibration, and OCR observability |
 | [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |
 
 Repository process is documented in [Contributing](../CONTRIBUTING.md),

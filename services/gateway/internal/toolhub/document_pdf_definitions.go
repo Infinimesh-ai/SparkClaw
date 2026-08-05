@@ -1,6 +1,9 @@
 package toolhub
 
-import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+import (
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+)
 
 func pdfToolDefinitions() []app.ToolDefinition {
 	return []app.ToolDefinition{
@@ -9,16 +12,20 @@ func pdfToolDefinitions() []app.ToolDefinition {
 			Description: "Extract text and stable page blocks from a workspace PDF. When OvisOCR2 is enabled, scanned pages are rasterized and parsed under bounded page and byte budgets; unavailable or failed OCR remains explicit partial evidence.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":      stringSchema(),
-				"max_bytes": map[string]any{"type": "number"},
+				"max_bytes": map[string]any{"type": "integer", "minimum": float64(1), "maximum": float64(document.SmallExtractedMaxBytes)},
 			}),
-			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "scanned_unsupported", "document"}, map[string]any{
-				"path":                stringSchema(),
-				"content":             stringSchema(),
-				"bytes":               integerSchema(),
-				"truncated":           booleanSchema(),
-				"untrusted":           booleanSchema(),
-				"scanned_unsupported": booleanSchema(),
-				"document":            objectValueSchema(),
+			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "read_complete", "coverage_status", "missing_page_indexes", "page_status_counts", "scanned_unsupported", "document"}, map[string]any{
+				"path":                 stringSchema(),
+				"content":              stringSchema(),
+				"bytes":                integerSchema(),
+				"truncated":            booleanSchema(),
+				"untrusted":            booleanSchema(),
+				"read_complete":        booleanSchema(),
+				"coverage_status":      map[string]any{"enum": []any{"complete", "partial", "unavailable"}},
+				"missing_page_indexes": map[string]any{"type": "array", "items": integerSchema()},
+				"page_status_counts":   objectValueSchema(),
+				"scanned_unsupported":  booleanSchema(),
+				"document":             objectValueSchema(),
 			}),
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
@@ -29,20 +36,18 @@ func pdfToolDefinitions() []app.ToolDefinition {
 		},
 		{
 			Name:        "pdf.transform",
-			Description: "Perform a bounded PDF transform such as extract_pages, delete_pages, rotate_pages, merge, or split and write a new PDF.",
-			InputSchema: schema("object", []string{"operation", "output_path"}, map[string]any{
+			Description: "Perform a bounded extract_pages, delete_pages, rotate_pages, or split operation and write a new PDF copy.",
+			InputSchema: strictObjectSchema([]string{"operation", "path", "output_path"}, map[string]any{
 				"path":        stringSchema(),
-				"inputs":      stringArraySchema(),
-				"operation":   map[string]any{"enum": []any{"extract_pages", "delete_pages", "rotate_pages", "merge", "split"}},
-				"pages":       map[string]any{"type": "array", "items": map[string]any{"type": "number"}},
-				"rotation":    map[string]any{"type": "number"},
+				"operation":   map[string]any{"enum": []any{"extract_pages", "delete_pages", "rotate_pages", "split"}},
+				"pages":       pdfPageIndexesSchema(),
+				"rotation":    pdfRotationSchema(),
 				"output_path": stringSchema(),
 			}),
 			OutputSchema: objectSchema([]string{"status", "operation", "output_path", "bytes"}, map[string]any{
 				"status":         stringSchema(),
 				"operation":      stringSchema(),
 				"path":           stringSchema(),
-				"inputs":         stringArraySchema(),
 				"output_path":    stringSchema(),
 				"outputs":        stringArraySchema(),
 				"bytes":          integerSchema(),
@@ -57,4 +62,15 @@ func pdfToolDefinitions() []app.ToolDefinition {
 			Audit:            "always",
 		},
 	}
+}
+
+func pdfPageIndexesSchema() map[string]any {
+	return map[string]any{
+		"type": "array", "minItems": float64(1), "uniqueItems": true,
+		"items": map[string]any{"type": "integer", "minimum": float64(1)},
+	}
+}
+
+func pdfRotationSchema() map[string]any {
+	return map[string]any{"enum": []any{-270, -180, -90, 90, 180, 270}}
 }

@@ -111,6 +111,13 @@ ambiguous，不会压缩成一个。唯一的最近文档可以在无需再次�
 `images.inspect`，后者可以在已选 Workflow 内补充带分类的 OCR 证据。渠道图片仅在 owner
 要求检查或转录时走同一路径；ingest 本身不会自动执行 OCR。
 
+PDF 页级表达继续由同一组两个文档 candidate 处理。询问页面内容、提取页面文字或识别
+扫描页选择 `document.read#read`；导出、删除、旋转或拆分页面选择
+`document.edit#transform`。否定 transform、引用指令、已完成动作和故障排查描述不会授权
+edit。无法区分页面文字与页面文件导出的表达保持 ambiguous，并要求澄清。由于当前没有
+Workflow 负责有序多文档 grounding，merge 继续 unmatched/blocked。这些区分通过语义样例
+和 hard negative 实现，不是关键词 fallback，也没有修改 fusion weight 或 threshold。
+
 只有 Agent Runtime 能把一个 clear 候选转换成 `RouteDecision`：
 
 1. 在冻结的图 revision 中解析候选。

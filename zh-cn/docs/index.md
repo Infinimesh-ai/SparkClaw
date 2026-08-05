@@ -41,6 +41,7 @@
 | [XLSX Workflow 加固方案](xlsx-workflow-hardening-plan.md) | 拟议的 XLSX 证据、修改安全、包级保真和操作选择加固 |
 | [PPTX Workflow 优化方案](pptx-workflow-optimization-plan.md) | 拟议的 PPTX 路由、保真、证据、新增页、超时与验证优化 |
 | [观测压缩重构](observation-compression-redesign.md) | 已实施的统一工具结果信封、运行时证据供给与无损压缩 |
+| [PDF Workflow 优化记录](pdf-workflow-optimization-plan.md) | 已实现的页级覆盖、扫描页分类、精确变换契约、路由校准与 OCR 可观测性 |
 | [暂缓能力](deferred-email-calendar-knowledge.md) | 已移除的邮件、日历、workspace knowledge 原型及重新引入门槛 |
 
 仓库协作流程见[贡献指南](../CONTRIBUTING.md)、[安全策略](../SECURITY.md)、

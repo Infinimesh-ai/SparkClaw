@@ -5,7 +5,7 @@ import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 func pdfToolRegistrations() map[string]toolRegistration {
 	return map[string]toolRegistration{
 		"pdf.extract_text": documentReadRegistration(
-			ctxArgs((*ToolHub).pdfExtractText),
+			ctxArgsSessionRun((*ToolHub).pdfExtractText),
 			[]string{app.DocumentFormatPDF},
 			"Extract bounded text and stable page evidence from a workspace PDF, using configured OCR for scanned pages.",
 		),

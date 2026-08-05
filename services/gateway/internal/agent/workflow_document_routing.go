@@ -11,8 +11,12 @@ func documentReadRoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
 		Key: "read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
 		EmbedTexts:      embedTexts,
-		TreeDescription: "Read, inspect, summarize, explain, or extract verbatim in-image text from exactly one governed workspace document or attachment without modifying it. Optional OCR is evidence inside this workflow, not a separate route.",
-		HardNegatives:   []string{"修改这个文档", "打开网页", "搜索整个代码仓库", "创建一个新文件"},
+		TreeDescription: "Read, inspect, summarize, explain, recognize scanned text, or extract the text of a page from exactly one governed workspace document or attachment without modifying it. Optional OCR is evidence inside this workflow, not a separate route. Exporting a page as a new PDF is a transform.",
+		HardNegatives: []string{
+			"修改这个文档", "打开网页", "搜索整个代码仓库", "创建一个新文件",
+			"把 report.pdf 第 3 页导出为新 PDF", "删除 report.pdf 的第 3 页", "旋转 PDF 页面", "把 PDF 按页拆开",
+			"提取 report.pdf 的第 3 页", "处理一下这个扫描 PDF",
+		},
 	}}}
 }
 

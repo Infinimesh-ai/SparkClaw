@@ -488,6 +488,12 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
 		"sparkclaw_memory_candidates_total 0",
 		"sparkclaw_episode_summaries_total 1",
+		"sparkclaw_document_ocr_pages_total",
+		"sparkclaw_document_ocr_duration_seconds",
+		"sparkclaw_document_ocr_queue_wait_seconds",
+		"sparkclaw_document_ocr_cache_total",
+		"sparkclaw_pdf_page_classifications_total",
+		"sparkclaw_pdf_reads_total",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, body)

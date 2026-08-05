@@ -137,6 +137,17 @@ format selects `images.inspect`, which may add classified OCR evidence inside
 the already selected Workflow. Channel images use this same path only when the
 owner asks to inspect or transcribe them; ingestion itself does not run OCR.
 
+PDF page-language stays inside the same two document candidates. Asking what a
+page says, extracting page text, or recognizing a scan selects
+`document.read#read`; exporting, deleting, rotating, or splitting pages selects
+`document.edit#transform`. Negated transforms, quoted instructions, completed
+actions, and troubleshooting statements do not authorize an edit. A phrase
+that does not distinguish page text from a page-file export remains ambiguous
+and asks for clarification. Merge remains unmatched/blocked because no current
+Workflow owns ordered multi-document grounding. These distinctions are semantic
+examples and hard negatives, not a keyword fallback, and did not change fusion
+weights or thresholds.
+
 Only Agent Runtime turns one clear candidate into `RouteDecision`:
 
 1. Resolve the candidate against the frozen graph revision.

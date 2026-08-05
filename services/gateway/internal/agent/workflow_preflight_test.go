@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -136,6 +137,42 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 				decision.OutcomeRefs[0].Attributes[app.CapabilityQualifierFormat] != test.format ||
 				decision.OutcomeRefs[0].Attributes[app.CapabilityQualifierOperation] != test.operation {
 				t.Fatalf("edit operation decision was not persisted with exact qualifiers: %#v", decision)
+			}
+		})
+	}
+}
+
+func TestPDFTransformMaterializesOperationSpecificSchemas(t *testing.T) {
+	definitions := []app.ToolDefinition{{Name: "pdf.transform", InputSchema: map[string]any{"type": "object"}}}
+	for _, test := range []struct {
+		operation      string
+		wantRequired   []string
+		wantProperties []string
+	}{
+		{operation: "extract_pages", wantRequired: []string{"operation", "output_path", "pages", "path"}, wantProperties: []string{"operation", "output_path", "pages", "path"}},
+		{operation: "delete_pages", wantRequired: []string{"operation", "output_path", "pages", "path"}, wantProperties: []string{"operation", "output_path", "pages", "path"}},
+		{operation: "rotate_pages", wantRequired: []string{"operation", "output_path", "pages", "path", "rotation"}, wantProperties: []string{"operation", "output_path", "pages", "path", "rotation"}},
+		{operation: "split", wantRequired: []string{"operation", "output_path", "path"}, wantProperties: []string{"operation", "output_path", "path"}},
+	} {
+		t.Run(test.operation, func(t *testing.T) {
+			entryID := app.ToolDirectoryEntryID("entry_pdf_" + test.operation)
+			view := app.DirectoryView{Entries: []app.ToolDirectoryEntry{{
+				ID: entryID,
+				Capability: app.CapabilityDescriptor{Name: app.ToolCapabilityDocumentEdit, Qualifiers: map[string]string{
+					app.CapabilityQualifierFormat: app.DocumentFormatPDF, app.CapabilityQualifierOperation: test.operation,
+				}},
+			}}}
+			projected := materializePDFTransformSchemas(definitions, view, []app.ToolDirectoryEntryID{entryID})
+			schema := projected[0].InputSchema
+			required := toolDefinitionRequiredArgs(schema)
+			properties := toolDefinitionPropertyNames(schema)
+			slices.Sort(required)
+			if !slices.Equal(required, test.wantRequired) || !slices.Equal(properties, test.wantProperties) || schema["additionalProperties"] != false {
+				t.Fatalf("unexpected %s schema: %#v", test.operation, schema)
+			}
+			operationSchema := schema["properties"].(map[string]any)["operation"].(map[string]any)
+			if values := operationSchema["enum"].([]any); len(values) != 1 || values[0] != test.operation {
+				t.Fatalf("operation enum was not narrowed: %#v", operationSchema)
 			}
 		})
 	}

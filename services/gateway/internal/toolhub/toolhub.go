@@ -43,6 +43,7 @@ type ToolHub struct {
 	weatherInfo WeatherInfoAdapter
 	browser     browserautomation.Adapter
 	ocr         documentocr.Adapter
+	ocrRuntime  *documentOCRRuntime
 	documents   *document.Pipeline
 }
 
@@ -73,6 +74,7 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		weatherInfo = client
 	}
 	ocrAdapter, err := documentocr.New(cfg.Adapters.DocumentOCR)
+	ocrConstructorErr := err
 	if err != nil {
 		slog.Warn("document OCR adapter unavailable; continuing with OCR disabled", "error", err)
 		ocrAdapter = documentocr.Disabled()
@@ -89,6 +91,7 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		weatherInfo: weatherInfo,
 		browser:     browserautomation.NewAdapter(cfg),
 		ocr:         ocrAdapter,
+		ocrRuntime:  newDocumentOCRRuntime(cfg.Adapters.DocumentOCR, ocrAdapter, ocrConstructorErr),
 	}
 	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {
@@ -142,7 +145,26 @@ func (h *ToolHub) WithWeatherInfoAdapter(adapter WeatherInfoAdapter) *ToolHub {
 
 func (h *ToolHub) WithDocumentOCRAdapter(adapter documentocr.Adapter) *ToolHub {
 	h.ocr = adapter
+	if h.ocrRuntime == nil {
+		h.ocrRuntime = newDocumentOCRRuntime(h.cfg.Adapters.DocumentOCR, adapter, nil)
+	} else {
+		h.ocrRuntime.setAdapter(adapter)
+	}
 	return h
+}
+
+func (h *ToolHub) DocumentOCRReadiness() documentocr.RuntimeReadiness {
+	if h == nil || h.ocrRuntime == nil {
+		return documentocr.RuntimeReadiness{RuntimeStatus: "disabled", ReasonCode: "runtime_unavailable"}
+	}
+	return h.ocrRuntime.readinessSnapshot()
+}
+
+func (h *ToolHub) DocumentMetrics() []string {
+	if h == nil || h.ocrRuntime == nil {
+		return nil
+	}
+	return h.ocrRuntime.prometheusLines()
 }
 
 func (h *ToolHub) Definitions() []app.ToolDefinition {
@@ -1007,8 +1029,22 @@ func validateInput(def app.ToolDefinition, args map[string]any) error {
 	if args == nil {
 		args = map[string]any{}
 	}
-	if err := validateSchemaValue(args, def.InputSchema, "arguments"); err != nil {
+	schemaArgs := args
+	if _, ok := args["_verifier"]; ok {
+		schemaArgs = make(map[string]any, len(args)-1)
+		for key, value := range args {
+			if key != "_verifier" {
+				schemaArgs[key] = value
+			}
+		}
+	}
+	if err := validateSchemaValue(schemaArgs, def.InputSchema, "arguments"); err != nil {
 		return fmt.Errorf("%s %w", def.Name, err)
+	}
+	if def.Name == "pdf.transform" {
+		if err := validatePDFTransformArguments(schemaArgs); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1397,7 +1433,7 @@ func (h *ToolHub) filesSearch(ctx context.Context, args map[string]any) (Result,
 	return Result{Output: map[string]any{"root": root, "query": query, "results": results, "count": len(results)}}, err
 }
 
-func (h *ToolHub) filesRead(ctx context.Context, args map[string]any) (Result, error) {
+func (h *ToolHub) filesRead(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	path, err := h.resolvePath(stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -1406,7 +1442,7 @@ func (h *ToolHub) filesRead(ctx context.Context, args map[string]any) (Result, e
 	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
 		maxBytes = document.SmallExtractedMaxBytes
 	}
-	read, err := h.readDocumentWorkflow(ctx, path, maxBytes, document.EnrichmentOptions{
+	read, err := h.readDocumentWorkflow(withDocumentOCRExecution(ctx, sessionID, runID), path, maxBytes, document.EnrichmentOptions{
 		ImageAnalysis: stringArg(args, "image_analysis", "targeted"),
 		TargetPaths:   outputStringArray(args["image_target_paths"]),
 		Question:      stringArg(args, "image_question", ""),

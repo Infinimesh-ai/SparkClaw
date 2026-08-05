@@ -464,6 +464,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	if err != nil {
 		return nil, err
 	}
+	visibleDefinitions = materializePDFTransformSchemas(visibleDefinitions, view, entryIDs)
 	r.auditWorkflowStageExposure(run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
 	return visibleDefinitions, nil
 }

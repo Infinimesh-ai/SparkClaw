@@ -89,6 +89,7 @@ func (a *OpenAIHTTP) Parse(ctx context.Context, input Request) (Result, error) {
 	default:
 		return Result{}, fmt.Errorf("document OCR does not support content type %q", contentType)
 	}
+	queuedAt := time.Now()
 	if err := a.acquire(ctx); err != nil {
 		return Result{}, err
 	}
@@ -99,6 +100,7 @@ func (a *OpenAIHTTP) Parse(ctx context.Context, input Request) (Result, error) {
 	case <-ctx.Done():
 		return Result{}, contextError(ctx.Err())
 	}
+	queueWaitMS := time.Since(queuedAt).Milliseconds()
 
 	payload := map[string]any{
 		"model": a.cfg.Model,
@@ -169,7 +171,7 @@ func (a *OpenAIHTTP) Parse(ctx context.Context, input Request) (Result, error) {
 	if strings.TrimSpace(decoded.Model) == "" {
 		decoded.Model = a.cfg.Model
 	}
-	return Result{Markdown: markdown, Model: decoded.Model, InferenceMS: time.Since(started).Milliseconds()}, nil
+	return Result{Markdown: markdown, Model: decoded.Model, InferenceMS: time.Since(started).Milliseconds(), QueueWaitMS: queueWaitMS}, nil
 }
 
 func (a *OpenAIHTTP) acquire(ctx context.Context) error {

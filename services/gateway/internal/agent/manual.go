@@ -104,6 +104,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		})
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
+			Source:     app.ApprovalSourceTool,
 			SessionID:  sessionID,
 			RunID:      runID,
 			ToolCallID: call.ID,
@@ -160,6 +161,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
+			Source:     app.ApprovalSourceTool,
 			SessionID:  sessionID,
 			RunID:      runID,
 			ToolCallID: call.ID,

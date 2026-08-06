@@ -2103,6 +2103,41 @@ button.finderRow {
   overflow-wrap: anywhere;
 }
 
+.happyPlanDetails {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.happyPlanDetails > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.happyPlanDetails small,
+.approvalSource {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.happyPlanDetails pre {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .jsonBlock {
   position: relative;
   min-width: 0;

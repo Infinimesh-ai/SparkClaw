@@ -287,6 +287,22 @@ func (s *FileStore) SaveApproval(approval app.Approval) {
 	s.persist()
 }
 
+func (s *FileStore) GetApproval(id string) (app.Approval, bool) {
+	return s.inner.GetApproval(id)
+}
+
+func (s *FileStore) FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool) {
+	return s.inner.FindApprovalByExternalRef(source, externalID)
+}
+
+func (s *FileStore) UpdatePendingApproval(approval app.Approval) (app.Approval, error) {
+	out, err := s.inner.UpdatePendingApproval(approval)
+	if err == nil {
+		s.persist()
+	}
+	return out, err
+}
+
 func (s *FileStore) ResolveApproval(id, status, note string) (app.Approval, error) {
 	out, err := s.inner.ResolveApproval(id, status, note)
 	if err == nil {

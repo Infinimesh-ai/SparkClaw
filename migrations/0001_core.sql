@@ -113,9 +113,12 @@ ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS observation_summary TEXT NOT NUL
 
 CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES sessions(id),
-  run_id TEXT NOT NULL REFERENCES agent_runs(id),
-  tool_call_id TEXT NOT NULL REFERENCES tool_calls(id),
+  source TEXT NOT NULL DEFAULT 'tool',
+  external_id TEXT NOT NULL DEFAULT '',
+  external_context JSONB,
+  session_id TEXT REFERENCES sessions(id),
+  run_id TEXT REFERENCES agent_runs(id),
+  tool_call_id TEXT REFERENCES tool_calls(id),
   tool TEXT NOT NULL,
   risk_level TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -127,6 +130,14 @@ CREATE TABLE IF NOT EXISTS approvals (
   resolved_at TIMESTAMPTZ,
   resolution_note TEXT
 );
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'tool';
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS external_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS external_context JSONB;
+ALTER TABLE approvals ALTER COLUMN session_id DROP NOT NULL;
+ALTER TABLE approvals ALTER COLUMN run_id DROP NOT NULL;
+ALTER TABLE approvals ALTER COLUMN tool_call_id DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS approvals_external_ref_idx
+  ON approvals(source, external_id) WHERE external_id <> '';
 
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY,

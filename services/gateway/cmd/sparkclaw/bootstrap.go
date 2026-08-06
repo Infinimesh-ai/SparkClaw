@@ -6,6 +6,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/happyapproval"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
@@ -20,6 +21,7 @@ type gatewayServices struct {
 	connectors        *connectorAssembly
 	reminderScheduler *reminder.Scheduler
 	mcpManager        *mcpintegration.Manager
+	happyApprovals    *happyapproval.Service
 }
 
 func newGatewayServices(
@@ -48,6 +50,10 @@ func newGatewayServices(
 		reminderScheduler = reminder.NewMessageScheduler(st, schedules, newScheduledRequestPublisher(runtime, routes, connectors.delivery), cfg.Tools.Reminders.MaxDeliveryAttempts)
 	}
 	mcpManager := mcpintegration.New(cfg.MCPServers, tools, nil)
+	var happyApprovals *happyapproval.Service
+	if _, configured := cfg.MCPServers[happyapproval.ServerName]; configured {
+		happyApprovals = happyapproval.New(st, mcpManager, 0)
+	}
 
 	return &gatewayServices{
 		server: gateway.NewWithTrace(
@@ -61,12 +67,14 @@ func newGatewayServices(
 			gateway.WithBindingRouter(connectors.registry.BindingRouter()),
 			gateway.WithConnectorController(connectors.registry),
 			gateway.WithMCPController(mcpManager),
+			gateway.WithExternalApprovalResolver(happyApprovals),
 			gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 		),
 		connectors:        connectors,
 		reminderScheduler: reminderScheduler,
 		mcpManager:        mcpManager,
+		happyApprovals:    happyApprovals,
 	}, nil
 }
 
@@ -77,6 +85,9 @@ func (s *gatewayServices) Start(ctx context.Context) {
 	}
 	if s.mcpManager != nil {
 		s.mcpManager.Run(ctx)
+	}
+	if s.happyApprovals != nil {
+		s.happyApprovals.Run(ctx)
 	}
 	s.connectors.registry.Start(ctx)
 }

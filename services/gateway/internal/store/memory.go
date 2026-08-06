@@ -913,12 +913,56 @@ func (s *MemoryStore) ListDocumentRecords(ownerID, sessionID string, limit int) 
 func (s *MemoryStore) SaveApproval(approval app.Approval) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	approval = normalizeApproval(approval)
 	s.approvals[approval.ID] = approval
-	s.appendAuditLocked("approval."+approval.Status, approval.SessionID, approval.RunID, "policy", approval.Summary, map[string]any{
+	actor := "policy"
+	if approval.Source != app.ApprovalSourceTool {
+		actor = "integration"
+	}
+	s.appendAuditLocked("approval."+approval.Status, approval.SessionID, approval.RunID, actor, approval.Summary, map[string]any{
 		"tool": approval.Tool,
 		"risk": approval.Risk,
 	})
 	s.appendEventLocked("approval."+approval.Status, approval.SessionID, approval.RunID, approval)
+}
+
+func (s *MemoryStore) GetApproval(id string) (app.Approval, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	approval, ok := s.approvals[id]
+	return normalizeApproval(approval), ok
+}
+
+func (s *MemoryStore) FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, approval := range s.approvals {
+		approval = normalizeApproval(approval)
+		if approval.Source == source && approval.ExternalID == externalID {
+			return approval, true
+		}
+	}
+	return app.Approval{}, false
+}
+
+func (s *MemoryStore) UpdatePendingApproval(approval app.Approval) (app.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.approvals[approval.ID]
+	if !ok {
+		return app.Approval{}, errors.New("approval not found")
+	}
+	current = normalizeApproval(current)
+	if current.Status != "pending" {
+		return app.Approval{}, errors.New("approval already resolved")
+	}
+	approval = normalizeApproval(approval)
+	approval.Status = "pending"
+	approval.ResolvedAt = nil
+	approval.ResolutionNote = ""
+	s.approvals[approval.ID] = approval
+	s.appendEventLocked("approval.pending", approval.SessionID, approval.RunID, approval)
+	return normalizeApproval(approval), nil
 }
 
 func (s *MemoryStore) ResolveApproval(id, status, note string) (app.Approval, error) {
@@ -936,7 +980,11 @@ func (s *MemoryStore) ResolveApproval(id, status, note string) (app.Approval, er
 	approval.ResolvedAt = &now
 	approval.ResolutionNote = note
 	s.approvals[id] = approval
-	s.appendAuditLocked("approval."+status, approval.SessionID, approval.RunID, "owner", approval.Summary, map[string]any{"note": note})
+	actor := "owner"
+	if status == "resolved_elsewhere" {
+		actor = "integration"
+	}
+	s.appendAuditLocked("approval."+status, approval.SessionID, approval.RunID, actor, approval.Summary, map[string]any{"note": note})
 	s.appendEventLocked("approval."+status, approval.SessionID, approval.RunID, approval)
 	return approval, nil
 }
@@ -946,6 +994,7 @@ func (s *MemoryStore) ListApprovals(status string) []app.Approval {
 	defer s.mu.RUnlock()
 	out := []app.Approval{}
 	for _, approval := range s.approvals {
+		approval = normalizeApproval(approval)
 		if status == "" || approval.Status == status {
 			out = append(out, approval)
 		}
@@ -954,6 +1003,23 @@ func (s *MemoryStore) ListApprovals(status string) []app.Approval {
 		return b.CreatedAt.Compare(a.CreatedAt)
 	})
 	return out
+}
+
+func normalizeApproval(approval app.Approval) app.Approval {
+	if approval.Source == "" {
+		approval.Source = app.ApprovalSourceTool
+	}
+	if approval.Resources == nil {
+		approval.Resources = []string{}
+	}
+	if approval.Arguments == nil {
+		approval.Arguments = map[string]any{}
+	}
+	if approval.ExternalContext != nil {
+		contextCopy := *approval.ExternalContext
+		approval.ExternalContext = &contextCopy
+	}
+	return approval
 }
 
 func (s *MemoryStore) SaveReminder(reminder app.Reminder) app.Reminder {

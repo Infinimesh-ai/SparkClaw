@@ -37,6 +37,46 @@ func TestFileStorePersistsDocumentRecords(t *testing.T) {
 	}
 }
 
+func TestFileStorePersistsExternalApprovalContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "approval-state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.SaveApproval(app.Approval{
+		ID: "ap_happy_task_file", Source: app.ApprovalSourceHappyTeamPlan,
+		ExternalID: "task-file", Tool: "mcp.happy-tasks.approve_plan",
+		Risk: app.RiskDangerous, Status: "pending", Summary: "Review file-backed plan",
+		ExternalContext: &app.ExternalApprovalContext{
+			Provider: "happy-team", Title: "File task", GoalPrompt: "Persist this",
+			Plan: "Persisted plan", PlanAvailability: app.ExternalPlanAvailable, PlanEdited: true,
+		},
+	})
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-file")
+	if !ok || got.ExternalContext == nil || got.ExternalContext.Plan != "Persisted plan" || !got.ExternalContext.PlanEdited {
+		t.Fatalf("external approval context did not survive file reload: %#v ok=%v", got, ok)
+	}
+	if _, err := reloaded.ResolveApproval(got.ID, "approved", "done"); err != nil {
+		t.Fatal(err)
+	}
+	got.ExternalContext.Plan = "stale update"
+	if _, err := reloaded.UpdatePendingApproval(got); err == nil {
+		t.Fatal("stale file-backed update reopened a resolved approval")
+	}
+	finalStore, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalApproval, _ := finalStore.GetApproval(got.ID)
+	if finalApproval.Status != "approved" || finalApproval.ExternalContext.Plan != "Persisted plan" {
+		t.Fatalf("resolved file-backed approval changed after stale update: %#v", finalApproval)
+	}
+}
+
 func TestFileStoreBrowserHandoffCASRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "browser-handoff-state.json")
 	st, err := NewFileStore(path)

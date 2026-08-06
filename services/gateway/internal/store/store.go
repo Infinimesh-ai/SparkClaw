@@ -49,6 +49,9 @@ type Store interface {
 	GetDocumentRecord(id string) (app.DocumentRecord, bool)
 	ListDocumentRecords(ownerID, sessionID string, limit int) []app.DocumentRecord
 	SaveApproval(approval app.Approval)
+	GetApproval(id string) (app.Approval, bool)
+	FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool)
+	UpdatePendingApproval(approval app.Approval) (app.Approval, error)
 	ResolveApproval(id, status, note string) (app.Approval, error)
 	ListApprovals(status string) []app.Approval
 	SaveReminder(reminder app.Reminder) app.Reminder

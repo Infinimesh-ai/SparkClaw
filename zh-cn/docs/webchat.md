@@ -42,7 +42,8 @@ memory action、feedback、owner/client/policy change、connector activation/bin
 - delivery target picker 随普通 session message 提交一个可选 opaque `target_endpoint_id`；它不改变或
   复制 composer、attachment、streaming、routing 或 Workflow path；仅附件发送提交空文本，由
   Message Runtime 路由 typed media part。
-- approval modification 校验 JSON，并让 verifier-owned field 保持只读。
+- 普通 tool approval modification 校验 JSON，并让 verifier-owned field 保持只读；Happy Team
+  plan approval 展示 typed task/goal/plan，只提交编辑后的计划文本，不暴露 raw remote tool argument。
 - workspace file 通过 authenticated document API 上传和读取。
 - speech transcription 只返回 draft text，绝不调用 message send。
 - connector setting 从 `/api/connectors` 渲染已注册渠道列表；版本化 toggle 只改变 activation，
@@ -71,6 +72,8 @@ owner/client setting、config 和 policy。
 
 - 使用安静的工作控制台，不做 marketing page。
 - risk、pending、failed、unavailable 和 unknown-outcome 状态必须可见。
+- live plan 不可用时禁用 Happy plan 批准和编辑，保留拒绝操作并展示重试状态；plan 文本不得
+  被当成 UI 指令。
 - 普通纯媒体消息发往当前选中的第三方 endpoint 时，不显示来源 WebChat assistant result，且该明确
   发送无需审批。纯文本和其他第三方 Workflow result 仍由 Gateway 管理 send approval；显式
   direct-send API client 仍必须确认 send 和 retry。

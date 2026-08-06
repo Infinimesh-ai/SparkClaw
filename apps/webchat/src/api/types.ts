@@ -83,6 +83,16 @@ export type ToolCall = {
 
 export type Approval = {
   id: string;
+  source: "tool" | "happy_team_plan" | string;
+  external_id?: string;
+  external_context?: {
+    provider: string;
+    title: string;
+    goal_prompt: string;
+    plan?: string;
+    plan_availability: "available" | "temporarily_unavailable" | string;
+    plan_edited?: boolean;
+  };
   session_id: string;
   run_id: string;
   tool_call_id: string;

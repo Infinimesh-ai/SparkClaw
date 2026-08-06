@@ -47,38 +47,42 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
 
-const sseHeartbeatInterval = 15 * time.Second
+const (
+	sseHeartbeatInterval = 15 * time.Second
+)
 
 type streamMessageExecutor func(context.Context, string, string, []agent.MessageAttachment, app.MessageIngressContext, agent.StreamHandler) (agent.Result, error)
 
 type Server struct {
-	cfg           config.Config
-	store         store.Store
-	tools         *toolhub.ToolHub
-	runtime       agent.Runtime
-	models        modelrouter.Router
-	traces        *trace.Writer
-	artifacts     artifact.Store
-	policies      policy.Engine
-	bindings      binding.Router
-	speech        speech.Transcriber
-	credentials   credential.CredentialVault
-	cancelBinding func(app.NotificationBinding)
-	delivery      *delivery.Gateway
-	endpoints     *messagecontrol.EndpointRegistry
-	providers     *delivery.ProviderRegistry
-	connectors    ConnectorController
-	mcp           MCPController
-	bridge        *iscpbridge.GatewayAdapter
-	deliveryMu    sync.Mutex
-	bindingsSet   bool
-	mux           *http.ServeMux
-	started       time.Time
-	limiter       *rateLimiter
-	lifecycleMu   sync.RWMutex
-	lifecycleCtx  context.Context
-	streamMessage streamMessageExecutor
-	streamWG      sync.WaitGroup
+	cfg                      config.Config
+	store                    store.Store
+	tools                    *toolhub.ToolHub
+	runtime                  agent.Runtime
+	models                   modelrouter.Router
+	traces                   *trace.Writer
+	artifacts                artifact.Store
+	policies                 policy.Engine
+	bindings                 binding.Router
+	speech                   speech.Transcriber
+	credentials              credential.CredentialVault
+	cancelBinding            func(app.NotificationBinding)
+	delivery                 *delivery.Gateway
+	endpoints                *messagecontrol.EndpointRegistry
+	providers                *delivery.ProviderRegistry
+	connectors               ConnectorController
+	mcp                      MCPController
+	externalApprovalResolver ExternalApprovalResolver
+	bridge                   *iscpbridge.GatewayAdapter
+	deliveryMu               sync.Mutex
+	bindingsSet              bool
+	mux                      *http.ServeMux
+	started                  time.Time
+	limiter                  *rateLimiter
+	lifecycleMu              sync.RWMutex
+	lifecycleCtx             context.Context
+	streamMessage            streamMessageExecutor
+	streamWG                 sync.WaitGroup
+	approvalLocks            sync.Map
 }
 
 type Option func(*Server)
@@ -94,6 +98,10 @@ type MCPController interface {
 	Refresh(context.Context, string) (mcpintegration.Status, error)
 }
 
+type ExternalApprovalResolver interface {
+	Resolve(context.Context, app.Approval, string) (resolvedElsewhere bool, err error)
+}
+
 func WithConnectorController(controller ConnectorController) Option {
 	return func(server *Server) {
 		server.connectors = controller
@@ -103,6 +111,12 @@ func WithConnectorController(controller ConnectorController) Option {
 func WithMCPController(controller MCPController) Option {
 	return func(server *Server) {
 		server.mcp = controller
+	}
+}
+
+func WithExternalApprovalResolver(resolver ExternalApprovalResolver) Option {
+	return func(server *Server) {
+		server.externalApprovalResolver = resolver
 	}
 }
 
@@ -1407,18 +1421,17 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		Note      string         `json:"note"`
 		Args      map[string]any `json:"args"`
 		Arguments map[string]any `json:"arguments"`
+		Plan      *string        `json:"plan"`
 	}
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	unlock := s.lockApproval(r.PathValue("id"))
+	defer unlock()
 	newArgs := input.Arguments
 	if newArgs == nil {
 		newArgs = input.Args
-	}
-	if len(newArgs) == 0 {
-		writeError(w, http.StatusBadRequest, errors.New("modify requires args or arguments"))
-		return
 	}
 	approval, ok := s.findApproval(r.PathValue("id"))
 	if !ok {
@@ -1427,6 +1440,14 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if approval.Status != "pending" {
 		writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
+		return
+	}
+	if approval.Source == app.ApprovalSourceHappyTeamPlan {
+		s.modifyHappyPlanApproval(w, r, approval, input.Plan, newArgs, input.Note)
+		return
+	}
+	if len(newArgs) == 0 {
+		writeError(w, http.StatusBadRequest, errors.New("modify requires args or arguments"))
 		return
 	}
 	call, ok := s.store.GetToolCall(approval.ToolCallID)
@@ -1470,12 +1491,56 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
 }
 
+func (s *Server) modifyHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, plan *string, args map[string]any, note string) {
+	if plan == nil || len(args) != 0 {
+		writeError(w, http.StatusBadRequest, errors.New("Happy plan modification requires only the plan field"))
+		return
+	}
+	if len(*plan) > app.MaxExternalApprovalPlanBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, errors.New("edited Happy plan exceeds the 1 MiB limit"))
+		return
+	}
+	if approval.ExternalContext == nil || approval.ExternalContext.PlanAvailability != app.ExternalPlanAvailable {
+		writeError(w, http.StatusConflict, errors.New("Happy task plan is temporarily unavailable; retry after the member machine reconnects"))
+		return
+	}
+	contextCopy := *approval.ExternalContext
+	contextCopy.Plan = *plan
+	contextCopy.PlanEdited = true
+	approval.ExternalContext = &contextCopy
+	approval, err := s.store.UpdatePendingApproval(approval)
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	s.store.AddAudit(app.AuditEvent{
+		Actor: "owner", Type: "approval.modified", Summary: approval.Summary,
+		Fields: map[string]any{"source": approval.Source, "external_id": approval.ExternalID, "note": note},
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": nil})
+}
+
 func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status string) {
 	var input struct {
 		Note string `json:"note"`
 	}
 	_ = readJSON(r, &input)
-	approval, err := s.store.ResolveApproval(r.PathValue("id"), status, input.Note)
+	unlock := s.lockApproval(r.PathValue("id"))
+	defer unlock()
+	approval, ok := s.findApproval(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("approval not found"))
+		return
+	}
+	if approval.Status != "pending" {
+		writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
+		return
+	}
+	if approval.Source == app.ApprovalSourceHappyTeamPlan {
+		s.resolveHappyPlanApproval(w, r, approval, status, input.Note)
+		return
+	}
+	approval, err := s.store.ResolveApproval(approval.ID, status, input.Note)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -1522,13 +1587,42 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call, "workflow_result": workflowResult, "delivery_receipt": deliveryReceipt})
 }
 
-func (s *Server) findApproval(id string) (app.Approval, bool) {
-	for _, approval := range s.store.ListApprovals("") {
-		if approval.ID == id {
-			return approval, true
+func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, status, note string) {
+	if s.externalApprovalResolver == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("Happy approval integration is unavailable"))
+		return
+	}
+	resolvedElsewhere, err := s.externalApprovalResolver.Resolve(r.Context(), approval, status)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	localStatus := status
+	if resolvedElsewhere {
+		localStatus = "resolved_elsewhere"
+		if strings.TrimSpace(note) == "" {
+			note = "Happy task was already resolved elsewhere"
 		}
 	}
-	return app.Approval{}, false
+	resolved, err := s.store.ResolveApproval(approval.ID, localStatus, note)
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"approval": resolved, "tool_call": nil, "workflow_result": nil, "delivery_receipt": nil,
+	})
+}
+
+func (s *Server) findApproval(id string) (app.Approval, bool) {
+	return s.store.GetApproval(id)
+}
+
+func (s *Server) lockApproval(id string) func() {
+	value, _ := s.approvalLocks.LoadOrStore(id, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func mergeApprovalArgs(current, patch map[string]any) map[string]any {

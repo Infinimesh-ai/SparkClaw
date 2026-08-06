@@ -136,6 +136,14 @@ Happy 使用两个彼此独立的端点。Happy Team 提供 Cloud Agent 任务�
 `wait_for_idle` 的调用 deadline 会长于请求的等待时间；调用方也可以改用有界
 `get_session` 轮询。
 
+配置 `happy-tasks` 后，一个有界 worker 每 60 秒轮询
+`list_tasks {"status":"WAITING_APPROVAL"}`，并按 Happy task ID 创建 typed approval。新项目会
+调用 `get_task_plan`；成员机器离线期间会持续重试。收件箱展示任务标题、目标和计划；计划不可用
+时不能批准或编辑。owner 只能修改计划文本。批准固定调用
+`approve_plan {taskId, editedPlan?}`，拒绝固定调用 `reject_plan {taskId}`。Gateway 只有在
+远端动作成功后才更新本地状态。business error 会触发权威 `get_task` 复核；任务已不在
+`WAITING_APPROVAL` 时按“已在其他位置处理”关闭。后续 waiting list 中消失的项目也执行相同复核。
+
 ## Connector 控制、Binding 与状态 API
 
 WebChat 通过统一、版本化 API 发现已注册渠道并管理显式 opt-in；账号设置保持独立 lifecycle：

@@ -243,12 +243,14 @@ export function ApprovalPanel({
   approvals,
   text,
   onResolve,
-  onModify
+  onModify,
+  onModifyPlan
 }: {
   approvals: Approval[];
   text: CopyText;
   onResolve: (id: string, accepted: boolean) => void;
   onModify: (id: string, args: Record<string, unknown>) => void;
+  onModifyPlan: (id: string, plan: string) => void;
 }) {
   const [editing, setEditing] = useState("");
   const [draft, setDraft] = useState("");
@@ -256,14 +258,20 @@ export function ApprovalPanel({
 
   function startEdit(approval: Approval) {
     setEditing(approval.id);
-    setDraft(JSON.stringify(stripSystemArgs(approval.arguments), null, 2));
+    setDraft(approval.source === "happy_team_plan" ? approval.external_context?.plan ?? "" : JSON.stringify(stripSystemArgs(approval.arguments), null, 2));
     setParseError("");
   }
 
-  function saveEdit(id: string) {
+  function saveEdit(approval: Approval) {
+    if (approval.source === "happy_team_plan") {
+      onModifyPlan(approval.id, draft);
+      setEditing("");
+      setParseError("");
+      return;
+    }
     try {
       const parsed = JSON.parse(draft) as Record<string, unknown>;
-      onModify(id, parsed);
+      onModify(approval.id, parsed);
       setEditing("");
       setParseError("");
     } catch {
@@ -277,7 +285,10 @@ export function ApprovalPanel({
       {approvals.length === 0 ? (
         <span className="muted">{text.approval.empty}</span>
       ) : (
-        approvals.map((approval) => (
+        approvals.map((approval) => {
+          const happyPlan = approval.source === "happy_team_plan" ? approval.external_context : undefined;
+          const planAvailable = happyPlan?.plan_availability === "available";
+          return (
           <article className={`approvalItem ${approval.risk}`} key={approval.id}>
             <div className="approvalTop">
               <strong>{approval.summary}</strong>
@@ -291,7 +302,25 @@ export function ApprovalPanel({
                 ))}
               </div>
             )}
-            <JsonBlock value={stripSystemArgs(approval.arguments)} />
+            {happyPlan ? (
+              <div className="happyPlanDetails">
+                <span className="approvalSource">{text.approval.happyTeam}</span>
+                <div>
+                  <small>{text.approval.taskTitle}</small>
+                  <p>{happyPlan.title}</p>
+                </div>
+                <div>
+                  <small>{text.approval.taskGoal}</small>
+                  <p>{happyPlan.goal_prompt}</p>
+                </div>
+                <div>
+                  <small>{text.approval.taskPlan}</small>
+                  {planAvailable ? <pre>{happyPlan.plan ?? ""}</pre> : <p className="compactError">{text.approval.planUnavailable}</p>}
+                </div>
+              </div>
+            ) : (
+              <JsonBlock value={stripSystemArgs(approval.arguments)} />
+            )}
             {approval.status === "pending" ? (
               <>
                 {editing === approval.id && (
@@ -301,10 +330,10 @@ export function ApprovalPanel({
                   </div>
                 )}
                 <div className="buttonRow">
-                  <button className="approve" onClick={() => onResolve(approval.id, true)} title={text.common.approve}>
+                  <button className="approve" onClick={() => onResolve(approval.id, true)} title={planAvailable || !happyPlan ? text.common.approve : text.approval.planUnavailable} disabled={Boolean(happyPlan && !planAvailable)}>
                     <Check size={16} />
                   </button>
-                  <button className="edit" onClick={() => (editing === approval.id ? saveEdit(approval.id) : startEdit(approval))} title={text.approval.editArguments}>
+                  <button className="edit" onClick={() => (editing === approval.id ? saveEdit(approval) : startEdit(approval))} title={happyPlan ? text.approval.editPlan : text.approval.editArguments} disabled={Boolean(happyPlan && !planAvailable)}>
                     <Pencil size={15} />
                   </button>
                   <button className="reject" onClick={() => onResolve(approval.id, false)} title={text.common.reject}>
@@ -316,7 +345,8 @@ export function ApprovalPanel({
               <span className="resolved">{formatState(approval.status, text)}</span>
             )}
           </article>
-        ))
+          );
+        })
       )}
     </div>
   );

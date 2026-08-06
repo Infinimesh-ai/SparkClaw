@@ -58,7 +58,7 @@ func (r Runtime) queueExternalSendApproval(run *app.AgentRun) (app.ToolCall, app
 		Arguments: arguments, StartedAt: now,
 	}
 	approval := app.Approval{
-		ID: app.NewID("ap"), SessionID: run.SessionID, RunID: run.ID, ToolCallID: call.ID,
+		ID: app.NewID("ap"), Source: app.ApprovalSourceTool, SessionID: run.SessionID, RunID: run.ID, ToolCallID: call.ID,
 		Tool: externalSendApprovalTool, Risk: app.RiskDangerous, Status: "pending",
 		Summary: stringValue(arguments["summary"]), Reason: stringValue(arguments["reason"]),
 		Resources: []string{string(metadata.EndpointID)}, Arguments: arguments, CreatedAt: now,

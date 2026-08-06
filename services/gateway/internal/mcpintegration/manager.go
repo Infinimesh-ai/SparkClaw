@@ -22,6 +22,8 @@ import (
 
 const maxTokenFileBytes = int64(16 << 10)
 
+var errDiscoveryRunning = errors.New("MCP discovery is already running")
+
 type Status struct {
 	Name             string    `json:"name"`
 	URL              string    `json:"url"`
@@ -115,7 +117,7 @@ func (m *Manager) Refresh(ctx context.Context, name string) (Status, error) {
 	if runtime.busy {
 		status := runtime.status
 		m.mu.Unlock()
-		return status, errors.New("MCP discovery is already running")
+		return status, errDiscoveryRunning
 	}
 	runtime.busy = true
 	runtime.status.LastAttemptAt = time.Now().UTC()
@@ -195,13 +197,40 @@ func (m *Manager) CallTool(ctx context.Context, serverName, remoteName string, a
 	}
 	if client == nil {
 		if _, err := m.Refresh(ctx, serverName); err != nil {
-			return mcpclient.ToolResult{}, err
+			if !errors.Is(err, errDiscoveryRunning) {
+				return mcpclient.ToolResult{}, err
+			}
+			if err := m.waitForClient(ctx, serverName); err != nil {
+				return mcpclient.ToolResult{}, err
+			}
 		}
 		m.mu.RLock()
 		client = m.server[serverName].client
 		m.mu.RUnlock()
 	}
 	return client.CallTool(ctx, remoteName, args)
+}
+
+func (m *Manager) waitForClient(ctx context.Context, serverName string) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		m.mu.RLock()
+		runtime := m.server[serverName]
+		client, busy, status := runtime.client, runtime.busy, runtime.status
+		m.mu.RUnlock()
+		if client != nil {
+			return nil
+		}
+		if !busy {
+			return fmt.Errorf("MCP server %q is not connected after discovery (%s)", serverName, status.ErrorCode)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (m *Manager) ListStatus() []Status {

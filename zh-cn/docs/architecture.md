@@ -17,6 +17,8 @@ agent runtime。当前产品表面包括：
 - 到期 payload 重新进入正常路由的定时消息；
 - personal memory candidate 和 approval-gated sensitive memory；
 - 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
+- 可选 Happy Team 任务与个人 bridge MCP 接入，并把 supervised plan 决议同步到持久化人工
+  审批收件箱；
 - trace、artifact、eval、Policy、approval、auth 和 durable state。
 
 准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。邮件、日历和 workspace

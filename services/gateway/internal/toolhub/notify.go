@@ -26,6 +26,7 @@ func (h *ToolHub) notifyAskApproval(args map[string]any, sessionID, runID string
 	}
 	approval := app.Approval{
 		ID:         app.NewID("ap"),
+		Source:     app.ApprovalSourceTool,
 		SessionID:  sessionID,
 		RunID:      runID,
 		ToolCallID: call.ID,

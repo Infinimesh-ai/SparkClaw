@@ -19,6 +19,8 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - personal memory candidates and approval-gated sensitive memory;
 - optional WebChat speech transcription, Telegram/Weixin messaging, and
   Infinimesh Info evidence;
+- optional Happy Team task and personal bridge MCP access, with supervised plan
+  decisions synchronized into the durable human approval inbox;
 - traces, artifacts, evals, policy, approval, auth, and durable state.
 
 The exact executable leaf set is listed in

@@ -194,3 +194,37 @@ func TestRunRefreshesWithoutBlockingOnUnavailablePeer(t *testing.T) {
 	}
 	cancel()
 }
+
+func TestCallToolWaitsForConcurrentInitialDiscovery(t *testing.T) {
+	server := newMCPFixture(t, "happy-team-tasks", []map[string]any{
+		{"name": "list_tasks", "inputSchema": map[string]any{"type": "object"}},
+	}, func(string) map[string]any {
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"tasks":[]}`}}}
+	})
+	defer server.Close()
+	cfg := config.Default()
+	cfg.MCPServers = map[string]config.MCPServerConfig{"happy-tasks": {
+		URL: server.URL, Namespace: "mcp.happy-tasks", ExpectedServerName: "happy-team-tasks",
+		RequestTimeoutSeconds: 2, DiscoveryRefreshSeconds: 60, ResponseBodyMaxBytes: 1 << 20,
+	}}
+	hub := toolhub.New(cfg, store.NewMemoryStore())
+	defer hub.Close()
+	manager := New(cfg.MCPServers, hub, server.Client())
+	manager.mu.Lock()
+	manager.server["happy-tasks"].busy = true
+	manager.mu.Unlock()
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		client, _ := mcpclient.New(mcpclient.Config{
+			Endpoint: server.URL, Namespace: "mcp.happy-tasks", RequestTimeout: time.Second,
+		}, server.Client())
+		manager.mu.Lock()
+		manager.server["happy-tasks"].client = client
+		manager.server["happy-tasks"].busy = false
+		manager.mu.Unlock()
+	}()
+	result, err := manager.CallTool(t.Context(), "happy-tasks", "list_tasks", map[string]any{})
+	if err != nil || result.IsError {
+		t.Fatalf("call did not wait for concurrent discovery: result=%#v err=%v", result, err)
+	}
+}

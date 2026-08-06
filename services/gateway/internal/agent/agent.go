@@ -1037,6 +1037,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
+			Source:     app.ApprovalSourceTool,
 			SessionID:  sessionID,
 			RunID:      runID,
 			ToolCallID: call.ID,

@@ -10,6 +10,9 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Added
 
+- Streamable HTTP MCP discovery and ToolHub registration for independent Happy
+  Team task and personal bridge endpoints, plus a durable Happy supervised-plan
+  approval inbox with live plan retry, editing, and remote-first reconciliation.
 - Current-state architecture, deployment and development documentation.
 - Chinese documentation mirror under `zh-cn/` for project docs.
 - DGX Spark model-serving guidance and benchmark evidence.

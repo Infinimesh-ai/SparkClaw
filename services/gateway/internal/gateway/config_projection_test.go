@@ -32,3 +32,24 @@ func TestPublicAdapterConfigDoesNotExposeDocumentOCRDestination(t *testing.T) {
 		t.Fatalf("public config omitted document OCR identity: %s", text)
 	}
 }
+
+func TestPublicMCPConfigOmitsCredentialEnvironmentReferences(t *testing.T) {
+	servers := map[string]config.MCPServerConfig{
+		"localmind": {
+			Transport: "streamable-http", URLEnv: "VERY_PRIVATE_LOCALMIND_URL_ENV", BearerTokenEnv: "VERY_PRIVATE_LOCALMIND_TOKEN_ENV",
+			Namespace: "localmind", ExpectedServerName: "localmind-workspace", ProtocolVersion: "2025-06-18",
+			AllowMutations: true, ToolAllow: []string{"read_document"},
+		},
+	}
+	raw, err := json.Marshal(publicMCPServersConfig(servers))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if strings.Contains(text, "VERY_PRIVATE") || strings.Contains(text, "url_env") || strings.Contains(text, "bearer_token_env") {
+		t.Fatalf("public MCP config exposed credential environment references: %s", text)
+	}
+	if !strings.Contains(text, `"configured":true`) || !strings.Contains(text, `"allow_mutations":true`) {
+		t.Fatalf("public MCP config omitted safe status fields: %s", text)
+	}
+}

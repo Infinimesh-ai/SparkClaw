@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -116,6 +118,11 @@ func TestPPTXTargetEvidencePrioritizesLateSlideAndRejectsOverflow(t *testing.T) 
 	if _, err := pptxTargetStructuredEvidence(output, pptxScopeWholeDeck, nil, 8000); err == nil || err.Error() != "pptx_whole_deck_exceeds_batch_bound" {
 		t.Fatalf("oversized whole-deck evidence was not rejected: %v", err)
 	}
+	output["document"].(map[string]any)["slides"] = []any{map[string]any{"index": 1, "template_ref": "slide:1"}}
+	output["document"].(map[string]any)["blocks"] = []any{pptxEvidenceBlock(1, 1, 0, strings.Repeat("large-slide ", 560), true)}
+	if _, err := pptxTargetStructuredEvidence(output, pptxScopeWholeDeck, nil, 8000); err == nil || err.Error() != "pptx_slide_evidence_exceeds_budget" {
+		t.Fatalf("single-slide whole-deck evidence bound was not enforced: %v", err)
+	}
 	blankOutput := map[string]any{"document": map[string]any{
 		"format": "pptx", "slides": []any{map[string]any{
 			"index": 1, "template_ref": "slide:1", "layout_ref": "layout:/ppt/slideLayouts/slideLayout6.xml",
@@ -127,6 +134,83 @@ func TestPPTXTargetEvidencePrioritizesLateSlideAndRejectsOverflow(t *testing.T) 
 	blankEvidence, err := pptxTargetStructuredEvidence(blankOutput, pptxScopeStructural, []int{1}, 8000)
 	if err != nil || !strings.Contains(blankEvidence, `"slide_index":1`) {
 		t.Fatalf("blank structural target did not retain slide/layout evidence: evidence=%q err=%v", blankEvidence, err)
+	}
+	allStructuralEvidence, err := pptxTargetStructuredEvidence(blankOutput, pptxScopeStructural, nil, 8000)
+	if err != nil || !strings.Contains(allStructuralEvidence, `"slide_index":1`) {
+		t.Fatalf("unpositioned structural edit did not retain the bounded slide inventory: evidence=%q err=%v", allStructuralEvidence, err)
+	}
+}
+
+func TestPPTXBusinessProjectionIsOperationScopedAndOmitsRichTextTrees(t *testing.T) {
+	richTree := map[string]any{"paragraphs": []any{map[string]any{"runs": []any{map[string]any{"text": strings.Repeat("rich-run", 300)}}}}}
+	output := map[string]any{
+		"rel_path": "deck.pptx", "kind": "pptx", "source_bytes": 43675, "content": strings.Repeat("duplicated content ", 200),
+		"document": map[string]any{
+			"format":   "pptx",
+			"metadata": map[string]any{"sha256": strings.Repeat("a", 64), "relative_path": "deck.pptx", "format": "pptx"},
+			"slides": []any{
+				map[string]any{"index": 1, "template_ref": "slide:1", "layout_ref": "layout:/ppt/slideLayouts/slideLayout1.xml", "items": []any{richTree}},
+				map[string]any{"index": 2, "template_ref": "slide:2", "layout_ref": "layout:/ppt/slideLayouts/slideLayout2.xml", "items": []any{richTree}},
+			},
+			"blocks": []any{
+				map[string]any{"kind": "shape_text", "text": "Editable title", "location": map[string]any{"slide_index": 2, "shape_index": 1, "block_type": "shape_text"}, "format_metadata": map[string]any{"editable": true, "text_structure": richTree}},
+				map[string]any{"kind": "shape_text", "text": "Grouped title", "location": map[string]any{"slide_index": 2, "shape_index": 2, "group_child_index": 1, "block_type": "shape_text"}, "format_metadata": map[string]any{"editable": false, "text_structure": richTree}},
+			},
+			"enrichment": map[string]any{
+				"layout": map[string]any{
+					"shapes": []any{map[string]any{
+						"slide_index": 2, "shape_index": 1, "companion_group_id": "group:2", "companion_role": "body", "text_structure": richTree,
+						"text_style": map[string]any{"font_size_pt": 18, "single_line_capacity_visual_units": 30, "single_line_fit_ratio": .6},
+					}},
+					"layout_inventory": []any{map[string]any{"layout_ref": "layout:/ppt/slideLayouts/slideLayout2.xml", "name": "Title and Content", "placeholder_roles": []any{"title", "body"}, "unused_tree": richTree}},
+				},
+				"annotations": map[string]any{"notes": []any{map[string]any{"text": "speaker note", "location": map[string]any{"slide_index": 2}}}},
+			},
+		},
+	}
+	projected, ok := pptxBusinessProjectionResult(output, pptxScopeStructural, []int{2})
+	if !ok {
+		t.Fatal("PPTX business projection was not produced")
+	}
+	raw, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, _ := json.Marshal(output)
+	if len(raw) >= len(full)/3 || strings.Contains(string(raw), "text_structure") || strings.Contains(string(raw), "rich-run") || strings.Contains(string(raw), "duplicated content") {
+		t.Fatalf("PPTX business projection retained replaceable parse detail: projected=%d full=%d\n%s", len(raw), len(full), raw)
+	}
+	if projected["projection_schema"] != pptxBusinessProjectionSchema || !strings.Contains(string(raw), `"has_notes":true`) || !strings.Contains(string(raw), `"target_hash"`) {
+		t.Fatalf("PPTX business projection omitted stable business evidence: %s", raw)
+	}
+
+	tests := []struct {
+		operation string
+		want      []string
+		reject    []string
+	}{
+		{operation: "replace_text", want: []string{"Editable title"}, reject: []string{"font_size_pt", "layout_record="}},
+		{operation: "update_slide", want: []string{"Editable title", "font_size_pt"}, reject: []string{"Grouped title", "layout_record="}},
+		{operation: "update_deck", want: []string{"Editable title", "processing_unit=slide"}, reject: []string{"Grouped title", "layout_record="}},
+		{operation: "add_slide", want: []string{"Editable title", "layout_record="}, reject: []string{"Grouped title"}},
+		{operation: "duplicate_slide", want: []string{`"has_notes":true`}, reject: []string{"shape_record=", "layout_record="}},
+		{operation: "delete_slide", want: []string{`"has_notes":true`}, reject: []string{"shape_record=", "layout_record="}},
+	}
+	for _, test := range tests {
+		evidence, err := pptxTargetStructuredEvidenceForOperation(projected, pptxScopeStructural, test.operation, []int{2}, 8000)
+		if err != nil {
+			t.Fatalf("%s projection failed: %v", test.operation, err)
+		}
+		for _, want := range test.want {
+			if !strings.Contains(evidence, want) {
+				t.Errorf("%s projection omitted %q:\n%s", test.operation, want, evidence)
+			}
+		}
+		for _, reject := range test.reject {
+			if strings.Contains(evidence, reject) {
+				t.Errorf("%s projection leaked %q:\n%s", test.operation, reject, evidence)
+			}
+		}
 	}
 }
 
@@ -354,6 +438,33 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if err != nil || len(tools) != 1 || tools[0].Name != "pptx.update_slide" {
 		t.Fatalf("single-slide scope exposed the wrong operation: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
+	properties, _ := anyMap(tools[0].InputSchema["properties"])
+	for _, name := range []string{"path", "output_path", "source_document_sha256", "slide_index"} {
+		if _, exposed := properties[name]; exposed || slices.Contains(toolDefinitionRequiredArgs(tools[0].InputSchema), name) {
+			t.Fatalf("runtime-owned PPTX argument %s leaked into the model schema: %#v", name, tools[0].InputSchema)
+		}
+	}
+	updatesSchema, _ := anyMap(properties["updates"])
+	updateItemSchema, _ := anyMap(updatesSchema["items"])
+	updateProperties, _ := anyMap(updateItemSchema["properties"])
+	if _, exposed := updateProperties["old_text"]; exposed || slices.Contains(toolDefinitionRequiredArgs(updateItemSchema), "old_text") || intLikeValue(updatesSchema["maxItems"]) != pptxModelMaxTextUpdates {
+		t.Fatalf("runtime-owned PPTX old_text leaked into the model schema: %#v", tools[0].InputSchema)
+	}
+	registeredUpdateSlide, ok := runtime.tools.Definition("pptx.update_slide")
+	if !ok {
+		t.Fatal("registered PPTX update-slide definition is missing")
+	}
+	registeredProperties, _ := anyMap(registeredUpdateSlide.InputSchema["properties"])
+	registeredUpdates, _ := anyMap(registeredProperties["updates"])
+	registeredUpdateItem, _ := anyMap(registeredUpdates["items"])
+	for _, name := range []string{"path", "output_path", "source_document_sha256", "slide_index"} {
+		if _, declared := registeredProperties[name]; !declared || !slices.Contains(toolDefinitionRequiredArgs(registeredUpdateSlide.InputSchema), name) {
+			t.Fatalf("registered PPTX editor lost required Runtime argument %s: %#v", name, registeredUpdateSlide.InputSchema)
+		}
+	}
+	if registeredUpdateProperties, _ := anyMap(registeredUpdateItem["properties"]); registeredUpdateProperties["old_text"] == nil || !slices.Contains(toolDefinitionRequiredArgs(registeredUpdateItem), "old_text") {
+		t.Fatalf("registered PPTX editor lost required old_text validation: %#v", registeredUpdateSlide.InputSchema)
+	}
 	if refreshed, ok := st.GetRun(storedRun.ID); ok {
 		storedRun = refreshed
 	}
@@ -361,7 +472,6 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "pptx.update_slide",
 		Args: map[string]any{
-			"path": "invented.pptx", "output_path": "invented-output.pptx", "slide_index": 2,
 			"layout_policy": "preserve", "updates": []any{map[string]any{"shape_index": 1, "text": "Improved third title"}},
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
@@ -369,6 +479,14 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if editApproval == nil || editCall.Status != "approval_pending" || editCall.Arguments["path"] != "deck.pptx" ||
 		editCall.Arguments["output_path"] != "deck-sparkclaw-edit.pptx" || intLikeValue(editCall.Arguments["slide_index"]) != 3 {
 		t.Fatalf("real PPTX edit did not enter approval with frozen resources: call=%#v approval=%#v", editCall, editApproval)
+	}
+	readDocument, _ := anyMap(readCall.Result.(map[string]any)["document"])
+	readMetadata, _ := anyMap(readDocument["metadata"])
+	readRaw, _ := json.Marshal(readCall.Result)
+	if readCall.Result.(map[string]any)["projection_schema"] != pptxBusinessProjectionSchema ||
+		strings.Contains(string(readRaw), "text_structure") || strings.TrimSpace(stringValue(readMetadata["sha256"])) == "" ||
+		editCall.Arguments["source_document_sha256"] != readMetadata["sha256"] {
+		t.Fatalf("PPTX edit was not bound to the compact localization projection: read=%s args=%#v", readRaw, editCall.Arguments)
 	}
 	if !strings.Contains(editApproval.Summary, "第 3 页") || !strings.Contains(editApproval.Summary, "deck.pptx") {
 		t.Fatalf("PPTX approval omitted its affected-slide summary: %#v", editApproval)
@@ -417,25 +535,55 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	}
 }
 
+func TestApprovedPPTXMutationFailsWhenSourceChangesWhilePending(t *testing.T) {
+	runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
+	defer closeRuntime()
+	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{
+		Name:       "pptx.update_slide",
+		Args:       map[string]any{"slide_index": 3, "updates": []any{map[string]any{"shape_index": 1, "text": "Approved replacement"}}},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
+	})
+	if approval == nil || call.Status != "approval_pending" {
+		t.Fatalf("PPTX edit did not wait for approval: call=%#v approval=%#v", call, approval)
+	}
+	writeAgentPPTXFixtureWithThirdTitle(t, root, "Changed while approval was pending")
+	resolved, err := st.ResolveApproval(approval.ID, "approved", "approve stale PPTX regression")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
+	if err != nil || executed.Status != "failed_after_approval" || !strings.Contains(strings.ToLower(executed.Error), "stale") {
+		t.Fatalf("stale approved PPTX mutation did not fail closed: call=%#v err=%v", executed, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+		t.Fatalf("stale approved PPTX mutation left an output: %v", err)
+	}
+}
+
 func writeAgentPPTXFixture(t *testing.T, root string) {
+	writeAgentPPTXFixtureWithThirdTitle(t, root, "Original third title")
+}
+
+func writeAgentPPTXFixtureWithThirdTitle(t *testing.T, root, thirdTitle string) {
 	t.Helper()
 	const script = `
 from pathlib import Path
 from pptx import Presentation
 from pptx.util import Inches
 root = Path(__import__("sys").argv[1])
+third_title = __import__("sys").argv[2]
 prs = Presentation()
 for index in range(1, 4):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     title = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(7), Inches(.7))
-    title.text = "Original third title" if index == 3 else "Slide %d" % index
+    title.text = third_title if index == 3 else "Slide %d" % index
     if index == 3:
         group = slide.shapes.add_group_shape()
         child = group.shapes.add_textbox(Inches(1), Inches(2), Inches(3), Inches(.5))
         child.text = "Grouped text"
 prs.save(root / "deck.pptx")
 `
-	cmd := exec.Command("python3", "-c", script, root)
+	cmd := exec.Command("python3", "-c", script, root, thirdTitle)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create agent PPTX fixture: %v\n%s", err, out)
 	}
@@ -515,6 +663,10 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 		t.Fatalf("prepare real PPTX tool: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
 	run, _ = st.GetRun(run.ID)
+	if evidence, err := runtime.currentPPTXWorkflowEditEvidence(run, map[string]any{"path": "deck.pptx"}); err != nil || evidence.SourceSHA256 == "" {
+		closeRuntime()
+		t.Fatalf("prepare real PPTX editor lost its compact localization evidence: evidence=%#v err=%v", evidence, err)
+	}
 	return runtime, st, session, run, root, closeRuntime
 }
 

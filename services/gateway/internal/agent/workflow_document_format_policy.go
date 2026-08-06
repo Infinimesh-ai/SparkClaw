@@ -179,9 +179,33 @@ func docxAgentDocumentPolicy() agentDocumentFormatPolicy {
 		DecisionEvidence: func(runtime Runtime, ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry) (string, error) {
 			return runtime.workflowDOCXDecisionEvidence(ctx, run, node, entries)
 		},
-		DecisionRules: []orderedDocumentDecisionRule{{Order: 50, Text: "For DOCX, the listed editors currently mutate body paragraph text or style only. Return an empty entry_id for table-cell, header, footer, footnote, endnote, text-box, comment, field, drawing, tracked-change, or other unsupported targets unless one eligible entry explicitly advertises that target."}},
-		Operations:    operations,
+		DecisionRules:      []orderedDocumentDecisionRule{{Order: 50, Text: "For DOCX, the listed editors currently mutate body paragraph text or style only. Return an empty entry_id for table-cell, header, footer, footnote, endnote, text-box, comment, field, drawing, tracked-change, or other unsupported targets unless one eligible entry explicitly advertises that target."}},
+		MaterializeSchemas: materializeDOCXMutationSchemas,
+		Operations:         operations,
 	}
+}
+
+func materializeDOCXMutationSchemas(definitions []app.ToolDefinition, _ app.DirectoryView, _ []app.ToolDirectoryEntryID) []app.ToolDefinition {
+	projected := append([]app.ToolDefinition(nil), definitions...)
+	for index := range projected {
+		schema := cloneAnyMap(projected[index].InputSchema)
+		properties, ok := anyMap(schema["properties"])
+		if ok {
+			properties = cloneAnyMap(properties)
+			delete(properties, "source_document_sha256")
+			schema["properties"] = properties
+		}
+		required := toolDefinitionRequiredArgs(schema)
+		visibleRequired := make([]string, 0, len(required))
+		for _, name := range required {
+			if name != "source_document_sha256" {
+				visibleRequired = append(visibleRequired, name)
+			}
+		}
+		schema["required"] = visibleRequired
+		projected[index].InputSchema = schema
+	}
+	return projected
 }
 
 func xlsxAgentDocumentPolicy() agentDocumentFormatPolicy {
@@ -231,6 +255,9 @@ func pptxAgentDocumentPolicy() agentDocumentFormatPolicy {
 			ValidateEvidence: func(_ context.Context, runtime Runtime, run app.AgentRun, _ string, args map[string]any) error {
 				return runtime.validatePPTXEditEvidence(run, operation, args)
 			},
+			RevalidateApproved: func(ctx context.Context, runtime Runtime, call app.ToolCall) error {
+				return runtime.revalidateApprovedPPTXMutation(ctx, call, operation)
+			},
 		}
 	}
 	return agentDocumentFormatPolicy{
@@ -263,20 +290,118 @@ func pptxAgentDocumentPolicy() agentDocumentFormatPolicy {
 				return slicePersistedToolEvidenceForRequest(tool, output, mode, maxBytes, ownerRequest), nil
 			}
 			document, hasDocument := anyMap(outputMap["document"])
-			if !hasDocument || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), app.DocumentFormatPPTX) ||
-				strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact]) == pptxScopeExactText {
+			if !hasDocument || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), app.DocumentFormatPPTX) {
 				return slicePersistedToolEvidenceForRequest(tool, output, mode, maxBytes, ownerRequest), nil
 			}
-			return pptxTargetStructuredEvidence(
+			operation := pptxSelectedOperation(run)
+			if operation == "" {
+				operation = pptxDefaultOperationForScope(strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact]))
+			}
+			return pptxTargetStructuredEvidenceForOperation(
 				outputMap,
 				strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact]),
+				operation,
 				decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact]),
 				maxBytes,
 			)
 		},
-		DecisionRules: []orderedDocumentDecisionRule{{Order: 110, Text: "For PPTX, obey the frozen scope: single_slide selects update_slide, whole_deck selects update_deck, exact_text selects replace_text, and structural selects only add_slide, duplicate_slide, or delete_slide."}},
-		Operations:    operations,
+		MaterializeSchemas: materializePPTXMutationSchemas,
+		DecisionRules:      []orderedDocumentDecisionRule{{Order: 110, Text: "For PPTX, obey the frozen scope: single_slide selects update_slide, whole_deck selects update_deck, exact_text selects replace_text, and structural selects only add_slide, duplicate_slide, or delete_slide."}},
+		Operations:         operations,
 	}
+}
+
+func materializePPTXMutationSchemas(definitions []app.ToolDefinition, _ app.DirectoryView, _ []app.ToolDirectoryEntryID) []app.ToolDefinition {
+	projected := append([]app.ToolDefinition(nil), definitions...)
+	for index := range projected {
+		schema := cloneAnyMap(projected[index].InputSchema)
+		properties, ok := anyMap(schema["properties"])
+		if ok {
+			properties = cloneAnyMap(properties)
+			for _, name := range []string{"path", "output_path", "source_document_sha256"} {
+				delete(properties, name)
+			}
+			switch projected[index].Name {
+			case "pptx.update_slide", "pptx.duplicate_slide", "pptx.delete_slide":
+				delete(properties, "slide_index")
+			}
+			for _, name := range []string{"updates", "template_updates"} {
+				if value, exists := properties[name]; exists {
+					properties[name] = projectPPTXTextUpdateArraySchema(value)
+				}
+			}
+			if value, exists := properties["slide_updates"]; exists {
+				properties["slide_updates"] = projectPPTXSlideUpdatesSchema(value)
+			}
+			schema["properties"] = properties
+		}
+		required := toolDefinitionRequiredArgs(schema)
+		visibleRequired := make([]string, 0, len(required))
+		for _, name := range required {
+			if _, visible := properties[name]; visible {
+				visibleRequired = append(visibleRequired, name)
+			}
+		}
+		schema["required"] = visibleRequired
+		projected[index].InputSchema = schema
+	}
+	return projected
+}
+
+const pptxModelMaxTextUpdates = 16
+
+func projectPPTXSlideUpdatesSchema(value any) any {
+	arraySchema, ok := anyMap(value)
+	if !ok {
+		return value
+	}
+	projectedArray := cloneAnyMap(arraySchema)
+	itemSchema, ok := anyMap(projectedArray["items"])
+	if !ok {
+		return projectedArray
+	}
+	projectedItem := cloneAnyMap(itemSchema)
+	properties, ok := anyMap(projectedItem["properties"])
+	if !ok {
+		return projectedArray
+	}
+	projectedProperties := cloneAnyMap(properties)
+	if updates, exists := projectedProperties["updates"]; exists {
+		projectedProperties["updates"] = projectPPTXTextUpdateArraySchema(updates)
+	}
+	projectedItem["properties"] = projectedProperties
+	projectedArray["items"] = projectedItem
+	return projectedArray
+}
+
+func projectPPTXTextUpdateArraySchema(value any) any {
+	arraySchema, ok := anyMap(value)
+	if !ok {
+		return value
+	}
+	projectedArray := cloneAnyMap(arraySchema)
+	projectedArray["maxItems"] = float64(pptxModelMaxTextUpdates)
+	itemSchema, ok := anyMap(projectedArray["items"])
+	if !ok {
+		return projectedArray
+	}
+	projectedItem := cloneAnyMap(itemSchema)
+	properties, ok := anyMap(projectedItem["properties"])
+	if ok {
+		projectedProperties := cloneAnyMap(properties)
+		delete(projectedProperties, "old_text")
+		projectedItem["properties"] = projectedProperties
+	}
+	required := toolDefinitionRequiredArgs(projectedItem)
+	visibleRequired := make([]string, 0, len(required))
+	for _, name := range required {
+		if name != "old_text" {
+			visibleRequired = append(visibleRequired, name)
+		}
+	}
+	projectedItem["required"] = visibleRequired
+	projectedArray["items"] = projectedItem
+	return projectedArray
 }
 
 func pdfAgentDocumentPolicy() agentDocumentFormatPolicy {

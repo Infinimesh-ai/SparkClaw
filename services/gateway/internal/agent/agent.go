@@ -1086,6 +1086,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	call.Status = "completed"
 	call.Arguments, call.Result = r.redactBrowserToolPersistence(runID, call.Tool, call.Arguments, result.Output)
+	call.Result = r.projectPPTXLocalizationPersistence(runID, call, call.Result)
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
 	maxBytes, evidenceLimit := r.toolResultObservationBudget()
 	ownerRequest := ""

@@ -24,7 +24,7 @@ func ArchiveToolObservation(ctx context.Context, st Store, artifacts artifact.St
 		"output":       output,
 		"archived_at":  time.Now().UTC(),
 	}
-	raw, err := json.MarshalIndent(record, "", "  ")
+	raw, err := json.Marshal(record)
 	if err != nil {
 		return ""
 	}

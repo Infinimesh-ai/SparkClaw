@@ -1159,7 +1159,9 @@ func TestPptxSlideToolsWriteNewVersions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
-			result, err := hub.Execute(context.Background(), tc.tool, tc.args, "s", "run")
+			args := cloneTestMap(tc.args)
+			args["source_document_sha256"] = docxSourceSHA256ForTest(t, root, "deck.pptx")
+			result, err := hub.Execute(context.Background(), tc.tool, args, "s", "run")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1204,7 +1206,7 @@ func TestPptxUpdateSlideRejectsStaleShapeEvidence(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "deck.pptx", "slide_index": 2, "output_path": "outputs/stale.pptx",
+		"path": "deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "deck.pptx"), "slide_index": 2, "output_path": "outputs/stale.pptx",
 		"updates": []any{map[string]any{"shape_index": 2, "old_text": "Invented body", "text": "Updated body"}},
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "old_text does not match slide shape 2") {
@@ -1224,7 +1226,7 @@ func TestPptxUpdateSlideExpandsLongTextWithoutShrinkingFont(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "single-line.pptx", "slide_index": 1, "output_path": "outputs/fitted.pptx",
+		"path": "single-line.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "single-line.pptx"), "slide_index": 1, "output_path": "outputs/fitted.pptx",
 		"updates": []any{map[string]any{
 			"shape_index": 1,
 			"old_text":    "应用层协议",
@@ -1271,7 +1273,7 @@ func TestPptxUpdateSlideCoordinatesPeerBandsAndReportsLayoutChecks(t *testing.T)
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "bands.pptx", "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/bands.pptx",
+		"path": "bands.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/bands.pptx",
 		"updates": []any{
 			map[string]any{"shape_index": 3, "old_text": "读取内容", "text": "完整读取演示文稿内容并保留结构证据"},
 			map[string]any{"shape_index": 6, "old_text": "定位内容", "text": "使用稳定的页面与形状索引定位修改目标"},
@@ -1349,7 +1351,7 @@ func TestPptxUpdateSlideWrapsPeerCardsAndCompanions(t *testing.T) {
 		"生成输出副本，同时复核布局边界与关联组件",
 	}
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "cards.pptx", "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/cards.pptx",
+		"path": "cards.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "cards.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/cards.pptx",
 		"updates": []any{
 			map[string]any{"shape_index": 4, "old_text": "接收请求", "text": replacements[0]},
 			map[string]any{"shape_index": 8, "old_text": "定位目标", "text": replacements[1]},
@@ -1465,7 +1467,7 @@ func TestPptxUpdateSlideRejectsUnreadablyLongText(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "single-line.pptx", "slide_index": 1, "output_path": "outputs/unreadable.pptx",
+		"path": "single-line.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "single-line.pptx"), "slide_index": 1, "output_path": "outputs/unreadable.pptx",
 		"updates": []any{map[string]any{
 			"shape_index": 1,
 			"old_text":    "应用层协议",
@@ -1545,9 +1547,10 @@ func TestPptxDeleteSlideRejectsOnlySlide(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "pptx.delete_slide", map[string]any{
-		"path":        "single.pptx",
-		"slide_index": 1,
-		"output_path": "outputs/deleted.pptx",
+		"path":                   "single.pptx",
+		"source_document_sha256": docxSourceSHA256ForTest(t, root, "single.pptx"),
+		"slide_index":            1,
+		"output_path":            "outputs/deleted.pptx",
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "cannot delete the only slide") {
 		t.Fatalf("expected only-slide error, got %v", err)

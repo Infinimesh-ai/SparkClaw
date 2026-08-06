@@ -141,10 +141,26 @@ sheet/row/cell 数量；它优先保留显式命名的工作表、A1 cell 与行
 
 PPTX 读取还会为可编辑顶层文本形状暴露稳定的 slide/template 与 layout 引用，以及有界的
 paragraph/run 树。该树记录段落层级、项目符号、对齐与间距，以及受支持的 run 字体、颜色、
-语言和 hyperlink 属性。含 field 的文本和 group child 会明确标记为不可编辑。对于按页
-限定的编辑，8,000-byte operation 证据投影会先放入目标页所有必需记录，再放可选 layout
-inventory；它排除不可编辑形状且绝不截断记录。缺失或超出预算的必需证据会直接阻断，
-不会截断目标或要求模型猜测。
+语言和 hyperlink 属性。含 field 的文本和 group child 会明确标记为不可编辑。普通
+`document.read` 仍可使用这份富结构表示；但 PPTX `document.edit` 的定位读取只持久化
+`pptx_business_projection_v1`，不再持久化完整规范化树。rich text、geometry、relationship
+和 preservation check 均以源文件为事实来源。
+
+编辑投影按 operation 收敛。文本替换只保留精确文本、slide/shape 索引、只读冲突、target hash
+和源 SHA-256；页面更新额外保留选择文本目标所需的 font/fit 与 companion 摘要；新增页面保留
+插入位置、layout/template、notes 以及明确模板 shape 证据；复制和删除只保留选中页面引用与
+notes 标志。paragraph/run 树、重复 slide item、完整 geometry 和 package relationship 不会进入
+持久化投影。
+
+模型可见投影仍以 8,000 byte 为总上限，且绝不截断记录。`update_deck` 以独立 slide record
+逐页序列化，单页上限为 6 KiB，同时保留 12 页、64 shape 和 32 KiB 替换文本边界。缺失或超出
+预算的必需证据会直接阻断，不会挤掉其他页面或要求模型猜测。
+
+模型可见的 editor schema 也按 operation 收敛。输入路径、输出路径、源 SHA-256、单页索引和
+精确旧文本不再要求模型回传，而由 Runtime 从冻结路由和定位读取中注入，再进入完整 ToolHub
+校验。一次模型生成的文本更新数组最多包含 16 个选中 shape；在 `coordinated` 布局策略下，
+明确选中的纯布局调整目标可以保留当前文本。执行契约仍强制校验源摘要、精确旧文本和
+64-shape 总边界。
 
 ### PDF 页级覆盖与 OCR Runtime
 
@@ -263,7 +279,9 @@ package extension 可以作为 partial evidence 读取，但不是隐式 mutatio
 - XLSX editor 同样要求当前工作簿与目标 hash；工作簿或目标变化会在 approval 前被拒绝。
 - PPTX 的 slide、shape、old text、layout、template 和插入引用必须全部存在于当前 run 唯一一次
   已完成读取中。陈旧、不可编辑、分组、跨 scope 或含 notes 的 clone 目标会在创建 approval
-  记录前阻断。
+  记录前阻断。Runtime 还会通过模型不可见参数绑定源文档 SHA-256；approval 后会重读源文件，
+  并用最新结构化证据重新解析 operation。源版本或目标发生任何变化，都会在 editor 运行前以
+  stale 失败。
 - 原文件 SHA-256 必须不变。
 - 输出通过同一 normalize pipeline 重新读取。
 - 校验 expected after-value 和 operation-specific delta。

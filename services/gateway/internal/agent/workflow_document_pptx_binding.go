@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 )
 
 type pptxWorkflowEditEvidence struct {
+	SourceSHA256 string
 	document     map[string]any
 	slides       map[int]map[string]any
 	shapes       map[int]map[int]string
@@ -25,6 +27,11 @@ func (r Runtime) bindPPTXSlideUpdateArguments(run app.AgentRun, args map[string]
 func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args map[string]any) map[string]any {
 	if run.Workflow == nil {
 		return args
+	}
+	if cleanOptionalString(args["source_document_sha256"]) == "" {
+		if sourceSHA := r.currentPPTXWorkflowSourceSHA256(run, args); sourceSHA != "" {
+			args["source_document_sha256"] = sourceSHA
+		}
 	}
 	indexes := decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact])
 	if len(indexes) == 0 {
@@ -67,6 +74,32 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 		}
 	}
 	return args
+}
+
+func (r Runtime) currentPPTXWorkflowSourceSHA256(run app.AgentRun, args map[string]any) string {
+	if run.Workflow == nil || r.store == nil {
+		return ""
+	}
+	state, ok := run.Workflow.Nodes[documentLocateEvidenceNodeID]
+	if !ok || state.Status != app.WorkflowNodeSucceeded || len(state.ToolCallIDs) != 1 {
+		return ""
+	}
+	call, ok := r.store.GetToolCall(state.ToolCallIDs[0])
+	if !ok || call.RunID != run.ID || call.SessionID != run.SessionID || call.WorkflowID != app.WorkflowDocumentEdit ||
+		call.WorkflowNodeID != documentLocateEvidenceNodeID || call.ScopeRevision != state.ScopeRevision ||
+		call.Tool != "files.read" || !toolCallCompleted(call) {
+		return ""
+	}
+	result, ok := anyMap(call.Result)
+	if !ok || !sameDocumentReadPath(strings.TrimSpace(stringValue(args["path"])), call, result) {
+		return ""
+	}
+	document, ok := anyMap(result["document"])
+	if !ok || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), app.DocumentFormatPPTX) {
+		return ""
+	}
+	metadata, _ := anyMap(document["metadata"])
+	return strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result["source_sha256"])))
 }
 
 func (r Runtime) bindPPTXUpdates(run app.AgentRun, args map[string]any, slideIndex int, updates []any) []any {
@@ -145,6 +178,15 @@ func (r Runtime) validatePPTXEditEvidence(run app.AgentRun, operation string, ar
 	if err != nil {
 		return err
 	}
+	if source := strings.TrimSpace(stringValue(args["source_document_sha256"])); source == "" {
+		return fmt.Errorf("pptx.%s requires current source_document_sha256 evidence", operation)
+	} else if !strings.EqualFold(source, evidence.SourceSHA256) {
+		return fmt.Errorf("pptx.%s source_document_sha256 conflicts with current workflow localization evidence", operation)
+	}
+	return validatePPTXEditAgainstEvidence(run, operation, args, evidence)
+}
+
+func validatePPTXEditAgainstEvidence(run app.AgentRun, operation string, args map[string]any, evidence pptxWorkflowEditEvidence) error {
 	if err := validatePPTXWorkflowEditBounds(operation, args); err != nil {
 		return err
 	}
@@ -308,12 +350,25 @@ func (r Runtime) currentPPTXWorkflowEditEvidence(run app.AgentRun, args map[stri
 	if !ok || !sameDocumentReadPath(strings.TrimSpace(stringValue(args["path"])), call, result) {
 		return pptxWorkflowEditEvidence{}, errors.New("PPTX edit path does not match current workflow localization evidence")
 	}
+	evidence, err := pptxWorkflowEditEvidenceFromResult(result)
+	if err != nil {
+		return pptxWorkflowEditEvidence{}, err
+	}
+	return evidence, nil
+}
+
+func pptxWorkflowEditEvidenceFromResult(result map[string]any) (pptxWorkflowEditEvidence, error) {
 	document, ok := anyMap(result["document"])
 	if !ok || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), app.DocumentFormatPPTX) {
 		return pptxWorkflowEditEvidence{}, errors.New("PPTX edit requires a completed structured PPTX read")
 	}
+	metadata, _ := anyMap(document["metadata"])
+	sourceSHA := strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result["source_sha256"])))
+	if sourceSHA == "" || sourceSHA == "<nil>" {
+		return pptxWorkflowEditEvidence{}, errors.New("PPTX edit requires source SHA-256 evidence")
+	}
 	evidence := pptxWorkflowEditEvidence{
-		document: document, slides: map[int]map[string]any{}, shapes: map[int]map[int]string{},
+		SourceSHA256: sourceSHA, document: document, slides: map[int]map[string]any{}, shapes: map[int]map[int]string{},
 		layoutRefs: map[string]bool{}, notesSlides: map[int]bool{}, readOnlyText: []string{},
 	}
 	for _, value := range documentAnySliceFromAny(document["slides"]) {
@@ -321,6 +376,9 @@ func (r Runtime) currentPPTXWorkflowEditEvidence(run app.AgentRun, args map[stri
 		index := intLikeValue(slide["index"])
 		if ok && index > 0 {
 			evidence.slides[index] = slide
+			if boolValue(slide["has_notes"]) {
+				evidence.notesSlides[index] = true
+			}
 		}
 	}
 	for _, value := range documentAnySliceFromAny(document["blocks"]) {
@@ -367,6 +425,42 @@ func (r Runtime) currentPPTXWorkflowEditEvidence(run app.AgentRun, args map[stri
 		}
 	}
 	return evidence, nil
+}
+
+func (r Runtime) revalidateApprovedPPTXMutation(ctx context.Context, call app.ToolCall, operation string) error {
+	run, ok := r.store.GetRun(call.RunID)
+	if !ok {
+		return errors.New("approved PPTX mutation run is unavailable")
+	}
+	initial, err := r.currentPPTXWorkflowEditEvidence(run, call.Arguments)
+	if err != nil {
+		return errors.New("approved PPTX mutation lost its workflow localization evidence")
+	}
+	if source := strings.TrimSpace(stringValue(call.Arguments["source_document_sha256"])); source == "" || !strings.EqualFold(source, initial.SourceSHA256) {
+		return errors.New("approved PPTX mutation source evidence conflicts with its localization read")
+	}
+	if err := validatePPTXEditAgainstEvidence(run, operation, call.Arguments, initial); err != nil {
+		return err
+	}
+	read, err := r.tools.Execute(ctx, "files.read", map[string]any{"path": call.Arguments["path"]}, call.SessionID, call.RunID)
+	if err != nil {
+		return fmt.Errorf("approved PPTX mutation source could not be reread: %w", err)
+	}
+	result, ok := anyMap(read.Output)
+	if !ok {
+		return errors.New("approved PPTX mutation source reread is invalid")
+	}
+	fresh, err := pptxWorkflowEditEvidenceFromResult(result)
+	if err != nil {
+		return fmt.Errorf("approved PPTX mutation source reread lacks structured evidence: %w", err)
+	}
+	if !strings.EqualFold(initial.SourceSHA256, fresh.SourceSHA256) {
+		return errors.New("approved PPTX mutation is stale: source document changed while approval was pending")
+	}
+	if err := validatePPTXEditAgainstEvidence(run, operation, call.Arguments, fresh); err != nil {
+		return fmt.Errorf("approved PPTX mutation is stale: %w", err)
+	}
+	return nil
 }
 
 func validatePPTXEvidenceUpdates(evidence pptxWorkflowEditEvidence, slideIndex int, updates []any) error {

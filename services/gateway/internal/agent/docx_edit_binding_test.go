@@ -88,8 +88,13 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatal(err)
 	}
 	if len(editTools) != 1 || editTools[0].Name != "docx.replace_paragraph" ||
-		!containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), "source_hash") {
+		!containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), "source_hash") ||
+		containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), "source_document_sha256") ||
+		containsString(toolDefinitionPropertyNames(editTools[0].InputSchema), "source_document_sha256") {
 		t.Fatalf("materialized model-visible DOCX editor does not require source_hash: %#v", editTools)
+	}
+	if !containsString(toolDefinitionRequiredArgs(editorDefinition.InputSchema), "source_document_sha256") {
+		t.Fatalf("registered DOCX editor lost its runtime-validated document hash: %#v", editorDefinition.InputSchema)
 	}
 	storedRun, _ = st.GetRun(storedRun.ID)
 
@@ -115,6 +120,18 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if approvals := st.ListApprovals(""); len(approvals) != 0 {
 		t.Fatalf("conflicting model source_hash created an owner approval: %#v", approvals)
 	}
+	conflictingDocumentCall, conflictingDocumentApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
+		Name: "docx.replace_paragraph",
+		Args: map[string]any{
+			"path": inputRef, "output_path": outputRef, "paragraph_index": 25,
+			"source_document_sha256": "sha1:stale-document-evidence", "source_hash": evidence.SourceHash, "text": replacement,
+		},
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
+	})
+	if conflictingDocumentApproval != nil || conflictingDocumentCall.Status != "blocked" ||
+		!strings.Contains(conflictingDocumentCall.Error, "source_document_sha256 conflicts with current workflow localization evidence") {
+		t.Fatalf("conflicting document hash was not blocked before approval: call=%#v approval=%#v", conflictingDocumentCall, conflictingDocumentApproval)
+	}
 
 	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "docx.replace_paragraph",
@@ -133,6 +150,11 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	}
 	if editCall.Arguments["source_hash"] != evidence.SourceHash || editApproval.Arguments["source_hash"] != evidence.SourceHash {
 		t.Fatalf("current localization source_hash was not bound before approval: call=%#v approval=%#v evidence=%#v", editCall.Arguments, editApproval.Arguments, evidence)
+	}
+	boundEvidence, ok := docxReadEvidenceFromResult(readResult)
+	if !ok || editCall.Arguments["source_document_sha256"] != boundEvidence.SourceSHA256 ||
+		editApproval.Arguments["source_document_sha256"] != boundEvidence.SourceSHA256 {
+		t.Fatalf("runtime did not bind the current DOCX document hash: call=%#v approval=%#v evidence=%#v", editCall.Arguments, editApproval.Arguments, boundEvidence)
 	}
 
 	resolved, err := st.ResolveApproval(editApproval.ID, "approved", "approved synthetic DOCX regression edit")

@@ -111,7 +111,7 @@ func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T
 			args := cloneTestMap(test.args)
 			args["path"] = test.input
 			args["output_path"] = test.output
-			if test.name == "docx" {
+			if test.name == "docx" || test.name == "pptx" {
 				args["source_document_sha256"] = docxSourceSHA256ForTest(t, root, test.input)
 			}
 			if test.name == "xlsx" {
@@ -164,7 +164,7 @@ func TestDocumentWorkflowUpdatesStablePPTXSlideFromShapeEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "deck.pptx", "slide_index": 2, "output_path": "outputs/deck.pptx",
+		"path": "deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "deck.pptx"), "slide_index": 2, "output_path": "outputs/deck.pptx",
 		"updates": []any{map[string]any{
 			"shape_index": bodyShape["shape_index"], "old_text": bodyShape["text"], "text": "Expanded second body",
 		}},

@@ -2,6 +2,8 @@ package toolhub
 
 import (
 	"context"
+	"errors"
+	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
@@ -17,6 +19,7 @@ func pptxDocumentFormatProvider() documentFormatProvider {
 		ToolName: "pptx.replace_text", ToolAliases: []string{"office.replace_text"},
 		Summary: "Replace exact PPTX text spans without flattening paragraph and run formatting.", Validate: validatePPTXOperationInvocation("replace_text"),
 		BuildTargets: exactTextTargets, Editor: document.EditorFunc(applyPPTXReplacement),
+		SourceSHA256:  func(args map[string]any) string { return stringArg(args, "source_document_sha256", "") },
 		ProjectResult: projectReplacementResult, WrapError: wrapPPTXToolError, SuccessStatus: "pptx_version_written",
 	}
 	for _, operation := range []string{"add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"} {
@@ -33,7 +36,8 @@ func pptxDocumentFormatProvider() documentFormatProvider {
 			Editor: document.EditorFunc(func(ctx context.Context, request document.ApplyRequest) (document.ApplyResult, error) {
 				return applyPPTXStructure(ctx, operation, request)
 			}),
-			WrapError: wrapPPTXToolError, SuccessStatus: "pptx_version_written",
+			SourceSHA256: func(args map[string]any) string { return stringArg(args, "source_document_sha256", "") },
+			WrapError:    wrapPPTXToolError, SuccessStatus: "pptx_version_written",
 		}
 	}
 	return provider
@@ -57,7 +61,14 @@ func pptxOperationSummary(operation string) string {
 }
 
 func validatePPTXOperationInvocation(operation string) documentInvocationValidator {
-	return func(_ context.Context, _ *ToolHub, _ document.Metadata, args map[string]any) error {
+	return func(_ context.Context, _ *ToolHub, metadata document.Metadata, args map[string]any) error {
+		expected := strings.TrimSpace(stringArg(args, "source_document_sha256", ""))
+		if expected == "" {
+			return errors.New("PPTX mutation requires source_document_sha256 preflight evidence")
+		}
+		if metadata.SHA256 == "" || !strings.EqualFold(metadata.SHA256, expected) {
+			return errors.New("PPTX mutation source_document_sha256 does not match the current input file")
+		}
 		return validatePPTXEditArguments(operation, args)
 	}
 }

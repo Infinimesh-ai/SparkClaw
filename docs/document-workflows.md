@@ -179,11 +179,33 @@ PPTX reads additionally expose stable slide/template and layout references,
 plus bounded paragraph and run trees for editable top-level text shapes. The
 tree records paragraph level, bullets, alignment and spacing, and supported run
 font, color, language, and hyperlink properties. Field-bearing text and group
-children are explicitly non-editable. For slide-scoped edits, the 8,000-byte
-operation evidence projection places every required target-slide record before
-optional layout inventory records, excludes non-editable shapes, and never cuts
-a record. Missing or oversized required evidence blocks instead of truncating a
-target or asking the model to guess.
+children are explicitly non-editable. Ordinary `document.read` keeps that rich
+representation available, but a PPTX `document.edit` localization read persists
+`pptx_business_projection_v1` instead of the complete normalized tree. The
+source file remains the authority for rich text, geometry, relationships, and
+preservation checks.
+
+The edit projection is operation-scoped. Text replacement keeps exact text,
+slide/shape indexes, read-only conflicts, target hashes, and source SHA-256.
+Slide updates additionally keep only the font/fit and companion summaries needed
+to choose a text target. Add-slide keeps insertion, layout/template, notes, and
+explicit template-shape evidence; duplicate and delete keep only the selected
+slide reference and notes flag. It never persists paragraph/run trees, repeated
+slide items, full geometry, or package relationships.
+
+The model-visible projection remains capped at 8,000 bytes and never cuts a
+record. `update_deck` serializes independent slide records, limits one slide to
+6 KiB, and retains the existing 12-slide, 64-shape, and 32-KiB replacement
+bounds. Missing or oversized required evidence blocks instead of evicting
+another slide or asking the model to guess.
+
+The model-visible editor schema is also operation-scoped. Runtime-owned input
+path, output path, source SHA-256, single-slide index, and exact old text are
+omitted from model output and injected from the frozen route and localization
+read before full ToolHub validation. One model-authored text-update array is
+limited to 16 selected shapes; coordinated layout may retain the current text
+for an explicitly selected layout-only target. The execution contract still
+enforces the source hash, exact old text, and the 64-shape total bound.
 
 ### PDF Page Coverage And OCR Runtime
 
@@ -336,7 +358,10 @@ reasons with `coverage_status=partial` or `unavailable` and
 - PPTX slide, shape, old text, layout, template, and insertion references must
   all exist in the single completed read for the current run. Stale,
   non-editable, grouped, cross-scope, or note-bearing clone targets block before
-  an approval record is created.
+  an approval record is created. Runtime also binds the source document SHA-256
+  in a model-hidden argument. After approval it rereads the source and resolves
+  the operation against fresh structured evidence; any source-version or target
+  change fails as stale before the editor runs.
 - The original SHA-256 must remain unchanged.
 - Output is reread through the same normalized pipeline.
 - Expected after-values and operation-specific deltas are checked.

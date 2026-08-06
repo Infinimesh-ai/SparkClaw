@@ -131,6 +131,78 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if cfg.State.Backend != "file" {
 		t.Fatalf("default state backend changed: %#v", cfg.State)
 	}
+	if len(cfg.MCPServers) != 0 {
+		t.Fatalf("MCP servers should require explicit configuration: %#v", cfg.MCPServers)
+	}
+}
+
+func TestLoadNormalizesLocalMindMCPServer(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "sparkclaw.json")
+	if err := os.WriteFile(configPath, []byte(`{
+  "model": {"mock": true},
+  "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
+  "mcp_servers": {
+    "localmind": {
+      "url_env": "LOCALMIND_MCP_URL",
+      "bearer_token_env": "LOCALMIND_MCP_TOKEN",
+      "tool_allow": ["keyword_search", "keyword_search", " read_document "],
+      "tool_deny": ["delete_workspace"]
+    }
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCPServers[LocalMindMCPServerKey]
+	if server.Transport != "streamable-http" || server.Namespace != "localmind" ||
+		server.ExpectedServerName != LocalMindMCPServerName || server.ProtocolVersion != LocalMindMCPProtocolVersion {
+		t.Fatalf("LocalMind identity defaults missing: %#v", server)
+	}
+	if server.AllowMutations || server.AllowPrivateHTTP {
+		t.Fatalf("LocalMind unsafe options should default off: %#v", server)
+	}
+	if server.RequestTimeoutSeconds != 30 || server.LongCallGraceSeconds != 10 ||
+		server.MaxResponseBytes != 16<<20 || server.StateOutputMaxBytes != 16<<10 ||
+		server.ArchiveOutputMaxBytes != 16<<20 || server.RefreshIntervalSeconds != 300 {
+		t.Fatalf("LocalMind bounds missing: %#v", server)
+	}
+	if !slices.Equal(server.ToolAllow, []string{"keyword_search", "read_document"}) ||
+		!slices.Equal(server.ToolDeny, []string{"delete_workspace"}) {
+		t.Fatalf("LocalMind tool filters were not normalized: %#v", server)
+	}
+}
+
+func TestLoadRejectsInvalidLocalMindMCPServer(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		server string
+		want   string
+	}{
+		{name: "unknown server", server: `"other":{"url_env":"URL","bearer_token_env":"TOKEN"}`, want: "unsupported MCP server"},
+		{name: "transport", server: `"localmind":{"transport":"sse","url_env":"URL","bearer_token_env":"TOKEN"}`, want: "streamable-http"},
+		{name: "environment reference", server: `"localmind":{"url_env":"https://localmind.test","bearer_token_env":"TOKEN"}`, want: "environment variable names"},
+		{name: "protocol", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","protocol_version":"2024-11-05"}`, want: LocalMindMCPProtocolVersion},
+		{name: "server name", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","expected_server_name":"wrong"}`, want: LocalMindMCPServerName},
+		{name: "filter conflict", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","tool_allow":["read_document"],"tool_deny":["read_document"]}`, want: "both allowed and denied"},
+		{name: "response bound", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","max_response_bytes":33554433}`, want: "max_response_bytes"},
+		{name: "refresh bound", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","refresh_interval_seconds":29}`, want: "refresh_interval_seconds"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "sparkclaw.json")
+			raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":{` + test.server + `}}`
+			if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid LocalMind MCP config was accepted: %v", err)
+			}
+		})
+	}
 }
 
 func TestRepositoryDefaultConfigLeavesOptionalRemoteEndpointsEmpty(t *testing.T) {

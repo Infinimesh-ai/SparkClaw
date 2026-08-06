@@ -8,27 +8,59 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
 
+const (
+	LocalMindMCPServerKey          = "localmind"
+	LocalMindMCPServerName         = "localmind-workspace"
+	LocalMindMCPProtocolVersion    = "2025-06-18"
+	LocalMindMCPDefaultNamespace   = "localmind"
+	LocalMindMCPDefaultMaxResponse = int64(16 << 20)
+)
+
+var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 type Config struct {
-	Gateway    GatewayConfig   `json:"gateway"`
-	Model      ModelConfig     `json:"model"`
-	Speech     SpeechConfig    `json:"speech"`
-	Plugins    PluginsConfig   `json:"plugins"`
-	Tools      ToolsConfig     `json:"tools"`
-	Security   SecurityConfig  `json:"security"`
-	Sandbox    SandboxConfig   `json:"sandbox"`
-	Adapters   AdapterConfig   `json:"adapters"`
-	Memory     MemoryConfig    `json:"memory"`
-	Workspaces WorkspaceConfig `json:"workspaces"`
-	Storage    StorageConfig   `json:"storage"`
-	State      StateConfig     `json:"state"`
-	Runtime    RuntimeConfig   `json:"runtime"`
-	Logging    LoggingConfig   `json:"logging"`
+	Gateway    GatewayConfig              `json:"gateway"`
+	Model      ModelConfig                `json:"model"`
+	Speech     SpeechConfig               `json:"speech"`
+	MCPServers map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Plugins    PluginsConfig              `json:"plugins"`
+	Tools      ToolsConfig                `json:"tools"`
+	Security   SecurityConfig             `json:"security"`
+	Sandbox    SandboxConfig              `json:"sandbox"`
+	Adapters   AdapterConfig              `json:"adapters"`
+	Memory     MemoryConfig               `json:"memory"`
+	Workspaces WorkspaceConfig            `json:"workspaces"`
+	Storage    StorageConfig              `json:"storage"`
+	State      StateConfig                `json:"state"`
+	Runtime    RuntimeConfig              `json:"runtime"`
+	Logging    LoggingConfig              `json:"logging"`
+}
+
+type MCPServerConfig struct {
+	Transport              string   `json:"transport"`
+	URLEnv                 string   `json:"url_env"`
+	BearerTokenEnv         string   `json:"bearer_token_env"`
+	Namespace              string   `json:"namespace,omitempty"`
+	ExpectedServerName     string   `json:"expected_server_name"`
+	ProtocolVersion        string   `json:"protocol_version"`
+	AllowMutations         bool     `json:"allow_mutations"`
+	AllowPrivateHTTP       bool     `json:"allow_private_http"`
+	ToolAllow              []string `json:"tool_allow"`
+	ToolDeny               []string `json:"tool_deny"`
+	RequestTimeoutSeconds  int      `json:"request_timeout_seconds"`
+	LongCallGraceSeconds   int      `json:"long_call_grace_seconds"`
+	MaxResponseBytes       int64    `json:"max_response_bytes"`
+	StateOutputMaxBytes    int      `json:"state_output_max_bytes"`
+	ArchiveOutputMaxBytes  int      `json:"archive_output_max_bytes"`
+	RefreshIntervalSeconds int      `json:"refresh_interval_seconds"`
 }
 
 type GatewayConfig struct {
@@ -452,7 +484,130 @@ func Load(path string) (Config, error) {
 	if err := normalizeRemindersConfig(&cfg.Tools.Reminders); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeMCPServers(cfg.MCPServers); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func normalizeMCPServers(servers map[string]MCPServerConfig) error {
+	for name, server := range servers {
+		if name != LocalMindMCPServerKey {
+			return fmt.Errorf("unsupported MCP server %q", name)
+		}
+		defaults := MCPServerConfig{
+			Transport:              "streamable-http",
+			Namespace:              LocalMindMCPDefaultNamespace,
+			ExpectedServerName:     LocalMindMCPServerName,
+			ProtocolVersion:        LocalMindMCPProtocolVersion,
+			RequestTimeoutSeconds:  30,
+			LongCallGraceSeconds:   10,
+			MaxResponseBytes:       LocalMindMCPDefaultMaxResponse,
+			StateOutputMaxBytes:    16 << 10,
+			ArchiveOutputMaxBytes:  16 << 20,
+			RefreshIntervalSeconds: 300,
+		}
+		server.Transport = strings.ToLower(strings.TrimSpace(server.Transport))
+		if server.Transport == "" {
+			server.Transport = defaults.Transport
+		}
+		if server.Transport != defaults.Transport {
+			return fmt.Errorf("mcp_servers.%s.transport must be %q", name, defaults.Transport)
+		}
+		server.URLEnv = strings.TrimSpace(server.URLEnv)
+		server.BearerTokenEnv = strings.TrimSpace(server.BearerTokenEnv)
+		if !environmentNamePattern.MatchString(server.URLEnv) || !environmentNamePattern.MatchString(server.BearerTokenEnv) {
+			return fmt.Errorf("mcp_servers.%s url_env and bearer_token_env must be valid environment variable names", name)
+		}
+		server.Namespace = strings.Trim(strings.TrimSpace(server.Namespace), ".")
+		if server.Namespace == "" {
+			server.Namespace = defaults.Namespace
+		}
+		if server.Namespace != LocalMindMCPDefaultNamespace {
+			return fmt.Errorf("mcp_servers.%s.namespace must be %q", name, LocalMindMCPDefaultNamespace)
+		}
+		server.ExpectedServerName = strings.TrimSpace(server.ExpectedServerName)
+		if server.ExpectedServerName == "" {
+			server.ExpectedServerName = defaults.ExpectedServerName
+		}
+		if server.ExpectedServerName != LocalMindMCPServerName {
+			return fmt.Errorf("mcp_servers.%s.expected_server_name must be %q", name, LocalMindMCPServerName)
+		}
+		server.ProtocolVersion = strings.TrimSpace(server.ProtocolVersion)
+		if server.ProtocolVersion == "" {
+			server.ProtocolVersion = defaults.ProtocolVersion
+		}
+		if server.ProtocolVersion != LocalMindMCPProtocolVersion {
+			return fmt.Errorf("mcp_servers.%s.protocol_version must be %q", name, LocalMindMCPProtocolVersion)
+		}
+		server.ToolAllow = normalizeStringSet(server.ToolAllow)
+		server.ToolDeny = normalizeStringSet(server.ToolDeny)
+		for _, allowed := range server.ToolAllow {
+			if slicesContains(server.ToolDeny, allowed) {
+				return fmt.Errorf("mcp_servers.%s tool %q cannot be both allowed and denied", name, allowed)
+			}
+		}
+		if server.RequestTimeoutSeconds <= 0 {
+			server.RequestTimeoutSeconds = defaults.RequestTimeoutSeconds
+		}
+		if server.RequestTimeoutSeconds > 120 {
+			return fmt.Errorf("mcp_servers.%s.request_timeout_seconds must not exceed 120", name)
+		}
+		if server.LongCallGraceSeconds <= 0 {
+			server.LongCallGraceSeconds = defaults.LongCallGraceSeconds
+		}
+		if server.LongCallGraceSeconds > 120 {
+			return fmt.Errorf("mcp_servers.%s.long_call_grace_seconds must not exceed 120", name)
+		}
+		if server.MaxResponseBytes <= 0 {
+			server.MaxResponseBytes = defaults.MaxResponseBytes
+		}
+		if server.MaxResponseBytes < 1024 || server.MaxResponseBytes > 32<<20 {
+			return fmt.Errorf("mcp_servers.%s.max_response_bytes must be between 1024 and 33554432", name)
+		}
+		if server.StateOutputMaxBytes <= 0 {
+			server.StateOutputMaxBytes = defaults.StateOutputMaxBytes
+		}
+		if server.StateOutputMaxBytes < 1024 || server.StateOutputMaxBytes > 64<<10 {
+			return fmt.Errorf("mcp_servers.%s.state_output_max_bytes must be between 1024 and 65536", name)
+		}
+		if server.ArchiveOutputMaxBytes <= 0 {
+			server.ArchiveOutputMaxBytes = defaults.ArchiveOutputMaxBytes
+		}
+		if server.ArchiveOutputMaxBytes < server.StateOutputMaxBytes || server.ArchiveOutputMaxBytes > 32<<20 {
+			return fmt.Errorf("mcp_servers.%s.archive_output_max_bytes must be between state_output_max_bytes and 33554432", name)
+		}
+		if server.RefreshIntervalSeconds <= 0 {
+			server.RefreshIntervalSeconds = defaults.RefreshIntervalSeconds
+		}
+		if server.RefreshIntervalSeconds < 30 || server.RefreshIntervalSeconds > 86400 {
+			return fmt.Errorf("mcp_servers.%s.refresh_interval_seconds must be between 30 and 86400", name)
+		}
+		servers[name] = server
+	}
+	return nil
+}
+
+func normalizeStringSet(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || slicesContains(out, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func slicesContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeRemindersConfig backfills a non-positive delivery-attempt cap with

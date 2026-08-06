@@ -247,10 +247,11 @@ run，并在跨 run 替换时重新分配文本而不压平段落。形状重写
 未请求的格式丢失会成为 preservation mismatch。
 
 Runtime 独占全部确定性布局决策。在 `coordinated`
-策略下，同组 text box 使用一致的所需高度与字体，已验证 background 随 body text
-增长，贯穿卡片高度的 accent bar 也随 card background 延伸。系统根据整页修改前后证据
-报告每一项 geometry、font 或 `word_wrap` 变更。如果结果文本仍无法容纳、companion
-关系不一致，或修改后的 shape 会越过相邻内容或 slide canvas，则编辑显式失败。模型只
+策略下，同组 text box 使用一致的所需高度，但每个 body 保留自身原始字号；已验证
+background 随 body text 增长，贯穿卡片高度的 accent bar 也随 card background 延伸。
+同行正文的字号可以不同，系统不会将其统一。系统根据整页修改前后证据报告每一项
+geometry 或 `word_wrap` 变更。如果结果文本仍无法容纳、companion 关系不一致、body
+字号发生变化，或修改后的 shape 会越过相邻内容或 slide canvas，则编辑显式失败。模型只
 选择由证据绑定的 shape target 并填写 replacement text，不选择 layout value。
 
 `pptx.update_deck` 会把一个有界 batch 作为单次原子编辑执行。当前上限为 12 页、64 个更新

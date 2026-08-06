@@ -8,7 +8,6 @@ import sys
 try:
     from pptx import Presentation
     from pptx.oxml.ns import qn
-    from pptx.util import Pt
 except Exception:
     print(json.dumps({"error":"PPTX slide adapter requires python-pptx"}))
     sys.exit(0)
@@ -88,11 +87,6 @@ def shape_font_size(shape):
     runs = [run for paragraph in text_frame.paragraphs for run in paragraph.runs if run.text]
     explicit_sizes = [run.font.size.pt for run in runs if run.font.size is not None]
     return max(explicit_sizes) if explicit_sizes else 18.0
-
-def set_shape_font_size(shape, size_pt):
-    runs = [run for paragraph in shape.text_frame.paragraphs for run in paragraph.runs if run.text]
-    for run in runs:
-        run.font.size = Pt(size_pt)
 
 def text_fits_single_line(shape, size_pt=None):
     if size_pt is None:
@@ -357,10 +351,6 @@ def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
     for group in family:
         excluded.update((group["background_index"], group["label_index"], group["body_index"]))
     common_right = min(safe_right_boundary(prs, slide, group["body"], excluded) for group in family)
-    body_font_sizes = [shape_font_size(group["body"]) for group in family]
-    common_font_size = min(body_font_sizes)
-    if max(body_font_sizes) - min(body_font_sizes) > 1.0:
-        raise ValueError("coordinated slide layout rejected inconsistent peer body font sizes")
     for group in family:
         background = group["background"]
         body = group["body"]
@@ -370,10 +360,9 @@ def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
             raise ValueError("coordinated slide layout could not establish non-overlapping label and body columns")
         background.width = new_background_width
         body.width = new_body_width
-        set_shape_font_size(body, common_font_size)
     target_body_height = max(
         max(int(group["body"].height) for group in family),
-        max(required_text_height(group["body"], size_pt=common_font_size) for group in family),
+        max(required_text_height(group["body"]) for group in family),
     )
     bottom_padding = max(
         int(group["background"].top + group["background"].height - group["body"].top - group["body"].height)
@@ -398,10 +387,10 @@ def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
         body.height = target_body_height
         if int(label.height) < target_body_height:
             label.height = target_body_height
-        flow = apply_measured_text_flow(body, common_font_size)
+        flow = apply_measured_text_flow(body)
         if flow == "overflow":
             raise ValueError("updated text does not fit the coordinated peer-row layout")
-        if shape_uses_multiple_lines(body, common_font_size):
+        if shape_uses_multiple_lines(body):
             wrapped.add(group["body_index"])
     return family, wrapped
 
@@ -414,13 +403,9 @@ def apply_coordinated_card_layout(prs, slide, groups, selected_indexes):
         members.add(group["background_index"])
         members.update(group["text_indexes"])
         members.update(index for index, _ in group["companions"])
-    body_font_sizes = [shape_font_size(group["body"]) for group in family]
-    common_font_size = min(body_font_sizes)
-    if max(body_font_sizes) - min(body_font_sizes) > 1.0:
-        raise ValueError("coordinated card layout rejected inconsistent peer body font sizes")
     target_body_height = max(
         max(int(group["body"].height) for group in family),
-        max(required_text_height(group["body"], size_pt=common_font_size) for group in family),
+        max(required_text_height(group["body"]) for group in family),
     )
     bottom_padding = max(
         int(group["background"].top + group["background"].height - group["body"].top - group["body"].height)
@@ -441,11 +426,10 @@ def apply_coordinated_card_layout(prs, slide, groups, selected_indexes):
         original_background_bottom = int(background.top + background.height)
         background.height = target_background_height
         body.height = target_body_height
-        set_shape_font_size(body, common_font_size)
-        flow = apply_measured_text_flow(body, common_font_size)
+        flow = apply_measured_text_flow(body)
         if flow == "overflow":
             raise ValueError("updated text does not fit the coordinated card layout")
-        if shape_uses_multiple_lines(body, common_font_size):
+        if shape_uses_multiple_lines(body):
             wrapped.add(group["body_index"])
         tolerance = max(12700, int(min(background.width, background.height) * 0.04))
         for _, companion in group["companions"]:
@@ -495,7 +479,7 @@ def fit_shape_without_collision(prs, slide, shape_index, excluded_indexes):
         raise ValueError("updated text does not fit its slide shape after multi-line layout")
     return "wrapped"
 
-def validate_slide_layout(prs, slide, updated_indexes, band_groups, card_groups):
+def validate_slide_layout(prs, slide, updated_indexes, band_groups, card_groups, before):
     for index, shape in enumerate(slide.shapes, start=1):
         if int(shape.left) < 0 or int(shape.top) < 0 or int(shape.left + shape.width) > int(prs.slide_width) or int(shape.top + shape.height) > int(prs.slide_height):
             raise ValueError("slide shape %s is outside the presentation canvas" % index)
@@ -515,19 +499,27 @@ def validate_slide_layout(prs, slide, updated_indexes, band_groups, card_groups)
         body = group["body"]
         if not shape_is_contained(background, body, 12700):
             raise ValueError("coordinated card body extends beyond background shape %s" % group["background_index"])
+    peer_font_uniform = True
     for family in (band_groups, card_groups):
         if not family:
             continue
         body_heights = {int(group["body"].height) for group in family}
         body_fonts = {round(shape_font_size(group["body"]), 2) for group in family}
-        if len(body_heights) != 1 or len(body_fonts) != 1:
+        if len(body_heights) != 1:
             raise ValueError("coordinated peer text boxes are not geometrically uniform")
+        if len(body_fonts) != 1:
+            peer_font_uniform = False
+        for group in family:
+            body_index = group["body_index"]
+            if round(shape_font_size(group["body"]), 2) != before[body_index]["font_size_pt"]:
+                raise ValueError("coordinated peer body font size changed")
     return {
         "updated_text_fits": True,
         "wrapped_text_fits": True,
         "canvas_bounds": True,
         "companion_non_overlap": True,
-        "peer_font_uniform": True,
+        "peer_font_uniform": peer_font_uniform,
+        "peer_font_preserved": True,
         "peer_geometry_uniform": True,
     }
 
@@ -736,7 +728,7 @@ def update_slide(prs, slide, updates, layout_policy):
             if shape_uses_multiple_lines(shape):
                 wrapped.add(shape_index)
 
-    checks = validate_slide_layout(prs, slide, seen, coordinated_bands, coordinated_cards)
+    checks = validate_slide_layout(prs, slide, seen, coordinated_bands, coordinated_cards, before)
     changes = []
     for shape_index, shape in enumerate(slide.shapes, start=1):
         after = shape_bounds(slide.shapes[shape_index - 1])

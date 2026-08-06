@@ -1333,6 +1333,71 @@ for background_index, body_index in ((0, 2), (3, 5), (6, 8)):
 	}
 }
 
+func TestPptxUpdateSlideCoordinatesFullySelectedMixedFontPeerBands(t *testing.T) {
+	root := t.TempDir()
+	writePptxBandFixtureWithBodyFonts(t, root, "mixed-font-bands.pptx", []float64{13.5, 16.5, 14.5})
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "mixed-font-bands.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "mixed-font-bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/mixed-font-bands.pptx",
+		"updates": []any{
+			map[string]any{"shape_index": 3, "old_text": "读取内容", "text": "读取内容"},
+			map[string]any{"shape_index": 6, "old_text": "定位内容", "text": "定位内容"},
+			map[string]any{"shape_index": 9, "old_text": "修改内容", "text": "修改内容"},
+		},
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	checks := out["layout_checks"].(map[string]any)
+	if intArg(out, "companion_groups_used", 0) != 3 || checks["peer_font_uniform"] != false || checks["peer_font_preserved"] != true {
+		t.Fatalf("mixed-font peer bands were not coordinated: %#v", out)
+	}
+	outputPath := stringArg(out, "output_path", "")
+	pythonScript := `
+from pptx import Presentation
+prs = Presentation(__import__("sys").argv[1])
+slide = prs.slides[0]
+print(*(slide.shapes[index].text_frame.paragraphs[0].runs[0].font.size.pt for index in (2, 5, 8)))
+`
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, outputPath)
+	inspection, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("inspect coordinated mixed-font PPTX: %v\n%s", err, inspection)
+	}
+	if strings.TrimSpace(string(inspection)) != "13.5 16.5 14.5" {
+		t.Fatalf("peer body fonts did not retain their original sizes: %q", inspection)
+	}
+}
+
+func TestPptxUpdateSlideCoordinatesPartiallySelectedMixedFontPeerBands(t *testing.T) {
+	root := t.TempDir()
+	writePptxBandFixtureWithBodyFonts(t, root, "mixed-font-bands.pptx", []float64{13.5, 16.5, 14.5})
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "mixed-font-bands.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "mixed-font-bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/mixed-font-bands.pptx",
+		"updates": []any{
+			map[string]any{"shape_index": 3, "old_text": "读取内容", "text": "更新后的读取内容"},
+		},
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := result.Output.(map[string]any)
+	checks := out["layout_checks"].(map[string]any)
+	if intArg(out, "companion_groups_used", 0) != 3 || checks["peer_font_uniform"] != false || checks["peer_font_preserved"] != true {
+		t.Fatalf("partially selected mixed-font peer bands were not coordinated: %#v", out)
+	}
+}
+
 func TestPptxUpdateSlideWrapsPeerCardsAndCompanions(t *testing.T) {
 	root := t.TempDir()
 	writePptxCardFixture(t, root, "cards.pptx")
@@ -1968,7 +2033,20 @@ prs.save(root / name)
 
 func writePptxBandFixture(t *testing.T, root, name string) {
 	t.Helper()
+	writePptxBandFixtureWithBodyFonts(t, root, name, []float64{16.5, 16.5, 16.5})
+}
+
+func writePptxBandFixtureWithBodyFonts(t *testing.T, root, name string, bodyFontSizes []float64) {
+	t.Helper()
+	if len(bodyFontSizes) != 3 {
+		t.Fatalf("expected three band body font sizes, got %#v", bodyFontSizes)
+	}
+	encodedFontSizes, err := json.Marshal(bodyFontSizes)
+	if err != nil {
+		t.Fatal(err)
+	}
 	pythonScript := `
+import json
 from pathlib import Path
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -1976,10 +2054,11 @@ from pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE
 from pptx.util import Inches, Pt
 root = Path(__import__("sys").argv[1])
 name = __import__("sys").argv[2]
+body_font_sizes = json.loads(__import__("sys").argv[3])
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 rows = ((2.0, "读取", "读取内容", (22, 101, 52)), (3.0, "定位", "定位内容", (3, 105, 161)), (4.0, "修改", "修改内容", (180, 83, 9)))
-for top, label_text, body_text, color in rows:
+for (top, label_text, body_text, color), body_font_size in zip(rows, body_font_sizes):
     band = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(1.5), Inches(top), Inches(4.5), Inches(.6))
     band.fill.solid()
     band.fill.fore_color.rgb = RGBColor(*color)
@@ -1991,12 +2070,12 @@ for top, label_text, body_text, color in rows:
     body = slide.shapes.add_textbox(Inches(3.2), Inches(top + .08), Inches(5), Inches(.35))
     body_run = body.text_frame.paragraphs[0].add_run()
     body_run.text = body_text
-    body_run.font.size = Pt(16.5)
+    body_run.font.size = Pt(body_font_size)
 marker = slide.shapes.add_textbox(Inches(8.5), Inches(6.8), Inches(1), Inches(.3))
 marker.text_frame.paragraphs[0].add_run().text = "课程 · 2/4"
 prs.save(root / name)
 `
-	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name)
+	cmd := exec.Command(documentPythonBinary(), "-c", pythonScript, root, name, string(encodedFontSizes))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create band pptx fixture: %v\n%s", err, out)
 	}

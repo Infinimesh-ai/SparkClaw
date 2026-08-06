@@ -315,13 +315,15 @@ Post-edit verification compares the paragraph/run tree and hyperlink targets,
 so an unrequested formatting loss is a preservation mismatch.
 
 Runtime owns all deterministic layout decisions. Under `coordinated`,
-peer text boxes share the required height and font, verified backgrounds grow
-with their body text, and full-height accent bars extend with card backgrounds.
-Every geometry, font, or `word_wrap` mutation is reported from whole-slide
-before/after evidence. The edit fails closed if the resulting text still does
-not fit, a companion relationship is inconsistent, or a changed shape would
-cross nearby content or the slide canvas. The model only selects evidence-bound
-shape targets and supplies replacement text; it does not choose layout values.
+peer text boxes share the required height while each body retains its original
+font size; verified backgrounds grow with their body text, and full-height
+accent bars extend with card backgrounds. Peer font sizes may differ and are
+not normalized. Every geometry or `word_wrap` mutation is reported from
+whole-slide before/after evidence. The edit fails closed if the resulting text
+still does not fit, a companion relationship is inconsistent, a body font size
+changes, or a changed shape would cross nearby content or the slide canvas. The
+model only selects evidence-bound shape targets and supplies replacement text;
+it does not choose layout values.
 
 `pptx.update_deck` applies a bounded batch as one atomic edit. The current
 limits are 12 slides, 64 updated shapes, and 32 KiB of replacement text; any

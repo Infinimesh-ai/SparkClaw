@@ -26,6 +26,9 @@ const (
 	ToolErrorDraftActionStale                ToolErrorCode = "draft_action_stale"
 	ToolErrorDraftForbiddenControl           ToolErrorCode = "draft_forbidden_control"
 	ToolErrorVisualEvidenceStale             ToolErrorCode = "visual_evidence_stale"
+	ToolErrorMCPToolResult                   ToolErrorCode = "mcp_tool_error"
+	ToolErrorMCPAuthorization                ToolErrorCode = "mcp_authorization"
+	ToolErrorMCPPersistenceUnsafe            ToolErrorCode = "mcp_persistence_unsafe"
 )
 
 // CodedToolError attaches a ToolErrorCode to a tool failure. The message is

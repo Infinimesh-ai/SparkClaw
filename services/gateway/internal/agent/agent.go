@@ -1018,6 +1018,17 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		return call, nil, call.ObservationSummary
 	}
 	if decision.RequiresApproval {
+		if err := validateApprovalArgumentPersistence(def, plan.Args); err != nil {
+			call.Status = "blocked"
+			call.Error = err.Error()
+			call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+			call.Arguments = redactedRejectedApprovalArguments(plan.Args)
+			done := time.Now().UTC()
+			call.CompletedAt = &done
+			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
+			r.store.SaveToolCall(call)
+			return call, nil, call.ObservationSummary
+		}
 		if verifier, ok := policy.VerifierDecision(def, decision, time.Now().UTC()); ok {
 			plan.Args = policy.AttachVerifier(plan.Args, verifier)
 			call.Arguments = plan.Args
@@ -1075,19 +1086,23 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		call.Status = "failed"
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+		call.Result = result.Output
 		if strings.HasPrefix(call.Tool, "browser.") {
 			call.Error = redactBrowserPersistenceText(app.BrowserTargetDescriptor{
 				QueryProvenance: app.BrowserQueryProviderVolatile,
 			}, call.Error)
 		}
-		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
+		if call.Result != nil {
+			call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
+		}
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, Err: err, ObservationRef: call.ObservationRef, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
 		r.store.SaveToolCall(call)
 		return call, nil, call.ObservationSummary
 	}
 	call.Status = "completed"
 	call.Arguments, call.Result = r.redactBrowserToolPersistence(runID, call.Tool, call.Arguments, result.Output)
 	call.Result = r.projectPPTXLocalizationPersistence(runID, call, call.Result)
-	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
+	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
 	maxBytes, evidenceLimit := r.toolResultObservationBudget()
 	ownerRequest := ""
 	if run, exists := r.store.GetRun(runID); exists {
@@ -1097,6 +1112,13 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	r.store.SaveToolCall(call)
 	r.recordDocumentToolActivity(call)
 	return call, nil, call.ObservationSummary
+}
+
+func archiveOutput(result toolhub.Result, fallback any) any {
+	if result.ArchiveOutput != nil {
+		return result.ArchiveOutput
+	}
+	return fallback
 }
 
 func (r Runtime) toolResultObservationBudget() (int, int) {

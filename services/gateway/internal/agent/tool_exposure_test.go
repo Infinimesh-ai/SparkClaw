@@ -25,7 +25,7 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 		t.Fatalf("unexpected directory view: %#v", view)
 	}
 	entry := view.Entries[0]
-	if entry.Capability.Name != app.ToolCapabilityWebDiscovery || entry.Capability.Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo || entry.Summary == "" {
+	if entry.Name != "web.search" || entry.Description == "" || entry.Capability.Name != app.ToolCapabilityWebDiscovery || entry.Capability.Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo || entry.Summary == "" {
 		t.Fatalf("unexpected directory entry: %#v", entry)
 	}
 	if run, ok := st.GetRun(request.RunID); !ok || run.Workflow.Nodes[request.NodeID].LastDirectory.ViewID != view.ViewID {
@@ -46,6 +46,20 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 	}
 	if len(exposure.Definitions) != 1 || exposure.Definitions[0].Name != "web.search" {
 		t.Fatalf("unexpected materialized definitions: %#v", exposure.Definitions)
+	}
+}
+
+func TestDirectoryRelevanceUsesOwnerQueryAndDefinitionMetadata(t *testing.T) {
+	definition := app.ToolDefinition{
+		Name: "localmind.keyword_search", Title: "Keyword search",
+		Description: "Search authorized LocalMind documents",
+		Directory:   app.ToolDirectoryMetadata{Summary: "Workspace evidence"},
+	}
+	if score := directoryRelevance("find localmind keyword matches", definition); score != 2 {
+		t.Fatalf("definition metadata was not indexed, score=%d", score)
+	}
+	if score := directoryRelevance("unrelated weather forecast", definition); score != 0 {
+		t.Fatalf("unrelated query received score=%d", score)
 	}
 }
 

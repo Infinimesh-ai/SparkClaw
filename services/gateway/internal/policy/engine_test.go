@@ -34,3 +34,19 @@ func TestMayExposeIsStaticAndExecutionRemainsArgumentAware(t *testing.T) {
 		t.Fatalf("execution decision did not use exact arguments: %#v", execution)
 	}
 }
+
+func TestRemoteMutationKeepsApprovalWithoutClaimingLocalSandbox(t *testing.T) {
+	cfg := config.Default()
+	def := app.ToolDefinition{
+		Name: "localmind.create_document", Risk: app.RiskReversible,
+		RequiresApproval: true, Sandbox: "remote",
+	}
+
+	decision := New(cfg).Decide(def, map[string]any{"title": "Draft"})
+	if !decision.Allowed || !decision.RequiresApproval {
+		t.Fatalf("remote mutation lost approval: %#v", decision)
+	}
+	if decision.RequiresSandbox {
+		t.Fatalf("remote mutation was mislabeled as local sandbox execution: %#v", decision)
+	}
+}

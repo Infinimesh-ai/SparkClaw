@@ -167,6 +167,10 @@ func DefaultCatalog() (Catalog, error) {
 		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationCreate, app.RouteOperationRead, app.RouteOperationEdit, app.RouteOperationDelete}, RequireQuery: true,
 		}),
+		branch("external_mcp", string(RootID), "Use explicitly configured external MCP workspace providers without exposing their complete catalogs to every model call."),
+		leaf(string(app.CapabilityExternalMCPWorkspace), "external_mcp", "Read or explicitly mutate the configured LocalMind workspace through its scoped MCP credential. Local files, ordinary document attachments, public Internet research, and generic workspace requests belong to their existing capabilities.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRead, app.RouteOperationCreate, app.RouteOperationEdit, app.RouteOperationDelete, app.RouteOperationInteract}, RequireQuery: true,
+		}),
 	})
 }
 

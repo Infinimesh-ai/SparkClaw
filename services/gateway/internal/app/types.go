@@ -18,9 +18,11 @@ const (
 
 type ToolDefinition struct {
 	Name             string                 `json:"name"`
+	Title            string                 `json:"title,omitempty"`
 	Description      string                 `json:"description"`
 	InputSchema      map[string]any         `json:"input_schema"`
 	OutputSchema     map[string]any         `json:"output_schema,omitempty"`
+	Annotations      map[string]any         `json:"annotations,omitempty"`
 	Risk             RiskLevel              `json:"risk"`
 	RequiresApproval bool                   `json:"requires_approval"`
 	Idempotent       bool                   `json:"idempotent"`

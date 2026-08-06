@@ -23,6 +23,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		{"document", "document.read"},
 		{"document", "document.edit"},
 		{"schedule", "schedule.manage"},
+		{"external_mcp", "external_mcp.workspace"},
 	}
 	for _, path := range paths {
 		leaf, err := catalog.ResolveLeaf(path)

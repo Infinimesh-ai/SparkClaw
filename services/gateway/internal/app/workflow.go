@@ -10,6 +10,7 @@ const (
 	CapabilityDocumentRead          CapabilityID = "document.read"
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
 	CapabilityScheduleManage        CapabilityID = "schedule.manage"
+	CapabilityCodingAgentManage     CapabilityID = "coding.agent_manage"
 )
 
 type IntentDomain string
@@ -19,6 +20,7 @@ const (
 	IntentDomainWeb          IntentDomain = "web"
 	IntentDomainWorkspace    IntentDomain = "workspace"
 	IntentDomainSchedule     IntentDomain = "schedule"
+	IntentDomainCoding       IntentDomain = "coding"
 )
 
 type IntentOperation string
@@ -137,6 +139,7 @@ const (
 	WorkflowDocumentRead          WorkflowID = "document.read"
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
 	WorkflowScheduleManage        WorkflowID = "schedule.manage"
+	WorkflowCodingAgentManage     WorkflowID = "coding.agent_manage"
 
 	WorkflowBrowserSearch       = WorkflowBrowserInternetSearch
 	WorkflowDocumentInformation = WorkflowDocumentRead
@@ -164,6 +167,7 @@ const (
 	ToolCapabilityInfoQuestion              = "info.question.read"
 	ToolCapabilityWeatherRender             = "weather.card.render"
 	ToolCapabilityMCPExternal               = "mcp.external"
+	ToolCapabilityMCPApprovalResolve        = "mcp.approval.resolve"
 	ToolCapabilityBrowserListTabs           = "browser.tab.list"
 	ToolCapabilityBrowserFocus              = "browser.tab.focus"
 	ToolCapabilityBrowserOpen               = "browser.tab.open"

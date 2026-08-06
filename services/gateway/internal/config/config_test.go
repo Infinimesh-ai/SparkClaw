@@ -771,6 +771,67 @@ func TestLoadRejectsInvalidTelegramConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadNormalizesMCPServersWithoutResolvingSecrets(t *testing.T) {
+	t.Setenv("HAPPY_TEAM_MCP_TOKEN", "not-read-by-config")
+	cfg := Default()
+	cfg.MCPServers = map[string]MCPServerConfig{
+		"happy-tasks": {
+			URL: "https://happy.example.com/v1/team/mcp", TokenEnv: "HAPPY_TEAM_MCP_TOKEN", ExpectedServerName: "happy-team-tasks",
+		},
+		"happy-bridge": {
+			URL: "http://127.0.0.1:8790/", TokenFile: "~/.happy/mcp.token", ExpectedServerName: "happy-bridge",
+		},
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := loaded.MCPServers["happy-tasks"]
+	bridge := loaded.MCPServers["happy-bridge"]
+	if tasks.Namespace != "mcp.happy-tasks" || tasks.RequestTimeoutSeconds != 30 || tasks.DiscoveryRefreshSeconds != 60 || tasks.ResponseBodyMaxBytes != 4<<20 {
+		t.Fatalf("task MCP defaults missing: %#v", tasks)
+	}
+	if bridge.Namespace != "mcp.happy-bridge" || bridge.TokenFile != "~/.happy/mcp.token" {
+		t.Fatalf("bridge MCP normalization changed credential reference: %#v", bridge)
+	}
+}
+
+func TestLoadRejectsInvalidMCPServerConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		server MCPServerConfig
+	}{
+		{name: "credential in URL", server: MCPServerConfig{URL: "https://token@example.test/mcp"}},
+		{name: "two token sources", server: MCPServerConfig{URL: "https://example.test/mcp", TokenEnv: "TOKEN", TokenFile: "/tmp/token"}},
+		{name: "invalid token env", server: MCPServerConfig{URL: "https://example.test/mcp", TokenEnv: "BAD-NAME"}},
+		{name: "oversized response", server: MCPServerConfig{URL: "https://example.test/mcp", ResponseBodyMaxBytes: 33 << 20}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.MCPServers = map[string]MCPServerConfig{"fixture": test.server}
+			path := filepath.Join(t.TempDir(), "config.json")
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("expected invalid MCP config to fail")
+			}
+		})
+	}
+}
+
 func escapeJSONPath(path string) string {
 	out := ""
 	for _, ch := range path {

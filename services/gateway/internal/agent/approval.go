@@ -67,6 +67,8 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		if result.Output != nil {
 			call.Result = result.Output
+			call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, result.Output)
+			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: result.Output, ObservationRef: call.ObservationRef, Err: err, MaxBytes: r.observationSummaryLimit()})
 		}
 		r.store.SaveToolCall(call)
 		return call, nil

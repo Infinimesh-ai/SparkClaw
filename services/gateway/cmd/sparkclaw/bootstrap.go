@@ -6,6 +6,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/reminder"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
@@ -18,6 +19,7 @@ type gatewayServices struct {
 	server            *gateway.Server
 	connectors        *connectorAssembly
 	reminderScheduler *reminder.Scheduler
+	mcpManager        *mcpintegration.Manager
 }
 
 func newGatewayServices(
@@ -45,6 +47,7 @@ func newGatewayServices(
 		routes := messagecontrol.NewReturnRouteResolver(connectors.endpoints)
 		reminderScheduler = reminder.NewMessageScheduler(st, schedules, newScheduledRequestPublisher(runtime, routes, connectors.delivery), cfg.Tools.Reminders.MaxDeliveryAttempts)
 	}
+	mcpManager := mcpintegration.New(cfg.MCPServers, tools, nil)
 
 	return &gatewayServices{
 		server: gateway.NewWithTrace(
@@ -57,11 +60,13 @@ func newGatewayServices(
 			gateway.WithCredentialVault(connectors.credentials),
 			gateway.WithBindingRouter(connectors.registry.BindingRouter()),
 			gateway.WithConnectorController(connectors.registry),
+			gateway.WithMCPController(mcpManager),
 			gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 		),
 		connectors:        connectors,
 		reminderScheduler: reminderScheduler,
+		mcpManager:        mcpManager,
 	}, nil
 }
 
@@ -69,6 +74,9 @@ func (s *gatewayServices) Start(ctx context.Context) {
 	s.server.BindLifecycleContext(ctx)
 	if s.reminderScheduler != nil {
 		go s.reminderScheduler.Run(ctx)
+	}
+	if s.mcpManager != nil {
+		s.mcpManager.Run(ctx)
 	}
 	s.connectors.registry.Start(ctx)
 }

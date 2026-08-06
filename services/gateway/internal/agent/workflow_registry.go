@@ -151,6 +151,7 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		documentReadProfile{},
 		documentEditProfile{},
 		scheduleManageProfile{},
+		codingAgentManageProfile{},
 	)
 }
 

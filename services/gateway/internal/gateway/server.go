@@ -37,6 +37,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -67,6 +68,7 @@ type Server struct {
 	endpoints     *messagecontrol.EndpointRegistry
 	providers     *delivery.ProviderRegistry
 	connectors    ConnectorController
+	mcp           MCPController
 	bridge        *iscpbridge.GatewayAdapter
 	deliveryMu    sync.Mutex
 	bindingsSet   bool
@@ -87,9 +89,20 @@ type ConnectorController interface {
 	SetEnabled(ctx context.Context, ownerID, actorID, channel string, enabled bool, expectedVersion int64) (app.ConnectorStatus, error)
 }
 
+type MCPController interface {
+	ListStatus() []mcpintegration.Status
+	Refresh(context.Context, string) (mcpintegration.Status, error)
+}
+
 func WithConnectorController(controller ConnectorController) Option {
 	return func(server *Server) {
 		server.connectors = controller
+	}
+}
+
+func WithMCPController(controller MCPController) Option {
+	return func(server *Server) {
+		server.mcp = controller
 	}
 }
 
@@ -255,6 +268,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notification-bindings", s.listNotificationBindings)
 	s.mux.HandleFunc("GET /api/connectors", s.listConnectors)
 	s.mux.HandleFunc("PATCH /api/connectors/{channel}", s.updateConnector)
+	s.mux.HandleFunc("GET /api/mcp-servers", s.listMCPServers)
+	s.mux.HandleFunc("POST /api/mcp-servers/{name}/refresh", s.refreshMCPServer)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
 	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
 	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)
@@ -454,10 +469,35 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"state":       publicStateConfig(s.cfg.State),
 		"adapters":    publicAdapterConfig(s.cfg.Adapters, s.tools.DocumentOCRReadiness()),
 		"tools":       s.publicToolsConfig(principal.OwnerID),
+		"mcp_servers": s.mcpServerStatuses(),
 		"memory":      s.cfg.Memory,
 		"runtime":     s.cfg.Runtime,
 		"tool_policy": toolPolicySummary(s.cfg.Security, s.tools.Definitions()),
 	})
+}
+
+func (s *Server) listMCPServers(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"servers": s.mcpServerStatuses()})
+}
+
+func (s *Server) refreshMCPServer(w http.ResponseWriter, r *http.Request) {
+	if s.mcp == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("MCP integration is unavailable"))
+		return
+	}
+	status, err := s.mcp.Refresh(r.Context(), strings.TrimSpace(r.PathValue("name")))
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"server": status, "error": status.ErrorCode})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"server": status})
+}
+
+func (s *Server) mcpServerStatuses() []mcpintegration.Status {
+	if s.mcp == nil {
+		return []mcpintegration.Status{}
+	}
+	return s.mcp.ListStatus()
 }
 
 func (s *Server) getOwnerProfile(w http.ResponseWriter, r *http.Request) {

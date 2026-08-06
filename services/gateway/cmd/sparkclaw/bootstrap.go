@@ -49,7 +49,7 @@ func newGatewayServices(
 		routes := messagecontrol.NewReturnRouteResolver(connectors.endpoints)
 		reminderScheduler = reminder.NewMessageScheduler(st, schedules, newScheduledRequestPublisher(runtime, routes, connectors.delivery), cfg.Tools.Reminders.MaxDeliveryAttempts)
 	}
-	mcpManager := mcpintegration.New(cfg.MCPServers, tools, nil)
+	mcpManager := mcpintegration.New(withoutLocalMindMCPServer(cfg.MCPServers), tools, nil)
 	var happyApprovals *happyapproval.Service
 	if _, configured := cfg.MCPServers[happyapproval.ServerName]; configured {
 		happyApprovals = happyapproval.New(st, mcpManager, 0)

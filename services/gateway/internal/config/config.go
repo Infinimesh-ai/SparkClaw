@@ -9,11 +9,20 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
+
+const (
+	LocalMindMCPServerKey          = "localmind"
+	LocalMindMCPServerName         = "localmind-workspace"
+	LocalMindMCPProtocolVersion    = "2025-06-18"
+	LocalMindMCPDefaultNamespace   = "localmind"
+	LocalMindMCPDefaultMaxResponse = int64(16 << 20)
+)
 
 var (
 	mcpServerNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
@@ -24,9 +33,9 @@ type Config struct {
 	Gateway    GatewayConfig              `json:"gateway"`
 	Model      ModelConfig                `json:"model"`
 	Speech     SpeechConfig               `json:"speech"`
+	MCPServers map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
 	Plugins    PluginsConfig              `json:"plugins"`
 	Tools      ToolsConfig                `json:"tools"`
-	MCPServers map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
 	Security   SecurityConfig             `json:"security"`
 	Sandbox    SandboxConfig              `json:"sandbox"`
 	Adapters   AdapterConfig              `json:"adapters"`
@@ -169,14 +178,27 @@ type NotificationChannelConfig struct {
 }
 
 type MCPServerConfig struct {
-	URL                     string `json:"url"`
-	TokenEnv                string `json:"token_env,omitempty"`
-	TokenFile               string `json:"token_file,omitempty"`
-	Namespace               string `json:"namespace,omitempty"`
-	ExpectedServerName      string `json:"expected_server_name,omitempty"`
-	RequestTimeoutSeconds   int    `json:"request_timeout_seconds,omitempty"`
-	DiscoveryRefreshSeconds int    `json:"discovery_refresh_seconds,omitempty"`
-	ResponseBodyMaxBytes    int64  `json:"response_body_max_bytes,omitempty"`
+	URL                     string   `json:"url,omitempty"`
+	TokenEnv                string   `json:"token_env,omitempty"`
+	TokenFile               string   `json:"token_file,omitempty"`
+	Transport               string   `json:"transport,omitempty"`
+	URLEnv                  string   `json:"url_env,omitempty"`
+	BearerTokenEnv          string   `json:"bearer_token_env,omitempty"`
+	Namespace               string   `json:"namespace,omitempty"`
+	ExpectedServerName      string   `json:"expected_server_name,omitempty"`
+	ProtocolVersion         string   `json:"protocol_version,omitempty"`
+	AllowMutations          bool     `json:"allow_mutations,omitempty"`
+	AllowPrivateHTTP        bool     `json:"allow_private_http,omitempty"`
+	ToolAllow               []string `json:"tool_allow,omitempty"`
+	ToolDeny                []string `json:"tool_deny,omitempty"`
+	RequestTimeoutSeconds   int      `json:"request_timeout_seconds,omitempty"`
+	LongCallGraceSeconds    int      `json:"long_call_grace_seconds,omitempty"`
+	MaxResponseBytes        int64    `json:"max_response_bytes,omitempty"`
+	StateOutputMaxBytes     int      `json:"state_output_max_bytes,omitempty"`
+	ArchiveOutputMaxBytes   int      `json:"archive_output_max_bytes,omitempty"`
+	RefreshIntervalSeconds  int      `json:"refresh_interval_seconds,omitempty"`
+	DiscoveryRefreshSeconds int      `json:"discovery_refresh_seconds,omitempty"`
+	ResponseBodyMaxBytes    int64    `json:"response_body_max_bytes,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -485,45 +507,191 @@ func normalizeMCPServers(servers *map[string]MCPServerConfig) error {
 		if strings.TrimSpace(name) != name || !mcpServerNamePattern.MatchString(name) {
 			return fmt.Errorf("MCP server name %q must match %s", name, mcpServerNamePattern.String())
 		}
-		server.URL = strings.TrimSpace(server.URL)
-		endpoint, err := url.Parse(server.URL)
-		if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.Fragment != "" {
-			return fmt.Errorf("MCP server %q URL must be absolute HTTP(S) without credentials or fragment", name)
+		var err error
+		if name == LocalMindMCPServerKey {
+			server, err = normalizeLocalMindMCPServer(name, server)
+		} else {
+			server, err = normalizeGenericMCPServer(name, server)
 		}
-		server.TokenEnv = strings.TrimSpace(server.TokenEnv)
-		server.TokenFile = strings.TrimSpace(server.TokenFile)
-		if server.TokenEnv != "" && server.TokenFile != "" {
-			return fmt.Errorf("MCP server %q must use only one of token_env or token_file", name)
-		}
-		if server.TokenEnv != "" && !environmentNamePattern.MatchString(server.TokenEnv) {
-			return fmt.Errorf("MCP server %q token_env is invalid", name)
-		}
-		server.Namespace = strings.Trim(strings.TrimSpace(server.Namespace), ".")
-		if server.Namespace == "" {
-			server.Namespace = "mcp." + name
-		}
-		server.ExpectedServerName = strings.TrimSpace(server.ExpectedServerName)
-		if server.RequestTimeoutSeconds <= 0 {
-			server.RequestTimeoutSeconds = 30
-		}
-		if server.RequestTimeoutSeconds > 3600 {
-			return fmt.Errorf("MCP server %q request_timeout_seconds must not exceed 3600", name)
-		}
-		if server.DiscoveryRefreshSeconds <= 0 {
-			server.DiscoveryRefreshSeconds = 60
-		}
-		if server.DiscoveryRefreshSeconds > 86400 {
-			return fmt.Errorf("MCP server %q discovery_refresh_seconds must not exceed 86400", name)
-		}
-		if server.ResponseBodyMaxBytes <= 0 {
-			server.ResponseBodyMaxBytes = 4 << 20
-		}
-		if server.ResponseBodyMaxBytes > 32<<20 {
-			return fmt.Errorf("MCP server %q response_body_max_bytes must not exceed 33554432", name)
+		if err != nil {
+			return err
 		}
 		(*servers)[name] = server
 	}
 	return nil
+}
+
+func normalizeGenericMCPServer(name string, server MCPServerConfig) (MCPServerConfig, error) {
+	if hasLocalMindOnlyMCPSettings(server) {
+		return MCPServerConfig{}, fmt.Errorf("unsupported MCP server %q with LocalMind-specific configuration", name)
+	}
+	server.URL = strings.TrimSpace(server.URL)
+	endpoint, err := url.Parse(server.URL)
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.Fragment != "" {
+		return MCPServerConfig{}, fmt.Errorf("MCP server %q URL must be absolute HTTP(S) without credentials or fragment", name)
+	}
+	server.TokenEnv = strings.TrimSpace(server.TokenEnv)
+	server.TokenFile = strings.TrimSpace(server.TokenFile)
+	if server.TokenEnv != "" && server.TokenFile != "" {
+		return MCPServerConfig{}, fmt.Errorf("MCP server %q must use only one of token_env or token_file", name)
+	}
+	if server.TokenEnv != "" && !environmentNamePattern.MatchString(server.TokenEnv) {
+		return MCPServerConfig{}, fmt.Errorf("MCP server %q token_env is invalid", name)
+	}
+	server.Namespace = strings.Trim(strings.TrimSpace(server.Namespace), ".")
+	if server.Namespace == "" {
+		server.Namespace = "mcp." + name
+	}
+	server.ExpectedServerName = strings.TrimSpace(server.ExpectedServerName)
+	if server.RequestTimeoutSeconds <= 0 {
+		server.RequestTimeoutSeconds = 30
+	}
+	if server.RequestTimeoutSeconds > 3600 {
+		return MCPServerConfig{}, fmt.Errorf("MCP server %q request_timeout_seconds must not exceed 3600", name)
+	}
+	if server.DiscoveryRefreshSeconds <= 0 {
+		server.DiscoveryRefreshSeconds = 60
+	}
+	if server.DiscoveryRefreshSeconds > 86400 {
+		return MCPServerConfig{}, fmt.Errorf("MCP server %q discovery_refresh_seconds must not exceed 86400", name)
+	}
+	if server.ResponseBodyMaxBytes <= 0 {
+		server.ResponseBodyMaxBytes = 4 << 20
+	}
+	if server.ResponseBodyMaxBytes > 32<<20 {
+		return MCPServerConfig{}, fmt.Errorf("MCP server %q response_body_max_bytes must not exceed 33554432", name)
+	}
+	return server, nil
+}
+
+func normalizeLocalMindMCPServer(name string, server MCPServerConfig) (MCPServerConfig, error) {
+	if hasGenericMCPSettings(server) {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s must use url_env and bearer_token_env instead of generic MCP endpoint settings", name)
+	}
+	defaults := MCPServerConfig{
+		Transport:              "streamable-http",
+		Namespace:              LocalMindMCPDefaultNamespace,
+		ExpectedServerName:     LocalMindMCPServerName,
+		ProtocolVersion:        LocalMindMCPProtocolVersion,
+		RequestTimeoutSeconds:  30,
+		LongCallGraceSeconds:   10,
+		MaxResponseBytes:       LocalMindMCPDefaultMaxResponse,
+		StateOutputMaxBytes:    16 << 10,
+		ArchiveOutputMaxBytes:  16 << 20,
+		RefreshIntervalSeconds: 300,
+	}
+	server.Transport = strings.ToLower(strings.TrimSpace(server.Transport))
+	if server.Transport == "" {
+		server.Transport = defaults.Transport
+	}
+	if server.Transport != defaults.Transport {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.transport must be %q", name, defaults.Transport)
+	}
+	server.URLEnv = strings.TrimSpace(server.URLEnv)
+	server.BearerTokenEnv = strings.TrimSpace(server.BearerTokenEnv)
+	if !environmentNamePattern.MatchString(server.URLEnv) || !environmentNamePattern.MatchString(server.BearerTokenEnv) {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s url_env and bearer_token_env must be valid environment variable names", name)
+	}
+	server.Namespace = strings.Trim(strings.TrimSpace(server.Namespace), ".")
+	if server.Namespace == "" {
+		server.Namespace = defaults.Namespace
+	}
+	if server.Namespace != LocalMindMCPDefaultNamespace {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.namespace must be %q", name, LocalMindMCPDefaultNamespace)
+	}
+	server.ExpectedServerName = strings.TrimSpace(server.ExpectedServerName)
+	if server.ExpectedServerName == "" {
+		server.ExpectedServerName = defaults.ExpectedServerName
+	}
+	if server.ExpectedServerName != LocalMindMCPServerName {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.expected_server_name must be %q", name, LocalMindMCPServerName)
+	}
+	server.ProtocolVersion = strings.TrimSpace(server.ProtocolVersion)
+	if server.ProtocolVersion == "" {
+		server.ProtocolVersion = defaults.ProtocolVersion
+	}
+	if server.ProtocolVersion != LocalMindMCPProtocolVersion {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.protocol_version must be %q", name, LocalMindMCPProtocolVersion)
+	}
+	server.ToolAllow = normalizeStringSet(server.ToolAllow)
+	server.ToolDeny = normalizeStringSet(server.ToolDeny)
+	for _, allowed := range server.ToolAllow {
+		if slicesContains(server.ToolDeny, allowed) {
+			return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s tool %q cannot be both allowed and denied", name, allowed)
+		}
+	}
+	if server.RequestTimeoutSeconds <= 0 {
+		server.RequestTimeoutSeconds = defaults.RequestTimeoutSeconds
+	}
+	if server.RequestTimeoutSeconds > 120 {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.request_timeout_seconds must not exceed 120", name)
+	}
+	if server.LongCallGraceSeconds <= 0 {
+		server.LongCallGraceSeconds = defaults.LongCallGraceSeconds
+	}
+	if server.LongCallGraceSeconds > 120 {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.long_call_grace_seconds must not exceed 120", name)
+	}
+	if server.MaxResponseBytes <= 0 {
+		server.MaxResponseBytes = defaults.MaxResponseBytes
+	}
+	if server.MaxResponseBytes < 1024 || server.MaxResponseBytes > 32<<20 {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.max_response_bytes must be between 1024 and 33554432", name)
+	}
+	if server.StateOutputMaxBytes <= 0 {
+		server.StateOutputMaxBytes = defaults.StateOutputMaxBytes
+	}
+	if server.StateOutputMaxBytes < 1024 || server.StateOutputMaxBytes > 64<<10 {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.state_output_max_bytes must be between 1024 and 65536", name)
+	}
+	if server.ArchiveOutputMaxBytes <= 0 {
+		server.ArchiveOutputMaxBytes = defaults.ArchiveOutputMaxBytes
+	}
+	if server.ArchiveOutputMaxBytes < server.StateOutputMaxBytes || server.ArchiveOutputMaxBytes > 32<<20 {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.archive_output_max_bytes must be between state_output_max_bytes and 33554432", name)
+	}
+	if server.RefreshIntervalSeconds <= 0 {
+		server.RefreshIntervalSeconds = defaults.RefreshIntervalSeconds
+	}
+	if server.RefreshIntervalSeconds < 30 || server.RefreshIntervalSeconds > 86400 {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.refresh_interval_seconds must be between 30 and 86400", name)
+	}
+	return server, nil
+}
+
+func hasLocalMindOnlyMCPSettings(server MCPServerConfig) bool {
+	return server.Transport != "" || server.URLEnv != "" || server.BearerTokenEnv != "" ||
+		server.ProtocolVersion != "" || server.AllowMutations || server.AllowPrivateHTTP ||
+		len(server.ToolAllow) > 0 || len(server.ToolDeny) > 0 || server.LongCallGraceSeconds != 0 ||
+		server.MaxResponseBytes != 0 || server.StateOutputMaxBytes != 0 ||
+		server.ArchiveOutputMaxBytes != 0 || server.RefreshIntervalSeconds != 0
+}
+
+func hasGenericMCPSettings(server MCPServerConfig) bool {
+	return server.URL != "" || server.TokenEnv != "" || server.TokenFile != "" ||
+		server.DiscoveryRefreshSeconds != 0 || server.ResponseBodyMaxBytes != 0
+}
+
+func normalizeStringSet(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || slicesContains(out, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func slicesContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeRemindersConfig backfills a non-positive delivery-attempt cap with

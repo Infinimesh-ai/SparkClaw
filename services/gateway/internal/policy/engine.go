@@ -41,7 +41,7 @@ func (e Engine) Decide(def app.ToolDefinition, args map[string]any) Decision {
 		decision.RequiresApproval = true
 		decision.Reason = "approval required by risk policy"
 	}
-	if def.Sandbox == "required" || (def.Risk == app.RiskReversible || def.Risk == app.RiskDangerous) && e.cfg.Security.SandboxRequiredForMutatingTools {
+	if def.Sandbox == "required" || def.Sandbox != "remote" && (def.Risk == app.RiskReversible || def.Risk == app.RiskDangerous) && e.cfg.Security.SandboxRequiredForMutatingTools {
 		decision.RequiresSandbox = true
 	}
 	if def.Risk == app.RiskDangerous && e.cfg.Security.DangerousToolsRequireDeepVerification {

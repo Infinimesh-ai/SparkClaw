@@ -46,6 +46,20 @@ type workflowDecisionSemantics interface {
 	DecisionResolvedInstruction(app.ToolDirectoryEntry) string
 }
 
+type workflowDirectoryLimitProfile interface {
+	DirectoryLimit() int
+}
+
+type workflowDecisionReasonProfile interface {
+	DecisionReasonCodes() workflowDecisionReasonCodes
+}
+
+type workflowDecisionReasonCodes struct {
+	NoMatch  string
+	Invalid  string
+	Selected string
+}
+
 type workflowDirectStageProfile interface {
 	DirectStage(*app.WorkflowState) bool
 	DirectStageArguments(*app.WorkflowState) map[string]any
@@ -152,7 +166,29 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		documentEditProfile{},
 		scheduleManageProfile{},
 		codingAgentManageProfile{},
+		externalMCPWorkspaceProfile{},
 	)
+}
+
+func workflowProfileDirectoryLimit(profile workflowProfile) int {
+	if bounded, ok := profile.(workflowDirectoryLimitProfile); ok {
+		if limit := bounded.DirectoryLimit(); limit > 0 && limit <= 32 {
+			return limit
+		}
+	}
+	return 32
+}
+
+func workflowProfileDecisionReasonCodes(profile workflowProfile) workflowDecisionReasonCodes {
+	if semantic, ok := profile.(workflowDecisionReasonProfile); ok {
+		codes := semantic.DecisionReasonCodes()
+		if codes.NoMatch != "" && codes.Invalid != "" && codes.Selected != "" {
+			return codes
+		}
+	}
+	return workflowDecisionReasonCodes{
+		NoMatch: "no_registered_editor_matches", Invalid: "edit_operation_selection_invalid", Selected: "edit_operation_selected",
+	}
 }
 
 func (r workflowProfileRegistry) Get(id app.WorkflowID, revision ...int) (workflowProfile, error) {

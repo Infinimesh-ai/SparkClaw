@@ -66,18 +66,21 @@ func (e *toolExposureEngine) Search(_ context.Context, request app.ExposureReque
 	eligible := e.eligibleDefinitions(request.ActorRef, run, node, state.CurrentScope)
 	entries := make([]app.ToolDirectoryEntry, 0, len(eligible))
 	toolNames := make(map[app.ToolDirectoryEntryID]string, len(eligible))
-	goalText := strings.ToLower(node.Goal.Summary)
+	queryText := strings.ToLower(strings.TrimSpace(node.Goal.Summary + " " + run.Workflow.Route.Slots.Query))
 	for _, item := range eligible {
 		entryID := directoryEntryID(item.definition, item.capability)
 		entries = append(entries, app.ToolDirectoryEntry{
 			ID:            entryID,
+			Name:          item.definition.Name,
+			Title:         item.definition.Title,
+			Description:   item.definition.Description,
 			Capability:    item.capability,
 			Summary:       item.definition.Directory.Summary,
 			WhenToUse:     item.definition.Directory.WhenToUse,
 			WhenNotToUse:  item.definition.Directory.WhenNotToUse,
 			Effects:       append([]app.ToolEffect(nil), item.definition.Directory.Effects...),
 			Risk:          item.definition.Risk,
-			RelevanceRank: directoryRelevance(goalText, item.definition.Directory),
+			RelevanceRank: directoryRelevance(queryText, item.definition),
 		})
 		toolNames[entryID] = item.definition.Name
 	}
@@ -252,10 +255,18 @@ func hasDeniedEffect(effects []app.ToolEffect, denied map[app.ToolEffect]bool) b
 	return false
 }
 
-func directoryRelevance(goal string, metadata app.ToolDirectoryMetadata) int {
-	corpus := strings.ToLower(metadata.Summary + " " + metadata.WhenToUse + " " + metadata.WhenNotToUse)
+func directoryRelevance(query string, definition app.ToolDefinition) int {
+	metadata := definition.Directory
+	corpus := strings.ToLower(strings.Join([]string{
+		definition.Name,
+		definition.Title,
+		definition.Description,
+		metadata.Summary,
+		metadata.WhenToUse,
+		metadata.WhenNotToUse,
+	}, " "))
 	score := 0
-	for _, token := range strings.Fields(goal) {
+	for _, token := range strings.Fields(query) {
 		token = strings.Trim(token, " ,.;:!?()[]{}\"'")
 		if len(token) > 2 && strings.Contains(corpus, token) {
 			score++

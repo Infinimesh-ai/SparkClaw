@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +27,7 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 		t.Fatalf("unexpected directory view: %#v", view)
 	}
 	entry := view.Entries[0]
-	if entry.Capability.Name != app.ToolCapabilityWebDiscovery || entry.Capability.Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo || entry.Summary == "" {
+	if entry.Name != "web.search" || entry.Description == "" || entry.Capability.Name != app.ToolCapabilityWebDiscovery || entry.Capability.Qualifiers[app.CapabilityQualifierProvider] != app.CapabilityProviderInfo || entry.Summary == "" {
 		t.Fatalf("unexpected directory entry: %#v", entry)
 	}
 	if run, ok := st.GetRun(request.RunID); !ok || run.Workflow.Nodes[request.NodeID].LastDirectory.ViewID != view.ViewID {
@@ -46,6 +48,106 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 	}
 	if len(exposure.Definitions) != 1 || exposure.Definitions[0].Name != "web.search" {
 		t.Fatalf("unexpected materialized definitions: %#v", exposure.Definitions)
+	}
+}
+
+func TestDirectoryRelevanceUsesOwnerQueryAndDefinitionMetadata(t *testing.T) {
+	definition := app.ToolDefinition{
+		Name: "localmind.keyword_search", Title: "Keyword search",
+		Description: "Search authorized LocalMind documents",
+		Directory:   app.ToolDirectoryMetadata{Summary: "Workspace evidence"},
+	}
+	if score := directoryRelevance("find localmind keyword matches", definition); score != 2 {
+		t.Fatalf("definition metadata was not indexed, score=%d", score)
+	}
+	if score := directoryRelevance("unrelated weather forecast", definition); score != 0 {
+		t.Fatalf("unrelated query received score=%d", score)
+	}
+}
+
+func TestExternalMCPDirectoryBoundsLargeCatalogAndMaterializesOneSchema(t *testing.T) {
+	cfg := config.Default()
+	st := store.NewMemoryStore()
+	hub := toolhub.New(cfg, st)
+	defer hub.Close()
+	registrations := make([]toolhub.DynamicToolRegistration, 0, 117)
+	for index := 0; index < 117; index++ {
+		name := fmt.Sprintf("localmind.read_%03d", index)
+		registrations = append(registrations, toolhub.DynamicToolRegistration{
+			Definition: app.ToolDefinition{
+				Name: name, Title: fmt.Sprintf("LocalMind reader %03d", index), Description: "Read one credential-visible LocalMind record.",
+				InputSchema: map[string]any{
+					"type": "object", "properties": map[string]any{
+						"query": map[string]any{"type": "string", "description": fmt.Sprintf("full_schema_sentinel_%03d", index)},
+					}, "required": []string{"query"}, "additionalProperties": false,
+				},
+				Risk: app.RiskRead, Idempotent: true, TimeoutMS: 5000, Sandbox: "remote", Audit: "always",
+				Capabilities: []app.CapabilityDescriptor{{Name: app.ToolCapabilityExternalMCPWorkspace, Qualifiers: map[string]string{
+					app.CapabilityQualifierProvider: app.CapabilityProviderLocalMind,
+					app.CapabilityQualifierMode:     "read", app.CapabilityQualifierOperation: string(app.RouteOperationRead),
+					app.CapabilityQualifierEndpointID: "endpoint", app.CapabilityQualifierSnapshotRevision: "snapshot_1",
+				}}},
+				Directory: app.ToolDirectoryMetadata{Summary: "LocalMind reader", Effects: []app.ToolEffect{app.ToolEffectExternalRead}},
+			},
+			RemoteName: strings.TrimPrefix(name, "localmind."),
+			Execute: func(context.Context, map[string]any, string, string) (toolhub.Result, error) {
+				return toolhub.Result{}, nil
+			},
+		})
+	}
+	if err := hub.ReplaceDynamicTools("test.large.localmind", registrations); err != nil {
+		t.Fatal(err)
+	}
+	nodeID := app.WorkflowNodeID("select_external_operation")
+	plan := app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: app.WorkflowExternalMCPWorkspace, ProfileRevision: 1,
+		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionDecision,
+		Nodes: []app.WorkflowNode{{
+			ID: nodeID, InitialStage: "select", Goal: app.NodeGoal{Summary: "select LocalMind reader", Completion: app.CompletionDecision},
+			InitialScope: app.CapabilityScope{Requirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityExternalMCPWorkspace, Qualifiers: map[string]string{
+				app.CapabilityQualifierProvider: app.CapabilityProviderLocalMind,
+				app.CapabilityQualifierMode:     "read", app.CapabilityQualifierOperation: string(app.RouteOperationRead),
+			}}}}, AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+		}},
+	}
+	state := &app.WorkflowState{
+		Plan: plan, PlanDigest: "large_catalog", Status: app.WorkflowStatusRunning, ActiveNodeIDs: []app.WorkflowNodeID{nodeID},
+		Route: app.RouteDecision{Slots: app.RouteSlots{Query: "reader 042"}},
+		Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{nodeID: {
+			Status: app.WorkflowNodeActive, Stage: "select", CurrentScope: plan.Nodes[0].InitialScope, ScopeRevision: 1,
+		}},
+	}
+	st.SaveRun(app.AgentRun{ID: "run_large_localmind", SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
+	engine := newToolExposureEngine(st, hub, policy.New(cfg))
+	request := app.ExposureRequest{
+		RunID: "run_large_localmind", WorkflowID: app.WorkflowExternalMCPWorkspace, NodeID: nodeID,
+		ScopeRevision: 1, ActorRef: "owner", Limit: externalMCPDirectoryLimit,
+	}
+	view, err := engine.Search(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Entries) != externalMCPDirectoryLimit {
+		t.Fatalf("large LocalMind catalog returned %d directory entries", len(view.Entries))
+	}
+	rawView, _ := json.Marshal(view)
+	if strings.Contains(string(rawView), "full_schema_sentinel") {
+		t.Fatalf("directory view included full tool schemas: %s", rawView)
+	}
+	selected := view.Entries[0]
+	exposure, err := engine.Materialize(context.Background(), app.MaterializeRequest{
+		ViewID: view.ViewID, RunID: request.RunID, WorkflowID: request.WorkflowID, NodeID: request.NodeID,
+		ScopeRevision: request.ScopeRevision, EntryIDs: []app.ToolDirectoryEntryID{selected.ID}, ActorRef: request.ActorRef,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exposure.Definitions) != 1 {
+		t.Fatalf("materialized %d schemas instead of one", len(exposure.Definitions))
+	}
+	rawDefinition, _ := json.Marshal(exposure.Definitions[0])
+	if !strings.Contains(string(rawDefinition), "full_schema_sentinel") {
+		t.Fatalf("selected schema was not materialized: %s", rawDefinition)
 	}
 }
 

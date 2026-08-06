@@ -11,6 +11,7 @@ const (
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
 	CapabilityScheduleManage        CapabilityID = "schedule.manage"
 	CapabilityCodingAgentManage     CapabilityID = "coding.agent_manage"
+	CapabilityExternalMCPWorkspace  CapabilityID = "external_mcp.workspace"
 )
 
 type IntentDomain string
@@ -140,6 +141,7 @@ const (
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
 	WorkflowScheduleManage        WorkflowID = "schedule.manage"
 	WorkflowCodingAgentManage     WorkflowID = "coding.agent_manage"
+	WorkflowExternalMCPWorkspace  WorkflowID = "external_mcp.workspace"
 
 	WorkflowBrowserSearch       = WorkflowBrowserInternetSearch
 	WorkflowDocumentInformation = WorkflowDocumentRead
@@ -188,17 +190,23 @@ const (
 	ToolCapabilityDocumentEdit              = "document.edit"
 	ToolCapabilityScheduleManage            = "schedule.manage"
 	ToolCapabilityObservationRead           = "observation.read"
+	ToolCapabilityExternalMCPDiscovery      = "external.mcp.discovery"
+	ToolCapabilityExternalMCPWorkspace      = "external.mcp.workspace"
 
-	CapabilityQualifierFormat   = "format"
-	CapabilityQualifierProvider = "provider"
+	CapabilityQualifierFormat           = "format"
+	CapabilityQualifierProvider         = "provider"
+	CapabilityQualifierMode             = "mode"
+	CapabilityQualifierEndpointID       = "endpoint_id"
+	CapabilityQualifierSnapshotRevision = "snapshot_revision"
 
-	CapabilityProviderInfo = "info"
-	DocumentFormatText     = "text"
-	DocumentFormatDOCX     = "docx"
-	DocumentFormatXLSX     = "xlsx"
-	DocumentFormatPPTX     = "pptx"
-	DocumentFormatPDF      = "pdf"
-	DocumentFormatImage    = "image"
+	CapabilityProviderInfo      = "info"
+	CapabilityProviderLocalMind = "localmind"
+	DocumentFormatText          = "text"
+	DocumentFormatDOCX          = "docx"
+	DocumentFormatXLSX          = "xlsx"
+	DocumentFormatPPTX          = "pptx"
+	DocumentFormatPDF           = "pdf"
+	DocumentFormatImage         = "image"
 
 	OutcomeAdapterGeneric             ToolOutcomeAdapter = "generic"
 	OutcomeAdapterWebSearch           ToolOutcomeAdapter = "web.search"
@@ -426,6 +434,9 @@ type ExposureRequest struct {
 
 type ToolDirectoryEntry struct {
 	ID            ToolDirectoryEntryID `json:"id"`
+	Name          string               `json:"name"`
+	Title         string               `json:"title,omitempty"`
+	Description   string               `json:"description"`
 	Capability    CapabilityDescriptor `json:"capability"`
 	Summary       string               `json:"summary"`
 	WhenToUse     string               `json:"when_to_use"`

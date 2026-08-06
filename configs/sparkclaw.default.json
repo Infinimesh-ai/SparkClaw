@@ -60,6 +60,7 @@
     "max_pending": 1,
     "retain_audio": false
   },
+  "mcp_servers": {},
   "plugins": {
     "entries": {
       "infinimeshInfo": {

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -92,6 +93,151 @@ func TestUniformObservationBudgetDoesNotDependOnToolName(t *testing.T) {
 	maxBytes, evidenceBytes := runtime.toolResultObservationBudget()
 	if maxBytes != 2400 || evidenceBytes != defaultToolResultEvidenceLimit {
 		t.Fatalf("observation envelope still depends on run or tool budgets: %d %d", maxBytes, evidenceBytes)
+	}
+}
+
+func TestDynamicToolStateAndArchiveOutputsStaySeparatedAcrossExecutionPaths(t *testing.T) {
+	runtime, st, session, closeRuntime := newObservationManagementRuntime(t)
+	defer closeRuntime()
+	register := func(name string, risk app.RiskLevel, fail bool) {
+		t.Helper()
+		if err := runtime.tools.ReplaceDynamicTools("test."+name, []toolhub.DynamicToolRegistration{{
+			Definition: app.ToolDefinition{
+				Name: name, Description: "dual output", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": true},
+				Risk: risk, RequiresApproval: risk != app.RiskRead, TimeoutMS: 5000, Sandbox: "remote", Audit: "always",
+				Capabilities: []app.CapabilityDescriptor{{Name: app.ToolCapabilityExternalMCPWorkspace, Qualifiers: map[string]string{
+					app.CapabilityQualifierProvider: app.CapabilityProviderLocalMind,
+				}}},
+			},
+			RemoteName: strings.TrimPrefix(name, "localmind."),
+			Execute: func(context.Context, map[string]any, string, string) (toolhub.Result, error) {
+				result := toolhub.Result{
+					Output:        map[string]any{"projection": "state-only"},
+					ArchiveOutput: map[string]any{"projection": "archive-only"},
+				}
+				if fail {
+					return result, errors.New("remote fixture failed")
+				}
+				return result, nil
+			},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertSeparated := func(call app.ToolCall) {
+		t.Helper()
+		if output, _ := call.Result.(map[string]any); output["projection"] != "state-only" {
+			t.Fatalf("state projection mismatch: %#v", call.Result)
+		}
+		if call.ObservationRef == "" {
+			t.Fatal("archive projection was not persisted")
+		}
+		var object app.ArtifactObject
+		for _, candidate := range st.ListArtifactObjects(0) {
+			if candidate.URI == call.ObservationRef {
+				object = candidate
+				break
+			}
+		}
+		raw, err := runtime.artifacts.Get(context.Background(), object.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"projection":"archive-only"`) || strings.Contains(string(raw), `"projection":"state-only"`) {
+			t.Fatalf("artifact contains the wrong projection: %s", raw)
+		}
+	}
+
+	register("localmind.normal_read", app.RiskRead, false)
+	now := time.Now().UTC()
+	run := app.AgentRun{ID: "run_dual_normal", SessionID: session.ID, StartedAt: now}
+	st.SaveRun(run)
+	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_read", Args: map[string]any{}})
+	if approval != nil || call.Status != "completed" {
+		t.Fatalf("normal dynamic call did not complete: %#v %#v", call, approval)
+	}
+	assertSeparated(call)
+
+	register("localmind.manual_read", app.RiskRead, false)
+	manual, err := runtime.InvokeToolManually(context.Background(), "localmind.manual_read", map[string]any{}, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSeparated(manual.Call)
+
+	register("localmind.approved_write", app.RiskReversible, false)
+	pending, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.approved_write", Args: map[string]any{"title": "safe"}})
+	if approval == nil || pending.Status != "approval_pending" {
+		t.Fatalf("mutation did not enter approval: %#v %#v", pending, approval)
+	}
+	approval.Status = "approved"
+	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), *approval)
+	if err != nil || executed.Status != "completed_after_approval" {
+		t.Fatalf("approved dynamic call did not complete: %#v %v", executed, err)
+	}
+	assertSeparated(executed)
+
+	register("localmind.normal_error", app.RiskRead, true)
+	failed, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.normal_error", Args: map[string]any{}})
+	if approval != nil || failed.Status != "failed" {
+		t.Fatalf("normal error output was not retained: %#v %#v", failed, approval)
+	}
+	assertSeparated(failed)
+
+	register("localmind.manual_error", app.RiskRead, true)
+	manualFailed, err := runtime.InvokeToolManually(context.Background(), "localmind.manual_error", map[string]any{}, session.ID)
+	if err == nil || manualFailed.Call.Status != "failed" {
+		t.Fatalf("manual error output was not retained: %#v %v", manualFailed, err)
+	}
+	assertSeparated(manualFailed.Call)
+
+	register("localmind.approved_error", app.RiskReversible, true)
+	pending, approval, _ = runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: "localmind.approved_error", Args: map[string]any{"title": "safe"}})
+	if approval == nil {
+		t.Fatal("error fixture mutation did not enter approval")
+	}
+	approval.Status = "approved"
+	approvedFailed, err := runtime.ExecuteApprovedToolCall(context.Background(), *approval)
+	if err != nil || approvedFailed.Status != "failed_after_approval" {
+		t.Fatalf("approved error output was not retained: %#v %v", approvedFailed, err)
+	}
+	assertSeparated(approvedFailed)
+}
+
+func TestLocalMindApprovalRejectsUnsafeArgumentsBeforePersistence(t *testing.T) {
+	runtime, st, session, closeRuntime := newObservationManagementRuntime(t)
+	defer closeRuntime()
+	name := "localmind.upload_secret"
+	if err := runtime.tools.ReplaceDynamicTools("test.unsafe", []toolhub.DynamicToolRegistration{{
+		Definition: app.ToolDefinition{
+			Name: name, Description: "unsafe approval fixture",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"base64": map[string]any{"type": "string"}}, "required": []string{"base64"}, "additionalProperties": false},
+			Risk:        app.RiskReversible, RequiresApproval: true, TimeoutMS: 5000, Sandbox: "remote", Audit: "always",
+			Capabilities: []app.CapabilityDescriptor{{Name: app.ToolCapabilityExternalMCPWorkspace, Qualifiers: map[string]string{
+				app.CapabilityQualifierProvider: app.CapabilityProviderLocalMind,
+			}}},
+		},
+		RemoteName: "upload_secret",
+		Execute: func(context.Context, map[string]any, string, string) (toolhub.Result, error) {
+			return toolhub.Result{}, nil
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	run := app.AgentRun{ID: "run_unsafe_approval", SessionID: session.ID, StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	rawBase64 := strings.Repeat("QUJD", 2048)
+	call, approval, _ := runtime.runToolPlan(context.Background(), session.ID, run.ID, toolPlan{Name: name, Args: map[string]any{"base64": rawBase64}})
+	if approval != nil || call.Status != "blocked" || call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
+		t.Fatalf("unsafe approval arguments did not fail closed: %#v %#v", call, approval)
+	}
+	persisted, ok := st.GetToolCall(call.ID)
+	if !ok {
+		t.Fatal("blocked call was not persisted")
+	}
+	raw, _ := json.Marshal(persisted)
+	if strings.Contains(string(raw), rawBase64) || persisted.Arguments["persistence_rejected"] != true {
+		t.Fatalf("unsafe arguments entered persistence: %s", raw)
 	}
 }
 

@@ -88,6 +88,27 @@ Host WebChat dev server 监听 `0.0.0.0:18790`，并把 API 请求代理到仅�
 loopback 的 Gateway。受保护的宿主进程运行态应把 `SPARKCLAW_API_TOKEN`
 和 `VITE_SPARKCLAW_API_TOKEN` 设为相同值。
 
+## LocalMind MCP
+
+LocalMind 连接默认不启用。按[外部集成](integrations.md)说明，在当前 SparkClaw JSON 配置中
+加入 `mcp_servers.localmind` block，然后在部署环境中提供它引用的值：
+
+```bash
+LOCALMIND_MCP_URL=https://localmind.example/api/workspaces/<workspace-id>/mcp
+LOCALMIND_MCP_TOKEN=<workspace-bound-token>
+```
+
+`docker/compose.yaml` 会把这两个变量转发给 Gateway，但默认 `mcp_servers` 为空，因此仅设置
+环境变量不会启用集成。token 不得进入已提交配置，并应首先使用 LocalMind read-only
+credential。修改 JSON entry 后重启 Gateway；Gateway 会先执行一次 scope discovery，之后按
+配置间隔刷新。
+
+若 containerized Gateway 访问 host 上的 LocalMind，请把 `localhost` 替换为
+`host.docker.internal`。连接到 `sparkclaw_internal` 的 LocalMind service 可使用 Compose
+service name。公网 endpoint 必须使用 HTTPS；private/container HTTP 还必须设置
+`allow_private_http: true`。endpoint path 必须严格保持为
+`/api/workspaces/<workspace-id>/mcp`。
+
 ## ISCP Bridge 进程
 
 JingSi App 集成以独立 host 进程运行，从而使用 GB10 的操作系统 keyring，并且只访问 loopback

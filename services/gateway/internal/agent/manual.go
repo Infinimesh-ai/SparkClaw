@@ -132,6 +132,20 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}, nil
 	}
 	if decision.RequiresApproval {
+		if err := validateApprovalArgumentPersistence(def, args); err != nil {
+			done := time.Now().UTC()
+			call.Status = "blocked"
+			call.Error = err.Error()
+			call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+			call.Arguments = redactedRejectedApprovalArguments(args)
+			call.CompletedAt = &done
+			r.store.SaveToolCall(call)
+			r.store.SaveRun(app.AgentRun{
+				ID: runID, SessionID: sessionID, State: "failed", Risk: def.Risk,
+				StartedAt: now, CompletedAt: &done, Summary: err.Error(),
+			})
+			return ManualInvocation{Call: call}, ManualExecutionError{Err: err}
+		}
 		r.store.SaveRun(app.AgentRun{
 			ID:        runID,
 			SessionID: sessionID,
@@ -196,18 +210,18 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		call.Status = "failed"
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
-		if output.Output != nil {
-			call.Result = output.Output
-			call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, output.Output)
-			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: output.Output, ObservationRef: call.ObservationRef, Err: err, MaxBytes: r.observationSummaryLimit()})
+		call.Result = output.Output
+		if call.Result != nil {
+			call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(output, call.Result))
+			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, Err: err, ObservationRef: call.ObservationRef, MaxBytes: r.observationSummaryLimit()})
 		}
 		r.store.SaveToolCall(call)
-		return ManualInvocation{Call: call}, ManualExecutionError{Err: err}
+		return ManualInvocation{Call: call, Result: output.Output}, ManualExecutionError{Err: err}
 	}
 	call.Status = "completed"
 	call.Result = output.Output
 	call.ObservationSummary = CompressObservation(name, output.Output, r.observationSummaryLimit())
-	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, output.Output)
+	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(output, call.Result))
 	r.store.SaveToolCall(call)
 	r.store.SaveRun(app.AgentRun{
 		ID:          runID,

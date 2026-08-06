@@ -424,9 +424,13 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 		})
 		return []app.ToolDefinition{}, nil
 	}
+	profile, err := r.profiles.Get(run.Workflow.Plan.ProfileID, run.Workflow.Plan.ProfileRevision)
+	if err != nil {
+		return nil, err
+	}
 	view, err := r.exposure.Search(ctx, app.ExposureRequest{
 		RunID: run.ID, WorkflowID: run.Workflow.Plan.ProfileID, NodeID: stageContext.WorkflowNodeID,
-		ScopeRevision: state.ScopeRevision, ActorRef: actorRef, Limit: 32,
+		ScopeRevision: state.ScopeRevision, ActorRef: actorRef, Limit: workflowProfileDirectoryLimit(profile),
 	})
 	if err != nil {
 		return nil, err

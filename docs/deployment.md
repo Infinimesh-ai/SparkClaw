@@ -88,6 +88,32 @@ The host WebChat dev server listens on `0.0.0.0:18790` and proxies API requests
 to the loopback-only Gateway. Set `SPARKCLAW_API_TOKEN` and
 `VITE_SPARKCLAW_API_TOKEN` to the same value for protected host-process runs.
 
+## LocalMind MCP
+
+LocalMind access is opt-in. Add an `mcp_servers.localmind` block to the active
+SparkClaw JSON configuration as documented in
+[External integrations](integrations.md), then provide the referenced values in
+the deployment environment:
+
+```bash
+LOCALMIND_MCP_URL=https://localmind.example/api/workspaces/<workspace-id>/mcp
+LOCALMIND_MCP_TOKEN=<workspace-bound-token>
+```
+
+`docker/compose.yaml` forwards both variables to Gateway, but the empty
+`mcp_servers` default means environment values alone do not enable the
+integration. Keep the token out of committed configuration and use a read-only
+LocalMind credential first. Restart Gateway after changing the JSON entry; it
+performs an initial scope discovery and then refreshes it at the configured
+interval.
+
+For a host LocalMind reached from containerized Gateway, replace `localhost`
+with `host.docker.internal`. A LocalMind service attached to
+`sparkclaw_internal` can use its Compose service name. Public endpoints must use
+HTTPS; private or container HTTP additionally requires
+`allow_private_http: true`. The endpoint path must remain exactly
+`/api/workspaces/<workspace-id>/mcp`.
+
 ## ISCP Bridge Process
 
 The JingSi App integration runs as a separate host process so it can use the GB10

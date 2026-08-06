@@ -18,6 +18,7 @@ const (
 
 type ToolDefinition struct {
 	Name             string                 `json:"name"`
+	Title            string                 `json:"title,omitempty"`
 	Description      string                 `json:"description"`
 	InputSchema      map[string]any         `json:"input_schema"`
 	OutputSchema     map[string]any         `json:"output_schema,omitempty"`

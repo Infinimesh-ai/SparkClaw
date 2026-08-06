@@ -20,6 +20,60 @@ commands live in [Deployment](deployment.md).
 - Messaging providers enter through Connector and Delivery registries; data
   providers enter through typed adapter contracts.
 
+## LocalMind Workspace MCP
+
+LocalMind is an optional workspace-scoped MCP integration and ships disabled.
+Enable it by adding the fixed `localmind` entry to the Gateway configuration;
+the default configuration keeps `mcp_servers` empty:
+
+```json
+{
+  "mcp_servers": {
+    "localmind": {
+      "transport": "streamable-http",
+      "url_env": "LOCALMIND_MCP_URL",
+      "bearer_token_env": "LOCALMIND_MCP_TOKEN",
+      "namespace": "localmind",
+      "expected_server_name": "localmind-workspace",
+      "protocol_version": "2025-06-18",
+      "allow_mutations": false,
+      "allow_private_http": false,
+      "tool_allow": [],
+      "tool_deny": []
+    }
+  }
+}
+```
+
+Set `LOCALMIND_MCP_URL` to the exact
+`/api/workspaces/<workspace-id>/mcp` endpoint and set
+`LOCALMIND_MCP_TOKEN` to a credential bound to that workspace. Start with a
+read-only LocalMind credential and leave `allow_mutations` false. URL and token
+values are resolved from the environment at every refresh, omitted from public
+Gateway configuration, and never accepted from an owner utterance. `tool_allow`
+and `tool_deny` can only reduce the credential-visible catalog.
+
+Gateway initializes through the shared MCP 2025-06-18 Streamable HTTP client,
+verifies `localmind-workspace`, discovers the credential scope, and atomically
+refreshes namespaced `localmind.*` ToolHub entries. The model sees at most 16
+matching directory entries and only the selected tool's full schema. Read-only
+operations require no approval. Every mutation requires owner approval;
+destructive or open-world operations additionally require deep verification.
+Remote execution remains subject to LocalMind authorization, DLP, and audit and
+is never represented as running in SparkClaw's local sandbox.
+
+Canonical results come from `structuredContent.result`; MCP `isError` remains a
+failed tool call. Text fallback, Resources, and archived large results are
+bounded and treated as untrusted evidence. Authentication or scope changes
+trigger a fresh discovery. Reads may retry once after a successful refresh,
+while mutations are never replayed automatically.
+
+Use public HTTPS whenever possible. From the Gateway container, `localhost`
+means that container, not the host. Use a LocalMind service name on the shared
+Compose network, `host.docker.internal`, or the public HTTPS endpoint. Plain
+HTTP requires `allow_private_http: true` and is accepted only for loopback,
+private-network, or container-service hosts; redirects are rejected.
+
 ## Telegram
 
 Telegram is an optional private-chat connector and ships disabled. Enable it

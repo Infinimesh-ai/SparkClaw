@@ -30,6 +30,9 @@ const (
 	ToolErrorMCPTemporarilyUnavailable       ToolErrorCode = "mcp_temporarily_unavailable"
 	ToolErrorMCPTokenReissueRequired         ToolErrorCode = "mcp_token_reissue_required"
 	ToolErrorMCPTokenFileMismatch            ToolErrorCode = "mcp_token_file_mismatch"
+	ToolErrorMCPToolResult                   ToolErrorCode = ToolErrorMCPTool
+	ToolErrorMCPAuthorization                ToolErrorCode = "mcp_authorization"
+	ToolErrorMCPPersistenceUnsafe            ToolErrorCode = "mcp_persistence_unsafe"
 )
 
 // CodedToolError attaches a ToolErrorCode to a tool failure. The message is

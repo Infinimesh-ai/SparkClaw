@@ -476,17 +476,18 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"gateway":     publicGatewayConfig(s.cfg.Gateway),
 		"model":       publicModelConfig(s.cfg.Model),
 		"speech":      publicSpeechConfig(s.cfg.Speech),
+		"mcp_servers": publicMCPServersConfig(s.cfg.MCPServers),
 		"workspaces":  s.cfg.Workspaces,
 		"security":    s.cfg.Security,
 		"sandbox":     s.cfg.Sandbox,
 		"storage":     publicStorageConfig(s.cfg.Storage),
 		"state":       publicStateConfig(s.cfg.State),
 		"adapters":    publicAdapterConfig(s.cfg.Adapters, s.tools.DocumentOCRReadiness()),
-		"tools":       s.publicToolsConfig(principal.OwnerID),
-		"mcp_servers": s.mcpServerStatuses(),
-		"memory":      s.cfg.Memory,
-		"runtime":     s.cfg.Runtime,
-		"tool_policy": toolPolicySummary(s.cfg.Security, s.tools.Definitions()),
+		"tools":               s.publicToolsConfig(principal.OwnerID),
+		"mcp_server_statuses": s.mcpServerStatuses(),
+		"memory":              s.cfg.Memory,
+		"runtime":             s.cfg.Runtime,
+		"tool_policy":         toolPolicySummary(s.cfg.Security, s.tools.Definitions()),
 	})
 }
 
@@ -2660,6 +2661,24 @@ func stateDSNStatus(cfg config.Config) string {
 func publicGatewayConfig(cfg config.GatewayConfig) config.GatewayConfig {
 	cfg.APIToken = ""
 	return cfg
+}
+
+func publicMCPServersConfig(servers map[string]config.MCPServerConfig) map[string]any {
+	out := map[string]any{}
+	for name, server := range servers {
+		out[name] = map[string]any{
+			"configured":           true,
+			"transport":            server.Transport,
+			"namespace":            server.Namespace,
+			"expected_server_name": server.ExpectedServerName,
+			"protocol_version":     server.ProtocolVersion,
+			"allow_mutations":      server.AllowMutations,
+			"allow_private_http":   server.AllowPrivateHTTP,
+			"tool_allow":           append([]string(nil), server.ToolAllow...),
+			"tool_deny":            append([]string(nil), server.ToolDeny...),
+		}
+	}
+	return out
 }
 
 func publicModelConfig(cfg config.ModelConfig) map[string]any {

@@ -67,9 +67,9 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
 		if result.Output != nil {
 			call.Result = result.Output
-			call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, result.Output)
-			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: result.Output, ObservationRef: call.ObservationRef, Err: err, MaxBytes: r.observationSummaryLimit()})
+			call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
 		}
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, Err: err, ObservationRef: call.ObservationRef, MaxBytes: r.observationSummaryLimit()})
 		r.store.SaveToolCall(call)
 		return call, nil
 	}
@@ -78,7 +78,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	call.Error = ""
 	call.ErrorCode = ""
 	call.ObservationSummary = CompressObservation(call.Tool, result.Output, r.observationSummaryLimit())
-	call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, result.Output)
+	call.ObservationRef = store.ArchiveToolObservation(execCtx, r.store, r.artifacts, call, archiveOutput(result, call.Result))
 	r.store.SaveToolCall(call)
 	r.recordDocumentToolActivity(call)
 	return call, nil

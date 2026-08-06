@@ -15,6 +15,52 @@
 - outbound call 有明确 host allowlist、deadline、body limit、retry limit 和 audit record。
 - messaging provider 进入 Connector/Delivery Registry；data provider 进入 typed adapter contract。
 
+## LocalMind Workspace MCP
+
+LocalMind 是可选、按 workspace 限定的 MCP 集成，出厂默认关闭。通过在 Gateway 配置中加入
+固定 `localmind` entry 启用；默认配置保持 `mcp_servers` 为空：
+
+```json
+{
+  "mcp_servers": {
+    "localmind": {
+      "transport": "streamable-http",
+      "url_env": "LOCALMIND_MCP_URL",
+      "bearer_token_env": "LOCALMIND_MCP_TOKEN",
+      "namespace": "localmind",
+      "expected_server_name": "localmind-workspace",
+      "protocol_version": "2025-06-18",
+      "allow_mutations": false,
+      "allow_private_http": false,
+      "tool_allow": [],
+      "tool_deny": []
+    }
+  }
+}
+```
+
+把 `LOCALMIND_MCP_URL` 设为准确的 `/api/workspaces/<workspace-id>/mcp`
+endpoint，并把 `LOCALMIND_MCP_TOKEN` 设为绑定该 workspace 的 credential。建议先使用
+LocalMind read-only credential，并保持 `allow_mutations` 为 false。URL/token 会在每次刷新时
+从环境重新解析，不进入 Gateway 公开配置，也不能由 owner utterance 指定。`tool_allow` 和
+`tool_deny` 只能缩小 credential 可见 catalog。
+
+Gateway 通过共享 MCP 2025-06-18 Streamable HTTP client 初始化，校验
+`localmind-workspace`，发现 credential scope，并原子刷新 namespaced `localmind.*`
+ToolHub entry。模型最多看到 16 个匹配的 directory entry，且只物化被选中 tool 的完整
+schema。read-only operation 无需审批；所有 mutation 都需要 owner approval；destructive 或
+open-world operation 还需要 deep verification。远端执行继续受 LocalMind authorization、
+DLP 和 audit 约束，绝不表示为运行在 SparkClaw 本地 sandbox 中。
+
+规范结果来自 `structuredContent.result`；MCP `isError` 仍是失败调用。text fallback、
+Resource 和归档的大结果都有边界，并作为不可信 evidence 处理。认证或 scope 变化会触发
+重新发现；read 在刷新成功后最多重试一次，mutation 绝不自动重放。
+
+应尽量使用公网 HTTPS。从 Gateway container 看，`localhost` 指向该 container，而不是
+host。请使用共享 Compose network 上的 LocalMind service name、`host.docker.internal` 或
+公网 HTTPS endpoint。明文 HTTP 必须设置 `allow_private_http: true`，且只接受 loopback、
+private-network 或 container-service host；redirect 会被拒绝。
+
 ## Telegram
 
 Telegram 是可选 private-chat connector，出厂默认关闭。先通过 WebChat 的统一 connector

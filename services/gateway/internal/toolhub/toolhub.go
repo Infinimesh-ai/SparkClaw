@@ -70,7 +70,8 @@ type DynamicToolOrigin struct {
 }
 
 type Result struct {
-	Output any
+	Output        any
+	ArchiveOutput any
 }
 
 type WeatherInfoAdapter interface {

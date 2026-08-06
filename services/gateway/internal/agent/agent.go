@@ -1037,6 +1037,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
+			Source:     app.ApprovalSourceTool,
 			SessionID:  sessionID,
 			RunID:      runID,
 			ToolCallID: call.ID,
@@ -1075,12 +1076,16 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		call.Status = "failed"
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+		if result.Output != nil {
+			call.Result = result.Output
+			call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, call.Result)
+		}
 		if strings.HasPrefix(call.Tool, "browser.") {
 			call.Error = redactBrowserPersistenceText(app.BrowserTargetDescriptor{
 				QueryProvenance: app.BrowserQueryProviderVolatile,
 			}, call.Error)
 		}
-		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: call.Result, ObservationRef: call.ObservationRef, Err: err, MaxBytes: r.tools.Config().Runtime.ObservationSummaryMaxBytes})
 		r.store.SaveToolCall(call)
 		return call, nil, call.ObservationSummary
 	}

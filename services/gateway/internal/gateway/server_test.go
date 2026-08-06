@@ -37,6 +37,30 @@ type genericBindingAdapter struct {
 	credentialSecret string
 }
 
+type fakeExternalApprovalResolver struct {
+	approval          app.Approval
+	status            string
+	resolvedElsewhere bool
+	err               error
+	started           chan struct{}
+	release           chan struct{}
+}
+
+func (r *fakeExternalApprovalResolver) Resolve(_ context.Context, approval app.Approval, status string) (bool, error) {
+	r.approval = approval
+	r.status = status
+	if r.started != nil {
+		select {
+		case r.started <- struct{}{}:
+		default:
+		}
+	}
+	if r.release != nil {
+		<-r.release
+	}
+	return r.resolvedElsewhere, r.err
+}
+
 func (a *genericBindingAdapter) Availability() error { return nil }
 func (a *genericBindingAdapter) Policy() binding.AdapterPolicy {
 	return binding.AdapterPolicy{ExclusiveBinding: true}
@@ -1407,6 +1431,153 @@ func TestManualNotifyApprovalCanBeConfirmed(t *testing.T) {
 	}
 	if approved.ToolCall.Status != "completed_after_approval" || approved.ToolCall.Result["status"] != "approval_confirmed" {
 		t.Fatalf("notify approval did not complete cleanly: %#v", approved)
+	}
+}
+
+func TestHappyPlanApprovalEditsPlanAndResolvesRemoteFirst(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	resolver := &fakeExternalApprovalResolver{}
+	server := NewWithTrace(cfg, st, tools, runtime, trace.NewWriter(cfg.Storage.TraceDir), WithExternalApprovalResolver(resolver))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	approval := app.Approval{
+		ID: "ap_happy_gateway", Source: app.ApprovalSourceHappyTeamPlan,
+		ExternalID: "task-gateway", Tool: "happy-team.review_plan",
+		Risk: app.RiskDangerous, Status: "pending", Summary: "Review Happy plan",
+		ExternalContext: &app.ExternalApprovalContext{
+			Provider: "happy-team", Title: "Gateway task", GoalPrompt: "Test approval",
+			Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
+		},
+	}
+	st.SaveApproval(approval)
+
+	modified, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"plan":"Owner-edited plan"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	modified.Body.Close()
+	if modified.StatusCode != http.StatusOK {
+		t.Fatalf("Happy plan modify returned %d", modified.StatusCode)
+	}
+	stored, _ := st.GetApproval(approval.ID)
+	if stored.ExternalContext == nil || stored.ExternalContext.Plan != "Owner-edited plan" || !stored.ExternalContext.PlanEdited {
+		t.Fatalf("edited Happy plan was not persisted: %#v", stored)
+	}
+
+	approved, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/approve", "application/json", bytes.NewBufferString(`{"note":"owner approved"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved.Body.Close()
+	if approved.StatusCode != http.StatusOK {
+		t.Fatalf("Happy plan approval returned %d", approved.StatusCode)
+	}
+	stored, _ = st.GetApproval(approval.ID)
+	if resolver.status != "approved" || resolver.approval.ExternalContext == nil || resolver.approval.ExternalContext.Plan != "Owner-edited plan" || stored.Status != "approved" {
+		t.Fatalf("remote-first approval mismatch resolver=%#v stored=%#v", resolver, stored)
+	}
+	if calls := st.ListToolCalls(""); len(calls) != 0 {
+		t.Fatalf("external approval created a local tool call: %#v", calls)
+	}
+}
+
+func TestHappyPlanRemoteFailureKeepsLocalApprovalPending(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	resolver := &fakeExternalApprovalResolver{err: fmt.Errorf("bridge unavailable")}
+	server := NewWithTrace(cfg, st, tools, runtime, trace.NewWriter(cfg.Storage.TraceDir), WithExternalApprovalResolver(resolver))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	approval := app.Approval{
+		ID: "ap_happy_gateway_failure", Source: app.ApprovalSourceHappyTeamPlan,
+		ExternalID: "task-failure", Tool: "happy-team.review_plan",
+		Risk: app.RiskDangerous, Status: "pending", Summary: "Review failed Happy plan",
+		ExternalContext: &app.ExternalApprovalContext{
+			Provider: "happy-team", Plan: "Plan", PlanAvailability: app.ExternalPlanAvailable,
+		},
+	}
+	st.SaveApproval(approval)
+
+	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/approve", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("remote failure returned %d", resp.StatusCode)
+	}
+	stored, _ := st.GetApproval(approval.ID)
+	if stored.Status != "pending" || stored.ResolvedAt != nil {
+		t.Fatalf("remote failure resolved local approval: %#v", stored)
+	}
+}
+
+func TestHappyPlanEditCannotRaceRemoteResolution(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	resolver := &fakeExternalApprovalResolver{started: make(chan struct{}, 1), release: make(chan struct{})}
+	server := NewWithTrace(cfg, st, tools, runtime, trace.NewWriter(cfg.Storage.TraceDir), WithExternalApprovalResolver(resolver))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	approval := app.Approval{
+		ID: "ap_happy_gateway_race", Source: app.ApprovalSourceHappyTeamPlan,
+		ExternalID: "task-race", Tool: "happy-team.review_plan",
+		Risk: app.RiskDangerous, Status: "pending", Summary: "Review racing Happy plan",
+		ExternalContext: &app.ExternalApprovalContext{
+			Provider: "happy-team", Plan: "Original plan", PlanAvailability: app.ExternalPlanAvailable,
+		},
+	}
+	st.SaveApproval(approval)
+
+	approved := make(chan int, 1)
+	go func() {
+		resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/approve", "application/json", bytes.NewBufferString(`{}`))
+		if err != nil {
+			approved <- 0
+			return
+		}
+		resp.Body.Close()
+		approved <- resp.StatusCode
+	}()
+	<-resolver.started
+	modified := make(chan int, 1)
+	go func() {
+		resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"plan":"Late edit"}`))
+		if err != nil {
+			modified <- 0
+			return
+		}
+		resp.Body.Close()
+		modified <- resp.StatusCode
+	}()
+	select {
+	case status := <-modified:
+		t.Fatalf("plan edit completed with status %d while remote approval was in flight", status)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(resolver.release)
+	if status := <-approved; status != http.StatusOK {
+		t.Fatalf("remote approval returned %d", status)
+	}
+	if status := <-modified; status != http.StatusBadRequest {
+		t.Fatalf("late plan edit returned %d", status)
+	}
+	stored, _ := st.GetApproval(approval.ID)
+	if resolver.approval.ExternalContext.Plan != "Original plan" || stored.ExternalContext.Plan != "Original plan" || stored.Status != "approved" {
+		t.Fatalf("racing edit changed approved plan: resolver=%#v stored=%#v", resolver.approval, stored)
 	}
 }
 

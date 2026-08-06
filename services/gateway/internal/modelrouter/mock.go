@@ -88,6 +88,9 @@ func mockWorkflowStepResponse(user string) string {
 	goal := mockWorkflowStepGoal(user)
 	lowerGoal := strings.ToLower(goal)
 	lowerPrompt := strings.ToLower(user)
+	if action, ok := mockCodingAgentWorkflowAction(lowerPrompt, lowerGoal); ok {
+		return action
+	}
 	switch {
 	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: weather.lookup"):
 		return mockWorkflowStepAction("weather.lookup", map[string]any{"location": "workflow-bound location"})
@@ -176,6 +179,56 @@ func mockWorkflowStepResponse(user string) string {
 	default:
 		return `{"type":"final","answer":"I can answer this directly from the current conversation."}`
 	}
+}
+
+func mockCodingAgentWorkflowAction(prompt, goal string) (string, bool) {
+	if !strings.Contains(prompt, "mcp.happy-") {
+		return "", false
+	}
+	targets := []string{}
+	switch {
+	case containsAnyTerm(goal, "create task", "创建", "新建"):
+		targets = []string{"create_task"}
+	case containsAnyTerm(goal, "spawn", "启动", "新会话"):
+		targets = []string{"spawn_session"}
+	case containsAnyTerm(goal, "send message", "发消息", "发送消息"):
+		targets = []string{"send_message"}
+	case containsAnyTerm(goal, "stop session", "停止会话"):
+		targets = []string{"stop_session"}
+	case containsAnyTerm(goal, "cancel task", "取消任务"):
+		targets = []string{"cancel_task"}
+	case containsAnyTerm(goal, "session messages", "session transcript", "会话消息", "消息记录", "完整过程"):
+		targets = []string{"get_session_messages"}
+	case containsAnyTerm(goal, "task", "任务"):
+		targets = []string{"list_tasks", "get_task"}
+	case containsAnyTerm(goal, "session", "会话"):
+		targets = []string{"list_sessions", "get_session"}
+	}
+	for _, target := range targets {
+		if tool := mockVisibleToolWithRemoteName(prompt, target); tool != "" {
+			return mockWorkflowStepAction(tool, map[string]any{}), true
+		}
+	}
+	return "", false
+}
+
+func mockVisibleToolWithRemoteName(prompt, remoteName string) string {
+	const marker = "model-visible tools this workflow stage: "
+	index := strings.LastIndex(prompt, marker)
+	if index < 0 {
+		return ""
+	}
+	line := prompt[index+len(marker):]
+	if end := strings.IndexByte(line, '\n'); end >= 0 {
+		line = line[:end]
+	}
+	for _, name := range strings.Split(line, ",") {
+		name = strings.TrimSpace(name)
+		if name == remoteName || strings.HasSuffix(name, "."+remoteName) {
+			return name
+		}
+	}
+	return ""
 }
 
 func mockBrowserInteractionStage(prompt string) string {
@@ -601,6 +654,18 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 	scheduleDiscussion := contains("为什么", "失败", "没有触发", "没触发", "why", "failed", "failure")
 	scheduleStatement := contains("我会", "我将", "我参加", "i will ", "i am going")
 	switch candidateID {
+	case "coding.agent_manage#read":
+		codingTarget := contains("happy", "coding agent", "编码任务", "编码会话", "agent 任务", "agent 会话")
+		approvalDecision := contains("批准", "同意计划", "拒绝计划", "approve plan", "reject plan")
+		if codingTarget && !approvalDecision && contains("查看", "列出", "为什么", "状态", "消息", "记录", "过程", "show", "list", "why", "status", "messages", "transcript") {
+			return 0.98
+		}
+	case "coding.agent_manage#interact":
+		codingTarget := contains("happy", "coding agent", "编码任务", "编码会话", "agent 任务", "agent 会话")
+		approvalDecision := contains("批准", "同意计划", "拒绝计划", "approve plan", "reject plan")
+		if codingTarget && !approvalDecision && contains("创建", "新建", "启动", "发消息", "发送消息", "停止", "取消", "create", "spawn", "send message", "stop", "cancel") {
+			return 0.98
+		}
 	case "schedule.manage#create":
 		if temporal && !scheduleDiscussion && !scheduleStatement && !contains("查看", "列出", "有哪些", "show", "list") && contains("提醒", "告知", "叫我", "跟我说", "通知", "查一下", "查询", "remind", "tell me", "notify", "search") {
 			return 0.97

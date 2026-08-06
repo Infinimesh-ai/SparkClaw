@@ -134,6 +134,16 @@ export function InspectorColumn({
     }
   }
 
+  async function modifyApprovalPlan(id: string, plan: string) {
+    try {
+      setError("");
+      await api.modifyApprovalPlan(id, plan);
+      await Promise.all([refreshGlobal(), refreshActiveSession()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.errors.approvalEdit);
+    }
+  }
+
   async function resolveMemory(id: string, accepted: boolean) {
     try {
       setError("");
@@ -301,6 +311,7 @@ export function InspectorColumn({
           text={text}
           onResolve={(id, accepted) => void resolveApproval(id, accepted)}
           onModify={(id, args) => void modifyApproval(id, args)}
+          onModifyPlan={(id, plan) => void modifyApprovalPlan(id, plan)}
         />
       )}
       {tab === "memory" && (

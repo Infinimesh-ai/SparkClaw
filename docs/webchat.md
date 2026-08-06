@@ -53,7 +53,9 @@ Structured owner actions are not converted back into ambiguous prose:
   with the ordinary session message; it does not change or duplicate the
   composer, attachments, streaming, routing, or Workflow path; an attachment-only
   send submits empty text and lets Message Runtime route the typed media parts;
-- approval modifications validate JSON and keep verifier-owned fields read-only;
+- ordinary tool approval modifications validate JSON and keep verifier-owned
+  fields read-only; Happy Team plan approvals render typed task/goal/plan data
+  and submit only edited plan text, never raw remote tool arguments;
 - workspace files are uploaded and fetched through authenticated document APIs;
 - speech transcription returns text to the draft and never calls message send.
 - connector settings render the registered channel list from `/api/connectors`;
@@ -86,6 +88,9 @@ config, and policy.
 
 - Present a quiet operational workbench, not a marketing page.
 - Keep risky, pending, failed, unavailable, and unknown-outcome states visible.
+- Disable Happy plan approval and editing while the live plan is unavailable;
+  keep rejection available and show the retry state without treating plan text
+  as UI instructions.
 - Suppress the source-WebChat assistant result for ordinary pure-media
   publications sent to a selected third-party endpoint; those explicit sends do
   not require approval. Keep text-only and other third-party Workflow results

@@ -347,6 +347,8 @@ export const api = {
     request<ApprovalResolution>(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ note: "Approved from WebChat" }) }),
   modifyApproval: (id: string, args: Record<string, unknown>, note = "Modified from WebChat") =>
     request<ApprovalResolution>(`/api/approvals/${id}/modify`, { method: "POST", body: JSON.stringify({ note, args }) }),
+  modifyApprovalPlan: (id: string, plan: string, note = "Edited Happy plan from WebChat") =>
+    request<ApprovalResolution>(`/api/approvals/${id}/modify`, { method: "POST", body: JSON.stringify({ note, plan }) }),
   reject: (id: string) =>
     request<ApprovalResolution>(`/api/approvals/${id}/reject`, { method: "POST", body: JSON.stringify({ note: "Rejected from WebChat" }) }),
   memoryCandidates: (status = "") => request<{ memory_candidates: MemoryCandidate[] }>(`/api/memory-candidates${status ? `?status=${status}` : ""}`),

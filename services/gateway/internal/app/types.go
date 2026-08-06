@@ -21,6 +21,7 @@ type ToolDefinition struct {
 	Description      string                 `json:"description"`
 	InputSchema      map[string]any         `json:"input_schema"`
 	OutputSchema     map[string]any         `json:"output_schema,omitempty"`
+	Annotations      map[string]any         `json:"annotations,omitempty"`
 	Risk             RiskLevel              `json:"risk"`
 	RequiresApproval bool                   `json:"requires_approval"`
 	Idempotent       bool                   `json:"idempotent"`
@@ -55,21 +56,46 @@ type ToolCall struct {
 }
 
 type Approval struct {
-	ID             string         `json:"id"`
-	SessionID      string         `json:"session_id"`
-	RunID          string         `json:"run_id"`
-	ToolCallID     string         `json:"tool_call_id"`
-	Tool           string         `json:"tool"`
-	Risk           RiskLevel      `json:"risk"`
-	Status         string         `json:"status"`
-	Summary        string         `json:"summary"`
-	Reason         string         `json:"reason"`
-	Resources      []string       `json:"resources"`
-	Arguments      map[string]any `json:"arguments"`
-	CreatedAt      time.Time      `json:"created_at"`
-	ResolvedAt     *time.Time     `json:"resolved_at,omitempty"`
-	ResolutionNote string         `json:"resolution_note,omitempty"`
+	ID              string                   `json:"id"`
+	Source          ApprovalSource           `json:"source"`
+	ExternalID      string                   `json:"external_id,omitempty"`
+	ExternalContext *ExternalApprovalContext `json:"external_context,omitempty"`
+	SessionID       string                   `json:"session_id"`
+	RunID           string                   `json:"run_id"`
+	ToolCallID      string                   `json:"tool_call_id"`
+	Tool            string                   `json:"tool"`
+	Risk            RiskLevel                `json:"risk"`
+	Status          string                   `json:"status"`
+	Summary         string                   `json:"summary"`
+	Reason          string                   `json:"reason"`
+	Resources       []string                 `json:"resources"`
+	Arguments       map[string]any           `json:"arguments"`
+	CreatedAt       time.Time                `json:"created_at"`
+	ResolvedAt      *time.Time               `json:"resolved_at,omitempty"`
+	ResolutionNote  string                   `json:"resolution_note,omitempty"`
 }
+
+type ApprovalSource string
+
+const (
+	ApprovalSourceTool          ApprovalSource = "tool"
+	ApprovalSourceHappyTeamPlan ApprovalSource = "happy_team_plan"
+)
+
+type ExternalApprovalContext struct {
+	Provider         string `json:"provider"`
+	Title            string `json:"title"`
+	GoalPrompt       string `json:"goal_prompt"`
+	Plan             string `json:"plan,omitempty"`
+	PlanAvailability string `json:"plan_availability"`
+	PlanEdited       bool   `json:"plan_edited,omitempty"`
+}
+
+const (
+	ExternalPlanAvailable              = "available"
+	ExternalPlanTemporarilyUnavailable = "temporarily_unavailable"
+	MaxExternalApprovalPlanBytes       = 1 << 20
+)
 
 type Reminder struct {
 	ID               string        `json:"id"`

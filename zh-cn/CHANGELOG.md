@@ -10,6 +10,9 @@
 
 ### Added
 
+- 新增 Streamable HTTP MCP 发现与 ToolHub 注册，独立连接 Happy Team 任务端点和个人
+  bridge；同时新增持久化 Happy supervised-plan 审批收件箱，支持 live plan 重试、编辑和
+  remote-first reconciliation。
 - 当前态 architecture、deployment 和 development documentation。
 - `zh-cn/` 下的中文项目文档镜像。
 - DGX Spark model-serving guidance 和 benchmark evidence。

@@ -124,6 +124,64 @@ Relay credentials rotate independently, and unsupported Gateway capabilities
 are absent from the manifest. See [ISCP Bridge](iscp-bridge.md) for enrollment,
 the versioned schema, App CI mock, and GB10 operation.
 
+## MCP And Happy
+
+Gateway can discover and execute tools from configured stateless Streamable
+HTTP MCP servers. Each server is initialized independently with MCP
+`2025-06-18`; discovery and calls send one JSON-RPC message per POST with
+`Accept: application/json, text/event-stream`. The client accepts both plain
+JSON responses and a single response wrapped in SSE `data:` frames, preserves a
+returned `Mcp-Session-Id`, and bounds deadlines and response sizes.
+
+Happy uses two independent endpoints. Happy Team exposes Cloud Agent task tools,
+while the personal bridge is reachable only while the member machine and
+`happy-agent mcp` process are running:
+
+```json
+"mcp_servers": {
+  "happy-tasks": {
+    "url": "https://happy.example.com/v1/team/mcp",
+    "token_env": "HAPPY_TEAM_MCP_TOKEN",
+    "expected_server_name": "happy-team-tasks"
+  },
+  "happy-bridge": {
+    "url": "http://127.0.0.1:8790/",
+    "token_file": "~/.happy/mcp.token",
+    "expected_server_name": "happy-bridge"
+  }
+}
+```
+
+Discovered names are registered atomically as
+`mcp.<server-name>.<remote-tool-name>` with their input/output schemas and MCP
+annotations. Read tools can run in the `coding.agent_manage` Workflow; remote
+mutations stop at the normal approval boundary. `approve_plan` and
+`reject_plan` use a separate capability that is never exposed to chat model
+tool selection.
+
+The endpoints degrade independently. An offline personal bridge does not remove
+or fail the Happy Team task endpoint. A Team 401 asks the owner to mint a new
+personal MCP token; a bridge 401 asks the owner to verify the local token file.
+Current status is available through `GET /api/mcp-servers`, and one server can be
+rediscovered with `POST /api/mcp-servers/{name}/refresh`.
+
+All task details, transition history, plans, session metadata, and transcripts
+remain untrusted observations. They are archived and summarized through the
+normal observation path and never become instructions or authority for another
+tool call. `wait_for_idle` receives a call deadline longer than its requested
+wait; callers may use bounded `get_session` polling instead.
+
+When `happy-tasks` is configured, one bounded worker polls
+`list_tasks {"status":"WAITING_APPROVAL"}` every 60 seconds and creates a typed
+approval keyed by Happy task ID. It fetches `get_task_plan` for new items and
+retries while the member machine is offline. The inbox shows the task title,
+goal, and plan; an unavailable plan cannot be approved or edited. The owner may
+edit only plan text. Approval calls fixed `approve_plan {taskId, editedPlan?}`;
+rejection calls fixed `reject_plan {taskId}`. Gateway updates local state only
+after the remote action succeeds. A business error is followed by authoritative
+`get_task`; a task no longer in `WAITING_APPROVAL` closes as resolved elsewhere.
+Items absent from a later waiting list receive the same reconciliation check.
+
 ## Connector Control, Binding, And Status APIs
 
 WebChat discovers registered channels and manages their explicit opt-in through

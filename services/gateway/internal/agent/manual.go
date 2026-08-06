@@ -104,6 +104,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		})
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
+			Source:     app.ApprovalSourceTool,
 			SessionID:  sessionID,
 			RunID:      runID,
 			ToolCallID: call.ID,
@@ -160,6 +161,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}
 		approval := app.Approval{
 			ID:         app.NewID("ap"),
+			Source:     app.ApprovalSourceTool,
 			SessionID:  sessionID,
 			RunID:      runID,
 			ToolCallID: call.ID,
@@ -194,6 +196,11 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		call.Status = "failed"
 		call.Error = err.Error()
 		call.ErrorCode = string(app.ToolErrorCodeFrom(err))
+		if output.Output != nil {
+			call.Result = output.Output
+			call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, output.Output)
+			call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Output: output.Output, ObservationRef: call.ObservationRef, Err: err, MaxBytes: r.observationSummaryLimit()})
+		}
 		r.store.SaveToolCall(call)
 		return ManualInvocation{Call: call}, ManualExecutionError{Err: err}
 	}

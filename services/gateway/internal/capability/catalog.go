@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-05.v17"
+	DefaultCatalogRevision = "2026-08-06.v18"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -166,6 +166,10 @@ func DefaultCatalog() (Catalog, error) {
 		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),
 		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationCreate, app.RouteOperationRead, app.RouteOperationEdit, app.RouteOperationDelete}, RequireQuery: true,
+		}),
+		branch("coding", string(RootID), "Inspect and manage coding-agent tasks and sessions through configured MCP servers."),
+		leaf(string(app.CapabilityCodingAgentManage), "coding", "Inspect or manage the owner's coding-agent tasks, sessions, machines, and transcripts through configured MCP servers. Plan approval decisions belong only to the approval inbox.", RouteContract{
+			Operations: []app.RouteOperation{app.RouteOperationRead, app.RouteOperationInteract}, RequireQuery: true,
 		}),
 	})
 }

@@ -8,27 +8,34 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
 
+var (
+	mcpServerNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
 type Config struct {
-	Gateway    GatewayConfig   `json:"gateway"`
-	Model      ModelConfig     `json:"model"`
-	Speech     SpeechConfig    `json:"speech"`
-	Plugins    PluginsConfig   `json:"plugins"`
-	Tools      ToolsConfig     `json:"tools"`
-	Security   SecurityConfig  `json:"security"`
-	Sandbox    SandboxConfig   `json:"sandbox"`
-	Adapters   AdapterConfig   `json:"adapters"`
-	Memory     MemoryConfig    `json:"memory"`
-	Workspaces WorkspaceConfig `json:"workspaces"`
-	Storage    StorageConfig   `json:"storage"`
-	State      StateConfig     `json:"state"`
-	Runtime    RuntimeConfig   `json:"runtime"`
-	Logging    LoggingConfig   `json:"logging"`
+	Gateway    GatewayConfig              `json:"gateway"`
+	Model      ModelConfig                `json:"model"`
+	Speech     SpeechConfig               `json:"speech"`
+	Plugins    PluginsConfig              `json:"plugins"`
+	Tools      ToolsConfig                `json:"tools"`
+	MCPServers map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Security   SecurityConfig             `json:"security"`
+	Sandbox    SandboxConfig              `json:"sandbox"`
+	Adapters   AdapterConfig              `json:"adapters"`
+	Memory     MemoryConfig               `json:"memory"`
+	Workspaces WorkspaceConfig            `json:"workspaces"`
+	Storage    StorageConfig              `json:"storage"`
+	State      StateConfig                `json:"state"`
+	Runtime    RuntimeConfig              `json:"runtime"`
+	Logging    LoggingConfig              `json:"logging"`
 }
 
 type GatewayConfig struct {
@@ -159,6 +166,17 @@ type NotificationChannelConfig struct {
 	MaxVoiceSeconds    int    `json:"maxVoiceSeconds,omitempty"`
 	MaxConcurrency     int    `json:"maxConcurrency,omitempty"`
 	MaxPending         int    `json:"maxPending,omitempty"`
+}
+
+type MCPServerConfig struct {
+	URL                     string `json:"url"`
+	TokenEnv                string `json:"token_env,omitempty"`
+	TokenFile               string `json:"token_file,omitempty"`
+	Namespace               string `json:"namespace,omitempty"`
+	ExpectedServerName      string `json:"expected_server_name,omitempty"`
+	RequestTimeoutSeconds   int    `json:"request_timeout_seconds,omitempty"`
+	DiscoveryRefreshSeconds int    `json:"discovery_refresh_seconds,omitempty"`
+	ResponseBodyMaxBytes    int64  `json:"response_body_max_bytes,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -452,7 +470,60 @@ func Load(path string) (Config, error) {
 	if err := normalizeRemindersConfig(&cfg.Tools.Reminders); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeMCPServers(&cfg.MCPServers); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func normalizeMCPServers(servers *map[string]MCPServerConfig) error {
+	if *servers == nil {
+		*servers = map[string]MCPServerConfig{}
+		return nil
+	}
+	for name, server := range *servers {
+		if strings.TrimSpace(name) != name || !mcpServerNamePattern.MatchString(name) {
+			return fmt.Errorf("MCP server name %q must match %s", name, mcpServerNamePattern.String())
+		}
+		server.URL = strings.TrimSpace(server.URL)
+		endpoint, err := url.Parse(server.URL)
+		if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.Fragment != "" {
+			return fmt.Errorf("MCP server %q URL must be absolute HTTP(S) without credentials or fragment", name)
+		}
+		server.TokenEnv = strings.TrimSpace(server.TokenEnv)
+		server.TokenFile = strings.TrimSpace(server.TokenFile)
+		if server.TokenEnv != "" && server.TokenFile != "" {
+			return fmt.Errorf("MCP server %q must use only one of token_env or token_file", name)
+		}
+		if server.TokenEnv != "" && !environmentNamePattern.MatchString(server.TokenEnv) {
+			return fmt.Errorf("MCP server %q token_env is invalid", name)
+		}
+		server.Namespace = strings.Trim(strings.TrimSpace(server.Namespace), ".")
+		if server.Namespace == "" {
+			server.Namespace = "mcp." + name
+		}
+		server.ExpectedServerName = strings.TrimSpace(server.ExpectedServerName)
+		if server.RequestTimeoutSeconds <= 0 {
+			server.RequestTimeoutSeconds = 30
+		}
+		if server.RequestTimeoutSeconds > 3600 {
+			return fmt.Errorf("MCP server %q request_timeout_seconds must not exceed 3600", name)
+		}
+		if server.DiscoveryRefreshSeconds <= 0 {
+			server.DiscoveryRefreshSeconds = 60
+		}
+		if server.DiscoveryRefreshSeconds > 86400 {
+			return fmt.Errorf("MCP server %q discovery_refresh_seconds must not exceed 86400", name)
+		}
+		if server.ResponseBodyMaxBytes <= 0 {
+			server.ResponseBodyMaxBytes = 4 << 20
+		}
+		if server.ResponseBodyMaxBytes > 32<<20 {
+			return fmt.Errorf("MCP server %q response_body_max_bytes must not exceed 33554432", name)
+		}
+		(*servers)[name] = server
+	}
+	return nil
 }
 
 // normalizeRemindersConfig backfills a non-positive delivery-attempt cap with
@@ -872,6 +943,7 @@ func Default() Config {
 				},
 			},
 		},
+		MCPServers: map[string]MCPServerConfig{},
 		Security: SecurityConfig{
 			ExternalContentUntrusted:              true,
 			ApprovalRequiredForDangerousTools:     true,

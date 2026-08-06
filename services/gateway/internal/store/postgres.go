@@ -193,9 +193,12 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 
 	CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES sessions(id),
-  run_id TEXT NOT NULL REFERENCES agent_runs(id),
-  tool_call_id TEXT NOT NULL REFERENCES tool_calls(id),
+  source TEXT NOT NULL DEFAULT 'tool',
+  external_id TEXT NOT NULL DEFAULT '',
+  external_context JSONB,
+  session_id TEXT REFERENCES sessions(id),
+  run_id TEXT REFERENCES agent_runs(id),
+  tool_call_id TEXT REFERENCES tool_calls(id),
   tool TEXT NOT NULL,
   risk_level TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -207,6 +210,14 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   resolved_at TIMESTAMPTZ,
   resolution_note TEXT
 );
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'tool';
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS external_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS external_context JSONB;
+ALTER TABLE approvals ALTER COLUMN session_id DROP NOT NULL;
+ALTER TABLE approvals ALTER COLUMN run_id DROP NOT NULL;
+ALTER TABLE approvals ALTER COLUMN tool_call_id DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS approvals_external_ref_idx
+  ON approvals(source, external_id) WHERE external_id <> '';
 
 CREATE TABLE IF NOT EXISTS reminders (
   id TEXT PRIMARY KEY,
@@ -1497,16 +1508,22 @@ func (s *PostgresStore) ListDocumentRecords(ownerID, sessionID string, limit int
 
 func (s *PostgresStore) SaveApproval(approval app.Approval) {
 	ctx := context.Background()
+	approval = normalizeApproval(approval)
 	if approval.CreatedAt.IsZero() {
 		approval.CreatedAt = time.Now().UTC()
 	}
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO approvals (
-			id, session_id, run_id, tool_call_id, tool, risk_level, status, summary, reason,
-			resources, arguments, created_at, resolved_at, resolution_note
+			id, source, external_id, external_context, session_id, run_id, tool_call_id,
+			tool, risk_level, status, summary, reason, resources, arguments, created_at,
+			resolved_at, resolution_note
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, nullif($14, ''))
+		VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), nullif($7, ''), $8,
+			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''))
 		ON CONFLICT (id) DO UPDATE SET
+			source = EXCLUDED.source,
+			external_id = EXCLUDED.external_id,
+			external_context = EXCLUDED.external_context,
 			status = EXCLUDED.status,
 			summary = EXCLUDED.summary,
 			reason = EXCLUDED.reason,
@@ -1514,12 +1531,67 @@ func (s *PostgresStore) SaveApproval(approval app.Approval) {
 			arguments = EXCLUDED.arguments,
 			resolved_at = EXCLUDED.resolved_at,
 			resolution_note = EXCLUDED.resolution_note
-	`, approval.ID, approval.SessionID, approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), approval.Status, approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt, approval.ResolvedAt, approval.ResolutionNote)
-	s.appendAudit(ctx, "approval."+approval.Status, approval.SessionID, approval.RunID, "policy", approval.Summary, map[string]any{
+	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID, approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), approval.Status, approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt, approval.ResolvedAt, approval.ResolutionNote)
+	actor := "policy"
+	if approval.Source != app.ApprovalSourceTool {
+		actor = "integration"
+	}
+	s.appendAudit(ctx, "approval."+approval.Status, approval.SessionID, approval.RunID, actor, approval.Summary, map[string]any{
 		"tool": approval.Tool,
 		"risk": approval.Risk,
 	})
 	s.appendEvent(ctx, "approval."+approval.Status, approval.SessionID, approval.RunID, approval)
+}
+
+func (s *PostgresStore) GetApproval(id string) (app.Approval, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, source, external_id, external_context,
+			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
+			tool, risk_level, status, summary, reason, resources, arguments, created_at,
+			resolved_at, coalesce(resolution_note, '')
+		FROM approvals
+		WHERE id = $1
+	`, id)
+	approval, err := scanApproval(row)
+	return approval, err == nil
+}
+
+func (s *PostgresStore) FindApprovalByExternalRef(source app.ApprovalSource, externalID string) (app.Approval, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, source, external_id, external_context,
+			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
+			tool, risk_level, status, summary, reason, resources, arguments, created_at,
+			resolved_at, coalesce(resolution_note, '')
+		FROM approvals
+		WHERE source = $1 AND external_id = $2
+	`, source, externalID)
+	approval, err := scanApproval(row)
+	return approval, err == nil
+}
+
+func (s *PostgresStore) UpdatePendingApproval(approval app.Approval) (app.Approval, error) {
+	approval = normalizeApproval(approval)
+	approval.Status = "pending"
+	approval.ResolvedAt = nil
+	approval.ResolutionNote = ""
+	command, err := s.db.Exec(context.Background(), `
+		UPDATE approvals SET
+			source = $2, external_id = $3, external_context = $4, summary = $5,
+			reason = $6, resources = $7, arguments = $8
+		WHERE id = $1 AND status = 'pending'
+	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext),
+		approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments))
+	if err != nil {
+		return app.Approval{}, err
+	}
+	if command.RowsAffected() == 0 {
+		if _, ok := s.GetApproval(approval.ID); !ok {
+			return app.Approval{}, errors.New("approval not found")
+		}
+		return app.Approval{}, errors.New("approval already resolved")
+	}
+	s.appendEvent(context.Background(), "approval.pending", approval.SessionID, approval.RunID, approval)
+	return approval, nil
 }
 
 func (s *PostgresStore) ResolveApproval(id, status, note string) (app.Approval, error) {
@@ -1530,8 +1602,10 @@ func (s *PostgresStore) ResolveApproval(id, status, note string) (app.Approval, 
 	}
 	defer rollbackTx(ctx, tx)
 	row := tx.QueryRow(ctx, `
-		SELECT id, session_id, run_id, tool_call_id, tool, risk_level, status, summary, reason,
-			resources, arguments, created_at, resolved_at, coalesce(resolution_note, '')
+		SELECT id, source, external_id, external_context,
+			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
+			tool, risk_level, status, summary, reason, resources, arguments, created_at,
+			resolved_at, coalesce(resolution_note, '')
 		FROM approvals
 		WHERE id = $1
 		FOR UPDATE
@@ -1560,15 +1634,21 @@ func (s *PostgresStore) ResolveApproval(id, status, note string) (app.Approval, 
 	if err := tx.Commit(ctx); err != nil {
 		return app.Approval{}, err
 	}
-	s.appendAudit(ctx, "approval."+status, approval.SessionID, approval.RunID, "owner", approval.Summary, map[string]any{"note": note})
+	actor := "owner"
+	if status == "resolved_elsewhere" {
+		actor = "integration"
+	}
+	s.appendAudit(ctx, "approval."+status, approval.SessionID, approval.RunID, actor, approval.Summary, map[string]any{"note": note})
 	s.appendEvent(ctx, "approval."+status, approval.SessionID, approval.RunID, approval)
 	return approval, nil
 }
 
 func (s *PostgresStore) ListApprovals(status string) []app.Approval {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, run_id, tool_call_id, tool, risk_level, status, summary, reason,
-			resources, arguments, created_at, resolved_at, coalesce(resolution_note, '')
+		SELECT id, source, external_id, external_context,
+			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
+			tool, risk_level, status, summary, reason, resources, arguments, created_at,
+			resolved_at, coalesce(resolution_note, '')
 		FROM approvals
 		WHERE $1 = '' OR status = $1
 		ORDER BY created_at DESC
@@ -3467,19 +3547,29 @@ func scanDocumentRecord(row scanner) (app.DocumentRecord, error) {
 
 func scanApproval(row scanner) (app.Approval, error) {
 	var approval app.Approval
+	var source string
 	var risk string
+	var externalContext []byte
 	var resources []byte
 	var args []byte
-	err := row.Scan(&approval.ID, &approval.SessionID, &approval.RunID, &approval.ToolCallID, &approval.Tool, &risk, &approval.Status, &approval.Summary, &approval.Reason, &resources, &args, &approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote)
+	err := row.Scan(&approval.ID, &source, &approval.ExternalID, &externalContext,
+		&approval.SessionID, &approval.RunID, &approval.ToolCallID, &approval.Tool, &risk,
+		&approval.Status, &approval.Summary, &approval.Reason, &resources, &args,
+		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote)
 	if err != nil {
 		return app.Approval{}, err
 	}
+	approval.Source = app.ApprovalSource(source)
 	approval.Risk = app.RiskLevel(risk)
+	if len(externalContext) > 0 && string(externalContext) != "null" {
+		approval.ExternalContext = &app.ExternalApprovalContext{}
+		_ = json.Unmarshal(externalContext, approval.ExternalContext)
+	}
 	approval.Resources = []string{}
 	_ = json.Unmarshal(resources, &approval.Resources)
 	approval.Arguments = map[string]any{}
 	_ = json.Unmarshal(args, &approval.Arguments)
-	return approval, nil
+	return normalizeApproval(approval), nil
 }
 
 func scanReminder(row scanner) (app.Reminder, error) {

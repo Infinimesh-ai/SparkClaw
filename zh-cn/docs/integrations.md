@@ -97,6 +97,53 @@ Bridge 不接收 ITES token，也不暴露无认证的局域网 listener。生�
 keyring，Relay credential 独立轮换，Gateway 不支持的能力不会进入 manifest。注册、版本化
 schema、App CI mock 和 GB10 运维见 [ISCP Bridge](iscp-bridge.md)。
 
+## MCP 与 Happy
+
+Gateway 可以从配置的无状态 Streamable HTTP MCP server 发现并执行工具。每个 server
+使用 MCP `2025-06-18` 独立初始化；发现与调用每次 POST 只发送一条 JSON-RPC 消息，并带上
+`Accept: application/json, text/event-stream`。客户端同时兼容纯 JSON 响应和用 SSE
+`data:` 帧包装的单条响应，保留服务端返回的 `Mcp-Session-Id`，并限制 deadline 与响应大小。
+
+Happy 使用两个彼此独立的端点。Happy Team 提供 Cloud Agent 任务工具；个人 bridge 只有在
+成员机器开机且 `happy-agent mcp` 正在运行时才可达：
+
+```json
+"mcp_servers": {
+  "happy-tasks": {
+    "url": "https://happy.example.com/v1/team/mcp",
+    "token_env": "HAPPY_TEAM_MCP_TOKEN",
+    "expected_server_name": "happy-team-tasks"
+  },
+  "happy-bridge": {
+    "url": "http://127.0.0.1:8790/",
+    "token_file": "~/.happy/mcp.token",
+    "expected_server_name": "happy-bridge"
+  }
+}
+```
+
+发现结果以 `mcp.<server-name>.<remote-tool-name>` 原子注册，并保留 input/output schema
+与 MCP annotation。读取工具可以进入 `coding.agent_manage` Workflow；远端修改会停在正常
+审批边界。`approve_plan` 与 `reject_plan` 使用独立 capability，绝不会暴露给聊天模型选工具。
+
+两个端点独立降级。个人 bridge 离线不会移除或拖垮 Happy Team 任务端点。Team 端点返回
+401 时会要求 owner 重新签发个人 MCP token；bridge 返回 401 时会要求核对本地 token
+文件。`GET /api/mcp-servers` 返回当前状态，
+`POST /api/mcp-servers/{name}/refresh` 可以单独重新发现一个 server。
+
+任务详情、状态转移历史、计划、session metadata 和 transcript 都是不可信观察。它们通过
+正常 observation 路径归档和摘要，绝不会成为下一次工具调用的指令或授权。
+`wait_for_idle` 的调用 deadline 会长于请求的等待时间；调用方也可以改用有界
+`get_session` 轮询。
+
+配置 `happy-tasks` 后，一个有界 worker 每 60 秒轮询
+`list_tasks {"status":"WAITING_APPROVAL"}`，并按 Happy task ID 创建 typed approval。新项目会
+调用 `get_task_plan`；成员机器离线期间会持续重试。收件箱展示任务标题、目标和计划；计划不可用
+时不能批准或编辑。owner 只能修改计划文本。批准固定调用
+`approve_plan {taskId, editedPlan?}`，拒绝固定调用 `reject_plan {taskId}`。Gateway 只有在
+远端动作成功后才更新本地状态。business error 会触发权威 `get_task` 复核；任务已不在
+`WAITING_APPROVAL` 时按“已在其他位置处理”关闭。后续 waiting list 中消失的项目也执行相同复核。
+
 ## Connector 控制、Binding 与状态 API
 
 WebChat 通过统一、版本化 API 发现已注册渠道并管理显式 opt-in；账号设置保持独立 lifecycle：

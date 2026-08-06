@@ -169,7 +169,13 @@ export const dictionaries = {
       title: "Approval Inbox",
       empty: "No approvals.",
       editArguments: "Edit arguments",
-      invalidJson: "Invalid JSON"
+      editPlan: "Edit plan",
+      invalidJson: "Invalid JSON",
+      happyTeam: "Happy Team",
+      taskTitle: "Task title",
+      taskGoal: "Task goal",
+      taskPlan: "Plan",
+      planUnavailable: "Plan temporarily unavailable. Retry after the member machine reconnects."
     },
     memory: {
       title: "Memory Review",
@@ -363,6 +369,7 @@ export const dictionaries = {
       pending: "pending",
       rejected: "rejected",
       running: "running",
+      resolved_elsewhere: "resolved elsewhere",
       passed: "passed"
     },
     units: {
@@ -541,7 +548,13 @@ export const dictionaries = {
       title: "审批收件箱",
       empty: "没有审批。",
       editArguments: "编辑参数",
-      invalidJson: "JSON 无效"
+      editPlan: "编辑计划",
+      invalidJson: "JSON 无效",
+      happyTeam: "Happy Team",
+      taskTitle: "任务标题",
+      taskGoal: "任务目标",
+      taskPlan: "计划",
+      planUnavailable: "计划暂时不可用，请在成员机器重新上线后重试。"
     },
     memory: {
       title: "记忆审查",
@@ -735,6 +748,7 @@ export const dictionaries = {
       pending: "待处理",
       rejected: "已拒绝",
       running: "运行中",
+      resolved_elsewhere: "已在其他位置处理",
       passed: "通过"
     },
     units: {

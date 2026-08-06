@@ -31,6 +31,44 @@ func TestMemoryStoreUpdatePendingReminderUsesCompareAndSwap(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreFindsExternalApprovalByStableReference(t *testing.T) {
+	st := NewMemoryStore()
+	approval := app.Approval{
+		ID: "ap_happy_task_one", Source: app.ApprovalSourceHappyTeamPlan,
+		ExternalID: "task-one", Tool: "mcp.happy-tasks.approve_plan",
+		Risk: app.RiskDangerous, Status: "pending", Summary: "Review task plan",
+		ExternalContext: &app.ExternalApprovalContext{
+			Provider: "happy-team", Title: "Task one", GoalPrompt: "Implement one",
+			Plan: "# Plan\n\nDo one.", PlanAvailability: app.ExternalPlanAvailable,
+		},
+	}
+	st.SaveApproval(approval)
+	found, ok := st.FindApprovalByExternalRef(app.ApprovalSourceHappyTeamPlan, "task-one")
+	if !ok || found.ID != approval.ID || found.ExternalContext == nil || found.ExternalContext.Plan != approval.ExternalContext.Plan {
+		t.Fatalf("external approval lookup mismatch: %#v ok=%v", found, ok)
+	}
+	byID, ok := st.GetApproval(approval.ID)
+	if !ok || byID.Source != app.ApprovalSourceHappyTeamPlan {
+		t.Fatalf("external approval id lookup mismatch: %#v ok=%v", byID, ok)
+	}
+	found.ExternalContext.Plan = "caller-only mutation"
+	stored, _ := st.GetApproval(approval.ID)
+	if stored.ExternalContext.Plan != approval.ExternalContext.Plan {
+		t.Fatalf("approval lookup leaked mutable external context: %#v", stored.ExternalContext)
+	}
+	if _, err := st.ResolveApproval(approval.ID, "approved", "done"); err != nil {
+		t.Fatal(err)
+	}
+	approval.ExternalContext.Plan = "stale background update"
+	if _, err := st.UpdatePendingApproval(approval); err == nil {
+		t.Fatal("stale pending update reopened a resolved approval")
+	}
+	stored, _ = st.GetApproval(approval.ID)
+	if stored.Status != "approved" || stored.ExternalContext.Plan != "# Plan\n\nDo one." {
+		t.Fatalf("resolved approval changed after stale update: %#v", stored)
+	}
+}
+
 func TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped(t *testing.T) {
 	st := NewMemoryStore()
 	session := st.CreateSession("documents")

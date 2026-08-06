@@ -9,23 +9,19 @@ MODEL_PROFILE="${SPARKCLAW_MODEL_LOADING_PROFILE:-}"
 INCLUDE_ASR=false
 INCLUDE_OCR=false
 SINGLE_FAST=false
-if [[ "$LANES" == "single-fast" || "$LANES" == "fast-only" ]]; then
-  LANES="fast,embedding,guard"
+if [[ "$LANES" == "single-fast" || "$LANES" == "fast-only" || "$LANES" == "single-fast-with-ocr" ]]; then
+  LANES="fast,embedding,guard,ocr"
   MODEL_PROFILE="single-fast"
   SINGLE_FAST=true
+  INCLUDE_OCR=true
 elif [[ "$LANES" == "all" ]]; then
   LANES="fast,deep,embedding,guard"
 elif [[ "$LANES" == "all-with-asr" ]]; then
-	LANES="fast,deep,embedding,guard,asr"
-	INCLUDE_ASR=true
-elif [[ "$LANES" == "single-fast-with-ocr" ]]; then
-	LANES="fast,embedding,guard,ocr"
-	MODEL_PROFILE="single-fast"
-	SINGLE_FAST=true
-	INCLUDE_OCR=true
+  LANES="fast,deep,embedding,guard,asr"
+  INCLUDE_ASR=true
 elif [[ "$LANES" == "all-with-ocr" ]]; then
-	LANES="fast,deep,embedding,guard,ocr"
-	INCLUDE_OCR=true
+  LANES="fast,deep,embedding,guard,ocr"
+  INCLUDE_OCR=true
 elif [[ "$LANES" == "dual-light" || "$LANES" == "light-dual" ]]; then
   LANES="fast,deep,embedding,guard"
   MODEL_PROFILE="dual-light"
@@ -94,6 +90,38 @@ compose_args+=(--profile models-local)
 
 if [[ "$SINGLE_FAST" == "true" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" stop sparkclaw-deep
+  reload_single_fast=false
+  for service in "${services[@]}"; do
+    container_id="$("${docker_cmd[@]}" "${compose_args[@]}" ps -q "$service")"
+    if [[ -z "$container_id" ]]; then
+      reload_single_fast=true
+      break
+    fi
+    health_status="$(
+      "${docker_cmd[@]}" inspect \
+        --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+        "$container_id"
+    )"
+    if [[ "$health_status" != "healthy" ]]; then
+      reload_single_fast=true
+      break
+    fi
+    config_hash_line="$("${docker_cmd[@]}" "${compose_args[@]}" config --hash "$service")"
+    expected_config_hash="${config_hash_line##* }"
+    actual_config_hash="$(
+      "${docker_cmd[@]}" inspect \
+        --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
+        "$container_id"
+    )"
+    if [[ -z "$expected_config_hash" || "$actual_config_hash" != "$expected_config_hash" ]]; then
+      reload_single_fast=true
+      break
+    fi
+  done
+  if [[ "$reload_single_fast" == "true" ]]; then
+    echo "Reloading Fast, embedding, guard, and OCR together"
+    "${docker_cmd[@]}" "${compose_args[@]}" stop "${services[@]}"
+  fi
 fi
 
 exec "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait --wait-timeout 900 "${services[@]}"

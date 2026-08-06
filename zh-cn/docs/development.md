@@ -48,14 +48,14 @@ Node 依赖由根 npm workspace 管理，`setup:document-tools` 将 Python 文�
 npm run setup:host
 ```
 
-重建并重启当前 external-model/PostgreSQL 开发运行态：
+重建并重启当前 external-model/OCR/PostgreSQL 开发运行态：
 
 ```bash
 npm run dev
 ```
 
 只重建一个应用容器时，使用 `npm run dev:gateway` 或 `npm run dev:webchat`；
-这两个命令仍保留 external/PostgreSQL 环境，并验证 Gateway readiness。
+这两个命令仍保留 external/OCR/PostgreSQL 环境，并验证 Gateway readiness。
 
 仅在隔离的 mock/file 与 Vite 调试中直接运行宿主进程，对应命令为
 `npm run dev:gateway:host` 和 `npm run dev:webchat:host`。Compose、auth、

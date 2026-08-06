@@ -199,9 +199,28 @@ services:
     ports:
       - "127.0.0.1:8001:8001"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/models', timeout=3).read()"]
+      test:
+        - CMD
+        - python3
+        - /opt/sparkclaw/model_readiness.py
+        - --base-url
+        - http://127.0.0.1:8001/v1
+        - --model
+        - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
+        - --marker
+        - /tmp/sparkclaw-fast-warmed
+        - --health-timeout
+        - "3"
+        - --warmup-timeout
+        - "150"
+        - --warmup-prompt-repetitions
+        - "284"
+        - --warmup-max-tokens
+        - "480"
+        - --warmup-min-tokens
+        - "480"
       interval: 30s
-      timeout: 5s
+      timeout: 180s
       retries: 20
 
   sparkclaw-deep:

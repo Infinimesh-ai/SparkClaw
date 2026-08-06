@@ -25,7 +25,7 @@ Implemented and validated:
 
 - Go Gateway API with health, readiness, direct chat, sessions, messages, events, tools, approvals, memories, traces, artifacts, eval reports, feedback, client pairing, token auth and rate limiting.
 - Agent Runtime with a Catalog-derived semantic graph, full-candidate embedding and Fast/Tree score fusion, deterministic Top-2 and one-leaf Workflow dispatch, grounded execution, repair, and trace snapshots.
-- Single-machine `single-fast-v1` product profile for NVIDIA GB10: one `fast` chat model plus embedding and guard, with the logical deep Workflow profile routed to the same Fast endpoint.
+- Single-machine `single-fast-v1` product profile for NVIDIA GB10: one `fast` chat model plus embedding, guard, and the OvisOCR2 document adapter, with the logical deep Workflow profile routed to the same Fast endpoint.
 - ToolHub with JSON-schema-validated tools for files, memory, browser access, sandbox shell, code patching, notification and approvals.
 - Approval-first policy for reversible and dangerous actions such as file deletion, shell execution, patch application and sensitive memory writes.
 - File, browser and external adapter observations are treated as untrusted data and are summarized before being used for answers.
@@ -38,7 +38,7 @@ Implemented and validated:
 Known operating boundary:
 
 - On the validated GB10 machine, full 128K-context fast and deep chat lanes with MTP enabled should be treated as mutually exclusive unless context, MTP or GPU memory utilization is reduced and re-measured.
-- The current single-machine product profile is `single-fast-v1`: fast runs at 32K context with an 8G KV cache and MTP off; embedding and guard retain their bounded auxiliary profiles. The historical `dual-light-v1` measurements remain as evidence, not as the startup default.
+- The current single-machine product profile is `single-fast-v1`: fast runs at 32K context with an 8G KV cache and MTP off; embedding, guard, and OvisOCR2 retain bounded auxiliary profiles. The historical `dual-light-v1` measurements remain as evidence, not as the startup default.
 - Gateway still records its logical fast/deep Workflow choice, but both chat profiles resolve to `sparkclaw-fast` in the current deployment configuration. No `sparkclaw-deep` model process is started.
 - Workflow capabilities are the only execution path; see the [Workflow capability matrix](docs/workflow-capabilities.md) for the current capability surface.
 
@@ -80,7 +80,7 @@ Chromium installation. It does not download Chrome for Testing. Set
 `adapters.browserAutomation.chromiumExecutable` when Chromium is installed in a
 non-standard location.
 
-Rebuild and restart the external-model/PostgreSQL development runtime used on
+Rebuild and restart the external-model/OCR/PostgreSQL development runtime used on
 this machine:
 
 ```bash
@@ -132,7 +132,7 @@ scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-`single-fast` stops any old `sparkclaw-deep` container and starts only the `fast`, embedding, and guard model services. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat with `docker/env/sparkclaw.single-fast.env`, which maps both logical chat profiles to `sparkclaw-fast` and fails if Gateway is not ready.
+`single-fast` stops any old `sparkclaw-deep` container and starts Fast, embedding, guard, and OCR together. `scripts/restart_runtime_compose.sh` then reloads Gateway/WebChat with the single-Fast and OCR environments, maps both logical chat profiles to `sparkclaw-fast`, enables the document OCR adapter, and fails if Gateway is not ready.
 
 Other serving entrypoints are available for targeted tests and controls:
 

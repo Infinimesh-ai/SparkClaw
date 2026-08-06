@@ -24,7 +24,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 
 - Go Gateway API：健康检查、ready 检查、direct chat、sessions、messages、events、tools、approvals、memories、traces、artifacts、eval reports、feedback、client pairing、token auth 和 rate limiting。
 - Agent Runtime：Catalog 派生语义图、全候选 embedding 与 Fast/Tree 分数融合、确定性 Top-2 和单叶子 Workflow 分发、grounded execution、repair 和 trace snapshot。
-- NVIDIA GB10 当前使用单机 `single-fast-v1` 产品 profile：一个 `fast` chat 模型加 embedding 与 guard；逻辑 deep Workflow profile 也路由到同一个 Fast endpoint。
+- NVIDIA GB10 当前使用单机 `single-fast-v1` 产品 profile：一个 `fast` chat 模型加 embedding、guard 与 OvisOCR2 文档适配器；逻辑 deep Workflow profile 也路由到同一个 Fast endpoint。
 - ToolHub：为文件、memory、browser access、sandbox shell、code patch、notification 和 approval 提供 JSON Schema 校验工具。
 - approval-first policy：file deletion、shell execution、patch application 和 sensitive memory write 等 reversible/dangerous action 都需要审批。
 - file、browser 和 external adapter observation 都被当作 untrusted data，并在进入回答前被摘要。
@@ -37,7 +37,7 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 已知运行边界：
 
 - 在已验证的 GB10 机器上，full 128K context 且启用 MTP 时，fast 和 deep chat lanes 应视为不能同时常驻，除非降低 context、MTP 或 GPU memory utilization 后重新测量。
-- 当前单机产品 profile 是 `single-fast-v1`：fast 使用 32K context + 8G KV cache 并关闭 MTP；embedding 与 guard 保持有界的辅助配置。历史 `dual-light-v1` 实测仍作为证据保留，但不再是默认启动项。
+- 当前单机产品 profile 是 `single-fast-v1`：fast 使用 32K context + 8G KV cache 并关闭 MTP；embedding、guard 与 OvisOCR2 保持有界的辅助配置。历史 `dual-light-v1` 实测仍作为证据保留，但不再是默认启动项。
 - Gateway 仍记录逻辑 fast/deep Workflow 选择，但当前部署配置把两个 chat profiles 都解析到 `sparkclaw-fast`，不会启动 `sparkclaw-deep` 模型进程。
 - Workflow capability 是唯一执行路径；当前能力面以 [Workflow 能力矩阵](docs/workflow-capabilities.md)为准。
 
@@ -78,7 +78,7 @@ agent-browser Runtime，并解析系统 Chromium；它不会下载 Chrome for Te
 Chromium 位于非标准路径时，设置
 `adapters.browserAutomation.chromiumExecutable`。
 
-重建并重启当前真机使用的 external-model/PostgreSQL 开发运行态：
+重建并重启当前真机使用的 external-model/OCR/PostgreSQL 开发运行态：
 
 ```bash
 npm run dev
@@ -129,7 +129,7 @@ scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-`single-fast` 会停止遗留的 `sparkclaw-deep` 容器，只启动 `fast`、embedding 和 guard 模型服务。`scripts/restart_runtime_compose.sh` 随后使用 `docker/env/sparkclaw.single-fast.env` 重启 Gateway/WebChat；该配置把两个逻辑 chat profiles 都映射到 `sparkclaw-fast`，Gateway 未 ready 时脚本会失败退出。
+`single-fast` 会停止遗留的 `sparkclaw-deep` 容器，并同时启动 Fast、embedding、guard 与 OCR。`scripts/restart_runtime_compose.sh` 随后使用单 Fast 与 OCR 环境重启 Gateway/WebChat，把两个逻辑 chat profiles 都映射到 `sparkclaw-fast`，启用文档 OCR adapter，并在 Gateway 未 ready 时失败退出。
 
 其他服务入口用于定向测试和对照实验：
 

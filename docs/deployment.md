@@ -67,7 +67,7 @@ The `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS` setting is intentionally explicit. It l
 ## Host Development Runtime
 
 The standard development runtime on the validated DGX Spark host is the
-containerized external-model/PostgreSQL topology:
+containerized external-model/OCR/PostgreSQL topology:
 
 ```bash
 npm run dev
@@ -203,7 +203,7 @@ For model-backed operation, recreate Gateway in external mode after the selected
 scripts/restart_runtime_compose.sh
 ```
 
-Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for model-backed runs. It loads `docker/env/sparkclaw.single-fast.env` after `.env`, so Compose cannot fall back to the `mock/file` defaults from `docker/env/sparkclaw.example.env`. The same file maps the logical Deep profile to the Fast endpoint. The script also checks `/readyz` after restart and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another runtime profile.
+Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for model-backed runs. It loads `docker/env/sparkclaw.single-fast.env` and `docker/env/sparkclaw.ocr.env` after `.env`, then stacks `docker/compose.ocr.yaml`. Compose therefore cannot fall back to the `mock/file` defaults from `docker/env/sparkclaw.example.env`, both logical chat profiles map to Fast, and the document OCR adapter is enabled against the co-resident OCR service. The script also checks `/readyz` after restart and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another chat/runtime profile; the OCR environment remains part of this product runtime.
 
 When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
 
@@ -234,23 +234,34 @@ scripts/serve_models_compose.sh all-with-asr
 
 With no argument, `serve_models_compose.sh` also selects `single-fast`. This is
 the current product startup path: it stops a previously running Deep container
-and starts Fast, embedding, and guard with
-`docker/env/sparkclaw.single-fast.env`. Deep and dual-light commands are
-explicit test/benchmark entrypoints. The command waits for every selected
-service to become healthy. Guard is not healthy until an actual bounded
-`/chat/completions` request succeeds; after that one-time warmup, its periodic
-health check uses the lightweight model listing endpoint.
+and starts Fast, embedding, guard, and OCR together with the single-Fast and
+OCR environments. The older `single-fast-with-ocr` name is an alias for this
+same startup. Deep and dual-light commands are explicit test/benchmark
+entrypoints. The command waits for every selected service to become healthy.
+Fast is not healthy until a bounded production-shaped `/chat/completions`
+request succeeds. On the current Qwen3.6 tokenizer it carries about 3.4K input
+tokens and forces a 480-token decode, so startup absorbs the long-prompt and
+generation cold path seen by Tree routing. Guard separately requires its small
+bounded completion. Each marker includes the current model-process start time,
+so stopping and starting an existing container cannot reuse readiness from the
+previous process; after one-time warmup, periodic checks use the lightweight
+model listing endpoint. If any member of the four-service product group is
+absent or unhealthy, the shortcut stops all four before reloading them together;
+a Compose configuration-hash change does the same. It never adds or recreates
+one model alone inside the resident product group. The single-Fast embedding
+endpoint admits 128 short sequences under its fixed 2 GiB KV budget so the
+110-entry startup index completes within its 20-second bound.
 
 Default endpoints:
 
-| Lane | Served name | Endpoint |
+| Endpoint role | Served name | Endpoint |
 |---|---|---|
 | fast | `sparkclaw-fast` | `http://127.0.0.1:8001/v1` |
 | deep | `sparkclaw-deep` | `http://127.0.0.1:8002/v1` |
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
 | guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
 | asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
-| optional OCR | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
+| OCR adapter | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
 
 Check endpoints:
 
@@ -305,7 +316,7 @@ container healthy until that probe has produced a non-empty completion.
 
 ### OvisOCR2 Document OCR
 
-The optional document OCR adapter uses
+The document OCR adapter uses
 [`ATH-MaaS/OvisOCR2`](https://huggingface.co/ATH-MaaS/OvisOCR2) through an
 OpenAI-compatible vLLM chat-completions endpoint. It parses page images into
 Markdown while preserving readable order, formulas, and tables. Fast remains
@@ -313,25 +324,19 @@ the visual-semantics and Workflow-reasoning model; OCR output is untrusted
 document evidence and never selects a model lane or authorizes an edit.
 
 The overlay pins vLLM `0.22.1`, exposes port `8007` only on loopback, uses an
-explicit 2 GiB KV cache budget, and shares the Hugging Face cache. Stop the
-resident model services before the first combined load so unified memory is
-released, then start the current single-Fast profile with OCR:
+explicit 2 GiB KV cache budget, and shares the Hugging Face cache. The default
+`single-fast` command starts OCR in the same Compose operation as Fast,
+embedding, and guard:
 
 ```bash
-scripts/serve_models_compose.sh single-fast-with-ocr
+scripts/serve_models_compose.sh single-fast
 curl -fsS http://127.0.0.1:8007/v1/models
 ```
 
-Run Gateway and WebChat with the OCR adapter enabled:
+Run Gateway and WebChat with the matching OCR adapter configuration:
 
 ```bash
-docker compose \
-  --env-file docker/env/sparkclaw.single-fast.env \
-  --env-file docker/env/sparkclaw.ocr.env \
-  -f docker/compose.yaml \
-  -f docker/compose.dual-light.yaml \
-  -f docker/compose.ocr.yaml \
-  --profile models-local up -d gateway webchat
+scripts/restart_runtime_compose.sh
 ```
 
 For host-side doctor checks, keep the Compose service URL for Gateway and
@@ -344,13 +349,14 @@ set +a
 SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 scripts/doctor.sh
 ```
 
-OCR is opt-in. Selected Office/PDF images receive bounded OCR Markdown;
-scanned PDF pages invoke it automatically. Page rendering is limited to eight
-pages, 4 MiB per rendered page, and 16 MiB total per PDF read. A disabled,
+OCR is enabled in the current single-Fast product runtime. Selected Office/PDF
+images receive bounded OCR Markdown; scanned PDF pages invoke it automatically.
+Page rendering is limited to eight pages, 4 MiB per rendered page, and 16 MiB
+total per PDF read. A disabled,
 busy, timed-out, malformed, or incomplete OCR response is reported as partial
-evidence. Combined startup on the GB10 has been validated with the
-stop-and-reload procedure above; adding OCR to the already-resident stack failed during
-CUDA initialization. Keep the explicit 2 GiB KV cache: utilization-based
+evidence. Combined startup on the GB10 has been validated after stopping all
+resident model services and invoking the joint startup; adding OCR alone to the
+already-resident stack failed during CUDA initialization. Keep the explicit 2 GiB KV cache: utilization-based
 allocation alone produced a negative available-cache calculation. One
 concurrent image and scanned-PDF smoke call completed successfully, but it is
 not an OCR quality baseline; broader document measurements are still required.
@@ -433,9 +439,10 @@ scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-This applies `docker/env/sparkclaw.single-fast.env` and the bounded Fast and
-auxiliary settings from `docker/compose.dual-light.yaml`. Only Fast, embedding,
-and guard start. Gateway sends both logical chat profiles to `sparkclaw-fast`.
+This applies the single-Fast and OCR environments plus the bounded service
+settings from `docker/compose.dual-light.yaml` and `docker/compose.ocr.yaml`.
+Fast, embedding, guard, and OCR start together. Gateway sends both logical chat
+profiles to `sparkclaw-fast` and uses `sparkclaw-ocr` for document OCR.
 
 Historical light dual-residency experiment:
 

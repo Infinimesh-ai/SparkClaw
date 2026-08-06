@@ -27,7 +27,7 @@
       "serialized_active_generation": true
     },
     "dgx-spark-single-fast-v1": {
-      "description": "Current single-GB10 product profile: one Fast chat model plus embedding and guard; the logical Deep workflow profile aliases the Fast endpoint.",
+      "description": "Current single-GB10 product profile: one Fast chat model plus embedding, guard and the OvisOCR2 document adapter; the logical Deep workflow profile aliases the Fast endpoint.",
       "fast": {
         "model": "Qwen/Qwen3.6-35B-A3B-FP8",
         "served_name": "sparkclaw-fast",
@@ -48,7 +48,7 @@
         "context_tokens": 8192,
         "kv_cache_memory_bytes": "2G",
         "gpu_memory_utilization": 0.06,
-        "max_num_seqs": 1
+        "max_num_seqs": 128
       },
       "guard": {
         "model": "Qwen/Qwen3Guard-Gen-0.6B",
@@ -59,7 +59,7 @@
         "max_num_seqs": 1,
         "max_tokens": 128
       },
-      "optional_ocr": {
+      "ocr": {
         "model": "ATH-MaaS/OvisOCR2",
         "served_name": "sparkclaw-ocr",
         "context_tokens": 32768,

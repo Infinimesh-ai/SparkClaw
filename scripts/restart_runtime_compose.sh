@@ -7,6 +7,8 @@ cd "$ROOT"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.single-fast.env}"
 COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
+OCR_ENV="docker/env/sparkclaw.ocr.env"
+OCR_COMPOSE_FILE="docker/compose.ocr.yaml"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
 GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18789/readyz}"
 services=("$@")
@@ -34,6 +36,10 @@ done
 
 if [[ ! -f "$RUNTIME_ENV" ]]; then
   echo "runtime env file not found: $RUNTIME_ENV" >&2
+  exit 1
+fi
+if [[ ! -f "$OCR_ENV" || ! -f "$OCR_COMPOSE_FILE" ]]; then
+  echo "OCR runtime files not found: $OCR_ENV or $OCR_COMPOSE_FILE" >&2
   exit 1
 fi
 
@@ -74,7 +80,8 @@ compose_args=(compose)
 if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
 fi
-compose_args+=(--env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE")
+compose_args+=(--env-file "$RUNTIME_ENV" --env-file "$OCR_ENV")
+compose_args+=(-f "$COMPOSE_FILE" -f "$OCR_COMPOSE_FILE")
 if [[ "$visible_browser" == true ]]; then
   compose_args+=(-f docker/compose.visible-browser.yaml)
 fi

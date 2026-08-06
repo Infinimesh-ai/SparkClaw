@@ -52,14 +52,14 @@ runtime or platform-specific toolchain directory.
 npm run setup:host
 ```
 
-Rebuild and restart the current external-model/PostgreSQL development runtime:
+Rebuild and restart the current external-model/OCR/PostgreSQL development runtime:
 
 ```bash
 npm run dev
 ```
 
 To rebuild only one application container, use `npm run dev:gateway` or
-`npm run dev:webchat`. These commands preserve the external/PostgreSQL
+`npm run dev:webchat`. These commands preserve the external/OCR/PostgreSQL
 environment and verify Gateway readiness.
 
 Direct host processes are retained only for isolated mock/file and Vite

@@ -4,7 +4,7 @@
 
 本文记录 SparkClaw 在 DGX Spark 级硬件上的模型加载策略。它补充 [模型基线](../benchmarks/model_baseline.md) 中的实测证据，以及 [部署文档](deployment.md) 中的运行步骤。
 
-简短结论：当前单机产品 runtime 只加载响应快的 `fast` MoE chat 模型，并常驻 embedding 与 guard。逻辑 Deep Workflow profile 暂时别名到 Fast endpoint，因此不会启动 Deep 模型进程。历史 Deep 与双常驻实测继续保留给后续评估，但不再是当前启动策略。
+简短结论：当前单机产品 runtime 会同时加载响应快的 `fast` MoE chat 模型、embedding、guard 与 OvisOCR2 文档适配器。逻辑 Deep Workflow profile 暂时别名到 Fast endpoint，因此不会启动 Deep 模型进程。历史 Deep 与双常驻实测继续保留给后续评估，但不再是当前启动策略。
 
 ## 当前基线
 
@@ -28,6 +28,8 @@
 - 产品启动路径不启动 `sparkclaw-deep` 容器。
 - embedding 和专用 guard 保持小型并在产品 profile 中常驻。Embedding 构建 semantic
   routing index 并为请求评分；guard 在 routing 或 tool execution 前审核 owner prompt。
+- OvisOCR2 作为文档适配器保持常驻。它不是 Model Router lane，只为选中的文档图片提供
+  有界且不可信的文本证据。
 
 单机阶段的性能项保持保守：
 
@@ -45,16 +47,21 @@
 - Profile 元数据：`configs/model.profiles.json`
 - 启动快捷方式：`scripts/serve_models_compose.sh single-fast`
 
-快捷方式会先停止此前运行的 Deep 容器，再只启动 Fast、embedding 和 guard。随后运行
-`scripts/restart_runtime_compose.sh`；该脚本默认使用同一个单 Fast 环境。当前 Fast
+快捷方式会先停止此前运行的 Deep 容器，再通过一次 Compose 操作同时启动 Fast、embedding、
+guard 和 OCR。随后运行 `scripts/restart_runtime_compose.sh`；该脚本默认使用单 Fast 与 OCR
+环境。当前 Fast
 容量仍保持在已实际运行过的 32K context 与 8 GiB KV cache，不把 Deep 释放的内存
-直接当作未经测量的容量提升。模型启动会等待 Docker health；Guard health 在每次
-容器启动时包含一次有界的真实 chat completion，因此第一条用户审核请求不会再承担
-serving runtime 的懒初始化开销。
+直接当作未经测量的容量提升。模型启动会等待 Docker health。Fast health 会为每个模型进程
+执行一次贴近生产负载的 chat completion：当前合成输入在 Qwen3.6 上约为 3.4K token，并强制
+解码 480 token，在接收用户流量前覆盖 Tree routing 的冷路径。Guard health 保留较小的有界
+chat completion。两个 probe 都把完成 marker 绑定到模型、预热形状和当前服务进程启动时刻；
+只有该进程准确完成预热后，周期检查才改用轻量模型列表。Embedding 保持固定 2 GiB KV budget，
+但允许最多 128 条短 sequence，使 110 项语义语料能够通过一次启动请求在 20 秒索引时限内完成
+embedding。
 
-OvisOCR2 是可选 document adapter，不是第五个 Model Router lane，因此 `single-fast` 产品
-profile 默认不加载它。需要 OCR 时，`scripts/serve_models_compose.sh single-fast-with-ocr`
-通过 `docker/compose.ocr.yaml` 在端口 `8007` 增加 `ATH-MaaS/OvisOCR2`。该 overlay 固定使用
+OvisOCR2 是 document adapter，不是第五个 Model Router lane。`single-fast` 产品 profile
+会通过 `docker/compose.ocr.yaml` 在端口 `8007` 将 `ATH-MaaS/OvisOCR2` 与 Fast、embedding、
+guard 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一四模型启动的兼容别名。该 overlay 固定使用
 模型文档要求的 vLLM `0.22.1`，关闭 thinking、使用确定性生成，并由 Gateway 限制响应、并发
 和队列，同时给 OCR 分配固定 2 GiB KV cache。在 GB10 上，只有先停止已常驻的模型服务，
 再一起加载 Fast、embedding、guard 和 OCR，组合启动才验证成功；直接向已常驻栈增加 OCR

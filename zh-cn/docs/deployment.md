@@ -67,7 +67,7 @@ bash scripts/run-eval.sh
 ## Host Development Runtime
 
 已验证 DGX Spark 主机的标准开发运行态是容器化
-external-model/PostgreSQL topology：
+external-model/OCR/PostgreSQL topology：
 
 ```bash
 npm run dev
@@ -202,11 +202,12 @@ scripts/restart_runtime_compose.sh
 
 模型运行态应使用该脚本，而不是直接执行
 `docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
-`docker/env/sparkclaw.single-fast.env`，避免 Compose 退回
-`docker/env/sparkclaw.example.env` 的 `mock/file` 默认值；同一个文件还会把逻辑
-Deep profile 映射到 Fast endpoint。重启后脚本检查 `/readyz`，只有 Gateway 报告
-`model_mode=external` 且 `state_backend=postgres` 时才成功退出。需要其他 runtime
-profile 时应显式设置 `SPARKCLAW_RUNTIME_ENV`。
+`docker/env/sparkclaw.single-fast.env` 与 `docker/env/sparkclaw.ocr.env`，并叠加
+`docker/compose.ocr.yaml`。这样 Compose 不会退回
+`docker/env/sparkclaw.example.env` 的 `mock/file` 默认值，两个逻辑 chat profile 都映射到
+Fast，同时文档 OCR adapter 指向共同常驻的 OCR 服务。重启后脚本检查 `/readyz`，只有 Gateway
+报告 `model_mode=external` 且 `state_backend=postgres` 时才成功退出。需要其他 chat/runtime
+profile 时应显式设置 `SPARKCLAW_RUNTIME_ENV`；OCR 环境仍属于该产品运行态。
 
 当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
 `docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
@@ -239,22 +240,28 @@ scripts/serve_models_compose.sh all-with-asr
 ```
 
 不传参数时，`serve_models_compose.sh` 也会选择 `single-fast`。这是当前产品启动路径：
-它会停止此前运行的 Deep 容器，并使用 `docker/env/sparkclaw.single-fast.env`
-启动 Fast、embedding 和 guard。Deep 与 dual-light 命令仅作为显式测试/benchmark
-入口。命令会等待所有选中服务进入 healthy。Guard 必须先成功完成一次有界的真实
-`/chat/completions` 请求才会变为 healthy；一次性预热完成后，周期健康检查改用轻量的
-模型列表 endpoint。
+它会停止此前运行的 Deep 容器，并使用单 Fast 与 OCR 环境同时启动 Fast、embedding、
+guard 和 OCR。旧的 `single-fast-with-ocr` 名称是相同启动方式的兼容别名。Deep 与
+dual-light 命令仅作为显式测试/benchmark 入口。命令会等待所有选中服务进入 healthy。
+Fast 必须先成功完成一次贴近生产负载的有界 `/chat/completions` 请求才会变为 healthy。
+当前合成输入在 Qwen3.6 tokenizer 上约为 3.4K token，并强制解码 480 token，让启动阶段承担
+Tree routing 会遇到的长 prompt 与生成冷路径。Guard 另行执行较小的有界 completion。每个
+marker 都包含当前模型服务进程的启动时刻，因此停止并重新启动已有容器时，不能复用上一个
+进程的 readiness；一次性预热完成后，周期健康检查改用轻量模型列表 endpoint。如果四服务
+产品组中有任一服务缺失或不健康，快捷命令会先停止全部四个服务，再统一加载；Compose 配置
+hash 变化时也采用相同流程，绝不会在常驻产品组中单独增加或重建一个模型。单 Fast Embedding
+endpoint 在固定 2 GiB KV budget 下允许 128 条短 sequence，使 110 项启动索引在 20 秒时限内完成。
 
 默认 endpoints：
 
-| Lane | Served name | Endpoint |
+| Endpoint 角色 | Served name | Endpoint |
 |---|---|---|
 | fast | `sparkclaw-fast` | `http://127.0.0.1:8001/v1` |
 | deep | `sparkclaw-deep` | `http://127.0.0.1:8002/v1` |
 | embedding | `sparkclaw-embedding` | `http://127.0.0.1:8003/v1` |
 | guard | `Qwen/Qwen3Guard-Gen-0.6B` | `http://127.0.0.1:8005/v1` |
 | asr | `sparkclaw-asr` | `http://127.0.0.1:8006` |
-| 可选 OCR | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
+| OCR adapter | `sparkclaw-ocr` | `http://127.0.0.1:8007/v1` |
 
 检查 endpoints：
 
@@ -307,30 +314,24 @@ Gateway 会记录 `mock=true` 并使用本地 heuristic fallback。Compose 最�
 
 ### OvisOCR2 文档 OCR
 
-可选 document OCR adapter 通过 OpenAI-compatible vLLM chat-completions endpoint 使用
+document OCR adapter 通过 OpenAI-compatible vLLM chat-completions endpoint 使用
 [`ATH-MaaS/OvisOCR2`](https://huggingface.co/ATH-MaaS/OvisOCR2)，把 page image 按自然阅读
 顺序解析为 Markdown，并保留公式和表格。Fast 仍负责 visual semantic 和 Workflow 推理；
 OCR 输出是不可信文档证据，不能选择 model lane 或授权 edit。
 
 overlay 固定 vLLM `0.22.1`，只在 loopback 暴露 `8007`，使用显式 2 GiB KV cache budget，
-并复用 Hugging Face cache。首次组合加载前先停止常驻模型服务以释放 unified memory，
-再启动当前单 Fast profile 并带 OCR：
+并复用 Hugging Face cache。默认 `single-fast` 命令通过同一次 Compose 操作同时启动 OCR、
+Fast、embedding 与 guard：
 
 ```bash
-scripts/serve_models_compose.sh single-fast-with-ocr
+scripts/serve_models_compose.sh single-fast
 curl -fsS http://127.0.0.1:8007/v1/models
 ```
 
-启动启用 OCR adapter 的 Gateway 和 WebChat：
+使用匹配的 OCR adapter 配置启动 Gateway 和 WebChat：
 
 ```bash
-docker compose \
-  --env-file docker/env/sparkclaw.single-fast.env \
-  --env-file docker/env/sparkclaw.ocr.env \
-  -f docker/compose.yaml \
-  -f docker/compose.dual-light.yaml \
-  -f docker/compose.ocr.yaml \
-  --profile models-local up -d gateway webchat
+scripts/restart_runtime_compose.sh
 ```
 
 host 侧 doctor 保留 Gateway 使用的 Compose service URL，只覆盖检查目标：
@@ -342,10 +343,10 @@ set +a
 SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 scripts/doctor.sh
 ```
 
-OCR 默认关闭。选中的 Office/PDF 图片会得到有界 OCR Markdown；扫描 PDF 页自动调用 OCR。
-页面栅格化限制为八页、单页 4 MiB、每次 PDF 读取总计 16 MiB。adapter 关闭、busy、timeout、
-返回 malformed 或 incomplete 时都会明确报告 partial evidence。GB10 上已经按上述“先停止、
-再一起加载”的流程验证组合启动；直接向已常驻栈增加 OCR 会在 CUDA 初始化阶段失败。必须保留
+当前单 Fast 产品运行态默认启用 OCR。选中的 Office/PDF 图片会得到有界 OCR Markdown；扫描 PDF
+页自动调用 OCR。页面栅格化限制为八页、单页 4 MiB、每次 PDF 读取总计 16 MiB。adapter 关闭、busy、timeout、
+返回 malformed 或 incomplete 时都会明确报告 partial evidence。GB10 上已经验证先停止全部
+常驻模型、再执行统一启动的组合路径；向已常驻栈单独增加 OCR 会在 CUDA 初始化阶段失败。必须保留
 显式 2 GiB KV cache，仅依赖 utilization 分配会得到负数的可用 cache 计算结果。一次并发图片
 与扫描 PDF 冒烟调用已成功，但它不是 OCR 质量基线，仍需覆盖更多真实文档的质量测量。
 
@@ -427,9 +428,9 @@ scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-该命令应用 `docker/env/sparkclaw.single-fast.env`，并复用
-`docker/compose.dual-light.yaml` 中有界的 Fast 与辅助模型设置；只启动 Fast、
-embedding 和 guard，Gateway 的两个逻辑 chat profiles 都发送到 `sparkclaw-fast`。
+该命令应用单 Fast 与 OCR 环境，并复用 `docker/compose.dual-light.yaml` 和
+`docker/compose.ocr.yaml` 中有界的服务设置；Fast、embedding、guard 与 OCR 一起启动，
+Gateway 的两个逻辑 chat profiles 都发送到 `sparkclaw-fast`，文档 OCR 使用 `sparkclaw-ocr`。
 
 历史轻量双常驻实验：
 

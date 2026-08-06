@@ -4,7 +4,7 @@
 
 This document records the current model-loading strategy for SparkClaw on DGX Spark-class hardware. It complements the measured endpoint evidence in [Model baseline](../benchmarks/model_baseline.md) and the operational steps in [Deployment](deployment.md).
 
-The short version: the current single-machine product runtime loads only the responsive `fast` MoE chat model, plus embedding and guard. The logical Deep Workflow profile is temporarily aliased to the Fast endpoint, so no Deep model process starts. Historical Deep and dual-residency measurements remain below for future evaluation; they are not the current startup policy.
+The short version: the current single-machine product runtime loads the responsive `fast` MoE chat model together with embedding, guard, and the OvisOCR2 document adapter. The logical Deep Workflow profile is temporarily aliased to the Fast endpoint, so no Deep model process starts. Historical Deep and dual-residency measurements remain below for future evaluation; they are not the current startup policy.
 
 ## Current Baseline
 
@@ -29,6 +29,8 @@ Default single-machine operation uses the `single-fast-v1` profile:
 - Keep embedding and the dedicated guard small but resident in the product
   profile. Embedding builds the semantic routing index and scores each request;
   guard moderates the owner prompt before routing or tool execution.
+- Keep OvisOCR2 resident as a document adapter. It is not a Model Router lane;
+  it supplies bounded, untrusted text evidence for selected document images.
 
 Single-machine performance features are intentionally conservative:
 
@@ -46,19 +48,26 @@ The current profile is implemented as `dgx-spark-single-fast-v1`:
 - Profile metadata: `configs/model.profiles.json`
 - Startup shortcut: `scripts/serve_models_compose.sh single-fast`
 
-The shortcut first stops a previously running Deep container, then starts only
-Fast, embedding, and guard. Run `scripts/restart_runtime_compose.sh` afterward;
-it uses the same single-Fast environment by default. The current Fast capacity
+The shortcut first stops a previously running Deep container, then starts Fast,
+embedding, guard, and OCR in one Compose operation. Run
+`scripts/restart_runtime_compose.sh` afterward; it uses the single-Fast and OCR
+environments by default. The current Fast capacity
 remains at the previously exercised 32K context and 8 GiB KV cache rather than
 claiming an unmeasured capacity increase from the memory freed by Deep. Model
-startup waits for Docker health. Guard health includes one real bounded chat
-completion per container start, so its first user moderation request does not
-pay the serving runtime's lazy-initialization cost.
+startup waits for Docker health. Fast health includes one production-shaped
+chat completion per model process: the current synthetic input is about 3.4K
+tokens on Qwen3.6 and forces a 480-token decode, covering the Tree-routing cold
+path before user traffic is admitted. Guard health retains its smaller bounded
+chat completion. Both probes bind their completion marker to the model, warmup
+shape, and current server-process start time; periodic checks use the lightweight
+model listing only after that exact process is warm. Embedding keeps the fixed
+2 GiB KV budget but admits up to 128 short sequences so the 110-entry semantic
+corpus can be embedded as one startup request within the 20-second index bound.
 
-OvisOCR2 is an optional document adapter, not a fifth Model Router lane. The
-`single-fast` product profile therefore leaves it unloaded. When OCR is needed,
-`scripts/serve_models_compose.sh single-fast-with-ocr` adds
-`ATH-MaaS/OvisOCR2` through `docker/compose.ocr.yaml` on port `8007`. That
+OvisOCR2 is a document adapter, not a fifth Model Router lane. The `single-fast`
+product profile loads `ATH-MaaS/OvisOCR2` with Fast, embedding, and guard through
+`docker/compose.ocr.yaml` on port `8007`. The older `single-fast-with-ocr`
+command remains an alias for the same four-model startup. That
 overlay pins the model's documented vLLM `0.22.1` runtime, disables thinking,
 uses deterministic generation, assigns a fixed 2 GiB KV cache, and keeps
 response, concurrency, and queue limits in Gateway. On the GB10, combined

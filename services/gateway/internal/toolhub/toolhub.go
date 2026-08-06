@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -34,7 +35,7 @@ import (
 type ToolHub struct {
 	cfg         config.Config
 	store       store.Store
-	defs        map[string]app.ToolDefinition
+	registry    *runtimeToolRegistry
 	models      modelrouter.Router
 	runner      sandbox.Runner
 	artifacts   artifact.Store
@@ -45,6 +46,27 @@ type ToolHub struct {
 	ocr         documentocr.Adapter
 	ocrRuntime  *documentOCRRuntime
 	documents   *document.Pipeline
+}
+
+type runtimeToolRegistry struct {
+	mu          sync.RWMutex
+	defs        map[string]app.ToolDefinition
+	executors   map[string]toolExecutor
+	origins     map[string]DynamicToolOrigin
+	sourceNames map[string]map[string]struct{}
+}
+
+type DynamicToolExecutor func(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error)
+
+type DynamicToolRegistration struct {
+	Definition app.ToolDefinition
+	RemoteName string
+	Execute    DynamicToolExecutor
+}
+
+type DynamicToolOrigin struct {
+	Source     string `json:"source"`
+	RemoteName string `json:"remote_name"`
 }
 
 type Result struct {
@@ -80,9 +102,14 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		ocrAdapter = documentocr.Disabled()
 	}
 	h := &ToolHub{
-		cfg:         cfg,
-		store:       st,
-		defs:        map[string]app.ToolDefinition{},
+		cfg:   cfg,
+		store: st,
+		registry: &runtimeToolRegistry{
+			defs:        map[string]app.ToolDefinition{},
+			executors:   map[string]toolExecutor{},
+			origins:     map[string]DynamicToolOrigin{},
+			sourceNames: map[string]map[string]struct{}{},
+		},
 		models:      modelrouter.New(cfg),
 		runner:      sandbox.NewRunner(cfg),
 		artifacts:   artifact.NewStore(cfg.Storage),
@@ -107,7 +134,8 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		def.Capabilities = append([]app.CapabilityDescriptor(nil), reg.capabilities...)
 		def.OutcomeAdapter = reg.outcomeAdapter
 		def.Directory = reg.directory
-		h.defs[def.Name] = def
+		h.registry.defs[def.Name] = def
+		h.registry.executors[def.Name] = reg.run
 	}
 	return h
 }
@@ -168,8 +196,10 @@ func (h *ToolHub) DocumentMetrics() []string {
 }
 
 func (h *ToolHub) Definitions() []app.ToolDefinition {
-	defs := make([]app.ToolDefinition, 0, len(h.defs))
-	for _, def := range h.defs {
+	h.registry.mu.RLock()
+	defer h.registry.mu.RUnlock()
+	defs := make([]app.ToolDefinition, 0, len(h.registry.defs))
+	for _, def := range h.registry.defs {
 		defs = append(defs, def)
 	}
 	slices.SortFunc(defs, func(a, b app.ToolDefinition) int {
@@ -179,8 +209,89 @@ func (h *ToolHub) Definitions() []app.ToolDefinition {
 }
 
 func (h *ToolHub) Definition(name string) (app.ToolDefinition, bool) {
-	def, ok := h.defs[name]
+	h.registry.mu.RLock()
+	defer h.registry.mu.RUnlock()
+	def, ok := h.registry.defs[name]
 	return def, ok
+}
+
+// ReplaceDynamicTools atomically replaces every tool owned by source. A
+// dynamic tool can replace an earlier definition from the same source, but it
+// can never shadow a static tool or a tool owned by another source.
+func (h *ToolHub) ReplaceDynamicTools(source string, registrations []DynamicToolRegistration) error {
+	if h == nil || h.registry == nil {
+		return errors.New("tool registry is unavailable")
+	}
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return errors.New("dynamic tool source is required")
+	}
+	prepared := make(map[string]DynamicToolRegistration, len(registrations))
+	for _, registration := range registrations {
+		name := strings.TrimSpace(registration.Definition.Name)
+		remoteName := strings.TrimSpace(registration.RemoteName)
+		if name == "" || remoteName == "" {
+			return errors.New("dynamic tool local and remote names are required")
+		}
+		if registration.Execute == nil {
+			return fmt.Errorf("dynamic tool %q has no executor", name)
+		}
+		if registration.Definition.InputSchema == nil {
+			return fmt.Errorf("dynamic tool %q has no input schema", name)
+		}
+		if _, exists := prepared[name]; exists {
+			return fmt.Errorf("dynamic tool %q is registered more than once by %q", name, source)
+		}
+		registration.Definition.Name = name
+		registration.RemoteName = remoteName
+		prepared[name] = registration
+	}
+
+	h.registry.mu.Lock()
+	defer h.registry.mu.Unlock()
+	owned := h.registry.sourceNames[source]
+	for name := range prepared {
+		if origin, dynamic := h.registry.origins[name]; dynamic {
+			if origin.Source != source {
+				return fmt.Errorf("dynamic tool %q is already owned by source %q", name, origin.Source)
+			}
+			continue
+		}
+		if _, exists := h.registry.defs[name]; exists {
+			return fmt.Errorf("dynamic tool %q conflicts with a static tool", name)
+		}
+	}
+	for name := range owned {
+		delete(h.registry.defs, name)
+		delete(h.registry.executors, name)
+		delete(h.registry.origins, name)
+	}
+	names := make(map[string]struct{}, len(prepared))
+	for name, registration := range prepared {
+		registration := registration
+		h.registry.defs[name] = registration.Definition
+		h.registry.executors[name] = func(_ *ToolHub, ctx context.Context, _ string, args map[string]any, sessionID, runID string) (Result, error) {
+			return registration.Execute(ctx, args, sessionID, runID)
+		}
+		h.registry.origins[name] = DynamicToolOrigin{Source: source, RemoteName: registration.RemoteName}
+		names[name] = struct{}{}
+	}
+	if len(names) == 0 {
+		delete(h.registry.sourceNames, source)
+	} else {
+		h.registry.sourceNames[source] = names
+	}
+	return nil
+}
+
+func (h *ToolHub) DynamicToolOrigin(name string) (DynamicToolOrigin, bool) {
+	if h == nil || h.registry == nil {
+		return DynamicToolOrigin{}, false
+	}
+	h.registry.mu.RLock()
+	defer h.registry.mu.RUnlock()
+	origin, ok := h.registry.origins[name]
+	return origin, ok
 }
 
 func (h *ToolHub) Config() config.Config {
@@ -224,7 +335,7 @@ func containsPathRoot(roots []string, root string) bool {
 }
 
 func (h *ToolHub) Validate(name string, args map[string]any) error {
-	def, ok := h.defs[name]
+	def, ok := h.Definition(name)
 	if !ok {
 		return fmt.Errorf("tool %q not found", name)
 	}
@@ -232,7 +343,7 @@ func (h *ToolHub) Validate(name string, args map[string]any) error {
 }
 
 func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any, sessionID, runID string) (Result, error) {
-	def, ok := h.defs[name]
+	def, ok := h.Definition(name)
 	if !ok {
 		return Result{}, fmt.Errorf("tool %q not found", name)
 	}
@@ -240,11 +351,13 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 		return Result{}, err
 	}
 	h = h.forSession(sessionID)
-	reg, ok := toolRegistry[name]
+	h.registry.mu.RLock()
+	executor, ok := h.registry.executors[name]
+	h.registry.mu.RUnlock()
 	if !ok {
 		return Result{}, fmt.Errorf("tool %q has no executor in MVP", name)
 	}
-	result, err := reg.run(h, ctx, name, args, sessionID, runID)
+	result, err := executor(h, ctx, name, args, sessionID, runID)
 	if err != nil {
 		return result, err
 	}

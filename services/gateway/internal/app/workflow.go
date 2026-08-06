@@ -163,6 +163,7 @@ const (
 	ToolCapabilityWebDiscovery              = "web.discovery"
 	ToolCapabilityInfoQuestion              = "info.question.read"
 	ToolCapabilityWeatherRender             = "weather.card.render"
+	ToolCapabilityMCPExternal               = "mcp.external"
 	ToolCapabilityBrowserListTabs           = "browser.tab.list"
 	ToolCapabilityBrowserFocus              = "browser.tab.focus"
 	ToolCapabilityBrowserOpen               = "browser.tab.open"

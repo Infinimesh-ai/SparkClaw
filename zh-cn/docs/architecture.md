@@ -19,7 +19,7 @@ agent runtime。当前产品表面包括：
 - 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
 - 可选 Happy Team 任务与个人 bridge MCP 接入，并把 supervised plan 决议同步到持久化人工
   审批收件箱；
-- 可选、按 workspace 限定的 LocalMind MCP 接入；
+- 可选、按 workspace 限定的 LocalMind MCP 接入和被动 ISCP 提及收件箱；
 - trace、artifact、eval、Policy、approval、auth 和 durable state。
 
 准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。邮件、日历和内置 workspace
@@ -69,8 +69,8 @@ binary 中。Compose 分离 WebChat、Gateway、sandbox、Postgres、MinIO 和�
 ### WebChat
 
 WebChat 是 owner 工作台，展示 chat、schedule、direct delivery、connector activation/binding、
-tool、approval、memory、trace、artifact、eval 和 runtime setting。它发送 typed action，但不
-决定 route、Policy 或 delivery。见 [WebChat](webchat.md)。
+tool、approval、被动协作通知、memory、trace、artifact、eval 和 runtime setting。它发送
+typed action，但不决定 route、Policy 或 delivery。见 [WebChat](webchat.md)。
 
 ### Gateway 与 Message Plane
 
@@ -193,19 +193,26 @@ manager 每次刷新都重新解析环境 credential，校验固定 server ident
 不可信 observation/artifact 路径。Policy 把远端 write 视为 remote effect：保留 SparkClaw
 approval，但不声称在本地 sandbox 执行。
 
+反向方向使用 ISCP：通过认证的 LocalMind peer 可通过
+`agent.notification.deliver.v1` 提交结构化提及。Gateway 校验不可信 deep link，并在确认前
+按 peer 和 idempotency key 持久去重。这条被动路径进入 owner-scoped 全局 WebChat 收件箱与
+SSE stream，不创建 conversation 或 Agent Runtime state。旧的 session/message 请求对继续作为
+兼容 fallback。
+
 Telegram、微信、speech、Infinimesh Info 和 LocalMind 是共享 connector、delivery、
 transcription、search 或 MCP contract 后的可选 adapter。见[外部集成](integrations.md)。
 
-JingSi App 通过独立部署的 [ISCP Bridge](iscp-bridge.md) 接入。Bridge 终止 ISCP transport，
-并调用一个带认证的 loopback Gateway API；session state、execution、Policy、approval、event
-cursor 和 audit 仍由 Gateway 负责。
+JingSi App 与 LocalMind 通过独立部署的 [ISCP Bridge](iscp-bridge.md) 接入。Bridge 终止 ISCP
+transport，并调用一个 loopback Gateway API；session state、execution、Policy、approval、
+被动通知、event cursor 和 audit 仍由 Gateway 负责。Gateway 启用 auth 时要求 bearer；默认
+无 auth Gateway 也只接受 loopback Bridge dispatch。
 
 ## State 与 Artifact
 
 Store interface 负责 session、message、Agent run、route/fusion evidence、Workflow state、
 tool/model call、持久文档记录与谱系、approval、schedule、endpoint、delivery、connector
-binding、connector setting、inbox、memory、eval 和 audit event。memory、file snapshot 和
-PostgreSQL 后端实现相同的 durable state contract。
+binding、connector setting、inbox、被动通知及 read state、memory、eval 和 audit event。
+memory、file snapshot 和 PostgreSQL 后端实现相同的 durable state contract。
 
 Artifact 保存大型或可检查输出，例如 tool observation、browser evidence、generated
 document/media、可替换的文档解析 observation、memory export、rollback file 和 eval failure
@@ -234,7 +241,8 @@ audio 不是 artifact。
 - `ToolCall`、`ToolOutcome`、`Approval`；
 - `DocumentRecord`；
 - `MessageEndpoint`、`MessageSchedule`、`DeliveryRequest`、`DeliveryReceipt`；
-- `ConnectorSetting`、`ConnectorStatus`、`NotificationBinding`；
+- `ConnectorSetting`、`ConnectorStatus`、`NotificationBinding`、
+  `PassiveNotification`；
 - `ArtifactObject`、trace、audit event 和 model call。
 
 Provider/UI 通过 owner package 和 public projection 消费这些契约，不能维护竞争 literal map 或重复 Store。

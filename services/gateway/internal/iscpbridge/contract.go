@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -23,6 +25,7 @@ const (
 	TypeSessionCreate        = "agent.session.create.v1"
 	TypeMessageSend          = "agent.message.send.v1"
 	TypeMessageCancel        = "agent.message.cancel.v1"
+	TypeNotificationDeliver  = "agent.notification.deliver.v1"
 	TypeEvent                = "agent.event.v1"
 	TypeEventResume          = "agent.event.resume.v1"
 	TypeApprovalList         = "agent.approval.list.v1"
@@ -51,6 +54,7 @@ var supportedRequestTypes = map[string]struct{}{
 	TypeSessionCreate:        {},
 	TypeMessageSend:          {},
 	TypeMessageCancel:        {},
+	TypeNotificationDeliver:  {},
 	TypeEventResume:          {},
 	TypeApprovalList:         {},
 	TypeApprovalResolve:      {},
@@ -58,10 +62,11 @@ var supportedRequestTypes = map[string]struct{}{
 }
 
 var mutationRequestTypes = map[string]struct{}{
-	TypeSessionCreate:   {},
-	TypeMessageSend:     {},
-	TypeMessageCancel:   {},
-	TypeApprovalResolve: {},
+	TypeSessionCreate:       {},
+	TypeMessageSend:         {},
+	TypeMessageCancel:       {},
+	TypeNotificationDeliver: {},
+	TypeApprovalResolve:     {},
 }
 
 type Request struct {
@@ -149,6 +154,7 @@ func DefaultManifest() Manifest {
 			{ID: "agent.streaming", Version: 1},
 			{ID: "agent.activities", Version: 1},
 			{ID: "agent.approvals", Version: 1},
+			{ID: "agent.notifications", Version: 1},
 		},
 	}
 }
@@ -239,4 +245,28 @@ func requestFingerprint(req Request) string {
 		payload = canonicalPayload
 	}
 	return stableID("fp", req.Type, req.SessionID, string(payload))
+}
+
+func validateNotificationDeepLink(raw string) error {
+	if len(raw) == 0 || len(raw) > 2048 || raw != strings.TrimSpace(raw) {
+		return errors.New("deep_link is required and must not exceed 2048 bytes")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || !parsed.IsAbs() || parsed.Hostname() == "" {
+		return errors.New("deep_link must be an absolute URL")
+	}
+	if parsed.User != nil {
+		return errors.New("deep_link must not contain credentials")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		host := strings.ToLower(parsed.Hostname())
+		ip := net.ParseIP(host)
+		if host == "localhost" || (ip != nil && ip.IsLoopback()) {
+			return nil
+		}
+	}
+	return errors.New("deep_link must use HTTPS, except for loopback development URLs")
 }

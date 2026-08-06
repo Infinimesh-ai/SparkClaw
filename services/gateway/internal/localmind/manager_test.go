@@ -11,10 +11,29 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
+
+func TestValidateCapabilityToolsIgnoresDiscoveryToolOnEitherSide(t *testing.T) {
+	discovered := []mcpclient.DiscoveredTool{
+		{RemoteName: discoveryRemoteName},
+		{RemoteName: "keyword_search"},
+	}
+	for _, reported := range [][]string{
+		{"keyword_search"},
+		{discoveryRemoteName, "keyword_search"},
+	} {
+		if err := validateCapabilityTools(discovered, reported); err != nil {
+			t.Fatalf("equivalent capability tools were rejected: %v", err)
+		}
+	}
+	if err := validateCapabilityTools(discovered, []string{"read_document"}); err == nil {
+		t.Fatal("different capability tools were accepted")
+	}
+}
 
 func TestRefreshRegistersScopedLocalMindToolsAndResources(t *testing.T) {
 	fake := newFakeLocalMind(t)

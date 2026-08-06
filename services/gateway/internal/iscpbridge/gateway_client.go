@@ -39,9 +39,6 @@ func NewGatewayClient(options GatewayClientOptions) (*GatewayClient, error) {
 		baseURL = defaultGatewayURL
 	}
 	token := strings.TrimSpace(options.Token)
-	if token == "" {
-		return nil, errors.New("Gateway bearer token is required")
-	}
 	timeout := options.Timeout
 	if timeout <= 0 {
 		timeout = defaultGatewayTimeout
@@ -72,7 +69,9 @@ func (c *GatewayClient) Dispatch(ctx context.Context, request Request) (Response
 	if err != nil {
 		return Response{}, fmt.Errorf("create Gateway request: %w", err)
 	}
-	httpRequest.Header.Set("Authorization", "Bearer "+c.token)
+	if c.token != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	response, err := c.client.Do(httpRequest)
 	if err != nil {

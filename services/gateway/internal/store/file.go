@@ -50,6 +50,7 @@ type Snapshot struct {
 	ReminderDelivery     map[string]app.ReminderDelivery      `json:"reminder_delivery"`
 	ConnectorSettings    map[string]app.ConnectorSetting      `json:"connector_settings,omitempty"`
 	NotificationBindings map[string]app.NotificationBinding   `json:"notification_bindings"`
+	PassiveNotifications map[string]app.PassiveNotification   `json:"passive_notifications,omitempty"`
 	ExternalChatSessions map[string]app.ExternalChatSession   `json:"external_chat_sessions,omitempty"`
 	ExternalChatMessages map[string]app.ExternalChatMessage   `json:"external_chat_messages,omitempty"`
 	MessageReceives      map[string]app.MessageReceiveRecord  `json:"message_receives,omitempty"`
@@ -393,6 +394,45 @@ func (s *FileStore) RevokeNotificationBinding(id string) (app.NotificationBindin
 	return out, err
 }
 
+func (s *FileStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
+	out, created, err := s.inner.CreatePassiveNotification(notification)
+	if err != nil {
+		return out, created, err
+	}
+	if err := s.persistSnapshot(); err != nil {
+		return app.PassiveNotification{}, false, err
+	}
+	return out, created, nil
+}
+
+func (s *FileStore) GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool) {
+	return s.inner.GetPassiveNotification(ownerID, id)
+}
+
+func (s *FileStore) ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification {
+	return s.inner.ListPassiveNotifications(ownerID, after, limit)
+}
+
+func (s *FileStore) CountUnreadPassiveNotifications(ownerID string) int {
+	return s.inner.CountUnreadPassiveNotifications(ownerID)
+}
+
+func (s *FileStore) MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
+	out, err := s.inner.MarkPassiveNotificationRead(ownerID, id, readAt)
+	if err == nil {
+		err = s.persistSnapshot()
+	}
+	return out, err
+}
+
+func (s *FileStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error) {
+	count, err := s.inner.MarkAllPassiveNotificationsRead(ownerID, readAt)
+	if err == nil && count > 0 {
+		err = s.persistSnapshot()
+	}
+	return count, err
+}
+
 func (s *FileStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {
 	out := s.inner.SaveExternalChatSession(session)
 	s.persist()
@@ -648,30 +688,34 @@ func (s *FileStore) ListEpisodeSummaries(sessionID string) []app.EpisodeSummary 
 }
 
 func (s *FileStore) persist() {
+	_ = s.persistSnapshot()
+}
+
+func (s *FileStore) persistSnapshot() error {
 	if s.path == "" {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snapshot := s.inner.snapshot()
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
 	if s.encryption != nil {
 		raw, err = s.encryption.encrypt(raw)
 		if err != nil {
-			return
+			return err
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return
+		return err
 	}
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return
+		return err
 	}
-	_ = os.Rename(tmp, s.path)
+	return os.Rename(tmp, s.path)
 }
 
 type encryptedSnapshot struct {

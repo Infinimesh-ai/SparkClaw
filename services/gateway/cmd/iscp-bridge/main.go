@@ -137,6 +137,9 @@ func createEnrollmentRequest(args []string) error {
 	hardwareClass := flags.String("hardware", "gb10", "hardware class metadata")
 	keyBackend := flags.String("key-backend", iscpbridge.IdentityKeyBackendKeyring, "identity key backend: keyring or file")
 	keyringService := flags.String("keyring-service", iscpbridge.DefaultIdentityKeyringService, "system keyring service name")
+	proofAudience := flags.String("proof-audience", "", "expected enrollment proof audience")
+	proofChallenge := flags.String("proof-challenge", "", "short-lived server enrollment challenge")
+	proofNonce := flags.String("proof-nonce", "", "optional unique proof nonce")
 	output := flags.String("output", "", "optional enrollment request JSON path")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -144,8 +147,10 @@ func createEnrollmentRequest(args []string) error {
 	if *identityDirectory == "" {
 		return errors.New("-identity-dir is required")
 	}
-	request, files, err := iscpbridge.GenerateEnrollmentRequestWithKeyBackend(
-		*identityDirectory, *domainID, *deviceID, *hardwareClass, *keyBackend, *keyringService, time.Now().UTC(),
+	request, files, err := iscpbridge.GenerateEnrollmentRequestWithProof(
+		*identityDirectory, *domainID, *deviceID, *hardwareClass, *keyBackend, *keyringService,
+		iscpbridge.EnrollmentProofOptions{Audience: *proofAudience, Challenge: *proofChallenge, Nonce: *proofNonce},
+		time.Now().UTC(),
 	)
 	if err != nil {
 		return err

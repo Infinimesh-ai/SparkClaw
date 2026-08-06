@@ -10,6 +10,8 @@ import (
 var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
 var ErrBrowserHandoffConflict = errors.New("browser handoff changed or is no longer available")
 var ErrConnectorSettingConflict = errors.New("connector setting changed")
+var ErrPassiveNotificationConflict = errors.New("notification idempotency key was reused with a different payload")
+var ErrPassiveNotificationNotFound = errors.New("notification not found")
 
 type Store interface {
 	CreateSession(title string) app.Session
@@ -68,6 +70,12 @@ type Store interface {
 	GetNotificationBinding(id string) (app.NotificationBinding, bool)
 	ListNotificationBindings(channel, status string) []app.NotificationBinding
 	RevokeNotificationBinding(id string) (app.NotificationBinding, error)
+	CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error)
+	GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool)
+	ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification
+	CountUnreadPassiveNotifications(ownerID string) int
+	MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error)
+	MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error)
 	SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession
 	GetExternalChatSession(id string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(channel, status string) []app.ExternalChatSession

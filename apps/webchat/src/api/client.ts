@@ -18,6 +18,7 @@ import type {
   ModelStreamEvent,
   ModelCall,
   NotificationBinding,
+  PassiveNotification,
   OwnerProfile,
   PublicConfig,
   ReadyStatus,
@@ -170,6 +171,28 @@ export function sessionEventsURL(sessionId: string) {
   return url.toString();
 }
 
+export async function streamPassiveNotifications(
+  after: string,
+  handlers: {
+    signal?: AbortSignal;
+    onNotification: (notification: PassiveNotification) => void;
+  }
+) {
+  const query = after ? `?after=${encodeURIComponent(after)}` : "";
+  await requestEventStream(
+    `/api/notifications/events/stream${query}`,
+    { method: "GET", signal: handlers.signal },
+    (event, rawData) => {
+      if (event !== "notification.created") return;
+      try {
+        handlers.onNotification(JSON.parse(rawData) as PassiveNotification);
+      } catch {
+        // Ignore malformed realtime data; the next list refresh remains authoritative.
+      }
+    }
+  );
+}
+
 export function workspaceScreenshotURL(path: string) {
   const name = path.split(/[\\/]/).pop() ?? "";
   const route = `/api/workspace/screenshots/${encodeURIComponent(name)}`;
@@ -254,6 +277,14 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
+  notifications: () => request<{ notifications: PassiveNotification[]; unread_count: number }>("/api/notifications"),
+  markNotificationRead: (id: string) =>
+    request<{ notification: PassiveNotification; unread_count: number }>(`/api/notifications/${encodeURIComponent(id)}/read`, {
+      method: "POST",
+      body: "{}"
+    }),
+  markAllNotificationsRead: () =>
+    request<{ updated: number; unread_count: number }>("/api/notifications/read-all", { method: "POST", body: "{}" }),
   connectors: () => request<{ connectors: ConnectorStatus[] }>("/api/connectors"),
   updateConnector: (channel: string, enabled: boolean, expectedVersion: number) =>
     request<ConnectorStatus>(`/api/connectors/${encodeURIComponent(channel)}`, {

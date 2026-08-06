@@ -76,6 +76,20 @@ type MessageCancelPayload struct {
 	OperationID string `json:"operation_id"`
 }
 
+type NotificationDeliverPayload struct {
+	NotificationID string    `json:"notification_id"`
+	Source         string    `json:"source"`
+	Kind           string    `json:"kind"`
+	DeepLink       string    `json:"deep_link"`
+	OccurredAt     time.Time `json:"occurred_at"`
+}
+
+type NotificationDeliveryResult struct {
+	ID             string `json:"id"`
+	NotificationID string `json:"notification_id"`
+	Created        bool   `json:"created"`
+}
+
 type EventResumePayload struct {
 	Cursor string `json:"cursor,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
@@ -138,6 +152,8 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 		return a.sendMessage(req, principal, now)
 	case TypeMessageCancel:
 		return a.cancelMessage(req, principal, now)
+	case TypeNotificationDeliver:
+		return a.deliverNotification(req, principal, now)
 	case TypeEventResume:
 		return a.resumeEvents(req, principal, now)
 	case TypeApprovalList:
@@ -149,6 +165,56 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 	default:
 		return newResponse(req, "error", nil, nil, bridgeError(CodeUnsupportedCapability, "unsupported request type", false), now)
 	}
+}
+
+func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, now time.Time) Response {
+	if strings.TrimSpace(req.SessionID) != "" {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "session_id is not allowed for passive notifications", false), now)
+	}
+	var payload NotificationDeliverPayload
+	if err := DecodePayload(req.Payload, &payload); err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, err.Error(), false), now)
+	}
+	payload.NotificationID = strings.TrimSpace(payload.NotificationID)
+	payload.Source = strings.TrimSpace(payload.Source)
+	payload.Kind = strings.TrimSpace(payload.Kind)
+	if payload.NotificationID == "" || len(payload.NotificationID) > 200 {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "notification_id is required and must not exceed 200 bytes", false), now)
+	}
+	if payload.Source != "localmind" {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "source must be localmind", false), now)
+	}
+	if payload.Kind != app.PassiveNotificationKindDocumentMention && payload.Kind != app.PassiveNotificationKindCommentMention {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "unsupported notification kind", false), now)
+	}
+	if err := validateNotificationDeepLink(payload.DeepLink); err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, err.Error(), false), now)
+	}
+	if payload.OccurredAt.IsZero() || payload.OccurredAt.After(now.Add(2*time.Minute)) {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "occurred_at is invalid", false), now)
+	}
+	notification, created, err := a.store.CreatePassiveNotification(app.PassiveNotification{
+		ID:             stableID("notification", req.EndpointID, req.IdempotencyKey),
+		OwnerID:        principal.OwnerID,
+		EndpointID:     req.EndpointID,
+		IdempotencyKey: req.IdempotencyKey,
+		Fingerprint:    requestFingerprint(req),
+		NotificationID: payload.NotificationID,
+		Source:         payload.Source,
+		Kind:           payload.Kind,
+		DeepLink:       payload.DeepLink,
+		OccurredAt:     payload.OccurredAt.UTC(),
+		CreatedAt:      now,
+	})
+	if errors.Is(err, store.ErrPassiveNotificationConflict) {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeConflict, err.Error(), false), now)
+	}
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "notification could not be persisted", true), now)
+	}
+	return newResponse(req, "ok", NotificationDeliveryResult{
+		ID: notification.ID, NotificationID: notification.NotificationID, Created: created,
+	}, nil, nil, now)
 }
 
 func (a *GatewayAdapter) listSessions(req Request, principal Principal, now time.Time) Response {

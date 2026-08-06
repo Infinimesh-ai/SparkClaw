@@ -57,6 +57,16 @@ export const dictionaries = {
       ready: "Ready",
       offline: "Offline"
     },
+    notifications: {
+      title: "Notifications",
+      unread: "unread",
+      empty: "No collaboration notifications.",
+      documentMention: "You were mentioned in a document.",
+      commentMention: "You were mentioned in a comment.",
+      open: "Open in LocalMind",
+      markAllRead: "Mark all as read",
+      dismiss: "Dismiss notification"
+    },
     topbar: {
       connecting: "Connecting to Gateway",
       modelMode: "model mode",
@@ -435,6 +445,16 @@ export const dictionaries = {
       memories: "记忆",
       ready: "就绪",
       offline: "离线"
+    },
+    notifications: {
+      title: "通知",
+      unread: "条未读",
+      empty: "暂无协作通知。",
+      documentMention: "你在文档中被提及。",
+      commentMention: "你在评论中被提及。",
+      open: "在 LocalMind 中打开",
+      markAllRead: "全部标为已读",
+      dismiss: "关闭通知"
     },
     topbar: {
       connecting: "正在连接 Gateway",

@@ -341,12 +341,18 @@ func parseCapabilitySnapshot(result mcpclient.ToolResult) (CapabilitySnapshot, e
 func validateCapabilityTools(discovered []mcpclient.DiscoveredTool, reported []string) error {
 	discoveredNames := make([]string, 0, len(discovered))
 	for _, tool := range discovered {
-		if tool.RemoteName != discoveryRemoteName {
+		if strings.TrimSpace(tool.RemoteName) != discoveryRemoteName {
 			discoveredNames = append(discoveredNames, tool.RemoteName)
 		}
 	}
+	reportedNames := make([]string, 0, len(reported))
+	for _, name := range reported {
+		if strings.TrimSpace(name) != discoveryRemoteName {
+			reportedNames = append(reportedNames, name)
+		}
+	}
 	discoveredNames = normalizedStrings(discoveredNames)
-	if !slices.Equal(discoveredNames, normalizedStrings(reported)) {
+	if !slices.Equal(discoveredNames, normalizedStrings(reportedNames)) {
 		return errors.New("LocalMind tools/list and capability snapshot tool names differ")
 	}
 	return nil

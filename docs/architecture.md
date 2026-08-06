@@ -21,7 +21,7 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
   Infinimesh Info evidence;
 - optional Happy Team task and personal bridge MCP access, with supervised plan
   decisions synchronized into the durable human approval inbox;
-- optional workspace-scoped LocalMind MCP access;
+- optional workspace-scoped LocalMind MCP access and passive ISCP mention inbox;
 - traces, artifacts, evals, policy, approval, auth, and durable state.
 
 The exact executable leaf set is listed in
@@ -75,9 +75,10 @@ the domain contracts.
 ### WebChat
 
 WebChat is the owner workbench. It presents chat, schedules, direct delivery,
-connector activation and bindings, tools, approvals, memories, traces,
-artifacts, evals, and runtime settings. It sends typed actions but does not
-decide routes, Policy, or delivery. See [WebChat](webchat.md).
+connector activation and bindings, tools, approvals, passive collaboration
+notifications, memories, traces, artifacts, evals, and runtime settings. It
+sends typed actions but does not decide routes, Policy, or delivery. See
+[WebChat](webchat.md).
 
 ### Gateway And Message Plane
 
@@ -246,22 +247,33 @@ failure. Resources and tool results enter the bounded untrusted observation and
 artifact path. Policy treats remote writes as remote effects: they retain
 SparkClaw approval without claiming local sandbox execution.
 
+The reverse direction uses ISCP: an authenticated LocalMind peer can submit a
+structured mention through `agent.notification.deliver.v1`. Gateway validates
+the untrusted deep link and durably deduplicates the record by peer and
+idempotency key before acknowledging it. This passive path feeds an owner-scoped
+global WebChat inbox and SSE stream without creating conversation or Agent
+Runtime state. The older session/message request pair remains available as a
+compatibility fallback.
+
 Telegram, Weixin, speech, Infinimesh Info, and LocalMind are optional adapters
 behind shared connector, delivery, transcription, search, or MCP contracts. See
 [External integrations](integrations.md).
 
-JingSi App connects through the separately deployed [ISCP Bridge](iscp-bridge.md).
-The Bridge terminates ISCP transport and calls one authenticated loopback Gateway
-API; session state, execution, Policy, approvals, event cursors, and audit remain
-owned by Gateway.
+JingSi App and LocalMind connect through the separately deployed
+[ISCP Bridge](iscp-bridge.md). The Bridge terminates ISCP transport and calls one
+loopback Gateway API; session state, execution, Policy, approvals, passive
+notifications, event cursors, and audit remain owned by Gateway. Bearer auth is
+required when Gateway auth is enabled; the default no-auth Gateway still accepts
+only loopback Bridge dispatch.
 
 ## State And Artifacts
 
 Store interfaces own sessions, messages, Agent runs, route/fusion evidence,
 Workflow state, tool/model calls, durable document records and lineage,
 approvals, schedules, endpoints, deliveries, connector bindings, inbox records,
-connector settings, memories, evals, and audit events. Memory, file snapshot,
-and PostgreSQL backends implement the same durable state contracts.
+passive notifications and read state, connector settings, memories, evals, and
+audit events. Memory, file snapshot, and PostgreSQL backends implement the same
+durable state contracts.
 
 Artifacts hold large or inspectable outputs such as tool observations, browser
 evidence, replaceable parsed-document observations, generated documents/media,
@@ -298,7 +310,8 @@ Important cross-package contracts live in `internal/app`:
 - `ToolCall`, `ToolOutcome`, `Approval`;
 - `DocumentRecord`;
 - `MessageEndpoint`, `MessageSchedule`, `DeliveryRequest`, `DeliveryReceipt`;
-- `ConnectorSetting`, `ConnectorStatus`, `NotificationBinding`;
+- `ConnectorSetting`, `ConnectorStatus`, `NotificationBinding`,
+  `PassiveNotification`;
 - `ArtifactObject`, traces, audit events, and model calls.
 
 Providers and UIs consume these contracts through owner packages and public

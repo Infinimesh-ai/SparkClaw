@@ -1,6 +1,7 @@
 package iscpbridge
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -36,7 +37,14 @@ type EnrollmentRequest struct {
 	HardwareClass    string                  `json:"hardware_class"`
 	ProtocolVersions []string                `json:"protocol_versions"`
 	Identity         identity.DeviceIdentity `json:"identity"`
+	DeviceProof      *identity.DeviceProof   `json:"device_proof,omitempty"`
 	CreatedAt        time.Time               `json:"created_at"`
+}
+
+type EnrollmentProofOptions struct {
+	Audience  string
+	Challenge string
+	Nonce     string
 }
 
 type RelayCredential struct {
@@ -80,6 +88,10 @@ func GenerateEnrollmentRequest(directory, domainID, deviceID, hardwareClass stri
 }
 
 func GenerateEnrollmentRequestWithKeyBackend(directory, domainID, deviceID, hardwareClass, keyBackend, keyringService string, now time.Time) (EnrollmentRequest, DeviceFiles, error) {
+	return GenerateEnrollmentRequestWithProof(directory, domainID, deviceID, hardwareClass, keyBackend, keyringService, EnrollmentProofOptions{}, now)
+}
+
+func GenerateEnrollmentRequestWithProof(directory, domainID, deviceID, hardwareClass, keyBackend, keyringService string, proofOptions EnrollmentProofOptions, now time.Time) (EnrollmentRequest, DeviceFiles, error) {
 	directory = strings.TrimSpace(directory)
 	if directory == "" {
 		return EnrollmentRequest{}, DeviceFiles{}, errors.New("identity directory is required")
@@ -91,6 +103,23 @@ func GenerateEnrollmentRequestWithKeyBackend(directory, domainID, deviceID, hard
 	}
 	if strings.TrimSpace(hardwareClass) == "" {
 		hardwareClass = "gb10"
+	}
+	proofOptions.Audience = strings.TrimSpace(proofOptions.Audience)
+	proofOptions.Challenge = strings.TrimSpace(proofOptions.Challenge)
+	proofOptions.Nonce = strings.TrimSpace(proofOptions.Nonce)
+	proofRequested := proofOptions.Audience != "" || proofOptions.Challenge != "" || proofOptions.Nonce != ""
+	if proofRequested && (proofOptions.Audience == "" || proofOptions.Challenge == "") {
+		return EnrollmentRequest{}, DeviceFiles{}, errors.New("proof audience and challenge must be provided together")
+	}
+	if len(proofOptions.Audience) > 200 || len(proofOptions.Challenge) > 1024 || len(proofOptions.Nonce) > 200 {
+		return EnrollmentRequest{}, DeviceFiles{}, errors.New("proof audience, challenge, or nonce is too long")
+	}
+	if proofRequested && proofOptions.Nonce == "" {
+		nonce := make([]byte, 24)
+		if _, err := rand.Read(nonce); err != nil {
+			return EnrollmentRequest{}, DeviceFiles{}, fmt.Errorf("generate enrollment proof nonce: %w", err)
+		}
+		proofOptions.Nonce = base64.RawURLEncoding.EncodeToString(nonce)
 	}
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return EnrollmentRequest{}, DeviceFiles{}, fmt.Errorf("create identity directory: %w", err)
@@ -143,6 +172,15 @@ func GenerateEnrollmentRequestWithKeyBackend(directory, domainID, deviceID, hard
 		ProtocolVersions: []string{ProtocolVersion, BridgeVersion},
 		Identity:         device.Identity,
 		CreatedAt:        now.UTC(),
+	}
+	if proofRequested {
+		proof, err := device.CreateProof(provider, proofOptions.Audience, proofOptions.Challenge, proofOptions.Nonce, now)
+		if err != nil {
+			_ = os.Remove(files.IdentityFile)
+			_ = deleteIdentityKey(keyBackend, keyringService, device.Identity, files.KeyFile)
+			return EnrollmentRequest{}, DeviceFiles{}, fmt.Errorf("create enrollment device proof: %w", err)
+		}
+		request.DeviceProof = &proof
 	}
 	return request, files, nil
 }

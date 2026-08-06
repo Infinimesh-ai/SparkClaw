@@ -280,6 +280,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/pairing/start", s.startPairing)
 	s.mux.HandleFunc("POST /api/pairing/claim", s.claimPairing)
 	s.mux.HandleFunc("GET /api/notification-bindings", s.listNotificationBindings)
+	s.mux.HandleFunc("GET /api/notifications", s.listPassiveNotifications)
+	s.mux.HandleFunc("POST /api/notifications/read-all", s.markAllPassiveNotificationsRead)
+	s.mux.HandleFunc("POST /api/notifications/{id}/read", s.markPassiveNotificationRead)
+	s.mux.HandleFunc("GET /api/notifications/events/stream", s.streamPassiveNotifications)
 	s.mux.HandleFunc("GET /api/connectors", s.listConnectors)
 	s.mux.HandleFunc("PATCH /api/connectors/{channel}", s.updateConnector)
 	s.mux.HandleFunc("GET /api/mcp-servers", s.listMCPServers)
@@ -473,16 +477,16 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"gateway":     publicGatewayConfig(s.cfg.Gateway),
-		"model":       publicModelConfig(s.cfg.Model),
-		"speech":      publicSpeechConfig(s.cfg.Speech),
-		"mcp_servers": publicMCPServersConfig(s.cfg.MCPServers),
-		"workspaces":  s.cfg.Workspaces,
-		"security":    s.cfg.Security,
-		"sandbox":     s.cfg.Sandbox,
-		"storage":     publicStorageConfig(s.cfg.Storage),
-		"state":       publicStateConfig(s.cfg.State),
-		"adapters":    publicAdapterConfig(s.cfg.Adapters, s.tools.DocumentOCRReadiness()),
+		"gateway":             publicGatewayConfig(s.cfg.Gateway),
+		"model":               publicModelConfig(s.cfg.Model),
+		"speech":              publicSpeechConfig(s.cfg.Speech),
+		"mcp_servers":         publicMCPServersConfig(s.cfg.MCPServers),
+		"workspaces":          s.cfg.Workspaces,
+		"security":            s.cfg.Security,
+		"sandbox":             s.cfg.Sandbox,
+		"storage":             publicStorageConfig(s.cfg.Storage),
+		"state":               publicStateConfig(s.cfg.State),
+		"adapters":            publicAdapterConfig(s.cfg.Adapters, s.tools.DocumentOCRReadiness()),
 		"tools":               s.publicToolsConfig(principal.OwnerID),
 		"mcp_server_statuses": s.mcpServerStatuses(),
 		"memory":              s.cfg.Memory,

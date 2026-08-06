@@ -15,10 +15,12 @@ import { ComposerDock } from "./components/composer";
 import { DeliveryTargetPicker } from "./components/deliveryTargetPicker";
 import { ScheduleBar } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
+import { NotificationCenter } from "./components/notificationCenter";
 import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
 import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useVoiceInput } from "./hooks/useVoiceInput";
+import { usePassiveNotifications } from "./hooks/usePassiveNotifications";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { hasPersistedResultMessage, MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
@@ -80,6 +82,7 @@ export function App() {
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeMessageStreamRef = useRef<string>("");
+  const notificationCenter = usePassiveNotifications();
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
@@ -503,6 +506,18 @@ export function App() {
             <p>{ready ? `${ready.model_mode} ${text.topbar.modelMode} · ${ready.workspace_root}` : text.topbar.connecting}</p>
           </div>
           <div className="topbarActions">
+            <NotificationCenter
+              notifications={notificationCenter.notifications}
+              unreadCount={notificationCenter.unreadCount}
+              open={notificationCenter.open}
+              toast={notificationCenter.toast}
+              language={language}
+              text={text}
+              onToggle={() => notificationCenter.setOpen((current) => !current)}
+              onDismissToast={notificationCenter.dismissToast}
+              onRead={notificationCenter.markRead}
+              onReadAll={notificationCenter.markAllRead}
+            />
             <DeliveryTargetPicker
               endpoints={deliveryEndpoints}
               activeEndpoint={activeDeliveryEndpoint}
@@ -511,7 +526,7 @@ export function App() {
               text={text}
               onSelect={selectDeliveryTarget}
             />
-            <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), refreshDeliverySurface(), refreshSession(activeSession)])} title={text.common.refresh}>
+            <button className="iconButton" onClick={() => void Promise.all([refreshGlobal(), notificationCenter.refresh(), refreshDeliverySurface(), refreshSession(activeSession)])} title={text.common.refresh}>
               <RefreshCw size={18} />
             </button>
           </div>

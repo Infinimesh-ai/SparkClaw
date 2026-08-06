@@ -7,7 +7,6 @@
   "permission": "agent.bridge",
   "gateway": {
     "base_url": "http://127.0.0.1:18789",
-    "token_file": "../data/iscp-bridge/gateway.token",
     "timeout_seconds": 30
   },
   "relay": {

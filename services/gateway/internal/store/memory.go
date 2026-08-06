@@ -28,6 +28,7 @@ type MemoryStore struct {
 	reminderDelivery     map[string]app.ReminderDelivery
 	connectorSettings    map[string]app.ConnectorSetting
 	notificationBindings map[string]app.NotificationBinding
+	passiveNotifications map[string]app.PassiveNotification
 	externalChatSessions map[string]app.ExternalChatSession
 	externalChatMessages map[string]app.ExternalChatMessage
 	messageReceives      map[string]app.MessageReceiveRecord
@@ -63,6 +64,7 @@ func NewMemoryStore() *MemoryStore {
 		reminderDelivery:     map[string]app.ReminderDelivery{},
 		connectorSettings:    map[string]app.ConnectorSetting{},
 		notificationBindings: map[string]app.NotificationBinding{},
+		passiveNotifications: map[string]app.PassiveNotification{},
 		externalChatSessions: map[string]app.ExternalChatSession{},
 		externalChatMessages: map[string]app.ExternalChatMessage{},
 		messageReceives:      map[string]app.MessageReceiveRecord{},
@@ -101,6 +103,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		ReminderDelivery:     cloneMap(s.reminderDelivery),
 		ConnectorSettings:    cloneMap(s.connectorSettings),
 		NotificationBindings: cloneMap(s.notificationBindings),
+		PassiveNotifications: cloneMap(s.passiveNotifications),
 		ExternalChatSessions: cloneMap(s.externalChatSessions),
 		ExternalChatMessages: cloneMap(s.externalChatMessages),
 		MessageReceives:      cloneMap(s.messageReceives),
@@ -147,6 +150,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.reminderDelivery = ensureMap(snapshot.ReminderDelivery)
 	s.connectorSettings = ensureMap(snapshot.ConnectorSettings)
 	s.notificationBindings = ensureMap(snapshot.NotificationBindings)
+	s.passiveNotifications = ensureMap(snapshot.PassiveNotifications)
 	for id, binding := range s.notificationBindings {
 		if strings.TrimSpace(binding.OwnerID) == "" {
 			binding.OwnerID = app.DefaultOwnerID
@@ -1364,6 +1368,142 @@ func (s *MemoryStore) RevokeNotificationBinding(id string) (app.NotificationBind
 	})
 	s.appendEventLocked("notification_binding.revoked", "", "", binding)
 	return binding, nil
+}
+
+func (s *MemoryStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notification.OwnerID = strings.TrimSpace(notification.OwnerID)
+	notification.EndpointID = strings.TrimSpace(notification.EndpointID)
+	notification.IdempotencyKey = strings.TrimSpace(notification.IdempotencyKey)
+	if notification.OwnerID == "" || notification.EndpointID == "" || notification.IdempotencyKey == "" || strings.TrimSpace(notification.Fingerprint) == "" {
+		return app.PassiveNotification{}, false, errors.New("notification owner, endpoint, idempotency key, and fingerprint are required")
+	}
+	for _, existing := range s.passiveNotifications {
+		if existing.EndpointID != notification.EndpointID || existing.IdempotencyKey != notification.IdempotencyKey {
+			continue
+		}
+		if existing.OwnerID != notification.OwnerID || existing.Fingerprint != notification.Fingerprint {
+			return app.PassiveNotification{}, false, ErrPassiveNotificationConflict
+		}
+		return existing, false, nil
+	}
+	now := time.Now().UTC()
+	if notification.ID == "" {
+		notification.ID = app.NewID("notification")
+	}
+	if notification.CreatedAt.IsZero() {
+		notification.CreatedAt = now
+	}
+	notification.UpdatedAt = now
+	s.passiveNotifications[notification.ID] = notification
+	s.appendAuditLocked("notification.received", "", "", notification.OwnerID, notification.Source, map[string]any{
+		"notification_id": notification.ID,
+		"endpoint_id":     notification.EndpointID,
+		"kind":            notification.Kind,
+	})
+	return notification, true, nil
+}
+
+func (s *MemoryStore) GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	notification, ok := s.passiveNotifications[id]
+	return notification, ok && notification.OwnerID == ownerID
+}
+
+func (s *MemoryStore) ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	var cursor app.PassiveNotification
+	if after != "" {
+		var ok bool
+		cursor, ok = s.passiveNotifications[after]
+		if !ok || cursor.OwnerID != ownerID {
+			return []app.PassiveNotification{}
+		}
+	}
+	out := make([]app.PassiveNotification, 0)
+	for _, notification := range s.passiveNotifications {
+		if notification.OwnerID != ownerID {
+			continue
+		}
+		if after != "" && (notification.CreatedAt.Before(cursor.CreatedAt) || (notification.CreatedAt.Equal(cursor.CreatedAt) && notification.ID <= cursor.ID)) {
+			continue
+		}
+		out = append(out, notification)
+	}
+	slices.SortFunc(out, func(a, b app.PassiveNotification) int {
+		order := a.CreatedAt.Compare(b.CreatedAt)
+		if order == 0 {
+			order = strings.Compare(a.ID, b.ID)
+		}
+		if after == "" {
+			return -order
+		}
+		return order
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func (s *MemoryStore) CountUnreadPassiveNotifications(ownerID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, notification := range s.passiveNotifications {
+		if notification.OwnerID == ownerID && notification.ReadAt == nil {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *MemoryStore) MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notification, ok := s.passiveNotifications[id]
+	if !ok || notification.OwnerID != ownerID {
+		return app.PassiveNotification{}, ErrPassiveNotificationNotFound
+	}
+	if notification.ReadAt != nil {
+		return notification, nil
+	}
+	if readAt.IsZero() {
+		readAt = time.Now().UTC()
+	} else {
+		readAt = readAt.UTC()
+	}
+	notification.ReadAt = &readAt
+	notification.UpdatedAt = readAt
+	s.passiveNotifications[id] = notification
+	return notification, nil
+}
+
+func (s *MemoryStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if readAt.IsZero() {
+		readAt = time.Now().UTC()
+	} else {
+		readAt = readAt.UTC()
+	}
+	count := 0
+	for id, notification := range s.passiveNotifications {
+		if notification.OwnerID != ownerID || notification.ReadAt != nil {
+			continue
+		}
+		notification.ReadAt = &readAt
+		notification.UpdatedAt = readAt
+		s.passiveNotifications[id] = notification
+		count++
+	}
+	return count, nil
 }
 
 func (s *MemoryStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {

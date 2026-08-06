@@ -64,6 +64,101 @@ func TestGatewayAdapterSessionCreateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestGatewayAdapterPassiveNotificationPersistsWithoutAgentActivity(t *testing.T) {
+	st := store.NewMemoryStore()
+	runtimeRequested := false
+	adapter := NewGatewayAdapter(st, func() AgentRuntime {
+		runtimeRequested = true
+		return &adapterRuntime{started: make(chan struct{}, 1)}
+	})
+	principal := Principal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}
+	request := validRequest(TypeNotificationDeliver, "request-notification", "localmind-notifications", "", "notification-delivery-1", NotificationDeliverPayload{
+		NotificationID: "delivery-1",
+		Source:         "localmind",
+		Kind:           app.PassiveNotificationKindDocumentMention,
+		DeepLink:       "https://localmind.example/workspace/doc",
+		OccurredAt:     time.Now().UTC(),
+	})
+
+	first := adapter.Dispatch(t.Context(), principal, request)
+	if first.Status != "ok" || first.Error != nil {
+		t.Fatalf("notification delivery failed: %#v", first)
+	}
+	restarted := NewGatewayAdapter(st, func() AgentRuntime {
+		runtimeRequested = true
+		return &adapterRuntime{started: make(chan struct{}, 1)}
+	})
+	replay := restarted.Dispatch(t.Context(), principal, request)
+	if replay.Status != "ok" || replay.Error != nil {
+		t.Fatalf("notification replay after restart failed: %#v", replay)
+	}
+	if runtimeRequested {
+		t.Fatal("passive notification requested the Agent runtime")
+	}
+	if got := st.ListPassiveNotifications(app.DefaultOwnerID, "", 10); len(got) != 1 {
+		t.Fatalf("persisted notifications = %#v", got)
+	}
+	if len(st.ListSessions()) != 0 || len(st.ListRuns("")) != 0 || len(st.ListModelCalls("", "")) != 0 ||
+		len(st.ListToolCalls("")) != 0 || len(st.ListApprovals("")) != 0 {
+		t.Fatal("passive notification created Agent activity")
+	}
+
+	conflict := request
+	conflict.RequestID = "request-notification-conflict"
+	conflict.Payload, _ = json.Marshal(NotificationDeliverPayload{
+		NotificationID: "delivery-1",
+		Source:         "localmind",
+		Kind:           app.PassiveNotificationKindCommentMention,
+		DeepLink:       "https://localmind.example/workspace/doc",
+		OccurredAt:     time.Now().UTC(),
+	})
+	if response := restarted.Dispatch(t.Context(), principal, conflict); response.Error == nil || response.Error.Code != CodeConflict {
+		t.Fatalf("notification idempotency conflict was not rejected: %#v", response)
+	}
+}
+
+func TestGatewayAdapterPassiveNotificationRejectsUnsafePayloads(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload NotificationDeliverPayload
+	}{
+		{
+			name: "unknown kind",
+			payload: NotificationDeliverPayload{
+				NotificationID: "delivery-1", Source: "localmind", Kind: "message",
+				DeepLink: "https://localmind.example/doc", OccurredAt: time.Now().UTC(),
+			},
+		},
+		{
+			name: "remote insecure link",
+			payload: NotificationDeliverPayload{
+				NotificationID: "delivery-1", Source: "localmind", Kind: app.PassiveNotificationKindDocumentMention,
+				DeepLink: "http://localmind.example/doc", OccurredAt: time.Now().UTC(),
+			},
+		},
+		{
+			name: "credentials in link",
+			payload: NotificationDeliverPayload{
+				NotificationID: "delivery-1", Source: "localmind", Kind: app.PassiveNotificationKindDocumentMention,
+				DeepLink: "https://user:secret@localmind.example/doc", OccurredAt: time.Now().UTC(),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := NewGatewayAdapter(store.NewMemoryStore(), func() AgentRuntime {
+				t.Fatal("invalid passive notification requested Agent runtime")
+				return nil
+			})
+			request := validRequest(TypeNotificationDeliver, "request-invalid", "localmind-notifications", "", "delivery-invalid", test.payload)
+			response := adapter.Dispatch(t.Context(), Principal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}, request)
+			if response.Error == nil || response.Error.Code != CodeInvalidRequest {
+				t.Fatalf("unsafe payload was accepted: %#v", response)
+			}
+		})
+	}
+}
+
 func TestGatewayAdapterMessageCancelAndIdempotencyConflict(t *testing.T) {
 	st := store.NewMemoryStore()
 	sessionRecord := st.CreateSession("Bridge")

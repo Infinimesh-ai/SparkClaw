@@ -29,6 +29,7 @@
             "agent.session.create.v1",
             "agent.message.send.v1",
             "agent.message.cancel.v1",
+            "agent.notification.deliver.v1",
             "agent.event.resume.v1",
             "agent.approval.list.v1",
             "agent.approval.resolve.v1",
@@ -52,6 +53,7 @@
                   "agent.session.create.v1",
                   "agent.message.send.v1",
                   "agent.message.cancel.v1",
+                  "agent.notification.deliver.v1",
                   "agent.approval.resolve.v1"
                 ]
               }
@@ -83,6 +85,16 @@
         {
           "if": { "properties": { "type": { "const": "agent.message.cancel.v1" } } },
           "then": { "required": ["session_id", "payload"], "properties": { "payload": { "$ref": "#/$defs/message_cancel_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "agent.notification.deliver.v1" } } },
+          "then": {
+            "required": ["payload"],
+            "properties": {
+              "session_id": false,
+              "payload": { "$ref": "#/$defs/notification_deliver_payload" }
+            }
+          }
         },
         {
           "if": { "properties": { "type": { "const": "agent.event.resume.v1" } } },
@@ -122,6 +134,18 @@
       "additionalProperties": false,
       "required": ["operation_id"],
       "properties": { "operation_id": { "type": "string", "minLength": 1 } }
+    },
+    "notification_deliver_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["notification_id", "source", "kind", "deep_link", "occurred_at"],
+      "properties": {
+        "notification_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "source": { "const": "localmind" },
+        "kind": { "enum": ["document_mention", "comment_mention"] },
+        "deep_link": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "occurred_at": { "$ref": "#/$defs/timestamp" }
+      }
     },
     "event_resume_payload": {
       "type": "object",
@@ -272,7 +296,23 @@
           "uniqueItems": true
         },
         "identity": { "type": "object" },
+        "device_proof": { "$ref": "#/$defs/device_proof" },
         "created_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "device_proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "domain_id", "device_id", "audience", "challenge", "nonce", "issued_at", "signature"],
+      "properties": {
+        "type": { "const": "iscp.device.proof.v2" },
+        "domain_id": { "type": "string", "minLength": 1 },
+        "device_id": { "type": "string", "minLength": 1 },
+        "audience": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "challenge": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "nonce": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "issued_at": { "$ref": "#/$defs/timestamp" },
+        "signature": { "type": "object" }
       }
     },
     "relay_credential": {

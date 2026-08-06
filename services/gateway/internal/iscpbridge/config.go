@@ -29,7 +29,7 @@ type Config struct {
 type GatewayConfig struct {
 	BaseURL        string `json:"base_url"`
 	UnixSocket     string `json:"unix_socket,omitempty"`
-	TokenFile      string `json:"token_file"`
+	TokenFile      string `json:"token_file,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 }
 
@@ -91,9 +91,6 @@ func (c *Config) normalizeAndValidate() error {
 	if strings.TrimSpace(c.IdentityKeyringService) == "" {
 		c.IdentityKeyringService = DefaultIdentityKeyringService
 	}
-	if strings.TrimSpace(c.Gateway.TokenFile) == "" {
-		return errors.New("gateway.token_file is required")
-	}
 	if strings.TrimSpace(c.Gateway.BaseURL) == "" && strings.TrimSpace(c.Gateway.UnixSocket) == "" {
 		c.Gateway.BaseURL = defaultGatewayURL
 	}
@@ -137,6 +134,9 @@ func (c *Config) normalizeAndValidate() error {
 }
 
 func (c Config) LoadGatewayToken() (string, error) {
+	if strings.TrimSpace(c.Gateway.TokenFile) == "" {
+		return "", nil
+	}
 	return LoadPrivateTokenFile(c.Gateway.TokenFile)
 }
 

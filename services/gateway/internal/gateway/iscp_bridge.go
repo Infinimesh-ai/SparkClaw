@@ -16,10 +16,6 @@ func (s *Server) dispatchBridgeRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errors.New("bridge API is restricted to loopback clients"))
 		return
 	}
-	if !s.authRequired() {
-		writeError(w, http.StatusServiceUnavailable, errors.New("bridge API requires Gateway authentication"))
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, bridgeRequestLimit)
 	defer r.Body.Close()
 	decoder := json.NewDecoder(r.Body)

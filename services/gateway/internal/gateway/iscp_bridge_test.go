@@ -17,7 +17,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
 )
 
-func TestBridgeDispatchRequiresLoopbackAndAuthentication(t *testing.T) {
+func TestBridgeDispatchSupportsNoAuthLoopbackAndRejectsRemoteClients(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -25,12 +25,12 @@ func TestBridgeDispatchRequiresLoopbackAndAuthentication(t *testing.T) {
 	server := New(cfg, st, tools, runtime)
 	request := bridgeDescribeRequest(t)
 
-	unauthenticated := httptest.NewRequest(http.MethodPost, "/api/bridge/v1/dispatch", bytes.NewReader(request))
-	unauthenticated.RemoteAddr = "127.0.0.1:44000"
-	unauthenticatedResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(unauthenticatedResponse, unauthenticated)
-	if unauthenticatedResponse.Code != http.StatusServiceUnavailable {
-		t.Fatalf("unauthenticated Gateway returned %d", unauthenticatedResponse.Code)
+	noAuth := httptest.NewRequest(http.MethodPost, "/api/bridge/v1/dispatch", bytes.NewReader(request))
+	noAuth.RemoteAddr = "127.0.0.1:44000"
+	noAuthResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(noAuthResponse, noAuth)
+	if noAuthResponse.Code != http.StatusOK {
+		t.Fatalf("no-auth loopback Gateway returned %d: %s", noAuthResponse.Code, noAuthResponse.Body.String())
 	}
 
 	cfg.Gateway.APIToken = "bridge-test-token"

@@ -3,7 +3,8 @@ WORKDIR /src
 COPY go.work ./
 COPY services/gateway/go.mod services/gateway/go.mod
 COPY services/gateway services/gateway
-RUN go build -o /out/sparkclaw ./services/gateway/cmd/sparkclaw
+RUN go build -o /out/sparkclaw ./services/gateway/cmd/sparkclaw \
+    && go build -o /out/iscp-bridge ./services/gateway/cmd/iscp-bridge
 
 FROM node:26-bookworm-slim
 WORKDIR /app
@@ -28,6 +29,7 @@ RUN npm ci --omit=dev \
     && chmod a+rwx /opt/agent-browser \
     && chmod -R a+rwX /opt/agent-browser/.agent-browser /var/lib/sparkclaw/browser-profiles
 COPY --from=build /out/sparkclaw /usr/local/bin/sparkclaw
+COPY --from=build /out/iscp-bridge /usr/local/bin/iscp-bridge
 COPY configs /app/configs
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8

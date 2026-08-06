@@ -570,6 +570,211 @@ button:disabled {
   gap: 8px;
 }
 
+.notificationCenter {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.notificationBell {
+  position: relative;
+}
+
+.notificationBadge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid var(--surface-deep);
+  border-radius: 9px;
+  color: #ffffff;
+  background: var(--crimson-danger);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.notificationInbox {
+  position: fixed;
+  z-index: 120;
+  top: 72px;
+  right: 416px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(520px, calc(100vh - 96px));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-solid);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.46);
+}
+
+.notificationInbox > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.notificationInbox > header strong,
+.notificationInbox > header span {
+  display: block;
+}
+
+.notificationInbox > header strong {
+  font-size: 13px;
+}
+
+.notificationInbox > header span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.notificationList {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.notificationItem {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 9px;
+  min-height: 72px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+}
+
+.notificationItem.unread {
+  background: rgba(96, 208, 68, 0.06);
+}
+
+.notificationUnreadDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.notificationItem.unread .notificationUnreadDot {
+  background: var(--cyber-blue);
+  box-shadow: 0 0 8px rgba(96, 208, 68, 0.5);
+}
+
+.notificationItem > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.notificationItem strong,
+.notificationItem span,
+.notificationItem time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notificationItem strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.notificationItem span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.notificationItem time {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.notificationOpen,
+.notificationToast > a,
+.notificationToast > button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+}
+
+.notificationOpen:hover,
+.notificationToast > a:hover,
+.notificationToast > button:hover {
+  color: var(--cyber-blue);
+  border-color: rgba(96, 208, 68, 0.38);
+}
+
+.notificationEmpty {
+  margin: 0;
+  padding: 28px 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.notificationToast {
+  position: fixed;
+  z-index: 140;
+  right: 24px;
+  bottom: 24px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 30px 30px;
+  align-items: center;
+  gap: 9px;
+  width: min(380px, calc(100vw - 32px));
+  min-height: 64px;
+  padding: 9px 10px;
+  border: 1px solid rgba(96, 208, 68, 0.36);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: var(--surface-solid);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.44);
+}
+
+.notificationToast > svg {
+  color: var(--cyber-blue);
+}
+
+.notificationToast > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.notificationToast strong,
+.notificationToast span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notificationToast strong {
+  font-size: 12px;
+}
+
+.notificationToast span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .errorBanner {
   display: flex;
   align-items: center;
@@ -2834,6 +3039,10 @@ button.finderRow {
     height: min(720px, calc(100dvh - 22px));
     min-height: 520px;
   }
+
+  .notificationInbox {
+    right: 24px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2983,6 +3192,21 @@ button.finderRow {
 }
 
 @media (max-width: 480px) {
+
+  .notificationInbox {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: auto;
+    left: -17px;
+    width: calc(100vw - 24px);
+    max-height: min(480px, calc(100vh - 24px));
+  }
+
+  .notificationToast {
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
 
   .deliveryTargetPicker {
     width: auto;

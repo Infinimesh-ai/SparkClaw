@@ -176,6 +176,30 @@ type NotificationBinding struct {
 	LastError         string     `json:"last_error,omitempty"`
 }
 
+const (
+	PassiveNotificationKindDocumentMention = "document_mention"
+	PassiveNotificationKindCommentMention  = "comment_mention"
+)
+
+// PassiveNotification is an owner-scoped inbox item delivered by an
+// authenticated integration. It is intentionally independent of Agent
+// sessions and runs.
+type PassiveNotification struct {
+	ID             string     `json:"id"`
+	OwnerID        string     `json:"owner_id"`
+	EndpointID     string     `json:"endpoint_id"`
+	IdempotencyKey string     `json:"idempotency_key"`
+	Fingerprint    string     `json:"fingerprint"`
+	NotificationID string     `json:"notification_id"`
+	Source         string     `json:"source"`
+	Kind           string     `json:"kind"`
+	DeepLink       string     `json:"deep_link"`
+	OccurredAt     time.Time  `json:"occurred_at"`
+	ReadAt         *time.Time `json:"read_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
 // ConnectorSetting is the owner's explicit opt-in for a third-party message
 // channel. Account bindings remain separate so disabling a channel does not
 // silently delete encrypted credentials or account setup.

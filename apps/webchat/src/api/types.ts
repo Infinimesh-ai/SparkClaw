@@ -340,6 +340,18 @@ export type NotificationBinding = {
   last_error?: string;
 };
 
+export type PassiveNotification = {
+  id: string;
+  notification_id: string;
+  source: "localmind" | string;
+  kind: "document_mention" | "comment_mention" | string;
+  deep_link: string;
+  occurred_at: string;
+  read_at?: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ConnectorStatus = {
   channel: string;
   provider: string;

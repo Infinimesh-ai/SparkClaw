@@ -168,15 +168,21 @@ never appear in public config, logs, traces, or artifacts.
 The optional ISCP Bridge is a separate process between JingSi App and the
 loopback Gateway. It uses the ISCP v0.1.0 Core SDK for device identity, Trust
 Grants, Session Hello/Ready, proof of possession, and SecureEnvelope. The Bridge
-maps encrypted `agent.*.v1` requests to one authenticated local Gateway endpoint;
-Gateway remains authoritative for sessions, runs, policy, approvals, events,
-and audit.
+maps encrypted `agent.*.v1` requests to one loopback Gateway endpoint. Gateway
+remains authoritative for sessions, runs, policy, approvals, events, the passive
+notification inbox, and audit. The endpoint uses bearer authentication when
+Gateway auth is enabled and explicitly supports token-free loopback dispatch
+when it is disabled.
 
 The Bridge never accepts an ITES token and never exposes an unauthenticated LAN
 listener. Its production identity key lives in the operating-system keyring,
 Relay credentials rotate independently, and unsupported Gateway capabilities
-are absent from the manifest. See [ISCP Bridge](iscp-bridge.md) for enrollment,
-the versioned schema, App CI mock, and GB10 operation.
+are absent from the manifest. `agent.notification.deliver.v1` stores LocalMind
+document/comment mentions without starting Agent Runtime; the existing
+conversation delivery remains as a compatibility fallback. Gateway exposes the
+owner-scoped inbox through list/read APIs and a global authenticated SSE stream.
+See [ISCP Bridge](iscp-bridge.md) for enrollment, the versioned schema, current
+LocalMind DeviceProof/Trust Grant renewal limits, App CI mock, and GB10 operation.
 
 ## MCP And Happy
 

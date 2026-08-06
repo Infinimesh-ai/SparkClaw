@@ -136,12 +136,17 @@ evidence ref，在模型调用前选择与 query 相关的有界 projection。su
 
 可选 ISCP Bridge 是位于 JingSi App 与 loopback Gateway 之间的独立进程。它使用 ISCP v0.1.0
 Core SDK 处理设备身份、Trust Grant、Session Hello/Ready、proof-of-possession 和
-SecureEnvelope。Bridge 把加密的 `agent.*.v1` 请求映射到一个带认证的本地 Gateway 端点；
-session、run、policy、approval、event 和 audit 仍由 Gateway 统一负责。
+SecureEnvelope。Bridge 把加密的 `agent.*.v1` 请求映射到一个 loopback Gateway 端点；
+session、run、policy、approval、event、被动通知收件箱和 audit 仍由 Gateway 统一负责。
+Gateway 启用 auth 时该端点使用 bearer 认证；关闭 auth 时明确支持无 token 的 loopback
+dispatch。
 
 Bridge 不接收 ITES token，也不暴露无认证的局域网 listener。生产设备身份密钥保存在操作系统
 keyring，Relay credential 独立轮换，Gateway 不支持的能力不会进入 manifest。注册、版本化
-schema、App CI mock 和 GB10 运维见 [ISCP Bridge](iscp-bridge.md)。
+`agent.notification.deliver.v1` 可在不启动 Agent Runtime 的情况下保存 LocalMind 文档/评论
+提及；原有 conversation 投递继续作为兼容 fallback。Gateway 通过 list/read API 和全局、带认证
+SSE stream 暴露 owner-scoped 收件箱。注册、版本化 schema、当前 LocalMind DeviceProof/Trust
+Grant 续期限制、App CI mock 和 GB10 运维见 [ISCP Bridge](iscp-bridge.md)。
 
 ## MCP 与 Happy
 

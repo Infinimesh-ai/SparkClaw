@@ -458,6 +458,28 @@ CREATE TABLE IF NOT EXISTS channel_inbox_updates (
 CREATE INDEX IF NOT EXISTS channel_inbox_updates_ready_idx
   ON channel_inbox_updates(channel, status, available_at, created_at);
 
+CREATE TABLE IF NOT EXISTS passive_notifications (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  endpoint_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  notification_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  deep_link TEXT NOT NULL,
+  occurred_at TIMESTAMPTZ NOT NULL,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(endpoint_id, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS passive_notifications_owner_created_idx
+  ON passive_notifications(owner_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS passive_notifications_owner_unread_idx
+  ON passive_notifications(owner_id, created_at DESC) WHERE read_at IS NULL;
+
 INSERT INTO external_chat_sessions (
   id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
   external_chat_id, external_thread_id, display_name, linked_session_id, status,
@@ -2102,6 +2124,149 @@ func (s *PostgresStore) RevokeNotificationBinding(id string) (app.NotificationBi
 	return s.SaveNotificationBinding(binding), nil
 }
 
+func (s *PostgresStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
+	notification.OwnerID = strings.TrimSpace(notification.OwnerID)
+	notification.EndpointID = strings.TrimSpace(notification.EndpointID)
+	notification.IdempotencyKey = strings.TrimSpace(notification.IdempotencyKey)
+	if notification.OwnerID == "" || notification.EndpointID == "" || notification.IdempotencyKey == "" || strings.TrimSpace(notification.Fingerprint) == "" {
+		return app.PassiveNotification{}, false, errors.New("notification owner, endpoint, idempotency key, and fingerprint are required")
+	}
+	now := time.Now().UTC()
+	if notification.ID == "" {
+		notification.ID = app.NewID("notification")
+	}
+	if notification.CreatedAt.IsZero() {
+		notification.CreatedAt = now
+	}
+	notification.UpdatedAt = now
+	row := s.db.QueryRow(context.Background(), `
+		INSERT INTO passive_notifications (
+			id, owner_id, endpoint_id, idempotency_key, fingerprint, notification_id,
+			source, kind, deep_link, occurred_at, read_at, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		ON CONFLICT DO NOTHING
+		RETURNING id, owner_id, endpoint_id, idempotency_key, fingerprint, notification_id,
+		          source, kind, deep_link, occurred_at, read_at, created_at, updated_at
+	`, notification.ID, notification.OwnerID, notification.EndpointID, notification.IdempotencyKey,
+		notification.Fingerprint, notification.NotificationID, notification.Source, notification.Kind,
+		notification.DeepLink, notification.OccurredAt, notification.ReadAt, notification.CreatedAt, notification.UpdatedAt)
+	inserted, err := scanPassiveNotification(row)
+	if err == nil {
+		s.appendAudit(context.Background(), "notification.received", "", "", notification.OwnerID, notification.Source, map[string]any{
+			"notification_id": notification.ID,
+			"endpoint_id":     notification.EndpointID,
+			"kind":            notification.Kind,
+		})
+		return inserted, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return app.PassiveNotification{}, false, err
+	}
+	existingRow := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, endpoint_id, idempotency_key, fingerprint, notification_id,
+		       source, kind, deep_link, occurred_at, read_at, created_at, updated_at
+		FROM passive_notifications WHERE endpoint_id = $1 AND idempotency_key = $2
+	`, notification.EndpointID, notification.IdempotencyKey)
+	existing, err := scanPassiveNotification(existingRow)
+	if err != nil {
+		return app.PassiveNotification{}, false, err
+	}
+	if existing.OwnerID != notification.OwnerID || existing.Fingerprint != notification.Fingerprint {
+		return app.PassiveNotification{}, false, ErrPassiveNotificationConflict
+	}
+	return existing, false, nil
+}
+
+func (s *PostgresStore) GetPassiveNotification(ownerID, id string) (app.PassiveNotification, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, owner_id, endpoint_id, idempotency_key, fingerprint, notification_id,
+		       source, kind, deep_link, occurred_at, read_at, created_at, updated_at
+		FROM passive_notifications WHERE owner_id = $1 AND id = $2
+	`, ownerID, id)
+	notification, err := scanPassiveNotification(row)
+	return notification, err == nil
+}
+
+func (s *PostgresStore) ListPassiveNotifications(ownerID, after string, limit int) []app.PassiveNotification {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	ctx := context.Background()
+	var rows pgx.Rows
+	var err error
+	if after == "" {
+		rows, err = s.db.Query(ctx, `
+			SELECT id, owner_id, endpoint_id, idempotency_key, fingerprint, notification_id,
+			       source, kind, deep_link, occurred_at, read_at, created_at, updated_at
+			FROM passive_notifications WHERE owner_id = $1
+			ORDER BY created_at DESC, id DESC LIMIT $2
+		`, ownerID, limit)
+	} else {
+		cursor, ok := s.GetPassiveNotification(ownerID, after)
+		if !ok {
+			return []app.PassiveNotification{}
+		}
+		rows, err = s.db.Query(ctx, `
+			SELECT id, owner_id, endpoint_id, idempotency_key, fingerprint, notification_id,
+			       source, kind, deep_link, occurred_at, read_at, created_at, updated_at
+			FROM passive_notifications
+			WHERE owner_id = $1 AND (created_at > $2 OR (created_at = $2 AND id > $3))
+			ORDER BY created_at ASC, id ASC LIMIT $4
+		`, ownerID, cursor.CreatedAt, cursor.ID, limit)
+	}
+	if err != nil {
+		return []app.PassiveNotification{}
+	}
+	defer rows.Close()
+	return collectRows(rows, scanPassiveNotification)
+}
+
+func (s *PostgresStore) CountUnreadPassiveNotifications(ownerID string) int {
+	var count int
+	if err := s.db.QueryRow(context.Background(), `
+		SELECT COUNT(*) FROM passive_notifications WHERE owner_id = $1 AND read_at IS NULL
+	`, ownerID).Scan(&count); err != nil {
+		return 0
+	}
+	return count
+}
+
+func (s *PostgresStore) MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error) {
+	if readAt.IsZero() {
+		readAt = time.Now().UTC()
+	} else {
+		readAt = readAt.UTC()
+	}
+	row := s.db.QueryRow(context.Background(), `
+		UPDATE passive_notifications SET read_at = COALESCE(read_at, $3), updated_at = CASE WHEN read_at IS NULL THEN $3 ELSE updated_at END
+		WHERE owner_id = $1 AND id = $2
+		RETURNING id, owner_id, endpoint_id, idempotency_key, fingerprint, notification_id,
+		          source, kind, deep_link, occurred_at, read_at, created_at, updated_at
+	`, ownerID, id, readAt)
+	notification, err := scanPassiveNotification(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.PassiveNotification{}, ErrPassiveNotificationNotFound
+	}
+	return notification, err
+}
+
+func (s *PostgresStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error) {
+	if readAt.IsZero() {
+		readAt = time.Now().UTC()
+	} else {
+		readAt = readAt.UTC()
+	}
+	result, err := s.db.Exec(context.Background(), `
+		UPDATE passive_notifications SET read_at = $2, updated_at = $2
+		WHERE owner_id = $1 AND read_at IS NULL
+	`, ownerID, readAt)
+	if err != nil {
+		return 0, err
+	}
+	return int(result.RowsAffected()), nil
+}
+
 func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {
 	now := time.Now().UTC()
 	if session.ID == "" {
@@ -3432,6 +3597,26 @@ func scanChannelInboxUpdate(row scanner) (app.ChannelInboxUpdate, error) {
 	)
 	update.Payload = append([]byte(nil), payload...)
 	return update, err
+}
+
+func scanPassiveNotification(row scanner) (app.PassiveNotification, error) {
+	var notification app.PassiveNotification
+	err := row.Scan(
+		&notification.ID,
+		&notification.OwnerID,
+		&notification.EndpointID,
+		&notification.IdempotencyKey,
+		&notification.Fingerprint,
+		&notification.NotificationID,
+		&notification.Source,
+		&notification.Kind,
+		&notification.DeepLink,
+		&notification.OccurredAt,
+		&notification.ReadAt,
+		&notification.CreatedAt,
+		&notification.UpdatedAt,
+	)
+	return notification, err
 }
 
 func scanRunFeedback(row scanner) (app.RunFeedback, error) {

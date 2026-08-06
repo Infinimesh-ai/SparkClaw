@@ -17,13 +17,13 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - ordinary conversation answers from stable request/context evidence;
 - scheduled messages whose payload re-enters normal routing at due time;
 - personal memory candidates and approval-gated sensitive memory;
-- optional WebChat speech transcription, Telegram/Weixin messaging, and
-  Infinimesh Info evidence;
+- optional LocalMind workspace MCP, WebChat speech transcription,
+  Telegram/Weixin messaging, and Infinimesh Info evidence;
 - traces, artifacts, evals, policy, approval, auth, and durable state.
 
 The exact executable leaf set is listed in
 [Workflow capabilities](workflow-capabilities.md). Email, calendar, and
-workspace knowledge/RAG are not active capabilities; see
+built-in workspace knowledge/RAG are not active capabilities; see
 [Deferred capabilities](deferred-email-calendar-knowledge.md).
 
 SparkClaw is not an unrestricted autonomous agent or a public multi-tenant SaaS.
@@ -129,6 +129,14 @@ Workflow failure remains explicit and never falls through to another router or
 a generic fallback loop; the workflow step loop is the only execution
 primitive and the legacy ReAct path has been removed.
 
+Dynamic MCP providers atomically replace their own namespaced ToolHub entries;
+they cannot overwrite static tools or another provider. Their schema-free
+directory entries participate in the same bounded search as static tools, and
+only one persisted selection materializes its complete server-advertised schema.
+The source and original remote name remain queryable for audit. A capability
+snapshot revision binds endpoint identity, server metadata, tool
+schemas/annotations, and credential scope so a refresh invalidates stale views.
+
 Document format variation is registered independently at three owner boundaries.
 ToolHub format providers own parsers, editors, schemas, invocation validation,
 locators, and result projection. The `document` package owns normalization,
@@ -227,8 +235,16 @@ stable PDF page blocks. OCR is not a Workflow-selected chat lane and its
 failure leaves the read explicitly partial.
 See [Document workflows](document-workflows.md).
 
-Telegram, Weixin, speech, and Infinimesh Info are optional adapters behind
-shared connector, delivery, transcription, or search contracts. See
+LocalMind uses the shared MCP 2025-06-18 Streamable HTTP client behind a
+workspace-scoped manager. The manager resolves environment credentials on every
+refresh, verifies the fixed server identity and workspace endpoint, discovers
+scope before atomic registration, and removes stale scoped tools on refresh
+failure. Resources and tool results enter the bounded untrusted observation and
+artifact path. Policy treats remote writes as remote effects: they retain
+SparkClaw approval without claiming local sandbox execution.
+
+Telegram, Weixin, speech, Infinimesh Info, and LocalMind are optional adapters
+behind shared connector, delivery, transcription, search, or MCP contracts. See
 [External integrations](integrations.md).
 
 JingSi App connects through the separately deployed [ISCP Bridge](iscp-bridge.md).
@@ -259,6 +275,9 @@ audio are not artifacts.
   sandboxed and network-disabled by default.
 - Browser URLs, artifact paths, workspace paths, and provider destinations are
   normalized and validated deterministically.
+- The LocalMind MCP endpoint comes only from operator configuration, remains
+  bound to one workspace path, rejects redirects, and requires HTTPS unless
+  private HTTP is explicitly enabled.
 - External content, documents, browser pages, and tool output remain untrusted
   data with provenance.
 - Credentials are injected through environment/files or encrypted vault

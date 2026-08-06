@@ -16,10 +16,11 @@ agent runtime。当前产品表面包括：
 - 基于稳定请求/上下文证据的普通聊天回答；
 - 到期 payload 重新进入正常路由的定时消息；
 - personal memory candidate 和 approval-gated sensitive memory；
-- 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
+- 可选 LocalMind workspace MCP、WebChat speech transcription、Telegram/微信消息和
+  Infinimesh Info evidence；
 - trace、artifact、eval、Policy、approval、auth 和 durable state。
 
-准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。邮件、日历和 workspace
+准确可执行叶子见 [Workflow 能力矩阵](workflow-capabilities.md)。邮件、日历和内置 workspace
 knowledge/RAG 不是 active capability，见[暂缓能力](deferred-email-calendar-knowledge.md)。
 
 SparkClaw 不是无限制 autonomous agent 或公开 multi-tenant SaaS。它不允许静默外部发送、
@@ -109,6 +110,12 @@ ToolHub registration 是 tool 的 execution/schema/risk/effect 权威。Policy/A
 选择之后、effect 之前执行。模型不能增加 tool、修改冻结 resource binding 或绕过 approval。
 匹配 Workflow 失败保持显式，不回退到另一 router 或任何通用回退循环；workflow 步骤循环是唯一的执行原语，旧 ReAct 路径已删除。
 
+动态 MCP provider 原子替换自己 namespace 下的 ToolHub entry，不能覆盖 static tool 或其他
+provider。它们不含 schema 的 directory entry 进入同一个有界搜索，只有一个持久化选择会物化
+完整 server-advertised schema。source 和原始 remote name 可供 audit 查询。capability
+snapshot revision 绑定 endpoint identity、server metadata、tool schema/annotation 和
+credential scope，因此刷新会使 stale view 失效。
+
 文档格式差异在三个 owner boundary 内分别注册。ToolHub format provider 负责 parser、editor、
 schema、调用校验、locator 和结果投影；`document` package 负责 normalization、固定 lifecycle
 hook 和准确 `(format, operation)` preservation policy；Agent format policy 负责 route grounding、
@@ -178,8 +185,14 @@ Markdown 作为不可信证据保留。扫描 PDF 页在 page/byte budget 内栅
 稳定 PDF page block。OCR 不是 Workflow 选择的 chat lane；失败时读取明确保持 partial。
 见[文档 Workflow](document-workflows.md)。
 
-Telegram、微信、speech 和 Infinimesh Info 是共享 connector、delivery、transcription 或 search
-contract 后的可选 adapter。见[外部集成](integrations.md)。
+LocalMind 在 workspace-scoped manager 后复用 MCP 2025-06-18 Streamable HTTP client。
+manager 每次刷新都重新解析环境 credential，校验固定 server identity 和 workspace endpoint，
+先发现 scope 再原子注册，并在刷新失败时移除 stale scoped tool。Resource/tool result 进入有界、
+不可信 observation/artifact 路径。Policy 把远端 write 视为 remote effect：保留 SparkClaw
+approval，但不声称在本地 sandbox 执行。
+
+Telegram、微信、speech、Infinimesh Info 和 LocalMind 是共享 connector、delivery、
+transcription、search 或 MCP contract 后的可选 adapter。见[外部集成](integrations.md)。
 
 JingSi App 通过独立部署的 [ISCP Bridge](iscp-bridge.md) 接入。Bridge 终止 ISCP transport，
 并调用一个带认证的 loopback Gateway API；session state、execution、Policy、approval、event
@@ -203,6 +216,8 @@ audio 不是 artifact。
 - authenticated request 携带一个 owner/actor principal；endpoint/schedule query 按 owner 限制。
 - reversible/dangerous effect 需要 Policy approval；shell 默认 sandboxed 且 network-disabled。
 - browser URL、artifact path、workspace path 和 provider destination 确定性 normalize/validate。
+- LocalMind MCP endpoint 只能来自 operator 配置，绑定到一个 workspace path，拒绝 redirect；
+  除非显式允许 private HTTP，否则必须使用 HTTPS。
 - external content、document、browser page 和 tool output 保持不可信并带 provenance。
 - credential 通过环境/文件或加密 vault envelope 注入，不进入 public config、log、trace 或 artifact。
 - timeout、size/concurrency limit、retry、idempotency 和明确 unknown outcome 是 adapter contract 的一部分。

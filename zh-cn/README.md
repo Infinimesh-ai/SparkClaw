@@ -43,13 +43,19 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 
 ## 快速开始
 
-推荐先用 Docker 路径启动：
+推荐首次启动使用 Docker 与 external `single-fast-v1` 模型组。先在 `.env` 中设置
+`HF_TOKEN` 或 `HUGGING_FACE_HUB_TOKEN`，再用一个命令启动四模型组与使用文件存储的
+minimal 应用栈：
 
 ```bash
 cp docker/env/sparkclaw.example.env .env
-sudo -n env SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
-  docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d --build
+npm start
 ```
+
+`npm start` 会联合加载 Fast、embedding、guard 与 OCR，等待它们通过 health checks 和
+已配置的预热，再启动 Gateway、Sandbox Runner 与 WebChat。minimal runtime 使用文件存储并
+报告 `model_mode=external`，两个逻辑 chat profiles 都使用 `sparkclaw-fast`。只有隔离命令
+显式设置 `SPARKCLAW_MODEL_MODE=mock` 时才使用 mock routing。
 
 本机打开 [http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的其他设备
 使用 `http://<主机局域网-IP>:18790`。

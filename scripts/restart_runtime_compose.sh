@@ -6,11 +6,14 @@ cd "$ROOT"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.single-fast.env}"
+RUNTIME_OVERRIDE_ENV="${SPARKCLAW_RUNTIME_OVERRIDE_ENV:-}"
 COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
 OCR_ENV="docker/env/sparkclaw.ocr.env"
 OCR_COMPOSE_FILE="docker/compose.ocr.yaml"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
 GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18789/readyz}"
+EXPECTED_MODEL_MODE="${SPARKCLAW_EXPECTED_MODEL_MODE:-external}"
+EXPECTED_STATE_BACKEND="${SPARKCLAW_EXPECTED_STATE_BACKEND:-postgres}"
 services=("$@")
 browser_display=""
 browser_xauthority=""
@@ -26,9 +29,9 @@ for service in "${services[@]}"; do
     gateway)
       start_gateway=true
       ;;
-    webchat) ;;
+    sandbox-runner|webchat) ;;
     *)
-      echo "unsupported runtime service: $service (expected gateway or webchat)" >&2
+      echo "unsupported runtime service: $service (expected sandbox-runner, gateway, or webchat)" >&2
       exit 1
       ;;
   esac
@@ -40,6 +43,10 @@ if [[ ! -f "$RUNTIME_ENV" ]]; then
 fi
 if [[ ! -f "$OCR_ENV" || ! -f "$OCR_COMPOSE_FILE" ]]; then
   echo "OCR runtime files not found: $OCR_ENV or $OCR_COMPOSE_FILE" >&2
+  exit 1
+fi
+if [[ -n "$RUNTIME_OVERRIDE_ENV" && ! -f "$RUNTIME_OVERRIDE_ENV" ]]; then
+  echo "runtime override env file not found: $RUNTIME_OVERRIDE_ENV" >&2
   exit 1
 fi
 
@@ -81,24 +88,29 @@ if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
 fi
 compose_args+=(--env-file "$RUNTIME_ENV" --env-file "$OCR_ENV")
+if [[ -n "$RUNTIME_OVERRIDE_ENV" ]]; then
+  compose_args+=(--env-file "$RUNTIME_OVERRIDE_ENV")
+fi
 compose_args+=(-f "$COMPOSE_FILE" -f "$OCR_COMPOSE_FILE")
 if [[ "$visible_browser" == true ]]; then
   compose_args+=(-f docker/compose.visible-browser.yaml)
 fi
 compose_args+=(--profile "$PROFILE")
 
-"${docker_cmd[@]}" "${compose_args[@]}" up -d --build --force-recreate "${services[@]}"
+# Model dependencies are jointly loaded and warmed by serve_models_compose.sh.
+# Recreating them here would split that ownership and invalidate warmup state.
+"${docker_cmd[@]}" "${compose_args[@]}" up -d --build --force-recreate --no-deps "${services[@]}"
 
 for _ in $(seq 1 30); do
   ready_json="$(curl -fsS "$GATEWAY_READY_URL" 2>/dev/null || true)"
   if [[ -n "$ready_json" ]]; then
     if printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' &&
-      printf '%s' "$ready_json" | grep -Eq '"model_mode"[[:space:]]*:[[:space:]]*"external"' &&
-      printf '%s' "$ready_json" | grep -Eq '"state_backend"[[:space:]]*:[[:space:]]*"postgres"'; then
-      echo "SparkClaw runtime ready: external/postgres"
+      printf '%s' "$ready_json" | grep -Fq "\"model_mode\":\"$EXPECTED_MODEL_MODE\"" &&
+      printf '%s' "$ready_json" | grep -Fq "\"state_backend\":\"$EXPECTED_STATE_BACKEND\""; then
+      echo "SparkClaw runtime ready: $EXPECTED_MODEL_MODE/$EXPECTED_STATE_BACKEND"
       exit 0
     fi
-    echo "Gateway is healthy but not in the expected external/postgres runtime:" >&2
+    echo "Gateway is healthy but not in the expected $EXPECTED_MODEL_MODE/$EXPECTED_STATE_BACKEND runtime:" >&2
     printf '%s\n' "$ready_json" >&2
     exit 1
   fi

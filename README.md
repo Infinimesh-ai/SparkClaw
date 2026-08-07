@@ -44,13 +44,21 @@ Known operating boundary:
 
 ## Quick Start
 
-Docker is the recommended first run path:
+Docker with the external `single-fast-v1` model group is the recommended first
+run path. Set `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN` in `.env`, then start the
+four-model group and the minimal file-backed application stack with one command:
 
 ```bash
 cp docker/env/sparkclaw.example.env .env
-sudo -n env SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
-  docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d --build
+npm start
 ```
+
+`npm start` jointly loads Fast, embedding, guard, and OCR, waits for their
+health checks and configured warmups, then starts Gateway, Sandbox Runner, and
+WebChat. The minimal runtime reports `model_mode=external` with file-backed
+state; both logical chat profiles use `sparkclaw-fast`. Mock routing remains
+available only when `SPARKCLAW_MODEL_MODE=mock` is set explicitly for an
+isolated command.
 
 Open [http://127.0.0.1:18790](http://127.0.0.1:18790) locally, or use
 `http://<host-lan-ip>:18790` from another device on the same LAN.

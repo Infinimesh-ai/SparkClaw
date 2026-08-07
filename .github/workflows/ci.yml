@@ -119,8 +119,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 -m unittest scripts/test_model_readiness.py
+      - run: bash -n scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/start_minimal_compose.sh
       - run: cp docker/env/sparkclaw.example.env .env
       - run: docker compose --env-file .env -f docker/compose.yaml config --quiet
+      - name: Verify minimal external defaults
+        run: |
+          docker compose \
+            --env-file .env \
+            --env-file docker/env/sparkclaw.single-fast.env \
+            --env-file docker/env/sparkclaw.ocr.env \
+            --env-file docker/env/sparkclaw.minimal.env \
+            -f docker/compose.yaml \
+            -f docker/compose.ocr.yaml \
+            --profile minimal \
+            config --format json > /tmp/sparkclaw-compose.json
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/sparkclaw-compose.json", encoding="utf-8") as source:
+              config = json.load(source)
+          environment = config["services"]["gateway"]["environment"]
+          assert environment["SPARKCLAW_MODEL_MODE"] == "external"
+          assert environment["SPARKCLAW_STATE_BACKEND"] == "file"
+          assert environment["SPARKCLAW_OCR_ENABLED"] == "true"
+          assert environment["SPARKCLAW_DEEP_BASE_URL"] == environment["SPARKCLAW_FAST_BASE_URL"]
+          assert environment["SPARKCLAW_DEEP_MODEL"] == environment["SPARKCLAW_FAST_MODEL"]
+          assert "sparkclaw-ocr" in config["services"]
+          PY
       - run: >-
           SPARKCLAW_BROWSER_DISPLAY=:1
           SPARKCLAW_BROWSER_XAUTHORITY=/tmp/Xauthority

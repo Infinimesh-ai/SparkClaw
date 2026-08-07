@@ -37,6 +37,8 @@
     }
   },
   "scripts": {
+    "start": "npm run start:minimal",
+    "start:minimal": "bash scripts/start_minimal_compose.sh",
     "dev": "npm run runtime:restart",
     "dev:gateway": "bash scripts/restart_runtime_compose.sh gateway",
     "dev:webchat": "bash scripts/restart_runtime_compose.sh webchat",

@@ -19,7 +19,7 @@ services:
         condition: service_healthy
 
   sparkclaw-ocr:
-    profiles: ["models-local"]
+    profiles: ["minimal", "models-local"]
     image: ${SPARKCLAW_OCR_IMAGE:-vllm/vllm-openai:v0.22.1}
     ipc: host
     shm_size: ${SPARKCLAW_OCR_SHM_SIZE:-4gb}

@@ -24,7 +24,7 @@ cp docker/env/sparkclaw.example.env .env
 
 | Profile | 用途 |
 |---|---|
-| `minimal` | Gateway + WebChat，mock model routing。推荐首次运行。 |
+| `minimal` | 使用文件存储且连接 external 模型端点的 Gateway + WebChat。模型启动后的推荐首次应用运行方式。 |
 | `dev` | 开发运行形态。 |
 | `eval` | Gateway 加 evaluator 和 data services。 |
 | `compat` | Gateway 连接外部 OpenAI-compatible endpoints。 |
@@ -34,19 +34,26 @@ WebChat 的 host port `18790` 默认绑定 `0.0.0.0`，允许局域网访问。G
 状态服务和 sandbox runner 仍绑定 localhost。Containers 通过私有
 `sparkclaw_internal` network 通信。
 
-## Minimal Local Runtime
+## Minimal External Runtime
 
-启动 mock-mode control plane：
+使用首次启动入口依次装载常驻的 `single-fast-v1` 模型组与使用文件存储的 minimal
+control plane：
 
 ```bash
-sudo -n env SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal \
-  docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d --build
+npm start
 ```
+
+该入口把模型所有权交给 `serve_models_compose.sh single-fast`，将 Fast、embedding、guard
+与 OCR 视为一个常驻组。任一成员缺失、不健康或 Compose identity 过期时，四个模型会一起
+停止并共同加载。命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion
+预热，然后才启动 Sandbox Runner、Gateway 与 WebChat。Gateway 随后验证文件存储下的
+`model_mode=external`；默认拓扑中，逻辑 Deep profile 别名到 Fast endpoint。只有隔离的
+确定性调试或评测才应显式设置 `SPARKCLAW_MODEL_MODE=mock`。
 
 检查状态：
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal ps
+docker ps --filter name=sparkclaw
 curl -fsS http://127.0.0.1:18789/readyz
 bash scripts/doctor.sh
 ```
@@ -221,12 +228,11 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 scripts/restart_runtime_compose.sh
 ```
 
-模型运行态应使用该脚本，而不是直接执行
+durable 产品运行态应使用该脚本，而不是直接执行
 `docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
 `docker/env/sparkclaw.single-fast.env` 与 `docker/env/sparkclaw.ocr.env`，并叠加
-`docker/compose.ocr.yaml`。这样 Compose 不会退回
-`docker/env/sparkclaw.example.env` 的 `mock/file` 默认值，两个逻辑 chat profile 都映射到
-Fast，同时文档 OCR adapter 指向共同常驻的 OCR 服务。重启后脚本检查 `/readyz`，只有 Gateway
+`docker/compose.ocr.yaml`。这会把 minimal 的文件存储覆盖为 PostgreSQL，保持两个逻辑
+chat profile 都映射到 Fast，同时让文档 OCR adapter 指向共同常驻的 OCR 服务。重启后脚本检查 `/readyz`，只有 Gateway
 报告 `model_mode=external` 且 `state_backend=postgres` 时才成功退出。需要其他 chat/runtime
 profile 时应显式设置 `SPARKCLAW_RUNTIME_ENV`；OCR 环境仍属于该产品运行态。
 

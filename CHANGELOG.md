@@ -10,6 +10,10 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Added
 
+- A website-streamable installer and GB10 DGX Spark deployment entrypoint that
+  safely clone/update the checkout, preserve an interactive secret prompt across
+  `curl | bash`, prepare local configuration, download and warm the resident
+  model group, start Gateway/Sandbox/WebChat, and verify readiness.
 - Streamable HTTP MCP discovery and ToolHub registration for independent Happy
   Team task and personal bridge endpoints, plus a durable Happy supervised-plan
   approval inbox with live plan retry, editing, and remote-first reconciliation.
@@ -20,6 +24,8 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Model-serving health checks and joint startup now allow bounded multi-hour
+  cold downloads instead of failing after the previous short readiness window.
 - Advanced `document.edit` to revision 6 for XLSX: typed bounded sheet evidence,
   evidence-bound workbook/cell/row/sheet edits, prefix-only `update_row`, six
   explicit operation-selection boundaries, and fail-closed OOXML package

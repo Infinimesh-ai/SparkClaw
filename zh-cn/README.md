@@ -43,19 +43,18 @@ SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系�
 
 ## 快速开始
 
-推荐首次启动使用 Docker 与 external `single-fast-v1` 模型组。先在 `.env` 中设置
-`HF_TOKEN` 或 `HUGGING_FACE_HUB_TOKEN`，再用一个命令启动四模型组与使用文件存储的
-minimal 应用栈：
+在已安装 Docker、Compose 与 NVIDIA Container Toolkit 的 NVIDIA GB10 DGX Spark 上，
+运行流式安装入口：
 
 ```bash
-cp docker/env/sparkclaw.example.env .env
-npm start
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
 ```
 
-`npm start` 会联合加载 Fast、embedding、guard 与 OCR，等待它们通过 health checks 和
-已配置的预热，再启动 Gateway、Sandbox Runner 与 WebChat。minimal runtime 使用文件存储并
-报告 `model_mode=external`，两个逻辑 chat profiles 都使用 `sparkclaw-fast`。只有隔离命令
-显式设置 `SPARKCLAW_MODEL_MODE=mock` 时才使用 mock routing。
+网站可以原样镜像仓库根目录的 `install.sh`，并替换上述 URL。bootstrap 会在
+`$HOME/SparkClaw` 安装仓库或执行安全 fast-forward，然后把 stdin 重新连接到终端，确保
+Hugging Face token 可以隐藏输入。部署会硬性校验 Linux/ARM64 与 NVIDIA GB10，下载 Fast、
+embedding、guard 和 OCR，再构建并启动 Gateway、Sandbox Runner 与 WebChat；后续运行复用
+模型缓存。
 
 本机打开 [http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的其他设备
 使用 `http://<主机局域网-IP>:18790`。

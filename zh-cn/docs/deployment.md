@@ -6,19 +6,67 @@
 
 ## 前置条件
 
-- Ubuntu 24.04 或其他带 Docker / Docker Compose 的 Linux host。
-- DGX Spark 模型服务需要 NVIDIA container runtime。
-- host-side build 使用 Node.js 26 和 npm 11；版本入口为仓库 `.nvmrc`。
-- host-side Gateway 开发使用 Go 1.25。
-- 模型下载需要把 Hugging Face token 放在本地 `.env` 中。不要提交 `.env`。
+- NVIDIA DGX Spark（GB10 GPU）、Linux/ARM64，以及至少 100 GiB 系统/统一内存；
+  已验证的操作系统为 Ubuntu 24.04。
+- Docker Engine、Docker Compose plugin、NVIDIA driver/container toolkit、`curl`，
+  并能访问 container registry 与 Hugging Face。
+- 冷启动的模型与镜像缓存至少预留 125 GiB；已有部分缓存时，部署脚本会计算剩余需求。
+- 用于模型下载的 Hugging Face token。不要提交生成的 `.env`。
 
-创建本地环境文件：
+Node.js 26/npm 11 与 Go 1.25 只用于宿主开发，容器化部署不依赖它们。
+
+## DGX Spark 一键部署
+
+从已准备好的 DGX Spark 宿主开始：
 
 ```bash
-cp docker/env/sparkclaw.example.env .env
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
 ```
 
-在 `.env` 中设置 `HF_TOKEN` 或 `HUGGING_FACE_HUB_TOKEN`。该 token 只传给 model-serving containers。
+项目网站可以原样提供仓库根目录的 `install.sh`，并在上述命令中使用自己的 HTTPS URL；
+不要通过明文 HTTP 发布安装器。
+
+流式 bootstrap 与部署入口会：
+
+1. 把指定 branch/tag 克隆到 `$HOME/SparkClaw`，或 fast-forward 已有的干净 checkout；
+   存在本地改动或历史分叉时不改动目录并明确报错。
+2. 将 curl 管道的 stdin 重新连接到 `/dev/tty`，让 Hugging Face token 保持隐藏式交互输入。
+3. 硬性校验 Linux/ARM64、NVIDIA GB10、至少 100 GiB 内存、Docker Compose、
+   `nvidia-smi` 与磁盘空间。
+4. 创建或保留权限为 `0600` 的 `.env`，接收不回显的 Hugging Face token，并把 bind mount
+   数据目录对齐到当前用户。
+5. 使用 vLLM 的 Hugging Face 集成，将 Fast、embedding、guard 与 OvisOCR2 下载到共享的
+   `data/models` 缓存。
+6. 等待模型 ready 以及 Fast/Guard 预热，构建 Gateway、Sandbox Runner 与 WebChat，
+   最后验证 Gateway 和 WebChat。
+
+首次运行约下载 70-85 GiB 模型数据以及容器镜像，可能持续数小时。模型 health check 与
+联合启动共用默认三小时窗口；下载链路较慢时可把
+`SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS` 设置为更大的正整数。后续运行会复用模型缓存和
+健康容器。
+
+非交互部署应在启动管道前导出 token；部署脚本只将其持久化到已忽略且权限为 `0600` 的
+本地环境文件：
+
+```bash
+export HF_TOKEN=hf_example
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+```
+
+安装/更新仓库后只运行部署预检：
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | \
+  bash -s -- --check
+```
+
+bootstrap 默认使用 `main` 与 `$HOME/SparkClaw`。在 `bash` 进程上设置
+`SPARKCLAW_GIT_REF` 或 `SPARKCLAW_INSTALL_DIR`，可以固定 release 或更换安装目录。
+已有仓库可直接运行：
+
+```bash
+bash scripts/deploy.sh
+```
 
 ## Compose Profiles
 
@@ -36,8 +84,8 @@ WebChat 的 host port `18790` 默认绑定 `0.0.0.0`，允许局域网访问。G
 
 ## Minimal External Runtime
 
-使用首次启动入口依次装载常驻的 `single-fast-v1` 模型组与使用文件存储的 minimal
-control plane：
+部署入口最终会调用下层 minimal 启动命令。已有 `.env` 的 operator 可以直接运行该命令，
+装载常驻的 `single-fast-v1` 模型组与使用文件存储的 minimal control plane：
 
 ```bash
 npm start

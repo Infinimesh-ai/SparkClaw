@@ -44,21 +44,19 @@ Known operating boundary:
 
 ## Quick Start
 
-Docker with the external `single-fast-v1` model group is the recommended first
-run path. Set `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN` in `.env`, then start the
-four-model group and the minimal file-backed application stack with one command:
+On an NVIDIA GB10 DGX Spark with Docker, Compose, and the NVIDIA container
+toolkit already installed, run the streamed installer:
 
 ```bash
-cp docker/env/sparkclaw.example.env .env
-npm start
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
 ```
 
-`npm start` jointly loads Fast, embedding, guard, and OCR, waits for their
-health checks and configured warmups, then starts Gateway, Sandbox Runner, and
-WebChat. The minimal runtime reports `model_mode=external` with file-backed
-state; both logical chat profiles use `sparkclaw-fast`. Mock routing remains
-available only when `SPARKCLAW_MODEL_MODE=mock` is set explicitly for an
-isolated command.
+The website may mirror the repository's top-level `install.sh` and replace the
+URL above. The bootstrap installs or safely fast-forwards the repository under
+`$HOME/SparkClaw`, then reconnects stdin to the terminal so the Hugging Face
+token can be entered without echo. The deployment requires Linux/ARM64 and
+NVIDIA GB10, downloads Fast, embedding, guard, and OCR, then builds and starts
+Gateway, Sandbox Runner, and WebChat. Later runs reuse the model cache.
 
 Open [http://127.0.0.1:18790](http://127.0.0.1:18790) locally, or use
 `http://<host-lan-ip>:18790` from another device on the same LAN.

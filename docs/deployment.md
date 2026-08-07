@@ -6,19 +6,75 @@ This document is the current deployment guide for local development, Docker Comp
 
 ## Prerequisites
 
-- Ubuntu 24.04 or another Linux host with Docker and Docker Compose.
-- NVIDIA container runtime for DGX Spark model serving.
-- Node.js 26 and npm 11 for host-side builds; use the repository `.nvmrc`.
-- Go 1.25 for host-side Gateway work.
-- A Hugging Face token in local `.env` for model downloads. Do not commit `.env`.
+- NVIDIA DGX Spark with its GB10 GPU, Linux/ARM64, and at least 100 GiB of
+  system/unified memory. Ubuntu 24.04 is the validated OS.
+- Docker Engine, the Docker Compose plugin, the NVIDIA driver/container toolkit,
+  `curl`, and outbound access to container registries and Hugging Face.
+- At least 125 GiB of free space for a cold model/image cache. The deployment
+  script computes the remaining requirement when part of the cache exists.
+- A Hugging Face token for model downloads. Do not commit the generated `.env`.
 
-Create the local environment file:
+Node.js 26/npm 11 and Go 1.25 are required for host-side development, but not
+for the containerized deployment path.
+
+## One-Command DGX Spark Deployment
+
+Starting from a prepared DGX Spark host:
 
 ```bash
-cp docker/env/sparkclaw.example.env .env
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
 ```
 
-Set `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN` inside `.env`. The token is passed only to model-serving containers.
+The project website can serve the repository's top-level `install.sh` unchanged
+and use its own HTTPS URL in this command. Do not publish the installer over
+plain HTTP.
+
+The streamed bootstrap and deployment entrypoints:
+
+1. Clone the configured branch/tag into `$HOME/SparkClaw`, or fast-forward an
+   existing clean checkout. A checkout with local changes or a divergent history
+   is left untouched and reported as an error.
+2. Reattach stdin from the curl pipe to `/dev/tty`, allowing the Hugging Face
+   token prompt to remain hidden and interactive.
+3. Require Linux/ARM64, NVIDIA GB10, at least 100 GiB of memory, Docker
+   Compose, `nvidia-smi`, and sufficient free space.
+4. Create or preserve a mode-`0600` `.env`, accept a Hugging Face token
+   without echoing it, and align bind-mounted data with the current user.
+5. Use vLLM's Hugging Face integration to download Fast, embedding, guard, and
+   OvisOCR2 into the shared `data/models` cache.
+6. Wait for model readiness and Fast/Guard warmup, build Gateway, Sandbox
+   Runner, and WebChat, then verify both Gateway and WebChat.
+
+The first run downloads roughly 70-85 GiB of model data plus container images
+and can take hours. Model health and joint startup share a three-hour default
+window. Set `SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS` to a larger positive
+number when the download link is slower. Later runs reuse the cache and healthy
+containers.
+
+For a non-interactive install, export the token before starting the pipeline;
+the deployment persists it only in the ignored, mode-`0600` local environment
+file:
+
+```bash
+export HF_TOKEN=hf_example
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | bash
+```
+
+Install/update the repository and run only deployment preflight with:
+
+```bash
+curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 https://raw.githubusercontent.com/Chiiz0/SparkClaw/main/install.sh | \
+  bash -s -- --check
+```
+
+The bootstrap defaults to `main` and `$HOME/SparkClaw`. Pin a release or use a
+different installation directory by setting `SPARKCLAW_GIT_REF` or
+`SPARKCLAW_INSTALL_DIR` on the `bash` process. To deploy directly from an
+already-cloned repository, run:
+
+```bash
+bash scripts/deploy.sh
+```
 
 ## Compose Profiles
 
@@ -36,8 +92,10 @@ Containers communicate over the private `sparkclaw_internal` network.
 
 ## Minimal External Runtime
 
-Use the first-start entrypoint to load the resident `single-fast-v1` model
-group and then the file-backed minimal control plane:
+The deployment entrypoint ultimately delegates to the lower-level minimal
+startup command. Operators with an existing `.env` can invoke that command
+directly to load the resident `single-fast-v1` model group and file-backed
+control plane:
 
 ```bash
 npm start

@@ -10,6 +10,9 @@
 
 ### Added
 
+- 新增网站可流式提供的安装器与 GB10 DGX Spark 部署入口：安全 clone/update checkout，
+  在 `curl | bash` 中保留交互式 secret 输入，准备本地配置、下载并预热常驻模型组，启动
+  Gateway/Sandbox/WebChat，并验证 ready 状态。
 - 新增 Streamable HTTP MCP 发现与 ToolHub 注册，独立连接 Happy Team 任务端点和个人
   bridge；同时新增持久化 Happy supervised-plan 审批收件箱，支持 live plan 重试、编辑和
   remote-first reconciliation。
@@ -20,6 +23,8 @@
 
 ### Changed
 
+- 模型服务 health check 与联合启动现在允许有界的数小时冷下载，不再因原有的短 ready
+  窗口而过早失败。
 - 将 `document.edit` 升级到 revision 6：XLSX 现在使用类型化有界 sheet 证据、绑定证据的
   workbook/cell/row/sheet 修改、只更新前缀的 `update_row`、六种明确 operation 选择边界和
   失败关闭的 OOXML package 校验来保护每个生成副本。

@@ -35,9 +35,20 @@ elif [[ "$LANES" == "dual-light-chat" || "$LANES" == "light-dual-chat" ]]; then
 fi
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+MODEL_STARTUP_TIMEOUT_SECONDS="${SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS:-10800}"
+if [[ ! "$MODEL_STARTUP_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 1
+fi
+MODEL_HEALTH_START_PERIOD="${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-${MODEL_STARTUP_TIMEOUT_SECONDS}s}"
+export SPARKCLAW_MODEL_HEALTH_START_PERIOD="$MODEL_HEALTH_START_PERIOD"
 docker_cmd=("$DOCKER_BIN")
 if ! "$DOCKER_BIN" ps >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n "$DOCKER_BIN" ps >/dev/null 2>&1; then
-  docker_cmd=(sudo -n "$DOCKER_BIN")
+  docker_cmd=(
+    sudo -n env
+    "SPARKCLAW_MODEL_HEALTH_START_PERIOD=$SPARKCLAW_MODEL_HEALTH_START_PERIOD"
+    "$DOCKER_BIN"
+  )
 fi
 
 services=()
@@ -124,4 +135,5 @@ if [[ "$SINGLE_FAST" == "true" ]]; then
   fi
 fi
 
-exec "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait --wait-timeout 900 "${services[@]}"
+exec "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait \
+  --wait-timeout "$MODEL_STARTUP_TIMEOUT_SECONDS" "${services[@]}"

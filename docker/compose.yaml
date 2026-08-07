@@ -224,6 +224,7 @@ services:
       interval: 30s
       timeout: 180s
       retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
 
   sparkclaw-deep:
     <<: *vllm-common
@@ -256,6 +257,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
 
   sparkclaw-embedding:
     <<: *vllm-common
@@ -278,6 +280,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
 
   sparkclaw-guard:
     <<: *vllm-common
@@ -318,6 +321,7 @@ services:
       interval: 30s
       timeout: 120s
       retries: 20
+      start_period: ${SPARKCLAW_MODEL_HEALTH_START_PERIOD:-3h}
 
   postgres:
     profiles: ["models-local", "eval"]

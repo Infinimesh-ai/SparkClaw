@@ -2,9 +2,12 @@
 
 > 语言： [English](../../docs/workflow-evidence-ownership.md) | 简体中文
 
-状态：2026-08-07 迁移中。第一批文档/浏览器投影与 Runtime binding 已实现，且没有新增
-持久化 schema。下文更广泛的逐 Profile source-event、typed completion、测量与清理仍是
-迁移契约，不表示所有 Runtime 行为已经完成。
+状态：迁移中，更新于 2026-08-11。Runtime 现已为文档决策、文档/浏览器模型阶段和最终化
+统一使用 `workflow_evidence_projection_record_v1` 契约。每个消费者投影都通过统一的
+`workflow.evidence_projection.created` audit 表面持久化谱系、覆盖、payload digest/bytes、
+binding 引用、修复状态和复用信息；这没有增加平行 evidence store 或专用 Store table。
+更广泛的逐 Profile source-event identity 与 typed completion 清理仍属于迁移工作，不表示
+所有 Runtime 行为已经完成。
 
 范围：`services/gateway/internal/agent` 中的 Workflow Profile、直接工具调用、
 模型决策、outcome 适配、runtime 证据供给、最终化和审计引用。本提案细化
@@ -348,7 +351,7 @@ predicate 在消费时求值，在 run 等待 approval 或 owner handoff 期间�
 | 联网搜索和天气 | 每次 Provider 调用产生一个 source-observation event。Runtime 校验 query binding、provider status、result/card identity 和 freshness metadata。只有 grounded projection 无法直接完成综合时才使用模型。 |
 | `document.read` | `confirm_document_target` 保持确定性。Direct reader 产生一个带类型化 locator 和 coverage 的 source observation。Finalization 读取该记录的 projection，不再创建“最终化证据”。 |
 | `document.edit` | 把当前 `document_locate_evidence` 的工作视为“为编辑读取文档”：reader 与 format policy 产生权威 locator、hash、coverage 和结构候选。精确规则可直接确立 target assertion，但只能推进到现有 `select_edit_operation`/`document_edit` 节点。一个 eligible editor 可确定性选择；多个语义不同的 editor 由模型选择。编辑模型继续负责尚未解决的目标语义、operation-specific argument 和内容生成；Runtime 只绑定 path/output、identity、locator、scope、hash 与 freshness 等可证明参数。 |
-| Browser r2 | Runtime 负责 acquisition、settle、snapshot、generation、ref membership、route check、transition digest 和 hidden/visible 区分。模型保留 goal assessment、control selection、存在多个语义工具时的 tool selection，以及 visual/semantic interpretation。每个 assessment/action 调用只接收当前目标判断所需的 control/state projection；Presentation evidence 与 hidden evidence 因 mode 和 generation 不同而保持独立。 |
+| Browser r2 | Runtime 负责 acquisition、settle、snapshot、generation、ref membership、route check、transition digest 和 hidden/visible 区分。模型保留 goal assessment、control selection、存在多个语义工具时的 tool selection，以及 visual/semantic interpretation。每个 assessment/action 调用只接收当前判断所需的 action/transition/control projection。Hidden 与 visible observation 因 mode 和 generation 不同而保持独立；但当 profile、route 和 rendered-content predicate 一致时，Runtime 会记录派生的 presentation-equivalence assertion 并复用已验证的 hidden semantic verdict，只有实质差异才触发 visible semantic reassessment。 |
 | 定时任务管理 | Runtime 负责 list result、ID、version、due state、CAS 和 mutation outcome。模型可以消歧有界且 owner 可见的候选，但不能发明或复制 record ID。 |
 | 外部 MCP 与 coding-agent 管理 | Runtime 负责 endpoint identity、credential scope、catalog revision、eligible namespaced tool、approval class 和 remote ID。模型可以在有界 operation 中选择或解释 returned content；returned content 不能授权另一个 operation。 |
 

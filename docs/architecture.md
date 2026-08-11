@@ -180,6 +180,14 @@ facts are already bound in Runtime. They retain coverage and omission metadata,
 candidate-local content and structure, opaque selectable refs, and eligible
 operation descriptions needed by the current semantic variable.
 
+One Agent-owned `workflow_evidence_projection_record_v1` abstraction manages
+consumer projection telemetry across document decisions, document/browser model
+stages, and finalization. The persisted audit event records source and derived
+lineage, consumer/stage/semantic variable, all coverage dimensions, exact model
+payload digest/bytes, archived bytes, binding reference, repair errors, and
+reuse. Domain policies construct typed units and invariants; they do not create
+parallel projection stores or independent audit formats.
+
 ### Model Router
 
 The current model lanes are:
@@ -225,7 +233,11 @@ leaf selection, the Workflow may use Info's ordered structured URLs without
 another semantic classifier.
 Page reads remain fully hidden and session-required, while clicks and approved
 form drafts retain fresh page-generation evidence and visible result
-verification. Details and Workflow limits are in
+verification. After a click, semantic assessment receives an action/transition
+projection and Runtime rejects repetition of an already validated semantic
+action. A visible result equivalent in profile, route, and rendered content
+reuses the hidden verdict through a derived assertion; a material difference is
+reassessed. Details and Workflow limits are in
 [Browser runtime](browser-runtime.md).
 
 Documents have durable first-class `DocumentRecord` identities independent of
@@ -236,9 +248,13 @@ The edit localization node invokes its single format-qualified reader directly
 and exactly once with the frozen path; no model tool-choice step precedes the
 read.
 All document model calls currently use Fast: this includes read finalization,
-multi-candidate edit decisions, and editor argument generation. A decision
-persists one exact ToolHub entry before the editor can materialize; the former
-inline secondary directory router remains removed. Approval, output-copy writes, and post-edit
+multi-candidate edit decisions, and editor argument generation. Multi-candidate
+decisions use normalized projection-local candidates with typed selected/no-match
+output and one same-projection repair, then persist one exact ToolHub entry
+before the editor can materialize. PPTX semantic generation similarly filters
+no-ops and permits one typed repair for invalid mutation output before approval.
+The former inline secondary directory router remains removed. Approval,
+output-copy writes, and post-edit
 preservation checks remain on the shared path. Parsed representations may be
 incomplete, replaced, or regenerated without losing document identity or
 activity lineage.
@@ -252,6 +268,9 @@ to OvisOCR2 and retains Markdown as untrusted evidence. Scanned PDF pages are
 rasterized under page/byte budgets and successful OCR is promoted into the
 stable PDF page blocks. OCR is not a Workflow-selected chat lane and its
 failure leaves the read explicitly partial.
+Document-read finalization records source and claim coverage independently;
+partial sources or truncated finalizer projections require an explicit
+limitation and prohibit whole-document or absence claims.
 See [Document workflows](document-workflows.md).
 
 LocalMind uses the shared MCP 2025-06-18 Streamable HTTP client behind a

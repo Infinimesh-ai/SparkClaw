@@ -221,6 +221,33 @@ func TestBrowserInteractionClickRejectsUnsafeControlBeforeAdapter(t *testing.T) 
 	}
 }
 
+func TestBrowserInteractionClickRejectsRepeatedValidatedSemanticControl(t *testing.T) {
+	st, hub := newBrowserVerificationHub()
+	st.SaveRun(app.AgentRun{
+		ID: "run", SessionID: "session", StartedAt: browserVerificationCallTime(1),
+		Workflow: &app.WorkflowState{Plan: app.WorkflowPlan{ProfileID: app.WorkflowBrowserInteraction}},
+	})
+	seedBrowserVerificationCycle(st, "session", "run", 1, "before", "after")
+	validation, err := hub.Execute(context.Background(), "browser.validate_transition", map[string]any{
+		"before_snapshot_id": "snapshot_1", "after_snapshot_id": "snapshot_2",
+		"element_ref": browserVerificationRef(1),
+	}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.SaveToolCall(app.ToolCall{
+		ID: "validate_1", SessionID: "session", RunID: "run", Tool: "browser.validate_transition", Status: "completed",
+		Result: validation.Output, StartedAt: browserVerificationCallTime(10),
+	})
+
+	_, err = hub.Execute(context.Background(), "browser.click", map[string]any{
+		"page_id": "page_1", "snapshot_id": "snapshot_2", "uid": browserVerificationRef(2),
+	}, "session", "run")
+	if code := app.ToolErrorCodeFrom(err); err == nil || code != app.ToolErrorBrowserInteractionLoop {
+		t.Fatalf("repeated semantic click did not fail with its typed loop code: code=%q err=%v", code, err)
+	}
+}
+
 func newBrowserVerificationHub() (*store.MemoryStore, *ToolHub) {
 	cfg := config.Default()
 	cfg.Tools.BrowserAutomation.Enabled = true

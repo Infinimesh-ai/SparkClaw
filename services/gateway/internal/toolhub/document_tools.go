@@ -18,6 +18,22 @@ type textReplacement struct {
 	Replace string `json:"replace"`
 }
 
+type documentAdapterError struct {
+	Code string
+	Err  error
+}
+
+func (e *documentAdapterError) Error() string { return e.Err.Error() }
+func (e *documentAdapterError) Unwrap() error { return e.Err }
+
+func documentAdapterErrorCode(err error) string {
+	var adapterErr *documentAdapterError
+	if errors.As(err, &adapterErr) {
+		return adapterErr.Code
+	}
+	return ""
+}
+
 func (h *ToolHub) resolveNewOutputPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("output_path is required")
@@ -115,7 +131,11 @@ func runSubprocessAdapter(ctx context.Context, request map[string]any, makeCmd f
 		return nil, err
 	}
 	if errText := stringArg(out, "error", ""); errText != "" {
-		return nil, errors.New(errText)
+		err := errors.New(errText)
+		if code := strings.TrimSpace(stringArg(out, "error_code", "")); code != "" {
+			return nil, &documentAdapterError{Code: code, Err: err}
+		}
+		return nil, err
 	}
 	return out, nil
 }

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -137,8 +139,8 @@ func TestBrowserGoalAssessmentInstructionDistinguishesActionFromCompletion(t *te
 		expected []string
 	}{
 		{stage: browserStageAssessGoalInitial, expected: []string{"clickable control", "next action", "Return progress", "a route alone is insufficient"}},
-		{stage: browserStageAssessGoalAfterAction, expected: []string{"validated", "new rendered-content digest", "another distinct action"}},
-		{stage: browserStageAssessGoalVisible, expected: []string{"verified the hidden result", "settled the visible rendered content", "matching destination as a control"}},
+		{stage: browserStageAssessGoalAfterAction, expected: []string{"validated", "new rendered-content digest", "another distinct action", "never retry the same semantic control"}},
+		{stage: browserStageAssessGoalVisible, expected: []string{"verified the hidden result", "settled the visible rendered content", "preserve the verified result", "matching destination as a control"}},
 	} {
 		t.Run(test.stage, func(t *testing.T) {
 			state := &app.WorkflowState{
@@ -308,7 +310,7 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	snapshotCall := app.ToolCall{ID: "tc_snapshot", Tool: "browser.snapshot", Status: "completed", Result: map[string]any{"output": map[string]any{
 		"snapshot": map[string]any{
 			"snapshot_id": "snapshot_1", "page_id": "page_1", "url": "https://mail.qq.com/",
-			"controls": []any{map[string]any{"ref": "snapshot_1:e7:fingerprint", "short_ref": "e7", "role": "link", "accessible_name": "草稿箱"}},
+			"controls": []any{map[string]any{"ref": "snapshot_1:e7:fingerprint", "short_ref": "e7", "role": "link", "accessible_name": "草稿箱", "fingerprint": "fingerprint"}},
 		},
 	}}}
 	outcome := adaptBrowserSnapshotOutcome(snapshotCall, "browser_result")
@@ -333,6 +335,106 @@ func TestBrowserInteractionMaterializesSnapshotAndExpandsFrozenElementShortRef(t
 	}
 	if err := runtime.validateWorkflowToolPlan(context.Background(), stored.ID, plan, definition); err != nil {
 		t.Fatalf("materialized short ref did not pass the frozen workflow boundary: %v", err)
+	}
+
+	visibleSnapshotCall := app.ToolCall{ID: "tc_visible_snapshot", Tool: "browser.snapshot", Status: "completed", Result: map[string]any{"output": map[string]any{
+		"snapshot": map[string]any{
+			"snapshot_id": "snapshot_2", "page_id": "page_1", "url": "https://mail.qq.com/#/drafts",
+			"controls": []any{map[string]any{"ref": "snapshot_2:e7:fingerprint", "short_ref": "e7", "role": "link", "accessible_name": "草稿箱", "fingerprint": "fingerprint"}},
+		},
+	}}}
+	visibleOutcome := adaptBrowserSnapshotOutcome(visibleSnapshotCall, "browser_result")
+	node.Stage = browserStageAssessGoalVisible
+	node.ScopeRevision = 6
+	node.OutcomeRefs = append(node.OutcomeRefs, visibleOutcome.Refs...)
+	stored.Workflow.Nodes["browser_result"] = node
+	st.SaveRun(stored)
+
+	assessment := runtime.materializeWorkflowBoundArguments(stored.ID, toolPlan{
+		Name: "browser.assess_goal", Args: map[string]any{
+			"snapshot_id": "snapshot_mistyped", "evidence_refs": []any{"tc_visible_snapshot:e7"}, "verdict": "satisfied", "reason": "visible state matches",
+		},
+		WorkflowID: app.WorkflowBrowserInteraction, WorkflowNodeID: "browser_result", ScopeRevision: 6,
+		Capability: app.ToolCapabilityBrowserGoalAssess,
+	})
+	if assessment.Args["snapshot_id"] != "snapshot_2" || !reflect.DeepEqual(assessment.Args["evidence_refs"], []string{"snapshot_2:e7:fingerprint"}) {
+		t.Fatalf("goal assessment did not bind the latest Runtime-owned snapshot identity: %#v", assessment.Args)
+	}
+	if rebound, ok := materializedBrowserGoalEvidenceRef(node, "snapshot_1:e7:fingerprint"); !ok || rebound != "snapshot_2:e7:fingerprint" {
+		t.Fatalf("read-only stale citation did not rebind through the unique current fingerprint: ref=%q ok=%t", rebound, ok)
+	}
+	assessmentDefinition, ok := runtime.tools.Definition("browser.assess_goal")
+	if !ok {
+		t.Fatal("browser.assess_goal is unavailable")
+	}
+	projected := materializeBrowserGoalAssessmentSchemas([]app.ToolDefinition{assessmentDefinition}, stored, "browser_result")
+	properties, _ := anyMap(projected[0].InputSchema["properties"])
+	if _, exposed := properties["reason"]; exposed || containsString(toolDefinitionRequiredArgs(projected[0].InputSchema), "reason") {
+		t.Fatalf("model-visible goal assessment schema retained free-form rationale: %#v", projected[0].InputSchema)
+	}
+	evidenceSchema, _ := anyMap(properties["evidence_refs"])
+	itemSchema, _ := anyMap(evidenceSchema["items"])
+	if !reflect.DeepEqual(itemSchema["enum"], []any{"e7"}) || !strings.Contains(stringValue(itemSchema["description"]), "tool call IDs") {
+		t.Fatalf("goal assessment schema did not constrain citations to current short refs: %#v", evidenceSchema)
+	}
+}
+
+func TestBrowserAfterActionProjectionCarriesValidatedTransitionAndActionSemantics(t *testing.T) {
+	clickedRef := "snapshot_before:e7:clicked-fingerprint"
+	transitionRefs := browserTransitionRefs(
+		[]app.ResourceRef{
+			{Kind: "browser_snapshot", Ref: "snapshot_before"},
+			{Kind: "browser_click", Ref: clickedRef},
+			{Kind: "browser_element", Ref: clickedRef, Attributes: map[string]string{"role": "link", "name": "Drafts", "container": "Mailbox"}},
+		},
+		[]app.ResourceRef{
+			{Kind: "browser_snapshot", Ref: "snapshot_after"},
+			{Kind: "browser_element", Ref: "snapshot_after:e9:current-fingerprint", Attributes: map[string]string{"role": "link", "name": "Drafts"}},
+		},
+	)
+	transitionRefs = append(transitionRefs, app.ResourceRef{
+		Kind: "browser_transition", Ref: "transition_1", Attributes: map[string]string{
+			"settled": "true", "state_changed": "true", "route_consistent": "true", "same_session": "true", "session_generation": "7",
+		},
+	})
+	run := app.AgentRun{Workflow: &app.WorkflowState{
+		Route:         app.RouteDecision{Slots: app.RouteSlots{Query: "Open the requested section"}},
+		ActiveNodeIDs: []app.WorkflowNodeID{"browser_result"},
+		Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+			"browser_result": {
+				Stage: browserStageAssessGoalAfterAction, OutcomeRefs: transitionRefs,
+			},
+		},
+	}}
+	output := map[string]any{"output": map[string]any{"snapshot": map[string]any{
+		"snapshot_id": "snapshot_after", "page_id": "page_1", "title": "Mailbox",
+		"controls_total": 1, "controls_returned": 1, "truncated": false,
+		"controls": []any{map[string]any{
+			"ref": "snapshot_after:e9:current-fingerprint", "short_ref": "e9", "role": "link", "accessible_name": "Drafts",
+		}},
+	}}}
+	projectionText, handled := browserWorkflowEvidenceProjection(run, output, 8000)
+	if !handled {
+		t.Fatal("browser after-action evidence was not projected")
+	}
+	var projection map[string]any
+	if err := json.Unmarshal([]byte(projectionText), &projection); err != nil {
+		t.Fatal(err)
+	}
+	action, _ := anyMap(projection["action"])
+	transition, _ := anyMap(projection["transition"])
+	coverage, _ := anyMap(projection["coverage"])
+	if projection["schema_version"] != browserEffectVerificationProjectionSchema || action["candidate_id"] != "e7" ||
+		action["semantic_label"] != "Drafts" || action["role"] != "link" ||
+		transition["settled"] != true || transition["rendered_content_changed"] != true ||
+		transition["route_consistent"] != true || transition["same_session"] != true ||
+		coverage["complete_for_consumer"] != true {
+		t.Fatalf("browser effect projection lost its semantic transition contract: %s", projectionText)
+	}
+	for _, runtimeOnly := range []string{"snapshot_before", "snapshot_after", "clicked-fingerprint", "session_generation"} {
+		if strings.Contains(projectionText, runtimeOnly) {
+			t.Fatalf("browser effect projection leaked Runtime-only identity %q: %s", runtimeOnly, projectionText)
+		}
 	}
 }
 

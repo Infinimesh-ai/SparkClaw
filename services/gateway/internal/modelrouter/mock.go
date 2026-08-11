@@ -48,6 +48,11 @@ func mockResponse(lane, user string) string {
 		return injected
 	}
 	if strings.Contains(user, "WORKFLOW_STEP_REQUEST") {
+		if strings.Contains(user, "WORKFLOW_SEMANTIC_REPAIR_REQUEST") {
+			if injected := mockInjectedResponse(user, "MOCK_STEP_REPAIR_RESPONSE:"); injected != "" {
+				return injected
+			}
+		}
 		lower := strings.ToLower(user)
 		for _, stage := range []struct {
 			tool   string

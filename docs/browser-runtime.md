@@ -30,7 +30,7 @@ attachment, cookie export, or second DOM perception engine.
 |---|---|
 | `browser.internet_search` r1 | Search public current information through `web.search`; it does not open source pages |
 | `browser.weather` r1 | Query typed metric data through Infinimesh Info `POST /v1/info/weather` and render one card for one explicit location |
-| `browser.automation` r2 | Acquire an explicit URL, registered destination, or Info-identified named public target, validate it in hidden Chromium, then present and independently verify it in visible Chromium |
+| `browser.automation` r2 | Acquire an explicit URL, registered destination, or Info-identified named public target, validate it in hidden Chromium, then present and validate it in visible Chromium |
 | `browser.page_read` r1 | Run a fixed hidden health -> open -> session-required read chain and return bounded content from one explicit or Info-identified URL |
 | `browser.interaction` r2 | Use the managed acquisition and presentation chain around at most three bounded, ref-bound clicks with independent transition and goal validation |
 | `browser.form_draft` r1 | Discover and assess ordinary reversible fields in hidden Chromium, then type or select at most five independently approved, exact owner-supplied values in one visible session and verify the uncommitted draft in place |
@@ -62,8 +62,11 @@ Browser evidence uses separate contracts:
 - Runtime keeps that complete identity-bearing snapshot for freshness and
   execution binding. Goal/control model calls receive a separate projection
   containing only bounded title/count/omission state and candidate-local role,
-  label, state, nearby context, options, and opaque `ref`. Page/snapshot IDs,
-  URLs, digests, fingerprints, generations, and ordinals are omitted.
+  label, state, nearby context, options, and a current-snapshot short `ref`.
+  Runtime expands that ref before validation. Page/snapshot IDs, URLs, digests,
+  fingerprints, generations, and ordinals are omitted.
+- Goal-assessment citations are constrained to the short refs returned by the
+  current snapshot; tool-call IDs and artifact URIs are not browser evidence.
 - `browser.click` accepts only a persisted ref from that snapshot.
 - `browser.type` and `browser.select` are usable as page mutations only inside
   `browser.form_draft`. Runtime checks the active Profile, latest snapshot,
@@ -81,12 +84,16 @@ Browser evidence uses separate contracts:
   output contains no coordinates or executable refs. Current Profiles expose
   this stage only when the owner explicitly asks for a screenshot or visual
   confirmation.
-- `browser.validate_transition` compares the persisted before/after snapshots;
-  `browser.assess_goal` independently evaluates the frozen goal against one
-  exact snapshot.
+- `browser.validate_transition` compares the persisted before/after snapshots.
+  After a click, `browser.assess_goal` receives one transition-centric
+  projection containing the semantic action label/role, explicit deterministic
+  transition assertions, and bounded relevant after-state controls. Runtime
+  requires each asserted transition boolean to be explicitly true and keeps
+  full refs, URLs, digests, and generations out of the model contract.
 - Every navigation and click is followed by settle and a fresh snapshot. A
-  stale generation, stale ref, repeated state, route divergence, or missing
-  semantic evidence fails closed.
+  stale generation, stale ref, repeated state, repeated validated semantic
+  action, route divergence, or missing semantic evidence fails closed with a
+  typed outcome.
 
 Settle and snapshots share one `content_digest` over the rendered title and
 body. The URL is validated separately and is intentionally excluded from this
@@ -178,9 +185,14 @@ assessment stays in that same visible session. It verifies the final unsubmitted
 state in place instead of reopening the target and losing the draft.
 
 Visible presentation is a required node in each applicable frozen Workflow:
-Runtime settles the result, captures a visible snapshot, revalidates the frozen
-route, and independently reassesses interaction or form-draft goals. The run
-cannot succeed without that visible evidence. `browser.page_read` is
+Runtime settles the result, captures a visible snapshot, and revalidates the
+frozen route. For interaction, matching owner/profile identity, route, and
+rendered-content digest produce a typed presentation-equivalence assertion and
+reuse the already verified hidden goal verdict without another model call. A
+materially different visible result still receives an independent bounded goal
+assessment. Form draft continues to verify its mutated visible state in place.
+The run cannot succeed without visible evidence or the corresponding
+equivalence assertion. `browser.page_read` is
 intentionally different: its entire health/open/read path is hidden and
 successful reads do not create a visible result window. A fresh visible session
 navigates directly to the target instead of first exposing its startup

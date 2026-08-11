@@ -15,7 +15,7 @@ const (
 	defaultToolResultMessageMaxBytes = 1600
 	minToolResultMessageMaxBytes     = 600
 	defaultToolResultEvidenceLimit   = 1400
-	browserSnapshotEvidenceHint      = "Use exact snapshot control refs as browser.assess_goal evidence_refs; artifact_uri is invalid. Use observation.read only for omitted controls."
+	browserSnapshotEvidenceHint      = "Copy exact control ref values such as e14 into browser.assess_goal evidence_refs; tool_call_id and artifact_uri are invalid. Use observation.read only for omitted controls."
 )
 
 type toolResultMessage struct {
@@ -875,6 +875,9 @@ func browserInteractionSnapshotProjection(snapshot map[string]any) map[string]an
 			if value, exists := control[key]; exists {
 				candidate[key] = value
 			}
+		}
+		if shortRef := strings.TrimSpace(stringValue(control["short_ref"])); shortRef != "" && shortRef != "<nil>" {
+			candidate["ref"] = shortRef
 		}
 		if strings.TrimSpace(stringValue(candidate["ref"])) != "" {
 			controls = append(controls, candidate)

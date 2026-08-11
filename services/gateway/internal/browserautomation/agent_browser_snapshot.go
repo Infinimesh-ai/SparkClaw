@@ -181,6 +181,7 @@ func agentBrowserSnapshotID(generation uint64, pageID string, sequence uint64) s
 func agentBrowserSnapshotControl(descriptor *agentBrowserSnapshotRef) map[string]any {
 	control := map[string]any{
 		"ref":             descriptor.ExternalRef,
+		"short_ref":       descriptor.RawRef,
 		"role":            descriptor.Role,
 		"accessible_name": descriptor.Name,
 		"fingerprint":     descriptor.Fingerprint[:16],

@@ -52,26 +52,33 @@ tool call is a protocol violation, not completion. Runtime returns one
 stage-scoped correction; a repeated premature `final` blocks the active node
 with `required_tool_not_called` without starting a third model call.
 
-`select_edit_operation` never exposes a tool to the step model. Runtime searches
-its format-qualified `document.edit` scope directly. A single candidate is
-selected deterministically; multiple candidates are resolved by one
-retry-bounded Fast model decision over the owner request, operation-specific
-directory boundaries, and dependency evidence bounded by
+`select_edit_operation` never exposes a tool or directory entry identity to the
+step model. Runtime searches its format-qualified `document.edit` scope
+directly and normalizes every eligible entry into a projection-local candidate
+contract describing target kind, change kind, placement, owner-content
+requirements, preservation behavior, and semantic usage boundaries. A single
+candidate is selected deterministically; multiple candidates are resolved by a
+Fast model decision over the owner request, normalized candidates, and
+dependency evidence bounded by
 `workflow_stage_evidence_max_bytes` (8,000 bytes by default). DOCX decisions
 prioritize explicit stable locations, paragraph ordinals, quoted text, bounded
 neighbors, story-part samples, and operation context before a deterministic
 head/tail fallback. XLSX uses the same `xlsx_sheet_evidence_v1` projection as
 editor argument generation. The selected directory entry, capability, format,
 operation, and selection path are persisted in the node's `OutcomeRefs`. The
-edit node can materialize only that entry. A missing, stale, ambiguous,
-unsupported, or invalid decision blocks the Workflow. The former inline
-secondary directory router has been removed; any other multi-candidate scope
-must declare its own decision node. See the [operation-selection design
-record](document-edit-operation-selection.md).
+edit node can materialize only that entry. The typed model output is either
+`selected` with one projection-local candidate ID or `no_match` with a stable
+reason code. Runtime rejects foreign or stale candidates. One empty, malformed,
+foreign, or incompatible result receives exactly one repair against the same
+candidate payload and archived source evidence; a second invalid result blocks
+the Workflow. The former inline secondary directory router has been removed;
+any other multi-candidate scope must declare its own decision node. See the
+[operation-selection design record](document-edit-operation-selection.md).
 
 Operation selection and editor generation use separate minimum projections.
-The decision call returns only an eligible directory entry ID. The later editor
-call sees only operation-specific semantic arguments and candidate-local
+The decision call returns only a projection-local candidate ID. Runtime maps it
+through the frozen binding manifest to one eligible directory entry. The later
+editor call sees only operation-specific semantic arguments and candidate-local
 content/structure: model schemas omit frozen input/output paths, selected
 qualifiers, document/source/target hashes, and proof locators. Runtime resolves
 the selected candidate against the archived localization read and restores all
@@ -217,7 +224,12 @@ omitted from model output and injected from the frozen route and localization
 read before full ToolHub validation. One model-authored text-update array is
 limited to 16 selected shapes; coordinated layout may retain the current text
 for an explicitly selected layout-only target. The execution contract still
-enforces the source hash, exact old text, and the 64-shape total bound.
+enforces the source hash, exact old text, and the 64-shape total bound. Before
+Policy or Approval, Runtime rejects empty non-delete replacement text and
+duplicate or invalid targets, removes semantic no-ops against the authoritative
+old text, and requires at least one effective mutation. A recoverable semantic
+validation failure gets one same-projection repair; a second invalid result
+blocks without invoking the editor or creating an approval.
 
 ### PDF Page Coverage And OCR Runtime
 
@@ -234,7 +246,11 @@ native or successfully recognized. Partial reads with usable evidence can be
 summarized only with an explicit limitation; unavailable reads block. The
 finalizer receives a coverage manifest separately from its bounded 8000-rune
 content excerpt, so excerpt truncation is not reported as source-page loss and
-missing pages are never hidden by the excerpt budget.
+missing pages are never hidden by the excerpt budget. Runtime separately derives
+finalizer claim coverage: a partial source or truncated finalizer excerpt sets
+`limitation_required=true`, forbids whole-document and absence claims, and is
+recorded with the exact finalizer payload bytes and source lineage through
+`workflow.evidence_projection.created`.
 
 The public adapter status separates `configured_enabled`, `adapter_ready`, and
 `runtime_status` (`disabled`, `ready`, or `degraded`) while hiding the OCR
@@ -401,6 +417,17 @@ retain `read` and `apply` stage evidence. Exact `reread` versus `preserve`
 classification remains pending in the shared document Pipeline; a parent
 deadline outside the PPTX adapters is currently reported conservatively as a
 read-stage operation timeout.
+
+After deterministic binding, validation, and Policy allowance but before
+creating an approval for `pptx.update_slide` or `pptx.update_deck`, Runtime runs
+the generated mutation through the same edit, reread, layout, and preservation
+checks against an ephemeral output. The candidate is eligible for approval only
+after that output is removed and the preflight succeeds. A typed
+`pptx_layout_fit_conflict` gets one semantic repair against the same evidence
+projection so Runtime can shorten the proposed text; the repair creates no tool
+call or approval of its own. A second layout failure or any non-semantic
+preflight failure blocks without presenting an unexecutable approval. Source
+and target freshness are still revalidated after approval.
 
 ## Extension Rules
 

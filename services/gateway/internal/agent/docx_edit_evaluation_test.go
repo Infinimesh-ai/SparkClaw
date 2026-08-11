@@ -54,7 +54,7 @@ func TestDOCXEditBilingualRouteAndOperationSelectionMatrix(t *testing.T) {
 			}
 			dispatch.Run = advanceDocumentEditToDecision(t, runtime, st, dispatch, route.Slots.TargetRef)
 			selectedEntry := docxEvaluationEntryID(t, runtime, dispatch.Run, tc.tool, tc.operation)
-			dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+			dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
 			st.SaveRun(dispatch.Run)
 
 			if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
@@ -134,7 +134,7 @@ func TestDOCXUnsupportedTargetsBlockWithoutApproval(t *testing.T) {
 				t.Fatal(err)
 			}
 			dispatch.Run = advanceDocumentEditToDecision(t, runtime, st, dispatch, route.Slots.TargetRef)
-			dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"\"}"
+			dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionNoMatchResponse()
 			st.SaveRun(dispatch.Run)
 			if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
 				t.Fatalf("unsupported selection did not reach a terminal block: changed=%t err=%v", changed, err)
@@ -222,7 +222,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		t.Fatalf("real DOCX read did not activate selection: changed=%t err=%v", changed, err)
 	}
 	selectedEntry := docxEvaluationEntryID(t, runtime, run, "docx.set_text_style", "set_text_style")
-	run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
 	st.SaveRun(run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &run, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("real DOCX operation selection failed: changed=%t err=%v", changed, err)

@@ -76,13 +76,15 @@ func TestWorkflowEvidenceDegradationNeverExpandsSmallSlice(t *testing.T) {
 func TestStructuredBrowserEvidenceKeepsWholeControlRefs(t *testing.T) {
 	output := map[string]any{"output": map[string]any{
 		"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": "snapshot_1", "page_id": "page_1",
+		"url": "https://example.com/private", "digest": "runtime-only-digest",
 		"controls": []any{
 			map[string]any{"ref": "snapshot_1:e1", "role": "button", "accessible_name": "Open"},
 			map[string]any{"ref": "snapshot_1:e2", "role": "button", "accessible_name": strings.Repeat("large", 300)},
 		},
 	}}
 	text := slicePersistedToolEvidenceForRequest("browser.snapshot", output, workflowEvidenceStructured, 480, "")
-	if !json.Valid([]byte(text)) || !strings.Contains(text, "snapshot_1:e1") || strings.Contains(text, "snapshot_1:e2") {
+	if !json.Valid([]byte(text)) || !strings.Contains(text, "snapshot_1:e1") ||
+		strings.Contains(text, "snapshot_1:e2") || strings.Contains(text, "example.com") || strings.Contains(text, "runtime-only-digest") {
 		t.Fatalf("structured browser slice cut or over-admitted controls: %s", text)
 	}
 }
@@ -278,8 +280,50 @@ func TestContextBuilderDegradesLowerPrioritySectionFirst(t *testing.T) {
 
 func TestWorkflowFinalEvidencePacksMultipleObservations(t *testing.T) {
 	evidence := workflowFinalEvidence(nil, []string{"first observation", "second observation"})
-	if len(evidence) != 2 || evidence[0] != "first observation" || evidence[1] != "second observation" {
+	if len(evidence) != 2 || !strings.Contains(evidence[0], "claim_coverage=bounded") ||
+		!strings.HasSuffix(evidence[0], "first observation") || evidence[1] != "second observation" {
 		t.Fatalf("finalizer did not pack multiple observations: %#v", evidence)
+	}
+}
+
+func TestWorkflowFinalizerRecordsActualEvidenceProjection(t *testing.T) {
+	runtime, st, session, closeRuntime := newObservationManagementRuntime(t)
+	defer closeRuntime()
+	fixture := pdfCoverageToolCall("complete", "complete PDF evidence", true)
+	run, call := archivedEvidenceFixture(t, runtime, st, session.ID, fixture.Tool, fixture.Result)
+	call.Capability = app.ToolCapabilityDocumentRead
+	st.SaveToolCall(call)
+	run.Workflow = &app.WorkflowState{Plan: app.WorkflowPlan{ProfileID: app.WorkflowDocumentRead}}
+	st.SaveRun(run)
+
+	projection, err := runtime.workflowFinalEvidence(context.Background(), run, []app.ToolCall{call}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = runtime.synthesizeWorkflowFinalAnswer(
+		context.Background(), run, "Summarize the PDF", []app.ToolCall{call}, nil, documentWorkflowModelLane, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var event *app.AuditEvent
+	for _, candidate := range st.ListAudit(session.ID) {
+		if candidate.RunID == run.ID && candidate.Type == "workflow.evidence_projection.created" &&
+			candidate.Fields["semantic_variable"] == "final_answer_content" {
+			current := candidate
+			event = &current
+			break
+		}
+	}
+	if event == nil {
+		t.Fatalf("finalizer evidence projection audit is missing: %#v", st.ListAudit(session.ID))
+	}
+	if event.Fields["claim_coverage"] != workflowCoverageComplete || event.Fields["complete_for_consumer"] != true ||
+		intLikeValue(event.Fields["model_payload_bytes"]) != len([]byte(projection.modelPayload())) ||
+		intLikeValue(event.Fields["archived_bytes"]) <= 0 ||
+		!hasAgentAuditStringSliceField([]app.AuditEvent{*event}, event.Type, "source_event_ids", call.ObservationRef) {
+		t.Fatalf("finalizer projection audit is incomplete: %#v", event.Fields)
 	}
 }
 

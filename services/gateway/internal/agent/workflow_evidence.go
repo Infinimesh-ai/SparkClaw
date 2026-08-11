@@ -12,10 +12,15 @@ import (
 )
 
 type provisionedWorkflowEvidence struct {
-	Text        string
-	CompactText string
-	MinimalText string
-	Bytes       int
+	Text                      string
+	CompactText               string
+	MinimalText               string
+	Bytes                     int
+	ArchivedBytes             int
+	SourceEventIDs            []string
+	DerivedAssertionIDs       []string
+	Coverage                  workflowEvidenceProjectionCoverage
+	RuntimeBindingManifestRef string
 }
 
 type archivedToolObservation struct {
@@ -36,6 +41,15 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 	compactSections := make([]string, 0, len(requirements))
 	minimalSections := make([]string, 0, len(requirements))
 	providedBytes := 0
+	archivedBytes := 0
+	sourceEventIDs := []string{}
+	derivedAssertionIDs := []string{}
+	coverage := workflowEvidenceProjectionCoverage{
+		Source: workflowCoverageComplete, Target: workflowCoverageComplete,
+		Claim: workflowCoverageNotRequired, Candidate: workflowCoverageNotRequired,
+		Transition: workflowCoverageNotRequired, Presentation: workflowCoverageNotRequired,
+		CompleteForConsumer: true,
+	}
 	formatPolicy := agentDocumentFormatPolicy{}
 	if run.Workflow != nil {
 		formatPolicy, _ = registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route)
@@ -115,6 +129,8 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 			minimalSections = append(minimalSections, formatProvisionedEvidenceSection(ref, call.Tool, requirement.Mode, minimalText))
 		}
 		providedBytes += used
+		archivedBytes += artifactBytes
+		sourceEventIDs = appendUniqueString(sourceEventIDs, firstNonEmptyString(call.ObservationRef, call.ID))
 		remaining -= used
 		auditFields := map[string]any{
 			"source_ref": ref, "tool_call_id": call.ID, "tool": call.Tool, "mode": requirement.Mode,
@@ -123,6 +139,16 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		if evidencePolicy.ProjectEvidenceAudit != nil {
 			for key, value := range evidencePolicy.ProjectEvidenceAudit(text) {
 				auditFields[key] = value
+			}
+		}
+		coverage = mergeWorkflowEvidenceProjectionCoverage(coverage, workflowCoverageForProvisionedEvidence(call.Tool, output, text, auditFields))
+		if run.Workflow != nil && len(run.Workflow.ActiveNodeIDs) == 1 {
+			if state, ok := run.Workflow.Nodes[run.Workflow.ActiveNodeIDs[0]]; ok {
+				for _, ref := range state.OutcomeRefs {
+					if ref.Kind == "browser_transition" || ref.Kind == "browser_presentation_equivalence" {
+						derivedAssertionIDs = appendUniqueString(derivedAssertionIDs, ref.Ref)
+					}
+				}
 			}
 		}
 		r.store.AddAudit(app.AuditEvent{
@@ -138,11 +164,94 @@ func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun
 		return provisionedWorkflowEvidence{}, nil
 	}
 	return provisionedWorkflowEvidence{
-		Text:        strings.Join(sections, "\n\n"),
-		CompactText: strings.Join(compactSections, "\n\n"),
-		MinimalText: strings.Join(minimalSections, "\n\n"),
-		Bytes:       providedBytes,
+		Text:                      strings.Join(sections, "\n\n"),
+		CompactText:               strings.Join(compactSections, "\n\n"),
+		MinimalText:               strings.Join(minimalSections, "\n\n"),
+		Bytes:                     providedBytes,
+		ArchivedBytes:             archivedBytes,
+		SourceEventIDs:            sourceEventIDs,
+		DerivedAssertionIDs:       derivedAssertionIDs,
+		Coverage:                  coverage,
+		RuntimeBindingManifestRef: workflowProjectionBindingManifestRef(run, activeWorkflowNodeID(run.Workflow), activeWorkflowScopeRevision(run.Workflow)),
 	}, nil
+}
+
+func activeWorkflowNodeID(state *app.WorkflowState) app.WorkflowNodeID {
+	if state == nil || len(state.ActiveNodeIDs) != 1 {
+		return ""
+	}
+	return state.ActiveNodeIDs[0]
+}
+
+func activeWorkflowScopeRevision(state *app.WorkflowState) int {
+	if state == nil {
+		return 0
+	}
+	return state.Nodes[activeWorkflowNodeID(state)].ScopeRevision
+}
+
+func workflowCoverageForProvisionedEvidence(tool string, output any, text string, fields map[string]any) workflowEvidenceProjectionCoverage {
+	coverage := workflowEvidenceProjectionCoverage{
+		Source: workflowCoverageComplete, Target: workflowCoverageComplete,
+		Claim: workflowCoverageNotRequired, Candidate: workflowCoverageNotRequired,
+		Transition: workflowCoverageNotRequired, Presentation: workflowCoverageNotRequired,
+		CompleteForConsumer: strings.TrimSpace(text) != "",
+	}
+	if outputMap, ok := outputAsMap(output); ok {
+		if (tool == "files.read" || tool == "pdf.extract_text" || tool == "images.inspect") && !fileReadComplete(outputMap) {
+			coverage.Source = workflowCoveragePartial
+			coverage.CompleteForConsumer = false
+			coverage.Omissions = append(coverage.Omissions, "source_read_incomplete")
+		}
+		if tool == "browser.snapshot" {
+			coverage.Source = workflowCoverageComplete
+			coverage.Target = workflowCoverageBounded
+			coverage.Candidate = workflowCoverageBounded
+		}
+	}
+	if complete, ok := fields["selection_complete"].(bool); ok && !complete {
+		coverage.Target = workflowCoveragePartial
+		coverage.CompleteForConsumer = false
+		coverage.Omissions = append(coverage.Omissions, "required_target_omitted")
+	}
+	for _, key := range []string{"omitted_sheets", "omitted_rows", "omitted_cells"} {
+		if intLikeValue(fields[key]) > 0 {
+			coverage.Omissions = appendUniqueString(coverage.Omissions, key)
+		}
+	}
+	return coverage
+}
+
+func mergeWorkflowEvidenceProjectionCoverage(left, right workflowEvidenceProjectionCoverage) workflowEvidenceProjectionCoverage {
+	merged := left
+	merged.Source = leastCompleteWorkflowCoverage(left.Source, right.Source)
+	merged.Target = leastCompleteWorkflowCoverage(left.Target, right.Target)
+	merged.Claim = leastCompleteWorkflowCoverage(left.Claim, right.Claim)
+	merged.Candidate = leastCompleteWorkflowCoverage(left.Candidate, right.Candidate)
+	merged.Transition = leastCompleteWorkflowCoverage(left.Transition, right.Transition)
+	merged.Presentation = leastCompleteWorkflowCoverage(left.Presentation, right.Presentation)
+	merged.CompleteForConsumer = left.CompleteForConsumer && right.CompleteForConsumer
+	for _, omission := range right.Omissions {
+		merged.Omissions = appendUniqueString(merged.Omissions, omission)
+	}
+	return merged
+}
+
+func leastCompleteWorkflowCoverage(left, right string) string {
+	rank := map[string]int{
+		workflowCoverageUnknown: 0, workflowCoveragePartial: 1, workflowCoverageBounded: 2,
+		workflowCoverageComplete: 3, workflowCoverageNotRequired: 4,
+	}
+	if left == "" {
+		return right
+	}
+	if right == "" {
+		return left
+	}
+	if rank[right] < rank[left] {
+		return right
+	}
+	return left
 }
 
 func (r Runtime) workflowStageEvidenceLimit() int {
@@ -154,6 +263,14 @@ func (r Runtime) workflowStageEvidenceLimit() int {
 }
 
 func sliceWorkflowEvidenceForRun(run app.AgentRun, tool string, output any, mode workflowEvidenceSliceMode, maxBytes int, ownerRequest string) (string, error) {
+	if tool == "browser.snapshot" && mode == workflowEvidenceStructured {
+		if projection, handled := browserWorkflowEvidenceProjection(run, output, maxBytes); handled {
+			if strings.TrimSpace(projection) == "" {
+				return "", errors.New("required browser transition evidence exceeds the stage evidence budget")
+			}
+			return projection, nil
+		}
+	}
 	if run.Workflow != nil {
 		if policy, ok := registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route); ok && policy.SliceWorkflowEvidence != nil {
 			return policy.SliceWorkflowEvidence(run, tool, output, mode, maxBytes, ownerRequest)

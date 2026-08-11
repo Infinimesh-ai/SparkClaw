@@ -513,6 +513,8 @@ func adaptBrowserClickOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalUnsafeClickTarget}
 		case app.ToolErrorSnapshotStale:
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalSnapshotStale}
+		case app.ToolErrorBrowserInteractionLoop:
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalInteractionLoopDetected}
 		case "":
 			// Fallback prose matching for tool calls persisted before
 			// ErrorCode existed and for unclassified adapter errors.
@@ -555,6 +557,10 @@ func adaptBrowserTransitionOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 			"after_snapshot_id":  strings.TrimSpace(stringValue(payload["after_snapshot_id"])),
 			"after_digest":       strings.TrimSpace(stringValue(payload["after_digest"])),
 			"session_generation": browserSessionGenerationString(payload["session_generation"]),
+			"state_changed":      strconv.FormatBool(boolValue(payload["state_changed"])),
+			"settled":            "true",
+			"route_consistent":   "true",
+			"same_session":       "true",
 		},
 	}}
 	return outcome
@@ -587,7 +593,7 @@ func adaptBrowserGoalOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.T
 			"code":          code,
 			"snapshot_id":   strings.TrimSpace(stringValue(payload["snapshot_id"])),
 			"evidence_refs": strings.Join(evidenceRefs, ","),
-			"reason":        strings.TrimSpace(stringValue(payload["reason"])),
+			"reason_code":   strings.TrimSpace(stringValue(payload["reason_code"])),
 		},
 	}}
 	return outcome

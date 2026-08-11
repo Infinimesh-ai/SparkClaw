@@ -1539,7 +1539,8 @@ func TestPptxUpdateSlideRejectsUnreadablyLongText(t *testing.T) {
 			"text":        strings.Repeat("过长内容", 50),
 		}},
 	}, "s", "run")
-	if err == nil || !strings.Contains(err.Error(), "updated text is too long for its slide shape") {
+	if err == nil || !strings.Contains(err.Error(), "updated text is too long for its slide shape") ||
+		app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXLayoutFitConflict {
 		t.Fatalf("expected unreadable text rejection, got %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(root, "outputs", "unreadable.pptx")); !errors.Is(statErr, os.ErrNotExist) {

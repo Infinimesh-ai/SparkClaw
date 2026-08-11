@@ -42,20 +42,24 @@ confirm_document_target
 不代表完成。Runtime 会返回一次限定在当前 stage 的纠正提示；如果模型再次提前返回
 `final`，则以 `required_tool_not_called` 阻断当前节点，不再发起第三次模型调用。
 
-`select_edit_operation` 不会向步骤模型暴露工具。Runtime 直接检索它按格式限定的
-`document.edit` scope：单候选确定性选中；多候选由一次有重试上限的 Fast 模型决策处理，
-输入是 owner 请求、operation 专属目录边界，以及由
+`select_edit_operation` 不会向步骤模型暴露工具或 directory entry identity。Runtime 直接检索
+它按格式限定的 `document.edit` scope，并把每个 eligible entry 规范化为投影内候选契约；该契约
+描述 target kind、change kind、placement、owner-content requirement、preservation behavior
+和语义使用边界。单候选确定性选中；多候选由 Fast 模型依据 owner 请求、规范化候选以及由
 `workflow_stage_evidence_max_bytes` 限制的依赖证据，默认 8,000 bytes。DOCX decision 会
 优先选择显式稳定 location、段落序号、引号文本、有界 neighbor、story-part 样本和
 operation context，再使用确定性 head/tail fallback。XLSX 的 operation 选择与 editor
 参数生成使用同一份 `xlsx_sheet_evidence_v1` 投影。选中的 directory entry、capability、
 format、operation 与选择路径写入该节点的 `OutcomeRefs`，编辑节点只能 materialize 这一
-entry。决策缺失、过期、有歧义、不受支持或无效时 Workflow 会显式 block。原内联目录二次
-路由已经删除；其他多候选 scope 也必须声明自己的决策节点。详见
+entry。模型类型化输出只能是带一个投影内 candidate ID 的 `selected`，或带稳定 reason code
+的 `no_match`；Runtime 会拒绝外部或过期候选。空、畸形、越界或不兼容结果只会基于同一份
+candidate payload 和归档 source evidence 修复一次，第二次仍无效就阻断 Workflow。原内联目录
+二次路由已经删除；其他多候选 scope 也必须声明自己的决策节点。详见
 [operation 选择设计记录](document-edit-operation-selection.md)。
 
-operation selection 与 editor 生成使用两份不同的最小投影。decision 调用只返回 eligible
-directory entry ID；后续 editor 调用只看到 operation 专属语义参数和 candidate 局部内容/
+operation selection 与 editor 生成使用两份不同的最小投影。decision 调用只返回投影内
+candidate ID；Runtime 通过冻结 binding manifest 将其映射到一个 eligible directory entry。
+后续 editor 调用只看到 operation 专属语义参数和 candidate 局部内容/
 结构。模型 schema 不包含冻结输入/输出 path、选中 qualifier、文档/来源/目标 hash 和 proof
 locator。Runtime 根据归档定位读取解析所选 candidate，并在 ToolHub 校验、Policy 与 Approval
 前回绑全部可证明执行参数。
@@ -169,7 +173,9 @@ operation 需要的 slide/shape anchor、current text、layout 摘要和 coverag
 精确旧文本不再要求模型回传，而由 Runtime 从冻结路由和定位读取中注入，再进入完整 ToolHub
 校验。一次模型生成的文本更新数组最多包含 16 个选中 shape；在 `coordinated` 布局策略下，
 明确选中的纯布局调整目标可以保留当前文本。执行契约仍强制校验源摘要、精确旧文本和
-64-shape 总边界。
+64-shape 总边界。进入 Policy 或 Approval 前，Runtime 会拒绝非删除操作的空替换文本以及重复/
+非法 target，依据权威 old text 移除语义 no-op，并要求至少保留一项实际 mutation。可恢复的
+语义校验失败只执行一次同投影修复；第二次仍无效会在调用 editor 或创建 approval 前阻断。
 
 ### PDF 页级覆盖与 OCR Runtime
 
@@ -182,7 +188,9 @@ PDF read 会输出 `read_complete`、`coverage_status`、`page_status_counts` �
 `missing_page_indexes`。只有全部页面为 native 或 OCR 成功时读取才完整。有可用证据的
 partial read 只能在明确说明限制后总结；unavailable read 会 block。finalizer 单独接收
 coverage manifest 和有界 8000 rune 正文摘录，因此摘录截断不会被误报为源页面丢失，
-缺失页面也不会被摘录预算隐藏。
+缺失页面也不会被摘录预算隐藏。Runtime 还会单独派生 finalizer claim coverage：source partial
+或 finalizer 摘录截断都会设置 `limitation_required=true`，禁止整篇与否定性声明，并通过
+`workflow.evidence_projection.created` 记录 finalizer 实际 payload bytes 和 source lineage。
 
 公共 adapter 状态会区分 `configured_enabled`、`adapter_ready` 和 `runtime_status`
 （`disabled`、`ready` 或 `degraded`），同时隐藏 OCR endpoint 与 allowlist。`ready` 只表示
@@ -309,6 +317,15 @@ package extension 可以作为 partial evidence 读取，但不是隐式 mutatio
 `document_operation_timeout` tool error。reader 和 mutation adapter 超时会保留 `read` 与
 `apply` stage 证据。精确区分 `reread` 与 `preserve` 仍需共享 document Pipeline 支持；发生在
 PPTX adapter 之外的 parent deadline 当前会保守地报告为 read-stage operation timeout。
+
+完成确定性 binding、validation 和 Policy allowance 后，在为 `pptx.update_slide` 或
+`pptx.update_deck` 创建 approval 前，Runtime 会让模型生成的 mutation 在临时输出上经过
+相同的 edit、重读、layout 与 preservation 校验。只有临时输出已删除且预检通过的候选才可
+进入 approval。类型化的
+`pptx_layout_fit_conflict` 会基于同一 evidence projection 触发一次语义修复，让 Runtime
+缩短候选文案；修复本身不会创建 tool call 或 approval。第二次 layout 失败或任何非语义预检
+失败都会直接阻断，不向用户展示无法执行的 approval。Approval 后仍会重新校验 source 与
+target freshness。
 
 ## 扩展规则
 

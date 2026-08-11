@@ -665,7 +665,7 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 			"browser.status", "browser.list_tabs", "browser.focus", "browser.wait", "browser.snapshot",
 			"browser.assess_goal", "browser.click", "browser.wait", "browser.snapshot",
 			"browser.validate_transition", "browser.assess_goal", "browser.open", "browser.wait",
-			"browser.snapshot", "browser.assess_goal",
+			"browser.snapshot",
 		},
 		[]string{
 			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserFocus,
@@ -673,7 +673,6 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 			app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
 			app.ToolCapabilityBrowserTransitionValidate, app.ToolCapabilityBrowserGoalAssess,
 			app.ToolCapabilityBrowserOpen, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
-			app.ToolCapabilityBrowserGoalAssess,
 		})
 	if len(result.Approvals) != 0 || len(st.ListApprovals("")) != 0 {
 		t.Fatalf("bounded browser.interaction click unexpectedly requested approval: %#v", result.Approvals)
@@ -684,6 +683,40 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 	if strings.TrimSpace(result.Message.Content) == "" {
 		t.Fatalf("interaction result did not report verified visible completion: %q", result.Message.Content)
 	}
+	if result.Run.Workflow == nil || result.Run.Workflow.Browser == nil || result.Run.Workflow.Browser.Result == nil ||
+		!result.Run.Workflow.Browser.Result.PresentationEquivalent || result.Run.Workflow.Browser.Result.PresentationAssertionID == "" ||
+		!hasAgentAuditField(st.ListAudit(session.ID), "workflow.evidence_projection.skipped", "reason_code", "presentation_equivalence") {
+		t.Fatalf("equivalent visible result did not persist its assertion and skipped-call audit: result=%#v audit=%#v", result.Run.Workflow, st.ListAudit(session.ID))
+	}
+}
+
+func TestBrowserInteractionRouteReassessesMateriallyDifferentVisibleResult(t *testing.T) {
+	adapter := &fakeInteractionBrowserAdapter{visibleContentDigest: "checkout-visible-delta"}
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		cfg.config.Tools.BrowserAutomation.Enabled = true
+		cfg.browserAdapter = adapter
+	})
+	defer closeRuntime()
+
+	result, err := runtime.HandleMessage(context.Background(), session.ID, "点击当前页面的下一步按钮")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityBrowserInteraction, app.WorkflowBrowserInteraction,
+		[]string{
+			"browser.status", "browser.list_tabs", "browser.focus", "browser.wait", "browser.snapshot",
+			"browser.assess_goal", "browser.click", "browser.wait", "browser.snapshot",
+			"browser.validate_transition", "browser.assess_goal", "browser.open", "browser.wait",
+			"browser.snapshot", "browser.assess_goal",
+		},
+		[]string{
+			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserFocus,
+			app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot, app.ToolCapabilityBrowserGoalAssess,
+			app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
+			app.ToolCapabilityBrowserTransitionValidate, app.ToolCapabilityBrowserGoalAssess,
+			app.ToolCapabilityBrowserOpen, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
+			app.ToolCapabilityBrowserGoalAssess,
+		})
 }
 
 func TestBrowserInteractionRouteLeavesOpenedTabAvailable(t *testing.T) {
@@ -703,7 +736,7 @@ func TestBrowserInteractionRouteLeavesOpenedTabAvailable(t *testing.T) {
 			"browser.status", "browser.list_tabs", "browser.open", "browser.wait", "browser.snapshot",
 			"browser.assess_goal", "browser.click", "browser.wait", "browser.snapshot",
 			"browser.validate_transition", "browser.assess_goal", "browser.open", "browser.wait",
-			"browser.snapshot", "browser.assess_goal",
+			"browser.snapshot",
 		},
 		[]string{
 			app.ToolCapabilityBrowserHealth, app.ToolCapabilityBrowserListTabs, app.ToolCapabilityBrowserOpen,
@@ -711,7 +744,6 @@ func TestBrowserInteractionRouteLeavesOpenedTabAvailable(t *testing.T) {
 			app.ToolCapabilityBrowserClick, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
 			app.ToolCapabilityBrowserTransitionValidate, app.ToolCapabilityBrowserGoalAssess,
 			app.ToolCapabilityBrowserOpen, app.ToolCapabilityBrowserWait, app.ToolCapabilityBrowserSnapshot,
-			app.ToolCapabilityBrowserGoalAssess,
 		})
 	if adapter.closes != 0 || !adapter.opened {
 		t.Fatalf("explicit interaction did not leave its opened tab available: %#v", adapter)
@@ -1028,13 +1060,14 @@ func newWorkflowE2ERuntime(t *testing.T, customize func(*testRuntimeConfig)) (Ru
 }
 
 type fakeInteractionBrowserAdapter struct {
-	snapshots    int
-	clicks       int
-	closes       int
-	emptyTabs    bool
-	opened       bool
-	closedPageID string
-	currentURL   string
+	snapshots            int
+	clicks               int
+	closes               int
+	emptyTabs            bool
+	opened               bool
+	closedPageID         string
+	currentURL           string
+	visibleContentDigest string
 }
 
 func (a *fakeInteractionBrowserAdapter) Health(context.Context, map[string]any) (browserautomation.Result, error) {
@@ -1115,10 +1148,14 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 			"in_viewport": true, "ordinal": 1, "fingerprint": "0123456789abcdef0123456789abcdef",
 		}}
 		generation, presentation := fakeBrowserIdentity(args)
+		contentDigest := digest
+		if presentation == "visible" && a.visibleContentDigest != "" {
+			contentDigest = a.visibleContentDigest
+		}
 		snapshot := map[string]any{
 			"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": snapshotID,
 			"previous_snapshot_id": previousID, "page_id": pageID, "url": a.currentURL,
-			"title": "Checkout", "digest": digest, "content_digest": digest, "repeated": false,
+			"title": "Checkout", "digest": digest, "content_digest": contentDigest, "repeated": false,
 			"session_generation": generation, "presentation": presentation,
 			"provider_session_ref": "fake-" + presentation, "owner_id": app.DefaultOwnerID, "profile_id": "default",
 			"controls_total": 1, "controls_returned": 1, "truncated": false, "controls": controls, "refs": controls,

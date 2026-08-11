@@ -24,6 +24,12 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Unified consumer-scoped evidence projections across document decisions,
+  document/browser model stages, and finalization with lineage/coverage audit;
+  added normalized document operation candidates, one bounded PPTX semantic
+  repair with ephemeral layout/preservation preflight before approval, PDF
+  claim coverage, browser transition evidence, repeated-action blocking, and
+  deterministic visible-presentation equivalence.
 - Model-serving health checks and joint startup now allow bounded multi-hour
   cold downloads instead of failing after the previous short readiness window.
 - Advanced `document.edit` to revision 6 for XLSX: typed bounded sheet evidence,
@@ -38,6 +44,8 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Validated
 
+- Gateway build/test/vet, WebChat tests/build, bilingual documentation checks,
+  doctor, and 47 isolated mock/file golden evals for evidence projection changes.
 - WebChat production build.
 - Gateway skill registry test.
 - Docker Compose config validation.

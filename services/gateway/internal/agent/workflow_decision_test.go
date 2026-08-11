@@ -29,19 +29,102 @@ func TestDocumentEditDecisionInvalidOutputRetriesThenBlocks(t *testing.T) {
 	if countModelCalls(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) != 2 {
 		t.Fatalf("invalid decision output did not retry on the document workflow lane: %#v", st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID))
 	}
+	projections := []app.AuditEvent{}
+	for _, event := range st.ListAudit(dispatch.Run.SessionID) {
+		if event.RunID == dispatch.Run.ID && event.Type == "workflow.evidence_projection.created" &&
+			event.Fields["semantic_variable"] == "eligible_document_operation" {
+			projections = append(projections, event)
+		}
+	}
+	var initial, repair *app.AuditEvent
+	for index := range projections {
+		switch intLikeValue(projections[index].Fields["repair_attempt"]) {
+		case 0:
+			initial = &projections[index]
+		case 1:
+			repair = &projections[index]
+		}
+	}
+	if len(projections) != 2 || initial == nil || repair == nil ||
+		initial.Fields["model_payload_digest"] != repair.Fields["model_payload_digest"] ||
+		initial.Fields["reused"] != false || repair.Fields["reused"] != true ||
+		!hasAgentAuditStringSliceField([]app.AuditEvent{*repair}, repair.Type, "validation_error_codes", "selection_empty_or_invalid") ||
+		initial.Fields["complete_for_consumer"] != true || intLikeValue(initial.Fields["archived_bytes"]) <= 0 {
+		t.Fatalf("decision repair did not reuse one complete evidence projection: %#v", projections)
+	}
 }
 
 func TestWorkflowDecisionPromptDeclaresOnlyEligibleEntrySemanticVariable(t *testing.T) {
 	run := app.AgentRun{Workflow: &app.WorkflowState{Route: app.RouteDecision{Slots: app.RouteSlots{Query: "Update the requested target"}}}}
-	system, _ := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, app.WorkflowNode{}, `[{"id":"entry_1"}]`, "candidate-local content", 8000)
-	if !strings.Contains(system, "Semantic variable: eligible_tool_entry_id.") {
+	system, _ := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, app.WorkflowNode{}, `{"schema_version":"workflow_operation_candidates_v1","candidates":[{"candidate_id":"candidate_1"}]}`, "candidate-local content", 8000)
+	if !strings.Contains(system, "Semantic variable: eligible_document_operation.") {
 		t.Fatalf("workflow decision prompt does not declare its semantic variable: %s", system)
+	}
+}
+
+func TestWorkflowDecisionCandidateProjectionUsesOnlyProjectionLocalIDs(t *testing.T) {
+	entries := []app.ToolDirectoryEntry{
+		{
+			ID: "directory_entry_internal_append_row", Name: "xlsx.append_row", Summary: "Append one row",
+			WhenToUse: "Use for a new row at the current end boundary",
+			Capability: app.CapabilityDescriptor{
+				Name: app.ToolCapabilityDocumentEdit,
+				Qualifiers: map[string]string{
+					app.CapabilityQualifierFormat:    app.DocumentFormatXLSX,
+					app.CapabilityQualifierOperation: "append_row",
+				},
+			},
+		},
+		{
+			ID: "directory_entry_internal_update_cell", Name: "xlsx.update_cells", Summary: "Update existing cells",
+			WhenToUse: "Use for bounded changes to existing cells",
+			Capability: app.CapabilityDescriptor{
+				Name: app.ToolCapabilityDocumentEdit,
+				Qualifiers: map[string]string{
+					app.CapabilityQualifierFormat:    app.DocumentFormatXLSX,
+					app.CapabilityQualifierOperation: "update_cells",
+				},
+			},
+		},
+	}
+	projection, bindings, err := buildWorkflowDecisionCandidateProjection(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(projection, string(entry.ID)) || strings.Contains(projection, entry.Name) {
+			t.Fatalf("candidate projection leaked Runtime directory representation: %s", projection)
+		}
+		candidateID := workflowDecisionCandidateID(entry.ID)
+		if bindings[candidateID] != entry.ID || !strings.Contains(projection, candidateID) {
+			t.Fatalf("candidate %q was not locally bound to %q: projection=%s bindings=%#v", candidateID, entry.ID, projection, bindings)
+		}
+	}
+	if _, exists := bindings["candidate_foreign"]; exists {
+		t.Fatalf("foreign candidate unexpectedly entered the frozen binding manifest: %#v", bindings)
+	}
+}
+
+func TestDocumentEditDecisionForeignCandidateRetriesThenBlocks(t *testing.T) {
+	runtime, st, _, dispatch := newDocumentDecisionFixture(t, "Improve the existing paragraph in report.docx")
+	dispatch.Run.Workflow.Route.Slots.Query += `
+MOCK_OPERATION_SELECTION_RESPONSE:{"status":"selected","candidate_id":"candidate_foreign"}`
+	st.SaveRun(dispatch.Run)
+
+	_, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile)
+	if err != nil || !changed {
+		t.Fatalf("foreign candidate did not reach a terminal decision: changed=%t err=%v", changed, err)
+	}
+	decision := dispatch.Run.Workflow.Nodes["select_edit_operation"]
+	if dispatch.Run.Workflow.Status != app.WorkflowStatusBlocked || decision.Attempts != 2 ||
+		decision.LastAssessment == nil || decision.LastAssessment.ReasonCode != "edit_operation_selection_invalid" {
+		t.Fatalf("foreign candidate escaped the projection binding boundary: %#v", decision)
 	}
 }
 
 func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(t *testing.T) {
 	runtime, st, _, dispatch := newDocumentDecisionFixture(t, "Replace a paragraph in report.docx")
-	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"\"}"
+	dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionNoMatchResponse()
 	st.SaveRun(dispatch.Run)
 
 	_, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile)
@@ -59,6 +142,14 @@ func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(
 	if hasModelCallOperation(st.ListModelCalls(dispatch.Run.SessionID, dispatch.Run.ID), "workflow_directory_selection", "fast") {
 		t.Fatal("document edit decision fell back to the retired fast directory selector")
 	}
+}
+
+func mockWorkflowDecisionSelectedResponse(entryID app.ToolDirectoryEntryID) string {
+	return "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"status\":\"selected\",\"candidate_id\":\"" + workflowDecisionCandidateID(entryID) + "\"}"
+}
+
+func mockWorkflowDecisionNoMatchResponse() string {
+	return "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"status\":\"no_match\",\"reason_code\":\"unsupported_operation\"}"
 }
 
 func TestDocumentEditDecisionAndConsumerFailClosed(t *testing.T) {
@@ -152,7 +243,7 @@ func TestDocumentEditDecisionRulesSeparateXLSXSiblingOperations(t *testing.T) {
 		"one explicit cell", "multiple supplied fields", "before or after anchor", "final structured boundary",
 		"complete row", "Clearing a cell", "deleting the workbook file", "ambiguous target", "negates an edit",
 		"quote edit instructions", "troubleshooting without changing", "never invent a missing target or new value",
-		"exact cell address", "uniquely identifying existing record plus field", "otherwise return no entry",
+		"exact cell address", "uniquely identifying existing record plus field", "otherwise return a typed no_match",
 	} {
 		if !strings.Contains(rules, boundary) {
 			t.Fatalf("document edit decision rules omitted %q: %s", boundary, rules)

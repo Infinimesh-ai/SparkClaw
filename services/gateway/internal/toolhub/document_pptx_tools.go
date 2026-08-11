@@ -4,14 +4,54 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 func runPptxSlideAdapter(ctx context.Context, request map[string]any) (map[string]any, error) {
-	return runPythonAdapter(ctx, pptxSlideAdapterScript, request)
+	result, err := runPythonAdapter(ctx, pptxSlideAdapterScript, request)
+	if documentAdapterErrorCode(err) == "pptx_layout_fit_conflict" {
+		return nil, &app.CodedToolError{Code: app.ToolErrorPPTXLayoutFitConflict, Err: err}
+	}
+	return result, err
+}
+
+// PreflightPPTXLayout runs the exact PPTX mutation and preservation pipeline
+// against an ephemeral output before Policy creates an approval. It detects
+// generated text that cannot fit safely without leaving a user-visible file.
+func (h *ToolHub) PreflightPPTXLayout(ctx context.Context, name string, args map[string]any, sessionID string) error {
+	operation := strings.TrimPrefix(strings.TrimSpace(name), "pptx.")
+	if operation != "update_slide" && operation != "update_deck" {
+		return nil
+	}
+	if err := h.Validate(name, args); err != nil {
+		return err
+	}
+	h = h.forSession(sessionID)
+	root := h.cfg.Workspaces.DefaultRoot
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	tempDir, err := os.MkdirTemp(root, ".sparkclaw-pptx-preflight-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tempDir)
+
+	preflightArgs := make(map[string]any, len(args))
+	for key, value := range args {
+		preflightArgs[key] = value
+	}
+	preflightArgs["output_path"] = filepath.Join(tempDir, "candidate.pptx")
+	preflightCtx, cancel := context.WithTimeout(ctx, time.Duration(pptxEditTimeoutMS)*time.Millisecond)
+	defer cancel()
+	_, err = h.executeDocumentOperation(preflightCtx, name, operation, preflightArgs)
+	return err
 }
 
 func pptxDocumentParser() document.Parser {

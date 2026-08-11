@@ -1454,8 +1454,8 @@ func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.
 			"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": "snapshot_7",
 			"page_id": "page_7", "url": "https://example.com/contact", "title": "Contact",
 			"controls": []any{
-				map[string]any{"ref": nameRef, "role": "textbox", "accessible_name": "Name", "fingerprint": "name"},
-				map[string]any{"ref": topicRef, "role": "combobox", "accessible_name": "Topic", "fingerprint": "topic"},
+				map[string]any{"ref": nameRef, "short_ref": "e1", "role": "textbox", "accessible_name": "Name", "fingerprint": "name"},
+				map[string]any{"ref": topicRef, "short_ref": "e2", "role": "combobox", "accessible_name": "Topic", "fingerprint": "topic"},
 			},
 		},
 	}
@@ -1473,7 +1473,8 @@ func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.
 	if decoded.Structured["fallback_policy"] != nil || !strings.Contains(fmt.Sprint(decoded.Structured["next_step_hint"]), "evidence_refs") {
 		t.Fatalf("rich browser.snapshot lost citation guidance: %#v", decoded.Structured)
 	}
-	if len(decoded.Evidence) == 0 || !strings.Contains(decoded.Evidence[0].Text, nameRef) || !strings.Contains(decoded.Evidence[0].Text, topicRef) {
+	if len(decoded.Evidence) == 0 || !strings.Contains(decoded.Evidence[0].Text, `"ref":"e1"`) || !strings.Contains(decoded.Evidence[0].Text, `"ref":"e2"`) ||
+		strings.Contains(decoded.Evidence[0].Text, nameRef) || strings.Contains(decoded.Evidence[0].Text, topicRef) {
 		t.Fatalf("rich browser.snapshot lost citable refs: %#v", decoded.Evidence)
 	}
 	for _, runtimeField := range []string{"schema_version", "snapshot_id", "page_id", "url", "digest", "fingerprint", "short_ref", "ordinal"} {

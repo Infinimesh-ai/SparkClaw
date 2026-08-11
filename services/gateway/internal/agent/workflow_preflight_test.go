@@ -432,7 +432,7 @@ func advanceDocumentEditToEditor(t *testing.T, runtime Runtime, st *store.Memory
 	if selectedEntry == "" {
 		t.Fatalf("selected test editor %q operation %q is outside the edit scope", selectedTool, selectedOperation)
 	}
-	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	dispatch.Run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
 	st.SaveRun(dispatch.Run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &dispatch.Run, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("document operation decision did not resolve: changed=%t err=%v", changed, err)
@@ -483,13 +483,15 @@ func advanceDocumentEditToDecision(t *testing.T, runtime Runtime, st *store.Memo
 }
 
 func TestParseWorkflowDecisionSelectionRejectsUnknownAndTrailingFields(t *testing.T) {
-	selection, err := parseWorkflowDecisionSelection(`{"entry_id":"entry_allowed"}`)
-	if err != nil || selection.EntryID != "entry_allowed" {
+	selection, err := parseWorkflowDecisionSelection(`{"status":"selected","candidate_id":"candidate_allowed"}`)
+	if err != nil || selection.CandidateID != "candidate_allowed" {
 		t.Fatalf("valid directory selection was rejected: selection=%#v err=%v", selection, err)
 	}
 	for _, raw := range []string{
-		`{"entry_id":"entry_allowed","tool":"xlsx.append_row"}`,
-		`{"entry_id":"entry_allowed"}{"entry_id":"entry_other"}`,
+		`{"status":"selected","candidate_id":"candidate_allowed","tool":"xlsx.append_row"}`,
+		`{"status":"selected","candidate_id":"candidate_allowed"}{"status":"no_match","reason_code":"unsupported_operation"}`,
+		`{"status":"selected","candidate_id":""}`,
+		`{"status":"no_match","reason_code":"other"}`,
 	} {
 		if _, err := parseWorkflowDecisionSelection(raw); err == nil {
 			t.Fatalf("invalid directory selection was accepted: %s", raw)

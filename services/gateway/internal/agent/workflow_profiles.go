@@ -457,6 +457,7 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 		return nil, err
 	}
 	visibleDefinitions = materializeDocumentOperationSchemas(visibleDefinitions, view, entryIDs)
+	visibleDefinitions = materializeBrowserGoalAssessmentSchemas(visibleDefinitions, run, stageContext.WorkflowNodeID)
 	visibleDefinitions = materializeBrowserFormDraftSchemas(visibleDefinitions, run, stageContext.WorkflowNodeID)
 	visibleDefinitions = workflowModelToolProjection(run, entryIDs, visibleDefinitions)
 	stageContext.SemanticVariables = workflowModelSemanticVariables(visibleDefinitions)

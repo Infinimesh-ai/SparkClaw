@@ -77,7 +77,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if selectedEntry == "" {
 		t.Fatal("docx.replace_paragraph is outside the operation-selection scope")
 	}
-	storedRun.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	storedRun.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
 	st.SaveRun(storedRun)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("DOCX paragraph operation was not selected: changed=%t err=%v", changed, err)
@@ -448,7 +448,7 @@ func prepareDOCXMutationRun(t *testing.T, root, selectedTool, selectedOperation 
 		closeRuntime()
 		t.Fatalf("DOCX editor %q is outside operation-selection scope", selectedTool)
 	}
-	run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
 	st.SaveRun(run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &run, dispatch.Profile); err != nil || !changed {
 		closeRuntime()

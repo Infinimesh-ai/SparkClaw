@@ -264,6 +264,7 @@ func TestAgentBrowserSnapshotUsesFullCompactNativeTree(t *testing.T) {
 func TestAgentBrowserSnapshotControlKeepsExecutionIdentityCompact(t *testing.T) {
 	descriptor := &agentBrowserSnapshotRef{
 		ExternalRef: "snapshot_1_1:e14:eaff13c7b5515f03",
+		RawRef:      "e14",
 		Fingerprint: "eaff13c7b5515f0359bada71f37fb55ed44f1d5a71a35a67c7ae10903c839ab6",
 		Role:        "generic",
 		Name:        "Drafts",
@@ -271,7 +272,7 @@ func TestAgentBrowserSnapshotControlKeepsExecutionIdentityCompact(t *testing.T) 
 		Ordinal:     1,
 	}
 	control := agentBrowserSnapshotControl(descriptor)
-	if firstStringValue(control, "ref") != descriptor.ExternalRef || firstStringValue(control, "fingerprint") != descriptor.Fingerprint[:16] {
+	if firstStringValue(control, "ref") != descriptor.ExternalRef || firstStringValue(control, "short_ref") != descriptor.RawRef || firstStringValue(control, "fingerprint") != descriptor.Fingerprint[:16] {
 		t.Fatalf("compact control lost its current-snapshot identity: %#v", control)
 	}
 	for _, redundant := range []string{"uid", "clickable", "ordinal"} {

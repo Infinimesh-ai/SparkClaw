@@ -23,6 +23,10 @@
 
 ### Changed
 
+- 为文档决策、文档/浏览器模型阶段和最终化统一了消费者级证据投影与谱系/覆盖 audit；
+  增加规范化文档操作候选、带 approval 前临时 layout/preservation 预检的一次受限 PPTX
+  语义修复、PDF claim coverage、浏览器 transition 证据、重复 action 阻断和确定性 visible
+  presentation equivalence。
 - 模型服务 health check 与联合启动现在允许有界的数小时冷下载，不再因原有的短 ready
   窗口而过早失败。
 - 将 `document.edit` 升级到 revision 6：XLSX 现在使用类型化有界 sheet 证据、绑定证据的
@@ -35,6 +39,8 @@
 
 ### Validated
 
+- 证据投影改动通过 Gateway build/test/vet、WebChat test/build、双语文档检查、doctor
+  和 47 条隔离 mock/file golden eval。
 - WebChat production build。
 - Gateway skill registry test。
 - Docker Compose config validation。

@@ -71,7 +71,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 	if selectedEntry == "" {
 		t.Fatal("xlsx.update_row is outside the operation-selection scope")
 	}
-	storedRun.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	storedRun.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
 	st.SaveRun(storedRun)
 	if _, changed, resolveErr := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); resolveErr != nil || !changed {
 		t.Fatalf("XLSX update_row operation was not selected: changed=%t err=%v", changed, resolveErr)

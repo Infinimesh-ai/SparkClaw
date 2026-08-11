@@ -134,7 +134,7 @@ func runtimeBoundWorkflowArgument(run app.AgentRun, node app.WorkflowNode, state
 	}
 	if run.Workflow.Plan.ProfileID == app.WorkflowBrowserFormDraft &&
 		(binding.Capability == app.ToolCapabilityBrowserFormType || binding.Capability == app.ToolCapabilityBrowserFormSelect) {
-		if snapshot, ok := currentBrowserFormDraftSnapshot(state.OutcomeRefs); ok {
+		if snapshot, ok := currentBrowserSnapshot(state.OutcomeRefs); ok {
 			var value string
 			switch binding.Argument {
 			case "page_id":
@@ -149,11 +149,84 @@ func runtimeBoundWorkflowArgument(run app.AgentRun, node app.WorkflowNode, state
 			}
 		}
 	}
+	if binding.ResourceKind == "browser_snapshot" && browserWorkflowProfile(run.Workflow.Plan.ProfileID) {
+		if snapshot, ok := currentBrowserSnapshot(state.OutcomeRefs); ok {
+			value := snapshot.Ref
+			if binding.SourceKey != "" {
+				value = snapshot.Attributes[binding.SourceKey]
+			} else if binding.Argument != "snapshot_id" {
+				value = snapshot.Attributes[binding.Argument]
+			}
+			if strings.TrimSpace(value) != "" {
+				return value, true
+			}
+		}
+	}
 	values := workflowBoundArgumentValues(binding, node, run.Workflow.Intent, run.Workflow.Route, state)
 	if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
 		return "", false
 	}
 	return values[0], true
+}
+
+func browserWorkflowProfile(profileID app.WorkflowID) bool {
+	return profileID == app.WorkflowBrowserAutomation || profileID == app.WorkflowBrowserInteraction || profileID == app.WorkflowBrowserFormDraft
+}
+
+func materializeBrowserGoalAssessmentSchemas(definitions []app.ToolDefinition, run app.AgentRun, nodeID app.WorkflowNodeID) []app.ToolDefinition {
+	if run.Workflow == nil || !browserWorkflowProfile(run.Workflow.Plan.ProfileID) {
+		return definitions
+	}
+	state, ok := run.Workflow.Nodes[nodeID]
+	if !ok || !strings.HasPrefix(state.Stage, browserStageAssessGoalPrefix) {
+		return definitions
+	}
+	allowed := []any{}
+	for _, ref := range currentBrowserSnapshotRefs(state.OutcomeRefs) {
+		if ref.Kind != "browser_element" {
+			continue
+		}
+		value := strings.TrimSpace(ref.Attributes["short_ref"])
+		if value == "" {
+			value = strings.TrimSpace(ref.Ref)
+		}
+		if value != "" {
+			allowed = append(allowed, value)
+		}
+	}
+	if len(allowed) == 0 {
+		return definitions
+	}
+	out := make([]app.ToolDefinition, len(definitions))
+	copy(out, definitions)
+	for index := range out {
+		if out[index].Name != "browser.assess_goal" {
+			continue
+		}
+		schema := cloneAnyMap(out[index].InputSchema)
+		properties, _ := anyMap(schema["properties"])
+		properties = cloneAnyMap(properties)
+		delete(properties, "reason")
+		evidenceRefs, _ := anyMap(properties["evidence_refs"])
+		evidenceRefs = cloneAnyMap(evidenceRefs)
+		evidenceRefs["items"] = map[string]any{
+			"type": "string", "enum": allowed,
+			"description": "Copy one or more exact ref values from the current browser snapshot evidence; tool call IDs and artifact URIs are invalid.",
+		}
+		evidenceRefs["minItems"] = 1
+		properties["evidence_refs"] = evidenceRefs
+		schema["properties"] = properties
+		required := toolDefinitionRequiredArgs(schema)
+		visibleRequired := make([]string, 0, len(required))
+		for _, name := range required {
+			if _, visible := properties[name]; visible {
+				visibleRequired = append(visibleRequired, name)
+			}
+		}
+		schema["required"] = visibleRequired
+		out[index].InputSchema = schema
+	}
+	return out
 }
 
 func projectToolSchemaWithoutArguments(schema map[string]any, removed map[string]bool) map[string]any {

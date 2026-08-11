@@ -215,6 +215,8 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 	}
 	noProgressActions := 0
 	requiredToolFinalResponses := 0
+	semanticRepairAttempts := 0
+	semanticRepairErrorCodes := []string{}
 	attempts := 0
 	for {
 		result.Observations = r.compactWorkflowObservationsIfNeeded(sessionID, run.ID, result.Observations, runBudget)
@@ -249,10 +251,30 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		run.State = "workflow_step"
 		r.store.SaveRun(run)
 		stepVisibleTools := visibleTools
-		system, user := r.admitWorkflowStepPrompt(
+		system, user, evidencePayload := r.admitWorkflowStepPromptWithProjection(
 			sessionID, run.ID, stepNumber, task, content, result.Observations, stageContext,
 			stepVisibleTools, provisioned, systemPrompt, compactSystemPrompt,
 		)
+		coverage := provisioned.Coverage
+		if len(stageContext.EvidenceRequirements) == 0 {
+			coverage = workflowEvidenceProjectionCoverage{
+				Source: workflowCoverageNotRequired, Target: workflowCoverageNotRequired,
+				Claim: workflowCoverageNotRequired, Candidate: workflowCoverageNotRequired,
+				Transition: workflowCoverageNotRequired, Presentation: workflowCoverageNotRequired,
+				CompleteForConsumer: true,
+			}
+		}
+		coverage = workflowProjectionCoverageForStage(run, stageContext, coverage)
+		projection := r.recordWorkflowEvidenceProjection(run, workflowEvidenceProjectionInput{
+			Payload: evidencePayload, SourceEventIDs: provisioned.SourceEventIDs,
+			DerivedAssertionIDs: provisioned.DerivedAssertionIDs,
+			Consumer:            workflowEvidenceConsumerForStage(run, stageContext), Coverage: coverage,
+			ArchivedBytes:             provisioned.ArchivedBytes,
+			RuntimeBindingManifestRef: provisioned.RuntimeBindingManifestRef,
+			RepairAttempt:             semanticRepairAttempts,
+			ValidationErrorCodes:      semanticRepairErrorCodes,
+			Reused:                    stepNumber > 1, ModelOperation: fmt.Sprintf("workflow_step_%d", stepNumber), Step: stepNumber,
+		})
 		started := time.Now().UTC()
 		chat, err := r.models.Chat(ctx, task, system, user)
 		completed := time.Now().UTC()
@@ -348,6 +370,40 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 			plan.Capability = capability
 		}
 		plan = enrichPlanWithBrowserMode(stageContext, plan)
+		preparedPlan, semanticErr, prepareErr := r.prepareWorkflowSemanticPlan(ctx, run.ID, plan)
+		if prepareErr != nil {
+			result.WorkflowFailure = "semantic_preflight_failed"
+			result.FinalAnswer = prepareErr.Error()
+			r.store.AddAudit(app.AuditEvent{
+				SessionID: sessionID, RunID: run.ID, Actor: "runtime",
+				Type: "workflow.semantic_preflight.failed", Summary: prepareErr.Error(),
+				Fields: map[string]any{"projection_id": projection.ProjectionID, "tool": plan.Name},
+			})
+			return result
+		}
+		if semanticErr != nil {
+			request := newWorkflowSemanticRepairRequest(projection.ProjectionID, plan.Args, semanticErr)
+			r.store.AddAudit(app.AuditEvent{
+				SessionID: sessionID, RunID: run.ID, Actor: "runtime",
+				Type: "workflow.semantic_output.rejected", Summary: semanticErr.Error(),
+				Fields: map[string]any{
+					"projection_id": projection.ProjectionID, "error_codes": semanticErr.Codes,
+					"invalid_item_indexes": semanticErr.ItemIndexes, "repair_attempt": semanticRepairAttempts,
+					"invalid_output_digest": semanticErr.Digest,
+				},
+			})
+			if semanticRepairAttempts >= 1 {
+				result.WorkflowFailure = "semantic_output_invalid"
+				result.FinalAnswer = semanticErr.Error()
+				return result
+			}
+			semanticRepairAttempts++
+			semanticRepairErrorCodes = append([]string(nil), semanticErr.Codes...)
+			result.Observations = append(result.Observations, workflowSemanticRepairObservation(request))
+			noProgressActions++
+			continue
+		}
+		plan = preparedPlan
 		call, approval, observation := r.runToolPlan(ctx, sessionID, run.ID, plan)
 		result.ToolCalls = append(result.ToolCalls, call)
 		runBudget.observeToolCall(call)
@@ -431,6 +487,24 @@ func (r Runtime) admitWorkflowStepPrompt(
 	provisioned provisionedWorkflowEvidence,
 	fullSystem, compactSystem string,
 ) (string, string) {
+	system, user, _ := r.admitWorkflowStepPromptWithProjection(
+		sessionID, runID, step, task, goal, observations, stageContext,
+		visibleTools, provisioned, fullSystem, compactSystem,
+	)
+	return system, user
+}
+
+func (r Runtime) admitWorkflowStepPromptWithProjection(
+	sessionID, runID string,
+	step int,
+	task modelrouter.Task,
+	goal string,
+	observations []string,
+	stageContext workflowStageContext,
+	visibleTools []app.ToolDefinition,
+	provisioned provisionedWorkflowEvidence,
+	fullSystem, compactSystem string,
+) (string, string, string) {
 	buildUser := func(currentObservations []string, evidence string) string {
 		return appendWorkflowStepContext(workflowStepUserPrompt(goal, step, currentObservations), stageContext, visibleTools, evidence)
 	}
@@ -438,11 +512,11 @@ func (r Runtime) admitWorkflowStepPrompt(
 	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(task)
 	availableInputTokens := contextLimit - maxOutputTokens
 	if availableInputTokens <= 0 {
-		return fullSystem, user
+		return fullSystem, user, provisioned.Text
 	}
 	threshold := int(math.Floor(float64(availableInputTokens) * workflowStepPromptCompressionThreshold))
 	if threshold <= 0 || estimatePromptTokens(fullSystem, user) <= threshold {
-		return fullSystem, user
+		return fullSystem, user, provisioned.Text
 	}
 
 	system := compactSystem
@@ -482,7 +556,7 @@ func (r Runtime) admitWorkflowStepPrompt(
 			"evidence_bytes_after":   len([]byte(evidenceVariant)),
 		},
 	})
-	return system, user
+	return system, user, evidenceVariant
 }
 
 func compactObservationsForPrompt(observations []string) []string {

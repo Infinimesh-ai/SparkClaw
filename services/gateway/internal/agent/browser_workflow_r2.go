@@ -498,9 +498,9 @@ func browserRevision2StageContext(state *app.WorkflowState, interaction bool) wo
 		case browserStageAssessGoalInitial:
 			reason += " A matching clickable control proves only that a next action is available, not that its destination or effect is already active. Return progress when the evidence only offers that control. Return success only when explicit current or selected state or destination-specific rendered content proves the requested effect already holds, with any current route consistent with that evidence; a route alone is insufficient."
 		case browserStageAssessGoalAfterAction:
-			reason += " Runtime has already validated that the cited click produced a new rendered-content digest. Decide whether that verified transition and the current route/snapshot evidence semantically satisfy the goal; return progress only when another distinct action is still required. Do not require raw body text or an explicit selected marker when the bounded projection and verified transition otherwise prove the requested destination."
+			reason += " Runtime has already validated that the cited click produced a new rendered-content digest. Decide whether that verified transition and the current route/snapshot evidence semantically satisfy the goal; return progress only when another distinct action is still required, and never retry the same semantic control merely because it remains in navigation. Do not require raw body text or an explicit selected marker when the bounded projection and verified transition otherwise prove the requested destination."
 		case browserStageAssessGoalVisible:
-			reason += " Runtime has already verified the hidden result, transferred its profile, settled the visible rendered content, and revalidated the result route. Confirm that the current visible snapshot remains semantically consistent with that verified result; do not demote it merely because the bounded projection exposes the matching destination as a control."
+			reason += " Runtime has already verified the hidden result, transferred its profile, settled the visible rendered content, and revalidated the result route. Confirm that the current visible snapshot remains semantically consistent with that verified result and preserve the verified result unless the visible snapshot contradicts it; do not demote it merely because the bounded projection exposes the matching destination as a control."
 		}
 	}
 	stageContext := workflowStageContextForState(state, "browse", "web", "public", mode, reason)
@@ -606,6 +606,8 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		return browserRevision2NeedsMore(assessment, app.OutcomeSignalTargetValidated, browserStagePresentVisible, browserPresentationRefs(state, refs))
 	case browserStageChooseAndClick:
 		switch {
+		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalInteractionLoopDetected):
+			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "interaction_loop_detected"
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalUnsafeClickTarget):
 			assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "unsafe_click_target"
 		case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalSnapshotStale):
@@ -679,6 +681,11 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 		}
 		recordBrowserVisibleResult(state, refs, outcome.ToolCallID)
 		if interaction {
+			if assertion, equivalent := browserPresentationEquivalent(state, refs); equivalent {
+				assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "browser_visible_presentation_equivalent"
+				assessment.SelectedRefs = append(refs, assertion)
+				return assessment
+			}
 			return browserRevision2NeedsMore(assessment, app.OutcomeSignalPresentationValidated, browserStageAssessGoalVisible, refs)
 		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "browser_visible_result_verified"
@@ -900,6 +907,7 @@ func recordBrowserHiddenResult(state *app.WorkflowState, refs []app.ResourceRef,
 			ProviderSessionRef: snapshot.Attributes["provider_session_ref"],
 		},
 		HiddenPageID: page.Ref, HiddenSnapshotID: snapshot.Ref, HiddenSnapshotDigest: snapshot.Attributes["digest"],
+		HiddenContentDigest:  snapshot.Attributes["content_digest"],
 		GoalAssessmentCallID: callID, GoalEvidenceRefs: citations,
 		SourceToolCallIDs: []string{snapshot.Provenance, callID},
 	}
@@ -923,8 +931,35 @@ func recordBrowserVisibleResult(state *app.WorkflowState, refs []app.ResourceRef
 	state.Browser.Result.VisiblePageID = page.Ref
 	state.Browser.Result.VisibleSnapshotID = snapshot.Ref
 	state.Browser.Result.VisibleSnapshotDigest = snapshot.Attributes["digest"]
+	state.Browser.Result.VisibleContentDigest = snapshot.Attributes["content_digest"]
 	state.Browser.Result.SourceToolCallIDs = appendUniqueString(state.Browser.Result.SourceToolCallIDs, callID)
 	state.Browser.Result.VerifiedAt = time.Now().UTC()
+}
+
+func browserPresentationEquivalent(state *app.WorkflowState, refs []app.ResourceRef) (app.ResourceRef, bool) {
+	if state == nil || state.Browser == nil || state.Browser.Result == nil {
+		return app.ResourceRef{}, false
+	}
+	result := state.Browser.Result
+	page, snapshot, ok := browserSnapshotRefs(refs)
+	if !ok || result.GoalAssessmentCallID == "" || result.HiddenContentDigest == "" ||
+		result.HiddenContentDigest != snapshot.Attributes["content_digest"] ||
+		result.HiddenSession.OwnerID == "" || result.HiddenSession.OwnerID != page.Attributes["owner_id"] ||
+		result.HiddenSession.ProfileID == "" || result.HiddenSession.ProfileID != page.Attributes["profile_id"] {
+		return app.ResourceRef{}, false
+	}
+	assertionID := app.NewID("browser_presentation_equivalence")
+	result.PresentationEquivalent = true
+	result.PresentationAssertionID = assertionID
+	result.VerifiedAt = time.Now().UTC()
+	return app.ResourceRef{
+		Kind: "browser_presentation_equivalence", Ref: assertionID,
+		Provenance: snapshot.Provenance,
+		Attributes: map[string]string{
+			"hidden_snapshot_id": result.HiddenSnapshotID, "visible_snapshot_id": snapshot.Ref,
+			"content_equivalent": "true", "route_consistent": "true", "profile_equivalent": "true",
+		},
+	}, true
 }
 
 func browserPresentationRefs(state *app.WorkflowState, refs []app.ResourceRef) []app.ResourceRef {
@@ -1042,6 +1077,12 @@ func sameBrowserOrigin(left, right string) bool {
 
 func browserTransitionRefs(existing, after []app.ResourceRef) []app.ResourceRef {
 	refs := make([]app.ResourceRef, 0, len(existing)+len(after))
+	actionRefs := map[string]bool{}
+	for _, ref := range existing {
+		if ref.Kind == "browser_click" || ref.Kind == "browser_draft" {
+			actionRefs[ref.Ref] = true
+		}
+	}
 	for _, ref := range existing {
 		switch ref.Kind {
 		case "browser_snapshot":
@@ -1049,6 +1090,10 @@ func browserTransitionRefs(existing, after []app.ResourceRef) []app.ResourceRef 
 			refs = append(refs, ref)
 		case "browser_click", "browser_draft":
 			refs = append(refs, ref)
+		case "browser_element":
+			if actionRefs[ref.Ref] {
+				refs = append(refs, ref)
+			}
 		}
 	}
 	for _, ref := range after {
@@ -1087,6 +1132,15 @@ func currentBrowserSnapshotRefs(refs []app.ResourceRef) []app.ResourceRef {
 		}
 	}
 	return out
+}
+
+func currentBrowserSnapshot(refs []app.ResourceRef) (app.ResourceRef, bool) {
+	for _, ref := range currentBrowserSnapshotRefs(refs) {
+		if ref.Kind == "browser_snapshot" {
+			return ref, true
+		}
+	}
+	return app.ResourceRef{}, false
 }
 
 func browserGoalEvidenceRefs(refs []app.ResourceRef) []string {

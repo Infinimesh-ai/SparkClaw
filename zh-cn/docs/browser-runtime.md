@@ -29,7 +29,7 @@ Workflow leaf
 |---|---|
 | `browser.internet_search` r1 | 通过 `web.search` 搜索公开当前信息，不打开来源页面 |
 | `browser.weather` r1 | 通过 Infinimesh Info `POST /v1/info/weather` 查询 typed metric 数据，并为一个明确地点生成天气卡片 |
-| `browser.automation` r2 | 取得明确 URL、注册 destination 或由 Info 识别的命名公网目标，在 hidden Chromium 校验后，再在 visible Chromium 呈现并独立验证 |
+| `browser.automation` r2 | 取得明确 URL、注册 destination 或由 Info 识别的命名公网目标，在 hidden Chromium 校验后，再在 visible Chromium 呈现并验证 |
 | `browser.page_read` r1 | 执行固定 hidden health -> open -> session-required read 链，从一个明确或经 Info 识别的 URL 返回有界内容 |
 | `browser.interaction` r2 | 在托管 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
 | `browser.form_draft` r1 | 先在 hidden Chromium 中发现并评估普通可逆字段，再在同一 visible session 中 type 或 select 最多五个经独立审批、由 owner 原文提供的精确值，并原位验证未提交草稿 |
@@ -56,8 +56,11 @@ tool 不会扩大已支持 Workflow 表面；以
   page generation，并使旧 action/visual evidence 失效。
 - Runtime 保留这份带完整 identity 的 snapshot，用于 freshness 与执行 binding。目标/control
   模型调用只接收另一份投影，其中包含有界 title/count/omission 状态，以及 candidate 局部
-  role、label、state、nearby context、options 和 opaque `ref`；page/snapshot ID、URL、digest、
-  fingerprint、generation 和 ordinal 不会进入该投影。
+  role、label、state、nearby context、options 和当前 snapshot 内的短 `ref`；Runtime 会在
+  validation 前展开该 ref。page/snapshot ID、URL、digest、fingerprint、generation 和 ordinal
+  不会进入该投影。
+- 目标判定 citation 只能选择当前 snapshot 返回的短 ref；tool-call ID 和 artifact URI 不是
+  浏览器证据。
 - `browser.click` 只能接收该 snapshot 中持久化的 ref。
 - `browser.type` 与 `browser.select` 只有在 `browser.form_draft` 中才能作为页面 mutation
   使用。Runtime 在 approval 前和已审批 call 执行时都会校验 active Profile、latest
@@ -71,10 +74,14 @@ tool 不会扩大已支持 Workflow 表面；以
   URL 或 snapshot digest 任一变化都会返回 `visual_evidence_stale`。其有界不可信输出不包含
   coordinate 或 executable ref。当前 Profile 只有在 owner 明确要求 screenshot 或视觉确认
   时才暴露该 stage。
-- `browser.validate_transition` 对比持久化 before/after snapshot；
-  `browser.assess_goal` 针对一个精确 snapshot 独立评估冻结目标。
+- `browser.validate_transition` 对比持久化 before/after snapshot。点击之后，
+  `browser.assess_goal` 接收以 transition 为中心的投影，其中包含 action 的语义 label/role、
+  显式确定性 transition assertion 和有界的相关 after-state control。Runtime 要求每个
+  transition boolean 都有明确的 true 断言，并继续把完整 ref、URL、digest 和 generation
+  排除在模型契约之外。
 - 每次 navigation 与 click 后都必须 settle 并生成 fresh snapshot。stale generation/ref、
-  repeated state、route divergence 或 semantic evidence 缺失都会 fail closed。
+  repeated state、重复已验证的语义 action、route divergence 或 semantic evidence 缺失都会
+  通过类型化 outcome fail closed。
 
 settle 与 snapshot 使用同一份 `content_digest`：只对 rendered title 与 body 计算摘要。
 URL 独立校验且不进入摘要，因此仅有 hash route 或地址栏变化不能证明页面状态已更新。
@@ -146,8 +153,11 @@ snapshot 与目标评估都留在同一个 visible session 中，最终原位验
 目标而丢失草稿。
 
 visible 呈现是每个适用冻结 Workflow 的必需节点：Runtime 等待结果稳定、获取 visible
-snapshot、重新校验冻结 route，并独立复核 interaction 或 form-draft 目标。没有这些 visible
-evidence，run 不能成功。`browser.page_read` 有意保持不同：其 health/open/read 全链路都是
+snapshot 并重新校验冻结 route。对于 interaction，owner/profile identity、route 和
+rendered-content digest 都匹配时，Runtime 会生成类型化 presentation-equivalence assertion，
+并复用已经验证的 hidden goal verdict，不再调用模型；visible 结果存在实质差异时仍会执行一次
+独立的有界目标评估。Form draft 继续原位验证它修改后的 visible 状态。没有 visible evidence
+或对应的等价 assertion，run 不能成功。`browser.page_read` 有意保持不同：其 health/open/read 全链路都是
 hidden，成功读取不会创建 visible 结果窗口。全新的 visible session 会直接导航目标，不先暴露
 启动时的 `about:blank` tab；已经初始化且可复用的 profile 不会被替换为空白登录提示。已验证
 visible 结果页面不受 headless daemon 空闲超时影响并保持打开，生产完成流程不会调用

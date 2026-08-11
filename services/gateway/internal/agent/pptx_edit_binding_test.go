@@ -29,7 +29,11 @@ func TestPPTXSlideOperationContextExposesExactShapeEvidence(t *testing.T) {
 		"slide_index=3:",
 		`shape_index=1 old_text="Third title"`,
 		`shape_index=7 old_text="Third body"`,
+		"exact JSON keys shape_index and text",
+		"replacement_text is not a schema key",
 		"layout_policy=coordinated",
+		"only include shapes whose replacement text differs from current_text",
+		"Runtime rejects changes limited to punctuation, symbols, spacing, or letter case",
 		"font_size_pt=16.5",
 		"companion_group=slide:3:band:6 companion_role=body",
 	} {

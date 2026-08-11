@@ -5,6 +5,10 @@ import math
 import os
 import re
 import sys
+
+class PPTXLayoutFitError(ValueError):
+    pass
+
 try:
     from pptx import Presentation
     from pptx.oxml.ns import qn
@@ -375,9 +379,9 @@ def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
     ordered = sorted(family, key=lambda group: int(group["background"].top))
     for current, following in zip(ordered, ordered[1:]):
         if int(current["background"].top) + target_background_height > int(following["background"].top) - 91440:
-            raise ValueError("updated text is too tall for the coordinated peer-row layout")
+            raise PPTXLayoutFitError("updated text is too tall for the coordinated peer-row layout")
     if int(ordered[-1]["background"].top) + target_background_height > safe_bottom_boundary(prs, slide, ordered[-1]["background"], excluded):
-        raise ValueError("updated text is too tall for the coordinated peer-row layout")
+        raise PPTXLayoutFitError("updated text is too tall for the coordinated peer-row layout")
     wrapped = set()
     for group in family:
         background = group["background"]
@@ -389,7 +393,7 @@ def apply_coordinated_band_layout(prs, slide, groups, selected_indexes):
             label.height = target_body_height
         flow = apply_measured_text_flow(body)
         if flow == "overflow":
-            raise ValueError("updated text does not fit the coordinated peer-row layout")
+            raise PPTXLayoutFitError("updated text does not fit the coordinated peer-row layout")
         if shape_uses_multiple_lines(body):
             wrapped.add(group["body_index"])
     return family, wrapped
@@ -417,7 +421,7 @@ def apply_coordinated_card_layout(prs, slide, groups, selected_indexes):
     )
     for group in family:
         if int(group["background"].top) + target_background_height > safe_bottom_boundary(prs, slide, group["background"], members):
-            raise ValueError("updated text is too tall for the coordinated card layout")
+            raise PPTXLayoutFitError("updated text is too tall for the coordinated card layout")
     wrapped = set()
     for group in family:
         background = group["background"]
@@ -428,7 +432,7 @@ def apply_coordinated_card_layout(prs, slide, groups, selected_indexes):
         body.height = target_body_height
         flow = apply_measured_text_flow(body)
         if flow == "overflow":
-            raise ValueError("updated text does not fit the coordinated card layout")
+            raise PPTXLayoutFitError("updated text does not fit the coordinated card layout")
         if shape_uses_multiple_lines(body):
             wrapped.add(group["body_index"])
         tolerance = max(12700, int(min(background.width, background.height) * 0.04))
@@ -468,15 +472,15 @@ def fit_shape_without_collision(prs, slide, shape_index, excluded_indexes):
     )
     original_line_capacity = int(original_usable_height_pt // max(size_pt * LINE_HEIGHT_FACTOR, 1.0))
     if line_count > max(MAX_STANDALONE_WRAP_LINES, original_line_capacity):
-        raise ValueError("updated text is too long for its slide shape after multi-line layout; shorten the text")
+        raise PPTXLayoutFitError("updated text is too long for its slide shape after multi-line layout; shorten the text")
     required_height = required_text_height(shape)
     bottom = safe_bottom_boundary(prs, slide, shape, excluded_indexes)
     if int(shape.top) + required_height > bottom:
-        raise ValueError("updated text is too tall for its slide shape without overlapping nearby content")
+        raise PPTXLayoutFitError("updated text is too tall for its slide shape without overlapping nearby content")
     shape.height = required_height
     shape.text_frame.word_wrap = True
     if not text_fits_current_flow(shape):
-        raise ValueError("updated text does not fit its slide shape after multi-line layout")
+        raise PPTXLayoutFitError("updated text does not fit its slide shape after multi-line layout")
     return "wrapped"
 
 def validate_slide_layout(prs, slide, updated_indexes, band_groups, card_groups, before):
@@ -486,7 +490,7 @@ def validate_slide_layout(prs, slide, updated_indexes, band_groups, card_groups,
     for index in updated_indexes:
         shape = slide.shapes[index - 1]
         if not text_fits_current_flow(shape):
-            raise ValueError("updated text does not fit slide shape %s" % index)
+            raise PPTXLayoutFitError("updated text does not fit slide shape %s" % index)
     for group in band_groups:
         background = group["background"]
         body = group["body"]
@@ -724,7 +728,7 @@ def update_slide(prs, slide, updates, layout_policy):
         for shape_index in seen:
             shape = slide.shapes[shape_index - 1]
             if not text_fits_current_flow(shape):
-                raise ValueError("updated text does not fit preserve layout_policy; use coordinated or shorten the text")
+                raise PPTXLayoutFitError("updated text does not fit preserve layout_policy; use coordinated or shorten the text")
             if shape_uses_multiple_lines(shape):
                 wrapped.add(shape_index)
 
@@ -895,4 +899,7 @@ try:
     result["bytes"] = os.path.getsize(req["output_path"])
     print(json.dumps(result, ensure_ascii=False))
 except Exception as e:
-    print(json.dumps({"error":str(e)}, ensure_ascii=False))
+    error = {"error":str(e)}
+    if isinstance(e, PPTXLayoutFitError):
+        error["error_code"] = "pptx_layout_fit_conflict"
+    print(json.dumps(error, ensure_ascii=False))

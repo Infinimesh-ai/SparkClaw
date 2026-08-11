@@ -69,21 +69,25 @@ type BrowserGoalContract struct {
 }
 
 type BrowserResultEvidence struct {
-	ID                    string                  `json:"id"`
-	SchemaVersion         int                     `json:"schema_version"`
-	Target                BrowserTargetDescriptor `json:"target"`
-	HiddenSession         BrowserSessionRef       `json:"hidden_session"`
-	HiddenPageID          string                  `json:"hidden_page_id"`
-	HiddenSnapshotID      string                  `json:"hidden_snapshot_id"`
-	HiddenSnapshotDigest  string                  `json:"hidden_snapshot_digest"`
-	GoalAssessmentCallID  string                  `json:"goal_assessment_call_id,omitempty"`
-	GoalEvidenceRefs      []string                `json:"goal_evidence_refs,omitempty"`
-	VisibleSession        BrowserSessionRef       `json:"visible_session,omitempty"`
-	VisiblePageID         string                  `json:"visible_page_id,omitempty"`
-	VisibleSnapshotID     string                  `json:"visible_snapshot_id,omitempty"`
-	VisibleSnapshotDigest string                  `json:"visible_snapshot_digest,omitempty"`
-	SourceToolCallIDs     []string                `json:"source_tool_call_ids"`
-	VerifiedAt            time.Time               `json:"verified_at,omitempty"`
+	ID                      string                  `json:"id"`
+	SchemaVersion           int                     `json:"schema_version"`
+	Target                  BrowserTargetDescriptor `json:"target"`
+	HiddenSession           BrowserSessionRef       `json:"hidden_session"`
+	HiddenPageID            string                  `json:"hidden_page_id"`
+	HiddenSnapshotID        string                  `json:"hidden_snapshot_id"`
+	HiddenSnapshotDigest    string                  `json:"hidden_snapshot_digest"`
+	HiddenContentDigest     string                  `json:"hidden_content_digest,omitempty"`
+	GoalAssessmentCallID    string                  `json:"goal_assessment_call_id,omitempty"`
+	GoalEvidenceRefs        []string                `json:"goal_evidence_refs,omitempty"`
+	VisibleSession          BrowserSessionRef       `json:"visible_session,omitempty"`
+	VisiblePageID           string                  `json:"visible_page_id,omitempty"`
+	VisibleSnapshotID       string                  `json:"visible_snapshot_id,omitempty"`
+	VisibleSnapshotDigest   string                  `json:"visible_snapshot_digest,omitempty"`
+	VisibleContentDigest    string                  `json:"visible_content_digest,omitempty"`
+	PresentationEquivalent  bool                    `json:"presentation_equivalent,omitempty"`
+	PresentationAssertionID string                  `json:"presentation_assertion_id,omitempty"`
+	SourceToolCallIDs       []string                `json:"source_tool_call_ids"`
+	VerifiedAt              time.Time               `json:"verified_at,omitempty"`
 }
 
 type BrowserPublicTargetEvidence struct {

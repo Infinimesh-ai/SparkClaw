@@ -144,6 +144,12 @@ observation 压力也会先压缩最旧条目，再停止执行。
 page/snapshot identity、URL、generation 与 digest；只保留当前语义变量所需的 coverage/
 omission metadata、candidate 局部内容与结构、opaque 可选 ref 和 eligible operation 描述。
 
+Agent 所有的统一 `workflow_evidence_projection_record_v1` 抽象负责文档决策、文档/浏览器模型
+stage 和最终化的消费者投影遥测。持久化 audit event 会记录 source/derived lineage、consumer/
+stage/semantic variable、全部 coverage 维度、实际 model payload digest/bytes、archived bytes、
+binding 引用、repair error 和 reuse。领域 policy 只构造类型化单元与 invariant，不建立平行
+projection store 或各自独立的 audit 格式。
+
 ### Model Router
 
 | Lane | 作用 |
@@ -177,14 +183,18 @@ Provider 访问。binding record 和加密 credential 是独立保留的账号�
 现有 destination registry 是 candidate-independent 的命名目标 fast path；它 miss 且 browser
 leaf 选定后，Workflow 可以使用 Info 的有序结构化 URL，不增加第二个 semantic classifier。页面读取保持全程 hidden 且必须
 使用托管 session；click 和已审批 form draft 绑定 fresh page-generation evidence，并对 visible
-结果进行验证。见[浏览器 Runtime](browser-runtime.md)。
+结果进行验证。点击后的语义评估接收 action/transition 投影；Runtime 会拒绝重复已经验证的
+语义 action。当 visible 结果的 profile、route 和 rendered content 等价时，通过派生 assertion
+复用 hidden verdict；存在实质差异时才重新评估。见[浏览器 Runtime](browser-runtime.md)。
 
 文档拥有独立于解析内容的持久化一等 `DocumentRecord` 身份。读取/编辑使用最近记录解析、
 确定性 format inspection、可追溯的 `confirm_document_target` Workflow 节点、structured
 parsing 和显式 `select_edit_operation` 决策节点。编辑定位节点使用冻结 path 直接且仅调用
 一次按格式限定的 reader；读取前不存在模型工具选择步骤。当前所有文档模型调用都使用 Fast，
-包括读取终结、多候选编辑决策和 editor 参数生成。决策会在 editor materialize 前持久化一个
-精确 ToolHub entry；原内联目录二次路由仍保持删除。
+包括读取终结、多候选编辑决策和 editor 参数生成。多候选决策使用规范化投影内 candidate、
+类型化 selected/no-match 输出和一次同投影修复，然后在 editor materialize 前持久化一个精确
+ToolHub entry。PPTX 语义生成同样会在 approval 前过滤 no-op，并对无效 mutation output 提供
+一次类型化修复；原内联目录二次路由仍保持删除。
 approval、output-copy write 和 post-edit preservation check 继续走共享路径。解析
 representation 可以不完整、被替换或重新生成，而不会丢失文档身份和活动谱系。
 XLSX 读取还会投影带稳定 source hash 的有界类型化 sheet/row/cell 证据。revision 6 在
@@ -194,6 +204,8 @@ package part 保真校验后才接纳成功输出；不支持的特性或未声�
 可选的有界 `internal/documentocr` adapter 会把选中的 page image 发送给 OvisOCR2，并把
 Markdown 作为不可信证据保留。扫描 PDF 页在 page/byte budget 内栅格化，成功 OCR 会提升到
 稳定 PDF page block。OCR 不是 Workflow 选择的 chat lane；失败时读取明确保持 partial。
+文档读取最终化分别记录 source coverage 与 claim coverage；source partial 或 finalizer 投影截断
+时必须明确说明限制，并禁止整篇或否定性声明。
 见[文档 Workflow](document-workflows.md)。
 
 LocalMind 在 workspace-scoped manager 后复用 MCP 2025-06-18 Streamable HTTP client。

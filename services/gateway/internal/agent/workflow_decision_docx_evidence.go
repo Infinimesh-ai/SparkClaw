@@ -173,11 +173,14 @@ func docxDecisionMetadataRecord(output, document map[string]any) docxDecisionEvi
 }
 
 func docxDecisionOperationRecord(entry app.ToolDirectoryEntry) docxDecisionEvidenceRecord {
-	operation := strings.TrimSpace(entry.Capability.Qualifiers[app.CapabilityQualifierOperation])
+	candidate := normalizedWorkflowDecisionCandidate(entry)
 	projection := map[string]any{
-		"record_type": "eligible_operation", "entry_id": entry.ID, "operation": operation,
-		"summary":     boundedDOCXDecisionText(entry.Summary, 600),
-		"when_to_use": boundedDOCXDecisionText(entry.WhenToUse, 600),
+		"record_type": "eligible_operation", "candidate_id": candidate.CandidateID,
+		"target_kind": candidate.TargetKind, "change_kind": candidate.ChangeKind,
+		"placement": candidate.Placement, "owner_content_requirement": candidate.OwnerContentRequirement,
+		"preservation_behavior": candidate.PreservationBehavior,
+		"summary":               boundedDOCXDecisionText(entry.Summary, 600),
+		"when_to_use":           boundedDOCXDecisionText(entry.WhenToUse, 600),
 	}
 	if text := boundedDOCXDecisionText(entry.WhenNotToUse, 400); text != "" {
 		projection["when_not_to_use"] = text

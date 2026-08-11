@@ -200,7 +200,7 @@ func docxAgentDocumentPolicy() agentDocumentFormatPolicy {
 		DecisionEvidence: func(runtime Runtime, ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry) (string, error) {
 			return runtime.workflowDOCXDecisionEvidence(ctx, run, node, entries)
 		},
-		DecisionRules:      []orderedDocumentDecisionRule{{Order: 50, Text: "For DOCX, the listed editors currently mutate body paragraph text or style only. Return an empty entry_id for table-cell, header, footer, footnote, endnote, text-box, comment, field, drawing, tracked-change, or other unsupported targets unless one eligible entry explicitly advertises that target."}},
+		DecisionRules:      []orderedDocumentDecisionRule{{Order: 50, Text: "For DOCX, the listed editors currently mutate body paragraph text or style only. Return a typed no_match for table-cell, header, footer, footnote, endnote, text-box, comment, field, drawing, tracked-change, or other unsupported targets unless one eligible candidate explicitly advertises that target."}},
 		MaterializeSchemas: materializeDOCXMutationSchemas,
 		Operations:         operations,
 	}
@@ -261,10 +261,10 @@ func xlsxAgentDocumentPolicy() agentDocumentFormatPolicy {
 		},
 		BuildReadEvidence: xlsxDocumentReadEvidence,
 		DecisionRules: []orderedDocumentDecisionRule{
-			{Order: 60, Text: "Treat the structured observation only as verification for mutation target and content the owner explicitly provided; never invent a missing target or new value from observed data. For a cell update, require the owner to supply the new value and either the exact cell address or a uniquely identifying existing record plus field; otherwise return no entry."},
+			{Order: 60, Text: "Treat the structured observation only as verification for mutation target and content the owner explicitly provided; never invent a missing target or new value from observed data. For a cell update, require the owner to supply the new value and either the exact cell address or a uniquely identifying existing record plus field; otherwise return a typed no_match."},
 			{Order: 70, Text: "For structured rows, change one explicit cell with a cell editor; change multiple supplied fields of one existing row with a row update; do not turn either request into a new row."},
 			{Order: 80, Text: "Choose positional insertion only for a new row with an explicit before or after anchor, append only for a new row at the final structured boundary, and delete-row only for explicit removal of the complete row."},
-			{Order: 90, Text: "Clearing a cell, removing exact matching text, deleting a column, deleting the workbook file, and an ambiguous target are not complete-row deletion requests; return no entry when no listed operation matches exactly."},
+			{Order: 90, Text: "Clearing a cell, removing exact matching text, deleting a column, deleting the workbook file, and an ambiguous target are not complete-row deletion requests; return a typed no_match when no listed operation matches exactly."},
 		},
 		Operations: operations,
 	}
@@ -417,6 +417,11 @@ func projectPPTXTextUpdateArraySchema(value any) any {
 	if ok {
 		projectedProperties := cloneAnyMap(properties)
 		delete(projectedProperties, "old_text")
+		if textSchema, exists := anyMap(projectedProperties["text"]); exists {
+			textSchema = cloneAnyMap(textSchema)
+			textSchema["minLength"] = float64(1)
+			projectedProperties["text"] = textSchema
+		}
 		projectedItem["properties"] = projectedProperties
 	}
 	required := toolDefinitionRequiredArgs(projectedItem)
@@ -454,7 +459,7 @@ func commonDocumentDecisionRules() []orderedDocumentDecisionRule {
 		{Order: 20, Text: "Apply minimum-change semantics when the observation already contains the requested target: modify, improve, polish, complete, update, revise, or rewrite means replace/update that existing target, not insert or append another overlapping block."},
 		{Order: 30, Text: "Apply the same semantics across languages: 完善、润色、优化或改写 an existing located paragraph means replace that paragraph, not no match and not insertion."},
 		{Order: 40, Text: "Choose insert, add, or append only when the owner explicitly requests a new block, row, or slide, or when the structured observation shows that the requested target does not exist."},
-		{Order: 100, Text: "Return no entry when the owner negates an edit, asks only to quote edit instructions, or requests troubleshooting without changing the document."},
+		{Order: 100, Text: "Return a typed no_match when the owner negates an edit, asks only to quote edit instructions, or requests troubleshooting without changing the document."},
 	}
 }
 

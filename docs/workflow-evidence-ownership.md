@@ -2,10 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/workflow-evidence-ownership.md)
 
-Status: Active migration, 2026-08-07. The first document/browser projection and
-Runtime-binding slice is implemented without a new persisted schema. The wider
-per-Profile source-event, typed-completion, measurement, and cleanup work below
-remains a migration contract rather than a claim of completed runtime behavior.
+Status: Active migration, updated 2026-08-11. Runtime now uses one shared
+`workflow_evidence_projection_record_v1` contract for document decisions,
+document/browser model stages, and finalization. Each consumer projection is
+persisted through the unified `workflow.evidence_projection.created` audit
+surface with lineage, coverage, payload digest/bytes, binding reference, repair
+state, and reuse metadata; this does not add a parallel evidence store or a
+dedicated Store table. Wider per-Profile source-event identity and typed
+completion cleanup remain migration work rather than completed runtime behavior.
 
 Scope: Workflow Profiles, direct tool invocation, model decisions, outcome
 adaptation, runtime evidence provisioning, finalization, and audit references in
@@ -409,7 +413,7 @@ measured failure; it is not a reason to replace every Profile mechanically.
 | Internet search and weather | Each provider invocation produces one source-observation event. Runtime validates query binding, provider status, result/card identity, and freshness metadata. A model is used only for synthesis that the grounded projection cannot produce directly. |
 | `document.read` | `confirm_document_target` remains deterministic. The direct reader creates one source observation with typed locators and coverage. Finalization reads a projection of that record; it does not create "finalization evidence". |
 | `document.edit` | Treat the current `document_locate_evidence` work as "read document for edit": the reader and format policy produce authoritative locators, hashes, coverage, and structural candidates. Exact rules may establish a target assertion directly, but only advance into the existing `select_edit_operation`/`document_edit` nodes. One eligible editor may be selected deterministically; semantically distinct editors are model-selected. The edit model retains unresolved target semantics, operation-specific arguments, and content generation. Runtime binds only provable path/output, identity, locator, scope, hash, and freshness arguments. |
-| Browser r2 | Runtime owns acquisition, settle, snapshots, generations, ref membership, route checks, transition digests, and hidden/visible distinction. Models retain goal assessment, control selection, tool selection where semantically distinct tools remain, and visual/semantic interpretation. Each assessment/action receives only the control/state projection needed for its current judgment. Presentation evidence remains distinct from hidden evidence because mode and generation differ. |
+| Browser r2 | Runtime owns acquisition, settle, snapshots, generations, ref membership, route checks, transition digests, and hidden/visible distinction. Models retain goal assessment, control selection, tool selection where semantically distinct tools remain, and visual/semantic interpretation. Each assessment/action receives only the action/transition/control projection needed for its current judgment. Hidden and visible observations remain distinct because mode and generation differ, but Runtime records a derived presentation-equivalence assertion and reuses the verified hidden semantic verdict when profile, route, and rendered-content predicates match; a material difference still triggers visible semantic reassessment. |
 | Schedule management | Runtime owns list results, IDs, versions, due state, CAS, and mutation outcome. A model may disambiguate bounded owner-visible candidates, but it cannot invent or copy a record ID. |
 | External MCP and coding-agent management | Runtime owns endpoint identity, credential scope, catalog revision, eligible namespaced tools, approval class, and remote IDs. The model may choose among bounded eligible operations or interpret returned content; returned content cannot authorize another operation. |
 

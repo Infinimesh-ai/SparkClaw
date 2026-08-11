@@ -150,22 +150,26 @@ func TestXLSXOperationSelectionPromptUsesProductionDirectoryAndEvidence(t *testi
 	if len(directory.entries) != len(xlsxEvaluatedOperations) {
 		t.Fatalf("XLSX directory entries=%d want=%d: %#v", len(directory.entries), len(xlsxEvaluatedOperations), directory.entries)
 	}
-	entriesJSON, err := json.Marshal(directory.entries)
+	candidateProjection, bindings, err := buildWorkflowDecisionCandidateProjection(directory.entries)
 	if err != nil {
 		t.Fatal(err)
 	}
 	run, node := xlsxOperationSelectionPromptFixture("Set Data!B12 to 42.5.", 0)
 	evidence := xlsxOperationSelectionEvidence(t, "formatted_numbers")
-	system, user := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, node, string(entriesJSON), evidence, 8000)
+	system, user := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, node, candidateProjection, evidence, 8000)
 
 	for _, entry := range directory.entries {
 		operation := entry.Capability.Qualifiers[app.CapabilityQualifierOperation]
-		if entry.ID == "" || operation == "" || !strings.Contains(user, string(entry.ID)) ||
+		candidateID := workflowDecisionCandidateID(entry.ID)
+		if entry.ID == "" || operation == "" || !strings.Contains(user, candidateID) ||
 			!strings.Contains(user, entry.WhenToUse) || !strings.Contains(user, entry.WhenNotToUse) {
 			t.Fatalf("production prompt omitted XLSX %s directory boundary: %s", operation, user)
 		}
+		if bindings[candidateID] != entry.ID || strings.Contains(user, string(entry.ID)) {
+			t.Fatalf("production prompt leaked or failed to bind XLSX directory identity: %s", user)
+		}
 	}
-	for _, want := range []string{"named sheet may narrow", "cannot supply a missing target or value", "multiple supplied fields", "complete row", "schema_version", "formatted_numbers"} {
+	for _, want := range []string{"named sheet may narrow", "cannot supply a missing target or value", "multiple supplied fields", "complete row", "schema_version", "formatted_numbers", "placement", "preservation_behavior"} {
 		if !strings.Contains(system+"\n"+user, want) {
 			t.Fatalf("production selection prompt omitted %q", want)
 		}
@@ -204,7 +208,7 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 	}
 	corpus := loadXLSXOperationSelectionCorpus(t)
 	directory := loadXLSXOperationDirectory(t)
-	entriesJSON, err := json.Marshal(directory.entries)
+	candidateProjection, bindings, err := buildWorkflowDecisionCandidateProjection(directory.entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +240,7 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 
 		for attempt := 0; attempt < 2; attempt++ {
 			run, node := xlsxOperationSelectionPromptFixture(testCase.Prompt, attempt)
-			system, user := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, node, string(entriesJSON), evidence, 8000)
+			system, user := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, node, candidateProjection, evidence, 8000)
 			chat, callErr := models.ChatWithProfile(ctx, "fast", system, user)
 			if callErr != nil {
 				reason = "model_error: " + callErr.Error()
@@ -259,7 +263,7 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 				}
 				break
 			}
-			selectedID = selection.EntryID
+			selectedID = bindings[selection.CandidateID]
 			selectedOperation = directory.operationByID[selectedID]
 			if format := directory.formatByEntryID[selectedID]; selectedID != "" && format != "" && format != app.DocumentFormatXLSX {
 				crossFormatSelected = true

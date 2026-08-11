@@ -814,13 +814,13 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 		{
 			Name:        "browser.assess_goal",
 			Description: "Assess the frozen browser goal against one current snapshot using explicit snapshot-owned evidence citations. A matching clickable control proves only that a next action is available, so use progress until current page state proves the requested effect. Use satisfied, success, or succeeded only when the cited snapshot proves the frozen goal is met.",
-			InputSchema: schema("object", []string{"snapshot_id", "verdict", "evidence_refs", "reason"}, map[string]any{
+			InputSchema: schema("object", []string{"snapshot_id", "verdict", "evidence_refs"}, map[string]any{
 				"snapshot_id":   stringSchema(),
 				"verdict":       map[string]any{"type": "string", "enum": []any{"satisfied", "success", "succeeded", "progress", "failure"}},
 				"evidence_refs": stringArraySchema(),
 				"reason":        stringSchema(),
 			}),
-			OutputSchema: objectSchema([]string{"schema_version", "status", "code", "snapshot_id", "goal_satisfied", "evidence_refs", "reason"}, map[string]any{
+			OutputSchema: objectSchema([]string{"schema_version", "status", "code", "snapshot_id", "goal_satisfied", "evidence_refs", "reason_code"}, map[string]any{
 				"schema_version":     integerSchema(),
 				"status":             stringSchema(),
 				"code":               stringSchema(),
@@ -830,6 +830,7 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 				"goal_satisfied":     booleanSchema(),
 				"evidence_refs":      stringArraySchema(),
 				"reason":             stringSchema(),
+				"reason_code":        stringSchema(),
 				"click_count":        integerSchema(),
 			}),
 			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,

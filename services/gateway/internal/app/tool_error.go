@@ -16,9 +16,15 @@ const (
 	// ToolErrorSnapshotStale: the referenced browser snapshot no longer
 	// binds to live page state; the caller must take a fresh snapshot.
 	ToolErrorSnapshotStale ToolErrorCode = "snapshot_stale"
+	// ToolErrorBrowserInteractionLoop: the same semantic browser control was
+	// selected again after Runtime had already validated its state transition.
+	ToolErrorBrowserInteractionLoop ToolErrorCode = "browser_interaction_loop"
 	// ToolErrorDocumentOperationTimeout: a bounded document operation
 	// exhausted its end-to-end execution deadline.
-	ToolErrorDocumentOperationTimeout        ToolErrorCode = "document_operation_timeout"
+	ToolErrorDocumentOperationTimeout ToolErrorCode = "document_operation_timeout"
+	// ToolErrorPPTXLayoutFitConflict: a PPTX replacement is valid but cannot
+	// fit the current slide geometry without overlap or unreadable overflow.
+	ToolErrorPPTXLayoutFitConflict           ToolErrorCode = "pptx_layout_fit_conflict"
 	ToolErrorPublicTargetNotFound            ToolErrorCode = "public_target_not_found"
 	ToolErrorPublicTargetUnsafe              ToolErrorCode = "public_target_unsafe"
 	ToolErrorPublicTargetProviderUnavailable ToolErrorCode = "public_target_provider_unavailable"

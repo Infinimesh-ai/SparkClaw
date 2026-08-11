@@ -33,11 +33,18 @@ func (h *ToolHub) clickBrowserInteraction(ctx context.Context, args map[string]a
 	if run, ok := h.store.GetRun(runID); ok && run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowBrowserInteraction {
 		snapshotID := strings.TrimSpace(browserAutomationStringValue(args["snapshot_id"]))
 		elementRef := strings.TrimSpace(browserAutomationStringValue(args["uid"]))
-		if snapshot, found := findBrowserSnapshotRecord(h.store.ListToolCalls(sessionID), runID, snapshotID); found {
+		calls := h.store.ListToolCalls(sessionID)
+		if snapshot, found := findBrowserSnapshotRecord(calls, runID, snapshotID); found {
 			if label := strings.TrimSpace(snapshot.Labels[elementRef]); unsafeBrowserInteractionLabel(label) {
 				return Result{}, &app.CodedToolError{
 					Code: app.ToolErrorUnsafeClickTarget,
 					Err:  fmt.Errorf("unsafe click target %q is outside the bounded browser.interaction contract", label),
+				}
+			}
+			if repeatedValidatedBrowserSemanticAction(calls, runID, snapshot, elementRef) {
+				return Result{}, &app.CodedToolError{
+					Code: app.ToolErrorBrowserInteractionLoop,
+					Err:  errors.New("browser click repeats a semantic action whose state transition was already validated"),
 				}
 			}
 		}
@@ -94,7 +101,6 @@ func (h *ToolHub) validateBrowserTransition(_ context.Context, args map[string]a
 func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sessionID, runID string) (Result, error) {
 	snapshotID := strings.TrimSpace(browserAutomationStringValue(args["snapshot_id"]))
 	verdict := strings.ToLower(strings.TrimSpace(browserAutomationStringValue(args["verdict"])))
-	reason := strings.TrimSpace(browserAutomationStringValue(args["reason"]))
 	evidenceRefs := browserInteractionStringSlice(args["evidence_refs"])
 	if verdict != "satisfied" && verdict != "success" && verdict != "succeeded" && verdict != "progress" && verdict != "failure" {
 		return Result{}, errors.New("browser.assess_goal verdict is unsupported")
@@ -148,10 +154,44 @@ func (h *ToolHub) assessBrowserGoal(_ context.Context, args map[string]any, sess
 		"session_generation": snapshot.Generation,
 		"goal_satisfied":     status == "succeeded",
 		"evidence_refs":      evidenceRefs,
-		"reason":             trimBrowserVerificationReason(reason),
+		"reason_code":        code,
 		"click_count":        completedBrowserClickCount(calls, runID, snapshot.Index),
 		"draft_action_count": completedBrowserDraftCount(calls, runID, snapshot.Index),
 	}}, nil
+}
+
+func repeatedValidatedBrowserSemanticAction(calls []app.ToolCall, runID string, current browserSnapshotRecord, elementRef string) bool {
+	currentKey := browserInteractionSemanticControlKey(current, elementRef)
+	if currentKey == "" {
+		return false
+	}
+	for index := len(calls) - 1; index >= 0; index-- {
+		call := calls[index]
+		if call.RunID != runID || call.Tool != "browser.validate_transition" || call.Status != "completed" {
+			continue
+		}
+		payload, ok := browserInteractionMap(call.Result)
+		if !ok || strings.TrimSpace(browserAutomationStringValue(payload["status"])) != "validated" {
+			continue
+		}
+		beforeID := strings.TrimSpace(browserAutomationStringValue(payload["before_snapshot_id"]))
+		priorRef := strings.TrimSpace(browserAutomationStringValue(payload["element_ref"]))
+		before, found := findBrowserSnapshotRecord(calls, runID, beforeID)
+		if found && browserInteractionSemanticControlKey(before, priorRef) == currentKey {
+			return true
+		}
+	}
+	return false
+}
+
+func browserInteractionSemanticControlKey(snapshot browserSnapshotRecord, ref string) string {
+	role := strings.ToLower(strings.TrimSpace(snapshot.Roles[ref]))
+	label := strings.ToLower(strings.TrimSpace(snapshot.Labels[ref]))
+	container := strings.ToLower(strings.TrimSpace(snapshot.Containers[ref]))
+	if role == "" && label == "" {
+		return ""
+	}
+	return strings.Join([]string{role, label, container}, "\x00")
 }
 
 func findBrowserSnapshotRecord(calls []app.ToolCall, runID, snapshotID string) (browserSnapshotRecord, bool) {

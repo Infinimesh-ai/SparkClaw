@@ -224,6 +224,237 @@ func TestPPTXBusinessProjectionIsOperationScopedAndOmitsRichTextTrees(t *testing
 	}
 }
 
+func TestPPTXSemanticMutationValidationRemovesNoopsAndRejectsInvalidItems(t *testing.T) {
+	args, validationErr := normalizePPTXSemanticMutation("update_slide", map[string]any{
+		"updates": []any{
+			map[string]any{"shape_index": 1, "old_text": "Existing title", "text": "Existing title"},
+			map[string]any{"shape_index": 2, "old_text": "Subtitle", "text": "   "},
+			map[string]any{"shape_index": 3, "old_text": "Body", "text": "Improved body"},
+			map[string]any{"shape_index": 4, "old_text": "Wi‑Fi", "text": "Wi-Fi"},
+			map[string]any{"shape_index": 5, "old_text": "Legacy body", "replacement_text": "Improved legacy body"},
+		},
+	})
+	updates := anySlice(args["updates"])
+	if validationErr == nil || !containsString(validationErr.Codes, "replacement_text_empty") ||
+		!containsString(validationErr.Codes, "cosmetic_only_change") || len(validationErr.ItemIndexes) != 2 ||
+		validationErr.ItemIndexes[0] != 1 || validationErr.ItemIndexes[1] != 3 || len(updates) != 2 ||
+		intLikeValue(updates[0].(map[string]any)["shape_index"]) != 3 ||
+		stringValue(updates[1].(map[string]any)["text"]) != "Improved legacy body" ||
+		updates[1].(map[string]any)["replacement_text"] != nil {
+		t.Fatalf("PPTX mutation normalization did not retain only effective valid changes: args=%#v err=%#v", args, validationErr)
+	}
+
+	_, validationErr = normalizePPTXSemanticMutation("update_slide", map[string]any{
+		"updates": []any{map[string]any{"shape_index": 1, "old_text": "Same", "text": "Same"}},
+	})
+	if validationErr == nil || !containsString(validationErr.Codes, "no_effective_mutation") {
+		t.Fatalf("PPTX no-op-only mutation was accepted: %#v", validationErr)
+	}
+
+	args, validationErr = normalizePPTXSemanticMutation("replace_text", map[string]any{
+		"replacements": []any{map[string]any{"find": "Wi‑Fi", "replace": "Wi-Fi"}},
+	})
+	if validationErr != nil || len(anySlice(args["replacements"])) != 1 {
+		t.Fatalf("explicit PPTX text replacement rejected a cosmetic copy edit: args=%#v err=%#v", args, validationErr)
+	}
+
+	_, validationErr = normalizePPTXSemanticMutation("update_slide", map[string]any{
+		"updates": []any{map[string]any{
+			"shape_index": 1, "old_text": "Original", "text": "First proposal", "replacement_text": "Conflicting proposal",
+		}},
+	})
+	if validationErr == nil || !containsString(validationErr.Codes, "conflicting_replacement_fields") ||
+		len(validationErr.ItemIndexes) != 1 || validationErr.ItemIndexes[0] != 0 {
+		t.Fatalf("conflicting PPTX replacement aliases were accepted: %#v", validationErr)
+	}
+
+	args, validationErr = normalizePPTXSemanticMutation("update_slide", map[string]any{
+		"updates": []any{
+			map[string]any{"shape_index": 1, "old_text": "Original title", "text": "A clearer title"},
+			map[string]any{"shape_index": 2, "old_text": "Wi‑Fi", "text": "Wi-Fi"},
+		},
+	})
+	updates = anySlice(args["updates"])
+	if validationErr != nil || len(updates) != 1 || intLikeValue(updates[0].(map[string]any)["shape_index"]) != 1 {
+		t.Fatalf("cosmetic PPTX update was not filtered beside a substantive update: args=%#v err=%#v", args, validationErr)
+	}
+}
+
+func TestPPTXSemanticRepairInstructionsRequireEffectiveCorrections(t *testing.T) {
+	tests := []struct {
+		name     string
+		codes    []string
+		expected []string
+		rejected []string
+	}{
+		{
+			name:  "empty replacement",
+			codes: []string{"replacement_text_empty"},
+			expected: []string{
+				"Preserve every other valid effective mutation from invalid_output",
+				"supply meaningful non-empty text that differs from current_text or omit the entire update object",
+				"at least one substantive clarity, accuracy, concision, or hierarchy improvement",
+				"a Unicode punctuation or glyph substitution alone is valid only when the owner explicitly requested it",
+				"never fill the update list by copying unchanged current_text",
+			},
+		},
+		{
+			name:  "cosmetic-only replacement",
+			codes: []string{"cosmetic_only_change", "replacement_text_empty"},
+			expected: []string{
+				"changes limited to punctuation, symbols, spacing, or letter case do not satisfy",
+				"whose letters or numbers differ from current_text",
+				"at least one substantive clarity, accuracy, concision, or hierarchy improvement",
+				"Never copy unchanged current_text or preserve a cosmetic-only replacement",
+			},
+		},
+		{
+			name:  "no effective mutation",
+			codes: []string{"no_effective_mutation"},
+			expected: []string{
+				"at least one meaningful replacement that differs from current_text",
+				"include only shapes that actually change",
+			},
+		},
+		{
+			name:  "layout conflict",
+			codes: []string{string(app.ToolErrorPPTXLayoutFitConflict)},
+			expected: []string{
+				"Preserve every other valid effective mutation",
+				"omit the entire update object",
+				"never return empty text or unchanged current_text",
+			},
+			rejected: []string{"remove only the proposed replacement text"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observation := workflowSemanticRepairObservation(workflowSemanticRepairRequest{
+				SchemaVersion: workflowSemanticRepairSchema,
+				ProjectionID:  "projection",
+				ErrorCodes:    test.codes,
+				InvalidOutput: map[string]any{"updates": []any{map[string]any{"shape_index": 2, "text": ""}}},
+			})
+			for _, expected := range test.expected {
+				if !strings.Contains(observation, expected) {
+					t.Errorf("repair observation omitted %q:\n%s", expected, observation)
+				}
+			}
+			for _, rejected := range test.rejected {
+				if strings.Contains(observation, rejected) {
+					t.Errorf("repair observation retained ambiguous guidance %q:\n%s", rejected, observation)
+				}
+			}
+		})
+	}
+}
+
+func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		initialText    string
+		repairText     string
+		wantFailure    string
+		wantToolCalls  int
+		wantApprovals  int
+		wantRejections int
+		wantErrorCode  string
+	}{
+		{name: "valid repair reaches approval", repairText: "Revised title", wantToolCalls: 1, wantApprovals: 1, wantRejections: 1},
+		{name: "cosmetic repair reaches approval", initialText: "Original third title!", repairText: "A clearer third-slide title", wantToolCalls: 1, wantApprovals: 1, wantRejections: 1, wantErrorCode: "cosmetic_only_change"},
+		{name: "layout preflight repair reaches one approval", initialText: strings.Repeat("Expanded title ", 80), repairText: "Concise title", wantToolCalls: 1, wantApprovals: 1, wantRejections: 1, wantErrorCode: string(app.ToolErrorPPTXLayoutFitConflict)},
+		{name: "second invalid output blocks", repairText: "", wantFailure: "semantic_output_invalid", wantRejections: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
+			defer closeRuntime()
+			profile := documentEditProfile{}
+			stageContext := profile.StageContext(run.Workflow)
+			visibleTools, err := runtime.materializeActiveWorkflowTools(
+				context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			initial := `{"type":"action","tool":"pptx.update_slide","arguments":{"updates":[{"shape_index":1,"text":"` + test.initialText + `"}]}}`
+			repair := `{"type":"action","tool":"pptx.update_slide","arguments":{"updates":[{"shape_index":1,"text":"` + test.repairText + `"}]}}`
+			content := "Improve the selected slide\nMOCK_STEP_RESPONSE:" + initial + "\nMOCK_STEP_REPAIR_RESPONSE:" + repair
+			result := runtime.runWorkflowStepLoop(
+				context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil,
+			)
+			if result.WorkflowFailure != test.wantFailure || len(result.ToolCalls) != test.wantToolCalls || len(result.Approvals) != test.wantApprovals {
+				t.Fatalf("unexpected semantic repair result: failure=%q calls=%#v approvals=%#v observations=%#v", result.WorkflowFailure, result.ToolCalls, result.Approvals, result.Observations)
+			}
+			if test.wantApprovals == 1 && result.ToolCalls[0].Status != "approval_pending" {
+				t.Fatalf("valid repaired mutation did not stop at approval: %#v", result.ToolCalls[0])
+			}
+			projections := []app.AuditEvent{}
+			rejections := 0
+			foundErrorCode := test.wantErrorCode == ""
+			readCalls := 0
+			for _, call := range st.ListToolCalls(session.ID) {
+				if call.RunID == run.ID && call.Tool == "files.read" {
+					readCalls++
+				}
+			}
+			for _, event := range st.ListAudit(session.ID) {
+				if event.RunID != run.ID {
+					continue
+				}
+				if event.Type == "workflow.semantic_output.rejected" {
+					rejections++
+					if hasAgentAuditStringSliceField([]app.AuditEvent{event}, event.Type, "error_codes", test.wantErrorCode) {
+						foundErrorCode = true
+					}
+				}
+				if event.Type == "workflow.evidence_projection.created" && event.Fields["semantic_variable"] == "document_mutation_arguments" {
+					projections = append(projections, event)
+				}
+			}
+			if rejections != test.wantRejections || !foundErrorCode || len(projections) != 2 ||
+				projections[0].Fields["model_payload_digest"] != projections[1].Fields["model_payload_digest"] ||
+				readCalls != 1 {
+				t.Fatalf("repair did not reuse one source projection: rejections=%d projections=%#v calls=%#v", rejections, projections, st.ListToolCalls(session.ID))
+			}
+			if _, err := os.Stat(filepath.Join(root, "deck-sparkclaw-edit.pptx")); !os.IsNotExist(err) {
+				t.Fatalf("PPTX semantic preflight left a user-visible output before approval: %v", err)
+			}
+			if leftovers, err := filepath.Glob(filepath.Join(root, ".sparkclaw-pptx-preflight-*")); err != nil || len(leftovers) != 0 {
+				t.Fatalf("PPTX semantic preflight left temporary output: paths=%v err=%v", leftovers, err)
+			}
+		})
+	}
+}
+
+func TestPPTXReplacementTextAliasIsCanonicalizedBeforeApproval(t *testing.T) {
+	runtime, _, session, run, _, closeRuntime := prepareRealPPTXUpdateNode(t)
+	defer closeRuntime()
+	stageContext := (documentEditProfile{}).StageContext(run.Workflow)
+	visibleTools, err := runtime.materializeActiveWorkflowTools(
+		context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := `Improve the selected slide
+MOCK_STEP_RESPONSE:{"type":"action","tool":"pptx.update_slide","arguments":{"updates":[{"shape_index":1,"replacement_text":"A clearer third-slide title"}]}}`
+	result := runtime.runWorkflowStepLoop(
+		context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil,
+	)
+	if result.WorkflowFailure != "" || len(result.ToolCalls) != 1 || len(result.Approvals) != 1 ||
+		result.ToolCalls[0].Status != "approval_pending" {
+		t.Fatalf("PPTX replacement_text alias did not reach approval: failure=%q calls=%#v approvals=%#v", result.WorkflowFailure, result.ToolCalls, result.Approvals)
+	}
+	updates := anySlice(result.ToolCalls[0].Arguments["updates"])
+	if len(updates) != 1 {
+		t.Fatalf("canonicalized PPTX action lost its update: %#v", result.ToolCalls[0].Arguments)
+	}
+	update, _ := anyMap(updates[0])
+	if stringValue(update["text"]) != "A clearer third-slide title" || update["replacement_text"] != nil {
+		t.Fatalf("PPTX replacement_text alias was not removed before approval: %#v", update)
+	}
+}
+
 func TestPPTXRouteGroundingBlocksAmbiguousAndUnsupportedScopes(t *testing.T) {
 	root := t.TempDir()
 	writeAgentPPTXFixture(t, root)
@@ -666,7 +897,7 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 		closeRuntime()
 		t.Fatalf("prepare real PPTX editor %q operation %q is outside the decision scope", selectedTool, selectedOperation)
 	}
-	run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"" + string(selectedEntry) + "\"}"
+	run.Workflow.Route.Slots.Query += mockWorkflowDecisionSelectedResponse(selectedEntry)
 	st.SaveRun(run)
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &run, dispatch.Profile); err != nil || !changed {
 		closeRuntime()

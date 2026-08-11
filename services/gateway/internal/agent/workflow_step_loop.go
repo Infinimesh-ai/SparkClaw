@@ -420,42 +420,6 @@ func workflowStepModelTask(run app.AgentRun, stageContext workflowStageContext) 
 	}
 }
 
-func (r Runtime) compressWorkflowStepPromptIfNeeded(sessionID, runID string, step int, task modelrouter.Task, system, user, compactSystem string) (string, string) {
-	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(task)
-	availableInputTokens := contextLimit - maxOutputTokens
-	if availableInputTokens <= 0 {
-		return system, user
-	}
-	threshold := int(math.Floor(float64(availableInputTokens) * workflowStepPromptCompressionThreshold))
-	if threshold <= 0 {
-		return system, user
-	}
-	estimated := estimatePromptTokens(system, user)
-	if estimated <= threshold {
-		return system, user
-	}
-	compressedEstimate := estimatePromptTokens(compactSystem, user)
-	r.store.AddAudit(app.AuditEvent{
-		SessionID: sessionID,
-		RunID:     runID,
-		Actor:     "runtime",
-		Type:      "workflow_step.prompt_compressed",
-		Summary:   "Compressed workflow step prompt before model call",
-		Fields: map[string]any{
-			"step":                   step,
-			"context_tokens":         contextLimit,
-			"max_output_tokens":      maxOutputTokens,
-			"available_input_tokens": availableInputTokens,
-			"threshold_ratio":        workflowStepPromptCompressionThreshold,
-			"threshold_tokens":       threshold,
-			"estimated_tokens":       estimated,
-			"compressed_estimate":    compressedEstimate,
-			"strategy":               "stable_prefix_compact_context_v2",
-		},
-	})
-	return compactSystem, user
-}
-
 func (r Runtime) admitWorkflowStepPrompt(
 	sessionID, runID string,
 	step int,

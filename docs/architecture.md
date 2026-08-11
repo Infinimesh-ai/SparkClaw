@@ -152,6 +152,16 @@ they do not share implementation types or form a cross-package registry. The
 common Workflow, Policy/Approval, inspection, output-copy, cleanup, and audit
 paths remain format-neutral.
 
+ToolHub's registered schema remains the execution authority, while each model
+stage receives a derived schema projection. Runtime removes frozen bindings and
+provable operation-specific fields from that projection, records the remaining
+model-visible arguments as `semantic_variables`, then restores selected
+capability qualifiers, paths, identities, locators, hashes, generations, and
+other authoritative values before ToolHub validation and Policy. A deterministic
+acquisition or single-entry decision skips only that model judgment; later
+target, tool, content-generation, approval, and effect nodes remain in the same
+Workflow.
+
 `ContextBuilder` assembles each bounded model/tool loop from prioritized,
 degradable sections. Current-run observations use one uniform small envelope,
 appear once in causal order, and retain their artifact references. A stage may
@@ -164,6 +174,11 @@ conservative token estimate. It degrades session/tool context first, then
 provisioned slices, then older observations while preserving the newest two;
 the output contract remains the user-prompt tail. Run-level observation
 pressure similarly compacts the oldest entries before it stops execution.
+Migrated document and browser-control model views additionally omit governed paths, source and
+target hashes, page/snapshot identity, URLs, generations, and digests when those
+facts are already bound in Runtime. They retain coverage and omission metadata,
+candidate-local content and structure, opaque selectable refs, and eligible
+operation descriptions needed by the current semantic variable.
 
 ### Model Router
 

@@ -54,12 +54,18 @@ tool 不会扩大已支持 Workflow 表面；以
   presentation mode、session generation 和 page generation 的结构化 accessibility
   projection。snapshot ID 包含 session generation；navigation 和成功 interaction 会推进
   page generation，并使旧 action/visual evidence 失效。
+- Runtime 保留这份带完整 identity 的 snapshot，用于 freshness 与执行 binding。目标/control
+  模型调用只接收另一份投影，其中包含有界 title/count/omission 状态，以及 candidate 局部
+  role、label、state、nearby context、options 和 opaque `ref`；page/snapshot ID、URL、digest、
+  fingerprint、generation 和 ordinal 不会进入该投影。
 - `browser.click` 只能接收该 snapshot 中持久化的 ref。
 - `browser.type` 与 `browser.select` 只有在 `browser.form_draft` 中才能作为页面 mutation
   使用。Runtime 在 approval 前和已审批 call 执行时都会校验 active Profile、latest
   snapshot、page/ref identity、session/page generation、普通字段 allowlist、禁用 control
   metadata 和 owner 原文中的精确值。每次 action 独立审批；public summary 和持久化浏览器
   projection 会脱敏 value。
+  模型可见 type/select schema 保留有界当前 `uid` enum 与语义 value field；Runtime 移除并在
+  执行前回绑 page ID、snapshot ID 与 session/page generation 参数。
 - Workflow-only `browser.visual_inspect` 先校验最新 structured snapshot，捕获 screenshot，
   复用 Fast 图片检查，再捕获一份 structured snapshot。session/page generation、page ID、
   URL 或 snapshot digest 任一变化都会返回 `visual_evidence_stale`。其有界不可信输出不包含

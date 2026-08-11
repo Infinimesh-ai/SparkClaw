@@ -9,7 +9,9 @@
 
 相关文档：系统边界见[架构](architecture.md)，当前注册能力见
 [Workflow 能力矩阵](workflow-capabilities.md)，逐步扩展流程见
-[开发](development.md)，请求如何选中叶子见[意图路由](intent-routing.md)。
+[开发](development.md)，请求如何选中叶子见[意图路由](intent-routing.md)，正在迁移的
+[Workflow 证据所有权与复用](workflow-evidence-ownership.md)设计说明如何把确定性事实
+与 locator 固化进 Runtime，让消费者复用同一次采集事件，同时不合并独立事件。
 
 ## 执行流水线
 
@@ -68,11 +70,13 @@ Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后
   （`workflowStepSystemPrompt`，基于上下文快照的 `ForWorkflowStep` /
   `ForWorkflowStepCompact` 视图）。当前运行的 observation 只在 user prompt 中
   按因果顺序出现一次，其后是步骤输出契约。
-- Prompt 准入用标定过的每 token 4 字节系数估算,在可用输入预算的 80% 处切换到
-  compact system prompt（`compressWorkflowStepPromptIfNeeded`，审计事件
-  `workflow_step.prompt_compressed`）。预算来自与执行同一路由任务策略选出的模
-  型 profile，并带 85% 上下文窗口安全系数
-  （`effectiveWorkflowStepPromptBudget`）。
+- Prompt 准入（`admitWorkflowStepPrompt`）用标定过的每 token 4 字节系数估算；达到
+  可用输入预算的 80% 时，依次降级 session 视图、供给的 evidence projection 与较旧
+  observation，并记录 `workflow_step.prompt_compressed` 审计事件。预算来自与执行同一路由
+  任务策略选出的模型 profile，并带 85% 上下文窗口安全系数
+  （`effectiveWorkflowStepPromptBudget`）。`runWorkflowModelStep` 的固定阶段上下文会声明
+  未解决的 `semantic_variables`：工具 stage 从最终模型可见 schema 推导，无工具回答、
+  operation selection 与 finalization 调用则直接声明其有界输出。
 
 ### 工具结果与证据
 
@@ -80,11 +84,17 @@ Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后
 `observation_summary_max_bytes` 信封（默认 2400）。截断信封保留 artifact URI，并
 提示模型使用 `observation.read`；该辅助工具只读取当前 session 所属 artifact 的有界、
 UTF-8 安全窗口。它仅暴露给模型步骤，调用后继续当前步骤循环，不推进 workflow 节点。
+文档与浏览器 tool-message 的 summary/structured field 是消费者投影：受治理 path、源 byte
+metadata、page/snapshot identity、URL、generation 和 digest 留在归档 Runtime 状态中，不再
+复制进模型消息。历史持久化 envelope 会在模型 context 边界重新投影；无法解析的旧文档/浏览器
+summary 会降级为 tool 与 status，不会回放无界 locator 文本。
 
 Profile 在阶段上下文中声明必需或可选的证据来源。模型调用前，Runtime 从已完成节点或
 当前 workflow resource 解析来源、读取归档完整输出，并在 output contract 前插入有界
-`PROVISIONED_EVIDENCE` 小节。文档切片保留完整段落或行，浏览器结构化切片保留完整
-control ref。缺少必需证据时在模型调用前阻断。`ContextBuilder` 对联合 prompt 依次压缩
+`PROVISIONED_EVIDENCE` 小节。文档切片保留完整段落或行，浏览器结构化切片保留完整的
+opaque control ref；Runtime-owned 文档 hash/path 与浏览器 snapshot metadata 会被移除，
+coverage、omission 数量、candidate 局部内容/结构和 eligible operation 描述继续保留。缺少
+必需证据时在模型调用前阻断。`ContextBuilder` 对联合 prompt 依次压缩
 session/tool 上下文、缩小供给切片、压缩较旧的本轮 observations；最新两条 observation
 与末尾 output contract 保持不变。
 
@@ -161,6 +171,9 @@ JSON 对象：
 - `materializeWorkflowBoundArguments` / `bindWorkflowToolArguments` 用持久化的
   intent/route/outcome 状态覆写参数值，后续阶段无法偷换 query、URL、路径或元
   素引用。
+- `workflowModelToolProjection` 从模型 schema 移除 Runtime-owned qualifier、冻结
+  `ArgumentBinding` 值和 format-policy proof argument；Runtime 会在执行前回绑这些值，
+  再使用未改变的 ToolHub 注册 schema 校验。
 
 ## 运行状态、模型调用与审计事件
 
@@ -267,6 +280,8 @@ transition。memory、file 和 PostgreSQL store 实现同一契约。
   （`workflow_outcome.go`、`tool_result_adapter.go`）。
 - **参数绑定** —— 把工具参数绑定到 intent target、route slot、route fact 或先
   前的 outcome ref，让取值从持久化状态物化，而不是信任模型输出。
+- **语义变量** —— 模型 schema 只保留尚未解决的目标判断、eligible tool 选择或内容参数；
+  不要仅为了让模型复制回来而暴露 Runtime fact。
 - **证据需求** —— 在 `StageContext` 中声明持久化来源节点或当前 workflow
   resource kind，选择 `head` 或 `structured` 切片，并让必需来源保持 fail closed。
 - **预算** —— 按部署在 `runtime` 配置段调整 `workflow_stage_max_*` /

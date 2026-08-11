@@ -20,10 +20,6 @@ type pptxWorkflowEditEvidence struct {
 	readOnlyText []string
 }
 
-func (r Runtime) bindPPTXSlideUpdateArguments(run app.AgentRun, args map[string]any) map[string]any {
-	return r.bindPPTXEditArguments(run, "update_slide", args)
-}
-
 func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args map[string]any) map[string]any {
 	if run.Workflow == nil {
 		return args

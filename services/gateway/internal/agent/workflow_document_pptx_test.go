@@ -97,7 +97,7 @@ func TestPPTXTargetEvidencePrioritizesLateSlideAndRejectsOverflow(t *testing.T) 
 			}},
 		},
 	}
-	evidence, err := pptxTargetStructuredEvidence(output, pptxScopeSingleSlide, []int{10}, 8000)
+	evidence, err := pptxTargetStructuredEvidenceForOperation(output, pptxScopeSingleSlide, pptxDefaultOperationForScope(pptxScopeSingleSlide), []int{10}, 8000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,22 +105,27 @@ func TestPPTXTargetEvidencePrioritizesLateSlideAndRejectsOverflow(t *testing.T) 
 		strings.Contains(evidence, "early") || strings.Contains(evidence, "Grouped read only") {
 		t.Fatalf("late-slide target projection is incomplete or leaked non-target/read-only evidence:\n%s", evidence)
 	}
+	for _, runtimeField := range []string{`"path"`, `"rel_path"`, `"sha256"`, `"relative_path"`, `"target_hash"`, "source_bytes"} {
+		if strings.Contains(evidence, runtimeField) {
+			t.Fatalf("PPTX model projection exposes Runtime-owned field %s:\n%s", runtimeField, evidence)
+		}
+	}
 	for _, line := range strings.Split(evidence, "\n") {
 		if strings.HasPrefix(line, "shape_record=") && (!strings.HasPrefix(strings.TrimPrefix(line, "shape_record="), "{") || !strings.HasSuffix(line, "}")) {
 			t.Fatalf("PPTX evidence cut a shape record: %q", line)
 		}
 	}
-	if _, err := pptxTargetStructuredEvidence(output, pptxScopeSingleSlide, []int{10}, 350); err == nil || err.Error() != "pptx_target_evidence_exceeds_budget" {
+	if _, err := pptxTargetStructuredEvidenceForOperation(output, pptxScopeSingleSlide, pptxDefaultOperationForScope(pptxScopeSingleSlide), []int{10}, 350); err == nil || err.Error() != "pptx_target_evidence_exceeds_budget" {
 		t.Fatalf("undersized target evidence budget was not rejected: %v", err)
 	}
 	oversizedSlides := append(append([]any{}, slides...), map[string]any{"index": 11}, map[string]any{"index": 12}, map[string]any{"index": 13})
 	output["document"].(map[string]any)["slides"] = oversizedSlides
-	if _, err := pptxTargetStructuredEvidence(output, pptxScopeWholeDeck, nil, 8000); err == nil || err.Error() != "pptx_whole_deck_exceeds_batch_bound" {
+	if _, err := pptxTargetStructuredEvidenceForOperation(output, pptxScopeWholeDeck, pptxDefaultOperationForScope(pptxScopeWholeDeck), nil, 8000); err == nil || err.Error() != "pptx_whole_deck_exceeds_batch_bound" {
 		t.Fatalf("oversized whole-deck evidence was not rejected: %v", err)
 	}
 	output["document"].(map[string]any)["slides"] = []any{map[string]any{"index": 1, "template_ref": "slide:1"}}
 	output["document"].(map[string]any)["blocks"] = []any{pptxEvidenceBlock(1, 1, 0, strings.Repeat("large-slide ", 560), true)}
-	if _, err := pptxTargetStructuredEvidence(output, pptxScopeWholeDeck, nil, 8000); err == nil || err.Error() != "pptx_slide_evidence_exceeds_budget" {
+	if _, err := pptxTargetStructuredEvidenceForOperation(output, pptxScopeWholeDeck, pptxDefaultOperationForScope(pptxScopeWholeDeck), nil, 8000); err == nil || err.Error() != "pptx_slide_evidence_exceeds_budget" {
 		t.Fatalf("single-slide whole-deck evidence bound was not enforced: %v", err)
 	}
 	blankOutput := map[string]any{"document": map[string]any{
@@ -131,11 +136,11 @@ func TestPPTXTargetEvidencePrioritizesLateSlideAndRejectsOverflow(t *testing.T) 
 			"layout_ref": "layout:/ppt/slideLayouts/slideLayout6.xml", "name": "Blank",
 		}}}},
 	}}
-	blankEvidence, err := pptxTargetStructuredEvidence(blankOutput, pptxScopeStructural, []int{1}, 8000)
+	blankEvidence, err := pptxTargetStructuredEvidenceForOperation(blankOutput, pptxScopeStructural, pptxDefaultOperationForScope(pptxScopeStructural), []int{1}, 8000)
 	if err != nil || !strings.Contains(blankEvidence, `"slide_index":1`) {
 		t.Fatalf("blank structural target did not retain slide/layout evidence: evidence=%q err=%v", blankEvidence, err)
 	}
-	allStructuralEvidence, err := pptxTargetStructuredEvidence(blankOutput, pptxScopeStructural, nil, 8000)
+	allStructuralEvidence, err := pptxTargetStructuredEvidenceForOperation(blankOutput, pptxScopeStructural, pptxDefaultOperationForScope(pptxScopeStructural), nil, 8000)
 	if err != nil || !strings.Contains(allStructuralEvidence, `"slide_index":1`) {
 		t.Fatalf("unpositioned structural edit did not retain the bounded slide inventory: evidence=%q err=%v", allStructuralEvidence, err)
 	}
@@ -209,6 +214,11 @@ func TestPPTXBusinessProjectionIsOperationScopedAndOmitsRichTextTrees(t *testing
 		for _, reject := range test.reject {
 			if strings.Contains(evidence, reject) {
 				t.Errorf("%s projection leaked %q:\n%s", test.operation, reject, evidence)
+			}
+		}
+		for _, runtimeField := range []string{`"path"`, `"rel_path"`, `"sha256"`, `"relative_path"`, `"target_hash"`} {
+			if strings.Contains(evidence, runtimeField) {
+				t.Errorf("%s model projection exposes Runtime-owned field %s:\n%s", test.operation, runtimeField, evidence)
 			}
 		}
 	}
@@ -433,10 +443,16 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	if _, changed, err := runtime.resolveActiveWorkflowDecisions(context.Background(), &storedRun, dispatch.Profile); err != nil || !changed {
 		t.Fatalf("single-slide PPTX operation selection failed: changed=%t err=%v", changed, err)
 	}
+	if calls := countModelCalls(st.ListModelCalls(session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane); calls != 0 {
+		t.Fatalf("deterministic single-slide operation selection called the model %d times", calls)
+	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
 	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
 	if err != nil || len(tools) != 1 || tools[0].Name != "pptx.update_slide" {
 		t.Fatalf("single-slide scope exposed the wrong operation: tools=%#v err=%v", visibleToolNames(tools), err)
+	}
+	if !containsString(stageContext.SemanticVariables, "pptx.update_slide.updates") {
+		t.Fatalf("PPTX editor stage did not declare its semantic content variable: %#v", stageContext.SemanticVariables)
 	}
 	properties, _ := anyMap(tools[0].InputSchema["properties"])
 	for _, name := range []string{"path", "output_path", "source_document_sha256", "slide_index"} {

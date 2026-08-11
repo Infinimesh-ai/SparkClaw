@@ -314,10 +314,15 @@ func mockBrowserDraftValue(goal string) string {
 
 func mockLatestBrowserSnapshot(prompt string) (string, string, string) {
 	normalized := strings.ReplaceAll(prompt, `\"`, `"`)
-	if !strings.Contains(normalized, `"schema_version":"browser_interaction_snapshot_v1"`) {
+	elementRef := mockLastBrowserFieldValue(normalized, "ref")
+	if elementRef == "" {
 		return "snapshot_missing", mockWorkflowPageID(prompt), "element_missing"
 	}
-	return mockLastBrowserFieldValue(normalized, "snapshot_id"), mockLastBrowserFieldValue(normalized, "page_id"), mockLastBrowserFieldValue(normalized, "ref")
+	snapshotID := ""
+	if marker := strings.Index(elementRef, ":e"); marker > 0 {
+		snapshotID = elementRef[:marker]
+	}
+	return snapshotID, "", elementRef
 }
 
 func mockBrowserFieldValues(prompt, key string) []string {
@@ -351,19 +356,6 @@ func mockLastBrowserFieldValue(prompt, key string) string {
 		return ""
 	}
 	return values[len(values)-1]
-}
-
-func mockFieldAfter(value, key string) string {
-	marker := `"` + key + `":"`
-	index := strings.Index(value, marker)
-	if index < 0 {
-		return ""
-	}
-	value = value[index+len(marker):]
-	if end := strings.IndexByte(value, '"'); end >= 0 {
-		return value[:end]
-	}
-	return ""
 }
 
 func mockWorkflowPageID(prompt string) string {

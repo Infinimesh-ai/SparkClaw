@@ -12,7 +12,11 @@ way tools execute, and there is no fallback executor behind them.
 Related documents: [Architecture](architecture.md) for the system boundary,
 [Workflow capability matrix](workflow-capabilities.md) for what is registered
 today, [Development](development.md) for the step-by-step extension workflow,
-and [Intent routing](intent-routing.md) for how a request selects a leaf.
+[Intent routing](intent-routing.md) for how a request selects a leaf, and the
+active [Workflow evidence ownership and reuse](workflow-evidence-ownership.md)
+migration contract for moving deterministic facts and locators into Runtime
+while reusing one acquisition event across consumers without merging
+independent events.
 
 ## Execution Pipeline
 
@@ -79,17 +83,21 @@ request that is still in flight when the budget trips.
 
 - `runWorkflowModelStep` is the single entry point. It honors the profile's
   stage-context lane, defaults to Deep only when no lane is supplied, and calls
-  `runWorkflowStepLoop`.
+  `runWorkflowStepLoop`. Its fixed stage context names the unresolved
+  `semantic_variables`; tool stages derive them from the final model-visible
+  schema, while no-tool answer, operation-selection, and finalization calls name
+  their bounded output directly.
 - The loop freezes a full and a compact system prompt at loop start
   (`workflowStepSystemPrompt` over the context snapshot's `ForWorkflowStep` /
   `ForWorkflowStepCompact` views). Current-run observations appear exactly
   once, in causal order, in the user prompt, followed by the step output
   contract.
-- Prompt admission estimates tokens with a calibrated 4-bytes-per-token
-  coefficient and swaps in the compact system prompt at 80% of the available
-  input budget (`compressWorkflowStepPromptIfNeeded`, audited as
-  `workflow_step.prompt_compressed`). The budget derives from the model
-  profile chosen by the same router task policy as execution, with an 85%
+- Prompt admission (`admitWorkflowStepPrompt`) estimates tokens with a
+  calibrated 4-bytes-per-token coefficient. At 80% of the available input
+  budget it degrades the session view, provisioned evidence projection, and
+  older observations in that order, audited as
+  `workflow_step.prompt_compressed`. The budget derives from the model profile
+  chosen by the same router task policy as execution, with an 85%
   context-window safety factor (`effectiveWorkflowStepPromptBudget`).
 
 ### Tool Results And Evidence
@@ -100,12 +108,21 @@ tool name. A truncated envelope retains its artifact URI and directs the model
 to `observation.read`, which reads a bounded UTF-8-safe window from an artifact
 owned by the current session. The helper is exposed only to model steps; using
 it continues the current step loop and does not advance the workflow node.
+Document and browser tool-message summaries and structured fields are consumer
+projections: governed paths, source byte metadata, page/snapshot identity, URLs,
+generations, and digests stay in archived Runtime state instead of being copied
+into the model message. Persisted legacy envelopes are reprojected at the model
+context boundary; an unparseable legacy document/browser summary degrades to its
+tool and status instead of replaying unbounded locator text.
 
 Profiles declare required or optional evidence sources in their stage context.
 Before the model call, Runtime resolves each source against completed nodes or
 current workflow resources, reads the archived output, and inserts a bounded
 `PROVISIONED_EVIDENCE` section before the output contract. Document slices keep
-whole paragraphs or rows; browser structured slices keep complete control refs.
+whole paragraphs or rows; browser structured slices keep complete opaque control
+refs. Runtime-owned document hashes and paths and browser snapshot metadata are
+removed, while coverage, omission counts, candidate-local content/structure,
+and eligible operation descriptions remain.
 Missing required evidence blocks before the model call. `ContextBuilder` admits
 the combined prompt by compacting session/tool context, then reducing
 provisioned slices, then compacting older current-run observations; the newest
@@ -192,6 +209,10 @@ Model output cannot widen a workflow's boundary:
 - `materializeWorkflowBoundArguments` / `bindWorkflowToolArguments` overwrite
   argument values from persisted intent/route/outcome state, so a later stage
   cannot substitute its own query, URL, path, or element ref.
+- `workflowModelToolProjection` removes Runtime-owned qualifiers, frozen
+  `ArgumentBinding` values, and format-policy proof arguments from the schema
+  shown to the model. Runtime restores them before validating against the
+  unchanged registered ToolHub schema.
 
 ## Run States, Model Calls, And Audit Events
 
@@ -317,6 +338,9 @@ anchors are:
 - **Argument bindings** — bind tool arguments to intent targets, route slots,
   route facts, or prior outcome refs so values are materialized from
   persisted state instead of trusted from model output.
+- **Semantic variables** — keep only unresolved target judgment, eligible-tool
+  selection, or content arguments in the model schema. Do not expose a Runtime
+  fact merely so the model can copy it back.
 - **Evidence requirements** — declare persisted source nodes or current
   workflow resource kinds in `StageContext`; choose `head` or `structured`
   slicing and keep required sources fail closed.

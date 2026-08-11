@@ -156,15 +156,28 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 	if err != nil || len(tools) != 1 || tools[0].Name != "pdf.transform" {
 		t.Fatalf("PDF transform did not materialize: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
+	for _, runtimeBound := range []string{"operation", "path", "output_path"} {
+		if containsString(toolDefinitionPropertyNames(tools[0].InputSchema), runtimeBound) ||
+			containsString(toolDefinitionRequiredArgs(tools[0].InputSchema), runtimeBound) {
+			t.Fatalf("model-visible PDF transform leaked runtime-bound %s: %#v", runtimeBound, tools[0].InputSchema)
+		}
+	}
+	if !containsString(stageContext.SemanticVariables, "pdf.transform.pages") {
+		t.Fatalf("PDF editor stage did not retain its semantic page variable: %#v", stageContext.SemanticVariables)
+	}
+	if calls := countModelCalls(st.ListModelCalls(session.ID, storedRun.ID), "workflow_operation_selection", documentWorkflowModelLane); calls != 1 {
+		t.Fatalf("ambiguous PDF transform family used %d bounded operation-selection calls, want 1", calls)
+	}
 
 	editCall, editApproval, _ := runtime.runToolPlan(context.Background(), session.ID, storedRun.ID, toolPlan{
 		Name: "pdf.transform",
 		Args: map[string]any{
-			"operation": "extract_pages", "path": "model-input.pdf", "pages": []any{2}, "output_path": "model-output.pdf",
+			"operation": "delete_pages", "path": "model-input.pdf", "pages": []any{2}, "output_path": "model-output.pdf",
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if editApproval == nil || editCall.Status != "approval_pending" || editCall.Arguments["path"] != "report.pdf" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.pdf" {
+	if editApproval == nil || editCall.Status != "approval_pending" || editCall.Arguments["operation"] != "extract_pages" ||
+		editCall.Arguments["path"] != "report.pdf" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.pdf" {
 		t.Fatalf("PDF transform did not enter approval with frozen paths: call=%#v approval=%#v", editCall, editApproval)
 	}
 	storedRun, _ = st.GetRun(storedRun.ID)

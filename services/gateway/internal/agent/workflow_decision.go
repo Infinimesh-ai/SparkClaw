@@ -143,13 +143,10 @@ func (r Runtime) selectWorkflowDecisionEntry(ctx context.Context, run app.AgentR
 	return selection, nil
 }
 
-func workflowDecisionSelectionPrompt(run app.AgentRun, profile workflowProfile, node app.WorkflowNode, entriesJSON, dependencyEvidence string) (string, string) {
-	return workflowDecisionSelectionPromptWithLimit(run, profile, node, entriesJSON, dependencyEvidence, 8000)
-}
-
 func workflowDecisionSelectionPromptWithLimit(run app.AgentRun, profile workflowProfile, node app.WorkflowNode, entriesJSON, dependencyEvidence string, maxOwnerRequestBytes int) (string, string) {
 	rules := []string{
 		"Select exactly one concrete tool directory entry for an already validated SparkClaw workflow decision.",
+		"Semantic variable: eligible_tool_entry_id.",
 		"Return only one compact JSON object with the single field entry_id; unknown fields are forbidden.",
 	}
 	if semantics, ok := profile.(workflowDecisionSemantics); ok {

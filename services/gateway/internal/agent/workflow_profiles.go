@@ -286,11 +286,6 @@ func baseNodeAssessment(outcome app.ToolOutcome) app.NodeAssessment {
 	return app.NodeAssessment{OutcomeID: outcome.ID, NodeID: outcome.NodeID}
 }
 
-func workspaceMutationRequested(lower string) bool {
-	return containsEnglishSemanticTerm(lower, "edit", "modify", "write", "create", "delete", "remove", "patch", "rename", "move") ||
-		containsAny(lower, "编辑", "修改", "写入", "创建", "删除", "移除", "补丁", "重命名", "移动", "完善")
-}
-
 func newWorkflowState(route app.RouteDecision, returnRoute app.ReturnRoute, intent app.IntentEnvelope, plan app.WorkflowPlan) *app.WorkflowState {
 	nodes := make(map[app.WorkflowNodeID]app.WorkflowNodeState, len(plan.Nodes))
 	for _, node := range plan.Nodes {
@@ -415,6 +410,11 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 			return nil, errors.New("no-tool workflow node cannot materialize tools")
 		}
 		stageContext.Capability = ""
+		if node.Goal.Completion == app.CompletionMessage {
+			stageContext.SemanticVariables = []string{"message_content"}
+		} else {
+			stageContext.SemanticVariables = []string{"answer_content"}
+		}
 		r.store.AddAudit(app.AuditEvent{
 			SessionID: run.SessionID, RunID: run.ID, Actor: "tool-exposure", Type: "tools.exposure.none",
 			Summary: "No-tool workflow intentionally exposes no tools",
@@ -458,6 +458,8 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	}
 	visibleDefinitions = materializeDocumentOperationSchemas(visibleDefinitions, view, entryIDs)
 	visibleDefinitions = materializeBrowserFormDraftSchemas(visibleDefinitions, run, stageContext.WorkflowNodeID)
+	visibleDefinitions = workflowModelToolProjection(run, entryIDs, visibleDefinitions)
+	stageContext.SemanticVariables = workflowModelSemanticVariables(visibleDefinitions)
 	r.auditWorkflowStageExposure(run, stageContext.WorkflowNodeID, state.Stage, capabilities, visibleDefinitions)
 	return visibleDefinitions, nil
 }

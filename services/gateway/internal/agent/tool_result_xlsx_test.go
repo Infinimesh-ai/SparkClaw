@@ -21,8 +21,13 @@ func TestXLSXStructuredEvidencePrioritizesExplicitTailTarget(t *testing.T) {
 	if projection["schema_version"] != "xlsx_sheet_evidence_v1" || projection["selection_complete"] != true {
 		t.Fatalf("unexpected projection contract: %#v", projection)
 	}
-	if !strings.Contains(text, `"address":"B80"`) || !strings.Contains(text, `"source_hash":"sha256:row-80"`) {
+	if !strings.Contains(text, `"address":"B80"`) {
 		t.Fatalf("explicit tail target was not retained: %s", text)
+	}
+	for _, runtimeField := range []string{`"source"`, `"path"`, `"rel_path"`, `"source_hash"`, `"style_hash"`} {
+		if strings.Contains(text, runtimeField) {
+			t.Fatalf("XLSX model projection exposes Runtime-owned field %s: %s", runtimeField, text)
+		}
 	}
 	omitted, _ := anyMap(projection["omitted"])
 	if intLikeValue(omitted["rows"]) == 0 || intLikeValue(omitted["cells"]) == 0 {
@@ -47,7 +52,7 @@ func TestXLSXStructuredEvidenceFailsClosedWhenExplicitTargetCannotFit(t *testing
 func TestDocumentReadEvidenceUsesTypedXLSXProjection(t *testing.T) {
 	output := xlsxProjectionFixture(3)
 	output["content"] = "Name\tScore\nAlice\t88"
-	evidence := toolResultEvidence(app.ToolCall{Tool: "files.read"}, output, 4000)
+	evidence := toolResultEvidenceForRequest(app.ToolCall{Tool: "files.read"}, output, 4000, "")
 	found := false
 	for _, item := range evidence {
 		if item.Kind == "document.xlsx_sheets" && strings.Contains(item.Text, `"value_kind":"number"`) {

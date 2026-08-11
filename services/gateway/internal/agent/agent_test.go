@@ -864,7 +864,7 @@ func TestToolResultAdapterKeepsCausalFieldsWhenTruncated(t *testing.T) {
 	if decoded.ToolCallID != "tc_large" || decoded.Tool != "files.read" || decoded.Status != "completed" || !decoded.Untrusted {
 		t.Fatalf("causal fields were not preserved: %#v", decoded)
 	}
-	if decoded.Structured["path"] != "huge.txt" || decoded.Structured["artifact_uri"] != call.ObservationRef {
+	if decoded.Structured["path"] != nil || decoded.Structured["artifact_uri"] != call.ObservationRef {
 		t.Fatalf("structured fields missing: %#v", decoded.Structured)
 	}
 	if decoded.Structured["truncated"] != false {
@@ -950,7 +950,7 @@ func TestToolResultAdapterKeepsDocumentReadEvidence(t *testing.T) {
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatalf("tool result message is not JSON: %v\n%s", err, message)
 	}
-	if decoded.ToolCallID != "tc_docx" || decoded.Tool != "files.read" || decoded.Structured["path"] != "uploads/sample.docx" {
+	if decoded.ToolCallID != "tc_docx" || decoded.Tool != "files.read" || decoded.Structured["path"] != nil {
 		t.Fatalf("causal fields missing: %#v", decoded)
 	}
 	if decoded.Structured["already_read"] != true {
@@ -960,9 +960,8 @@ func TestToolResultAdapterKeepsDocumentReadEvidence(t *testing.T) {
 	if !ok {
 		t.Fatalf("files.read should expose document pipeline summary: %#v", decoded.Structured)
 	}
-	strategy, ok := pipeline["strategy"].(map[string]any)
-	if !ok || strategy["strategy"] != "small_direct" || strategy["context_mode"] != "full_text" {
-		t.Fatalf("unexpected document pipeline strategy: %#v", pipeline)
+	if pipeline["document_id"] != nil || pipeline["strategy"] != nil || pipeline["index"] != nil {
+		t.Fatalf("document pipeline projection exposes Runtime-only planning facts: %#v", pipeline)
 	}
 	found := false
 	for _, evidence := range decoded.Evidence {
@@ -1041,11 +1040,13 @@ func TestToolResultAdapterKeepsDocumentAnchorsNearHeadings(t *testing.T) {
 			`blockId="document.p[25]"`,
 			"paragraphIndex=25",
 			`headingPath="五、心得与体会"`,
-			`sourceHash=sha1:body`,
 		} {
 			if !strings.Contains(evidence.Text, want) {
 				t.Fatalf("document anchors missing %q:\n%s", want, evidence.Text)
 			}
+		}
+		if strings.Contains(evidence.Text, "sourceHash=") || strings.Contains(evidence.Text, "source_hash=") {
+			t.Fatalf("document anchor projection exposes Runtime-owned hashes:\n%s", evidence.Text)
 		}
 	}
 	if !found {
@@ -1134,19 +1135,21 @@ func TestCompactWorkflowStepPromptKeepsCurrentDocumentOperationContext(t *testin
 		"edit_candidate 3",
 		`body_blockId=\"document.p[25]\"`,
 		"body_location.paragraph_index=25",
-		"body_source_hash=sha1:body",
 		`body_old_text_excerpt=\"本次实验心得正文，需要被准确定位。\"`,
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("compact workflow step prompt lost current observation evidence %q:\n%s", want, prompt)
 		}
 	}
+	if strings.Contains(prompt, "sourceHash=") || strings.Contains(prompt, "source_hash=") || strings.Contains(prompt, "uploads/report.docx") {
+		t.Fatalf("current workflow prompt exposes Runtime-owned document proof fields:\n%s", prompt)
+	}
 	if strings.Contains(prompt, "tool_result_compact") {
 		t.Fatalf("current workflow step observation should not be compacted:\n%s", prompt)
 	}
 }
 
-func TestToolResultAdapterPrefersRelativePathForFileRead(t *testing.T) {
+func TestToolResultAdapterOmitsRuntimeOwnedPathForFileRead(t *testing.T) {
 	call := app.ToolCall{
 		ID:     "tc_read",
 		Tool:   "files.read",
@@ -1169,11 +1172,11 @@ func TestToolResultAdapterPrefersRelativePathForFileRead(t *testing.T) {
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatalf("tool result message is not JSON: %v\n%s", err, message)
 	}
-	if decoded.Structured["path"] != "uploads/sample.docx" {
-		t.Fatalf("files.read should expose relative path, got %#v", decoded.Structured["path"])
+	if decoded.Structured["path"] != nil || decoded.Structured["rel_path"] != nil {
+		t.Fatalf("files.read should omit Runtime-owned paths: %#v", decoded.Structured)
 	}
-	if strings.Contains(message, "/home/dev/SparkClaw") {
-		t.Fatalf("model-visible files.read observation should not expose absolute path:\n%s", message)
+	if strings.Contains(message, "/home/dev/SparkClaw") || strings.Contains(message, "uploads/sample.docx") {
+		t.Fatalf("model-visible files.read observation should not expose a governed path:\n%s", message)
 	}
 	if decoded.Structured["already_read"] != true || !strings.Contains(stringValue(decoded.Structured["next_step_hint"]), "Use returned content") {
 		t.Fatalf("files.read should discourage rereads: %#v", decoded.Structured)
@@ -1384,7 +1387,7 @@ func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatalf("tool result message is not JSON: %v\n%s", err, message)
 	}
-	if decoded.Category != "browser_read" || decoded.Structured["final_url"] != "https://example.com/final" || decoded.Structured["status_code"] == nil {
+	if decoded.Category != "browser_read" || decoded.Structured["final_url"] != nil || decoded.Structured["url"] != nil || decoded.Structured["status_code"] == nil {
 		t.Fatalf("browser read metadata missing: %#v", decoded.Structured)
 	}
 	if decoded.Structured["browser_mode"] != "autonomous" || decoded.Structured["presentation"] != "hidden" || decoded.Structured["surface_visible"] != false {
@@ -1395,6 +1398,9 @@ func TestToolResultAdapterKeepsBrowserReadMetadata(t *testing.T) {
 	}
 	if len(decoded.Evidence) == 0 || decoded.Evidence[0].Kind != "browser.read_extract" || !strings.Contains(decoded.Evidence[0].Text, "needs_structure_snapshot: true") || !strings.Contains(decoded.Evidence[0].Text, "content truncated") {
 		t.Fatalf("browser read evidence should mention truncation: %#v", decoded.Evidence)
+	}
+	if strings.Contains(message, "https://example.com") {
+		t.Fatalf("browser read model projection exposes Runtime-owned URL: %s", message)
 	}
 }
 
@@ -1427,7 +1433,7 @@ func TestToolResultAdapterCompactsRichBrowserReadWithoutDroppingContent(t *testi
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Structured["fallback_policy"] != nil || decoded.Structured["final_url"] != "https://example.com/article" {
+	if decoded.Structured["fallback_policy"] != nil || decoded.Structured["final_url"] != nil || decoded.Structured["url"] != nil {
 		t.Fatalf("rich browser.read fell back or lost provenance: %#v", decoded.Structured)
 	}
 	if len(decoded.Evidence) == 0 || !strings.Contains(decoded.Evidence[0].Text, "BROWSER_READ_MARKER_2026") {
@@ -1470,6 +1476,14 @@ func TestToolResultAdapterCompactsRichBrowserSnapshotWithCitableRefs(t *testing.
 	if len(decoded.Evidence) == 0 || !strings.Contains(decoded.Evidence[0].Text, nameRef) || !strings.Contains(decoded.Evidence[0].Text, topicRef) {
 		t.Fatalf("rich browser.snapshot lost citable refs: %#v", decoded.Evidence)
 	}
+	for _, runtimeField := range []string{"schema_version", "snapshot_id", "page_id", "url", "digest", "fingerprint", "short_ref", "ordinal"} {
+		if strings.Contains(decoded.Evidence[0].Text, `"`+runtimeField+`"`) {
+			t.Fatalf("browser model evidence exposes runtime-owned %s: %s", runtimeField, decoded.Evidence[0].Text)
+		}
+		if _, visible := decoded.Structured[runtimeField]; visible {
+			t.Fatalf("browser model tool message exposes runtime-owned %s: %#v", runtimeField, decoded.Structured)
+		}
+	}
 }
 
 func TestToolResultAdapterKeepsBrowserAutomationNestedAuthFields(t *testing.T) {
@@ -1497,12 +1511,12 @@ func TestToolResultAdapterKeepsBrowserAutomationNestedAuthFields(t *testing.T) {
 	if decoded.Category != "browser" ||
 		decoded.Structured["browser_auth_status"] != "handoff_waiting" ||
 		decoded.Structured["login_handoff_opened"] != true ||
-		decoded.Structured["login_handoff_url"] != "https://example.com/protected" {
+		decoded.Structured["login_handoff_url"] != nil {
 		t.Fatalf("browser automation nested auth fields missing: %#v", decoded.Structured)
 	}
 }
 
-func TestToolResultAdapterKeepsDocumentMutationSideEffect(t *testing.T) {
+func TestToolResultAdapterProjectsDocumentMutationSideEffect(t *testing.T) {
 	call := app.ToolCall{ID: "tc_docx_edit", Tool: "docx.replace_paragraph", Status: "completed"}
 	output := map[string]any{
 		"status":          "docx_version_written",
@@ -1517,15 +1531,20 @@ func TestToolResultAdapterKeepsDocumentMutationSideEffect(t *testing.T) {
 	if err := json.Unmarshal([]byte(message), &decoded); err != nil {
 		t.Fatalf("tool result message is not JSON: %v\n%s", err, message)
 	}
-	if decoded.Category != "document_mutation" || decoded.Structured["output_path"] != "uploads/source-edited.docx" {
-		t.Fatalf("document mutation metadata missing: %#v", decoded)
+	if decoded.Category != "document_mutation" {
+		t.Fatalf("document mutation category missing: %#v", decoded)
 	}
 	sideEffect, ok := decoded.Structured["side_effect"].(map[string]any)
-	if !ok || sideEffect["output_path"] != "uploads/source-edited.docx" {
+	if !ok || sideEffect["status"] != "docx_version_written" {
 		t.Fatalf("side effect summary missing: %#v", decoded.Structured)
 	}
 	if len(decoded.Evidence) == 0 || decoded.Evidence[0].Kind != "document.change_summary" {
 		t.Fatalf("document change summary missing: %#v", decoded.Evidence)
+	}
+	for _, runtimeField := range []string{"uploads/source.docx", "uploads/source-edited.docx", `"operation":"replace_paragraph"`, "paragraph_index", "2048"} {
+		if strings.Contains(message, runtimeField) {
+			t.Fatalf("document mutation model projection exposes Runtime-owned %q: %s", runtimeField, message)
+		}
 	}
 }
 
@@ -1726,88 +1745,34 @@ func TestEstimatePromptTokensUsesCalibratedByteCoefficient(t *testing.T) {
 	}
 }
 
-func TestCompressWorkflowStepPromptWhenEstimatedTokensExceedThreshold(t *testing.T) {
+func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.T) {
 	cfg := agentTestConfig()
 	cfg.Model.Deep.ContextTokens = 4096
 	cfg.Model.Deep.MaxTokens = 512
 	st := store.NewMemoryStore()
-	session := st.CreateSession("compress workflow step prompt")
-	tools := toolhub.New(cfg, st)
-	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
-	longObservation := adaptToolResult(toolResultAdapterInput{
-		Call: app.ToolCall{ID: "tc_read", Tool: "files.read", Status: "completed"},
-		Output: map[string]any{
-			"path":      "uploads/big.docx",
-			"kind":      "docx",
-			"content":   strings.Repeat("重要证据内容 ", 2200),
-			"truncated": false,
-			"document": map[string]any{
-				"pipeline": map[string]any{
-					"status":   "succeeded",
-					"strategy": map[string]any{"strategy": "small_direct", "context_mode": "full_text"},
-				},
-			},
-		},
-		MaxBytes:      32000,
-		EvidenceLimit: 26000,
-	})
-	visibleTools := []app.ToolDefinition{
-		{
-			Name:        "files.read",
-			Description: strings.Repeat("read file schema ", 120),
-			InputSchema: map[string]any{
-				"type":     "object",
-				"required": []any{"path"},
-				"properties": map[string]any{
-					"path":      map[string]any{"type": "string"},
-					"max_bytes": map[string]any{"type": "integer"},
-				},
-			},
-			Risk: app.RiskRead,
-		},
-		{
-			Name:        "docx.replace_paragraph",
-			Description: strings.Repeat("replace paragraph schema ", 120),
-			InputSchema: map[string]any{
-				"type":     "object",
-				"required": []any{"path", "paragraph_index", "text", "output_path"},
-				"properties": map[string]any{
-					"path":            map[string]any{"type": "string"},
-					"paragraph_index": map[string]any{"type": "integer"},
-					"text":            map[string]any{"type": "string"},
-					"output_path":     map[string]any{"type": "string"},
-				},
-			},
-			Risk:             app.RiskReversible,
-			RequiresApproval: true,
-		},
+	session := st.CreateSession("admit workflow prompt")
+	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	stageContext := workflowStageContext{
+		WorkflowID: "document.edit", ModelLaneHint: "deep", SemanticVariables: []string{"document.edit.new_text"},
 	}
-	agentContext := strings.Repeat("历史上下文 ", 3000)
-	stageContext := workflowStageContext{ModelLaneHint: "deep"}
-	system := workflowStepSystemPrompt(nil, stageContext, visibleTools, agentContext)
-	compactSystem := workflowStepSystemPrompt(nil, stageContext, visibleTools, "历史上下文 compact summary", workflowStepPromptOptions{Compact: true})
-	user := appendWorkflowStepContext(workflowStepUserPrompt("修改心得与体会段落", 2, []string{longObservation}), stageContext, visibleTools)
-	task := workflowStepModelTask(app.AgentRun{Risk: app.RiskRead}, stageContext)
+	fullEvidence := "FULL_EVIDENCE " + strings.Repeat("document evidence ", 1800)
+	compactEvidence := "COMPACT_EVIDENCE " + strings.Repeat("document evidence ", 900)
+	minimalEvidence := "MINIMAL_EVIDENCE selected candidate content"
+	fullSystem := strings.Repeat("full system context ", 900)
+	compactSystem := "compact system context"
 
-	compressedSystem, compressedUser := runtime.compressWorkflowStepPromptIfNeeded(session.ID, "run_compress", 2, task, system, user, compactSystem)
+	system, user := runtime.admitWorkflowStepPrompt(
+		session.ID, "run_admission", 2, modelrouter.Task{LaneHint: "deep"}, "edit the selected paragraph", nil,
+		stageContext, nil,
+		provisionedWorkflowEvidence{Text: fullEvidence, CompactText: compactEvidence, MinimalText: minimalEvidence},
+		fullSystem, compactSystem,
+	)
 
-	if compressedSystem == system && compressedUser == user {
-		t.Fatal("expected prompt compression to trigger")
+	if system != compactSystem || !strings.Contains(user, minimalEvidence) || strings.Contains(user, "FULL_EVIDENCE") || strings.Contains(user, "COMPACT_EVIDENCE") {
+		t.Fatalf("prompt admission did not select the minimal consumer projection:\nsystem=%s\nuser=%s", system, user)
 	}
-	if estimatePromptTokens(compressedSystem, compressedUser) >= estimatePromptTokens(system, user) {
-		t.Fatalf("expected compact prompt to be smaller")
-	}
-	if !strings.Contains(compressedSystem, "Model-visible compact ToolDefinition JSON") {
-		t.Fatalf("compact prompt should mark compact tool definitions:\n%s", compressedSystem)
-	}
-	if strings.Contains(compressedSystem, "input_schema") {
-		t.Fatalf("compact prompt should not include full tool input_schema:\n%s", compressedSystem)
-	}
-	if compressedUser != user || strings.Contains(compressedUser, "tool_result_compact") {
-		t.Fatalf("compact prompt must preserve current workflow step observations without compacting them:\n%s", compressedUser)
-	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "workflow_step.prompt_compressed", "strategy", "stable_prefix_compact_context_v2") {
-		t.Fatalf("prompt compression audit missing: %#v", st.ListAudit(session.ID))
+	if !hasAgentAuditField(st.ListAudit(session.ID), "workflow_step.prompt_compressed", "strategy", "context_builder_minimal_evidence") {
+		t.Fatalf("prompt admission audit missing: %#v", st.ListAudit(session.ID))
 	}
 }
 
@@ -1885,16 +1850,51 @@ func TestObservationContextSeparatesSourceAndMessageState(t *testing.T) {
 	}
 	summary := compactObservationSummaryForContext(string(raw))
 	for _, expected := range []string{
-		"source={path=uploads/small.docx",
+		"source={truncated=false",
 		"truncated=false",
 		"read_complete=true",
 		"tool_message={truncated=true; compacted=true",
 		"evidence_policy={content_is_excerpt=true; excerpt_does_not_change_source_coverage=true}",
-		"document_pipeline={status=succeeded; strategy.strategy=small_direct; strategy.context_mode=full_text",
+		"document_pipeline={status=succeeded",
+		"evidence=content_excerpt:模型可见摘录",
 	} {
 		if !strings.Contains(summary, expected) {
 			t.Fatalf("context summary missing %q:\n%s", expected, summary)
 		}
+	}
+	for _, runtimeField := range []string{"uploads/small.docx", "kind=docx", "bytes=17861", "strategy.strategy", "strategy.context_mode"} {
+		if strings.Contains(summary, runtimeField) {
+			t.Fatalf("legacy context summary exposes Runtime-owned %q:\n%s", runtimeField, summary)
+		}
+	}
+}
+
+func TestObservationContextDoesNotReplayUnparseableLegacyLocatorText(t *testing.T) {
+	context := formatContextToolResults([]app.ToolCall{{
+		ID:                 "tc_legacy_read",
+		Tool:               "files.read",
+		Status:             "completed",
+		ObservationSummary: `files.read completed path="uploads/private.docx" source_hash=sha256:private`,
+	}})
+	if !strings.Contains(context, "legacy result retained in Runtime") || strings.Contains(context, "uploads/private.docx") || strings.Contains(context, "sha256:private") {
+		t.Fatalf("unparseable legacy locator text crossed the model context boundary:\n%s", context)
+	}
+}
+
+func TestObservationContextDoesNotRewriteRestrictedFailureAsCompleted(t *testing.T) {
+	message := toolResultMessage{
+		Tool: "browser.navigate", Status: "failed", Summary: "browser.navigate failed for https://private.example",
+		Structured: map[string]any{"url": "https://private.example", "error": "navigation failed"},
+	}
+	raw, err := json.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context := formatContextToolResults([]app.ToolCall{{
+		ID: "tc_failed_navigation", Tool: "browser.navigate", Status: "failed", ObservationSummary: string(raw),
+	}})
+	if !strings.Contains(context, "summary=browser.navigate failed") || strings.Contains(context, "browser.navigate completed") || strings.Contains(context, "https://private.example") {
+		t.Fatalf("restricted failure was mislabeled or leaked locator text:\n%s", context)
 	}
 }
 
@@ -1973,11 +1973,9 @@ func TestIntentRoutingUsesRecentDocumentToolResultForFollowUpEdit(t *testing.T) 
 	snapshot := runtime.buildAgentContextSnapshot(session.ID, "run_current", "把张三的学号改为6")
 	contextText := snapshot.ForIntentRouting()
 	if !strings.Contains(contextText, "Recent tool results") ||
-		!strings.Contains(contextText, "example.xlsx") ||
 		!strings.Contains(contextText, "张三") ||
-		!strings.Contains(contextText, "strategy.strategy=small_direct") ||
-		!strings.Contains(contextText, "strategy.context_mode=full_text") ||
-		!strings.Contains(contextText, "index.index_status=skipped") {
+		!strings.Contains(contextText, "document_pipeline={status=succeeded") ||
+		strings.Contains(contextText, "example.xlsx") || strings.Contains(contextText, "strategy.strategy") || strings.Contains(contextText, "index.index_status") {
 		t.Fatalf("recent tool result context missing document evidence:\n%s", contextText)
 	}
 }
@@ -2032,6 +2030,7 @@ func TestCompressBrowserSnapshotIncludesActionableElements(t *testing.T) {
 			`    uid=1_41 link "MacBook Pro" url="https://www.apple.com/macbook-pro/"`,
 			`    uid=1_49 button "Mac menu"`,
 			`    uid=1_50 button "Search apple.com"`,
+			`    uid=1_51 image url="https://www.apple.com/decorative.png"`,
 		}, "\n"),
 	}
 	summary := CompressObservation("browser.snapshot", output, 2000)
@@ -2039,7 +2038,6 @@ func TestCompressBrowserSnapshotIncludesActionableElements(t *testing.T) {
 		`untrusted_browser_snapshot:`,
 		`accessibility_snapshot:`,
 		`RootWebArea "Mac - Apple" [ref=1_0]`,
-		`- /url: https://www.apple.com/mac/`,
 		`link "MacBook Air" [ref=1_40]`,
 		`link "MacBook Pro" [ref=1_41]`,
 		`button "Mac menu" [ref=1_49]`,
@@ -2048,6 +2046,9 @@ func TestCompressBrowserSnapshotIncludesActionableElements(t *testing.T) {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("snapshot summary missing %q:\n%s", want, summary)
 		}
+	}
+	if strings.Contains(summary, "https://") || strings.Contains(summary, "/url:") || strings.Contains(summary, "ref=1_51") {
+		t.Fatalf("snapshot summary exposes Runtime-owned URLs:\n%s", summary)
 	}
 }
 
@@ -2068,7 +2069,6 @@ func TestCompressBrowserSnapshotIncludesElementsFromResultStruct(t *testing.T) {
 	summary := CompressObservation("browser.snapshot", output, 2000)
 	for _, want := range []string{
 		`RootWebArea "Search - Microsoft Bing" [ref=5_0]`,
-		`- /url: https://www.bing.com/`,
 		`search [ref=5_26]`,
 		`combobox "Enter your search here - Search suggestions will show as you type"`,
 		`[focused]`,
@@ -2079,6 +2079,9 @@ func TestCompressBrowserSnapshotIncludesElementsFromResultStruct(t *testing.T) {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("snapshot result summary missing %q:\n%s", want, summary)
 		}
+	}
+	if strings.Contains(summary, "https://") || strings.Contains(summary, "/url:") {
+		t.Fatalf("snapshot result summary exposes Runtime-owned URLs:\n%s", summary)
 	}
 }
 
@@ -3148,19 +3151,16 @@ func TestAgentContextKeepsDocumentOperationContextInToolMemory(t *testing.T) {
 		Status:    "completed",
 		Category:  "file",
 		Untrusted: true,
-		Summary:   `files.read completed path="uploads/report.docx" kind=docx truncated=false`,
+		Summary:   `files.read completed read_complete=true truncated=false`,
 		Structured: map[string]any{
-			"path": "uploads/report.docx",
 			"source": map[string]any{
-				"path":          "uploads/report.docx",
-				"kind":          "docx",
 				"truncated":     false,
 				"read_complete": true,
 			},
 		},
 		Evidence: []toolEvidence{
 			{Kind: "content_full", Text: strings.Repeat("开头内容 ", 120)},
-			{Kind: "document.operation_context", Text: `DocumentOperationContext: edit_candidate 1: heading={heading_blockId="document.p[24]" heading_type=heading heading_location.paragraph_index=24 heading_old_text_excerpt="五、心得与体会"} body={body_blockId="document.p[25]" body_type=paragraph body_location.paragraph_index=25 body_source_hash=sha1:body body_old_text_excerpt="心得正文"}`},
+			{Kind: "document.operation_context", Text: `DocumentOperationContext: edit_candidate 1: heading={heading_blockId="document.p[24]" heading_type=heading heading_location.paragraph_index=24 heading_old_text_excerpt="五、心得与体会"} body={body_blockId="document.p[25]" body_type=paragraph body_location.paragraph_index=25 body_old_text_excerpt="心得正文"}`},
 			{Kind: "document.anchors", Text: `blockId="document.p[25]" type=paragraph paragraphIndex=25 headingPath="五、心得与体会" quote="心得正文"`},
 		},
 	}
@@ -3179,6 +3179,9 @@ func TestAgentContextKeepsDocumentOperationContextInToolMemory(t *testing.T) {
 		!strings.Contains(context, "body_location.paragraph_index=25") ||
 		!strings.Contains(context, "source={") {
 		t.Fatalf("tool memory should preserve document operation context:\n%s", context)
+	}
+	if strings.Contains(context, "source_hash") || strings.Contains(context, "uploads/report.docx") {
+		t.Fatalf("tool memory exposes Runtime-owned document proof:\n%s", context)
 	}
 }
 

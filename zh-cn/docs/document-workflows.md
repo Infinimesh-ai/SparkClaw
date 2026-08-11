@@ -54,6 +54,12 @@ entry。决策缺失、过期、有歧义、不受支持或无效时 Workflow �
 路由已经删除；其他多候选 scope 也必须声明自己的决策节点。详见
 [operation 选择设计记录](document-edit-operation-selection.md)。
 
+operation selection 与 editor 生成使用两份不同的最小投影。decision 调用只返回 eligible
+directory entry ID；后续 editor 调用只看到 operation 专属语义参数和 candidate 局部内容/
+结构。模型 schema 不包含冻结输入/输出 path、选中 qualifier、文档/来源/目标 hash 和 proof
+locator。Runtime 根据归档定位读取解析所选 candidate，并在 ToolHub 校验、Policy 与 Approval
+前回绑全部可证明执行参数。
+
 对于 PPTX 编辑，确定性 grounding 会在读取前冻结一个类型化 scope：`single_slide`、
 `whole_deck`、`exact_text` 或 `structural`。英文、阿拉伯数字及中文页序数都会规范化为
 稳定的 1-based 页码。若请求没有明确指定某一页、整份演示文稿、精确替换文本或结构动作，
@@ -134,8 +140,9 @@ sheet/row/cell 数量；它优先保留显式命名的工作表、A1 cell 与行
 目标相邻行。如果已定位的强制目标无法放入证据预算，则 `selection_complete=false` 会阻断选择或
 编辑，而不是改用不相关的工作簿前缀。
 
-完整结构化读取继续保存在 tool observation artifact 中；模型上下文只接收面向当前消费者的有界
-投影，证据供给 audit 会记录选中与省略数量。
+完整结构化读取（包括 source hash 与受治理 source identity）继续保存在 tool observation
+artifact 中；模型上下文只接收包含 sheet 名、row/cell anchor、typed value、结构与 coverage 的
+消费者有界投影，不包含 path 或 sheet/row/cell/style hash。证据供给 audit 会记录选中与省略数量。
 
 ### PPTX 证据
 
@@ -152,7 +159,9 @@ paragraph/run 树。该树记录段落层级、项目符号、对齐与间距，
 notes 标志。paragraph/run 树、重复 slide item、完整 geometry 和 package relationship 不会进入
 持久化投影。
 
-模型可见投影仍以 8,000 byte 为总上限，且绝不截断记录。`update_deck` 以独立 slide record
+模型可见投影会移除持久化 source SHA-256、target hash 与 path metadata，同时保留所选
+operation 需要的 slide/shape anchor、current text、layout 摘要和 coverage。其总上限仍为
+8,000 byte，且绝不截断记录。`update_deck` 以独立 slide record
 逐页序列化，单页上限为 6 KiB，同时保留 12 页、64 shape 和 32 KiB 替换文本边界。缺失或超出
 预算的必需证据会直接阻断，不会挤掉其他页面或要求模型猜测。
 
@@ -277,6 +286,9 @@ package extension 可以作为 partial evidence 读取，但不是隐式 mutatio
   SHA-256，以及精确 match、paragraph、anchor、boundary 或编辑前格式证据。缺失、冲突、
   来自无关节点、跨 run/session、path 错误或过期的 evidence 会直接阻断，不创建 approval。
   Approval 通过后，Runtime 会在 adapter 执行前重新计算文件版本并再次解析绑定 target。
+- DOCX operation/anchor 投影保留有界 candidate ID、paragraph index、heading、邻近文本、
+  coverage 与 eligible operation 描述，不向模型暴露受治理 path、source hash、完整 location
+  map 或 old-text proof field。
 - XLSX editor 同样要求当前工作簿与目标 hash；工作簿或目标变化会在 approval 前被拒绝。
 - PPTX 的 slide、shape、old text、layout、template 和插入引用必须全部存在于当前 run 唯一一次
   已完成读取中。陈旧、不可编辑、分组、跨 scope 或含 notes 的 clone 目标会在创建 approval

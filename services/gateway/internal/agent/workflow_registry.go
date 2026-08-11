@@ -91,6 +91,7 @@ type workflowStageContext struct {
 	ScopeRevision        int                           `json:"-"`
 	Capability           string                        `json:"-"`
 	EvidenceRequirements []workflowEvidenceRequirement `json:"-"`
+	SemanticVariables    []string                      `json:"semantic_variables"`
 }
 
 type workflowEvidenceSliceMode string

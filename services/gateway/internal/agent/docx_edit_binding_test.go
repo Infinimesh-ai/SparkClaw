@@ -87,11 +87,24 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(editTools) != 1 || editTools[0].Name != "docx.replace_paragraph" ||
-		!containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), "source_hash") ||
-		containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), "source_document_sha256") ||
-		containsString(toolDefinitionPropertyNames(editTools[0].InputSchema), "source_document_sha256") {
-		t.Fatalf("materialized model-visible DOCX editor does not require source_hash: %#v", editTools)
+	if len(editTools) != 1 || editTools[0].Name != "docx.replace_paragraph" {
+		t.Fatalf("materialized the wrong DOCX editor: %#v", editTools)
+	}
+	for _, runtimeBound := range []string{"path", "output_path", "source_document_sha256", "source_evidence", "location", "source_hash", "old_text"} {
+		if containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), runtimeBound) ||
+			containsString(toolDefinitionPropertyNames(editTools[0].InputSchema), runtimeBound) {
+			t.Fatalf("model-visible DOCX editor exposes runtime-bound %s: %#v", runtimeBound, editTools[0].InputSchema)
+		}
+	}
+	for _, semantic := range []string{"paragraph_index", "text"} {
+		if !containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), semantic) {
+			t.Fatalf("model-visible DOCX editor lost semantic argument %s: %#v", semantic, editTools[0].InputSchema)
+		}
+	}
+	for _, semantic := range []string{"docx.replace_paragraph.paragraph_index", "docx.replace_paragraph.text"} {
+		if !containsString(stageContext.SemanticVariables, semantic) {
+			t.Fatalf("DOCX editor stage did not declare semantic variable %s: %#v", semantic, stageContext.SemanticVariables)
+		}
 	}
 	if !containsString(toolDefinitionRequiredArgs(editorDefinition.InputSchema), "source_document_sha256") {
 		t.Fatalf("registered DOCX editor lost its runtime-validated document hash: %#v", editorDefinition.InputSchema)

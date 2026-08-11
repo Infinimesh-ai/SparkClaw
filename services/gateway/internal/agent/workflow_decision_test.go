@@ -31,6 +31,14 @@ func TestDocumentEditDecisionInvalidOutputRetriesThenBlocks(t *testing.T) {
 	}
 }
 
+func TestWorkflowDecisionPromptDeclaresOnlyEligibleEntrySemanticVariable(t *testing.T) {
+	run := app.AgentRun{Workflow: &app.WorkflowState{Route: app.RouteDecision{Slots: app.RouteSlots{Query: "Update the requested target"}}}}
+	system, _ := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, app.WorkflowNode{}, `[{"id":"entry_1"}]`, "candidate-local content", 8000)
+	if !strings.Contains(system, "Semantic variable: eligible_tool_entry_id.") {
+		t.Fatalf("workflow decision prompt does not declare its semantic variable: %s", system)
+	}
+}
+
 func TestDocumentEditDecisionEmptySelectionRetriesThenBlocksWithoutFastFallback(t *testing.T) {
 	runtime, st, _, dispatch := newDocumentDecisionFixture(t, "Replace a paragraph in report.docx")
 	dispatch.Run.Workflow.Route.Slots.Query += "\nMOCK_OPERATION_SELECTION_RESPONSE:{\"entry_id\":\"\"}"

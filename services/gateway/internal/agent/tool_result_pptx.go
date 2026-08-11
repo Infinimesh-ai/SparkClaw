@@ -20,10 +20,6 @@ func pptxSlideOperationContext(blocks, layoutShapes []any) string {
 	return pptxScopedOperationContext(blocks, layoutShapes, nil, "", "", nil, 0)
 }
 
-func pptxTargetStructuredEvidence(output map[string]any, scope string, targetSlides []int, maxBytes int) (string, error) {
-	return pptxTargetStructuredEvidenceForOperation(output, scope, pptxDefaultOperationForScope(scope), targetSlides, maxBytes)
-}
-
 func pptxTargetStructuredEvidenceForOperation(output map[string]any, scope, operation string, targetSlides []int, maxBytes int) (string, error) {
 	document, ok := anyMap(output["document"])
 	if !ok || !strings.EqualFold(strings.TrimSpace(stringValue(document["format"])), "pptx") {
@@ -66,18 +62,6 @@ func pptxTargetStructuredEvidenceForOperation(output map[string]any, scope, oper
 		"operation":         operation,
 		"slide_count":       pptxSourceSlideCount(document, len(slides)),
 	}
-	for _, key := range []string{"path", "rel_path", "kind", "source_bytes", "bytes"} {
-		if value, exists := output[key]; exists && usefulStructuredValue(value) {
-			metadata[key] = value
-		}
-	}
-	if documentMetadata, ok := anyMap(document["metadata"]); ok {
-		for _, key := range []string{"sha256", "relative_path", "format"} {
-			if value, exists := documentMetadata[key]; exists && usefulStructuredValue(value) {
-				metadata[key] = value
-			}
-		}
-	}
 	raw, err := json.Marshal(metadata)
 	if err != nil {
 		return "", err
@@ -90,7 +74,7 @@ func pptxTargetStructuredEvidenceForOperation(output map[string]any, scope, oper
 			continue
 		}
 		record := map[string]any{"slide_index": slideIndex}
-		for _, key := range []string{"template_ref", "layout_ref", "layout_name", "layout_part", "has_notes", "target_hash"} {
+		for _, key := range []string{"template_ref", "layout_ref", "layout_name", "layout_part", "has_notes"} {
 			if value, exists := slide[key]; exists && usefulStructuredValue(value) {
 				record[key] = value
 			}
@@ -277,9 +261,6 @@ func pptxScopedOperationContext(blocks, layoutShapes, slideLayouts []any, scope,
 			continue
 		}
 		record := map[string]any{"slide_index": slideIndex, "shape_index": shapeIndex, "current_text": text, "editable": true}
-		if usefulStructuredValue(block["target_hash"]) {
-			record["target_hash"] = block["target_hash"]
-		}
 		includeShapeLayout := operation == "update_slide" || operation == "update_deck" || operation == "add_slide" || operation == "structural" || operation == ""
 		if shape := layoutByShape[fmt.Sprintf("%d:%d", slideIndex, shapeIndex)]; includeShapeLayout && shape != nil {
 			style, _ := anyMap(shape["text_style"])

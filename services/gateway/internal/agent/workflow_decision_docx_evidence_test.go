@@ -24,7 +24,7 @@ func TestDOCXDecisionEvidencePrioritizesLateExplicitTargets(t *testing.T) {
 		Facts: map[string]string{"document_format": app.DocumentFormatDOCX},
 	}, entries, 2400)
 	for language, evidence := range map[string]string{"english": english, "chinese": chinese} {
-		if !strings.Contains(evidence, `"path":"document.p[179]"`) || !strings.Contains(evidence, `"prioritizing_anchors":["paragraph:179"]`) {
+		if !strings.Contains(evidence, `"candidate_id":"document.p[179]"`) || !strings.Contains(evidence, `"prioritizing_anchors":["paragraph:179"]`) {
 			t.Fatalf("%s evidence omitted the late target: %s", language, evidence)
 		}
 		if len([]byte(evidence)) > 2400 || !utf8.ValidString(evidence) {
@@ -49,14 +49,14 @@ func TestDOCXDecisionEvidenceQuotedAnchorsAndReorderingStayStable(t *testing.T) 
 	english := project(`Polish the paragraph containing "心得与体会" in report.docx`)
 	chinese := project(`润色 report.docx 中“心得与体会”所在段落`)
 	for language, evidence := range map[string]string{"english": english, "chinese": chinese} {
-		if !strings.Contains(evidence, `"path":"document.p[150]"`) {
+		if !strings.Contains(evidence, `"candidate_id":"document.p[150]"`) {
 			t.Fatalf("%s quote did not resolve the stable target: %s", language, evidence)
 		}
 	}
 
 	blocks[0], blocks[75] = blocks[75], blocks[0]
 	reordered := project(`Polish the paragraph containing "心得与体会" in report.docx`)
-	if !strings.Contains(reordered, `"path":"document.p[150]"`) {
+	if !strings.Contains(reordered, `"candidate_id":"document.p[150]"`) {
 		t.Fatalf("unrelated early reorder evicted the explicit target: %s", reordered)
 	}
 }
@@ -81,11 +81,16 @@ func TestDOCXDecisionEvidenceUsesHeadTailAndStoryFallback(t *testing.T) {
 		Facts: map[string]string{"document_format": app.DocumentFormatDOCX},
 	}, syntheticDOCXDecisionEntries(), 4200)
 	for _, expected := range []string{
-		`"path":"document.p[1]"`, `"path":"document.p[2]"`, `"path":"document.p[79]"`, `"path":"document.p[80]"`,
+		`"candidate_id":"document.p[1]"`, `"candidate_id":"document.p[2]"`, `"candidate_id":"document.p[79]"`, `"candidate_id":"document.p[80]"`,
 		`"scope":"header"`, `"record_type":"eligible_operation"`, `"coverage"`, `"omitted_ranges"`,
 	} {
 		if !strings.Contains(evidence, expected) {
 			t.Fatalf("fallback evidence omitted %q: %s", expected, evidence)
+		}
+	}
+	for _, runtimeField := range []string{`"location"`, `"sourceHash"`, `"governed_target"`, `"rel_path"`, `"source_bytes"`} {
+		if strings.Contains(evidence, runtimeField) {
+			t.Fatalf("DOCX decision projection exposes Runtime-owned field %s: %s", runtimeField, evidence)
 		}
 	}
 }
@@ -110,7 +115,7 @@ func TestDOCXDecisionEvidenceBudgetsKeepWholeUTF8Records(t *testing.T) {
 		if err := json.Unmarshal([]byte(strings.SplitN(evidence, "\n", 2)[0]), &summary); err != nil || intLikeValue(summary["bytes_used"]) != len([]byte(evidence)) {
 			t.Fatalf("limit %d reported the wrong byte usage: summary=%#v bytes=%d err=%v", limit, summary, len([]byte(evidence)), err)
 		}
-		if !strings.Contains(evidence, `"path":"document.p[118]"`) {
+		if !strings.Contains(evidence, `"candidate_id":"document.p[118]"`) {
 			t.Fatalf("limit %d evicted the explicit target: %s", limit, evidence)
 		}
 	}

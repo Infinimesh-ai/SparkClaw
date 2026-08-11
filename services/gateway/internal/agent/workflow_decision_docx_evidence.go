@@ -106,7 +106,7 @@ func projectDOCXDecisionEvidence(output map[string]any, route app.RouteDecision,
 
 	blocks := collectDOCXDecisionBlocks(document)
 	anchorIndexes, prioritizingAnchors := matchDOCXDecisionAnchors(blocks, route)
-	records := []docxDecisionEvidenceRecord{docxDecisionMetadataRecord(output, document, route)}
+	records := []docxDecisionEvidenceRecord{docxDecisionMetadataRecord(output, document)}
 	seenBlocks := map[int]bool{}
 	appendBlock := func(index int) {
 		if index < 0 || index >= len(blocks) || seenBlocks[index] {
@@ -146,15 +146,12 @@ func projectDOCXDecisionEvidence(output map[string]any, route app.RouteDecision,
 	return packDOCXDecisionRecords(records, prioritizingAnchors, maxBytes)
 }
 
-func docxDecisionMetadataRecord(output, document map[string]any, route app.RouteDecision) docxDecisionEvidenceRecord {
+func docxDecisionMetadataRecord(output, document map[string]any) docxDecisionEvidenceRecord {
 	metadata := map[string]any{
 		"record_type": "source", "untrusted": true,
-		"governed_target": route.Slots.TargetRef,
-		"route_format":    route.Facts["document_format"],
-		"format":          document["format"],
-		"source":          document["source"],
+		"format": document["format"],
 	}
-	for _, key := range []string{"path", "rel_path", "kind", "truncated", "source_bytes", "bytes", "content_type", "source_sha256"} {
+	for _, key := range []string{"truncated", "read_complete"} {
 		if value, ok := output[key]; ok && usefulStructuredValue(value) {
 			metadata[key] = value
 		}
@@ -215,13 +212,13 @@ func collectDOCXDecisionBlocks(document map[string]any) []docxDecisionBlock {
 			group = partKind
 		}
 		projection := map[string]any{
-			"record_type": "document_block", "path": path, "scope": partKind,
-			"text": boundedDOCXDecisionText(text, 1600), "location": location,
+			"record_type": "document_block", "candidate_id": path, "scope": partKind,
+			"text": boundedDOCXDecisionText(text, 1600),
 		}
 		if storyPart != "" {
 			projection["story_part"] = storyPart
 		}
-		for _, key := range []string{"blockId", "type", "style", "level", "sourceHash"} {
+		for _, key := range []string{"type", "style", "level"} {
 			if value, ok := item[key]; ok && usefulStructuredValue(value) {
 				projection[key] = value
 			}

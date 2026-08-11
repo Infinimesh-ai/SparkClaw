@@ -69,6 +69,14 @@ secondary directory router has been removed; any other multi-candidate scope
 must declare its own decision node. See the [operation-selection design
 record](document-edit-operation-selection.md).
 
+Operation selection and editor generation use separate minimum projections.
+The decision call returns only an eligible directory entry ID. The later editor
+call sees only operation-specific semantic arguments and candidate-local
+content/structure: model schemas omit frozen input/output paths, selected
+qualifiers, document/source/target hashes, and proof locators. Runtime resolves
+the selected candidate against the archived localization read and restores all
+provable execution arguments before ToolHub validation, Policy, and Approval.
+
 For PPTX edits, deterministic grounding freezes one typed scope before the
 read: `single_slide`, `whole_deck`, `exact_text`, or `structural`. English,
 Arabic-number, and Chinese slide ordinals are normalized to stable 1-based
@@ -169,9 +177,11 @@ rows, end-of-sheet context, and target neighbors. If a located mandatory target
 cannot fit the evidence budget, `selection_complete=false` blocks selection or
 editing instead of substituting an unrelated workbook prefix.
 
-The complete structured read remains in the tool observation artifact. Model
-context receives only this consumer-sized projection, and the provisioning
-audit records selected and omitted counts.
+The complete structured read, including source hashes and governed source
+identity, remains in the tool observation artifact. Model context receives only
+this consumer-sized projection with sheet names, row/cell anchors, typed values,
+structure, and coverage; it omits paths and sheet/row/cell/style hashes. The
+provisioning audit records selected and omitted counts.
 
 ### PPTX Evidence
 
@@ -193,8 +203,10 @@ explicit template-shape evidence; duplicate and delete keep only the selected
 slide reference and notes flag. It never persists paragraph/run trees, repeated
 slide items, full geometry, or package relationships.
 
-The model-visible projection remains capped at 8,000 bytes and never cuts a
-record. `update_deck` serializes independent slide records, limits one slide to
+The model-visible projection removes the persisted source SHA-256, target
+hashes, and path metadata while retaining slide/shape anchors, current text,
+layout summaries, and coverage required by the selected operation. It remains
+capped at 8,000 bytes and never cuts a record. `update_deck` serializes independent slide records, limits one slide to
 6 KiB, and retains the existing 12-slide, 64-shape, and 32-KiB replacement
 bounds. Missing or oversized required evidence blocks instead of evicting
 another slide or asking the model to guess.
@@ -355,6 +367,10 @@ reasons with `coverage_status=partial` or `unavailable` and
   unrelated-node, cross-run/session, wrong-path, or stale evidence blocks
   without creating approval. Immediately after approval, Runtime recomputes the
   file version and resolves the bound target again before adapter execution.
+- DOCX operation and anchor projections keep bounded candidate IDs, paragraph
+  indexes, headings, nearby text, coverage, and eligible operation descriptions;
+  they do not expose governed paths, source hashes, complete location maps, or
+  old-text proof fields to the model.
 - XLSX editors similarly require the current workbook and target hashes; a
   changed workbook or target is rejected before approval.
 - PPTX slide, shape, old text, layout, template, and insertion references must

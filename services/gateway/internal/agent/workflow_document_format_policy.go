@@ -23,9 +23,11 @@ type orderedDocumentDecisionRule struct {
 }
 
 type agentDocumentOperationPolicy struct {
-	BindArguments      func(Runtime, app.AgentRun, map[string]any) map[string]any
-	ValidateEvidence   func(context.Context, Runtime, app.AgentRun, string, map[string]any) error
-	RevalidateApproved func(context.Context, Runtime, app.ToolCall) error
+	RuntimeBoundArguments  []string
+	ModelRequiredArguments []string
+	BindArguments          func(Runtime, app.AgentRun, map[string]any) map[string]any
+	ValidateEvidence       func(context.Context, Runtime, app.AgentRun, string, map[string]any) error
+	RevalidateApproved     func(context.Context, Runtime, app.ToolCall) error
 }
 
 type agentDocumentFormatPolicy struct {
@@ -162,7 +164,26 @@ func docxAgentDocumentPolicy() agentDocumentFormatPolicy {
 	operations := map[string]agentDocumentOperationPolicy{}
 	for _, operation := range []string{"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style"} {
 		operation := operation
+		runtimeBound := []string{"source_document_sha256", "source_sha256", "source_evidence"}
+		switch operation {
+		case "replace_text":
+			runtimeBound = append(runtimeBound, "evidence_targets")
+		case "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style":
+			runtimeBound = append(runtimeBound, "location", "source_hash", "old_text")
+		}
+		if operation == "insert_paragraph" {
+			runtimeBound = append(runtimeBound, "document_boundary")
+		}
+		if operation == "set_text_style" {
+			runtimeBound = append(runtimeBound, "before_format_sha256")
+		}
+		modelRequired := []string{}
+		if operation == "replace_paragraph" || operation == "delete_paragraph" || operation == "set_text_style" {
+			modelRequired = append(modelRequired, "paragraph_index")
+		}
 		operations[operation] = agentDocumentOperationPolicy{
+			RuntimeBoundArguments:  runtimeBound,
+			ModelRequiredArguments: modelRequired,
 			BindArguments: func(runtime Runtime, run app.AgentRun, args map[string]any) map[string]any {
 				return runtime.bindDOCXMutationEvidence(run, operation, args)
 			},
@@ -212,7 +233,12 @@ func xlsxAgentDocumentPolicy() agentDocumentFormatPolicy {
 	operations := map[string]agentDocumentOperationPolicy{}
 	for _, operation := range []string{"replace_text", "update_cell", "insert_row", "delete_row", "update_row", "append_row"} {
 		operation := operation
+		runtimeBound := []string{"source_sha256", "source_document_sha256", "source_evidence", "evidence_targets"}
+		if targetHash := xlsxTargetHashArgument(operation); targetHash != "" {
+			runtimeBound = append(runtimeBound, targetHash)
+		}
 		operations[operation] = agentDocumentOperationPolicy{
+			RuntimeBoundArguments: runtimeBound,
 			BindArguments: func(runtime Runtime, run app.AgentRun, args map[string]any) map[string]any {
 				return runtime.bindXLSXEditEvidence(run, operation, args)
 			},
@@ -249,6 +275,7 @@ func pptxAgentDocumentPolicy() agentDocumentFormatPolicy {
 	for _, operation := range []string{"replace_text", "add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"} {
 		operation := operation
 		operations[operation] = agentDocumentOperationPolicy{
+			RuntimeBoundArguments: []string{"source_document_sha256"},
 			BindArguments: func(runtime Runtime, run app.AgentRun, args map[string]any) map[string]any {
 				return runtime.bindPPTXEditArguments(run, operation, args)
 			},

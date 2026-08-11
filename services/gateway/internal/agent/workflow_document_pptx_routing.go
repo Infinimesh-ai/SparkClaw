@@ -135,14 +135,6 @@ func explicitSlideIndexes(text string) []int {
 	return values
 }
 
-func explicitSlideIndex(text string) (int, bool) {
-	indexes := explicitSlideIndexes(text)
-	if len(indexes) == 0 {
-		return 0, false
-	}
-	return indexes[0], true
-}
-
 func chineseOrdinalValue(text string) (int, bool) {
 	digits := map[rune]int{'零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
 	units := map[rune]int{'十': 10, '百': 100}

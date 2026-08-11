@@ -49,9 +49,9 @@ func TestExplicitSlideIndex(t *testing.T) {
 		{query: "Improve slide 8", want: 8},
 		{query: "修改第二十一页", want: 21},
 	} {
-		got, ok := explicitSlideIndex(test.query)
-		if !ok || got != test.want {
-			t.Fatalf("explicitSlideIndex(%q) = %d, %t; want %d, true", test.query, got, ok, test.want)
+		got := explicitSlideIndexes(test.query)
+		if len(got) == 0 || got[0] != test.want {
+			t.Fatalf("explicitSlideIndexes(%q) = %#v, want first index %d", test.query, got, test.want)
 		}
 	}
 }
@@ -80,7 +80,7 @@ func TestBindPPTXSlideUpdateArgumentsUsesOwnerOrdinalAndReadEvidence(t *testing.
 		},
 	})
 	runtime := Runtime{store: st}
-	args := runtime.bindPPTXSlideUpdateArguments(run, map[string]any{
+	args := runtime.bindPPTXEditArguments(run, "update_slide", map[string]any{
 		"path": "uploads/deck.pptx", "slide_index": 2,
 		"updates": []any{
 			map[string]any{"shape_index": 1, "new_text": "Improved title"},

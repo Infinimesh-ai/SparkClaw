@@ -62,7 +62,6 @@ func materializeBrowserFormDraftSchemas(definitions []app.ToolDefinition, run ap
 		return definitions
 	}
 	refs := currentBrowserSnapshotRefs(node.OutcomeRefs)
-	snapshot, _ := currentBrowserFormDraftSnapshot(node.OutcomeRefs)
 	out := make([]app.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
 		if definition.Name != "browser.type" && definition.Name != "browser.select" {
@@ -88,25 +87,8 @@ func materializeBrowserFormDraftSchemas(definitions []app.ToolDefinition, run ap
 		uid["enum"] = allowed
 		uid["description"] = "Copy one exact current snapshot ref from this enum; aliases and older refs are invalid."
 		properties["uid"] = uid
-		for key, value := range map[string]string{
-			"page_id": snapshot.Attributes["page_id"], "snapshot_id": snapshot.Ref,
-			"session_generation": snapshot.Attributes["session_generation"], "page_generation": snapshot.Attributes["page_generation"],
-		} {
-			if value == "" {
-				continue
-			}
-			property, _ := anyMap(properties[key])
-			if property == nil {
-				continue
-			}
-			property = cloneAnyMap(property)
-			property["enum"] = []any{value}
-			property["description"] = "Copy the exact current snapshot binding from this enum."
-			properties[key] = property
-		}
 		schema["properties"] = properties
 		definition.InputSchema = schema
-		definition.Description += " Snapshot binding arguments must exactly copy their schema enum values."
 		out = append(out, definition)
 	}
 	return out

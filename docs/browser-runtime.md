@@ -59,6 +59,11 @@ Browser evidence uses separate contracts:
   and page generation for the selected page state. Snapshot IDs include the
   session generation, while navigation and successful interaction advance the
   page generation and invalidate older action and visual evidence.
+- Runtime keeps that complete identity-bearing snapshot for freshness and
+  execution binding. Goal/control model calls receive a separate projection
+  containing only bounded title/count/omission state and candidate-local role,
+  label, state, nearby context, options, and opaque `ref`. Page/snapshot IDs,
+  URLs, digests, fingerprints, generations, and ordinals are omitted.
 - `browser.click` accepts only a persisted ref from that snapshot.
 - `browser.type` and `browser.select` are usable as page mutations only inside
   `browser.form_draft`. Runtime checks the active Profile, latest snapshot,
@@ -66,6 +71,9 @@ Browser evidence uses separate contracts:
   forbidden control metadata, and exact owner-supplied value both before
   approval and again when the approved call executes. Each action gets its own
   approval; public summaries and persisted browser projections redact values.
+  Model-visible type/select schemas keep the bounded current `uid` enum and
+  semantic value field, while Runtime removes and later restores page ID,
+  snapshot ID, and session/page generation arguments.
 - Workflow-only `browser.visual_inspect` validates the latest structured
   snapshot, captures a screenshot, reuses Fast image inspection, then captures
   another structured snapshot. Any change in session/page generation, page ID,

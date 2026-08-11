@@ -84,9 +84,26 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 	if len(editTools) != 1 || editTools[0].Name != "xlsx.update_row" {
 		t.Fatalf("operation selection exposed the wrong XLSX editor: %#v", visibleToolNames(editTools))
 	}
-	for _, required := range []string{"source_sha256", "source_row_hash"} {
-		if !containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), required) {
-			t.Fatalf("model-visible XLSX editor does not require %s: %#v", required, editTools[0].InputSchema)
+	for _, runtimeBound := range []string{"path", "output_path", "operation", "source_sha256", "source_row_hash"} {
+		if containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), runtimeBound) ||
+			containsString(toolDefinitionPropertyNames(editTools[0].InputSchema), runtimeBound) {
+			t.Fatalf("model-visible XLSX editor exposes runtime-bound %s: %#v", runtimeBound, editTools[0].InputSchema)
+		}
+	}
+	for _, semantic := range []string{"sheet", "row", "values"} {
+		if !containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), semantic) {
+			t.Fatalf("model-visible XLSX editor lost semantic argument %s: %#v", semantic, editTools[0].InputSchema)
+		}
+	}
+	for _, semantic := range []string{"xlsx.update_row.sheet", "xlsx.update_row.row", "xlsx.update_row.values"} {
+		if !containsString(stageContext.SemanticVariables, semantic) {
+			t.Fatalf("XLSX editor stage did not declare semantic variable %s: %#v", semantic, stageContext.SemanticVariables)
+		}
+	}
+	registeredEditor, _ := runtime.tools.Definition("xlsx.update_row")
+	for _, runtimeBound := range []string{"path", "output_path", "source_sha256", "source_row_hash"} {
+		if !containsString(toolDefinitionRequiredArgs(registeredEditor.InputSchema), runtimeBound) {
+			t.Fatalf("registered XLSX editor lost execution argument %s: %#v", runtimeBound, registeredEditor.InputSchema)
 		}
 	}
 	storedRun, _ = st.GetRun(storedRun.ID)

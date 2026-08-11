@@ -156,7 +156,7 @@ func TestXLSXOperationSelectionPromptUsesProductionDirectoryAndEvidence(t *testi
 	}
 	run, node := xlsxOperationSelectionPromptFixture("Set Data!B12 to 42.5.", 0)
 	evidence := xlsxOperationSelectionEvidence(t, "formatted_numbers")
-	system, user := workflowDecisionSelectionPrompt(run, documentEditProfile{}, node, string(entriesJSON), evidence)
+	system, user := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, node, string(entriesJSON), evidence, 8000)
 
 	for _, entry := range directory.entries {
 		operation := entry.Capability.Qualifiers[app.CapabilityQualifierOperation]
@@ -236,7 +236,7 @@ func TestRealFastXLSXOperationSelection(t *testing.T) {
 
 		for attempt := 0; attempt < 2; attempt++ {
 			run, node := xlsxOperationSelectionPromptFixture(testCase.Prompt, attempt)
-			system, user := workflowDecisionSelectionPrompt(run, documentEditProfile{}, node, string(entriesJSON), evidence)
+			system, user := workflowDecisionSelectionPromptWithLimit(run, documentEditProfile{}, node, string(entriesJSON), evidence, 8000)
 			chat, callErr := models.ChatWithProfile(ctx, "fast", system, user)
 			if callErr != nil {
 				reason = "model_error: " + callErr.Error()

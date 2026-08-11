@@ -337,7 +337,7 @@ func formatContextToolResultsWithLimit(calls []app.ToolCall, summaryLimit int) s
 	}
 	lines := make([]string, 0, len(calls))
 	for _, call := range calls {
-		summary := compactObservationSummaryForContext(call.ObservationSummary)
+		summary := compactToolCallObservationForContext(call)
 		if summary == "" {
 			continue
 		}
@@ -353,14 +353,52 @@ func formatContextToolResultsWithLimit(calls []app.ToolCall, summaryLimit int) s
 }
 
 func compactObservationSummaryForContext(summary string) string {
+	return compactToolCallObservationForContext(app.ToolCall{ObservationSummary: summary})
+}
+
+func compactToolCallObservationForContext(call app.ToolCall) string {
+	summary := call.ObservationSummary
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
 		return ""
 	}
 	var decoded toolResultMessage
 	if err := json.Unmarshal([]byte(summary), &decoded); err != nil {
+		if modelProjectionRestrictedTool(call) {
+			return compactRestrictedLegacyToolSummary(call)
+		}
 		return strings.Join(strings.Fields(summary), " ")
 	}
+	if call.Tool == "" {
+		call.Tool = decoded.Tool
+	}
+	if call.Status == "" {
+		call.Status = decoded.Status
+	}
+	legacyProjection := persistedToolMessageHasRuntimeFields(call, decoded.Structured)
+	decoded.Summary = persistedModelVisibleToolSummary(call, decoded.Summary)
+	decoded.Structured = projectModelVisibleToolStructuredFields(call, decoded.Structured)
+	if legacyProjection {
+		decoded.Evidence = projectLegacyToolEvidenceForContext(call, decoded.Evidence)
+	}
+	return compactToolResultMessageForContext(decoded)
+}
+
+func persistedModelVisibleToolSummary(call app.ToolCall, fallback string) string {
+	if toolCallCompleted(call) {
+		return modelVisibleToolSummary(call, nil, fallback)
+	}
+	if modelProjectionRestrictedTool(call) {
+		status := strings.TrimSpace(call.Status)
+		if status == "" {
+			status = "unavailable"
+		}
+		return call.Tool + " " + status
+	}
+	return fallback
+}
+
+func compactToolResultMessageForContext(decoded toolResultMessage) string {
 	parts := []string{"tool=" + decoded.Tool, "status=" + decoded.Status, "compacted=true"}
 	if decoded.Category != "" {
 		parts = append(parts, "category="+decoded.Category)
@@ -398,6 +436,84 @@ func compactObservationSummaryForContext(summary string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func modelProjectionRestrictedTool(call app.ToolCall) bool {
+	return call.Tool == "files.read" || call.Capability == app.ToolCapabilityDocumentRead ||
+		toolResultCategoryForCall(call) == "document_mutation" || strings.HasPrefix(call.Tool, "browser.")
+}
+
+func compactRestrictedLegacyToolSummary(call app.ToolCall) string {
+	status := strings.TrimSpace(call.Status)
+	if status == "" {
+		status = "persisted"
+	}
+	return strings.Join([]string{
+		"tool=" + call.Tool,
+		"status=" + status,
+		"compacted=true",
+		"summary=legacy result retained in Runtime; model projection unavailable",
+	}, " ")
+}
+
+func persistedToolMessageHasRuntimeFields(call app.ToolCall, structured map[string]any) bool {
+	if len(structured) == 0 || !modelProjectionRestrictedTool(call) {
+		return false
+	}
+	for _, key := range []string{
+		"path", "rel_path", "output_path", "url", "final_url", "page_id", "snapshot_id",
+		"previous_snapshot_id", "digest", "operation", "source_sha256", "source_document_sha256",
+	} {
+		if usefulStructuredValue(structured[key]) {
+			return true
+		}
+	}
+	if source, ok := anyMap(structured["source"]); ok {
+		for _, key := range []string{"path", "rel_path", "kind", "bytes", "max_bytes", "content_type", "source_sha256"} {
+			if usefulStructuredValue(source[key]) {
+				return true
+			}
+		}
+	}
+	if pipeline, ok := anyMap(structured["document_pipeline"]); ok {
+		return usefulStructuredValue(pipeline["document_id"]) || usefulStructuredValue(pipeline["strategy"]) || usefulStructuredValue(pipeline["index"])
+	}
+	return false
+}
+
+func projectLegacyToolEvidenceForContext(call app.ToolCall, evidence []toolEvidence) []toolEvidence {
+	if call.Tool == "files.read" || call.Capability == app.ToolCapabilityDocumentRead {
+		allowed := map[string]bool{
+			"content_full": true, "content_excerpt": true, "document.paragraphs": true,
+			"document.tables": true, "document.pages": true,
+		}
+		projected := make([]toolEvidence, 0, len(evidence))
+		for _, item := range evidence {
+			if allowed[item.Kind] {
+				projected = append(projected, item)
+			}
+		}
+		return projected
+	}
+	if strings.HasPrefix(call.Tool, "browser.") {
+		projected := make([]toolEvidence, 0, len(evidence))
+		for _, item := range evidence {
+			if item.Kind != "browser.interaction_snapshot" {
+				continue
+			}
+			var snapshot map[string]any
+			if json.Unmarshal([]byte(item.Text), &snapshot) != nil {
+				continue
+			}
+			raw, err := json.Marshal(browserInteractionSnapshotProjection(snapshot))
+			if err == nil {
+				item.Text = string(raw)
+				projected = append(projected, item)
+			}
+		}
+		return projected
+	}
+	return nil
 }
 
 func compactPreferredToolEvidence(evidence []toolEvidence) string {
@@ -449,7 +565,7 @@ func compactDocumentSourceForContext(value any) string {
 		return ""
 	}
 	fields := []string{}
-	for _, key := range []string{"path", "rel_path", "kind", "bytes", "max_bytes", "truncated", "read_complete"} {
+	for _, key := range []string{"truncated", "read_complete", "coverage_status", "missing_page_indexes", "page_status_counts"} {
 		if value, ok := source[key]; ok && usefulStructuredValue(value) {
 			fields = append(fields, key+"="+strings.Join(strings.Fields(stringValue(value)), " "))
 		}
@@ -494,7 +610,7 @@ func compactDocumentPipelineForContext(value any) string {
 		return ""
 	}
 	fields := []string{}
-	for _, key := range []string{"document_id", "status"} {
+	for _, key := range []string{"status"} {
 		if value, ok := pipeline[key]; ok && usefulStructuredValue(value) {
 			fields = append(fields, key+"="+strings.Join(strings.Fields(stringValue(value)), " "))
 		}
@@ -503,20 +619,6 @@ func compactDocumentPipelineForContext(value any) string {
 		for _, key := range []string{"token_estimate", "language", "has_tables", "complexity"} {
 			if value, ok := profile[key]; ok && usefulStructuredValue(value) {
 				fields = append(fields, "profile."+key+"="+strings.Join(strings.Fields(stringValue(value)), " "))
-			}
-		}
-	}
-	if strategy, ok := anyMap(pipeline["strategy"]); ok {
-		for _, key := range []string{"strategy", "context_mode"} {
-			if value, ok := strategy[key]; ok && usefulStructuredValue(value) {
-				fields = append(fields, "strategy."+key+"="+strings.Join(strings.Fields(stringValue(value)), " "))
-			}
-		}
-	}
-	if index, ok := anyMap(pipeline["index"]); ok {
-		for _, key := range []string{"index_status"} {
-			if value, ok := index[key]; ok && usefulStructuredValue(value) {
-				fields = append(fields, "index."+key+"="+strings.Join(strings.Fields(stringValue(value)), " "))
 			}
 		}
 	}
@@ -576,41 +678,10 @@ func replaceQuotedFieldValue(text, field, replacement string) string {
 	}
 }
 
-func (snapshot agentContextSnapshot) HasRecentDocumentContext() bool {
-	for _, call := range snapshot.ToolResults {
-		if isDocumentContextTool(call.Tool) {
-			return true
-		}
-		if contextCallHasDocumentPath(call) {
-			return true
-		}
-	}
-	for _, message := range snapshot.Messages {
-		if strings.Contains(strings.ToLower(message.Content), "upload") && strings.Contains(strings.ToLower(message.Content), "uploads/") {
-			return true
-		}
-	}
-	return false
-}
-
 func isDocumentContextTool(tool string) bool {
 	return strings.HasPrefix(tool, "docx.") ||
 		strings.HasPrefix(tool, "pptx.") ||
 		strings.HasPrefix(tool, "xlsx.") ||
 		strings.HasPrefix(tool, "pdf.") ||
 		strings.HasPrefix(tool, "office.")
-}
-
-func contextCallHasDocumentPath(call app.ToolCall) bool {
-	for _, value := range []string{
-		stringValue(call.Arguments["path"]),
-		stringValue(call.Arguments["output_path"]),
-		call.ObservationSummary,
-	} {
-		lower := strings.ToLower(value)
-		if strings.Contains(lower, ".docx") || strings.Contains(lower, ".xlsx") || strings.Contains(lower, ".pptx") || strings.Contains(lower, ".pdf") {
-			return true
-		}
-	}
-	return false
 }

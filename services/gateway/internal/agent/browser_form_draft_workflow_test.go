@@ -302,11 +302,6 @@ func TestBrowserFormDraftMaterializesCurrentAllowedUIDEnums(t *testing.T) {
 	if got := propertyEnum(materialized[1], "uid"); len(got) != 1 || got[0] != topicRef {
 		t.Fatalf("browser.select uid enum = %#v, want current select controls", got)
 	}
-	for key, expected := range map[string]any{"page_id": "page_1", "snapshot_id": "snapshot_2", "session_generation": "7", "page_generation": "10"} {
-		if got := propertyEnum(materialized[0], key); len(got) != 1 || got[0] != expected {
-			t.Fatalf("browser.type %s enum = %#v, want exact current binding %v", key, got, expected)
-		}
-	}
 	originalProperties, _ := anyMap(definitions[0].InputSchema["properties"])
 	uid, _ := anyMap(originalProperties["uid"])
 	if uid["enum"] != nil {
@@ -323,6 +318,7 @@ func TestBrowserFormDraftMaterializesCurrentSnapshotBindings(t *testing.T) {
 	plan := browserFormDraftPlan()
 	nodeID := plan.Nodes[0].ID
 	state := newWorkflowState(app.RouteDecision{}, app.ReturnRoute{Mode: app.ReturnToSource}, app.IntentEnvelope{}, plan)
+	state.Browser = &app.BrowserWorkflowState{}
 	node := state.Nodes[nodeID]
 	node.Stage = browserStageChooseAndDraft
 	node.ScopeRevision = 15
@@ -340,6 +336,27 @@ func TestBrowserFormDraftMaterializesCurrentSnapshotBindings(t *testing.T) {
 	state.Nodes[nodeID] = node
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, Workflow: state, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
+	stageContext := (browserFormDraftProfile{}).StageContext(state)
+	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range tools {
+		if definition.Name != "browser.type" && definition.Name != "browser.select" {
+			continue
+		}
+		properties, _ := anyMap(definition.InputSchema["properties"])
+		for _, key := range []string{"page_id", "snapshot_id", "session_generation", "page_generation"} {
+			if _, visible := properties[key]; visible {
+				t.Fatalf("%s exposes runtime-bound %s: %#v", definition.Name, key, definition.InputSchema)
+			}
+		}
+	}
+	for _, semantic := range []string{"eligible_tool", "browser.type.uid", "browser.select.uid"} {
+		if !containsString(stageContext.SemanticVariables, semantic) {
+			t.Fatalf("browser draft stage did not declare semantic variable %s: %#v", semantic, stageContext.SemanticVariables)
+		}
+	}
 
 	materialized := runtime.materializeWorkflowBoundArguments(run.ID, toolPlan{
 		Name: "browser.select", Args: map[string]any{

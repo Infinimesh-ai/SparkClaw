@@ -126,6 +126,12 @@ directory scope、decision evidence、argument binding、schema materialization 
 也不形成跨 package mega-registry。公共 Workflow、Policy/Approval、inspection、output-copy、
 cleanup 和 audit 路径继续保持格式无关。
 
+ToolHub 注册 schema 继续作为执行权威，每个模型 stage 只接收派生的 schema 投影。Runtime
+从该投影移除冻结 binding 与可证明的 operation 专属字段，把剩余模型可见参数记录为
+`semantic_variables`，然后在 ToolHub 校验与 Policy 前回绑选中 capability qualifier、path、
+identity、locator、hash、generation 和其他权威值。确定性 acquisition 或单 entry 决策只会跳过
+当前模型判断；后续目标判断、工具选择、内容生成、approval 与 effect 节点仍留在同一 Workflow。
+
 `ContextBuilder` 从带优先级、可降级的小节组装每个有界 model/tool loop。本轮
 observations 使用统一的小信封，按因果顺序只出现一次并保留 artifact 引用。阶段可将
 声明的、按消费者定尺的持久化证据切片物化到 `PROVISIONED_EVIDENCE` 小节；声明切片
@@ -134,6 +140,9 @@ observations 使用统一的小信封，按因果顺序只出现一次并保留 
 和离线标定的保守 token 估算；依次降级 session/tool 上下文、供给切片、较旧
 observations，并始终保留最新两条，output contract 仍是 user prompt 尾部。run 级
 observation 压力也会先压缩最旧条目，再停止执行。
+在已迁移的文档与浏览器控制视图中，当事实已经由 Runtime 绑定时，模型视图还会移除受治理 path、源/目标 hash、
+page/snapshot identity、URL、generation 与 digest；只保留当前语义变量所需的 coverage/
+omission metadata、candidate 局部内容与结构、opaque 可选 ref 和 eligible operation 描述。
 
 ### Model Router
 

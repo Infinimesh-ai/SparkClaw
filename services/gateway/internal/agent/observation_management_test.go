@@ -34,7 +34,7 @@ func TestWorkflowEvidenceProvisioningReadsPersistedNodeOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(provisioned.Text, "report.txt") || !strings.Contains(provisioned.Text, "first paragraph") {
+	if strings.Contains(provisioned.Text, "report.txt") || !strings.Contains(provisioned.Text, "first paragraph") {
 		t.Fatalf("persisted evidence was not provisioned: %s", provisioned.Text)
 	}
 	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.evidence_provisioned") {
@@ -81,7 +81,7 @@ func TestStructuredBrowserEvidenceKeepsWholeControlRefs(t *testing.T) {
 			map[string]any{"ref": "snapshot_1:e2", "role": "button", "accessible_name": strings.Repeat("large", 300)},
 		},
 	}}
-	text := slicePersistedToolEvidence("browser.snapshot", output, workflowEvidenceStructured, 480)
+	text := slicePersistedToolEvidenceForRequest("browser.snapshot", output, workflowEvidenceStructured, 480, "")
 	if !json.Valid([]byte(text)) || !strings.Contains(text, "snapshot_1:e1") || strings.Contains(text, "snapshot_1:e2") {
 		t.Fatalf("structured browser slice cut or over-admitted controls: %s", text)
 	}

@@ -29,12 +29,6 @@ func xlsxSheetEvidenceProjection(output map[string]any, ownerRequest string, max
 		return ""
 	}
 	sourceComplete := fileReadComplete(output)
-	source := map[string]any{}
-	for _, key := range []string{"path", "rel_path", "kind", "content_type", "source_bytes", "bytes", "truncated"} {
-		if value, exists := output[key]; exists && usefulStructuredValue(value) {
-			source[key] = value
-		}
-	}
 	rawSheets := anySlice(document["sheets"])
 	projectedSheets := make([]map[string]any, 0, len(rawSheets))
 	totalRows, totalCells := 0, 0
@@ -49,8 +43,7 @@ func xlsxSheetEvidenceProjection(output map[string]any, ownerRequest string, max
 		}
 		projectedSheets = append(projectedSheets, map[string]any{
 			"name": stringValue(sheet["name"]), "index": index,
-			"state":       firstNonNil(sheet["state"], xlsxSheetState(sheet)),
-			"source_hash": stringValue(sheet["source_hash"]), "rows": []any{},
+			"state": firstNonNil(sheet["state"], xlsxSheetState(sheet)), "rows": []any{},
 		})
 		for _, rawRow := range anySlice(sheet["rows"]) {
 			row, ok := anyMap(rawRow)
@@ -65,7 +58,6 @@ func xlsxSheetEvidenceProjection(output map[string]any, ownerRequest string, max
 		"schema_version":     xlsxSheetEvidenceSchemaVersion,
 		"source_complete":    sourceComplete,
 		"selection_complete": true,
-		"source":             source,
 		"sheets":             xlsxSheetMapsAsAny(projectedSheets),
 		"omitted":            map[string]any{"sheets": 0, "rows": totalRows, "cells": totalCells, "reason": ""},
 	}
@@ -312,13 +304,12 @@ func xlsxProjectEvidenceRow(row map[string]any) map[string]any {
 			"value_kind": stringValue(cell["value_kind"]), "raw_value": cell["raw_value"],
 			"display_text": stringValue(cell["display_text"]), "formula": stringValue(cell["formula"]),
 			"number_format": stringValue(cell["number_format"]), "hidden": boolLikeValue(cell["hidden"]),
-			"style_hash": stringValue(cell["style_hash"]), "merge_anchor": stringValue(cell["merge_anchor"]),
-			"source_hash": stringValue(cell["source_hash"]),
+			"merge_anchor": stringValue(cell["merge_anchor"]),
 		})
 	}
 	return map[string]any{
 		"index": intLikeValue(row["index"]), "hidden": boolLikeValue(row["hidden"]),
-		"source_hash": stringValue(row["source_hash"]), "cells": cells,
+		"cells": cells,
 	}
 }
 

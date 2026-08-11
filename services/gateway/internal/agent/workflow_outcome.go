@@ -833,10 +833,6 @@ func activeWorkflowNodeUsesMessageContent(state *app.WorkflowState) bool {
 	return ok && node.Goal.Completion == app.CompletionMessage
 }
 
-func completeActiveModelAnswerNode(run *app.AgentRun) error {
-	return completeActiveNoToolNode(run, app.CompletionModelAnswer)
-}
-
 func completeActiveNoToolNode(run *app.AgentRun, completion app.CompletionRule) error {
 	if run.Workflow == nil || workflowPlanDigest(run.Workflow.Plan) != run.Workflow.PlanDigest {
 		return errors.New("persisted workflow plan digest mismatch")

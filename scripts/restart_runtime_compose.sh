@@ -20,7 +20,7 @@ browser_xauthority=""
 visible_browser=false
 
 if [[ ${#services[@]} -eq 0 ]]; then
-  services=(gateway webchat)
+  services=(sandbox-runner gateway webchat)
 fi
 
 start_gateway=false
@@ -99,6 +99,11 @@ compose_args+=(--profile "$PROFILE")
 
 # Model dependencies are jointly loaded and warmed by serve_models_compose.sh.
 # Recreating them here would split that ownership and invalidate warmup state.
+if [[ "$start_gateway" == true && "$EXPECTED_STATE_BACKEND" == "postgres" ]]; then
+  echo "Ensuring PostgreSQL is healthy"
+  "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait --wait-timeout 120 --no-deps postgres
+fi
+
 "${docker_cmd[@]}" "${compose_args[@]}" up -d --build --force-recreate --no-deps "${services[@]}"
 
 for _ in $(seq 1 30); do

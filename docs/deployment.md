@@ -80,7 +80,6 @@ bash scripts/deploy.sh
 
 | Profile | Purpose |
 |---|---|
-| `minimal` | File-backed Gateway + WebChat using external model endpoints. Best first application run after model startup. |
 | `dev` | Development-oriented runtime. |
 | `eval` | Gateway plus evaluator and data services. |
 | `compat` | Gateway connected to externally managed OpenAI-compatible endpoints. |
@@ -90,12 +89,12 @@ WebChat binds host port `18790` to `0.0.0.0` by default for LAN access. Gateway,
 models, state services, and the sandbox runner remain bound to localhost.
 Containers communicate over the private `sparkclaw_internal` network.
 
-## Minimal External Runtime
+## Product Runtime
 
-The deployment entrypoint ultimately delegates to the lower-level minimal
-startup command. Operators with an existing `.env` can invoke that command
-directly to load the resident `single-fast-v1` model group and file-backed
-control plane:
+The deployment entrypoint ultimately delegates to the same product startup
+command exposed at the repository root. Operators with an existing `.env` can
+invoke it directly to load the resident `single-fast-v1` model group and the
+PostgreSQL-backed control plane:
 
 ```bash
 npm start
@@ -106,10 +105,11 @@ single-fast`, which treats Fast, embedding, guard, and OCR as one resident
 group. If one member is missing, unhealthy, or has a stale Compose identity,
 all four are stopped and loaded together. The command waits for every model
 health check, including the configured Fast and Guard completion warmups,
-before it starts Sandbox Runner, Gateway, and WebChat. Gateway then verifies
-`model_mode=external` with the file state backend; the logical Deep profile
-aliases the Fast endpoint. Set `SPARKCLAW_MODEL_MODE=mock` explicitly only for
-isolated deterministic debugging or evaluation.
+before it starts PostgreSQL, Sandbox Runner, Gateway, and WebChat. PostgreSQL
+must become healthy before Gateway is recreated. Gateway then verifies
+`model_mode=external` with the PostgreSQL state backend; the logical Deep
+profile aliases the Fast endpoint. Set `SPARKCLAW_MODEL_MODE=mock` explicitly
+only for isolated deterministic debugging or evaluation.
 
 Check status:
 
@@ -206,7 +206,7 @@ mock mode, and the exact security boundary.
 
 ## State Backends
 
-Default file state:
+File state used by isolated host/mock runs:
 
 ```text
 data/memory/gateway-state.json
@@ -267,7 +267,7 @@ For host binary runs, Gateway can use `SPARKCLAW_SANDBOX_BACKEND=local-docker`.
 Compose uses a standalone sandbox runner:
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d sandbox-runner
+sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d sandbox-runner
 ```
 
 Standalone runner boundary outside Compose:
@@ -297,7 +297,7 @@ For model-backed operation, recreate Gateway in external mode after the selected
 scripts/restart_runtime_compose.sh
 ```
 
-Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. It loads `docker/env/sparkclaw.single-fast.env` and `docker/env/sparkclaw.ocr.env` after `.env`, then stacks `docker/compose.ocr.yaml`. This overrides the minimal file backend with PostgreSQL, keeps both logical chat profiles mapped to Fast, and enables the document OCR adapter against the co-resident OCR service. The script also checks `/readyz` after restart and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another chat/runtime profile; the OCR environment remains part of this product runtime.
+Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. It loads `docker/env/sparkclaw.single-fast.env` and `docker/env/sparkclaw.ocr.env` after `.env`, then stacks `docker/compose.ocr.yaml`. This selects PostgreSQL, keeps both logical chat profiles mapped to Fast, and enables the document OCR adapter against the co-resident OCR service. The script starts and waits for PostgreSQL when Gateway is requested, then checks `/readyz` and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another chat/runtime profile; the OCR environment remains part of this product runtime.
 
 When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
 
@@ -601,7 +601,7 @@ For filesystem state, stop Gateway before copying state files if possible.
 3. Rebuild images:
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal build
+sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local build
 ```
 
 4. Start the target profile.

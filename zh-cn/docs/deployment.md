@@ -72,7 +72,6 @@ bash scripts/deploy.sh
 
 | Profile | 用途 |
 |---|---|
-| `minimal` | 使用文件存储且连接 external 模型端点的 Gateway + WebChat。模型启动后的推荐首次应用运行方式。 |
 | `dev` | 开发运行形态。 |
 | `eval` | Gateway 加 evaluator 和 data services。 |
 | `compat` | Gateway 连接外部 OpenAI-compatible endpoints。 |
@@ -82,10 +81,11 @@ WebChat 的 host port `18790` 默认绑定 `0.0.0.0`，允许局域网访问。G
 状态服务和 sandbox runner 仍绑定 localhost。Containers 通过私有
 `sparkclaw_internal` network 通信。
 
-## Minimal External Runtime
+## Product Runtime
 
-部署入口最终会调用下层 minimal 启动命令。已有 `.env` 的 operator 可以直接运行该命令，
-装载常驻的 `single-fast-v1` 模型组与使用文件存储的 minimal control plane：
+部署入口最终会调用仓库根目录暴露的同一个产品启动命令。已有 `.env` 的 operator
+可以直接运行该命令，装载常驻的 `single-fast-v1` 模型组与 PostgreSQL-backed
+control plane：
 
 ```bash
 npm start
@@ -94,7 +94,8 @@ npm start
 该入口把模型所有权交给 `serve_models_compose.sh single-fast`，将 Fast、embedding、guard
 与 OCR 视为一个常驻组。任一成员缺失、不健康或 Compose identity 过期时，四个模型会一起
 停止并共同加载。命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion
-预热，然后才启动 Sandbox Runner、Gateway 与 WebChat。Gateway 随后验证文件存储下的
+预热，然后才启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。PostgreSQL 必须健康后
+才会重建 Gateway。Gateway 随后验证 PostgreSQL state backend 下的
 `model_mode=external`；默认拓扑中，逻辑 Deep profile 别名到 Fast endpoint。只有隔离的
 确定性调试或评测才应显式设置 `SPARKCLAW_MODEL_MODE=mock`。
 
@@ -186,7 +187,7 @@ bundle 前不要重启。
 
 ## State Backends
 
-默认 file state：
+隔离 host/mock 运行使用的 file state：
 
 ```text
 data/memory/gateway-state.json
@@ -246,7 +247,7 @@ Host binary 运行时，Gateway 可使用 `SPARKCLAW_SANDBOX_BACKEND=local-docke
 Compose 使用独立 sandbox runner：
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal up -d sandbox-runner
+sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local up -d sandbox-runner
 ```
 
 Compose 外的 standalone runner：
@@ -279,10 +280,11 @@ scripts/restart_runtime_compose.sh
 durable 产品运行态应使用该脚本，而不是直接执行
 `docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
 `docker/env/sparkclaw.single-fast.env` 与 `docker/env/sparkclaw.ocr.env`，并叠加
-`docker/compose.ocr.yaml`。这会把 minimal 的文件存储覆盖为 PostgreSQL，保持两个逻辑
-chat profile 都映射到 Fast，同时让文档 OCR adapter 指向共同常驻的 OCR 服务。重启后脚本检查 `/readyz`，只有 Gateway
-报告 `model_mode=external` 且 `state_backend=postgres` 时才成功退出。需要其他 chat/runtime
-profile 时应显式设置 `SPARKCLAW_RUNTIME_ENV`；OCR 环境仍属于该产品运行态。
+`docker/compose.ocr.yaml`。这会选择 PostgreSQL，保持两个逻辑 chat profile 都映射到
+Fast，同时让文档 OCR adapter 指向共同常驻的 OCR 服务。请求启动 Gateway 时，脚本会先
+启动并等待 PostgreSQL；随后检查 `/readyz`，只有 Gateway 报告 `model_mode=external` 且
+`state_backend=postgres` 时才成功退出。需要其他 chat/runtime profile 时应显式设置
+`SPARKCLAW_RUNTIME_ENV`；OCR 环境仍属于该产品运行态。
 
 当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
 `docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
@@ -570,7 +572,7 @@ filesystem state 最好在 Gateway 停止后复制。
 3. rebuild images：
 
 ```bash
-sudo -n docker compose --env-file .env -f docker/compose.yaml --profile minimal build
+sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-local build
 ```
 
 4. 启动目标 profile。

@@ -252,10 +252,9 @@ runtime_compose=(
   --env-file .env
   --env-file docker/env/sparkclaw.single-fast.env
   --env-file docker/env/sparkclaw.ocr.env
-  --env-file docker/env/sparkclaw.minimal.env
   -f docker/compose.yaml
   -f docker/compose.ocr.yaml
-  --profile minimal
+  --profile models-local
 )
 "${docker_cmd[@]}" "${model_compose[@]}" config --quiet
 "${docker_cmd[@]}" "${runtime_compose[@]}" config --quiet
@@ -268,7 +267,7 @@ fi
 
 log "starting the single-fast model group; a cold download can take up to several hours"
 log "models are cached under $model_cache and reused on later runs"
-bash scripts/start_minimal_compose.sh
+bash scripts/start_compose.sh
 
 webchat_ready=false
 for _ in $(seq 1 60); do

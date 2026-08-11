@@ -19,7 +19,7 @@ x-vllm-common: &vllm-common
 
 services:
   gateway:
-    profiles: ["minimal", "dev", "eval", "compat", "models-local"]
+    profiles: ["dev", "eval", "compat", "models-local"]
     build:
       context: ..
       dockerfile: docker/images/gateway.Dockerfile
@@ -140,7 +140,7 @@ services:
       - sparkclaw_internal
 
   sandbox-runner:
-    profiles: ["minimal", "dev", "eval", "models-local"]
+    profiles: ["dev", "eval", "models-local"]
     build:
       context: ..
       dockerfile: docker/images/sandbox-runner.Dockerfile
@@ -162,7 +162,7 @@ services:
       - sparkclaw_internal
 
   webchat:
-    profiles: ["minimal", "dev", "eval", "compat", "models-local"]
+    profiles: ["dev", "eval", "compat", "models-local"]
     build:
       context: ..
       dockerfile: docker/images/webchat.Dockerfile

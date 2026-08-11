@@ -13,8 +13,4 @@ fi
 # Fast, embedding, guard, and OCR. Do not start product models independently.
 bash scripts/serve_models_compose.sh single-fast
 
-exec env \
-  SPARKCLAW_COMPOSE_PROFILE=minimal \
-  SPARKCLAW_RUNTIME_OVERRIDE_ENV=docker/env/sparkclaw.minimal.env \
-  SPARKCLAW_EXPECTED_STATE_BACKEND=file \
-  bash scripts/restart_runtime_compose.sh sandbox-runner gateway webchat
+exec bash scripts/restart_runtime_compose.sh

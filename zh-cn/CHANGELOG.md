@@ -27,6 +27,8 @@
   增加规范化文档操作候选、带 approval 前临时 layout/preservation 预检的一次受限 PPTX
   语义修复、PDF claim coverage、浏览器 transition 证据、重复 action 阻断和确定性 visible
   presentation equivalence。
+- 默认 `npm start` 与安装器路径现在使用 PostgreSQL-backed 产品运行态，在 Gateway
+  之前启动并等待 PostgreSQL，且不再应用原有的 file-backed `minimal` 覆盖。
 - 模型服务 health check 与联合启动现在允许有界的数小时冷下载，不再因原有的短 ready
   窗口而过早失败。
 - 将 `document.edit` 升级到 revision 6：XLSX 现在使用类型化有界 sheet 证据、绑定证据的
@@ -41,6 +43,7 @@
 
 - 证据投影改动通过 Gateway build/test/vet、WebChat test/build、双语文档检查、doctor
   和 47 条隔离 mock/file golden eval。
+- PostgreSQL 产品启动 Compose 选择与 readiness。
 - WebChat production build。
 - Gateway skill registry test。
 - Docker Compose config validation。

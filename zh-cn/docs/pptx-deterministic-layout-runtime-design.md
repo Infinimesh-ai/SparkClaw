@@ -4,12 +4,18 @@
 
 | 字段 | 值 |
 |---|---|
-| 状态 | 提案；Phase 0 资格测试通过前禁止实施 |
+| 状态 | 已否决；Phase 0 于 2026-08-11 得出 No-Go |
 | 决策日期 | 2026-08-11 |
 | 范围 | `pptx.update_slide` 和 `pptx.update_deck` 的协调排版 |
 | 候选引擎 | ONLYOFFICE DocumentBuilder 9.4.0 免费 AGPL v3 版本 |
 | 约束求解器 | Google OR-Tools CP-SAT 9.15.6755，Apache 2.0 |
 | 决策责任方 | SparkClaw document runtime |
+
+> 资格测试结果：**No-Go**。不经过任何 SparkClaw 集成，直接使用官方 SDK 和 CLI 的探针确认
+> DocumentBuilder 9.4.0 没有暴露本方案所需的真实文字边界或有效 overflow 结果；免费 AGPL
+> artifact 保存时还会添加 `Unregistered Version` 水印，并重写 package identity 和 part。这是
+> 项目/版本适配失败，不是 SparkClaw adapter 错误。依据 fail-fast 决策，本设计不得实施。详见
+> [Phase 0 资格测试报告](../../benchmarks/pptx-documentbuilder-phase0-qualification.md)。
 
 ## 核心决策
 

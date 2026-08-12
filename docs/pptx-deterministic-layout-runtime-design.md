@@ -4,12 +4,20 @@
 
 | Field | Value |
 |---|---|
-| Status | Proposed; implementation is blocked on Phase 0 qualification |
+| Status | Rejected; Phase 0 returned No-Go on 2026-08-11 |
 | Decision date | 2026-08-11 |
 | Scope | Coordinated layout for `pptx.update_slide` and `pptx.update_deck` |
 | Candidate engine | ONLYOFFICE DocumentBuilder 9.4.0, free AGPL v3 edition |
 | Constraint solver | Google OR-Tools CP-SAT 9.15.6755, Apache 2.0 |
 | Decision owner | SparkClaw document runtime |
+
+> Qualification result: **No-Go**. Direct official SDK and CLI probes, without
+> any SparkClaw integration, showed that DocumentBuilder 9.4.0 does not expose
+> the required actual text bounds or effective overflow result. The free AGPL
+> artifact also adds an `Unregistered Version` watermark and rewrites package
+> identities and parts on save. This is a product/edition suitability failure,
+> not a SparkClaw adapter failure. Per the fail-fast decision, this design must
+> not be implemented. See the [Phase 0 qualification report](../benchmarks/pptx-documentbuilder-phase0-qualification.md).
 
 ## Executive Decision
 

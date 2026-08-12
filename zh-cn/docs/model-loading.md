@@ -49,7 +49,13 @@
 
 快捷方式会先停止此前运行的 Deep 容器，再通过一次 Compose 操作同时启动 Fast、embedding、
 guard 和 OCR。随后运行 `scripts/restart_runtime_compose.sh`；该脚本默认使用单 Fast 与 OCR
-环境。当前 Fast
+环境。每次模型启动都会先停止并重建请求的模型组，即使该组当前健康也不会复用。产品启动或
+故障恢复不要直接使用 `docker start` 或 `docker restart`。
+
+模型 checkpoint 与 Hugging Face 元数据继续持久化在 `data/models`。GPU 进程缓存与其分离：
+vLLM/TorchInductor AOT 产物、Triton kernel、FlashInfer cache 与 NVIDIA runtime 注入都
+留在可丢弃的容器实例中。整体重建会清除这些进程内缓存并刷新 GPU device 注入，但不会重新
+下载 checkpoint。当前 Fast
 容量仍保持在已实际运行过的 32K context 与 8 GiB KV cache，不把 Deep 释放的内存
 直接当作未经测量的容量提升。模型启动会等待 Docker health。Fast health 会为每个模型进程
 执行一次贴近生产负载的 chat completion：当前合成输入在 Qwen3.6 上约为 3.4K token，并强制

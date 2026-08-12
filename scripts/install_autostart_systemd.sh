@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UNIT_NAME="sparkclaw-autostart.service"
+UNIT_DIR="${SPARKCLAW_SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
+
+[[ "$(uname -s)" == "Linux" ]] || {
+  echo "SparkClaw boot autostart requires Linux with systemd" >&2
+  exit 1
+}
+command -v "$SYSTEMCTL_BIN" >/dev/null 2>&1 || {
+  echo "systemctl is required to install SparkClaw boot autostart" >&2
+  exit 1
+}
+
+service_user="${SPARKCLAW_AUTOSTART_USER:-$(id -un)}"
+service_group="$(id -gn "$service_user")"
+bash_path="$(command -v bash)"
+
+systemd_quote() {
+  local value="$1"
+  [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || {
+    echo "systemd values cannot contain newlines" >&2
+    exit 1
+  }
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\$\$}"
+  value="${value//%/%%}"
+  printf '"%s"' "$value"
+}
+
+unit_file="$(mktemp --suffix=.service)"
+trap 'rm -f -- "$unit_file"' EXIT
+
+cat >"$unit_file" <<EOF
+[Unit]
+Description=SparkClaw cold-recreate startup after host boot
+Wants=docker.service network-online.target
+After=docker.service network-online.target
+RequiresMountsFor=$(systemd_quote "$ROOT")
+
+[Service]
+Type=exec
+User=$service_user
+Group=$service_group
+ExecStart=$(systemd_quote "$bash_path") $(systemd_quote "$ROOT/scripts/autostart_compose.sh")
+RemainAfterExit=yes
+TimeoutStartSec=infinity
+UMask=0077
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze verify "$unit_file"
+fi
+
+privileged=()
+if [[ "$UNIT_DIR" == "/etc/systemd/system" && "$EUID" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || {
+    echo "sudo is required to install the system service" >&2
+    exit 1
+  }
+  privileged=(sudo)
+fi
+
+"${privileged[@]}" install -D -m 0644 "$unit_file" "$UNIT_DIR/$UNIT_NAME"
+"${privileged[@]}" "$SYSTEMCTL_BIN" daemon-reload
+"${privileged[@]}" "$SYSTEMCTL_BIN" enable "$UNIT_NAME"
+
+echo "Installed and enabled $UNIT_NAME for $service_user"
+echo "The service will run at the next boot; it was not started now"

@@ -8,8 +8,8 @@
 
 - NVIDIA DGX Spark（GB10 GPU）、Linux/ARM64，以及至少 100 GiB 系统/统一内存；
   已验证的操作系统为 Ubuntu 24.04。
-- Docker Engine、Docker Compose plugin、NVIDIA driver/container toolkit、`curl`，
-  并能访问 container registry 与 Hugging Face。
+- Docker Engine、Docker Compose plugin、NVIDIA driver/container toolkit、`curl`、systemd，
+  具备安装开机服务的 `sudo` 权限，并能访问 container registry 与 Hugging Face。
 - 冷启动的模型与镜像缓存至少预留 125 GiB；已有部分缓存时，部署脚本会计算剩余需求。
 - 用于模型下载的 Hugging Face token。不要提交生成的 `.env`。
 
@@ -39,11 +39,12 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 1
    `data/models` 缓存。
 6. 等待模型 ready 以及 Fast/Guard 预热，构建 Gateway、Sandbox Runner 与 WebChat，
    最后验证 Gateway 和 WebChat。
+7. 为部署用户安装并启用系统级 `sparkclaw-autostart.service`；安装过程不会重启当前运行实例。
 
 首次运行约下载 70-85 GiB 模型数据以及容器镜像，可能持续数小时。模型 health check 与
 联合启动共用默认三小时窗口；下载链路较慢时可把
-`SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS` 设置为更大的正整数。后续运行会复用模型缓存和
-健康容器。
+`SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS` 设置为更大的正整数。后续运行会复用已下载的
+checkpoint 与容器镜像，但会重建 GPU 容器和运行时编译 cache。
 
 非交互部署应在启动管道前导出 token；部署脚本只将其持久化到已忽略且权限为 `0600` 的
 本地环境文件：
@@ -92,12 +93,39 @@ npm start
 ```
 
 该入口把模型所有权交给 `serve_models_compose.sh single-fast`，将 Fast、embedding、guard
-与 OCR 视为一个常驻组。任一成员缺失、不健康或 Compose identity 过期时，四个模型会一起
-停止并共同加载。命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion
-预热，然后才启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。PostgreSQL 必须健康后
-才会重建 Gateway。Gateway 随后验证 PostgreSQL state backend 下的
+与 OCR 视为一个常驻组。每次模型启动都会停止并重建全部四个模型，即使当前组已经健康。
+命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion 预热，然后才启动
+PostgreSQL、Sandbox Runner、Gateway 与 WebChat。PostgreSQL 必须健康后才会重建 Gateway。
+Gateway 随后验证 PostgreSQL state backend 下的
 `model_mode=external`；默认拓扑中，逻辑 Deep profile 别名到 Fast endpoint。只有隔离的
 确定性调试或评测才应显式设置 `SPARKCLAW_MODEL_MODE=mock`。
+
+### 开机自启动
+
+部署默认启用宿主机开机自启动。开关保存在本地 `.env`：
+
+```dotenv
+SPARKCLAW_AUTOSTART_ENABLED=true
+```
+
+开机时，`sparkclaw-autostart.service` 以部署用户身份运行，最多等待十分钟让 Docker 与
+NVIDIA runtime 就绪，然后调用与 `npm start` 相同的产品入口。因此 Fast、embedding、guard
+与 OCR 会被重建，权重从 `data/models` 载入；所有模型通过 health check 和预热后才启动应用
+服务。长时间冷加载不会阻塞宿主机进入正常登录界面。systemd 单元不使用 Docker 的容器
+restart policy，因此不会绕过 GPU 冷重建边界。
+
+设置 `SPARKCLAW_AUTOSTART_ENABLED=false` 后，下次开机会跳过启动。systemd 单元仍保持
+enabled，因此把配置改回 `true` 就足够，下一次开机会重新读取。仓库移动后可执行以下命令
+安装或刷新单元：
+
+```bash
+npm run autostart:install
+systemctl status sparkclaw-autostart.service
+journalctl -u sparkclaw-autostart.service -b
+```
+
+安装单元不会重启当前实例。若不重启主机而直接应用配置，可运行 `sudo systemctl restart
+sparkclaw-autostart.service`；配置为开启时，该操作会按预期执行完整模型冷启动。
 
 检查状态：
 
@@ -620,6 +648,7 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 |---|---|
 | Docker permission denied | 使用 `sudo -n docker ...` 或将用户加入 Docker group。 |
 | Golden eval browser step fails | Docker eval 启动 Gateway 时设置 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal`；host eval 使用 `127.0.0.1`。 |
+| 主机重启后 CUDA 或 Triton 报 `operation not permitted` | 运行 `scripts/serve_models_compose.sh single-fast`。每次模型启动都会重建请求的 GPU 容器，以新的运行时 cache 启动，同时保留 `data/models`。 |
 | Model returns reasoning but no answer | 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。 |
 | Postgres vector extension unavailable | SparkClaw fallback 到 JSON vectors 和 Gateway-side hybrid scoring。 |
 | 128K fast+deep does not fit | 一次运行一个 chat lane，或降低 context/MTP 后重新 benchmark。 |

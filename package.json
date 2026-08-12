@@ -39,6 +39,7 @@
   "scripts": {
     "deploy": "bash scripts/deploy.sh",
     "start": "bash scripts/start_compose.sh",
+    "autostart:install": "bash scripts/install_autostart_systemd.sh",
     "dev": "npm run runtime:restart",
     "dev:gateway": "bash scripts/restart_runtime_compose.sh gateway",
     "dev:webchat": "bash scripts/restart_runtime_compose.sh webchat",

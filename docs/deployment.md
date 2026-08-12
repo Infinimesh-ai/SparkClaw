@@ -9,7 +9,8 @@ This document is the current deployment guide for local development, Docker Comp
 - NVIDIA DGX Spark with its GB10 GPU, Linux/ARM64, and at least 100 GiB of
   system/unified memory. Ubuntu 24.04 is the validated OS.
 - Docker Engine, the Docker Compose plugin, the NVIDIA driver/container toolkit,
-  `curl`, and outbound access to container registries and Hugging Face.
+  `curl`, systemd, `sudo` access for the boot service, and outbound access to
+  container registries and Hugging Face.
 - At least 125 GiB of free space for a cold model/image cache. The deployment
   script computes the remaining requirement when part of the cache exists.
 - A Hugging Face token for model downloads. Do not commit the generated `.env`.
@@ -44,12 +45,14 @@ The streamed bootstrap and deployment entrypoints:
    OvisOCR2 into the shared `data/models` cache.
 6. Wait for model readiness and Fast/Guard warmup, build Gateway, Sandbox
    Runner, and WebChat, then verify both Gateway and WebChat.
+7. Install and enable the system-level `sparkclaw-autostart.service` for the
+   deploying user. Installation does not restart the running deployment.
 
 The first run downloads roughly 70-85 GiB of model data plus container images
 and can take hours. Model health and joint startup share a three-hour default
 window. Set `SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS` to a larger positive
-number when the download link is slower. Later runs reuse the cache and healthy
-containers.
+number when the download link is slower. Later runs reuse downloaded checkpoints
+and container images, but recreate GPU containers and runtime compilation caches.
 
 For a non-interactive install, export the token before starting the pipeline;
 the deployment persists it only in the ignored, mode-`0600` local environment
@@ -102,14 +105,47 @@ npm start
 
 The entrypoint delegates model ownership to `serve_models_compose.sh
 single-fast`, which treats Fast, embedding, guard, and OCR as one resident
-group. If one member is missing, unhealthy, or has a stale Compose identity,
-all four are stopped and loaded together. The command waits for every model
-health check, including the configured Fast and Guard completion warmups,
-before it starts PostgreSQL, Sandbox Runner, Gateway, and WebChat. PostgreSQL
-must become healthy before Gateway is recreated. Gateway then verifies
+group. Every model startup stops and recreates all four, including an already
+healthy group. The command waits for every model health check, including the
+configured Fast and Guard completion warmups, before it starts PostgreSQL,
+Sandbox Runner, Gateway, and WebChat. PostgreSQL must become healthy before
+Gateway is recreated. Gateway then verifies
 `model_mode=external` with the PostgreSQL state backend; the logical Deep
 profile aliases the Fast endpoint. Set `SPARKCLAW_MODEL_MODE=mock` explicitly
 only for isolated deterministic debugging or evaluation.
+
+### Boot Autostart
+
+Deployment enables host-boot startup by default. The setting lives in the local
+`.env` file:
+
+```dotenv
+SPARKCLAW_AUTOSTART_ENABLED=true
+```
+
+At boot, `sparkclaw-autostart.service` runs as the deploying user, waits up to
+ten minutes for Docker and the NVIDIA runtime, then calls the same product entry
+used by `npm start`. Consequently Fast, embedding, guard, and OCR are recreated,
+their weights are loaded from `data/models`, and application services start only
+after model health and warmup pass. The long cold load runs without blocking the
+host from reaching its normal login target. The systemd unit never uses Docker's
+container restart policy, so it cannot bypass the GPU cold-recreate boundary.
+
+Set `SPARKCLAW_AUTOSTART_ENABLED=false` to skip startup at the next boot. The
+unit remains enabled so changing the setting back to `true` is sufficient; it
+will read the file again on the following boot. To install or refresh the unit
+after moving the repository, run:
+
+```bash
+npm run autostart:install
+systemctl status sparkclaw-autostart.service
+journalctl -u sparkclaw-autostart.service -b
+```
+
+Installing the unit does not restart the current deployment. To apply a changed
+setting without rebooting, run `sudo systemctl restart
+sparkclaw-autostart.service`; when enabled, this intentionally performs a full
+model cold restart.
 
 Check status:
 
@@ -654,6 +690,7 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 |---|---|
 | Docker permission denied | Use `sudo -n docker ...` or add the user to the Docker group. |
 | Golden eval browser step fails | Start Gateway with `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal` for Docker eval or `127.0.0.1` for host eval. |
+| CUDA or Triton reports `operation not permitted` after a host restart | Run `scripts/serve_models_compose.sh single-fast`. Every model startup recreates the requested GPU containers with fresh runtime caches while retaining `data/models`. |
 | Model returns reasoning but no answer | Set `SPARKCLAW_MODEL_DISABLE_THINKING=true`. |
 | Postgres vector extension unavailable | SparkClaw falls back to JSON vectors and Gateway-side hybrid scoring. |
 | 128K fast+deep does not fit | Run one chat lane at a time or lower context/MTP and re-benchmark. |

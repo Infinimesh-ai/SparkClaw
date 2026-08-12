@@ -20,6 +20,7 @@ load_dotenv_var() {
 }
 
 for name in \
+  SPARKCLAW_AUTOSTART_ENABLED \
   SPARKCLAW_WEB_SEARCH_ENABLED \
   SPARKCLAW_WEB_SEARCH_PROVIDER \
   SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF \
@@ -38,6 +39,23 @@ for name in \
   SPARKCLAW_OCR_MODEL; do
   load_dotenv_var "$name"
 done
+
+case "$(printf '%s' "${SPARKCLAW_AUTOSTART_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled sparkclaw-autostart.service >/dev/null 2>&1; then
+      echo "ok  boot autostart enabled"
+    else
+      echo "warn boot autostart is configured but the systemd service is not enabled"
+    fi
+    ;;
+  0|false|no|off)
+    echo "ok  boot autostart disabled by configuration"
+    ;;
+  *)
+    echo "err SPARKCLAW_AUTOSTART_ENABLED must be true or false"
+    exit 1
+    ;;
+esac
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 if ! "$DOCKER_BIN" ps >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n "$DOCKER_BIN" ps >/dev/null 2>&1; then

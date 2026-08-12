@@ -138,6 +138,17 @@ else
   log "preserving existing $ENV_FILE"
 fi
 
+autostart_enabled="$(dotenv_value SPARKCLAW_AUTOSTART_ENABLED)"
+if [[ -z "$autostart_enabled" ]]; then
+  set_dotenv_value SPARKCLAW_AUTOSTART_ENABLED true
+  autostart_enabled=true
+  log "enabled boot autostart by default"
+fi
+case "$(printf '%s' "$autostart_enabled" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on|0|false|no|off) ;;
+  *) fail "SPARKCLAW_AUTOSTART_ENABLED must be true or false" ;;
+esac
+
 hf_token="$(dotenv_value HF_TOKEN)"
 if [[ -z "$hf_token" ]]; then
   hf_token="$(dotenv_value HUGGING_FACE_HUB_TOKEN)"
@@ -281,6 +292,9 @@ done
 
 ready_json="$(curl -fsS --max-time 5 http://127.0.0.1:18789/readyz)"
 printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' || fail "Gateway ready check returned an unexpected response"
+
+log "installing the boot autostart service"
+bash scripts/install_autostart_systemd.sh
 
 lan_ip=""
 if command -v ip >/dev/null 2>&1; then

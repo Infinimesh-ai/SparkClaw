@@ -51,7 +51,15 @@ The current profile is implemented as `dgx-spark-single-fast-v1`:
 The shortcut first stops a previously running Deep container, then starts Fast,
 embedding, guard, and OCR in one Compose operation. Run
 `scripts/restart_runtime_compose.sh` afterward; it uses the single-Fast and OCR
-environments by default. The current Fast capacity
+environments by default. Every model startup stops and recreates the requested
+model group, including an already healthy group; do not use `docker start` or
+`docker restart` as the product startup or recovery path.
+
+Model checkpoints and Hugging Face metadata remain durable under `data/models`.
+vLLM/TorchInductor AOT artifacts, Triton kernels, FlashInfer caches, and NVIDIA
+runtime injection stay in the disposable container instance. Recreating the
+group discards those process-local caches and refreshes GPU device injection
+without redownloading the checkpoint. The current Fast capacity
 remains at the previously exercised 32K context and 8 GiB KV cache rather than
 claiming an unmeasured capacity increase from the memory freed by Deep. Model
 startup waits for Docker health. Fast health includes one production-shaped

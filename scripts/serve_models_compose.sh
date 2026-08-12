@@ -101,39 +101,10 @@ compose_args+=(--profile models-local)
 
 if [[ "$SINGLE_FAST" == "true" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" stop sparkclaw-deep
-  reload_single_fast=false
-  for service in "${services[@]}"; do
-    container_id="$("${docker_cmd[@]}" "${compose_args[@]}" ps -q "$service")"
-    if [[ -z "$container_id" ]]; then
-      reload_single_fast=true
-      break
-    fi
-    health_status="$(
-      "${docker_cmd[@]}" inspect \
-        --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
-        "$container_id"
-    )"
-    if [[ "$health_status" != "healthy" ]]; then
-      reload_single_fast=true
-      break
-    fi
-    config_hash_line="$("${docker_cmd[@]}" "${compose_args[@]}" config --hash "$service")"
-    expected_config_hash="${config_hash_line##* }"
-    actual_config_hash="$(
-      "${docker_cmd[@]}" inspect \
-        --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
-        "$container_id"
-    )"
-    if [[ -z "$expected_config_hash" || "$actual_config_hash" != "$expected_config_hash" ]]; then
-      reload_single_fast=true
-      break
-    fi
-  done
-  if [[ "$reload_single_fast" == "true" ]]; then
-    echo "Reloading Fast, embedding, guard, and OCR together"
-    "${docker_cmd[@]}" "${compose_args[@]}" stop "${services[@]}"
-  fi
 fi
 
+echo "Recreating requested model containers with fresh runtime caches"
+"${docker_cmd[@]}" "${compose_args[@]}" stop "${services[@]}"
+
 exec "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait \
-  --wait-timeout "$MODEL_STARTUP_TIMEOUT_SECONDS" "${services[@]}"
+  --wait-timeout "$MODEL_STARTUP_TIMEOUT_SECONDS" --force-recreate "${services[@]}"

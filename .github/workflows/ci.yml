@@ -120,7 +120,9 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest scripts/test_install.py
       - run: python3 -m unittest scripts/test_model_readiness.py
-      - run: bash -n install.sh scripts/deploy.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/start_compose.sh
+      - run: python3 -m unittest scripts/test_serve_models_compose.py
+      - run: python3 -m unittest scripts/test_autostart_compose.py
+      - run: bash -n install.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/start_compose.sh scripts/doctor.sh
       - run: bash -s -- --help < install.sh | grep -F 'curl -fsSL'
       - run: cp docker/env/sparkclaw.example.env .env
       - run: docker compose --env-file .env -f docker/compose.yaml config --quiet
@@ -131,6 +133,7 @@ jobs:
             --env-file docker/env/sparkclaw.single-fast.env \
             --env-file docker/env/sparkclaw.ocr.env \
             -f docker/compose.yaml \
+            -f docker/compose.dual-light.yaml \
             -f docker/compose.ocr.yaml \
             --profile models-local \
             config --format json > /tmp/sparkclaw-compose.json

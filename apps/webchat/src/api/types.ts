@@ -369,6 +369,133 @@ export type ConnectorStatus = {
   updated_at?: string;
 };
 
+export type ISCPPairingStatus = {
+  enabled: boolean;
+  ready: boolean;
+  state: "disabled" | "unavailable" | "ready" | string;
+  domain_id?: string;
+  authority_host?: string;
+  expected_ticket_type: string;
+  disabled_reason?: string;
+};
+
+export type ISCPOnboarding = {
+  schema_version: number;
+  id: string;
+  owner_id: string;
+  actor_id: string;
+  display_name: string;
+  domain_id: string;
+  authority_ref: string;
+  ticket_id: string;
+  ticket_type: string;
+  relay_id: string;
+  trust_root_id: string;
+  max_uses: number;
+  status: string;
+  ticket_issued_at: string;
+  ticket_expires_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ISCPPairingTicket = {
+  type: string;
+  ticket_id: string;
+  domain_id: string;
+  relay_id: string;
+  trust_root_id: string;
+  max_uses: number;
+  issued_at: string;
+  expires_at: string;
+  signature: { alg: string; kid: string; value: string };
+};
+
+export type IssuedISCPPairing = {
+  onboarding: ISCPOnboarding;
+  ticket: ISCPPairingTicket;
+};
+
+export type MCPGrantOperationOption = {
+  operation: string;
+  effect: string;
+};
+
+export type MCPGrantOption = {
+  capability_id: string;
+  description: string;
+  operations: MCPGrantOperationOption[];
+  workflow: { id: string; revision: number };
+  projection_revision: number;
+};
+
+export type MCPAccessCatalog = {
+  catalog_revision: string;
+  grants: MCPGrantOption[];
+  lan_direct_test_enabled?: boolean;
+  domain_id?: string;
+  endpoint_path?: string;
+};
+
+export type MCPRequestedGrant = {
+  capability_id: string;
+  operations: string[];
+  allow_approval: boolean;
+};
+
+export type MCPLeafGrant = {
+  capability_id: string;
+  operations: string[];
+  effects: string[];
+  allow_approval: boolean;
+  workflow: { id: string; revision: number };
+  projection_revision: number;
+  status: string;
+};
+
+export type MCPAccessTicket = {
+  schema_version: number;
+  id: string;
+  owner_id: string;
+  actor_id: string;
+  domain_id: string;
+  authorization_revision: number;
+  catalog_revision: string;
+  grants: MCPLeafGrant[];
+  status: string;
+  max_uses: number;
+  use_count: number;
+  issued_at: string;
+  expires_at: string;
+  consumed_at?: string;
+  revoked_at?: string;
+};
+
+export type IssuedMCPAccessTicket = {
+  ticket: MCPAccessTicket;
+  secret: string;
+};
+
+export type MCPBinding = {
+  schema_version: number;
+  id: string;
+  owner_id: string;
+  actor_id: string;
+  domain_id: string;
+  requester_device_id: string;
+  requester_key_thumbprint: string;
+  authorization_revision: number;
+  catalog_revision: string;
+  grants: MCPLeafGrant[];
+  status: string;
+  linked_session_id: string;
+  latest_iscp_session_id?: string;
+  created_at: string;
+  updated_at: string;
+  last_used_at?: string;
+  revoked_at?: string;
+};
+
 export type PublicModelProfile = {
   name: string;
   base_url: string;
@@ -409,6 +536,7 @@ export type PublicConfig = {
     max_upload_bytes: number;
     retain_audio: false;
   };
+  iscp_pairing: ISCPPairingStatus;
   workspaces: {
     default_root: string;
     allowlist: string[];

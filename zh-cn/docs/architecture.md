@@ -214,19 +214,78 @@ manager 每次刷新都重新解析环境 credential，校验固定 server ident
 不可信 observation/artifact 路径。Policy 把远端 write 视为 remote effect：保留 SparkClaw
 approval，但不声称在本地 sandbox 执行。
 
-反向方向使用 ISCP：通过认证的 LocalMind peer 可通过
+当前旧反向链路使用 ISCP：通过认证的 LocalMind peer 可通过
 `agent.notification.deliver.v1` 提交结构化提及。Gateway 校验不可信 deep link，并在确认前
 按 peer 和 idempotency key 持久去重。这条被动路径进入 owner-scoped 全局 WebChat 收件箱与
-SSE stream，不创建 conversation 或 Agent Runtime state。旧的 session/message 请求对继续作为
-兼容 fallback。
+SSE stream，不创建 conversation 或 Agent Runtime state。旧的 session/message 请求对只在目标
+切换前临时向 LocalMind 开放；切换时删除 LocalMind 对两条路径的访问。JingSi 仍需要的共享
+request type 保持不变，等待其独立绑定设计。
 
 Telegram、微信、speech、Infinimesh Info 和 LocalMind 是共享 connector、delivery、
 transcription、search 或 MCP contract 后的可选 adapter。见[外部集成](integrations.md)。
 
-JingSi App 与 LocalMind 通过独立部署的 [ISCP Bridge](iscp-bridge.md) 接入。Bridge 终止 ISCP
+JingSi App 与 LocalMind 当前通过独立部署的 [ISCP Bridge](iscp-bridge.md) 接入。Bridge 终止 ISCP
 transport，并调用一个 loopback Gateway API；session state、execution、Policy、approval、
 被动通知、event cursor 和 audit 仍由 Gateway 负责。Gateway 启用 auth 时要求 bearer；默认
-无 auth Gateway 也只接受 loopback Bridge dispatch。
+无 auth Gateway 也只接受 loopback Bridge dispatch。LocalMind 使用该 path 属于旧链路；其
+bootstrap 等待外部 LocalMind controller 返回 SparkClaw Bridge 使用的 bundle，凭证权威方向与
+LocalMind 目标方案相反。JingSi 当前 path 不在本设计中评估或迁移。
+
+### 统一第三方接入（SparkClaw 管理表面已实现）
+
+目标入站架构为 LocalMind 和未来选择该 contract 的第三方提供一个 provider-neutral Route MCP
+surface，不再为每个 provider 增加 adapter 或 API。通用 ISCP MCP Access Gateway 在已
+enrollment 的外部 gateway device 与 SparkClaw 之间传输 MCP session；本地 Route MCP Service
+只投影符合条件且经 owner 授权的 Catalog 叶子。外部 MCP tool identity 生成服务端持有的 leaf
+binding 与唯一确定性 Top-1 selection，不进入开放式语义评分；随后精确 Workflow Profile 通过
+现有 Runtime、Policy、approval 和 audit 核心执行。
+
+JingSi 不在本设计范围内。它不接收 MCP enrollment、tool projection、endpoint 或 sender；其
+SparkClaw 绑定方式后续另行设计。本项目保持 JingSi 当前所需最小 path 不变。
+
+MCP protocol negotiation 与 capability listing 保留在专用 adapter 中，但 MCP business call
+进入统一受管理的第三方链路。`tools/call` 创建 `third_party_device` `MessageEnvelope`、
+owner-scoped MCP source endpoint 和冻结的来源 `ReturnRoute`。统一 router 使用服务端持有的
+leaf binding 执行确定性 Top-1 selection；Runtime、Policy、approval、Store 和 audit 保持共用。
+
+waiting 与 terminal result 都成为普通 `WorkflowResult` 和 `DeliveryRequest`。Delivery Gateway
+解析 MCP source endpoint 并调用一个通用 MCP sender/provider，再把结果映射为经 ISCP 返回的
+关联 MCP result、progress 或 Binding-scoped SparkClaw operation frame。第一版保持 MCP
+`2025-06-18`，不声明标准 MCP Tasks。MCP 也复用第三方统一启用/暂停与
+endpoint/provider 管理，但不必复用 polling 等不适用的 connector 内部实现。这样业务接收、
+运行和发送 lifecycle 保持一致，同时不会把 MCP control traffic 伪装成 chat message。
+
+SparkClaw 在本地发起 ISCP pairing flow，并向 owner 展示由此生成的一次性 Pairing Ticket。
+owner 将其一次性交给 external Access Gateway；该 gateway 连接 ISCP，通过标准
+PairingTicket/Provisioning 兑换凭证，加入 SparkClaw 所在的同一个 ISCP Domain。ticket 的定义、
+签名、校验和消费，以及 Device Proof 校验、Trust Grant 与 Relay credential 签发、加密 session
+建立、credential 轮换和 transport revocation 均由 ISCP authority 负责，SparkClaw 不重复实现
+这些协议服务。认证 ISCP session ready 后，SparkClaw 独立签发短期、单次使用 MCP Access
+Ticket。已入网 external device 只能通过该 session 兑换，SparkClaw 原子消费后激活本地 owner
+批准的持久 MCP Binding，决定允许暴露哪些 Route MCP 叶子。普通 MCP 使用依赖 session identity
+加 Binding，不复用任一 ticket。外部 device 保留为 requester/source provenance，SparkClaw 仍是
+Workflow executor。两个 gateway role 都通过出站连接访问 Relay；本地 Route MCP Service 不开放
+公网入站端口。
+
+完整 trust、能力投影、调用、LocalMind 迁移和验收 contract 见
+[统一第三方 ISCP MCP 接入](unified-third-party-access-design.md)。Owner-facing External MCP
+设置表面与可配置 authority adapter 已实现。adapter 只通过一个带认证和边界的出站请求获取
+`iscp.pairing_ticket.v2`，从不持有 Trust Root 签名材料。memory、file 或 PostgreSQL 只保留
+非秘密 onboarding receipt；签名 ticket 仅返回一次。叶子授权来自当前 Catalog，本地还可以列出
+或撤销 MCP Access Ticket 与 Binding。
+
+SparkClaw 自身负责的本地
+runtime 已实现：严格 MCP `2025-06-18`、只存 hash 的单次 MCP Access Ticket、持久 peer
+Binding、Catalog 叶子投影、精确 Top-1 Workflow ingress、共享 Delivery、Binding-scoped operation
+恢复、默认关闭 channel gate 和脱敏 lifecycle audit。加密 Bridge 测试已在建立好的 ISCP session
+中传输 MCP 请求和响应。生产 external onboarding 仍需真实 ISCP authority 实现已配置的
+PairingTicket endpoint、可部署 external Access Gateway 和真实 Relay 验证，因此
+现有 `agent.*.v1` Bridge 只临时保持可执行。LocalMind 使用新的 ISCP PairingTicket/Provisioning
+加入 SparkClaw Domain、随后兑换 SparkClaw MCP Access Ticket 并通过新链路后，必须删除其外部
+enrollment bundle flow、manifest entry、dispatch branch、fallback、config、test 和 guidance。
+JingSi 仍需要的共享 Bridge
+component 冻结保留，直到其独立绑定方案落地；其中不得隐藏保留 LocalMind fallback。
+SparkClaw 主动访问 LocalMind workspace 的出站 MCP client 属于独立方向，保持不变。
 
 ## State 与 Artifact
 

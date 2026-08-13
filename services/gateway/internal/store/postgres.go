@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS clients (
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT 'owner';
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS actor_id TEXT NOT NULL DEFAULT 'owner';
 
-CREATE TABLE IF NOT EXISTS pairing_codes (
+	CREATE TABLE IF NOT EXISTS pairing_codes (
   id TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL,
@@ -64,7 +64,56 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   claimed_at TIMESTAMPTZ,
   client_id TEXT REFERENCES clients(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS iscp_onboardings (
+	  id TEXT PRIMARY KEY,
+	  owner_id TEXT NOT NULL,
+	  domain_id TEXT NOT NULL,
+	  authority_ref TEXT NOT NULL,
+	  ticket_id TEXT NOT NULL,
+	  status TEXT NOT NULL,
+	  created_at TIMESTAMPTZ NOT NULL,
+	  payload JSONB NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS iscp_onboardings_owner_created_idx ON iscp_onboardings(owner_id, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS mcp_access_tickets (
+  id TEXT PRIMARY KEY,
+  secret_hash TEXT NOT NULL UNIQUE,
+  owner_id TEXT NOT NULL,
+  domain_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  payload JSONB NOT NULL
 );
+CREATE INDEX IF NOT EXISTS mcp_access_tickets_owner_status_idx ON mcp_access_tickets(owner_id, status, expires_at DESC);
+
+CREATE TABLE IF NOT EXISTS mcp_bindings (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  domain_id TEXT NOT NULL,
+  requester_device_id TEXT NOT NULL,
+  requester_key_thumbprint TEXT NOT NULL,
+  status TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  payload JSONB NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mcp_bindings_active_peer_idx
+  ON mcp_bindings(domain_id, requester_device_id, requester_key_thumbprint) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS mcp_bindings_owner_status_idx ON mcp_bindings(owner_id, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS mcp_operations (
+  id TEXT PRIMARY KEY,
+  binding_id TEXT NOT NULL REFERENCES mcp_bindings(id),
+  idempotency_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  version BIGINT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  payload JSONB NOT NULL,
+  UNIQUE(binding_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS mcp_operations_binding_updated_idx ON mcp_operations(binding_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,

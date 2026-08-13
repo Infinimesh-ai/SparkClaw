@@ -234,6 +234,9 @@ func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision,
 		Content:    r.workflowResultContent(run, summary),
 		References: workflowResourceRefs(run.Workflow), ReturnRoute: returnRoute,
 	}
+	if run.MessageContext != nil {
+		result.MCP = run.MessageContext.MCP
+	}
 	if status == app.WorkflowResultFailed || status == app.WorkflowResultBlocked {
 		result.Error = &app.WorkflowResultError{Code: "workflow_" + string(status), Message: summary}
 	}
@@ -670,6 +673,9 @@ func (r Runtime) workflowResultForDispatchFailure(run app.AgentRun, route app.Ro
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
 		ReturnRoute: returnRoute, Error: &app.WorkflowResultError{Code: "workflow_dispatch_failed", Message: summary},
 	}
+	if run.MessageContext != nil {
+		result.MCP = run.MessageContext.MCP
+	}
 	return r.protectExternalSendResult(run, result)
 }
 
@@ -689,6 +695,9 @@ func (r Runtime) workflowResultForTerminalRoute(run app.AgentRun, route app.Rout
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
 		ReturnRoute: returnRoute,
 	}
+	if run.MessageContext != nil {
+		result.MCP = run.MessageContext.MCP
+	}
 	return r.protectExternalSendResult(run, result)
 }
 
@@ -706,6 +715,9 @@ func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDec
 		Status: status, CapabilityPath: nil, Workflow: app.WorkflowContractRef{ID: "legacy.unmatched", Revision: 1},
 		Content:     r.workflowResultContentFromToolCalls(run, summary),
 		ReturnRoute: returnRoute,
+	}
+	if run.MessageContext != nil {
+		result.MCP = run.MessageContext.MCP
 	}
 	return r.protectExternalSendResult(run, result)
 }

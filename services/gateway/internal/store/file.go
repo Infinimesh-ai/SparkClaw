@@ -39,6 +39,10 @@ type Snapshot struct {
 	OwnerProfile         app.OwnerProfile                     `json:"owner_profile"`
 	OwnerProfiles        map[string]app.OwnerProfile          `json:"owner_profiles,omitempty"`
 	PairingCodes         map[string]app.PairingCode           `json:"pairing_codes"`
+	ISCPOnboardings      map[string]app.ISCPOnboarding        `json:"iscp_onboardings,omitempty"`
+	MCPAccessTickets     map[string]app.MCPAccessTicket       `json:"mcp_access_tickets,omitempty"`
+	MCPBindings          map[string]app.MCPBinding            `json:"mcp_bindings,omitempty"`
+	MCPOperations        map[string]app.MCPOperation          `json:"mcp_operations,omitempty"`
 	Messages             map[string][]app.Message             `json:"messages"`
 	RunFeedback          map[string][]app.RunFeedback         `json:"run_feedback"`
 	Runs                 map[string]app.AgentRun              `json:"runs"`
@@ -212,6 +216,217 @@ func (s *FileStore) ClaimPairingCode(id, clientID string) (app.PairingCode, erro
 		s.persist()
 	}
 	return out, err
+}
+
+func (s *FileStore) SaveISCPOnboarding(onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out, err := s.inner.SaveISCPOnboarding(onboarding)
+	if err != nil {
+		return app.ISCPOnboarding{}, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		s.inner.mu.Lock()
+		delete(s.inner.iscpOnboardings, out.ID)
+		s.inner.mu.Unlock()
+		return app.ISCPOnboarding{}, err
+	}
+	return out, nil
+}
+
+func (s *FileStore) GetISCPOnboarding(id string) (app.ISCPOnboarding, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.GetISCPOnboarding(id)
+}
+
+func (s *FileStore) ListISCPOnboardings(ownerID string) []app.ISCPOnboarding {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.ListISCPOnboardings(ownerID)
+}
+
+func (s *FileStore) SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, existed := s.inner.GetMCPAccessTicket(ticket.ID)
+	out, err := s.inner.SaveMCPAccessTicket(ticket)
+	if err != nil {
+		return app.MCPAccessTicket{}, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		s.inner.mu.Lock()
+		if existed {
+			s.inner.mcpAccessTickets[out.ID] = previous
+		} else {
+			delete(s.inner.mcpAccessTickets, out.ID)
+		}
+		s.inner.mu.Unlock()
+		return app.MCPAccessTicket{}, err
+	}
+	return out, nil
+}
+
+func (s *FileStore) GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.GetMCPAccessTicket(id)
+}
+
+func (s *FileStore) FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.FindMCPAccessTicketBySecretHash(secretHash)
+}
+
+func (s *FileStore) ListMCPAccessTickets(ownerID string) []app.MCPAccessTicket {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.ListMCPAccessTickets(ownerID)
+}
+
+func (s *FileStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, existed := s.inner.FindMCPAccessTicketBySecretHash(secretHash)
+	out, err := s.inner.RedeemMCPAccessTicket(secretHash, peer, now)
+	if err != nil {
+		return out, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		s.inner.mu.Lock()
+		if existed {
+			s.inner.mcpAccessTickets[previous.ID] = previous
+		}
+		delete(s.inner.mcpBindings, out.ID)
+		delete(s.inner.sessions, out.LinkedSessionID)
+		s.inner.mu.Unlock()
+		return app.MCPBinding{}, err
+	}
+	return out, nil
+}
+
+func (s *FileStore) RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAccessTicket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, existed := s.inner.GetMCPAccessTicket(id)
+	out, err := s.inner.RevokeMCPAccessTicket(id, now)
+	if err != nil {
+		return out, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		if existed {
+			s.inner.mu.Lock()
+			s.inner.mcpAccessTickets[id] = previous
+			s.inner.mu.Unlock()
+		}
+		return app.MCPAccessTicket{}, err
+	}
+	return out, nil
+}
+
+func (s *FileStore) GetMCPBinding(id string) (app.MCPBinding, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.GetMCPBinding(id)
+}
+func (s *FileStore) FindMCPBindingForPeer(domainID, deviceID, thumbprint string) (app.MCPBinding, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.FindMCPBindingForPeer(domainID, deviceID, thumbprint)
+}
+func (s *FileStore) ListMCPBindings(ownerID string) []app.MCPBinding {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.ListMCPBindings(ownerID)
+}
+func (s *FileStore) RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, existed := s.inner.GetMCPBinding(id)
+	previousOperations := s.inner.ListMCPOperations(id)
+	out, err := s.inner.RevokeMCPBinding(id, now)
+	if err != nil {
+		return out, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		if existed {
+			s.inner.mu.Lock()
+			s.inner.mcpBindings[id] = previous
+			for _, operation := range previousOperations {
+				s.inner.mcpOperations[operation.ID] = operation
+			}
+			s.inner.mu.Unlock()
+		}
+		return app.MCPBinding{}, err
+	}
+	return out, nil
+}
+func (s *FileStore) TouchMCPBinding(id, iscpSessionID string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, existed := s.inner.GetMCPBinding(id)
+	err := s.inner.TouchMCPBinding(id, iscpSessionID, now)
+	if err != nil {
+		return err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		if existed {
+			s.inner.mu.Lock()
+			s.inner.mcpBindings[id] = previous
+			s.inner.mu.Unlock()
+		}
+		return err
+	}
+	return nil
+}
+func (s *FileStore) CreateMCPOperation(operation app.MCPOperation) (app.MCPOperation, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out, created, err := s.inner.CreateMCPOperation(operation)
+	if err != nil || !created {
+		return out, created, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		s.inner.mu.Lock()
+		delete(s.inner.mcpOperations, out.ID)
+		s.inner.mu.Unlock()
+		return app.MCPOperation{}, false, err
+	}
+	return out, true, nil
+}
+func (s *FileStore) GetMCPOperation(id string) (app.MCPOperation, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.GetMCPOperation(id)
+}
+func (s *FileStore) FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.FindMCPOperationByIdempotency(bindingID, idempotencyKey)
+}
+func (s *FileStore) ListMCPOperations(bindingID string) []app.MCPOperation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner.ListMCPOperations(bindingID)
+}
+func (s *FileStore) UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, existed := s.inner.GetMCPOperation(operation.ID)
+	out, err := s.inner.UpdateMCPOperation(operation, expectedVersion)
+	if err != nil {
+		return out, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		if existed {
+			s.inner.mu.Lock()
+			s.inner.mcpOperations[operation.ID] = previous
+			s.inner.mu.Unlock()
+		}
+		return app.MCPOperation{}, err
+	}
+	return out, nil
 }
 
 func (s *FileStore) AddMessage(message app.Message) app.Message {
@@ -697,6 +912,13 @@ func (s *FileStore) persistSnapshot() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.persistSnapshotLocked()
+}
+
+func (s *FileStore) persistSnapshotLocked() error {
+	if s.path == "" {
+		return nil
+	}
 	snapshot := s.inner.snapshot()
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {

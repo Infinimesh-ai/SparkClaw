@@ -1,6 +1,6 @@
 // Side panel components: timeline, trace, approvals, memory, status,
 // artifacts, episodes, evals, and settings.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as React from "react";
 import {
   Activity,
@@ -60,7 +60,6 @@ import {
   formatRisk,
   formatState,
   formatTime,
-  isBindingPending,
   isImageLikeQR,
   parsePreferences,
   parseToolList,
@@ -71,16 +70,13 @@ import {
   shortId,
   stripSystemArgs
 } from "../lib/format";
-import { bindingsForConnector, connectorBindingStartDisabled } from "../lib/connectors";
-
-function isBindingSetupPending(binding: NotificationBinding) {
-  return isBindingPending(binding.status) || (
-    binding.channel === "telegram" &&
-    binding.status === "active" &&
-    !binding.external_user_id &&
-    !binding.context_token
-  );
-}
+import {
+  bindingsForConnector,
+  connectorBindingStartDisabled,
+  isBindingSetupPending,
+  pendingBindingPollKey
+} from "../lib/connectors";
+import { ExternalMCPSettings } from "./externalMCPSettings";
 
 export function ToolTimelinePanel({ calls, text, onTrace }: { calls: ToolCall[]; text: CopyText; onTrace: (runId: string) => void }) {
   return (
@@ -817,7 +813,7 @@ export function SettingsPanel({
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
   onRevokeClient: (id: string) => Promise<void>;
   onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
-  onRefreshNotificationBinding: (id: string) => Promise<NotificationBinding>;
+  onRefreshNotificationBinding: (id: string, signal?: AbortSignal) => Promise<NotificationBinding>;
   onRevokeNotificationBinding: (id: string) => Promise<void>;
   onUpdateConnector: (channel: string, enabled: boolean, expectedVersion: number) => Promise<ConnectorStatus>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
@@ -837,15 +833,24 @@ export function SettingsPanel({
   const [connectorBusy, setConnectorBusy] = useState("");
   const [bindingError, setBindingError] = useState("");
   const [telegramToken, setTelegramToken] = useState("");
+  const refreshBindingRef = useRef(onRefreshNotificationBinding);
+  const pendingBindingKey = pendingBindingPollKey(notificationBindings);
 
   useEffect(() => {
-    const pending = notificationBindings.filter(isBindingSetupPending);
-    if (pending.length === 0) return;
+    refreshBindingRef.current = onRefreshNotificationBinding;
+  }, [onRefreshNotificationBinding]);
+
+  useEffect(() => {
+    const pendingIDs = JSON.parse(pendingBindingKey) as string[];
+    if (pendingIDs.length === 0) return;
     let cancelled = false;
     let timer = 0;
+    let controller: AbortController | null = null;
     const poll = () => {
-      void Promise.allSettled(pending.map((binding) => onRefreshNotificationBinding(binding.id)))
+      controller = new AbortController();
+      void Promise.allSettled(pendingIDs.map((id) => refreshBindingRef.current(id, controller?.signal)))
         .then((results) => {
+          controller = null;
           if (cancelled) return;
           const rejected = results.find((result) => result.status === "rejected");
           if (rejected?.status === "rejected") {
@@ -868,8 +873,9 @@ export function SettingsPanel({
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      controller?.abort();
     };
-  }, [notificationBindings, onRefreshNotificationBinding, text.errors.binding]);
+  }, [pendingBindingKey, text.errors.binding]);
 
   if (!runtimeConfig) {
     return (
@@ -1140,7 +1146,13 @@ export function SettingsPanel({
   return (
     <div className="panelStack">
       <SectionHeader icon={<Settings size={17} />} title={text.settings.title} />
-      {connectors.map(renderNotificationBindingSection)}
+      <ExternalMCPSettings
+		connector={connectors.find((item) => item.channel === "mcp")}
+		text={text}
+		language={language}
+		onUpdateConnector={onUpdateConnector}
+	  />
+      {connectors.filter((item) => item.channel !== "mcp").map(renderNotificationBindingSection)}
       {bindingError && <span className="compactError">{bindingError}</span>}
       <article className="settingsBlock">
         <div className="approvalTop">

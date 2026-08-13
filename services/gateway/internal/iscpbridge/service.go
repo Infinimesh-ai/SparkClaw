@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/envelope"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
@@ -302,6 +304,30 @@ func (s *Service) handleSecureEnvelope(ctx context.Context, secureEnvelope envel
 	}
 	if secureEnvelope.PayloadType != payload.TypeTaskInvoke {
 		return errors.New("SecureEnvelope payload type is unsupported")
+	}
+	var protocol struct {
+		ProtocolVersion string `json:"protocol_version"`
+	}
+	if err := json.Unmarshal(plaintext, &protocol); err != nil {
+		return errors.New("SecureEnvelope contains an invalid request")
+	}
+	if protocol.ProtocolVersion == mcpaccess.TransportProtocolVersion {
+		var request mcpaccess.TransportRequest
+		if err := strictUnmarshal(plaintext, &request); err != nil {
+			return errors.New("SecureEnvelope contains an invalid MCP request")
+		}
+		thumbprint, err := identity.Thumbprint(secured.peer.Identity)
+		if err != nil {
+			return errors.New("authenticated peer thumbprint is invalid")
+		}
+		response, gatewayErr := s.gateway.DispatchMCP(ctx, mcpaccess.PeerRequest{
+			Peer:    app.MCPPeerIdentity{DomainID: secureEnvelope.DomainID, DeviceID: secured.peer.Identity.DeviceID, KeyThumbprint: thumbprint, ISCPSessionID: secureEnvelope.SessionID},
+			Request: request,
+		})
+		if gatewayErr != nil {
+			return errors.New("Gateway MCP service is unavailable")
+		}
+		return s.sendSecure(ctx, secured, payload.TypeTaskResult, response)
 	}
 	var request Request
 	if err := strictUnmarshal(plaintext, &request); err != nil {

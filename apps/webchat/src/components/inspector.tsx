@@ -230,8 +230,8 @@ export function InspectorColumn({
     }
   }
 
-  async function refreshNotificationBinding(id: string) {
-    const binding = await api.notificationBinding(id);
+  async function refreshNotificationBinding(id: string, signal?: AbortSignal) {
+    const binding = await api.notificationBinding(id, signal);
     setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
     const awaitingTelegramMessage = binding.channel === "telegram" && binding.status === "active" && !binding.external_user_id && !binding.context_token;
     if (!isBindingPending(binding.status) && !awaitingTelegramMessage) {
@@ -364,7 +364,7 @@ export function InspectorColumn({
           onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
           onRevokeClient={(id) => revokeClient(id)}
           onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
-          onRefreshNotificationBinding={(id) => refreshNotificationBinding(id)}
+          onRefreshNotificationBinding={(id, signal) => refreshNotificationBinding(id, signal)}
           onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
           onUpdateConnector={(channel, enabled, version) => updateConnector(channel, enabled, version)}
           onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}

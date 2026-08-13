@@ -12,6 +12,11 @@ var ErrBrowserHandoffConflict = errors.New("browser handoff changed or is no lon
 var ErrConnectorSettingConflict = errors.New("connector setting changed")
 var ErrPassiveNotificationConflict = errors.New("notification idempotency key was reused with a different payload")
 var ErrPassiveNotificationNotFound = errors.New("notification not found")
+var ErrMCPAccessTicketInvalid = errors.New("MCP access ticket is invalid or unavailable")
+var ErrISCPOnboardingConflict = errors.New("ISCP onboarding already exists")
+var ErrMCPBindingUnavailable = errors.New("MCP binding is unavailable")
+var ErrMCPOperationConflict = errors.New("MCP operation idempotency key was reused with a different request")
+var ErrMCPOperationVersionConflict = errors.New("MCP operation changed")
 
 type Store interface {
 	CreateSession(title string) app.Session
@@ -35,6 +40,25 @@ type Store interface {
 	SavePairingCode(code app.PairingCode)
 	GetPairingCode(id string) (app.PairingCode, bool)
 	ClaimPairingCode(id, clientID string) (app.PairingCode, error)
+	SaveISCPOnboarding(onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error)
+	GetISCPOnboarding(id string) (app.ISCPOnboarding, bool)
+	ListISCPOnboardings(ownerID string) []app.ISCPOnboarding
+	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
+	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
+	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
+	ListMCPAccessTickets(ownerID string) []app.MCPAccessTicket
+	RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error)
+	RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAccessTicket, error)
+	GetMCPBinding(id string) (app.MCPBinding, bool)
+	FindMCPBindingForPeer(domainID, deviceID, thumbprint string) (app.MCPBinding, bool)
+	ListMCPBindings(ownerID string) []app.MCPBinding
+	RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, error)
+	TouchMCPBinding(id, iscpSessionID string, now time.Time) error
+	CreateMCPOperation(operation app.MCPOperation) (app.MCPOperation, bool, error)
+	GetMCPOperation(id string) (app.MCPOperation, bool)
+	FindMCPOperationByIdempotency(bindingID, idempotencyKey string) (app.MCPOperation, bool)
+	ListMCPOperations(bindingID string) []app.MCPOperation
+	UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error)
 	AddMessage(message app.Message) app.Message
 	ListMessages(sessionID string) []app.Message
 	SaveRunFeedback(feedback app.RunFeedback) app.RunFeedback

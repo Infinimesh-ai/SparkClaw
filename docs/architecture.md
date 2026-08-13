@@ -281,24 +281,108 @@ failure. Resources and tool results enter the bounded untrusted observation and
 artifact path. Policy treats remote writes as remote effects: they retain
 SparkClaw approval without claiming local sandbox execution.
 
-The reverse direction uses ISCP: an authenticated LocalMind peer can submit a
-structured mention through `agent.notification.deliver.v1`. Gateway validates
-the untrusted deep link and durably deduplicates the record by peer and
-idempotency key before acknowledging it. This passive path feeds an owner-scoped
-global WebChat inbox and SSE stream without creating conversation or Agent
-Runtime state. The older session/message request pair remains available as a
-compatibility fallback.
+The current legacy reverse direction uses ISCP: an authenticated LocalMind peer
+can submit a structured mention through `agent.notification.deliver.v1`.
+Gateway validates the untrusted deep link and durably deduplicates the record by
+peer and idempotency key before acknowledging it. This passive path feeds an
+owner-scoped global WebChat inbox and SSE stream without creating conversation
+or Agent Runtime state. The older session/message request pair remains available
+to LocalMind only inside that legacy chain until target cutover; LocalMind access
+through both paths is then deleted. Shared request types still required by
+JingSi remain unchanged pending its separate binding design.
 
 Telegram, Weixin, speech, Infinimesh Info, and LocalMind are optional adapters
 behind shared connector, delivery, transcription, search, or MCP contracts. See
 [External integrations](integrations.md).
 
-JingSi App and LocalMind connect through the separately deployed
+JingSi App and LocalMind currently connect through the separately deployed
 [ISCP Bridge](iscp-bridge.md). The Bridge terminates ISCP transport and calls one
 loopback Gateway API; session state, execution, Policy, approvals, passive
 notifications, event cursors, and audit remain owned by Gateway. Bearer auth is
 required when Gateway auth is enabled; the default no-auth Gateway still accepts
-only loopback Bridge dispatch.
+only loopback Bridge dispatch. LocalMind's use of this path is legacy and its
+bootstrap expects the external LocalMind controller to return the bundle used by
+SparkClaw's Bridge, which reverses the target LocalMind authority direction.
+JingSi's current path is not evaluated or migrated here.
+
+### Unified Third-Party Access (SparkClaw Surface Implemented)
+
+The target inbound architecture gives LocalMind and future third-party systems
+that choose this contract one provider-neutral Route MCP surface instead of
+adding an adapter or API for each provider. A generic ISCP MCP Access Gateway
+carries the MCP session between an enrolled external gateway device and
+SparkClaw; the local Route MCP Service projects only eligible, owner-granted
+Catalog leaves. The external MCP tool identity becomes a server-owned leaf
+binding and one deterministic Top-1 selection; it does not enter open-ended
+semantic scoring. The exact Workflow Profile then executes through the existing
+Runtime, Policy, approval, and audit core.
+
+JingSi is out of scope. It receives no MCP enrollment, tool projection, endpoint,
+or sender, and its future SparkClaw binding will be designed separately. This
+project leaves the minimum current JingSi-required path unchanged.
+
+MCP protocol negotiation and capability listing remain in its dedicated
+adapter, but MCP business calls join the managed third-party chain. A
+`tools/call` creates a `third_party_device` `MessageEnvelope`, an owner-scoped
+MCP source endpoint, and a frozen source `ReturnRoute`. The common router uses
+the server-owned leaf binding for deterministic Top-1 selection; Runtime,
+Policy, approval, Store, and audit remain shared.
+
+Waiting and terminal results become ordinary `WorkflowResult` and
+`DeliveryRequest` records. Delivery Gateway resolves the MCP source endpoint and
+invokes one generic MCP sender/provider, which maps the result to correlated MCP
+result, progress, or binding-scoped SparkClaw operation frames over ISCP. The
+first version remains MCP `2025-06-18` and does not advertise standard MCP Tasks.
+This keeps one managed receive/run/send lifecycle without treating MCP control
+traffic as chat.
+MCP also reuses provider-neutral third-party enable/suspend, endpoint visibility,
+and provider-availability management; polling and other inapplicable connector
+internals remain adapter-specific.
+
+SparkClaw locally starts the ISCP pairing flow and presents the resulting
+one-time ISCP Pairing Ticket to the owner. The owner transfers it once to the
+external Access Gateway, which connects to ISCP and redeems it through standard
+PairingTicket/Provisioning to join the same ISCP Domain as SparkClaw. ISCP
+defines, signs, verifies, and consumes the ticket; verifies device proof; issues
+Trust Grants and Relay credentials; establishes encrypted sessions; rotates
+credentials; and enforces transport revocation. SparkClaw does not duplicate
+those protocol services. Once the authenticated ISCP session is ready,
+SparkClaw separately issues a short-lived, single-use MCP Access Ticket. The
+enrolled external device redeems it only through that session, and SparkClaw
+atomically consumes it to activate the durable, owner-approved MCP Binding that
+selects which Route MCP leaves may be exposed. Ordinary MCP use relies on the
+session identity plus the Binding and reuses neither ticket. The external device
+remains requester/source provenance while SparkClaw remains the Workflow
+executor. Both gateway roles connect outbound to the Relay; the local Route MCP
+Service opens no public inbound port.
+
+The full trust, capability projection, invocation, LocalMind migration, and
+acceptance contract is in [Unified third-party ISCP MCP access](unified-third-party-access-design.md).
+The owner-facing External MCP settings surface and configured authority adapter
+are implemented. The adapter makes one authenticated, bounded outbound request
+for `iscp.pairing_ticket.v2`; it never owns Trust Root signing material. Only
+the non-secret onboarding receipt survives in memory, file, or PostgreSQL. The
+signed ticket is returned once, while leaf grants come from the current Catalog
+and MCP Access Tickets and Bindings can be listed or revoked locally.
+
+The SparkClaw-owned local runtime is implemented: strict MCP `2025-06-18`,
+hash-only single-use MCP Access Tickets, durable peer Bindings, Catalog leaf
+projection, exact Top-1 Workflow ingress, shared Delivery, binding-scoped
+operation recovery, default-off channel gates, and redacted lifecycle audit.
+Encrypted Bridge tests carry the MCP request and response through an established
+ISCP session. Production external onboarding is not active until the configured
+ISCP authority implementing the configured PairingTicket endpoint, a deployable external
+Access Gateway, and live Relay validation are completed. The current
+`agent.*.v1` Bridge therefore remains temporarily executable. Once LocalMind
+passes the new path after fresh
+ISCP PairingTicket/Provisioning into SparkClaw's Domain followed by SparkClaw
+MCP Access Ticket redemption, its external enrollment bundle flow, manifest
+entries, dispatch branches, fallbacks, configuration,
+tests, and guidance must be deleted. Shared Bridge components still required by
+JingSi remain frozen until JingSi receives its separate binding design; they
+must not retain a hidden LocalMind fallback. The outbound workspace-scoped
+SparkClaw-to-LocalMind MCP
+client is a separate direction and remains unchanged.
 
 ## State And Artifacts
 

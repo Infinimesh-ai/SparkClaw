@@ -2872,6 +2872,204 @@ button.finderRow {
   min-width: 0;
 }
 
+.externalMCPBlock {
+  border-color: rgba(96, 208, 68, 0.32);
+  background: var(--surface-muted);
+}
+
+.externalMCPStatusLine,
+.externalMCPSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.externalMCPStatusLine > span:not(.statusDot, .pill) {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.externalMCPSection {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.externalMCPSectionTitle {
+  color: var(--text-primary);
+}
+
+.externalMCPActionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.externalMCPAction,
+.externalMCPPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-small);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.externalMCPPrimary {
+  width: 100%;
+}
+
+.externalMCPGrantList,
+.externalMCPRecordList {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.externalMCPGrant {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-deep);
+}
+
+.externalMCPGrant > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.externalMCPGrant small {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.externalMCPOperations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.externalMCPOperations label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 27px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.externalMCPOperations input {
+  flex: 0 0 auto;
+  accent-color: var(--cyber-blue);
+}
+
+.copyOnceCredential {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.52);
+  border-radius: var(--radius-small);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.copyOnceCredential .approvalTop > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.copyOnceCredential small {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.copyOnceCredential code {
+  max-height: 128px;
+  min-width: 0;
+  overflow: auto;
+  padding: 8px;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.externalMCPRecord {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-deep);
+}
+
+.externalMCPRecord > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.externalMCPRecord strong,
+.externalMCPRecord small,
+.externalMCPRecord > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.externalMCPRecord small,
+.externalMCPRecord > span {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.externalMCPRecord > button {
+  width: 28px;
+  height: 28px;
+}
+
 .bindingItem {
   display: grid;
   gap: 9px;
@@ -3231,6 +3429,20 @@ button.finderRow {
 	}
   .bindingItemTop {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .externalMCPActionRow,
+  .externalMCPRecord {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .externalMCPAction,
+  .externalMCPRecord > button {
+    width: 100%;
+  }
+
+  .externalMCPRecord > span {
+    white-space: normal;
   }
 
   .bindingItemTop .compactButtons {

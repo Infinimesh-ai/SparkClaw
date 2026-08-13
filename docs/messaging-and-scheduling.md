@@ -12,6 +12,20 @@ worktree plan, and scheduled-task design record.
 Web, third-party connectors, and Timer are input sources for the same Message
 Runtime. They do not own separate Agent loops.
 
+The target [unified third-party ISCP MCP access](unified-third-party-access-design.md)
+registers MCP as a managed third-party channel while retaining a dedicated MCP
+protocol adapter. `initialize`, `ping`, and `tools/list` stay in that control
+plane, as do MCP Access Ticket redemption and the first version's
+`sparkclaw.operation.*` control tools. A Route `tools/call` enters the common
+receive layer as a `third_party_device` `MessageEnvelope`; its server-owned tool
+binding selects one deterministic Top-1 leaf. The result returns through
+Delivery Gateway and a generic MCP sender/provider. Enable/suspend state,
+endpoint visibility, and
+provider availability reuse the unified third-party management contract, while
+polling and other inapplicable connector internals remain adapter-specific. This
+reuses lifecycle management without pretending that MCP control traffic is a
+chat message.
+
 ```text
 Web or provider input, or Timer claim
   -> MessageEnvelope + authorization + ReturnRoute
@@ -24,7 +38,9 @@ Web or provider input, or Timer claim
 
 `MessageContent` preserves ordered text, image, audio, and file parts.
 `MessageEnvelope` preserves source endpoint, native message/thread identity,
-owner/actor authorization, and return routing. These contracts live in
+owner/actor authorization, and return routing. For target MCP ingress, the
+external device remains requester/source provenance in typed MCP context while
+the local SparkClaw principal remains the Workflow actor. These contracts live in
 `internal/app` and are provider-neutral.
 
 An ordinary request to publish the current message uses

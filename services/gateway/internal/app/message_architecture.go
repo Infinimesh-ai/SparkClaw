@@ -254,6 +254,7 @@ type MessageRunContext struct {
 	ReturnRoute    ReturnRoute           `json:"return_route"`
 	Route          RouteDecision         `json:"route"`
 	IntentFusion   *IntentFusionDecision `json:"intent_fusion,omitempty"`
+	MCP            *MCPInvocationRef     `json:"mcp,omitempty"`
 }
 
 type RouteOperation string
@@ -342,6 +343,7 @@ type WorkflowResult struct {
 	ReturnRoute    ReturnRoute          `json:"return_route"`
 	Resume         *WorkflowResumeState `json:"resume,omitempty"`
 	Error          *WorkflowResultError `json:"error,omitempty"`
+	MCP            *MCPInvocationRef    `json:"mcp,omitempty"`
 }
 
 type DeliveryRequest struct {
@@ -349,6 +351,8 @@ type DeliveryRequest struct {
 	ID             DeliveryID           `json:"id"`
 	IdempotencyKey string               `json:"idempotency_key"`
 	ResultID       string               `json:"result_id,omitempty"`
+	ResultStatus   WorkflowResultStatus `json:"result_status,omitempty"`
+	ResultError    *WorkflowResultError `json:"result_error,omitempty"`
 	RunID          string               `json:"run_id,omitempty"`
 	OwnerID        string               `json:"owner_id"`
 	ActorID        string               `json:"actor_id"`
@@ -359,6 +363,7 @@ type DeliveryRequest struct {
 	ApprovalSource string               `json:"approval_source,omitempty"`
 	ContentDigest  string               `json:"content_digest,omitempty"`
 	CreatedAt      time.Time            `json:"created_at"`
+	MCP            *MCPInvocationRef    `json:"mcp,omitempty"`
 }
 
 type DeliveryOrigin string

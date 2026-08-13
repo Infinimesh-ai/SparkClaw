@@ -18,6 +18,15 @@ import type {
   ModelStreamEvent,
   ModelCall,
   NotificationBinding,
+  ISCPOnboarding,
+  ISCPPairingStatus,
+  IssuedISCPPairing,
+  IssuedMCPAccessTicket,
+  MCPAccessTicket,
+  MCPAccessCatalog,
+  MCPBinding,
+  MCPGrantOption,
+  MCPRequestedGrant,
   PassiveNotification,
   OwnerProfile,
   PublicConfig,
@@ -291,12 +300,32 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ enabled, expected_version: expectedVersion })
     }),
+  iscpPairingStatus: () => request<ISCPPairingStatus>("/api/iscp-pairing/status"),
+  iscpOnboardings: () => request<{ onboardings: ISCPOnboarding[] }>("/api/iscp-pairing/onboardings"),
+  startISCPPairing: (displayName: string, ttlSeconds = 600) =>
+    request<IssuedISCPPairing>("/api/iscp-pairing/start", {
+      method: "POST",
+      body: JSON.stringify({ display_name: displayName, ttl_seconds: ttlSeconds })
+    }),
+  mcpAccessCatalog: () => request<MCPAccessCatalog>("/api/mcp-access/catalog"),
+  mcpAccessTickets: () => request<{ tickets: MCPAccessTicket[] }>("/api/mcp-access/tickets"),
+  issueMCPAccessTicket: (domainId: string, grants: MCPRequestedGrant[], ttlSeconds = 86400) =>
+    request<IssuedMCPAccessTicket>("/api/mcp-access/tickets", {
+      method: "POST",
+      body: JSON.stringify({ domain_id: domainId, grants, ttl_seconds: ttlSeconds })
+    }),
+  revokeMCPAccessTicket: (id: string) =>
+    request<MCPAccessTicket>(`/api/mcp-access/tickets/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
+  mcpBindings: () => request<{ bindings: MCPBinding[] }>("/api/mcp-access/bindings"),
+  revokeMCPBinding: (id: string) =>
+    request<MCPBinding>(`/api/mcp-access/bindings/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
   startNotificationBinding: (channel = "weixin", botToken = "") =>
     request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
       method: "POST",
       body: JSON.stringify({ default_for_channel: false, credential_secret: botToken })
     }),
-  notificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`),
+  notificationBinding: (id: string, signal?: AbortSignal) =>
+    request<NotificationBinding>(`/api/notification-bindings/${id}`, { signal }),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
   deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),
   schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),

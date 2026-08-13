@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectorStatus, NotificationBinding } from "../api/types";
-import { bindingsForConnector, connectorBindingStartDisabled } from "./connectors";
+import { bindingsForConnector, connectorBindingStartDisabled, pendingBindingPollKey } from "./connectors";
 
 function connector(overrides: Partial<ConnectorStatus> = {}): ConnectorStatus {
   return {
@@ -49,5 +49,15 @@ describe("connector controls", () => {
       binding("weixin", "weixin", "active", "2026-01-04T00:00:00Z")
     ];
     expect(bindingsForConnector(records, "telegram").map((record) => record.id)).toEqual(["new", "old"]);
+  });
+
+  it("keeps the polling identity stable across binding refreshes", () => {
+    const waiting = binding("weixin", "weixin", "waiting_scan", "2026-01-01T00:00:00Z");
+    const refreshed = { ...waiting, updated_at: "2026-01-01T00:00:30Z", qr_code_url: "https://example.com/qr" };
+
+    expect(pendingBindingPollKey([waiting])).toBe(pendingBindingPollKey([refreshed]));
+    expect(pendingBindingPollKey([binding("telegram", "telegram", "waiting_scan", "2026-01-01T00:00:00Z"), waiting]))
+      .toBe(pendingBindingPollKey([waiting, binding("telegram", "telegram", "waiting_scan", "2026-01-02T00:00:00Z")]));
+    expect(pendingBindingPollKey([{ ...refreshed, status: "expired" }])).toBe("[]");
   });
 });

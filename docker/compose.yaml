@@ -76,6 +76,14 @@ services:
       SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES: ${SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES:-3145728}
       SPARKCLAW_SPEECH_MAX_CONCURRENCY: ${SPARKCLAW_SPEECH_MAX_CONCURRENCY:-1}
       SPARKCLAW_SPEECH_MAX_PENDING: ${SPARKCLAW_SPEECH_MAX_PENDING:-1}
+      SPARKCLAW_ISCP_PAIRING_ENABLED: ${SPARKCLAW_ISCP_PAIRING_ENABLED:-false}
+      SPARKCLAW_ISCP_DOMAIN_ID: ${SPARKCLAW_ISCP_DOMAIN_ID:-}
+      SPARKCLAW_ISCP_AUTHORITY_URL: ${SPARKCLAW_ISCP_AUTHORITY_URL:-}
+      SPARKCLAW_ISCP_AUTHORITY_TOKEN_ENV: ${SPARKCLAW_ISCP_AUTHORITY_TOKEN_ENV:-}
+      SPARKCLAW_ISCP_AUTHORITY_TOKEN_FILE: ${SPARKCLAW_ISCP_AUTHORITY_TOKEN_FILE:-}
+      SPARKCLAW_ISCP_AUTHORITY_TOKEN: ${SPARKCLAW_ISCP_AUTHORITY_TOKEN:-}
+      SPARKCLAW_MCP_LAN_DIRECT_TEST_ENABLED: ${SPARKCLAW_MCP_LAN_DIRECT_TEST_ENABLED:-false}
+      SPARKCLAW_MCP_LAN_DIRECT_DOMAIN_ID: ${SPARKCLAW_MCP_LAN_DIRECT_DOMAIN_ID:-sparkclaw-lan-test}
       LOCALMIND_MCP_URL: ${LOCALMIND_MCP_URL:-}
       LOCALMIND_MCP_TOKEN: ${LOCALMIND_MCP_TOKEN:-}
       SPARKCLAW_FAST_BASE_URL: ${SPARKCLAW_FAST_BASE_URL:-http://sparkclaw-fast:8001/v1}
@@ -133,6 +141,19 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    networks:
+      - sparkclaw_internal
+
+  mcp-lan-proxy:
+    profiles: ["lan-mcp-test"]
+    image: nginx:1.29.1-alpine
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "${SPARKCLAW_MCP_LAN_PUBLISH_HOST:-0.0.0.0}:${SPARKCLAW_MCP_LAN_PORT:-18791}:18791"
+    volumes:
+      - ./nginx/mcp-lan-test.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - sparkclaw_internal
 

@@ -3,8 +3,9 @@ package app
 import "time"
 
 const (
-	ConnectorSetupQR     = "qr"
-	ConnectorSetupSecret = "secret"
+	ConnectorSetupQR       = "qr"
+	ConnectorSetupSecret   = "secret"
+	ConnectorSetupExternal = "external"
 
 	ConnectorStateDisabled      = "disabled"
 	ConnectorStateUnavailable   = "unavailable"

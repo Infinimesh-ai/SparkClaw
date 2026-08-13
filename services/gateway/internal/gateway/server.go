@@ -37,6 +37,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -71,6 +73,8 @@ type Server struct {
 	providers                *delivery.ProviderRegistry
 	connectors               ConnectorController
 	mcp                      MCPController
+	mcpAccess                *mcpaccess.Service
+	iscpPairing              *iscppairing.Service
 	externalApprovalResolver ExternalApprovalResolver
 	bridge                   *iscpbridge.GatewayAdapter
 	deliveryMu               sync.Mutex
@@ -111,6 +115,12 @@ func WithConnectorController(controller ConnectorController) Option {
 func WithMCPController(controller MCPController) Option {
 	return func(server *Server) {
 		server.mcp = controller
+	}
+}
+
+func WithISCPPairing(service *iscppairing.Service) Option {
+	return func(server *Server) {
+		server.iscpPairing = service
 	}
 }
 
@@ -193,6 +203,26 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		option(s)
 	}
 	s.bridge = iscpbridge.NewGatewayAdapter(st, func() iscpbridge.AgentRuntime { return s.runtime })
+	s.mcpAccess = mcpaccess.New(st, s.runtime, func(ctx context.Context, result agent.Result) error {
+		if s.endpoints == nil || s.delivery == nil {
+			return errors.New("MCP result delivery is unavailable")
+		}
+		_, err := s.deliverAgentResult(ctx, result)
+		return err
+	})
+	s.mcpAccess.WithExecutionContext(s.executionContext)
+	if s.iscpPairing == nil {
+		s.iscpPairing = iscppairing.New(st, iscppairing.Options{
+			Enabled: cfg.ISCPPairing.Enabled, DomainID: cfg.ISCPPairing.DomainID,
+			ExpectedTicketType: cfg.ISCPPairing.ExpectedTicketType,
+		})
+	}
+	if s.connectors != nil {
+		s.mcpAccess.WithChannelEnabled(func(ownerID string) bool {
+			status, err := s.connectors.Status(ownerID, "mcp")
+			return err == nil && status.Enabled
+		})
+	}
 	if !s.bindingsSet {
 		s.bindings = binding.NewRouter(cfg, s.credentials)
 	}
@@ -309,6 +339,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events/stream", s.streamSessionEvents)
 	s.mux.HandleFunc("POST /api/bridge/v1/dispatch", s.dispatchBridgeRequest)
+	s.mux.HandleFunc("POST /api/bridge/v1/mcp/dispatch", s.dispatchMCPBridgeRequest)
+	s.mux.HandleFunc("POST /mcp", s.dispatchLANDirectMCP)
+	s.mux.HandleFunc("GET /api/mcp-access/tickets", s.listMCPAccessTickets)
+	s.mux.HandleFunc("GET /api/mcp-access/catalog", s.listMCPAccessCatalog)
+	s.mux.HandleFunc("POST /api/mcp-access/tickets", s.issueMCPAccessTicket)
+	s.mux.HandleFunc("POST /api/mcp-access/tickets/{id}/revoke", s.revokeMCPAccessTicket)
+	s.mux.HandleFunc("GET /api/mcp-access/bindings", s.listMCPBindings)
+	s.mux.HandleFunc("POST /api/mcp-access/bindings/{id}/revoke", s.revokeMCPBinding)
+	s.mux.HandleFunc("GET /api/iscp-pairing/status", s.getISCPPairingStatus)
+	s.mux.HandleFunc("GET /api/iscp-pairing/onboardings", s.listISCPOnboardings)
+	s.mux.HandleFunc("POST /api/iscp-pairing/start", s.startISCPPairing)
 	s.mux.HandleFunc("GET /api/sessions/{id}/model-calls", s.listSessionModelCalls)
 	s.mux.HandleFunc("GET /api/sessions/{id}/tool-calls", s.listSessionToolCalls)
 	s.mux.HandleFunc("GET /api/sessions/{id}/audit", s.listSessionAudit)
@@ -480,6 +521,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"gateway":             publicGatewayConfig(s.cfg.Gateway),
 		"model":               publicModelConfig(s.cfg.Model),
 		"speech":              publicSpeechConfig(s.cfg.Speech),
+		"iscp_pairing":        s.iscpPairing.Status(r.Context()),
 		"mcp_servers":         publicMCPServersConfig(s.cfg.MCPServers),
 		"workspaces":          s.cfg.Workspaces,
 		"security":            s.cfg.Security,
@@ -1496,6 +1538,26 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call})
 }
 
+func (s *Server) validateMCPApproval(approval app.Approval) error {
+	run, ok := s.store.GetRun(approval.RunID)
+	if !ok || run.MessageContext == nil || run.MessageContext.MCP == nil {
+		return nil
+	}
+	operation, ok := s.store.GetMCPOperation(run.MessageContext.MCP.OperationID)
+	if !ok || operation.Invocation.RunID != run.ID {
+		return errors.New("MCP operation is unavailable for this approval")
+	}
+	if !operation.Invocation.AllowApproval {
+		return errors.New("MCP binding did not grant approval-backed execution")
+	}
+	switch operation.State {
+	case app.MCPOperationApprovalRequired, app.MCPOperationRunning:
+		return nil
+	default:
+		return errors.New("MCP operation is no longer waiting for approval")
+	}
+}
+
 func (s *Server) modifyHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, plan *string, args map[string]any, note string) {
 	if plan == nil || len(args) != 0 {
 		writeError(w, http.StatusBadRequest, errors.New("Happy plan modification requires only the plan field"))
@@ -1540,6 +1602,12 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	if approval.Status != "pending" {
 		writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
 		return
+	}
+	if status == "approved" {
+		if err := s.validateMCPApproval(approval); err != nil {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
 	}
 	if approval.Source == app.ApprovalSourceHappyTeamPlan {
 		s.resolveHappyPlanApproval(w, r, approval, status, input.Note)
@@ -2328,7 +2396,8 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Idempotency-Key")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, MCP-Protocol-Version")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -2339,6 +2408,10 @@ func withCORS(next http.Handler) http.Handler {
 
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/mcp" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if s.isPublicRoute(r) {
 			next.ServeHTTP(w, r)
 			return
@@ -2562,9 +2635,6 @@ func streamVisibleEvent(typ string) bool {
 
 func isLocalRequest(r *http.Request) bool {
 	host := r.RemoteAddr
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		host = strings.Split(forwarded, ",")[0]
-	}
 	if parsed := strings.TrimSpace(host); parsed != "" {
 		if h, _, err := net.SplitHostPort(parsed); err == nil {
 			host = h

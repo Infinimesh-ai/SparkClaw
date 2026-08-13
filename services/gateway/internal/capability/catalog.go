@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-06.v18"
+	DefaultCatalogRevision = "2026-08-12.v19"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -28,6 +28,17 @@ type Node struct {
 	Description string                   `json:"description"`
 	Workflow    *app.WorkflowContractRef `json:"workflow,omitempty"`
 	Route       *RouteContract           `json:"route,omitempty"`
+	RemoteMCP   *RemoteMCPContract       `json:"remote_mcp,omitempty"`
+}
+
+type RemoteMCPContract struct {
+	Revision int                                   `json:"revision"`
+	Effects  map[app.RouteOperation]app.ToolEffect `json:"effects"`
+}
+
+func (c RemoteMCPContract) Effect(operation app.RouteOperation) (app.ToolEffect, bool) {
+	effect, ok := c.Effects[operation]
+	return effect, ok
 }
 
 type RouteContract struct {
@@ -129,27 +140,31 @@ func DefaultCatalog() (Catalog, error) {
 	leaf := func(id, parent, description string, route RouteContract) Node {
 		return leafRevision(id, parent, description, 1, route)
 	}
+	remote := func(node Node, effects map[app.RouteOperation]app.ToolEffect) Node {
+		node.RemoteMCP = &RemoteMCPContract{Revision: 1, Effects: effects}
+		return node
+	}
 	return NewCatalog(DefaultCatalogRevision, []Node{
 		branch(string(RootID), "", "Registered user-visible product capabilities."),
 		branch("conversation", string(RootID), "Handle ordinary conversation answers and owner-authored multipart messages."),
-		leafRevision(string(app.CapabilityConversationAnswer), "conversation", "Handle ordinary conversation answers and publish owner-authored multipart messages. Current facts, governed-resource inspection, tools, and unrelated actions belong to other capabilities.", 2, RouteContract{
+		remote(leafRevision(string(app.CapabilityConversationAnswer), "conversation", "Handle ordinary conversation answers and publish owner-authored multipart messages. Current facts, governed-resource inspection, tools, and unrelated actions belong to other capabilities.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationAnswer, app.RouteOperationPublish}, RequireQuery: true,
 			QueryOptionalOperations: []app.RouteOperation{app.RouteOperationPublish},
-		}),
+		}), map[app.RouteOperation]app.ToolEffect{app.RouteOperationAnswer: app.ToolEffectLocalCompute}),
 		branch("browser", string(RootID), "Use current Internet facts, a single-location weather card, or a managed browser session."),
-		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", RouteContract{
+		remote(leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSearch}, FactScopes: []app.RouteFactScope{app.RouteFactScopeCurrentInternet}, RequireQuery: true,
-		}),
-		leaf(string(app.CapabilityBrowserWeather), "browser", "Query current weather through Info and render one card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", RouteContract{
+		}), map[app.RouteOperation]app.ToolEffect{app.RouteOperationSearch: app.ToolEffectExternalRead}),
+		remote(leaf(string(app.CapabilityBrowserWeather), "browser", "Query current weather through Info and render one card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, TargetKinds: []string{string(app.TargetKindLocation)},
 			RequireQuery: true, RequireLocation: true, RequireTarget: true, RequiredFacts: []string{"location_source"},
-		}),
+		}), map[app.RouteOperation]app.ToolEffect{app.RouteOperationRead: app.ToolEffectExternalRead}),
 		leafRevision(string(app.CapabilityBrowserAutomation), "browser", "Open or focus one explicit URL, registered destination, or named public website in the managed browser.", app.BrowserWorkflowRevision2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url", string(app.TargetKindPublicNamedTarget)}, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
-		leaf(string(app.CapabilityBrowserPageRead), "browser", "Read and return bounded content from one explicit URL or named public page through managed headless Chromium.", RouteContract{
+		remote(leaf(string(app.CapabilityBrowserPageRead), "browser", "Read and return bounded content from one explicit URL or named public page through managed headless Chromium.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url", string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
-		}),
+		}), map[app.RouteOperation]app.ToolEffect{app.RouteOperationRead: app.ToolEffectExternalRead}),
 		leafRevision(string(app.CapabilityBrowserInteraction), "browser", "Inspect a managed Chromium page and perform up to three verified clicks for one frozen interaction goal.", app.BrowserWorkflowRevision2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationInteract}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
@@ -352,7 +367,7 @@ func validateNodeShape(node Node) error {
 	}
 	switch node.Kind {
 	case NodeBranch:
-		if node.Workflow != nil || node.Route != nil {
+		if node.Workflow != nil || node.Route != nil || node.RemoteMCP != nil {
 			return fmt.Errorf("capability branch %q cannot select a workflow", node.ID)
 		}
 	case NodeLeaf:
@@ -374,6 +389,16 @@ func validateNodeShape(node Node) error {
 		for _, operation := range node.Route.QueryOptionalOperations {
 			if !node.Route.RequireQuery || !slices.Contains(node.Route.Operations, operation) {
 				return fmt.Errorf("capability leaf %q has invalid query-optional operation %q", node.ID, operation)
+			}
+		}
+		if node.RemoteMCP != nil {
+			if node.RemoteMCP.Revision <= 0 || len(node.RemoteMCP.Effects) == 0 {
+				return fmt.Errorf("capability leaf %q has an incomplete remote MCP contract", node.ID)
+			}
+			for operation, effect := range node.RemoteMCP.Effects {
+				if !slices.Contains(node.Route.Operations, operation) || effect == "" {
+					return fmt.Errorf("capability leaf %q has an invalid remote MCP operation %q", node.ID, operation)
+				}
 			}
 		}
 	default:
@@ -407,6 +432,14 @@ func cloneNode(node Node) Node {
 	if node.Route != nil {
 		route := cloneRouteContract(*node.Route)
 		node.Route = &route
+	}
+	if node.RemoteMCP != nil {
+		remote := *node.RemoteMCP
+		remote.Effects = make(map[app.RouteOperation]app.ToolEffect, len(node.RemoteMCP.Effects))
+		for operation, effect := range node.RemoteMCP.Effects {
+			remote.Effects[operation] = effect
+		}
+		node.RemoteMCP = &remote
 	}
 	return node
 }

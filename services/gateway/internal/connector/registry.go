@@ -16,12 +16,13 @@ import (
 )
 
 type Registration struct {
-	Channel       string
-	SetupKind     string
-	Binding       binding.Adapter
-	Provider      delivery.Provider
-	Runtime       connectorruntime.Runtime
-	CancelBinding func(app.NotificationBinding)
+	Channel         string
+	SetupKind       string
+	Binding         binding.Adapter
+	Provider        delivery.Provider
+	Runtime         connectorruntime.Runtime
+	CancelBinding   func(app.NotificationBinding)
+	ExternalManaged bool
 }
 
 func (r *Registry) ProviderRegistry() (*delivery.ProviderRegistry, error) {

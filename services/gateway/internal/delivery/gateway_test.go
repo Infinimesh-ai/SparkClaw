@@ -47,10 +47,12 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 	content := app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "reply"}}}
 	request, deliver, err := RequestFromWorkflowResult(t.Context(), app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "result-source", OwnerID: "external-actor-a",
-		Authorization: app.MessageAuthorization{PrincipalID: "external-actor-a"}, Content: content,
+		Authorization: app.MessageAuthorization{PrincipalID: "external-actor-a"}, Status: app.WorkflowResultBlocked,
+		Error: &app.WorkflowResultError{Code: "policy_blocked", Message: "blocked"}, Content: content,
 		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: "chat-source"},
 	}, routes)
-	if err != nil || !deliver || request.Target != "chat-source" || request.Origin != app.DeliveryOriginSourceReply {
+	if err != nil || !deliver || request.Target != "chat-source" || request.Origin != app.DeliveryOriginSourceReply ||
+		request.ResultStatus != app.WorkflowResultBlocked || request.ResultError == nil || request.ResultError.Code != "policy_blocked" {
 		t.Fatalf("source reply request was not frozen: request=%#v deliver=%v err=%v", request, deliver, err)
 	}
 	providers := NewProviderRegistry()
@@ -71,6 +73,51 @@ func TestSourceReplyUsesFrozenExactThirdPartyEndpoint(t *testing.T) {
 	request.OwnerID = "owner-b"
 	if _, err := NewGateway(endpoints, providers, nil).Deliver(t.Context(), request); err == nil || len(fake.endpoints) != 1 {
 		t.Fatalf("source reply crossed its authorized owner: endpoints=%#v err=%v", fake.endpoints, err)
+	}
+}
+
+func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
+	st := store.NewMemoryStore()
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+		SecretHash: "mcp-delivery-secret", OwnerID: "owner-a", ActorID: "owner-a", DomainID: "domain-a",
+		Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "session-a"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := NewProviderRegistry()
+	fake := &recordingProvider{key: "mcp", caps: app.DeliveryCapabilities{Kinds: []app.MessagePartKind{app.MessagePartText}}}
+	if err := providers.Register(fake); err != nil {
+		t.Fatal(err)
+	}
+	request := app.DeliveryRequest{
+		SchemaVersion: app.DeliveryRequestSchemaVersion, ID: "delivery-mcp", IdempotencyKey: "result:mcp",
+		OwnerID: "owner-a", ActorID: "owner-a", Authorization: app.MessageAuthorization{PrincipalID: "owner-a"},
+		Target: app.EndpointID("mcp:" + binding.ID), Origin: app.DeliveryOriginSourceReply,
+		Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Text: "done"}}},
+		MCP:     &app.MCPInvocationRef{InvocationID: "inv-a", OperationID: "op-a", BindingRef: binding.ID, RequesterDeviceID: "device-a"},
+	}
+	enabled := true
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(_, channel string) bool {
+		return enabled && channel == "mcp"
+	})
+	gateway := NewGateway(endpoints, providers, nil)
+	if _, err := gateway.Deliver(t.Context(), request); err != nil {
+		t.Fatalf("authorized MCP reply failed: %v", err)
+	}
+	enabled = false
+	if _, err := gateway.Deliver(t.Context(), request); err == nil || len(fake.requests) != 1 {
+		t.Fatalf("disabled MCP connector delivered a source reply: requests=%#v err=%v", fake.requests, err)
+	}
+	enabled = true
+	request.MCP.RequesterDeviceID = "device-b"
+	if _, err := gateway.Deliver(t.Context(), request); ErrorCode(err) != CodeCrossUserDenied {
+		t.Fatalf("requester substitution error = %v", err)
 	}
 }
 

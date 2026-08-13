@@ -115,6 +115,11 @@ func requestAuthorizedForEndpoint(request app.DeliveryRequest, endpoint app.Mess
 		return false
 	}
 	if request.Origin == app.DeliveryOriginSourceReply {
+		if request.MCP != nil {
+			return endpoint.ProviderKey == "mcp" && endpoint.OwnerID == request.OwnerID &&
+				endpoint.ActorID == request.ActorID && endpoint.BindingRef == request.MCP.BindingRef &&
+				endpoint.RequesterDeviceID == request.MCP.RequesterDeviceID
+		}
 		return endpoint.SourceActorID == request.OwnerID && endpoint.SourceActorID == request.ActorID
 	}
 	return endpoint.OwnerID == request.OwnerID && endpoint.ActorID == request.ActorID

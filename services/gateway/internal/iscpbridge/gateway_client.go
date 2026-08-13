@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 )
 
 const (
@@ -25,6 +27,44 @@ type GatewayClientOptions struct {
 	UnixSocket string
 	Token      string
 	Timeout    time.Duration
+}
+
+func (c *GatewayClient) DispatchMCP(ctx context.Context, request mcpaccess.PeerRequest) (mcpaccess.TransportResponse, error) {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return mcpaccess.TransportResponse{}, fmt.Errorf("encode Gateway MCP request: %w", err)
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/bridge/v1/mcp/dispatch", bytes.NewReader(body))
+	if err != nil {
+		return mcpaccess.TransportResponse{}, fmt.Errorf("create Gateway MCP request: %w", err)
+	}
+	if c.token != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	response, err := c.client.Do(httpRequest)
+	if err != nil {
+		return mcpaccess.TransportResponse{}, fmt.Errorf("call Gateway MCP service: %w", err)
+	}
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxGatewayResponse+1))
+	if err != nil {
+		return mcpaccess.TransportResponse{}, fmt.Errorf("read Gateway MCP response: %w", err)
+	}
+	if len(raw) > maxGatewayResponse {
+		return mcpaccess.TransportResponse{}, errors.New("Gateway MCP response is too large")
+	}
+	var out mcpaccess.TransportResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, fmt.Errorf("decode Gateway MCP response status %d", response.StatusCode)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return out, fmt.Errorf("Gateway MCP service returned status %d", response.StatusCode)
+	}
+	if out.ProtocolVersion != mcpaccess.TransportProtocolVersion || out.Type != mcpaccess.TransportTypeResponse {
+		return out, errors.New("Gateway returned an invalid MCP bridge response")
+	}
+	return out, nil
 }
 
 type GatewayClient struct {

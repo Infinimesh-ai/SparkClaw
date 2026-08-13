@@ -18,6 +18,9 @@ func RequestFromWorkflowResult(ctx context.Context, result app.WorkflowResult, r
 	}
 	request, deliver, err := RequestForMessage(ctx, result.ID, result.OwnerID, result.Authorization, result.Content, result.ReturnRoute, routes)
 	request.RunID = result.RunID
+	request.ResultStatus = result.Status
+	request.ResultError = result.Error
+	request.MCP = result.MCP
 	return request, deliver, err
 }
 

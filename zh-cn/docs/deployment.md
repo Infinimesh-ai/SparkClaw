@@ -172,6 +172,69 @@ Host WebChat dev server 监听 `0.0.0.0:18790`，并把 API 请求代理到仅�
 loopback 的 Gateway。受保护的宿主进程运行态应把 `SPARKCLAW_API_TOKEN`
 和 `VITE_SPARKCLAW_API_TOKEN` 设为相同值。
 
+## 外部 MCP ISCP 配对
+
+Owner-facing External MCP 表面已安装但默认关闭。只有 SparkClaw 可以向真实 ISCP Domain
+authority 请求标准 `iscp.pairing_ticket.v2` 对象时才会 ready：
+
+```dotenv
+SPARKCLAW_ISCP_PAIRING_ENABLED=true
+SPARKCLAW_ISCP_DOMAIN_ID=<sparkclaw-domain-id>
+SPARKCLAW_ISCP_AUTHORITY_URL=https://authority.example/v1/pairing-tickets
+SPARKCLAW_ISCP_AUTHORITY_TOKEN_ENV=SPARKCLAW_ISCP_AUTHORITY_TOKEN
+SPARKCLAW_ISCP_AUTHORITY_TOKEN=<authority-client-token>
+```
+
+若 secret 以 mode `0600` 文件挂载，则用 `SPARKCLAW_ISCP_AUTHORITY_TOKEN_FILE` 替代
+`TOKEN_ENV`。必须且只能配置一种 token 来源。authority URL 除 loopback/private 开发服务外
+必须为 HTTPS；默认请求边界为 15 秒和 64 KiB。
+
+这是 SparkClaw authority adapter contract，不是 ISCP v0.1.0 当前定义的 HTTP endpoint。
+SparkClaw 发送带认证的 `POST`，包含 `sparkclaw.iscp_pairing.request.v1` type、稳定
+`request_ref`、配置的 `domain_id`、`max_uses: 1` 和 `ttl_seconds`。authority 响应只包含
+`authority_ref` 与签名标准 `ticket` 对象。签名、消费、Device Proof、Provisioning、Trust
+Grant 和 Relay credential 仍由 authority 负责；SparkClaw 不存储签名 ticket，也不暴露 claim
+endpoint。
+
+配置完成后，在 WebChat 设置中开启通用 MCP connector，签发并传递单次展示的 ISCP Pairing
+Ticket，让 external Access Gateway 完成 enrollment，然后按选中的 Catalog 叶子签发独立 MCP
+Access Ticket。生产端到端访问仍需要真实 authority 实现、external Access Gateway 和 Relay
+实机链路。
+
+### 临时局域网 MCP 验证
+
+只有当 SparkClaw 与外部 MCP client 位于同一可信局域网、且生产 ISCP 链路尚不可用时才使用此
+模式。局域网只替代 ISCP transport 和 peer session 建立；SparkClaw 仍签发单次 MCP Access
+Ticket，在 MCP `initialize` 时原子消费它，创建同一种持久 MCP Binding，并继续使用完全相同的
+Catalog、Workflow、Policy/Approval、operation、Message 和 Delivery 链路。
+
+用显式测试环境启动 Gateway、WebChat 和只允许 MCP 路径的局域网 proxy：
+
+```bash
+SPARKCLAW_RUNTIME_OVERRIDE_ENV=docker/env/sparkclaw.lan-mcp-test.env \
+  bash scripts/restart_runtime_compose.sh gateway webchat mcp-lan-proxy
+```
+
+Gateway 的 `18789` 仍只绑定 loopback；该模式不改变 WebChat 现有的 `18790` 发布设置。proxy
+仅在 TCP `18791` 发布精确路径 `/mcp`，其他路径全部返回 404。外部 client 使用：
+
+```text
+URL: http://<sparkclaw-lan-ip>:18791/mcp
+Initial Authorization: Bearer <SPARKCLAW_MCP_ACCESS_TICKET>
+MCP-Protocol-Version: 2025-06-18
+```
+
+在 WebChat 中开启通用 MCP connector，选择允许的 Catalog operation，然后签发 MCP Access
+Ticket。该界面签发的 ticket 有效期为 24 小时且仍然只能使用一次。首次 `initialize` 时，
+服务端消费该 ticket，并返回 `Mcp-Session-Id`。符合 Streamable
+HTTP 规范的 client 会保存该 header，并在 `notifications/initialized`、`tools/list` 和
+`tools/call` 中继续携带。原 ticket 不能再初始化第二个 session。session ID 是 bearer
+credential，不得写入日志或源码；SparkClaw 只存储由其 SHA-256 派生的身份。
+
+该测试 endpoint 使用明文 HTTP，不提供 ISCP encryption、Device Proof、Relay、Trust Grant 或
+revocation 语义。必须把它限制在可信局域网内，测试后撤销 MCP Binding，并在启用生产 ISCP
+链路前停止 `mcp-lan-proxy`。
+
 ## LocalMind MCP
 
 LocalMind 连接默认不启用。按[外部集成](integrations.md)说明，在当前 SparkClaw JSON 配置中

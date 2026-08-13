@@ -15,6 +15,8 @@ export const dictionaries = {
       approve: "Approve",
       approved: "approved",
       cancel: "Cancel",
+	  close: "Close",
+	  copy: "Copy",
       delete: "Delete",
       disabled: "disabled",
       edit: "Edit",
@@ -168,6 +170,7 @@ export const dictionaries = {
       trace: "Trace unavailable",
       pairing: "Pairing failed",
       eval: "Eval failed"
+	  , externalMCP: "External MCP management failed"
     },
     timeline: {
       title: "Tool Timeline",
@@ -364,6 +367,37 @@ export const dictionaries = {
       encrypted: "encrypted",
       mock: "mock",
       externalModel: "external"
+	  , externalMCP: "External MCP"
+	  , enableExternalMCP: "Enable External MCP"
+	  , disableExternalMCP: "Disable External MCP"
+	  , collapseExternalMCP: "Collapse External MCP"
+	  , expandExternalMCP: "Expand External MCP"
+	  , active: "active"
+	  , domain: "ISCP Domain"
+	  , authority: "Authority"
+	  , catalog: "Catalog"
+	  , protocol: "Protocol"
+	  , iscpPairing: "ISCP device pairing"
+	  , clientName: "External client"
+	  , issueISCPPairing: "Issue ISCP Pairing Ticket"
+	  , pair: "Pair"
+	  , iscpPairingTicket: "ISCP Pairing Ticket"
+	  , capabilityAccess: "MCP capability access"
+	  , allowApproval: "Allow owner approval"
+	  , noRemoteCapabilities: "No remotely eligible capabilities."
+	  , issueMCPAccess: "Issue MCP Access Ticket"
+	  , mcpAccessTicket: "MCP Access Ticket"
+	  , expires: "Expires"
+	  , noPairingReceipts: "No ISCP pairing receipts."
+	  , accessRecords: "Access records"
+	  , device: "Device"
+	  , capabilities: "capabilities"
+	  , pendingAccess: "Access ticket"
+	  , noAccessRecords: "No MCP tickets or bindings."
+	  , pairingNotConfigured: "ISCP authority is not configured"
+	  , pairingUnavailable: "ISCP authority credentials are unavailable"
+	  , lanMCPTestReady: "LAN MCP test ready"
+	  , ready: "Ready"
     },
     risk: {
       read: "read",
@@ -404,6 +438,8 @@ export const dictionaries = {
       approve: "批准",
       approved: "已批准",
       cancel: "取消",
+	  close: "关闭",
+	  copy: "复制",
       delete: "删除",
       disabled: "已关闭",
       edit: "编辑",
@@ -557,6 +593,7 @@ export const dictionaries = {
       trace: "Trace 不可用",
       pairing: "配对失败",
       eval: "Eval 失败"
+	  , externalMCP: "外部 MCP 管理失败"
     },
     timeline: {
       title: "工具时间线",
@@ -753,6 +790,37 @@ export const dictionaries = {
       encrypted: "已加密",
       mock: "mock",
       externalModel: "external"
+	  , externalMCP: "外部 MCP"
+	  , enableExternalMCP: "开启外部 MCP"
+	  , disableExternalMCP: "关闭外部 MCP"
+	  , collapseExternalMCP: "收起外部 MCP"
+	  , expandExternalMCP: "展开外部 MCP"
+	  , active: "活跃"
+	  , domain: "ISCP Domain"
+	  , authority: "Authority"
+	  , catalog: "Catalog"
+	  , protocol: "协议"
+	  , iscpPairing: "ISCP 设备配对"
+	  , clientName: "外部客户端"
+	  , issueISCPPairing: "签发 ISCP Pairing Ticket"
+	  , pair: "配对"
+	  , iscpPairingTicket: "ISCP Pairing Ticket"
+	  , capabilityAccess: "MCP 能力访问"
+	  , allowApproval: "允许 Owner 审批"
+	  , noRemoteCapabilities: "没有可远程授权的能力。"
+	  , issueMCPAccess: "签发 MCP Access Ticket"
+	  , mcpAccessTicket: "MCP Access Ticket"
+	  , expires: "过期"
+	  , noPairingReceipts: "没有 ISCP 配对记录。"
+	  , accessRecords: "访问记录"
+	  , device: "设备"
+	  , capabilities: "项能力"
+	  , pendingAccess: "访问票据"
+	  , noAccessRecords: "没有 MCP 票据或绑定。"
+	  , pairingNotConfigured: "尚未配置 ISCP authority"
+	  , pairingUnavailable: "ISCP authority 凭证不可用"
+	  , lanMCPTestReady: "局域网 MCP 测试就绪"
+	  , ready: "就绪"
     },
     risk: {
       read: "读取",

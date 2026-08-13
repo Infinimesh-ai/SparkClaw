@@ -1,13 +1,23 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+type readyProjectionAuthority struct{}
+
+func (readyProjectionAuthority) Ready(context.Context) error { return nil }
+func (readyProjectionAuthority) IssuePairingTicket(context.Context, iscppairing.AuthorityRequest) (iscppairing.AuthorityResult, error) {
+	return iscppairing.AuthorityResult{}, nil
+}
 
 func TestPublicAdapterConfigDoesNotExposeDocumentOCRDestination(t *testing.T) {
 	cfg := config.Default().Adapters
@@ -56,5 +66,31 @@ func TestPublicMCPConfigOmitsCredentialEnvironmentReferences(t *testing.T) {
 	}
 	if !strings.Contains(text, `"configured":true`) || !strings.Contains(text, `"allow_mutations":true`) {
 		t.Fatalf("public MCP config omitted safe status fields: %s", text)
+	}
+}
+
+func TestPublicISCPPairingStatusOmitsAuthorityCredentialAndPath(t *testing.T) {
+	cfg := config.Default().ISCPPairing
+	cfg.Enabled = true
+	cfg.DomainID = "domain-public"
+	cfg.AuthorityURL = "https://authority.example.test/private/issue"
+	cfg.TokenEnv = "VERY_PRIVATE_ISCP_AUTHORITY_TOKEN"
+	service := iscppairing.New(store.NewMemoryStore(), iscppairing.Options{
+		Enabled: true, DomainID: cfg.DomainID, AuthorityHost: "authority.example.test",
+		ExpectedTicketType: cfg.ExpectedTicketType, Authority: readyProjectionAuthority{},
+	})
+	raw, err := json.Marshal(service.Status(context.Background()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, secret := range []string{cfg.AuthorityURL, cfg.TokenEnv, "/private/issue", "token_env", "token_file"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("public ISCP pairing status exposed private configuration %q: %s", secret, text)
+		}
+	}
+	if !strings.Contains(text, `"ready":true`) || !strings.Contains(text, `"domain_id":"domain-public"`) ||
+		!strings.Contains(text, `"authority_host":"authority.example.test"`) {
+		t.Fatalf("public ISCP pairing status omitted safe readiness fields: %s", text)
 	}
 }

@@ -15,6 +15,9 @@ import (
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/payload"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/session"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 )
 
 func TestServiceSessionHandshakeAndEncryptedGatewayRequest(t *testing.T) {
@@ -62,7 +65,25 @@ func TestServiceSessionHandshakeAndEncryptedGatewayRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpRequests := make(chan mcpaccess.PeerRequest, 1)
 	gatewayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/bridge/v1/mcp/dispatch" {
+			var request mcpaccess.PeerRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Errorf("decode MCP request: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mcpRequests <- request
+			rpc, _ := json.Marshal(mcpaccess.JSONRPCResponse{
+				JSONRPC: mcpaccess.JSONRPCVersion, ID: json.RawMessage(`7`), Result: map[string]any{},
+			})
+			_ = json.NewEncoder(w).Encode(mcpaccess.TransportResponse{
+				ProtocolVersion: mcpaccess.TransportProtocolVersion, Type: mcpaccess.TransportTypeResponse,
+				SessionID: request.Request.SessionID, JSONRPC: rpc,
+			})
+			return
+		}
 		var request Request
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		result := any(map[string]any{"sessions": []any{}})
@@ -162,6 +183,46 @@ func TestServiceSessionHandshakeAndEncryptedGatewayRequest(t *testing.T) {
 	var response Response
 	if err := json.Unmarshal(responsePlaintext, &response); err != nil || response.RequestID != request.RequestID || response.Status != "ok" {
 		t.Fatalf("invalid Gateway response: %s err=%v", responsePlaintext, err)
+	}
+
+	mcpRPC, _ := json.Marshal(mcpaccess.JSONRPCRequest{
+		JSONRPC: mcpaccess.JSONRPCVersion, ID: json.RawMessage(`7`), Method: "ping",
+	})
+	mcpRequest := mcpaccess.TransportRequest{
+		ProtocolVersion: mcpaccess.TransportProtocolVersion, Type: mcpaccess.TransportTypeRequest,
+		SessionID: "mcp-session-1", Deadline: time.Now().Add(time.Minute), JSONRPC: mcpRPC,
+	}
+	mcpRaw, _ := json.Marshal(mcpRequest)
+	mcpEnvelope, err := envelope.Encrypt(provider, peerState, "mcp-envelope", payload.TypeTaskInvoke,
+		envelope.Route{RelayID: bundle.RelayID, TTLSeconds: 300, Priority: 5}, mcpRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpEnvelopeRaw, _ := json.Marshal(mcpEnvelope)
+	if err := service.handleRelayMessage(context.Background(), mcpEnvelopeRaw); err != nil {
+		t.Fatalf("handle encrypted MCP request: %v", err)
+	}
+	forwarded := <-mcpRequests
+	wantPeer := app.MCPPeerIdentity{
+		DomainID: bundle.DomainID, DeviceID: peerDevice.Identity.DeviceID,
+		KeyThumbprint: peerThumbprint, ISCPSessionID: "iscp-session-1",
+	}
+	if forwarded.Peer != wantPeer || forwarded.Request.SessionID != mcpRequest.SessionID {
+		t.Fatalf("Bridge did not inject authenticated MCP peer identity: got=%#v want=%#v", forwarded, wantPeer)
+	}
+	mcpResponseEnvelope := decodeSubmittedEnvelope(t, <-delivered)
+	mcpResponsePlaintext, err := envelope.Decrypt(provider, peerState, mcpResponseEnvelope)
+	if err != nil {
+		t.Fatalf("decrypt MCP response: %v", err)
+	}
+	var mcpResponse mcpaccess.TransportResponse
+	if err := json.Unmarshal(mcpResponsePlaintext, &mcpResponse); err != nil ||
+		mcpResponse.ProtocolVersion != mcpaccess.TransportProtocolVersion || mcpResponse.SessionID != mcpRequest.SessionID {
+		t.Fatalf("invalid encrypted MCP response: %s err=%v", mcpResponsePlaintext, err)
+	}
+	var responseRPC mcpaccess.JSONRPCResponse
+	if err := json.Unmarshal(mcpResponse.JSONRPC, &responseRPC); err != nil || string(responseRPC.ID) != "7" || responseRPC.Error != nil {
+		t.Fatalf("invalid MCP JSON-RPC response: %s err=%v", mcpResponse.JSONRPC, err)
 	}
 }
 

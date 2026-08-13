@@ -28,7 +28,8 @@ documentation tree.
 | [Browser runtime](browser-runtime.md) | agent-browser transport, managed Chromium profiles, browser Workflow boundaries, and security |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | Telegram, Weixin, speech transcription, and Infinimesh Info |
-| [ISCP Bridge](iscp-bridge.md) | JingSi App secure sessions, enrollment boundary, agent protocol, and GB10 operation |
+| [ISCP Bridge](iscp-bridge.md) | Current shared Bridge; LocalMind use is legacy, while JingSi remains frozen pending a separate binding design |
+| [Unified third-party ISCP MCP access](unified-third-party-access-design.md) | Implemented local Route MCP runtime with separate ISCP pairing and SparkClaw MCP access tickets; production provisioning, external gateway validation, and LocalMind legacy removal remain pending; JingSi excluded |
 | [WebChat](webchat.md) | Owner workbench responsibilities, API ownership, refresh model, and frontend verification |
 
 ## Operations And Governance

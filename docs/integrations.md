@@ -169,7 +169,7 @@ logs, traces, or artifacts.
 
 ## ISCP Bridge
 
-The optional ISCP Bridge is a separate process between JingSi App and the
+The optional ISCP Bridge is the current legacy inbound process between JingSi App and the
 loopback Gateway. It uses the ISCP v0.1.0 Core SDK for device identity, Trust
 Grants, Session Hello/Ready, proof of possession, and SecureEnvelope. The Bridge
 maps encrypted `agent.*.v1` requests to one loopback Gateway endpoint. Gateway
@@ -183,10 +183,36 @@ listener. Its production identity key lives in the operating-system keyring,
 Relay credentials rotate independently, and unsupported Gateway capabilities
 are absent from the manifest. `agent.notification.deliver.v1` stores LocalMind
 document/comment mentions without starting Agent Runtime; the existing
-conversation delivery remains as a compatibility fallback. Gateway exposes the
-owner-scoped inbox through list/read APIs and a global authenticated SSE stream.
-See [ISCP Bridge](iscp-bridge.md) for enrollment, the versioned schema, current
-LocalMind DeviceProof/Trust Grant renewal limits, App CI mock, and GB10 operation.
+conversation delivery remains only as a temporary legacy fallback before target
+cutover. Gateway exposes the owner-scoped inbox through list/read APIs and a
+global authenticated SSE stream. See [ISCP Bridge](iscp-bridge.md) for
+enrollment, the versioned schema, current LocalMind DeviceProof/Trust Grant
+renewal limits, App CI mock, and GB10 operation.
+
+LocalMind's external-controller enrollment direction is not retained by the
+target design. LocalMind's Access Gateway instead joins SparkClaw's ISCP Domain
+using a one-time ISCP Pairing Ticket presented locally by SparkClaw. LocalMind
+connects to ISCP and redeems it through standard Provisioning. ISCP owns the
+ticket and protocol admission, Trust Grants, Relay credentials, secure sessions,
+rotation, and transport revocation. Once that authenticated channel is ready,
+SparkClaw issues a separate single-use MCP Access Ticket; LocalMind redeems it
+through ISCP to activate the local owner-approved Route MCP Binding. Neither
+ticket is reused during ordinary MCP calls. After LocalMind is newly enrolled and
+validated through the generic ISCP MCP gateway, its Bridge manifest entries, grants,
+dispatch branches, passive/conversation fallbacks, configuration, and tests are
+deleted. Shared Bridge components still required by JingSi remain frozen; JingSi
+does not join MCP and will receive a separate binding design later. The LocalMind
+Workspace MCP section above is the opposite, outbound direction and remains
+supported.
+
+The SparkClaw-owned local Route MCP phase is now implemented behind the
+default-off generic `mcp` connector: strict MCP `2025-06-18`, hash-only
+single-use MCP Access Ticket redemption over authenticated ISCP identity,
+durable Binding and operation recovery, exact Catalog-leaf routing, shared
+Delivery, and encrypted Bridge request/response dispatch. This is not yet a
+production LocalMind connection: standard ISCP PairingTicket/Provisioning
+integration, a deployable external Access Gateway, and live Relay validation
+remain required before cutover and legacy deletion.
 
 ## MCP And Happy
 

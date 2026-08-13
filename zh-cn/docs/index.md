@@ -26,7 +26,8 @@
 | [浏览器 Runtime](browser-runtime.md) | agent-browser transport、托管 Chromium profile、浏览器 Workflow 边界和安全约束 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [外部集成](integrations.md) | Telegram、微信、语音转写和 Infinimesh Info |
-| [ISCP Bridge](iscp-bridge.md) | JingSi App 安全会话、注册边界、agent 协议与 GB10 运维 |
+| [ISCP Bridge](iscp-bridge.md) | 当前共享 Bridge；LocalMind 使用属于旧链路，JingSi 冻结保持并等待独立绑定设计 |
+| [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md) | 已实现本地 Route MCP runtime 与分离的 ISCP pairing、SparkClaw MCP access ticket；生产 provisioning、外部 gateway 验证和 LocalMind 旧链路删除仍待完成；不含 JingSi |
 | [WebChat](webchat.md) | owner 工作台职责、API 权威、刷新模型和前端验证 |
 
 ## 运维与治理

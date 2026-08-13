@@ -7,6 +7,36 @@ ISCP v2 sessions into the provider-neutral `agent.*.v1` API owned by the local
 Gateway. It does not call Agent Runtime or ToolHub directly, and it never receives
 or stores an ITES access or refresh token.
 
+This document describes the current shared Bridge. LocalMind's use of its
+enrollment direction is legacy: SparkClaw sends an enrollment request and the
+external LocalMind controller returns the bundle and grants used by the Bridge.
+The target does not reverse that legacy flow by adding a SparkClaw-specific ISCP
+credential service. Instead, LocalMind's Access Gateway enrolls as a new device
+in SparkClaw's ISCP Domain with a one-time Pairing Ticket presented locally by
+SparkClaw through the standard ISCP pairing capability. The external gateway
+connects to ISCP and redeems it through Provisioning. ISCP defines, signs,
+verifies, and consumes the ticket and owns device admission, Trust Grants, Relay
+credentials, session security, rotation, and transport revocation. Once the
+authenticated ISCP session is ready, SparkClaw separately issues and consumes a
+single-use MCP Access Ticket over that session to activate the durable local
+Route MCP Binding. That application ticket does not admit a device to ISCP and
+is not a public claim service.
+
+This document makes no decision about JingSi's future credential flow.
+
+The replacement architecture uses one Route MCP Service carried through a generic
+ISCP MCP Access Gateway. Its SparkClaw-owned local runtime and encrypted Bridge
+dispatch are implemented; production PairingTicket/Provisioning integration,
+the deployable external gateway, and live Relay validation remain pending. See
+[Unified third-party ISCP MCP access](unified-third-party-access-design.md).
+Do not add LocalMind callers, capabilities, or compatibility features to the
+legacy Bridge. After LocalMind passes the new path, delete its Bridge
+registrations, grants, branches, fallbacks, configuration, tests, and guidance.
+Keep only the minimum frozen shared surface still required by JingSi; JingSi does
+not join MCP and its later binding project owns final Bridge retirement. The
+outbound SparkClaw-to-LocalMind workspace MCP client is outside that deletion
+scope.
+
 ## Supported Surface
 
 The Bridge advertises only capabilities implemented by the current Gateway:
@@ -23,7 +53,9 @@ The Bridge advertises only capabilities implemented by the current Gateway:
 time. Gateway durably writes the owner-scoped inbox record before returning
 `status: "ok"`. This path does not create an Agent session, message, run, model
 call, tool call, or approval. The existing session-create and message-send path
-remains available for peers that have not adopted the passive capability.
+remains available to LocalMind only within the legacy chain before target
+cutover. Cutover removes LocalMind authorization and dispatch through both paths;
+it does not remove JingSi's current use of shared request types.
 
 Workspace and file capabilities are intentionally absent until their remote
 authorization and upload/download contracts are implemented end to end. The
@@ -53,6 +85,15 @@ versioned JSON Schema is
   window, endpoint binding, and envelope sequence.
 
 ## Enrollment
+
+For LocalMind, the following procedure documents legacy operation only. Its
+generated request and externally returned bundle must not be accepted by the
+target MCP gateway or converted into a target peer binding. Existing LocalMind
+devices must enroll through fresh ISCP PairingTicket/Provisioning into
+SparkClaw's Domain during cutover, then redeem a fresh SparkClaw MCP Access
+Ticket over the authenticated session.
+JingSi continues its current required procedure until a separate design replaces
+it.
 
 Create the device identity and a public enrollment request on the GB10:
 

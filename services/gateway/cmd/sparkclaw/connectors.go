@@ -12,6 +12,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
@@ -76,6 +77,12 @@ func newConnectorAssembly(
 		},
 	}); err != nil {
 		return nil, fmt.Errorf("register Telegram connector: %w", err)
+	}
+	if err := registry.Register(connector.Registration{
+		Channel: "mcp", SetupKind: app.ConnectorSetupExternal, Binding: mcpaccess.ConnectorAdapter{},
+		Provider: mcpaccess.NewProvider(st), ExternalManaged: true,
+	}); err != nil {
+		return nil, fmt.Errorf("register MCP connector: %w", err)
 	}
 
 	weixinConfig := cfg.Tools.Notifications.Channels["weixin"]

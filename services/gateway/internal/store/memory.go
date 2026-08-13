@@ -17,6 +17,10 @@ type MemoryStore struct {
 	ownerProfile         app.OwnerProfile
 	ownerProfiles        map[string]app.OwnerProfile
 	pairingCodes         map[string]app.PairingCode
+	iscpOnboardings      map[string]app.ISCPOnboarding
+	mcpAccessTickets     map[string]app.MCPAccessTicket
+	mcpBindings          map[string]app.MCPBinding
+	mcpOperations        map[string]app.MCPOperation
 	messages             map[string][]app.Message
 	runFeedback          map[string][]app.RunFeedback
 	runs                 map[string]app.AgentRun
@@ -53,6 +57,10 @@ func NewMemoryStore() *MemoryStore {
 		ownerProfile:         app.DefaultOwnerProfile(),
 		ownerProfiles:        map[string]app.OwnerProfile{app.DefaultOwnerID: app.DefaultOwnerProfile()},
 		pairingCodes:         map[string]app.PairingCode{},
+		iscpOnboardings:      map[string]app.ISCPOnboarding{},
+		mcpAccessTickets:     map[string]app.MCPAccessTicket{},
+		mcpBindings:          map[string]app.MCPBinding{},
+		mcpOperations:        map[string]app.MCPOperation{},
 		messages:             map[string][]app.Message{},
 		runFeedback:          map[string][]app.RunFeedback{},
 		runs:                 map[string]app.AgentRun{},
@@ -92,6 +100,10 @@ func (s *MemoryStore) snapshot() Snapshot {
 		OwnerProfile:         cloneOwnerProfile(s.ownerProfile),
 		OwnerProfiles:        cloneOwnerProfileMap(s.ownerProfiles),
 		PairingCodes:         cloneMap(s.pairingCodes),
+		ISCPOnboardings:      cloneMap(s.iscpOnboardings),
+		MCPAccessTickets:     cloneMCPAccessTicketMap(s.mcpAccessTickets),
+		MCPBindings:          cloneMCPBindingMap(s.mcpBindings),
+		MCPOperations:        cloneMCPOperationMap(s.mcpOperations),
 		Messages:             cloneSliceMap(s.messages),
 		RunFeedback:          cloneSliceMap(s.runFeedback),
 		Runs:                 cloneMap(s.runs),
@@ -139,6 +151,10 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.ownerProfile = normalizeOwnerProfile(snapshot.OwnerProfile)
 	s.ownerProfiles = ensureOwnerProfileMap(snapshot.OwnerProfiles, s.ownerProfile)
 	s.pairingCodes = ensureMap(snapshot.PairingCodes)
+	s.iscpOnboardings = ensureMap(snapshot.ISCPOnboardings)
+	s.mcpAccessTickets = cloneMCPAccessTicketMap(ensureMap(snapshot.MCPAccessTickets))
+	s.mcpBindings = cloneMCPBindingMap(ensureMap(snapshot.MCPBindings))
+	s.mcpOperations = cloneMCPOperationMap(ensureMap(snapshot.MCPOperations))
 	s.messages = ensureSliceMap(snapshot.Messages)
 	s.runFeedback = ensureSliceMap(snapshot.RunFeedback)
 	s.runs = ensureMap(snapshot.Runs)

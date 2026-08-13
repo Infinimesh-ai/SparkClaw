@@ -60,6 +60,21 @@
     "max_pending": 1,
     "retain_audio": false
   },
+  "iscp_pairing": {
+    "enabled": false,
+    "domain_id": "",
+    "authority_url": "",
+    "token_env": "",
+    "token_file": "",
+    "request_timeout_seconds": 15,
+    "response_body_max_bytes": 65536,
+    "ticket_ttl_seconds": 600,
+    "expected_ticket_type": "iscp.pairing_ticket.v2"
+  },
+  "mcp_access": {
+    "lan_direct_test_enabled": false,
+    "lan_direct_domain_id": "sparkclaw-lan-test"
+  },
   "plugins": {
     "entries": {
       "infinimeshInfo": {

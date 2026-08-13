@@ -192,6 +192,82 @@ The host WebChat dev server listens on `0.0.0.0:18790` and proxies API requests
 to the loopback-only Gateway. Set `SPARKCLAW_API_TOKEN` and
 `VITE_SPARKCLAW_API_TOKEN` to the same value for protected host-process runs.
 
+## External MCP ISCP Pairing
+
+The owner-facing External MCP surface is installed but disabled by default. It
+becomes ready only when SparkClaw can ask the actual ISCP Domain authority for
+a standard `iscp.pairing_ticket.v2` object:
+
+```dotenv
+SPARKCLAW_ISCP_PAIRING_ENABLED=true
+SPARKCLAW_ISCP_DOMAIN_ID=<sparkclaw-domain-id>
+SPARKCLAW_ISCP_AUTHORITY_URL=https://authority.example/v1/pairing-tickets
+SPARKCLAW_ISCP_AUTHORITY_TOKEN_ENV=SPARKCLAW_ISCP_AUTHORITY_TOKEN
+SPARKCLAW_ISCP_AUTHORITY_TOKEN=<authority-client-token>
+```
+
+Use `SPARKCLAW_ISCP_AUTHORITY_TOKEN_FILE` instead of `TOKEN_ENV` when the secret
+is mounted as a mode-`0600` file. Configure exactly one token source. The
+authority URL must be HTTPS except for loopback/private development services,
+and requests are bounded to 15 seconds and 64 KiB by default.
+
+This is a SparkClaw authority-adapter contract, not an HTTP endpoint currently
+defined by ISCP v0.1.0. SparkClaw sends an authenticated `POST` with type
+`sparkclaw.iscp_pairing.request.v1`, a stable `request_ref`, the configured
+`domain_id`, `max_uses: 1`, and `ttl_seconds`. The authority response contains
+only `authority_ref` and a signed standard `ticket` object. The authority still
+owns signing, consumption, Device Proof, Provisioning, Trust Grants, and Relay
+credentials; SparkClaw neither stores the signed ticket nor exposes a claim
+endpoint.
+
+After configuration, enable the generic MCP connector in WebChat Settings,
+issue and transfer the copy-once ISCP Pairing Ticket, complete enrollment in the
+external Access Gateway, then issue the separate MCP Access Ticket with selected
+Catalog leaves. A real authority implementation, external Access Gateway, and
+live Relay path are still required for production end-to-end access.
+
+### Temporary LAN MCP Validation
+
+Use this mode only while SparkClaw and the external MCP client are on the same
+trusted LAN and the ISCP production path is unavailable. The LAN replaces only
+ISCP transport and peer-session establishment. SparkClaw still issues a
+single-use MCP Access Ticket, atomically consumes it during MCP `initialize`,
+creates the same durable MCP Binding, and uses the same Catalog, Workflow,
+Policy/Approval, operation, Message, and Delivery paths.
+
+Start Gateway, WebChat, and the path-restricted LAN proxy with the explicit test
+environment:
+
+```bash
+SPARKCLAW_RUNTIME_OVERRIDE_ENV=docker/env/sparkclaw.lan-mcp-test.env \
+  bash scripts/restart_runtime_compose.sh gateway webchat mcp-lan-proxy
+```
+
+Gateway remains loopback-only on `18789`; this mode does not change WebChat's
+existing `18790` publish setting. The proxy publishes only exact path `/mcp` on
+TCP `18791`; every other path returns 404. The external client uses:
+
+```text
+URL: http://<sparkclaw-lan-ip>:18791/mcp
+Initial Authorization: Bearer <SPARKCLAW_MCP_ACCESS_TICKET>
+MCP-Protocol-Version: 2025-06-18
+```
+
+Enable the generic MCP connector in WebChat, select the allowed Catalog
+operations, and issue an MCP Access Ticket. Tickets issued from this surface are
+valid for 24 hours and remain single-use. On the first `initialize`, the server
+consumes that ticket and returns `Mcp-Session-Id`. A conforming
+Streamable HTTP client retains that header and sends it on
+`notifications/initialized`, `tools/list`, and `tools/call`. The original ticket
+cannot initialize a second session. The session ID is a bearer credential and
+must not be logged or persisted in source code; SparkClaw stores only its
+SHA-256-derived identity.
+
+This test endpoint uses plain HTTP and provides no ISCP encryption, Device
+Proof, Relay, Trust Grant, or revocation semantics. Restrict it to the trusted
+LAN, revoke its MCP Binding after validation, and stop `mcp-lan-proxy` before
+enabling the production ISCP route.
+
 ## LocalMind MCP
 
 LocalMind access is opt-in. Add an `mcp_servers.localmind` block to the active

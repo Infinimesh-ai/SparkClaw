@@ -32,21 +32,23 @@ var (
 )
 
 type Config struct {
-	Gateway    GatewayConfig              `json:"gateway"`
-	Model      ModelConfig                `json:"model"`
-	Speech     SpeechConfig               `json:"speech"`
-	MCPServers map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
-	Plugins    PluginsConfig              `json:"plugins"`
-	Tools      ToolsConfig                `json:"tools"`
-	Security   SecurityConfig             `json:"security"`
-	Sandbox    SandboxConfig              `json:"sandbox"`
-	Adapters   AdapterConfig              `json:"adapters"`
-	Memory     MemoryConfig               `json:"memory"`
-	Workspaces WorkspaceConfig            `json:"workspaces"`
-	Storage    StorageConfig              `json:"storage"`
-	State      StateConfig                `json:"state"`
-	Runtime    RuntimeConfig              `json:"runtime"`
-	Logging    LoggingConfig              `json:"logging"`
+	Gateway     GatewayConfig              `json:"gateway"`
+	Model       ModelConfig                `json:"model"`
+	Speech      SpeechConfig               `json:"speech"`
+	ISCPPairing ISCPPairingConfig          `json:"iscp_pairing"`
+	MCPAccess   MCPAccessConfig            `json:"mcp_access"`
+	MCPServers  map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Plugins     PluginsConfig              `json:"plugins"`
+	Tools       ToolsConfig                `json:"tools"`
+	Security    SecurityConfig             `json:"security"`
+	Sandbox     SandboxConfig              `json:"sandbox"`
+	Adapters    AdapterConfig              `json:"adapters"`
+	Memory      MemoryConfig               `json:"memory"`
+	Workspaces  WorkspaceConfig            `json:"workspaces"`
+	Storage     StorageConfig              `json:"storage"`
+	State       StateConfig                `json:"state"`
+	Runtime     RuntimeConfig              `json:"runtime"`
+	Logging     LoggingConfig              `json:"logging"`
 }
 
 type GatewayConfig struct {
@@ -96,6 +98,23 @@ type SpeechConfig struct {
 	MaxConcurrency  int      `json:"max_concurrency"`
 	MaxPending      int      `json:"max_pending"`
 	RetainAudio     bool     `json:"retain_audio"`
+}
+
+type ISCPPairingConfig struct {
+	Enabled               bool   `json:"enabled"`
+	DomainID              string `json:"domain_id,omitempty"`
+	AuthorityURL          string `json:"authority_url,omitempty"`
+	TokenEnv              string `json:"token_env,omitempty"`
+	TokenFile             string `json:"token_file,omitempty"`
+	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
+	ResponseBodyMaxBytes  int64  `json:"response_body_max_bytes"`
+	TicketTTLSeconds      int    `json:"ticket_ttl_seconds"`
+	ExpectedTicketType    string `json:"expected_ticket_type"`
+}
+
+type MCPAccessConfig struct {
+	LANDirectTestEnabled bool   `json:"lan_direct_test_enabled"`
+	LANDirectDomainID    string `json:"lan_direct_domain_id"`
 }
 
 type PluginsConfig struct {
@@ -482,6 +501,12 @@ func Load(path string) (Config, error) {
 	if err := normalizeSpeechConfig(&cfg.Speech); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeISCPPairingConfig(&cfg.ISCPPairing); err != nil {
+		return Config{}, err
+	}
+	if err := normalizeMCPAccessConfig(&cfg.MCPAccess); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeDocumentOCRConfig(&cfg.Adapters.DocumentOCR); err != nil {
 		return Config{}, err
 	}
@@ -498,6 +523,71 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func normalizeISCPPairingConfig(pairing *ISCPPairingConfig) error {
+	defaults := Default().ISCPPairing
+	if pairing.RequestTimeoutSeconds <= 0 {
+		pairing.RequestTimeoutSeconds = defaults.RequestTimeoutSeconds
+	}
+	if pairing.ResponseBodyMaxBytes <= 0 {
+		pairing.ResponseBodyMaxBytes = defaults.ResponseBodyMaxBytes
+	}
+	if pairing.TicketTTLSeconds <= 0 {
+		pairing.TicketTTLSeconds = defaults.TicketTTLSeconds
+	}
+	if strings.TrimSpace(pairing.ExpectedTicketType) == "" {
+		pairing.ExpectedTicketType = defaults.ExpectedTicketType
+	}
+	pairing.DomainID = strings.TrimSpace(pairing.DomainID)
+	pairing.AuthorityURL = strings.TrimSpace(pairing.AuthorityURL)
+	pairing.TokenEnv = strings.TrimSpace(pairing.TokenEnv)
+	pairing.TokenFile = strings.TrimSpace(pairing.TokenFile)
+	pairing.ExpectedTicketType = strings.TrimSpace(pairing.ExpectedTicketType)
+	if pairing.ExpectedTicketType != "iscp.pairing_ticket.v2" {
+		return errors.New("iscp_pairing.expected_ticket_type must be iscp.pairing_ticket.v2")
+	}
+	if pairing.RequestTimeoutSeconds > 120 {
+		return errors.New("iscp_pairing.request_timeout_seconds must not exceed 120")
+	}
+	if pairing.ResponseBodyMaxBytes < 1024 || pairing.ResponseBodyMaxBytes > 1<<20 {
+		return errors.New("iscp_pairing.response_body_max_bytes must be between 1024 and 1048576")
+	}
+	if pairing.TicketTTLSeconds < 60 || pairing.TicketTTLSeconds > 1800 {
+		return errors.New("iscp_pairing.ticket_ttl_seconds must be between 60 and 1800")
+	}
+	if !pairing.Enabled {
+		return nil
+	}
+	if pairing.DomainID == "" {
+		return errors.New("iscp_pairing.domain_id is required when enabled")
+	}
+	if pairing.TokenEnv == pairing.TokenFile || (pairing.TokenEnv != "" && pairing.TokenFile != "") {
+		return errors.New("iscp_pairing must configure exactly one of token_env or token_file")
+	}
+	if pairing.TokenEnv != "" && !environmentNamePattern.MatchString(pairing.TokenEnv) {
+		return errors.New("iscp_pairing.token_env is invalid")
+	}
+	endpoint, err := url.Parse(pairing.AuthorityURL)
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return errors.New("iscp_pairing.authority_url must be absolute HTTP(S) without credentials, query, or fragment")
+	}
+	if endpoint.Scheme == "http" && !isLocalHTTPHost(endpoint.Hostname()) {
+		return errors.New("iscp_pairing.authority_url may use HTTP only for a local or private authority")
+	}
+	pairing.AuthorityURL = strings.TrimRight(endpoint.String(), "/")
+	return nil
+}
+
+func normalizeMCPAccessConfig(access *MCPAccessConfig) error {
+	access.LANDirectDomainID = strings.TrimSpace(access.LANDirectDomainID)
+	if !access.LANDirectTestEnabled {
+		return nil
+	}
+	if access.LANDirectDomainID == "" {
+		return errors.New("mcp_access.lan_direct_domain_id is required when LAN direct test mode is enabled")
+	}
+	return nil
 }
 
 func normalizeMCPServers(servers *map[string]MCPServerConfig) error {
@@ -1070,6 +1160,14 @@ func Default() Config {
 			MaxPending:      1,
 			RetainAudio:     false,
 		},
+		ISCPPairing: ISCPPairingConfig{
+			Enabled: false, RequestTimeoutSeconds: 15, ResponseBodyMaxBytes: 64 << 10,
+			TicketTTLSeconds: 600, ExpectedTicketType: "iscp.pairing_ticket.v2",
+		},
+		MCPAccess: MCPAccessConfig{
+			LANDirectTestEnabled: false,
+			LANDirectDomainID:    "sparkclaw-lan-test",
+		},
 		Plugins: PluginsConfig{
 			Entries: PluginEntriesConfig{
 				InfinimeshInfo: InfinimeshInfoPluginConfig{
@@ -1123,6 +1221,10 @@ func Default() Config {
 						Provider:   "openclaw-weixin-qr",
 						BaseURL:    "https://ilinkai.weixin.qq.com",
 						CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
+					},
+					"mcp": {
+						Enabled:  false,
+						Provider: "iscp-mcp",
 					},
 				},
 			},
@@ -1236,6 +1338,27 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_PAIRING_REQUIRED"); v != "" {
 		cfg.Gateway.PairingRequired = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_ISCP_PAIRING_ENABLED"); v != "" {
+		cfg.ISCPPairing.Enabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_ISCP_DOMAIN_ID"); v != "" {
+		cfg.ISCPPairing.DomainID = v
+	}
+	if v := os.Getenv("SPARKCLAW_ISCP_AUTHORITY_URL"); v != "" {
+		cfg.ISCPPairing.AuthorityURL = v
+	}
+	if v := os.Getenv("SPARKCLAW_ISCP_AUTHORITY_TOKEN_ENV"); v != "" {
+		cfg.ISCPPairing.TokenEnv = v
+	}
+	if v := os.Getenv("SPARKCLAW_ISCP_AUTHORITY_TOKEN_FILE"); v != "" {
+		cfg.ISCPPairing.TokenFile = v
+	}
+	if v := os.Getenv("SPARKCLAW_MCP_LAN_DIRECT_TEST_ENABLED"); v != "" {
+		cfg.MCPAccess.LANDirectTestEnabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_MCP_LAN_DIRECT_DOMAIN_ID"); v != "" {
+		cfg.MCPAccess.LANDirectDomainID = v
 	}
 	if v := os.Getenv("SPARKCLAW_RATE_LIMIT_ENABLED"); v != "" {
 		cfg.Gateway.RateLimit.Enabled = parseBool(v)
@@ -1778,6 +1901,9 @@ func ensureNotificationChannels(cfg *NotificationsToolConfig) {
 	}
 	if _, ok := cfg.Channels["telegram"]; !ok {
 		cfg.Channels["telegram"] = Default().Tools.Notifications.Channels["telegram"]
+	}
+	if _, ok := cfg.Channels["mcp"]; !ok {
+		cfg.Channels["mcp"] = Default().Tools.Notifications.Channels["mcp"]
 	}
 }
 

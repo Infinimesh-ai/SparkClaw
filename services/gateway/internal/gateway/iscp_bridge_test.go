@@ -37,6 +37,7 @@ func TestBridgeDispatchSupportsNoAuthLoopbackAndRejectsRemoteClients(t *testing.
 	server = New(cfg, st, tools, runtime)
 	remote := httptest.NewRequest(http.MethodPost, "/api/bridge/v1/dispatch", bytes.NewReader(request))
 	remote.RemoteAddr = "192.0.2.10:44000"
+	remote.Header.Set("X-Forwarded-For", "127.0.0.1")
 	remote.Header.Set("Authorization", "Bearer bridge-test-token")
 	remoteResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(remoteResponse, remote)
@@ -55,6 +56,25 @@ func TestBridgeDispatchSupportsNoAuthLoopbackAndRejectsRemoteClients(t *testing.
 	var response iscpbridge.Response
 	if err := json.Unmarshal(localResponse.Body.Bytes(), &response); err != nil || response.Status != "ok" {
 		t.Fatalf("invalid Bridge response: %#v err=%v", response, err)
+	}
+}
+
+func TestMCPBridgeDispatchRejectsSpoofedRemoteLoopback(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.Gateway.APIToken = "bridge-test-token"
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/bridge/v1/mcp/dispatch", bytes.NewBufferString(`{}`))
+	request.RemoteAddr = "192.0.2.20:44000"
+	request.Header.Set("X-Forwarded-For", "127.0.0.1")
+	request.Header.Set("Authorization", "Bearer bridge-test-token")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("spoofed remote MCP Bridge request returned %d: %s", response.Code, response.Body.String())
 	}
 }
 

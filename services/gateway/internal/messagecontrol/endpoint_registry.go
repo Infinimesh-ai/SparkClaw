@@ -18,6 +18,10 @@ type endpointStore interface {
 	ListExternalChatSessions(string, string) []app.ExternalChatSession
 }
 
+type mcpEndpointStore interface {
+	GetMCPBinding(string) (app.MCPBinding, bool)
+}
+
 type EndpointRegistry struct {
 	store          endpointStore
 	channelEnabled func(ownerID, channel string) bool
@@ -67,6 +71,29 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 			Status:    app.EndpointActive,
 			CreatedAt: session.CreatedAt,
 			UpdatedAt: session.UpdatedAt,
+		}, nil
+	}
+	if strings.HasPrefix(value, "mcp:") {
+		bindingID := strings.TrimSpace(strings.TrimPrefix(value, "mcp:"))
+		mcpStore, supported := r.store.(mcpEndpointStore)
+		if !supported {
+			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
+		}
+		binding, ok := mcpStore.GetMCPBinding(bindingID)
+		if !ok || binding.Status != app.MCPBindingActive {
+			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
+		}
+		if !r.connectorEnabled(binding.OwnerID, "mcp") {
+			return app.MessageEndpoint{}, newTargetError(CodeConnectorDisabled, "delivery connector is disabled")
+		}
+		return app.MessageEndpoint{
+			ID: id, OwnerID: binding.OwnerID, ActorID: binding.ActorID,
+			SourceActorID: binding.RequesterDeviceID, Kind: app.EndpointKindThirdPartyDevice,
+			ProviderKey: "mcp", BindingRef: binding.ID, RequesterDeviceID: binding.RequesterDeviceID,
+			Address: binding.RequesterDeviceID, ThreadRef: binding.LatestISCPSessionID, SessionID: binding.LinkedSessionID,
+			SoftwareDisplayName: "MCP", AccountDisplayName: binding.RequesterDeviceID,
+			RecipientDisplayName: binding.RequesterDeviceID, ConversationLabel: "MCP session",
+			Status: app.EndpointActive, CreatedAt: binding.CreatedAt, UpdatedAt: binding.UpdatedAt,
 		}, nil
 	}
 	if chat, chatOK := r.store.GetExternalChatSession(value); chatOK {
@@ -312,6 +339,9 @@ func (e *TargetError) ErrorCode() string { return e.Code }
 func newTargetError(code, message string) error { return &TargetError{Code: code, Message: message} }
 
 func (r *EndpointRegistry) connectorEnabled(ownerID, channel string) bool {
+	if channel == "mcp" {
+		return r.channelEnabled != nil && r.channelEnabled(ownerID, channel)
+	}
 	return r.channelEnabled == nil || r.channelEnabled(ownerID, channel)
 }
 

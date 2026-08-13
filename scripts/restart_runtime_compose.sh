@@ -24,14 +24,18 @@ if [[ ${#services[@]} -eq 0 ]]; then
 fi
 
 start_gateway=false
+start_lan_mcp_proxy=false
 for service in "${services[@]}"; do
   case "$service" in
     gateway)
       start_gateway=true
       ;;
+    mcp-lan-proxy)
+      start_lan_mcp_proxy=true
+      ;;
     sandbox-runner|webchat) ;;
     *)
-      echo "unsupported runtime service: $service (expected sandbox-runner, gateway, or webchat)" >&2
+      echo "unsupported runtime service: $service (expected sandbox-runner, gateway, webchat, or mcp-lan-proxy)" >&2
       exit 1
       ;;
   esac
@@ -96,6 +100,9 @@ if [[ "$visible_browser" == true ]]; then
   compose_args+=(-f docker/compose.visible-browser.yaml)
 fi
 compose_args+=(--profile "$PROFILE")
+if [[ "$start_lan_mcp_proxy" == true ]]; then
+  compose_args+=(--profile lan-mcp-test)
+fi
 
 # Model dependencies are jointly loaded and warmed by serve_models_compose.sh.
 # Recreating them here would split that ownership and invalidate warmup state.

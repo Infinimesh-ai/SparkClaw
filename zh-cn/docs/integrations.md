@@ -138,7 +138,7 @@ public config、log、trace 或 artifact。
 
 ## ISCP Bridge
 
-可选 ISCP Bridge 是位于 JingSi App 与 loopback Gateway 之间的独立进程。它使用 ISCP v0.1.0
+可选 ISCP Bridge 是当前位于 JingSi App 与 loopback Gateway 之间的旧入站进程。它使用 ISCP v0.1.0
 Core SDK 处理设备身份、Trust Grant、Session Hello/Ready、proof-of-possession 和
 SecureEnvelope。Bridge 把加密的 `agent.*.v1` 请求映射到一个 loopback Gateway 端点；
 session、run、policy、approval、event、被动通知收件箱和 audit 仍由 Gateway 统一负责。
@@ -148,9 +148,27 @@ dispatch。
 Bridge 不接收 ITES token，也不暴露无认证的局域网 listener。生产设备身份密钥保存在操作系统
 keyring，Relay credential 独立轮换，Gateway 不支持的能力不会进入 manifest。注册、版本化
 `agent.notification.deliver.v1` 可在不启动 Agent Runtime 的情况下保存 LocalMind 文档/评论
-提及；原有 conversation 投递继续作为兼容 fallback。Gateway 通过 list/read API 和全局、带认证
-SSE stream 暴露 owner-scoped 收件箱。注册、版本化 schema、当前 LocalMind DeviceProof/Trust
-Grant 续期限制、App CI mock 和 GB10 运维见 [ISCP Bridge](iscp-bridge.md)。
+提及；原有 conversation 投递只在目标切换前作为临时 legacy fallback。Gateway 通过 list/read
+API 和全局、带认证 SSE stream 暴露 owner-scoped 收件箱。注册、版本化 schema、当前
+LocalMind DeviceProof/Trust Grant 续期限制、App CI mock 和 GB10 运维见
+[ISCP Bridge](iscp-bridge.md)。
+
+目标设计不保留 LocalMind 的 external-controller enrollment 方向。SparkClaw 在本地展示由 ISCP
+pairing 能力生成的一次性 Pairing Ticket；LocalMind Access Gateway 连接 ISCP，通过标准
+Provisioning 兑换该凭证并加入 SparkClaw ISCP Domain。ticket 与 protocol admission、Trust
+Grant、Relay credential、secure session、rotation 和 transport revocation 由 ISCP 负责；
+该认证通道 ready 后，SparkClaw 独立签发单次使用 MCP Access Ticket；LocalMind 通过 ISCP 兑换
+它，以激活本地 owner 批准的 Route MCP Binding。普通 MCP call 不复用任一 ticket。LocalMind
+新入网并通过通用 ISCP MCP gateway 验证后，删除其 Bridge manifest entry、grant、dispatch branch、
+passive/conversation fallback、config 和 test。JingSi 仍需要的共享 Bridge component 冻结保留；
+JingSi 不接入 MCP，后续另行设计绑定方式。上文 LocalMind Workspace MCP 属于相反的出站方向，
+继续保留。
+
+SparkClaw 自身负责的本地 Route MCP 阶段已在默认关闭的通用 `mcp` connector 后实现：严格 MCP
+`2025-06-18`、结合认证 ISCP identity 兑换只存 hash 的单次 MCP Access Ticket、持久 Binding 与
+operation 恢复、精确 Catalog 叶子路由、共享 Delivery，以及加密 Bridge 请求/响应 dispatch。
+这还不是可供 LocalMind 使用的生产连接：完成标准 ISCP PairingTicket/Provisioning 集成、可部署
+external Access Gateway 和真实 Relay 验证后，才能切换并删除旧链路。
 
 ## MCP 与 Happy
 

@@ -134,6 +134,73 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if len(cfg.MCPServers) != 0 {
 		t.Fatalf("MCP servers should require explicit configuration: %#v", cfg.MCPServers)
 	}
+	if cfg.ISCPPairing.Enabled || cfg.ISCPPairing.ExpectedTicketType != "iscp.pairing_ticket.v2" || cfg.ISCPPairing.TicketTTLSeconds != 600 {
+		t.Fatalf("ISCP pairing should be disabled with bounded defaults: %#v", cfg.ISCPPairing)
+	}
+	if cfg.MCPAccess.LANDirectTestEnabled || cfg.MCPAccess.LANDirectDomainID != "sparkclaw-lan-test" {
+		t.Fatalf("MCP LAN direct test mode must default off: %#v", cfg.MCPAccess)
+	}
+}
+
+func TestLoadMCPAccessLANDirectTestMode(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sparkclaw.json")
+	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"lan_direct_test_enabled":true,"lan_direct_domain_id":" lan-test "}}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.MCPAccess.LANDirectTestEnabled || cfg.MCPAccess.LANDirectDomainID != "lan-test" {
+		t.Fatalf("MCP LAN test configuration was not normalized: %#v", cfg.MCPAccess)
+	}
+
+	path = filepath.Join(root, "missing-domain.json")
+	if err := os.WriteFile(path, []byte(`{"model":{"mock":true},"workspaces":{"default_root":"`+escapeJSONPath(root)+`"},"mcp_access":{"lan_direct_test_enabled":true,"lan_direct_domain_id":""}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "lan_direct_domain_id") {
+		t.Fatalf("MCP LAN test mode accepted an empty domain: %v", err)
+	}
+}
+
+func TestLoadNormalizesEnabledISCPPairing(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sparkclaw.json")
+	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,"domain_id":" domain-a ","authority_url":"http://127.0.0.1:8090/v1/pairing/","token_env":"ISCP_TEST_TOKEN"}}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ISCPPairing.DomainID != "domain-a" || cfg.ISCPPairing.AuthorityURL != "http://127.0.0.1:8090/v1/pairing" || cfg.ISCPPairing.RequestTimeoutSeconds != 15 {
+		t.Fatalf("ISCP pairing configuration was not normalized: %#v", cfg.ISCPPairing)
+	}
+}
+
+func TestLoadRejectsUnsafeISCPPairing(t *testing.T) {
+	for _, test := range []struct{ name, config, want string }{
+		{name: "missing domain", config: `"authority_url":"https://authority.test/pairing","token_env":"TOKEN"`, want: "domain_id"},
+		{name: "missing token", config: `"domain_id":"domain-a","authority_url":"https://authority.test/pairing"`, want: "exactly one"},
+		{name: "remote http", config: `"domain_id":"domain-a","authority_url":"http://authority.example/pairing","token_env":"TOKEN"`, want: "HTTP only"},
+		{name: "wrong object", config: `"domain_id":"domain-a","authority_url":"https://authority.test/pairing","token_env":"TOKEN","expected_ticket_type":"private.ticket"`, want: "iscp.pairing_ticket.v2"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "sparkclaw.json")
+			raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"iscp_pairing":{"enabled":true,` + test.config + `}}`
+			if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("unsafe ISCP pairing configuration was accepted: %v", err)
+			}
+		})
+	}
 }
 
 func TestLoadNormalizesLocalMindMCPServer(t *testing.T) {

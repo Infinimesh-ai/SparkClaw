@@ -10,6 +10,15 @@ Control 迁移、connector/Gateway assembly 计划、Web outbound 设计、workt
 
 Web、第三方 connector 和 Timer 都是同一个 Message Runtime 的输入来源，不拥有独立 Agent loop。
 
+目标[统一第三方 ISCP MCP 接入](unified-third-party-access-design.md)把 MCP 注册为受管理的通用
+第三方 channel，同时保留专用 MCP protocol adapter。`initialize`、`ping` 和 `tools/list` 留在
+该 control plane，MCP Access Ticket 兑换和第一版 `sparkclaw.operation.*` control tool 也留在
+其中；Route `tools/call` 以 `third_party_device` `MessageEnvelope` 进入统一接收层，并由
+服务端持有的 tool binding 选中一个确定性 Top-1 叶子。结果通过 Delivery Gateway 和通用 MCP
+sender/provider 返回。启用/暂停、endpoint 可见性和 provider 可用性复用第三方统一管理 contract，
+但无需复用 polling 等不适用的 connector 内部实现。这样既复用业务 lifecycle，也不会把 MCP
+control traffic 伪装成 chat message。
+
 ```text
 Web/provider input 或 Timer claim
   -> MessageEnvelope + authorization + ReturnRoute
@@ -22,6 +31,8 @@ Web/provider input 或 Timer claim
 
 `MessageContent` 保留有序 text、image、audio 和 file part。`MessageEnvelope` 保留来源
 endpoint、native message/thread identity、owner/actor authorization 和 return route。
+对目标 MCP ingress，外部 device 作为 requester/source provenance 保存在类型化 MCP context，
+本地 SparkClaw principal 仍是 Workflow actor。
 这些契约位于 `internal/app`，与 provider 无关。
 
 发布当前消息的普通请求使用 `conversation.answer` revision 2 的 `publish` 变体。它不会

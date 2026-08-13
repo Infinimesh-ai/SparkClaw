@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -315,6 +317,148 @@ func TestPostgresStoreExternalChatAndInboxParity(t *testing.T) {
 	testMessageLifecycleParity(t, st)
 }
 
+func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
+	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SPARKCLAW_TEST_POSTGRES_DSN to run postgres store integration tests")
+	}
+	st, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	truncatePostgresStore(t, st)
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "postgres-ticket-hash-only"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.SecretHash != "postgres-ticket-hash-only" {
+		t.Fatalf("PostgreSQL changed the ticket hash: %#v", ticket)
+	}
+	peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "postgres-device", KeyThumbprint: "postgres-thumb", ISCPSessionID: "postgres-iscp"}
+
+	var wg sync.WaitGroup
+	results := make(chan error, 8)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, redeemErr := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now.Add(time.Second))
+			results <- redeemErr
+		}()
+	}
+	wg.Wait()
+	close(results)
+	succeeded := 0
+	for redeemErr := range results {
+		if redeemErr == nil {
+			succeeded++
+		} else if !errors.Is(redeemErr, ErrMCPAccessTicketInvalid) {
+			t.Fatalf("unexpected PostgreSQL redemption error: %v", redeemErr)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("successful PostgreSQL redemptions = %d, want 1", succeeded)
+	}
+	binding, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	if !ok || binding.ActorID != ticket.OwnerID || binding.RequesterDeviceID == binding.ActorID {
+		t.Fatalf("PostgreSQL binding identity mismatch: %#v ok=%v", binding, ok)
+	}
+	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: "mcp_operation_postgres", BindingID: binding.ID, IdempotencyKey: "postgres-idempotency", Fingerprint: "postgres-fingerprint",
+		Invocation: app.MCPInvocationContext{ID: "postgres-invocation", BindingRef: binding.ID, RunID: "postgres-run"},
+	})
+	if err != nil || !created {
+		t.Fatalf("create PostgreSQL MCP operation: created=%v err=%v", created, err)
+	}
+	replayed, created, err := st.CreateMCPOperation(app.MCPOperation{
+		BindingID: binding.ID, IdempotencyKey: operation.IdempotencyKey, Fingerprint: operation.Fingerprint,
+	})
+	if err != nil || created || replayed.ID != operation.ID {
+		t.Fatalf("PostgreSQL idempotent replay mismatch: %#v created=%v err=%v", replayed, created, err)
+	}
+	if _, _, err := st.CreateMCPOperation(app.MCPOperation{
+		BindingID: binding.ID, IdempotencyKey: operation.IdempotencyKey, Fingerprint: "changed-fingerprint",
+	}); !errors.Is(err, ErrMCPOperationConflict) {
+		t.Fatalf("PostgreSQL changed replay error = %v", err)
+	}
+	first := operation
+	first.State = app.MCPOperationSucceeded
+	first, err = st.UpdateMCPOperation(first, operation.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := operation
+	stale.State = app.MCPOperationCancelled
+	if _, err := st.UpdateMCPOperation(stale, operation.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
+		t.Fatalf("PostgreSQL stale operation update error = %v", err)
+	}
+	st.Close()
+
+	restarted, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	storedTicket, ok := restarted.FindMCPAccessTicketBySecretHash(ticket.SecretHash)
+	if !ok || storedTicket.Status != app.MCPAccessConsumed || storedTicket.SecretHash != "postgres-ticket-hash-only" {
+		t.Fatalf("PostgreSQL ticket did not recover hash-only state: %#v ok=%v", storedTicket, ok)
+	}
+	storedBinding, ok := restarted.GetMCPBinding(binding.ID)
+	if !ok || storedBinding.RequesterDeviceID != peer.DeviceID || storedBinding.LinkedSessionID == "" {
+		t.Fatalf("PostgreSQL binding did not recover: %#v ok=%v", storedBinding, ok)
+	}
+	storedOperation, ok := restarted.GetMCPOperation(operation.ID)
+	if !ok || storedOperation.State != app.MCPOperationSucceeded || storedOperation.Version != first.Version {
+		t.Fatalf("PostgreSQL operation did not recover its CAS winner: %#v ok=%v", storedOperation, ok)
+	}
+}
+
+func TestPostgresStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
+	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SPARKCLAW_TEST_POSTGRES_DSN to run postgres store integration tests")
+	}
+	st, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	truncatePostgresStore(t, st)
+	now := time.Now().UTC()
+	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(now, "iscp_onboarding_postgres", app.DefaultOwnerID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveISCPOnboarding(receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
+		t.Fatalf("duplicate onboarding error = %v", err)
+	}
+	if _, err := st.SaveISCPOnboarding(testISCPOnboarding(now.Add(time.Second), "iscp_onboarding_other", "other-owner")); err != nil {
+		t.Fatal(err)
+	}
+	listed := st.ListISCPOnboardings(app.DefaultOwnerID)
+	if len(listed) != 1 || listed[0].ID != receipt.ID {
+		t.Fatalf("owner-scoped PostgreSQL onboardings = %#v", listed)
+	}
+	var payload string
+	if err := st.db.QueryRow(context.Background(), `SELECT payload::text FROM iscp_onboardings WHERE id=$1`, receipt.ID).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(payload, "signature") || strings.Contains(payload, "signed-ticket-value") {
+		t.Fatalf("PostgreSQL persisted Pairing Ticket secret material: %s", payload)
+	}
+	st.Close()
+
+	restarted, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	got, ok := restarted.GetISCPOnboarding(receipt.ID)
+	if !ok || got.AuthorityRef != receipt.AuthorityRef || got.TicketID != receipt.TicketID || got.MaxUses != 1 {
+		t.Fatalf("PostgreSQL onboarding receipt did not survive restart: %#v ok=%v", got, ok)
+	}
+}
+
 func TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks(t *testing.T) {
 	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -449,7 +593,7 @@ func TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t 
 func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 	t.Helper()
 	_, err := st.db.Exec(context.Background(), `
-		TRUNCATE message_delivery_records, message_receive_records, channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions,
+		TRUNCATE mcp_operations, mcp_bindings, mcp_access_tickets, iscp_onboardings, message_delivery_records, message_receive_records, channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions,
 			credential_secrets, notification_bindings, reminder_deliveries, reminders, events, audit_events, owners, eval_runs,
 			artifact_objects, episode_summaries, memories, memory_candidates, approvals, document_records, tool_calls,
 			model_calls, run_feedback, messages, agent_runs, sessions

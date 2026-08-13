@@ -6,6 +6,26 @@ SparkClaw ISCP Bridge 是独立的传输进程，用于把通过认证的 ISCP v
 拥有的 provider-neutral `agent.*.v1` API。它不会直接调用 Agent Runtime 或 ToolHub，也不接收
 或保存 ITES access/refresh token。
 
+本文描述当前共享 Bridge。LocalMind 使用的 enrollment 方向属于旧链路：SparkClaw 发送
+enrollment request，再由外部 LocalMind controller 返回 Bridge 使用的 bundle 与 grant。
+目标方案不会通过新增 SparkClaw-specific ISCP credential service 来反转该旧 flow。SparkClaw 在
+本地通过标准 ISCP pairing 能力展示一次性 Pairing Ticket；LocalMind Access Gateway 连接 ISCP，
+通过 Provisioning 兑换该凭证，作为新 device 加入 SparkClaw ISCP Domain。ticket 的定义、签名、
+校验和消费，以及 device admission、Trust Grant、Relay credential、session security、rotation
+和 transport revocation 均由 ISCP 负责。认证 ISCP session ready 后，SparkClaw 通过该 session
+独立签发并消费单次使用 MCP Access Ticket，以激活持久本地 Route MCP Binding。该应用 ticket
+不会让 device 加入 ISCP，也不是公网 claim service。本文不决定 JingSi 未来的 credential flow。
+
+替代架构使用一个经通用 ISCP MCP Access Gateway 传输的 Route MCP Service。SparkClaw 自身
+负责的本地 runtime 与加密 Bridge dispatch 已实现；生产 PairingTicket/Provisioning 集成、
+可部署 external gateway 和真实 Relay 验证仍待完成。详见
+[统一第三方 ISCP MCP 接入](unified-third-party-access-design.md)。不得再为旧 Bridge 增加
+LocalMind caller、capability 或 compatibility feature。
+LocalMind 通过新链路后，删除其 Bridge registration、grant、branch、fallback、config、test 和
+guidance。只冻结保留 JingSi 当前仍需的最小共享 surface；JingSi 不接入 MCP，最终 Bridge 退役由
+其后续独立绑定项目负责。SparkClaw 主动访问 LocalMind workspace 的出站 MCP client 不在删除
+范围内。
+
 ## 已支持范围
 
 Bridge 只声明当前 Gateway 已实现的能力：
@@ -20,7 +40,9 @@ Bridge 只声明当前 Gateway 已实现的能力：
 `agent.notification.deliver.v1` 只接收结构化的 LocalMind `document_mention` 或
 `comment_mention`、有界 deep link 和发生时间。Gateway 先把 owner-scoped 收件箱记录持久化，
 然后才返回 `status: "ok"`。这条路径不会创建 Agent session、message、run、model call、
-tool call 或 approval。尚未采用被动能力的 peer 仍可使用原有的创建 session 和发送消息路径。
+tool call 或 approval。原有创建 session 和发送消息 path 只在目标切换前临时存在于旧链路中；
+切换时删除 LocalMind 对两条 path 的 authorization 与 dispatch，但不删除 JingSi 当前对共享
+request type 的使用。
 
 远程 workspace 和 file 的授权及上传/下载合约尚未端到端实现，因此不会声明。版本化 JSON
 Schema 位于
@@ -38,6 +60,11 @@ Schema 位于
 - Bridge 校验 peer 身份、Domain、Trust Grant audience、confirmation thumbprint、permission、Relay constraint、revocation epoch、过期时间、Hello 时间窗、endpoint 绑定和 envelope 序号。
 
 ## 注册
+
+对 LocalMind 而言，以下流程只记录旧链路的当前运维方式。生成的 request 与外部返回 bundle
+不得被目标 MCP gateway 接受，也不得转换为目标 peer binding；切换时，现有 LocalMind device
+必须使用新的 ISCP PairingTicket/Provisioning 加入 SparkClaw Domain，再通过认证 session 兑换
+新的 SparkClaw MCP Access Ticket。JingSi 在独立替代设计落地前继续使用当前所需流程。
 
 在 GB10 上创建设备身份和公开 enrollment request：
 

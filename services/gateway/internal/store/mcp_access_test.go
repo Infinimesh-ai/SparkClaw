@@ -1,0 +1,349 @@
+package store
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+)
+
+func TestFileStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(now, "iscp_onboarding_file", app.DefaultOwnerID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.GetISCPOnboarding(receipt.ID)
+	if !ok || got.AuthorityRef != receipt.AuthorityRef || got.TicketID != receipt.TicketID {
+		t.Fatalf("ISCP onboarding receipt did not survive restart: %#v ok=%v", got, ok)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot map[string]any
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"signature"`) || strings.Contains(string(raw), "signed-ticket-value") {
+		t.Fatalf("file Store persisted Pairing Ticket secret material: %s", raw)
+	}
+}
+
+func TestFileStoreDoesNotRetainISCPOnboardingWhenPersistenceFails(t *testing.T) {
+	parentFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parentFile, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st := &FileStore{inner: NewMemoryStore(), path: filepath.Join(parentFile, "state.json")}
+	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(time.Now().UTC(), "iscp_onboarding_rollback", app.DefaultOwnerID))
+	if err == nil || receipt.ID != "" || len(st.ListISCPOnboardings("")) != 0 {
+		t.Fatalf("failed onboarding persistence returned or retained a receipt: receipt=%#v count=%d err=%v", receipt, len(st.ListISCPOnboardings("")), err)
+	}
+}
+
+func TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound(t *testing.T) {
+	st := NewMemoryStore()
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "secret-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
+
+	var wg sync.WaitGroup
+	results := make(chan error, 8)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now.Add(time.Second))
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	succeeded := 0
+	for err := range results {
+		if err == nil {
+			succeeded++
+		} else if !errors.Is(err, ErrMCPAccessTicketInvalid) {
+			t.Fatalf("unexpected redemption error: %v", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("successful redemptions = %d, want 1", succeeded)
+	}
+	binding, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
+	if !ok || binding.OwnerID != ticket.OwnerID || binding.ActorID != ticket.ActorID || binding.RequesterDeviceID == binding.ActorID {
+		t.Fatalf("binding did not preserve requester/executor separation: %#v ok=%v", binding, ok)
+	}
+	if session, ok := st.GetSession(binding.LinkedSessionID); !ok || !session.Hidden || session.OwnerID != binding.OwnerID {
+		t.Fatalf("binding session was not created atomically: %#v ok=%v", session, ok)
+	}
+	if _, ok := st.FindMCPBindingForPeer(peer.DomainID, "device-b", peer.KeyThumbprint); ok {
+		t.Fatal("device substitution found a binding")
+	}
+}
+
+func TestFileStorePersistsMCPAccessWithoutPlaintextSecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "sha256-only"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{
+		DomainID: ticket.DomainID, DeviceID: "device-file", KeyThumbprint: "thumb-file", ISCPSessionID: "iscp-file",
+	}, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: "mcp_operation_file", BindingID: binding.ID, IdempotencyKey: "idem-file", Fingerprint: "fp-file",
+		Invocation: app.MCPInvocationContext{SchemaVersion: app.MCPInvocationSchemaVersion, ID: "inv-file", RunID: "run-file"},
+	})
+	if err != nil || !created {
+		t.Fatalf("create operation: created=%v err=%v", created, err)
+	}
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := reloaded.GetMCPBinding(binding.ID); !ok || got.RequesterDeviceID != binding.RequesterDeviceID {
+		t.Fatalf("binding did not persist: %#v ok=%v", got, ok)
+	}
+	if got, ok := reloaded.GetMCPOperation(operation.ID); !ok || got.Invocation.ID != "inv-file" {
+		t.Fatalf("operation did not persist: %#v ok=%v", got, ok)
+	}
+	if got, ok := reloaded.FindMCPAccessTicketBySecretHash(ticket.SecretHash); !ok || got.SecretHash != "sha256-only" {
+		t.Fatalf("ticket hash did not persist: %#v ok=%v", got, ok)
+	}
+}
+
+func TestMCPOperationIdempotencyRejectsChangedRequest(t *testing.T) {
+	st := NewMemoryStore()
+	first, created, err := st.CreateMCPOperation(app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-a"})
+	if err != nil || !created {
+		t.Fatalf("first operation: %#v created=%v err=%v", first, created, err)
+	}
+	if replay, created, err := st.CreateMCPOperation(app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-a"}); err != nil || created || replay.ID != first.ID {
+		t.Fatalf("same replay mismatch: %#v created=%v err=%v", replay, created, err)
+	}
+	if _, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: "binding-a", IdempotencyKey: "same", Fingerprint: "fp-b"}); !errors.Is(err, ErrMCPOperationConflict) {
+		t.Fatalf("changed replay error = %v", err)
+	}
+}
+
+func TestMCPBindingRevocationTerminatesOnlyNonterminalOperations(t *testing.T) {
+	st := NewMemoryStore()
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "revoke-binding-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{
+		DomainID: ticket.DomainID, DeviceID: "device-revoke", KeyThumbprint: "thumb-revoke", ISCPSessionID: "iscp-revoke",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "running", Fingerprint: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedAt := now.Add(-time.Second)
+	succeeded, _, err := st.CreateMCPOperation(app.MCPOperation{
+		BindingID: binding.ID, IdempotencyKey: "succeeded", Fingerprint: "succeeded",
+		State: app.MCPOperationSucceeded, CompletedAt: &completedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RevokeMCPBinding(binding.ID, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	running, _ = st.GetMCPOperation(running.ID)
+	if running.State != app.MCPOperationRevoked || running.ErrorCode != "binding_revoked" || running.CompletedAt == nil {
+		t.Fatalf("running operation did not become revoked: %#v", running)
+	}
+	succeeded, _ = st.GetMCPOperation(succeeded.ID)
+	if succeeded.State != app.MCPOperationSucceeded || succeeded.CompletedAt == nil || !succeeded.CompletedAt.Equal(completedAt) {
+		t.Fatalf("terminal operation changed during revocation: %#v", succeeded)
+	}
+}
+
+func TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore(t *testing.T) {
+	st := NewMemoryStore()
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+		SecretHash: "clone-secret", DomainID: "domain-a", Status: app.MCPAccessPending,
+		MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
+		Grants: []app.MCPLeafGrant{{
+			CapabilityID: app.CapabilityConversationAnswer,
+			Operations:   []app.RouteOperation{app.RouteOperationAnswer},
+			Effects:      []app.ToolEffect{app.ToolEffectLocalCompute},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket.Grants[0].Operations[0] = app.RouteOperationDelete
+	storedTicket, _ := st.GetMCPAccessTicket(ticket.ID)
+	if storedTicket.Grants[0].Operations[0] != app.RouteOperationAnswer {
+		t.Fatalf("ticket mutation escaped Store boundary: %#v", storedTicket)
+	}
+	binding, err := st.RedeemMCPAccessTicket("clone-secret", app.MCPPeerIdentity{
+		DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.Grants[0].Effects[0] = app.ToolEffectLocalWrite
+	storedBinding, _ := st.GetMCPBinding(binding.ID)
+	if storedBinding.Grants[0].Effects[0] != app.ToolEffectLocalCompute {
+		t.Fatalf("binding mutation escaped Store boundary: %#v", storedBinding)
+	}
+	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+		BindingID: binding.ID, IdempotencyKey: "clone-operation", Fingerprint: "clone-fingerprint",
+		Invocation: app.MCPInvocationContext{Arguments: map[string]any{
+			"nested": map[string]any{"value": "original"}, "items": []any{map[string]any{"value": "original"}},
+		}},
+		Result: []byte(`{"value":"original"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation.Invocation.Arguments["nested"].(map[string]any)["value"] = "changed"
+	operation.Invocation.Arguments["items"].([]any)[0].(map[string]any)["value"] = "changed"
+	operation.Result[0] = '['
+	storedOperation, _ := st.GetMCPOperation(operation.ID)
+	if storedOperation.Invocation.Arguments["nested"].(map[string]any)["value"] != "original" ||
+		storedOperation.Invocation.Arguments["items"].([]any)[0].(map[string]any)["value"] != "original" ||
+		string(storedOperation.Result) != `{"value":"original"}` {
+		t.Fatalf("operation mutation escaped Store boundary: %#v", storedOperation)
+	}
+}
+
+func TestFileStoreDoesNotReturnOrRetainTicketWhenPersistenceFails(t *testing.T) {
+	parentFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parentFile, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewFileStore(filepath.Join(parentFile, "state.json"))
+	if err == nil {
+		t.Fatal("FileStore unexpectedly opened a state path below a regular file")
+	}
+
+	st = &FileStore{inner: NewMemoryStore(), path: filepath.Join(parentFile, "state.json")}
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(time.Now().UTC(), "must-not-survive"))
+	if err == nil || ticket.ID != "" || len(st.ListMCPAccessTickets("")) != 0 {
+		t.Fatalf("failed ticket persistence returned or retained a ticket: ticket=%#v count=%d err=%v", ticket, len(st.ListMCPAccessTickets("")), err)
+	}
+}
+
+func TestFileStoreRollsBackMCPStateWhenPersistenceFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "rollback-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Dir(path), []byte("occupied"), 0o600); err == nil {
+		t.Fatal("unexpectedly replaced the state directory with a file")
+	}
+	parentFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parentFile, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st.path = filepath.Join(parentFile, "state.json")
+	peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
+	if binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now.Add(time.Second)); err == nil || binding.ID != "" {
+		t.Fatalf("failed redemption returned a binding: binding=%#v err=%v", binding, err)
+	}
+	stored, ok := st.GetMCPAccessTicket(ticket.ID)
+	if !ok || stored.Status != app.MCPAccessPending || stored.UseCount != 0 {
+		t.Fatalf("failed redemption consumed the ticket: %#v ok=%v", stored, ok)
+	}
+	if _, ok := st.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint); ok {
+		t.Fatal("failed redemption retained a binding")
+	}
+}
+
+func TestFileStoreRollsBackBindingAndOperationsWhenRevocationPersistenceFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "revoke-rollback-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := app.MCPPeerIdentity{DomainID: ticket.DomainID, DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
+	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, peer, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "revoke-rollback", Fingerprint: "revoke-rollback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parentFile, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st.path = filepath.Join(parentFile, "state.json")
+	if revoked, err := st.RevokeMCPBinding(binding.ID, now.Add(time.Second)); err == nil || revoked.ID != "" {
+		t.Fatalf("failed revocation returned a binding: binding=%#v err=%v", revoked, err)
+	}
+	storedBinding, _ := st.GetMCPBinding(binding.ID)
+	storedOperation, _ := st.GetMCPOperation(operation.ID)
+	if storedBinding.Status != app.MCPBindingActive || storedOperation.State != app.MCPOperationRunning {
+		t.Fatalf("failed revocation was retained: binding=%#v operation=%#v", storedBinding, storedOperation)
+	}
+}
+
+func testMCPAccessTicket(now time.Time, secretHash string) app.MCPAccessTicket {
+	return app.MCPAccessTicket{
+		SecretHash: secretHash, OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, DomainID: "domain-a",
+		CatalogRevision: "catalog-a", Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
+		Grants: []app.MCPLeafGrant{{CapabilityID: app.CapabilityConversationAnswer, Operations: []app.RouteOperation{app.RouteOperationAnswer}}},
+	}
+}
+
+func testISCPOnboarding(now time.Time, id, ownerID string) app.ISCPOnboarding {
+	return app.ISCPOnboarding{
+		SchemaVersion: app.ISCPOnboardingSchemaVersion, ID: id, OwnerID: ownerID, ActorID: ownerID,
+		DisplayName: "External gateway", DomainID: "domain-a", AuthorityRef: "authority-ref-" + id, TicketID: "pairing-ticket-" + id,
+		TicketType: "iscp.pairing_ticket.v2", RelayID: "relay-a", TrustRootID: "root-a", MaxUses: 1,
+		Status: app.ISCPOnboardingTicketIssued, TicketIssuedAt: now, TicketExpiresAt: now.Add(10 * time.Minute), CreatedAt: now, UpdatedAt: now,
+	}
+}

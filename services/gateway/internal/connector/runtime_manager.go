@@ -91,6 +91,10 @@ func (r *Registry) Status(ownerID, channel string) (app.ConnectorStatus, error) 
 		SupportsMultipleBindings: registration.Binding != nil && !registration.Binding.Policy().ExclusiveBinding,
 		Version:                  setting.Version, UpdatedAt: setting.UpdatedAt, LastError: runtimeError,
 	}
+	if registration.ExternalManaged {
+		status.BindingStatus = "managed_externally"
+		status.BindingStartable = false
+	}
 	switch {
 	case !enabled:
 		status.State = app.ConnectorStateDisabled
@@ -104,6 +108,8 @@ func (r *Registry) Status(ownerID, channel string) (app.ConnectorStatus, error) 
 	case runtimeError != "" && !running:
 		status.State = app.ConnectorStateError
 		status.DisabledReason = "connector_runtime_failed"
+	case registration.ExternalManaged:
+		status.State = app.ConnectorStateActive
 	case capability.BindingStatus == "active":
 		status.State = app.ConnectorStateActive
 	case capability.BindingStatus == "waiting_scan" || capability.BindingStatus == "waiting_confirm":

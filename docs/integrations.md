@@ -159,9 +159,13 @@ and the normalized condition vocabulary, then exposes a typed card payload.
 Provider coordinates are discarded before ToolHub output, traces, or card
 rendering. Malformed or incomplete weather responses fail explicitly.
 
-Configuration uses `SPARKCLAW_INFINIMESH_INFO_*`. Entitlement, device
-attestation, and license proofs may be supplied directly or from files and must
-never appear in public config, logs, traces, or artifacts.
+Configuration uses `SPARKCLAW_INFINIMESH_INFO_LICENSE_ID` together with
+`SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY` (or
+`SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE`). Token issuance authenticates
+with `Authorization: Bearer <ilk_v1...>`; the retired entitlement proof, device
+attestation, and license proof environment variables are not accepted. The key
+must embed the configured license ID and must never appear in public config,
+logs, traces, or artifacts.
 
 ## ISCP Bridge
 

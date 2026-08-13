@@ -13,18 +13,16 @@ import (
 )
 
 const (
-	testEntitlement = "entitlement-sentinel"
-	testAttestation = "attestation-sentinel"
-	testLicense     = "license-sentinel"
-	testQuery       = "public-query-sentinel"
+	testLicenseID  = "lic_test_sentinel"
+	testLicenseKey = "ilk_v1." + testLicenseID + ".license-key-sentinel"
+	testQuery      = "public-query-sentinel"
 )
 
 func testClientConfig(baseURL string) Config {
 	return Config{
 		BaseURL:              baseURL,
-		EntitlementProof:     testEntitlement,
-		DeviceAttestation:    testAttestation,
-		LicenseProof:         testLicense,
+		LicenseID:            testLicenseID,
+		LicenseKey:           testLicenseKey,
 		TokenBatchSize:       3,
 		MaxAttempts:          3,
 		RetryBaseDelay:       time.Millisecond,
@@ -64,7 +62,7 @@ func TestClientIssueQueryRetryUsesFreshTokenAndRandomRequestID(t *testing.T) {
 			mu.Lock()
 			issueCount++
 			mu.Unlock()
-			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testEntitlement {
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testLicenseKey {
 				t.Error("token issue request contract mismatch")
 			}
 			var body issueTokensRequest
@@ -72,7 +70,7 @@ func TestClientIssueQueryRetryUsesFreshTokenAndRandomRequestID(t *testing.T) {
 				t.Error("token issue body did not decode")
 				return
 			}
-			if body.DeviceAttestation != testAttestation || body.LicenseProof != testLicense || body.TokenMode != "internal_opaque" || len(body.BlindedTokenRequests) != 0 {
+			if body.DeviceAttestation != "" || body.LicenseProof != "" || body.TokenMode != "internal_opaque" || len(body.BlindedTokenRequests) != 0 {
 				t.Error("token issue body contract mismatch")
 			}
 			if len(body.RequestedTokens) != 1 || body.RequestedTokens[0].Type != TokenTypeBasic || body.RequestedTokens[0].Count != 3 {
@@ -87,7 +85,7 @@ func TestClientIssueQueryRetryUsesFreshTokenAndRandomRequestID(t *testing.T) {
 			}
 			raw, _ := json.Marshal(body)
 			text := string(raw)
-			if strings.Contains(text, testEntitlement) || strings.Contains(text, testAttestation) || strings.Contains(text, testLicense) {
+			if strings.Contains(text, testLicenseID) || strings.Contains(text, testLicenseKey) {
 				t.Error("query request leaked issuance credentials")
 			}
 			for _, forbidden := range []string{"session_id", "user_id", "device_id", "account_id", "license_id"} {
@@ -117,7 +115,7 @@ func TestClientIssueQueryRetryUsesFreshTokenAndRandomRequestID(t *testing.T) {
 					"request_id": body.RequestID,
 					"error": map[string]any{
 						"code":      "SERVICE_DEGRADED",
-						"message":   "temporary failure " + testQuery + " " + testEntitlement,
+						"message":   "temporary failure " + testQuery + " " + testLicenseKey,
 						"retryable": true,
 						"details":   map[string]any{},
 					},
@@ -192,7 +190,7 @@ func TestClientNonRetryableErrorIsSanitized(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
 				"code":      "POLICY_DENIED",
-				"message":   "denied " + testQuery + " " + testLicense,
+				"message":   "denied " + testQuery + " " + testLicenseKey,
 				"retryable": false,
 				"details":   map[string]any{},
 			},
@@ -211,8 +209,23 @@ func TestClientNonRetryableErrorIsSanitized(t *testing.T) {
 	if queryCount != 1 {
 		t.Fatalf("non-retryable query attempts = %d, want 1", queryCount)
 	}
-	if strings.Contains(err.Error(), testQuery) || strings.Contains(err.Error(), testLicense) || strings.Contains(err.Error(), testEntitlement) {
+	if strings.Contains(err.Error(), testQuery) || strings.Contains(err.Error(), testLicenseID) || strings.Contains(err.Error(), testLicenseKey) {
 		t.Fatal("sanitized error leaked request data")
+	}
+}
+
+func TestClientRequiresMatchingLicenseCredentials(t *testing.T) {
+	tests := []Config{
+		{LicenseID: testLicenseID},
+		{LicenseKey: testLicenseKey},
+		{LicenseID: testLicenseID, LicenseKey: "not-a-license-key"},
+		{LicenseID: "lic_other", LicenseKey: testLicenseKey},
+	}
+	for _, cfg := range tests {
+		cfg.BaseURL = "https://info.example.test"
+		if _, err := NewClient(cfg, nil); err == nil {
+			t.Fatalf("NewClient accepted mismatched credentials: license=%q", cfg.LicenseID)
+		}
 	}
 }
 

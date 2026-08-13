@@ -17,9 +17,8 @@ import (
 // configureTestInfoCredentials satisfies InfinimeshInfoConfig.Configured so
 // tests can register the credential-gated weather.lookup tool.
 func configureTestInfoCredentials(cfg *config.Config) {
-	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-proof"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "device-attestation"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-proof"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_test"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_test.test-key"
 }
 
 func TestWebSearchToolRegistersOnlyWhenEnabled(t *testing.T) {
@@ -83,7 +82,7 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/info/tokens/issue":
-			if r.Header.Get("Authorization") != "Bearer entitlement-proof" {
+			if r.Header.Get("Authorization") != "Bearer ilk_v1.lic_test.test-key" {
 				t.Error("unexpected token authorization")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -121,9 +120,8 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 	cfg.Tools.Web.Search.Enabled = true
 	info := &cfg.Plugins.Entries.InfinimeshInfo.Config
 	info.BaseURL = server.URL
-	info.EntitlementProof = "entitlement-proof"
-	info.DeviceAttestation = "device-attestation"
-	info.LicenseProof = "license-proof"
+	info.LicenseID = "lic_test"
+	info.LicenseKey = "ilk_v1.lic_test.test-key"
 	info.MaxAttempts = 1
 	hub := New(cfg, store.NewMemoryStore())
 

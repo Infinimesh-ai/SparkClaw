@@ -154,9 +154,8 @@ func TestFusionRouterKeepsWeatherCardBoundaryNarrow(t *testing.T) {
 func TestBrowserWeatherDispatchesOnlyInfoQuestionInitially(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		cfg.config.Tools.Web.Search.Enabled = true
-		cfg.config.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-proof"
-		cfg.config.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "device-attestation"
-		cfg.config.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-proof"
+		cfg.config.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_test"
+		cfg.config.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_test.test-key"
 	})
 	defer closeRuntime()
 	route := app.RouteDecision{
@@ -216,9 +215,8 @@ func TestBrowserSearchRouteDispatchesRealWebSearchWorkflow(t *testing.T) {
 		cfg.config.Tools.Web.Search.Enabled = true
 		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
 		infoCfg.BaseURL = info.URL
-		infoCfg.EntitlementProof = "entitlement-proof"
-		infoCfg.DeviceAttestation = "device-attestation"
-		infoCfg.LicenseProof = "license-proof"
+		infoCfg.LicenseID = "lic_test"
+		infoCfg.LicenseKey = "ilk_v1.lic_test.test-key"
 		infoCfg.MaxAttempts = 1
 	})
 	defer closeRuntime()
@@ -302,9 +300,8 @@ func TestCurrentGoldPriceRouteCompletesThroughBoundedInfoEvidence(t *testing.T) 
 		cfg.config.Tools.Web.Search.Enabled = true
 		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
 		infoCfg.BaseURL = info.URL
-		infoCfg.EntitlementProof = "entitlement-proof"
-		infoCfg.DeviceAttestation = "device-attestation"
-		infoCfg.LicenseProof = "license-proof"
+		infoCfg.LicenseID = "lic_test"
+		infoCfg.LicenseKey = "ilk_v1.lic_test.test-key"
 		infoCfg.MaxAttempts = 1
 	})
 	defer closeRuntime()
@@ -375,9 +372,8 @@ func TestBrowserSearchWorkflowUsesCanonicalQueryInsteadOfModelRewrite(t *testing
 		cfg.config.Tools.Web.Search.Enabled = true
 		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
 		infoCfg.BaseURL = info.URL
-		infoCfg.EntitlementProof = "entitlement-proof"
-		infoCfg.DeviceAttestation = "device-attestation"
-		infoCfg.LicenseProof = "license-proof"
+		infoCfg.LicenseID = "lic_test"
+		infoCfg.LicenseKey = "ilk_v1.lic_test.test-key"
 		infoCfg.MaxAttempts = 1
 	})
 	defer closeRuntime()
@@ -405,7 +401,7 @@ func TestBrowserWeatherWorkflowUsesDedicatedInfoEndpointAndReturnsImage(t *testi
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/info/tokens/issue":
-			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer entitlement-proof" {
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer ilk_v1.lic_test.test-key" {
 				t.Errorf("unexpected token issue contract: method=%s authorization=%q", r.Method, r.Header.Get("Authorization"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -470,9 +466,8 @@ func TestBrowserWeatherWorkflowUsesDedicatedInfoEndpointAndReturnsImage(t *testi
 		cfg.config.Tools.Web.Search.Enabled = true
 		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
 		infoCfg.BaseURL = info.URL
-		infoCfg.EntitlementProof = "entitlement-proof"
-		infoCfg.DeviceAttestation = "device-attestation"
-		infoCfg.LicenseProof = "license-proof"
+		infoCfg.LicenseID = "lic_test"
+		infoCfg.LicenseKey = "ilk_v1.lic_test.test-key"
 		infoCfg.MaxAttempts = 1
 	})
 	defer closeRuntime()
@@ -602,9 +597,8 @@ func TestBrowserWeatherWorkflowRejectsIncompleteDedicatedResponseWithoutFallback
 		cfg.config.Tools.Web.Search.Enabled = true
 		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
 		infoCfg.BaseURL = info.URL
-		infoCfg.EntitlementProof = "entitlement-proof"
-		infoCfg.DeviceAttestation = "device-attestation"
-		infoCfg.LicenseProof = "license-proof"
+		infoCfg.LicenseID = "lic_test"
+		infoCfg.LicenseKey = "ilk_v1.lic_test.test-key"
 		infoCfg.MaxAttempts = 1
 	})
 	defer closeRuntime()

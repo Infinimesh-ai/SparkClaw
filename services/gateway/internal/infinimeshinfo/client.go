@@ -148,9 +148,8 @@ func normalizeClientConfig(cfg Config) Config {
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		cfg.BaseURL = DefaultBaseURL
 	}
-	cfg.EntitlementProof = strings.TrimSpace(cfg.EntitlementProof)
-	cfg.DeviceAttestation = strings.TrimSpace(cfg.DeviceAttestation)
-	cfg.LicenseProof = strings.TrimSpace(cfg.LicenseProof)
+	cfg.LicenseID = strings.TrimSpace(cfg.LicenseID)
+	cfg.LicenseKey = strings.TrimSpace(cfg.LicenseKey)
 	if cfg.TokenBatchSize <= 0 {
 		cfg.TokenBatchSize = 10
 	}
@@ -269,8 +268,8 @@ func (i httpTokenIssuer) Issue(ctx context.Context, tokenType TokenType, count i
 		return nil, errors.New("infinimesh info token request ID generation failed")
 	}
 	payload := issueTokensRequest{
-		DeviceAttestation: i.client.cfg.DeviceAttestation,
-		LicenseProof:      i.client.cfg.LicenseProof,
+		DeviceAttestation: "",
+		LicenseProof:      "",
 		Epoch:             time.Now().UTC().Format("2006-01-02"),
 		TokenMode:         "internal_opaque",
 		RequestedTokens: []requestedToken{{
@@ -283,7 +282,7 @@ func (i httpTokenIssuer) Issue(ctx context.Context, tokenType TokenType, count i
 	if err := i.client.postJSON(
 		ctx,
 		issueTokensPath,
-		"Bearer "+i.client.cfg.EntitlementProof,
+		"Bearer "+i.client.cfg.LicenseKey,
 		requestID,
 		payload,
 		&response,

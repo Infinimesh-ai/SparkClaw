@@ -159,8 +159,7 @@ func testInfinimeshConfig(baseURL string) config.InfinimeshInfoConfig {
 		ResponseBodyMaxBytes:  1 << 20,
 		Language:              "zh-CN",
 		MaxSources:            8,
-		EntitlementProof:      "entitlement-proof",
-		DeviceAttestation:     "device-attestation",
-		LicenseProof:          "license-proof",
+		LicenseID:             "lic_test",
+		LicenseKey:            "ilk_v1.lic_test.test-key",
 	}
 }

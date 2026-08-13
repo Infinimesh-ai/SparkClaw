@@ -3,11 +3,12 @@ package infinimeshinfo
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 )
 
 const (
-	DefaultBaseURL           = "https://info.infinimesh.cn"
+	DefaultBaseURL           = "https://info.infinimesh.cloud"
 	ProviderName             = "infinimesh-info"
 	TokenTypeBasic TokenType = "info.basic"
 )
@@ -16,9 +17,8 @@ type TokenType string
 
 type Config struct {
 	BaseURL              string
-	EntitlementProof     string
-	DeviceAttestation    string
-	LicenseProof         string
+	LicenseID            string
+	LicenseKey           string
 	TokenBatchSize       int
 	MaxAttempts          int
 	RetryBaseDelay       time.Duration
@@ -27,7 +27,26 @@ type Config struct {
 }
 
 func (cfg Config) Configured() bool {
-	return cfg.EntitlementProof != "" && cfg.DeviceAttestation != "" && cfg.LicenseProof != ""
+	licenseID := strings.TrimSpace(cfg.LicenseID)
+	keyLicenseID, ok := ParseLicenseKeyLicenseID(cfg.LicenseKey)
+	return licenseID != "" && ok && keyLicenseID == licenseID
+}
+
+// ParseLicenseKeyLicenseID extracts the license ID embedded in an Info license
+// key. Possession is verified by the Info service; SparkClaw only validates the
+// public wire shape and guards against pairing a key with the wrong license.
+func ParseLicenseKeyLicenseID(key string) (string, bool) {
+	const prefix = "ilk_v1."
+	key = strings.TrimSpace(key)
+	if !strings.HasPrefix(key, prefix) {
+		return "", false
+	}
+	rest := key[len(prefix):]
+	dot := strings.LastIndexByte(rest, '.')
+	if dot <= 0 || dot == len(rest)-1 {
+		return "", false
+	}
+	return rest[:dot], true
 }
 
 type Token struct {

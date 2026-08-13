@@ -1981,9 +1981,8 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	cfg.State.EncryptionKey = "state-secret"
 	cfg.Tools.Web.Search.Enabled = true
 	cfg.Tools.Web.Search.Provider = "infinimesh-info"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement-super-secret"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "attestation-super-secret"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license-super-secret"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_super_secret"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_super_secret.super-secret-key"
 
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -2069,12 +2068,11 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 		Tools struct {
 			Web struct {
 				Search struct {
-					Enabled           bool   `json:"enabled"`
-					Provider          string `json:"provider"`
-					Configured        bool   `json:"configured"`
-					EntitlementProof  string `json:"entitlement_proof"`
-					DeviceAttestation string `json:"device_attestation"`
-					LicenseProof      string `json:"license_proof"`
+					Enabled    bool   `json:"enabled"`
+					Provider   string `json:"provider"`
+					Configured bool   `json:"configured"`
+					LicenseID  string `json:"license_id"`
+					LicenseKey string `json:"license_key"`
 				} `json:"search"`
 			} `json:"web"`
 		} `json:"tools"`
@@ -2104,7 +2102,7 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	if !decoded.Tools.Web.Search.Enabled || decoded.Tools.Web.Search.Provider != "infinimesh-info" || !decoded.Tools.Web.Search.Configured {
 		t.Fatalf("web search safe summary missing: %#v", decoded.Tools.Web.Search)
 	}
-	if decoded.Tools.Web.Search.EntitlementProof != "" || decoded.Tools.Web.Search.DeviceAttestation != "" || decoded.Tools.Web.Search.LicenseProof != "" {
+	if decoded.Tools.Web.Search.LicenseID != "" || decoded.Tools.Web.Search.LicenseKey != "" {
 		t.Fatalf("infinimesh info credentials were exposed: %#v", decoded.Tools.Web.Search)
 	}
 	if decoded.ToolPolicy.PolicyPath == "" || decoded.ToolPolicy.DefinitionCount == 0 || decoded.ToolPolicy.RiskCounts["dangerous"] == 0 {
@@ -2124,13 +2122,12 @@ func TestWebSearchConfiguredMatchesProvider(t *testing.T) {
 
 	cfg.Tools.Web.Search.Provider = "infinimesh-info"
 	if webSearchConfigured(cfg) {
-		t.Fatal("Infinimesh Info should not be configured without all credentials")
+		t.Fatal("Infinimesh Info should not be configured without license credentials")
 	}
-	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "entitlement"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "attestation"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "license"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_test"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_test.test-key"
 	if !webSearchConfigured(cfg) {
-		t.Fatal("Infinimesh Info should be configured with all credentials")
+		t.Fatal("Infinimesh Info should be configured with matching license credentials")
 	}
 
 	cfg.Tools.Web.Search.Provider = "unsupported"

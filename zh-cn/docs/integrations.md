@@ -129,8 +129,12 @@ evidence ref，在模型调用前选择与 query 相关的有界 projection。su
 随后只暴露 typed 卡片 payload。provider 坐标在进入 ToolHub output、trace 或卡片渲染前
 被丢弃；malformed 或不完整天气响应会明确失败。
 
-配置使用 `SPARKCLAW_INFINIMESH_INFO_*`。entitlement、device attestation 和 license proof
-可以直接或通过文件提供，但绝不能进入 public config、log、trace 或 artifact。
+配置使用 `SPARKCLAW_INFINIMESH_INFO_LICENSE_ID` 与
+`SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY`（或
+`SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE`）。Token 签发通过
+`Authorization: Bearer <ilk_v1...>` 认证；已退役的 entitlement proof、device attestation
+和 license proof 环境变量不再接受。key 内嵌的 license ID 必须与配置一致，且 key 绝不能进入
+public config、log、trace 或 artifact。
 
 ## ISCP Bridge
 

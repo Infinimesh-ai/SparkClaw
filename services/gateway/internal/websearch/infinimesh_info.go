@@ -28,9 +28,8 @@ type InfinimeshInfoAdapter struct {
 func NewInfinimeshInfoAdapter(cfg config.InfinimeshInfoConfig, httpClient *http.Client) (InfinimeshInfoAdapter, error) {
 	client, err := infinimeshinfo.NewClient(infinimeshinfo.Config{
 		BaseURL:              cfg.BaseURL,
-		EntitlementProof:     cfg.EntitlementProof,
-		DeviceAttestation:    cfg.DeviceAttestation,
-		LicenseProof:         cfg.LicenseProof,
+		LicenseID:            cfg.LicenseID,
+		LicenseKey:           cfg.LicenseKey,
 		TokenBatchSize:       cfg.TokenBatchSize,
 		MaxAttempts:          cfg.MaxAttempts,
 		RetryBaseDelay:       time.Duration(cfg.RetryBaseDelayMS) * time.Millisecond,

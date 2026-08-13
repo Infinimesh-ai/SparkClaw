@@ -64,7 +64,7 @@
     "entries": {
       "infinimeshInfo": {
         "config": {
-          "baseUrl": "https://info.infinimesh.cn",
+          "baseUrl": "https://info.infinimesh.cloud",
           "tokenBatchSize": 10,
           "maxAttempts": 3,
           "retryBaseDelayMs": 200,

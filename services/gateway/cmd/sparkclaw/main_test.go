@@ -108,9 +108,8 @@ func TestInfinimeshFailuresDoNotDisableLocalChatOrTelegram(t *testing.T) {
 				ResponseBodyMaxBytes:  1 << 20,
 				Language:              "en",
 				MaxSources:            3,
-				EntitlementProof:      "test-entitlement",
-				DeviceAttestation:     "test-device",
-				LicenseProof:          "test-license",
+				LicenseID:             "lic_test",
+				LicenseKey:            "ilk_v1.lic_test.test-key",
 			}, server.Client())
 			if err != nil {
 				t.Fatal(err)
@@ -179,9 +178,8 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	cfg.Model.Mock = true
 	cfg.Speech.Enabled = true
 	cfg.Tools.Web.Search.Enabled = true
-	cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof = "integration-entitlement-canary"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation = "integration-device-canary"
-	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof = "integration-license-canary"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = "lic_integration"
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = "ilk_v1.lic_integration.integration-key-canary"
 	telegramConfig := cfg.Tools.Notifications.Channels["telegram"]
 	telegramConfig.Enabled = true
 	cfg.Tools.Notifications.Channels["telegram"] = telegramConfig
@@ -275,9 +273,8 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 		t.Fatalf("all-enabled public config mismatch: %#v", publicConfig)
 	}
 	for _, secret := range []string{
-		cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof,
-		cfg.Plugins.Entries.InfinimeshInfo.Config.DeviceAttestation,
-		cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseProof,
+		cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID,
+		cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey,
 		cfg.State.CredentialKey,
 	} {
 		if strings.Contains(string(configRaw), secret) || strings.Contains(string(readyRaw), secret) {

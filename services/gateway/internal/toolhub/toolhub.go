@@ -85,9 +85,8 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 	var weatherInfo WeatherInfoAdapter
 	if client, err := infinimeshinfo.NewClient(infinimeshinfo.Config{
 		BaseURL:              infoCfg.BaseURL,
-		EntitlementProof:     infoCfg.EntitlementProof,
-		DeviceAttestation:    infoCfg.DeviceAttestation,
-		LicenseProof:         infoCfg.LicenseProof,
+		LicenseID:            infoCfg.LicenseID,
+		LicenseKey:           infoCfg.LicenseKey,
 		TokenBatchSize:       infoCfg.TokenBatchSize,
 		MaxAttempts:          infoCfg.MaxAttempts,
 		RetryBaseDelay:       time.Duration(infoCfg.RetryBaseDelayMS) * time.Millisecond,

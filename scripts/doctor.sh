@@ -23,12 +23,9 @@ for name in \
   SPARKCLAW_AUTOSTART_ENABLED \
   SPARKCLAW_WEB_SEARCH_ENABLED \
   SPARKCLAW_WEB_SEARCH_PROVIDER \
-  SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF \
-  SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE \
-  SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION \
-  SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE \
-  SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF \
-  SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE \
+  SPARKCLAW_INFINIMESH_INFO_LICENSE_ID \
+  SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY \
+  SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE \
   SPARKCLAW_TELEGRAM_ENABLED \
   SPARKCLAW_SPEECH_ENABLED \
   SPARKCLAW_SPEECH_BASE_URL \
@@ -81,12 +78,14 @@ is_true() {
   esac
 }
 
-secret_configured() {
-  local direct_name="$1"
-  local file_name="$2"
-  local direct_value="${!direct_name:-}"
-  local file_path="${!file_name:-}"
-  [[ -n "$direct_value" ]] || [[ -n "$file_path" && -r "$file_path" && -s "$file_path" ]]
+info_license_configured() {
+  local license_id="${SPARKCLAW_INFINIMESH_INFO_LICENSE_ID:-}"
+  local license_key="${SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY:-}"
+  local key_file="${SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE:-}"
+  if [[ -z "$license_key" && -n "$key_file" && -r "$key_file" && -s "$key_file" ]]; then
+    license_key="$(tr -d '\r\n' < "$key_file")"
+  fi
+  [[ -n "$license_id" && "$license_key" == "ilk_v1.${license_id}."* && "$license_key" != "ilk_v1.${license_id}." ]]
 }
 
 check_system_chromium() {
@@ -165,12 +164,10 @@ done
 
 if is_true "${SPARKCLAW_WEB_SEARCH_ENABLED:-false}"; then
   if [[ "${SPARKCLAW_WEB_SEARCH_PROVIDER:-infinimesh-info}" == "infinimesh-info" ]] &&
-    secret_configured SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE &&
-    secret_configured SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE &&
-    secret_configured SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE; then
-    echo "ok  infinimesh info credentials configured"
+    info_license_configured; then
+    echo "ok  infinimesh info license credentials configured"
   elif [[ "${SPARKCLAW_WEB_SEARCH_PROVIDER:-infinimesh-info}" == "infinimesh-info" ]]; then
-    echo "err infinimesh info credentials missing"
+    echo "err infinimesh info license credentials missing or mismatched"
     exit 1
   else
     echo "warn legacy web search provider configured"

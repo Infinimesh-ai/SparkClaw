@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 )
 
 const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
@@ -117,15 +119,15 @@ type InfinimeshInfoConfig struct {
 	ResponseBodyMaxBytes  int64  `json:"responseBodyMaxBytes"`
 	Language              string `json:"language"`
 	MaxSources            int    `json:"maxSources"`
-	EntitlementProof      string `json:"-"`
-	DeviceAttestation     string `json:"-"`
-	LicenseProof          string `json:"-"`
+	LicenseID             string `json:"-"`
+	LicenseKey            string `json:"-"`
 }
 
 func (cfg InfinimeshInfoConfig) Configured() bool {
-	return strings.TrimSpace(cfg.EntitlementProof) != "" &&
-		strings.TrimSpace(cfg.DeviceAttestation) != "" &&
-		strings.TrimSpace(cfg.LicenseProof) != ""
+	return infinimeshinfo.Config{
+		LicenseID:  cfg.LicenseID,
+		LicenseKey: cfg.LicenseKey,
+	}.Configured()
 }
 
 type ToolsConfig struct {
@@ -781,6 +783,20 @@ func minimumBrowserDaemonIdleTimeoutMS(cfg Config) (int, error) {
 
 func normalizeInfinimeshInfoConfig(cfg *InfinimeshInfoConfig) error {
 	defaults := Default().Plugins.Entries.InfinimeshInfo.Config
+	cfg.LicenseID = strings.TrimSpace(cfg.LicenseID)
+	cfg.LicenseKey = strings.TrimSpace(cfg.LicenseKey)
+	if cfg.LicenseID != "" || cfg.LicenseKey != "" {
+		if cfg.LicenseID == "" || cfg.LicenseKey == "" {
+			return errors.New("infinimesh info license and key must be configured together")
+		}
+		keyLicenseID, ok := infinimeshinfo.ParseLicenseKeyLicenseID(cfg.LicenseKey)
+		if !ok {
+			return errors.New("infinimesh info license key must use the ilk_v1 wire format")
+		}
+		if keyLicenseID != cfg.LicenseID {
+			return errors.New("infinimesh info license key does not match the configured license")
+		}
+	}
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		cfg.BaseURL = defaults.BaseURL
 	}
@@ -1058,7 +1074,7 @@ func Default() Config {
 			Entries: PluginEntriesConfig{
 				InfinimeshInfo: InfinimeshInfoPluginConfig{
 					Config: InfinimeshInfoConfig{
-						BaseURL:               "https://info.infinimesh.cn",
+						BaseURL:               "https://info.infinimesh.cloud",
 						TokenBatchSize:        10,
 						MaxAttempts:           3,
 						RetryBaseDelayMS:      200,
@@ -1651,14 +1667,11 @@ func applyEnv(cfg *Config) {
 			info.MaxSources = count
 		}
 	}
-	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF"); v != "" {
-		info.EntitlementProof = v
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_ID"); v != "" {
+		info.LicenseID = v
 	}
-	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION"); v != "" {
-		info.DeviceAttestation = v
-	}
-	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF"); v != "" {
-		info.LicenseProof = v
+	if v := os.Getenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY"); v != "" {
+		info.LicenseKey = v
 	}
 	if v := os.Getenv("SPARKCLAW_MEMORY_RETENTION_DAYS"); v != "" {
 		if days, err := strconv.Atoi(v); err == nil {
@@ -1730,23 +1743,9 @@ func applyEnv(cfg *Config) {
 func applyInfinimeshInfoCredentials(cfg *Config) error {
 	info := &cfg.Plugins.Entries.InfinimeshInfo.Config
 	var err error
-	info.EntitlementProof, err = secretFromEnvOrFile(
-		info.EntitlementProof,
-		"SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE",
-	)
-	if err != nil {
-		return err
-	}
-	info.DeviceAttestation, err = secretFromEnvOrFile(
-		info.DeviceAttestation,
-		"SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE",
-	)
-	if err != nil {
-		return err
-	}
-	info.LicenseProof, err = secretFromEnvOrFile(
-		info.LicenseProof,
-		"SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE",
+	info.LicenseKey, err = secretFromEnvOrFile(
+		info.LicenseKey,
+		"SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE",
 	)
 	return err
 }

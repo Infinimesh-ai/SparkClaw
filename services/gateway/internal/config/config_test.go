@@ -356,9 +356,8 @@ func TestLoadOptionalFeatureCompatibilityMatrix(t *testing.T) {
 			t.Setenv("SPARKCLAW_WEB_SEARCH_ENABLED", test.webSearch)
 			t.Setenv("SPARKCLAW_SPEECH_ENABLED", test.speech)
 			t.Setenv("SPARKCLAW_TELEGRAM_ENABLED", test.telegram)
-			t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF", "test-entitlement")
-			t.Setenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION", "test-device")
-			t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF", "test-license")
+			t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_ID", "lic_test")
+			t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY", "ilk_v1.lic_test.test-key")
 			if test.speech == "true" {
 				t.Setenv("SPARKCLAW_SPEECH_BASE_URL", "https://speech.example.test/asr")
 				t.Setenv("SPARKCLAW_SPEECH_ALLOWED_HOSTS", "speech.example.test")
@@ -456,9 +455,8 @@ func TestLoadAppliesWebSearchEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_INFINIMESH_INFO_TOKEN_BATCH_SIZE", "7")
 	t.Setenv("SPARKCLAW_INFINIMESH_INFO_MAX_ATTEMPTS", "2")
 	t.Setenv("SPARKCLAW_INFINIMESH_INFO_MAX_SOURCES", "6")
-	t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF", "entitlement-env")
-	t.Setenv("SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION", "attestation-env")
-	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF", "license-env")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_ID", "lic_env")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY", "ilk_v1.lic_env.key-env")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -542,11 +540,8 @@ func TestLoadKeepsInfinimeshWebSearchDisabledByDefault(t *testing.T) {
 
 func TestLoadReadsInfinimeshInfoCredentialsFromFiles(t *testing.T) {
 	root := t.TempDir()
-	files := map[string]string{
-		"SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE":  "entitlement-file",
-		"SPARKCLAW_INFINIMESH_INFO_DEVICE_ATTESTATION_FILE": "attestation-file",
-		"SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE":      "license-file",
-	}
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_ID", "lic_file")
+	files := map[string]string{"SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE": "ilk_v1.lic_file.key-file"}
 	for envName, value := range files {
 		path := filepath.Join(root, envName)
 		if err := os.WriteFile(path, []byte("  "+value+"\n"), 0o600); err != nil {
@@ -560,26 +555,27 @@ func TestLoadReadsInfinimeshInfoCredentialsFromFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := cfg.Plugins.Entries.InfinimeshInfo.Config
-	if info.EntitlementProof != "entitlement-file" || info.DeviceAttestation != "attestation-file" || info.LicenseProof != "license-file" {
+	if info.LicenseID != "lic_file" || info.LicenseKey != "ilk_v1.lic_file.key-file" {
 		t.Fatal("infinimesh info credential files were not loaded")
 	}
 }
 
 func TestLoadPrefersDirectInfinimeshInfoCredentialOverFile(t *testing.T) {
-	t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF", "direct-proof")
-	t.Setenv("SPARKCLAW_INFINIMESH_INFO_ENTITLEMENT_PROOF_FILE", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_ID", "lic_direct")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY", "ilk_v1.lic_direct.direct-key")
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE", filepath.Join(t.TempDir(), "missing"))
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Plugins.Entries.InfinimeshInfo.Config.EntitlementProof != "direct-proof" {
+	if cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey != "ilk_v1.lic_direct.direct-key" {
 		t.Fatal("direct credential did not take precedence")
 	}
 }
 
 func TestLoadRejectsUnreadableInfinimeshInfoCredentialFile(t *testing.T) {
-	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_PROOF_FILE", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY_FILE", filepath.Join(t.TempDir(), "missing"))
 	if _, err := Load(""); err == nil {
 		t.Fatal("expected unreadable credential file to fail config loading")
 	}
@@ -592,9 +588,8 @@ func TestLoadDoesNotAcceptInfinimeshInfoCredentialsFromJSON(t *testing.T) {
     "entries": {
       "infinimeshInfo": {
         "config": {
-          "entitlementProof": "json-entitlement",
-          "deviceAttestation": "json-attestation",
-          "licenseProof": "json-license"
+          "licenseId": "lic_json",
+          "licenseKey": "ilk_v1.lic_json.json-key"
         }
       }
     }
@@ -607,8 +602,30 @@ func TestLoadDoesNotAcceptInfinimeshInfoCredentialsFromJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := cfg.Plugins.Entries.InfinimeshInfo.Config
-	if info.EntitlementProof != "" || info.DeviceAttestation != "" || info.LicenseProof != "" {
+	if info.LicenseID != "" || info.LicenseKey != "" {
 		t.Fatal("infinimesh info credentials must not load from JSON")
+	}
+}
+
+func TestLoadRejectsInvalidInfinimeshInfoLicensePair(t *testing.T) {
+	tests := []struct {
+		name      string
+		licenseID string
+		key       string
+	}{
+		{name: "missing key", licenseID: "lic_test"},
+		{name: "missing license", key: "ilk_v1.lic_test.key"},
+		{name: "invalid key", licenseID: "lic_test", key: "legacy-proof"},
+		{name: "mismatched license", licenseID: "lic_other", key: "ilk_v1.lic_test.key"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_ID", test.licenseID)
+			t.Setenv("SPARKCLAW_INFINIMESH_INFO_LICENSE_KEY", test.key)
+			if _, err := Load(""); err == nil {
+				t.Fatal("expected invalid license pair to fail config loading")
+			}
+		})
 	}
 }
 

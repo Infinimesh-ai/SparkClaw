@@ -62,7 +62,7 @@ func TestClientWeatherUsesDedicatedContractAndFreshPrivateTokens(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case issueTokensPath:
-			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testEntitlement {
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+testLicenseKey {
 				t.Error("token issue request contract mismatch")
 			}
 			writeIssuedTokens(t, w, "weather-batch", 3)
@@ -76,8 +76,7 @@ func TestClientWeatherUsesDedicatedContractAndFreshPrivateTokens(t *testing.T) {
 				return
 			}
 			raw, _ := json.Marshal(body)
-			if strings.Contains(string(raw), testEntitlement) || strings.Contains(string(raw), testAttestation) ||
-				strings.Contains(string(raw), testLicense) {
+			if strings.Contains(string(raw), testLicenseID) || strings.Contains(string(raw), testLicenseKey) {
 				t.Error("weather request leaked token issuance credentials")
 			}
 			if body.Location.Name != "杭州" || body.Location.Latitude != nil || body.Location.Longitude != nil ||
@@ -147,7 +146,7 @@ func TestClientWeatherHTTPErrorIsClassifiedAndSanitized(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
-				"code": "POLICY_DENIED", "message": "denied " + testLicense,
+				"code": "POLICY_DENIED", "message": "denied " + testLicenseKey,
 				"retryable": false, "details": map[string]any{"location": "杭州"},
 			},
 		})
@@ -166,7 +165,7 @@ func TestClientWeatherHTTPErrorIsClassifiedAndSanitized(t *testing.T) {
 		apiErr.Code != "POLICY_DENIED" || apiErr.Retryable {
 		t.Fatalf("unexpected weather API error: %#v", err)
 	}
-	if strings.Contains(err.Error(), testLicense) || strings.Contains(err.Error(), "杭州") {
+	if strings.Contains(err.Error(), testLicenseKey) || strings.Contains(err.Error(), "杭州") {
 		t.Fatal("weather API error leaked response details")
 	}
 }

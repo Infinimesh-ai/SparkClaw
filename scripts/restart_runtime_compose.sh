@@ -8,6 +8,7 @@ DOCKER_BIN="${DOCKER_BIN:-docker}"
 RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.single-fast.env}"
 RUNTIME_OVERRIDE_ENV="${SPARKCLAW_RUNTIME_OVERRIDE_ENV:-}"
 COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
+EXTRA_COMPOSE_FILE="${SPARKCLAW_RUNTIME_EXTRA_COMPOSE_FILE:-}"
 OCR_ENV="docker/env/sparkclaw.ocr.env"
 OCR_COMPOSE_FILE="docker/compose.ocr.yaml"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
@@ -43,6 +44,10 @@ if [[ ! -f "$RUNTIME_ENV" ]]; then
 fi
 if [[ ! -f "$OCR_ENV" || ! -f "$OCR_COMPOSE_FILE" ]]; then
   echo "OCR runtime files not found: $OCR_ENV or $OCR_COMPOSE_FILE" >&2
+  exit 1
+fi
+if [[ -n "$EXTRA_COMPOSE_FILE" && ! -f "$EXTRA_COMPOSE_FILE" ]]; then
+  echo "runtime extra compose file not found: $EXTRA_COMPOSE_FILE" >&2
   exit 1
 fi
 if [[ -n "$RUNTIME_OVERRIDE_ENV" && ! -f "$RUNTIME_OVERRIDE_ENV" ]]; then
@@ -92,6 +97,9 @@ if [[ -n "$RUNTIME_OVERRIDE_ENV" ]]; then
   compose_args+=(--env-file "$RUNTIME_OVERRIDE_ENV")
 fi
 compose_args+=(-f "$COMPOSE_FILE" -f "$OCR_COMPOSE_FILE")
+if [[ -n "$EXTRA_COMPOSE_FILE" ]]; then
+  compose_args+=(-f "$EXTRA_COMPOSE_FILE")
+fi
 if [[ "$visible_browser" == true ]]; then
   compose_args+=(-f docker/compose.visible-browser.yaml)
 fi

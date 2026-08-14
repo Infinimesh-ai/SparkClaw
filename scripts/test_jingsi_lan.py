@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+
+import os
+from pathlib import Path
+import subprocess
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "restart_jingsi_lan_compose.sh"
+
+
+class JingSiLANDeploymentTest(unittest.TestCase):
+    def run_check(self, bind, session_id="session-visible"):
+        env = os.environ.copy()
+        env["SPARKCLAW_JINGSI_LAN_BIND"] = bind
+        env["SPARKCLAW_JINGSI_SESSION_ID"] = session_id
+        return subprocess.run(
+            ["bash", str(SCRIPT), "--check"],
+            cwd=ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_accepts_rfc1918_bindings(self):
+        for address in ("10.0.0.8", "172.16.0.8", "172.31.255.8", "192.168.1.8"):
+            with self.subTest(address=address):
+                result = self.run_check(address)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_public_and_wildcard_bindings(self):
+        for address in (
+            "0.0.0.0",
+            "8.8.8.8",
+            "172.32.0.8",
+            "192.168.001.8",
+            "example.test",
+        ):
+            with self.subTest(address=address):
+                result = self.run_check(address)
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_requires_server_bound_session(self):
+        result = self.run_check("192.168.1.8", "")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SPARKCLAW_JINGSI_SESSION_ID", result.stderr)
+
+    def test_nginx_port_has_only_exact_presentation_routes(self):
+        nginx = (ROOT / "docker" / "images" / "webchat.nginx.conf").read_text(encoding="utf-8")
+        presentation = nginx.split("listen 18793;", 1)[1]
+        for route in (
+            "/readyz",
+            "/api/messages/stream",
+            "/api/client-events/v0/head",
+            "/api/client-events/v0",
+            "/api/client-events/v0/stream",
+        ):
+            self.assertIn(f"location = {route} {{", presentation)
+        self.assertNotIn("location /api/ {", presentation)
+        self.assertIn("location / {\n    return 404;", presentation)
+        self.assertIn("access_log off;", presentation)
+        self.assertIn("client_max_body_size 1025k;", presentation)
+
+    def test_base_compose_does_not_publish_port(self):
+        base = (ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+        overlay = (ROOT / "docker" / "compose.jingsi-lan.yaml").read_text(encoding="utf-8")
+        self.assertNotIn(":18793:18793", base)
+        self.assertIn("SPARKCLAW_JINGSI_LAN_BIND", overlay)
+        self.assertIn(":18793:18793", overlay)
+
+
+if __name__ == "__main__":
+    unittest.main()

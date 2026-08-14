@@ -19,6 +19,8 @@ Gateway on DGX Spark-class hardware. Its active product surface is:
 - personal memory candidates and approval-gated sensitive memory;
 - optional WebChat speech transcription, Telegram/Weixin messaging, and
   Infinimesh Info evidence;
+- optional fixed-session JingSi text presentation on an explicitly bound
+  private-LAN port;
 - optional Happy Team task and personal bridge MCP access, with supervised plan
   decisions synchronized into the durable human approval inbox;
 - optional workspace-scoped LocalMind MCP access and passive ISCP mention inbox;
@@ -299,7 +301,13 @@ owner-scoped global WebChat inbox and SSE stream without creating conversation
 or Agent Runtime state. The older session/message request pair remains available
 to LocalMind only inside that legacy chain until target cutover; LocalMind access
 through both paths is then deleted. Shared request types still required by
-JingSi remain unchanged pending its separate binding design.
+JingSi remain unchanged while its current Bridge path is retained. The
+implemented SparkClaw side of the
+[JingSi LAN Web client design](jingsi-lan-connection-design.md) binds one
+configured Web-visible session behind a dedicated allowlisted presentation
+port, with text send and a filtered projection of existing durable session
+message events but no mobile session/history API. It is not a connector or
+provider. JingSi client work and the physical LAN proof remain pending.
 
 Telegram, Weixin, speech, Infinimesh Info, and LocalMind are optional adapters
 behind shared connector, delivery, transcription, search, or MCP contracts. See
@@ -313,7 +321,9 @@ required when Gateway auth is enabled; the default no-auth Gateway still accepts
 only loopback Bridge dispatch. LocalMind's use of this path is legacy and its
 bootstrap expects the external LocalMind controller to return the bundle used by
 SparkClaw's Bridge, which reverses the target LocalMind authority direction.
-JingSi's current path is not evaluated or migrated here.
+JingSi's direct-LAN Web client migration is separate. Its SparkClaw surface is
+implemented, but the current Bridge path remains until JingSi client work and
+the physical LAN proof are complete.
 
 ### Unified Third-Party Access (SparkClaw Surface Implemented)
 
@@ -326,9 +336,12 @@ device and SparkClaw. The local service exposes one business tool,
 the selected Workflow executes through the existing Runtime, Policy, approval,
 and audit core.
 
-JingSi is out of scope. It receives no MCP enrollment, tool projection, endpoint,
-or sender, and its future SparkClaw binding will be designed separately. This
-project leaves the minimum current JingSi-required path unchanged.
+JingSi is out of scope because it is a WebChat mobile client rather than a
+third-party MCP caller. It receives no MCP enrollment, tool projection,
+third-party endpoint, or sender. Its implemented SparkClaw direct-LAN surface
+reuses Web sessions, Web message ingress, and LocalWebDelivery; JingSi client
+work remains pending. This project leaves the minimum current JingSi Bridge
+path unchanged until validation.
 
 MCP protocol negotiation and capability listing remain in its dedicated
 adapter, but MCP business calls join the managed third-party chain. A
@@ -392,9 +405,9 @@ ISCP PairingTicket/Provisioning into SparkClaw's Domain followed by SparkClaw
 MCP Access Ticket redemption, its external enrollment bundle flow, manifest
 entries, dispatch branches, fallbacks, configuration,
 tests, and guidance must be deleted. Shared Bridge components still required by
-JingSi remain frozen until JingSi receives its separate binding design; they
-must not retain a hidden LocalMind fallback. The outbound workspace-scoped
-SparkClaw-to-LocalMind MCP
+JingSi remain frozen until its shared Web client connection is implemented and
+validated; they must not retain a hidden LocalMind fallback. The outbound
+workspace-scoped SparkClaw-to-LocalMind MCP
 client is a separate direction and remains unchanged.
 
 ## State And Artifacts
@@ -414,9 +427,11 @@ audio are not artifacts.
 
 ## Trust And Safety Boundaries
 
-- Product Compose publishes Gateway and WebChat on `18789` and `18790`; direct
-  MCP ingress on `/mcp` remains owner-controlled and default-off. Host-process
-  Gateway debugging remains loopback-only.
+- Product Compose keeps Gateway at Docker-internal `gateway:18789` and
+  publishes WebChat on `18790`; direct MCP ingress on `/mcp` remains
+  owner-controlled and default-off. The optional JingSi overlay publishes only
+  its exact presentation allowlist on one selected RFC1918 address at `18793`.
+  Host-process Gateway debugging remains loopback-only.
 - Authenticated requests carry one owner/actor principal. Endpoint and schedule
   queries are owner-scoped.
 - Reversible and dangerous effects require Policy approval; shell execution is
@@ -456,6 +471,7 @@ projections. They must not maintain competing literal maps or duplicate stores.
 |---|---|
 | Gateway | `gateway:18789` (Docker internal, no host publication) |
 | WebChat | `0.0.0.0:18790` |
+| JingSi LAN presentation | `<selected RFC1918 host>:18793` (optional overlay only) |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |
 | Fast / Deep / Embedding / Guard | `8001` / `8002` / `8003` / `8005` |

@@ -48,6 +48,14 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if messages := st.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID {
 		t.Fatalf("messages did not round trip: %#v", messages)
 	}
+	messageHead, err := st.MessageEventHead(session.ID)
+	if err != nil || messageHead == "" {
+		t.Fatalf("message event head did not round trip: head=%q err=%v", messageHead, err)
+	}
+	messagePage, err := st.MessageEventsAfter(session.ID, "", 100)
+	if err != nil || len(messagePage.Events) != 1 || messagePage.NextCursor != messageHead {
+		t.Fatalf("message event page did not round trip: page=%#v err=%v", messagePage, err)
+	}
 
 	run := app.AgentRun{
 		ID:        app.NewID("run"),

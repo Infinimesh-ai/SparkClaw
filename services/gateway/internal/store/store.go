@@ -31,6 +31,15 @@ var ErrISCPOnboardingConflict = errors.New("ISCP onboarding already exists")
 var ErrMCPBindingUnavailable = errors.New("MCP binding is unavailable")
 var ErrMCPOperationConflict = errors.New("MCP operation idempotency key was reused with a different request")
 var ErrMCPOperationVersionConflict = errors.New("MCP operation changed")
+var ErrMessageEventCursorInvalid = errors.New("message event cursor is not valid for this session")
+
+const MessageEventPageLimit = 100
+
+type MessageEventPage struct {
+	Events     []app.Event
+	NextCursor string
+	HasMore    bool
+}
 
 type Store interface {
 	CreateSession(title string) app.Session
@@ -172,6 +181,8 @@ type Store interface {
 	AddAudit(event app.AuditEvent)
 	ListAudit(sessionID string) []app.AuditEvent
 	EventsAfter(sessionID, after string) []app.Event
+	MessageEventHead(sessionID string) (string, error)
+	MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error)
 	SaveEvalRun(run app.EvalRun)
 	GetEvalRun(id string) (app.EvalRun, bool)
 	ListEvalRuns() []app.EvalRun

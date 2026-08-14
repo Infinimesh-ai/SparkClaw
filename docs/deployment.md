@@ -161,6 +161,32 @@ bash scripts/doctor.sh
 Open WebChat locally at [http://127.0.0.1:18790](http://127.0.0.1:18790), or
 from another LAN device at `http://<host-lan-ip>:18790`.
 
+### JingSi LAN Presentation (Experimental)
+
+The base stack does not publish the JingSi presentation port. To enable the
+implemented SparkClaw side for one existing visible WebChat session, select the
+session ID as an operator, choose one RFC1918 address assigned to this host, and
+run:
+
+```bash
+curl -fsS http://127.0.0.1:18790/api/sessions | jq -r \
+  '.sessions[] | select(.hidden != true and .source == "webchat") | [.id, .title] | @tsv'
+ip -4 -o addr show scope global
+
+export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
+export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
+bash scripts/restart_jingsi_lan_compose.sh
+```
+
+This adds only the exact `18793` presentation allowlist; WebChat remains on
+`18790` and Gateway remains Docker-internal. The helper rejects wildcard,
+public, hostname, and malformed bind values. It applies to the current runtime
+restart, so rerun it after a later ordinary product restart while this
+experimental mode is needed. Authentication and TLS are intentionally absent
+in this phase; use only a trusted LAN. The route contract, Android work, and
+physical proof are documented in the
+[JingSi LAN Web client design](jingsi-lan-connection-design.md).
+
 The golden eval script exercises internal-only `/chat` and `/metrics` routes, so
 it intentionally targets an isolated host-development Gateway rather than the
 product WebChat ingress. Start that Gateway first, then run:
@@ -755,6 +781,9 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
   private to the Docker network in the shipped Compose topology.
 - Restrict WebChat `18790` to an owner-trusted LAN. MCP Access Tickets protect
   `/mcp`; they do not authenticate the other WebChat API routes.
+- Keep the unauthenticated experimental JingSi listener unpublished unless it
+  is actively being tested; when enabled, bind `18793` to one RFC1918 address,
+  never a wildcard or public interface.
 - Keep dangerous and reversible tools approval-gated.
 - Keep shell execution sandboxed and network-disabled.
 - Treat browser/email/file observations as untrusted.

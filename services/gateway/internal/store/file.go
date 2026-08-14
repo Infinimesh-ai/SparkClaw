@@ -942,6 +942,14 @@ func (s *FileStore) EventsAfter(sessionID, after string) []app.Event {
 	return s.inner.EventsAfter(sessionID, after)
 }
 
+func (s *FileStore) MessageEventHead(sessionID string) (string, error) {
+	return s.inner.MessageEventHead(sessionID)
+}
+
+func (s *FileStore) MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error) {
+	return s.inner.MessageEventsAfter(sessionID, after, limit)
+}
+
 func (s *FileStore) SaveEvalRun(run app.EvalRun) {
 	s.inner.SaveEvalRun(run)
 	s.persist()

@@ -10,6 +10,11 @@
       "burst": 120
     }
   },
+  "jingsi_lan": {
+    "enabled": false,
+    "session_id": "",
+    "max_message_bytes": 65536
+  },
   "model": {
     "mock": true,
     "http_timeout_seconds": 300,

@@ -17,6 +17,7 @@ agent runtime。当前产品表面包括：
 - 到期 payload 重新进入正常路由的定时消息；
 - personal memory candidate 和 approval-gated sensitive memory；
 - 可选 WebChat speech transcription、Telegram/微信消息和 Infinimesh Info evidence；
+- 可选 fixed-session JingSi 文本呈现，只在显式绑定的 private-LAN port 发布；
 - 可选 Happy Team 任务与个人 bridge MCP 接入，并把 supervised plan 决议同步到持久化人工
   审批收件箱；
 - 可选、按 workspace 限定的 LocalMind MCP 接入和被动 ISCP 提及收件箱；
@@ -227,7 +228,11 @@ approval，但不声称在本地 sandbox 执行。
 按 peer 和 idempotency key 持久去重。这条被动路径进入 owner-scoped 全局 WebChat 收件箱与
 SSE stream，不创建 conversation 或 Agent Runtime state。旧的 session/message 请求对只在目标
 切换前临时向 LocalMind 开放；切换时删除 LocalMind 对两条路径的访问。JingSi 仍需要的共享
-request type 保持不变，等待其独立绑定设计。
+request type 在其当前 Bridge path 保留期间保持不变。已实现 SparkClaw 侧的
+[JingSi 局域网 Web 客户端设计](jingsi-lan-connection-design.md)通过专用 allowlisted
+presentation port 把一个 configured Web-visible session 绑定给 JingSi，只提供文本发送和持久
+session message event 的过滤投影，不开放 mobile session/history API。它不是
+connector/provider；JingSi client 改造与实体 LAN 验证仍待完成。
 
 Telegram、微信、speech、Infinimesh Info 和 LocalMind 是共享 connector、delivery、
 transcription、search 或 MCP contract 后的可选 adapter。见[外部集成](integrations.md)。
@@ -237,7 +242,8 @@ transport，并调用一个 loopback Gateway API；session state、execution、P
 被动通知、event cursor 和 audit 仍由 Gateway 负责。Gateway 启用 auth 时要求 bearer；默认
 无 auth Gateway 也只接受 loopback Bridge dispatch。LocalMind 使用该 path 属于旧链路；其
 bootstrap 等待外部 LocalMind controller 返回 SparkClaw Bridge 使用的 bundle，凭证权威方向与
-LocalMind 目标方案相反。JingSi 当前 path 不在本设计中评估或迁移。
+LocalMind 目标方案相反。JingSi direct-LAN Web 客户端迁移属于独立设计；SparkClaw surface 已
+实现，但在 JingSi client 改造与实体 LAN 验证完成前仍保留当前 Bridge path。
 
 ### 统一第三方接入（SparkClaw 管理表面已实现）
 
@@ -247,8 +253,10 @@ enrollment 的外部 gateway device 与 SparkClaw 之间传输 MCP session。本
 业务 tool `sparkclaw.conversation.send`；消息进入普通语义路由，选中的 Workflow 再通过现有
 Runtime、Policy、approval 和 audit 核心执行。
 
-JingSi 不在本设计范围内。它不接收 MCP enrollment、tool projection、endpoint 或 sender；其
-SparkClaw 绑定方式后续另行设计。本项目保持 JingSi 当前所需最小 path 不变。
+JingSi 不在本设计范围内，因为它是 WebChat 移动客户端，而非第三方 MCP caller。它不接收 MCP
+enrollment、tool projection、第三方 endpoint 或 sender。已实现的 SparkClaw direct-LAN
+surface 复用 Web session、Web message ingress 与 LocalWebDelivery；JingSi client 改造仍待
+完成。本项目在验证前保持 JingSi 当前所需最小 Bridge path 不变。
 
 MCP protocol negotiation 与 capability listing 保留在专用 adapter 中，但 MCP business call
 进入统一受管理的第三方链路。`tools/call` 创建 `third_party_device` `MessageEnvelope`、
@@ -293,7 +301,8 @@ PairingTicket endpoint、可部署 external Access Gateway 和真实 Relay 验�
 加入 SparkClaw Domain、随后兑换 SparkClaw MCP Access Ticket 并通过新链路后，必须删除其外部
 enrollment bundle flow、manifest entry、dispatch branch、fallback、config、test 和 guidance。
 JingSi 仍需要的共享 Bridge
-component 冻结保留，直到其独立绑定方案落地；其中不得隐藏保留 LocalMind fallback。
+component 冻结保留，直到其共享 Web 客户端连接实现并通过验证；其中不得隐藏保留 LocalMind
+fallback。
 SparkClaw 主动访问 LocalMind workspace 的出站 MCP client 属于独立方向，保持不变。
 
 ## State 与 Artifact
@@ -310,8 +319,10 @@ audio 不是 artifact。
 
 ## 信任与安全边界
 
-- 产品 Compose 在 `18789` 与 `18790` 发布 Gateway 和 WebChat；`/mcp` 的直连 ingress 仍由
-  owner 控制且默认关闭。Host-process Gateway 调试继续只绑定 loopback。
+- 产品 Compose 将 Gateway 保持在 Docker-internal `gateway:18789`，并在 `18790` 发布
+  WebChat；`/mcp` 的直连 ingress 仍由 owner 控制且默认关闭。可选 JingSi overlay 只在一个指定
+  RFC1918 address 的 `18793` 发布精确 presentation allowlist。Host-process Gateway 调试继续只
+  绑定 loopback。
 - authenticated request 携带一个 owner/actor principal；endpoint/schedule query 按 owner 限制。
 - reversible/dangerous effect 需要 Policy approval；shell 默认 sandboxed 且 network-disabled。
 - browser URL、artifact path、workspace path 和 provider destination 确定性 normalize/validate。
@@ -343,6 +354,7 @@ Provider/UI 通过 owner package 和 public projection 消费这些契约，不�
 |---|---|
 | Gateway | `gateway:18789`（Docker 内部，不发布 host port） |
 | WebChat | `0.0.0.0:18790` |
+| JingSi LAN presentation | `<指定 RFC1918 host>:18793`（仅可选 overlay） |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |
 | Fast / Deep / Embedding / Guard | `8001` / `8002` / `8003` / `8005` |

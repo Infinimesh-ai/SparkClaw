@@ -34,6 +34,7 @@ var (
 
 type Config struct {
 	Gateway     GatewayConfig              `json:"gateway"`
+	JingSiLAN   JingSiLANConfig            `json:"jingsi_lan"`
 	Model       ModelConfig                `json:"model"`
 	Speech      SpeechConfig               `json:"speech"`
 	ISCPPairing ISCPPairingConfig          `json:"iscp_pairing"`
@@ -52,6 +53,12 @@ type Config struct {
 	State                StateConfig                `json:"state"`
 	Runtime              RuntimeConfig              `json:"runtime"`
 	Logging              LoggingConfig              `json:"logging"`
+}
+
+type JingSiLANConfig struct {
+	Enabled         bool   `json:"enabled"`
+	SessionID       string `json:"session_id,omitempty"`
+	MaxMessageBytes int    `json:"max_message_bytes"`
 }
 
 type GatewayConfig struct {
@@ -440,6 +447,16 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Gateway.Port <= 0 {
 		return Config{}, errors.New("gateway.port must be positive")
+	}
+	cfg.JingSiLAN.SessionID = strings.TrimSpace(cfg.JingSiLAN.SessionID)
+	if cfg.JingSiLAN.MaxMessageBytes <= 0 {
+		cfg.JingSiLAN.MaxMessageBytes = 64 << 10
+	}
+	if cfg.JingSiLAN.MaxMessageBytes > 1<<20 {
+		return Config{}, errors.New("jingsi_lan.max_message_bytes must not exceed 1048576")
+	}
+	if cfg.JingSiLAN.Enabled && cfg.JingSiLAN.SessionID == "" {
+		return Config{}, errors.New("jingsi_lan.session_id is required when JingSi LAN is enabled")
 	}
 	if cfg.Workspaces.DefaultRoot == "" {
 		cfg.Workspaces.DefaultRoot = "./data/workspaces"
@@ -1175,6 +1192,10 @@ func Default() Config {
 				Burst:             120,
 			},
 		},
+		JingSiLAN: JingSiLANConfig{
+			Enabled:         false,
+			MaxMessageBytes: 64 << 10,
+		},
 		Model: ModelConfig{
 			Mock:               false,
 			HTTPTimeoutSeconds: 300,
@@ -1407,6 +1428,17 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_BRIDGE_TOKEN"); v != "" {
 		cfg.Gateway.BridgeToken = v
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_LAN_ENABLED"); v != "" {
+		cfg.JingSiLAN.Enabled = parseBool(v)
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_SESSION_ID"); v != "" {
+		cfg.JingSiLAN.SessionID = v
+	}
+	if v := os.Getenv("SPARKCLAW_JINGSI_MAX_MESSAGE_BYTES"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil {
+			cfg.JingSiLAN.MaxMessageBytes = limit
+		}
 	}
 	if v := os.Getenv("SPARKCLAW_PAIRING_REQUIRED"); v != "" {
 		cfg.Gateway.PairingRequired = parseBool(v)

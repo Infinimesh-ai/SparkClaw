@@ -60,6 +60,34 @@ func TestLoadAppliesRateLimitEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesJingSiLANEnvironment(t *testing.T) {
+	t.Setenv("SPARKCLAW_JINGSI_LAN_ENABLED", "true")
+	t.Setenv("SPARKCLAW_JINGSI_SESSION_ID", " session-lan ")
+	t.Setenv("SPARKCLAW_JINGSI_MAX_MESSAGE_BYTES", "4096")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.JingSiLAN.Enabled || cfg.JingSiLAN.SessionID != "session-lan" || cfg.JingSiLAN.MaxMessageBytes != 4096 {
+		t.Fatalf("JingSi LAN env did not apply: %#v", cfg.JingSiLAN)
+	}
+}
+
+func TestLoadRejectsEnabledJingSiLANWithoutSession(t *testing.T) {
+	t.Setenv("SPARKCLAW_JINGSI_LAN_ENABLED", "true")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "jingsi_lan.session_id") {
+		t.Fatalf("missing JingSi session error = %v", err)
+	}
+}
+
+func TestLoadRejectsOversizedJingSiLANMessageLimit(t *testing.T) {
+	t.Setenv("SPARKCLAW_JINGSI_MAX_MESSAGE_BYTES", strconv.Itoa((1<<20)+1))
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "max_message_bytes") {
+		t.Fatalf("oversized JingSi message limit error = %v", err)
+	}
+}
+
 func TestLoadAppliesMemoryRetentionEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_MEMORY_RETENTION_DAYS", "14")
 
@@ -179,6 +207,9 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	}
 	if cfg.MCPAccess.LocalDomainID != "sparkclaw-local" {
 		t.Fatalf("MCP local domain default changed: %#v", cfg.MCPAccess)
+	}
+	if cfg.JingSiLAN.Enabled || cfg.JingSiLAN.SessionID != "" || cfg.JingSiLAN.MaxMessageBytes != 64<<10 {
+		t.Fatalf("JingSi LAN should require explicit configuration: %#v", cfg.JingSiLAN)
 	}
 }
 

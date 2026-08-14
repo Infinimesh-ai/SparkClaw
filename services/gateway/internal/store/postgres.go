@@ -1217,32 +1217,53 @@ func (s *PostgresStore) ClaimPairingCode(id, clientID string) (app.PairingCode, 
 func (s *PostgresStore) AddMessage(message app.Message) app.Message {
 	if message.ID == "" {
 		message.ID = app.NewID("m")
-	} else {
-		var exists bool
-		if err := s.db.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)`, message.ID).Scan(&exists); err == nil && exists {
-			return message
-		}
 	}
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = time.Now().UTC()
 	}
 	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return message
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)`, message.ID).Scan(&exists); err != nil || exists {
+		return message
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO messages (id, session_id, run_id, role, content, attachments, created_at)
 		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7)
-	`, message.ID, message.SessionID, message.RunID, message.Role, message.Content, mustJSON(message.Attachments), message.CreatedAt)
-	if session, ok := s.GetSession(message.SessionID); ok {
-		session.UpdatedAt = message.CreatedAt
+	`, message.ID, message.SessionID, message.RunID, message.Role, message.Content, mustJSON(message.Attachments), message.CreatedAt); err != nil {
+		return message
+	}
+
+	var session app.Session
+	if err := tx.QueryRow(ctx, `
+		SELECT id, owner_id, workspace_root, title, source, hidden, created_at, updated_at
+		FROM sessions WHERE id = $1
+	`, message.SessionID).Scan(&session.ID, &session.OwnerID, &session.WorkspaceRoot, &session.Title, &session.Source, &session.Hidden, &session.CreatedAt, &session.UpdatedAt); err == nil {
 		if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
 			session.Title = deriveTitle(message.Content)
 		}
-		_, _ = s.db.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			UPDATE sessions
 			SET title = $2, updated_at = $3
 			WHERE id = $1
-		`, session.ID, session.Title, session.UpdatedAt)
+		`, session.ID, session.Title, message.CreatedAt); err != nil {
+			return message
+		}
 	}
-	s.appendEvent(ctx, "message.created", message.SessionID, message.RunID, message)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO events (id, happened_at, type, session_id, run_id, payload)
+		VALUES ($1, $2, 'message.created', $3, nullif($4, ''), $5)
+	`, app.NewID("evt"), time.Now().UTC(), message.SessionID, message.RunID, mustJSON(message)); err != nil {
+		return message
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return message
+	}
 	return message
 }
 
@@ -3450,6 +3471,75 @@ func (s *PostgresStore) EventsAfter(sessionID, after string) []app.Event {
 	}
 	defer rows.Close()
 	return collectRows(rows, scanEvent)
+}
+
+func (s *PostgresStore) MessageEventHead(sessionID string) (string, error) {
+	var cursor string
+	err := s.db.QueryRow(context.Background(), `
+		SELECT id
+		FROM events
+		WHERE session_id = $1 AND type = 'message.created'
+		ORDER BY seq DESC
+		LIMIT 1
+	`, sessionID).Scan(&cursor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return cursor, err
+}
+
+func (s *PostgresStore) MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error) {
+	if limit <= 0 || limit > MessageEventPageLimit {
+		limit = MessageEventPageLimit
+	}
+	ctx := context.Background()
+	var afterSeq int64
+	if after != "" {
+		var cursorSessionID, cursorType string
+		err := s.db.QueryRow(ctx, `
+			SELECT seq, coalesce(session_id, ''), type
+			FROM events
+			WHERE id = $1
+		`, after).Scan(&afterSeq, &cursorSessionID, &cursorType)
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && (cursorSessionID != sessionID || cursorType != "message.created") {
+			return MessageEventPage{}, ErrMessageEventCursorInvalid
+		}
+		if err != nil {
+			return MessageEventPage{}, err
+		}
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT id, happened_at, type, coalesce(session_id, ''), coalesce(run_id, ''), payload
+		FROM events
+		WHERE seq > $1 AND session_id = $2 AND type = 'message.created'
+		ORDER BY seq ASC
+		LIMIT $3
+	`, afterSeq, sessionID, limit+1)
+	if err != nil {
+		return MessageEventPage{}, err
+	}
+	defer rows.Close()
+	events := make([]app.Event, 0, limit+1)
+	for rows.Next() {
+		event, err := scanEvent(rows)
+		if err != nil {
+			return MessageEventPage{}, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return MessageEventPage{}, err
+	}
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
+	}
+	next := after
+	if len(events) > 0 {
+		next = events[len(events)-1].ID
+	}
+	return MessageEventPage{Events: events, NextCursor: next, HasMore: hasMore}, nil
 }
 
 func (s *PostgresStore) SaveEvalRun(run app.EvalRun) {

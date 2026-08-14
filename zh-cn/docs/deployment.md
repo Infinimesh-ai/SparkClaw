@@ -140,6 +140,27 @@ bash scripts/doctor.sh
 本机打开 WebChat：[http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的
 其他设备使用 `http://<主机局域网-IP>:18790`。
 
+### JingSi LAN 呈现（实验性）
+
+base stack 不发布 JingSi presentation port。要为一个现有 visible WebChat session 启用已实现的
+SparkClaw 侧，由 operator 选择 session ID，再选择一个实际分配给本机的 RFC1918 address：
+
+```bash
+curl -fsS http://127.0.0.1:18790/api/sessions | jq -r \
+  '.sessions[] | select(.hidden != true and .source == "webchat") | [.id, .title] | @tsv'
+ip -4 -o addr show scope global
+
+export SPARKCLAW_JINGSI_LAN_BIND=192.168.1.20
+export SPARKCLAW_JINGSI_SESSION_ID=sess_replace_with_selected_id
+bash scripts/restart_jingsi_lan_compose.sh
+```
+
+该操作只增加精确的 `18793` presentation allowlist；WebChat 仍在 `18790`，Gateway 仍为
+Docker-internal。helper 会拒绝 wildcard、public、hostname 和 malformed bind。它只应用于当前
+runtime restart；之后执行普通 product restart 后若仍需此实验模式，必须再次运行。首期刻意没有
+鉴权和 TLS，只能用于可信 LAN。route contract、Android 侧工作和实体验证见
+[JingSi 局域网 Web 客户端设计](jingsi-lan-connection-design.md)。
+
 golden eval script 会访问仅限内部的 `/chat` 与 `/metrics` route，因此有意使用隔离的 host
 development Gateway，而不经过产品 WebChat 入口。先启动该 Gateway，再运行：
 
@@ -699,6 +720,8 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
   Gateway 仅在 Docker 私有网络可达。
 - 把 WebChat `18790` 限制在 owner 可信局域网。MCP Access Ticket 保护 `/mcp`，但不认证
   WebChat 的其他 API 路由。
+- 未实际测试时保持无鉴权的实验性 JingSi listener 不发布；启用时只把 `18793` 绑定到一个
+  RFC1918 address，绝不能使用 wildcard 或 public interface。
 - dangerous 和 reversible tools 保持 approval-gated。
 - shell execution 保持 sandboxed 且 network-disabled。
 - browser/email/file observations 视为 untrusted。

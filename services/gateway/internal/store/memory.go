@@ -2402,6 +2402,63 @@ func (s *MemoryStore) EventsAfter(sessionID, after string) []app.Event {
 	return out
 }
 
+func (s *MemoryStore) MessageEventHead(sessionID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for index := len(s.events) - 1; index >= 0; index-- {
+		event := s.events[index]
+		if event.SessionID == sessionID && event.Type == "message.created" {
+			return event.ID, nil
+		}
+	}
+	return "", nil
+}
+
+func (s *MemoryStore) MessageEventsAfter(sessionID, after string, limit int) (MessageEventPage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > MessageEventPageLimit {
+		limit = MessageEventPageLimit
+	}
+
+	start := 0
+	if after != "" {
+		start = -1
+		for index, event := range s.events {
+			if event.ID != after {
+				continue
+			}
+			if event.SessionID != sessionID || event.Type != "message.created" {
+				return MessageEventPage{}, ErrMessageEventCursorInvalid
+			}
+			start = index + 1
+			break
+		}
+		if start < 0 {
+			return MessageEventPage{}, ErrMessageEventCursorInvalid
+		}
+	}
+
+	matching := make([]app.Event, 0, limit+1)
+	for _, event := range s.events[start:] {
+		if event.SessionID == sessionID && event.Type == "message.created" {
+			matching = append(matching, event)
+			if len(matching) == limit+1 {
+				break
+			}
+		}
+	}
+	hasMore := len(matching) > limit
+	if hasMore {
+		matching = matching[:limit]
+	}
+	next := after
+	if len(matching) > 0 {
+		next = matching[len(matching)-1].ID
+	}
+	return MessageEventPage{Events: matching, NextCursor: next, HasMore: hasMore}, nil
+}
+
 func (s *MemoryStore) SaveEvalRun(run app.EvalRun) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

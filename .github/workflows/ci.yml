@@ -122,10 +122,12 @@ jobs:
       - run: python3 -m unittest scripts/test_model_readiness.py
       - run: python3 -m unittest scripts/test_serve_models_compose.py
       - run: python3 -m unittest scripts/test_autostart_compose.py
-      - run: bash -n install.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/start_compose.sh scripts/doctor.sh
+      - run: python3 -m unittest scripts/test_jingsi_lan.py
+      - run: bash -n install.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/restart_jingsi_lan_compose.sh scripts/start_compose.sh scripts/doctor.sh
       - run: bash -s -- --help < install.sh | grep -F 'curl -fsSL'
       - run: cp docker/env/sparkclaw.example.env .env
       - run: docker compose --env-file .env -f docker/compose.yaml config --quiet
+      - run: SPARKCLAW_JINGSI_LAN_BIND=192.168.1.8 SPARKCLAW_JINGSI_SESSION_ID=session-ci docker compose --env-file .env -f docker/compose.yaml -f docker/compose.jingsi-lan.yaml config --quiet
       - name: Verify product runtime defaults
         run: |
           docker compose \

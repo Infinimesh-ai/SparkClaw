@@ -1,0 +1,10 @@
+services:
+  gateway:
+    environment:
+      SPARKCLAW_JINGSI_LAN_ENABLED: "true"
+      SPARKCLAW_JINGSI_SESSION_ID: ${SPARKCLAW_JINGSI_SESSION_ID:?set SPARKCLAW_JINGSI_SESSION_ID to an existing visible WebChat session}
+      SPARKCLAW_JINGSI_MAX_MESSAGE_BYTES: ${SPARKCLAW_JINGSI_MAX_MESSAGE_BYTES:-65536}
+
+  webchat:
+    ports:
+      - "${SPARKCLAW_JINGSI_LAN_BIND:?set SPARKCLAW_JINGSI_LAN_BIND to one RFC1918 host address}:18793:18793"

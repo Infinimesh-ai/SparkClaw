@@ -2909,6 +2909,21 @@ button.finderRow {
   color: var(--text-primary);
 }
 
+.externalMCPSectionHeading,
+.externalMCPRecordActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.externalMCPDeleteAll {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+}
+
 .externalMCPActionRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3086,7 +3101,7 @@ button.finderRow {
   background: var(--surface-deep);
 }
 
-.externalMCPRecord > div {
+.externalMCPRecordInfo {
   display: grid;
   gap: 3px;
   min-width: 0;
@@ -3108,7 +3123,11 @@ button.finderRow {
   font-size: 9px;
 }
 
-.externalMCPRecord > button {
+.externalMCPRecordActions {
+  justify-content: flex-end;
+}
+
+.externalMCPRecordActions > button {
   width: 28px;
   height: 28px;
 }
@@ -3480,7 +3499,7 @@ button.finderRow {
   }
 
   .externalMCPAction,
-  .externalMCPRecord > button {
+  .externalMCPRecordActions {
     width: 100%;
   }
 

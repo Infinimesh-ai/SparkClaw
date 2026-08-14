@@ -70,4 +70,97 @@ describe("ExternalMCPSettings transports", () => {
 
     await act(async () => root.unmount());
   });
+
+  it("deletes terminal access records individually or all at once", async () => {
+    const connector: ConnectorStatus = {
+      channel: "mcp",
+      provider: "iscp-mcp",
+      setup_kind: "external",
+      available: true,
+      enabled: true,
+      running: true,
+      state: "active",
+      binding_status: "managed_externally",
+      binding_startable: false,
+      supports_multiple_bindings: false,
+      iscp_enabled: true,
+      lan_access_enabled: false,
+      version: 1
+    };
+    vi.spyOn(api, "iscpPairingStatus").mockResolvedValue({ enabled: true, ready: true, state: "ready", expected_ticket_type: "iscp.pairing_ticket.v2" });
+    vi.spyOn(api, "iscpOnboardings").mockResolvedValue({ onboardings: [] });
+    vi.spyOn(api, "mcpAccessCatalog").mockResolvedValue({
+      scope: "conversation",
+      business_tool: "sparkclaw.conversation.send",
+      iscp_enabled: true,
+      lan_access_enabled: false,
+      transport_version: 1,
+      domain_id: "sparkclaw-local",
+      endpoint_path: "/mcp"
+    });
+    vi.spyOn(api, "mcpAccessTickets").mockResolvedValue({ tickets: [{
+      schema_version: 2,
+      id: "tick-dead1",
+      owner_id: "owner",
+      actor_id: "owner",
+      domain_id: "domain-a",
+      authorization_revision: 1,
+      scope: "conversation",
+      status: "expired",
+      max_uses: 1,
+      use_count: 0,
+      issued_at: "2026-08-12T00:00:00Z",
+      expires_at: "2026-08-13T00:00:00Z"
+    }] });
+    vi.spyOn(api, "mcpBindings").mockResolvedValue({ bindings: [{
+      schema_version: 2,
+      id: "bind-dead1",
+      owner_id: "owner",
+      actor_id: "owner",
+      domain_id: "domain-a",
+      requester_device_id: "device-a",
+      requester_key_thumbprint: "thumb-a",
+      authorization_revision: 1,
+      scope: "conversation",
+      status: "revoked",
+      linked_session_id: "session-a",
+      created_at: "2026-08-12T00:00:00Z",
+      updated_at: "2026-08-13T00:00:00Z"
+    }] });
+    const deleteTicket = vi.spyOn(api, "deleteMCPAccessTicket").mockResolvedValue({} as never);
+    const deleteBinding = vi.spyOn(api, "deleteMCPBinding").mockResolvedValue({} as never);
+    const deleteAll = vi.spyOn(api, "deleteAllMCPAccessRecords").mockResolvedValue({ deleted_tickets: 1, deleted_bindings: 1 });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <ExternalMCPSettings
+          connector={connector}
+          text={dictionaries.en}
+          language="en"
+          onUpdateConnector={async () => connector}
+        />
+      );
+    });
+    const click = async (label: string) => {
+      const button = container.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      await act(async () => {
+        button?.click();
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+    };
+
+    await click(`${dictionaries.en.settings.deleteAccessRecord}: bind-dead1`);
+    expect(deleteBinding).toHaveBeenCalledWith("bind-dead1");
+    await click(`${dictionaries.en.settings.deleteAccessRecord}: tick-dead1`);
+    expect(deleteTicket).toHaveBeenCalledWith("tick-dead1");
+    await click(dictionaries.en.settings.deleteAllAccessRecords);
+    expect(deleteAll).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledTimes(3);
+
+    await act(async () => root.unmount());
+  });
 });

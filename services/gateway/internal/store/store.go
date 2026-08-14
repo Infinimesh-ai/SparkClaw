@@ -63,10 +63,13 @@ type Store interface {
 	ListMCPAccessTickets(ownerID string) []app.MCPAccessTicket
 	RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerIdentity, now time.Time) (app.MCPBinding, error)
 	RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAccessTicket, error)
+	DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTicket, error)
 	GetMCPBinding(id string) (app.MCPBinding, bool)
 	FindMCPBindingForPeer(domainID, deviceID, thumbprint string) (app.MCPBinding, bool)
 	ListMCPBindings(ownerID string) []app.MCPBinding
 	RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, error)
+	DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error)
+	DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDeletion, error)
 	TouchMCPBinding(id, iscpSessionID string, now time.Time) error
 	CreateMCPOperation(operation app.MCPOperation) (app.MCPOperation, bool, error)
 	GetMCPOperation(id string) (app.MCPOperation, bool)

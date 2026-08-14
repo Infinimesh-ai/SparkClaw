@@ -135,6 +135,20 @@ func (s *Server) revokeMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ticket)
 }
 
+func (s *Server) deleteMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
+	principal := principalForRequest(r)
+	ticket, err := s.store.DeleteMCPAccessTicket(principal.OwnerID, r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("MCP access ticket not found"))
+		return
+	}
+	s.store.AddAudit(app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_ticket.deleted", Summary: "Deleted an MCP access ticket record", Fields: map[string]any{
+		"ticket_id": ticket.ID, "domain_id": ticket.DomainID, "status": ticket.Status,
+	}})
+	ticket.SecretHash = ""
+	writeJSON(w, http.StatusOK, ticket)
+}
+
 func (s *Server) listMCPBindings(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
 	writeJSON(w, http.StatusOK, map[string]any{"bindings": s.store.ListMCPBindings(principal.OwnerID)})
@@ -161,6 +175,43 @@ func (s *Server) revokeMCPBinding(w http.ResponseWriter, r *http.Request) {
 		"binding_revision": binding.AuthorizationRevision,
 	}})
 	writeJSON(w, http.StatusOK, binding)
+}
+
+func (s *Server) deleteMCPBinding(w http.ResponseWriter, r *http.Request) {
+	principal := principalForRequest(r)
+	if s.mcpAccess == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
+		return
+	}
+	binding, err := s.mcpAccess.DeleteBinding(principal.OwnerID, r.PathValue("id"), time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("MCP binding not found"))
+		return
+	}
+	s.store.AddAudit(app.AuditEvent{SessionID: binding.LinkedSessionID, Actor: principal.ActorID, Type: "mcp.binding.deleted", Summary: "Deleted an MCP binding record", Fields: map[string]any{
+		"binding_id": binding.ID, "domain_id": binding.DomainID, "requester_device_id": binding.RequesterDeviceID,
+		"status": binding.Status, "binding_revision": binding.AuthorizationRevision,
+	}})
+	writeJSON(w, http.StatusOK, binding)
+}
+
+func (s *Server) deleteMCPAccessRecords(w http.ResponseWriter, r *http.Request) {
+	principal := principalForRequest(r)
+	if s.mcpAccess == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
+		return
+	}
+	deleted, err := s.mcpAccess.DeleteAccessRecords(principal.OwnerID, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if deleted.DeletedTickets > 0 || deleted.DeletedBindings > 0 {
+		s.store.AddAudit(app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_records.deleted", Summary: "Deleted all MCP access records", Fields: map[string]any{
+			"deleted_tickets": deleted.DeletedTickets, "deleted_bindings": deleted.DeletedBindings,
+		}})
+	}
+	writeJSON(w, http.StatusOK, deleted)
 }
 
 func (s *Server) dispatchMCPBridgeRequest(w http.ResponseWriter, r *http.Request) {

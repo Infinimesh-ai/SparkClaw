@@ -134,6 +134,18 @@ func (s *PostgresStore) RevokeMCPAccessTicket(id string, now time.Time) (app.MCP
 	return ticket, nil
 }
 
+func (s *PostgresStore) DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTicket, error) {
+	var raw []byte
+	if err := s.db.QueryRow(context.Background(), `DELETE FROM mcp_access_tickets WHERE id=$1 AND owner_id=$2 RETURNING payload`, id, ownerID).Scan(&raw); err != nil {
+		return app.MCPAccessTicket{}, ErrMCPAccessTicketInvalid
+	}
+	var ticket app.MCPAccessTicket
+	if err := json.Unmarshal(raw, &ticket); err != nil {
+		return app.MCPAccessTicket{}, err
+	}
+	return ticket, nil
+}
+
 func (s *PostgresStore) GetMCPBinding(id string) (app.MCPBinding, bool) {
 	var raw []byte
 	err := s.db.QueryRow(context.Background(), `SELECT payload FROM mcp_bindings WHERE id=$1`, id).Scan(&raw)
@@ -224,6 +236,78 @@ func (s *PostgresStore) RevokeMCPBinding(id string, now time.Time) (app.MCPBindi
 		return app.MCPBinding{}, err
 	}
 	return binding, nil
+}
+
+func (s *PostgresStore) DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error) {
+	ctx := context.Background()
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return app.MCPBinding{}, err
+	}
+	defer rollbackTx(ctx, tx)
+	var raw []byte
+	if err := tx.QueryRow(ctx, `SELECT payload FROM mcp_bindings WHERE id=$1 AND owner_id=$2 FOR UPDATE`, id, ownerID).Scan(&raw); err != nil {
+		return app.MCPBinding{}, ErrMCPBindingUnavailable
+	}
+	var binding app.MCPBinding
+	if err := json.Unmarshal(raw, &binding); err != nil {
+		return app.MCPBinding{}, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM mcp_operations WHERE binding_id=$1`, id); err != nil {
+		return app.MCPBinding{}, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM mcp_bindings WHERE id=$1`, id); err != nil {
+		return app.MCPBinding{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.MCPBinding{}, err
+	}
+	return binding, nil
+}
+
+func (s *PostgresStore) DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDeletion, error) {
+	ctx := context.Background()
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return MCPAccessRecordDeletion{}, err
+	}
+	defer rollbackTx(ctx, tx)
+	for _, query := range []string{
+		`SELECT id FROM mcp_access_tickets WHERE owner_id=$1 FOR UPDATE`,
+		`SELECT id FROM mcp_bindings WHERE owner_id=$1 FOR UPDATE`,
+	} {
+		rows, err := tx.Query(ctx, query, ownerID)
+		if err != nil {
+			return MCPAccessRecordDeletion{}, err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return MCPAccessRecordDeletion{}, err
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return MCPAccessRecordDeletion{}, err
+		}
+		rows.Close()
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM mcp_operations operation USING mcp_bindings binding WHERE operation.binding_id=binding.id AND binding.owner_id=$1`, ownerID); err != nil {
+		return MCPAccessRecordDeletion{}, err
+	}
+	bindings, err := tx.Exec(ctx, `DELETE FROM mcp_bindings WHERE owner_id=$1`, ownerID)
+	if err != nil {
+		return MCPAccessRecordDeletion{}, err
+	}
+	tickets, err := tx.Exec(ctx, `DELETE FROM mcp_access_tickets WHERE owner_id=$1`, ownerID)
+	if err != nil {
+		return MCPAccessRecordDeletion{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return MCPAccessRecordDeletion{}, err
+	}
+	return MCPAccessRecordDeletion{DeletedTickets: int(tickets.RowsAffected()), DeletedBindings: int(bindings.RowsAffected())}, nil
 }
 
 func (s *PostgresStore) TouchMCPBinding(id, iscpSessionID string, now time.Time) error {

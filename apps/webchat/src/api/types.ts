@@ -469,6 +469,11 @@ export type MCPBinding = {
   revoked_at?: string;
 };
 
+export type MCPAccessRecordDeletion = {
+  deleted_tickets: number;
+  deleted_bindings: number;
+};
+
 export type PublicModelProfile = {
   name: string;
   base_url: string;

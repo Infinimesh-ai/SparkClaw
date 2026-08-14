@@ -9,6 +9,7 @@ import {
   Network,
   RefreshCw,
   ShieldCheck,
+  ShieldOff,
   Trash2,
   X
 } from "lucide-react";
@@ -306,6 +307,21 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
             busy={busy}
             onRevokeTicket={(id) => void run(`ticket:${id}`, async () => { await api.revokeMCPAccessTicket(id); await refresh(); })}
             onRevokeBinding={(id) => void run(`binding:${id}`, async () => { await api.revokeMCPBinding(id); await refresh(); })}
+            onDeleteTicket={(id) => {
+              if (window.confirm(text.settings.confirmDeleteAccessRecord)) {
+                void run(`delete-ticket:${id}`, async () => { await api.deleteMCPAccessTicket(id); await refresh(); });
+              }
+            }}
+            onDeleteBinding={(id) => {
+              if (window.confirm(text.settings.confirmDeleteAccessRecord)) {
+                void run(`delete-binding:${id}`, async () => { await api.deleteMCPBinding(id); await refresh(); });
+              }
+            }}
+            onDeleteAll={() => {
+              if (window.confirm(text.settings.confirmDeleteAllAccessRecords)) {
+                void run("delete-access-records", async () => { await api.deleteAllMCPAccessRecords(); await refresh(); });
+              }
+            }}
           />
         </>
       )}
@@ -355,7 +371,7 @@ function ReceiptList({ onboardings, text, language }: { onboardings: ISCPOnboard
   );
 }
 
-function AccessRecords({ tickets, bindings, text, language, busy, onRevokeTicket, onRevokeBinding }: {
+function AccessRecords({ tickets, bindings, text, language, busy, onRevokeTicket, onRevokeBinding, onDeleteTicket, onDeleteBinding, onDeleteAll }: {
   tickets: MCPAccessTicket[];
   bindings: MCPBinding[];
   text: Copy;
@@ -363,27 +379,51 @@ function AccessRecords({ tickets, bindings, text, language, busy, onRevokeTicket
   busy: string;
   onRevokeTicket: (id: string) => void;
   onRevokeBinding: (id: string) => void;
+  onDeleteTicket: (id: string) => void;
+  onDeleteBinding: (id: string) => void;
+  onDeleteAll: () => void;
 }) {
+  const hasRecords = bindings.length > 0 || tickets.length > 0;
   return (
     <section className="externalMCPSection">
-      <div className="externalMCPSectionTitle"><KeyRound size={14} /><strong>{text.settings.accessRecords}</strong></div>
+      <div className="externalMCPSectionTitle">
+        <span className="externalMCPSectionHeading"><KeyRound size={14} /><strong>{text.settings.accessRecords}</strong></span>
+        {hasRecords && (
+          <button
+            type="button"
+            className="reject externalMCPDeleteAll"
+            onClick={onDeleteAll}
+            disabled={Boolean(busy)}
+            title={text.settings.deleteAllAccessRecords}
+            aria-label={text.settings.deleteAllAccessRecords}
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
       <div className="externalMCPRecordList">
         {bindings.map((binding) => (
           <div className="externalMCPRecord" key={binding.id}>
-            <div><strong>{text.settings.device} {shortId(binding.requester_device_id)}</strong><small>{binding.scope} · {binding.status}</small></div>
+            <div className="externalMCPRecordInfo"><strong>{text.settings.device} {shortId(binding.requester_device_id)}</strong><small>{binding.scope} · {binding.status}</small></div>
             <span>{formatTime(binding.updated_at, language)}</span>
-            {binding.status !== "revoked" && (
-              <button className="reject" onClick={() => onRevokeBinding(binding.id)} disabled={Boolean(busy)} title={text.settings.revokeBinding}><Trash2 size={14} /></button>
-            )}
+            <div className="externalMCPRecordActions buttonRow compactButtons">
+              {binding.status !== "revoked" && (
+                <button className="reject" onClick={() => onRevokeBinding(binding.id)} disabled={Boolean(busy)} title={text.settings.revokeBinding} aria-label={`${text.settings.revokeBinding}: ${shortId(binding.id)}`}><ShieldOff size={14} /></button>
+              )}
+              <button className="reject" onClick={() => onDeleteBinding(binding.id)} disabled={Boolean(busy)} title={text.settings.deleteAccessRecord} aria-label={`${text.settings.deleteAccessRecord}: ${shortId(binding.id)}`}><Trash2 size={14} /></button>
+            </div>
           </div>
         ))}
         {tickets.map((ticket) => (
           <div className="externalMCPRecord" key={ticket.id}>
-            <div><strong>{text.settings.pendingAccess} {shortId(ticket.id)}</strong><small>{ticket.scope} · {ticket.status}</small></div>
+            <div className="externalMCPRecordInfo"><strong>{text.settings.pendingAccess} {shortId(ticket.id)}</strong><small>{ticket.scope} · {ticket.status}</small></div>
             <span>{formatTime(ticket.expires_at, language)}</span>
-            {ticket.status === "pending" && (
-              <button className="reject" onClick={() => onRevokeTicket(ticket.id)} disabled={Boolean(busy)} title={text.settings.revokeBinding}><Trash2 size={14} /></button>
-            )}
+            <div className="externalMCPRecordActions buttonRow compactButtons">
+              {ticket.status === "pending" && (
+                <button className="reject" onClick={() => onRevokeTicket(ticket.id)} disabled={Boolean(busy)} title={text.settings.revokeAccessTicket} aria-label={`${text.settings.revokeAccessTicket}: ${shortId(ticket.id)}`}><ShieldOff size={14} /></button>
+              )}
+              <button className="reject" onClick={() => onDeleteTicket(ticket.id)} disabled={Boolean(busy)} title={text.settings.deleteAccessRecord} aria-label={`${text.settings.deleteAccessRecord}: ${shortId(ticket.id)}`}><Trash2 size={14} /></button>
+            </div>
           </div>
         ))}
         {bindings.length === 0 && tickets.length === 0 && <span className="muted">{text.settings.noAccessRecords}</span>}

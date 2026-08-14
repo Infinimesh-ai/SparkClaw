@@ -412,6 +412,36 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	if !ok || storedOperation.State != app.MCPOperationSucceeded || storedOperation.Version != first.Version {
 		t.Fatalf("PostgreSQL operation did not recover its CAS winner: %#v ok=%v", storedOperation, ok)
 	}
+	if deleted, err := restarted.DeleteMCPAccessTicket(app.DefaultOwnerID, ticket.ID); err != nil || deleted.ID != ticket.ID {
+		t.Fatalf("delete PostgreSQL consumed ticket: ticket=%#v err=%v", deleted, err)
+	}
+	if deleted, err := restarted.DeleteMCPBinding(app.DefaultOwnerID, binding.ID); err != nil || deleted.ID != binding.ID {
+		t.Fatalf("delete PostgreSQL binding: binding=%#v err=%v", deleted, err)
+	}
+	if _, ok := restarted.GetMCPOperation(operation.ID); ok {
+		t.Fatal("PostgreSQL binding deletion retained its operation")
+	}
+	defaultTicket, err := restarted.SaveMCPAccessTicket(testMCPAccessTicket(now, "postgres-bulk-default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restarted.RedeemMCPAccessTicket(defaultTicket.SecretHash, app.MCPPeerIdentity{
+		DomainID: defaultTicket.DomainID, DeviceID: "postgres-bulk-device", KeyThumbprint: "postgres-bulk-thumb", ISCPSessionID: "postgres-bulk-iscp",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	otherTicket := testMCPAccessTicket(now, "postgres-bulk-other")
+	otherTicket.OwnerID, otherTicket.ActorID = "owner-other", "owner-other"
+	otherTicket, err = restarted.SaveMCPAccessTicket(otherTicket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := restarted.DeleteMCPAccessRecords(app.DefaultOwnerID); err != nil || deleted.DeletedTickets != 1 || deleted.DeletedBindings != 1 {
+		t.Fatalf("delete PostgreSQL owner records: deleted=%#v err=%v", deleted, err)
+	}
+	if _, ok := restarted.GetMCPAccessTicket(otherTicket.ID); !ok {
+		t.Fatal("PostgreSQL owner-scoped deletion removed another owner's ticket")
+	}
 }
 
 func TestPostgresStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {

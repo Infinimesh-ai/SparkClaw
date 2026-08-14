@@ -169,6 +169,95 @@ func TestMCPAccessAPIRequiresConnectorOptInAndReturnsSecretOnce(t *testing.T) {
 	}
 }
 
+func TestMCPAccessRecordsCanBeDeletedIndividuallyAndTogether(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.Gateway.APIToken = "owner-token"
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	now := time.Now().UTC()
+	saveTicket := func(ownerID, hash string, status app.MCPAccessStatus) app.MCPAccessTicket {
+		ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+			SchemaVersion: app.MCPAccessTicketSchemaVersion, OwnerID: ownerID, ActorID: ownerID, SecretHash: hash,
+			DomainID: "domain-a", Scope: app.MCPAccessConversation, Status: status, MaxUses: 1,
+			IssuedAt: now, ExpiresAt: now.Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ticket
+	}
+
+	expired := saveTicket(app.DefaultOwnerID, "expired-record-hash", app.MCPAccessExpired)
+	deletedTicket := ownerRequest(t, server.Handler(), http.MethodDelete, "/api/mcp-access/tickets/"+expired.ID, "")
+	if deletedTicket.Code != http.StatusOK || strings.Contains(deletedTicket.Body.String(), "expired-record-hash") {
+		t.Fatalf("expired ticket deletion failed or leaked its hash: status=%d body=%s", deletedTicket.Code, deletedTicket.Body.String())
+	}
+	if _, ok := st.GetMCPAccessTicket(expired.ID); ok {
+		t.Fatal("expired ticket remained after DELETE")
+	}
+
+	consumed := saveTicket(app.DefaultOwnerID, "individual-binding-hash", app.MCPAccessPending)
+	binding, err := st.RedeemMCPAccessTicket(consumed.SecretHash, app.MCPPeerIdentity{
+		DomainID: consumed.DomainID, DeviceID: "individual-device", KeyThumbprint: "individual-thumb", ISCPSessionID: "individual-iscp",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "individual-delete", Fingerprint: "individual-delete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedBinding := ownerRequest(t, server.Handler(), http.MethodDelete, "/api/mcp-access/bindings/"+binding.ID, "")
+	if deletedBinding.Code != http.StatusOK {
+		t.Fatalf("binding deletion returned %d: %s", deletedBinding.Code, deletedBinding.Body.String())
+	}
+	if _, ok := st.GetMCPBinding(binding.ID); ok {
+		t.Fatal("binding remained after DELETE")
+	}
+	if _, ok := st.GetMCPOperation(operation.ID); ok {
+		t.Fatal("binding DELETE retained its operation")
+	}
+
+	other := saveTicket("owner-other", "other-owner-record-hash", app.MCPAccessExpired)
+	forbidden := ownerRequest(t, server.Handler(), http.MethodDelete, "/api/mcp-access/tickets/"+other.ID, "")
+	if forbidden.Code != http.StatusNotFound {
+		t.Fatalf("cross-owner ticket deletion returned %d: %s", forbidden.Code, forbidden.Body.String())
+	}
+	bulkTicket := saveTicket(app.DefaultOwnerID, "bulk-binding-hash", app.MCPAccessPending)
+	bulkBinding, err := st.RedeemMCPAccessTicket(bulkTicket.SecretHash, app.MCPPeerIdentity{
+		DomainID: bulkTicket.DomainID, DeviceID: "bulk-device", KeyThumbprint: "bulk-thumb", ISCPSessionID: "bulk-iscp",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bulkOperation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: bulkBinding.ID, IdempotencyKey: "bulk-delete", Fingerprint: "bulk-delete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedAll := ownerRequest(t, server.Handler(), http.MethodDelete, "/api/mcp-access/records", "")
+	if deletedAll.Code != http.StatusOK || !strings.Contains(deletedAll.Body.String(), `"deleted_tickets":2`) || !strings.Contains(deletedAll.Body.String(), `"deleted_bindings":1`) {
+		t.Fatalf("bulk access-record deletion returned %d: %s", deletedAll.Code, deletedAll.Body.String())
+	}
+	if len(st.ListMCPAccessTickets(app.DefaultOwnerID)) != 0 || len(st.ListMCPBindings(app.DefaultOwnerID)) != 0 {
+		t.Fatal("owner records remained after bulk DELETE")
+	}
+	if _, ok := st.GetMCPOperation(bulkOperation.ID); ok {
+		t.Fatal("bulk DELETE retained an operation")
+	}
+	if _, ok := st.GetMCPAccessTicket(other.ID); !ok {
+		t.Fatal("bulk DELETE removed another owner's record")
+	}
+	audits, _ := json.Marshal(st.ListAudit(""))
+	for _, eventType := range []string{"mcp.access_ticket.deleted", "mcp.binding.deleted", "mcp.access_records.deleted"} {
+		if !strings.Contains(string(audits), eventType) {
+			t.Fatalf("deletion audit %q was not recorded: %s", eventType, audits)
+		}
+	}
+}
+
 func TestGatewayPortMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.Gateway.APIToken = "owner-token"

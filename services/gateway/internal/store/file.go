@@ -325,6 +325,22 @@ func (s *FileStore) RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAcce
 	return out, nil
 }
 
+func (s *FileStore) DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTicket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out, err := s.inner.DeleteMCPAccessTicket(ownerID, id)
+	if err != nil {
+		return app.MCPAccessTicket{}, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		s.inner.mu.Lock()
+		s.inner.mcpAccessTickets[id] = out
+		s.inner.mu.Unlock()
+		return app.MCPAccessTicket{}, err
+	}
+	return out, nil
+}
+
 func (s *FileStore) GetMCPBinding(id string) (app.MCPBinding, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -362,6 +378,48 @@ func (s *FileStore) RevokeMCPBinding(id string, now time.Time) (app.MCPBinding, 
 	}
 	return out, nil
 }
+
+func (s *FileStore) DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previousOperations := s.inner.ListMCPOperations(id)
+	out, err := s.inner.DeleteMCPBinding(ownerID, id)
+	if err != nil {
+		return app.MCPBinding{}, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		s.inner.mu.Lock()
+		s.inner.mcpBindings[id] = out
+		for _, operation := range previousOperations {
+			s.inner.mcpOperations[operation.ID] = operation
+		}
+		s.inner.mu.Unlock()
+		return app.MCPBinding{}, err
+	}
+	return out, nil
+}
+
+func (s *FileStore) DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDeletion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previousTickets := cloneMCPAccessTicketMap(s.inner.mcpAccessTickets)
+	previousBindings := cloneMCPBindingMap(s.inner.mcpBindings)
+	previousOperations := cloneMCPOperationMap(s.inner.mcpOperations)
+	out, err := s.inner.DeleteMCPAccessRecords(ownerID)
+	if err != nil {
+		return MCPAccessRecordDeletion{}, err
+	}
+	if err := s.persistSnapshotLocked(); err != nil {
+		s.inner.mu.Lock()
+		s.inner.mcpAccessTickets = previousTickets
+		s.inner.mcpBindings = previousBindings
+		s.inner.mcpOperations = previousOperations
+		s.inner.mu.Unlock()
+		return MCPAccessRecordDeletion{}, err
+	}
+	return out, nil
+}
+
 func (s *FileStore) TouchMCPBinding(id, iscpSessionID string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

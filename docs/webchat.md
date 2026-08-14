@@ -61,6 +61,10 @@ Structured owner actions are not converted back into ambiguous prose:
 - connector settings render the registered channel list from `/api/connectors`;
   a versioned toggle changes activation, while credential or QR binding remains
   a separate action that is unavailable until the channel is enabled.
+- External MCP access records keep revocation separate from permanent record
+  deletion. Owners can delete any ticket or binding, including expired,
+  consumed, or revoked records, or delete all owner-scoped access records at
+  once; deleting an active binding invalidates that access immediately.
 
 The UI shows reminder and delivery destinations as concrete software, account,
 recipient, conversation, and status values supplied by Gateway. It never

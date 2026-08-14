@@ -192,6 +192,112 @@ func TestMCPBindingRevocationTerminatesOnlyNonterminalOperations(t *testing.T) {
 	}
 }
 
+func TestMCPAccessRecordsCanBeDeletedIndividuallyAndByOwner(t *testing.T) {
+	t.Run("memory", func(t *testing.T) {
+		testMCPAccessRecordDeletion(t, NewMemoryStore())
+	})
+	t.Run("file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state.json")
+		st, err := NewFileStore(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherTicketID := testMCPAccessRecordDeletion(t, st)
+		reloaded, err := NewFileStore(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(reloaded.ListMCPAccessTickets(app.DefaultOwnerID)) != 0 || len(reloaded.ListMCPBindings(app.DefaultOwnerID)) != 0 {
+			t.Fatal("deleted MCP access records returned after FileStore restart")
+		}
+		if _, ok := reloaded.GetMCPAccessTicket(otherTicketID); !ok {
+			t.Fatal("owner-scoped deletion removed another owner's ticket after restart")
+		}
+	})
+}
+
+func testMCPAccessRecordDeletion(t *testing.T, st Store) string {
+	t.Helper()
+	now := time.Now().UTC()
+	expired := testMCPAccessTicket(now, "expired-delete-hash")
+	expired.Status = app.MCPAccessExpired
+	expired, err := st.SaveMCPAccessTicket(expired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedTicket, err := st.DeleteMCPAccessTicket(app.DefaultOwnerID, expired.ID)
+	if err != nil || deletedTicket.Status != app.MCPAccessExpired {
+		t.Fatalf("delete expired ticket: ticket=%#v err=%v", deletedTicket, err)
+	}
+	if _, ok := st.GetMCPAccessTicket(expired.ID); ok {
+		t.Fatal("deleted expired ticket is still available")
+	}
+
+	consumed, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "consumed-delete-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := st.RedeemMCPAccessTicket(consumed.SecretHash, app.MCPPeerIdentity{
+		DomainID: consumed.DomainID, DeviceID: "delete-device", KeyThumbprint: "delete-thumb", ISCPSessionID: "delete-iscp",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "delete", Fingerprint: "delete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedBinding, err := st.DeleteMCPBinding(app.DefaultOwnerID, binding.ID)
+	if err != nil || deletedBinding.ID != binding.ID {
+		t.Fatalf("delete binding: binding=%#v err=%v", deletedBinding, err)
+	}
+	if _, ok := st.GetMCPBinding(binding.ID); ok {
+		t.Fatal("deleted binding is still available")
+	}
+	if _, ok := st.GetMCPOperation(operation.ID); ok {
+		t.Fatal("binding deletion retained its MCP operation")
+	}
+	if _, ok := st.GetSession(binding.LinkedSessionID); !ok {
+		t.Fatal("binding record deletion removed conversation history")
+	}
+
+	activeTicket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "bulk-active-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeBinding, err := st.RedeemMCPAccessTicket(activeTicket.SecretHash, app.MCPPeerIdentity{
+		DomainID: activeTicket.DomainID, DeviceID: "bulk-device", KeyThumbprint: "bulk-thumb", ISCPSessionID: "bulk-iscp",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bulkOperation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: activeBinding.ID, IdempotencyKey: "bulk", Fingerprint: "bulk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := testMCPAccessTicket(now, "other-owner-hash")
+	other.OwnerID, other.ActorID = "owner-other", "owner-other"
+	other, err = st.SaveMCPAccessTicket(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := st.DeleteMCPAccessRecords(app.DefaultOwnerID)
+	if err != nil || deleted.DeletedTickets != 2 || deleted.DeletedBindings != 1 {
+		t.Fatalf("delete all owner records: deleted=%#v err=%v", deleted, err)
+	}
+	if len(st.ListMCPAccessTickets(app.DefaultOwnerID)) != 0 || len(st.ListMCPBindings(app.DefaultOwnerID)) != 0 {
+		t.Fatal("owner records remain after delete all")
+	}
+	if _, ok := st.GetMCPOperation(bulkOperation.ID); ok {
+		t.Fatal("delete all retained an operation for a deleted binding")
+	}
+	if _, ok := st.GetMCPAccessTicket(other.ID); !ok {
+		t.Fatal("delete all removed another owner's ticket")
+	}
+	return other.ID
+}
+
 func TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore(t *testing.T) {
 	st := NewMemoryStore()
 	now := time.Now().UTC()
@@ -321,6 +427,55 @@ func TestFileStoreRollsBackBindingAndOperationsWhenRevocationPersistenceFails(t 
 	storedOperation, _ := st.GetMCPOperation(operation.ID)
 	if storedBinding.Status != app.MCPBindingActive || storedOperation.State != app.MCPOperationRunning {
 		t.Fatalf("failed revocation was retained: binding=%#v operation=%#v", storedBinding, storedOperation)
+	}
+}
+
+func TestFileStoreRollsBackMCPRecordDeletionWhenPersistenceFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(now, "delete-rollback-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := st.RedeemMCPAccessTicket(ticket.SecretHash, app.MCPPeerIdentity{
+		DomainID: ticket.DomainID, DeviceID: "delete-rollback-device", KeyThumbprint: "delete-rollback-thumb", ISCPSessionID: "delete-rollback-iscp",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, _, err := st.CreateMCPOperation(app.MCPOperation{BindingID: binding.ID, IdempotencyKey: "delete-rollback", Fingerprint: "delete-rollback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parentFile, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st.path = filepath.Join(parentFile, "state.json")
+	if deleted, err := st.DeleteMCPAccessTicket(app.DefaultOwnerID, ticket.ID); err == nil || deleted.ID != "" {
+		t.Fatalf("failed ticket deletion returned a record: ticket=%#v err=%v", deleted, err)
+	}
+	if _, ok := st.GetMCPAccessTicket(ticket.ID); !ok {
+		t.Fatal("failed persistence removed the access ticket")
+	}
+	if deleted, err := st.DeleteMCPBinding(app.DefaultOwnerID, binding.ID); err == nil || deleted.ID != "" {
+		t.Fatalf("failed binding deletion returned a record: binding=%#v err=%v", deleted, err)
+	}
+	if _, ok := st.GetMCPBinding(binding.ID); !ok {
+		t.Fatal("failed persistence removed the binding")
+	}
+	if _, ok := st.GetMCPOperation(operation.ID); !ok {
+		t.Fatal("failed persistence removed the binding operation")
+	}
+	if deleted, err := st.DeleteMCPAccessRecords(app.DefaultOwnerID); err == nil || deleted.DeletedTickets != 0 || deleted.DeletedBindings != 0 {
+		t.Fatalf("failed bulk deletion returned counts: deleted=%#v err=%v", deleted, err)
+	}
+	if len(st.ListMCPAccessTickets(app.DefaultOwnerID)) != 1 || len(st.ListMCPBindings(app.DefaultOwnerID)) != 1 {
+		t.Fatal("failed bulk persistence removed MCP access records")
 	}
 }
 

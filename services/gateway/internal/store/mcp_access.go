@@ -9,6 +9,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+type MCPAccessRecordDeletion struct {
+	DeletedTickets  int `json:"deleted_tickets"`
+	DeletedBindings int `json:"deleted_bindings"`
+}
+
 func normalizeMCPAccessTicket(ticket app.MCPAccessTicket, now time.Time) app.MCPAccessTicket {
 	if ticket.ID == "" {
 		ticket.ID = app.NewID("mcp_ticket")
@@ -222,6 +227,17 @@ func (s *MemoryStore) RevokeMCPAccessTicket(id string, now time.Time) (app.MCPAc
 	return cloneMCPAccessTicket(ticket), nil
 }
 
+func (s *MemoryStore) DeleteMCPAccessTicket(ownerID, id string) (app.MCPAccessTicket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket, ok := s.mcpAccessTickets[id]
+	if !ok || ticket.OwnerID != ownerID {
+		return app.MCPAccessTicket{}, ErrMCPAccessTicketInvalid
+	}
+	delete(s.mcpAccessTickets, id)
+	return cloneMCPAccessTicket(ticket), nil
+}
+
 func (s *MemoryStore) GetMCPBinding(id string) (app.MCPBinding, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -277,6 +293,48 @@ func (s *MemoryStore) RevokeMCPBinding(id string, now time.Time) (app.MCPBinding
 		s.mcpOperations[operationID] = cloneMCPOperation(operation)
 	}
 	return cloneMCPBinding(binding), nil
+}
+
+func (s *MemoryStore) DeleteMCPBinding(ownerID, id string) (app.MCPBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	binding, ok := s.mcpBindings[id]
+	if !ok || binding.OwnerID != ownerID {
+		return app.MCPBinding{}, ErrMCPBindingUnavailable
+	}
+	delete(s.mcpBindings, id)
+	for operationID, operation := range s.mcpOperations {
+		if operation.BindingID == id {
+			delete(s.mcpOperations, operationID)
+		}
+	}
+	return cloneMCPBinding(binding), nil
+}
+
+func (s *MemoryStore) DeleteMCPAccessRecords(ownerID string) (MCPAccessRecordDeletion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deleted := MCPAccessRecordDeletion{}
+	for id, ticket := range s.mcpAccessTickets {
+		if ticket.OwnerID == ownerID {
+			delete(s.mcpAccessTickets, id)
+			deleted.DeletedTickets++
+		}
+	}
+	deletedBindingIDs := make(map[string]struct{})
+	for id, binding := range s.mcpBindings {
+		if binding.OwnerID == ownerID {
+			delete(s.mcpBindings, id)
+			deletedBindingIDs[id] = struct{}{}
+			deleted.DeletedBindings++
+		}
+	}
+	for id, operation := range s.mcpOperations {
+		if _, ok := deletedBindingIDs[operation.BindingID]; ok {
+			delete(s.mcpOperations, id)
+		}
+	}
+	return deleted, nil
 }
 
 func (s *MemoryStore) TouchMCPBinding(id, iscpSessionID string, now time.Time) error {

@@ -447,6 +447,65 @@ func (s *Service) RevokeBinding(id string, now time.Time) (app.MCPBinding, error
 		return app.MCPBinding{}, err
 	}
 	operations := s.store.ListMCPOperations(id)
+	s.cancelRevokedOperationsLocked(operations)
+	s.mu.Unlock()
+	finalizeRevokedOperations(s.store, operations)
+	return binding, nil
+}
+
+func (s *Service) DeleteBinding(ownerID, id string, now time.Time) (app.MCPBinding, error) {
+	if s == nil || s.store == nil {
+		return app.MCPBinding{}, store.ErrMCPBindingUnavailable
+	}
+	s.mu.Lock()
+	binding, ok := s.store.GetMCPBinding(id)
+	if !ok || binding.OwnerID != ownerID {
+		s.mu.Unlock()
+		return app.MCPBinding{}, store.ErrMCPBindingUnavailable
+	}
+	operations := []app.MCPOperation{}
+	if binding.Status != app.MCPBindingRevoked {
+		var err error
+		binding, err = s.store.RevokeMCPBinding(id, now)
+		if err != nil {
+			s.mu.Unlock()
+			return app.MCPBinding{}, err
+		}
+		operations = s.store.ListMCPOperations(id)
+		s.cancelRevokedOperationsLocked(operations)
+		finalizeRevokedOperations(s.store, operations)
+	}
+	deleted, err := s.store.DeleteMCPBinding(ownerID, id)
+	s.mu.Unlock()
+	if err != nil {
+		return app.MCPBinding{}, err
+	}
+	return deleted, nil
+}
+
+func (s *Service) DeleteAccessRecords(ownerID string, now time.Time) (store.MCPAccessRecordDeletion, error) {
+	if s == nil || s.store == nil {
+		return store.MCPAccessRecordDeletion{}, store.ErrMCPBindingUnavailable
+	}
+	s.mu.Lock()
+	for _, binding := range s.store.ListMCPBindings(ownerID) {
+		if binding.Status == app.MCPBindingRevoked {
+			continue
+		}
+		if _, err := s.store.RevokeMCPBinding(binding.ID, now); err != nil {
+			s.mu.Unlock()
+			return store.MCPAccessRecordDeletion{}, err
+		}
+		operations := s.store.ListMCPOperations(binding.ID)
+		s.cancelRevokedOperationsLocked(operations)
+		finalizeRevokedOperations(s.store, operations)
+	}
+	deleted, err := s.store.DeleteMCPAccessRecords(ownerID)
+	s.mu.Unlock()
+	return deleted, err
+}
+
+func (s *Service) cancelRevokedOperationsLocked(operations []app.MCPOperation) {
 	for _, operation := range operations {
 		if operation.State != app.MCPOperationRevoked {
 			continue
@@ -455,17 +514,18 @@ func (s *Service) RevokeBinding(id string, now time.Time) (app.MCPBinding, error
 			cancel()
 		}
 	}
-	s.mu.Unlock()
+}
+
+func finalizeRevokedOperations(st store.Store, operations []app.MCPOperation) {
 	for _, operation := range operations {
 		if operation.State != app.MCPOperationRevoked {
 			continue
 		}
-		rejectPendingApprovals(s.store, operation)
-		auditOperationStore(s.store, "mcp.operation.revoked", operation, "Revoked an MCP operation with its binding", map[string]any{
+		rejectPendingApprovals(st, operation)
+		auditOperationStore(st, "mcp.operation.revoked", operation, "Revoked an MCP operation with its binding", map[string]any{
 			"outcome": operation.State, "error_code": operation.ErrorCode,
 		})
 	}
-	return binding, nil
 }
 
 func (s *Service) toolsForBinding(binding app.MCPBinding) []Tool {

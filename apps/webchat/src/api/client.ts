@@ -22,6 +22,7 @@ import type {
   ISCPPairingStatus,
   IssuedISCPPairing,
   IssuedMCPAccessTicket,
+  MCPAccessRecordDeletion,
   MCPAccessTicket,
   MCPAccessCatalog,
   MCPBinding,
@@ -319,9 +320,15 @@ export const api = {
     }),
   revokeMCPAccessTicket: (id: string) =>
     request<MCPAccessTicket>(`/api/mcp-access/tickets/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
+  deleteMCPAccessTicket: (id: string) =>
+    request<MCPAccessTicket>(`/api/mcp-access/tickets/${encodeURIComponent(id)}`, { method: "DELETE" }),
   mcpBindings: () => request<{ bindings: MCPBinding[] }>("/api/mcp-access/bindings"),
   revokeMCPBinding: (id: string) =>
     request<MCPBinding>(`/api/mcp-access/bindings/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
+  deleteMCPBinding: (id: string) =>
+    request<MCPBinding>(`/api/mcp-access/bindings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  deleteAllMCPAccessRecords: () =>
+    request<MCPAccessRecordDeletion>("/api/mcp-access/records", { method: "DELETE" }),
   startNotificationBinding: (channel = "weixin", botToken = "") =>
     request<NotificationBinding>(`/api/notification-bindings/${channel}/start`, {
       method: "POST",

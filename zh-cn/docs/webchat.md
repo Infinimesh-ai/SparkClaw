@@ -48,6 +48,9 @@ memory action、feedback、owner/client/policy change、connector activation/bin
 - speech transcription 只返回 draft text，绝不调用 message send。
 - connector setting 从 `/api/connectors` 渲染已注册渠道列表；版本化 toggle 只改变 activation，
   credential/QR binding 保持独立 action，并且只有渠道开启后才可操作。
+- External MCP 访问记录把撤销授权与永久删除记录分开。Owner 可以删除任意 ticket 或 binding，
+  包括已过期、已使用或已撤销记录，也可以一次删除该 owner 的全部访问记录；删除活跃 binding
+  会立即使对应访问失效。
 
 UI 使用 Gateway 提供的具体软件、账号、接收人、会话和 status 展示提醒端和 delivery target。
 第三方 destination 不可用时绝不默认切换到 WebChat。

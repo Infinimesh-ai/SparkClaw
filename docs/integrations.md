@@ -161,10 +161,24 @@ request IDs, obtain one-shot `info.basic` tokens through the existing in-memory
 wallet, send them as `PrivateToken`, and apply bounded retries, deadlines, and
 response sizes.
 
-SparkClaw maps summary, non-empty key facts, public source metadata, snippets,
-and citations into stable evidence refs. It chooses a query-relevant bounded
-projection before model use. Missing summary text does not hide usable
-structured facts, and provider status text is not presented as an answer.
+Info query results are already aggregated upstream. SparkClaw persists them as
+`info_search_result_v2`, preserving Info's summary, fact, conflict, freshness,
+uncertainty, source-ID edges, usage metadata, and final `sources[]` order. It
+does not rerank or resynthesize these units. Upstream
+`recommended_next_actions` remains only in the raw untrusted result and never
+enters model evidence, Workflow control, or the user answer.
+
+The answer projection is `info_aggregate_projection_v4`. It validates unique
+source IDs and citation edges, admits whole facts and conflict viewpoints in
+Info order, excludes snippets, and reports capacity or invalid-reference
+omissions as `partial`. Facts and viewpoints retain their own citation markers;
+freshness, uncertainty, and non-linkable citation labels remain visible. A
+deterministic renderer completes `browser.internet_search` without another
+model finalizer. Browser target identification separately reads the raw ordered
+source view, skips non-linkable entries, and retains the existing HTTPS,
+DNS/IP, and redirect safety gates. A read-only decoder supports persisted
+pre-v2 search results; new ToolHub calls write only v2.
+
 The weather adapter instead validates fixed metric current/hourly/daily fields
 and the normalized condition vocabulary, then exposes a typed card payload.
 Provider coordinates are discarded before ToolHub output, traces, or card

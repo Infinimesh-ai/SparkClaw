@@ -16,18 +16,16 @@ func (h *ToolHub) webSearchTool(ctx context.Context, args map[string]any) (Resul
 		return Result{}, err
 	}
 	return Result{Output: map[string]any{
-		"request_id":   result.RequestID,
-		"query":        result.Query,
-		"summary":      result.Summary,
-		"answer":       result.Answer,
-		"provider":     result.Provider,
-		"model":        result.Model,
-		"count":        result.Count,
-		"results":      result.Results,
-		"key_facts":    result.KeyFacts,
-		"citations":    result.Citations,
-		"retrieved_at": result.RetrievedAt,
-		"took_ms":      int(result.TookMS),
-		"untrusted":    result.Untrusted,
+		"schema_version": result.SchemaVersion,
+		"request_id":     result.RequestID,
+		"status":         result.Status,
+		"query":          result.Query,
+		"provider":       result.Provider,
+		"retrieved_at":   result.RetrievedAt,
+		"took_ms":        result.TookMS,
+		"aggregate":      result.Aggregate,
+		"sources":        result.Sources,
+		"usage":          result.Usage,
+		"untrusted":      result.Untrusted,
 	}}, nil
 }

@@ -231,6 +231,16 @@ profile and no alternate browser backend. The existing destination registry is
 the candidate-independent named-target fast path; after its miss and browser
 leaf selection, the Workflow may use Info's ordered structured URLs without
 another semantic classifier.
+
+Info search responses enter ToolHub as one versioned aggregate rather than
+parallel answer copies. The `websearch` owner validates the source graph once
+and derives two read-only views: an order-preserving, whole-unit answer
+projection for deterministic grounded rendering, and the independent ordered
+URL view used by browser target identification. Upstream action advice remains
+raw untrusted data, while conflict, freshness, uncertainty, and projection
+omissions remain typed answer limitations. Persisted legacy results are
+normalized only at the decoder boundary.
+
 Page reads remain fully hidden and session-required, while clicks and approved
 form drafts retain fresh page-generation evidence and visible result
 verification. After a click, semantic assessment receives an action/transition

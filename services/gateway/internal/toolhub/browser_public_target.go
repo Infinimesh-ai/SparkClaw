@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
 
 const browserPublicTargetRedirectLimit = 5
@@ -21,23 +22,36 @@ func (h *ToolHub) identifyPublicBrowserTarget(ctx context.Context, _ map[string]
 	if !ok {
 		return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetProviderUnavailable, Err: errors.New("Info target identification has no completed structured web.search outcome")}
 	}
-	results := browserInteractionSlice(output["results"])
-	if len(results) == 0 {
+	infoResult, err := websearch.DecodeResult(output)
+	if err != nil {
+		return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetProviderUnavailable, Err: errors.New("Info target identification returned an invalid aggregate result")}
+	}
+	frozenQuery := strings.TrimSpace(browserAutomationStringValue(searchCall.Arguments["query"]))
+	sources, err := websearch.OrderedInfoBrowserSources(infoResult, frozenQuery)
+	if err != nil {
+		return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetProviderUnavailable, Err: errors.New("Info target identification aggregate failed validation")}
+	}
+	if len(sources) == 0 {
 		return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetNotFound, Err: errors.New("Info target identification returned no structured result URLs")}
 	}
 
-	selection, unsafeCount, selected := selectInfoPublicBrowserTarget(ctx, results, h.validatePublicBrowserTarget)
+	selection, unsafeCount, selected := selectInfoPublicBrowserTarget(ctx, sources, h.validatePublicBrowserTarget)
 	if selected {
 		ownerTarget, surface := h.browserPublicTargetContext(runID)
+		resultCollection := "sources"
+		if infoResult.Legacy() {
+			resultCollection = "results"
+		}
 		return Result{Output: map[string]any{
 			"status":                  "resolved",
 			"evidence_id":             app.NewID("browser_target"),
 			"resolution_source":       "info_search",
 			"owner_target_phrase":     ownerTarget,
 			"requested_surface_kind":  surface,
-			"info_request_id":         strings.TrimSpace(browserAutomationStringValue(output["request_id"])),
+			"info_request_id":         strings.TrimSpace(infoResult.RequestID),
 			"info_result_index":       selection.Index,
-			"source_result_ref":       fmt.Sprintf("%s:results:%d", searchCall.ID, selection.Index),
+			"info_source_id":          selection.SourceID,
+			"source_result_ref":       fmt.Sprintf("%s:%s:%d", searchCall.ID, resultCollection, selection.Index),
 			"canonical_entry_url":     normalizePublicTargetURL(selection.RawURL),
 			"normalized_final_url":    selection.FinalURL,
 			"observed_redirect_chain": selection.Redirects,
@@ -57,6 +71,7 @@ func (h *ToolHub) identifyPublicBrowserTarget(ctx context.Context, _ map[string]
 
 type infoPublicBrowserTargetSelection struct {
 	Index     int
+	SourceID  string
 	RawURL    string
 	FinalURL  string
 	Redirects []string
@@ -64,25 +79,21 @@ type infoPublicBrowserTargetSelection struct {
 
 func selectInfoPublicBrowserTarget(
 	ctx context.Context,
-	results []any,
+	sources []websearch.InfoBrowserSource,
 	validate func(context.Context, string) (string, []string, error),
 ) (infoPublicBrowserTargetSelection, int, bool) {
 	unsafeCount := 0
-	for index, raw := range results {
-		item, ok := browserInteractionMap(raw)
-		if !ok {
+	for _, source := range sources {
+		if !source.Linkable {
 			continue
 		}
-		rawURL := strings.TrimSpace(browserAutomationStringValue(item["url"]))
-		if rawURL == "" || rawURL == "<nil>" {
-			continue
-		}
+		rawURL := strings.TrimSpace(source.URL)
 		finalURL, redirects, err := validate(ctx, rawURL)
 		if err != nil {
 			unsafeCount++
 			continue
 		}
-		return infoPublicBrowserTargetSelection{Index: index, RawURL: rawURL, FinalURL: finalURL, Redirects: redirects}, unsafeCount, true
+		return infoPublicBrowserTargetSelection{Index: source.Index, SourceID: source.ID, RawURL: rawURL, FinalURL: finalURL, Redirects: redirects}, unsafeCount, true
 	}
 	return infoPublicBrowserTargetSelection{}, unsafeCount, false
 }

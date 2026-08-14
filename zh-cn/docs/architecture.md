@@ -181,7 +181,15 @@ Provider 访问。binding record 和加密 credential 是独立保留的账号�
 
 浏览器使用固定 agent-browser 和 SparkClaw-owned Chromium profile，没有备用 browser backend。
 现有 destination registry 是 candidate-independent 的命名目标 fast path；它 miss 且 browser
-leaf 选定后，Workflow 可以使用 Info 的有序结构化 URL，不增加第二个 semantic classifier。页面读取保持全程 hidden 且必须
+leaf 选定后，Workflow 可以使用 Info 的有序结构化 URL，不增加第二个 semantic classifier。
+
+Info 搜索响应以单个版本化 aggregate 进入 ToolHub，不再生成多份平行 answer 副本。
+`websearch` owner 只校验一次 source graph，再派生两个只读视图：一个保持顺序、按完整单元
+加入并用于确定性 grounded rendering 的回答 projection，以及一个供浏览器目标识别独立使用的
+有序 URL 视图。上游 action 建议只保留为 raw 不可信数据；conflict、freshness、uncertainty
+和 projection omission 则保留为类型化回答限制。持久化 legacy result 只在 decoder 边界规范化。
+
+页面读取保持全程 hidden 且必须
 使用托管 session；click 和已审批 form draft 绑定 fresh page-generation evidence，并对 visible
 结果进行验证。点击后的语义评估接收 action/transition 投影；Runtime 会拒绝重复已经验证的
 语义 action。当 visible 结果的 profile、route 和 rendered content 等价时，通过派生 assertion

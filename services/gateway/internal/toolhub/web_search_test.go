@@ -102,11 +102,12 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 				"status":     "ok",
 				"answer_context": map[string]any{
 					"summary":   "Infinimesh summary",
-					"key_facts": []map[string]any{{"claim": "claim", "sources": []string{"src-1"}}},
+					"key_facts": []map[string]any{{"claim": "claim", "confidence": "high", "sources": []string{"src-1"}}},
+					"freshness": map[string]any{"status": "current", "staleness_risk": "low"},
 				},
 				"sources": []map[string]any{{
 					"id": "src-1", "title": "Official source", "url": "https://example.test/official",
-					"source_type": "official_documentation", "snippets": []string{"bounded evidence"},
+					"source_type": "official_documentation", "retrieved_at": "2026-08-14T00:00:00Z", "authority_score": 0.9, "snippets": []string{"bounded evidence"},
 				}},
 				"usage": map[string]any{"cost_credits": 1, "token_type": "info.basic"},
 			})
@@ -130,14 +131,19 @@ func TestWebSearchToolExecutesInfinimeshInfoAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := result.Output.(map[string]any)
-	if out["provider"] != "infinimesh-info" || out["request_id"] == "" || out["summary"] != "Infinimesh summary" || out["answer"] != "Infinimesh summary" || out["count"] != 1 || out["retrieved_at"] == "" || out["untrusted"] != true {
+	if out["schema_version"] != websearch.InfoResultSchemaVersion || out["status"] != "ok" || out["provider"] != "infinimesh-info" || out["request_id"] == "" || out["retrieved_at"] == "" || out["untrusted"] != true {
 		t.Fatalf("unexpected web search output: %#v", out)
 	}
-	if facts := out["key_facts"].([]websearch.KeyFact); len(facts) != 1 || facts[0].Claim != "claim" {
-		t.Fatalf("web search did not preserve Info key facts: %#v", out)
+	if aggregate := out["aggregate"].(websearch.Aggregate); aggregate.Summary != "Infinimesh summary" || len(aggregate.Facts) != 1 || aggregate.Facts[0].Claim != "claim" {
+		t.Fatalf("web search did not preserve the Info aggregate: %#v", out)
 	}
-	if sources := out["results"].([]websearch.Item); len(sources) != 1 || sources[0].Snippets[0] != "bounded evidence" {
+	if sources := out["sources"].([]websearch.Source); len(sources) != 1 || sources[0].Snippets[0] != "bounded evidence" {
 		t.Fatalf("web search did not preserve Info source snippets: %#v", out)
+	}
+	for _, removed := range []string{"summary", "answer", "count", "results", "key_facts", "citations"} {
+		if _, exists := out[removed]; exists {
+			t.Fatalf("new producer wrote legacy field %q: %#v", removed, out)
+		}
 	}
 
 }

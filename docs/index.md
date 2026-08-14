@@ -41,7 +41,8 @@ documentation tree.
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |
 | [Context assembly plan](context-assembly-plan.md) | Proposed Phase 0–1 optimization of prompt assembly and tool-result composition |
-| [Resilient PPTX overlength adaptation](pptx-overlength-resilience-design.md) | Proposed bounded adaptation and render-check path that prevents overlength model text from failing PPTX improvement |
+| [Info aggregated result consumption](info-aggregate-result-consumption-design.md) | Proposed typed, non-reaggregating consumption of Info `answer_context`, including citation, limitation, and Info-final browser-order contracts |
+| [Resilient PPTX overlength adaptation](pptx-overlength-resilience-design.md) | Phase 0 No-Go report and bounded render-check design; production behavior remains unchanged |
 | [DOCX editing](docx-editing-optimization.md) | Current DOCX style verification, evidence binding, run preservation, coverage, target-aware decision projection, and eval contracts |
 | [Observation compression redesign](observation-compression-redesign.md) | Implemented uniform tool-result envelope, runtime evidence provisioning, and lossless compaction |
 | [Deferred capabilities](deferred-email-calendar-knowledge.md) | Removed email, calendar, and workspace knowledge prototypes and reintroduction gates |

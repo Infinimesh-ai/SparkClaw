@@ -3,12 +3,9 @@ package websearch
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
@@ -16,7 +13,6 @@ import (
 
 const (
 	maxInfinimeshInfoResults = 40
-	maxSourceSnippetBytes    = 1200
 	InfoProviderName         = infinimeshinfo.ProviderName
 )
 
@@ -70,33 +66,76 @@ func (a InfinimeshInfoAdapter) Search(ctx context.Context, request Request) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	items, sourceURLs := infinimeshSources(response.Sources, maxResults)
-	keyFacts := infinimeshKeyFacts(response.AnswerContext.KeyFacts)
-	summary := strings.TrimSpace(response.AnswerContext.Summary)
-	answer := summary
-	if answer == "" {
-		answer = evidenceAnswer(items)
-	}
-	if answer == "" {
-		answer = keyFactAnswer(keyFacts)
-	}
-	if answer == "" {
-		return Result{}, errors.New("infinimesh info returned no answer or usable sources")
-	}
 	return Result{
-		RequestID:   response.RequestID,
-		Query:       query,
-		Summary:     summary,
-		Answer:      answer,
-		Provider:    InfoProviderName,
-		Count:       len(items),
-		Results:     items,
-		KeyFacts:    keyFacts,
-		Citations:   infinimeshCitations(response.AnswerContext, response.Sources, sourceURLs),
-		RetrievedAt: time.Now().UTC().Format(time.RFC3339),
-		TookMS:      time.Since(start).Milliseconds(),
-		Untrusted:   true,
+		SchemaVersion: InfoResultSchemaVersion,
+		RequestID:     response.RequestID,
+		Status:        response.Status,
+		Query:         query,
+		Provider:      InfoProviderName,
+		RetrievedAt:   time.Now().UTC().Format(time.RFC3339),
+		TookMS:        time.Since(start).Milliseconds(),
+		Aggregate:     mapAggregate(response.AnswerContext),
+		Sources:       mapSources(response.Sources),
+		Usage: Usage{
+			CostCredits: response.Usage.CostCredits,
+			TokenType:   response.Usage.TokenType,
+			CacheHit:    response.Usage.CacheHit,
+		},
+		Untrusted: true,
 	}, nil
+}
+
+func mapAggregate(answer infinimeshinfo.AnswerContext) Aggregate {
+	aggregate := Aggregate{
+		Summary:                strings.TrimSpace(answer.Summary),
+		Freshness:              mapFreshness(answer.Freshness),
+		Uncertainty:            append([]string(nil), answer.Uncertainty...),
+		RecommendedNextActions: append([]string(nil), answer.RecommendedNextActions...),
+	}
+	for _, fact := range answer.KeyFacts {
+		aggregate.Facts = append(aggregate.Facts, Fact{
+			Claim: strings.TrimSpace(fact.Claim), Confidence: strings.TrimSpace(fact.Confidence),
+			Sources: append([]string(nil), fact.Sources...),
+		})
+	}
+	for _, conflict := range answer.Conflicts {
+		mapped := Conflict{Topic: strings.TrimSpace(conflict.Topic)}
+		for _, viewpoint := range conflict.Viewpoints {
+			mapped.Viewpoints = append(mapped.Viewpoints, Viewpoint{
+				Claim: strings.TrimSpace(viewpoint.Claim), Sources: append([]string(nil), viewpoint.Sources...),
+			})
+		}
+		aggregate.Conflicts = append(aggregate.Conflicts, mapped)
+	}
+	return aggregate
+}
+
+func mapFreshness(freshness infinimeshinfo.FreshnessStatus) Freshness {
+	return Freshness{
+		Status: strings.TrimSpace(freshness.Status), LatestSourceDate: copyOptionalString(freshness.LatestSourceDate),
+		StalenessRisk: strings.TrimSpace(freshness.StalenessRisk),
+	}
+}
+
+func mapSources(sources []infinimeshinfo.Source) []Source {
+	out := make([]Source, 0, len(sources))
+	for index, source := range sources {
+		out = append(out, Source{
+			ID: strings.TrimSpace(source.ID), Title: strings.TrimSpace(source.Title), URL: strings.TrimSpace(source.URL),
+			SourceType: strings.TrimSpace(source.SourceType), PublishedAt: copyOptionalString(source.PublishedAt),
+			RetrievedAt: strings.TrimSpace(source.RetrievedAt), AuthorityScore: source.AuthorityScore,
+			Snippets: append([]string(nil), source.Snippets...), evidenceIndex: index, evidenceIndexSet: true,
+		})
+	}
+	return out
+}
+
+func copyOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := strings.TrimSpace(*value)
+	return &copy
 }
 
 func infinimeshFreshness(query, requested string) string {
@@ -118,208 +157,4 @@ func infinimeshFreshness(query, requested string) string {
 		}
 	}
 	return "medium"
-}
-
-func infinimeshSources(sources []infinimeshinfo.Source, limit int) ([]Item, map[string]string) {
-	items := make([]Item, 0, minInt(limit, len(sources)))
-	urlsByID := map[string]string{}
-	for sourceIndex, source := range sources {
-		if len(items) >= limit {
-			break
-		}
-		if !publicHTTPURL(source.URL) {
-			continue
-		}
-		item := Item{
-			EvidenceIndex:  sourceIndex,
-			ID:             strings.TrimSpace(source.ID),
-			Title:          strings.TrimSpace(source.Title),
-			URL:            strings.TrimSpace(source.URL),
-			Snippet:        boundedSnippet(source.Snippets, maxSourceSnippetBytes),
-			Snippets:       boundedSourceSnippets(source.Snippets, maxSourceSnippetBytes),
-			Source:         strings.TrimSpace(source.SourceType),
-			PublishedAt:    strings.TrimSpace(source.PublishedAt),
-			RetrievedAt:    strings.TrimSpace(source.RetrievedAt),
-			AuthorityScore: source.AuthorityScore,
-		}
-		if item.Title == "" {
-			item.Title = item.URL
-		}
-		items = append(items, item)
-		if id := strings.TrimSpace(source.ID); id != "" {
-			urlsByID[id] = item.URL
-		}
-	}
-	return items, urlsByID
-}
-
-func infinimeshKeyFacts(facts []infinimeshinfo.KeyFact) []KeyFact {
-	out := make([]KeyFact, 0, len(facts))
-	for factIndex, fact := range facts {
-		claim := strings.TrimSpace(fact.Claim)
-		if claim == "" {
-			continue
-		}
-		out = append(out, KeyFact{
-			ID:         fmt.Sprintf("fact:%d", factIndex),
-			Claim:      claim,
-			Confidence: strings.TrimSpace(fact.Confidence),
-			Sources:    append([]string(nil), fact.Sources...),
-		})
-	}
-	return out
-}
-
-func boundedSourceSnippets(snippets []string, maxBytes int) []string {
-	out := []string{}
-	remaining := maxBytes
-	for _, snippet := range snippets {
-		snippet = strings.TrimSpace(snippet)
-		if snippet == "" || remaining <= 0 {
-			continue
-		}
-		if len(snippet) > remaining {
-			snippet = truncateUTF8(snippet, remaining)
-		}
-		if snippet != "" {
-			out = append(out, snippet)
-			remaining -= len(snippet)
-		}
-	}
-	return out
-}
-
-func infinimeshCitations(answer infinimeshinfo.AnswerContext, sources []infinimeshinfo.Source, urlsByID map[string]string) []string {
-	referenced := map[string]bool{}
-	directURLs := map[string]bool{}
-	directOrder := []string{}
-	for _, citation := range answer.Citations {
-		citation = strings.TrimSpace(citation)
-		if citation == "" {
-			continue
-		}
-		if publicHTTPURL(citation) {
-			if !directURLs[citation] {
-				directURLs[citation] = true
-				directOrder = append(directOrder, citation)
-			}
-		} else {
-			referenced[citation] = true
-		}
-	}
-	for _, fact := range answer.KeyFacts {
-		for _, id := range fact.Sources {
-			if id = strings.TrimSpace(id); id != "" {
-				referenced[id] = true
-			}
-		}
-	}
-	result := []string{}
-	seen := map[string]bool{}
-	for _, source := range sources {
-		id := strings.TrimSpace(source.ID)
-		url := urlsByID[id]
-		if url == "" || seen[url] || (!referenced[id] && !directURLs[url]) {
-			continue
-		}
-		seen[url] = true
-		result = append(result, url)
-	}
-	for _, directURL := range directOrder {
-		if !seen[directURL] {
-			seen[directURL] = true
-			result = append(result, directURL)
-		}
-	}
-	if len(result) > 0 {
-		return result
-	}
-	for _, source := range sources {
-		url := urlsByID[strings.TrimSpace(source.ID)]
-		if url == "" || seen[url] {
-			continue
-		}
-		seen[url] = true
-		result = append(result, url)
-	}
-	return result
-}
-
-func boundedSnippet(snippets []string, maxBytes int) string {
-	parts := make([]string, 0, len(snippets))
-	length := 0
-	for _, snippet := range snippets {
-		snippet = strings.TrimSpace(snippet)
-		if snippet == "" {
-			continue
-		}
-		separator := 0
-		if len(parts) > 0 {
-			separator = 1
-		}
-		remaining := maxBytes - length - separator
-		if remaining <= 0 {
-			break
-		}
-		if len(snippet) > remaining {
-			snippet = truncateUTF8(snippet, remaining)
-		}
-		parts = append(parts, snippet)
-		length += len(snippet) + separator
-	}
-	return strings.Join(parts, " ")
-}
-
-func truncateUTF8(value string, maxBytes int) string {
-	if maxBytes <= 0 {
-		return ""
-	}
-	if len(value) <= maxBytes {
-		return value
-	}
-	value = value[:maxBytes]
-	for !utf8.ValidString(value) {
-		_, size := utf8.DecodeLastRuneInString(value)
-		if size <= 0 || size > len(value) {
-			return ""
-		}
-		value = value[:len(value)-size]
-	}
-	return value
-}
-
-func evidenceAnswer(items []Item) string {
-	lines := make([]string, 0, len(items))
-	for _, item := range items {
-		text := strings.TrimSpace(item.Snippet)
-		if text == "" {
-			text = strings.TrimSpace(item.Title)
-		}
-		if text != "" {
-			lines = append(lines, text)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func keyFactAnswer(facts []KeyFact) string {
-	lines := make([]string, 0, len(facts))
-	for _, fact := range facts {
-		if claim := strings.TrimSpace(fact.Claim); claim != "" {
-			lines = append(lines, claim)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func publicHTTPURL(value string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(value))
-	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
-}
-
-func minInt(left, right int) int {
-	if left < right {
-		return left
-	}
-	return right
 }

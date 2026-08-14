@@ -130,9 +130,20 @@ Infinimesh Info 是 `web.search` 和现有 `browser.weather` Workflow 的可选�
 获取 one-shot `info.basic` token，以 `PrivateToken` 传递，并限制 retry、deadline 和
 response size。
 
-SparkClaw 把 summary、非空 key fact、公开 source metadata、snippet 和 citation 映射为稳定
-evidence ref，在模型调用前选择与 query 相关的有界 projection。summary 缺失不会隐藏可用
-结构化 fact，provider status 文本也不会伪装成答案。
+Info query 结果已经在上游完成聚合。SparkClaw 将其持久化为
+`info_search_result_v2`，保留 Info 的 summary、fact、conflict、freshness、uncertainty、
+source-ID 边、usage metadata 和最终 `sources[]` 顺序，不再对这些单元重排或重新合成。
+上游 `recommended_next_actions` 只留在不可信 raw result 中，绝不进入模型 evidence、
+Workflow control 或用户回答。
+
+回答 projection 为 `info_aggregate_projection_v4`。它校验 source ID 唯一性与 citation 边，
+按 Info 顺序加入完整 fact 和 conflict viewpoint，不包含 snippet，并把容量或无效引用造成的
+省略标为 `partial`。Fact 与 viewpoint 保留各自 citation marker；freshness、uncertainty 和
+不可链接 citation label 对用户可见。确定性 renderer 完成 `browser.internet_search`，不增加
+第二个模型 finalizer。浏览器目标识别独立读取 raw 有序 source 视图，跳过不可链接 entry，
+继续执行 HTTPS、DNS/IP 和 redirect 安全门。只读 decoder 支持持久化的 pre-v2 搜索结果；
+新的 ToolHub call 只写 v2。
+
 天气 adapter 则校验固定 metric 的 current/hourly/daily 字段和规范化 condition 词表，
 随后只暴露 typed 卡片 payload。provider 坐标在进入 ToolHub output、trace 或卡片渲染前
 被丢弃；malformed 或不完整天气响应会明确失败。

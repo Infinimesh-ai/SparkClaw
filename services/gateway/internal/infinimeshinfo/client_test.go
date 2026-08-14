@@ -128,18 +128,24 @@ func TestClientIssueQueryRetryUsesFreshTokenAndRandomRequestID(t *testing.T) {
 				"answer_context": map[string]any{
 					"summary": "contract summary",
 					"key_facts": []map[string]any{{
-						"claim":   "contract claim",
-						"sources": []string{"src-1"},
+						"claim": "contract claim", "confidence": "high", "sources": []string{"src-1"},
 					}},
+					"conflicts": []map[string]any{{
+						"topic": "contract topic", "viewpoints": []map[string]any{
+							{"claim": "view A", "sources": []string{"src-1"}},
+							{"claim": "view B", "sources": []string{"src-2"}},
+						},
+					}},
+					"freshness":                map[string]any{"status": "current", "latest_source_date": "2026-08-14", "staleness_risk": "medium"},
+					"recommended_next_actions": []string{"review later"},
+					"uncertainty":              []string{"contract uncertainty"},
+					"future_additive_field":    map[string]any{"ignored": true},
 				},
-				"sources": []map[string]any{{
-					"id":          "src-1",
-					"title":       "Contract source",
-					"url":         "https://example.test/source",
-					"source_type": "official_documentation",
-					"snippets":    []string{"source evidence"},
-				}},
-				"usage": map[string]any{"cost_credits": 1, "token_type": "info.basic"},
+				"sources": []map[string]any{
+					{"id": "src-1", "title": "Contract source", "url": "https://example.test/source", "source_type": "official_documentation", "published_at": "2026-08-13T00:00:00Z", "retrieved_at": "2026-08-14T00:00:00Z", "authority_score": 0.9, "snippets": []string{"source evidence"}},
+					{"id": "src-2", "title": "Linkless source", "url": "", "source_type": "report", "retrieved_at": "2026-08-14T00:00:00Z", "authority_score": 0.7},
+				},
+				"usage": map[string]any{"cost_credits": 1, "token_type": "info.basic", "cache_hit": true},
 			})
 		default:
 			t.Error("unexpected Info API path")
@@ -161,7 +167,11 @@ func TestClientIssueQueryRetryUsesFreshTokenAndRandomRequestID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.AnswerContext.Summary != "contract summary" || len(response.Sources) != 1 {
+	if response.AnswerContext.Summary != "contract summary" || len(response.AnswerContext.KeyFacts) != 1 ||
+		len(response.AnswerContext.Conflicts) != 1 || len(response.AnswerContext.Conflicts[0].Viewpoints) != 2 ||
+		response.AnswerContext.Freshness.LatestSourceDate == nil || *response.AnswerContext.Freshness.LatestSourceDate != "2026-08-14" ||
+		len(response.AnswerContext.RecommendedNextActions) != 1 || len(response.AnswerContext.Uncertainty) != 1 ||
+		len(response.Sources) != 2 || response.Sources[0].PublishedAt == nil || response.Sources[1].URL != "" || !response.Usage.CacheHit {
 		t.Fatal("query response contract mismatch")
 	}
 	mu.Lock()
@@ -214,6 +224,32 @@ func TestClientNonRetryableErrorIsSanitized(t *testing.T) {
 	}
 }
 
+func TestQueryResponseContractAcceptsOptionalNullAndRejectsMissingRequiredMembers(t *testing.T) {
+	valid := []byte(`{
+		"request_id":"req","status":"ok",
+		"answer_context":{
+			"summary":"","key_facts":[],"conflicts":null,
+			"freshness":{"status":"current","latest_source_date":null,"staleness_risk":"low"},
+			"recommended_next_actions":null,"uncertainty":null,"future_field":true
+		},
+		"sources":null,
+		"usage":{"cost_credits":0,"token_type":"info.basic","cache_hit":false},
+		"future_envelope":{}
+	}`)
+	var response QueryResponse
+	if err := json.Unmarshal(valid, &response); err != nil {
+		t.Fatalf("optional null or additive fields broke the current contract: %v", err)
+	}
+	missingFreshness := []byte(`{
+		"request_id":"req","status":"ok",
+		"answer_context":{"summary":"","key_facts":[]},
+		"sources":[],"usage":{"cost_credits":0,"token_type":"info.basic"}
+	}`)
+	if err := json.Unmarshal(missingFreshness, &response); err == nil || !strings.Contains(err.Error(), "freshness") {
+		t.Fatalf("missing required answer_context member was accepted: %v", err)
+	}
+}
+
 func TestClientRequiresMatchingLicenseCredentials(t *testing.T) {
 	tests := []Config{
 		{LicenseID: testLicenseID},
@@ -252,7 +288,7 @@ func TestClientTokenExpiredDiscardsRemainingBatch(t *testing.T) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"request_id": r.Header.Get("X-Request-Id"), "status": "ok", "answer_context": map[string]any{"summary": "ok"}, "sources": []any{},
+				"request_id": r.Header.Get("X-Request-Id"), "status": "ok", "answer_context": map[string]any{"summary": "ok", "key_facts": []any{}, "freshness": map[string]any{"status": "current", "staleness_risk": "low"}}, "sources": []any{},
 				"usage": map[string]any{"cost_credits": 1, "token_type": "info.basic"},
 			})
 		}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
 )
 
 type workflowOutcomeAdapter func(app.ToolCall, app.WorkflowNodeID) app.ToolOutcome
@@ -57,7 +58,7 @@ func adaptBrowserPublicTargetOutcome(call app.ToolCall, nodeID app.WorkflowNodeI
 		return outcome
 	}
 	attributes := map[string]string{}
-	for _, key := range []string{"resolution_source", "owner_target_phrase", "requested_surface_kind", "info_request_id", "source_result_ref", "canonical_entry_url", "normalized_final_url", "safety_gate_status", "created_at"} {
+	for _, key := range []string{"resolution_source", "owner_target_phrase", "requested_surface_kind", "info_request_id", "info_source_id", "source_result_ref", "canonical_entry_url", "normalized_final_url", "safety_gate_status", "created_at"} {
 		if value := firstNonEmptyString(output[key]); value != "" {
 			attributes[key] = value
 		}
@@ -226,9 +227,16 @@ func adaptScheduleChangeOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) ap
 
 func adaptWebSearchWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
-	output, _ := anyMap(call.Result)
-	refs := webSearchResourceRefs(output, call.ID)
-	if webSearchResultCount(output) > 0 || len(refs) > 0 || webSearchHasAnswer(output) {
+	result, err := websearch.DecodeResult(call.Result)
+	if err != nil {
+		if toolCallCompleted(call) {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNoResults}
+		}
+		return outcome
+	}
+	projection := websearch.ProjectInfoEvidence(result, strings.TrimSpace(stringValue(call.Arguments["query"])), websearch.MaxInfoProjectionBytes)
+	refs := infoProjectionResourceRefs(projection, call.ID)
+	if websearch.InfoEvidenceProjectionHasEvidence(projection) {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
 		if len(refs) > 0 {
 			outcome.Signals = append(outcome.Signals, app.OutcomeSignalSourcePageAvailable)
@@ -240,14 +248,22 @@ func adaptWebSearchWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 	return outcome
 }
 
-func webSearchHasAnswer(output map[string]any) bool {
-	for _, key := range []string{"summary", "answer"} {
-		value := strings.TrimSpace(stringValue(output[key]))
-		if value != "" && value != "<nil>" {
-			return true
+func infoProjectionResourceRefs(projection websearch.InfoEvidenceProjection, provenance string) []app.ResourceRef {
+	refs := []app.ResourceRef{}
+	for _, source := range projection.Sources {
+		if !source.Linkable {
+			continue
 		}
+		refs = append(refs, app.ResourceRef{
+			Kind: "url", Ref: source.URL, Provenance: provenance,
+			Attributes: map[string]string{
+				"info_request_id": projection.RequestID,
+				"source_id":       source.ID,
+				"source_index":    strconv.Itoa(source.Index),
+			},
+		})
 	}
-	return false
+	return refs
 }
 
 func adaptWebPageWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
@@ -919,55 +935,6 @@ func transitionPredicateMatches(predicate app.TransitionPredicate, outcome app.T
 		}
 	}
 	return true
-}
-
-func webSearchResultCount(output map[string]any) int {
-	if results, ok := output["results"].([]any); ok {
-		return len(results)
-	}
-	if results, ok := output["results"].([]map[string]any); ok {
-		return len(results)
-	}
-	switch count := output["count"].(type) {
-	case int:
-		return count
-	case float64:
-		return int(count)
-	}
-	return 0
-}
-
-func webSearchResourceRefs(output map[string]any, provenance string) []app.ResourceRef {
-	refs := []app.ResourceRef{}
-	appendURL := func(value any) {
-		raw := strings.TrimSpace(stringValue(value))
-		if raw != "" && raw != "<nil>" {
-			refs = appendUniqueResourceRefs(refs, app.ResourceRef{Kind: "url", Ref: raw, Provenance: provenance})
-		}
-	}
-	switch citations := output["citations"].(type) {
-	case []string:
-		for _, citation := range citations {
-			appendURL(citation)
-		}
-	case []any:
-		for _, citation := range citations {
-			appendURL(citation)
-		}
-	}
-	switch results := output["results"].(type) {
-	case []any:
-		for _, result := range results {
-			if item, ok := anyMap(result); ok {
-				appendURL(item["url"])
-			}
-		}
-	case []map[string]any:
-		for _, item := range results {
-			appendURL(item["url"])
-		}
-	}
-	return refs
 }
 
 func containsOutcomeSignal(values []app.OutcomeSignal, want app.OutcomeSignal) bool {

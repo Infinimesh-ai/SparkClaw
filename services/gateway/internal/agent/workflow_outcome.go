@@ -229,12 +229,12 @@ func adaptWebSearchWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	result, err := websearch.DecodeResult(call.Result)
 	if err != nil {
-		if toolCallCompleted(call) {
-			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNoResults}
-		}
 		return outcome
 	}
 	projection := websearch.ProjectInfoEvidence(result, strings.TrimSpace(stringValue(call.Arguments["query"])), websearch.MaxInfoProjectionBytes)
+	if projection.Status == websearch.InfoProjectionFailed {
+		return outcome
+	}
 	refs := infoProjectionResourceRefs(projection, call.ID)
 	if websearch.InfoEvidenceProjectionHasEvidence(projection) {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
@@ -242,7 +242,7 @@ func adaptWebSearchWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 			outcome.Signals = append(outcome.Signals, app.OutcomeSignalSourcePageAvailable)
 		}
 		outcome.Refs = refs
-	} else if toolCallCompleted(call) {
+	} else if toolCallCompleted(call) && projection.Status == websearch.InfoProjectionNoResults {
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNoResults}
 	}
 	return outcome

@@ -40,7 +40,7 @@
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
 | [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
-| [Info 上游聚合结果消费](info-aggregate-result-consumption-design.md) | 拟议的 Info `answer_context` 类型化、无二次聚合消费方案，覆盖 citation、limitation 与 Info 最终浏览器顺序契约 |
+| [Info 上游聚合结果消费](info-aggregate-result-consumption-design.md) | 已实现的 Info `answer_context` 类型化、无二次聚合消费方案，覆盖 citation、limitation 与 Info 最终浏览器顺序契约 |
 | [PPTX 超长文本韧性适配](pptx-overlength-resilience-design.md) | Phase 0 No-Go 报告与受限渲染检查设计；生产行为保持不变 |
 | [DOCX 编辑](docx-editing-optimization.md) | 当前 DOCX 样式验证、证据绑定、run 保真、coverage、目标感知 decision 投影与评测契约 |
 | [观测压缩重构](observation-compression-redesign.md) | 已实施的统一工具结果信封、运行时证据供给与无损压缩 |

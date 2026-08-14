@@ -817,7 +817,10 @@ func renderInfoSearchAnswer(projection websearch.InfoEvidenceProjection) string 
 		for index, source := range projection.Sources {
 			label := cleanInfoEvidenceForUser(source.Title)
 			if label == "" {
-				label = source.ID
+				label = cleanInfoEvidenceForUser(source.ID)
+			}
+			if label == "" {
+				label = fmt.Sprintf("来源 %d", index+1)
 			}
 			if source.Linkable {
 				lines = append(lines, fmt.Sprintf("[%d] %s：%s", index+1, label, source.URL))

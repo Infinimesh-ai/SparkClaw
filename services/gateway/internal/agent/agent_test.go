@@ -1384,6 +1384,22 @@ func TestWebSearchOutcomeUsesTypedAggregateInsteadOfLegacyTopLevelFields(t *test
 	}
 }
 
+func TestWebSearchOutcomeDoesNotClassifyInvalidAggregateAsNoResults(t *testing.T) {
+	call := app.ToolCall{
+		ID: "tc_invalid_outcome", Tool: "web.search", Status: "completed", Arguments: map[string]any{"query": "frozen query"},
+		Result: map[string]any{
+			"schema_version": websearch.InfoResultSchemaVersion, "request_id": "req-invalid", "status": "ok",
+			"query": "rewritten query", "provider": websearch.InfoProviderName, "untrusted": true,
+			"aggregate": map[string]any{"facts": []any{}, "freshness": map[string]any{}},
+			"sources":   []any{}, "usage": map[string]any{},
+		},
+	}
+	outcome := adaptWebSearchWorkflowOutcome(call, "search_info")
+	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalNoResults) || containsOutcomeSignal(outcome.Signals, app.OutcomeSignalResultsAvailable) {
+		t.Fatalf("invalid aggregate must block the workflow instead of completing as no-results: %#v", outcome)
+	}
+}
+
 func TestInfoRendererNormalizesUpstreamMarkupAndUsesOnlyValidatedSourceLinks(t *testing.T) {
 	projection := websearch.InfoEvidenceProjection{
 		SchemaVersion: websearch.InfoProjectionSchemaVersion, Status: websearch.InfoProjectionComplete, Untrusted: true,
@@ -1398,6 +1414,19 @@ func TestInfoRendererNormalizesUpstreamMarkupAndUsesOnlyValidatedSourceLinks(t *
 	if strings.Contains(answer, "<b>") || strings.Contains(answer, "<i>") || strings.Contains(answer, "**") || strings.Contains(answer, "https://evil.example") ||
 		!strings.Contains(answer, "Claim bold unsafe(外部链接已省略) [1]") || !strings.Contains(answer, "Validated：https://example.com/source") {
 		t.Fatalf("upstream markup escaped plain-text normalization: %q", answer)
+	}
+}
+
+func TestInfoRendererSanitizesSourceIDFallback(t *testing.T) {
+	sourceID := `[unsafe](https://evil.example/source)`
+	projection := websearch.InfoEvidenceProjection{
+		SchemaVersion: websearch.InfoProjectionSchemaVersion, Status: websearch.InfoProjectionComplete, Untrusted: true,
+		Facts:   []websearch.InfoEvidenceFact{{Ref: "fact:0", Claim: "Claim", SourceIDs: []string{sourceID}}},
+		Sources: []websearch.InfoEvidenceSource{{Index: 0, ID: sourceID}},
+	}
+	answer := renderInfoSearchAnswer(projection)
+	if strings.Contains(answer, "https://evil.example") || strings.Contains(answer, "[unsafe]") || !strings.Contains(answer, "unsafe(外部链接已省略)（不可链接来源）") {
+		t.Fatalf("source ID fallback escaped plain-text normalization: %q", answer)
 	}
 }
 

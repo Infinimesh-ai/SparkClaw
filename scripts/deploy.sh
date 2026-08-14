@@ -290,7 +290,7 @@ for _ in $(seq 1 60); do
 done
 [[ "$webchat_ready" == true ]] || fail "Gateway is ready, but WebChat did not respond at http://127.0.0.1:18790"
 
-ready_json="$(curl -fsS --max-time 5 http://127.0.0.1:18789/readyz)"
+ready_json="$(curl -fsS --max-time 5 http://127.0.0.1:18790/readyz)"
 printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' || fail "Gateway ready check returned an unexpected response"
 
 log "installing the boot autostart service"
@@ -306,7 +306,7 @@ printf '  WebChat (local): http://127.0.0.1:18790\n'
 if [[ -n "$lan_ip" ]]; then
   printf '  WebChat (LAN):   http://%s:18790\n' "$lan_ip"
 fi
-printf '  Gateway ready:  http://127.0.0.1:18789/readyz\n'
+printf '  Gateway ready:  http://127.0.0.1:18790/readyz (WebChat ingress)\n'
 "${docker_cmd[@]}" ps \
   --filter label=com.docker.compose.project=sparkclaw \
   --format '  {{.Names}}: {{.Status}}'

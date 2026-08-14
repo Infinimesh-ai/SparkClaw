@@ -98,6 +98,7 @@ type ConnectorController interface {
 	ListStatus(ownerID string) []app.ConnectorStatus
 	Status(ownerID, channel string) (app.ConnectorStatus, error)
 	SetEnabled(ctx context.Context, ownerID, actorID, channel string, enabled bool, expectedVersion int64) (app.ConnectorStatus, error)
+	SetMCPTransports(ctx context.Context, ownerID, actorID string, iscpEnabled, lanAccessEnabled bool, expectedVersion int64) (app.ConnectorStatus, error)
 }
 
 type MCPController interface {
@@ -356,6 +357,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/bridge/v1/dispatch", s.dispatchBridgeRequest)
 	s.mux.HandleFunc("POST /api/bridge/v1/mcp/dispatch", s.dispatchMCPBridgeRequest)
 	s.mux.HandleFunc("POST /mcp", s.dispatchLANDirectMCP)
+	s.mux.HandleFunc("PATCH /api/mcp-access/transports", s.updateMCPTransports)
 	s.mux.HandleFunc("GET /api/mcp-access/tickets", s.listMCPAccessTickets)
 	s.mux.HandleFunc("GET /api/mcp-access/catalog", s.listMCPAccessCatalog)
 	s.mux.HandleFunc("POST /api/mcp-access/tickets", s.issueMCPAccessTicket)
@@ -1605,9 +1607,6 @@ func (s *Server) validateMCPApproval(approval app.Approval) error {
 	operation, ok := s.store.GetMCPOperation(run.MessageContext.MCP.OperationID)
 	if !ok || operation.Invocation.RunID != run.ID {
 		return errors.New("MCP operation is unavailable for this approval")
-	}
-	if !operation.Invocation.AllowApproval {
-		return errors.New("MCP binding did not grant approval-backed execution")
 	}
 	switch operation.State {
 	case app.MCPOperationApprovalRequired, app.MCPOperationRunning:

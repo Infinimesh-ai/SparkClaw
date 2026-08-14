@@ -82,6 +82,8 @@ describe("SettingsPanel External MCP", () => {
       />
     );
     expect(markup).toContain(dictionaries.en.settings.externalMCP);
+    expect(markup).toContain(dictionaries.en.settings.useISCP);
+    expect(markup).toContain(dictionaries.en.settings.allowLANAccess);
     expect(markup).toContain(dictionaries.en.settings.iscpPairing);
     expect(markup).not.toContain(dictionaries.en.settings.addWeixinBinding);
   });

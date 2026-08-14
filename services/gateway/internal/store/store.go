@@ -10,6 +10,20 @@ import (
 var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
 var ErrBrowserHandoffConflict = errors.New("browser handoff changed or is no longer available")
 var ErrConnectorSettingConflict = errors.New("connector setting changed")
+
+func connectorSettingAuditType(exists, currentEnabled, currentISCPEnabled, currentLANAccessEnabled bool, setting app.ConnectorSetting) string {
+	if !exists || currentEnabled != setting.Enabled {
+		if setting.Enabled {
+			return "connector.enabled"
+		}
+		return "connector.disabled"
+	}
+	if currentISCPEnabled != setting.ISCPEnabled || currentLANAccessEnabled != setting.LANAccessEnabled {
+		return "connector.transport_updated"
+	}
+	return "connector.updated"
+}
+
 var ErrPassiveNotificationConflict = errors.New("notification idempotency key was reused with a different payload")
 var ErrPassiveNotificationNotFound = errors.New("notification not found")
 var ErrMCPAccessTicketInvalid = errors.New("MCP access ticket is invalid or unavailable")

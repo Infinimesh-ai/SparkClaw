@@ -13,10 +13,10 @@ enrollment request，再由外部 LocalMind controller 返回 Bridge 使用的 b
 通过 Provisioning 兑换该凭证，作为新 device 加入 SparkClaw ISCP Domain。ticket 的定义、签名、
 校验和消费，以及 device admission、Trust Grant、Relay credential、session security、rotation
 和 transport revocation 均由 ISCP 负责。认证 ISCP session ready 后，SparkClaw 通过该 session
-独立签发并消费单次使用 MCP Access Ticket，以激活持久本地 Route MCP Binding。该应用 ticket
+独立签发并消费单次使用 MCP Access Ticket，以激活持久本地 conversation-scoped MCP Binding。该应用 ticket
 不会让 device 加入 ISCP，也不是公网 claim service。本文不决定 JingSi 未来的 credential flow。
 
-替代架构使用一个经通用 ISCP MCP Access Gateway 传输的 Route MCP Service。SparkClaw 自身
+替代架构使用一个经通用 ISCP MCP Access Gateway 传输的 conversation-scoped MCP Service。SparkClaw 自身
 负责的本地 runtime 与加密 Bridge dispatch 已实现；生产 PairingTicket/Provisioning 集成、
 可部署 external gateway 和真实 Relay 验证仍待完成。详见
 [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md)。不得再为旧 Bridge 增加

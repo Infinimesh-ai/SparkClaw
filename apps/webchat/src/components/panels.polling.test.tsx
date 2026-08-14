@@ -60,9 +60,17 @@ describe("SettingsPanel binding polling", () => {
     vi.useFakeTimers();
     vi.spyOn(api, "iscpPairingStatus").mockResolvedValue(config.iscp_pairing);
     vi.spyOn(api, "iscpOnboardings").mockResolvedValue({ onboardings: [] });
-    vi.spyOn(api, "mcpAccessCatalog").mockResolvedValue({ catalog_revision: "", grants: [] });
+    vi.spyOn(api, "mcpAccessCatalog").mockResolvedValue({
+      scope: "conversation",
+      business_tool: "sparkclaw.conversation.send",
+      iscp_enabled: false,
+      lan_access_enabled: false,
+      transport_version: 0,
+      endpoint_path: "/mcp"
+    });
     vi.spyOn(api, "mcpAccessTickets").mockResolvedValue({ tickets: [] });
     vi.spyOn(api, "mcpBindings").mockResolvedValue({ bindings: [] });
+    vi.spyOn(api, "updateMCPTransports").mockResolvedValue(connector);
   });
 
   afterEach(() => {

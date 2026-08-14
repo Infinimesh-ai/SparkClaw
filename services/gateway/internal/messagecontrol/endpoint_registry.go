@@ -80,7 +80,7 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
 		}
 		binding, ok := mcpStore.GetMCPBinding(bindingID)
-		if !ok || binding.Status != app.MCPBindingActive {
+		if !ok || binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation || binding.Status != app.MCPBindingActive {
 			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
 		}
 		if !r.connectorEnabled(binding.OwnerID, "mcp") {

@@ -19,12 +19,12 @@ verifies, and consumes the ticket and owns device admission, Trust Grants, Relay
 credentials, session security, rotation, and transport revocation. Once the
 authenticated ISCP session is ready, SparkClaw separately issues and consumes a
 single-use MCP Access Ticket over that session to activate the durable local
-Route MCP Binding. That application ticket does not admit a device to ISCP and
+conversation-scoped MCP Binding. That application ticket does not admit a device to ISCP and
 is not a public claim service.
 
 This document makes no decision about JingSi's future credential flow.
 
-The replacement architecture uses one Route MCP Service carried through a generic
+The replacement architecture uses one conversation-scoped MCP Service carried through a generic
 ISCP MCP Access Gateway. Its SparkClaw-owned local runtime and encrypted Bridge
 dispatch are implemented; production PairingTicket/Provisioning integration,
 the deployable external gateway, and live Relay validation remain pending. See

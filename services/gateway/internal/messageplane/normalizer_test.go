@@ -162,7 +162,7 @@ func TestNormalizeRejectsEmptyMessage(t *testing.T) {
 		Session: app.Session{ID: "session_1", Source: "web"},
 		Message: app.Message{ID: "message_1", SessionID: "session_1", CreatedAt: time.Now().UTC()},
 	})
-	if err == nil || !strings.Contains(err.Error(), "at least one part") {
+	if err == nil || !strings.Contains(err.Error(), "content or a media locator is required") {
 		t.Fatalf("expected empty content rejection, got %v", err)
 	}
 }

@@ -233,12 +233,11 @@ LocalMind 目标方案相反。JingSi 当前 path 不在本设计中评估或迁
 
 ### 统一第三方接入（SparkClaw 管理表面已实现）
 
-目标入站架构为 LocalMind 和未来选择该 contract 的第三方提供一个 provider-neutral Route MCP
-surface，不再为每个 provider 增加 adapter 或 API。通用 ISCP MCP Access Gateway 在已
-enrollment 的外部 gateway device 与 SparkClaw 之间传输 MCP session；本地 Route MCP Service
-只投影符合条件且经 owner 授权的 Catalog 叶子。外部 MCP tool identity 生成服务端持有的 leaf
-binding 与唯一确定性 Top-1 selection，不进入开放式语义评分；随后精确 Workflow Profile 通过
-现有 Runtime、Policy、approval 和 audit 核心执行。
+目标入站架构为 LocalMind 和未来选择该 contract 的第三方提供一个 provider-neutral 普通对话
+MCP surface，不再为每个 provider 增加 adapter 或 API。通用 ISCP MCP Access Gateway 在已
+enrollment 的外部 gateway device 与 SparkClaw 之间传输 MCP session。本地 service 只暴露一个
+业务 tool `sparkclaw.conversation.send`；消息进入普通语义路由，选中的 Workflow 再通过现有
+Runtime、Policy、approval 和 audit 核心执行。
 
 JingSi 不在本设计范围内。它不接收 MCP enrollment、tool projection、endpoint 或 sender；其
 SparkClaw 绑定方式后续另行设计。本项目保持 JingSi 当前所需最小 path 不变。
@@ -262,21 +261,23 @@ PairingTicket/Provisioning 兑换凭证，加入 SparkClaw 所在的同一个 IS
 建立、credential 轮换和 transport revocation 均由 ISCP authority 负责，SparkClaw 不重复实现
 这些协议服务。认证 ISCP session ready 后，SparkClaw 独立签发短期、单次使用 MCP Access
 Ticket。已入网 external device 只能通过该 session 兑换，SparkClaw 原子消费后激活本地 owner
-批准的持久 MCP Binding，决定允许暴露哪些 Route MCP 叶子。普通 MCP 使用依赖 session identity
+批准的持久 conversation-scoped MCP Binding。普通 MCP 使用依赖 session identity
 加 Binding，不复用任一 ticket。外部 device 保留为 requester/source provenance，SparkClaw 仍是
-Workflow executor。两个 gateway role 都通过出站连接访问 Relay；本地 Route MCP Service 不开放
-公网入站端口。
+Workflow executor。两个 gateway role 都通过出站连接访问 Relay，因此 ISCP 不开放公网入站端口。
+Owner 可以独立开启局域网直连 MCP，使其使用 WebChat `18790` 入口的 `/mcp` route；WebChat
+把该精确路由代理到 Docker 内部 Gateway，该开关关闭时 route 不存在。
 
-完整 trust、能力投影、调用、LocalMind 迁移和验收 contract 见
+完整 trust、对话能力、调用、LocalMind 迁移和验收 contract 见
 [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md)。Owner-facing External MCP
 设置表面与可配置 authority adapter 已实现。adapter 只通过一个带认证和边界的出站请求获取
 `iscp.pairing_ticket.v2`，从不持有 Trust Root 签名材料。memory、file 或 PostgreSQL 只保留
-非秘密 onboarding receipt；签名 ticket 仅返回一次。叶子授权来自当前 Catalog，本地还可以列出
-或撤销 MCP Access Ticket 与 Binding。
+非秘密 onboarding receipt；签名 ticket 仅返回一次。本地可以列出或撤销 MCP Access Ticket 与
+conversation-scoped Binding，其中不包含 Catalog grant。
 
 SparkClaw 自身负责的本地
 runtime 已实现：严格 MCP `2025-06-18`、只存 hash 的单次 MCP Access Ticket、持久 peer
-Binding、Catalog 叶子投影、精确 Top-1 Workflow ingress、共享 Delivery、Binding-scoped operation
+Binding schema v2 conversation scope、唯一业务工具 `sparkclaw.conversation.send`、普通语义路由、
+有界且只匹配文件名的 Top-1 response-media 查询、共享 Delivery、Binding-scoped operation
 恢复、默认关闭 channel gate 和脱敏 lifecycle audit。加密 Bridge 测试已在建立好的 ISCP session
 中传输 MCP 请求和响应。生产 external onboarding 仍需真实 ISCP authority 实现已配置的
 PairingTicket endpoint、可部署 external Access Gateway 和真实 Relay 验证，因此
@@ -301,7 +302,8 @@ audio 不是 artifact。
 
 ## 信任与安全边界
 
-- Gateway 默认只绑定 loopback，WebChat 是唯一默认 LAN surface。
+- 产品 Compose 在 `18789` 与 `18790` 发布 Gateway 和 WebChat；`/mcp` 的直连 ingress 仍由
+  owner 控制且默认关闭。Host-process Gateway 调试继续只绑定 loopback。
 - authenticated request 携带一个 owner/actor principal；endpoint/schedule query 按 owner 限制。
 - reversible/dangerous effect 需要 Policy approval；shell 默认 sandboxed 且 network-disabled。
 - browser URL、artifact path、workspace path 和 provider destination 确定性 normalize/validate。
@@ -331,7 +333,7 @@ Provider/UI 通过 owner package 和 public projection 消费这些契约，不�
 
 | 服务 | 默认值 |
 |---|---|
-| Gateway | `127.0.0.1:18789` |
+| Gateway | `gateway:18789`（Docker 内部，不发布 host port） |
 | WebChat | `0.0.0.0:18790` |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

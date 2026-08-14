@@ -113,8 +113,7 @@ type ISCPPairingConfig struct {
 }
 
 type MCPAccessConfig struct {
-	LANDirectTestEnabled bool   `json:"lan_direct_test_enabled"`
-	LANDirectDomainID    string `json:"lan_direct_domain_id"`
+	LocalDomainID string `json:"local_domain_id"`
 }
 
 type PluginsConfig struct {
@@ -580,12 +579,9 @@ func normalizeISCPPairingConfig(pairing *ISCPPairingConfig) error {
 }
 
 func normalizeMCPAccessConfig(access *MCPAccessConfig) error {
-	access.LANDirectDomainID = strings.TrimSpace(access.LANDirectDomainID)
-	if !access.LANDirectTestEnabled {
-		return nil
-	}
-	if access.LANDirectDomainID == "" {
-		return errors.New("mcp_access.lan_direct_domain_id is required when LAN direct test mode is enabled")
+	access.LocalDomainID = strings.TrimSpace(access.LocalDomainID)
+	if access.LocalDomainID == "" {
+		return errors.New("mcp_access.local_domain_id is required")
 	}
 	return nil
 }
@@ -1165,8 +1161,7 @@ func Default() Config {
 			TicketTTLSeconds: 600, ExpectedTicketType: "iscp.pairing_ticket.v2",
 		},
 		MCPAccess: MCPAccessConfig{
-			LANDirectTestEnabled: false,
-			LANDirectDomainID:    "sparkclaw-lan-test",
+			LocalDomainID: "sparkclaw-local",
 		},
 		Plugins: PluginsConfig{
 			Entries: PluginEntriesConfig{
@@ -1354,11 +1349,8 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_ISCP_AUTHORITY_TOKEN_FILE"); v != "" {
 		cfg.ISCPPairing.TokenFile = v
 	}
-	if v := os.Getenv("SPARKCLAW_MCP_LAN_DIRECT_TEST_ENABLED"); v != "" {
-		cfg.MCPAccess.LANDirectTestEnabled = parseBool(v)
-	}
-	if v := os.Getenv("SPARKCLAW_MCP_LAN_DIRECT_DOMAIN_ID"); v != "" {
-		cfg.MCPAccess.LANDirectDomainID = v
+	if v := os.Getenv("SPARKCLAW_MCP_LOCAL_DOMAIN_ID"); v != "" {
+		cfg.MCPAccess.LocalDomainID = v
 	}
 	if v := os.Getenv("SPARKCLAW_RATE_LIMIT_ENABLED"); v != "" {
 		cfg.Gateway.RateLimit.Enabled = parseBool(v)

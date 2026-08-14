@@ -126,11 +126,19 @@ func (r Runtime) HandleMessageWithIngress(ctx context.Context, sessionID, messag
 	return r.handleMessage(ctx, sessionID, content, attachments, nil, messageID, runID, &ingress, nil)
 }
 
+func (r Runtime) HandleMCPConversation(ctx context.Context, sessionID, messageID, runID string, request app.MCPConversationRequest, ingress app.MessageIngressContext) (Result, error) {
+	return r.handleMessageWithMediaLocators(ctx, sessionID, request.Text, nil, nil, messageID, runID, &ingress, nil, request.Media, &request.Invocation)
+}
+
 func (r Runtime) HandleScheduleAction(ctx context.Context, sessionID, content string, action ScheduleAction) (Result, error) {
 	return r.handleMessage(ctx, sessionID, content, nil, nil, "", "", nil, &action)
 }
 
 func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string, ingress *app.MessageIngressContext, scheduleAction *ScheduleAction) (Result, error) {
+	return r.handleMessageWithMediaLocators(ctx, sessionID, visibleContent, attachments, emit, messageID, requestedRunID, ingress, scheduleAction, nil, nil)
+}
+
+func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, visibleContent string, attachments []MessageAttachment, emit StreamHandler, messageID, requestedRunID string, ingress *app.MessageIngressContext, scheduleAction *ScheduleAction, mediaLocators []app.MessageMediaLocator, invocation *app.MCPInvocationRef) (Result, error) {
 	if requestedRunID != "" {
 		if existing, ok := r.store.GetRun(requestedRunID); ok && existing.SessionID == sessionID && existing.State != "received" {
 			return r.resultForExistingRun(existing), nil
@@ -163,6 +171,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		normalizedIngress.ReturnRoute = &ingress.ReturnRoute
 		normalizedIngress.Authorization = ingress.Authorization
 	}
+	normalizedIngress.MediaLocators = append([]app.MessageMediaLocator(nil), mediaLocators...)
 	envelope, err := messageplane.Normalize(normalizedIngress)
 	if err != nil {
 		return Result{}, fmt.Errorf("normalize message ingress: %w", err)
@@ -184,7 +193,8 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 		StartedAt: time.Now().UTC(),
 		MessageContext: &app.MessageRunContext{
 			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, Source: envelope.Source,
-			RequestContent: envelope.Content, ReturnRoute: envelope.ReturnRoute,
+			RequestContent: envelope.Content, MediaLocators: append([]app.MessageMediaLocator(nil), envelope.MediaLocators...),
+			ReturnRoute: envelope.ReturnRoute, MCP: invocation,
 		},
 	}
 	if run.ID == "" {
@@ -245,7 +255,7 @@ func (r Runtime) handleMessage(ctx context.Context, sessionID, visibleContent st
 	if scheduleAction != nil {
 		routing.Route, routingErr = r.scheduleActionRoute(*scheduleAction, agentContent)
 	} else {
-		routing, routingErr = r.routeIntentWithRequest(ctx, sessionID, run.ID, agentContent, projection.Resources, envelope.Source.Kind)
+		routing, routingErr = r.routeIntentWithRequest(ctx, sessionID, run.ID, agentContent, projection.Resources, envelope.MediaLocators, envelope.Source.Kind)
 	}
 	if routing.Fusion != nil {
 		run.MessageContext.IntentFusion = routing.Fusion

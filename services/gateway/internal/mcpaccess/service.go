@@ -8,16 +8,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -28,8 +25,7 @@ const maxOperationDuration = 15 * time.Minute
 const maxOperationUpdateAttempts = 8
 
 type Runtime interface {
-	HandleMCPBoundRoute(context.Context, string, string, string, app.MCPBoundRouteRequest, app.MessageIngressContext) (agent.Result, error)
-	MCPRouteAvailable(app.CapabilityID, app.WorkflowContractRef) bool
+	HandleMCPConversation(context.Context, string, string, string, app.MCPConversationRequest, app.MessageIngressContext) (agent.Result, error)
 }
 
 type ResultDeliverer func(context.Context, agent.Result) error
@@ -37,7 +33,6 @@ type ResultDeliverer func(context.Context, agent.Result) error
 type Service struct {
 	store            store.Store
 	runtime          Runtime
-	catalog          capability.Catalog
 	deliver          ResultDeliverer
 	mu               sync.Mutex
 	cancels          map[string]context.CancelFunc
@@ -60,73 +55,15 @@ func (s *Service) WithExecutionContext(executionContext func() context.Context) 
 }
 
 func New(st store.Store, runtime Runtime, deliver ResultDeliverer) *Service {
-	return &Service{store: st, runtime: runtime, catalog: capability.MustDefaultCatalog(), deliver: deliver, cancels: map[string]context.CancelFunc{}}
-}
-
-func (s *Service) GrantOptions() []GrantOption {
-	if s == nil || s.runtime == nil {
-		return []GrantOption{}
-	}
-	options := make([]GrantOption, 0)
-	for _, route := range s.catalog.RouteOptions() {
-		if len(route.Path) == 0 {
-			continue
-		}
-		node, ok := s.catalog.Node(route.Path[len(route.Path)-1])
-		if !ok || node.Workflow == nil || node.RemoteMCP == nil || !s.runtime.MCPRouteAvailable(node.ID, *node.Workflow) {
-			continue
-		}
-		operations := make([]GrantOperationOption, 0, len(node.RemoteMCP.Effects))
-		for operation, effect := range node.RemoteMCP.Effects {
-			operations = append(operations, GrantOperationOption{Operation: operation, Effect: effect})
-		}
-		slices.SortFunc(operations, func(a, b GrantOperationOption) int { return strings.Compare(string(a.Operation), string(b.Operation)) })
-		options = append(options, GrantOption{
-			CapabilityID: node.ID, Description: node.Description, Operations: operations,
-			Workflow: *node.Workflow, ProjectionRevision: node.RemoteMCP.Revision,
-		})
-	}
-	slices.SortFunc(options, func(a, b GrantOption) int { return strings.Compare(string(a.CapabilityID), string(b.CapabilityID)) })
-	return options
+	return &Service{store: st, runtime: runtime, deliver: deliver, cancels: map[string]context.CancelFunc{}}
 }
 
 func (s *Service) IssueTicket(ownerID, _ string, input IssueTicketRequest, now time.Time) (IssuedTicket, error) {
-	if s == nil || s.store == nil || strings.TrimSpace(input.DomainID) == "" || len(input.Grants) == 0 {
-		return IssuedTicket{}, errors.New("MCP ticket domain and at least one grant are required")
+	if s == nil || s.store == nil || strings.TrimSpace(input.DomainID) == "" {
+		return IssuedTicket{}, errors.New("MCP ticket domain is required")
 	}
 	if !s.enabled(ownerID) {
 		return IssuedTicket{}, errors.New("MCP connector is disabled")
-	}
-	grants := make([]app.MCPLeafGrant, 0, len(input.Grants))
-	seen := map[app.CapabilityID]bool{}
-	for _, requested := range input.Grants {
-		if seen[requested.CapabilityID] {
-			return IssuedTicket{}, errors.New("MCP ticket contains a duplicate capability grant")
-		}
-		seen[requested.CapabilityID] = true
-		node, ok := s.catalog.Node(requested.CapabilityID)
-		if !ok || node.Kind != capability.NodeLeaf || node.Workflow == nil || node.RemoteMCP == nil || !s.runtime.MCPRouteAvailable(node.ID, *node.Workflow) {
-			return IssuedTicket{}, fmt.Errorf("capability %q is not eligible for remote MCP", requested.CapabilityID)
-		}
-		operations := append([]app.RouteOperation(nil), requested.Operations...)
-		if len(operations) == 0 {
-			for operation := range node.RemoteMCP.Effects {
-				operations = append(operations, operation)
-			}
-			slices.Sort(operations)
-		}
-		effects := make([]app.ToolEffect, 0, len(operations))
-		for _, operation := range operations {
-			effect, ok := node.RemoteMCP.Effect(operation)
-			if !ok {
-				return IssuedTicket{}, fmt.Errorf("operation %q is not remotely exposed for %q", operation, node.ID)
-			}
-			effects = append(effects, effect)
-		}
-		grants = append(grants, app.MCPLeafGrant{
-			CapabilityID: node.ID, Operations: operations, Effects: effects, AllowApproval: requested.AllowApproval,
-			Workflow: *node.Workflow, ProjectionRevision: node.RemoteMCP.Revision, Status: app.MCPLeafGrantActive,
-		})
 	}
 	ttl := time.Duration(input.TTLSeconds) * time.Second
 	if ttl == 0 {
@@ -147,15 +84,14 @@ func (s *Service) IssueTicket(ownerID, _ string, input IssueTicketRequest, now t
 	ticket, err := s.store.SaveMCPAccessTicket(app.MCPAccessTicket{
 		SchemaVersion: app.MCPAccessTicketSchemaVersion, ID: app.NewID("mcp_ticket"), SecretHash: hex.EncodeToString(hash[:]),
 		OwnerID: ownerID, ActorID: ownerID, DomainID: strings.TrimSpace(input.DomainID), AuthorizationRevision: 1,
-		CatalogRevision: s.catalog.Revision(), Grants: grants, Status: app.MCPAccessPending, MaxUses: 1,
+		Scope: app.MCPAccessConversation, Status: app.MCPAccessPending, MaxUses: 1,
 		IssuedAt: now, ExpiresAt: now.Add(ttl),
 	})
 	if err != nil {
 		return IssuedTicket{}, errors.New("MCP access ticket could not be persisted")
 	}
 	s.audit("mcp.access_ticket.issued", "", "", ownerID, "Issued a single-use MCP access ticket", map[string]any{
-		"ticket_id": ticket.ID, "domain_id": ticket.DomainID, "catalog_revision": ticket.CatalogRevision,
-		"capability_ids": grantedCapabilityIDs(ticket.Grants), "expires_at": ticket.ExpiresAt,
+		"ticket_id": ticket.ID, "domain_id": ticket.DomainID, "scope": ticket.Scope, "expires_at": ticket.ExpiresAt,
 	})
 	public := ticket
 	public.SecretHash = ""
@@ -205,7 +141,7 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 		return map[string]any{
 			"protocolVersion": MCPProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "sparkclaw-route-mcp", "version": "1"},
+			"serverInfo":      map[string]any{"name": "sparkclaw-conversation-mcp", "version": "2"},
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
@@ -223,7 +159,7 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 		return map[string]any{"binding": binding}, nil
 	}
 	binding, ok := s.store.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
-	if !ok || binding.Status != app.MCPBindingActive {
+	if !ok || binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation || binding.Status != app.MCPBindingActive {
 		s.auditPeerDenied(peer, "mcp.binding.denied", "Rejected an MCP request without an active binding", map[string]any{"reason": "active_binding_required"})
 		return nil, &JSONRPCError{Code: -32003, Message: "active MCP binding is required"}
 	}
@@ -246,7 +182,7 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 		tools := s.toolsForBinding(binding)
 		s.audit("mcp.tools.listed", binding.LinkedSessionID, "", binding.ActorID, "Listed the MCP tools currently authorized for a binding", map[string]any{
 			"binding_id": binding.ID, "requester_device_id": peer.DeviceID, "binding_revision": binding.AuthorizationRevision,
-			"catalog_revision": s.catalog.Revision(), "tool_count": len(tools),
+			"scope": binding.Scope, "tool_count": len(tools),
 		})
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":
@@ -261,8 +197,8 @@ func (s *Service) dispatchMethod(ctx context.Context, peer app.MCPPeerIdentity, 
 }
 
 // RedeemAccessTicket atomically turns one copy-once secret into a binding for
-// an identity authenticated by the active transport. ISCP and the temporary
-// LAN test transport provide that identity through different mechanisms.
+// an identity authenticated by the active transport. ISCP and the explicitly
+// enabled direct LAN transport provide that identity through different mechanisms.
 func (s *Service) RedeemAccessTicket(secret string, peer app.MCPPeerIdentity) (app.MCPBinding, error) {
 	if s == nil || s.store == nil || strings.TrimSpace(secret) == "" || peer.DomainID == "" || peer.DeviceID == "" ||
 		peer.KeyThumbprint == "" || peer.ISCPSessionID == "" {
@@ -295,26 +231,22 @@ func (s *Service) ActiveBindingForPeer(peer app.MCPPeerIdentity) (app.MCPBinding
 		return app.MCPBinding{}, false
 	}
 	binding, ok := s.store.FindMCPBindingForPeer(peer.DomainID, peer.DeviceID, peer.KeyThumbprint)
-	return binding, ok && binding.Status == app.MCPBindingActive && s.enabled(binding.OwnerID)
+	return binding, ok && binding.SchemaVersion == app.MCPBindingSchemaVersion && binding.Scope == app.MCPAccessConversation &&
+		binding.Status == app.MCPBindingActive && s.enabled(binding.OwnerID)
 }
 
 func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, binding app.MCPBinding, transport TransportRequest, rpc JSONRPCRequest, params CallToolParams) (any, *JSONRPCError) {
 	if params.Name == "sparkclaw.operation.get" || params.Name == "sparkclaw.operation.result" || params.Name == "sparkclaw.operation.cancel" {
 		return s.operationTool(peer, binding, params)
 	}
-	grant, node, ok := s.grantForTool(binding, params.Name)
-	if !ok {
-		s.auditToolDenied(peer, binding, params.Name, "tool_not_granted")
+	if params.Name != conversationToolName || binding.Scope != app.MCPAccessConversation {
+		s.auditToolDenied(peer, binding, params.Name, "tool_not_available")
 		return nil, &JSONRPCError{Code: -32602, Message: "tool is not available to this MCP binding"}
 	}
-	slots, content, operation, effect, err := routeArguments(node, grant, params.Arguments)
+	request, err := conversationArguments(params.Arguments)
 	if err != nil {
 		s.auditToolDenied(peer, binding, params.Name, "invalid_arguments")
 		return nil, invalidParams(err.Error())
-	}
-	if !slices.Contains(grant.Effects, effect) {
-		s.auditToolDenied(peer, binding, params.Name, "effect_not_granted")
-		return nil, &JSONRPCError{Code: -32003, Message: "tool effect is not granted"}
 	}
 	if transport.IdempotencyKey == "" {
 		s.auditToolDenied(peer, binding, params.Name, "idempotency_key_required")
@@ -339,8 +271,7 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 		SchemaVersion: app.MCPInvocationSchemaVersion, ID: invocationID, MCPRequestID: requestID, MCPSessionID: transport.SessionID,
 		ISCPSessionID: peer.ISCPSessionID, OperationID: operationID, RequesterDeviceID: peer.DeviceID, RequesterKeyThumbprint: peer.KeyThumbprint,
 		BindingRef: binding.ID, BindingRevision: binding.AuthorizationRevision, OwnerID: binding.OwnerID, ActorID: binding.ActorID,
-		ToolName: params.Name, CapabilityID: node.ID, Workflow: *node.Workflow, CatalogRevision: s.catalog.Revision(),
-		Operation: operation, Effect: effect, AllowApproval: grant.AllowApproval,
+		ToolName:  params.Name,
 		Arguments: cloneArguments(params.Arguments), ArgumentDigest: hex.EncodeToString(argumentHash[:]),
 		IdempotencyKey: transport.IdempotencyKey, Deadline: deadline, MessageID: messageID, RunID: runID, CreatedAt: now,
 	}
@@ -365,23 +296,20 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 	}
 	if !created {
 		s.auditOperation("mcp.operation.replayed", stored, peer, "Returned the durable result for an idempotent MCP invocation", map[string]any{"outcome": stored.State})
-		return operationCallResult(stored, params.Name == "sparkclaw.operation.result"), nil
+		return operationCallResult(stored, true), nil
 	}
 	s.auditOperation("mcp.operation.created", stored, peer, "Created a durable MCP invocation", map[string]any{
-		"capability_id": node.ID, "workflow_id": node.Workflow.ID, "workflow_revision": node.Workflow.Revision,
-		"operation": operation, "effect": effect, "allow_approval": grant.AllowApproval,
+		"scope": binding.Scope,
 	})
 	ref := app.MCPInvocationRef{InvocationID: invocationID, OperationID: operationID, BindingRef: binding.ID, BindingRevision: binding.AuthorizationRevision, RequesterDeviceID: peer.DeviceID}
-	boundRequest := app.MCPBoundRouteRequest{
-		Content: content, CapabilityID: node.ID, Slots: slots, Facts: routeFacts(node.ID, slots), Invocation: ref,
-	}
+	request.Invocation = ref
 	ingress := app.MessageIngressContext{
 		Source:  app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: "mcp", EndpointID: app.EndpointID("mcp:" + binding.ID), NativeMessageID: requestID, NativeThreadRef: transport.SessionID},
 		OwnerID: binding.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: binding.ActorID},
 		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("mcp:" + binding.ID)},
 	}
 	done := make(chan struct{})
-	go s.executeOperation(deadline, binding.LinkedSessionID, messageID, runID, operationID, boundRequest, ingress, done)
+	go s.executeOperation(deadline, binding.LinkedSessionID, messageID, runID, operationID, request, ingress, done)
 	wait := immediateResultWait
 	if remaining := time.Until(deadline); remaining < wait {
 		wait = remaining
@@ -399,10 +327,10 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 	if !ok {
 		return nil, &JSONRPCError{Code: -32603, Message: "MCP operation could not be read after execution"}
 	}
-	return operationCallResult(operationRecord, false), nil
+	return operationCallResult(operationRecord, true), nil
 }
 
-func (s *Service) executeOperation(deadline time.Time, sessionID, messageID, runID, operationID string, request app.MCPBoundRouteRequest, ingress app.MessageIngressContext, done chan<- struct{}) {
+func (s *Service) executeOperation(deadline time.Time, sessionID, messageID, runID, operationID string, request app.MCPConversationRequest, ingress app.MessageIngressContext, done chan<- struct{}) {
 	defer close(done)
 	base := context.Background()
 	if s.executionContext != nil {
@@ -422,7 +350,7 @@ func (s *Service) executeOperation(deadline time.Time, sessionID, messageID, run
 	}
 	s.mu.Unlock()
 	defer func() { cancel(); s.mu.Lock(); delete(s.cancels, operationID); s.mu.Unlock() }()
-	result, runErr := s.runtime.HandleMCPBoundRoute(executionCtx, sessionID, messageID, runID, request, ingress)
+	result, runErr := s.runtime.HandleMCPConversation(executionCtx, sessionID, messageID, runID, request, ingress)
 	if runErr != nil {
 		if errors.Is(runErr, context.Canceled) {
 			s.finishOperationCancelled(operationID)
@@ -541,36 +469,12 @@ func (s *Service) RevokeBinding(id string, now time.Time) (app.MCPBinding, error
 }
 
 func (s *Service) toolsForBinding(binding app.MCPBinding) []Tool {
-	tools := []Tool{}
-	for _, grant := range binding.Grants {
-		node, ok := s.currentGrantedNode(grant)
-		if !ok {
-			continue
-		}
-		tools = append(tools, toolForNode(node, grant))
+	tools := []Tool{conversationTool()}
+	if binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation {
+		return []Tool{}
 	}
 	tools = append(tools, operationTools()...)
-	slices.SortFunc(tools, func(a, b Tool) int { return strings.Compare(a.Name, b.Name) })
 	return tools
-}
-
-func (s *Service) currentGrantedNode(grant app.MCPLeafGrant) (capability.Node, bool) {
-	if grant.Status != app.MCPLeafGrantActive {
-		return capability.Node{}, false
-	}
-	node, ok := s.catalog.Node(grant.CapabilityID)
-	return node, ok && node.Workflow != nil && node.RemoteMCP != nil && *node.Workflow == grant.Workflow &&
-		node.RemoteMCP.Revision == grant.ProjectionRevision && s.runtime.MCPRouteAvailable(node.ID, *node.Workflow)
-}
-
-func (s *Service) grantForTool(binding app.MCPBinding, name string) (app.MCPLeafGrant, capability.Node, bool) {
-	for _, grant := range binding.Grants {
-		node, ok := s.currentGrantedNode(grant)
-		if ok && toolName(node.ID) == name {
-			return grant, node, true
-		}
-	}
-	return app.MCPLeafGrant{}, capability.Node{}, false
 }
 
 func (s *Service) syncOperationFromResult(id string, result agent.Result) {
@@ -585,9 +489,6 @@ func (s *Service) syncOperationFromResult(id string, result agent.Result) {
 	})
 	if err != nil || !changed {
 		return
-	}
-	if updated.ErrorCode == "approval_not_granted" {
-		rejectPendingApprovals(s.store, updated)
 	}
 	auditOperationStore(s.store, "mcp.operation.result_recorded", updated, "Recorded a Workflow result for an MCP operation", map[string]any{
 		"outcome": updated.State, "error_code": updated.ErrorCode,
@@ -672,6 +573,12 @@ func stableID(prefix string, values ...string) string {
 	return prefix + "_" + hex.EncodeToString(h.Sum(nil)[:16])
 }
 func operationCallResult(operation app.MCPOperation, resultOnly bool) map[string]any {
+	if resultOnly && len(operation.Result) > 0 && operation.State == app.MCPOperationSucceeded {
+		var result map[string]any
+		if json.Unmarshal(operation.Result, &result) == nil && result["structuredContent"] != nil {
+			return result
+		}
+	}
 	out := map[string]any{"operation": operation}
 	if resultOnly && len(operation.Result) > 0 {
 		var result any

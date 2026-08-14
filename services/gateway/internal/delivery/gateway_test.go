@@ -80,7 +80,9 @@ func TestMCPSourceReplyUsesBindingAndRequesterIdentity(t *testing.T) {
 	st := store.NewMemoryStore()
 	now := time.Now().UTC()
 	ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
-		SecretHash: "mcp-delivery-secret", OwnerID: "owner-a", ActorID: "owner-a", DomainID: "domain-a",
+		SchemaVersion: app.MCPAccessTicketSchemaVersion,
+		SecretHash:    "mcp-delivery-secret", OwnerID: "owner-a", ActorID: "owner-a", DomainID: "domain-a",
+		Scope:  app.MCPAccessConversation,
 		Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
 	})
 	if err != nil {

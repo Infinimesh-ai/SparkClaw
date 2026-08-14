@@ -96,12 +96,13 @@ npm run dev
 direct model-router smoke test：
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:18789/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"profile":"deep","message":"Say hello from the selected SparkClaw lane."}'
+docker compose -f docker/compose.yaml exec -T gateway node -e \
+  "fetch('http://127.0.0.1:18789/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:'deep',message:'Say hello from the selected SparkClaw lane.'})}).then(async response=>{console.log(await response.text());process.exit(response.ok?0:1)})"
 ```
 
-`profile` 可以是 `fast`、`deep` 或配置中的 chat profile/model name。启用 Gateway auth 时，`/chat` 和 `/api/*` 使用同一个 bearer token。
+产品 Compose 不在 host 发布 `18789`，因此该命令在 Gateway container 内执行。`profile`
+可以是 `fast`、`deep` 或配置中的 chat profile/model name。启用 Gateway auth 时，`/chat`
+和 `/api/*` 使用同一个 bearer token。
 
 ## 验证
 

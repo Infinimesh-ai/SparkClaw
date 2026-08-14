@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -20,11 +20,9 @@ import type {
   IssuedISCPPairing,
   IssuedMCPAccessTicket,
   MCPAccessTicket,
-  MCPBinding,
-  MCPGrantOption
+  MCPBinding
 } from "../api/types";
 import type { Copy, Language } from "../i18n";
-import { buildMCPRequestedGrants, isReadOnlyEffect, type MCPGrantSelection } from "../lib/externalMCP";
 import { formatTime, shortId } from "../lib/format";
 
 type ExternalMCPSettingsProps = {
@@ -38,13 +36,15 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
   const [status, setStatus] = useState<ISCPPairingStatus | null>(null);
   const [connectorState, setConnectorState] = useState(connector);
   const [onboardings, setOnboardings] = useState<ISCPOnboarding[]>([]);
-  const [catalogRevision, setCatalogRevision] = useState("");
+  const [accessScope, setAccessScope] = useState("");
+  const [businessTool, setBusinessTool] = useState("");
   const [accessDomainID, setAccessDomainID] = useState("");
-  const [lanDirectTest, setLanDirectTest] = useState(false);
-  const [grantOptions, setGrantOptions] = useState<MCPGrantOption[]>([]);
+  const [iscpEnabled, setISCPEnabled] = useState(connector?.iscp_enabled === true);
+  const [lanAccessEnabled, setLANAccessEnabled] = useState(connector?.lan_access_enabled === true);
+  const [transportVersion, setTransportVersion] = useState(connector?.version ?? 0);
+  const [endpointPath, setEndpointPath] = useState("/mcp");
   const [tickets, setTickets] = useState<MCPAccessTicket[]>([]);
   const [bindings, setBindings] = useState<MCPBinding[]>([]);
-  const [selection, setSelection] = useState<MCPGrantSelection>({});
   const [displayName, setDisplayName] = useState("");
   const [issuedPairing, setIssuedPairing] = useState<IssuedISCPPairing | null>(null);
   const [issuedAccess, setIssuedAccess] = useState<IssuedMCPAccessTicket | null>(null);
@@ -63,10 +63,13 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
     ]);
     setStatus(pairing);
     setOnboardings(onboardingList.onboardings ?? []);
-    setCatalogRevision(catalog.catalog_revision);
+    setAccessScope(catalog.scope);
+    setBusinessTool(catalog.business_tool);
     setAccessDomainID(catalog.domain_id ?? "");
-    setLanDirectTest(catalog.lan_direct_test_enabled === true);
-    setGrantOptions(catalog.grants ?? []);
+    setISCPEnabled(catalog.iscp_enabled === true);
+    setLANAccessEnabled(catalog.lan_access_enabled === true);
+    setTransportVersion(catalog.transport_version);
+    setEndpointPath(catalog.endpoint_path || "/mcp");
     setTickets(ticketList.tickets ?? []);
     setBindings(bindingList.bindings ?? []);
   }, []);
@@ -81,13 +84,17 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
 
   useEffect(() => {
     setConnectorState(connector);
+    if (connector) {
+      setISCPEnabled(connector.iscp_enabled === true);
+      setLANAccessEnabled(connector.lan_access_enabled === true);
+      setTransportVersion(connector.version);
+    }
   }, [connector]);
 
-  const requestedGrants = useMemo(() => buildMCPRequestedGrants(grantOptions, selection), [grantOptions, selection]);
   const activeConnector = connectorState ?? connector;
   const enabled = activeConnector?.enabled === true;
-  const canPair = enabled && status?.ready === true && displayName.trim().length > 0;
-  const canIssue = enabled && Boolean(accessDomainID) && requestedGrants.length > 0;
+  const canPair = enabled && iscpEnabled && status?.ready === true && displayName.trim().length > 0;
+  const canIssue = enabled && (iscpEnabled || lanAccessEnabled) && Boolean(accessDomainID) && accessScope === "conversation";
 
   async function run(action: string, task: () => Promise<void>) {
     if (busy) return;
@@ -111,6 +118,18 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
     });
   }
 
+  async function toggleTransport(transport: "iscp" | "lan") {
+    const nextISCP = transport === "iscp" ? !iscpEnabled : iscpEnabled;
+    const nextLAN = transport === "lan" ? !lanAccessEnabled : lanAccessEnabled;
+    await run(`transport:${transport}`, async () => {
+      const updated = await api.updateMCPTransports(nextISCP, nextLAN, transportVersion);
+      setConnectorState(updated);
+      setISCPEnabled(updated.iscp_enabled === true);
+      setLANAccessEnabled(updated.lan_access_enabled === true);
+      setTransportVersion(updated.version);
+    });
+  }
+
   async function startPairing() {
     await run("pairing", async () => {
       const issued = await api.startISCPPairing(displayName.trim());
@@ -123,7 +142,7 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
   async function issueAccessTicket() {
     if (!accessDomainID) return;
     await run("access", async () => {
-      const issued = await api.issueMCPAccessTicket(accessDomainID, requestedGrants);
+      const issued = await api.issueMCPAccessTicket(accessDomainID);
       setIssuedAccess(issued);
       await refresh();
     });
@@ -139,22 +158,8 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
     }
   }
 
-  function toggleOperation(capabilityID: string, operation: string, checked: boolean) {
-    setSelection((current) => {
-      const selected = current[capabilityID] ?? { operations: [], allowApproval: false };
-      const operations = checked
-        ? [...new Set([...selected.operations, operation])]
-        : selected.operations.filter((item) => item !== operation);
-      if (operations.length === 0) {
-        const next = { ...current };
-        delete next[capabilityID];
-        return next;
-      }
-      return { ...current, [capabilityID]: { ...selected, operations } };
-    });
-  }
-
   const connectorTitle = enabled ? text.settings.disableExternalMCP : text.settings.enableExternalMCP;
+  const directEndpoint = typeof window === "undefined" ? endpointPath : `${window.location.origin}${endpointPath}`;
   return (
     <article className="settingsBlock externalMCPBlock">
       <div className="approvalTop">
@@ -176,8 +181,8 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
         </div>
       </div>
       <div className="externalMCPStatusLine">
-        <span className={`statusDot ${enabled && (lanDirectTest || status?.ready) ? "ready" : ""}`} />
-        <span>{externalMCPStatusLabel(activeConnector, status, lanDirectTest, text)}</span>
+        <span className={`statusDot ${enabled && (lanAccessEnabled || (iscpEnabled && status?.ready)) ? "ready" : ""}`} />
+        <span>{externalMCPStatusLabel(activeConnector, status, iscpEnabled, lanAccessEnabled, text)}</span>
         {bindings.filter((binding) => binding.status === "active").length > 0 && (
           <span className="pill">{bindings.filter((binding) => binding.status === "active").length} {text.settings.active}</span>
         )}
@@ -190,11 +195,49 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
             <dd>{accessDomainID || text.common.notSet}</dd>
             <dt>{text.settings.authority}</dt>
             <dd>{status?.authority_host || text.common.notSet}</dd>
-            <dt>{text.settings.catalog}</dt>
-            <dd>{catalogRevision || text.common.notSet}</dd>
+            <dt>{text.settings.scope}</dt>
+            <dd>{accessScope || text.common.notSet}</dd>
             <dt>{text.settings.protocol}</dt>
-            <dd>{lanDirectTest ? "MCP 2025-06-18 (LAN test)" : "MCP 2025-06-18"}</dd>
+            <dd>MCP 2025-06-18</dd>
           </dl>
+
+          <section className="externalMCPSection">
+            <div className="externalMCPSectionTitle">
+              <Network size={14} />
+              <strong>{text.settings.connectionMethods}</strong>
+            </div>
+            <div className="externalMCPTransportList">
+              <div className="externalMCPTransport">
+                <strong>{text.settings.useISCP}</strong>
+                <label className="connectorToggle" title={text.settings.useISCP}>
+                  <input
+                    type="checkbox"
+                    checked={iscpEnabled}
+                    onChange={() => void toggleTransport("iscp")}
+                    disabled={!enabled || Boolean(busy)}
+                    aria-label={text.settings.useISCP}
+                  />
+                  <span aria-hidden="true" />
+                </label>
+              </div>
+              <div className="externalMCPTransport">
+                <div>
+                  <strong>{text.settings.allowLANAccess}</strong>
+                  <code>{directEndpoint}</code>
+                </div>
+                <label className="connectorToggle" title={text.settings.allowLANAccess}>
+                  <input
+                    type="checkbox"
+                    checked={lanAccessEnabled}
+                    onChange={() => void toggleTransport("lan")}
+                    disabled={!enabled || Boolean(busy)}
+                    aria-label={text.settings.allowLANAccess}
+                  />
+                  <span aria-hidden="true" />
+                </label>
+              </div>
+            </div>
+          </section>
 
           <section className="externalMCPSection">
             <div className="externalMCPSectionTitle">
@@ -204,7 +247,7 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
             <div className="externalMCPActionRow">
               <label className="inputGroup compact">
                 <span>{text.settings.clientName}</span>
-                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={120} disabled={!enabled || Boolean(busy)} />
+                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={120} disabled={!enabled || !iscpEnabled || Boolean(busy)} />
               </label>
               <button className="approve externalMCPAction" onClick={() => void startPairing()} disabled={!canPair || Boolean(busy)} title={text.settings.issueISCPPairing}>
                 <Link2 size={15} />
@@ -231,48 +274,11 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
               <ShieldCheck size={14} />
               <strong>{text.settings.capabilityAccess}</strong>
             </div>
-            <div className="externalMCPGrantList">
-              {grantOptions.map((option) => {
-                const selected = selection[option.capability_id];
-                const selectedOperations = selected?.operations ?? [];
-                const approvalApplicable = option.operations.some((item) => selectedOperations.includes(item.operation) && !isReadOnlyEffect(item.effect));
-                return (
-                  <div className="externalMCPGrant" key={option.capability_id}>
-                    <div>
-                      <strong>{option.capability_id}</strong>
-                      <small>{option.description}</small>
-                    </div>
-                    <div className="externalMCPOperations">
-                      {option.operations.map((item) => (
-                        <label key={item.operation}>
-                          <input
-                            type="checkbox"
-                            checked={selectedOperations.includes(item.operation)}
-                            onChange={(event) => toggleOperation(option.capability_id, item.operation, event.target.checked)}
-                            disabled={!enabled || Boolean(busy)}
-                          />
-                          <span>{item.operation}</span>
-                        </label>
-                      ))}
-                      {approvalApplicable && (
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={selected?.allowApproval === true}
-                            onChange={(event) => setSelection((current) => ({
-                              ...current,
-                              [option.capability_id]: { ...current[option.capability_id], allowApproval: event.target.checked }
-                            }))}
-                            disabled={!enabled || Boolean(busy)}
-                          />
-                          <span>{text.settings.allowApproval}</span>
-                        </label>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {grantOptions.length === 0 && <span className="muted">{text.settings.noRemoteCapabilities}</span>}
+            <div className="externalMCPGrant">
+              <div>
+                <strong>{businessTool || "sparkclaw.conversation.send"}</strong>
+                <small>{text.settings.conversationScopeDescription}</small>
+              </div>
             </div>
             <button className="approve externalMCPPrimary" onClick={() => void issueAccessTicket()} disabled={!canIssue || Boolean(busy)}>
               <KeyRound size={15} />
@@ -364,7 +370,7 @@ function AccessRecords({ tickets, bindings, text, language, busy, onRevokeTicket
       <div className="externalMCPRecordList">
         {bindings.map((binding) => (
           <div className="externalMCPRecord" key={binding.id}>
-            <div><strong>{text.settings.device} {shortId(binding.requester_device_id)}</strong><small>{binding.grants.length} {text.settings.capabilities} · {binding.status}</small></div>
+            <div><strong>{text.settings.device} {shortId(binding.requester_device_id)}</strong><small>{binding.scope} · {binding.status}</small></div>
             <span>{formatTime(binding.updated_at, language)}</span>
             {binding.status !== "revoked" && (
               <button className="reject" onClick={() => onRevokeBinding(binding.id)} disabled={Boolean(busy)} title={text.settings.revokeBinding}><Trash2 size={14} /></button>
@@ -373,7 +379,7 @@ function AccessRecords({ tickets, bindings, text, language, busy, onRevokeTicket
         ))}
         {tickets.map((ticket) => (
           <div className="externalMCPRecord" key={ticket.id}>
-            <div><strong>{text.settings.pendingAccess} {shortId(ticket.id)}</strong><small>{ticket.grants.length} {text.settings.capabilities} · {ticket.status}</small></div>
+            <div><strong>{text.settings.pendingAccess} {shortId(ticket.id)}</strong><small>{ticket.scope} · {ticket.status}</small></div>
             <span>{formatTime(ticket.expires_at, language)}</span>
             {ticket.status === "pending" && (
               <button className="reject" onClick={() => onRevokeTicket(ticket.id)} disabled={Boolean(busy)} title={text.settings.revokeBinding}><Trash2 size={14} /></button>
@@ -386,9 +392,10 @@ function AccessRecords({ tickets, bindings, text, language, busy, onRevokeTicket
   );
 }
 
-function externalMCPStatusLabel(connector: ConnectorStatus | undefined, status: ISCPPairingStatus | null, lanDirectTest: boolean, text: Copy) {
+function externalMCPStatusLabel(connector: ConnectorStatus | undefined, status: ISCPPairingStatus | null, iscpEnabled: boolean, lanAccessEnabled: boolean, text: Copy) {
   if (!connector?.enabled) return text.settings.connectorDisabled;
-  if (lanDirectTest) return text.settings.lanMCPTestReady;
+  if (!iscpEnabled && !lanAccessEnabled) return text.settings.noMCPTransport;
+  if (lanAccessEnabled) return text.settings.lanMCPReady;
   if (!status?.enabled) return text.settings.pairingNotConfigured;
   if (!status.ready) return text.settings.pairingUnavailable;
   return text.settings.ready;

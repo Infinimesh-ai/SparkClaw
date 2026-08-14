@@ -13,8 +13,8 @@ Web、第三方 connector 和 Timer 都是同一个 Message Runtime 的输入来
 目标[统一第三方 ISCP MCP 接入](unified-third-party-access-design.md)把 MCP 注册为受管理的通用
 第三方 channel，同时保留专用 MCP protocol adapter。`initialize`、`ping` 和 `tools/list` 留在
 该 control plane，MCP Access Ticket 兑换和第一版 `sparkclaw.operation.*` control tool 也留在
-其中；Route `tools/call` 以 `third_party_device` `MessageEnvelope` 进入统一接收层，并由
-服务端持有的 tool binding 选中一个确定性 Top-1 叶子。结果通过 Delivery Gateway 和通用 MCP
+其中；`sparkclaw.conversation.send` `tools/call` 以 `third_party_device` `MessageEnvelope`
+进入统一接收层，并使用普通 intent routing。结果通过 Delivery Gateway 和通用 MCP
 sender/provider 返回。启用/暂停、endpoint 可见性和 provider 可用性复用第三方统一管理 contract，
 但无需复用 polling 等不适用的 connector 内部实现。这样既复用业务 lifecycle，也不会把 MCP
 control traffic 伪装成 chat message。
@@ -35,18 +35,19 @@ endpoint、native message/thread identity、owner/actor authorization 和 return
 本地 SparkClaw principal 仍是 Workflow actor。
 这些契约位于 `internal/app`，与 provider 无关。
 
-发布当前消息的普通请求使用 `conversation.answer` revision 2 的 `publish` 变体。它不会
-创建第二条文件发送路径：Workflow 不调用模型或工具，直接把规范化后的请求
-`MessageContent` 冻结为 channel-neutral result。text、image、audio 和 file 始终是同级
-message part，共用同一条 Message Plane、路由、Workflow、Policy 和 delivery 链路。请求中
-包含 image、audio 或 file part 时，`publish` 会移除 owner 的命令文本，只按原顺序返回
-治理后的媒体 part。Web 消息只有媒体 part 时，Message Runtime 直接按 typed content 选择同一
+普通回答或发布请求使用 `conversation.answer` revision 3。第一个节点
+`detect_response_media` 冻结结果是纯文本还是包含受治理 workspace 媒体；依赖它的 `answer`
+节点不能再次搜索或替换文件。相对路径直接绑定；精确 basename 匹配区分大小写，未命中或名称
+不完整时执行一次有界、只匹配文件名的查询，并选择稳定 Top-1。结果可以包含文本加媒体，纯
+publish 只按原顺序返回治理后的媒体 part。Web 消息只有媒体 part 时，Message Runtime 直接按 typed content 选择同一
 个已注册 `publish` 变体，不合成 owner 文本，也不创建独立的文件发送请求。
 
 附件中的 workspace part 成为 result 前，Workflow 会在来源 session workspace 内校验它，
 拒绝路径逃逸与符号链接，核对实际大小和 SHA-256，并注册或复用受治理的
 `ArtifactObject`。该步骤发生在外部分发或任何适用审批之前，因此 Delivery Gateway 始终解析
-准确的来源 session artifact，而不会按目标 endpoint 的 workspace 重新解释文件。
+准确的来源 session artifact，而不会按目标 endpoint 的 workspace 重新解释文件。外部 MCP
+client 不能独立调用内部查询、列出 workspace 或获得本地路径。完整零结果会要求提供更明确名称
+或直接附件；不完整查询不会发送临时候选文件。
 
 ## 职责
 

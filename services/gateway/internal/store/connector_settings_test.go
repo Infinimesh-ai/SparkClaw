@@ -11,12 +11,12 @@ import (
 func TestMemoryStoreConnectorSettingUsesCASAndOwnerScope(t *testing.T) {
 	st := NewMemoryStore()
 	created, err := st.UpdateConnectorSetting(app.ConnectorSetting{
-		OwnerID: app.DefaultOwnerID, Channel: " Telegram ", Enabled: true, UpdatedBy: "owner",
+		OwnerID: app.DefaultOwnerID, Channel: " Telegram ", Enabled: true, ISCPEnabled: true, LANAccessEnabled: true, UpdatedBy: "owner",
 	}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Channel != "telegram" || !created.Enabled || created.Version != 1 || created.UpdatedAt.IsZero() {
+	if created.Channel != "telegram" || !created.Enabled || !created.ISCPEnabled || !created.LANAccessEnabled || created.Version != 1 || created.UpdatedAt.IsZero() {
 		t.Fatalf("unexpected connector setting: %#v", created)
 	}
 	if _, err := st.UpdateConnectorSetting(app.ConnectorSetting{
@@ -25,7 +25,7 @@ func TestMemoryStoreConnectorSettingUsesCASAndOwnerScope(t *testing.T) {
 		t.Fatalf("stale connector update error = %v", err)
 	}
 	updated, err := st.UpdateConnectorSetting(app.ConnectorSetting{
-		OwnerID: app.DefaultOwnerID, Channel: "telegram", Enabled: false, UpdatedBy: "client-a",
+		OwnerID: app.DefaultOwnerID, Channel: "telegram", Enabled: false, ISCPEnabled: true, LANAccessEnabled: true, UpdatedBy: "client-a",
 	}, created.Version)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestFileStorePersistsConnectorSettingVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	created, err := st.UpdateConnectorSetting(app.ConnectorSetting{
-		OwnerID: app.DefaultOwnerID, Channel: "weixin", Enabled: true, UpdatedBy: app.DefaultOwnerID,
+		OwnerID: app.DefaultOwnerID, Channel: "weixin", Enabled: true, ISCPEnabled: true, LANAccessEnabled: true, UpdatedBy: app.DefaultOwnerID,
 	}, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestFileStorePersistsConnectorSettingVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok := reloaded.GetConnectorSetting(app.DefaultOwnerID, "weixin")
-	if !ok || got.Version != created.Version || !got.Enabled || got.UpdatedBy != app.DefaultOwnerID {
+	if !ok || got.Version != created.Version || !got.Enabled || !got.ISCPEnabled || !got.LANAccessEnabled || got.UpdatedBy != app.DefaultOwnerID {
 		t.Fatalf("connector setting did not round trip: %#v ok=%v", got, ok)
 	}
 	if _, err := reloaded.UpdateConnectorSetting(app.ConnectorSetting{

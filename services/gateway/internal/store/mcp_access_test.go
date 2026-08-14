@@ -196,20 +196,14 @@ func TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore(t *testing.T) {
 	st := NewMemoryStore()
 	now := time.Now().UTC()
 	ticket, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
-		SecretHash: "clone-secret", DomainID: "domain-a", Status: app.MCPAccessPending,
-		MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
-		Grants: []app.MCPLeafGrant{{
-			CapabilityID: app.CapabilityConversationAnswer,
-			Operations:   []app.RouteOperation{app.RouteOperationAnswer},
-			Effects:      []app.ToolEffect{app.ToolEffectLocalCompute},
-		}},
+		SchemaVersion: app.MCPAccessTicketSchemaVersion, SecretHash: "clone-secret", DomainID: "domain-a", Scope: app.MCPAccessConversation,
+		Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ticket.Grants[0].Operations[0] = app.RouteOperationDelete
 	storedTicket, _ := st.GetMCPAccessTicket(ticket.ID)
-	if storedTicket.Grants[0].Operations[0] != app.RouteOperationAnswer {
+	if storedTicket.Scope != app.MCPAccessConversation {
 		t.Fatalf("ticket mutation escaped Store boundary: %#v", storedTicket)
 	}
 	binding, err := st.RedeemMCPAccessTicket("clone-secret", app.MCPPeerIdentity{
@@ -218,9 +212,8 @@ func TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding.Grants[0].Effects[0] = app.ToolEffectLocalWrite
 	storedBinding, _ := st.GetMCPBinding(binding.ID)
-	if storedBinding.Grants[0].Effects[0] != app.ToolEffectLocalCompute {
+	if storedBinding.Scope != app.MCPAccessConversation {
 		t.Fatalf("binding mutation escaped Store boundary: %#v", storedBinding)
 	}
 	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
@@ -333,9 +326,9 @@ func TestFileStoreRollsBackBindingAndOperationsWhenRevocationPersistenceFails(t 
 
 func testMCPAccessTicket(now time.Time, secretHash string) app.MCPAccessTicket {
 	return app.MCPAccessTicket{
-		SecretHash: secretHash, OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, DomainID: "domain-a",
-		CatalogRevision: "catalog-a", Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
-		Grants: []app.MCPLeafGrant{{CapabilityID: app.CapabilityConversationAnswer, Operations: []app.RouteOperation{app.RouteOperationAnswer}}},
+		SchemaVersion: app.MCPAccessTicketSchemaVersion, SecretHash: secretHash, OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+		DomainID: "domain-a", Scope: app.MCPAccessConversation, Status: app.MCPAccessPending, MaxUses: 1,
+		IssuedAt: now, ExpiresAt: now.Add(time.Minute),
 	}
 }
 

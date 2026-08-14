@@ -318,11 +318,16 @@ CREATE TABLE IF NOT EXISTS connector_settings (
   owner_id TEXT NOT NULL,
   channel TEXT NOT NULL,
   enabled BOOLEAN NOT NULL DEFAULT false,
+  iscp_enabled BOOLEAN NOT NULL DEFAULT false,
+  lan_access_enabled BOOLEAN NOT NULL DEFAULT false,
   version BIGINT NOT NULL DEFAULT 1,
   updated_by TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (owner_id, channel)
 );
+
+ALTER TABLE connector_settings ADD COLUMN IF NOT EXISTS iscp_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE connector_settings ADD COLUMN IF NOT EXISTS lan_access_enabled BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS notification_bindings (
   id TEXT PRIMARY KEY,
@@ -1965,7 +1970,7 @@ func (s *PostgresStore) ListReminderDeliveries(reminderID string) []app.Reminder
 
 func (s *PostgresStore) GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
 	row := s.db.QueryRow(context.Background(), `
-		SELECT owner_id, channel, enabled, version, updated_by, updated_at
+		SELECT owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at
 		FROM connector_settings
 		WHERE owner_id = $1 AND channel = $2
 	`, normalizeConnectorOwner(ownerID), normalizeConnectorChannel(channel))
@@ -1975,7 +1980,7 @@ func (s *PostgresStore) GetConnectorSetting(ownerID, channel string) (app.Connec
 
 func (s *PostgresStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT owner_id, channel, enabled, version, updated_by, updated_at
+		SELECT owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at
 		FROM connector_settings
 		WHERE owner_id = $1
 		ORDER BY channel ASC
@@ -2004,11 +2009,13 @@ func (s *PostgresStore) UpdateConnectorSetting(setting app.ConnectorSetting, exp
 	}
 	defer tx.Rollback(ctx)
 	var currentVersion int64
+	var currentEnabled, currentISCPEnabled, currentLANAccessEnabled bool
 	err = tx.QueryRow(ctx, `
-		SELECT version FROM connector_settings
+		SELECT version, enabled, iscp_enabled, lan_access_enabled FROM connector_settings
 		WHERE owner_id = $1 AND channel = $2
 		FOR UPDATE
-	`, setting.OwnerID, setting.Channel).Scan(&currentVersion)
+	`, setting.OwnerID, setting.Channel).Scan(&currentVersion, &currentEnabled, &currentISCPEnabled, &currentLANAccessEnabled)
+	exists := err == nil
 	switch {
 	case errors.Is(err, pgx.ErrNoRows) && expectedVersion != 0:
 		return app.ConnectorSetting{}, ErrConnectorSettingConflict
@@ -2021,15 +2028,15 @@ func (s *PostgresStore) UpdateConnectorSetting(setting app.ConnectorSetting, exp
 	setting.UpdatedAt = time.Now().UTC()
 	if expectedVersion == 0 {
 		_, err = tx.Exec(ctx, `
-			INSERT INTO connector_settings (owner_id, channel, enabled, version, updated_by, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt)
+			INSERT INTO connector_settings (owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.ISCPEnabled, setting.LANAccessEnabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt)
 	} else {
 		result, updateErr := tx.Exec(ctx, `
 			UPDATE connector_settings
-			SET enabled = $3, version = $4, updated_by = $5, updated_at = $6
-			WHERE owner_id = $1 AND channel = $2 AND version = $7
-		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt, expectedVersion)
+			SET enabled = $3, iscp_enabled = $4, lan_access_enabled = $5, version = $6, updated_by = $7, updated_at = $8
+			WHERE owner_id = $1 AND channel = $2 AND version = $9
+		`, setting.OwnerID, setting.Channel, setting.Enabled, setting.ISCPEnabled, setting.LANAccessEnabled, setting.Version, setting.UpdatedBy, setting.UpdatedAt, expectedVersion)
 		err = updateErr
 		if err == nil && result.RowsAffected() != 1 {
 			return app.ConnectorSetting{}, ErrConnectorSettingConflict
@@ -2044,17 +2051,16 @@ func (s *PostgresStore) UpdateConnectorSetting(setting app.ConnectorSetting, exp
 	if err := tx.Commit(ctx); err != nil {
 		return app.ConnectorSetting{}, err
 	}
-	state := "disabled"
-	if setting.Enabled {
-		state = "enabled"
-	}
-	s.appendAudit(ctx, "connector."+state, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
-		"owner_id": setting.OwnerID,
-		"channel":  setting.Channel,
-		"enabled":  setting.Enabled,
-		"version":  setting.Version,
+	auditType := connectorSettingAuditType(exists, currentEnabled, currentISCPEnabled, currentLANAccessEnabled, setting)
+	s.appendAudit(ctx, auditType, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
+		"owner_id":           setting.OwnerID,
+		"channel":            setting.Channel,
+		"enabled":            setting.Enabled,
+		"iscp_enabled":       setting.ISCPEnabled,
+		"lan_access_enabled": setting.LANAccessEnabled,
+		"version":            setting.Version,
 	})
-	s.appendEvent(ctx, "connector."+state, "", "", setting)
+	s.appendEvent(ctx, auditType, "", "", setting)
 	return setting, nil
 }
 
@@ -3833,7 +3839,7 @@ func scanReminderDelivery(row scanner) (app.ReminderDelivery, error) {
 
 func scanConnectorSetting(row scanner) (app.ConnectorSetting, error) {
 	var setting app.ConnectorSetting
-	err := row.Scan(&setting.OwnerID, &setting.Channel, &setting.Enabled, &setting.Version, &setting.UpdatedBy, &setting.UpdatedAt)
+	err := row.Scan(&setting.OwnerID, &setting.Channel, &setting.Enabled, &setting.ISCPEnabled, &setting.LANAccessEnabled, &setting.Version, &setting.UpdatedBy, &setting.UpdatedAt)
 	return setting, err
 }
 

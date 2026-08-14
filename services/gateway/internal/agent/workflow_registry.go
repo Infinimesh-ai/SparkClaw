@@ -156,6 +156,7 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	return newWorkflowProfileRegistry(
 		conversationAnswerProfileV1{},
+		conversationAnswerProfileV2{},
 		conversationAnswerProfile{},
 		browserInternetSearchProfile{},
 		browserWeatherProfile{},

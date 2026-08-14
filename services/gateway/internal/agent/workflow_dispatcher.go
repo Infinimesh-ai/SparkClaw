@@ -159,6 +159,9 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 	if err := prepareWorkflowState(resolved.Profile, run.Workflow); err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
+	if err := r.completeConversationMediaDetection(ctx, &run); err != nil {
+		return matchedWorkflowDispatch{}, err
+	}
 	run.State = "routing"
 	r.store.SaveRun(run)
 	r.store.AddAudit(app.AuditEvent{
@@ -284,8 +287,19 @@ func (r Runtime) workflowResultContent(run app.AgentRun, summary string) app.Mes
 		return workflowResultTextContent(summary)
 	}
 	if run.Workflow.Plan.ProfileID == app.WorkflowConversationAnswer && run.Workflow.Route.Slots.Operation == app.RouteOperationPublish &&
-		run.MessageContext != nil && len(run.MessageContext.RequestContent.Parts) > 0 {
-		return cloneMessageContent(run.MessageContext.RequestContent)
+		run.MessageContext != nil {
+		if run.Workflow.Plan.ProfileRevision == 3 && len(run.MessageContext.ResponseContent.Parts) > 0 {
+			return cloneMessageContent(run.MessageContext.ResponseContent)
+		}
+		if len(run.MessageContext.RequestContent.Parts) > 0 {
+			return cloneMessageContent(run.MessageContext.RequestContent)
+		}
+	}
+	if run.Workflow.Plan.ProfileID == app.WorkflowConversationAnswer && run.Workflow.Plan.ProfileRevision == 3 &&
+		run.MessageContext != nil && run.MessageContext.ResponseMedia != nil && run.MessageContext.ResponseMedia.Status == app.ResponseMediaSelected {
+		content := app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}}
+		content.Parts = append(content.Parts, cloneMessageContent(run.MessageContext.ResponseContent).Parts...)
+		return content
 	}
 	for refIndex, ref := range workflowResourceRefs(run.Workflow) {
 		if ref.Kind != "path" || strings.TrimSpace(ref.Ref) == "" || strings.TrimSpace(ref.Provenance) == "" {

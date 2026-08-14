@@ -7,10 +7,13 @@ import (
 
 const (
 	ISCPOnboardingSchemaVersion  = 1
-	MCPAccessTicketSchemaVersion = 1
-	MCPBindingSchemaVersion      = 1
-	MCPInvocationSchemaVersion   = 1
+	MCPAccessTicketSchemaVersion = 2
+	MCPBindingSchemaVersion      = 2
+	MCPInvocationSchemaVersion   = 2
 	MCPOperationSchemaVersion    = 1
+	// MCP embeds binary result parts as base64 in a 4 MiB result envelope.
+	// Reserve 128 KiB for text and typed operation metadata.
+	MCPMaxResultRawBinaryBytes = (3 << 20) - (128 << 10)
 )
 
 type ISCPOnboardingStatus string
@@ -58,22 +61,9 @@ const (
 	MCPBindingRevoked   MCPBindingStatus = "revoked"
 )
 
-type MCPLeafGrantStatus string
+type MCPAccessScope string
 
-const (
-	MCPLeafGrantActive MCPLeafGrantStatus = "active"
-	MCPLeafGrantStale  MCPLeafGrantStatus = "stale"
-)
-
-type MCPLeafGrant struct {
-	CapabilityID       CapabilityID        `json:"capability_id"`
-	Operations         []RouteOperation    `json:"operations"`
-	Effects            []ToolEffect        `json:"effects"`
-	AllowApproval      bool                `json:"allow_approval"`
-	Workflow           WorkflowContractRef `json:"workflow"`
-	ProjectionRevision int                 `json:"projection_revision"`
-	Status             MCPLeafGrantStatus  `json:"status"`
-}
+const MCPAccessConversation MCPAccessScope = "conversation"
 
 type MCPAccessTicket struct {
 	SchemaVersion         int             `json:"schema_version"`
@@ -83,8 +73,7 @@ type MCPAccessTicket struct {
 	ActorID               string          `json:"actor_id"`
 	DomainID              string          `json:"domain_id"`
 	AuthorizationRevision int64           `json:"authorization_revision"`
-	CatalogRevision       string          `json:"catalog_revision"`
-	Grants                []MCPLeafGrant  `json:"grants"`
+	Scope                 MCPAccessScope  `json:"scope"`
 	Status                MCPAccessStatus `json:"status"`
 	MaxUses               int             `json:"max_uses"`
 	UseCount              int             `json:"use_count"`
@@ -103,8 +92,7 @@ type MCPBinding struct {
 	RequesterDeviceID      string           `json:"requester_device_id"`
 	RequesterKeyThumbprint string           `json:"requester_key_thumbprint"`
 	AuthorizationRevision  int64            `json:"authorization_revision"`
-	CatalogRevision        string           `json:"catalog_revision"`
-	Grants                 []MCPLeafGrant   `json:"grants"`
+	Scope                  MCPAccessScope   `json:"scope"`
 	Status                 MCPBindingStatus `json:"status"`
 	LinkedSessionID        string           `json:"linked_session_id"`
 	LatestISCPSessionID    string           `json:"latest_iscp_session_id,omitempty"`
@@ -130,33 +118,27 @@ type MCPInvocationRef struct {
 }
 
 type MCPInvocationContext struct {
-	SchemaVersion          int                 `json:"schema_version"`
-	ID                     string              `json:"id"`
-	MCPRequestID           string              `json:"mcp_request_id"`
-	MCPSessionID           string              `json:"mcp_session_id"`
-	ISCPSessionID          string              `json:"iscp_session_id"`
-	OperationID            string              `json:"operation_id"`
-	RequesterDeviceID      string              `json:"requester_device_id"`
-	RequesterKeyThumbprint string              `json:"requester_key_thumbprint"`
-	BindingRef             string              `json:"binding_ref"`
-	BindingRevision        int64               `json:"binding_revision"`
-	OwnerID                string              `json:"owner_id"`
-	ActorID                string              `json:"actor_id"`
-	ToolName               string              `json:"tool_name"`
-	CapabilityID           CapabilityID        `json:"capability_id"`
-	Workflow               WorkflowContractRef `json:"workflow"`
-	CatalogRevision        string              `json:"catalog_revision"`
-	Operation              RouteOperation      `json:"operation"`
-	Effect                 ToolEffect          `json:"effect"`
-	AllowApproval          bool                `json:"allow_approval"`
-	Arguments              map[string]any      `json:"arguments"`
-	ArgumentDigest         string              `json:"argument_digest"`
-	IdempotencyKey         string              `json:"idempotency_key"`
-	Deadline               time.Time           `json:"deadline"`
-	MessageID              string              `json:"message_id,omitempty"`
-	RunID                  string              `json:"run_id,omitempty"`
-	DeliveryID             DeliveryID          `json:"delivery_id,omitempty"`
-	CreatedAt              time.Time           `json:"created_at"`
+	SchemaVersion          int            `json:"schema_version"`
+	ID                     string         `json:"id"`
+	MCPRequestID           string         `json:"mcp_request_id"`
+	MCPSessionID           string         `json:"mcp_session_id"`
+	ISCPSessionID          string         `json:"iscp_session_id"`
+	OperationID            string         `json:"operation_id"`
+	RequesterDeviceID      string         `json:"requester_device_id"`
+	RequesterKeyThumbprint string         `json:"requester_key_thumbprint"`
+	BindingRef             string         `json:"binding_ref"`
+	BindingRevision        int64          `json:"binding_revision"`
+	OwnerID                string         `json:"owner_id"`
+	ActorID                string         `json:"actor_id"`
+	ToolName               string         `json:"tool_name"`
+	Arguments              map[string]any `json:"arguments"`
+	ArgumentDigest         string         `json:"argument_digest"`
+	IdempotencyKey         string         `json:"idempotency_key"`
+	Deadline               time.Time      `json:"deadline"`
+	MessageID              string         `json:"message_id,omitempty"`
+	RunID                  string         `json:"run_id,omitempty"`
+	DeliveryID             DeliveryID     `json:"delivery_id,omitempty"`
+	CreatedAt              time.Time      `json:"created_at"`
 }
 
 type MCPOperationState string
@@ -187,13 +169,8 @@ type MCPOperation struct {
 	CompletedAt    *time.Time           `json:"completed_at,omitempty"`
 }
 
-// MCPBoundRouteRequest enters the Agent through a pre-authorized Catalog leaf.
-// Arguments remain in MCPInvocationContext; only validated route slots are
-// passed to the Workflow dispatcher.
-type MCPBoundRouteRequest struct {
-	Content      string            `json:"content"`
-	CapabilityID CapabilityID      `json:"capability_id"`
-	Slots        RouteSlots        `json:"slots"`
-	Facts        map[string]string `json:"facts,omitempty"`
-	Invocation   MCPInvocationRef  `json:"invocation"`
+type MCPConversationRequest struct {
+	Text       string                `json:"text,omitempty"`
+	Media      []MessageMediaLocator `json:"media,omitempty"`
+	Invocation MCPInvocationRef      `json:"invocation"`
 }

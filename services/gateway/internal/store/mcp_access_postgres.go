@@ -12,6 +12,9 @@ import (
 
 func (s *PostgresStore) SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {
 	ticket = normalizeMCPAccessTicket(ticket, time.Now().UTC())
+	if ticket.SchemaVersion != app.MCPAccessTicketSchemaVersion || ticket.Scope != app.MCPAccessConversation {
+		return app.MCPAccessTicket{}, ErrMCPAccessTicketInvalid
+	}
 	_, err := s.db.Exec(context.Background(), `
 		INSERT INTO mcp_access_tickets (id, secret_hash, owner_id, domain_id, status, expires_at, payload)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -67,7 +70,8 @@ func (s *PostgresStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPee
 	}
 	var ticket app.MCPAccessTicket
 	if json.Unmarshal(raw, &ticket) != nil || ticket.Status != app.MCPAccessPending || ticket.UseCount >= ticket.MaxUses ||
-		ticket.DomainID != peer.DomainID || !now.Before(ticket.ExpiresAt) {
+		ticket.DomainID != peer.DomainID || !now.Before(ticket.ExpiresAt) ||
+		ticket.SchemaVersion != app.MCPAccessTicketSchemaVersion || ticket.Scope != app.MCPAccessConversation {
 		return app.MCPBinding{}, ErrMCPAccessTicketInvalid
 	}
 	var existingID string
@@ -83,10 +87,9 @@ func (s *PostgresStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPee
 		return app.MCPBinding{}, err
 	}
 	binding := normalizeMCPBinding(app.MCPBinding{
-		ID: app.NewID("mcp_binding"), OwnerID: ticket.OwnerID, ActorID: ticket.ActorID, DomainID: ticket.DomainID,
+		SchemaVersion: app.MCPBindingSchemaVersion, ID: app.NewID("mcp_binding"), OwnerID: ticket.OwnerID, ActorID: ticket.ActorID, DomainID: ticket.DomainID,
 		RequesterDeviceID: peer.DeviceID, RequesterKeyThumbprint: peer.KeyThumbprint,
-		AuthorizationRevision: ticket.AuthorizationRevision, CatalogRevision: ticket.CatalogRevision,
-		Grants: append([]app.MCPLeafGrant(nil), ticket.Grants...), LatestISCPSessionID: peer.ISCPSessionID,
+		AuthorizationRevision: ticket.AuthorizationRevision, Scope: ticket.Scope, LatestISCPSessionID: peer.ISCPSessionID,
 	}, now)
 	binding.LinkedSessionID = "s_" + binding.ID
 	if _, err := tx.Exec(ctx, `

@@ -25,8 +25,6 @@ import type {
   MCPAccessTicket,
   MCPAccessCatalog,
   MCPBinding,
-  MCPGrantOption,
-  MCPRequestedGrant,
   PassiveNotification,
   OwnerProfile,
   PublicConfig,
@@ -308,11 +306,16 @@ export const api = {
       body: JSON.stringify({ display_name: displayName, ttl_seconds: ttlSeconds })
     }),
   mcpAccessCatalog: () => request<MCPAccessCatalog>("/api/mcp-access/catalog"),
+  updateMCPTransports: (iscpEnabled: boolean, lanAccessEnabled: boolean, expectedVersion: number) =>
+    request<ConnectorStatus>("/api/mcp-access/transports", {
+      method: "PATCH",
+      body: JSON.stringify({ iscp_enabled: iscpEnabled, lan_access_enabled: lanAccessEnabled, expected_version: expectedVersion })
+    }),
   mcpAccessTickets: () => request<{ tickets: MCPAccessTicket[] }>("/api/mcp-access/tickets"),
-  issueMCPAccessTicket: (domainId: string, grants: MCPRequestedGrant[], ttlSeconds = 86400) =>
+  issueMCPAccessTicket: (domainId: string, ttlSeconds = 86400) =>
     request<IssuedMCPAccessTicket>("/api/mcp-access/tickets", {
       method: "POST",
-      body: JSON.stringify({ domain_id: domainId, grants, ttl_seconds: ttlSeconds })
+      body: JSON.stringify({ domain_id: domainId, ttl_seconds: ttlSeconds })
     }),
   revokeMCPAccessTicket: (id: string) =>
     request<MCPAccessTicket>(`/api/mcp-access/tickets/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),

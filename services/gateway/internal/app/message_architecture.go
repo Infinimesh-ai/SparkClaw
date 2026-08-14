@@ -168,6 +168,28 @@ type MessageContent struct {
 	Parts []MessagePart `json:"parts"`
 }
 
+type MessageMediaLocator struct {
+	Path    string `json:"path,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Query   string `json:"query,omitempty"`
+	Caption string `json:"caption,omitempty"`
+}
+
+type ResponseMediaDecisionStatus string
+
+const (
+	ResponseMediaNone     ResponseMediaDecisionStatus = "none"
+	ResponseMediaSelected ResponseMediaDecisionStatus = "selected"
+	ResponseMediaClarify  ResponseMediaDecisionStatus = "clarify"
+	ResponseMediaBlocked  ResponseMediaDecisionStatus = "blocked"
+)
+
+type ResponseMediaDecision struct {
+	Status     ResponseMediaDecisionStatus `json:"status"`
+	ReasonCode string                      `json:"reason_code,omitempty"`
+	Resources  []ResourceRef               `json:"resources,omitempty"`
+}
+
 type ReturnRoute struct {
 	Mode             ReturnMode `json:"mode"`
 	SourceEndpointID EndpointID `json:"source_endpoint_id,omitempty"`
@@ -175,18 +197,19 @@ type ReturnRoute struct {
 }
 
 type MessageEnvelope struct {
-	SchemaVersion  int                  `json:"schema_version"`
-	ID             string               `json:"id"`
-	IdempotencyKey string               `json:"idempotency_key"`
-	CorrelationID  string               `json:"correlation_id,omitempty"`
-	CausationID    string               `json:"causation_id,omitempty"`
-	Source         MessageSourceContext `json:"source"`
-	OwnerID        string               `json:"owner_id"`
-	ActorID        string               `json:"actor_id"`
-	Content        MessageContent       `json:"content"`
-	ReturnRoute    ReturnRoute          `json:"return_route"`
-	Authorization  MessageAuthorization `json:"authorization"`
-	CreatedAt      time.Time            `json:"created_at"`
+	SchemaVersion  int                   `json:"schema_version"`
+	ID             string                `json:"id"`
+	IdempotencyKey string                `json:"idempotency_key"`
+	CorrelationID  string                `json:"correlation_id,omitempty"`
+	CausationID    string                `json:"causation_id,omitempty"`
+	Source         MessageSourceContext  `json:"source"`
+	OwnerID        string                `json:"owner_id"`
+	ActorID        string                `json:"actor_id"`
+	Content        MessageContent        `json:"content"`
+	MediaLocators  []MessageMediaLocator `json:"media_locators,omitempty"`
+	ReturnRoute    ReturnRoute           `json:"return_route"`
+	Authorization  MessageAuthorization  `json:"authorization"`
+	CreatedAt      time.Time             `json:"created_at"`
 }
 
 type RouteStatus string
@@ -247,14 +270,17 @@ type IntentFusionDecision struct {
 // MessageRunContext persists the identity and return boundary needed by
 // idempotent replay and approval/login resume, including runs persisted by the retired pre-workflow runtime.
 type MessageRunContext struct {
-	OwnerID        string                `json:"owner_id"`
-	Authorization  MessageAuthorization  `json:"authorization"`
-	Source         MessageSourceContext  `json:"source"`
-	RequestContent MessageContent        `json:"request_content,omitempty"`
-	ReturnRoute    ReturnRoute           `json:"return_route"`
-	Route          RouteDecision         `json:"route"`
-	IntentFusion   *IntentFusionDecision `json:"intent_fusion,omitempty"`
-	MCP            *MCPInvocationRef     `json:"mcp,omitempty"`
+	OwnerID         string                 `json:"owner_id"`
+	Authorization   MessageAuthorization   `json:"authorization"`
+	Source          MessageSourceContext   `json:"source"`
+	RequestContent  MessageContent         `json:"request_content,omitempty"`
+	MediaLocators   []MessageMediaLocator  `json:"media_locators,omitempty"`
+	ResponseMedia   *ResponseMediaDecision `json:"response_media,omitempty"`
+	ResponseContent MessageContent         `json:"response_content,omitempty"`
+	ReturnRoute     ReturnRoute            `json:"return_route"`
+	Route           RouteDecision          `json:"route"`
+	IntentFusion    *IntentFusionDecision  `json:"intent_fusion,omitempty"`
+	MCP             *MCPInvocationRef      `json:"mcp,omitempty"`
 }
 
 type RouteOperation string

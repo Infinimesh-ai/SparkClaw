@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 func (s *Server) issueMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
@@ -26,18 +26,12 @@ func (s *Server) issueMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if s.cfg.MCPAccess.LANDirectTestEnabled {
-		if strings.TrimSpace(input.DomainID) == "" {
-			input.DomainID = s.cfg.MCPAccess.LANDirectDomainID
-		}
-		if input.DomainID != s.cfg.MCPAccess.LANDirectDomainID {
-			writeError(w, http.StatusBadRequest, errors.New("MCP access ticket domain must match the configured LAN test domain"))
-			return
-		}
+	configuredDomain := s.mcpAccessDomainID()
+	if strings.TrimSpace(input.DomainID) == "" {
+		input.DomainID = configuredDomain
 	}
-	configuredDomain := s.cfg.ISCPPairing.DomainID
-	if !s.cfg.MCPAccess.LANDirectTestEnabled && s.cfg.ISCPPairing.Enabled && input.DomainID != configuredDomain {
-		writeError(w, http.StatusBadRequest, errors.New("MCP access ticket domain must match the configured ISCP Domain"))
+	if input.DomainID != configuredDomain {
+		writeError(w, http.StatusBadRequest, errors.New("MCP access ticket domain must match the configured MCP Domain"))
 		return
 	}
 	principal := principalForRequest(r)
@@ -50,32 +44,67 @@ func (s *Server) issueMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, issued)
 }
 
-func (s *Server) listMCPAccessCatalog(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listMCPAccessCatalog(w http.ResponseWriter, r *http.Request) {
 	if s.mcpAccess == nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 		return
 	}
+	transport := s.mcpTransportStatus(principalForRequest(r).OwnerID)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"catalog_revision":        capability.DefaultCatalogRevision,
-		"grants":                  s.mcpAccess.GrantOptions(),
-		"lan_direct_test_enabled": s.cfg.MCPAccess.LANDirectTestEnabled,
-		"domain_id":               s.mcpAccessDomainID(),
-		"endpoint_path":           s.mcpDirectEndpointPath(),
+		"scope":              app.MCPAccessConversation,
+		"business_tool":      "sparkclaw.conversation.send",
+		"iscp_enabled":       transport.ISCPEnabled,
+		"lan_access_enabled": transport.LANAccessEnabled,
+		"transport_version":  transport.Version,
+		"domain_id":          s.mcpAccessDomainID(),
+		"endpoint_path":      "/mcp",
 	})
 }
 
 func (s *Server) mcpAccessDomainID() string {
-	if s.cfg.MCPAccess.LANDirectTestEnabled {
-		return s.cfg.MCPAccess.LANDirectDomainID
+	if domainID := strings.TrimSpace(s.cfg.ISCPPairing.DomainID); domainID != "" {
+		return domainID
 	}
-	return s.cfg.ISCPPairing.DomainID
+	return s.cfg.MCPAccess.LocalDomainID
 }
 
-func (s *Server) mcpDirectEndpointPath() string {
-	if s.cfg.MCPAccess.LANDirectTestEnabled {
-		return "/mcp"
+func (s *Server) mcpTransportStatus(ownerID string) app.ConnectorStatus {
+	if s.connectors == nil {
+		return app.ConnectorStatus{}
 	}
-	return ""
+	status, err := s.connectors.Status(ownerID, "mcp")
+	if err != nil {
+		return app.ConnectorStatus{}
+	}
+	return status
+}
+
+func (s *Server) updateMCPTransports(w http.ResponseWriter, r *http.Request) {
+	if s.connectors == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("MCP connector control is unavailable"))
+		return
+	}
+	var input struct {
+		ISCPEnabled      *bool  `json:"iscp_enabled"`
+		LANAccessEnabled *bool  `json:"lan_access_enabled"`
+		ExpectedVersion  *int64 `json:"expected_version"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := readJSON(r, &input); err != nil || input.ISCPEnabled == nil || input.LANAccessEnabled == nil || input.ExpectedVersion == nil || *input.ExpectedVersion < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("iscp_enabled, lan_access_enabled, and a non-negative expected_version are required"))
+		return
+	}
+	principal := principalForRequest(r)
+	status, err := s.connectors.SetMCPTransports(r.Context(), principal.OwnerID, principal.ActorID, *input.ISCPEnabled, *input.LANAccessEnabled, *input.ExpectedVersion)
+	if err != nil {
+		httpStatus := http.StatusBadRequest
+		if errors.Is(err, store.ErrConnectorSettingConflict) {
+			httpStatus = http.StatusConflict
+		}
+		writeError(w, httpStatus, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) listMCPAccessTickets(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +172,11 @@ func (s *Server) dispatchMCPBridgeRequest(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 		return
 	}
+	principal := principalForRequest(r)
+	if !s.mcpTransportStatus(principal.OwnerID).ISCPEnabled {
+		writeError(w, http.StatusForbidden, errors.New("MCP over ISCP is disabled"))
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, mcpaccess.MaxRequestBytes)
 	defer r.Body.Close()
 	decoder := json.NewDecoder(r.Body)
@@ -170,7 +204,7 @@ const (
 )
 
 func (s *Server) dispatchLANDirectMCP(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.MCPAccess.LANDirectTestEnabled {
+	if !s.mcpTransportStatus(app.DefaultOwnerID).LANAccessEnabled {
 		http.NotFound(w, r)
 		return
 	}
@@ -200,7 +234,7 @@ func (s *Server) dispatchLANDirectMCP(w http.ResponseWriter, r *http.Request) {
 		s.startLANDirectMCPSession(w, r, raw, rpc)
 		return
 	}
-	peer := lanDirectPeer(s.cfg.MCPAccess.LANDirectDomainID, sessionSecret)
+	peer := lanDirectPeer(s.mcpAccessDomainID(), sessionSecret)
 	if _, ok := s.mcpAccess.ActiveBindingForPeer(peer); !ok {
 		writeMCPJSONRPCError(w, http.StatusUnauthorized, rpc.ID, -32003, "active MCP session is required")
 		return
@@ -223,7 +257,7 @@ func (s *Server) startLANDirectMCPSession(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, errors.New("MCP session could not be created"))
 		return
 	}
-	peer := lanDirectPeer(s.cfg.MCPAccess.LANDirectDomainID, sessionSecret)
+	peer := lanDirectPeer(s.mcpAccessDomainID(), sessionSecret)
 	response, err := s.mcpAccess.Dispatch(r.Context(), directPeerRequest(raw, rpc, peer))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)

@@ -11,7 +11,7 @@ COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
 OCR_ENV="docker/env/sparkclaw.ocr.env"
 OCR_COMPOSE_FILE="docker/compose.ocr.yaml"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
-GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18789/readyz}"
+GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18790/readyz}"
 EXPECTED_MODEL_MODE="${SPARKCLAW_EXPECTED_MODEL_MODE:-external}"
 EXPECTED_STATE_BACKEND="${SPARKCLAW_EXPECTED_STATE_BACKEND:-postgres}"
 services=("$@")
@@ -24,18 +24,14 @@ if [[ ${#services[@]} -eq 0 ]]; then
 fi
 
 start_gateway=false
-start_lan_mcp_proxy=false
 for service in "${services[@]}"; do
   case "$service" in
     gateway)
       start_gateway=true
       ;;
-    mcp-lan-proxy)
-      start_lan_mcp_proxy=true
-      ;;
     sandbox-runner|webchat) ;;
     *)
-      echo "unsupported runtime service: $service (expected sandbox-runner, gateway, webchat, or mcp-lan-proxy)" >&2
+      echo "unsupported runtime service: $service (expected sandbox-runner, gateway, or webchat)" >&2
       exit 1
       ;;
   esac
@@ -100,9 +96,6 @@ if [[ "$visible_browser" == true ]]; then
   compose_args+=(-f docker/compose.visible-browser.yaml)
 fi
 compose_args+=(--profile "$PROFILE")
-if [[ "$start_lan_mcp_proxy" == true ]]; then
-  compose_args+=(--profile lan-mcp-test)
-fi
 
 # Model dependencies are jointly loaded and warmed by serve_models_compose.sh.
 # Recreating them here would split that ownership and invalidate warmup state.

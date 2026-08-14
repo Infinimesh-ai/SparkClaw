@@ -14,6 +14,8 @@ const (
 	TransportTypeResponse    = "mcp.response"
 	JSONRPCVersion           = "2.0"
 	MaxRequestBytes          = 1 << 20
+	MaxResultEnvelopeBytes   = 4 << 20
+	MaxResultRawBinaryBytes  = app.MCPMaxResultRawBinaryBytes
 )
 
 type TransportRequest struct {
@@ -66,29 +68,9 @@ type Tool struct {
 	Meta        map[string]any `json:"_meta,omitempty"`
 }
 
-type RequestedGrant struct {
-	CapabilityID  app.CapabilityID     `json:"capability_id"`
-	Operations    []app.RouteOperation `json:"operations"`
-	AllowApproval bool                 `json:"allow_approval"`
-}
-
-type GrantOperationOption struct {
-	Operation app.RouteOperation `json:"operation"`
-	Effect    app.ToolEffect     `json:"effect"`
-}
-
-type GrantOption struct {
-	CapabilityID       app.CapabilityID        `json:"capability_id"`
-	Description        string                  `json:"description"`
-	Operations         []GrantOperationOption  `json:"operations"`
-	Workflow           app.WorkflowContractRef `json:"workflow"`
-	ProjectionRevision int                     `json:"projection_revision"`
-}
-
 type IssueTicketRequest struct {
-	DomainID   string           `json:"domain_id"`
-	Grants     []RequestedGrant `json:"grants"`
-	TTLSeconds int              `json:"ttl_seconds,omitempty"`
+	DomainID   string `json:"domain_id"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"`
 }
 
 type IssuedTicket struct {
@@ -122,8 +104,18 @@ type CallToolResult struct {
 }
 
 type CallToolContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string            `json:"type"`
+	Text     string            `json:"text,omitempty"`
+	Data     string            `json:"data,omitempty"`
+	MimeType string            `json:"mimeType,omitempty"`
+	Resource *CallToolResource `json:"resource,omitempty"`
+}
+
+type CallToolResource struct {
+	URI      string `json:"uri"`
+	Name     string `json:"name,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+	Blob     string `json:"blob"`
 }
 
 type OperationParams struct {

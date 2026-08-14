@@ -204,12 +204,14 @@ type PassiveNotification struct {
 // channel. Account bindings remain separate so disabling a channel does not
 // silently delete encrypted credentials or account setup.
 type ConnectorSetting struct {
-	OwnerID   string    `json:"owner_id"`
-	Channel   string    `json:"channel"`
-	Enabled   bool      `json:"enabled"`
-	Version   int64     `json:"version"`
-	UpdatedBy string    `json:"updated_by"`
-	UpdatedAt time.Time `json:"updated_at"`
+	OwnerID          string    `json:"owner_id"`
+	Channel          string    `json:"channel"`
+	Enabled          bool      `json:"enabled"`
+	ISCPEnabled      bool      `json:"iscp_enabled,omitempty"`
+	LANAccessEnabled bool      `json:"lan_access_enabled,omitempty"`
+	Version          int64     `json:"version"`
+	UpdatedBy        string    `json:"updated_by"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type ExternalChatSession struct {

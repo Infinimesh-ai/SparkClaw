@@ -308,14 +308,13 @@ JingSi's current path is not evaluated or migrated here.
 ### Unified Third-Party Access (SparkClaw Surface Implemented)
 
 The target inbound architecture gives LocalMind and future third-party systems
-that choose this contract one provider-neutral Route MCP surface instead of
-adding an adapter or API for each provider. A generic ISCP MCP Access Gateway
-carries the MCP session between an enrolled external gateway device and
-SparkClaw; the local Route MCP Service projects only eligible, owner-granted
-Catalog leaves. The external MCP tool identity becomes a server-owned leaf
-binding and one deterministic Top-1 selection; it does not enter open-ended
-semantic scoring. The exact Workflow Profile then executes through the existing
-Runtime, Policy, approval, and audit core.
+that choose this contract one provider-neutral ordinary-conversation MCP
+surface instead of adding an adapter or API for each provider. A generic ISCP
+MCP Access Gateway carries the MCP session between an enrolled external gateway
+device and SparkClaw. The local service exposes one business tool,
+`sparkclaw.conversation.send`; its message enters ordinary semantic routing and
+the selected Workflow executes through the existing Runtime, Policy, approval,
+and audit core.
 
 JingSi is out of scope. It receives no MCP enrollment, tool projection, endpoint,
 or sender, and its future SparkClaw binding will be designed separately. This
@@ -349,25 +348,29 @@ credentials; and enforces transport revocation. SparkClaw does not duplicate
 those protocol services. Once the authenticated ISCP session is ready,
 SparkClaw separately issues a short-lived, single-use MCP Access Ticket. The
 enrolled external device redeems it only through that session, and SparkClaw
-atomically consumes it to activate the durable, owner-approved MCP Binding that
-selects which Route MCP leaves may be exposed. Ordinary MCP use relies on the
-session identity plus the Binding and reuses neither ticket. The external device
+atomically consumes it to activate a durable conversation-scoped MCP Binding.
+Ordinary MCP use relies on the session identity plus the Binding and reuses
+neither ticket. The external device
 remains requester/source provenance while SparkClaw remains the Workflow
-executor. Both gateway roles connect outbound to the Relay; the local Route MCP
-Service opens no public inbound port.
+executor. Both gateway roles connect outbound to the Relay, so ISCP opens no
+public inbound port. The owner may independently enable direct LAN MCP through
+the WebChat `18790` `/mcp` ingress; WebChat proxies that exact route to the
+Docker-internal Gateway, and the route is absent while the switch is off.
 
-The full trust, capability projection, invocation, LocalMind migration, and
+The full trust, conversation capability, invocation, LocalMind migration, and
 acceptance contract is in [Unified third-party ISCP MCP access](unified-third-party-access-design.md).
 The owner-facing External MCP settings surface and configured authority adapter
 are implemented. The adapter makes one authenticated, bounded outbound request
 for `iscp.pairing_ticket.v2`; it never owns Trust Root signing material. Only
 the non-secret onboarding receipt survives in memory, file, or PostgreSQL. The
-signed ticket is returned once, while leaf grants come from the current Catalog
-and MCP Access Tickets and Bindings can be listed or revoked locally.
+signed ticket is returned once. MCP Access Tickets and conversation-scoped
+Bindings can be listed or revoked locally; they contain no Catalog grants.
 
 The SparkClaw-owned local runtime is implemented: strict MCP `2025-06-18`,
-hash-only single-use MCP Access Tickets, durable peer Bindings, Catalog leaf
-projection, exact Top-1 Workflow ingress, shared Delivery, binding-scoped
+hash-only single-use MCP Access Tickets, durable peer Bindings with schema-v2
+conversation scope, the single `sparkclaw.conversation.send` business tool,
+ordinary semantic routing, bounded filename-only Top-1 response-media
+resolution, shared Delivery, binding-scoped
 operation recovery, default-off channel gates, and redacted lifecycle audit.
 Encrypted Bridge tests carry the MCP request and response through an established
 ISCP session. Production external onboarding is not active until the configured
@@ -401,7 +404,9 @@ audio are not artifacts.
 
 ## Trust And Safety Boundaries
 
-- Gateway is loopback-only by default; WebChat is the only default LAN surface.
+- Product Compose publishes Gateway and WebChat on `18789` and `18790`; direct
+  MCP ingress on `/mcp` remains owner-controlled and default-off. Host-process
+  Gateway debugging remains loopback-only.
 - Authenticated requests carry one owner/actor principal. Endpoint and schedule
   queries are owner-scoped.
 - Reversible and dangerous effects require Policy approval; shell execution is
@@ -439,7 +444,7 @@ projections. They must not maintain competing literal maps or duplicate stores.
 
 | Service | Default |
 |---|---|
-| Gateway | `127.0.0.1:18789` |
+| Gateway | `gateway:18789` (Docker internal, no host publication) |
 | WebChat | `0.0.0.0:18790` |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

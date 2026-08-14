@@ -10,9 +10,6 @@ import (
 )
 
 func normalizeMCPAccessTicket(ticket app.MCPAccessTicket, now time.Time) app.MCPAccessTicket {
-	if ticket.SchemaVersion == 0 {
-		ticket.SchemaVersion = app.MCPAccessTicketSchemaVersion
-	}
 	if ticket.ID == "" {
 		ticket.ID = app.NewID("mcp_ticket")
 	}
@@ -38,9 +35,6 @@ func normalizeMCPAccessTicket(ticket app.MCPAccessTicket, now time.Time) app.MCP
 }
 
 func normalizeMCPBinding(binding app.MCPBinding, now time.Time) app.MCPBinding {
-	if binding.SchemaVersion == 0 {
-		binding.SchemaVersion = app.MCPBindingSchemaVersion
-	}
 	if binding.ID == "" {
 		binding.ID = app.NewID("mcp_binding")
 	}
@@ -74,23 +68,11 @@ func normalizeMCPOperation(operation app.MCPOperation, now time.Time) app.MCPOpe
 	return operation
 }
 
-func cloneMCPLeafGrants(grants []app.MCPLeafGrant) []app.MCPLeafGrant {
-	out := make([]app.MCPLeafGrant, len(grants))
-	for index, grant := range grants {
-		out[index] = grant
-		out[index].Operations = append([]app.RouteOperation(nil), grant.Operations...)
-		out[index].Effects = append([]app.ToolEffect(nil), grant.Effects...)
-	}
-	return out
-}
-
 func cloneMCPAccessTicket(ticket app.MCPAccessTicket) app.MCPAccessTicket {
-	ticket.Grants = cloneMCPLeafGrants(ticket.Grants)
 	return ticket
 }
 
 func cloneMCPBinding(binding app.MCPBinding) app.MCPBinding {
-	binding.Grants = cloneMCPLeafGrants(binding.Grants)
 	return binding
 }
 
@@ -154,6 +136,9 @@ func (s *MemoryStore) SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAc
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ticket = normalizeMCPAccessTicket(ticket, time.Now().UTC())
+	if ticket.SchemaVersion != app.MCPAccessTicketSchemaVersion || ticket.Scope != app.MCPAccessConversation {
+		return app.MCPAccessTicket{}, ErrMCPAccessTicketInvalid
+	}
 	s.mcpAccessTickets[ticket.ID] = cloneMCPAccessTicket(ticket)
 	return cloneMCPAccessTicket(ticket), nil
 }
@@ -195,7 +180,8 @@ func (s *MemoryStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerI
 	secretHash = strings.TrimSpace(secretHash)
 	for id, ticket := range s.mcpAccessTickets {
 		if ticket.SecretHash != secretHash || ticket.Status != app.MCPAccessPending || ticket.UseCount >= ticket.MaxUses ||
-			ticket.DomainID != peer.DomainID || !now.Before(ticket.ExpiresAt) {
+			ticket.DomainID != peer.DomainID || !now.Before(ticket.ExpiresAt) ||
+			ticket.SchemaVersion != app.MCPAccessTicketSchemaVersion || ticket.Scope != app.MCPAccessConversation {
 			continue
 		}
 		for _, existing := range s.mcpBindings {
@@ -209,10 +195,9 @@ func (s *MemoryStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerI
 		ticket.ConsumedAt = &now
 		s.mcpAccessTickets[id] = ticket
 		binding := normalizeMCPBinding(app.MCPBinding{
-			ID: app.NewID("mcp_binding"), OwnerID: ticket.OwnerID, ActorID: ticket.ActorID, DomainID: ticket.DomainID,
+			SchemaVersion: app.MCPBindingSchemaVersion, ID: app.NewID("mcp_binding"), OwnerID: ticket.OwnerID, ActorID: ticket.ActorID, DomainID: ticket.DomainID,
 			RequesterDeviceID: peer.DeviceID, RequesterKeyThumbprint: peer.KeyThumbprint,
-			AuthorizationRevision: ticket.AuthorizationRevision, CatalogRevision: ticket.CatalogRevision,
-			Grants: append([]app.MCPLeafGrant(nil), ticket.Grants...), LatestISCPSessionID: peer.ISCPSessionID,
+			AuthorizationRevision: ticket.AuthorizationRevision, Scope: ticket.Scope, LatestISCPSessionID: peer.ISCPSessionID,
 		}, now)
 		binding.LinkedSessionID = "s_" + binding.ID
 		s.sessions[binding.LinkedSessionID] = app.Session{

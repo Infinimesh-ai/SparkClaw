@@ -88,9 +88,12 @@ bash scripts/deploy.sh
 | `compat` | Gateway connected to externally managed OpenAI-compatible endpoints. |
 | `models-local` | PostgreSQL 18/pgvector, MinIO, sandbox-runner, Gateway, WebChat and optional vLLM lanes. |
 
-WebChat binds host port `18790` to `0.0.0.0` by default for LAN access. Gateway,
-models, state services, and the sandbox runner remain bound to localhost.
-Containers communicate over the private `sparkclaw_internal` network.
+WebChat is the only application ingress and binds host port `18790` to
+`0.0.0.0` by default. Gateway is not published on the host; WebChat proxies its
+selected routes to `gateway:18789` over the private `sparkclaw_internal`
+network. Set `SPARKCLAW_WEBCHAT_BIND=127.0.0.1` when WebChat must remain local.
+Models, state services, and the sandbox runner remain bound to localhost or the
+private Docker network.
 
 ## Product Runtime
 
@@ -151,18 +154,21 @@ Check status:
 
 ```bash
 docker ps --filter name=sparkclaw
-curl -fsS http://127.0.0.1:18789/readyz
+curl -fsS http://127.0.0.1:18790/readyz
 bash scripts/doctor.sh
 ```
 
 Open WebChat locally at [http://127.0.0.1:18790](http://127.0.0.1:18790), or
 from another LAN device at `http://<host-lan-ip>:18790`.
 
-Run golden eval against the Dockerized Gateway:
+The golden eval script exercises internal-only `/chat` and `/metrics` routes, so
+it intentionally targets an isolated host-development Gateway rather than the
+product WebChat ingress. Start that Gateway first, then run:
 
 ```bash
 BROWSER_FIXTURE_URL=http://host.docker.internal:18791 \
 BROWSER_FIXTURE_BIND=0.0.0.0 \
+GATEWAY_URL=http://127.0.0.1:18789 \
 bash scripts/run-eval.sh
 ```
 
@@ -192,7 +198,7 @@ The host WebChat dev server listens on `0.0.0.0:18790` and proxies API requests
 to the loopback-only Gateway. Set `SPARKCLAW_API_TOKEN` and
 `VITE_SPARKCLAW_API_TOKEN` to the same value for protected host-process runs.
 
-## External MCP ISCP Pairing
+## External MCP Connections
 
 The owner-facing External MCP surface is installed but disabled by default. It
 becomes ready only when SparkClaw can ask the actual ISCP Domain authority for
@@ -220,53 +226,43 @@ owns signing, consumption, Device Proof, Provisioning, Trust Grants, and Relay
 credentials; SparkClaw neither stores the signed ticket nor exposes a claim
 endpoint.
 
-After configuration, enable the generic MCP connector in WebChat Settings,
-issue and transfer the copy-once ISCP Pairing Ticket, complete enrollment in the
-external Access Gateway, then issue the separate MCP Access Ticket with selected
-Catalog leaves. A real authority implementation, external Access Gateway, and
-live Relay path are still required for production end-to-end access.
+After configuration, enable the generic MCP connector and **Connect through
+ISCP** in WebChat Settings. Issue and transfer the copy-once ISCP Pairing Ticket,
+complete enrollment in the external Access Gateway, then issue the separate MCP
+Access Ticket with the fixed conversation scope. Disabling the ISCP switch
+immediately rejects MCP Bridge ingress without deleting existing onboarding,
+ticket, or binding records. A real authority implementation, external Access
+Gateway, and live Relay path are still required for production end-to-end
+access.
 
-### Temporary LAN MCP Validation
+### Direct LAN MCP
 
-Use this mode only while SparkClaw and the external MCP client are on the same
-trusted LAN and the ISCP production path is unavailable. The LAN replaces only
-ISCP transport and peer-session establishment. SparkClaw still issues a
-single-use MCP Access Ticket, atomically consumes it during MCP `initialize`,
-creates the same durable MCP Binding, and uses the same Catalog, Workflow,
-Policy/Approval, operation, Message, and Delivery paths.
-
-Start Gateway, WebChat, and the path-restricted LAN proxy with the explicit test
-environment:
-
-```bash
-SPARKCLAW_RUNTIME_OVERRIDE_ENV=docker/env/sparkclaw.lan-mcp-test.env \
-  bash scripts/restart_runtime_compose.sh gateway webchat mcp-lan-proxy
-```
-
-Gateway remains loopback-only on `18789`; this mode does not change WebChat's
-existing `18790` publish setting. The proxy publishes only exact path `/mcp` on
-TCP `18791`; every other path returns 404. The external client uses:
+Direct MCP uses the existing WebChat ingress instead of publishing Gateway or
+adding a separate port. Enable **Allow LAN access** in WebChat Settings, then
+connect to:
 
 ```text
-URL: http://<sparkclaw-lan-ip>:18791/mcp
+URL: http://<sparkclaw-lan-ip>:18790/mcp
 Initial Authorization: Bearer <SPARKCLAW_MCP_ACCESS_TICKET>
 MCP-Protocol-Version: 2025-06-18
 ```
 
-Enable the generic MCP connector in WebChat, select the allowed Catalog
-operations, and issue an MCP Access Ticket. Tickets issued from this surface are
-valid for 24 hours and remain single-use. On the first `initialize`, the server
-consumes that ticket and returns `Mcp-Session-Id`. A conforming
-Streamable HTTP client retains that header and sends it on
-`notifications/initialized`, `tools/list`, and `tools/call`. The original ticket
-cannot initialize a second session. The session ID is a bearer credential and
-must not be logged or persisted in source code; SparkClaw stores only its
-SHA-256-derived identity.
+WebChat always listens on `18790`, but Nginx forwards only the exact `/mcp`
+route to the internal Gateway. The switch is an application authorization gate:
+when it is off, `/mcp` returns 404. Gateway `18789` has no host port publication.
+When no ISCP Domain is configured, direct access uses
+`SPARKCLAW_MCP_LOCAL_DOMAIN_ID` (`sparkclaw-local` by default); a configured
+ISCP Domain takes precedence so both transports share one access-ticket domain.
 
-This test endpoint uses plain HTTP and provides no ISCP encryption, Device
-Proof, Relay, Trust Grant, or revocation semantics. Restrict it to the trusted
-LAN, revoke its MCP Binding after validation, and stop `mcp-lan-proxy` before
-enabling the production ISCP route.
+MCP Access Tickets are valid for 24 hours and remain single-use. The first
+`initialize` consumes the ticket and returns `Mcp-Session-Id`; the client keeps
+that header for `notifications/initialized`, `tools/list`, and `tools/call`.
+The session ID is a bearer credential and must not be logged or persisted in
+source code; SparkClaw stores only its SHA-256-derived identity. Direct LAN MCP
+uses plain HTTP and provides no ISCP encryption, Device Proof, Relay, or Trust
+Grant. Limit it to a trusted LAN and revoke unused MCP Bindings. MCP calls use
+the independent MCP Access Ticket and do not require `SPARKCLAW_API_TOKEN`;
+that setting, when used, protects the separate owner WebChat/Gateway API.
 
 ## LocalMind MCP
 
@@ -746,10 +742,10 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 
 ## Secure Defaults
 
-- Expose only WebChat on `0.0.0.0:18790`; keep Gateway and other service ports
-  bound to `127.0.0.1`.
-- Set `SPARKCLAW_API_TOKEN` before sharing WebChat on a LAN or shared machine.
-- Keep Gateway unauthenticated only for local development.
+- Keep **Allow LAN access** off unless a direct MCP client needs it. Gateway is
+  private to the Docker network in the shipped Compose topology.
+- Restrict WebChat `18790` to an owner-trusted LAN. MCP Access Tickets protect
+  `/mcp`; they do not authenticate the other WebChat API routes.
 - Keep dangerous and reversible tools approval-gated.
 - Keep shell execution sandboxed and network-disabled.
 - Treat browser/email/file observations as untrusted.

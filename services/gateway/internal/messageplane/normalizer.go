@@ -22,6 +22,7 @@ type Ingress struct {
 	ScheduleID      app.ScheduleID
 	ReturnRoute     *app.ReturnRoute
 	Authorization   app.MessageAuthorization
+	MediaLocators   []app.MessageMediaLocator
 }
 
 // RequestProjection keeps owner-authored semantics separate from governed
@@ -91,6 +92,7 @@ func Normalize(ingress Ingress) (app.MessageEnvelope, error) {
 		OwnerID:       ownerID,
 		ActorID:       authorization.PrincipalID,
 		Content:       content,
+		MediaLocators: append([]app.MessageMediaLocator(nil), ingress.MediaLocators...),
 		ReturnRoute:   returnRoute,
 		Authorization: authorization,
 		CreatedAt:     ingress.Message.CreatedAt,
@@ -134,8 +136,8 @@ func ValidateEnvelope(envelope app.MessageEnvelope) error {
 	if err := validateReturnRoute(envelope.ReturnRoute); err != nil {
 		return err
 	}
-	if len(envelope.Content.Parts) == 0 {
-		return errors.New("message content requires at least one part")
+	if len(envelope.Content.Parts) == 0 && len(envelope.MediaLocators) == 0 {
+		return errors.New("message content or a media locator is required")
 	}
 	seen := make(map[string]bool, len(envelope.Content.Parts))
 	for _, part := range envelope.Content.Parts {

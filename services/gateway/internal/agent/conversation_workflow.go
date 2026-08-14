@@ -14,10 +14,11 @@ const conversationPublishCandidateID = string(app.CapabilityConversationAnswer) 
 
 type conversationAnswerProfile struct{}
 
-type conversationAnswerProfileV1 struct{ conversationAnswerProfile }
+type conversationAnswerProfileV2 struct{ conversationAnswerProfile }
+type conversationAnswerProfileV1 struct{ conversationAnswerProfileV2 }
 
 func (conversationAnswerProfile) ID() app.WorkflowID { return app.WorkflowConversationAnswer }
-func (conversationAnswerProfile) Revision() int      { return 2 }
+func (conversationAnswerProfile) Revision() int      { return 3 }
 func (conversationAnswerProfile) Capability() app.CapabilityID {
 	return app.CapabilityConversationAnswer
 }
@@ -54,6 +55,43 @@ func (conversationAnswerProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationModel
 }
 func (conversationAnswerProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+	operation := app.IntentOperationAnswer
+	completion := app.CompletionModelAnswer
+	summary := "Answer the simple question without tools or external evidence"
+	stage := "answer"
+	output := app.OutputKindText
+	if route.Slots.Operation == app.RouteOperationPublish {
+		operation = app.IntentOperationPublish
+		completion = app.CompletionMessage
+		summary = "Publish the governed owner-authored message parts"
+		stage = "publish_message"
+		output = app.OutputKindMessage
+	} else if route.Slots.Operation != app.RouteOperationAnswer {
+		return app.IntentEnvelope{}, app.WorkflowPlan{}, errors.New("conversation workflow received an unsupported operation")
+	}
+	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainConversation, operation, app.TargetRef{Kind: app.TargetKindNone}, app.DataScopeLocal)
+	intent.Objectives[0].Output = output
+	detectNodeID := app.WorkflowNodeID("detect_response_media")
+	answerNodeID := app.WorkflowNodeID("answer")
+	return intent, app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: app.WorkflowConversationAnswer, ProfileRevision: 3,
+		InitialNodeIDs: []app.WorkflowNodeID{detectNodeID}, Completion: completion,
+		Nodes: []app.WorkflowNode{
+			{
+				ID: detectNodeID, InitialStage: "detect_response_media",
+				Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Freeze the response-media decision and governed workspace resources", Completion: app.CompletionDeterministic},
+				InitialScope: app.CapabilityScope{}, AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+			}, {
+				ID: answerNodeID, InitialStage: stage, DependsOn: []app.WorkflowNodeID{detectNodeID},
+				Goal:         app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: summary, Completion: completion},
+				InitialScope: app.CapabilityScope{}, AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+			},
+		},
+	}, nil
+}
+
+func (conversationAnswerProfileV2) Revision() int { return 2 }
+func (conversationAnswerProfileV2) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	operation := app.IntentOperationAnswer
 	completion := app.CompletionModelAnswer
 	summary := "Answer the simple question without tools or external evidence"
@@ -137,6 +175,9 @@ func (r Runtime) runWorkflowMessageContentStep(run app.AgentRun) workflowExecuti
 	if run.Workflow == nil || run.Workflow.Route.Slots.Operation != app.RouteOperationPublish || run.MessageContext == nil {
 		return workflowExecutionResult{Halted: true, FinalAnswer: "The ordinary message workflow lost its normalized request content."}
 	}
+	if run.Workflow.Plan.ProfileRevision == 3 {
+		return r.runConversationResponseContentStep(run)
+	}
 	content, err := r.governWorkflowRequestContent(run)
 	if err != nil {
 		return workflowExecutionResult{Halted: true, FinalAnswer: "The ordinary message could not be prepared for delivery: " + err.Error()}
@@ -174,7 +215,7 @@ func messageContentKinds(content app.MessageContent) []string {
 func isOrdinaryMediaPublication(run app.AgentRun) bool {
 	if run.Workflow == nil || run.MessageContext == nil ||
 		run.Workflow.Plan.ProfileID != app.WorkflowConversationAnswer ||
-		run.Workflow.Plan.ProfileRevision != 2 ||
+		(run.Workflow.Plan.ProfileRevision != 2 && run.Workflow.Plan.ProfileRevision != 3) ||
 		run.Workflow.Route.Slots.Operation != app.RouteOperationPublish ||
 		len(run.MessageContext.RequestContent.Parts) == 0 {
 		return false
@@ -197,6 +238,18 @@ func isMediaMessagePart(kind app.MessagePartKind) bool {
 }
 
 func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string, emit StreamHandler) workflowExecutionResult {
+	if run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowConversationAnswer && run.Workflow.Plan.ProfileRevision == 3 && run.MessageContext != nil && run.MessageContext.ResponseMedia != nil {
+		switch run.MessageContext.ResponseMedia.Status {
+		case app.ResponseMediaClarify:
+			return workflowExecutionResult{FinalAnswer: responseMediaClarification(), Completed: true}
+		case app.ResponseMediaBlocked:
+			return workflowExecutionResult{FinalAnswer: responseMediaBlockedMessage(run.MessageContext.ResponseMedia.ReasonCode), Completed: true}
+		case app.ResponseMediaSelected:
+			if err := r.revalidateFrozenResponseMedia(&run); err != nil {
+				return workflowExecutionResult{Halted: true, FinalAnswer: "Blocked: response media changed after it was selected."}
+			}
+		}
+	}
 	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForWorkflowStepCompact()
 	system := strings.Join([]string{
 		conversationAnswerSystemPrompt(run.MessageContext),

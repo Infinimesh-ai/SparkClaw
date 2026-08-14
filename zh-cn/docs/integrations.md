@@ -166,15 +166,16 @@ pairing 能力生成的一次性 Pairing Ticket；LocalMind Access Gateway 连�
 Provisioning 兑换该凭证并加入 SparkClaw ISCP Domain。ticket 与 protocol admission、Trust
 Grant、Relay credential、secure session、rotation 和 transport revocation 由 ISCP 负责；
 该认证通道 ready 后，SparkClaw 独立签发单次使用 MCP Access Ticket；LocalMind 通过 ISCP 兑换
-它，以激活本地 owner 批准的 Route MCP Binding。普通 MCP call 不复用任一 ticket。LocalMind
+它，以激活本地 owner 批准的 conversation-scoped MCP Binding。普通 MCP call 不复用任一 ticket。LocalMind
 新入网并通过通用 ISCP MCP gateway 验证后，删除其 Bridge manifest entry、grant、dispatch branch、
 passive/conversation fallback、config 和 test。JingSi 仍需要的共享 Bridge component 冻结保留；
 JingSi 不接入 MCP，后续另行设计绑定方式。上文 LocalMind Workspace MCP 属于相反的出站方向，
 继续保留。
 
-SparkClaw 自身负责的本地 Route MCP 阶段已在默认关闭的通用 `mcp` connector 后实现：严格 MCP
+SparkClaw 自身负责的入站 MCP 阶段已在默认关闭的通用 `mcp` connector 后实现：严格 MCP
 `2025-06-18`、结合认证 ISCP identity 兑换只存 hash 的单次 MCP Access Ticket、持久 Binding 与
-operation 恢复、精确 Catalog 叶子路由、共享 Delivery，以及加密 Bridge 请求/响应 dispatch。
+operation 恢复、唯一业务工具 `sparkclaw.conversation.send`、普通消息路由、有界 workspace 文件名
+解析、共享 Delivery，以及加密 Bridge 请求/响应 dispatch。
 这还不是可供 LocalMind 使用的生产连接：完成标准 ISCP PairingTicket/Provisioning 集成、可部署
 external Access Gateway 和真实 Relay 验证后，才能切换并删除旧链路。
 

@@ -40,6 +40,10 @@ func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("MCP connector is disabled"))
 		return
 	}
+	if !connector.ISCPEnabled {
+		writeError(w, http.StatusConflict, errors.New("MCP over ISCP is disabled"))
+		return
+	}
 	var input iscppairing.StartRequest
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err)

@@ -39,15 +39,43 @@ func (r *Registry) SetEnabled(_ context.Context, ownerID, actorID, channel strin
 	if r.store == nil {
 		return app.ConnectorStatus{}, errors.New("connector setting store is unavailable")
 	}
-	if _, err := r.store.UpdateConnectorSetting(app.ConnectorSetting{
-		OwnerID: normalizeOwner(ownerID), Channel: channel, Enabled: enabled, UpdatedBy: strings.TrimSpace(actorID),
-	}, expectedVersion); err != nil {
+	normalizedOwner := normalizeOwner(ownerID)
+	setting, _ := r.store.GetConnectorSetting(normalizedOwner, channel)
+	setting.OwnerID = normalizedOwner
+	setting.Channel = channel
+	setting.Enabled = enabled
+	setting.UpdatedBy = strings.TrimSpace(actorID)
+	if _, err := r.store.UpdateConnectorSetting(setting, expectedVersion); err != nil {
 		return app.ConnectorStatus{}, err
 	}
 	if enabled {
 		r.startChannel(channel)
 	} else {
 		r.stopChannel(channel)
+	}
+	return r.Status(ownerID, channel)
+}
+
+func (r *Registry) SetMCPTransports(_ context.Context, ownerID, actorID string, iscpEnabled, lanAccessEnabled bool, expectedVersion int64) (app.ConnectorStatus, error) {
+	const channel = "mcp"
+	if _, ok := r.registrations[channel]; !ok {
+		return app.ConnectorStatus{}, errors.New("MCP connector is not registered")
+	}
+	if r.store == nil {
+		return app.ConnectorStatus{}, errors.New("connector setting store is unavailable")
+	}
+	normalizedOwner := normalizeOwner(ownerID)
+	setting, exists := r.store.GetConnectorSetting(normalizedOwner, channel)
+	if !exists {
+		setting.Enabled = r.Enabled(normalizedOwner, channel)
+	}
+	setting.OwnerID = normalizedOwner
+	setting.Channel = channel
+	setting.ISCPEnabled = iscpEnabled
+	setting.LANAccessEnabled = lanAccessEnabled
+	setting.UpdatedBy = strings.TrimSpace(actorID)
+	if _, err := r.store.UpdateConnectorSetting(setting, expectedVersion); err != nil {
+		return app.ConnectorStatus{}, err
 	}
 	return r.Status(ownerID, channel)
 }
@@ -89,7 +117,8 @@ func (r *Registry) Status(ownerID, channel string) (app.ConnectorStatus, error) 
 		Available: capability.Available, Enabled: enabled, Running: running,
 		BindingStatus: capability.BindingStatus, BindingStartable: enabled && capability.Startable,
 		SupportsMultipleBindings: registration.Binding != nil && !registration.Binding.Policy().ExclusiveBinding,
-		Version:                  setting.Version, UpdatedAt: setting.UpdatedAt, LastError: runtimeError,
+		ISCPEnabled:              setting.ISCPEnabled, LANAccessEnabled: setting.LANAccessEnabled,
+		Version: setting.Version, UpdatedAt: setting.UpdatedAt, LastError: runtimeError,
 	}
 	if registration.ExternalManaged {
 		status.BindingStatus = "managed_externally"

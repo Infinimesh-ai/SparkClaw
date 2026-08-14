@@ -37,6 +37,7 @@ func TestISCPPairingOwnerAPIReturnsTicketOnceAndPersistsReceipt(t *testing.T) {
 	now := time.Now().UTC()
 	cfg := testConfig(t.TempDir())
 	cfg.Gateway.APIToken = "owner-token"
+	cfg.MCPAccess.LocalDomainID = "domain-a"
 	cfg.ISCPPairing.Enabled = true
 	cfg.ISCPPairing.DomainID = "domain-a"
 	cfg.ISCPPairing.ExpectedTicketType = provisioning.TypePairingTicket
@@ -71,6 +72,14 @@ func TestISCPPairingOwnerAPIReturnsTicketOnceAndPersistsReceipt(t *testing.T) {
 	if _, err := registry.SetEnabled(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, "mcp", true, 0); err != nil {
 		t.Fatal(err)
 	}
+	updated := ownerRequest(t, server.Handler(), http.MethodPatch, "/api/mcp-access/transports", `{"iscp_enabled":true,"lan_access_enabled":false,"expected_version":1}`)
+	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"iscp_enabled":true`) || !strings.Contains(updated.Body.String(), `"version":2`) {
+		t.Fatalf("ISCP transport update failed: status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	stale := ownerRequest(t, server.Handler(), http.MethodPatch, "/api/mcp-access/transports", `{"iscp_enabled":false,"lan_access_enabled":true,"expected_version":1}`)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale MCP transport update returned %d: %s", stale.Code, stale.Body.String())
+	}
 	created := ownerRequest(t, server.Handler(), http.MethodPost, "/api/iscp-pairing/start", `{"display_name":"LocalMind gateway"}`)
 	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), "copy-once-signature") || created.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("pairing ticket was not returned copy-once: status=%d headers=%v body=%s", created.Code, created.Header(), created.Body.String())
@@ -88,6 +97,7 @@ func TestISCPPairingOwnerAPIReturnsTicketOnceAndPersistsReceipt(t *testing.T) {
 func TestMCPAccessAPIRequiresConnectorOptInAndReturnsSecretOnce(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.Gateway.APIToken = "owner-token"
+	cfg.MCPAccess.LocalDomainID = "domain-a"
 	st := store.NewMemoryStore()
 	registry := connector.NewRegistry(cfg, st)
 	if err := registry.Register(connector.Registration{
@@ -101,7 +111,7 @@ func TestMCPAccessAPIRequiresConnectorOptInAndReturnsSecretOnce(t *testing.T) {
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 
-	ticketBody := `{"domain_id":"domain-a","grants":[{"capability_id":"conversation.answer","operations":["answer"]}]}`
+	ticketBody := `{"domain_id":"domain-a"}`
 	disabled := ownerRequest(t, server.Handler(), http.MethodPost, "/api/mcp-access/tickets", ticketBody)
 	if disabled.Code != http.StatusBadRequest || !strings.Contains(disabled.Body.String(), "disabled") || len(st.ListMCPAccessTickets("")) != 0 {
 		t.Fatalf("disabled MCP connector issued a ticket: status=%d body=%s", disabled.Code, disabled.Body.String())
@@ -139,6 +149,17 @@ func TestMCPAccessAPIRequiresConnectorOptInAndReturnsSecretOnce(t *testing.T) {
 	bridge.Header.Set("Authorization", "Bearer owner-token")
 	bridgeResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(bridgeResponse, bridge)
+	if bridgeResponse.Code != http.StatusForbidden || !strings.Contains(bridgeResponse.Body.String(), "ISCP is disabled") {
+		t.Fatalf("disabled ISCP transport accepted bridge request: status=%d body=%s", bridgeResponse.Code, bridgeResponse.Body.String())
+	}
+	if _, err := registry.SetMCPTransports(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, true, false, 1); err != nil {
+		t.Fatal(err)
+	}
+	bridge = httptest.NewRequest(http.MethodPost, "/api/bridge/v1/mcp/dispatch", bytes.NewReader(bridgeBody))
+	bridge.RemoteAddr = "127.0.0.1:44000"
+	bridge.Header.Set("Authorization", "Bearer owner-token")
+	bridgeResponse = httptest.NewRecorder()
+	server.Handler().ServeHTTP(bridgeResponse, bridge)
 	if bridgeResponse.Code != http.StatusOK {
 		t.Fatalf("authenticated local MCP Bridge returned %d: %s", bridgeResponse.Code, bridgeResponse.Body.String())
 	}
@@ -148,11 +169,10 @@ func TestMCPAccessAPIRequiresConnectorOptInAndReturnsSecretOnce(t *testing.T) {
 	}
 }
 
-func TestLANDirectMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
+func TestGatewayPortMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.Gateway.APIToken = "owner-token"
-	cfg.MCPAccess.LANDirectTestEnabled = true
-	cfg.MCPAccess.LANDirectDomainID = "sparkclaw-lan-test"
+	cfg.MCPAccess.LocalDomainID = "sparkclaw-local"
 	st := store.NewMemoryStore()
 	registry := connector.NewRegistry(cfg, st)
 	if err := registry.Register(connector.Registration{
@@ -164,17 +184,20 @@ func TestLANDirectMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 	if _, err := registry.SetEnabled(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, "mcp", true, 0); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := registry.SetMCPTransports(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, false, true, 1); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime, WithConnectorController(registry))
 
 	catalog := ownerRequest(t, server.Handler(), http.MethodGet, "/api/mcp-access/catalog", "")
-	if catalog.Code != http.StatusOK || !strings.Contains(catalog.Body.String(), `"lan_direct_test_enabled":true`) ||
-		!strings.Contains(catalog.Body.String(), `"domain_id":"sparkclaw-lan-test"`) || !strings.Contains(catalog.Body.String(), `"endpoint_path":"/mcp"`) {
-		t.Fatalf("LAN MCP catalog omitted test transport details: status=%d body=%s", catalog.Code, catalog.Body.String())
+	if catalog.Code != http.StatusOK || !strings.Contains(catalog.Body.String(), `"lan_access_enabled":true`) ||
+		!strings.Contains(catalog.Body.String(), `"domain_id":"sparkclaw-local"`) || !strings.Contains(catalog.Body.String(), `"endpoint_path":"/mcp"`) {
+		t.Fatalf("MCP catalog omitted transport details: status=%d body=%s", catalog.Code, catalog.Body.String())
 	}
-	created := ownerRequest(t, server.Handler(), http.MethodPost, "/api/mcp-access/tickets", `{"domain_id":"sparkclaw-lan-test","grants":[{"capability_id":"conversation.answer","operations":["answer"]}]}`)
+	created := ownerRequest(t, server.Handler(), http.MethodPost, "/api/mcp-access/tickets", `{"domain_id":"sparkclaw-local"}`)
 	var issued mcpaccess.IssuedTicket
 	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &issued) != nil || issued.Secret == "" {
 		t.Fatalf("LAN MCP ticket was not issued: status=%d body=%s", created.Code, created.Body.String())
@@ -183,7 +206,7 @@ func TestLANDirectMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"localmind-test","version":"1"}}}`
 	initResponse := directMCPRequest(server.Handler(), initialize, issued.Secret, "")
 	sessionID := initResponse.Header().Get(mcpSessionHeader)
-	if initResponse.Code != http.StatusOK || sessionID == "" || sessionID == issued.Secret || !strings.Contains(initResponse.Body.String(), `"name":"sparkclaw-route-mcp"`) {
+	if initResponse.Code != http.StatusOK || sessionID == "" || sessionID == issued.Secret || !strings.Contains(initResponse.Body.String(), `"name":"sparkclaw-conversation-mcp"`) {
 		t.Fatalf("LAN MCP initialize failed: status=%d headers=%v body=%s", initResponse.Code, initResponse.Header(), initResponse.Body.String())
 	}
 	stored, ok := st.GetMCPAccessTicket(issued.Ticket.ID)
@@ -191,7 +214,7 @@ func TestLANDirectMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 		t.Fatalf("LAN MCP ticket was not consumed exactly once: %#v", stored)
 	}
 	bindings := st.ListMCPBindings(app.DefaultOwnerID)
-	if len(bindings) != 1 || bindings[0].DomainID != "sparkclaw-lan-test" || bindings[0].RequesterDeviceID == "" {
+	if len(bindings) != 1 || bindings[0].DomainID != "sparkclaw-local" || bindings[0].RequesterDeviceID == "" {
 		t.Fatalf("LAN MCP binding was not activated: %#v", bindings)
 	}
 
@@ -200,7 +223,7 @@ func TestLANDirectMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 		t.Fatalf("LAN MCP initialized notification failed: status=%d body=%s", initialized.Code, initialized.Body.String())
 	}
 	listed := directMCPRequest(server.Handler(), `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`, issued.Secret, sessionID)
-	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), "sparkclaw.route.conversation.answer") || !strings.Contains(listed.Body.String(), "sparkclaw.operation.get") {
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), "sparkclaw.conversation.send") || !strings.Contains(listed.Body.String(), "sparkclaw.operation.get") {
 		t.Fatalf("LAN MCP tools/list failed: status=%d body=%s", listed.Code, listed.Body.String())
 	}
 
@@ -219,7 +242,7 @@ func TestLANDirectMCPConsumesTicketAndContinuesWithSession(t *testing.T) {
 	}
 }
 
-func TestLANDirectMCPIsAbsentWhenDisabled(t *testing.T) {
+func TestGatewayPortMCPIsAbsentWhenLANAccessDisabled(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.Gateway.APIToken = "owner-token"
 	st := store.NewMemoryStore()
@@ -249,7 +272,7 @@ func directMCPRequest(handler http.Handler, body, bearer, sessionID string) *htt
 	return response
 }
 
-func TestValidateMCPApprovalRequiresFrozenGrantAndLiveOperation(t *testing.T) {
+func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 	st := store.NewMemoryStore()
 	server := &Server{store: st}
 	ref := &app.MCPInvocationRef{OperationID: "operation-approval"}
@@ -262,16 +285,8 @@ func TestValidateMCPApprovalRequiresFrozenGrantAndLiveOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	approval := app.Approval{RunID: "run-approval"}
-	if err := server.validateMCPApproval(approval); err == nil {
-		t.Fatal("approval succeeded without a frozen MCP approval grant")
-	}
-	operation.Invocation.AllowApproval = true
-	operation, err = st.UpdateMCPOperation(operation, operation.Version)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := server.validateMCPApproval(approval); err != nil {
-		t.Fatalf("granted live approval was rejected: %v", err)
+		t.Fatalf("live local approval was rejected: %v", err)
 	}
 	operation.State = app.MCPOperationCancelled
 	if _, err := st.UpdateMCPOperation(operation, operation.Version); err != nil {

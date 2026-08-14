@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type registryBindingAdapter struct{}
@@ -108,5 +109,38 @@ func TestRegistryRejectsInvalidAndDuplicateChannels(t *testing.T) {
 	}
 	if err := registry.Register(Registration{Channel: "ALPHA"}); err == nil {
 		t.Fatal("duplicate channel was accepted")
+	}
+}
+
+func TestRegistryPreservesMCPTransportsAcrossMasterToggle(t *testing.T) {
+	cfg := config.Default()
+	st := store.NewMemoryStore()
+	registry := NewRegistry(cfg, st)
+	if err := registry.Register(Registration{Channel: "mcp", ExternalManaged: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	transport, err := registry.SetMCPTransports(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, true, true, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transport.Enabled || !transport.ISCPEnabled || !transport.LANAccessEnabled || transport.Version != 1 {
+		t.Fatalf("unexpected initial MCP transport setting: %#v", transport)
+	}
+
+	enabled, err := registry.SetEnabled(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, "mcp", true, transport.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled.Enabled || !enabled.ISCPEnabled || !enabled.LANAccessEnabled || enabled.Version != 2 {
+		t.Fatalf("master enable lost MCP transport settings: %#v", enabled)
+	}
+
+	disabled, err := registry.SetEnabled(t.Context(), app.DefaultOwnerID, app.DefaultOwnerID, "mcp", false, enabled.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Enabled || !disabled.ISCPEnabled || !disabled.LANAccessEnabled || disabled.Version != 3 {
+		t.Fatalf("master disable lost MCP transport settings: %#v", disabled)
 	}
 }

@@ -207,7 +207,8 @@ connects to ISCP and redeems it through standard Provisioning. ISCP owns the
 ticket and protocol admission, Trust Grants, Relay credentials, secure sessions,
 rotation, and transport revocation. Once that authenticated channel is ready,
 SparkClaw issues a separate single-use MCP Access Ticket; LocalMind redeems it
-through ISCP to activate the local owner-approved Route MCP Binding. Neither
+through ISCP to activate the local owner-approved conversation-scoped MCP
+Binding. Neither
 ticket is reused during ordinary MCP calls. After LocalMind is newly enrolled and
 validated through the generic ISCP MCP gateway, its Bridge manifest entries, grants,
 dispatch branches, passive/conversation fallbacks, configuration, and tests are
@@ -216,11 +217,13 @@ does not join MCP and will receive a separate binding design later. The LocalMin
 Workspace MCP section above is the opposite, outbound direction and remains
 supported.
 
-The SparkClaw-owned local Route MCP phase is now implemented behind the
+The SparkClaw-owned inbound MCP phase is now implemented behind the
 default-off generic `mcp` connector: strict MCP `2025-06-18`, hash-only
 single-use MCP Access Ticket redemption over authenticated ISCP identity,
-durable Binding and operation recovery, exact Catalog-leaf routing, shared
-Delivery, and encrypted Bridge request/response dispatch. This is not yet a
+durable schema-v2 conversation Binding and operation recovery, the single
+`sparkclaw.conversation.send` business tool, ordinary message routing, bounded
+workspace filename resolution, shared Delivery, and encrypted Bridge
+request/response dispatch. This is not yet a
 production LocalMind connection: standard ISCP PairingTicket/Provisioning
 integration, a deployable external Access Gateway, and live Relay validation
 remain required before cutover and legacy deletion.

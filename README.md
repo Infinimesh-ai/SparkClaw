@@ -100,12 +100,14 @@ available as `npm run dev:gateway:host` and `npm run dev:webchat:host`.
 For a direct model-router smoke test without starting an Agent session or executing tools:
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:18789/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"profile":"deep","message":"Say hello from the selected SparkClaw lane."}'
+docker compose -f docker/compose.yaml exec -T gateway node -e \
+  "fetch('http://127.0.0.1:18789/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:'deep',message:'Say hello from the selected SparkClaw lane.'})}).then(async response=>{console.log(await response.text());process.exit(response.ok?0:1)})"
 ```
 
-`profile` may be `fast`, `deep`, or the configured chat profile/model name. When Gateway auth is enabled, `/chat` requires the same bearer token as `/api/*`.
+The command runs inside the Gateway container because product Compose does not
+publish `18789` on the host. `profile` may be `fast`, `deep`, or the configured
+chat profile/model name. When Gateway auth is enabled, `/chat` requires the same
+bearer token as `/api/*`.
 
 ## Verification
 

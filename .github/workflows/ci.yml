@@ -150,6 +150,14 @@ jobs:
           assert environment["SPARKCLAW_DEEP_MODEL"] == environment["SPARKCLAW_FAST_MODEL"]
           assert "postgres" in config["services"]
           assert "sparkclaw-ocr" in config["services"]
+          assert not config["services"]["gateway"].get("ports")
+          assert config["services"]["webchat"]["ports"] == [{
+              "mode": "ingress",
+              "host_ip": "0.0.0.0",
+              "target": 18790,
+              "published": "18790",
+              "protocol": "tcp",
+          }]
           PY
       - run: >-
           SPARKCLAW_BROWSER_DISPLAY=:1

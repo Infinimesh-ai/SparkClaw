@@ -53,7 +53,7 @@ func mustRouteIntentOutput(t *testing.T, runtime Runtime, sessionID, content str
 		}
 		runtime.semanticRouter = router
 	}
-	output, err := runtime.routeIntentWithRequest(t.Context(), sessionID, app.NewID("run_route_test"), content, resources, sourceKind)
+	output, err := runtime.routeIntentWithRequest(t.Context(), sessionID, app.NewID("run_route_test"), content, resources, nil, sourceKind)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func (runtime Runtime) routeIntentOutputForTest(sessionID, runID, content string
 		}
 		runtime.semanticRouter = router
 	}
-	return runtime.routeIntentWithRequest(context.Background(), sessionID, runID, content, nil, app.MessageSourceWeb)
+	return runtime.routeIntentWithRequest(context.Background(), sessionID, runID, content, nil, nil, app.MessageSourceWeb)
 }
 
 func TestRuntimeBuildsSemanticEmbeddingIndexBeforeRouting(t *testing.T) {

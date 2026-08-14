@@ -32,7 +32,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		}
 		wantRevision := 1
 		if leaf.ID == app.CapabilityConversationAnswer {
-			wantRevision = 2
+			wantRevision = 3
 		}
 		if leaf.ID == app.CapabilityScheduleManage {
 			wantRevision = 2

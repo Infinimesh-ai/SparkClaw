@@ -153,12 +153,10 @@ func NewRouter(cfg config.Config, vaults ...credential.CredentialVault) Router {
 // configured provider: the QR login flow for the openclaw QR providers,
 // the manual handshake otherwise.
 func NewWeixinAdapter(channel string, cfg config.NotificationChannelConfig) Adapter {
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
-	case "openclaw-weixin-qr", "openclaw-weixin-login-qr":
+	if weixinproto.IsQRLoginProvider(cfg.Provider) {
 		return NewWeixinQRAdapter(channel, cfg)
-	default:
-		return NewManualWeixinAdapter(channel, cfg)
 	}
+	return NewManualWeixinAdapter(channel, cfg)
 }
 
 func NewBaseRouter(cfg config.Config) Router {

@@ -113,7 +113,7 @@ func TestConversationPublishSendsOnlyMediaToSelectedExternalEndpoint(t *testing.
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer ||
 		result.RouteDecision.Slots.Operation != app.RouteOperationPublish || result.RouteDecision.Slots.Query != "" || result.RouteDecision.Reason != "media_only_message" ||
-		result.Run.MessageContext.IntentFusion != nil || result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileRevision != 2 {
+		result.Run.MessageContext.IntentFusion != nil || result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileRevision != 3 {
 		t.Fatalf("multipart message did not route through ordinary conversation: route=%#v fusion=%#v", result.RouteDecision, result.Run.MessageContext.IntentFusion)
 	}
 	if result.Run.State != "completed" || len(result.Approvals) != 0 || result.WorkflowResult == nil || result.WorkflowResult.ReturnRoute != returnRoute {
@@ -199,7 +199,7 @@ func TestTimerSourceDoesNotOverrideSupportedSearchRequest(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	goal := "查一下今天的 AI 新闻"
-	routing, err := runtime.routeIntentWithRequest(t.Context(), session.ID, "run_timer_search", goal, nil, app.MessageSourceTimer)
+	routing, err := runtime.routeIntentWithRequest(t.Context(), session.ID, "run_timer_search", goal, nil, nil, app.MessageSourceTimer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,6 +226,139 @@ func TestConversationAnswerRunsWithoutToolsOrLegacyFallback(t *testing.T) {
 	}
 	if !hasAgentAuditType(st.ListAudit(session.ID), "tools.exposure.none") || !hasAgentAuditType(st.ListAudit(session.ID), "workflow.model_answer_completed") {
 		t.Fatalf("no-tool workflow boundary was not audited: %#v", st.ListAudit(session.ID))
+	}
+}
+
+func TestMCPConversationMediaLocatorResolvesExactPath(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		if err := os.MkdirAll(filepath.Join(cfg.root, "exports"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cfg.root, "exports", "report.pdf"), []byte("pdf bytes"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	defer closeRuntime()
+	result, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_locator_path", "run_locator_path", app.MCPConversationRequest{
+		Media:      []app.MessageMediaLocator{{Path: "exports/report.pdf", Caption: "Annual report"}},
+		Invocation: app.MCPInvocationRef{InvocationID: "inv_path", OperationID: "op_path", BindingRef: "binding_path", BindingRevision: 1, RequesterDeviceID: "device_path"},
+	}, mcpTestIngress(session, "binding_path"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileRevision != 3 || result.Run.MessageContext.ResponseMedia == nil ||
+		result.Run.MessageContext.ResponseMedia.Status != app.ResponseMediaSelected || len(result.WorkflowResult.Content.Parts) != 1 ||
+		result.WorkflowResult.Content.Parts[0].Resource == nil || result.WorkflowResult.Content.Parts[0].Resource.Ref != "exports/report.pdf" ||
+		result.WorkflowResult.Content.Parts[0].Caption != "Annual report" || result.WorkflowResult.Content.Parts[0].SHA256 == "" {
+		t.Fatalf("exact MCP media path was not frozen and returned: %#v", result)
+	}
+}
+
+func TestMCPConversationMediaNameAndQuerySelectStableTopOne(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		for _, rel := range []string{"a/annual-report-final.pdf", "b/annual-report-final.pdf", "c/annual-report-draft.pdf"} {
+			path := filepath.Join(cfg.root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(rel), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	defer closeRuntime()
+	for _, test := range []struct {
+		name    string
+		locator app.MessageMediaLocator
+		want    string
+	}{
+		{name: "exact basename tie", locator: app.MessageMediaLocator{Name: "annual-report-final.pdf"}, want: "a/annual-report-final.pdf"},
+		{name: "fuzzy top one", locator: app.MessageMediaLocator{Query: "annual report final"}, want: "a/annual-report-final.pdf"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id := strings.ReplaceAll(test.name, " ", "_")
+			result, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_"+id, "run_"+id, app.MCPConversationRequest{
+				Media:      []app.MessageMediaLocator{test.locator},
+				Invocation: app.MCPInvocationRef{InvocationID: "inv_" + id, OperationID: "op_" + id, BindingRef: "binding_" + id, BindingRevision: 1, RequesterDeviceID: "device"},
+			}, mcpTestIngress(session, "binding_"+id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			part := result.WorkflowResult.Content.Parts[0]
+			if part.Resource == nil || part.Resource.Ref != test.want || len(result.Run.MessageContext.ResponseMedia.Resources) != 1 {
+				t.Fatalf("locator did not select stable Top-1: want=%q part=%#v decision=%#v", test.want, part, result.Run.MessageContext.ResponseMedia)
+			}
+		})
+	}
+	audits := st.ListAudit(session.ID)
+	if !hasAgentAuditType(audits, "workflow.response_media_lookup") {
+		t.Fatalf("response-media filename lookup was not audited: %#v", audits)
+	}
+}
+
+func TestMCPConversationAnswerCombinesModelTextWithFrozenMedia(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		path := filepath.Join(cfg.root, "answer.pdf")
+		if err := os.WriteFile(path, []byte("answer media"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	defer closeRuntime()
+	result, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_answer_media", "run_answer_media", app.MCPConversationRequest{
+		Text:       "What is idempotency?",
+		Media:      []app.MessageMediaLocator{{Name: "answer.pdf"}},
+		Invocation: app.MCPInvocationRef{InvocationID: "inv_answer_media", OperationID: "op_answer_media", BindingRef: "binding_answer_media", BindingRevision: 1, RequesterDeviceID: "device"},
+	}, mcpTestIngress(session, "binding_answer_media"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := result.WorkflowResult.Content.Parts
+	if result.Run.State != "completed" || result.Run.MessageContext.ResponseMedia.Status != app.ResponseMediaSelected || len(parts) != 2 ||
+		parts[0].Kind != app.MessagePartText || !strings.Contains(parts[0].Text, "answer this directly") ||
+		parts[1].Kind != app.MessagePartFile || parts[1].Resource == nil || parts[1].Resource.Ref != "answer.pdf" {
+		t.Fatalf("conversation answer did not combine model text and frozen media: %#v", result)
+	}
+}
+
+func TestFrozenResponseMediaIdentityRejectsArtifactSubstitution(t *testing.T) {
+	before := app.ResponseMediaDecision{Resources: []app.ResourceRef{{
+		Kind: "workspace_file", Ref: "report.pdf", Attributes: map[string]string{
+			"artifact_id": "object-a", "name": "report.pdf", "content_type": "application/pdf", "bytes": "4", "sha256": "abcd",
+		},
+	}}}
+	after := before
+	after.Resources = append([]app.ResourceRef(nil), before.Resources...)
+	after.Resources[0].Attributes = map[string]string{
+		"artifact_id": "object-b", "name": "report.pdf", "content_type": "application/pdf", "bytes": "4", "sha256": "abcd",
+	}
+	if sameFrozenResponseMedia(before, after) {
+		t.Fatal("frozen response media accepted an artifact identity substitution")
+	}
+}
+
+func TestMCPConversationMissingMediaAsksForRefinement(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	result, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_missing", "run_missing", app.MCPConversationRequest{
+		Media:      []app.MessageMediaLocator{{Query: "file that does not exist"}},
+		Invocation: app.MCPInvocationRef{InvocationID: "inv_missing", OperationID: "op_missing", BindingRef: "binding_missing", BindingRevision: 1, RequesterDeviceID: "device"},
+	}, mcpTestIngress(session, "binding_missing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Run.MessageContext.ResponseMedia == nil || result.Run.MessageContext.ResponseMedia.Status != app.ResponseMediaClarify ||
+		result.Run.MessageContext.ResponseMedia.ReasonCode != "file_not_found" || len(result.Run.MessageContext.ResponseMedia.Resources) != 0 ||
+		len(result.WorkflowResult.Content.Parts) != 1 || result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartText {
+		t.Fatalf("zero-result locator did not return a text clarification: %#v", result)
+	}
+}
+
+func mcpTestIngress(session app.Session, bindingID string) app.MessageIngressContext {
+	endpoint := app.EndpointID("mcp:" + bindingID)
+	return app.MessageIngressContext{
+		Source:  app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: "mcp", EndpointID: endpoint},
+		OwnerID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID},
+		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpoint},
 	}
 }
 

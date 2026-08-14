@@ -32,6 +32,8 @@ type ConnectorStatus struct {
 	SupportsMultipleBindings bool      `json:"supports_multiple_bindings"`
 	DisabledReason           string    `json:"disabled_reason,omitempty"`
 	LastError                string    `json:"last_error,omitempty"`
+	ISCPEnabled              bool      `json:"iscp_enabled,omitempty"`
+	LANAccessEnabled         bool      `json:"lan_access_enabled,omitempty"`
 	Version                  int64     `json:"version"`
 	UpdatedAt                time.Time `json:"updated_at,omitempty"`
 }

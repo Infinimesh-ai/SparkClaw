@@ -137,15 +137,15 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if cfg.ISCPPairing.Enabled || cfg.ISCPPairing.ExpectedTicketType != "iscp.pairing_ticket.v2" || cfg.ISCPPairing.TicketTTLSeconds != 600 {
 		t.Fatalf("ISCP pairing should be disabled with bounded defaults: %#v", cfg.ISCPPairing)
 	}
-	if cfg.MCPAccess.LANDirectTestEnabled || cfg.MCPAccess.LANDirectDomainID != "sparkclaw-lan-test" {
-		t.Fatalf("MCP LAN direct test mode must default off: %#v", cfg.MCPAccess)
+	if cfg.MCPAccess.LocalDomainID != "sparkclaw-local" {
+		t.Fatalf("MCP local domain default changed: %#v", cfg.MCPAccess)
 	}
 }
 
-func TestLoadMCPAccessLANDirectTestMode(t *testing.T) {
+func TestLoadMCPAccessLocalDomain(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")
-	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"lan_direct_test_enabled":true,"lan_direct_domain_id":" lan-test "}}`
+	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":" local-domain "}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -153,16 +153,16 @@ func TestLoadMCPAccessLANDirectTestMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.MCPAccess.LANDirectTestEnabled || cfg.MCPAccess.LANDirectDomainID != "lan-test" {
-		t.Fatalf("MCP LAN test configuration was not normalized: %#v", cfg.MCPAccess)
+	if cfg.MCPAccess.LocalDomainID != "local-domain" {
+		t.Fatalf("MCP local domain was not normalized: %#v", cfg.MCPAccess)
 	}
 
 	path = filepath.Join(root, "missing-domain.json")
-	if err := os.WriteFile(path, []byte(`{"model":{"mock":true},"workspaces":{"default_root":"`+escapeJSONPath(root)+`"},"mcp_access":{"lan_direct_test_enabled":true,"lan_direct_domain_id":""}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"model":{"mock":true},"workspaces":{"default_root":"`+escapeJSONPath(root)+`"},"mcp_access":{"local_domain_id":""}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "lan_direct_domain_id") {
-		t.Fatalf("MCP LAN test mode accepted an empty domain: %v", err)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "local_domain_id") {
+		t.Fatalf("MCP access accepted an empty local domain: %v", err)
 	}
 }
 

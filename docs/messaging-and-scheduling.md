@@ -16,9 +16,9 @@ The target [unified third-party ISCP MCP access](unified-third-party-access-desi
 registers MCP as a managed third-party channel while retaining a dedicated MCP
 protocol adapter. `initialize`, `ping`, and `tools/list` stay in that control
 plane, as do MCP Access Ticket redemption and the first version's
-`sparkclaw.operation.*` control tools. A Route `tools/call` enters the common
-receive layer as a `third_party_device` `MessageEnvelope`; its server-owned tool
-binding selects one deterministic Top-1 leaf. The result returns through
+`sparkclaw.operation.*` control tools. A
+`sparkclaw.conversation.send` `tools/call` enters the common receive layer as a
+`third_party_device` `MessageEnvelope` and uses ordinary intent routing. The result returns through
 Delivery Gateway and a generic MCP sender/provider. Enable/suspend state,
 endpoint visibility, and
 provider availability reuse the unified third-party management contract, while
@@ -43,14 +43,13 @@ external device remains requester/source provenance in typed MCP context while
 the local SparkClaw principal remains the Workflow actor. These contracts live in
 `internal/app` and are provider-neutral.
 
-An ordinary request to publish the current message uses
-`conversation.answer` revision 2's `publish` variant. It does not create a
-second file-send path: the Workflow freezes the normalized request
-`MessageContent` as its channel-neutral result without calling a model or a
-tool. Text, image, audio, and file remain peer message parts throughout the
-same Message Plane, routing, Workflow, Policy, and delivery chain. When the
-request contains image, audio, or file parts, `publish` removes the owner command
-text and returns only the governed media parts, preserving their order.
+An ordinary request to answer or publish uses `conversation.answer` revision 3.
+Its first node, `detect_response_media`, freezes whether the result is text-only
+or includes governed workspace media; the dependent `answer` node cannot search
+or substitute files. Relative paths bind directly. Exact basename lookup is
+case-sensitive, and a miss or incomplete name uses one bounded filename-only
+search whose stable Top-1 is selected. The result may contain text plus media,
+while a pure publish returns only the governed media parts in order.
 For a Web message containing only media parts, Message Runtime selects the same
 registered `publish` variant directly from typed content; no synthetic owner
 text or separate file-send request is created.
@@ -60,7 +59,10 @@ validates it against the source session workspace, rejects path escape and
 symlinks, verifies its size and SHA-256, and registers or reuses a governed
 `ArtifactObject`. This happens before external dispatch or any applicable
 approval, so Delivery Gateway always resolves the exact source-session artifact
-rather than interpreting the destination endpoint's workspace.
+rather than interpreting the destination endpoint's workspace. The external
+MCP client cannot invoke the internal search independently, list the workspace,
+or receive local paths. Complete zero-result lookup asks for a better name or
+direct attachment; incomplete lookup sends no provisional file.
 
 ## Ownership
 

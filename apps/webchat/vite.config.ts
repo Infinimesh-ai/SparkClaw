@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
       port: 18790,
       proxy: {
         "/api": gatewayTarget,
+        "/mcp": gatewayTarget,
         "/healthz": gatewayTarget,
         "/readyz": gatewayTarget
       }

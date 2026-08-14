@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -30,6 +29,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/sandbox"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workspacefiles"
 )
 
 type ToolHub struct {
@@ -401,17 +401,18 @@ func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 		},
 		{
 			Name:        "files.search",
-			Description: "Search file names and small text content inside an allowed workspace.",
+			Description: "Search base file names inside an allowed workspace and return bounded workspace-relative candidates.",
 			InputSchema: schema("object", []string{"query"}, map[string]any{
 				"query":       map[string]any{"type": "string"},
 				"root":        map[string]any{"type": "string"},
 				"max_results": map[string]any{"type": "number"},
 			}),
-			OutputSchema: objectSchema([]string{"root", "query", "results", "count"}, map[string]any{
-				"root":    stringSchema(),
-				"query":   stringSchema(),
-				"results": arraySchema(objectValueSchema()),
-				"count":   integerSchema(),
+			OutputSchema: objectSchema([]string{"query", "results", "count", "complete", "truncated"}, map[string]any{
+				"query":     stringSchema(),
+				"results":   arraySchema(objectValueSchema()),
+				"count":     integerSchema(),
+				"complete":  booleanSchema(),
+				"truncated": booleanSchema(),
 			}),
 			Risk:             app.RiskRead,
 			RequiresApproval: false,
@@ -1423,8 +1424,8 @@ func formatNumber(value float64) string {
 }
 
 func (h *ToolHub) filesSearch(ctx context.Context, args map[string]any) (Result, error) {
-	query := strings.ToLower(stringArg(args, "query", ""))
-	if strings.TrimSpace(query) == "" {
+	query := strings.TrimSpace(stringArg(args, "query", ""))
+	if query == "" {
 		return Result{}, errors.New("query cannot be empty")
 	}
 	root, err := h.resolveRoot(stringArg(args, "root", ""))
@@ -1435,52 +1436,16 @@ func (h *ToolHub) filesSearch(ctx context.Context, args map[string]any) (Result,
 	if maxResults <= 0 || maxResults > 100 {
 		maxResults = 20
 	}
-	type fileResult struct {
-		Path    string `json:"path"`
-		Reason  string `json:"reason"`
-		Preview string `json:"preview,omitempty"`
-	}
-	results := []fileResult{}
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		name := d.Name()
-		if d.IsDir() && skipDir(name) && path != root {
-			return filepath.SkipDir
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, _ := filepath.Rel(root, path)
-		lowerRel := strings.ToLower(rel)
-		if strings.Contains(lowerRel, query) {
-			results = append(results, fileResult{Path: path, Reason: "filename"})
-			return stopIfEnough(len(results), maxResults)
-		}
-		if !looksText(path) {
-			return nil
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil || len(raw) > 1_000_000 {
-			return nil
-		}
-		content := strings.ToLower(string(raw))
-		if idx := strings.Index(content, query); idx >= 0 {
-			results = append(results, fileResult{Path: path, Reason: "content", Preview: preview(string(raw), idx, len(query))})
-			return stopIfEnough(len(results), maxResults)
-		}
-		return nil
+	search, err := workspacefiles.Search(ctx, root, workspacefiles.SearchRequest{
+		Mode: workspacefiles.MatchFuzzy, Term: query, MaxResults: maxResults,
+		MaxEntries: 20000, MaxDepth: 32, Timeout: 3 * time.Second,
 	})
-	if errors.Is(err, errEnough) {
-		err = nil
+	if err != nil {
+		return Result{}, err
 	}
-	return Result{Output: map[string]any{"root": root, "query": query, "results": results, "count": len(results)}}, err
+	return Result{Output: map[string]any{
+		"query": query, "results": search.Matches, "count": len(search.Matches), "complete": search.Complete, "truncated": search.Truncated,
+	}}, nil
 }
 
 func (h *ToolHub) filesRead(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
@@ -1991,43 +1956,4 @@ func boolArg(args map[string]any, key string, fallback bool) bool {
 		}
 	}
 	return fallback
-}
-
-func skipDir(name string) bool {
-	switch name {
-	case ".git", ".sparkclaw", "node_modules", "dist", "build", ".next", "vendor", ".venv":
-		return true
-	default:
-		return false
-	}
-}
-
-func looksText(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".txt", ".md", ".go", ".ts", ".tsx", ".js", ".jsx", ".json", ".yaml", ".yml", ".toml", ".css", ".html", ".sh", ".py":
-		return true
-	default:
-		return false
-	}
-}
-
-var errEnough = errors.New("enough results")
-
-func stopIfEnough(count, max int) error {
-	if count >= max {
-		return errEnough
-	}
-	return nil
-}
-
-func preview(content string, idx, queryLen int) string {
-	start := idx - 80
-	if start < 0 {
-		start = 0
-	}
-	end := idx + queryLen + 160
-	if end > len(content) {
-		end = len(content)
-	}
-	return strings.TrimSpace(content[start:end])
 }

@@ -365,6 +365,8 @@ export type ConnectorStatus = {
   supports_multiple_bindings: boolean;
   disabled_reason?: string;
   last_error?: string;
+  iscp_enabled?: boolean;
+  lan_access_enabled?: boolean;
   version: number;
   updated_at?: string;
 };
@@ -416,41 +418,14 @@ export type IssuedISCPPairing = {
   ticket: ISCPPairingTicket;
 };
 
-export type MCPGrantOperationOption = {
-  operation: string;
-  effect: string;
-};
-
-export type MCPGrantOption = {
-  capability_id: string;
-  description: string;
-  operations: MCPGrantOperationOption[];
-  workflow: { id: string; revision: number };
-  projection_revision: number;
-};
-
 export type MCPAccessCatalog = {
-  catalog_revision: string;
-  grants: MCPGrantOption[];
-  lan_direct_test_enabled?: boolean;
+  scope: "conversation";
+  business_tool: "sparkclaw.conversation.send";
+  iscp_enabled: boolean;
+  lan_access_enabled: boolean;
+  transport_version: number;
   domain_id?: string;
-  endpoint_path?: string;
-};
-
-export type MCPRequestedGrant = {
-  capability_id: string;
-  operations: string[];
-  allow_approval: boolean;
-};
-
-export type MCPLeafGrant = {
-  capability_id: string;
-  operations: string[];
-  effects: string[];
-  allow_approval: boolean;
-  workflow: { id: string; revision: number };
-  projection_revision: number;
-  status: string;
+  endpoint_path: string;
 };
 
 export type MCPAccessTicket = {
@@ -460,8 +435,7 @@ export type MCPAccessTicket = {
   actor_id: string;
   domain_id: string;
   authorization_revision: number;
-  catalog_revision: string;
-  grants: MCPLeafGrant[];
+  scope: "conversation";
   status: string;
   max_uses: number;
   use_count: number;
@@ -485,8 +459,7 @@ export type MCPBinding = {
   requester_device_id: string;
   requester_key_thumbprint: string;
   authorization_revision: number;
-  catalog_revision: string;
-  grants: MCPLeafGrant[];
+  scope: "conversation";
   status: string;
   linked_session_id: string;
   latest_iscp_session_id?: string;

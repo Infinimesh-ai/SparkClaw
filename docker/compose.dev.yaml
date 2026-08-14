@@ -10,8 +10,6 @@ services:
     environment:
       SPARKCLAW_BIND: 0.0.0.0
       SPARKCLAW_MODEL_MODE: mock
-    ports:
-      - "127.0.0.1:18789:18789"
     volumes:
       - ../configs:/app/configs:ro
       - ../data/workspaces:/var/lib/sparkclaw/workspaces

@@ -930,15 +930,12 @@ func fileSearchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool)
 			continue
 		}
 		query := cleanOptionalString(result["query"])
-		root := cleanOptionalString(result["root"])
 		count := intLikeValue(result["count"])
 		lines := []string{
 			"Query: " + quoteInline(query),
 			fmt.Sprintf("Matches: %d", count),
 		}
-		if root != "" {
-			lines = append(lines, "Root: "+root)
-		}
+		lines = append(lines, fmt.Sprintf("Complete: %t", result["complete"] == true))
 		results := anySlice(result["results"])
 		if len(results) == 0 {
 			lines = append(lines, "No matching workspace files were found.")
@@ -951,14 +948,14 @@ func fileSearchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool)
 				continue
 			}
 			parts := []string{}
-			if path := cleanOptionalString(entry["path"]); path != "" {
+			if path := cleanOptionalString(entry["rel_path"]); path != "" {
 				parts = append(parts, path)
+			}
+			if score := intLikeValue(entry["score"]); score > 0 {
+				parts = append(parts, fmt.Sprintf("score=%d", score))
 			}
 			if reason := cleanOptionalString(entry["reason"]); reason != "" {
 				parts = append(parts, "reason="+reason)
-			}
-			if preview := cleanOptionalString(entry["preview"]); preview != "" {
-				parts = append(parts, "preview="+quoteInline(trimForEpisode(strings.Join(strings.Fields(preview), " "), 220)))
 			}
 			if len(parts) > 0 {
 				lines = append(lines, "- "+strings.Join(parts, " "))

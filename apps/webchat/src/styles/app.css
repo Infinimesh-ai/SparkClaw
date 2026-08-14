@@ -2917,6 +2917,38 @@ button.finderRow {
   min-width: 0;
 }
 
+.externalMCPTransportList {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.externalMCPTransport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-deep);
+}
+
+.externalMCPTransport > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.externalMCPTransport code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
 .externalMCPAction,
 .externalMCPPrimary {
   display: inline-flex;
@@ -2934,6 +2966,13 @@ button.finderRow {
 
 .externalMCPPrimary {
   width: 100%;
+}
+
+.externalMCPAction:disabled,
+.externalMCPPrimary:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.35);
+  opacity: 0.48;
 }
 
 .externalMCPGrantList,

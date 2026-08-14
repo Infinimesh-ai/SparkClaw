@@ -72,8 +72,7 @@
     "expected_ticket_type": "iscp.pairing_ticket.v2"
   },
   "mcp_access": {
-    "lan_direct_test_enabled": false,
-    "lan_direct_domain_id": "sparkclaw-lan-test"
+    "local_domain_id": "sparkclaw-local"
   },
   "plugins": {
     "entries": {

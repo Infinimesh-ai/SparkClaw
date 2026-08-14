@@ -18,7 +18,7 @@ import (
 )
 
 type fakeRuntime struct {
-	request            app.MCPBoundRouteRequest
+	request            app.MCPConversationRequest
 	ingress            app.MessageIngressContext
 	result             agent.Result
 	block              chan struct{}
@@ -29,6 +29,15 @@ type fakeRuntime struct {
 type terminalConflictStore struct {
 	store.Store
 	conflicted bool
+}
+
+type activeBindingOverrideStore struct {
+	store.Store
+	binding app.MCPBinding
+}
+
+func (s *activeBindingOverrideStore) FindMCPBindingForPeer(_, _, _ string) (app.MCPBinding, bool) {
+	return s.binding, true
 }
 
 func (s *terminalConflictStore) UpdateMCPOperation(operation app.MCPOperation, expectedVersion int64) (app.MCPOperation, error) {
@@ -70,11 +79,7 @@ func TestServiceCASConflictReturnsConcurrentTerminalOperation(t *testing.T) {
 	}
 }
 
-func (r *fakeRuntime) MCPRouteAvailable(id app.CapabilityID, workflow app.WorkflowContractRef) bool {
-	return id == app.CapabilityConversationAnswer && workflow.ID == app.WorkflowConversationAnswer && workflow.Revision == 2
-}
-
-func (r *fakeRuntime) HandleMCPBoundRoute(ctx context.Context, sessionID, _, _ string, request app.MCPBoundRouteRequest, ingress app.MessageIngressContext) (agent.Result, error) {
+func (r *fakeRuntime) HandleMCPConversation(ctx context.Context, sessionID, _, _ string, request app.MCPConversationRequest, ingress app.MessageIngressContext) (agent.Result, error) {
 	r.request, r.ingress = request, ingress
 	if r.invoked != nil {
 		select {
@@ -100,14 +105,37 @@ func TestServiceDefaultsAccessTicketTTLToOneDay(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
 	now := time.Date(2026, time.August, 13, 8, 0, 0, 0, time.UTC)
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}},
-	}, now)
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := issued.Ticket.ExpiresAt.Sub(issued.Ticket.IssuedAt); got != 24*time.Hour {
 		t.Fatalf("default MCP access ticket TTL = %s, want 24h", got)
+	}
+}
+
+func TestActiveBindingForPeerRejectsLegacySchemaAndWrongScope(t *testing.T) {
+	for _, mutate := range []func(*app.MCPBinding){
+		func(binding *app.MCPBinding) { binding.SchemaVersion = app.MCPBindingSchemaVersion - 1 },
+		func(binding *app.MCPBinding) { binding.Scope = "legacy_leaf" },
+	} {
+		st := store.NewMemoryStore()
+		service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
+		issued, err := service.IssueTicket(app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		peer := app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
+		binding, err := service.RedeemAccessTicket(issued.Secret, peer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutate(&binding)
+		legacyService := New(&activeBindingOverrideStore{Store: st, binding: binding}, &fakeRuntime{}, nil).
+			WithChannelEnabled(func(string) bool { return true })
+		if _, ok := legacyService.ActiveBindingForPeer(peer); ok {
+			t.Fatalf("legacy MCP binding remained active: %#v", binding)
+		}
 	}
 }
 
@@ -124,7 +152,7 @@ func TestServiceDoesNotStartAlreadyCancelledOperation(t *testing.T) {
 	runtime := &fakeRuntime{invoked: make(chan struct{}, 1)}
 	service := New(st, runtime, nil)
 	done := make(chan struct{})
-	go service.executeOperation(time.Now().Add(time.Minute), "session-a", "message-a", "run-a", operation.ID, app.MCPBoundRouteRequest{}, app.MessageIngressContext{}, done)
+	go service.executeOperation(time.Now().Add(time.Minute), "session-a", "message-a", "run-a", operation.ID, app.MCPConversationRequest{}, app.MessageIngressContext{}, done)
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -149,9 +177,7 @@ func TestServiceLateResultCannotOverwriteCancelledOperation(t *testing.T) {
 	service := New(st, runtime, func(context.Context, agent.Result) error {
 		return errors.New("terminal delivery rejected")
 	}).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, "management-client", IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}},
-	}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, "management-client", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +188,7 @@ func TestServiceLateResultCannotOverwriteCancelledOperation(t *testing.T) {
 	go func() {
 		defer close(callDone)
 		_ = dispatchRPC(t, service, peer, "mcp", "late-result", "tools/call", map[string]any{
-			"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "wait"},
+			"name": conversationToolName, "arguments": map[string]any{"text": "wait"},
 		})
 	}()
 	binding := bindingForPeer(t, st, peer)
@@ -217,9 +243,7 @@ func TestServiceNegotiatesMCPVersionAndIgnoresBusinessNotifications(t *testing.T
 		t.Fatalf("unsupported MCP version was negotiated: %#v", wrong)
 	}
 
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}},
-	}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,14 +261,12 @@ func TestServiceNegotiatesMCPVersionAndIgnoresBusinessNotifications(t *testing.T
 	}
 }
 
-func TestServiceTicketBindingAndBoundLeafFlow(t *testing.T) {
+func TestServiceTicketBindingAndConversationFlow(t *testing.T) {
 	st := store.NewMemoryStore()
 	runtime := &fakeRuntime{}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
 	now := time.Now().UTC()
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer, Operations: []app.RouteOperation{app.RouteOperationAnswer}}},
-	}, now)
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +293,7 @@ func TestServiceTicketBindingAndBoundLeafFlow(t *testing.T) {
 
 	listed := dispatchRPC(t, service, peer, "mcp-session", "", "tools/list", map[string]any{})
 	tools := toolsFromRPCResult(t, listed)
-	if !toolListed(tools, "sparkclaw.route.conversation.answer") || !toolListed(tools, "sparkclaw.operation.get") {
+	if !toolListed(tools, conversationToolName) || !toolListed(tools, "sparkclaw.operation.get") {
 		t.Fatalf("filtered tool list = %#v", tools)
 	}
 
@@ -280,22 +302,22 @@ func TestServiceTicketBindingAndBoundLeafFlow(t *testing.T) {
 		Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "answer"}}},
 	}}
 	called := dispatchRPC(t, service, peer, "mcp-session", "idem-a", "tools/call", map[string]any{
-		"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "exact request"},
+		"name": conversationToolName, "arguments": map[string]any{"text": "exact request"},
 	})
 	operation := operationFromRPCResult(t, called)
-	if operation.State != app.MCPOperationSucceeded || runtime.request.CapabilityID != app.CapabilityConversationAnswer || runtime.request.Slots.Operation != app.RouteOperationAnswer {
-		t.Fatalf("bound invocation mismatch: operation=%#v request=%#v", operation, runtime.request)
+	if operation.State != app.MCPOperationSucceeded || runtime.request.Text != "exact request" {
+		t.Fatalf("conversation invocation mismatch: operation=%#v request=%#v", operation, runtime.request)
 	}
 	if runtime.ingress.Authorization.PrincipalID != app.DefaultOwnerID || runtime.request.Invocation.RequesterDeviceID != peer.DeviceID {
 		t.Fatalf("requester was promoted to executor: ingress=%#v request=%#v", runtime.ingress, runtime.request)
 	}
 	if replay := operationFromRPCResult(t, dispatchRPC(t, service, peer, "mcp-session", "idem-a", "tools/call", map[string]any{
-		"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "exact request"},
+		"name": conversationToolName, "arguments": map[string]any{"text": "exact request"},
 	})); replay.ID != operation.ID {
 		t.Fatalf("idempotent replay changed operation: %#v", replay)
 	}
 	conflict := dispatchRPC(t, service, peer, "mcp-session", "idem-a", "tools/call", map[string]any{
-		"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "changed"},
+		"name": conversationToolName, "arguments": map[string]any{"text": "changed"},
 	})
 	if conflict.Error == nil || conflict.Error.Code != -32004 {
 		t.Fatalf("changed replay was not rejected: %#v", conflict)
@@ -305,15 +327,13 @@ func TestServiceTicketBindingAndBoundLeafFlow(t *testing.T) {
 func TestServiceRejectsOperationDeadlineBeyondMaximum(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}},
-	}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
 	peer := app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
 	binding := bindingFromRPCResult(t, dispatchRPC(t, service, peer, "", "", "sparkclaw/access/redeem", map[string]any{"ticket": issued.Secret}))
-	paramsRaw := mustJSON(map[string]any{"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "bounded"}})
+	paramsRaw := mustJSON(map[string]any{"name": conversationToolName, "arguments": map[string]any{"text": "bounded"}})
 	rpcRaw := mustJSON(JSONRPCRequest{JSONRPC: JSONRPCVersion, ID: json.RawMessage(`1`), Method: "tools/call", Params: paramsRaw})
 	response, err := service.Dispatch(t.Context(), PeerRequest{Peer: peer, Request: TransportRequest{
 		ProtocolVersion: TransportProtocolVersion, Type: TransportTypeRequest, IdempotencyKey: "too-long",
@@ -357,7 +377,7 @@ func TestProviderMapsBlockedResultToFailedOperation(t *testing.T) {
 	}
 }
 
-func TestProviderFailsClosedWhenApprovalWasNotGranted(t *testing.T) {
+func TestProviderParksWaitingResultForLocalApproval(t *testing.T) {
 	st := store.NewMemoryStore()
 	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
 		ID: "operation-no-approval", BindingID: "binding-a", IdempotencyKey: "no-approval", Fingerprint: "no-approval",
@@ -377,11 +397,8 @@ func TestProviderFailsClosedWhenApprovalWasNotGranted(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, _ := st.GetMCPOperation(operation.ID)
-	approval, _ := st.GetApproval("approval-no-approval")
-	call, _ := st.GetToolCall("call-no-approval")
-	run, _ := st.GetRun("run-no-approval")
-	if stored.State != app.MCPOperationFailed || stored.ErrorCode != "approval_not_granted" || approval.Status != "rejected" || call.Status != "rejected" || run.State != "blocked" {
-		t.Fatalf("ungranted approval did not fail closed: operation=%#v approval=%#v call=%#v run=%#v", stored, approval, call, run)
+	if stored.State != app.MCPOperationApprovalRequired || stored.CompletedAt != nil {
+		t.Fatalf("local approval was not preserved as waiting: operation=%#v", stored)
 	}
 }
 
@@ -391,9 +408,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 		Status: app.WorkflowResultSucceeded, Content: app.MessageContent{Parts: []app.MessagePart{{ID: "text", Kind: app.MessagePartText, Text: "private result"}}},
 	}}}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}},
-	}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +416,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 	_ = bindingFromRPCResult(t, dispatchRPC(t, service, peer, "mcp", "", "sparkclaw/access/redeem", map[string]any{"ticket": issued.Secret}))
 	_ = dispatchRPC(t, service, peer, "mcp", "", "tools/list", map[string]any{})
 	_ = dispatchRPC(t, service, peer, "mcp", "audit-idempotency-secret", "tools/call", map[string]any{
-		"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "private argument"},
+		"name": conversationToolName, "arguments": map[string]any{"text": "private argument"},
 	})
 	raw, err := json.Marshal(st.ListAudit(""))
 	if err != nil {
@@ -423,7 +438,7 @@ func TestServiceMCPAuditDoesNotContainSecretOrArguments(t *testing.T) {
 func TestServiceRejectsDeviceSubstitutionAndRevocation(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}}}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,9 +461,7 @@ func TestServiceBindingRevocationCancelsExecutionAndRejectsApproval(t *testing.T
 	st := store.NewMemoryStore()
 	runtime := &fakeRuntime{block: make(chan struct{})}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer, AllowApproval: true}},
-	}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +471,7 @@ func TestServiceBindingRevocationCancelsExecutionAndRejectsApproval(t *testing.T
 	go func() {
 		defer close(callDone)
 		_ = dispatchRPC(t, service, peer, "mcp", "revoke-running", "tools/call", map[string]any{
-			"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "wait"},
+			"name": conversationToolName, "arguments": map[string]any{"text": "wait"},
 		})
 	}()
 	running := waitForOperation(t, st, binding.ID, "revoke-running")
@@ -495,7 +508,7 @@ func TestServiceDoesNotConsumeTicketWhileConnectorDisabled(t *testing.T) {
 	st := store.NewMemoryStore()
 	enabled := true
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return enabled })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}}}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,45 +523,24 @@ func TestServiceDoesNotConsumeTicketWhileConnectorDisabled(t *testing.T) {
 	}
 }
 
-func TestServiceHidesOnlyStaleGrantedLeaf(t *testing.T) {
+func TestServiceRejectsLegacyAccessTicketSchema(t *testing.T) {
 	st := store.NewMemoryStore()
-	runtime := &fakeRuntime{}
-	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
 	now := time.Now().UTC()
-	secret := "stale-grant-secret"
+	secret := "legacy-ticket-secret"
 	secretDigest := sha256.Sum256([]byte(secret))
 	if _, err := st.SaveMCPAccessTicket(app.MCPAccessTicket{
+		ID: "legacy-ticket", SchemaVersion: 1,
 		SecretHash: hex.EncodeToString(secretDigest[:]), OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		DomainID: "domain-a", Status: app.MCPAccessPending, MaxUses: 1, IssuedAt: now, ExpiresAt: now.Add(time.Minute),
-		Grants: []app.MCPLeafGrant{
-			{
-				CapabilityID: app.CapabilityConversationAnswer, Operations: []app.RouteOperation{app.RouteOperationAnswer},
-				Effects: []app.ToolEffect{app.ToolEffectLocalCompute}, Workflow: app.WorkflowContractRef{ID: app.WorkflowConversationAnswer, Revision: 2},
-				ProjectionRevision: 1, Status: app.MCPLeafGrantActive,
-			},
-			{
-				CapabilityID: app.CapabilityBrowserWeather, Operations: []app.RouteOperation{app.RouteOperationRead},
-				Effects: []app.ToolEffect{app.ToolEffectExternalRead}, Workflow: app.WorkflowContractRef{ID: app.WorkflowBrowserWeather, Revision: 1},
-				ProjectionRevision: 999, Status: app.MCPLeafGrantStale,
-			},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	peer := app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
-	_ = bindingFromRPCResult(t, dispatchRPC(t, service, peer, "", "", "sparkclaw/access/redeem", map[string]any{"ticket": secret}))
-	tools := toolsFromRPCResult(t, dispatchRPC(t, service, peer, "mcp", "", "tools/list", map[string]any{}))
-	if !toolListed(tools, "sparkclaw.route.conversation.answer") || toolListed(tools, "sparkclaw.route.browser.weather") || !toolListed(tools, "sparkclaw.operation.get") {
-		t.Fatalf("stale grant filtering changed unrelated tools: %#v", tools)
+	}); err == nil {
+		t.Fatal("legacy MCP access ticket schema was persisted")
 	}
 }
 
 func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 	st := store.NewMemoryStore()
 	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{
-		DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer, AllowApproval: true}},
-	}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +567,7 @@ func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 			Invocation: app.MCPInvocationContext{
 				ID: ref.InvocationID, OperationID: id, BindingRef: binding.ID, BindingRevision: binding.AuthorizationRevision,
 				RequesterDeviceID: binding.RequesterDeviceID, OwnerID: binding.OwnerID, ActorID: binding.ActorID,
-				RunID: runID, AllowApproval: true,
+				RunID: runID,
 			},
 			State: app.MCPOperationRunning,
 		})
@@ -636,7 +628,7 @@ func TestServiceOperationCancelStopsRunningInvocation(t *testing.T) {
 	st := store.NewMemoryStore()
 	runtime := &fakeRuntime{block: make(chan struct{})}
 	service := New(st, runtime, nil).WithChannelEnabled(func(string) bool { return true })
-	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a", Grants: []RequestedGrant{{CapabilityID: app.CapabilityConversationAnswer}}}, time.Now().UTC())
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -644,7 +636,7 @@ func TestServiceOperationCancelStopsRunningInvocation(t *testing.T) {
 	_ = bindingFromRPCResult(t, dispatchRPC(t, service, peer, "", "", "sparkclaw/access/redeem", map[string]any{"ticket": issued.Secret}))
 
 	rpcRaw, _ := json.Marshal(JSONRPCRequest{JSONRPC: JSONRPCVersion, ID: json.RawMessage(`2`), Method: "tools/call", Params: mustJSON(map[string]any{
-		"name": "sparkclaw.route.conversation.answer", "arguments": map[string]any{"query": "wait"},
+		"name": conversationToolName, "arguments": map[string]any{"text": "wait"},
 	})})
 	callDone := make(chan JSONRPCResponse, 1)
 	go func() {
@@ -725,14 +717,23 @@ func operationFromRPCResult(t *testing.T, response JSONRPCResponse) app.MCPOpera
 	var result struct {
 		Content           []CallToolContent `json:"content"`
 		StructuredContent struct {
-			Operation app.MCPOperation `json:"operation"`
+			Operation   app.MCPOperation      `json:"operation"`
+			OperationID string                `json:"operation_id"`
+			State       app.MCPOperationState `json:"state"`
+			CompletedAt *time.Time            `json:"completed_at"`
 		} `json:"structuredContent"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Content) != 1 || result.Content[0].Type != "text" {
+	if len(result.Content) == 0 {
 		t.Fatalf("tools/call did not return MCP CallToolResult content: %s", raw)
+	}
+	if result.StructuredContent.OperationID != "" {
+		return app.MCPOperation{ID: result.StructuredContent.OperationID, State: result.StructuredContent.State, CompletedAt: result.StructuredContent.CompletedAt}
+	}
+	if len(result.Content) != 1 || result.Content[0].Type != "text" {
+		t.Fatalf("operation status did not return its compatibility text block: %s", raw)
 	}
 	var textResult struct {
 		Operation app.MCPOperation `json:"operation"`

@@ -15,14 +15,9 @@ func applyWorkflowResultToOperation(operation *app.MCPOperation, status app.Work
 	case app.WorkflowResultSucceeded:
 		operation.State = app.MCPOperationSucceeded
 	case app.WorkflowResultWaiting:
-		if operation.Invocation.AllowApproval {
-			operation.State = app.MCPOperationApprovalRequired
-			operation.CompletedAt = nil
-			return
-		}
-		operation.State = app.MCPOperationFailed
-		operation.ErrorCode = "approval_not_granted"
-		operation.ErrorMessage = "This MCP binding did not grant approval-backed execution for the invocation"
+		operation.State = app.MCPOperationApprovalRequired
+		operation.CompletedAt = nil
+		return
 	case app.WorkflowResultBlocked, app.WorkflowResultFailed:
 		operation.State = app.MCPOperationFailed
 		operation.ErrorCode = "workflow_" + string(status)

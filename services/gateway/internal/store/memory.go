@@ -1265,17 +1265,16 @@ func (s *MemoryStore) UpdateConnectorSetting(setting app.ConnectorSetting, expec
 	}
 	setting.UpdatedAt = time.Now().UTC()
 	s.connectorSettings[key] = setting
-	state := "disabled"
-	if setting.Enabled {
-		state = "enabled"
-	}
-	s.appendAuditLocked("connector."+state, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
-		"owner_id": setting.OwnerID,
-		"channel":  setting.Channel,
-		"enabled":  setting.Enabled,
-		"version":  setting.Version,
+	auditType := connectorSettingAuditType(exists, current.Enabled, current.ISCPEnabled, current.LANAccessEnabled, setting)
+	s.appendAuditLocked(auditType, "", "", setting.UpdatedBy, setting.Channel, map[string]any{
+		"owner_id":           setting.OwnerID,
+		"channel":            setting.Channel,
+		"enabled":            setting.Enabled,
+		"iscp_enabled":       setting.ISCPEnabled,
+		"lan_access_enabled": setting.LANAccessEnabled,
+		"version":            setting.Version,
 	})
-	s.appendEventLocked("connector."+state, "", "", setting)
+	s.appendEventLocked(auditType, "", "", setting)
 	return setting, nil
 }
 

@@ -68,11 +68,11 @@ func (s *semanticIntentRouter) initializeEmbeddingIndex(ctx context.Context, mod
 }
 
 func (r Runtime) routeIntent(ctx context.Context, sessionID, runID, content string) (IntentRoutingOutput, error) {
-	return r.routeIntentWithRequest(ctx, sessionID, runID, content, nil, "")
+	return r.routeIntentWithRequest(ctx, sessionID, runID, content, nil, nil, "")
 }
 
-func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, sourceKind app.MessageSourceKind) (IntentRoutingOutput, error) {
-	if routing, mediaOnly, err := r.routeMediaOnlyMessage(sessionID, runID, ownerText, resources, sourceKind); mediaOnly || err != nil {
+func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, error) {
+	if routing, mediaOnly, err := r.routeMediaOnlyMessage(sessionID, runID, ownerText, resources, locators, sourceKind); mediaOnly || err != nil {
 		return routing, err
 	}
 	if r.semanticRouter == nil || r.semanticRouter.graph == nil {
@@ -144,8 +144,8 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	return IntentRoutingOutput{Route: route, Delivery: delivery, Fusion: &fusion}, nil
 }
 
-func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resources []app.MessagePart, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {
-	if sourceKind != app.MessageSourceWeb || strings.TrimSpace(ownerText) != "" || len(resources) == 0 {
+func (r Runtime) routeMediaOnlyMessage(sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind) (IntentRoutingOutput, bool, error) {
+	if strings.TrimSpace(ownerText) != "" || (len(resources) == 0 && len(locators) == 0) {
 		return IntentRoutingOutput{}, false, nil
 	}
 	for _, resource := range resources {

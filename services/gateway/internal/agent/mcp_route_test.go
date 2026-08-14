@@ -9,7 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestHandleMCPBoundRouteExecutesExactLeafWithoutSemanticRouting(t *testing.T) {
+func TestHandleMCPConversationUsesOrdinarySemanticRouting(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 
@@ -17,13 +17,10 @@ func TestHandleMCPBoundRouteExecutesExactLeafWithoutSemanticRouting(t *testing.T
 		InvocationID: "mcp_invocation_test", OperationID: "mcp_operation_test",
 		BindingRef: "mcp_binding_test", BindingRevision: 3, RequesterDeviceID: "localmind-device",
 	}
-	result, err := runtime.HandleMCPBoundRoute(
+	result, err := runtime.HandleMCPConversation(
 		context.Background(), session.ID, "m_mcp_test", "run_mcp_test",
-		app.MCPBoundRouteRequest{
-			Content:      "What is the capital of France?\nMOCK_CONVERSATION_RESPONSE:Paris.",
-			CapabilityID: app.CapabilityConversationAnswer,
-			Slots:        app.RouteSlots{Operation: app.RouteOperationAnswer, Query: "What is the capital of France?"},
-			Invocation:   invocation,
+		app.MCPConversationRequest{
+			Text: "What is the capital of France?\nMOCK_CONVERSATION_RESPONSE:Paris.", Invocation: invocation,
 		},
 		app.MessageIngressContext{
 			Source: app.MessageSourceContext{
@@ -39,14 +36,17 @@ func TestHandleMCPBoundRouteExecutesExactLeafWithoutSemanticRouting(t *testing.T
 		t.Fatal(err)
 	}
 	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched ||
-		result.RouteDecision.Reason != "mcp_bound_leaf" || result.RouteDecision.Confidence != 1 ||
 		len(result.RouteDecision.CapabilityPath) != 2 || result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer {
-		t.Fatalf("MCP route did not select the exact leaf: %#v", result.RouteDecision)
+		t.Fatalf("MCP conversation did not enter ordinary semantic routing: %#v", result.RouteDecision)
 	}
+	foundSemanticRouting := false
 	for _, call := range st.ListModelCalls(session.ID, result.Run.ID) {
 		if call.Operation == "intent_embedding" || call.Operation == "intent_tree_graph" {
-			t.Fatalf("MCP bound route entered semantic routing: %#v", call)
+			foundSemanticRouting = true
 		}
+	}
+	if !foundSemanticRouting {
+		t.Fatalf("MCP conversation bypassed semantic routing: %#v", st.ListModelCalls(session.ID, result.Run.ID))
 	}
 	stored, ok := st.GetRun(result.Run.ID)
 	if !ok || stored.MessageContext == nil || stored.MessageContext.MCP == nil || *stored.MessageContext.MCP != invocation {

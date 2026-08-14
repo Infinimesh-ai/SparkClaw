@@ -78,9 +78,11 @@ bash scripts/deploy.sh
 | `compat` | Gateway 连接外部 OpenAI-compatible endpoints。 |
 | `models-local` | PostgreSQL 18/pgvector、MinIO、sandbox-runner、Gateway、WebChat 和可选 vLLM lanes。 |
 
-WebChat 的 host port `18790` 默认绑定 `0.0.0.0`，允许局域网访问。Gateway、模型、
-状态服务和 sandbox runner 仍绑定 localhost。Containers 通过私有
-`sparkclaw_internal` network 通信。
+WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。Gateway 不发布 host
+port；WebChat 通过私有 `sparkclaw_internal` network，把选定路由代理到
+`gateway:18789`。WebChat 必须只在本机可达时设置
+`SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。模型、状态服务和 sandbox runner 仍绑定
+localhost 或私有 Docker network。
 
 ## Product Runtime
 
@@ -131,18 +133,20 @@ sparkclaw-autostart.service`；配置为开启时，该操作会按预期执行�
 
 ```bash
 docker ps --filter name=sparkclaw
-curl -fsS http://127.0.0.1:18789/readyz
+curl -fsS http://127.0.0.1:18790/readyz
 bash scripts/doctor.sh
 ```
 
 本机打开 WebChat：[http://127.0.0.1:18790](http://127.0.0.1:18790)；同一局域网的
 其他设备使用 `http://<主机局域网-IP>:18790`。
 
-对 Dockerized Gateway 运行 golden eval：
+golden eval script 会访问仅限内部的 `/chat` 与 `/metrics` route，因此有意使用隔离的 host
+development Gateway，而不经过产品 WebChat 入口。先启动该 Gateway，再运行：
 
 ```bash
 BROWSER_FIXTURE_URL=http://host.docker.internal:18791 \
 BROWSER_FIXTURE_BIND=0.0.0.0 \
+GATEWAY_URL=http://127.0.0.1:18789 \
 bash scripts/run-eval.sh
 ```
 
@@ -172,7 +176,7 @@ Host WebChat dev server 监听 `0.0.0.0:18790`，并把 API 请求代理到仅�
 loopback 的 Gateway。受保护的宿主进程运行态应把 `SPARKCLAW_API_TOKEN`
 和 `VITE_SPARKCLAW_API_TOKEN` 设为相同值。
 
-## 外部 MCP ISCP 配对
+## 外部 MCP 连接
 
 Owner-facing External MCP 表面已安装但默认关闭。只有 SparkClaw 可以向真实 ISCP Domain
 authority 请求标准 `iscp.pairing_ticket.v2` 对象时才会 ready：
@@ -196,44 +200,36 @@ SparkClaw 发送带认证的 `POST`，包含 `sparkclaw.iscp_pairing.request.v1`
 Grant 和 Relay credential 仍由 authority 负责；SparkClaw 不存储签名 ticket，也不暴露 claim
 endpoint。
 
-配置完成后，在 WebChat 设置中开启通用 MCP connector，签发并传递单次展示的 ISCP Pairing
-Ticket，让 external Access Gateway 完成 enrollment，然后按选中的 Catalog 叶子签发独立 MCP
-Access Ticket。生产端到端访问仍需要真实 authority 实现、external Access Gateway 和 Relay
-实机链路。
+配置完成后，在 WebChat 设置中开启通用 MCP connector 与“通过 ISCP 连接”，签发并传递
+单次展示的 ISCP Pairing Ticket，让 external Access Gateway 完成 enrollment，然后按固定
+conversation scope 签发独立 MCP Access Ticket。关闭 ISCP 开关会立即拒绝 MCP Bridge ingress，
+但不会删除已有 onboarding、ticket 或 binding record。生产端到端访问仍需要真实 authority
+实现、external Access Gateway 和 Relay 实机链路。
 
-### 临时局域网 MCP 验证
+### 局域网直连 MCP
 
-只有当 SparkClaw 与外部 MCP client 位于同一可信局域网、且生产 ISCP 链路尚不可用时才使用此
-模式。局域网只替代 ISCP transport 和 peer session 建立；SparkClaw 仍签发单次 MCP Access
-Ticket，在 MCP `initialize` 时原子消费它，创建同一种持久 MCP Binding，并继续使用完全相同的
-Catalog、Workflow、Policy/Approval、operation、Message 和 Delivery 链路。
-
-用显式测试环境启动 Gateway、WebChat 和只允许 MCP 路径的局域网 proxy：
-
-```bash
-SPARKCLAW_RUNTIME_OVERRIDE_ENV=docker/env/sparkclaw.lan-mcp-test.env \
-  bash scripts/restart_runtime_compose.sh gateway webchat mcp-lan-proxy
-```
-
-Gateway 的 `18789` 仍只绑定 loopback；该模式不改变 WebChat 现有的 `18790` 发布设置。proxy
-仅在 TCP `18791` 发布精确路径 `/mcp`，其他路径全部返回 404。外部 client 使用：
+直连 MCP 复用现有 WebChat 入口，不发布 Gateway，也不增加单独端口。在 WebChat 设置中开启
+“允许局域网访问”，然后连接：
 
 ```text
-URL: http://<sparkclaw-lan-ip>:18791/mcp
+URL: http://<sparkclaw-lan-ip>:18790/mcp
 Initial Authorization: Bearer <SPARKCLAW_MCP_ACCESS_TICKET>
 MCP-Protocol-Version: 2025-06-18
 ```
 
-在 WebChat 中开启通用 MCP connector，选择允许的 Catalog operation，然后签发 MCP Access
-Ticket。该界面签发的 ticket 有效期为 24 小时且仍然只能使用一次。首次 `initialize` 时，
-服务端消费该 ticket，并返回 `Mcp-Session-Id`。符合 Streamable
-HTTP 规范的 client 会保存该 header，并在 `notifications/initialized`、`tools/list` 和
-`tools/call` 中继续携带。原 ticket 不能再初始化第二个 session。session ID 是 bearer
-credential，不得写入日志或源码；SparkClaw 只存储由其 SHA-256 派生的身份。
+WebChat 始终监听 `18790`，但 Nginx 只把精确的 `/mcp` 路由代理到内部 Gateway。该开关是
+应用授权门：关闭时 `/mcp` 返回 404。Gateway `18789` 没有 host port 映射。未配置 ISCP
+Domain 时，直连使用 `SPARKCLAW_MCP_LOCAL_DOMAIN_ID`，默认值为
+`sparkclaw-local`；已配置的 ISCP Domain 优先，因此两种 transport 共用同一个 access-ticket
+domain。
 
-该测试 endpoint 使用明文 HTTP，不提供 ISCP encryption、Device Proof、Relay、Trust Grant 或
-revocation 语义。必须把它限制在可信局域网内，测试后撤销 MCP Binding，并在启用生产 ISCP
-链路前停止 `mcp-lan-proxy`。
+MCP Access Ticket 有效期为 24 小时且只能使用一次。首次 `initialize` 会消费 ticket 并返回
+`Mcp-Session-Id`；client 应在 `notifications/initialized`、`tools/list` 与 `tools/call` 中继续
+携带该 header。session ID 是 bearer credential，不得写入日志或源码；SparkClaw 只存储其
+SHA-256 派生身份。局域网直连使用明文 HTTP，不提供 ISCP encryption、Device Proof、Relay
+或 Trust Grant。必须限制在可信局域网内，并撤销不再使用的 MCP Binding。MCP 调用使用独立
+MCP Access Ticket，不需要 `SPARKCLAW_API_TOKEN`；后者启用时保护的是另一条 owner
+WebChat/Gateway API。
 
 ## LocalMind MCP
 
@@ -692,10 +688,10 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 
 ## Secure Defaults
 
-- 只把 WebChat 暴露在 `0.0.0.0:18790`；Gateway 和其他服务端口仍绑定
-  `127.0.0.1`。
-- 在局域网或共享机器上开放 WebChat 前设置 `SPARKCLAW_API_TOKEN`。
-- Gateway 仅在本地开发时允许无认证。
+- 除非局域网 MCP client 确实需要直连，否则保持“允许局域网访问”关闭；出厂 Compose 中
+  Gateway 仅在 Docker 私有网络可达。
+- 把 WebChat `18790` 限制在 owner 可信局域网。MCP Access Ticket 保护 `/mcp`，但不认证
+  WebChat 的其他 API 路由。
 - dangerous 和 reversible tools 保持 approval-gated。
 - shell execution 保持 sandboxed 且 network-disabled。
 - browser/email/file observations 视为 untrusted。

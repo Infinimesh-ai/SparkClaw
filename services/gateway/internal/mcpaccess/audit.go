@@ -59,9 +59,6 @@ func operationAuditFields(operation app.MCPOperation, peer app.MCPPeerIdentity) 
 		"requester_device_id":      operation.Invocation.RequesterDeviceID,
 		"requester_key_thumbprint": operation.Invocation.RequesterKeyThumbprint,
 		"iscp_session_id":          peer.ISCPSessionID, "tool_name": operation.Invocation.ToolName,
-		"capability_id": operation.Invocation.CapabilityID,
-		"workflow_id":   operation.Invocation.Workflow.ID, "workflow_revision": operation.Invocation.Workflow.Revision,
-		"catalog_revision": operation.Invocation.CatalogRevision,
 	}
 }
 
@@ -72,14 +69,6 @@ func operationSessionID(st interface {
 		return binding.LinkedSessionID
 	}
 	return ""
-}
-
-func grantedCapabilityIDs(grants []app.MCPLeafGrant) []app.CapabilityID {
-	ids := make([]app.CapabilityID, 0, len(grants))
-	for _, grant := range grants {
-		ids = append(ids, grant.CapabilityID)
-	}
-	return ids
 }
 
 func operationAuditType(toolName string) string {

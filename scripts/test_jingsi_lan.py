@@ -49,7 +49,16 @@ class JingSiLANDeploymentTest(unittest.TestCase):
 
     def test_nginx_port_has_only_exact_presentation_routes(self):
         nginx = (ROOT / "docker" / "images" / "webchat.nginx.conf").read_text(encoding="utf-8")
+        base = nginx.split("listen 18793;", 1)[0]
         presentation = nginx.split("listen 18793;", 1)[1]
+        for route in (
+            "/api/jingsi/v0/readyz",
+            "/api/messages/stream",
+            "/api/client-events/v0/head",
+            "/api/client-events/v0",
+            "/api/client-events/v0/stream",
+        ):
+            self.assertIn(f"location = {route} {{\n    return 404;", base)
         for route in (
             "/readyz",
             "/api/messages/stream",

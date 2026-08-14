@@ -186,7 +186,7 @@ func pptxScopedOperationContext(blocks, layoutShapes, slideLayouts []any, scope,
 	lines := []string{
 		"PPTXSlideOperationContext:",
 		"- slide_index and shape_index are exact 1-based locations from the structured read.",
-		"- For PPTX text updates, return the exact JSON keys shape_index and text (plus an optional mode/find/break_mode); replacement_text is not a schema key, and Runtime binds old_text from current evidence.",
+		"- For PPTX text updates, return the exact JSON keys shape_index and text (plus optional mode/find); replacement_text is not a schema key, and Runtime binds old_text and newline behavior from current evidence.",
 		"- Return at most 16 selected text updates, and only include shapes whose replacement text differs from current_text; Runtime coordinates layout for those effective changes.",
 		"- For a broad improve or polish request, make at least one substantive clarity, accuracy, concision, or hierarchy improvement. Runtime rejects changes limited to punctuation, symbols, spacing, or letter case; use an exact text replacement operation when the owner explicitly requests that kind of copy edit.",
 		"- Update only listed text shapes; do not merge multiple shapes or return Runtime-owned path, output_path, source hash, or single-slide index fields.",

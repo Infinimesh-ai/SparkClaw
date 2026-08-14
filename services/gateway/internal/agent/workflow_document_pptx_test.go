@@ -694,8 +694,9 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	updatesSchema, _ := anyMap(properties["updates"])
 	updateItemSchema, _ := anyMap(updatesSchema["items"])
 	updateProperties, _ := anyMap(updateItemSchema["properties"])
-	if _, exposed := updateProperties["old_text"]; exposed || slices.Contains(toolDefinitionRequiredArgs(updateItemSchema), "old_text") || intLikeValue(updatesSchema["maxItems"]) != pptxModelMaxTextUpdates {
-		t.Fatalf("runtime-owned PPTX old_text leaked into the model schema: %#v", tools[0].InputSchema)
+	if _, exposed := updateProperties["old_text"]; exposed || updateProperties["break_mode"] != nil ||
+		slices.Contains(toolDefinitionRequiredArgs(updateItemSchema), "old_text") || intLikeValue(updatesSchema["maxItems"]) != pptxModelMaxTextUpdates {
+		t.Fatalf("runtime-owned PPTX evidence or newline control leaked into the model schema: %#v", tools[0].InputSchema)
 	}
 	registeredUpdateSlide, ok := runtime.tools.Definition("pptx.update_slide")
 	if !ok {

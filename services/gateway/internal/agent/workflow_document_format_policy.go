@@ -417,6 +417,7 @@ func projectPPTXTextUpdateArraySchema(value any) any {
 	if ok {
 		projectedProperties := cloneAnyMap(properties)
 		delete(projectedProperties, "old_text")
+		delete(projectedProperties, "break_mode")
 		if textSchema, exists := anyMap(projectedProperties["text"]); exists {
 			textSchema = cloneAnyMap(textSchema)
 			textSchema["minLength"] = float64(1)

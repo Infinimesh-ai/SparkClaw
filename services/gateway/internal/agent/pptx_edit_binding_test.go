@@ -87,7 +87,7 @@ func TestBindPPTXSlideUpdateArgumentsUsesOwnerOrdinalAndReadEvidence(t *testing.
 	args := runtime.bindPPTXEditArguments(run, "update_slide", map[string]any{
 		"path": "uploads/deck.pptx", "slide_index": 2,
 		"updates": []any{
-			map[string]any{"shape_index": 1, "new_text": "Improved title"},
+			map[string]any{"shape_index": 1, "new_text": "Improved title\nSupporting line", "break_mode": "paragraph"},
 			map[string]any{"shape_index": 7, "old_text": "Model supplied evidence", "text": "Improved body"},
 		},
 	})
@@ -100,8 +100,8 @@ func TestBindPPTXSlideUpdateArgumentsUsesOwnerOrdinalAndReadEvidence(t *testing.
 	if first["old_text"] != "Exact third title" {
 		t.Fatalf("missing old_text was not grounded from structured read: %#v", first)
 	}
-	if first["text"] != "Improved title" || first["new_text"] != nil {
-		t.Fatalf("new_text alias was not normalized before schema validation: %#v", first)
+	if first["text"] != "Improved title\nSupporting line" || first["new_text"] != nil || first["break_mode"] != nil {
+		t.Fatalf("model aliases or newline controls were not normalized before schema validation: %#v", first)
 	}
 	if second["old_text"] != "Model supplied evidence" {
 		t.Fatalf("model-supplied old_text must remain subject to stale-evidence validation: %#v", second)

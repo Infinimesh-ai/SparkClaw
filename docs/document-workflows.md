@@ -337,8 +337,9 @@ grounding and multi-parent lineage do not yet exist.
 PPTX text mutation supports `exact_span` and `rewrite_shape`. Exact-span
 replacement keeps unaffected runs and redistributes a cross-run replacement
 without flattening the paragraph. Shape rewrite retains the paragraph skeleton
-and supported run styles; `break_mode` maps explicit newlines to either
-PowerPoint soft breaks or paragraphs. Field-bearing targets fail closed.
+and supported run styles. Runtime removes model-supplied newline controls;
+single-paragraph shapes map explicit newlines to PowerPoint soft breaks, while
+existing multi-paragraph shapes retain their paragraph skeleton. Field-bearing targets fail closed.
 Post-edit verification compares the paragraph/run tree and hyperlink targets,
 so an unrequested formatting loss is a preservation mismatch.
 

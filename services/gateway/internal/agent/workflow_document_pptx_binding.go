@@ -111,6 +111,9 @@ func (r Runtime) bindPPTXUpdates(run app.AgentRun, args map[string]any, slideInd
 		if !ok {
 			continue
 		}
+		// The source paragraph structure determines whether newlines become soft
+		// breaks or separate paragraphs. Model output must not override it.
+		delete(update, "break_mode")
 		newText := strings.TrimSpace(stringValue(update["text"]))
 		if newText == "" || newText == "<nil>" {
 			if alias := strings.TrimSpace(stringValue(update["new_text"])); alias != "" && alias != "<nil>" {

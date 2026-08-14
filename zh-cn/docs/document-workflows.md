@@ -259,8 +259,9 @@ opaque part 必须保持 hash。输出会重新读取并校验类型化或结构
 
 PPTX 文本 mutation 支持 `exact_span` 和 `rewrite_shape`。精确区间替换会保留未受影响的
 run，并在跨 run 替换时重新分配文本而不压平段落。形状重写会保留 paragraph skeleton 和
-受支持的 run style；`break_mode` 把显式换行映射为 PowerPoint soft break 或 paragraph。
-含 field 的目标会 fail closed。编辑后验证会比较 paragraph/run 树及 hyperlink 目标，因此
+受支持的 run style。Runtime 会移除模型提供的换行控制；单段落 shape 把显式换行映射为
+PowerPoint soft break，已有多段落 shape 则保留其 paragraph skeleton。含 field 的目标会
+fail closed。编辑后验证会比较 paragraph/run 树及 hyperlink 目标，因此
 未请求的格式丢失会成为 preservation mismatch。
 
 Runtime 独占全部确定性布局决策。在 `coordinated`

@@ -100,6 +100,32 @@ func TestPPTXRunAwareReplacementAndShapeUpdatePreserveStyles(t *testing.T) {
 	}
 }
 
+func TestPPTXSingleParagraphMultilineDefaultsToSoftBreak(t *testing.T) {
+	root := t.TempDir()
+	writeRichPPTXWorkflowFixture(t, root, "rich-deck.pptx")
+	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
+	original := executeDocumentRead(t, hub, "rich-deck.pptx")["document"].(map[string]any)
+	soft := pptxTestBlock(t, original, 1, 2, 0)
+
+	if _, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
+		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"),
+		"output_path": "outputs/soft-break.pptx", "slide_index": 1, "layout_policy": "coordinated",
+		"updates": []any{map[string]any{
+			"shape_index": 2, "old_text": soft["text"], "mode": "rewrite_shape",
+			"text": "Improved first line\nImproved second line",
+		}},
+	}, "session", "run"); err != nil {
+		t.Fatalf("single-paragraph multiline update did not use its source-derived soft-break default: %v", err)
+	}
+
+	updated := executeDocumentRead(t, hub, "outputs/soft-break.pptx")["document"].(map[string]any)
+	structure := pptxTestBlock(t, updated, 1, 2, 0)["format_metadata"].(map[string]any)["text_structure"].(map[string]any)
+	paragraphs := testAnySlice(structure["paragraphs"])
+	if len(paragraphs) != 1 || intArg(paragraphs[0].(map[string]any), "soft_breaks", 0) != 1 {
+		t.Fatalf("single-paragraph multiline update changed paragraph structure: %#v", structure)
+	}
+}
+
 func TestPPTXMutationRequiresCurrentSourceSHA256(t *testing.T) {
 	root := t.TempDir()
 	writeRichPPTXWorkflowFixture(t, root, "rich-deck.pptx")

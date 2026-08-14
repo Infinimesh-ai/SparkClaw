@@ -39,6 +39,7 @@
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
 | [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
+| [PPTX 超长文本韧性适配](pptx-overlength-resilience-design.md) | 防止模型文字过长导致 PPTX 完善失败的受限适配与渲染检查提案 |
 | [DOCX 编辑](docx-editing-optimization.md) | 当前 DOCX 样式验证、证据绑定、run 保真、coverage、目标感知 decision 投影与评测契约 |
 | [观测压缩重构](observation-compression-redesign.md) | 已实施的统一工具结果信封、运行时证据供给与无损压缩 |
 | [暂缓能力](deferred-email-calendar-knowledge.md) | 已移除的邮件、日历、workspace knowledge 原型及重新引入门槛 |

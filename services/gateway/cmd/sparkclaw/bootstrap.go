@@ -77,6 +77,7 @@ func newGatewayServices(
 			gateway.WithISCPPairing(iscpPairing),
 			gateway.WithExternalApprovalResolver(happyApprovals),
 			gateway.WithNotificationBindingCancellation(connectors.registry.CancelBinding),
+			gateway.WithManagedBrowserWindows(tools),
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 		),
 		connectors:        connectors,

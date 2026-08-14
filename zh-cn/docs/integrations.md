@@ -93,6 +93,14 @@ address 和 acknowledgement 留在微信 package 内。Agent Runtime、Timer 和
 block 和对应环境变量只在尚无 owner 持久化选择时作为启动默认值。被撤销或不可用 binding
 仍可见，但不能选作 delivery target。
 
+对于 QR provider，WebChat 不再用 owner 的默认浏览器打开链接，而是通过绑定专属的 visible
+Chromium profile 打开持久化的 provider 登录 URL。Gateway 只允许当前 owner 仍处于待处理状态的
+微信 binding 执行该动作，并且只接受 provider 的 HTTPS `liteapp.weixin.qq.com` URL；client
+不能提交 URL。重复点击会复用同一个 binding-scoped 窗口。polling 观察到绑定已激活、过期或失败，
+或者 owner 撤销 binding 时，Gateway 会释放对应的受管 browser session 并关闭 Chromium 窗口。
+该功能要求可信桌面 runtime 启用 `docker/compose.visible-browser.yaml` overlay；没有 visible
+display 时会明确失败，绝不回退到默认浏览器。
+
 ## 语音转写
 
 Speech 是 WebChat microphone 和 Telegram voice note 共享的可选 OpenAI-compatible
@@ -227,6 +235,7 @@ PATCH  /api/connectors/{channel}
 GET    /api/notification-bindings
 POST   /api/notification-bindings/{channel}/start
 GET    /api/notification-bindings/{id}
+POST   /api/notification-bindings/{id}/browser
 DELETE /api/notification-bindings/{id}
 GET    /api/delivery-endpoints
 ```

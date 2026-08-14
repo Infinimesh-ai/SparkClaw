@@ -92,6 +92,22 @@ func (a *AgentBrowserAdapter) Close() error {
 	return nil
 }
 
+func (a *AgentBrowserAdapter) ReleaseSession(args map[string]any) error {
+	metadata := browserModeMetadata(args, "autonomous")
+	key := agentBrowserSessionKey{
+		profile:      a.browserProfileKey(args),
+		presentation: metadata.Presentation,
+	}
+	a.mu.Lock()
+	entry := a.entries[key]
+	delete(a.entries, key)
+	a.mu.Unlock()
+	if entry != nil {
+		closeSessionEntry(entry)
+	}
+	return nil
+}
+
 func (a *AgentBrowserAdapter) Health(ctx context.Context, args map[string]any) (Result, error) {
 	started := time.Now()
 	metadata := browserModeMetadata(args, "autonomous")

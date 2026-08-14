@@ -113,6 +113,17 @@ starting QR setup. Its notification channel block and environment overrides are
 only bootstrap defaults when no persisted owner choice exists. Revoked or
 unavailable bindings remain visible but cannot be selected for delivery.
 
+For the QR provider, WebChat opens the persisted provider login URL through a
+dedicated visible Chromium profile instead of a link in the owner's default
+browser. Gateway accepts that action only for the current owner's pending
+Weixin binding and only for the provider's HTTPS `liteapp.weixin.qq.com` URL;
+the client cannot supply a URL. A repeated action reuses the same binding-scoped
+window. When polling observes activation, expiry, or failure, or when the owner
+revokes the binding, Gateway releases that managed browser session and closes
+the Chromium window. This surface requires the trusted desktop runtime's
+`docker/compose.visible-browser.yaml` overlay; it fails explicitly when no
+visible display is available and never falls back to the default browser.
+
 ## Speech Transcription
 
 Speech is an optional OpenAI-compatible transcription adapter shared by
@@ -283,6 +294,7 @@ PATCH  /api/connectors/{channel}
 GET    /api/notification-bindings
 POST   /api/notification-bindings/{channel}/start
 GET    /api/notification-bindings/{id}
+POST   /api/notification-bindings/{id}/browser
 DELETE /api/notification-bindings/{id}
 GET    /api/delivery-endpoints
 ```

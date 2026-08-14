@@ -33,19 +33,20 @@ import (
 )
 
 type ToolHub struct {
-	cfg         config.Config
-	store       store.Store
-	registry    *runtimeToolRegistry
-	models      modelrouter.Router
-	runner      sandbox.Runner
-	artifacts   artifact.Store
-	reminders   *remindertarget.Resolver
-	webSearch   websearch.Adapter
-	weatherInfo WeatherInfoAdapter
-	browser     browserautomation.Adapter
-	ocr         documentocr.Adapter
-	ocrRuntime  *documentOCRRuntime
-	documents   *document.Pipeline
+	cfg                   config.Config
+	store                 store.Store
+	registry              *runtimeToolRegistry
+	models                modelrouter.Router
+	runner                sandbox.Runner
+	artifacts             artifact.Store
+	reminders             *remindertarget.Resolver
+	webSearch             websearch.Adapter
+	weatherInfo           WeatherInfoAdapter
+	browser               browserautomation.Adapter
+	managedBrowserWindows *managedBrowserWindowRegistry
+	ocr                   documentocr.Adapter
+	ocrRuntime            *documentOCRRuntime
+	documents             *document.Pipeline
 }
 
 type runtimeToolRegistry struct {
@@ -110,15 +111,16 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 			origins:     map[string]DynamicToolOrigin{},
 			sourceNames: map[string]map[string]struct{}{},
 		},
-		models:      modelrouter.New(cfg),
-		runner:      sandbox.NewRunner(cfg),
-		artifacts:   artifact.NewStore(cfg.Storage),
-		reminders:   remindertarget.NewResolver(st),
-		webSearch:   websearch.NewAdapter(cfg),
-		weatherInfo: weatherInfo,
-		browser:     browserautomation.NewAdapter(cfg),
-		ocr:         ocrAdapter,
-		ocrRuntime:  newDocumentOCRRuntime(cfg.Adapters.DocumentOCR, ocrAdapter, ocrConstructorErr),
+		models:                modelrouter.New(cfg),
+		runner:                sandbox.NewRunner(cfg),
+		artifacts:             artifact.NewStore(cfg.Storage),
+		reminders:             remindertarget.NewResolver(st),
+		webSearch:             websearch.NewAdapter(cfg),
+		weatherInfo:           weatherInfo,
+		browser:               browserautomation.NewAdapter(cfg),
+		managedBrowserWindows: &managedBrowserWindowRegistry{windows: map[string]bool{}},
+		ocr:                   ocrAdapter,
+		ocrRuntime:            newDocumentOCRRuntime(cfg.Adapters.DocumentOCR, ocrAdapter, ocrConstructorErr),
 	}
 	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {

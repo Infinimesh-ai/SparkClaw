@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { Approval, ConnectorStatus, PublicConfig } from "../api/types";
+import type { Approval, ConnectorStatus, NotificationBinding, PublicConfig } from "../api/types";
 import { dictionaries } from "../i18n";
 import { ApprovalPanel, SettingsPanel } from "./panels";
 
@@ -77,11 +77,53 @@ describe("SettingsPanel External MCP", () => {
         runtimeConfig={config} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[]}
         text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
         onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+        onOpenNotificationBindingBrowser={async () => {}}
         onRevokeNotificationBinding={async () => {}} onUpdateConnector={async () => connector} onUpdatePolicy={async () => {}}
       />
     );
     expect(markup).toContain(dictionaries.en.settings.externalMCP);
     expect(markup).toContain(dictionaries.en.settings.iscpPairing);
     expect(markup).not.toContain(dictionaries.en.settings.addWeixinBinding);
+  });
+});
+
+describe("SettingsPanel Weixin login", () => {
+  it("opens provider login through managed Chromium instead of a default-browser link", () => {
+    const connector: ConnectorStatus = {
+      channel: "weixin", provider: "openclaw-weixin-qr", setup_kind: "qr", available: true, enabled: true,
+      running: true, state: "setup_required", binding_status: "waiting_scan", binding_startable: false,
+      supports_multiple_bindings: true, version: 1
+    };
+    const binding: NotificationBinding = {
+      id: "bind-weixin", owner_id: "owner", channel: "weixin", provider: "openclaw-weixin-qr",
+      status: "waiting_scan", qr_code_url: "https://liteapp.weixin.qq.com/q/provider-ticket",
+      default_for_channel: false, scopes: [], created_at: "2026-08-13T00:00:00Z", updated_at: "2026-08-13T00:00:00Z"
+    };
+    const config = {
+      tool_policy: { risk_counts: {}, definition_count: 0, definition_approval_required_tools: [], configured_approval_required_tools: [], denied_tools: [] },
+      iscp_pairing: { enabled: false, ready: false, state: "disabled", expected_ticket_type: "iscp.pairing_ticket.v2" },
+      model: {
+        mock: true,
+        fast: { name: "fast", model: "fast", base_url: "", context_tokens: 8192, mtp: false },
+        deep: { name: "deep", model: "deep", base_url: "", context_tokens: 8192, mtp: false },
+        embedding: { name: "embedding", model: "embedding", base_url: "", context_tokens: 8192, mtp: false },
+        guard: { name: "guard", model: "guard", base_url: "", context_tokens: 8192, mtp: false }
+      },
+      gateway: { bind: "127.0.0.1", port: 18789, remote_access: "disabled", rate_limit: { enabled: false, requests_per_minute: 0, burst: 0 } },
+      workspaces: { default_root: "/tmp" }, sandbox: { enabled: false }, state: { backend: "memory" },
+      storage: { artifact_backend: "filesystem" }, memory: { enabled: false }, tools: { notifications: { channels: {} }, reminders: { enabled: false, default_channel: "web" } }
+    } as unknown as PublicConfig;
+    const markup = renderToStaticMarkup(
+      <SettingsPanel
+        runtimeConfig={config} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[binding]}
+        text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
+        onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => binding}
+        onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
+        onUpdateConnector={async () => connector} onUpdatePolicy={async () => {}}
+      />
+    );
+    expect(markup).toContain(dictionaries.en.settings.openWeixinLogin);
+    expect(markup).not.toContain(`href="${binding.qr_code_url}"`);
+    expect(markup).not.toContain('target="_blank"');
   });
 });

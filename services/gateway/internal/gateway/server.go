@@ -16,6 +16,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -47,6 +48,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 const (
@@ -68,6 +70,7 @@ type Server struct {
 	speech                   speech.Transcriber
 	credentials              credential.CredentialVault
 	cancelBinding            func(app.NotificationBinding)
+	managedBrowserWindows    ManagedBrowserWindowController
 	delivery                 *delivery.Gateway
 	endpoints                *messagecontrol.EndpointRegistry
 	providers                *delivery.ProviderRegistry
@@ -104,6 +107,11 @@ type MCPController interface {
 
 type ExternalApprovalResolver interface {
 	Resolve(context.Context, app.Approval, string) (resolvedElsewhere bool, err error)
+}
+
+type ManagedBrowserWindowController interface {
+	OpenManagedBrowserWindow(context.Context, string, string, string) error
+	CloseManagedBrowserWindow(context.Context, string, string) error
 }
 
 func WithConnectorController(controller ConnectorController) Option {
@@ -156,6 +164,12 @@ func WithBindingRouter(router binding.Router) Option {
 func WithNotificationBindingCancellation(cancel func(app.NotificationBinding)) Option {
 	return func(server *Server) {
 		server.cancelBinding = cancel
+	}
+}
+
+func WithManagedBrowserWindows(controller ManagedBrowserWindowController) Option {
+	return func(server *Server) {
+		server.managedBrowserWindows = controller
 	}
 }
 
@@ -320,6 +334,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/mcp-servers/{name}/refresh", s.refreshMCPServer)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
 	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
+	s.mux.HandleFunc("POST /api/notification-bindings/{id}/browser", s.openNotificationBindingBrowser)
 	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)
 	s.mux.HandleFunc("GET /api/delivery-endpoints", s.listDeliveryEndpoints)
 	s.mux.HandleFunc("GET /api/deliveries", s.listDeliveries)
@@ -970,6 +985,9 @@ func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) 
 				binding.QRCodeImage = ""
 			}
 			binding = s.store.SaveNotificationBinding(binding)
+			if !isPendingNotificationBinding(binding.Status) {
+				s.closeNotificationBindingBrowser(binding)
+			}
 		} else if err != nil {
 			binding.LastError = err.Error()
 			binding.UpdatedAt = time.Now().UTC()
@@ -977,6 +995,46 @@ func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	writeJSON(w, http.StatusOK, publicNotificationBinding(binding))
+}
+
+func (s *Server) openNotificationBindingBrowser(w http.ResponseWriter, r *http.Request) {
+	bindingID := strings.TrimSpace(r.PathValue("id"))
+	binding, ok := s.store.GetNotificationBinding(bindingID)
+	principal := principalForRequest(r)
+	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
+		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+		return
+	}
+	if binding.Channel != "weixin" || !weixinproto.IsQRLoginProvider(binding.Provider) || !isPendingNotificationBinding(binding.Status) {
+		writeError(w, http.StatusConflict, errors.New("notification binding has no pending Weixin login"))
+		return
+	}
+	if !weixinproto.IsQRLoginURL(binding.QRCodeURL) {
+		writeError(w, http.StatusBadRequest, errors.New("notification binding has no valid Weixin login URL"))
+		return
+	}
+	if s.managedBrowserWindows == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("managed Chromium is unavailable"))
+		return
+	}
+	if err := s.managedBrowserWindows.OpenManagedBrowserWindow(r.Context(), binding.OwnerID, binding.ID, binding.QRCodeURL); err != nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("open managed Chromium: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"opened": true})
+}
+
+func isPendingNotificationBinding(status string) bool {
+	return status == "waiting_scan" || status == "waiting_confirm"
+}
+
+func (s *Server) closeNotificationBindingBrowser(binding app.NotificationBinding) {
+	if s.managedBrowserWindows == nil || binding.Channel != "weixin" || !weixinproto.IsQRLoginProvider(binding.Provider) {
+		return
+	}
+	if err := s.managedBrowserWindows.CloseManagedBrowserWindow(context.Background(), binding.OwnerID, binding.ID); err != nil {
+		slog.Warn("failed to close managed Weixin login window", "binding_id", binding.ID, "error", err)
+	}
 }
 
 func (s *Server) hasActiveDefaultNotificationBinding(channel, exceptID string) bool {
@@ -1005,6 +1063,7 @@ func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Reques
 	if s.cancelBinding != nil {
 		s.cancelBinding(binding)
 	}
+	s.closeNotificationBindingBrowser(binding)
 	if strings.TrimSpace(binding.CredentialRef) != "" {
 		_ = s.credentials.Delete(r.Context(), binding.CredentialRef)
 	}

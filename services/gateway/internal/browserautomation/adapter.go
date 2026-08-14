@@ -17,6 +17,10 @@ type Adapter interface {
 	Close() error
 }
 
+type SessionReleaser interface {
+	ReleaseSession(args map[string]any) error
+}
+
 type Result struct {
 	Tool               string         `json:"tool"`
 	RawTool            string         `json:"raw_tool,omitempty"`

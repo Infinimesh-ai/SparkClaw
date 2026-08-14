@@ -16,6 +16,7 @@ import {
   Inbox,
   KeyRound,
   ListChecks,
+  MonitorUp,
   MemoryStick,
   Pencil,
   Plus,
@@ -799,6 +800,7 @@ export function SettingsPanel({
   onRevokeClient,
   onStartNotificationBinding,
   onRefreshNotificationBinding,
+  onOpenNotificationBindingBrowser,
   onRevokeNotificationBinding,
   onUpdateConnector,
   onUpdatePolicy
@@ -814,6 +816,7 @@ export function SettingsPanel({
   onRevokeClient: (id: string) => Promise<void>;
   onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
   onRefreshNotificationBinding: (id: string, signal?: AbortSignal) => Promise<NotificationBinding>;
+  onOpenNotificationBindingBrowser: (id: string) => Promise<void>;
   onRevokeNotificationBinding: (id: string) => Promise<void>;
   onUpdateConnector: (channel: string, enabled: boolean, expectedVersion: number) => Promise<ConnectorStatus>;
   onUpdatePolicy: (deny: string[], approvalRequired: string[]) => Promise<void>;
@@ -1005,6 +1008,19 @@ export function SettingsPanel({
     }
   }
 
+  async function openBindingBrowser(id: string) {
+    if (bindingBusy) return;
+    setBindingBusy(true);
+    setBindingError("");
+    try {
+      await onOpenNotificationBindingBrowser(id);
+    } catch (err) {
+      setBindingError(err instanceof Error ? err.message : text.errors.binding);
+    } finally {
+      setBindingBusy(false);
+    }
+  }
+
   async function revokeBinding(id: string) {
     if (bindingBusy) return;
     setBindingBusy(true);
@@ -1107,7 +1123,10 @@ export function SettingsPanel({
                     {binding.qr_code_image || isImageLikeQR(binding.qr_code_url) ? (
                       <img src={qrImageSource(binding.qr_code_image || binding.qr_code_url)} alt={waitingInstruction} />
                     ) : binding.qr_code_url ? (
-                      <a href={binding.qr_code_url} target="_blank" rel="noreferrer">{binding.qr_code_url}</a>
+                      <button className="secondaryButton" onClick={() => void openBindingBrowser(binding.id)} disabled={bindingBusy}>
+                        <MonitorUp size={15} />
+                        <span>{text.settings.openWeixinLogin}</span>
+                      </button>
                     ) : (
                       <span className="muted">{text.settings.bindingQrUnavailable}</span>
                     )}

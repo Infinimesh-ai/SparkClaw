@@ -326,6 +326,8 @@ export const api = {
     }),
   notificationBinding: (id: string, signal?: AbortSignal) =>
     request<NotificationBinding>(`/api/notification-bindings/${id}`, { signal }),
+  openNotificationBindingBrowser: (id: string) =>
+    request<{ opened: boolean }>(`/api/notification-bindings/${id}/browser`, { method: "POST", body: "{}" }),
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
   deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),
   schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),

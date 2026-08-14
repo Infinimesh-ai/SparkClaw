@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -29,7 +30,26 @@ const (
 	AuthorizationType = "ilink_bot_token"
 	// DefaultProvider names bindings/channels that do not set a provider.
 	DefaultProvider = "openclaw-weixin-compatible"
+	QRProvider      = "openclaw-weixin-qr"
+	QRLoginProvider = "openclaw-weixin-login-qr"
 )
+
+func IsQRLoginProvider(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case QRProvider, QRLoginProvider:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsQRLoginURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Hostname(), "liteapp.weixin.qq.com")
+}
 
 // SetHeaders applies the standard iLink bot API headers to a JSON request.
 func SetHeaders(req *http.Request, token string) {

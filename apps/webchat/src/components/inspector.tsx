@@ -240,6 +240,10 @@ export function InspectorColumn({
     return binding;
   }
 
+  async function openNotificationBindingBrowser(id: string) {
+    await api.openNotificationBindingBrowser(id);
+  }
+
   async function revokeNotificationBinding(id: string) {
     try {
       setError("");
@@ -365,6 +369,7 @@ export function InspectorColumn({
           onRevokeClient={(id) => revokeClient(id)}
           onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
           onRefreshNotificationBinding={(id, signal) => refreshNotificationBinding(id, signal)}
+          onOpenNotificationBindingBrowser={(id) => openNotificationBindingBrowser(id)}
           onRevokeNotificationBinding={(id) => revokeNotificationBinding(id)}
           onUpdateConnector={(channel, enabled, version) => updateConnector(channel, enabled, version)}
           onUpdatePolicy={(deny, approvalRequired) => updateToolPolicy(deny, approvalRequired)}

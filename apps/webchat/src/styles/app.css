@@ -2829,8 +2829,12 @@ button.finderRow {
   background: #ffffff;
 }
 
-.bindingQr a {
+.bindingQr a,
+.bindingQr .secondaryButton {
   max-width: 100%;
+}
+
+.bindingQr a {
   color: var(--cyber-blue);
   font-family: var(--mono);
   font-size: 11px;

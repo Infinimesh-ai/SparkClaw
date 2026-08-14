@@ -92,6 +92,7 @@ describe("SettingsPanel binding polling", () => {
         onRevokeClient={async () => {}}
         onStartNotificationBinding={async () => {}}
         onRefreshNotificationBinding={(id, signal) => refresh(id, signal)}
+        onOpenNotificationBindingBrowser={async () => {}}
         onRevokeNotificationBinding={async () => {}}
         onUpdateConnector={async () => connector}
         onUpdatePolicy={async () => {}}

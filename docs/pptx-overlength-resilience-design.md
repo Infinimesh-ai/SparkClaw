@@ -4,13 +4,14 @@
 
 | Field | Value |
 |---|---|
-| Status | Proposed; design only, not implemented |
+| Status | Phase 0 **NO-GO**; qualification harness implemented, production path not implemented |
 | Decision date | 2026-08-13 |
+| Qualification date | 2026-08-14 |
 | Immediate scope | Prevent overlength model text from failing a PPTX improvement operation |
 | Affected operations | `pptx.update_slide` and `pptx.update_deck` |
 | Candidate render stack | Gotenberg, LibreOffice, and PDF.js text geometry extraction |
 | Content policy | One Fast generation; no layout prompt, shortening retry, or model-selected geometry |
-| Failure policy | Apply a verified subset, or return the unchanged source as a successful no-change result |
+| Failure policy | Apply verified semantic groups, return a safe no-change completion, or surface a typed retryable infrastructure failure |
 | Decision owner | SparkClaw document runtime |
 
 ## Executive Decision
@@ -24,10 +25,13 @@ Fast continues to select evidence-bound text shapes and generate replacement
 text once. Runtime then tries a finite sequence of layout candidates without
 asking Fast to shorten or regenerate content. A candidate is accepted only if
 structural checks, a qualified LibreOffice render, rendered-text checks, and
-OOXML preservation checks pass. If one replacement has no safe candidate, that
-replacement is skipped and the other replacements continue. If no replacement
-can be applied safely, the operation returns the unchanged source document as a
-successful `no_safe_change` result rather than reporting a workflow failure.
+OOXML preservation checks pass. Replacements are accepted and skipped through
+explicit semantic atomic groups, so a layout fallback cannot leave a slide with
+half of one coherent content change. If no semantic group can be applied safely,
+the operation returns the unchanged source document as a successful
+`no_safe_change` result rather than reporting a fit-related workflow failure.
+Renderer, worker, cancellation, and deadline failures remain typed
+infrastructure failures; they are never disguised as successful no-change.
 
 This proposal does not revive the rejected ONLYOFFICE DocumentBuilder and
 OR-Tools design. The [DocumentBuilder Phase 0 report](../benchmarks/pptx-documentbuilder-phase0-qualification.md)
@@ -35,8 +39,14 @@ remains authoritative for that No-Go decision. The candidate stack in this
 document has its own mandatory qualification gate and is used only as a render
 oracle. It does not become SparkClaw's PPTX writer.
 
-No code, dependency, configuration, prompt, or runtime behavior changes are
-authorized by this document alone.
+The [Phase 0 qualification report](../benchmarks/pptx-overlength-phase0-qualification.md)
+records a current No-Go. Synthetic visibility, determinism, preservation, and
+failure gates passed, but the unreduced 1,024-candidate plan exceeds the
+90-second preparation budget even at the fastest measured median. No owner
+private-text corpus or Microsoft PowerPoint reference-viewer evidence was
+available. Qualification-only code and pinned benchmark dependencies now exist;
+no Gateway, ToolHub, configuration, prompt, deployment, or runtime behavior was
+changed.
 
 ## Problem
 
@@ -71,8 +81,13 @@ invariants:
   creates a second model call.
 - Runtime never truncates, summarizes, paraphrases, or deletes part of a
   replacement string. A replacement is applied in full or skipped in full.
+- Semantically dependent replacements are applied or skipped as one atomic
+  group. Runtime never maximizes update count across a group boundary.
 - An overlength replacement alone never causes `pptx.update_slide` or
   `pptx.update_deck` to fail.
+- Existing request bounds still apply. Inputs beyond 12 slides, 64 shapes, or 32
+  KiB of replacement text fail deterministic validation before adaptation and
+  are not classified as fit failures.
 - The source PPTX is immutable. Every candidate is produced in an isolated job
   directory.
 - An edited artifact is published only after render and preservation checks.
@@ -80,6 +95,9 @@ invariants:
   cannot cause an unchecked candidate to be published.
 - The same source bytes, replacement bytes, policy, fonts, and engine versions
   produce the same accepted subset and layout plan.
+- Wall-clock progress never selects a partial result. A hard deadline aborts
+  preparation with a retryable infrastructure outcome; deterministic search
+  limits are expressed as policy-owned operation and candidate counts.
 - Approval describes the exact prepared artifact, applied updates, skipped
   updates, and layout changes. Approval never authorizes a later model retry.
 - Existing source identity, evidence binding, scope limits, Policy, audit,
@@ -91,7 +109,7 @@ invariants:
   long for one or more source text boxes.
 - Use actual rendering in the qualification and acceptance path instead of
   treating character-count heuristics as proof of fit.
-- Preserve as many independently safe model updates as possible.
+- Preserve as many independently safe semantic groups as possible.
 - Keep content generation cost at one Fast call and add no layout context to
   that call.
 - Apply only bounded, deterministic formatting and geometry changes.
@@ -123,17 +141,17 @@ generated by SparkClaw or admitted by an explicit compatibility fingerprint.
 | Ordinary title, body, and caption text boxes | Candidate adaptation and render verification |
 | Supported card or band patterns with high-confidence companions | Bounded companion resizing using versioned rules |
 | English, Simplified Chinese, and mixed English/Chinese text | Required qualification corpus |
-| Tables | Protected; target update is skipped |
-| Grouped text | Protected; target update is skipped |
-| SmartArt and chart-internal text | Protected; target update is skipped |
-| Vertical, rotated, path, or field-bearing text | Protected; target update is skipped |
+| Tables | Protected; the containing semantic group is skipped |
+| Grouped text | Protected; the containing semantic group is skipped |
+| SmartArt and chart-internal text | Protected; the containing semantic group is skipped |
+| Vertical, rotated, path, or field-bearing text | Protected; the containing semantic group is skipped |
 | Animations, transitions, notes, masters, media, and relationships | Preserved and fingerprint-checked; never implicit mutation targets |
 | Unknown or ambiguous companion relationships | Protected; no geometry movement |
 
 The scope is capability based, not file-name based. A slide is supported only
 when Runtime can prove that every mutable target and its allowed companions
-match a qualified pattern. Unsupported targets degrade to skipped updates and
-do not disable independently supported targets.
+match a qualified pattern. An unsupported target makes its complete semantic
+group ineligible but does not disable independently supported groups.
 
 ## Target Architecture
 
@@ -144,12 +162,12 @@ flowchart TD
     C --> D["Runtime binds source hash, slide, shape, and old text"]
     D --> E["Adaptation worker creates finite candidates"]
     E --> F["python-pptx writes isolated candidate copies"]
-    F --> G["Gotenberg and LibreOffice render affected slides to PDF"]
+    F --> G["Gotenberg and LibreOffice convert the candidate to PDF"]
     G --> H["PDF.js extracts rendered text and geometry"]
     H --> I["Fit, collision, canvas, and preservation checks"]
     I -->|"candidate valid"| J["Retain best candidate"]
-    I -->|"no candidate valid"| K["Skip complete replacement"]
-    J --> L["Combine retained updates and render final candidate"]
+    I -->|"group has no valid tuple"| K["Skip complete semantic group"]
+    J --> L["Combine retained groups and render final candidate"]
     K --> L
     L --> M["Seal result and approval summary"]
     M --> N["Owner approval"]
@@ -160,9 +178,9 @@ flowchart TD
 
 | Component | Owns | Must not own |
 |---|---|---|
-| Fast | Semantic target selection and exact replacement text | Fit retry, font size, coordinates, box dimensions, or skip policy |
+| Fast | Semantic target selection, semantic group membership, and exact replacement text | Fit retry, font size, coordinates, box dimensions, or skip policy |
 | Workflow Runtime | Evidence binding, typed outcomes, Policy, approval, source freshness, artifact promotion, and audit | Text measurement or presentation rendering |
-| Adaptation worker | Candidate generation, deterministic ordering, per-update rollback, render orchestration, validation, and diagnostics | Content rewriting, external network access, or approval |
+| Adaptation worker | Candidate generation, deterministic ordering, per-group rollback, render orchestration, validation, and diagnostics | Content rewriting, external network access, or approval |
 | `python-pptx` mutation layer | Bounded text/style and allowed geometry writes to isolated copies | Declaring rendered fit or viewer compatibility |
 | Gotenberg/LibreOffice | Conversion of isolated PPTX candidates to PDF using the pinned font environment | Saving the promoted PPTX or selecting candidates |
 | PDF.js checker | Extracting normalized rendered text items and their transform geometry from PDF | Editing PPTX, OCR-based invention, or semantic layout judgment |
@@ -182,6 +200,16 @@ select current shapes and produce replacement text. It does not receive:
 - raw PPTX XML, PDF bytes, images, or font metrics;
 - instructions to target a character count or retry after fit failure;
 - fields that choose adaptation policy or mark an update as mandatory.
+
+The semantic output schema may attach an opaque `atomic_group_id` to updates.
+For `update_slide`, a group is naturally slide-local. For `update_deck`, one
+group may span multiple slides when terminology, values, or conclusions must
+remain coherent across the deck. The identifier carries no layout priority,
+geometry, or fallback instruction. Runtime validates group membership against
+the complete frozen operation scope. Missing, invalid, out-of-scope, or
+ambiguous grouping degrades conservatively to one group containing every update
+in the operation. Runtime does not infer semantic independence from slide or
+geometric distance.
 
 Runtime removes `pptx_layout_fit_conflict` from semantic repair eligibility.
 Semantic repair may remain for malformed output such as empty replacement text
@@ -211,6 +239,24 @@ list in this order:
    hierarchy, down to the greater of the role floor and the configured source
    ratio floor.
 6. Apply bounded combinations of steps 2 through 5 in canonical order.
+
+These are candidate families, not yet an executable policy. Before Phase 1,
+Phase 0 must publish a versioned policy artifact that fixes:
+
+- the exact integer EMU growth and movement steps for each qualified role and
+  axis;
+- the exact paragraph and line-spacing values, font-size steps, absolute and
+  relative floors, and rounding mode;
+- the permitted companion-pattern identifiers and their complete mutation
+  allowlists;
+- canonical Cartesian-product enumeration, dominance pruning, candidate IDs,
+  objective tuple, and stable tie-breaking;
+- a deterministic maximum evaluation count for each shape and conflict
+  component.
+
+`max_candidates_per_shape` is a validation limit, not an instruction to keep
+whichever candidates happen to finish first. Candidate truncation, if required,
+is defined entirely by the versioned enumeration order before rendering begins.
 
 The initial qualification values are proposals, not production defaults:
 
@@ -270,12 +316,36 @@ A candidate is valid only when all applicable checks pass:
 8. The output PPTX contains the exact requested text and expected geometry.
 9. Package and semantic preservation allowlists report no unrelated mutation.
 
-PDF text extraction is not assumed to prove clipping merely because text exists
-in the PDF content stream. Phase 0 must explicitly test clipping, crop, glyph
-transform, bullet, soft-break, CJK, and font-substitution cases. If the stack
-cannot distinguish a visible complete string from clipped or hidden text with
-zero false negatives on the admitted corpus, the proposal is No-Go. OCR is not
-an acceptance fallback.
+### Rendered-text attribution and visibility
+
+PDF text extraction alone is insufficient. The qualified checker must establish
+all of the following for every changed target:
+
+1. **Unique attribution:** candidate text items map uniquely to the expected
+   slide and projected shape region. Repeated identical text elsewhere on the
+   page, ambiguous extraction order, or a many-to-one match invalidates the
+   candidate.
+2. **Baseline delta:** a render of the unchanged source under the same engine is
+   compared with the candidate. The accepted text and geometry delta must be
+   confined to declared targets and companions.
+3. **Clip visibility:** every glyph quad required for the replacement intersects
+   the effective PDF clip region completely within the qualified tolerance.
+4. **Occlusion visibility:** protected later-painted content, masks, transparency,
+   or same-color concealment cannot hide required glyphs under the admitted
+   pattern rules.
+5. **Normalization identity:** line breaks, soft breaks, bullets, ligatures,
+   Unicode normalization, CJK glyph runs, and whitespace use one versioned
+   comparison algorithm shared by Runtime and the qualification corpus.
+
+Phase 0 may use PDF.js text content, operator-list/graphics-state evidence, and
+deterministic raster evidence only as one qualified checker. If the pinned stack
+cannot expose enough information to prove these properties with zero overflow
+false negatives on the admitted corpus, the design is No-Go. Presence of the
+replacement string in a PDF content stream is never sufficient.
+
+Phase 0 must explicitly test clipping, crop, glyph transform, bullet,
+soft-break, CJK, duplicate-string attribution, occlusion, transparency, and
+font-substitution cases. OCR is not an acceptance fallback.
 
 LibreOffice and Microsoft PowerPoint can render the same PPTX differently. The
 runtime guarantee is therefore limited to the qualified LibreOffice/font
@@ -285,31 +355,39 @@ excluded rather than advertised as safe.
 
 ## Partial-Application Algorithm
 
-Each slide is processed independently inside one deck job:
+Candidate generation and combined render checks are organized per slide inside
+one deck job, but eligibility and selection occur over operation-wide semantic
+atomic groups rather than individual updates:
 
 1. Validate every requested update against frozen source evidence.
-2. Classify unsupported targets as `unsupported_target` skips before mutation.
-3. Generate and render candidates for each remaining update in isolation.
-4. Select the lowest-change valid candidate for each update.
-5. Combine selected candidates for a slide and render the combined result.
-6. If the combination fails, build conflict components from shared companions,
+2. Normalize and validate scope-bound semantic groups. One unsupported or
+   infeasible member makes the complete group ineligible.
+3. Classify ineligible groups with per-member diagnostics before mutation.
+4. Generate and render candidates for each remaining update in isolation.
+5. Build the lowest-change valid candidate tuple for every complete group.
+6. Combine eligible groups for a slide and render the combined result.
+7. If the combination fails, build conflict components from shared companions,
    changed geometry, and failed collision checks.
-7. For a conflict component of at most eight updates, enumerate subsets and
-   maximize applied update count, then minimize font reduction, geometry
-   movement, spacing change, and finally stable shape reference.
-8. For a larger component, use the same objective with a bounded deterministic
-   elimination order. Record that bounded path in diagnostics.
-9. Re-render the final selected subset for the slide.
-10. Assemble all accepted slides, then run one final whole-output reread and
-    preservation check.
+8. For a conflict component of at most eight groups, enumerate group subsets and
+   maximize applied update count, then applied group count, then minimize font
+   reduction, geometry movement, spacing change, and finally stable group and
+   shape references.
+9. For a larger component, use the same objective with a policy-bounded,
+   deterministic elimination order. Record that path in diagnostics.
+10. Re-render the final selected group subset for the slide.
+11. Assemble all accepted slides, then run one final whole-output render,
+    reread, and preservation check.
 
-This algorithm does not require OR-Tools. The candidate and conflict bounds are
-small, versioned, and covered by a hard job deadline. A timeout skips the
-affected unresolved component; it does not publish an unchecked candidate and
-does not fail independently verified updates.
+This algorithm does not require OR-Tools. Candidate and conflict operation
+bounds are small and versioned. Exhausting a deterministic search bound makes
+the complete affected group ineligible with `search_budget_exhausted`. A
+wall-clock deadline, worker crash, renderer outage, or cancellation aborts the
+entire preparation as a typed infrastructure failure; SparkClaw never publishes
+a subset selected from whichever work happened to finish first.
 
-An exact-span replacement remains atomic even if it crosses runs. A deck update
-is no longer all-or-nothing for fit conflicts, but it remains atomic at file
+An exact-span replacement remains atomic even if it crosses runs. A semantic
+group remains atomic across its shapes. A deck update is no longer all-or-nothing
+for fit conflicts across independent groups, but it remains atomic at file
 publication: SparkClaw publishes one verified PPTX or no edited PPTX.
 
 ## Typed Outcomes And Failure Semantics
@@ -318,15 +396,19 @@ The operation result must separate business degradation from execution failure.
 
 | Status | Meaning | User-visible artifact |
 |---|---|---|
-| `completed` | Every requested update passed | Verified edited PPTX |
-| `completed_with_skips` | At least one update passed and at least one was skipped | Verified edited PPTX plus skip summary |
-| `no_safe_change` | No update could be applied safely | Original PPTX reference; no misleading edited copy |
-| `source_invalid` | Source is unreadable, stale, corrupt, or violates format policy | No new artifact; explicit source error |
-| `runtime_unavailable` | Required qualified renderer/worker is unavailable before any safe result can be established | Original PPTX reference plus explicit temporary capability status |
+| `completed` | Every requested semantic group passed | Verified edited PPTX |
+| `completed_with_skips` | At least one semantic group passed and at least one was skipped | Verified edited PPTX plus group-aware skip summary |
+| `no_safe_change` | No semantic group could be applied safely after a complete, healthy evaluation | Original PPTX reference; no misleading edited copy |
+| `source_invalid` | Source is unreadable, stale, corrupt, or violates format policy | Terminal source failure; no new artifact |
+| `runtime_unavailable` | Required qualified renderer/worker is unavailable or unhealthy | Retryable infrastructure failure; no new artifact |
+| `adaptation_timeout` | The wall-clock deadline expired before final verification completed | Retryable infrastructure failure; no new artifact |
+| `cancelled` | The owner or Gateway lifecycle cancelled preparation | Cancelled Workflow; no new artifact |
 
-`completed_with_skips`, `no_safe_change`, and `runtime_unavailable` are terminal
-Workflow completions, not semantic-generation retries. They must not be mapped
-to `semantic_output_invalid` or generic model failure.
+Only `completed`, `completed_with_skips`, and `no_safe_change` are successful
+Workflow completions. `runtime_unavailable` and `adaptation_timeout` are
+retryable infrastructure failures, and `source_invalid` is a source failure.
+None of these outcomes trigger semantic generation retry or map to
+`semantic_output_invalid` or a generic model failure.
 
 Each skipped update has one stable reason code:
 
@@ -334,13 +416,49 @@ Each skipped update has one stable reason code:
 |---|---|
 | `unsupported_target` | Shape or companion pattern is outside qualified scope |
 | `no_fitting_candidate` | Every bounded candidate overflowed or violated readability |
-| `combined_layout_conflict` | The update fit alone but not with higher-ranked compatible updates |
+| `combined_layout_conflict` | The group fit alone but not with higher-ranked compatible groups |
 | `font_unavailable` | Required effective font was absent or substituted |
 | `render_unverifiable` | Rendered text/geometry could not be proven complete |
-| `component_timeout` | The bounded candidate/conflict search reached its deadline |
+| `search_budget_exhausted` | A deterministic candidate/conflict operation bound was exhausted |
+| `semantic_group_ineligible` | Another member of the same atomic group could not be applied safely |
 
 Human-readable copy is derived from these typed fields. Runtime and tests never
 branch on localized display strings.
+
+`render_unverifiable` describes a deterministic target-level inability to prove
+visibility under a healthy renderer, such as ambiguous duplicate-text
+attribution. Transport failure, renderer crash, queue timeout, or inconsistent
+repeat render is `runtime_unavailable` or `adaptation_timeout`, not a skippable
+content reason.
+
+## Requested Plan, Effective Plan, And Pipeline Contract
+
+The current Document Pipeline requires at least one applied change and verifies
+every update in the submitted `EditRequest`. Partial adaptation therefore cannot
+reuse the requested edit as though all requested updates were applied.
+
+Runtime introduces two immutable plans:
+
+- the **requested plan** records every evidence-bound model update and semantic
+  group before adaptation;
+- the **effective plan** contains only complete accepted groups, their selected
+  candidate IDs, and declared formatting/geometry changes.
+
+For `completed` and `completed_with_skips`, approval, execution, reread, expected
+after-value validation, package preservation, and artifact lineage bind the
+effective plan. A new complementary check proves that every skipped source shape
+and its undeclared companions remain unchanged. The requested plan and complete
+skip diagnostics remain attached to approval and audit so narrowing is visible
+rather than silently rewriting model intent.
+
+For `no_safe_change`, Runtime does not invoke the existing apply path, fabricate
+an `ApplyResult{Changed: 0}`, or create an edited copy. It emits a typed no-edit
+Workflow outcome with the unchanged source reference and creates no approval.
+Infrastructure and source failures likewise bypass artifact-success projection.
+
+The implementation must add typed prepared-edit and Workflow outcome contracts;
+it must not overload the current `pptx_version_written` success status or map a
+zero-change completion to `parse_failed`.
 
 ## Prepared Artifact And Approval
 
@@ -351,7 +469,8 @@ as a sealed temporary artifact containing:
 - source SHA-256 and normalized source identity;
 - exact applied and skipped update references and text hashes;
 - policy, worker, LibreOffice, Gotenberg, PDF.js, and font-manifest versions;
-- candidate-plan digest and final PPTX SHA-256;
+- requested-plan digest, effective-plan digest, candidate-plan digest, final
+  PPTX SHA-256, and canonical OOXML package digest;
 - normalized render-check digest and preservation result;
 - expiry, job owner, and approval binding.
 
@@ -364,6 +483,14 @@ the file.
 If the source changes or the sealed artifact expires, Runtime reports a stale
 prepared result and requires a new owner operation. It never silently reuses a
 layout decision against changed content.
+
+The final PPTX SHA-256 binds the exact prepared bytes for approval and promotion.
+Cross-run determinism is evaluated with a canonical package digest that sorts
+parts and excludes ZIP timestamps and other explicitly qualified container
+metadata. Raw file SHA-256 is required to repeat only if the writer later adopts
+a deterministic ZIP serialization. Render digests similarly exclude qualified
+volatile PDF metadata while retaining all text, geometry, clip, visibility, and
+page evidence.
 
 ## Worker Protocol Sketch
 
@@ -385,7 +512,8 @@ contracts before implementation.
       "slide_ref": "ppt/slides/slide3.xml",
       "shape_ref": "cNvPr:17",
       "expected_text_sha256": "hex",
-      "replacement_text": "Exact Fast output"
+      "replacement_text": "Exact Fast output",
+      "atomic_group_id": "slide-3-group-1"
     }
   ],
   "policy_id": "sparkclaw.pptx_adaptation.v1",
@@ -410,11 +538,15 @@ package references, hashes, policy identifiers, limits, or renderer settings.
   "status": "completed_with_skips",
   "source_sha256": "hex",
   "output_sha256": "hex",
+  "canonical_package_digest": "hex",
+  "requested_plan_digest": "hex",
+  "effective_plan_digest": "hex",
   "plan_digest": "hex",
   "applied": [
     {
       "slide_ref": "ppt/slides/slide3.xml",
       "shape_ref": "cNvPr:17",
+      "atomic_group_id": "slide-3-group-1",
       "candidate_id": "font-0.5",
       "layout_changes": []
     }
@@ -423,6 +555,7 @@ package references, hashes, policy identifiers, limits, or renderer settings.
     {
       "slide_ref": "ppt/slides/slide3.xml",
       "shape_ref": "cNvPr:22",
+      "atomic_group_id": "slide-3-group-2",
       "reason": "no_fitting_candidate"
     }
   ],
@@ -447,6 +580,12 @@ to stderr, full replacement text is excluded from logs, and every returned path
 must resolve beneath the job directory. The Gateway independently computes all
 artifact hashes.
 
+`prepared_output_path`, `output_sha256`, and package/render success checks are
+required only for `completed` and `completed_with_skips`. `no_safe_change`
+returns no output path or output hash. Infrastructure, timeout, cancellation,
+and source failures use a separate error envelope and cannot return an artifact
+eligible for approval.
+
 ## Phase 0: Mandatory Qualification
 
 No production dependency or code path is added until the candidate renderer and
@@ -456,15 +595,20 @@ checker pass Phase 0 on the target Linux ARM64 deployment environment.
 |---|---|---|
 | Native deployment | Run pinned Gotenberg, LibreOffice, and PDF.js artifacts on DGX Spark | Native ARM64 execution, declared dependencies, and successful health checks |
 | Text completeness | Render deliberately fitting and clipped Latin, CJK, and mixed strings | Every clipped, hidden, cropped, or missing segment is rejected; zero false negatives in corpus |
+| Attribution and visibility | Exercise duplicate strings, overlapping shapes, clip paths, masks, transparency, and same-color concealment | Every accepted glyph is uniquely attributed and visibly complete; ambiguous or concealed targets are rejected |
 | Geometry | Compare PDF.js transforms with known text boxes, rotations, margins, and line breaks | Stable normalized bounds within documented tolerance for supported patterns |
 | Font determinism | Exercise production fonts plus missing-font cases | Exact font manifest is recorded; substitution is detected and rejected |
 | Render repeatability | Render each fixture 100 times | Identical normalized text/geometry digest and stable raster digest under documented normalization |
 | PowerPoint compatibility | Compare accepted outputs in current Microsoft PowerPoint | No visible clipping, repair prompt, missing text, or unsupported divergence in admitted corpus |
 | Writer preservation | Apply candidates through the existing mutation layer | Only target text and declared formatting/geometry parts change |
 | Partial application | Mix fitting, overlength, unsupported, and conflicting updates | Valid subset is deterministic; no single fit conflict fails the operation |
+| Semantic atomicity | Mix dependent title/body/value/terminology updates within and across slides with independent groups | No accepted output contains a partial semantic group; the whole operation becomes one group when metadata is invalid |
 | No-safe-change | Make every update unsupported or infeasible | Returns original source with `no_safe_change`, no edited artifact, and no model retry |
-| Renderer outage | Stop or hang conversion during a job | No unchecked output; bounded terminal degradation and full process cleanup |
+| Pipeline outcomes | Exercise full, partial, no-change, source failure, and infrastructure failure paths | Effective-plan validation checks applied groups, skipped shapes remain unchanged, and zero-change never enters the current apply-success path |
+| Renderer outage | Stop or hang conversion during a job | Typed retryable infrastructure failure, no unchecked or partial output, and full process cleanup |
 | Cancellation | Cancel an oversized job | Whole process tree stops within two seconds and job files are removed |
+| Conversion cost | Measure the actual conversion scope and worst-case fixed candidate plan | A documented bound fits the product latency/memory envelope; selective-slide rendering is claimed only if preservation-safe extraction is qualified |
+| Digest determinism | Repeat package writes and renders with volatile metadata present | Canonical package and normalized render digests are identical; raw SHA requirements match the chosen ZIP policy |
 | Confidentiality | Inspect logs, traces, and request failures | No full document text, PDF bytes, or arbitrary host paths leak |
 
 The qualification corpus must contain owner decks with irreversible private-text
@@ -486,7 +630,7 @@ review, or prompt retry to substitute for the failed capability.
 |---|---|---|
 | 0. Renderer qualification | Build fixtures and test the pinned render/check stack without SparkClaw integration | Every mandatory qualification row passes |
 | 1. Single-shape worker | Implement immutable text, bounded candidates, render checks, preservation, and typed skips for one supported shape | No overlength case fails Workflow; deterministic 100-run corpus |
-| 2. Single-slide subset | Add isolated candidates, combination checks, conflict components, and sealed prepared artifacts | Mixed valid/invalid updates return the maximal deterministic safe subset |
+| 2. Single-slide groups | Add semantic atomic groups, isolated candidates, combination checks, conflict components, and sealed prepared artifacts | Mixed valid/invalid groups return the maximal deterministic safe group subset without partial semantics |
 | 3. Bounded deck | Extend the same behavior to current deck limits and final whole-output verification | Partial success and no-safe-change E2E paths pass under approval and file backends |
 | 4. Canary | Enable only for allowlisted owners and qualified presentation fingerprints | Zero unchecked output, source mutation, model layout retry, or unexplained render drift |
 | 5. Legacy retirement | Remove layout-specific semantic repair and stop treating character estimates as fit authority | Canary evidence retained and rollback tested |
@@ -504,15 +648,27 @@ production limits are fixed.
 
 The intended runtime controls are:
 
-- render only affected slides, not the full deck, during candidate search;
+- prefer rendering only affected slides during candidate search, but claim this
+  optimization only if Phase 0 qualifies a preservation-safe selective-render
+  mechanism; otherwise measure and bound full-deck conversion;
 - keep one warm, bounded conversion service instead of spawning LibreOffice for
   every candidate;
 - cache render measurements only inside one job using source, candidate, font,
   and engine digests;
 - cap candidates per shape, conflict component size, PDF bytes, page count,
-  worker concurrency, and total deadline;
-- perform one final render per affected slide after subset selection;
+  deterministic search operations, worker concurrency, and total deadline;
+- perform one final candidate conversion after subset selection and inspect
+  every affected page;
 - perform zero additional model calls and add zero layout tokens.
+
+The theoretical request maximum of 64 shapes times 16 candidates is 1,024
+candidate evaluations before combination renders. Phase 0 must not assume that
+this fits a 90-second budget. It must establish a smaller executable policy,
+prove safe deterministic dominance pruning, or reduce the admitted request
+scope. Deterministic structural prechecks may eliminate only candidates proven
+unsafe or dominated under the versioned policy. Approximate heuristics may order
+evaluation, but they can never accept a candidate or turn incomplete work into a
+successful subset.
 
 The phase report must record median, p95, and worst-case time for single-shape,
 single-slide, and bounded-deck cases; peak memory; conversion queue time; number
@@ -546,7 +702,9 @@ must receive a license review before implementation ships.
 For every adaptation job, audit records include:
 
 - request, source, policy, plan, output, font-manifest, and engine digests;
-- counts of requested, supported, applied, skipped, and rendered candidates;
+- requested/effective plan and canonical-package digests;
+- counts of requested, supported, applied, skipped, and rendered candidates and
+  semantic groups;
 - per-reason skip counts without replacement text;
 - conversion attempts, cache hits, and timing by stage;
 - final typed outcome and approval/prepared-artifact identity;
@@ -561,23 +719,28 @@ sufficient to operate this feature.
 
 The first production release is accepted only when:
 
-1. Arbitrarily long generated strings cannot produce a fit-related Workflow
-   failure or crash.
+1. Generated strings within the existing 32 KiB aggregate request bound cannot
+   produce a fit-related Workflow failure or crash. Over-bound input is rejected
+   deterministically before adaptation.
 2. Fit conflict causes zero additional Fast calls and zero layout-specific
    prompt tokens.
 3. Every published edited PPTX passes exact-text, render, canvas, collision,
    reread, and preservation checks.
-4. An infeasible update is skipped atomically without truncating its text.
-5. Other independently safe updates remain applied.
-6. When all updates are skipped, the owner retains the unchanged source and
+4. An infeasible semantic group is skipped atomically without truncating text or
+   applying another member of the same group.
+5. Other independently safe semantic groups remain applied.
+6. When all groups are skipped after a healthy complete evaluation, the owner retains the unchanged source and
    receives a typed `no_safe_change` result.
 7. Unsupported content is never moved or rewritten implicitly.
 8. The admitted corpus has zero overflow false negatives and zero undeclared
    package changes.
-9. One hundred identical runs produce the same status, accepted subset, plan
-   digest, normalized render digest, and output digest.
-10. Renderer outage and cancellation leave no output, temporary file, or orphan
-    process and complete within the documented bound.
+9. One hundred identical runs produce the same status, accepted group subset,
+   effective-plan digest, canonical package digest, and normalized render
+   digest. Raw output SHA-256 repeats only when deterministic ZIP serialization
+   is an explicit writer guarantee.
+10. Renderer outage, wall-clock timeout, and cancellation return typed
+    non-success outcomes, leave no output, temporary file, or orphan process,
+    and complete within the documented bound.
 
 ## Deferred Evolution
 
@@ -595,6 +758,7 @@ approval, and artifact publication.
 - [Document workflows](document-workflows.md)
 - [Rejected deterministic PPTX layout runtime design](pptx-deterministic-layout-runtime-design.md)
 - [DocumentBuilder Phase 0 qualification](../benchmarks/pptx-documentbuilder-phase0-qualification.md)
+- [PPTX overlength Phase 0 qualification](../benchmarks/pptx-overlength-phase0-qualification.md)
 - [Gotenberg](https://github.com/gotenberg/gotenberg)
 - [LibreOffice core](https://github.com/LibreOffice/core)
 - [PDF.js](https://github.com/mozilla/pdf.js)

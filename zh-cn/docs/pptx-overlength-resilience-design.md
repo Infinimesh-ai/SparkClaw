@@ -4,13 +4,14 @@
 
 | 字段 | 值 |
 |---|---|
-| 状态 | 提案；仅设计，尚未实施 |
+| 状态 | Phase 0 **NO-GO**；资格 harness 已实施，生产路径尚未实施 |
 | 决策日期 | 2026-08-13 |
+| 资格测试日期 | 2026-08-14 |
 | 当前范围 | 防止模型文本过长导致 PPTX 完善操作失败 |
 | 涉及操作 | `pptx.update_slide` 和 `pptx.update_deck` |
 | 候选渲染栈 | Gotenberg、LibreOffice 和 PDF.js 文字几何提取 |
 | 内容策略 | Fast 只生成一次；不增加排版提示、不重试缩短、不让模型选择几何参数 |
-| 失败策略 | 应用通过验证的子集，或以成功但未修改的结果返回原文件 |
+| 失败策略 | 应用通过验证的语义组、返回安全未修改完成，或报告类型化的可重试基础设施失败 |
 | 决策所有者 | SparkClaw document runtime |
 
 ## 执行决策
@@ -20,16 +21,22 @@ SparkClaw 将评估一个有界、确定性的 PPTX 替换文本适配与渲染�
 
 Fast 继续负责选择受证据约束的文字 shape，并且只生成一次替换文字。Runtime 随后尝试有限的
 排版候选，不再要求 Fast 缩短或重新生成内容。候选只有在结构检查、通过资格测试的
-LibreOffice 渲染、渲染文字检查和 OOXML 保真检查全部通过后才能接受。如果某项替换没有安全
-候选，则跳过该项并继续处理其他替换。如果所有替换都不能安全应用，操作返回未修改的源文档，
-并以成功的 `no_safe_change` 结束，而不是报告 Workflow 失败。
+LibreOffice 渲染、渲染文字检查和 OOXML 保真检查全部通过后才能接受。替换通过明确的语义
+原子组接受或跳过，避免排版降级让一个完整内容变更只应用一半。如果没有任何语义组可以安全
+应用，操作返回未修改的源文档，并以成功的 `no_safe_change` 结束，而不是报告适配相关的
+Workflow 失败。渲染器、worker、取消和 deadline 故障仍是类型化基础设施失败，不能伪装成
+成功但未修改。
 
 本提案不会恢复已经拒绝的 ONLYOFFICE DocumentBuilder 与 OR-Tools 方案。
 [DocumentBuilder Phase 0 报告](../benchmarks/pptx-documentbuilder-phase0-qualification.md)
 仍然是该 No-Go 决策的权威记录。本文中的候选栈有独立的强制资格门槛，并且只作为渲染判定器，
 不成为 SparkClaw 的 PPTX 写入引擎。
 
-仅凭本文档不授权修改任何代码、依赖、配置、提示词或运行时行为。
+[Phase 0 资格报告](../benchmarks/pptx-overlength-phase0-qualification.md)记录了当前的
+No-Go 结果。合成可见性、确定性、保真和失败门禁已经通过，但即使采用实测最快的 median，
+未缩减的 1,024 候选计划仍超过 90 秒准备预算；本次也没有 owner 私密文字样本或 Microsoft
+PowerPoint 参考查看器证据。仓库现已包含仅用于资格测试的代码与固定 benchmark 依赖；Gateway、
+ToolHub、配置、提示词、部署和运行时行为均未改变。
 
 ## 问题
 
@@ -55,11 +62,16 @@ Fast 一次语义修复机会，要求它缩短或省略替换。第二次仍冲
 - PPTX 语义生成只调用 Fast 一次。排版冲突永远不会产生第二次模型调用。
 - Runtime 不截断、不总结、不改写，也不删除替换字符串的一部分。一项替换要么完整应用，要么
   完整跳过。
+- 语义上相互依赖的替换作为一个原子组完整应用或跳过。Runtime 不跨越语义组边界最大化更新数。
 - 仅仅因为替换文字过长，绝不能导致 `pptx.update_slide` 或 `pptx.update_deck` 失败。
+- 现有请求边界继续生效。超过 12 页、64 个 shape 或 32 KiB 替换文字的输入在适配前确定性
+  拒绝，不归类为适配失败。
 - 源 PPTX 不可变。所有候选都在隔离的 job 目录中生成。
 - 只有通过渲染和保真检查的编辑 artifact 才能发布。
 - 渲染器不可用、超时、结果不确定或 shape 不受支持时，不能发布未检查候选。
 - 相同的源文件字节、替换字节、策略、字体和引擎版本必须产生相同的接受子集和排版计划。
+- wall-clock 进度不能决定部分结果。hard deadline 会以可重试基础设施结果终止准备；确定性搜索
+  限制必须用策略所有的操作数和候选数表达。
 - 审批必须描述准确的预生成 artifact、已应用更新、已跳过更新和排版变更。审批不会授权后续模型
   重试。
 - 现有源身份、证据绑定、范围限制、Policy、审计、artifact lineage 和编辑后验证继续有效。
@@ -68,7 +80,7 @@ Fast 一次语义修复机会，要求它缩短或省略替换。第二次仍冲
 
 - 当一项或多项生成文字对源文本框来说过长时，PPTX 完善仍能完成而不发生 Workflow 失败。
 - 在资格测试和验收路径使用实际渲染，不把字符数启发式估算当作适配成功的证据。
-- 尽可能保留彼此独立且安全的模型更新。
+- 尽可能保留彼此独立且安全的语义组。
 - 内容生成成本保持为一次 Fast 调用，不向该调用增加排版上下文。
 - 只执行有界、确定性的格式和几何变化。
 - 返回稳定的类型化结果，区分完全成功、部分成功、安全未修改和真正的基础设施或源文件失败。
@@ -96,16 +108,16 @@ Fast 一次语义修复机会，要求它缩短或省略替换。第二次仍冲
 | 普通标题、正文和说明文本框 | 候选适配和渲染验证 |
 | 有高置信度配套元素的受支持卡片或横条模式 | 按版本化规则对配套元素进行受限缩放 |
 | 英文、简体中文和中英混排 | 资格测试样本必须覆盖 |
-| 表格 | 保护；跳过目标更新 |
-| 组合内文字 | 保护；跳过目标更新 |
-| SmartArt 和图表内部文字 | 保护；跳过目标更新 |
-| 竖排、旋转、路径或包含 field 的文字 | 保护；跳过目标更新 |
+| 表格 | 保护；跳过目标所在的完整语义组 |
+| 组合内文字 | 保护；跳过目标所在的完整语义组 |
+| SmartArt 和图表内部文字 | 保护；跳过目标所在的完整语义组 |
+| 竖排、旋转、路径或包含 field 的文字 | 保护；跳过目标所在的完整语义组 |
 | 动画、切换、备注、母版、媒体和 relationship | 保留并检查 fingerprint；永不作为隐式修改目标 |
 | 未知或关系不明确的配套元素 | 保护；不移动几何位置 |
 
 支持范围按能力判断，而不是按文件名判断。只有 Runtime 能证明所有可变目标及其允许修改的配套
-元素都符合已通过资格测试的模式时，该页面才算受支持。不支持的目标降级为跳过更新，但不会禁用
-其他彼此独立且受支持的目标。
+元素都符合已通过资格测试的模式时，该页面才算受支持。不支持的目标会让其完整语义组失去资格，
+但不会禁用其他彼此独立且受支持的组。
 
 ## 目标架构
 
@@ -116,12 +128,12 @@ flowchart TD
     C --> D["Runtime 绑定源 hash、页面、shape 和原文字"]
     D --> E["适配 worker 生成有限候选"]
     E --> F["python-pptx 写入隔离候选副本"]
-    F --> G["Gotenberg 和 LibreOffice 将受影响页面渲染为 PDF"]
+    F --> G["Gotenberg 和 LibreOffice 将候选转换为 PDF"]
     G --> H["PDF.js 提取渲染文字和几何信息"]
     H --> I["适配、碰撞、画布和保真检查"]
     I -->|"候选有效"| J["保留最佳候选"]
-    I -->|"没有有效候选"| K["完整跳过该项替换"]
-    J --> L["合并保留的更新并渲染最终候选"]
+    I -->|"组没有有效 tuple"| K["完整跳过语义组"]
+    J --> L["合并保留的组并渲染最终候选"]
     K --> L
     L --> M["封存结果和审批摘要"]
     M --> N["Owner 审批"]
@@ -132,9 +144,9 @@ flowchart TD
 
 | 组件 | 负责 | 不得负责 |
 |---|---|---|
-| Fast | 语义目标选择和准确替换文字 | 适配重试、字号、坐标、文本框尺寸或跳过策略 |
+| Fast | 语义目标选择、语义组成员关系和准确替换文字 | 适配重试、字号、坐标、文本框尺寸或跳过策略 |
 | Workflow Runtime | 证据绑定、类型化结果、Policy、审批、源文件新鲜度、artifact 发布和审计 | 文字测量或演示文稿渲染 |
-| 适配 worker | 候选生成、确定性排序、逐项回滚、渲染编排、验证和诊断 | 内容改写、外部网络访问或审批 |
+| 适配 worker | 候选生成、确定性排序、逐组回滚、渲染编排、验证和诊断 | 内容改写、外部网络访问或审批 |
 | `python-pptx` 修改层 | 向隔离副本写入受限文字、样式和允许的几何变化 | 声明渲染适配或查看器兼容性 |
 | Gotenberg/LibreOffice | 使用固定字体环境把隔离 PPTX 候选转换为 PDF | 保存最终 PPTX 或选择候选 |
 | PDF.js 检查器 | 从 PDF 提取标准化渲染文字项及其变换几何 | 编辑 PPTX、通过 OCR 发明内容或进行语义排版判断 |
@@ -151,6 +163,12 @@ Gotenberg 是固定 LibreOffice runtime 的内部进程/API 封装，只绑定�
 - 原始 PPTX XML、PDF 字节、图片或字体度量；
 - 要求达到指定字符数，或在适配失败后重试的指令；
 - 选择适配策略或标记某项更新必须应用的字段。
+
+语义输出 schema 可以给更新附加不透明 `atomic_group_id`。在 `update_slide` 中，组自然限制在
+当前页面；在 `update_deck` 中，如果术语、数值或结论必须跨页一致，一个组可以跨越多页。该标识
+不携带排版优先级、几何参数或降级指令。Runtime 根据冻结的完整操作范围验证组成员。缺失、无效、
+超出范围或存在歧义的分组会保守降级为“本次操作全部更新属于同一组”。Runtime 不根据页面距离
+或几何距离推断语义独立性。
 
 Runtime 将 `pptx_layout_fit_conflict` 从语义修复的适用条件中移除。空替换文字或 schema 无效
 等不合格语义输出仍可保留语义修复，但渲染或几何失败不能触发语义修复。
@@ -171,6 +189,18 @@ worker 对每个受支持目标按以下顺序生成有限且规范化的候选�
 5. 以 0.5 pt 为步长缩小字号，保持 run 之间的相对字号层级，直至角色绝对下限与源字号比例
    下限中更高的一个。
 6. 按规范顺序应用步骤 2 到 5 的受限组合。
+
+以上只是候选族，还不是可执行策略。进入 Phase 1 前，Phase 0 必须发布一个版本化策略 artifact，
+明确固定：
+
+- 每个已准入角色和轴的准确整数 EMU 增长及移动步长；
+- 准确的段落/行距值、字号步长、绝对/相对下限和取整方式；
+- 允许的配套模式 ID 及其完整修改 allowlist；
+- 规范化笛卡尔积枚举、支配候选剪枝、候选 ID、目标 tuple 和稳定平局规则；
+- 每个 shape 与冲突分量的确定性最大评估次数。
+
+`max_candidates_per_shape` 是验证边界，不表示保留“最先跑完”的候选。需要截断时，必须在开始
+渲染前完全由版本化枚举顺序决定。
 
 第一阶段资格测试使用以下提议值，它们不是生产默认值：
 
@@ -217,10 +247,25 @@ PPTX 后，将其渲染为 PDF，再由 PDF.js 读取页面文字内容和几何
 8. 输出 PPTX 包含准确的请求文字和预期几何。
 9. Package 与语义保真 allowlist 没有报告无关变化。
 
-不能因为 PDF 内容流中存在文字就假设 PDF 文字提取已经证明它没有被裁切。Phase 0 必须明确
-测试裁切、crop、字形变换、项目符号、soft break、中日韩文字和字体替换。如果该栈在准入样本
-中不能以零漏报区分“完整可见字符串”和“被裁切或隐藏文字”，本提案就是 No-Go。OCR 不作为
-验收兜底。
+### 渲染文字归属与可见性
+
+仅靠 PDF 文字提取不够。对每个修改目标，通过资格测试的检查器必须证明：
+
+1. **唯一归属：**候选文字项唯一映射到预期页面和投影 shape 区域。页面其他位置出现相同文字、
+   提取顺序有歧义或多对一匹配时，候选无效。
+2. **基线差异：**使用相同引擎渲染未修改源文件并与候选比较。已接受文字和几何差异只能出现在
+   声明的目标和配套元素中。
+3. **裁切可见：**替换文字所需的每个 glyph quad 都必须在资格容差内完整落入有效 PDF clip 区域。
+4. **遮挡可见：**受保护的后绘制内容、mask、透明效果或同色隐藏不能在准入模式下遮住所需字形。
+5. **标准化一致：**换行、soft break、项目符号、ligature、Unicode 标准化、中日韩 glyph run 和
+   空白使用 Runtime 与资格样本共享的一个版本化比较算法。
+
+Phase 0 可以把 PDF.js 文字内容、operator-list/graphics-state 证据和确定性 raster 证据组合成
+一个通过资格测试的检查器。如果固定栈不能提供足够信息，并在准入样本中以零溢出漏报证明以上
+性质，本设计即为 No-Go。PDF 内容流中存在替换字符串永远不是充分条件。
+
+Phase 0 必须明确测试裁切、crop、字形变换、项目符号、soft break、中日韩文字、重复字符串归属、
+遮挡、透明效果和字体替换。OCR 不作为验收兜底。
 
 LibreOffice 和 Microsoft PowerPoint 对同一 PPTX 的渲染可能不同。因此 runtime 保证仅限于
 通过资格测试的 LibreOffice/字体环境和兼容性样本。Phase 0 还要在当前 PowerPoint 参考查看器
@@ -228,25 +273,29 @@ LibreOffice 和 Microsoft PowerPoint 对同一 PPTX 的渲染可能不同。因�
 
 ## 部分应用算法
 
-一个 deck job 内按页面独立处理：
+一个 deck job 内按页面组织候选生成与组合渲染检查，但资格和选择单位是覆盖完整操作范围的语义
+原子组，不是单个更新：
 
 1. 根据冻结的源证据验证每项请求更新。
-2. 修改前把不受支持的目标分类为 `unsupported_target` 跳过项。
-3. 对其余更新逐项隔离生成并渲染候选。
-4. 为每项更新选择变化最小的有效候选。
-5. 合并一个页面的已选候选并渲染组合结果。
-6. 如果组合失败，根据共享配套元素、变化后的几何和失败碰撞检查构建冲突分量。
-7. 一个冲突分量不超过八项更新时，枚举子集，首先最大化应用更新数量，然后依次最小化字号缩减、
-   几何移动、间距变化，最后以稳定 shape ref 处理平局。
-8. 更大的冲突分量使用相同目标与受限的确定性淘汰顺序，并在诊断中记录该受限路径。
-9. 对页面最终选定的子集重新渲染。
-10. 组装所有已接受页面，最后执行一次完整输出重读和保真检查。
+2. 标准化并验证范围内语义组。任一成员不受支持或不可行，会使整个组不再具备候选资格。
+3. 修改前给不具备资格的组分类，并保留逐成员诊断。
+4. 对其余更新逐项隔离生成并渲染候选。
+5. 为每个完整组构建变化最小的有效候选 tuple。
+6. 合并页面上的候选组并渲染组合结果。
+7. 如果组合失败，根据共享配套元素、变化后的几何和失败碰撞检查构建冲突分量。
+8. 一个冲突分量不超过八个组时，枚举组子集，首先最大化应用更新数量，再最大化应用组数量，
+   然后依次最小化字号缩减、几何移动、间距变化，最后以稳定组和 shape ref 处理平局。
+9. 更大的冲突分量使用同一目标与策略限定的确定性淘汰顺序，并在诊断中记录该路径。
+10. 对页面最终选定的组子集重新渲染。
+11. 组装所有已接受页面，最后执行一次完整输出渲染、重读和保真检查。
 
-该算法不需要 OR-Tools。候选数和冲突范围较小、已版本化，并受一个严格 job deadline 约束。
-超时会跳过尚未解决的受影响冲突分量，不发布未检查候选，也不会让已经独立验证的更新失败。
+该算法不需要 OR-Tools。候选和冲突操作边界较小且已版本化。耗尽确定性搜索边界会让整个受影响
+组以 `search_budget_exhausted` 失去资格。wall-clock deadline、worker crash、渲染器不可用或
+取消会把整次准备终止为类型化基础设施失败；SparkClaw 不发布由“恰好先完成的工作”选出的子集。
 
-即使 exact-span 替换跨越多个 run，它仍然是原子操作。Deck 更新对适配冲突不再是全有或全无，
-但文件发布仍然是原子的：SparkClaw 只发布一个通过验证的 PPTX，或者不发布编辑后的 PPTX。
+即使 exact-span 替换跨越多个 run，它仍然是原子操作。语义组跨 shape 仍保持原子。Deck 更新对
+独立组之间的适配冲突不再是全有或全无，但文件发布仍然是原子的：SparkClaw 只发布一个通过
+验证的 PPTX，或者不发布编辑后的 PPTX。
 
 ## 类型化结果与失败语义
 
@@ -254,14 +303,17 @@ LibreOffice 和 Microsoft PowerPoint 对同一 PPTX 的渲染可能不同。因�
 
 | 状态 | 含义 | 用户可见 artifact |
 |---|---|---|
-| `completed` | 所有请求更新都通过 | 通过验证的编辑后 PPTX |
-| `completed_with_skips` | 至少一项通过且至少一项被跳过 | 通过验证的编辑后 PPTX，以及跳过摘要 |
-| `no_safe_change` | 没有任何更新能安全应用 | 原 PPTX 引用；不创建容易误导的编辑副本 |
-| `source_invalid` | 源文件不可读、已过期、损坏或违反格式策略 | 不创建新 artifact；返回明确源文件错误 |
-| `runtime_unavailable` | 在建立任何安全结果前，所需的合格渲染器或 worker 不可用 | 原 PPTX 引用，以及明确的临时能力状态 |
+| `completed` | 所有请求语义组都通过 | 通过验证的编辑后 PPTX |
+| `completed_with_skips` | 至少一个语义组通过且至少一个被跳过 | 通过验证的编辑后 PPTX，以及组感知的跳过摘要 |
+| `no_safe_change` | 在完整且健康的评估后，没有语义组能够安全应用 | 原 PPTX 引用；不创建容易误导的编辑副本 |
+| `source_invalid` | 源文件不可读、已过期、损坏或违反格式策略 | 终止的源文件失败；不创建新 artifact |
+| `runtime_unavailable` | 所需的合格渲染器或 worker 不可用或不健康 | 可重试基础设施失败；不创建新 artifact |
+| `adaptation_timeout` | 完成最终验证前达到 wall-clock deadline | 可重试基础设施失败；不创建新 artifact |
+| `cancelled` | owner 或 Gateway lifecycle 取消准备 | 已取消 Workflow；不创建新 artifact |
 
-`completed_with_skips`、`no_safe_change` 和 `runtime_unavailable` 都是 Workflow 的终止完成状态，
-不是语义生成重试。它们不能被映射为 `semantic_output_invalid` 或通用模型失败。
+只有 `completed`、`completed_with_skips` 和 `no_safe_change` 是成功的 Workflow 完成状态。
+`runtime_unavailable` 和 `adaptation_timeout` 是可重试基础设施失败，`source_invalid` 是源文件失败。
+这些结果都不触发语义生成重试，也不能映射为 `semantic_output_invalid` 或通用模型失败。
 
 每个被跳过更新有一个稳定 reason code：
 
@@ -269,12 +321,39 @@ LibreOffice 和 Microsoft PowerPoint 对同一 PPTX 的渲染可能不同。因�
 |---|---|
 | `unsupported_target` | Shape 或配套模式超出已通过资格测试的范围 |
 | `no_fitting_candidate` | 所有受限候选都溢出或违反可读性要求 |
-| `combined_layout_conflict` | 更新单独可适配，但无法与排名更高的兼容更新一起应用 |
+| `combined_layout_conflict` | 语义组单独可适配，但无法与排名更高的兼容组一起应用 |
 | `font_unavailable` | 所需有效字体缺失或被替换 |
 | `render_unverifiable` | 无法证明渲染文字或几何完整 |
-| `component_timeout` | 受限候选或冲突搜索达到 deadline |
+| `search_budget_exhausted` | 已耗尽确定性候选或冲突操作边界 |
+| `semantic_group_ineligible` | 同一原子组的其他成员无法安全应用 |
 
 人类可读文案由这些类型化字段生成。Runtime 和测试永远不根据本地化显示文字分支。
+
+`render_unverifiable` 表示健康渲染器下、目标级别无法确定性证明可见，例如重复文字归属有歧义。
+传输失败、渲染器 crash、队列超时或重复渲染不一致必须归类为 `runtime_unavailable` 或
+`adaptation_timeout`，不能作为可跳过的内容原因。
+
+## 请求计划、有效计划与 Pipeline 契约
+
+当前 Document Pipeline 要求至少一项实际变更，并验证提交 `EditRequest` 中的每项更新。因此，
+部分适配不能把请求 edit 当成所有请求更新都已应用来复用。
+
+Runtime 引入两个不可变计划：
+
+- **请求计划（requested plan）**记录适配前全部受证据约束的模型更新和语义组；
+- **有效计划（effective plan）**只包含完整接受的组、所选候选 ID 和声明的格式/几何变化。
+
+对于 `completed` 和 `completed_with_skips`，审批、执行、重读、预期 after-value 验证、package
+保真和 artifact lineage 都绑定有效计划。新增的补充检查要证明每个被跳过源 shape 及其未声明
+配套元素保持不变。请求计划与完整跳过诊断继续附在审批和审计中，让范围收窄可见，而不是静默
+改写模型意图。
+
+对于 `no_safe_change`，Runtime 不调用现有 apply 路径、不伪造 `ApplyResult{Changed: 0}`，也不
+创建编辑副本或审批，而是返回带未修改源引用的类型化 no-edit Workflow 结果。基础设施和源文件
+失败同样绕过 artifact 成功投影。
+
+实现必须新增类型化 prepared-edit 与 Workflow outcome 契约；不能复用当前固定的
+`pptx_version_written` 成功状态，也不能把零变更完成映射为 `parse_failed`。
 
 ## 预生成 Artifact 与审批
 
@@ -284,7 +363,8 @@ artifact，其中包含：
 - 源 SHA-256 和标准化源身份；
 - 已应用和已跳过更新的准确引用与文字 hash；
 - 策略、worker、LibreOffice、Gotenberg、PDF.js 和字体 manifest 版本；
-- 候选计划 digest 和最终 PPTX SHA-256；
+- 请求计划 digest、有效计划 digest、候选计划 digest、最终 PPTX SHA-256 和规范化 OOXML
+  package digest；
 - 标准化渲染检查 digest 和保真结果；
 - 过期时间、job owner 和审批绑定。
 
@@ -294,6 +374,11 @@ artifact hash、策略版本、owner 和过期时间，然后原子发布封存 
 
 如果源文件变化或封存 artifact 过期，Runtime 报告预生成结果已过期，并要求 owner 发起新操作。
 它不会针对变化后的内容静默重用排版决策。
+
+最终 PPTX SHA-256 用于把审批和发布绑定到准确的预生成字节。跨运行确定性使用规范化 package
+digest 判断：它对 part 排序，并排除 ZIP 时间戳和其他明确通过资格测试的容器元数据。只有未来
+writer 明确提供确定性 ZIP 序列化时，才要求原始文件 SHA-256 跨运行一致。渲染 digest 同样排除
+通过资格测试的易变 PDF 元数据，但保留全部文字、几何、clip、可见性和页面证据。
 
 ## Worker 协议草案
 
@@ -314,7 +399,8 @@ artifact hash、策略版本、owner 和过期时间，然后原子发布封存 
       "slide_ref": "ppt/slides/slide3.xml",
       "shape_ref": "cNvPr:17",
       "expected_text_sha256": "hex",
-      "replacement_text": "Fast 的准确输出"
+      "replacement_text": "Fast 的准确输出",
+      "atomic_group_id": "slide-3-group-1"
     }
   ],
   "policy_id": "sparkclaw.pptx_adaptation.v1",
@@ -339,11 +425,15 @@ Gateway 提供 job 路径和 runtime 绑定。模型输出永远不提供 packag
   "status": "completed_with_skips",
   "source_sha256": "hex",
   "output_sha256": "hex",
+  "canonical_package_digest": "hex",
+  "requested_plan_digest": "hex",
+  "effective_plan_digest": "hex",
   "plan_digest": "hex",
   "applied": [
     {
       "slide_ref": "ppt/slides/slide3.xml",
       "shape_ref": "cNvPr:17",
+      "atomic_group_id": "slide-3-group-1",
       "candidate_id": "font-0.5",
       "layout_changes": []
     }
@@ -352,6 +442,7 @@ Gateway 提供 job 路径和 runtime 绑定。模型输出永远不提供 packag
     {
       "slide_ref": "ppt/slides/slide3.xml",
       "shape_ref": "cNvPr:22",
+      "atomic_group_id": "slide-3-group-2",
       "reason": "no_fitting_candidate"
     }
   ],
@@ -374,6 +465,10 @@ Gateway 提供 job 路径和 runtime 绑定。模型输出永远不提供 packag
 v1 拒绝未知字段。stdout 有固定字节限制，人类日志写入 stderr，完整替换文字不能进入日志，返回
 的每个路径都必须解析到 job 目录下。Gateway 独立计算所有 artifact hash。
 
+只有 `completed` 和 `completed_with_skips` 必须返回 `prepared_output_path`、`output_sha256` 及
+package/render 成功检查。`no_safe_change` 不返回输出路径或输出 hash。基础设施、超时、取消和
+源文件失败使用独立 error envelope，不能返回可进入审批的 artifact。
+
 ## Phase 0：强制资格测试
 
 候选渲染器和检查器在目标 Linux ARM64 部署环境通过 Phase 0 前，不得添加生产依赖或代码路径。
@@ -382,15 +477,20 @@ v1 拒绝未知字段。stdout 有固定字节限制，人类日志写入 stderr
 |---|---|---|
 | 原生部署 | 在 DGX Spark 运行固定 Gotenberg、LibreOffice 和 PDF.js artifact | 原生 ARM64 执行、依赖已声明且健康检查成功 |
 | 文字完整性 | 渲染故意正常和被裁切的拉丁、中日韩与混合字符串 | 所有裁切、隐藏、crop 或缺失片段都被拒绝；样本中零漏报 |
+| 归属与可见性 | 覆盖重复字符串、重叠 shape、clip path、mask、透明效果和同色隐藏 | 每个接受字形都有唯一归属且完整可见；歧义或隐藏目标被拒绝 |
 | 几何 | 比较 PDF.js transform 与已知文本框、旋转、边距和换行 | 受支持模式的标准化边界在记录的容差内保持稳定 |
 | 字体确定性 | 测试生产字体和缺失字体 | 记录准确字体 manifest；检测并拒绝字体替换 |
 | 渲染可重复性 | 每个 fixture 渲染 100 次 | 标准化文字/几何 digest 相同，raster digest 在记录的标准化后稳定 |
 | PowerPoint 兼容性 | 在当前 Microsoft PowerPoint 中比较接受结果 | 准入样本中无可见裁切、修复提示、文字缺失或不受支持的差异 |
 | 写入保真 | 通过现有修改层应用候选 | 只有目标文字以及声明的格式/几何 part 变化 |
 | 部分应用 | 混合正常、超长、不支持和互相冲突的更新 | 有效子集确定；单项适配冲突不会让操作失败 |
+| 语义原子性 | 混合同页和跨页相互依赖的标题/正文/数值/术语更新与独立组 | 接受输出不包含不完整语义组；元数据无效时把整个操作归为一组 |
 | 无安全变更 | 让所有更新都不受支持或不可行 | 返回原文件和 `no_safe_change`，不创建编辑 artifact，也不调用模型重试 |
-| 渲染器故障 | 在 job 中停止或挂起转换 | 无未检查输出；在限制时间内终止降级并清理完整进程 |
+| Pipeline 结果 | 覆盖完整、部分、无变更、源失败和基础设施失败路径 | 有效计划验证已应用组、跳过 shape 保持不变，零变更不进入当前 apply 成功路径 |
+| 渲染器故障 | 在 job 中停止或挂起转换 | 返回类型化可重试基础设施失败，不留下未检查或部分输出，并清理完整进程 |
 | 取消 | 取消超大 job | 两秒内停止完整进程树并删除 job 文件 |
+| 转换成本 | 测量实际转换范围与最坏固定候选计划 | 文档化边界满足产品时延/内存预算；仅在保真安全的选择性渲染通过资格测试后才声明只渲染受影响页面 |
+| Digest 确定性 | 在存在易变元数据时重复写入 package 和渲染 | 规范化 package 与 render digest 相同；原始 SHA 要求符合所选 ZIP 策略 |
 | 机密性 | 检查日志、trace 和请求失败 | 不泄漏完整文档文字、PDF 字节或任意 host 路径 |
 
 资格样本必须包括在不可逆替换私密文字后的 owner 文稿和合成边界 fixture，至少覆盖 16:9、4:3、
@@ -407,7 +507,7 @@ AutoFit 设置、普通卡片/横条、邻近图片、表格、group、图表、
 |---|---|---|
 | 0. 渲染器资格测试 | 在不接入 SparkClaw 的情况下构建 fixture 并测试固定渲染/检查栈 | 所有强制资格项通过 |
 | 1. 单 shape worker | 对一个受支持 shape 实现不可变文字、受限候选、渲染检查、保真和类型化跳过 | 没有超长文字导致 Workflow 失败；100 次确定性样本通过 |
-| 2. 单页子集 | 增加隔离候选、组合检查、冲突分量和封存的预生成 artifact | 混合有效/无效更新返回最大且确定的安全子集 |
+| 2. 单页语义组 | 增加语义原子组、隔离候选、组合检查、冲突分量和封存的预生成 artifact | 混合有效/无效组返回最大且确定的安全组子集，不产生部分语义 |
 | 3. 受限整份文稿 | 扩展到当前 deck 范围，并执行最终完整输出验证 | 部分成功和无安全变更 E2E 在审批与 file backend 通过 |
 | 4. Canary | 只为 allowlist owner 和通过资格测试的文稿 fingerprint 启用 | 无未检查输出、源文件变化、模型排版重试或无法解释的渲染漂移 |
 | 5. 旧链路退役 | 删除排版专用语义修复，不再把字符估算作为适配权威 | 保留 Canary 证据并验证回滚 |
@@ -422,12 +522,19 @@ Phase 0 测量实际数据后确定。
 
 预期运行时控制包括：
 
-- 候选搜索期间只渲染受影响页面，不渲染整份文稿；
+- 候选搜索期间优先只渲染受影响页面，但只有 Phase 0 证明选择性渲染机制满足保真安全时才能宣称
+  该优化；否则必须测量并限制整份文稿转换；
 - 保持一个 warm 且受限的转换服务，不为每个候选重新启动 LibreOffice；
 - 仅在单个 job 内使用源、候选、字体和引擎 digest 缓存渲染测量；
-- 限制每个 shape 候选数、冲突分量大小、PDF 字节、页数、worker 并发和总 deadline；
-- 子集选择后，每个受影响页面只做一次最终渲染；
+- 限制每个 shape 候选数、冲突分量大小、PDF 字节、页数、确定性搜索操作数、worker 并发和总
+  deadline；
+- 子集选择后只执行一次最终候选转换，并检查每个受影响页面；
 - 不增加任何模型调用，也不增加任何排版 token。
+
+理论请求上限是 64 个 shape 乘以 16 个候选，即组合渲染前已有 1,024 次候选评估。Phase 0 不能
+假设它能放入 90 秒预算；必须形成更小的可执行策略、证明安全的确定性支配剪枝，或缩小准入请求
+范围。确定性结构预检只能排除依据版本化策略证明不安全或被支配的候选。近似启发式可以调整评估
+顺序，但不能接受候选，也不能把未完成工作变成成功子集。
 
 Phase 报告必须记录单 shape、单页和受限整份文稿的中位数、p95 与最坏耗时，峰值内存、转换排队
 时间、渲染次数和跳过率。延迟上限由这些证据形成产品决策，不能在实现中猜测。
@@ -454,7 +561,8 @@ Phase 报告必须记录单 shape、单页和受限整份文稿的中位数、p9
 每个适配 job 的审计记录包括：
 
 - request、source、policy、plan、output、字体 manifest 和引擎 digest；
-- 请求、支持、应用、跳过和渲染候选数量；
+- 请求/有效计划与规范化 package digest；
+- 请求、支持、应用、跳过和渲染候选及语义组数量；
 - 按原因统计的跳过数量，但不包含替换文字；
 - 转换次数、缓存命中和各阶段耗时；
 - 最终类型化结果，以及审批/预生成 artifact 身份；
@@ -467,16 +575,20 @@ Phase 报告必须记录单 shape、单页和受限整份文稿的中位数、p9
 
 第一版只有满足以下条件才可投入生产：
 
-1. 任意长度的生成字符串都不能导致适配相关 Workflow 失败或 crash。
+1. 现有 32 KiB 聚合请求边界内的生成字符串不能导致适配相关 Workflow 失败或 crash；超出边界的
+   输入在适配前确定性拒绝。
 2. 适配冲突增加零次 Fast 调用和零个排版专用 prompt token。
 3. 发布的每个编辑 PPTX 都通过准确文字、渲染、画布、碰撞、重读和保真检查。
-4. 不可行更新被完整跳过，不会截断其文字。
-5. 其他彼此独立且安全的更新继续应用。
-6. 所有更新都被跳过时，owner 保留未修改源文件，并收到类型化 `no_safe_change` 结果。
+4. 不可行语义组被原子跳过，不截断文字，也不应用同组其他成员。
+5. 其他彼此独立且安全的语义组继续应用。
+6. 完整且健康的评估后所有组都被跳过时，owner 保留未修改源文件，并收到类型化
+   `no_safe_change` 结果。
 7. 不受支持的内容不会被隐式移动或改写。
 8. 准入样本中溢出零漏报，package 无未声明变化。
-9. 一百次相同运行产生相同状态、接受子集、plan digest、标准化 render digest 和 output digest。
-10. 渲染器故障和取消不留下输出、临时文件或孤立进程，并在记录的时间内完成。
+9. 一百次相同运行产生相同状态、接受组子集、有效计划 digest、规范化 package digest 和标准化
+   render digest。只有确定性 ZIP 序列化是明确 writer 保证时，才要求原始 output SHA-256 一致。
+10. 渲染器故障、wall-clock timeout 和取消返回类型化非成功结果，不留下输出、临时文件或孤立
+    进程，并在记录的时间内完成。
 
 ## 暂缓演进
 
@@ -491,6 +603,7 @@ Phase 报告必须记录单 shape、单页和受限整份文稿的中位数、p9
 - [文档 Workflow](document-workflows.md)
 - [已拒绝的确定性 PPTX 排版 Runtime 设计](pptx-deterministic-layout-runtime-design.md)
 - [DocumentBuilder Phase 0 资格测试](../benchmarks/pptx-documentbuilder-phase0-qualification.md)
+- [PPTX 超长文本 Phase 0 资格测试](../benchmarks/pptx-overlength-phase0-qualification.md)
 - [Gotenberg](https://github.com/gotenberg/gotenberg)
 - [LibreOffice core](https://github.com/LibreOffice/core)
 - [PDF.js](https://github.com/mozilla/pdf.js)

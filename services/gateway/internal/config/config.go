@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
 )
 
 const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
@@ -1213,7 +1214,7 @@ func Default() Config {
 					},
 					"weixin": {
 						Enabled:    false,
-						Provider:   "openclaw-weixin-qr",
+						Provider:   weixinproto.QRProvider,
 						BaseURL:    "https://ilinkai.weixin.qq.com",
 						CDNBaseURL: "https://novac2c.cdn.weixin.qq.com/c2c",
 					},

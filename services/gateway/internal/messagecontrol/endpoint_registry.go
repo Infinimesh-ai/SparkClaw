@@ -322,10 +322,10 @@ func (r *EndpointRegistry) GetForMessageSend(_ context.Context, id app.EndpointI
 }
 
 const (
-	CodeBindingUnavailable = "delivery_binding_unavailable"
-	CodeConnectorDisabled  = "delivery_connector_disabled"
-	CodeScopeDenied        = "delivery_scope_denied"
-	CodeCrossUserDenied    = "delivery_cross_user_denied"
+	CodeBindingUnavailable = app.DeliveryCodeBindingUnavailable
+	CodeConnectorDisabled  = app.DeliveryCodeConnectorDisabled
+	CodeScopeDenied        = app.DeliveryCodeScopeDenied
+	CodeCrossUserDenied    = app.DeliveryCodeCrossUserDenied
 )
 
 type TargetError struct {

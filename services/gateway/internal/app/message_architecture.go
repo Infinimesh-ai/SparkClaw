@@ -429,6 +429,16 @@ const (
 	DeliveryOutcomeUnknown   DeliveryStatus = "outcome_unknown"
 )
 
+// Wire-visible delivery error codes shared by the delivery gateway and the
+// message-control endpoint registry; both alias these so the vocabulary has
+// a single source.
+const (
+	DeliveryCodeBindingUnavailable = "delivery_binding_unavailable"
+	DeliveryCodeConnectorDisabled  = "delivery_connector_disabled"
+	DeliveryCodeScopeDenied        = "delivery_scope_denied"
+	DeliveryCodeCrossUserDenied    = "delivery_cross_user_denied"
+)
+
 type PartDeliveryReceipt struct {
 	PartID         string `json:"part_id"`
 	Status         string `json:"status"`

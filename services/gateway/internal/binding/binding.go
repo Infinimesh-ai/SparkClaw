@@ -637,7 +637,7 @@ func (a *WeixinQRAdapter) Poll(ctx context.Context, binding app.NotificationBind
 	if nickname == "" {
 		nickname = strings.TrimSpace(decoded.Nickname)
 	}
-	credentialRef := "provider:openclaw-weixin-qr:" + binding.ID
+	credentialRef := "provider:" + weixinproto.QRProvider + ":" + binding.ID
 	return PollResult{
 		Status:           "active",
 		DisplayName:      nickname,

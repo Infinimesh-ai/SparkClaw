@@ -86,10 +86,10 @@ func (e DeliveryError) ErrorCode() string  { return e.Code }
 func (e DeliveryError) Retryable() bool    { return e.State == "retryable" }
 
 const (
-	CodeBindingUnavailable  = "delivery_binding_unavailable"
-	CodeConnectorDisabled   = "delivery_connector_disabled"
-	CodeScopeDenied         = "delivery_scope_denied"
-	CodeCrossUserDenied     = "delivery_cross_user_denied"
+	CodeBindingUnavailable  = app.DeliveryCodeBindingUnavailable
+	CodeConnectorDisabled   = app.DeliveryCodeConnectorDisabled
+	CodeScopeDenied         = app.DeliveryCodeScopeDenied
+	CodeCrossUserDenied     = app.DeliveryCodeCrossUserDenied
 	CodePartUnsupported     = "delivery_part_unsupported"
 	CodePayloadTooLarge     = "delivery_payload_too_large"
 	CodeArtifactInvalid     = "delivery_artifact_invalid"

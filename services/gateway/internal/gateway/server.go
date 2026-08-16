@@ -247,7 +247,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 }
 
 func (s *Server) Handler() http.Handler {
-	return withCORS(s.withRateLimit(s.withAuth(s.mux)))
+	return s.withCORS(s.withRateLimit(s.withAuth(s.mux)))
 }
 
 func (s *Server) Addr() string {
@@ -2453,10 +2453,28 @@ func modelCallFromChat(sessionID, runID, operation string, chat modelrouter.Chat
 	}
 }
 
-func withCORS(next http.Handler) http.Handler {
+func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		if r.URL.Path == "/mcp" {
+			// DNS-rebinding defense for the LAN MCP endpoint: a browser
+			// context always sends an Origin header, which must match the
+			// gateway's own loopback/bind origins or the operator allowlist
+			// (mcp_access.allowed_origins). Requests without an Origin header
+			// (curl, native MCP clients) pass through untouched — this is not
+			// an authentication layer; /mcp still requires access tickets.
+			origin := strings.TrimSpace(r.Header.Get("Origin"))
+			if origin != "" && !s.mcpOriginAllowed(origin) {
+				writeError(w, http.StatusForbidden, errors.New("origin is not allowed on the MCP endpoint"))
+				return
+			}
+			w.Header().Add("Vary", "Origin")
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Idempotency-Key")
 		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, MCP-Protocol-Version")
 		if r.Method == http.MethodOptions {
@@ -2472,6 +2490,27 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 		if r.URL.Path == "/mcp" {
 			next.ServeHTTP(w, r)
 			return
+		}
+		if strings.HasPrefix(r.URL.Path, bridgeRoutePrefix) {
+			// Bridge dispatch fails closed: its ISCP adapter surface includes
+			// approval resolution, so it must never be reachable without a
+			// credential just because the gateway runs in the default no-auth
+			// posture. A configured gateway.bridge_token is the dedicated
+			// (and then exclusive) bridge credential; otherwise the request
+			// falls through to the standard gateway bearer validation below.
+			if token := strings.TrimSpace(s.cfg.Gateway.BridgeToken); token != "" {
+				presented := bearerCredential(r.Header.Get("Authorization"))
+				if presented == "" || subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+					writeError(w, http.StatusUnauthorized, errors.New("valid bridge token required"))
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, defaultRequestPrincipal())))
+				return
+			}
+			if !s.authRequired() {
+				writeError(w, http.StatusServiceUnavailable, errors.New("bridge API requires Gateway authentication or a configured gateway.bridge_token"))
+				return
+			}
 		}
 		if s.isPublicRoute(r) {
 			next.ServeHTTP(w, r)

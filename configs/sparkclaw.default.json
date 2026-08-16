@@ -72,7 +72,8 @@
     "expected_ticket_type": "iscp.pairing_ticket.v2"
   },
   "mcp_access": {
-    "local_domain_id": "sparkclaw-local"
+    "local_domain_id": "sparkclaw-local",
+    "allowed_origins": []
   },
   "plugins": {
     "entries": {

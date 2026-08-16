@@ -58,7 +58,12 @@ type GatewayConfig struct {
 	PairingRequired bool            `json:"pairing_required"`
 	RemoteAccess    string          `json:"remote_access"`
 	APIToken        string          `json:"api_token,omitempty"`
-	RateLimit       RateLimitConfig `json:"rate_limit"`
+	// BridgeToken is the dedicated credential for the loopback ISCP bridge
+	// dispatch routes. When set, bridge dispatch requires exactly this bearer
+	// token; when empty, bridge dispatch requires gateway authentication and
+	// fails closed (503) in the no-auth posture.
+	BridgeToken string          `json:"bridge_token,omitempty"`
+	RateLimit   RateLimitConfig `json:"rate_limit"`
 }
 
 type RateLimitConfig struct {
@@ -115,6 +120,11 @@ type ISCPPairingConfig struct {
 
 type MCPAccessConfig struct {
 	LocalDomainID string `json:"local_domain_id"`
+	// AllowedOrigins lists additional web origins that may reach the /mcp
+	// endpoint from a browser context. Loopback and gateway-bind origins are
+	// always allowed; an empty list keeps the endpoint loopback/same-origin
+	// only. Requests without an Origin header are unaffected.
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
 type PluginsConfig struct {
@@ -584,7 +594,40 @@ func normalizeMCPAccessConfig(access *MCPAccessConfig) error {
 	if access.LocalDomainID == "" {
 		return errors.New("mcp_access.local_domain_id is required")
 	}
+	normalized := make([]string, 0, len(access.AllowedOrigins))
+	seen := make(map[string]bool, len(access.AllowedOrigins))
+	for _, entry := range access.AllowedOrigins {
+		if strings.TrimSpace(entry) == "" {
+			continue
+		}
+		origin, err := NormalizeOrigin(entry)
+		if err != nil {
+			return fmt.Errorf("mcp_access.allowed_origins entry %q must be an absolute HTTP(S) origin without credentials, path, query, or fragment", entry)
+		}
+		if !seen[origin] {
+			seen[origin] = true
+			normalized = append(normalized, origin)
+		}
+	}
+	access.AllowedOrigins = normalized
 	return nil
+}
+
+// NormalizeOrigin canonicalizes a web origin ("scheme://host[:port]") to its
+// lowercase form. It rejects values that are not plain HTTP(S) origins, such
+// as URLs carrying credentials, paths, queries, or fragments, and the opaque
+// "null" origin.
+func NormalizeOrigin(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("parse origin: %w", err)
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil ||
+		(parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("origin must be an absolute HTTP(S) origin")
+	}
+	return strings.ToLower(parsed.Scheme + "://" + parsed.Host), nil
 }
 
 func normalizeMCPServers(servers *map[string]MCPServerConfig) error {
@@ -1332,6 +1375,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_API_TOKEN"); v != "" {
 		cfg.Gateway.APIToken = v
 	}
+	if v := os.Getenv("SPARKCLAW_BRIDGE_TOKEN"); v != "" {
+		cfg.Gateway.BridgeToken = v
+	}
 	if v := os.Getenv("SPARKCLAW_PAIRING_REQUIRED"); v != "" {
 		cfg.Gateway.PairingRequired = parseBool(v)
 	}
@@ -1352,6 +1398,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_MCP_LOCAL_DOMAIN_ID"); v != "" {
 		cfg.MCPAccess.LocalDomainID = v
+	}
+	if v := os.Getenv("SPARKCLAW_MCP_ALLOWED_ORIGINS"); v != "" {
+		cfg.MCPAccess.AllowedOrigins = splitCSV(v)
 	}
 	if v := os.Getenv("SPARKCLAW_RATE_LIMIT_ENABLED"); v != "" {
 		cfg.Gateway.RateLimit.Enabled = parseBool(v)

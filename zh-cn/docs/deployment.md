@@ -231,6 +231,13 @@ SHA-256 派生身份。局域网直连使用明文 HTTP，不提供 ISCP encrypt
 MCP Access Ticket，不需要 `SPARKCLAW_API_TOKEN`；后者启用时保护的是另一条 owner
 WebChat/Gateway API。
 
+`/mcp` 会校验浏览器 `Origin` header，作为 DNS-rebinding 防御。不携带 `Origin` 的请求
+（curl、LocalMind 等原生 MCP client）不受影响。携带该 header 时，其值必须是 loopback
+origin、Gateway 自身 bind 地址对应的 origin，或 `mcp_access.allowed_origins` 中的条目
+（也可通过逗号分隔的 `SPARKCLAW_MCP_ALLOWED_ORIGINS` 设置）；否则返回 403。该列表默认为
+空——仅当存在部署在其他 origin 的可信浏览器 MCP client 时，才加入形如
+`https://panel.example.com` 的精确 origin。
+
 ## LocalMind MCP
 
 LocalMind 连接默认不启用。按[外部集成](integrations.md)说明，在当前 SparkClaw JSON 配置中

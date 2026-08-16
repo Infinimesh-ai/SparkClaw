@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -53,6 +53,16 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState("");
   const [error, setError] = useState("");
+  const mountedRef = useRef(true);
+  const copyResetTimer = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      window.clearTimeout(copyResetTimer.current);
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     const [pairing, onboardingList, catalog, ticketList, bindingList] = await Promise.all([
@@ -62,6 +72,7 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
       api.mcpAccessTickets(),
       api.mcpBindings()
     ]);
+    if (!mountedRef.current) return;
     setStatus(pairing);
     setOnboardings(onboardingList.onboardings ?? []);
     setAccessScope(catalog.scope);
@@ -83,14 +94,23 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
     return () => { cancelled = true; };
   }, [refresh, text.errors.externalMCP]);
 
+  // Transport state (iscpEnabled/lanAccessEnabled/transportVersion) is owned
+  // by this component's catalog fetch and the PATCH responses. Syncing it from
+  // the connector prop as well let App's 5s background poll revert an
+  // in-flight user toggle and reintroduce stale-version 409s.
   useEffect(() => {
     setConnectorState(connector);
-    if (connector) {
-      setISCPEnabled(connector.iscp_enabled === true);
-      setLANAccessEnabled(connector.lan_access_enabled === true);
-      setTransportVersion(connector.version);
-    }
   }, [connector]);
+
+  useEffect(() => {
+    if (!issuedPairing) return;
+    return expireAt(issuedPairing.ticket.expires_at, () => setIssuedPairing(null));
+  }, [issuedPairing]);
+
+  useEffect(() => {
+    if (!issuedAccess) return;
+    return expireAt(issuedAccess.ticket.expires_at, () => setIssuedAccess(null));
+  }, [issuedAccess]);
 
   const activeConnector = connectorState ?? connector;
   const enabled = activeConnector?.enabled === true;
@@ -104,9 +124,9 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
     try {
       await task();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.externalMCP);
+      if (mountedRef.current) setError(err instanceof Error ? err.message : text.errors.externalMCP);
     } finally {
-      setBusy("");
+      if (mountedRef.current) setBusy("");
     }
   }
 
@@ -152,9 +172,12 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
   async function copyOnce(kind: string, value: string) {
     try {
       await navigator.clipboard.writeText(value);
+      if (!mountedRef.current) return;
       setCopied(kind);
-      window.setTimeout(() => setCopied((current) => current === kind ? "" : current), 1500);
+      window.clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = window.setTimeout(() => setCopied((current) => current === kind ? "" : current), 1500);
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err instanceof Error ? err.message : text.errors.externalMCP);
     }
   }
@@ -328,6 +351,15 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
       {error && <span className="compactError">{error}</span>}
     </article>
   );
+}
+
+// Schedules removal of a copy-once credential at its expires_at timestamp so
+// an expired secret is never left on screen. Returns the effect cleanup.
+function expireAt(expiresAt: string, expire: () => void) {
+  const at = new Date(expiresAt).getTime();
+  if (Number.isNaN(at)) return undefined;
+  const timer = window.setTimeout(expire, Math.min(Math.max(at - Date.now(), 0), 0x7fffffff));
+  return () => window.clearTimeout(timer);
 }
 
 function CopyOnceCredential({ title, value, expiresAt, copied, text, language, onCopy, onDismiss }: {

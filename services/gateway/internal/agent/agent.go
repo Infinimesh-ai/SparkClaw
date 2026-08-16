@@ -1420,6 +1420,20 @@ func approvalSummary(name string, args map[string]any) string {
 		return "调整 Word 文档段落样式：" + stringValue(args["path"])
 	case "office.replace_text":
 		return "修改 Office 文档文本：" + stringValue(args["path"])
+	case "text.replace_text":
+		return "修改文本文件内容：" + stringValue(args["path"])
+	case "pdf.transform":
+		return "对 PDF 文档执行 " + stringValue(args["operation"]) + " 操作：" + stringValue(args["path"])
+	case "xlsx.update_cell":
+		return "修改 Excel 表格单元格：" + stringValue(args["path"])
+	case "xlsx.insert_row":
+		return "在 Excel 表格中插入行：" + stringValue(args["path"])
+	case "xlsx.delete_row":
+		return "删除 Excel 表格行：" + stringValue(args["path"])
+	case "xlsx.update_row":
+		return "修改 Excel 表格行：" + stringValue(args["path"])
+	case "xlsx.append_row":
+		return "在 Excel 表格末尾追加行：" + stringValue(args["path"])
 	default:
 		return "Approve " + name
 	}

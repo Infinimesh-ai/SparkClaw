@@ -293,8 +293,15 @@ done
 ready_json="$(curl -fsS --max-time 5 http://127.0.0.1:18790/readyz)"
 printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' || fail "Gateway ready check returned an unexpected response"
 
-log "installing the boot autostart service"
-bash scripts/install_autostart_systemd.sh
+case "$(printf '%s' "$autostart_enabled" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    log "installing the boot autostart service"
+    bash scripts/install_autostart_systemd.sh
+    ;;
+  *)
+    log "skipping boot autostart install (SPARKCLAW_AUTOSTART_ENABLED=$autostart_enabled)"
+    ;;
+esac
 
 lan_ip=""
 if command -v ip >/dev/null 2>&1; then

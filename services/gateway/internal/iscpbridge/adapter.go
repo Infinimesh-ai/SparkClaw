@@ -45,6 +45,12 @@ type GatewayAdapter struct {
 	manifest       Manifest
 	operationLimit time.Duration
 
+	// notificationMaxPerOwner / notificationRetentionDays bound the durable
+	// passive-notification inbox on ingestion. Zero disables the respective
+	// bound. Set once before serving via ConfigureNotificationRetention.
+	notificationMaxPerOwner   int
+	notificationRetentionDays int
+
 	mu         sync.Mutex
 	mutationMu sync.Mutex
 	operations map[string]*operationRecord
@@ -125,6 +131,14 @@ func NewGatewayAdapter(st store.Store, runtime RuntimeProvider) *GatewayAdapter 
 		operations:     map[string]*operationRecord{},
 		mutations:      map[string]mutationRecord{},
 	}
+}
+
+// ConfigureNotificationRetention bounds the durable passive-notification
+// inbox: maxPerOwner caps stored records per owner and retentionDays expires
+// old ones. Zero disables the respective bound. Call before serving requests.
+func (a *GatewayAdapter) ConfigureNotificationRetention(maxPerOwner, retentionDays int) {
+	a.notificationMaxPerOwner = maxPerOwner
+	a.notificationRetentionDays = retentionDays
 }
 
 func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req Request) Response {
@@ -212,9 +226,26 @@ func (a *GatewayAdapter) deliverNotification(req Request, principal Principal, n
 	if err != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "notification could not be persisted", true), now)
 	}
+	if created {
+		a.prunePassiveNotifications(now)
+	}
 	return newResponse(req, "ok", NotificationDeliveryResult{
 		ID: notification.ID, NotificationID: notification.NotificationID, Created: created,
 	}, nil, nil, now)
+}
+
+// prunePassiveNotifications applies the configured retention window and
+// per-owner cap after each accepted delivery, so the inbox stays bounded at
+// its only ingestion point.
+func (a *GatewayAdapter) prunePassiveNotifications(now time.Time) {
+	cutoff := time.Time{}
+	if a.notificationRetentionDays > 0 {
+		cutoff = now.AddDate(0, 0, -a.notificationRetentionDays)
+	}
+	if cutoff.IsZero() && a.notificationMaxPerOwner <= 0 {
+		return
+	}
+	a.store.PrunePassiveNotifications(cutoff, a.notificationMaxPerOwner)
 }
 
 func (a *GatewayAdapter) listSessions(req Request, principal Principal, now time.Time) Response {

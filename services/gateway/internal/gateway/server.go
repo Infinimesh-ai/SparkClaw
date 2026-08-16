@@ -218,6 +218,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		option(s)
 	}
 	s.bridge = iscpbridge.NewGatewayAdapter(st, func() iscpbridge.AgentRuntime { return s.runtime })
+	s.bridge.ConfigureNotificationRetention(cfg.PassiveNotifications.MaxPerOwner, cfg.PassiveNotifications.RetentionDays)
 	s.mcpAccess = mcpaccess.New(st, s.runtime, func(ctx context.Context, result agent.Result) error {
 		if s.endpoints == nil || s.delivery == nil {
 			return errors.New("MCP result delivery is unavailable")

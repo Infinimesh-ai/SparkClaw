@@ -23,7 +23,23 @@ type passiveNotificationView struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
+// applyPassiveNotificationRetention lazily enforces the configured retention
+// window and per-owner cap, mirroring applyMemoryRetention: the sweep runs on
+// owner reads so an idle inbox still ages out without a background job.
+func (s *Server) applyPassiveNotificationRetention() {
+	maxPerOwner := s.cfg.PassiveNotifications.MaxPerOwner
+	cutoff := time.Time{}
+	if days := s.cfg.PassiveNotifications.RetentionDays; days > 0 {
+		cutoff = time.Now().UTC().AddDate(0, 0, -days)
+	}
+	if cutoff.IsZero() && maxPerOwner <= 0 {
+		return
+	}
+	s.store.PrunePassiveNotifications(cutoff, maxPerOwner)
+}
+
 func (s *Server) listPassiveNotifications(w http.ResponseWriter, r *http.Request) {
+	s.applyPassiveNotificationRetention()
 	principal := principalForRequest(r)
 	records := s.store.ListPassiveNotifications(principal.OwnerID, "", queryInt(r, "limit", 100))
 	views := make([]passiveNotificationView, 0, len(records))

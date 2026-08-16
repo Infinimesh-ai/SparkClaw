@@ -117,6 +117,32 @@ func TestGatewayAdapterPassiveNotificationPersistsWithoutAgentActivity(t *testin
 	}
 }
 
+func TestGatewayAdapterPassiveNotificationIngestionEnforcesCap(t *testing.T) {
+	st := store.NewMemoryStore()
+	adapter := NewGatewayAdapter(st, func() AgentRuntime {
+		t.Fatal("passive notification requested the Agent runtime")
+		return nil
+	})
+	adapter.ConfigureNotificationRetention(3, 90)
+	principal := Principal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}
+	for i := 0; i < 6; i++ {
+		suffix := string(rune('a' + i))
+		request := validRequest(TypeNotificationDeliver, "request-cap-"+suffix, "localmind-notifications", "", "delivery-cap-"+suffix, NotificationDeliverPayload{
+			NotificationID: "delivery-cap-" + suffix,
+			Source:         "localmind",
+			Kind:           app.PassiveNotificationKindDocumentMention,
+			DeepLink:       "https://localmind.example/workspace/doc",
+			OccurredAt:     time.Now().UTC(),
+		})
+		if response := adapter.Dispatch(t.Context(), principal, request); response.Status != "ok" {
+			t.Fatalf("delivery %d failed: %#v", i, response)
+		}
+	}
+	if got := len(st.ListPassiveNotifications(app.DefaultOwnerID, "", 10)); got != 3 {
+		t.Fatalf("inbox size after capped ingestion = %d, want 3", got)
+	}
+}
+
 func TestGatewayAdapterPassiveNotificationRejectsUnsafePayloads(t *testing.T) {
 	tests := []struct {
 		name    string

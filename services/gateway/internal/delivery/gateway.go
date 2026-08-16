@@ -110,6 +110,25 @@ func ErrorCode(err error) string {
 	return ""
 }
 
+// IsBlocked reports whether err is a terminally non-retryable delivery
+// failure: retrying cannot succeed until an operator changes something (the
+// binding was revoked, the connector is disabled, the payload violates the
+// channel contract). Errors that expose a retry state are classified by it;
+// errors that only expose a code (for example the messagecontrol target
+// errors) are classified by the codes that never heal on their own. Unknown
+// errors stay retryable.
+func IsBlocked(err error) bool {
+	var stated interface{ RetryState() string }
+	if errors.As(err, &stated) {
+		return stated.RetryState() == "blocked"
+	}
+	switch ErrorCode(err) {
+	case CodeBindingUnavailable, CodeConnectorDisabled, CodeScopeDenied, CodeCrossUserDenied:
+		return true
+	}
+	return false
+}
+
 func requestAuthorizedForEndpoint(request app.DeliveryRequest, endpoint app.MessageEndpoint) bool {
 	if request.Authorization.PrincipalID != request.ActorID || request.ActorID == "" {
 		return false

@@ -2,6 +2,8 @@ package delivery
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +11,29 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+func TestIsBlockedClassifiesDeliveryErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		err     error
+		blocked bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("connection reset"), false},
+		{"blocked delivery error", NewError(CodeConnectorDisabled, "delivery connector is disabled", "blocked"), true},
+		{"retryable delivery error", NewError(CodeProviderRetryable, "provider returned HTTP 500", "retryable"), false},
+		{"unsafe delivery error", NewError(CodeOutcomeUnknown, "provider timed out", "unsafe"), false},
+		{"wrapped blocked error", fmt.Errorf("deliver: %w", NewError(CodeBindingUnavailable, "weixin binding is unavailable", "blocked")), true},
+		{"target error binding unavailable", &messagecontrol.TargetError{Code: CodeBindingUnavailable, Message: "delivery binding is unavailable"}, true},
+		{"target error connector disabled", &messagecontrol.TargetError{Code: CodeConnectorDisabled, Message: "delivery connector is disabled"}, true},
+		{"target error unknown code", &messagecontrol.TargetError{Code: "some_other_code", Message: "unclassified"}, false},
+	}
+	for _, testCase := range cases {
+		if got := IsBlocked(testCase.err); got != testCase.blocked {
+			t.Fatalf("%s: IsBlocked=%v want %v", testCase.name, got, testCase.blocked)
+		}
+	}
+}
 
 type recordingProvider struct {
 	key       string

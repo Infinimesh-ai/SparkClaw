@@ -248,8 +248,16 @@ type ExternalChatMessage struct {
 	LinkedRunID       string    `json:"linked_run_id,omitempty"`
 	Status            string    `json:"status"`
 	Error             string    `json:"error,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	// PendingReplyKind and PendingReply carry the already-produced reply of a
+	// message whose provider delivery failed, so a redelivery retries only the
+	// send instead of re-running the workflow that produced the reply.
+	PendingReplyKind string `json:"pending_reply_kind,omitempty"`
+	PendingReply     string `json:"pending_reply,omitempty"`
+	// DispatchAttempts counts failed dispatches so the retry budget survives
+	// gateway restarts.
+	DispatchAttempts int       `json:"dispatch_attempts,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // Transitional aliases keep old file snapshots and downstream callers

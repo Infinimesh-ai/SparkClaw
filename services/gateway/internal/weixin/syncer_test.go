@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -838,5 +839,209 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 	}
 	if runsAfter := len(st.ListRuns(chatSession.LinkedSessionID)); runsAfter != runsBefore {
 		t.Fatalf("processed message must not run the agent again: before=%d after=%d", runsBefore, runsAfter)
+	}
+}
+
+func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/getupdates":
+			_, _ = w.Write([]byte(`{
+				"ret": 0,
+				"get_updates_buf": "cursor-2",
+				"msgs": [
+					{
+						"msg_id": "provider-msg-stubborn",
+						"from_user_id": "wx-user-1",
+						"context_token": "ctx-1",
+						"create_time": 1782800000,
+						"item_list": [
+							{"type": 1, "text_item": {"text": "你好"}}
+						]
+					}
+				]
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	st := store.NewMemoryStore()
+	st.SaveCredentialSecret(app.CredentialSecret{
+		Ref:   "provider:openclaw-weixin-qr:bind_1",
+		Kind:  "openclaw-weixin-bot-token",
+		Value: "bot-secret",
+	})
+	binding := app.NotificationBinding{
+		ID:             "bind_1",
+		OwnerID:        app.DefaultOwnerID,
+		Channel:        "weixin",
+		Provider:       "openclaw-weixin-qr",
+		Status:         "active",
+		ExternalUserID: "wx-user-1",
+		CredentialRef:  "provider:openclaw-weixin-qr:bind_1",
+		BaseURL:        ts.URL,
+		ProviderCursor: "cursor-1",
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}
+	st.SaveNotificationBinding(binding)
+	runtime := &fakeAgentRuntime{result: agent.Result{
+		Run: app.AgentRun{ID: "run_stubborn", State: "completed"},
+		WorkflowResult: &app.WorkflowResult{
+			SchemaVersion: app.WorkflowResultSchemaVersion,
+			ID:            "workflow_result_run_stubborn",
+			RunID:         "run_stubborn",
+			Status:        app.WorkflowResultSucceeded,
+			Content: app.MessageContent{Parts: []app.MessagePart{{
+				ID: "part_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "答案",
+			}}},
+		},
+	}}
+	transient := errors.New("provider connection reset")
+	deliverer := &fakeResultDeliverer{errs: []error{transient, transient, transient}}
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
+
+	chatSessionID := ""
+	for tick, wantAttempts := range []int{1, 2, 3} {
+		// A fresh Syncer per tick simulates a gateway restart between polls:
+		// the retry budget must come from the store, not from syncer memory.
+		syncer := NewSyncer(st).WithDispatcher(dispatcher)
+		syncer.Tick(t.Context())
+		syncer.Wait()
+		chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+		if !ok {
+			t.Fatalf("tick %d: chat session missing", tick)
+		}
+		chatSessionID = chatSession.ID
+		record, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-stubborn")
+		if !ok || record.DispatchAttempts != wantAttempts {
+			t.Fatalf("tick %d: attempts should persist across restarts, want %d got %#v ok=%v", tick, wantAttempts, record, ok)
+		}
+		updated, _ := st.GetNotificationBinding("bind_1")
+		wantCursor := "cursor-1"
+		if wantAttempts >= maxDispatchAttempts {
+			wantCursor = "cursor-2"
+		}
+		if updated.ProviderCursor != wantCursor {
+			t.Fatalf("tick %d: cursor %q, want %q", tick, updated.ProviderCursor, wantCursor)
+		}
+	}
+	if got := runtime.handledCount(); got != 1 {
+		t.Fatalf("only the first dispatch may run the agent, got %d handles", got)
+	}
+	if got := len(deliverer.deliveredResults()); got != 3 {
+		t.Fatalf("each dispatch should retry only the delivery step, got %d deliveries", got)
+	}
+	record, _ := st.FindExternalChatMessageByExternalID(chatSessionID, "provider-msg-stubborn")
+	if record.Status != "delivery_failed" || record.Error == "" {
+		t.Fatalf("dropped message should keep its failure state for later redeliveries: %#v", record)
+	}
+}
+
+func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
+	var mu sync.Mutex
+	var polledCursors []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/getupdates":
+			var payload struct {
+				GetUpdatesBuf string `json:"get_updates_buf"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			mu.Lock()
+			polledCursors = append(polledCursors, payload.GetUpdatesBuf)
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{
+				"ret": 0,
+				"get_updates_buf": "cursor-2",
+				"msgs": [
+					{
+						"msg_id": "provider-msg-blocked",
+						"from_user_id": "wx-user-1",
+						"context_token": "ctx-1",
+						"create_time": 1782800000,
+						"item_list": [
+							{"type": 1, "text_item": {"text": "你好"}}
+						]
+					}
+				]
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	st := store.NewMemoryStore()
+	st.SaveCredentialSecret(app.CredentialSecret{
+		Ref:   "provider:openclaw-weixin-qr:bind_1",
+		Kind:  "openclaw-weixin-bot-token",
+		Value: "bot-secret",
+	})
+	binding := app.NotificationBinding{
+		ID:             "bind_1",
+		OwnerID:        app.DefaultOwnerID,
+		Channel:        "weixin",
+		Provider:       "openclaw-weixin-qr",
+		Status:         "active",
+		ExternalUserID: "wx-user-1",
+		CredentialRef:  "provider:openclaw-weixin-qr:bind_1",
+		BaseURL:        ts.URL,
+		ProviderCursor: "cursor-1",
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}
+	st.SaveNotificationBinding(binding)
+	runtime := &fakeAgentRuntime{result: agent.Result{
+		Run: app.AgentRun{ID: "run_blocked_sync", State: "completed"},
+		WorkflowResult: &app.WorkflowResult{
+			SchemaVersion: app.WorkflowResultSchemaVersion,
+			ID:            "workflow_result_run_blocked_sync",
+			RunID:         "run_blocked_sync",
+			Status:        app.WorkflowResultSucceeded,
+			Content: app.MessageContent{Parts: []app.MessagePart{{
+				ID: "part_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "答案",
+			}}},
+		},
+	}}
+	deliverer := &fakeResultDeliverer{errs: []error{
+		delivery.NewError(delivery.CodeBindingUnavailable, "weixin binding is unavailable", "blocked"),
+	}}
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
+	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+
+	syncer.Tick(t.Context())
+	syncer.Wait()
+
+	updated, _ := st.GetNotificationBinding("bind_1")
+	if updated.ProviderCursor != "cursor-2" {
+		t.Fatalf("cursor must advance past a blocked delivery, got %q", updated.ProviderCursor)
+	}
+	chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
+	if !ok {
+		t.Fatal("chat session missing")
+	}
+	blocked, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-blocked")
+	if !ok || blocked.Status != "delivery_blocked" || blocked.Error == "" {
+		t.Fatalf("blocked message should be terminal with a recorded reason: %#v ok=%v", blocked, ok)
+	}
+
+	syncer.Tick(t.Context())
+	syncer.Wait()
+
+	if got := runtime.handledCount(); got != 1 {
+		t.Fatalf("blocked message must not be dispatched again, got %d handles", got)
+	}
+	if got := len(deliverer.deliveredResults()); got != 1 {
+		t.Fatalf("blocked message must not be re-delivered, got %d deliveries", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(polledCursors, ",") != "cursor-1,cursor-2" {
+		t.Fatalf("second poll should use the advanced cursor: %#v", polledCursors)
 	}
 }

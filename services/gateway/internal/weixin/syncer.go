@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -38,9 +39,8 @@ type Syncer struct {
 	slots chan struct{}
 	wg    sync.WaitGroup
 
-	mu       sync.Mutex
-	busy     map[string]bool
-	attempts map[string]int
+	mu   sync.Mutex
+	busy map[string]bool
 }
 
 type updateTextItem struct {
@@ -56,11 +56,10 @@ type updateItem struct {
 
 func NewSyncer(st store.Store) *Syncer {
 	return &Syncer{
-		store:    st,
-		client:   &http.Client{Timeout: 40 * time.Second},
-		slots:    make(chan struct{}, defaultDispatchWorkers),
-		busy:     map[string]bool{},
-		attempts: map[string]int{},
+		store:  st,
+		client: &http.Client{Timeout: 40 * time.Second},
+		slots:  make(chan struct{}, defaultDispatchWorkers),
+		busy:   map[string]bool{},
 	}
 }
 
@@ -300,15 +299,21 @@ func (s *Syncer) processBatch(ctx context.Context, batch inboundBatch) {
 			}
 		}
 		inbound.ReceiveRecord = receives.Advance(receive, "authorized", "", "")
-		attemptKey := binding.ID + "\x00" + inbound.ExternalID
 		inbound.Text = extractInboundText(msg.Items)
 		inbound.Attachments = s.downloadInboundAttachments(ctx, binding, msg.Items, chatSession.LinkedSessionID, msg.ExternalID)
 		if inbound.Text == "" && len(inbound.Attachments) == 0 {
-			s.clearAttempts(attemptKey)
 			continue
 		}
 		if err := s.dispatcher.HandleInbound(ctx, inbound); err != nil {
-			attempts := s.recordAttempt(attemptKey)
+			if delivery.IsBlocked(err) {
+				// Retrying cannot succeed until an operator intervenes and
+				// the dispatcher already recorded the reason on the message,
+				// so skip it instead of holding the binding's cursor back.
+				slog.Warn("weixin inbound delivery blocked; advancing past message",
+					"binding_id", binding.ID, "external_id", msg.ExternalID, "error", err)
+				continue
+			}
+			attempts := s.recordDispatchAttempt(chatSession.ID, binding.ID, inbound.ExternalID)
 			if attempts < maxDispatchAttempts {
 				// Keep the old cursor so the provider redelivers this
 				// message (and everything after it) on the next poll.
@@ -319,7 +324,6 @@ func (s *Syncer) processBatch(ctx context.Context, batch inboundBatch) {
 			slog.Warn("weixin inbound dropped after repeated dispatch failures",
 				"binding_id", binding.ID, "external_id", msg.ExternalID, "attempts", attempts, "error", err)
 		}
-		s.clearAttempts(attemptKey)
 	}
 	s.advanceCursor(binding.ID, batch.Cursor)
 }
@@ -338,17 +342,24 @@ func (s *Syncer) advanceCursor(bindingID, cursor string) {
 	s.store.SaveNotificationBinding(binding)
 }
 
-func (s *Syncer) recordAttempt(key string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.attempts[key]++
-	return s.attempts[key]
-}
-
-func (s *Syncer) clearAttempts(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.attempts, key)
+// recordDispatchAttempt persists a failed dispatch on the inbound message
+// record: the retry budget survives gateway restarts and lives and dies with
+// the message itself, so nothing lingers in syncer memory for bindings that
+// are later revoked. A successful dispatch resets the count when the
+// dispatcher finalizes the record.
+func (s *Syncer) recordDispatchAttempt(chatSessionID, bindingID, externalID string) int {
+	record, ok := s.store.FindExternalChatMessageByExternalID(chatSessionID, externalID)
+	if !ok {
+		// The dispatch failed before anything was persisted, so there is no
+		// durable place for a budget; treat the message as exhausted rather
+		// than blocking the binding's cursor indefinitely.
+		slog.Warn("weixin inbound failed without a persisted record; dropping",
+			"binding_id", bindingID, "external_id", externalID)
+		return maxDispatchAttempts
+	}
+	record.DispatchAttempts++
+	record = s.store.SaveExternalChatMessage(record)
+	return record.DispatchAttempts
 }
 
 func (s *Syncer) downloadInboundAttachments(ctx context.Context, binding app.NotificationBinding, items []updateItem, sessionID, nameSeed string) []app.MessageAttachment {

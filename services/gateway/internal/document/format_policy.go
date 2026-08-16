@@ -294,3 +294,20 @@ func replaceTextPreservationPolicy(augment func(Representation, Representation, 
 func strictEvidenceDelta(before, after []string) bool {
 	return slices.Equal(before, after)
 }
+
+// HasOperationPolicy reports whether a preservation policy is registered for
+// the (format, operation) pair. Exported so downstream registries (toolhub
+// operation providers, agent routing policies) can assert parity in tests:
+// an operation that is executable but has no policy would fail closed at
+// edit time, and that mismatch should be caught at test time instead.
+func HasOperationPolicy(format, operation string) bool {
+	_, ok := registeredDocumentFormatPolicies.operation(format, operation)
+	return ok
+}
+
+// HasFormatPolicy reports whether a lifecycle policy is registered for the
+// format. Pipeline.Edit fails closed for formats without one.
+func HasFormatPolicy(format string) bool {
+	_, ok := registeredDocumentFormatPolicies.format(format)
+	return ok
+}

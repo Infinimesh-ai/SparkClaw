@@ -370,7 +370,12 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 	if expected := strings.TrimSpace(request.SourceSHA256); expected != "" && !strings.EqualFold(expected, metadata.SHA256) {
 		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "input document does not match the trusted source hash"}
 	}
-	formatPolicy, _ := registeredDocumentFormatPolicies.format(metadata.Format)
+	formatPolicy, ok := registeredDocumentFormatPolicies.format(metadata.Format)
+	if !ok {
+		// Fail closed: a format that is editable but has no lifecycle policy
+		// would silently skip BeginEdit gates (e.g. the XLSX package-drift check).
+		return EditResult{}, &PipelineError{Code: CodeMutationUnsupported, Stage: StageConstrain, Format: metadata.Format, Detail: "no format policy registered for this format"}
+	}
 	var verifyPackage postEditVerifier
 	if formatPolicy.BeginEdit != nil {
 		verifyPackage, err = formatPolicy.BeginEdit(metadata, request)

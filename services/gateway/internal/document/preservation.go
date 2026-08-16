@@ -15,7 +15,12 @@ type PreservationReport struct {
 
 func ValidatePreservation(before, after Representation, edit EditRequest, matches []Match, details ...map[string]any) (PreservationReport, error) {
 	report := PreservationReport{}
-	policy, _ := registeredDocumentFormatPolicies.operation(before.Format, edit.Operation)
+	policy, ok := registeredDocumentFormatPolicies.operation(before.Format, edit.Operation)
+	if !ok {
+		// Fail closed: an unregistered (format, operation) pair would otherwise
+		// skip every verification hook and still report "verified".
+		return report, &PipelineError{Code: CodeMutationUnsupported, Stage: StageApply, Format: before.Format, Detail: "no preservation policy registered for operation " + edit.Operation}
+	}
 	appliedDetails := map[string]any{}
 	if len(details) > 0 && details[0] != nil {
 		appliedDetails = details[0]

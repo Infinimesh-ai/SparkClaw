@@ -2,7 +2,11 @@ package weixin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,10 +22,11 @@ import (
 // It deliberately implements only the base AgentRuntime interface so that any
 // dispatcher fallback to it stands for "the workflow ran again".
 type fakeAgentRuntime struct {
-	mu      sync.Mutex
-	handled int
-	result  agent.Result
-	err     error
+	mu       sync.Mutex
+	handled  int
+	executed int
+	result   agent.Result
+	err      error
 }
 
 func (f *fakeAgentRuntime) HandleMessageWithAttachments(_ context.Context, _ string, _ string, _ []agent.MessageAttachment) (agent.Result, error) {
@@ -32,7 +37,16 @@ func (f *fakeAgentRuntime) HandleMessageWithAttachments(_ context.Context, _ str
 }
 
 func (f *fakeAgentRuntime) ExecuteApprovedToolCall(context.Context, app.Approval) (app.ToolCall, error) {
-	return app.ToolCall{}, errors.New("not supported in fake runtime")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.executed++
+	return app.ToolCall{}, nil
+}
+
+func (f *fakeAgentRuntime) executedCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.executed
 }
 
 func (f *fakeAgentRuntime) ResumeRunAfterApproval(context.Context, string, string) (agent.Result, bool, error) {
@@ -216,5 +230,222 @@ func TestHandleInboundMarksBlockedDeliveryTerminal(t *testing.T) {
 	}
 	if got := len(deliverer.deliveredResults()); got != 1 {
 		t.Fatalf("blocked message must not be re-delivered, got %d deliveries", got)
+	}
+}
+
+// controlProviderServer fails the first failSends /sendmessage calls with an
+// HTTP 500 and records every text it was asked to send.
+func controlProviderServer(t *testing.T, failSends int) (*httptest.Server, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var sentTexts []string
+	remainingFailures := failSends
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/getconfig":
+			_, _ = w.Write([]byte(`{"ret":0,"typing_ticket":"typing-ticket-1"}`))
+		case "/ilink/bot/sendtyping":
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		case "/ilink/bot/sendmessage":
+			var payload struct {
+				Msg struct {
+					ItemList []struct {
+						TextItem struct {
+							Text string `json:"text"`
+						} `json:"text_item"`
+					} `json:"item_list"`
+				} `json:"msg"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			mu.Lock()
+			if len(payload.Msg.ItemList) > 0 {
+				sentTexts = append(sentTexts, payload.Msg.ItemList[0].TextItem.Text)
+			}
+			failing := remainingFailures > 0
+			if failing {
+				remainingFailures--
+			}
+			mu.Unlock()
+			if failing {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), sentTexts...)
+	}
+}
+
+func newControlReplyTestDispatcher(t *testing.T, st *store.MemoryStore, runtime *fakeAgentRuntime, baseURL string) (*Dispatcher, app.NotificationBinding) {
+	t.Helper()
+	st.SaveCredentialSecret(app.CredentialSecret{
+		Ref:   "provider:openclaw-weixin-qr:bind_1",
+		Kind:  "openclaw-weixin-bot-token",
+		Value: "bot-secret",
+	})
+	binding := newPendingReplyTestBinding()
+	binding.BaseURL = baseURL
+	st.SaveNotificationBinding(binding)
+	cfg := config.NotificationChannelConfig{Enabled: true, Provider: "openclaw-weixin-qr", BaseURL: baseURL}
+	return NewDispatcher(st, runtime, cfg), binding
+}
+
+func TestClearConversationReplyIsRetriedWithoutRepeatingTheClear(t *testing.T) {
+	ts, sentTexts := controlProviderServer(t, 1)
+	st := store.NewMemoryStore()
+	runtime := &fakeAgentRuntime{}
+	dispatcher, binding := newControlReplyTestDispatcher(t, st, runtime, ts.URL)
+	inbound := InboundMessage{
+		Binding:      binding,
+		FromUserID:   "wx-user-1",
+		ContextToken: "ctx-1",
+		Text:         "清空对话",
+		ExternalID:   "provider-msg-clear",
+	}
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
+		t.Fatal("expected the failed confirmation send to surface an error")
+	}
+	chatSession, ok := st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	if !ok {
+		t.Fatal("chat session missing")
+	}
+	clearedSessionID := chatSession.LinkedSessionID
+	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-clear")
+	if !ok || failed.Status != "delivery_failed" || failed.PendingReplyKind != pendingReplyControlText {
+		t.Fatalf("clear-conversation confirmation should be retryable: %#v ok=%v", failed, ok)
+	}
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
+		t.Fatalf("confirmation resend should succeed: %v", err)
+	}
+	chatSession, _ = st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	if chatSession.LinkedSessionID != clearedSessionID {
+		t.Fatalf("retry must not clear the conversation again: %q -> %q", clearedSessionID, chatSession.LinkedSessionID)
+	}
+	if got := runtime.handledCount(); got != 0 {
+		t.Fatalf("clear-conversation must never reach the agent, got %d handles", got)
+	}
+	retried, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-clear")
+	if retried.Status != "processed" || retried.PendingReply != "" {
+		t.Fatalf("successful resend should finalize the record: %#v", retried)
+	}
+	texts := sentTexts()
+	if len(texts) != 2 || !strings.Contains(texts[1], "对话已清空") {
+		t.Fatalf("expected the confirmation to be resent, got %#v", texts)
+	}
+}
+
+func TestAttachmentPromptIsRetriedWithoutDuplicatingContext(t *testing.T) {
+	ts, sentTexts := controlProviderServer(t, 1)
+	st := store.NewMemoryStore()
+	runtime := &fakeAgentRuntime{}
+	dispatcher, binding := newControlReplyTestDispatcher(t, st, runtime, ts.URL)
+	inbound := InboundMessage{
+		Binding:      binding,
+		FromUserID:   "wx-user-1",
+		ContextToken: "ctx-1",
+		ExternalID:   "provider-msg-attach",
+		Attachments: []app.MessageAttachment{{
+			Name:        "报表.xlsx",
+			RelPath:     "in/报表.xlsx",
+			ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			Bytes:       128,
+		}},
+	}
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
+		t.Fatal("expected the failed clarification send to surface an error")
+	}
+	chatSession, ok := st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	if !ok {
+		t.Fatal("chat session missing")
+	}
+	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-attach")
+	if !ok || failed.Status != "delivery_failed" || failed.PendingReplyKind != pendingReplyAttachmentPrompt {
+		t.Fatalf("attachment clarification should be retryable: %#v ok=%v", failed, ok)
+	}
+	contextMessages := len(st.ListMessages(chatSession.LinkedSessionID))
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
+		t.Fatalf("clarification resend should succeed: %v", err)
+	}
+	retried, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-attach")
+	if retried.Status != "needs_user_instruction" || retried.PendingReply != "" {
+		t.Fatalf("successful resend should restore the pending-instruction state: %#v", retried)
+	}
+	if got := len(st.ListMessages(chatSession.LinkedSessionID)); got != contextMessages {
+		t.Fatalf("retry must not duplicate the pending attachment context: before=%d after=%d", contextMessages, got)
+	}
+	if got := runtime.handledCount(); got != 0 {
+		t.Fatalf("attachment-only inbound must not reach the agent, got %d handles", got)
+	}
+	texts := sentTexts()
+	if len(texts) != 2 || !strings.Contains(texts[1], "我已收到") {
+		t.Fatalf("expected the clarification prompt to be resent, got %#v", texts)
+	}
+}
+
+func TestApprovalReplyConfirmationIsRetriedWithoutReexecuting(t *testing.T) {
+	ts, sentTexts := controlProviderServer(t, 1)
+	st := store.NewMemoryStore()
+	runtime := &fakeAgentRuntime{}
+	dispatcher, binding := newControlReplyTestDispatcher(t, st, runtime, ts.URL)
+	inbound := InboundMessage{
+		Binding:      binding,
+		FromUserID:   "wx-user-1",
+		ContextToken: "ctx-1",
+		Text:         "是",
+		ExternalID:   "provider-msg-approve",
+	}
+	chatSession := dispatcher.ensureChatSession(inbound)
+	st.SaveApproval(app.Approval{
+		ID:         "appr_1",
+		SessionID:  chatSession.LinkedSessionID,
+		RunID:      "run_appr",
+		ToolCallID: "call_missing",
+		Tool:       "shell.exec_sandboxed",
+		Status:     "pending",
+		Summary:    "执行一条沙箱命令",
+	})
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err == nil {
+		t.Fatal("expected the failed confirmation send to surface an error")
+	}
+	if approval, ok := st.GetApproval("appr_1"); !ok || approval.Status != "approved" {
+		t.Fatalf("approval should be resolved on the first dispatch: %#v ok=%v", approval, ok)
+	}
+	if got := runtime.executedCount(); got != 1 {
+		t.Fatalf("approved tool should run exactly once, got %d", got)
+	}
+	failed, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-approve")
+	if !ok || failed.Status != "delivery_failed" || failed.PendingReplyKind != pendingReplyControlText || failed.LinkedRunID != "run_appr" {
+		t.Fatalf("approval confirmation should be retryable: %#v ok=%v", failed, ok)
+	}
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
+		t.Fatalf("confirmation resend should succeed: %v", err)
+	}
+	if got := runtime.executedCount(); got != 1 {
+		t.Fatalf("retry must not execute the approved tool again, got %d", got)
+	}
+	if got := runtime.handledCount(); got != 0 {
+		t.Fatalf("approval reply must not leak to the agent as a normal message, got %d handles", got)
+	}
+	retried, _ := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-approve")
+	if retried.Status != "processed" || retried.PendingReply != "" {
+		t.Fatalf("successful resend should finalize the record: %#v", retried)
+	}
+	texts := sentTexts()
+	if len(texts) != 2 || !strings.Contains(texts[1], "已确认并执行") {
+		t.Fatalf("expected the confirmation to be resent, got %#v", texts)
 	}
 }

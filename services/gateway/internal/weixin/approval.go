@@ -10,17 +10,18 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) (bool, error) {
+func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) (bool, error) {
 	approval, ok := d.pendingApprovalForChatSession(chatSession)
 	if !ok {
 		return false, nil
 	}
-	decision, ok := parseApprovalReply(text)
-	if !ok {
-		answer := weixinApprovalPrompt(approval)
-		return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, approval.RunID, "needs_clear_approval_reply")
-	}
-	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	// One inbound record per external message: reusing retryID keeps the
+	// delivery bookkeeping on a single record, so a failed answer send is
+	// retried as a plain resend instead of re-entering this flow (where the
+	// approval would no longer be pending and the reply would leak to the
+	// agent as an ordinary message).
+	record := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
 		Direction:         "inbound",
@@ -28,34 +29,44 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		ExternalMessageID: externalID,
 		Content:           text,
 		ContextToken:      inbound.ContextToken,
+		LinkedRunID:       approval.RunID,
 		Status:            "received",
 		CreatedAt:         receivedAt,
 	})
-	_ = inboundMsg
+	decision, ok := parseApprovalReply(text)
+	if !ok {
+		_, err := d.finishControlReply(ctx, inbound, chatSession, record, weixinApprovalPrompt(approval), approval.RunID, "needs_clear_approval_reply")
+		return true, err
+	}
 	if decision {
 		resolved, err := d.store.ResolveApproval(approval.ID, "approved", "confirmed from vx")
 		if err != nil {
 			return true, err
 		}
 		if _, err := d.runtime.ExecuteApprovedToolCall(ctx, resolved); err != nil {
-			return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, "确认失败："+err.Error(), approval.RunID, "failed")
+			_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "确认失败："+err.Error(), approval.RunID, "failed")
+			return true, sendErr
 		}
 		if result, resumed, err := d.runtime.ResumeRunAfterApproval(ctx, approval.SessionID, approval.RunID); err != nil {
 			return true, err
 		} else if resumed {
 			if len(result.Approvals) > 0 {
-				return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1]), result.Run.ID, "")
+				_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1]), result.Run.ID, "processed")
+				return true, sendErr
 			}
 			ingress := weixinIngress(inbound, chatSession, "approval:"+approval.ID)
-			return true, d.deliverAgentResult(ctx, result, ingress)
+			_, deliveryErr := d.finishWorkflowReply(ctx, record, result, ingress)
+			return true, deliveryErr
 		}
 		d.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 		if call, ok := d.store.GetToolCall(resolved.ToolCallID); ok {
 			if answer := weixinApprovedToolAnswer(call); answer != "" {
-				return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, approval.RunID, "")
+				_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, answer, approval.RunID, "processed")
+				return true, sendErr
 			}
 		}
-		return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, "已确认并执行。", approval.RunID, "")
+		_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "已确认并执行。", approval.RunID, "processed")
+		return true, sendErr
 	}
 	resolved, err := d.store.ResolveApproval(approval.ID, "rejected", "rejected from vx")
 	if err != nil {
@@ -69,44 +80,8 @@ func (d *Dispatcher) handleApprovalReply(ctx context.Context, inbound InboundMes
 		d.store.SaveToolCall(call)
 	}
 	d.runtime.CompleteRunIfApprovalsResolved(resolved.RunID)
-	answer := "已取消，本次需要确认的操作没有执行。"
-	return true, d.sendApprovalReplyResult(ctx, inbound, chatSession, externalID, text, receivedAt, answer, resolved.RunID, "")
-}
-
-func (d *Dispatcher) sendApprovalReplyResult(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time, answer, runID, inboundStatus string) error {
-	if inboundStatus != "" && inboundStatus != "received" {
-		d.store.SaveExternalChatMessage(app.ExternalChatMessage{
-			ChatSessionID:     chatSession.ID,
-			BindingID:         inbound.Binding.ID,
-			Direction:         "inbound",
-			Role:              "user",
-			ExternalMessageID: externalID,
-			Content:           text,
-			ContextToken:      inbound.ContextToken,
-			LinkedRunID:       runID,
-			Status:            inboundStatus,
-			CreatedAt:         receivedAt,
-		})
-	}
-	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, runID)
-	outbound := app.ExternalChatMessage{
-		ChatSessionID: chatSession.ID,
-		BindingID:     inbound.Binding.ID,
-		Direction:     "outbound",
-		Role:          "assistant",
-		Content:       answer,
-		ContextToken:  inbound.ContextToken,
-		LinkedRunID:   runID,
-		Status:        "sent",
-	}
-	if sendErr != nil {
-		outbound.Status = "failed"
-		outbound.Error = sendErr.Error()
-	} else if sendResult.Status != "" {
-		outbound.Status = sendResult.Status
-	}
-	d.store.SaveExternalChatMessage(outbound)
-	return sendErr
+	_, sendErr := d.finishControlReply(ctx, inbound, chatSession, record, "已取消，本次需要确认的操作没有执行。", resolved.RunID, "processed")
+	return true, sendErr
 }
 
 func (d *Dispatcher) pendingApprovalForChatSession(chatSession app.ExternalChatSession) (app.Approval, bool) {

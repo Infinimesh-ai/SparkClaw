@@ -121,7 +121,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	}
 	receive = receives.Advance(receive, "normalized", "", "")
 	if text != "" && len(inbound.Attachments) == 0 {
-		if handled, err := d.handleControlText(ctx, inbound, chatSession, externalID, text, receivedAt); handled {
+		if handled, err := d.handleControlText(ctx, inbound, chatSession, externalID, retryID, text, receivedAt); handled {
 			status := "processed"
 			if err != nil {
 				status = "failed"
@@ -131,8 +131,8 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 		}
 	}
 	if text == "" && len(inbound.Attachments) > 0 {
-		inboundMsgID, err := d.handleAttachmentOnlyInbound(ctx, inbound, chatSession, externalID, retryID, receivedAt)
-		receives.Advance(receive, "processed", inboundMsgID, "")
+		inboundMsg, err := d.handleAttachmentOnlyInbound(ctx, inbound, chatSession, externalID, retryID, receivedAt)
+		receives.Advance(receive, inboundMsg.Status, inboundMsg.ID, "")
 		return err
 	}
 	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
@@ -191,27 +191,51 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	}
 	processing.LinkedRunID = result.Run.ID
 	var deliveryErr error
-	pendingKind, pendingPayload := "", ""
 	if len(result.Approvals) > 0 {
 		answer := weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1])
-		pendingKind, pendingPayload = pendingReplyControlText, answer
-		deliveryErr = d.sendControlResult(ctx, inbound, chatSession, answer, result.Run.ID)
+		processing, deliveryErr = d.finishControlReply(ctx, inbound, chatSession, processing, answer, result.Run.ID, "processed")
 	} else {
-		workflowResult, err := connectorruntime.WorkflowResultFromAgentResult(result, ingress)
-		if err != nil {
-			// Nothing deliverable was produced; without a payload a retry
-			// falls back to the full (idempotent) dispatch path.
-			deliveryErr = err
-		} else {
-			if raw, marshalErr := json.Marshal(workflowResult); marshalErr == nil {
-				pendingKind, pendingPayload = pendingReplyWorkflowResult, string(raw)
-			}
-			deliveryErr = d.deliverWorkflowResult(ctx, workflowResult)
-		}
+		processing, deliveryErr = d.finishWorkflowReply(ctx, processing, result, ingress)
 	}
-	processing = d.recordReplyOutcome(processing, pendingKind, pendingPayload, "processed", deliveryErr)
 	receives.Advance(receive, processing.Status, inboundMsg.ID, result.Run.ID)
 	return deliveryErr
+}
+
+// finishControlReply sends a control answer (approval prompt or confirmation,
+// clear-conversation notice, attachment clarification) and applies the shared
+// delivery bookkeeping to the inbound record, so a failed send is retried on
+// the provider's redelivery — and nothing else is.
+func (d *Dispatcher) finishControlReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, record app.ExternalChatMessage, answer, runID, successStatus string) (app.ExternalChatMessage, error) {
+	sendErr := d.sendControlResult(ctx, inbound, chatSession, answer, runID)
+	if runID != "" {
+		record.LinkedRunID = runID
+	}
+	kind := pendingReplyControlText
+	if successStatus == "needs_user_instruction" {
+		kind = pendingReplyAttachmentPrompt
+	}
+	record = d.recordReplyOutcome(record, kind, answer, successStatus, sendErr)
+	return record, sendErr
+}
+
+// finishWorkflowReply hands a produced workflow result to the delivery layer
+// and applies the shared bookkeeping so a failed hand-off retries only the
+// delivery step, never the workflow that produced it.
+func (d *Dispatcher) finishWorkflowReply(ctx context.Context, record app.ExternalChatMessage, result agent.Result, ingress app.MessageIngressContext) (app.ExternalChatMessage, error) {
+	workflowResult, err := connectorruntime.WorkflowResultFromAgentResult(result, ingress)
+	if err != nil {
+		// Nothing deliverable was produced; without a payload a retry falls
+		// back to the full (idempotent) dispatch path.
+		return d.recordReplyOutcome(record, "", "", "processed", err), err
+	}
+	kind, payload := "", ""
+	if raw, marshalErr := json.Marshal(workflowResult); marshalErr == nil {
+		kind, payload = pendingReplyWorkflowResult, string(raw)
+	}
+	record.LinkedRunID = result.Run.ID
+	deliveryErr := d.deliverWorkflowResult(ctx, workflowResult)
+	record = d.recordReplyOutcome(record, kind, payload, "processed", deliveryErr)
+	return record, deliveryErr
 }
 
 // retryPendingReply re-sends a reply that a previous dispatch of the same
@@ -270,17 +294,17 @@ func (d *Dispatcher) recordReplyOutcome(msg app.ExternalChatMessage, kind, paylo
 
 // handleControlText intercepts text-only messages that must not reach the
 // agent: clear-conversation commands and replies to a pending approval.
-func (d *Dispatcher) handleControlText(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) (bool, error) {
+func (d *Dispatcher) handleControlText(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) (bool, error) {
 	if isClearConversationRequest(text) {
-		return true, d.handleClearConversation(ctx, inbound, chatSession, externalID, text, receivedAt)
+		return true, d.handleClearConversation(ctx, inbound, chatSession, externalID, retryID, text, receivedAt)
 	}
-	handled, err := d.handleApprovalReply(ctx, inbound, chatSession, externalID, text, receivedAt)
+	handled, err := d.handleApprovalReply(ctx, inbound, chatSession, externalID, retryID, text, receivedAt)
 	return handled || err != nil, err
 }
 
 // handleAttachmentOnlyInbound records an attachment-only message as pending
 // context and asks the user what to do with it instead of invoking the agent.
-func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID string, receivedAt time.Time) (string, error) {
+func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID string, receivedAt time.Time) (app.ExternalChatMessage, error) {
 	inboundContent := pendingAttachmentContext(inbound.Attachments)
 	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
 		ID:                retryID,
@@ -302,29 +326,13 @@ func (d *Dispatcher) handleAttachmentOnlyInbound(ctx context.Context, inbound In
 		CreatedAt:   receivedAt,
 	})
 	answer := attachmentClarificationPrompt(inbound.Attachments)
-	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
-	outbound := app.ExternalChatMessage{
-		ChatSessionID: chatSession.ID,
-		BindingID:     inbound.Binding.ID,
-		Direction:     "outbound",
-		Role:          "assistant",
-		Content:       answer,
-		ContextToken:  inbound.ContextToken,
-		Status:        "sent",
-	}
-	if sendErr != nil {
-		outbound.Status = "failed"
-		outbound.Error = sendErr.Error()
-	} else if sendResult.Status != "" {
-		outbound.Status = sendResult.Status
-	}
-	d.store.SaveExternalChatMessage(outbound)
-	return inboundMsg.ID, sendErr
+	return d.finishControlReply(ctx, inbound, chatSession, inboundMsg, answer, "", "needs_user_instruction")
 }
 
-func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, text string, receivedAt time.Time) error {
+func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, externalID, retryID, text string, receivedAt time.Time) error {
 	oldSessionID := chatSession.LinkedSessionID
-	d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+	inboundMsg := d.store.SaveExternalChatMessage(app.ExternalChatMessage{
+		ID:                retryID,
 		ChatSessionID:     chatSession.ID,
 		BindingID:         inbound.Binding.ID,
 		Direction:         "inbound",
@@ -357,24 +365,7 @@ func (d *Dispatcher) handleClearConversation(ctx context.Context, inbound Inboun
 		},
 	})
 	answer := "对话已清空。后续消息会从新的上下文开始。"
-	sendResult, sendErr := d.sendAssistantAnswer(ctx, inbound, answer, "")
-	outbound := app.ExternalChatMessage{
-		ChatSessionID: chatSession.ID,
-		BindingID:     inbound.Binding.ID,
-		Direction:     "outbound",
-		Role:          "assistant",
-		Content:       answer,
-		ContextToken:  inbound.ContextToken,
-		Status:        "sent",
-		CreatedAt:     time.Now().UTC(),
-	}
-	if sendErr != nil {
-		outbound.Status = "failed"
-		outbound.Error = sendErr.Error()
-	} else if sendResult.Status != "" {
-		outbound.Status = sendResult.Status
-	}
-	d.store.SaveExternalChatMessage(outbound)
+	_, sendErr := d.finishControlReply(ctx, inbound, chatSession, inboundMsg, answer, "", "processed")
 	return sendErr
 }
 

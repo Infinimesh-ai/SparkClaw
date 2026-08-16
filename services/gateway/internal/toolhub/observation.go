@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const (
@@ -24,7 +22,7 @@ func (h *ToolHub) observationRead(ctx context.Context, args map[string]any, sess
 	if h.artifacts == nil {
 		return Result{}, errors.New("artifact store is unavailable")
 	}
-	object, ok := currentSessionArtifact(h.store.ListArtifactObjects(0), sessionID, artifactURI)
+	object, ok := h.store.FindArtifactObjectByURI(artifactURI, sessionID, "")
 	if !ok {
 		return Result{}, errors.New("artifact is unavailable in the current session")
 	}
@@ -75,15 +73,6 @@ func (h *ToolHub) observationRead(ctx context.Context, args map[string]any, sess
 		"next_offset":  nextOffset,
 		"untrusted":    true,
 	}}, nil
-}
-
-func currentSessionArtifact(objects []app.ArtifactObject, sessionID, uri string) (app.ArtifactObject, bool) {
-	for _, object := range objects {
-		if object.URI == uri && object.SessionID == sessionID {
-			return object, true
-		}
-	}
-	return app.ArtifactObject{}, false
 }
 
 func archivedObservationOutput(raw []byte) ([]byte, error) {

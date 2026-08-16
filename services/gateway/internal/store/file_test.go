@@ -385,6 +385,9 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if len(objects) != 1 || objects[0].ID != "obj_test" || objects[0].RunID != run.ID {
 		t.Fatalf("artifact object did not reload: %#v", objects)
 	}
+	if object, ok := reloaded.FindArtifactObjectByURI("artifact://sparkclaw/traces/"+run.ID+".json", session.ID, run.ID); !ok || object.ID != "obj_test" {
+		t.Fatalf("artifact lookup by URI did not survive reload: %#v ok=%v", object, ok)
+	}
 	feedback := reloaded.ListRunFeedback(run.ID)
 	if len(feedback) != 1 || feedback[0].Rating != "corrected" || feedback[0].Correction != "Persistent correction." {
 		t.Fatalf("run feedback did not reload: %#v", feedback)

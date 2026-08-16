@@ -951,6 +951,10 @@ func (s *FileStore) ListArtifactObjects(limit int) []app.ArtifactObject {
 	return s.inner.ListArtifactObjects(limit)
 }
 
+func (s *FileStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool) {
+	return s.inner.FindArtifactObjectByURI(uri, sessionID, runID)
+}
+
 func (s *FileStore) SaveEpisodeSummary(summary app.EpisodeSummary) {
 	s.inner.SaveEpisodeSummary(summary)
 	s.persist()

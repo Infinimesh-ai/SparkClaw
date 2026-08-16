@@ -756,6 +756,7 @@ CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, seq);
 CREATE INDEX IF NOT EXISTS idx_eval_runs_started ON eval_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_created ON artifact_objects(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifact_objects_run ON artifact_objects(run_id);
+CREATE INDEX IF NOT EXISTS idx_artifact_objects_uri ON artifact_objects(uri);
 CREATE INDEX IF NOT EXISTS idx_episode_summaries_session_created ON episode_summaries(session_id, created_at DESC);
 `
 
@@ -3455,6 +3456,21 @@ func (s *PostgresStore) ListArtifactObjects(limit int) []app.ArtifactObject {
 	}
 	defer rows.Close()
 	return collectRows(rows, scanArtifactObject)
+}
+
+func (s *PostgresStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool) {
+	row := s.db.QueryRow(context.Background(), `
+		SELECT id, kind, coalesce(run_id, ''), coalesce(eval_id, ''), coalesce(session_id, ''),
+			backend, coalesce(bucket, ''), object_key, uri, coalesce(path, ''), content_type, bytes, created_at
+		FROM artifact_objects
+		WHERE uri = $1
+		  AND ($2 = '' OR session_id = $2)
+		  AND ($3 = '' OR run_id = $3)
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, uri, sessionID, runID)
+	object, err := scanArtifactObject(row)
+	return object, err == nil
 }
 
 func (s *PostgresStore) SaveEpisodeSummary(summary app.EpisodeSummary) {

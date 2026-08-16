@@ -205,19 +205,6 @@ export type MessageAttachment = {
 export type MessagePartKind = "text" | "image" | "audio" | "file";
 export type MessagePartDisposition = "inline" | "attachment" | "voice_note";
 
-export type DeliveryCapabilities = {
-  kinds: MessagePartKind[];
-  dispositions: MessagePartDisposition[];
-  file_fallback_kinds?: MessagePartKind[];
-  native_voice_types?: string[];
-  max_parts: number;
-  max_total_bytes: number;
-  max_bytes_by_kind?: Partial<Record<MessagePartKind, number>>;
-  supports_caption: boolean;
-  supports_native_voice: boolean;
-  supports_file_fallback: boolean;
-};
-
 export type DeliveryEndpoint = {
   id: string;
   channel: string;
@@ -225,7 +212,6 @@ export type DeliveryEndpoint = {
   account_display_name: string;
   conversation_label?: string;
   recipient: { id: string; display_name: string };
-  capabilities: DeliveryCapabilities;
 };
 
 export type ModelStreamEvent = {
@@ -240,15 +226,6 @@ export type ModelStreamEvent = {
   arguments_delta?: string;
   arguments?: unknown;
   error?: string;
-};
-
-export type SessionEvent = {
-  id: string;
-  time: string;
-  type: string;
-  session_id?: string;
-  run_id?: string;
-  payload?: unknown;
 };
 
 export type ApprovalResolution = {

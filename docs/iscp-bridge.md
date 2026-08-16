@@ -249,6 +249,21 @@ The global SSE stream is owner-scoped. WebChat initializes from the durable list
 shows new records without switching the active session, and persists read state
 through Gateway restarts.
 
+The durable inbox is bounded by two config keys:
+
+- `passive_notifications.max_per_owner` (default `500`, `0` = uncapped) caps
+  stored records per owner. Over the cap, read notifications are evicted
+  oldest-first before the oldest unread ones, so the newest unread records
+  survive.
+- `passive_notifications.retention_days` (default `90`, `0` = no sweep)
+  expires records by age, like `memory.retention_days` does for memories.
+
+Both bounds apply on ingestion and on owner reads. Pruning a record also
+retires its idempotency key, so the dedup window equals the retention window:
+replaying a pruned delivery re-creates the notification. Each owner may hold at
+most 4 concurrent `/api/notifications/events/stream` connections; additional
+subscribers receive HTTP 429 until a slot frees.
+
 Approval list responses include `preview_hash`. Resolution requires the approval
 ID, `expected_state: "pending"`, decision, and current hash. Resolved or changed
 approvals return `stale_state`; an identical replay returns the existing result

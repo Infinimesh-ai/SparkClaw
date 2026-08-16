@@ -468,10 +468,3 @@ func firstBrowserString(values ...any) string {
 	return ""
 }
 
-func trimBrowserVerificationReason(reason string) string {
-	reason = strings.Join(strings.Fields(reason), " ")
-	if len(reason) > 500 {
-		return reason[:500]
-	}
-	return reason
-}

@@ -9,7 +9,6 @@ import (
 	stddraw "image/draw"
 	_ "image/gif"
 	"image/jpeg"
-	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
 	"os"

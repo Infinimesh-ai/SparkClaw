@@ -1870,22 +1870,6 @@ func (h *ToolHub) resolvePath(path string) (string, error) {
 	return abs, nil
 }
 
-func (h *ToolHub) workspaceRelPath(path string) string {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return filepath.ToSlash(filepath.Clean(path))
-	}
-	root, err := filepath.Abs(h.cfg.Workspaces.DefaultRoot)
-	if err != nil || root == "" {
-		return filepath.ToSlash(filepath.Clean(path))
-	}
-	rel, err := filepath.Rel(root, abs)
-	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
-		return filepath.ToSlash(filepath.Clean(path))
-	}
-	return filepath.ToSlash(rel)
-}
-
 func (h *ToolHub) normalizePossiblyMissingRootSlash(path string) string {
 	clean := filepath.Clean(strings.TrimSpace(path))
 	if filepath.IsAbs(clean) {

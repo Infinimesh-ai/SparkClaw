@@ -85,7 +85,10 @@ info_license_configured() {
   if [[ -z "$license_key" && -n "$key_file" && -r "$key_file" && -s "$key_file" ]]; then
     license_key="$(tr -d '\r\n' < "$key_file")"
   fi
-  [[ -n "$license_id" && "$license_key" == "ilk_v1.${license_id}."* && "$license_key" != "ilk_v1.${license_id}." ]]
+  # Validate the ID charset before interpolating it into a glob pattern: a
+  # license ID containing *, ?, or [ would otherwise change the match.
+  [[ -n "$license_id" && "$license_id" != *[^A-Za-z0-9_-]* ]] || return 1
+  [[ "$license_key" == "ilk_v1.${license_id}."* && "$license_key" != "ilk_v1.${license_id}." ]]
 }
 
 check_system_chromium() {

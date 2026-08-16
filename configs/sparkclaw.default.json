@@ -152,6 +152,10 @@
     "retention_days": 180,
     "redact_patterns": ["api_key", "password", "token", "ssh_key"]
   },
+  "passive_notifications": {
+    "max_per_owner": 500,
+    "retention_days": 90
+  },
   "security": {
     "external_content_untrusted": true,
     "approval_required_for_dangerous_tools": true,

@@ -72,6 +72,46 @@ func TestLoadAppliesMemoryRetentionEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadPassiveNotificationBounds(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PassiveNotifications.MaxPerOwner != 500 || cfg.PassiveNotifications.RetentionDays != 90 {
+		t.Fatalf("passive notification defaults = %#v", cfg.PassiveNotifications)
+	}
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "sparkclaw.json")
+	if err := os.WriteFile(configPath, []byte(`{
+  "gateway": {"bind": "127.0.0.1", "port": 18789},
+  "passive_notifications": {"max_per_owner": 0, "retention_days": 0},
+  "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
+  "state": {"backend": "memory"}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PassiveNotifications.MaxPerOwner != 0 || cfg.PassiveNotifications.RetentionDays != 0 {
+		t.Fatalf("explicit zero (disabled) was not preserved: %#v", cfg.PassiveNotifications)
+	}
+
+	if err := os.WriteFile(configPath, []byte(`{
+  "gateway": {"bind": "127.0.0.1", "port": 18789},
+  "passive_notifications": {"max_per_owner": -1},
+  "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
+  "state": {"backend": "memory"}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(configPath); err == nil || !strings.Contains(err.Error(), "passive_notifications.max_per_owner") {
+		t.Fatalf("negative cap error = %v", err)
+	}
+}
+
 func TestLoadAppliesObservationSummaryLimitEnvironment(t *testing.T) {
 	t.Setenv("SPARKCLAW_OBSERVATION_SUMMARY_MAX_BYTES", "256")
 

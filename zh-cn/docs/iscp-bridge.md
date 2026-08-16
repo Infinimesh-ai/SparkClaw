@@ -54,8 +54,11 @@ Schema 位于
 - enrollment 文件和已配置的 Gateway token 文件在 Unix 上必须是 `0600` 普通文件。使用
   keyring 时，长期设备私钥不会写入配置或 enrollment bundle。
 - 生产 Relay 必须使用 HTTPS/WSS。每次提交 envelope 除短期 Relay access credential 外，还携带 ISCP proof-of-possession。
-- Gateway dispatch 端点只接受 loopback。Gateway 未启用认证时，Bridge 无需占位 token 即可
-  dispatch；启用认证时，使用专用配对客户端 token 或 `SPARKCLAW_API_TOKEN` 认证 Bridge。
+- Gateway dispatch 端点只接受 loopback，并采取 fail-closed 策略：dispatch 需要已配置的
+  `gateway.bridge_token`（Bridge 专用凭据，也可用 `SPARKCLAW_BRIDGE_TOKEN` 设置），或在
+  Gateway 启用认证时使用专用配对客户端 token 或 `SPARKCLAW_API_TOKEN`。未启用认证且未配置
+  bridge token 的 Gateway 对 dispatch 返回 503。配置 `gateway.bridge_token` 后，它是 bridge
+  路由唯一接受的凭据，且不授予其他任何路由的访问权。
 - Session Hello/Ready 使用已签名对象，并通过公开的 `sparkclaw.iscp.relay_frame.v1` 包装投递。只有 Ready 完成密钥确认后，业务请求、响应和事件才通过 ISCP `SecureEnvelope` 的 `task.invoke` / `task.result` 发送。
 - Bridge 校验 peer 身份、Domain、Trust Grant audience、confirmation thumbprint、permission、Relay constraint、revocation epoch、过期时间、Hello 时间窗、endpoint 绑定和 envelope 序号。
 
@@ -106,9 +109,11 @@ Relay refresh 端点轮换 access/refresh credential，并原子替换该文件�
 
 ## Gateway 与 Bridge 配置
 
-示例配置面向 SparkClaw 默认的 loopback 无认证 Gateway，因此省略 `gateway.token_file`。
-Gateway 启用认证时，把 bearer 值或专用配对客户端 token 写入私有文件，并在 Bridge 配置中
-加入其路径：
+Bridge dispatch 采取 fail-closed 策略：默认无认证的 Gateway 在配置凭据之前，对
+`/api/bridge/v1/*` 返回 503。在 SparkClaw JSON 配置中设置 `gateway.bridge_token`（或向
+Gateway 进程导出 `SPARKCLAW_BRIDGE_TOKEN`），把同一值写入私有文件，并在 Bridge 配置中引用
+该文件，使两侧共享这份专用凭据。若 Gateway 已启用认证且未设置 bridge token，则该文件改为
+存放 bearer 值或专用配对客户端 token：
 
 ```bash
 install -d -m 700 data/iscp-bridge

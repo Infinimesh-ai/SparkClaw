@@ -72,10 +72,13 @@ versioned JSON Schema is
 - Production Relay endpoints must use HTTPS and WSS. Every envelope submission
   carries an ISCP proof of possession in addition to the short-lived Relay access
   credential.
-- The Gateway dispatch endpoint is loopback-only. When Gateway authentication is
-  disabled, the Bridge can dispatch without a placeholder token; when it is
-  enabled, a paired client token or `SPARKCLAW_API_TOKEN` authenticates the
-  Bridge process.
+- The Gateway dispatch endpoint is loopback-only and fails closed: dispatch
+  requires either a configured `gateway.bridge_token` (the dedicated Bridge
+  credential, also settable as `SPARKCLAW_BRIDGE_TOKEN`) or, when Gateway
+  authentication is enabled, a paired client token or `SPARKCLAW_API_TOKEN`.
+  A no-auth Gateway without a bridge token answers dispatch with 503. When
+  `gateway.bridge_token` is set it is the only credential the bridge routes
+  accept, and it grants nothing outside them.
 - Session Hello and Ready objects are signed and routed in the public
   `sparkclaw.iscp.relay_frame.v1` wrapper. Business requests, responses, and
   events are sent only after Ready key confirmation and always use ISCP
@@ -142,10 +145,14 @@ the service performs Domain change or re-enrollment.
 
 ## Gateway And Bridge Setup
 
-The example config omits `gateway.token_file` for SparkClaw's default loopback,
-no-auth Gateway. If Gateway authentication is enabled, place the bearer value or
-a dedicated paired-client token in a private file and add its path to the Bridge
-config:
+Bridge dispatch is fail-closed: a default no-auth Gateway refuses
+`/api/bridge/v1/*` with 503 until a credential is configured. Set
+`gateway.bridge_token` in the SparkClaw JSON configuration (or export
+`SPARKCLAW_BRIDGE_TOKEN` to the Gateway process), write the same value into a
+private file, and reference that file from the Bridge config so both sides
+share the dedicated credential. When Gateway authentication is enabled and no
+bridge token is set, the file instead holds the bearer value or a dedicated
+paired-client token:
 
 ```bash
 install -d -m 700 data/iscp-bridge

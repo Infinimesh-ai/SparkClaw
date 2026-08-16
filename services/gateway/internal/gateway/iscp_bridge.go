@@ -9,7 +9,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 )
 
-const bridgeRequestLimit = 1 << 20
+const (
+	bridgeRequestLimit = 1 << 20
+	bridgeRoutePrefix  = "/api/bridge/v1/"
+)
 
 func (s *Server) dispatchBridgeRequest(w http.ResponseWriter, r *http.Request) {
 	if !isLocalRequest(r) {

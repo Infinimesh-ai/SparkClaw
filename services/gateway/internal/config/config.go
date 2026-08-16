@@ -57,7 +57,12 @@ type GatewayConfig struct {
 	PairingRequired bool            `json:"pairing_required"`
 	RemoteAccess    string          `json:"remote_access"`
 	APIToken        string          `json:"api_token,omitempty"`
-	RateLimit       RateLimitConfig `json:"rate_limit"`
+	// BridgeToken is the dedicated credential for the loopback ISCP bridge
+	// dispatch routes. When set, bridge dispatch requires exactly this bearer
+	// token; when empty, bridge dispatch requires gateway authentication and
+	// fails closed (503) in the no-auth posture.
+	BridgeToken string          `json:"bridge_token,omitempty"`
+	RateLimit   RateLimitConfig `json:"rate_limit"`
 }
 
 type RateLimitConfig struct {
@@ -1368,6 +1373,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SPARKCLAW_API_TOKEN"); v != "" {
 		cfg.Gateway.APIToken = v
+	}
+	if v := os.Getenv("SPARKCLAW_BRIDGE_TOKEN"); v != "" {
+		cfg.Gateway.BridgeToken = v
 	}
 	if v := os.Getenv("SPARKCLAW_PAIRING_REQUIRED"); v != "" {
 		cfg.Gateway.PairingRequired = parseBool(v)

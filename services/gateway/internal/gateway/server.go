@@ -2491,6 +2491,27 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, bridgeRoutePrefix) {
+			// Bridge dispatch fails closed: its ISCP adapter surface includes
+			// approval resolution, so it must never be reachable without a
+			// credential just because the gateway runs in the default no-auth
+			// posture. A configured gateway.bridge_token is the dedicated
+			// (and then exclusive) bridge credential; otherwise the request
+			// falls through to the standard gateway bearer validation below.
+			if token := strings.TrimSpace(s.cfg.Gateway.BridgeToken); token != "" {
+				presented := bearerCredential(r.Header.Get("Authorization"))
+				if presented == "" || subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+					writeError(w, http.StatusUnauthorized, errors.New("valid bridge token required"))
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, defaultRequestPrincipal())))
+				return
+			}
+			if !s.authRequired() {
+				writeError(w, http.StatusServiceUnavailable, errors.New("bridge API requires Gateway authentication or a configured gateway.bridge_token"))
+				return
+			}
+		}
 		if s.isPublicRoute(r) {
 			next.ServeHTTP(w, r)
 			return

@@ -17,6 +17,22 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 - Streamable HTTP MCP discovery and ToolHub registration for independent Happy
   Team task and personal bridge endpoints, plus a durable Happy supervised-plan
   approval inbox with live plan retry, editing, and remote-first reconciliation.
+- Document OCR: an opt-in OvisOCR2 adapter (`internal/documentocr`, the
+  `sparkclaw-ocr` compose service and `SPARKCLAW_OCR_*` settings) that recovers
+  scanned PDF pages with bounded OCR, enriches image evidence, and degrades to
+  disabled when unconfigured.
+- LocalMind scoped workspace MCP integration: identity-pinned discovery,
+  bounded catalog selection, namespaced `localmind.*` dynamic tools with
+  redacted, size-bounded result projection; opt-in via environment-resolved
+  URL/token settings.
+- Managed inbound MCP/ISCP access: single-use hash-bound access tickets,
+  durable peer bindings and idempotent conversation operations exposed over the
+  encrypted ISCP bridge and an opt-in LAN `/mcp` endpoint, with owner-facing
+  transport toggles and access-record deletion in WebChat.
+- Passive ISCP collaboration notifications with a durable per-owner inbox and
+  a global WebChat notification center.
+- WeChat notification-binding QR login now opens inside the managed visible
+  Chromium profile instead of the host default browser.
 - Current-state architecture, deployment and development documentation.
 - Chinese documentation mirror under `zh-cn/` for project docs.
 - DGX Spark model-serving guidance and benchmark evidence.

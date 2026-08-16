@@ -286,6 +286,23 @@ after the remote action succeeds. A business error is followed by authoritative
 `get_task`; a task no longer in `WAITING_APPROVAL` closes as resolved elsewhere.
 Items absent from a later waiting list receive the same reconciliation check.
 
+### MCP Tuning Keys
+
+Generic `mcp_servers.<name>` entries accept `request_timeout_seconds`
+(default 30, max 3600), `discovery_refresh_seconds` (default 60, max 86400),
+and `response_body_max_bytes` (default 4 MiB, max 32 MiB). The dedicated
+`localmind` entry instead accepts `request_timeout_seconds` (default 30),
+`long_call_grace_seconds` (default 10), `refresh_interval_seconds`
+(default 300), `max_response_bytes`, `state_output_max_bytes`
+(default 16 KiB), and `archive_output_max_bytes` (default 16 MiB). The two
+key families are intentionally disjoint; a key from the wrong family is
+rejected at configuration load.
+
+Inbound MCP access is domain-scoped through `mcp_access.local_domain_id`
+(default `sparkclaw-local`): issued access tickets are bound to this domain
+and redemption from a peer in another ISCP domain is rejected. Change it
+before issuing tickets when the host joins a multi-domain ISCP topology.
+
 ## Connector Control, Binding, And Status APIs
 
 WebChat discovers registered channels and manages their explicit opt-in through

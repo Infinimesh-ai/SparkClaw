@@ -16,6 +16,16 @@
 - 新增 Streamable HTTP MCP 发现与 ToolHub 注册，独立连接 Happy Team 任务端点和个人
   bridge；同时新增持久化 Happy supervised-plan 审批收件箱，支持 live plan 重试、编辑和
   remote-first reconciliation。
+- 文档 OCR：可选启用的 OvisOCR2 适配器（`internal/documentocr`、`sparkclaw-ocr`
+  compose 服务与 `SPARKCLAW_OCR_*` 配置），有界恢复扫描版 PDF 页面、增强图片证据，
+  未配置时自动降级为关闭。
+- LocalMind scoped workspace MCP 集成：身份锁定的发现、有界目录选择、命名空间化的
+  `localmind.*` 动态工具与脱敏限长的结果投影；通过环境变量解析的 URL/token 显式启用。
+- 受管入站 MCP/ISCP 访问：单次使用的哈希绑定访问票据、持久化对端绑定与幂等会话操作，
+  经加密 ISCP bridge 与可选启用的 LAN `/mcp` 端点暴露；WebChat 提供 owner 侧传输开关
+  与访问记录删除。
+- 被动 ISCP 协作通知：按 owner 的持久化收件箱与 WebChat 全局通知中心。
+- 微信通知绑定的 QR 登录改在受管可见 Chromium 配置内打开，不再调用宿主默认浏览器。
 - 当前态 architecture、deployment 和 development documentation。
 - `zh-cn/` 下的中文项目文档镜像。
 - DGX Spark model-serving guidance 和 benchmark evidence。

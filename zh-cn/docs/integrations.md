@@ -226,6 +226,20 @@ Happy 使用两个彼此独立的端点。Happy Team 提供 Cloud Agent 任务�
 远端动作成功后才更新本地状态。business error 会触发权威 `get_task` 复核；任务已不在
 `WAITING_APPROVAL` 时按“已在其他位置处理”关闭。后续 waiting list 中消失的项目也执行相同复核。
 
+### MCP 调优键
+
+通用 `mcp_servers.<name>` 条目接受 `request_timeout_seconds`（默认 30，上限
+3600）、`discovery_refresh_seconds`（默认 60，上限 86400）与
+`response_body_max_bytes`（默认 4 MiB，上限 32 MiB）。专用 `localmind` 条目
+则接受 `request_timeout_seconds`（默认 30）、`long_call_grace_seconds`（默认
+10）、`refresh_interval_seconds`（默认 300）、`max_response_bytes`、
+`state_output_max_bytes`（默认 16 KiB）与 `archive_output_max_bytes`（默认
+16 MiB）。两组键有意互斥；用错组的键会在配置加载时被拒绝。
+
+入站 MCP 访问通过 `mcp_access.local_domain_id`（默认 `sparkclaw-local`）
+做域隔离：签发的访问票据绑定该域，来自其他 ISCP 域的对端兑换会被拒绝。
+主机加入多域 ISCP 拓扑前应先改好该值再签发票据。
+
 ## Connector 控制、Binding 与状态 API
 
 WebChat 通过统一、版本化 API 发现已注册渠道并管理显式 opt-in；账号设置保持独立 lifecycle：

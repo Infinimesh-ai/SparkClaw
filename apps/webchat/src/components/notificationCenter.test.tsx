@@ -39,4 +39,53 @@ describe("NotificationCenter", () => {
     expect(markup).toContain('rel="noopener noreferrer"');
     expect(markup).not.toContain("session");
   });
+
+  it("renders the notification's own source and an explicit label for unknown kinds", () => {
+    const foreign: PassiveNotification = {
+      ...notification,
+      id: "notification-2",
+      source: "teamdocs",
+      kind: "task_assigned"
+    };
+    const markup = renderToStaticMarkup(
+      <NotificationCenter
+        notifications={[foreign]}
+        unreadCount={1}
+        open
+        toast={foreign}
+        language="en"
+        text={dictionaries.en}
+        onToggle={() => {}}
+        onDismissToast={() => {}}
+        onRead={async () => {}}
+        onReadAll={async () => {}}
+      />
+    );
+
+    expect(markup).toContain("<strong>teamdocs</strong>");
+    expect(markup).not.toContain("<strong>LocalMind</strong>");
+    expect(markup).toContain(dictionaries.en.notifications.activity);
+    expect(markup).not.toContain(dictionaries.en.notifications.documentMention);
+  });
+
+  it("shows a sync error inside the inbox", () => {
+    const markup = renderToStaticMarkup(
+      <NotificationCenter
+        notifications={[notification]}
+        unreadCount={0}
+        open
+        toast={null}
+        error="mark all read failed"
+        language="en"
+        text={dictionaries.en}
+        onToggle={() => {}}
+        onDismissToast={() => {}}
+        onRead={async () => {}}
+        onReadAll={async () => {}}
+      />
+    );
+
+    expect(markup).toContain('class="notificationError"');
+    expect(markup).toContain("mark all read failed");
+  });
 });

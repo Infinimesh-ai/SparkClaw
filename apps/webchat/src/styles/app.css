@@ -730,6 +730,14 @@ button:disabled {
   text-align: center;
 }
 
+.notificationError {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--danger, #d64545);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .notificationToast {
   position: fixed;
   z-index: 140;

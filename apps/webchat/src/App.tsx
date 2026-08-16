@@ -533,6 +533,7 @@ export function App() {
               unreadCount={notificationCenter.unreadCount}
               open={notificationCenter.open}
               toast={notificationCenter.toast}
+              error={notificationCenter.error}
               language={language}
               text={text}
               onToggle={() => notificationCenter.setOpen((current) => !current)}

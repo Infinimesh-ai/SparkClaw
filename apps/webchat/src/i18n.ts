@@ -65,6 +65,7 @@ export const dictionaries = {
       empty: "No collaboration notifications.",
       documentMention: "You were mentioned in a document.",
       commentMention: "You were mentioned in a comment.",
+      activity: "New collaboration activity.",
       open: "Open in LocalMind",
       markAllRead: "Mark all as read",
       dismiss: "Dismiss notification"
@@ -498,6 +499,7 @@ export const dictionaries = {
       empty: "暂无协作通知。",
       documentMention: "你在文档中被提及。",
       commentMention: "你在评论中被提及。",
+      activity: "新的协作动态。",
       open: "在 LocalMind 中打开",
       markAllRead: "全部标为已读",
       dismiss: "关闭通知"

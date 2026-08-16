@@ -3111,6 +3111,28 @@ func hasGatewayAuditType(events []app.AuditEvent, typ string) bool {
 	return false
 }
 
+func TestCORSPreflightAdvertisesMCPAccessControlMethods(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/mcp-access/tickets/ticket-1", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("CORS preflight returned %d", response.Code)
+	}
+	methods := response.Header().Get("Access-Control-Allow-Methods")
+	for _, method := range []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"} {
+		if !strings.Contains(methods, method) {
+			t.Fatalf("Access-Control-Allow-Methods %q is missing %s", methods, method)
+		}
+	}
+}
+
 func testConfig(root string) config.Config {
 	cfg := config.Default()
 	cfg.Model.Mock = true

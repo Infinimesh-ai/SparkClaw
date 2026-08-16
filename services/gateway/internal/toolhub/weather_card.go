@@ -212,6 +212,13 @@ func weatherCardFontPaths() []string {
 		"/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
 		"/usr/share/fonts/truetype/arphic/ukai.ttc",
 		"/usr/share/fonts/truetype/arphic/uming.ttc",
+		// darwin dev machines; tried only after the deployed Linux paths.
+		"/System/Library/Fonts/PingFang.ttc",
+		"/System/Library/Fonts/STHeiti Medium.ttc",
+		"/System/Library/Fonts/STHeiti Light.ttc",
+		"/System/Library/Fonts/Hiragino Sans GB.ttc",
+		"/System/Library/Fonts/Supplemental/Songti.ttc",
+		"/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
 	}
 }
 

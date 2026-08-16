@@ -33,61 +33,70 @@ type MemoryStore struct {
 	connectorSettings    map[string]app.ConnectorSetting
 	notificationBindings map[string]app.NotificationBinding
 	passiveNotifications map[string]app.PassiveNotification
-	externalChatSessions map[string]app.ExternalChatSession
-	externalChatMessages map[string]app.ExternalChatMessage
-	messageReceives      map[string]app.MessageReceiveRecord
-	messageDeliveries    map[string]app.MessageDeliveryRecord
-	channelInboxUpdates  map[string]app.ChannelInboxUpdate
-	credentialSecrets    map[string]app.CredentialSecret
-	browserAuthRecords   map[string]app.BrowserAuthRecord
-	browserLoginBlocks   map[string]app.BrowserLoginBlock
-	memories             map[string]app.Memory
-	memoryCandidates     map[string]app.MemoryCandidate
-	auditEvents          []app.AuditEvent
-	events               []app.Event
-	evalRuns             map[string]app.EvalRun
-	artifactObjects      map[string]app.ArtifactObject
-	episodeSummaries     map[string]app.EpisodeSummary
+	// passiveNotificationIDsByKey indexes passiveNotifications by
+	// (endpoint_id, idempotency_key) so ingestion dedup is O(1) instead of a
+	// scan. Derived data: never persisted, rebuilt from loadSnapshot.
+	passiveNotificationIDsByKey map[string]string
+	// passiveNotificationRevs increases per owner on every inbox change so
+	// pollers can skip listing when nothing changed. Process-local only.
+	passiveNotificationRevs map[string]uint64
+	externalChatSessions    map[string]app.ExternalChatSession
+	externalChatMessages    map[string]app.ExternalChatMessage
+	messageReceives         map[string]app.MessageReceiveRecord
+	messageDeliveries       map[string]app.MessageDeliveryRecord
+	channelInboxUpdates     map[string]app.ChannelInboxUpdate
+	credentialSecrets       map[string]app.CredentialSecret
+	browserAuthRecords      map[string]app.BrowserAuthRecord
+	browserLoginBlocks      map[string]app.BrowserLoginBlock
+	memories                map[string]app.Memory
+	memoryCandidates        map[string]app.MemoryCandidate
+	auditEvents             []app.AuditEvent
+	events                  []app.Event
+	evalRuns                map[string]app.EvalRun
+	artifactObjects         map[string]app.ArtifactObject
+	episodeSummaries        map[string]app.EpisodeSummary
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions:             map[string]app.Session{},
-		clients:              map[string]app.Client{},
-		ownerProfile:         app.DefaultOwnerProfile(),
-		ownerProfiles:        map[string]app.OwnerProfile{app.DefaultOwnerID: app.DefaultOwnerProfile()},
-		pairingCodes:         map[string]app.PairingCode{},
-		iscpOnboardings:      map[string]app.ISCPOnboarding{},
-		mcpAccessTickets:     map[string]app.MCPAccessTicket{},
-		mcpBindings:          map[string]app.MCPBinding{},
-		mcpOperations:        map[string]app.MCPOperation{},
-		messages:             map[string][]app.Message{},
-		runFeedback:          map[string][]app.RunFeedback{},
-		runs:                 map[string]app.AgentRun{},
-		modelCalls:           map[string]app.ModelCall{},
-		toolCalls:            map[string]app.ToolCall{},
-		documentRecords:      map[string]app.DocumentRecord{},
-		approvals:            map[string]app.Approval{},
-		reminders:            map[string]app.Reminder{},
-		reminderDelivery:     map[string]app.ReminderDelivery{},
-		connectorSettings:    map[string]app.ConnectorSetting{},
-		notificationBindings: map[string]app.NotificationBinding{},
-		passiveNotifications: map[string]app.PassiveNotification{},
-		externalChatSessions: map[string]app.ExternalChatSession{},
-		externalChatMessages: map[string]app.ExternalChatMessage{},
-		messageReceives:      map[string]app.MessageReceiveRecord{},
-		messageDeliveries:    map[string]app.MessageDeliveryRecord{},
-		channelInboxUpdates:  map[string]app.ChannelInboxUpdate{},
-		credentialSecrets:    map[string]app.CredentialSecret{},
-		browserAuthRecords:   map[string]app.BrowserAuthRecord{},
-		browserLoginBlocks:   map[string]app.BrowserLoginBlock{},
-		memories:             map[string]app.Memory{},
-		memoryCandidates:     map[string]app.MemoryCandidate{},
-		auditEvents:          []app.AuditEvent{},
-		events:               []app.Event{},
-		evalRuns:             map[string]app.EvalRun{},
-		artifactObjects:      map[string]app.ArtifactObject{},
-		episodeSummaries:     map[string]app.EpisodeSummary{},
+		sessions:                    map[string]app.Session{},
+		clients:                     map[string]app.Client{},
+		ownerProfile:                app.DefaultOwnerProfile(),
+		ownerProfiles:               map[string]app.OwnerProfile{app.DefaultOwnerID: app.DefaultOwnerProfile()},
+		pairingCodes:                map[string]app.PairingCode{},
+		iscpOnboardings:             map[string]app.ISCPOnboarding{},
+		mcpAccessTickets:            map[string]app.MCPAccessTicket{},
+		mcpBindings:                 map[string]app.MCPBinding{},
+		mcpOperations:               map[string]app.MCPOperation{},
+		messages:                    map[string][]app.Message{},
+		runFeedback:                 map[string][]app.RunFeedback{},
+		runs:                        map[string]app.AgentRun{},
+		modelCalls:                  map[string]app.ModelCall{},
+		toolCalls:                   map[string]app.ToolCall{},
+		documentRecords:             map[string]app.DocumentRecord{},
+		approvals:                   map[string]app.Approval{},
+		reminders:                   map[string]app.Reminder{},
+		reminderDelivery:            map[string]app.ReminderDelivery{},
+		connectorSettings:           map[string]app.ConnectorSetting{},
+		notificationBindings:        map[string]app.NotificationBinding{},
+		passiveNotifications:        map[string]app.PassiveNotification{},
+		passiveNotificationIDsByKey: map[string]string{},
+		passiveNotificationRevs:     map[string]uint64{},
+		externalChatSessions:        map[string]app.ExternalChatSession{},
+		externalChatMessages:        map[string]app.ExternalChatMessage{},
+		messageReceives:             map[string]app.MessageReceiveRecord{},
+		messageDeliveries:           map[string]app.MessageDeliveryRecord{},
+		channelInboxUpdates:         map[string]app.ChannelInboxUpdate{},
+		credentialSecrets:           map[string]app.CredentialSecret{},
+		browserAuthRecords:          map[string]app.BrowserAuthRecord{},
+		browserLoginBlocks:          map[string]app.BrowserLoginBlock{},
+		memories:                    map[string]app.Memory{},
+		memoryCandidates:            map[string]app.MemoryCandidate{},
+		auditEvents:                 []app.AuditEvent{},
+		events:                      []app.Event{},
+		evalRuns:                    map[string]app.EvalRun{},
+		artifactObjects:             map[string]app.ArtifactObject{},
+		episodeSummaries:            map[string]app.EpisodeSummary{},
 	}
 }
 
@@ -167,6 +176,13 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.connectorSettings = ensureMap(snapshot.ConnectorSettings)
 	s.notificationBindings = ensureMap(snapshot.NotificationBindings)
 	s.passiveNotifications = ensureMap(snapshot.PassiveNotifications)
+	// The idempotency index is derived state: older snapshots never carried it,
+	// so it is always rebuilt from the notifications themselves.
+	s.passiveNotificationIDsByKey = make(map[string]string, len(s.passiveNotifications))
+	for id, notification := range s.passiveNotifications {
+		s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)] = id
+	}
+	s.passiveNotificationRevs = map[string]uint64{}
 	for id, binding := range s.notificationBindings {
 		if strings.TrimSpace(binding.OwnerID) == "" {
 			binding.OwnerID = app.DefaultOwnerID
@@ -1394,10 +1410,8 @@ func (s *MemoryStore) CreatePassiveNotification(notification app.PassiveNotifica
 	if notification.OwnerID == "" || notification.EndpointID == "" || notification.IdempotencyKey == "" || strings.TrimSpace(notification.Fingerprint) == "" {
 		return app.PassiveNotification{}, false, errors.New("notification owner, endpoint, idempotency key, and fingerprint are required")
 	}
-	for _, existing := range s.passiveNotifications {
-		if existing.EndpointID != notification.EndpointID || existing.IdempotencyKey != notification.IdempotencyKey {
-			continue
-		}
+	if existingID, ok := s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)]; ok {
+		existing := s.passiveNotifications[existingID]
 		if existing.OwnerID != notification.OwnerID || existing.Fingerprint != notification.Fingerprint {
 			return app.PassiveNotification{}, false, ErrPassiveNotificationConflict
 		}
@@ -1412,6 +1426,8 @@ func (s *MemoryStore) CreatePassiveNotification(notification app.PassiveNotifica
 	}
 	notification.UpdatedAt = now
 	s.passiveNotifications[notification.ID] = notification
+	s.passiveNotificationIDsByKey[passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey)] = notification.ID
+	s.passiveNotificationRevs[notification.OwnerID]++
 	s.appendAuditLocked("notification.received", "", "", notification.OwnerID, notification.Source, map[string]any{
 		"notification_id": notification.ID,
 		"endpoint_id":     notification.EndpointID,
@@ -1497,6 +1513,7 @@ func (s *MemoryStore) MarkPassiveNotificationRead(ownerID, id string, readAt tim
 	notification.ReadAt = &readAt
 	notification.UpdatedAt = readAt
 	s.passiveNotifications[id] = notification
+	s.passiveNotificationRevs[notification.OwnerID]++
 	return notification, nil
 }
 
@@ -1518,7 +1535,84 @@ func (s *MemoryStore) MarkAllPassiveNotificationsRead(ownerID string, readAt tim
 		s.passiveNotifications[id] = notification
 		count++
 	}
+	if count > 0 {
+		s.passiveNotificationRevs[ownerID]++
+	}
 	return count, nil
+}
+
+func (s *MemoryStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removedByOwner := map[string]int{}
+	if !cutoff.IsZero() {
+		for id, notification := range s.passiveNotifications {
+			if notification.CreatedAt.Before(cutoff) {
+				s.removePassiveNotificationLocked(id, notification)
+				removedByOwner[notification.OwnerID]++
+			}
+		}
+	}
+	if maxPerOwner > 0 {
+		byOwner := map[string][]app.PassiveNotification{}
+		for _, notification := range s.passiveNotifications {
+			byOwner[notification.OwnerID] = append(byOwner[notification.OwnerID], notification)
+		}
+		for ownerID, notifications := range byOwner {
+			excess := len(notifications) - maxPerOwner
+			if excess <= 0 {
+				continue
+			}
+			slices.SortFunc(notifications, passiveNotificationEvictionOrder)
+			for _, notification := range notifications[:excess] {
+				s.removePassiveNotificationLocked(notification.ID, notification)
+				removedByOwner[ownerID]++
+			}
+		}
+	}
+	removed := 0
+	for ownerID, count := range removedByOwner {
+		removed += count
+		s.appendAuditLocked("notification.pruned", "", "", "notification-retention", ownerID, map[string]any{
+			"removed":       count,
+			"max_per_owner": maxPerOwner,
+			"cutoff":        cutoff.UTC().Format(time.RFC3339),
+		})
+	}
+	return removed
+}
+
+func (s *MemoryStore) removePassiveNotificationLocked(id string, notification app.PassiveNotification) {
+	delete(s.passiveNotifications, id)
+	delete(s.passiveNotificationIDsByKey, passiveNotificationKey(notification.EndpointID, notification.IdempotencyKey))
+	s.passiveNotificationRevs[notification.OwnerID]++
+}
+
+func (s *MemoryStore) PassiveNotificationRevision(ownerID string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.passiveNotificationRevs[ownerID]
+}
+
+// passiveNotificationEvictionOrder ranks cap evictions: read notifications go
+// first (oldest first), then unread oldest-first, so an over-cap inbox keeps
+// the newest unread records.
+func passiveNotificationEvictionOrder(a, b app.PassiveNotification) int {
+	aRead, bRead := a.ReadAt != nil, b.ReadAt != nil
+	if aRead != bRead {
+		if aRead {
+			return -1
+		}
+		return 1
+	}
+	if order := a.CreatedAt.Compare(b.CreatedAt); order != 0 {
+		return order
+	}
+	return strings.Compare(a.ID, b.ID)
+}
+
+func passiveNotificationKey(endpointID, idempotencyKey string) string {
+	return endpointID + "\x00" + idempotencyKey
 }
 
 func (s *MemoryStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {

@@ -117,6 +117,17 @@ type Store interface {
 	CountUnreadPassiveNotifications(ownerID string) int
 	MarkPassiveNotificationRead(ownerID, id string, readAt time.Time) (app.PassiveNotification, error)
 	MarkAllPassiveNotificationsRead(ownerID string, readAt time.Time) (int, error)
+	// PrunePassiveNotifications bounds the durable inbox: notifications created
+	// before cutoff are removed (a zero cutoff disables the retention sweep),
+	// and each owner is trimmed to maxPerOwner records (zero or negative
+	// disables the cap), evicting read notifications oldest-first before
+	// touching unread ones. Pruned idempotency keys become replayable; the
+	// dedup window intentionally equals the retention window.
+	PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int
+	// PassiveNotificationRevision reports a counter that increases whenever the
+	// owner's inbox changes (create, mark-read, prune). It is process-local and
+	// resets on restart; callers may only compare values for equality.
+	PassiveNotificationRevision(ownerID string) uint64
 	SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession
 	GetExternalChatSession(id string) (app.ExternalChatSession, bool)
 	ListExternalChatSessions(channel, status string) []app.ExternalChatSession

@@ -669,7 +669,8 @@ func (s *FileStore) RevokeNotificationBinding(id string) (app.NotificationBindin
 
 func (s *FileStore) CreatePassiveNotification(notification app.PassiveNotification) (app.PassiveNotification, bool, error) {
 	out, created, err := s.inner.CreatePassiveNotification(notification)
-	if err != nil {
+	if err != nil || !created {
+		// Idempotent replays change nothing; skip the full snapshot rewrite.
 		return out, created, err
 	}
 	if err := s.persistSnapshot(); err != nil {
@@ -704,6 +705,18 @@ func (s *FileStore) MarkAllPassiveNotificationsRead(ownerID string, readAt time.
 		err = s.persistSnapshot()
 	}
 	return count, err
+}
+
+func (s *FileStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int {
+	removed := s.inner.PrunePassiveNotifications(cutoff, maxPerOwner)
+	if removed > 0 {
+		s.persist()
+	}
+	return removed
+}
+
+func (s *FileStore) PassiveNotificationRevision(ownerID string) uint64 {
+	return s.inner.PassiveNotificationRevision(ownerID)
 }
 
 func (s *FileStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {

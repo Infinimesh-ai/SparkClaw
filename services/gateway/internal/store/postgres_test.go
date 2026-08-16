@@ -620,10 +620,70 @@ func TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate(t 
 	}
 }
 
+func TestPostgresStorePassiveNotificationPruneAndRevision(t *testing.T) {
+	dsn := os.Getenv("SPARKCLAW_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SPARKCLAW_TEST_POSTGRES_DSN to run postgres store integration tests")
+	}
+	st, err := NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	truncatePostgresStore(t, st)
+
+	now := time.Now().UTC()
+	seed := []struct {
+		id   string
+		age  time.Duration
+		read bool
+	}{
+		{id: "stale", age: 10 * 24 * time.Hour},
+		{id: "read-old", age: 50 * time.Minute, read: true},
+		{id: "read-new", age: 10 * time.Minute, read: true},
+		{id: "unread-old", age: 40 * time.Minute},
+		{id: "unread-new", age: time.Minute},
+	}
+	for _, item := range seed {
+		notification := testPassiveNotification("notification-"+item.id, "endpoint-pg", "delivery-"+item.id, "fingerprint-"+item.id)
+		notification.CreatedAt = now.Add(-item.age)
+		if _, inserted, err := st.CreatePassiveNotification(notification); err != nil || !inserted {
+			t.Fatalf("create %s = %v, %v", item.id, inserted, err)
+		}
+		if item.read {
+			if _, err := st.MarkPassiveNotificationRead(app.DefaultOwnerID, notification.ID, time.Time{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	revBefore := st.PassiveNotificationRevision(app.DefaultOwnerID)
+	if revBefore == 0 {
+		t.Fatal("creates did not bump the revision")
+	}
+
+	// Retention removes the stale record; the cap then evicts read records
+	// oldest-first before the oldest unread one.
+	if removed := st.PrunePassiveNotifications(now.AddDate(0, 0, -7), 1); removed != 4 {
+		t.Fatalf("prune removed %d, want 4", removed)
+	}
+	items := st.ListPassiveNotifications(app.DefaultOwnerID, "", 10)
+	if len(items) != 1 || items[0].ID != "notification-unread-new" {
+		t.Fatalf("survivors = %#v", items)
+	}
+	if got := st.PassiveNotificationRevision(app.DefaultOwnerID); got == revBefore {
+		t.Fatal("prune did not bump the revision")
+	}
+	// A pruned idempotency key is replayable again.
+	replay := testPassiveNotification("notification-stale", "endpoint-pg", "delivery-stale", "fingerprint-stale")
+	if _, inserted, err := st.CreatePassiveNotification(replay); err != nil || !inserted {
+		t.Fatalf("replay after prune = %v, %v", inserted, err)
+	}
+}
+
 func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 	t.Helper()
 	_, err := st.db.Exec(context.Background(), `
-		TRUNCATE mcp_operations, mcp_bindings, mcp_access_tickets, iscp_onboardings, message_delivery_records, message_receive_records, channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions,
+		TRUNCATE mcp_operations, mcp_bindings, mcp_access_tickets, iscp_onboardings, message_delivery_records, message_receive_records, channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions, passive_notifications,
 			credential_secrets, notification_bindings, reminder_deliveries, reminders, events, audit_events, owners, eval_runs,
 			artifact_objects, episode_summaries, memories, memory_candidates, approvals, document_records, tool_calls,
 			model_calls, run_feedback, messages, agent_runs, sessions

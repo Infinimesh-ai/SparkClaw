@@ -1269,6 +1269,12 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	type streamResult struct {
 		result agent.Result
 		err    error
+		// deliveryErr reports a post-run delivery failure: the run itself
+		// finished and its result is persisted, only handing it to the
+		// selected external endpoint failed. It must stay separate from err
+		// so the client can tell a real delivery failure apart from a benign
+		// dropped stream on an accepted run.
+		deliveryErr error
 	}
 	modelEvents := make(chan agent.StreamEvent, 16)
 	results := make(chan streamResult, 1)
@@ -1285,10 +1291,11 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 				return nil
 			}
 		})
+		var deliveryErr error
 		if err == nil {
-			_, err = s.deliverAgentResult(executionCtx, result)
+			_, deliveryErr = s.deliverAgentResult(executionCtx, result)
 		}
-		results <- streamResult{result: result, err: err}
+		results <- streamResult{result: result, err: err, deliveryErr: deliveryErr}
 		close(modelEvents)
 	}()
 
@@ -1343,6 +1350,15 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 			}
 			if result.err != nil {
 				_ = send("error", map[string]string{"error": result.err.Error(), "session_id": sessionID})
+				return
+			}
+			if result.deliveryErr != nil {
+				// Event name must stay in sync with
+				// MESSAGE_STREAM_DELIVERY_FAILED_EVENT in
+				// apps/webchat/src/lib/messageStream.ts: a plain "error"
+				// event on an accepted stream would be presented as a benign
+				// stream detach, hiding the delivery failure.
+				_ = send("message.stream.delivery_failed", map[string]string{"error": result.deliveryErr.Error(), "session_id": sessionID})
 				return
 			}
 			_ = send("message.stream.final", result.result)

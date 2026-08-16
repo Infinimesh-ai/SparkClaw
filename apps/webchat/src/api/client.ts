@@ -40,6 +40,7 @@ import type {
   TraceMetadata,
   ToolCall
 } from "./types";
+import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
@@ -94,6 +95,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   return response.json() as Promise<T>;
+}
+
+function streamErrorMessage(data: unknown, fallback: string) {
+  if (data && typeof data === "object" && "error" in data) {
+    return String((data as { error?: unknown }).error ?? fallback);
+  }
+  return fallback;
 }
 
 type SendMessageStreamHandlers = {
@@ -388,9 +396,10 @@ export const api = {
           }
         } else if (event === "message.stream.final" && data && typeof data === "object") {
           handlers.onFinal?.(data as AgentResult);
+        } else if (event === MESSAGE_STREAM_DELIVERY_FAILED_EVENT) {
+          handlers.onError?.(new MessageStreamDeliveryError(streamErrorMessage(data, "Delivery failed")));
         } else if (event === "error") {
-          const message = data && typeof data === "object" && "error" in data ? String((data as { error?: unknown }).error ?? "Stream failed") : "Stream failed";
-          handlers.onError?.(new Error(message));
+          handlers.onError?.(new Error(streamErrorMessage(data, "Stream failed")));
         }
       }
     );

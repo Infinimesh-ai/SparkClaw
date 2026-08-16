@@ -376,8 +376,15 @@ export function App() {
       if (activeMessageStreamRef.current === sessionId) {
         activeMessageStreamRef.current = "";
       }
-      const disposition = messageStreamFailureDisposition(streamAccepted);
-      if (disposition === "restore_draft") {
+      const disposition = messageStreamFailureDisposition(streamAccepted, err);
+      if (disposition === "delivery_failed") {
+        // The run finished and its result is persisted server-side, but the
+        // outbound delivery failed: surface the real delivery error and give
+        // the draft back so the owner can retry the send.
+        setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
+        setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
+        setError(err instanceof Error && err.message ? `${text.errors.delivery}: ${err.message}` : text.errors.delivery);
+      } else if (disposition === "restore_draft") {
         setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
         setError(err instanceof Error ? err.message : text.errors.message);

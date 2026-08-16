@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageStreamDeliveryError } from "../lib/messageStream";
-import { api, documentFileURL, messageStreamRequestBody } from "./client";
+import { api, APIError, documentFileURL, messageStreamRequestBody } from "./client";
 
 describe("documentFileURL", () => {
   it("keeps the workspace path scoped to its session", () => {
@@ -69,6 +69,24 @@ describe("sendMessageStream failure events", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(MessageStreamDeliveryError);
     expect(errors[0].message).toBe("provider temporarily unavailable");
+  });
+
+  it("throws a typed APIError carrying the HTTP status from both request paths", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "Token 认证失败" })
+    })));
+    // JSON path: the 401 must be detectable from the status, not from
+    // sniffing localized display strings.
+    const jsonError = await api.sessions().catch((error: unknown) => error);
+    expect(jsonError).toBeInstanceOf(APIError);
+    expect((jsonError as APIError).status).toBe(401);
+    expect((jsonError as APIError).message).toBe("Token 认证失败");
+    // Stream path rejects with the same typed error.
+    const streamError = await api.sendMessageStream("s1", "hello").catch((error: unknown) => error);
+    expect(streamError).toBeInstanceOf(APIError);
+    expect((streamError as APIError).status).toBe(401);
   });
 
   it("keeps run failures as plain stream errors", async () => {

@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, KeyRound, RefreshCw, X } from "lucide-react";
-import { api, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
+import { api, APIError, apiToken, clearAPIToken, saveAPIToken, sessionEventsURL } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
 import {
@@ -77,8 +77,22 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
-  const [error, setError] = useState("");
+  const [error, setErrorMessage] = useState("");
+  // True when the current error came from a 401 response, i.e. the gateway
+  // rejected our credentials and the token/pairing recovery UI applies.
+  // Detected from the typed APIError status, never from display strings.
+  const [authRecovery, setAuthRecovery] = useState(false);
   const [notice, setNotice] = useState("");
+
+  const setError = useCallback((message: string) => {
+    setAuthRecovery(false);
+    setErrorMessage(message);
+  }, []);
+
+  const surfaceError = useCallback((err: unknown, fallback: string) => {
+    setAuthRecovery(err instanceof APIError && err.status === 401);
+    setErrorMessage(err instanceof Error && err.message ? err.message : fallback);
+  }, []);
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activeMessageStreamRef = useRef<string>("");
@@ -120,7 +134,7 @@ export function App() {
     refreshSchedules,
     editSchedule,
     deleteSchedule
-  } = useSchedules({ activeSession, language, text, setError, refreshSession });
+  } = useSchedules({ activeSession, language, text, setError, surfaceError, refreshSession });
 
   const {
     deliveryEndpoints,
@@ -178,6 +192,7 @@ export function App() {
     activeSession,
     text,
     setError,
+    surfaceError,
     setSessions,
     setActiveSession,
     setMessages,
@@ -209,7 +224,7 @@ export function App() {
         setActiveSession(next.id);
         await refreshSession(next.id);
       } catch (err) {
-        setError(err instanceof Error ? err.message : dictionaries[initialLanguage()].errors.connect);
+        surfaceError(err, dictionaries[initialLanguage()].errors.connect);
       }
     }
     void boot();
@@ -387,7 +402,7 @@ export function App() {
       } else if (disposition === "restore_draft") {
         setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
         setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
-        setError(err instanceof Error ? err.message : text.errors.message);
+        surfaceError(err, text.errors.message);
       } else {
         // The gateway accepted the run and keeps executing it server-side;
         // losing the stream is not a failure, so surface an informational
@@ -419,7 +434,7 @@ export function App() {
         await openTrace(message.run_id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.feedback);
+      surfaceError(err, text.errors.feedback);
       throw err;
     }
   }
@@ -433,7 +448,7 @@ export function App() {
       setTraceRun(trace);
       setTraceList(traces.traces ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.trace);
+      surfaceError(err, text.errors.trace);
     } finally {
       setTraceLoading(false);
     }
@@ -448,7 +463,7 @@ export function App() {
       saveAPIToken(claimed.token);
       await bootstrappedRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.pairing);
+      surfaceError(err, text.errors.pairing);
     } finally {
       setPairing(false);
     }
@@ -465,7 +480,7 @@ export function App() {
       setTokenInput("");
     } catch (err) {
       clearAPIToken();
-      setError(err instanceof Error ? err.message : text.auth.unauthorized);
+      surfaceError(err, text.auth.unauthorized);
     }
   }
 
@@ -542,7 +557,7 @@ export function App() {
         {error && (
           <div className="errorBanner">
             <span>{error}</span>
-            {error.toLowerCase().includes("token") || error.toLowerCase().includes("unauthorized") ? (
+            {authRecovery ? (
               <div className="authActions">
                 <form className="tokenForm" onSubmit={(event) => void submitToken(event)}>
                   <input
@@ -652,6 +667,7 @@ export function App() {
         notificationBindings={notificationBindings}
         onOpenTrace={(runId) => void openTrace(runId)}
         setError={setError}
+        surfaceError={surfaceError}
         refreshGlobal={refreshGlobal}
         refreshActiveSession={() => refreshSession(activeSession)}
         setEvalRuns={setEvalRuns}

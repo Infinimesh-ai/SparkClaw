@@ -67,6 +67,7 @@ type InspectorColumnProps = {
   notificationBindings: NotificationBinding[];
   onOpenTrace: (runId: string) => void;
   setError: (message: string) => void;
+  surfaceError: (err: unknown, fallback: string) => void;
   refreshGlobal: () => Promise<void>;
   refreshActiveSession: () => Promise<void>;
   setEvalRuns: (runs: EvalRun[]) => void;
@@ -103,6 +104,7 @@ export function InspectorColumn({
   notificationBindings,
   onOpenTrace,
   setError,
+  surfaceError,
   refreshGlobal,
   refreshActiveSession,
   setEvalRuns,
@@ -120,7 +122,7 @@ export function InspectorColumn({
       else await api.reject(id);
       await Promise.all([refreshGlobal(), refreshActiveSession()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.approval);
+      surfaceError(err, text.errors.approval);
     }
   }
 
@@ -130,7 +132,7 @@ export function InspectorColumn({
       await api.modifyApproval(id, args);
       await Promise.all([refreshGlobal(), refreshActiveSession()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.approvalEdit);
+      surfaceError(err, text.errors.approvalEdit);
     }
   }
 
@@ -140,7 +142,7 @@ export function InspectorColumn({
       await api.modifyApprovalPlan(id, plan);
       await Promise.all([refreshGlobal(), refreshActiveSession()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.approvalEdit);
+      surfaceError(err, text.errors.approvalEdit);
     }
   }
 
@@ -151,7 +153,7 @@ export function InspectorColumn({
       else await api.rejectMemory(id);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memory);
+      surfaceError(err, text.errors.memory);
     }
   }
 
@@ -161,7 +163,7 @@ export function InspectorColumn({
       await api.updateMemory(id, kind, content);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memoryEdit);
+      surfaceError(err, text.errors.memoryEdit);
       throw err;
     }
   }
@@ -172,7 +174,7 @@ export function InspectorColumn({
       await api.deleteMemory(id);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memoryDelete);
+      surfaceError(err, text.errors.memoryDelete);
       throw err;
     }
   }
@@ -183,7 +185,7 @@ export function InspectorColumn({
       await api.archiveMemoryExport();
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.memoryExport);
+      surfaceError(err, text.errors.memoryExport);
       throw err;
     }
   }
@@ -194,7 +196,7 @@ export function InspectorColumn({
       await api.revokeClient(id);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.clientRevoke);
+      surfaceError(err, text.errors.clientRevoke);
       throw err;
     }
   }
@@ -225,7 +227,7 @@ export function InspectorColumn({
       await refreshGlobal();
       return updated;
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.connectorUpdate);
+      surfaceError(err, text.errors.connectorUpdate);
       throw err;
     }
   }
@@ -249,7 +251,7 @@ export function InspectorColumn({
       await api.revokeNotificationBinding(id);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.binding);
+      surfaceError(err, text.errors.binding);
       throw err;
     }
   }
@@ -260,7 +262,7 @@ export function InspectorColumn({
       await api.updateToolPolicy(deny, approvalRequired);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.policyUpdate);
+      surfaceError(err, text.errors.policyUpdate);
       throw err;
     }
   }
@@ -272,7 +274,7 @@ export function InspectorColumn({
       setOwnerProfile(updated);
       await refreshGlobal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.ownerUpdate);
+      surfaceError(err, text.errors.ownerUpdate);
       throw err;
     }
   }

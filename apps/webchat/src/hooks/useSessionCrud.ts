@@ -22,6 +22,7 @@ type Options = {
   activeSession: string;
   text: Copy;
   setError: (message: string) => void;
+  surfaceError: (err: unknown, fallback: string) => void;
   setSessions: Dispatch<SetStateAction<Session[]>>;
   setActiveSession: (sessionId: string) => void;
   setMessages: (messages: Message[]) => void;
@@ -42,6 +43,7 @@ export function useSessionCrud({
   activeSession,
   text,
   setError,
+  surfaceError,
   setSessions,
   setActiveSession,
   setMessages,
@@ -75,7 +77,7 @@ export function useSessionCrud({
       setEpisodes([]);
       setTab("timeline");
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.createSession);
+      surfaceError(err, text.errors.createSession);
     }
   }
 
@@ -99,7 +101,7 @@ export function useSessionCrud({
       setSessions((current) => current.map((session) => (session.id === id ? updated : session)));
       cancelRenameSession();
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.renameSession);
+      surfaceError(err, text.errors.renameSession);
     } finally {
       setSessionActionId("");
     }
@@ -128,7 +130,7 @@ export function useSessionCrud({
       setTab("timeline");
       await Promise.all([refreshSession(next.id), refreshGlobal()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.deleteSession);
+      surfaceError(err, text.errors.deleteSession);
     } finally {
       setSessionActionId("");
     }

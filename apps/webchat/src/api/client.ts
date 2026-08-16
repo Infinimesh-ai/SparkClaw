@@ -135,8 +135,14 @@ async function requestEventStream(path: string, init: RequestInit, onBlock: (eve
     headers
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `HTTP ${response.status}`);
+    const body = await response.json().catch(() => ({})) as { error?: unknown; code?: unknown; retryable?: unknown };
+    throw new APIError(
+      response.status,
+      typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
+      typeof body.code === "string" ? body.code : "",
+      body.retryable === true,
+      body
+    );
   }
   if (!response.body) {
     throw new Error("Streaming response body is unavailable");

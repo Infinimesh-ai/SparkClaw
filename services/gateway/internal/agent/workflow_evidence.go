@@ -334,14 +334,8 @@ func (r Runtime) readArchivedToolObservation(ctx context.Context, run app.AgentR
 	if r.artifacts == nil {
 		return nil, 0, errors.New("artifact store is unavailable")
 	}
-	var object app.ArtifactObject
-	for _, candidate := range r.store.ListArtifactObjects(0) {
-		if candidate.URI == call.ObservationRef && candidate.SessionID == run.SessionID && candidate.RunID == run.ID {
-			object = candidate
-			break
-		}
-	}
-	if object.URI == "" {
+	object, ok := r.store.FindArtifactObjectByURI(call.ObservationRef, run.SessionID, run.ID)
+	if !ok {
 		return nil, 0, errors.New("persisted workflow evidence is outside the active run")
 	}
 	raw, err := r.artifacts.Get(ctx, object.Key)

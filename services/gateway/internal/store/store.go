@@ -166,6 +166,9 @@ type Store interface {
 	ListEvalRuns() []app.EvalRun
 	SaveArtifactObject(object app.ArtifactObject)
 	ListArtifactObjects(limit int) []app.ArtifactObject
+	// FindArtifactObjectByURI returns the newest artifact object with the
+	// given URI. An empty sessionID or runID matches any session or run.
+	FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool)
 	SaveEpisodeSummary(summary app.EpisodeSummary)
 	ListEpisodeSummaries(sessionID string) []app.EpisodeSummary
 }

@@ -47,47 +47,51 @@ type MemoryStore struct {
 	events               []app.Event
 	evalRuns             map[string]app.EvalRun
 	artifactObjects      map[string]app.ArtifactObject
-	episodeSummaries     map[string]app.EpisodeSummary
+	// artifactObjectIDsByURI indexes artifactObjects by URI so lookups on the
+	// observation.read path stay O(1) instead of scanning the full store.
+	artifactObjectIDsByURI map[string]map[string]struct{}
+	episodeSummaries       map[string]app.EpisodeSummary
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions:             map[string]app.Session{},
-		clients:              map[string]app.Client{},
-		ownerProfile:         app.DefaultOwnerProfile(),
-		ownerProfiles:        map[string]app.OwnerProfile{app.DefaultOwnerID: app.DefaultOwnerProfile()},
-		pairingCodes:         map[string]app.PairingCode{},
-		iscpOnboardings:      map[string]app.ISCPOnboarding{},
-		mcpAccessTickets:     map[string]app.MCPAccessTicket{},
-		mcpBindings:          map[string]app.MCPBinding{},
-		mcpOperations:        map[string]app.MCPOperation{},
-		messages:             map[string][]app.Message{},
-		runFeedback:          map[string][]app.RunFeedback{},
-		runs:                 map[string]app.AgentRun{},
-		modelCalls:           map[string]app.ModelCall{},
-		toolCalls:            map[string]app.ToolCall{},
-		documentRecords:      map[string]app.DocumentRecord{},
-		approvals:            map[string]app.Approval{},
-		reminders:            map[string]app.Reminder{},
-		reminderDelivery:     map[string]app.ReminderDelivery{},
-		connectorSettings:    map[string]app.ConnectorSetting{},
-		notificationBindings: map[string]app.NotificationBinding{},
-		passiveNotifications: map[string]app.PassiveNotification{},
-		externalChatSessions: map[string]app.ExternalChatSession{},
-		externalChatMessages: map[string]app.ExternalChatMessage{},
-		messageReceives:      map[string]app.MessageReceiveRecord{},
-		messageDeliveries:    map[string]app.MessageDeliveryRecord{},
-		channelInboxUpdates:  map[string]app.ChannelInboxUpdate{},
-		credentialSecrets:    map[string]app.CredentialSecret{},
-		browserAuthRecords:   map[string]app.BrowserAuthRecord{},
-		browserLoginBlocks:   map[string]app.BrowserLoginBlock{},
-		memories:             map[string]app.Memory{},
-		memoryCandidates:     map[string]app.MemoryCandidate{},
-		auditEvents:          []app.AuditEvent{},
-		events:               []app.Event{},
-		evalRuns:             map[string]app.EvalRun{},
-		artifactObjects:      map[string]app.ArtifactObject{},
-		episodeSummaries:     map[string]app.EpisodeSummary{},
+		sessions:               map[string]app.Session{},
+		clients:                map[string]app.Client{},
+		ownerProfile:           app.DefaultOwnerProfile(),
+		ownerProfiles:          map[string]app.OwnerProfile{app.DefaultOwnerID: app.DefaultOwnerProfile()},
+		pairingCodes:           map[string]app.PairingCode{},
+		iscpOnboardings:        map[string]app.ISCPOnboarding{},
+		mcpAccessTickets:       map[string]app.MCPAccessTicket{},
+		mcpBindings:            map[string]app.MCPBinding{},
+		mcpOperations:          map[string]app.MCPOperation{},
+		messages:               map[string][]app.Message{},
+		runFeedback:            map[string][]app.RunFeedback{},
+		runs:                   map[string]app.AgentRun{},
+		modelCalls:             map[string]app.ModelCall{},
+		toolCalls:              map[string]app.ToolCall{},
+		documentRecords:        map[string]app.DocumentRecord{},
+		approvals:              map[string]app.Approval{},
+		reminders:              map[string]app.Reminder{},
+		reminderDelivery:       map[string]app.ReminderDelivery{},
+		connectorSettings:      map[string]app.ConnectorSetting{},
+		notificationBindings:   map[string]app.NotificationBinding{},
+		passiveNotifications:   map[string]app.PassiveNotification{},
+		externalChatSessions:   map[string]app.ExternalChatSession{},
+		externalChatMessages:   map[string]app.ExternalChatMessage{},
+		messageReceives:        map[string]app.MessageReceiveRecord{},
+		messageDeliveries:      map[string]app.MessageDeliveryRecord{},
+		channelInboxUpdates:    map[string]app.ChannelInboxUpdate{},
+		credentialSecrets:      map[string]app.CredentialSecret{},
+		browserAuthRecords:     map[string]app.BrowserAuthRecord{},
+		browserLoginBlocks:     map[string]app.BrowserLoginBlock{},
+		memories:               map[string]app.Memory{},
+		memoryCandidates:       map[string]app.MemoryCandidate{},
+		auditEvents:            []app.AuditEvent{},
+		events:                 []app.Event{},
+		evalRuns:               map[string]app.EvalRun{},
+		artifactObjects:        map[string]app.ArtifactObject{},
+		artifactObjectIDsByURI: map[string]map[string]struct{}{},
+		episodeSummaries:       map[string]app.EpisodeSummary{},
 	}
 }
 
@@ -232,6 +236,10 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.events = append([]app.Event(nil), snapshot.Events...)
 	s.evalRuns = ensureMap(snapshot.EvalRuns)
 	s.artifactObjects = ensureMap(snapshot.ArtifactObjects)
+	s.artifactObjectIDsByURI = map[string]map[string]struct{}{}
+	for _, object := range s.artifactObjects {
+		s.indexArtifactObjectLocked(object)
+	}
 	s.episodeSummaries = ensureMap(snapshot.EpisodeSummaries)
 	s.hideLinkedExternalChatSessionsLocked()
 }
@@ -421,6 +429,7 @@ func (s *MemoryStore) DeleteSession(id string) (app.Session, error) {
 	for objectID, object := range s.artifactObjects {
 		if object.SessionID == id {
 			delete(s.artifactObjects, objectID)
+			s.unindexArtifactObjectLocked(object)
 		}
 	}
 	for episodeID, summary := range s.episodeSummaries {
@@ -2346,7 +2355,11 @@ func (s *MemoryStore) SaveArtifactObject(object app.ArtifactObject) {
 	if object.CreatedAt.IsZero() {
 		object.CreatedAt = time.Now().UTC()
 	}
+	if existing, ok := s.artifactObjects[object.ID]; ok && existing.URI != object.URI {
+		s.unindexArtifactObjectLocked(existing)
+	}
 	s.artifactObjects[object.ID] = object
+	s.indexArtifactObjectLocked(object)
 	s.appendAuditLocked("artifact.saved", object.SessionID, object.RunID, "artifact-store", object.URI, map[string]any{
 		"kind":    object.Kind,
 		"backend": object.Backend,
@@ -2371,6 +2384,41 @@ func (s *MemoryStore) ListArtifactObjects(limit int) []app.ArtifactObject {
 		return out[:limit]
 	}
 	return out
+}
+
+func (s *MemoryStore) FindArtifactObjectByURI(uri, sessionID, runID string) (app.ArtifactObject, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var newest app.ArtifactObject
+	found := false
+	for id := range s.artifactObjectIDsByURI[uri] {
+		object, ok := s.artifactObjects[id]
+		if !ok || (sessionID != "" && object.SessionID != sessionID) || (runID != "" && object.RunID != runID) {
+			continue
+		}
+		if !found || object.CreatedAt.After(newest.CreatedAt) {
+			newest = object
+			found = true
+		}
+	}
+	return newest, found
+}
+
+func (s *MemoryStore) indexArtifactObjectLocked(object app.ArtifactObject) {
+	ids := s.artifactObjectIDsByURI[object.URI]
+	if ids == nil {
+		ids = map[string]struct{}{}
+		s.artifactObjectIDsByURI[object.URI] = ids
+	}
+	ids[object.ID] = struct{}{}
+}
+
+func (s *MemoryStore) unindexArtifactObjectLocked(object app.ArtifactObject) {
+	ids := s.artifactObjectIDsByURI[object.URI]
+	delete(ids, object.ID)
+	if len(ids) == 0 {
+		delete(s.artifactObjectIDsByURI, object.URI)
+	}
 }
 
 func (s *MemoryStore) SaveEpisodeSummary(summary app.EpisodeSummary) {

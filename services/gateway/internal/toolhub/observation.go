@@ -24,7 +24,7 @@ func (h *ToolHub) observationRead(ctx context.Context, args map[string]any, sess
 	if h.artifacts == nil {
 		return Result{}, errors.New("artifact store is unavailable")
 	}
-	object, ok := currentSessionArtifact(h.store.ListArtifactObjects(0), sessionID, artifactURI)
+	object, ok := h.store.FindArtifactObjectByURI(artifactURI, sessionID, "")
 	if !ok {
 		return Result{}, errors.New("artifact is unavailable in the current session")
 	}
@@ -56,11 +56,17 @@ func (h *ToolHub) observationRead(ctx context.Context, args map[string]any, sess
 		end = len(content)
 	}
 	window := content[start:end]
-	for len(window) > 0 && !utf8.Valid(window) {
-		window = window[:len(window)-1]
+	if end < len(content) {
+		window = trimTrailingPartialRune(window)
+	}
+	if idx, invalid := firstInvalidUTF8(window); invalid {
+		return Result{}, binaryObservationError(start+idx, start+skipInvalidUTF8(window, idx))
 	}
 	if len(window) == 0 && start < len(content) {
-		_, runeBytes := utf8.DecodeRune(content[start:])
+		r, runeBytes := utf8.DecodeRune(content[start:])
+		if r == utf8.RuneError && runeBytes <= 1 {
+			return Result{}, binaryObservationError(start, start+1)
+		}
 		return Result{}, fmt.Errorf("max_bytes is too small for the next UTF-8 character (%d bytes required)", runeBytes)
 	}
 	nextOffset := start + len(window)
@@ -77,13 +83,55 @@ func (h *ToolHub) observationRead(ctx context.Context, args map[string]any, sess
 	}}, nil
 }
 
-func currentSessionArtifact(objects []app.ArtifactObject, sessionID, uri string) (app.ArtifactObject, bool) {
-	for _, object := range objects {
-		if object.URI == uri && object.SessionID == sessionID {
-			return object, true
+// trimTrailingPartialRune drops a multi-byte rune that the window boundary
+// cut short: the trailing lead byte plus its continuation bytes, at most
+// utf8.UTFMax-1 bytes. Invalid bytes anywhere else are left in place for the
+// validity check, so this never hides binary content.
+func trimTrailingPartialRune(window []byte) []byte {
+	for i := 1; i < utf8.UTFMax && i <= len(window); i++ {
+		if !utf8.RuneStart(window[len(window)-i]) {
+			continue
 		}
+		if !utf8.FullRune(window[len(window)-i:]) {
+			return window[:len(window)-i]
+		}
+		break
 	}
-	return app.ArtifactObject{}, false
+	return window
+}
+
+// firstInvalidUTF8 returns the index of the first byte that is not part of a
+// valid UTF-8 encoding, scanning the window once.
+func firstInvalidUTF8(window []byte) (int, bool) {
+	for i := 0; i < len(window); {
+		r, size := utf8.DecodeRune(window[i:])
+		if r == utf8.RuneError && size <= 1 {
+			return i, true
+		}
+		i += size
+	}
+	return 0, false
+}
+
+// skipInvalidUTF8 returns the window index just past the contiguous run of
+// invalid bytes starting at idx, so the caller can resume at the next
+// decodable position.
+func skipInvalidUTF8(window []byte, idx int) int {
+	for idx < len(window) {
+		r, size := utf8.DecodeRune(window[idx:])
+		if r != utf8.RuneError || size > 1 {
+			break
+		}
+		idx++
+	}
+	return idx
+}
+
+func binaryObservationError(invalidOffset, nextOffset int) error {
+	return &app.CodedToolError{
+		Code: app.ToolErrorObservationBinaryContent,
+		Err:  fmt.Errorf("artifact output contains binary (non-UTF-8) content at offset %d; retry with offset=%d (next_offset) to skip past it", invalidOffset, nextOffset),
+	}
 }
 
 func archivedObservationOutput(raw []byte) ([]byte, error) {

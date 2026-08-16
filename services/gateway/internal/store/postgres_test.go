@@ -283,6 +283,15 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if objects := st.ListArtifactObjects(10); len(objects) != 1 || objects[0].ID != "obj_pg" || objects[0].EvalID != "eval_pg" {
 		t.Fatalf("artifact object did not round trip: %#v", objects)
 	}
+	if object, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", "", ""); !ok || object.ID != "obj_pg" {
+		t.Fatalf("artifact lookup by URI failed: %#v ok=%v", object, ok)
+	}
+	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/eval-failures/eval_pg/broken_case.json", session.ID, ""); ok {
+		t.Fatal("artifact lookup matched a session it does not belong to")
+	}
+	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/missing.json", "", ""); ok {
+		t.Fatal("missing URI lookup returned an object")
+	}
 	st.SaveEpisodeSummary(app.EpisodeSummary{
 		ID:        "ep_pg",
 		SessionID: session.ID,

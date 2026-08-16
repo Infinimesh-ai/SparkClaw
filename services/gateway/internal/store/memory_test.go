@@ -613,6 +613,64 @@ func TestMemoryStoreListsArtifactObjectsNewestFirst(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreFindsArtifactObjectByURI(t *testing.T) {
+	st := NewMemoryStore()
+	session := st.CreateSession("artifact lookup")
+	uri := "artifact://sparkclaw/observations/run_a/tc_1.json"
+	older := app.ArtifactObject{
+		ID:          "obj_a",
+		Kind:        "tool_observation",
+		RunID:       "run_a",
+		SessionID:   session.ID,
+		Backend:     "filesystem",
+		Bucket:      "sparkclaw",
+		Key:         "observations/run_a/tc_1.json",
+		URI:         uri,
+		ContentType: "application/json",
+		Bytes:       10,
+		CreatedAt:   time.Now().UTC().Add(-time.Minute),
+	}
+	newer := older
+	newer.ID = "obj_b"
+	newer.RunID = "run_b"
+	newer.CreatedAt = time.Now().UTC()
+	st.SaveArtifactObject(older)
+	st.SaveArtifactObject(newer)
+
+	if object, ok := st.FindArtifactObjectByURI(uri, session.ID, "run_a"); !ok || object.ID != "obj_a" {
+		t.Fatalf("run-scoped artifact lookup failed: %#v ok=%v", object, ok)
+	}
+	if object, ok := st.FindArtifactObjectByURI(uri, session.ID, ""); !ok || object.ID != "obj_b" {
+		t.Fatalf("session-scoped lookup did not pick the newest object: %#v ok=%v", object, ok)
+	}
+	if _, ok := st.FindArtifactObjectByURI(uri, "s_other", ""); ok {
+		t.Fatal("artifact lookup crossed the session boundary")
+	}
+	if _, ok := st.FindArtifactObjectByURI("artifact://sparkclaw/missing.json", session.ID, ""); ok {
+		t.Fatal("missing URI lookup returned an object")
+	}
+
+	moved := newer
+	moved.URI = "artifact://sparkclaw/observations/run_b/tc_1.json"
+	st.SaveArtifactObject(moved)
+	if _, ok := st.FindArtifactObjectByURI(uri, session.ID, "run_b"); ok {
+		t.Fatal("stale URI index entry survived a re-save under a new URI")
+	}
+	if object, ok := st.FindArtifactObjectByURI(moved.URI, session.ID, "run_b"); !ok || object.ID != "obj_b" {
+		t.Fatalf("re-saved artifact lookup failed: %#v ok=%v", object, ok)
+	}
+
+	if _, err := st.DeleteSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.FindArtifactObjectByURI(uri, session.ID, ""); ok {
+		t.Fatal("artifact lookup survived session deletion")
+	}
+	if _, ok := st.FindArtifactObjectByURI(moved.URI, "", ""); ok {
+		t.Fatal("URI index entry survived session deletion")
+	}
+}
+
 func hasAuditType(events []app.AuditEvent, typ string) bool {
 	for _, event := range events {
 		if event.Type == typ {

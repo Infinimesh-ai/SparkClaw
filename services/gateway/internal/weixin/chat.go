@@ -16,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -25,6 +26,11 @@ const (
 	// statusDeliveryFailed marks an inbound message whose reply was produced
 	// but not handed to the provider; a redelivery retries only the send.
 	statusDeliveryFailed = "delivery_failed"
+	// statusDeliveryBlocked marks a message whose delivery failed for a
+	// reason that cannot heal on its own (binding revoked, connector
+	// disabled, payload rejected). The message is terminal: it is never
+	// retried and does not hold the binding's cursor back.
+	statusDeliveryBlocked = "delivery_blocked"
 
 	// Pending reply kinds persisted on delivery_failed records. The kind
 	// selects the retry action and the record status after a successful retry.
@@ -240,19 +246,25 @@ func retrySuccessStatus(kind string) string {
 }
 
 // recordReplyOutcome persists the delivery outcome of a produced reply on the
-// inbound message record. Failures keep the reply payload so the next
-// redelivery retries only the provider send.
+// inbound message record. Retryable failures keep the reply payload so the
+// next redelivery retries only the provider send; blocked failures are
+// terminal and record the reason.
 func (d *Dispatcher) recordReplyOutcome(msg app.ExternalChatMessage, kind, payload, successStatus string, deliveryErr error) app.ExternalChatMessage {
-	if deliveryErr == nil {
+	switch {
+	case deliveryErr == nil:
 		msg.Status = successStatus
 		msg.Error = ""
 		msg.PendingReplyKind, msg.PendingReply = "", ""
 		msg.DispatchAttempts = 0
-		return d.store.SaveExternalChatMessage(msg)
+	case delivery.IsBlocked(deliveryErr):
+		msg.Status = statusDeliveryBlocked
+		msg.Error = deliveryErr.Error()
+		msg.PendingReplyKind, msg.PendingReply = "", ""
+	default:
+		msg.Status = statusDeliveryFailed
+		msg.Error = deliveryErr.Error()
+		msg.PendingReplyKind, msg.PendingReply = kind, payload
 	}
-	msg.Status = statusDeliveryFailed
-	msg.Error = deliveryErr.Error()
-	msg.PendingReplyKind, msg.PendingReply = kind, payload
 	return d.store.SaveExternalChatMessage(msg)
 }
 

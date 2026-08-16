@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -161,5 +162,59 @@ func TestHandleInboundDeliveryRetryDoesNotRerunRuntime(t *testing.T) {
 	}
 	if got := len(deliverer.deliveredResults()); got != 2 {
 		t.Fatalf("processed message must not be re-delivered, got %d deliveries", got)
+	}
+}
+
+func TestHandleInboundMarksBlockedDeliveryTerminal(t *testing.T) {
+	st := store.NewMemoryStore()
+	binding := newPendingReplyTestBinding()
+	st.SaveNotificationBinding(binding)
+	runtime := &fakeAgentRuntime{result: agent.Result{
+		Run: app.AgentRun{ID: "run_blocked", State: "completed"},
+		WorkflowResult: &app.WorkflowResult{
+			SchemaVersion: app.WorkflowResultSchemaVersion,
+			ID:            "workflow_result_run_blocked",
+			RunID:         "run_blocked",
+			Status:        app.WorkflowResultSucceeded,
+			Content: app.MessageContent{Parts: []app.MessagePart{{
+				ID: "part_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "答案",
+			}}},
+		},
+	}}
+	blockedErr := delivery.NewError(delivery.CodeConnectorDisabled, "delivery connector is disabled", "blocked")
+	deliverer := &fakeResultDeliverer{errs: []error{blockedErr}}
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
+	inbound := InboundMessage{
+		Binding:      binding,
+		FromUserID:   "wx-user-1",
+		ContextToken: "ctx-1",
+		Text:         "发个结果",
+		ExternalID:   "provider-msg-blocked",
+	}
+
+	err := dispatcher.HandleInbound(context.Background(), inbound)
+	if !delivery.IsBlocked(err) {
+		t.Fatalf("expected the blocked delivery error to surface, got %v", err)
+	}
+	chatSession, ok := st.FindExternalChatSession(binding.ID, "wx-user-1", "")
+	if !ok {
+		t.Fatal("chat session missing")
+	}
+	blocked, ok := st.FindExternalChatMessageByExternalID(chatSession.ID, "provider-msg-blocked")
+	if !ok || blocked.Status != "delivery_blocked" {
+		t.Fatalf("blocked delivery should be terminal on the record: %#v ok=%v", blocked, ok)
+	}
+	if blocked.Error == "" || blocked.PendingReplyKind != "" || blocked.PendingReply != "" {
+		t.Fatalf("blocked record should keep the reason and drop the retry payload: %#v", blocked)
+	}
+
+	if err := dispatcher.HandleInbound(context.Background(), inbound); err != nil {
+		t.Fatalf("re-delivery of a blocked message should be a no-op: %v", err)
+	}
+	if got := runtime.handledCount(); got != 1 {
+		t.Fatalf("blocked message must not run the agent again, got %d handles", got)
+	}
+	if got := len(deliverer.deliveredResults()); got != 1 {
+		t.Fatalf("blocked message must not be re-delivered, got %d deliveries", got)
 	}
 }

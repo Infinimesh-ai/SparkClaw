@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/weixinproto"
@@ -308,6 +309,15 @@ func (s *Syncer) processBatch(ctx context.Context, batch inboundBatch) {
 			continue
 		}
 		if err := s.dispatcher.HandleInbound(ctx, inbound); err != nil {
+			if delivery.IsBlocked(err) {
+				// Retrying cannot succeed until an operator intervenes and
+				// the dispatcher already recorded the reason on the message,
+				// so skip it instead of holding the binding's cursor back.
+				slog.Warn("weixin inbound delivery blocked; advancing past message",
+					"binding_id", binding.ID, "external_id", msg.ExternalID, "error", err)
+				s.clearAttempts(attemptKey)
+				continue
+			}
 			attempts := s.recordAttempt(attemptKey)
 			if attempts < maxDispatchAttempts {
 				// Keep the old cursor so the provider redelivers this

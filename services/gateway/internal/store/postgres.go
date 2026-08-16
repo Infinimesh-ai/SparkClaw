@@ -458,6 +458,10 @@ CREATE TABLE IF NOT EXISTS external_chat_messages (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE external_chat_messages ADD COLUMN IF NOT EXISTS pending_reply_kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE external_chat_messages ADD COLUMN IF NOT EXISTS pending_reply TEXT NOT NULL DEFAULT '';
+ALTER TABLE external_chat_messages ADD COLUMN IF NOT EXISTS dispatch_attempts INTEGER NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS external_chat_messages_external_idx
   ON external_chat_messages(chat_session_id, external_message_id);
 CREATE INDEX IF NOT EXISTS external_chat_messages_chat_created_idx
@@ -2475,9 +2479,10 @@ func (s *PostgresStore) SaveExternalChatMessage(message app.ExternalChatMessage)
 	_, _ = s.db.Exec(context.Background(), `
 		INSERT INTO external_chat_messages (
 			id, chat_session_id, binding_id, channel, direction, role, external_message_id,
-			content, context_token, linked_run_id, status, error, created_at, updated_at
+			content, context_token, linked_run_id, status, error,
+			pending_reply_kind, pending_reply, dispatch_attempts, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		ON CONFLICT (id) DO UPDATE SET
 			chat_session_id = EXCLUDED.chat_session_id,
 			binding_id = EXCLUDED.binding_id,
@@ -2490,10 +2495,14 @@ func (s *PostgresStore) SaveExternalChatMessage(message app.ExternalChatMessage)
 			linked_run_id = EXCLUDED.linked_run_id,
 			status = EXCLUDED.status,
 			error = EXCLUDED.error,
+			pending_reply_kind = EXCLUDED.pending_reply_kind,
+			pending_reply = EXCLUDED.pending_reply,
+			dispatch_attempts = EXCLUDED.dispatch_attempts,
 			updated_at = EXCLUDED.updated_at
 	`, message.ID, message.ChatSessionID, message.BindingID, message.Channel, message.Direction, message.Role,
 		message.ExternalMessageID, message.Content, message.ContextToken, message.LinkedRunID,
-		message.Status, message.Error, message.CreatedAt, message.UpdatedAt)
+		message.Status, message.Error, message.PendingReplyKind, message.PendingReply, message.DispatchAttempts,
+		message.CreatedAt, message.UpdatedAt)
 	s.appendAudit(context.Background(), "external_chat_message."+message.Status, "", message.LinkedRunID, "gateway", message.Direction, map[string]any{
 		"message_id":      message.ID,
 		"chat_session_id": message.ChatSessionID,
@@ -2509,7 +2518,8 @@ func (s *PostgresStore) SaveExternalChatMessage(message app.ExternalChatMessage)
 func (s *PostgresStore) GetExternalChatMessage(id string) (app.ExternalChatMessage, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
-		       content, context_token, linked_run_id, status, error, created_at, updated_at
+		       content, context_token, linked_run_id, status, error,
+		       pending_reply_kind, pending_reply, dispatch_attempts, created_at, updated_at
 		FROM external_chat_messages
 		WHERE id = $1
 	`, id)
@@ -2523,7 +2533,8 @@ func (s *PostgresStore) FindExternalChatMessageByExternalID(chatSessionID, exter
 	}
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
-		       content, context_token, linked_run_id, status, error, created_at, updated_at
+		       content, context_token, linked_run_id, status, error,
+		       pending_reply_kind, pending_reply, dispatch_attempts, created_at, updated_at
 		FROM external_chat_messages
 		WHERE chat_session_id = $1 AND external_message_id = $2
 		ORDER BY created_at DESC
@@ -2536,7 +2547,8 @@ func (s *PostgresStore) FindExternalChatMessageByExternalID(chatSessionID, exter
 func (s *PostgresStore) ListExternalChatMessages(chatSessionID string, limit int) []app.ExternalChatMessage {
 	query := `
 		SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
-		       content, context_token, linked_run_id, status, error, created_at, updated_at
+		       content, context_token, linked_run_id, status, error,
+		       pending_reply_kind, pending_reply, dispatch_attempts, created_at, updated_at
 		FROM external_chat_messages
 		WHERE ($1 = '' OR chat_session_id = $1)
 		ORDER BY created_at ASC
@@ -2546,7 +2558,8 @@ func (s *PostgresStore) ListExternalChatMessages(chatSessionID string, limit int
 		query = `
 			SELECT * FROM (
 				SELECT id, chat_session_id, binding_id, channel, direction, role, external_message_id,
-				       content, context_token, linked_run_id, status, error, created_at, updated_at
+				       content, context_token, linked_run_id, status, error,
+				       pending_reply_kind, pending_reply, dispatch_attempts, created_at, updated_at
 				FROM external_chat_messages
 				WHERE ($1 = '' OR chat_session_id = $1)
 				ORDER BY created_at DESC
@@ -3627,6 +3640,9 @@ func scanExternalChatMessage(row scanner) (app.ExternalChatMessage, error) {
 		&message.LinkedRunID,
 		&message.Status,
 		&message.Error,
+		&message.PendingReplyKind,
+		&message.PendingReply,
+		&message.DispatchAttempts,
 		&message.CreatedAt,
 		&message.UpdatedAt,
 	)

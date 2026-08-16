@@ -30,6 +30,10 @@ func TestFileStoreExternalChatAndInboxParity(t *testing.T) {
 	if !ok || chat.Channel != "telegram" || chat.ExternalUserID != "42" {
 		t.Fatalf("external chat did not reload: %#v ok=%v", chat, ok)
 	}
+	retained, ok := reloaded.FindExternalChatMessageByExternalID(chat.ID, "502")
+	if !ok || retained.PendingReplyKind != "control_text" || retained.PendingReply != "请确认" || retained.DispatchAttempts != 1 {
+		t.Fatalf("pending reply state did not survive reload: %#v ok=%v", retained, ok)
+	}
 	inbox, ok := reloaded.FindChannelInboxUpdate("bind_tg", "9001")
 	var payload struct {
 		UpdateID int64 `json:"update_id"`
@@ -120,14 +124,37 @@ func testExternalChatAndInboxParity(t *testing.T, st Store) {
 		Role:              "user",
 		ExternalMessageID: "501",
 		Content:           "hello",
-		Status:            "processed",
+		Status:            "delivery_failed",
+		PendingReplyKind:  "workflow_result",
+		PendingReply:      `{"run_id":"run_1"}`,
+		DispatchAttempts:  2,
 	})
 	if message.Channel != "telegram" {
 		t.Fatalf("message channel was not inherited: %#v", message)
 	}
-	if found, ok := st.FindExternalChatMessageByExternalID(chat.ID, "501"); !ok || found.ID != message.ID {
+	found, ok := st.FindExternalChatMessageByExternalID(chat.ID, "501")
+	if !ok || found.ID != message.ID {
 		t.Fatalf("external message lookup failed: %#v ok=%v", found, ok)
 	}
+	if found.PendingReplyKind != "workflow_result" || found.PendingReply != `{"run_id":"run_1"}` || found.DispatchAttempts != 2 {
+		t.Fatalf("pending reply state was not persisted: %#v", found)
+	}
+	message.Status = "processed"
+	message.PendingReplyKind, message.PendingReply = "", ""
+	message.DispatchAttempts = 0
+	st.SaveExternalChatMessage(message)
+	st.SaveExternalChatMessage(app.ExternalChatMessage{
+		ChatSessionID:     chat.ID,
+		BindingID:         chat.BindingID,
+		Direction:         "inbound",
+		Role:              "user",
+		ExternalMessageID: "502",
+		Content:           "再来一条",
+		Status:            "delivery_failed",
+		PendingReplyKind:  "control_text",
+		PendingReply:      "请确认",
+		DispatchAttempts:  1,
+	})
 
 	first := st.SaveChannelInboxUpdate(app.ChannelInboxUpdate{
 		BindingID:  "bind_tg",

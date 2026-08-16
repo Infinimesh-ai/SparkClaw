@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +19,18 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/notification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+)
+
+const (
+	// statusDeliveryFailed marks an inbound message whose reply was produced
+	// but not handed to the provider; a redelivery retries only the send.
+	statusDeliveryFailed = "delivery_failed"
+
+	// Pending reply kinds persisted on delivery_failed records. The kind
+	// selects the retry action and the record status after a successful retry.
+	pendingReplyWorkflowResult   = "workflow_result"
+	pendingReplyControlText      = "control_text"
+	pendingReplyAttachmentPrompt = "attachment_prompt"
 )
 
 type Dispatcher struct {
@@ -84,8 +97,15 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	// its record so the retry does not duplicate the chat history.
 	retryID := ""
 	if existing, ok := d.store.FindExternalChatMessageByExternalID(chatSession.ID, externalID); ok {
-		if existing.Status != "failed" && existing.Status != "delivery_failed" {
+		if existing.Status != "failed" && existing.Status != statusDeliveryFailed {
 			return nil
+		}
+		// The reply for this message was already produced and persisted; only
+		// the provider hand-off failed. Retry just that step — re-entering
+		// the runtime would replay the workflow's side effects (tool calls,
+		// browser actions, file writes, outbound sends).
+		if existing.Status == statusDeliveryFailed && existing.PendingReplyKind != "" {
+			return d.retryPendingReply(ctx, inbound, chatSession, existing, receives, receive)
 		}
 		retryID = existing.ID
 	}
@@ -165,24 +185,75 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	}
 	processing.LinkedRunID = result.Run.ID
 	var deliveryErr error
+	pendingKind, pendingPayload := "", ""
 	if len(result.Approvals) > 0 {
 		answer := weixinApprovalPrompt(result.Approvals[len(result.Approvals)-1])
+		pendingKind, pendingPayload = pendingReplyControlText, answer
 		deliveryErr = d.sendControlResult(ctx, inbound, chatSession, answer, result.Run.ID)
 	} else {
-		deliveryErr = d.deliverAgentResult(ctx, result, ingress)
+		workflowResult, err := connectorruntime.WorkflowResultFromAgentResult(result, ingress)
+		if err != nil {
+			// Nothing deliverable was produced; without a payload a retry
+			// falls back to the full (idempotent) dispatch path.
+			deliveryErr = err
+		} else {
+			if raw, marshalErr := json.Marshal(workflowResult); marshalErr == nil {
+				pendingKind, pendingPayload = pendingReplyWorkflowResult, string(raw)
+			}
+			deliveryErr = d.deliverWorkflowResult(ctx, workflowResult)
+		}
 	}
-	if deliveryErr != nil {
-		processing.Status = "delivery_failed"
-		processing.Error = deliveryErr.Error()
-		d.store.SaveExternalChatMessage(processing)
-		receives.Advance(receive, "delivery_failed", inboundMsg.ID, result.Run.ID)
-		return deliveryErr
+	processing = d.recordReplyOutcome(processing, pendingKind, pendingPayload, "processed", deliveryErr)
+	receives.Advance(receive, processing.Status, inboundMsg.ID, result.Run.ID)
+	return deliveryErr
+}
+
+// retryPendingReply re-sends a reply that a previous dispatch of the same
+// message already produced. The linked run has finished and its side effects
+// must not run twice, so only the provider hand-off is repeated.
+func (d *Dispatcher) retryPendingReply(ctx context.Context, inbound InboundMessage, chatSession app.ExternalChatSession, msg app.ExternalChatMessage, receives messagecontrol.ReceiveLifecycle, receive app.MessageReceiveRecord) error {
+	var deliveryErr error
+	switch msg.PendingReplyKind {
+	case pendingReplyWorkflowResult:
+		var pending app.WorkflowResult
+		if err := json.Unmarshal([]byte(msg.PendingReply), &pending); err != nil {
+			deliveryErr = fmt.Errorf("persisted weixin reply payload is unreadable: %w", err)
+		} else {
+			deliveryErr = d.deliverWorkflowResult(ctx, pending)
+		}
+	default:
+		deliveryErr = d.sendControlResult(ctx, inbound, chatSession, msg.PendingReply, msg.LinkedRunID)
 	}
-	processing.Status = "processed"
-	processing.Error = ""
-	d.store.SaveExternalChatMessage(processing)
-	receives.Advance(receive, "processed", inboundMsg.ID, result.Run.ID)
-	return nil
+	msg = d.recordReplyOutcome(msg, msg.PendingReplyKind, msg.PendingReply, retrySuccessStatus(msg.PendingReplyKind), deliveryErr)
+	receives.Advance(receive, msg.Status, msg.ID, msg.LinkedRunID)
+	return deliveryErr
+}
+
+// retrySuccessStatus maps a pending reply kind to the record status after a
+// successful delivery retry. Attachment prompts keep waiting for the user's
+// instruction; every other reply completes the message.
+func retrySuccessStatus(kind string) string {
+	if kind == pendingReplyAttachmentPrompt {
+		return "needs_user_instruction"
+	}
+	return "processed"
+}
+
+// recordReplyOutcome persists the delivery outcome of a produced reply on the
+// inbound message record. Failures keep the reply payload so the next
+// redelivery retries only the provider send.
+func (d *Dispatcher) recordReplyOutcome(msg app.ExternalChatMessage, kind, payload, successStatus string, deliveryErr error) app.ExternalChatMessage {
+	if deliveryErr == nil {
+		msg.Status = successStatus
+		msg.Error = ""
+		msg.PendingReplyKind, msg.PendingReply = "", ""
+		msg.DispatchAttempts = 0
+		return d.store.SaveExternalChatMessage(msg)
+	}
+	msg.Status = statusDeliveryFailed
+	msg.Error = deliveryErr.Error()
+	msg.PendingReplyKind, msg.PendingReply = kind, payload
+	return d.store.SaveExternalChatMessage(msg)
 }
 
 // handleControlText intercepts text-only messages that must not reach the
@@ -344,14 +415,18 @@ func isClearConversationRequest(text string) bool {
 }
 
 func (d *Dispatcher) deliverAgentResult(ctx context.Context, result agent.Result, ingress app.MessageIngressContext) error {
-	if d.results == nil {
-		return errors.New("weixin workflow result delivery is unavailable")
-	}
 	workflowResult, err := connectorruntime.WorkflowResultFromAgentResult(result, ingress)
 	if err != nil {
 		return err
 	}
-	_, err = d.results.DeliverWorkflowResult(ctx, workflowResult)
+	return d.deliverWorkflowResult(ctx, workflowResult)
+}
+
+func (d *Dispatcher) deliverWorkflowResult(ctx context.Context, result app.WorkflowResult) error {
+	if d.results == nil {
+		return errors.New("weixin workflow result delivery is unavailable")
+	}
+	_, err := d.results.DeliverWorkflowResult(ctx, result)
 	return err
 }
 

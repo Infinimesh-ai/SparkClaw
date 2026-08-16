@@ -258,3 +258,62 @@ func readResponse(t *testing.T, response *http.Response) []byte {
 	}
 	return decoded.Bytes()
 }
+
+func TestMessageStreamDeliveryFailureEmitsDistinctEvent(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("Web", app.DefaultOwnerID, root, "webchat", false)
+	binding := st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "bind-delivery-failed", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+		Channel: "testchat", Status: "active", Scopes: []string{app.BindingScopeMessageSendSelf},
+	})
+	chat := st.SaveExternalChatSession(app.ExternalChatSession{
+		ID: "endpoint-delivery-failed", OwnerID: "source-actor", AuthorizedOwnerID: app.DefaultOwnerID,
+		AuthorizedActorID: app.DefaultOwnerID, BindingID: binding.ID, Channel: "testchat",
+		ExternalUserID: "user", ExternalChatID: "chat", DisplayName: "Selected recipient", Status: "active",
+	})
+	provider := &gatewayDeliveryProvider{key: "testchat", partialOn: 1}
+	providers := delivery.NewProviderRegistry()
+	if err := providers.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	endpoints := messagecontrol.NewEndpointRegistry(st)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime, WithMessageDelivery(endpoints, providers, delivery.NewGateway(endpoints, providers, nil)))
+
+	server.streamMessage = func(_ context.Context, _ string, _ string, _ []agent.MessageAttachment, ingress app.MessageIngressContext, _ agent.StreamHandler) (agent.Result, error) {
+		return agent.Result{WorkflowResult: &app.WorkflowResult{
+			SchemaVersion: app.WorkflowResultSchemaVersion,
+			ID:            "result-delivery-failed",
+			OwnerID:       ingress.OwnerID,
+			Authorization: ingress.Authorization,
+			Status:        app.WorkflowResultSucceeded,
+			Content: app.MessageContent{Parts: []app.MessagePart{{
+				ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "run finished",
+			}}},
+			ReturnRoute: ingress.ReturnRoute,
+		}}, nil
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	response := postJSON(t, ts.URL+"/api/sessions/"+session.ID+"/messages/stream", map[string]any{
+		"content": "deliver externally", "target_endpoint_id": chat.ID,
+	})
+	raw := string(readResponse(t, response))
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("stream returned %d: %s", response.StatusCode, raw)
+	}
+	if len(provider.calls) != 1 {
+		t.Fatalf("delivery was not attempted exactly once: %#v", provider.calls)
+	}
+	if !strings.Contains(raw, "event: message.stream.delivery_failed") || !strings.Contains(raw, "provider temporarily unavailable") {
+		t.Fatalf("post-run delivery failure did not emit a distinct event: %s", raw)
+	}
+	if strings.Contains(raw, "event: error") || strings.Contains(raw, "event: message.stream.final") {
+		t.Fatalf("post-run delivery failure leaked into the run error or final event: %s", raw)
+	}
+}

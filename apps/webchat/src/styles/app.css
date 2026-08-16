@@ -730,6 +730,14 @@ button:disabled {
   text-align: center;
 }
 
+.notificationError {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--danger, #d64545);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .notificationToast {
   position: fixed;
   z-index: 140;
@@ -2863,13 +2871,6 @@ button.finderRow {
   text-align: center;
 }
 
-.bindingOpenLink {
-  flex: 0 0 auto;
-  min-height: 32px;
-  padding: 0 10px;
-  text-decoration: none;
-}
-
 .bindingList {
   display: grid;
   gap: 10px;
@@ -2990,7 +2991,6 @@ button.finderRow {
   opacity: 0.48;
 }
 
-.externalMCPGrantList,
 .externalMCPRecordList {
   display: grid;
   gap: 7px;
@@ -3023,34 +3023,6 @@ button.finderRow {
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-
-.externalMCPOperations {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.externalMCPOperations label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 27px;
-  max-width: 100%;
-  padding: 4px 7px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-small);
-  color: var(--text-secondary);
-  background: var(--surface-muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  overflow-wrap: anywhere;
-}
-
-.externalMCPOperations input {
-  flex: 0 0 auto;
-  accent-color: var(--cyber-blue);
 }
 
 .copyOnceCredential {
@@ -3525,7 +3497,6 @@ button.finderRow {
     flex-direction: column;
   }
 
-  .bindingOpenLink,
   .bindingEmpty .secondaryButton {
     width: 100%;
   }

@@ -40,6 +40,7 @@ import type {
   TraceMetadata,
   ToolCall
 } from "./types";
+import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
@@ -96,6 +97,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function streamErrorMessage(data: unknown, fallback: string) {
+  if (data && typeof data === "object" && "error" in data) {
+    return String((data as { error?: unknown }).error ?? fallback);
+  }
+  return fallback;
+}
+
 type SendMessageStreamHandlers = {
   signal?: AbortSignal;
   targetEndpointId?: string;
@@ -127,8 +135,14 @@ async function requestEventStream(path: string, init: RequestInit, onBlock: (eve
     headers
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `HTTP ${response.status}`);
+    const body = await response.json().catch(() => ({})) as { error?: unknown; code?: unknown; retryable?: unknown };
+    throw new APIError(
+      response.status,
+      typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
+      typeof body.code === "string" ? body.code : "",
+      body.retryable === true,
+      body
+    );
   }
   if (!response.body) {
     throw new Error("Streaming response body is unavailable");
@@ -388,9 +402,10 @@ export const api = {
           }
         } else if (event === "message.stream.final" && data && typeof data === "object") {
           handlers.onFinal?.(data as AgentResult);
+        } else if (event === MESSAGE_STREAM_DELIVERY_FAILED_EVENT) {
+          handlers.onError?.(new MessageStreamDeliveryError(streamErrorMessage(data, "Delivery failed")));
         } else if (event === "error") {
-          const message = data && typeof data === "object" && "error" in data ? String((data as { error?: unknown }).error ?? "Stream failed") : "Stream failed";
-          handlers.onError?.(new Error(message));
+          handlers.onError?.(new Error(streamErrorMessage(data, "Stream failed")));
         }
       }
     );

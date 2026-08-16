@@ -12,10 +12,11 @@ type Options = {
   language: Language;
   text: Copy;
   setError: (message: string) => void;
+  surfaceError: (err: unknown, fallback: string) => void;
   refreshSession: (sessionId: string) => Promise<void>;
 };
 
-export function useSchedules({ activeSession, language, text, setError, refreshSession }: Options) {
+export function useSchedules({ activeSession, language, text, setError, surfaceError, refreshSession }: Options) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [scheduleBarOpen, setScheduleBarOpen] = useState(true);
   const [schedulesRefreshing, setSchedulesRefreshing] = useState(false);
@@ -28,11 +29,11 @@ export function useSchedules({ activeSession, language, text, setError, refreshS
       const result = await api.schedules();
       setSchedules(result.schedules ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.schedules);
+      surfaceError(err, text.errors.schedules);
     } finally {
       setSchedulesRefreshing(false);
     }
-  }, [setError, text.errors.schedules]);
+  }, [setError, surfaceError, text.errors.schedules]);
 
   async function editSchedule(schedule: Schedule, draft: ScheduleEditDraft) {
     const sessionId = activeSession || schedule.session_id || "";
@@ -51,7 +52,7 @@ export function useSchedules({ activeSession, language, text, setError, refreshS
       await refreshSchedules();
       if (activeSession) await refreshSession(activeSession);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.schedules);
+      surfaceError(err, text.errors.schedules);
       throw err;
     } finally {
       setScheduleBusyId("");
@@ -72,7 +73,7 @@ export function useSchedules({ activeSession, language, text, setError, refreshS
       await refreshSchedules();
       if (activeSession) await refreshSession(activeSession);
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.schedules);
+      surfaceError(err, text.errors.schedules);
       throw err;
     } finally {
       setScheduleBusyId("");

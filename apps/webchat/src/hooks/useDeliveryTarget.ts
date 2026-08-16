@@ -9,9 +9,11 @@ export function useDeliveryTarget(activeSession: string) {
   const refreshDeliverySurface = useCallback(async () => {
     try {
       const result = await api.deliveryEndpoints();
+      // An authoritative response replaces the list, including an empty one.
       setDeliveryEndpoints(result.endpoints ?? []);
     } catch {
-      setDeliveryEndpoints([]);
+      // Transient refresh failure: keep the last-good endpoint list instead
+      // of wiping the picker (and the owner's selection) on every blip.
     }
   }, []);
 
@@ -21,10 +23,10 @@ export function useDeliveryTarget(activeSession: string) {
     [deliveryEndpoints, activeTargetEndpointID]
   );
 
-  function selectDeliveryTarget(endpointId: string) {
+  const selectDeliveryTarget = useCallback((endpointId: string) => {
     if (!activeSession) return;
     setTargetsBySession((current) => ({ ...current, [activeSession]: endpointId }));
-  }
+  }, [activeSession]);
 
   const clearSessionTarget = useCallback((sessionId: string) => {
     setTargetsBySession((current) => {
@@ -38,7 +40,9 @@ export function useDeliveryTarget(activeSession: string) {
     deliveryEndpoints,
     activeTargetEndpointID,
     activeDeliveryEndpoint,
-    externalDeliveryIntent: activeTargetEndpointID !== "",
+    // Intent is defined by a resolvable endpoint, so it can never disagree
+    // with what the composer will actually target.
+    externalDeliveryIntent: Boolean(activeDeliveryEndpoint),
     refreshDeliverySurface,
     selectDeliveryTarget,
     clearSessionTarget

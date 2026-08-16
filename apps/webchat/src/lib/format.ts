@@ -112,9 +112,6 @@ export function sortNotificationBindings(bindings: NotificationBinding[]) {
   });
 }
 
-export const isVisibleWeixinBinding = isVisibleNotificationBinding;
-export const sortWeixinBindings = sortNotificationBindings;
-
 export function isImageLikeQR(value = "") {
   return value.startsWith("data:image/") || /^https?:\/\/.+\.(png|jpg|jpeg|webp|gif)(\?.*)?$/i.test(value) || isLikelyBase64Image(value);
 }

@@ -7,6 +7,7 @@ type NotificationCenterProps = {
   unreadCount: number;
   open: boolean;
   toast: PassiveNotification | null;
+  error?: string;
   language: Language;
   text: Copy;
   onToggle: () => void;
@@ -16,9 +17,24 @@ type NotificationCenterProps = {
 };
 
 function notificationKind(notification: PassiveNotification, text: Copy) {
-  return notification.kind === "comment_mention"
-    ? text.notifications.commentMention
-    : text.notifications.documentMention;
+  switch (notification.kind) {
+    case "comment_mention":
+      return text.notifications.commentMention;
+    case "document_mention":
+      return text.notifications.documentMention;
+    default:
+      // New notification kinds must degrade to an explicit generic label,
+      // not masquerade as a document mention.
+      return text.notifications.activity;
+  }
+}
+
+const SOURCE_LABELS: Record<string, string> = { localmind: "LocalMind" };
+
+function notificationSource(notification: PassiveNotification) {
+  const source = notification.source?.trim() ?? "";
+  if (!source) return SOURCE_LABELS.localmind;
+  return SOURCE_LABELS[source] ?? source;
 }
 
 function notificationTime(notification: PassiveNotification, language: Language) {
@@ -35,6 +51,7 @@ export function NotificationCenter({
   unreadCount,
   open,
   toast,
+  error,
   language,
   text,
   onToggle,
@@ -72,6 +89,7 @@ export function NotificationCenter({
                 <CheckCheck size={14} />
               </button>
             </header>
+            {error ? <p className="notificationError" role="alert">{error}</p> : null}
             <div className="notificationList">
               {notifications.length === 0 ? (
                 <p className="notificationEmpty">{text.notifications.empty}</p>
@@ -79,7 +97,7 @@ export function NotificationCenter({
                 <article className={notification.read_at ? "notificationItem" : "notificationItem unread"} key={notification.id}>
                   <span className="notificationUnreadDot" aria-hidden="true" />
                   <div>
-                    <strong>LocalMind</strong>
+                    <strong>{notificationSource(notification)}</strong>
                     <span>{notificationKind(notification, text)}</span>
                     <time dateTime={notification.occurred_at}>{notificationTime(notification, language)}</time>
                   </div>
@@ -104,7 +122,7 @@ export function NotificationCenter({
         <aside className="notificationToast" role="status">
           <Bell size={17} />
           <div>
-            <strong>LocalMind</strong>
+            <strong>{notificationSource(toast)}</strong>
             <span>{notificationKind(toast, text)}</span>
           </div>
           <a

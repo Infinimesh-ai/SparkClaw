@@ -58,7 +58,7 @@ func New(st store.Store, runtime Runtime, deliver ResultDeliverer) *Service {
 	return &Service{store: st, runtime: runtime, deliver: deliver, cancels: map[string]context.CancelFunc{}}
 }
 
-func (s *Service) IssueTicket(ownerID, _ string, input IssueTicketRequest, now time.Time) (IssuedTicket, error) {
+func (s *Service) IssueTicket(ownerID, actorID string, input IssueTicketRequest, now time.Time) (IssuedTicket, error) {
 	if s == nil || s.store == nil || strings.TrimSpace(input.DomainID) == "" {
 		return IssuedTicket{}, errors.New("MCP ticket domain is required")
 	}
@@ -81,9 +81,12 @@ func (s *Service) IssueTicket(ownerID, _ string, input IssueTicketRequest, now t
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
+	if actorID = strings.TrimSpace(actorID); actorID == "" {
+		actorID = ownerID
+	}
 	ticket, err := s.store.SaveMCPAccessTicket(app.MCPAccessTicket{
 		SchemaVersion: app.MCPAccessTicketSchemaVersion, ID: app.NewID("mcp_ticket"), SecretHash: hex.EncodeToString(hash[:]),
-		OwnerID: ownerID, ActorID: ownerID, DomainID: strings.TrimSpace(input.DomainID), AuthorizationRevision: 1,
+		OwnerID: ownerID, ActorID: actorID, DomainID: strings.TrimSpace(input.DomainID), AuthorizationRevision: 1,
 		Scope: app.MCPAccessConversation, Status: app.MCPAccessPending, MaxUses: 1,
 		IssuedAt: now, ExpiresAt: now.Add(ttl),
 	})
@@ -359,13 +362,19 @@ func (s *Service) executeOperation(deadline time.Time, sessionID, messageID, run
 		s.finishOperationError(operationID, "workflow_failed", "SparkClaw workflow execution failed")
 		return
 	}
-	if s.deliver != nil && result.WorkflowResult != nil {
+	if result.WorkflowResult == nil {
+		// Terminal fallback: syncOperationFromResult refuses nil results, so
+		// without this the operation would stay "running" forever.
+		s.finishOperationError(operationID, "workflow_result_missing", "SparkClaw workflow produced no result")
+		return
+	}
+	if s.deliver != nil {
 		if err := s.deliver(executionCtx, result); err != nil {
 			s.finishOperationError(operationID, "delivery_failed", "MCP result delivery failed")
 		}
-	} else {
-		s.syncOperationFromResult(operationID, result)
+		return
 	}
+	s.syncOperationFromResult(operationID, result)
 }
 
 func (s *Service) operationTool(peer app.MCPPeerIdentity, binding app.MCPBinding, params CallToolParams) (any, *JSONRPCError) {

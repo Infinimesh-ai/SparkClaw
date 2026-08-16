@@ -786,3 +786,58 @@ func waitForOperation(t *testing.T, st store.Store, bindingID, idempotencyKey st
 	t.Fatalf("operation %q was not persisted", idempotencyKey)
 	return app.MCPOperation{}
 }
+
+func TestServiceNilWorkflowResultReachesTerminalFailure(t *testing.T) {
+	st := store.NewMemoryStore()
+	// fakeRuntime's zero-value result has WorkflowResult == nil; wire a
+	// deliverer so the pre-fix code path skipped both delivery and sync.
+	runtime := &fakeRuntime{}
+	deliverCalls := 0
+	service := New(st, runtime, func(context.Context, agent.Result) error {
+		deliverCalls++
+		return nil
+	}).WithChannelEnabled(func(string) bool { return true })
+	issued, err := service.IssueTicket(app.DefaultOwnerID, app.DefaultOwnerID, IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := app.MCPPeerIdentity{DomainID: "domain-a", DeviceID: "device-a", KeyThumbprint: "thumb-a", ISCPSessionID: "iscp-a"}
+	_ = bindingFromRPCResult(t, dispatchRPC(t, service, peer, "", "", "sparkclaw/access/redeem", map[string]any{"ticket": issued.Secret}))
+	_ = dispatchRPC(t, service, peer, "mcp", "no-result", "tools/call", map[string]any{
+		"name": conversationToolName, "arguments": map[string]any{"text": "hello"},
+	})
+	binding := bindingForPeer(t, st, peer)
+	deadline := time.Now().Add(2 * time.Second)
+	var operation app.MCPOperation
+	for time.Now().Before(deadline) {
+		if found, ok := st.FindMCPOperationByIdempotency(binding.ID, "no-result"); ok && operationTerminal(found.State) {
+			operation = found
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !operationTerminal(operation.State) {
+		t.Fatalf("operation never reached a terminal state: %#v", operation)
+	}
+	if operation.State != app.MCPOperationFailed || operation.ErrorCode != "workflow_result_missing" {
+		t.Fatalf("operation = state %q error %q, want failed/workflow_result_missing", operation.State, operation.ErrorCode)
+	}
+	if deliverCalls != 0 {
+		t.Fatalf("deliverer was invoked %d times for a nil workflow result", deliverCalls)
+	}
+}
+
+func TestIssueTicketRecordsIssuingActor(t *testing.T) {
+	st := store.NewMemoryStore()
+	service := New(st, &fakeRuntime{}, nil).WithChannelEnabled(func(string) bool { return true })
+	issued, err := service.IssueTicket(app.DefaultOwnerID, "management-actor", IssueTicketRequest{DomainID: "domain-a"}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.Ticket.ActorID != "management-actor" {
+		t.Fatalf("ticket actor = %q, want the issuing actor", issued.Ticket.ActorID)
+	}
+	if issued.Ticket.OwnerID != app.DefaultOwnerID {
+		t.Fatalf("ticket owner = %q", issued.Ticket.OwnerID)
+	}
+}

@@ -9,14 +9,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-func (h *ToolHub) validateDOCXSourceEvidence(ctx context.Context, inputPath string, args map[string]any) error {
+func validateDOCXSourceEvidence(metadata document.Metadata, args map[string]any) error {
 	expected := strings.TrimSpace(stringArg(args, "source_document_sha256", ""))
 	if expected == "" {
 		return errors.New("DOCX mutation requires source_document_sha256 preflight evidence")
-	}
-	metadata, err := document.InspectFile(ctx, h.cfg.Workspaces.DefaultRoot, inputPath)
-	if err != nil {
-		return err
 	}
 	if metadata.Format != app.DocumentFormatDOCX {
 		return errors.New("DOCX mutation source is not a DOCX document")

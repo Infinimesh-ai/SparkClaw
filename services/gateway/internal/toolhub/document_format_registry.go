@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -90,9 +91,16 @@ func (r documentProviderRegistry) operation(format, operation string) (documentO
 
 func (r documentProviderRegistry) errorWrapper(toolName, operation string) documentErrorWrapper {
 	operation = canonicalDocumentKey(operation)
-	for _, provider := range r.formats {
-		candidate, ok := provider.Operations[operation]
-		if ok && candidate.ToolName == toolName && candidate.WrapError != nil {
+	// Honor aliases (office.replace_text reaches PPTX through one) and walk
+	// formats in a deterministic order so a future double match cannot flap.
+	formats := make([]string, 0, len(r.formats))
+	for format := range r.formats {
+		formats = append(formats, format)
+	}
+	sort.Strings(formats)
+	for _, format := range formats {
+		candidate, ok := r.formats[format].Operations[operation]
+		if ok && candidate.acceptsTool(toolName) && candidate.WrapError != nil {
 			return candidate.WrapError
 		}
 	}

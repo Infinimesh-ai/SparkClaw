@@ -78,7 +78,7 @@ func validateDOCXOperationInvocation(operation string) documentInvocationValidat
 				return err
 			}
 		}
-		if err := hub.validateDOCXSourceEvidence(ctx, metadata.Path, args); err != nil {
+		if err := validateDOCXSourceEvidence(metadata, args); err != nil {
 			return err
 		}
 		if operation != "replace_text" && (operation != "insert_paragraph" || !isDOCXDocumentBoundaryPosition(args)) &&

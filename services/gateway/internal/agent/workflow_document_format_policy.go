@@ -361,15 +361,18 @@ func materializePPTXMutationSchemas(definitions []app.ToolDefinition, _ app.Dire
 				properties["slide_updates"] = projectPPTXSlideUpdatesSchema(value)
 			}
 			schema["properties"] = properties
-		}
-		required := toolDefinitionRequiredArgs(schema)
-		visibleRequired := make([]string, 0, len(required))
-		for _, name := range required {
-			if _, visible := properties[name]; visible {
-				visibleRequired = append(visibleRequired, name)
+			// Recompute required only when properties were actually projected:
+			// with a non-map properties value the loop below would see a nil
+			// map and silently empty the required list.
+			required := toolDefinitionRequiredArgs(schema)
+			visibleRequired := make([]string, 0, len(required))
+			for _, name := range required {
+				if _, visible := properties[name]; visible {
+					visibleRequired = append(visibleRequired, name)
+				}
 			}
+			schema["required"] = visibleRequired
 		}
-		schema["required"] = visibleRequired
 		projected[index].InputSchema = schema
 	}
 	return projected

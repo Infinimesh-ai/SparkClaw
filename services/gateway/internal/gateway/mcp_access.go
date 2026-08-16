@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -253,6 +257,61 @@ const (
 	mcpSessionHeader  = "Mcp-Session-Id"
 	mcpProtocolHeader = "MCP-Protocol-Version"
 )
+
+// mcpOriginAllowed reports whether a browser Origin may reach /mcp. Allowed
+// are loopback origins (a page served from this machine), the gateway's own
+// bind-address origin, and the operator allowlist in
+// mcp_access.allowed_origins. Everything else — including DNS-rebinding
+// hostnames that resolve to this machine and the opaque "null" origin — is
+// rejected.
+func (s *Server) mcpOriginAllowed(rawOrigin string) bool {
+	origin, err := config.NormalizeOrigin(rawOrigin)
+	if err != nil {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	if s.matchesBindOrigin(parsed) {
+		return true
+	}
+	for _, allowed := range s.cfg.MCPAccess.AllowedOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesBindOrigin reports whether the origin points at the gateway's own
+// concrete bind address and port. Wildcard binds cannot name a browser origin
+// and derive nothing.
+func (s *Server) matchesBindOrigin(origin *url.URL) bool {
+	bind := strings.ToLower(strings.Trim(strings.TrimSpace(s.cfg.Gateway.Bind), "[]"))
+	if bind == "" || bind == "0.0.0.0" || bind == "::" {
+		return false
+	}
+	if origin.Hostname() != bind {
+		return false
+	}
+	port := origin.Port()
+	if port == "" {
+		if origin.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return port == strconv.Itoa(s.cfg.Gateway.Port)
+}
 
 func (s *Server) dispatchLANDirectMCP(w http.ResponseWriter, r *http.Request) {
 	if !s.mcpTransportStatus(app.DefaultOwnerID).LANAccessEnabled {

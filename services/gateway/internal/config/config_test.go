@@ -166,6 +166,45 @@ func TestLoadMCPAccessLocalDomain(t *testing.T) {
 	}
 }
 
+func TestLoadMCPAllowedOrigins(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sparkclaw.json")
+	raw := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[" HTTPS://Panel.Example.COM "," https://panel.example.com/","","http://192.168.1.20:8443"]}}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"https://panel.example.com", "http://192.168.1.20:8443"}
+	if len(cfg.MCPAccess.AllowedOrigins) != len(want) {
+		t.Fatalf("allowed origins were not normalized and deduplicated: %#v", cfg.MCPAccess.AllowedOrigins)
+	}
+	for index, origin := range want {
+		if cfg.MCPAccess.AllowedOrigins[index] != origin {
+			t.Fatalf("allowed origin %d = %q, want %q", index, cfg.MCPAccess.AllowedOrigins[index], origin)
+		}
+	}
+
+	for name, entry := range map[string]string{
+		"missing scheme": `"panel.example.com"`,
+		"path":           `"https://panel.example.com/mcp"`,
+		"credentials":    `"https://user@panel.example.com"`,
+		"query":          `"https://panel.example.com?x=1"`,
+		"null origin":    `"null"`,
+	} {
+		path := filepath.Join(root, "invalid-origin.json")
+		invalid := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_access":{"local_domain_id":"local-domain","allowed_origins":[` + entry + `]}}`
+		if err := os.WriteFile(path, []byte(invalid), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "allowed_origins") {
+			t.Fatalf("%s entry %s was accepted: %v", name, entry, err)
+		}
+	}
+}
+
 func TestLoadNormalizesEnabledISCPPairing(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sparkclaw.json")

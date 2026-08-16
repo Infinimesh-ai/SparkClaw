@@ -264,6 +264,15 @@ Grant. Limit it to a trusted LAN and revoke unused MCP Bindings. MCP calls use
 the independent MCP Access Ticket and do not require `SPARKCLAW_API_TOKEN`;
 that setting, when used, protects the separate owner WebChat/Gateway API.
 
+`/mcp` validates the browser `Origin` header as a DNS-rebinding defense.
+Requests without an `Origin` header (curl, native MCP clients such as
+LocalMind) are unaffected. When the header is present it must name a loopback
+origin, the gateway's own bind-address origin, or an entry in
+`mcp_access.allowed_origins` (also settable as a comma-separated
+`SPARKCLAW_MCP_ALLOWED_ORIGINS`); anything else receives 403. The list is
+empty by default — add exact origins such as `https://panel.example.com` only
+for a trusted browser-based MCP client served from another origin.
+
 ## LocalMind MCP
 
 LocalMind access is opt-in. Add an `mcp_servers.localmind` block to the active

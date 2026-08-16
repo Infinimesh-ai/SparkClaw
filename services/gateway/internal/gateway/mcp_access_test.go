@@ -345,6 +345,102 @@ func TestGatewayPortMCPIsAbsentWhenLANAccessDisabled(t *testing.T) {
 	}
 }
 
+func TestGatewayPortMCPValidatesBrowserOrigins(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.MCPAccess.AllowedOrigins = []string{"https://panel.example.com"}
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+
+	cases := []struct {
+		name    string
+		origin  string
+		allowed bool
+	}{
+		{"no origin header", "", true},
+		{"localhost", "http://localhost:5173", true},
+		{"loopback IPv4", "http://127.0.0.1:8080", true},
+		{"loopback IPv6", "https://[::1]:8443", true},
+		{"operator allowlist", "https://panel.example.com", true},
+		{"allowlist scheme mismatch", "http://panel.example.com", false},
+		{"rebinding hostname", "https://evil.example", false},
+		{"opaque null origin", "null", false},
+		{"credentialed origin", "https://user@localhost", false},
+	}
+	for _, testCase := range cases {
+		request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+		request.RemoteAddr = "192.168.20.10:44000"
+		if testCase.origin != "" {
+			request.Header.Set("Origin", testCase.origin)
+		}
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if testCase.allowed && response.Code == http.StatusForbidden {
+			t.Fatalf("%s: origin %q was rejected: %s", testCase.name, testCase.origin, response.Body.String())
+		}
+		if !testCase.allowed && response.Code != http.StatusForbidden {
+			t.Fatalf("%s: origin %q returned %d, want 403", testCase.name, testCase.origin, response.Code)
+		}
+		if testCase.allowed && testCase.origin != "" && response.Header().Get("Access-Control-Allow-Origin") != testCase.origin {
+			t.Fatalf("%s: allowed origin %q was not echoed: %q", testCase.name, testCase.origin, response.Header().Get("Access-Control-Allow-Origin"))
+		}
+		if !testCase.allowed && response.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Fatalf("%s: rejected origin %q still received CORS approval", testCase.name, testCase.origin)
+		}
+	}
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/mcp", nil)
+	preflight.Header.Set("Origin", "https://evil.example")
+	preflightResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Code != http.StatusForbidden {
+		t.Fatalf("preflight from a disallowed origin returned %d", preflightResponse.Code)
+	}
+	preflight = httptest.NewRequest(http.MethodOptions, "/mcp", nil)
+	preflight.Header.Set("Origin", "http://localhost:5173")
+	preflightResponse = httptest.NewRecorder()
+	server.Handler().ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Code != http.StatusNoContent || preflightResponse.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
+		t.Fatalf("preflight from an allowed origin returned %d with ACAO %q", preflightResponse.Code, preflightResponse.Header().Get("Access-Control-Allow-Origin"))
+	}
+
+	// Origins derived from a concrete non-loopback bind address are allowed
+	// on the gateway port only.
+	cfg.Gateway.Bind = "192.168.1.5"
+	server = New(cfg, st, tools, runtime)
+	bindOrigin := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	bindOrigin.RemoteAddr = "192.168.20.10:44000"
+	bindOrigin.Header.Set("Origin", "http://192.168.1.5:18789")
+	bindResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(bindResponse, bindOrigin)
+	if bindResponse.Code == http.StatusForbidden {
+		t.Fatalf("bind-derived origin was rejected: %s", bindResponse.Body.String())
+	}
+	wrongPort := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	wrongPort.RemoteAddr = "192.168.20.10:44000"
+	wrongPort.Header.Set("Origin", "http://192.168.1.5:9999")
+	wrongPortResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(wrongPortResponse, wrongPort)
+	if wrongPortResponse.Code != http.StatusForbidden {
+		t.Fatalf("bind host on a foreign port returned %d, want 403", wrongPortResponse.Code)
+	}
+
+	// The Origin gate is scoped to /mcp: owner API routes keep the permissive
+	// wildcard CORS posture for split-origin webchat deployments.
+	api := httptest.NewRequest(http.MethodGet, "/api/mcp-access/tickets", nil)
+	api.Header.Set("Origin", "https://evil.example")
+	apiResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(apiResponse, api)
+	if apiResponse.Code == http.StatusForbidden {
+		t.Fatalf("owner API request was caught by the MCP origin gate: %s", apiResponse.Body.String())
+	}
+	if apiResponse.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("owner API CORS origin = %q, want *", apiResponse.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
 func directMCPRequest(handler http.Handler, body, bearer, sessionID string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
 	request.RemoteAddr = "192.168.20.10:44000"

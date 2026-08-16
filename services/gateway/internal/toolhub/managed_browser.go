@@ -39,7 +39,13 @@ func (h *ToolHub) OpenManagedBrowserWindow(ctx context.Context, ownerID, windowI
 	if err != nil {
 		return err
 	}
-	if output, ok := health.Output.(map[string]any); ok && output["ok"] == false {
+	// Fail closed: an unexpected payload shape or a non-bool "ok" must not be
+	// treated as healthy, or a broken Chromium gets browser.open attempts.
+	output, outputOK := health.Output.(map[string]any)
+	if !outputOK {
+		return fmt.Errorf("visible Chromium health payload has unexpected shape %T", health.Output)
+	}
+	if healthy, isBool := output["ok"].(bool); !isBool || !healthy {
 		return fmt.Errorf("visible Chromium is unavailable: %s", firstString(output, "error", "reason", "status"))
 	}
 	if !registry.windows[key] {

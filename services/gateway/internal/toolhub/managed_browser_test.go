@@ -83,3 +83,34 @@ func cloneStringAnyMap(input map[string]any) map[string]any {
 	}
 	return output
 }
+
+type unhealthyManagedBrowserAdapter struct {
+	managedBrowserAdapter
+	output any
+}
+
+func (a *unhealthyManagedBrowserAdapter) Health(context.Context, map[string]any) (browserautomation.Result, error) {
+	return browserautomation.Result{Output: a.output}, nil
+}
+
+func TestManagedBrowserWindowFailsClosedOnUnhealthyOrMalformedHealth(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tools.BrowserAutomation.Enabled = true
+	for name, output := range map[string]any{
+		"nil payload":     nil,
+		"non-map payload": "ok",
+		"string ok":       map[string]any{"ok": "false", "error": "broken"},
+		"numeric ok":      map[string]any{"ok": 0},
+		"missing ok":      map[string]any{"status": "starting"},
+		"explicit false":  map[string]any{"ok": false, "error": "no display"},
+	} {
+		adapter := &unhealthyManagedBrowserAdapter{output: output}
+		hub := New(cfg, store.NewMemoryStore()).WithBrowserAutomationAdapter(adapter)
+		if err := hub.OpenManagedBrowserWindow(t.Context(), "owner-a", "bind-a", "https://liteapp.weixin.qq.com/q/example"); err == nil {
+			t.Errorf("%s: expected an error, window was opened against an unverified Chromium", name)
+		}
+		if len(adapter.calls) != 0 {
+			t.Errorf("%s: browser calls were attempted despite failed health gate: %v", name, adapter.calls)
+		}
+	}
+}

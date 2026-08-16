@@ -8,7 +8,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { FileSearch, Gauge, MemoryStick, ScrollText, Settings, ShieldAlert } from "lucide-react";
 import { api } from "../api/client";
 import type { Copy, Language } from "../i18n";
-import { isBindingPending } from "../lib/format";
+import { isBindingSetupPending } from "../lib/connectors";
 import { notificationBindingErrorMessage } from "../lib/bindingError";
 import {
   ApprovalPanel,
@@ -233,8 +233,7 @@ export function InspectorColumn({
   async function refreshNotificationBinding(id: string, signal?: AbortSignal) {
     const binding = await api.notificationBinding(id, signal);
     setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
-    const awaitingTelegramMessage = binding.channel === "telegram" && binding.status === "active" && !binding.external_user_id && !binding.context_token;
-    if (!isBindingPending(binding.status) && !awaitingTelegramMessage) {
+    if (!isBindingSetupPending(binding)) {
       await refreshGlobal();
     }
     return binding;

@@ -45,11 +45,13 @@ type Config struct {
 	Sandbox     SandboxConfig              `json:"sandbox"`
 	Adapters    AdapterConfig              `json:"adapters"`
 	Memory      MemoryConfig               `json:"memory"`
-	Workspaces  WorkspaceConfig            `json:"workspaces"`
-	Storage     StorageConfig              `json:"storage"`
-	State       StateConfig                `json:"state"`
-	Runtime     RuntimeConfig              `json:"runtime"`
-	Logging     LoggingConfig              `json:"logging"`
+	// PassiveNotifications bounds the durable ISCP notification inbox.
+	PassiveNotifications PassiveNotificationsConfig `json:"passive_notifications"`
+	Workspaces           WorkspaceConfig            `json:"workspaces"`
+	Storage              StorageConfig              `json:"storage"`
+	State                StateConfig                `json:"state"`
+	Runtime              RuntimeConfig              `json:"runtime"`
+	Logging              LoggingConfig              `json:"logging"`
 }
 
 type GatewayConfig struct {
@@ -249,6 +251,17 @@ type MemoryConfig struct {
 	AllowSensitiveMemory bool     `json:"allow_sensitive_memory"`
 	RetentionDays        int      `json:"retention_days"`
 	RedactPatterns       []string `json:"redact_patterns"`
+}
+
+// PassiveNotificationsConfig bounds the durable passive-notification inbox
+// fed by the ISCP bridge. MaxPerOwner caps stored records per owner (read
+// records are evicted oldest-first before unread ones); RetentionDays expires
+// records like memory.retention_days does for memories. Zero disables the
+// respective bound; replaying an idempotency key whose record was pruned
+// re-creates the notification.
+type PassiveNotificationsConfig struct {
+	MaxPerOwner   int `json:"max_per_owner"`
+	RetentionDays int `json:"retention_days"`
 }
 
 type SandboxConfig struct {
@@ -517,6 +530,9 @@ func Load(path string) (Config, error) {
 	if err := normalizeMCPAccessConfig(&cfg.MCPAccess); err != nil {
 		return Config{}, err
 	}
+	if err := normalizePassiveNotificationsConfig(&cfg.PassiveNotifications); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeDocumentOCRConfig(&cfg.Adapters.DocumentOCR); err != nil {
 		return Config{}, err
 	}
@@ -586,6 +602,16 @@ func normalizeISCPPairingConfig(pairing *ISCPPairingConfig) error {
 		return errors.New("iscp_pairing.authority_url may use HTTP only for a local or private authority")
 	}
 	pairing.AuthorityURL = strings.TrimRight(endpoint.String(), "/")
+	return nil
+}
+
+func normalizePassiveNotificationsConfig(notifications *PassiveNotificationsConfig) error {
+	if notifications.MaxPerOwner < 0 || notifications.MaxPerOwner > 100000 {
+		return errors.New("passive_notifications.max_per_owner must be between 0 (uncapped) and 100000")
+	}
+	if notifications.RetentionDays < 0 || notifications.RetentionDays > 3650 {
+		return errors.New("passive_notifications.retention_days must be between 0 (no sweep) and 3650")
+	}
 	return nil
 }
 
@@ -1322,6 +1348,10 @@ func Default() Config {
 			AllowSensitiveMemory: false,
 			RetentionDays:        180,
 			RedactPatterns:       []string{"api_key", "password", "token", "ssh_key"},
+		},
+		PassiveNotifications: PassiveNotificationsConfig{
+			MaxPerOwner:   500,
+			RetentionDays: 90,
 		},
 		Workspaces: WorkspaceConfig{
 			DefaultRoot: "./data/workspaces",

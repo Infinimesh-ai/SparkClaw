@@ -87,6 +87,8 @@ type Server struct {
 	limiter                  *rateLimiter
 	lifecycleMu              sync.RWMutex
 	lifecycleCtx             context.Context
+	passiveStreamMu          sync.Mutex
+	passiveStreams           map[string]int
 	streamMessage            streamMessageExecutor
 	streamWG                 sync.WaitGroup
 	approvalLocks            sync.Map
@@ -206,10 +208,11 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 			Key:     cfg.State.CredentialKey,
 			KeyFile: cfg.State.CredentialKeyFile,
 		}),
-		mux:          http.NewServeMux(),
-		started:      time.Now().UTC(),
-		limiter:      newRateLimiter(cfg.Gateway.RateLimit),
-		lifecycleCtx: context.Background(),
+		mux:            http.NewServeMux(),
+		started:        time.Now().UTC(),
+		limiter:        newRateLimiter(cfg.Gateway.RateLimit),
+		lifecycleCtx:   context.Background(),
+		passiveStreams: map[string]int{},
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
@@ -218,6 +221,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		option(s)
 	}
 	s.bridge = iscpbridge.NewGatewayAdapter(st, func() iscpbridge.AgentRuntime { return s.runtime })
+	s.bridge.ConfigureNotificationRetention(cfg.PassiveNotifications.MaxPerOwner, cfg.PassiveNotifications.RetentionDays)
 	s.mcpAccess = mcpaccess.New(st, s.runtime, func(ctx context.Context, result agent.Result) error {
 		if s.endpoints == nil || s.delivery == nil {
 			return errors.New("MCP result delivery is unavailable")

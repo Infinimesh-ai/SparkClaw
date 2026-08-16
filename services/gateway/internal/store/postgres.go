@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -16,6 +17,12 @@ import (
 
 type PostgresStore struct {
 	db *pgxpool.Pool
+	// passiveNotificationRevs mirrors the memory backend's per-owner change
+	// counter for SSE pollers. Process-local by design: the gateway is the
+	// only writer of passive notifications, and callers only compare values
+	// for equality, so a restart resetting it is harmless.
+	passiveRevMu            sync.Mutex
+	passiveNotificationRevs map[string]uint64
 }
 
 const postgresSchema = `
@@ -768,7 +775,7 @@ func NewPostgresStore(ctx context.Context, dsn string) (*PostgresStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &PostgresStore{db: pool}
+	st := &PostgresStore{db: pool, passiveNotificationRevs: map[string]uint64{}}
 	if err := st.migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err
@@ -2209,6 +2216,7 @@ func (s *PostgresStore) CreatePassiveNotification(notification app.PassiveNotifi
 		notification.DeepLink, notification.OccurredAt, notification.ReadAt, notification.CreatedAt, notification.UpdatedAt)
 	inserted, err := scanPassiveNotification(row)
 	if err == nil {
+		s.bumpPassiveNotificationRev(notification.OwnerID)
 		s.appendAudit(context.Background(), "notification.received", "", "", notification.OwnerID, notification.Source, map[string]any{
 			"notification_id": notification.ID,
 			"endpoint_id":     notification.EndpointID,
@@ -2304,6 +2312,9 @@ func (s *PostgresStore) MarkPassiveNotificationRead(ownerID, id string, readAt t
 	if errors.Is(err, pgx.ErrNoRows) {
 		return app.PassiveNotification{}, ErrPassiveNotificationNotFound
 	}
+	if err == nil {
+		s.bumpPassiveNotificationRev(ownerID)
+	}
 	return notification, err
 }
 
@@ -2320,7 +2331,87 @@ func (s *PostgresStore) MarkAllPassiveNotificationsRead(ownerID string, readAt t
 	if err != nil {
 		return 0, err
 	}
+	if result.RowsAffected() > 0 {
+		s.bumpPassiveNotificationRev(ownerID)
+	}
 	return int(result.RowsAffected()), nil
+}
+
+func (s *PostgresStore) PrunePassiveNotifications(cutoff time.Time, maxPerOwner int) int {
+	ctx := context.Background()
+	removedByOwner := map[string]int{}
+	if !cutoff.IsZero() {
+		rows, err := s.db.Query(ctx, `
+			DELETE FROM passive_notifications WHERE created_at < $1 RETURNING owner_id
+		`, cutoff)
+		if err == nil {
+			for rows.Next() {
+				var ownerID string
+				if rows.Scan(&ownerID) == nil {
+					removedByOwner[ownerID]++
+				}
+			}
+			rows.Close()
+		}
+	}
+	if maxPerOwner > 0 {
+		type ownerExcess struct {
+			ownerID string
+			excess  int
+		}
+		var over []ownerExcess
+		ownerRows, err := s.db.Query(ctx, `
+			SELECT owner_id, COUNT(*) FROM passive_notifications
+			GROUP BY owner_id HAVING COUNT(*) > $1
+		`, maxPerOwner)
+		if err == nil {
+			for ownerRows.Next() {
+				var ownerID string
+				var count int
+				if ownerRows.Scan(&ownerID, &count) == nil {
+					over = append(over, ownerExcess{ownerID: ownerID, excess: count - maxPerOwner})
+				}
+			}
+			ownerRows.Close()
+		}
+		for _, entry := range over {
+			// Evict read notifications oldest-first before unread ones so an
+			// over-cap inbox keeps the newest unread records.
+			result, err := s.db.Exec(ctx, `
+				DELETE FROM passive_notifications WHERE id IN (
+					SELECT id FROM passive_notifications WHERE owner_id = $1
+					ORDER BY (read_at IS NOT NULL) DESC, created_at ASC, id ASC
+					LIMIT $2
+				)
+			`, entry.ownerID, entry.excess)
+			if err == nil && result.RowsAffected() > 0 {
+				removedByOwner[entry.ownerID] += int(result.RowsAffected())
+			}
+		}
+	}
+	removed := 0
+	for ownerID, count := range removedByOwner {
+		removed += count
+		s.bumpPassiveNotificationRev(ownerID)
+		s.appendAudit(ctx, "notification.pruned", "", "", "notification-retention", ownerID, map[string]any{
+			"removed":       count,
+			"max_per_owner": maxPerOwner,
+			"cutoff":        cutoff.UTC().Format(time.RFC3339),
+		})
+	}
+	return removed
+}
+
+func (s *PostgresStore) PassiveNotificationRevision(ownerID string) uint64 {
+	s.passiveRevMu.Lock()
+	defer s.passiveRevMu.Unlock()
+	return s.passiveNotificationRevs[ownerID]
+}
+
+func (s *PostgresStore) bumpPassiveNotificationRev(ownerID string) {
+	s.passiveRevMu.Lock()
+	defer s.passiveRevMu.Unlock()
+	s.passiveNotificationRevs[ownerID]++
 }
 
 func (s *PostgresStore) SaveExternalChatSession(session app.ExternalChatSession) app.ExternalChatSession {

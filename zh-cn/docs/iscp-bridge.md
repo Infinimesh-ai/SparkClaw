@@ -203,6 +203,19 @@ GET  /api/notifications/events/stream
 全局 SSE stream 按 owner 限定。WebChat 先从持久列表初始化，在不切换当前 session 的前提下
 展示新记录；read 状态在 Gateway 重启后仍然保留。
 
+持久收件箱由两个配置项限定边界：
+
+- `passive_notifications.max_per_owner`（默认 `500`，`0` 表示不设上限）限制每个 owner
+  存储的记录数。超出上限时，先按最旧优先淘汰已读通知，再淘汰最旧的未读通知，
+  因此最新的未读记录会被保留。
+- `passive_notifications.retention_days`（默认 `90`，`0` 表示不清理）按记录年龄过期，
+  语义与 `memory.retention_days` 对 memory 的处理一致。
+
+两个边界在投递入口和 owner 读取时都会生效。记录被清理时其 idempotency key 一并
+失效，因此去重窗口等于保留窗口：重放已清理的投递会重新创建通知。每个 owner 最多
+同时保持 4 条 `/api/notifications/events/stream` 连接；超出的订阅者会收到 HTTP 429，
+直到有连接释放。
+
 审批列表响应包含 `preview_hash`。解决审批必须提交 approval ID、`expected_state: "pending"`、
 decision 和当前 hash。已经处理或发生变化的审批返回 `stale_state`；完全相同的重试返回现有
 结果，不会再次执行工具。

@@ -11,6 +11,14 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
+// maxPassiveNotificationStreamsPerOwner bounds concurrent SSE inbox streams
+// per owner; each stream costs a poll loop, and a single owner has no
+// legitimate need for more than a handful of live tabs.
+const maxPassiveNotificationStreamsPerOwner = 4
+
+// passiveNotificationPollInterval is a variable so tests can shrink it.
+var passiveNotificationPollInterval = 750 * time.Millisecond
+
 type passiveNotificationView struct {
 	ID             string     `json:"id"`
 	NotificationID string     `json:"notification_id"`
@@ -86,6 +94,11 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ownerID := principalForRequest(r).OwnerID
+	if !s.acquirePassiveNotificationStream(ownerID) {
+		writeError(w, http.StatusTooManyRequests, errors.New("too many concurrent notification streams for this owner"))
+		return
+	}
+	defer s.releasePassiveNotificationStream(ownerID)
 	after := r.URL.Query().Get("after")
 	if after == "" {
 		after = r.Header.Get("Last-Event-ID")
@@ -120,10 +133,14 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 		flusher.Flush()
 		return true
 	}
+	// Reading the revision before listing means a change racing the send is
+	// caught on the next tick instead of lost; the cursor keeps re-sends
+	// duplicate-free.
+	lastRevision := s.store.PassiveNotificationRevision(ownerID)
 	if !send() {
 		return
 	}
-	poll := time.NewTicker(750 * time.Millisecond)
+	poll := time.NewTicker(passiveNotificationPollInterval)
 	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer poll.Stop()
 	defer heartbeat.Stop()
@@ -132,6 +149,11 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 		case <-r.Context().Done():
 			return
 		case <-poll.C:
+			revision := s.store.PassiveNotificationRevision(ownerID)
+			if revision == lastRevision {
+				continue
+			}
+			lastRevision = revision
 			if !send() {
 				return
 			}
@@ -141,6 +163,26 @@ func (s *Server) streamPassiveNotifications(w http.ResponseWriter, r *http.Reque
 			}
 			flusher.Flush()
 		}
+	}
+}
+
+func (s *Server) acquirePassiveNotificationStream(ownerID string) bool {
+	s.passiveStreamMu.Lock()
+	defer s.passiveStreamMu.Unlock()
+	if s.passiveStreams[ownerID] >= maxPassiveNotificationStreamsPerOwner {
+		return false
+	}
+	s.passiveStreams[ownerID]++
+	return true
+}
+
+func (s *Server) releasePassiveNotificationStream(ownerID string) {
+	s.passiveStreamMu.Lock()
+	defer s.passiveStreamMu.Unlock()
+	if s.passiveStreams[ownerID] <= 1 {
+		delete(s.passiveStreams, ownerID)
+	} else {
+		s.passiveStreams[ownerID]--
 	}
 }
 

@@ -44,10 +44,11 @@ func newConnectorAssembly(
 		KeyFile:    cfg.State.CredentialKeyFile,
 		AutoCreate: true,
 	})
-	if telegramConfig.Enabled {
-		if err := vault.Ready(); err != nil {
-			slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
-		}
+	// Warn unconditionally: since runtime channel control (0b75ce9) a channel
+	// can be enabled later through the API with the config flag still false,
+	// and that path is exactly the one that needs the vault.
+	if err := vault.Ready(); err != nil {
+		slog.Warn("connector credential vault is unavailable", "code", credential.ErrorCode(err))
 	}
 
 	registry := connector.NewRegistry(cfg, st)

@@ -70,6 +70,7 @@ func RequestForMessage(ctx context.Context, sourceID, ownerID string, authorizat
 		Target:         endpoint.ID,
 		Content:        content,
 		Origin:         origin,
+		SourceAdmitted: route.Mode == app.ReturnToSource && route.SourceAdmitted,
 		CreatedAt:      now,
 	}, true, nil
 }

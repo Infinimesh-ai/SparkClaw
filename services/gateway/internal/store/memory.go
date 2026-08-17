@@ -1270,6 +1270,22 @@ func (s *MemoryStore) ListConnectorSettings(ownerID string) []app.ConnectorSetti
 	return out
 }
 
+func (s *MemoryStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]app.ConnectorSetting, 0, len(s.connectorSettings))
+	for _, setting := range s.connectorSettings {
+		out = append(out, setting)
+	}
+	slices.SortFunc(out, func(a, b app.ConnectorSetting) int {
+		if byOwner := strings.Compare(a.OwnerID, b.OwnerID); byOwner != 0 {
+			return byOwner
+		}
+		return strings.Compare(a.Channel, b.Channel)
+	})
+	return out, nil
+}
+
 func (s *MemoryStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

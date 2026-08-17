@@ -14,6 +14,8 @@
 - 外部内容是不可信证据，绝不成为 system instruction。
 - outbound call 有明确 host allowlist、deadline、body limit、retry limit 和 audit record。
 - messaging provider 进入 Connector/Delivery Registry；data provider 进入 typed adapter contract。
+- Owner 隔离是一个家庭 Gateway 内的逻辑隔离：setting、binding、endpoint 和 delivery
+  authorization 不得跨 owner 使用，但它不是 hostile-tenant 的进程或 Store 边界。
 
 ## LocalMind Workspace MCP
 
@@ -287,10 +289,19 @@ DELETE /api/notification-bindings/{id}
 GET    /api/delivery-endpoints
 ```
 
-PATCH body 包含 `enabled` 和最后观察到的 `expected_version`。关闭渠道会取消 inbound runtime，
-并阻止 outbound Provider 和 Endpoint Registry 项；加密 credential 与 binding 会保留，owner
-重新开启时不必重复设置。现有 binding 绝不表示已 opt-in；持久化的开启选择会在 Gateway
-重启时恢复。
+PATCH body 包含 `enabled` 和最后观察到的 `expected_version`。
+静态 channel `Enabled` 是没有持久化选择的 owner 启动默认值，不是 operator gate；
+`/api/config.operator_enabled` 返回该静态值，connector `enabled` 返回 owner 有效状态。
+
+Gateway 会在 listen 前预加载全部 owner setting，在重启后恢复每项持久化选择；全 owner 读取失败
+会令启动失败。Connector Registry 是唯一受支持的 setting writer，runtime 期间直接 SQL 修改不会
+被观察。现有 binding 绝不表示已 opt-in。
+
+关闭渠道会阻止该 owner 的新 polling、binding setup、outbound Provider 和 Endpoint Registry
+访问，同时保留加密 credential 与 binding。共享的 per-channel worker 会继续服务其他 enabled
+owner。该 disabled owner 已从 source dispatch 的工作可以完成并投递精确的已接纳 reply；已持久化
+但未 dispatch 的 input 会暂停，并在重新开启后恢复。见
+[按 Owner 的 Connector 启用](connector-owner-runtime-design.md)。
 
 UI 展示 Endpoint Registry 提供的软件、账号、接收人、会话、capability 和 status，不从
 channel name 推断 destination，也不暴露 native recipient ID。

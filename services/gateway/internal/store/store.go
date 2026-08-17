@@ -115,6 +115,7 @@ type Store interface {
 	ListReminderDeliveries(reminderID string) []app.ReminderDelivery
 	GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool)
 	ListConnectorSettings(ownerID string) []app.ConnectorSetting
+	ListAllConnectorSettings() ([]app.ConnectorSetting, error)
 	UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error)
 	SaveNotificationBinding(binding app.NotificationBinding) app.NotificationBinding
 	GetNotificationBinding(id string) (app.NotificationBinding, bool)

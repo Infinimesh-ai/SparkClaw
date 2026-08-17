@@ -153,9 +153,20 @@ Gateway assembly 遍历 registry。Message Control 和 Agent Runtime 不按 Tele
 audit 和 Store 契约。provider 细节见[外部集成](integrations.md)。
 
 同一个 registry 负责渠道 lifecycle control。`ConnectorSetting` 独立于账号 binding 保存 owner
-的版本化 opt-in。静态 channel 配置只在 setting 不存在时作为初始回退。开启渠道会启动可选
-inbound Runtime；关闭会取消该 Runtime，并 gate endpoint resolution 与 outbound delivery，
-同时保留 binding。创建或发现 binding 绝不会改变 setting。
+的版本化 opt-in。静态 channel 配置在该 owner 尚无 setting 时作为默认值。Registry 会在 Gateway
+listen 前预加载全部 owner，并从 write-through 内存 cache 提供有效状态检查；它是唯一受支持的
+writer。创建或发现 binding 绝不会改变 setting。
+
+Telegram 与微信每个 channel 共用一个物理 Runtime，不会为每个 owner 启动 provider poller。
+静态默认值或任一持久化 owner 已开启时，Runtime 保持 wanted，并在 binding acquisition 和 dispatch
+前应用有效 owner gate。关闭一个 owner 不会停止另一 owner 的工作。关闭最后一个 owner 会停止
+acquisition，并让已经 dispatch 的工作排空；排空期间重新开启会等待旧 run 退出，再启动一个
+replacement。
+
+Disabled owner 的新 endpoint 解析和 outbound delivery 会立即被阻止。Telegram、微信或 MCP 已
+接纳的精确 source reply 可以完成；已持久化但未 dispatch 的 provider work 保持 pending，并在
+重新开启后恢复。Binding revoke 仍会取消其工作，不能利用该例外绕过。完整 lifecycle 与 trust
+裁决见[按 Owner 的 Connector 启用](connector-owner-runtime-design.md)。
 
 ## 失败与 Audit 语义
 
@@ -165,6 +176,8 @@ inbound Runtime；关闭会取消该 Runtime，并 gate endpoint resolution 与 
 - 同一 idempotency key 对应不同 target/content 时冲突。
 - Timer claim、Workflow run、delivery attempt、endpoint resolution 和 schedule mutation 都持久化。
 - 定时发送使用冻结 return route，不回退到碰巧 active 的 Web session。
+- 冻结的已接纳 source route 可在 connector 后续关闭后完成，但不能绕过 binding 身份、撤销或
+  Gateway shutdown。
 
 ## 验证
 

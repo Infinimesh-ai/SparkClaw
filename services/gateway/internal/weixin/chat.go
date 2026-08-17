@@ -457,7 +457,7 @@ func weixinIngress(inbound InboundMessage, chatSession app.ExternalChatSession, 
 			EndpointID: endpointID, NativeMessageID: nativeMessageID, NativeThreadRef: inbound.ContextToken,
 		},
 		OwnerID: ownerID, Authorization: app.MessageAuthorization{PrincipalID: ownerID, Scope: app.EffectiveMessagingBindingScopes(inbound.Binding.Scopes)},
-		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpointID},
+		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: endpointID, SourceAdmitted: true},
 	}
 }
 

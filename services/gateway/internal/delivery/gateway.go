@@ -14,6 +14,10 @@ type EndpointRegistry interface {
 	Get(context.Context, app.EndpointID) (app.MessageEndpoint, error)
 }
 
+type admittedSourceEndpointRegistry interface {
+	GetAdmittedSource(context.Context, app.EndpointID) (app.MessageEndpoint, error)
+}
+
 type WebDelivery interface {
 	Deliver(context.Context, app.MessageEndpoint, app.DeliveryRequest) (app.DeliveryReceipt, error)
 }
@@ -38,7 +42,17 @@ func (g *Gateway) Deliver(ctx context.Context, request app.DeliveryRequest) (app
 	if strings.TrimSpace(request.OwnerID) == "" || strings.TrimSpace(request.ActorID) == "" || request.Authorization.PrincipalID != request.ActorID {
 		return app.DeliveryReceipt{}, NewError(CodeCrossUserDenied, "delivery owner and actor authorization are required", "blocked")
 	}
-	endpoint, err := g.endpoints.Get(ctx, request.Target)
+	var endpoint app.MessageEndpoint
+	var err error
+	if request.Origin == app.DeliveryOriginSourceReply && request.SourceAdmitted {
+		if admitted, ok := g.endpoints.(admittedSourceEndpointRegistry); ok {
+			endpoint, err = admitted.GetAdmittedSource(ctx, request.Target)
+		} else {
+			endpoint, err = g.endpoints.Get(ctx, request.Target)
+		}
+	} else {
+		endpoint, err = g.endpoints.Get(ctx, request.Target)
+	}
 	if err != nil {
 		return failedReceipt(app.MessageEndpoint{ID: request.Target}, request, err.Error()), err
 	}

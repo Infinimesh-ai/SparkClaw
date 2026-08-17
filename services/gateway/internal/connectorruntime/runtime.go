@@ -10,8 +10,25 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+type RuntimeScope struct {
+	Channel          string
+	OwnerEnabled     func(ownerID string) bool
+	LifecycleContext context.Context
+}
+
+func (s RuntimeScope) AllowsOwner(ownerID string) bool {
+	return s.OwnerEnabled != nil && s.OwnerEnabled(ownerID)
+}
+
+func (s RuntimeScope) WorkContext(fallback context.Context) context.Context {
+	if s.LifecycleContext != nil {
+		return s.LifecycleContext
+	}
+	return fallback
+}
+
 type Runtime interface {
-	Run(context.Context) error
+	Run(context.Context, RuntimeScope) error
 }
 
 // WorkflowResultFromAgentResult preserves the new WorkflowResult unchanged.

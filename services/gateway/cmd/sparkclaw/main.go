@@ -79,10 +79,14 @@ func main() {
 	server := services.server
 
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
+	if err := services.Start(serverCtx); err != nil {
+		cancelServerCtx()
+		slog.Error("failed to start gateway services", "error", err)
+		os.Exit(1)
+	}
 	if localMindManager != nil {
 		go localMindManager.Run(serverCtx)
 	}
-	services.Start(serverCtx)
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),

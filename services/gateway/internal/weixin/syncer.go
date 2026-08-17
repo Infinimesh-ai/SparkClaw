@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -74,21 +75,29 @@ func (s *Syncer) WithConfig(cfg config.Config) *Syncer {
 	return s
 }
 
-func (s *Syncer) Run(ctx context.Context) error {
+func (s *Syncer) Run(ctx context.Context, scope connectorruntime.RuntimeScope) error {
 	ticker := time.NewTicker(syncInterval)
 	defer ticker.Stop()
 	for {
-		s.Tick(ctx)
+		s.tick(ctx, scope.WorkContext(ctx), scope)
 		select {
 		case <-ctx.Done():
+			s.Wait()
 			return nil
 		case <-ticker.C:
 		}
 	}
 }
 
-func (s *Syncer) Tick(ctx context.Context) {
+func (s *Syncer) Tick(ctx context.Context, scope connectorruntime.RuntimeScope) {
+	s.tick(ctx, ctx, scope)
+}
+
+func (s *Syncer) tick(ctx, workCtx context.Context, scope connectorruntime.RuntimeScope) {
 	for _, binding := range s.store.ListNotificationBindings("weixin", "active") {
+		if !scope.AllowsOwner(binding.OwnerID) {
+			continue
+		}
 		if !strings.Contains(strings.ToLower(binding.Provider), "openclaw-weixin") {
 			continue
 		}
@@ -98,7 +107,7 @@ func (s *Syncer) Tick(ctx context.Context) {
 		if s.isBusy(binding.ID) {
 			continue
 		}
-		if err := s.syncBinding(ctx, binding); err != nil {
+		if err := s.syncBinding(ctx, workCtx, scope, binding); err != nil {
 			binding.LastError = err.Error()
 			binding.UpdatedAt = time.Now().UTC()
 			s.store.SaveNotificationBinding(binding)
@@ -135,7 +144,7 @@ type inboundBatch struct {
 	Msgs    []inboundEnvelope
 }
 
-func (s *Syncer) syncBinding(ctx context.Context, binding app.NotificationBinding) error {
+func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntime.RuntimeScope, binding app.NotificationBinding) error {
 	baseURL := strings.TrimRight(strings.TrimSpace(binding.BaseURL), "/")
 	if baseURL == "" {
 		return nil
@@ -233,7 +242,7 @@ func (s *Syncer) syncBinding(ctx context.Context, binding app.NotificationBindin
 		binding = s.store.SaveNotificationBinding(binding)
 		slog.Info("weixin context synced", "binding_id", binding.ID, "has_context_token", binding.ContextToken != "")
 	}
-	s.enqueueBatch(ctx, inboundBatch{Binding: binding, Cursor: decoded.GetUpdatesBuf, Msgs: envelopes})
+	s.enqueueBatch(workCtx, scope, inboundBatch{Binding: binding, Cursor: decoded.GetUpdatesBuf, Msgs: envelopes})
 	return nil
 }
 
@@ -241,7 +250,7 @@ func (s *Syncer) syncBinding(ctx context.Context, binding app.NotificationBindin
 // pool. One batch per binding runs at a time (Tick skips busy bindings), so
 // message order within a binding is preserved while distinct bindings are
 // handled in parallel.
-func (s *Syncer) enqueueBatch(ctx context.Context, batch inboundBatch) {
+func (s *Syncer) enqueueBatch(ctx context.Context, scope connectorruntime.RuntimeScope, batch inboundBatch) {
 	s.mu.Lock()
 	if s.busy[batch.Binding.ID] {
 		s.mu.Unlock()
@@ -263,14 +272,17 @@ func (s *Syncer) enqueueBatch(ctx context.Context, batch inboundBatch) {
 		case <-ctx.Done():
 			return
 		}
-		s.processBatch(ctx, batch)
+		s.processBatch(ctx, scope, batch)
 	}()
 }
 
-func (s *Syncer) processBatch(ctx context.Context, batch inboundBatch) {
+func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.RuntimeScope, batch inboundBatch) {
 	binding := batch.Binding
 	for _, msg := range batch.Msgs {
 		if ctx.Err() != nil {
+			return
+		}
+		if !scope.AllowsOwner(binding.OwnerID) {
 			return
 		}
 		inbound := InboundMessage{

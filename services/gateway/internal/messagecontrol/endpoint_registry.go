@@ -45,6 +45,17 @@ func BindingEndpointID(bindingID string) app.EndpointID {
 }
 
 func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
+	return r.get(id, false)
+}
+
+// GetAdmittedSource resolves a source endpoint for work admitted while its
+// connector was enabled. It preserves binding and identity checks but does not
+// reapply a later owner opt-out to the frozen return path.
+func (r *EndpointRegistry) GetAdmittedSource(_ context.Context, id app.EndpointID) (app.MessageEndpoint, error) {
+	return r.get(id, true)
+}
+
+func (r *EndpointRegistry) get(id app.EndpointID, admittedSource bool) (app.MessageEndpoint, error) {
 	if r == nil || r.store == nil {
 		return app.MessageEndpoint{}, errors.New("endpoint registry is unavailable")
 	}
@@ -83,7 +94,7 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 		if !ok || binding.SchemaVersion != app.MCPBindingSchemaVersion || binding.Scope != app.MCPAccessConversation || binding.Status != app.MCPBindingActive {
 			return app.MessageEndpoint{}, fmt.Errorf("MCP endpoint %q is unavailable", value)
 		}
-		if !r.connectorEnabled(binding.OwnerID, "mcp") {
+		if !admittedSource && !r.connectorEnabled(binding.OwnerID, "mcp") {
 			return app.MessageEndpoint{}, newTargetError(CodeConnectorDisabled, "delivery connector is disabled")
 		}
 		return app.MessageEndpoint{
@@ -97,7 +108,7 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 		}, nil
 	}
 	if chat, chatOK := r.store.GetExternalChatSession(value); chatOK {
-		return r.endpointForChat(id, chat)
+		return r.endpointForChat(id, chat, admittedSource)
 	}
 	binding, ok := r.store.GetNotificationBinding(value)
 	if !ok || strings.TrimSpace(binding.Status) != string(app.EndpointActive) {
@@ -111,7 +122,7 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
-	if !r.connectorEnabled(ownerID, providerKey) {
+	if !admittedSource && !r.connectorEnabled(ownerID, providerKey) {
 		return app.MessageEndpoint{}, newTargetError(CodeConnectorDisabled, "delivery connector is disabled")
 	}
 	return app.MessageEndpoint{
@@ -135,7 +146,7 @@ func (r *EndpointRegistry) Get(_ context.Context, id app.EndpointID) (app.Messag
 	}, nil
 }
 
-func (r *EndpointRegistry) endpointForChat(id app.EndpointID, chat app.ExternalChatSession) (app.MessageEndpoint, error) {
+func (r *EndpointRegistry) endpointForChat(id app.EndpointID, chat app.ExternalChatSession, admittedSource bool) (app.MessageEndpoint, error) {
 	if chat.Status != string(app.EndpointActive) {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "delivery endpoint is inactive")
 	}
@@ -154,7 +165,7 @@ func (r *EndpointRegistry) endpointForChat(id app.EndpointID, chat app.ExternalC
 	if ownerID == "" || actorID == "" {
 		return app.MessageEndpoint{}, newTargetError(CodeCrossUserDenied, "delivery endpoint authorization is incomplete")
 	}
-	if !r.connectorEnabled(ownerID, providerKey) {
+	if !admittedSource && !r.connectorEnabled(ownerID, providerKey) {
 		return app.MessageEndpoint{}, newTargetError(CodeConnectorDisabled, "delivery connector is disabled")
 	}
 	accountName := firstEndpointValue(binding.DisplayName, binding.AccountID, providerKey)
@@ -189,7 +200,7 @@ func (r *EndpointRegistry) List(ctx context.Context, ownerID, actorID string) ([
 		if !ok || !bindingUsable(binding, time.Now().UTC()) || !app.BindingAllowsMessagingScope(binding.Scopes, app.BindingScopeMessageSendSelf) {
 			continue
 		}
-		endpoint, err := r.endpointForChat(app.EndpointID(chat.ID), chat)
+		endpoint, err := r.endpointForChat(app.EndpointID(chat.ID), chat, false)
 		if err != nil || endpoint.OwnerID != ownerID || endpoint.ActorID != actorID {
 			continue
 		}
@@ -301,7 +312,7 @@ func (r *EndpointRegistry) GetForMessageSend(_ context.Context, id app.EndpointI
 	if !ok {
 		return app.MessageEndpoint{}, newTargetError(CodeBindingUnavailable, "message delivery requires an exact recipient endpoint")
 	}
-	endpoint, err := r.endpointForChat(id, chat)
+	endpoint, err := r.endpointForChat(id, chat, false)
 	if err != nil {
 		return app.MessageEndpoint{}, err
 	}

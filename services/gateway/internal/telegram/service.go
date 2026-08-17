@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -33,6 +34,7 @@ type Service struct {
 	wake          chan struct{}
 	sem           chan struct{}
 	mu            sync.Mutex
+	workers       sync.WaitGroup
 	busyChats     map[string]bool
 	activeCancels map[string]map[string]context.CancelFunc
 }
@@ -65,18 +67,24 @@ func (s *Service) WithClientFactory(factory ClientFactory) *Service {
 	return s
 }
 
-func (s *Service) Run(ctx context.Context) error {
+func (s *Service) Run(ctx context.Context, scope connectorruntime.RuntimeScope) error {
 	if s.store == nil || s.dispatcher == nil || s.clientFactory == nil {
 		return errors.New("Telegram service dependencies are incomplete")
 	}
 	s.migrateLegacyDirectBindings()
 	s.recoverExpiredLeases(time.Now().UTC())
-	go s.workerLoop(ctx)
-	s.pollLoop(ctx)
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		s.workerLoop(ctx, scope.WorkContext(ctx), scope)
+	}()
+	s.pollLoop(ctx, scope)
+	<-workerDone
+	s.workers.Wait()
 	return nil
 }
 
-func (s *Service) pollLoop(ctx context.Context) {
+func (s *Service) pollLoop(ctx context.Context, scope connectorruntime.RuntimeScope) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		if s.inboxDepth() >= s.cfg.MaxPending {
@@ -85,7 +93,7 @@ func (s *Service) pollLoop(ctx context.Context) {
 			}
 			continue
 		}
-		bindings := s.pollingBindings()
+		bindings := s.pollingBindings(scope)
 		if len(bindings) == 0 {
 			if !waitContext(ctx, time.Second) {
 				return
@@ -166,11 +174,14 @@ func (s *Service) persistUpdate(binding app.NotificationBinding, update Update) 
 	return nil
 }
 
-func (s *Service) workerLoop(ctx context.Context) {
+func (s *Service) workerLoop(ctx, workCtx context.Context, scope connectorruntime.RuntimeScope) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		s.dispatchPending(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		s.dispatchPending(workCtx, scope)
 		select {
 		case <-ctx.Done():
 			return
@@ -180,13 +191,16 @@ func (s *Service) workerLoop(ctx context.Context) {
 	}
 }
 
-func (s *Service) dispatchPending(ctx context.Context) {
+func (s *Service) dispatchPending(ctx context.Context, scope connectorruntime.RuntimeScope) {
 	now := time.Now().UTC()
 	s.recoverExpiredLeases(now)
 	ready := append(s.store.ListChannelInboxUpdates("telegram", "pending", now, s.cfg.MaxPending),
 		s.store.ListChannelInboxUpdates("telegram", "retry_wait", now, s.cfg.MaxPending)...)
 	sort.SliceStable(ready, func(i, j int) bool { return ready[i].CreatedAt.Before(ready[j].CreatedAt) })
 	for _, inbox := range ready {
+		if binding, ok := s.store.GetNotificationBinding(inbox.BindingID); ok && !scope.AllowsOwner(binding.OwnerID) {
+			continue
+		}
 		if ctx.Err() != nil || !s.reserveChat(inbox.ChatKey) {
 			continue
 		}
@@ -200,7 +214,11 @@ func (s *Service) dispatchPending(ctx context.Context) {
 		inbox.LastError = ""
 		inbox.AvailableAt = now.Add(inboxLeaseDuration)
 		inbox = s.store.SaveChannelInboxUpdate(inbox)
-		go s.runReservedInbox(ctx, inbox)
+		s.workers.Add(1)
+		go func() {
+			defer s.workers.Done()
+			s.runReservedInbox(ctx, inbox)
+		}()
 	}
 }
 
@@ -409,8 +427,15 @@ func (s *Service) authorized(binding app.NotificationBinding, update Update) boo
 		binding.ExternalThreadID == threadIDString(threadID)
 }
 
-func (s *Service) pollingBindings() []app.NotificationBinding {
-	return s.store.ListNotificationBindings("telegram", "active")
+func (s *Service) pollingBindings(scope connectorruntime.RuntimeScope) []app.NotificationBinding {
+	bindings := s.store.ListNotificationBindings("telegram", "active")
+	eligible := make([]app.NotificationBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if scope.AllowsOwner(binding.OwnerID) {
+			eligible = append(eligible, binding)
+		}
+	}
+	return eligible
 }
 
 func (s *Service) migrateLegacyDirectBindings() {

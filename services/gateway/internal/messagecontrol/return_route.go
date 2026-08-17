@@ -12,6 +12,10 @@ type EndpointResolver interface {
 	Get(context.Context, app.EndpointID) (app.MessageEndpoint, error)
 }
 
+type admittedSourceEndpointResolver interface {
+	GetAdmittedSource(context.Context, app.EndpointID) (app.MessageEndpoint, error)
+}
+
 type ReturnRouteResolver struct {
 	endpoints EndpointResolver
 }
@@ -38,6 +42,16 @@ func (r *ReturnRouteResolver) Resolve(ctx context.Context, route app.ReturnRoute
 	if id == "" {
 		return app.MessageEndpoint{}, false, errors.New("return route endpoint is required")
 	}
-	endpoint, err := r.endpoints.Get(ctx, id)
+	var endpoint app.MessageEndpoint
+	var err error
+	if route.Mode == app.ReturnToSource && route.SourceAdmitted {
+		if admitted, ok := r.endpoints.(admittedSourceEndpointResolver); ok {
+			endpoint, err = admitted.GetAdmittedSource(ctx, id)
+		} else {
+			endpoint, err = r.endpoints.Get(ctx, id)
+		}
+	} else {
+		endpoint, err = r.endpoints.Get(ctx, id)
+	}
 	return endpoint, err == nil, err
 }

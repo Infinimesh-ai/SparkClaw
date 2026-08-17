@@ -10,6 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 )
 
@@ -17,18 +18,20 @@ type runtimeRun struct {
 	cancel context.CancelFunc
 }
 
+type connectorSettingCacheEntry struct {
+	setting app.ConnectorSetting
+	exists  bool
+}
+
 func (r *Registry) Enabled(ownerID, channel string) bool {
 	channel = normalizeChannel(channel)
 	if channel == "" {
 		return false
 	}
-	if r.store != nil {
-		if setting, ok := r.store.GetConnectorSetting(normalizeOwner(ownerID), channel); ok {
-			return setting.Enabled
-		}
+	if setting, ok := r.connectorSetting(normalizeOwner(ownerID), channel); ok {
+		return setting.Enabled
 	}
-	channelCfg, ok := r.cfg.Tools.Notifications.Channels[channel]
-	return ok && channelCfg.Enabled
+	return r.configuredEnabled(channel)
 }
 
 func (r *Registry) SetEnabled(_ context.Context, ownerID, actorID, channel string, enabled bool, expectedVersion int64) (app.ConnectorStatus, error) {
@@ -40,19 +43,20 @@ func (r *Registry) SetEnabled(_ context.Context, ownerID, actorID, channel strin
 		return app.ConnectorStatus{}, errors.New("connector setting store is unavailable")
 	}
 	normalizedOwner := normalizeOwner(ownerID)
-	setting, _ := r.store.GetConnectorSetting(normalizedOwner, channel)
+	r.settingsMu.Lock()
+	setting, _ := r.connectorSettingLocked(normalizedOwner, channel)
 	setting.OwnerID = normalizedOwner
 	setting.Channel = channel
 	setting.Enabled = enabled
 	setting.UpdatedBy = strings.TrimSpace(actorID)
-	if _, err := r.store.UpdateConnectorSetting(setting, expectedVersion); err != nil {
+	updated, err := r.store.UpdateConnectorSetting(setting, expectedVersion)
+	if err != nil {
+		r.settingsMu.Unlock()
 		return app.ConnectorStatus{}, err
 	}
-	if enabled {
-		r.startChannel(channel)
-	} else {
-		r.stopChannel(channel)
-	}
+	r.settings[connectorSettingCacheKey(normalizedOwner, channel)] = connectorSettingCacheEntry{setting: updated, exists: true}
+	r.settingsMu.Unlock()
+	r.reconcileChannel(channel)
 	return r.Status(ownerID, channel)
 }
 
@@ -65,18 +69,23 @@ func (r *Registry) SetMCPTransports(_ context.Context, ownerID, actorID string, 
 		return app.ConnectorStatus{}, errors.New("connector setting store is unavailable")
 	}
 	normalizedOwner := normalizeOwner(ownerID)
-	setting, exists := r.store.GetConnectorSetting(normalizedOwner, channel)
+	r.settingsMu.Lock()
+	setting, exists := r.connectorSettingLocked(normalizedOwner, channel)
 	if !exists {
-		setting.Enabled = r.Enabled(normalizedOwner, channel)
+		setting.Enabled = r.configuredEnabled(channel)
 	}
 	setting.OwnerID = normalizedOwner
 	setting.Channel = channel
 	setting.ISCPEnabled = iscpEnabled
 	setting.LANAccessEnabled = lanAccessEnabled
 	setting.UpdatedBy = strings.TrimSpace(actorID)
-	if _, err := r.store.UpdateConnectorSetting(setting, expectedVersion); err != nil {
+	updated, err := r.store.UpdateConnectorSetting(setting, expectedVersion)
+	if err != nil {
+		r.settingsMu.Unlock()
 		return app.ConnectorStatus{}, err
 	}
+	r.settings[connectorSettingCacheKey(normalizedOwner, channel)] = connectorSettingCacheEntry{setting: updated, exists: true}
+	r.settingsMu.Unlock()
 	return r.Status(ownerID, channel)
 }
 
@@ -107,11 +116,18 @@ func (r *Registry) Status(ownerID, channel string) (app.ConnectorStatus, error) 
 				bindings = append(bindings, record)
 			}
 		}
-		setting, hasSetting = r.store.GetConnectorSetting(ownerID, channel)
 	}
+	setting, hasSetting = r.connectorSetting(ownerID, channel)
 	capability := r.BindingRouter().CapabilityForOwner(ownerID, channel, bindings)
-	enabled := r.Enabled(ownerID, channel)
-	running, runtimeError := r.runtimeStatus(channel)
+	enabled := setting.Enabled
+	if !hasSetting {
+		enabled = r.configuredEnabled(channel)
+	}
+	var running bool
+	var runtimeError string
+	if enabled {
+		running, runtimeError = r.runtimeStatus(channel)
+	}
 	status := app.ConnectorStatus{
 		Channel: channel, Provider: capability.Provider, SetupKind: registration.SetupKind,
 		Available: capability.Available, Enabled: enabled, Running: running,
@@ -167,23 +183,81 @@ func capabilityUnavailable(capability binding.ConnectorCapability) bool {
 	}
 }
 
-func (r *Registry) Start(ctx context.Context) {
+func (r *Registry) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	r.runtimeMu.Lock()
 	if r.started {
 		r.runtimeMu.Unlock()
-		return
+		return nil
+	}
+	r.runtimeMu.Unlock()
+	if err := r.loadConnectorSettings(); err != nil {
+		return fmt.Errorf("load connector settings: %w", err)
+	}
+	r.runtimeMu.Lock()
+	if r.started {
+		r.runtimeMu.Unlock()
+		return nil
 	}
 	r.started = true
 	r.runtimeCtx = ctx
 	r.runtimeMu.Unlock()
 	for _, channel := range r.channels() {
-		if r.Enabled(app.DefaultOwnerID, channel) {
-			r.startChannel(channel)
+		r.reconcileChannel(channel)
+	}
+	return nil
+}
+
+func (r *Registry) loadConnectorSettings() error {
+	r.settingsMu.Lock()
+	defer r.settingsMu.Unlock()
+	settings := []app.ConnectorSetting{}
+	if r.store != nil {
+		var err error
+		settings, err = r.store.ListAllConnectorSettings()
+		if err != nil {
+			return err
 		}
 	}
+	loaded := make(map[string]connectorSettingCacheEntry, len(settings))
+	for _, setting := range settings {
+		ownerID := normalizeOwner(setting.OwnerID)
+		channel := normalizeChannel(setting.Channel)
+		if channel == "" {
+			continue
+		}
+		setting.OwnerID = ownerID
+		setting.Channel = channel
+		loaded[connectorSettingCacheKey(ownerID, channel)] = connectorSettingCacheEntry{setting: setting, exists: true}
+	}
+	r.settings = loaded
+	r.settingsLoaded = true
+	return nil
+}
+
+func (r *Registry) reconcileChannel(channel string) {
+	if r.runtimeWanted(channel) {
+		r.startChannel(channel)
+		return
+	}
+	r.stopChannel(channel)
+}
+
+func (r *Registry) runtimeWanted(channel string) bool {
+	channel = normalizeChannel(channel)
+	if r.configuredEnabled(channel) {
+		return true
+	}
+	r.settingsMu.RLock()
+	defer r.settingsMu.RUnlock()
+	for _, entry := range r.settings {
+		if entry.exists && entry.setting.Channel == channel && entry.setting.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) startChannel(channel string) {
@@ -203,18 +277,30 @@ func (r *Registry) startChannel(channel string) {
 	run := &runtimeRun{cancel: cancel}
 	r.runtimeRuns[channel] = run
 	delete(r.runtimeErrors, channel)
+	scope := connectorruntime.RuntimeScope{
+		Channel:          channel,
+		LifecycleContext: r.runtimeCtx,
+		OwnerEnabled: func(ownerID string) bool {
+			return r.Enabled(ownerID, channel)
+		},
+	}
 	go func() {
-		err := registration.Runtime.Run(runCtx)
+		err := registration.Runtime.Run(runCtx, scope)
 		r.runtimeMu.Lock()
+		restart := false
 		if r.runtimeRuns[channel] == run {
 			delete(r.runtimeRuns, channel)
 			if err != nil && runCtx.Err() == nil {
 				r.runtimeErrors[channel] = "connector runtime stopped unexpectedly"
 			}
+			restart = runCtx.Err() != nil && r.runtimeCtx != nil && r.runtimeCtx.Err() == nil
 		}
 		r.runtimeMu.Unlock()
 		if err != nil && runCtx.Err() == nil {
 			slog.Warn("connector runtime stopped", "channel", channel, "code", "connector_runtime_failed")
+		}
+		if restart && r.runtimeWanted(channel) {
+			r.startChannel(channel)
 		}
 	}()
 }
@@ -222,7 +308,6 @@ func (r *Registry) startChannel(channel string) {
 func (r *Registry) stopChannel(channel string) {
 	r.runtimeMu.Lock()
 	run := r.runtimeRuns[channel]
-	delete(r.runtimeRuns, channel)
 	delete(r.runtimeErrors, channel)
 	r.runtimeMu.Unlock()
 	if run != nil {
@@ -235,6 +320,45 @@ func (r *Registry) runtimeStatus(channel string) (bool, string) {
 	defer r.runtimeMu.Unlock()
 	_, running := r.runtimeRuns[channel]
 	return running, r.runtimeErrors[channel]
+}
+
+func (r *Registry) connectorSetting(ownerID, channel string) (app.ConnectorSetting, bool) {
+	key := connectorSettingCacheKey(ownerID, channel)
+	r.settingsMu.RLock()
+	entry, cached := r.settings[key]
+	loaded := r.settingsLoaded
+	r.settingsMu.RUnlock()
+	if cached {
+		return entry.setting, entry.exists
+	}
+	if loaded || r.store == nil {
+		return app.ConnectorSetting{}, false
+	}
+	r.settingsMu.Lock()
+	defer r.settingsMu.Unlock()
+	return r.connectorSettingLocked(ownerID, channel)
+}
+
+func (r *Registry) connectorSettingLocked(ownerID, channel string) (app.ConnectorSetting, bool) {
+	key := connectorSettingCacheKey(ownerID, channel)
+	if entry, cached := r.settings[key]; cached {
+		return entry.setting, entry.exists
+	}
+	if r.settingsLoaded || r.store == nil {
+		return app.ConnectorSetting{}, false
+	}
+	setting, exists := r.store.GetConnectorSetting(ownerID, channel)
+	r.settings[key] = connectorSettingCacheEntry{setting: setting, exists: exists}
+	return setting, exists
+}
+
+func (r *Registry) configuredEnabled(channel string) bool {
+	channelCfg, ok := r.cfg.Tools.Notifications.Channels[normalizeChannel(channel)]
+	return ok && channelCfg.Enabled
+}
+
+func connectorSettingCacheKey(ownerID, channel string) string {
+	return normalizeOwner(ownerID) + "\x00" + normalizeChannel(channel)
 }
 
 func normalizeOwner(ownerID string) string {
@@ -257,7 +381,8 @@ func (p managedProvider) Capabilities() app.DeliveryCapabilities {
 }
 
 func (p managedProvider) Deliver(ctx context.Context, endpoint app.MessageEndpoint, request app.DeliveryRequest) (app.DeliveryReceipt, error) {
-	if p.registry == nil || !p.registry.Enabled(endpoint.OwnerID, p.Key()) {
+	admittedSourceReply := request.Origin == app.DeliveryOriginSourceReply && request.SourceAdmitted
+	if p.registry == nil || (!admittedSourceReply && !p.registry.Enabled(endpoint.OwnerID, p.Key())) {
 		err := delivery.NewError(delivery.CodeConnectorDisabled, "delivery connector is disabled", "blocked")
 		return app.DeliveryReceipt{
 			DeliveryID: request.ID, EndpointID: endpoint.ID, Status: app.DeliveryFailed,

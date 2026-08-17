@@ -88,6 +88,29 @@ func TestConnectorAPIRequiresExplicitVersionedOptIn(t *testing.T) {
 	if enableResp.StatusCode != http.StatusOK || !enabled.Enabled || enabled.Version != 1 || enabled.State != app.ConnectorStateSetupRequired {
 		t.Fatalf("connector enable failed: status=%d connector=%#v", enableResp.StatusCode, enabled)
 	}
+	configResp, err := http.Get(ts.URL + "/api/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var publicConfig struct {
+		Tools struct {
+			Notifications struct {
+				Channels map[string]struct {
+					Enabled         bool `json:"enabled"`
+					OperatorEnabled bool `json:"operator_enabled"`
+				} `json:"channels"`
+			} `json:"notifications"`
+		} `json:"tools"`
+	}
+	if err := json.NewDecoder(configResp.Body).Decode(&publicConfig); err != nil {
+		configResp.Body.Close()
+		t.Fatal(err)
+	}
+	configResp.Body.Close()
+	alphaConfig := publicConfig.Tools.Notifications.Channels["alpha"]
+	if !alphaConfig.Enabled || alphaConfig.OperatorEnabled {
+		t.Fatalf("public config did not separate owner state from configured default: %#v", alphaConfig)
+	}
 	enabledBinding, err := http.Post(ts.URL+"/api/notification-bindings/alpha/start", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatal(err)

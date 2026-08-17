@@ -33,20 +33,24 @@ func (r *Registry) ProviderRegistry() (*delivery.ProviderRegistry, error) {
 }
 
 type Registry struct {
-	cfg           config.Config
-	store         connectorStore
-	registrations map[string]Registration
-	providers     *delivery.ProviderRegistry
-	runtimeMu     sync.Mutex
-	runtimeCtx    context.Context
-	runtimeRuns   map[string]*runtimeRun
-	runtimeErrors map[string]string
-	started       bool
+	cfg            config.Config
+	store          connectorStore
+	registrations  map[string]Registration
+	providers      *delivery.ProviderRegistry
+	settingsMu     sync.RWMutex
+	settings       map[string]connectorSettingCacheEntry
+	settingsLoaded bool
+	runtimeMu      sync.Mutex
+	runtimeCtx     context.Context
+	runtimeRuns    map[string]*runtimeRun
+	runtimeErrors  map[string]string
+	started        bool
 }
 
 type connectorStore interface {
 	GetConnectorSetting(ownerID, channel string) (app.ConnectorSetting, bool)
 	ListConnectorSettings(ownerID string) []app.ConnectorSetting
+	ListAllConnectorSettings() ([]app.ConnectorSetting, error)
 	UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error)
 	ListNotificationBindings(channel, status string) []app.NotificationBinding
 }
@@ -61,6 +65,7 @@ func NewRegistry(cfg config.Config, stores ...connectorStore) *Registry {
 		store:         st,
 		registrations: map[string]Registration{},
 		providers:     delivery.NewProviderRegistry(),
+		settings:      map[string]connectorSettingCacheEntry{},
 		runtimeRuns:   map[string]*runtimeRun{},
 		runtimeErrors: map[string]string{},
 	}

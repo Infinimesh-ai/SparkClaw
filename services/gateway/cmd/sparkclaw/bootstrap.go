@@ -109,8 +109,11 @@ func newISCPPairingService(cfg config.Config, st store.Store) (*iscppairing.Serv
 	return iscppairing.New(st, options), nil
 }
 
-func (s *gatewayServices) Start(ctx context.Context) {
+func (s *gatewayServices) Start(ctx context.Context) error {
 	s.server.BindLifecycleContext(ctx)
+	if err := s.connectors.registry.Start(ctx); err != nil {
+		return err
+	}
 	if s.reminderScheduler != nil {
 		go s.reminderScheduler.Run(ctx)
 	}
@@ -120,5 +123,5 @@ func (s *gatewayServices) Start(ctx context.Context) {
 	if s.happyApprovals != nil {
 		s.happyApprovals.Run(ctx)
 	}
-	s.connectors.registry.Start(ctx)
+	return nil
 }

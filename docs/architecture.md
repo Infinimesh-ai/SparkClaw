@@ -226,6 +226,21 @@ controls inbound Runtime, Endpoint Registry visibility, and outbound Provider
 access. Binding records and encrypted credentials are separate retained account
 state and never imply that a channel is enabled.
 
+At startup the Registry loads every owner's settings before Gateway listens.
+The static channel `Enabled` value is only the default for owners without a
+record; an explicit owner setting overrides it. The process-local write-through
+cache is the read authority, and Connector Registry is the only supported
+writer. A preload error fails startup instead of falling back to static state.
+
+Telegram and Weixin each retain one physical worker per channel. The worker runs
+while the static default or any persisted owner requires it, and an owner gate
+filters both acquisition and pre-dispatch. Disabling one owner immediately
+blocks new endpoint resolution, binding setup, polling, and outbound sends only
+for that owner. Already-dispatched work drains through its admitted source reply;
+persisted but undispatched work remains pending until re-enable. This is logical
+household isolation within one trusted Gateway, not a hostile-tenant process or
+Store boundary. See [Per-owner connector activation](connector-owner-runtime-design.md).
+
 ### Browser, Documents, And Integrations
 
 Browser execution uses pinned agent-browser with a SparkClaw-owned Chromium

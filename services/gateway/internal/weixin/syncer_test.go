@@ -28,6 +28,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
+func weixinTestRuntimeScope() connectorruntime.RuntimeScope {
+	return connectorruntime.RuntimeScope{
+		Channel:      "weixin",
+		OwnerEnabled: func(string) bool { return true },
+	}
+}
+
 func newWeixinTestResultDeliverer(t *testing.T, st store.Store, cfg config.Config) connectorruntime.ResultDeliverer {
 	t.Helper()
 	endpoints := messagecontrol.NewEndpointRegistry(st)
@@ -81,7 +88,7 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 		UpdatedAt:         time.Now().UTC(),
 	})
 
-	NewSyncer(st).Tick(t.Context())
+	NewSyncer(st).Tick(t.Context(), weixinTestRuntimeScope())
 
 	if gotAuth != "Bearer bot-secret" {
 		t.Fatalf("expected auth header, got %q", gotAuth)
@@ -95,6 +102,78 @@ func TestSyncerStoresContextTokenFromInboundMessage(t *testing.T) {
 	}
 	if binding.ContextToken != "ctx-1" || binding.ProviderCursor != "cursor-2" {
 		t.Fatalf("expected context and cursor update, got %#v", binding)
+	}
+}
+
+func TestSyncerOwnerGateSkipsDisabledBindingAcquisition(t *testing.T) {
+	var calls atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ret":0,"get_updates_buf":"cursor"}`))
+	}))
+	defer ts.Close()
+	st := store.NewMemoryStore()
+	for _, ownerID := range []string{"owner-a", "owner-b"} {
+		credentialRef := "credential-" + ownerID
+		st.SaveCredentialSecret(app.CredentialSecret{Ref: credentialRef, Kind: "openclaw-weixin-bot-token", Value: "secret"})
+		st.SaveNotificationBinding(app.NotificationBinding{
+			ID: "binding-" + ownerID, OwnerID: ownerID, Channel: "weixin", Provider: "openclaw-weixin-qr",
+			Status: "active", CredentialRef: credentialRef, BaseURL: ts.URL,
+		})
+	}
+	scope := connectorruntime.RuntimeScope{
+		Channel:      "weixin",
+		OwnerEnabled: func(ownerID string) bool { return ownerID == "owner-b" },
+	}
+	NewSyncer(st).Tick(t.Context(), scope)
+	if calls.Load() != 1 {
+		t.Fatalf("provider polls = %d, want only enabled owner-b", calls.Load())
+	}
+}
+
+func TestSyncerOwnerGateRetainsUndispatchedBatchUntilReenabled(t *testing.T) {
+	st := store.NewMemoryStore()
+	binding := st.SaveNotificationBinding(app.NotificationBinding{
+		ID: "binding-owner-a", OwnerID: "owner-a", ActorID: "owner-a", Channel: "weixin",
+		Provider: "openclaw-weixin-qr", Status: "active", ExternalUserID: "wx-owner-a",
+		ProviderCursor: "cursor-1",
+	})
+	runtime := &fakeAgentRuntime{result: agent.Result{
+		Run: app.AgentRun{ID: "run-owner-gate", State: "completed"},
+		WorkflowResult: &app.WorkflowResult{
+			SchemaVersion: app.WorkflowResultSchemaVersion, ID: "result-owner-gate", RunID: "run-owner-gate",
+			Status: app.WorkflowResultSucceeded,
+			Content: app.MessageContent{Parts: []app.MessagePart{{
+				ID: "part-owner-gate", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "reply",
+			}}},
+		},
+	}}
+	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(&fakeResultDeliverer{})
+	syncer := NewSyncer(st).WithDispatcher(dispatcher)
+	batch := inboundBatch{
+		Binding: binding,
+		Cursor:  "cursor-2",
+		Msgs: []inboundEnvelope{{
+			FromUserID: "wx-owner-a", ContextToken: "context-owner-a", ExternalID: "message-owner-a",
+			Items: []updateItem{{Type: 1, TextItem: updateTextItem{Text: "hello"}}},
+		}},
+	}
+	var enabled atomic.Bool
+	scope := connectorruntime.RuntimeScope{
+		Channel:      "weixin",
+		OwnerEnabled: func(ownerID string) bool { return ownerID == "owner-a" && enabled.Load() },
+	}
+	syncer.processBatch(t.Context(), scope, batch)
+	unchanged, _ := st.GetNotificationBinding(binding.ID)
+	if runtime.handledCount() != 0 || unchanged.ProviderCursor != "cursor-1" {
+		t.Fatalf("disabled batch was consumed: handles=%d binding=%#v", runtime.handledCount(), unchanged)
+	}
+	enabled.Store(true)
+	syncer.processBatch(t.Context(), scope, batch)
+	resumed, _ := st.GetNotificationBinding(binding.ID)
+	if runtime.handledCount() != 1 || resumed.ProviderCursor != "cursor-2" {
+		t.Fatalf("reenabled batch did not resume: handles=%d binding=%#v", runtime.handledCount(), resumed)
 	}
 }
 
@@ -200,7 +279,7 @@ func TestSyncerDispatchesInboundTextAndReplies(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	if len(typingStatuses) != 2 || typingStatuses[0] != 1 || typingStatuses[1] != 2 {
@@ -323,7 +402,7 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	if strings.Join(sentRecipients, ",") != "wx-user-a,wx-user-b" {
@@ -477,7 +556,7 @@ func TestSyncerDoesNotInferMediaPartsFromMarkdown(t *testing.T) {
 	dispatcher := NewDispatcher(st, runtime, cfg.Tools.Notifications.Channels["weixin"]).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	if sawUpload {
@@ -583,7 +662,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	binding, _ := st.GetNotificationBinding("bind_1")
@@ -606,7 +685,7 @@ func TestSyncerKeepsCursorUntilDispatchSucceeds(t *testing.T) {
 	}
 	runsAfterFirstTick := len(st.ListRuns(chatSession.LinkedSessionID))
 
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	binding, _ = st.GetNotificationBinding("bind_1")
@@ -711,7 +790,7 @@ func TestSyncerDispatchesBindingsInParallel(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(st, runtime, cfg).WithResultDeliverer(newWeixinTestResultDeliverer(t, st, cfg))
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	if !aObservedB.Load() {
@@ -909,7 +988,7 @@ func TestSyncerDispatchAttemptsSurviveRestart(t *testing.T) {
 		// A fresh Syncer per tick simulates a gateway restart between polls:
 		// the retry budget must come from the store, not from syncer memory.
 		syncer := NewSyncer(st).WithDispatcher(dispatcher)
-		syncer.Tick(t.Context())
+		syncer.Tick(t.Context(), weixinTestRuntimeScope())
 		syncer.Wait()
 		chatSession, ok := st.FindExternalChatSession("bind_1", "wx-user-1", "")
 		if !ok {
@@ -1014,7 +1093,7 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 	dispatcher := NewDispatcher(st, runtime, config.NotificationChannelConfig{}).WithResultDeliverer(deliverer)
 	syncer := NewSyncer(st).WithDispatcher(dispatcher)
 
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	updated, _ := st.GetNotificationBinding("bind_1")
@@ -1030,7 +1109,7 @@ func TestSyncerAdvancesCursorPastBlockedDelivery(t *testing.T) {
 		t.Fatalf("blocked message should be terminal with a recorded reason: %#v ok=%v", blocked, ok)
 	}
 
-	syncer.Tick(t.Context())
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
 	syncer.Wait()
 
 	if got := runtime.handledCount(); got != 1 {

@@ -30,6 +30,7 @@
 | [ISCP Bridge](iscp-bridge.md) | 当前共享 Bridge；LocalMind 使用属于旧链路，JingSi 使用保留到 direct-LAN client 与实体验证完成 |
 | [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md) | 已实现本地 Route MCP runtime 与分离的 ISCP pairing、SparkClaw MCP access ticket；生产 provisioning、外部 gateway 验证和 LocalMind 旧链路删除仍待完成；不含 JingSi |
 | [通用外部 MCP 安全防护](generic-mcp-safeguards-design.md) | 已实现通用与 LocalMind MCP client 共享 tool 过滤/分类、有界脱敏结果和 approval 持久化防护 |
+| [按 Owner 的 Connector 启用](connector-owner-runtime-design.md) | Issue #13 已接受设计：owner 隔离 setting、共享 channel worker、缓存一致性、排空语义与重启协调 |
 | [WebChat](webchat.md) | owner 工作台职责、API 权威、刷新模型和前端验证 |
 
 ## 运维与治理

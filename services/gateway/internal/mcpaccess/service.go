@@ -309,7 +309,7 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 	ingress := app.MessageIngressContext{
 		Source:  app.MessageSourceContext{Kind: app.MessageSourceThirdPartyDevice, Adapter: "mcp", EndpointID: app.EndpointID("mcp:" + binding.ID), NativeMessageID: requestID, NativeThreadRef: transport.SessionID},
 		OwnerID: binding.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: binding.ActorID},
-		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("mcp:" + binding.ID)},
+		ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("mcp:" + binding.ID), SourceAdmitted: true},
 	}
 	done := make(chan struct{})
 	go s.executeOperation(deadline, binding.LinkedSessionID, messageID, runID, operationID, request, ingress, done)

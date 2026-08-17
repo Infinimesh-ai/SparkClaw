@@ -637,6 +637,10 @@ func (s *FileStore) ListConnectorSettings(ownerID string) []app.ConnectorSetting
 	return s.inner.ListConnectorSettings(ownerID)
 }
 
+func (s *FileStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
+	return s.inner.ListAllConnectorSettings()
+}
+
 func (s *FileStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
 	out, err := s.inner.UpdateConnectorSetting(setting, expectedVersion)
 	if err == nil {

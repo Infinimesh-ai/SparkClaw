@@ -32,6 +32,7 @@ documentation tree.
 | [ISCP Bridge](iscp-bridge.md) | Current shared Bridge; LocalMind use is legacy, while JingSi use remains until its direct-LAN client and physical validation are complete |
 | [Unified third-party ISCP MCP access](unified-third-party-access-design.md) | Implemented local Route MCP runtime with separate ISCP pairing and SparkClaw MCP access tickets; production provisioning, external gateway validation, and LocalMind legacy removal remain pending; JingSi excluded |
 | [Generic external MCP safeguards](generic-mcp-safeguards-design.md) | Implemented shared tool filtering/classification, bounded redacted results, and approval persistence across generic and LocalMind MCP clients |
+| [Per-owner connector activation](connector-owner-runtime-design.md) | Accepted issue #13 design for owner-isolated settings, shared channel workers, cache coherence, drain semantics, and restart reconciliation |
 | [WebChat](webchat.md) | Owner workbench responsibilities, API ownership, refresh model, and frontend verification |
 
 ## Operations And Governance

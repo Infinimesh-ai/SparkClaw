@@ -2981,14 +2981,13 @@ func (s *Server) publicToolsConfig(ownerID string) map[string]any {
 		}
 		capability := s.bindings.CapabilityForOwner(ownerID, name, s.store.ListNotificationBindings(name, ""))
 		publicChannel["available"] = capability.Available
-		publicChannel["operator_enabled"] = capability.OperatorEnabled
+		publicChannel["operator_enabled"] = channel.Enabled
 		publicChannel["binding_status"] = capability.BindingStatus
 		publicChannel["startable"] = capability.Startable
 		publicChannel["disabled_reason"] = capability.DisabledReason
 		if s.connectors != nil {
 			if status, err := s.connectors.Status(ownerID, name); err == nil {
 				publicChannel["enabled"] = status.Enabled
-				publicChannel["operator_enabled"] = true
 				publicChannel["available"] = status.Available
 				publicChannel["binding_status"] = status.BindingStatus
 				publicChannel["startable"] = status.BindingStartable

@@ -41,6 +41,28 @@ func TestMemoryStoreConnectorSettingUsesCASAndOwnerScope(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListsAllConnectorSettingsInStableOwnerChannelOrder(t *testing.T) {
+	st := NewMemoryStore()
+	for _, setting := range []app.ConnectorSetting{
+		{OwnerID: "owner-b", Channel: "weixin", Enabled: true},
+		{OwnerID: "owner-a", Channel: "telegram", Enabled: true},
+		{OwnerID: "owner-a", Channel: "mcp", Enabled: false},
+	} {
+		if _, err := st.UpdateConnectorSetting(setting, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	settings, err := st.ListAllConnectorSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings) != 3 || settings[0].OwnerID != "owner-a" || settings[0].Channel != "mcp" ||
+		settings[1].OwnerID != "owner-a" || settings[1].Channel != "telegram" ||
+		settings[2].OwnerID != "owner-b" || settings[2].Channel != "weixin" {
+		t.Fatalf("all-owner connector setting order = %#v", settings)
+	}
+}
+
 func TestFileStorePersistsConnectorSettingVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "connector-state.json")
 	st, err := NewFileStore(path)
@@ -65,5 +87,9 @@ func TestFileStorePersistsConnectorSettingVersion(t *testing.T) {
 		OwnerID: app.DefaultOwnerID, Channel: "weixin", Enabled: false,
 	}, 0); !errors.Is(err, ErrConnectorSettingConflict) {
 		t.Fatalf("reloaded connector CAS error = %v", err)
+	}
+	all, err := reloaded.ListAllConnectorSettings()
+	if err != nil || len(all) != 1 || all[0].OwnerID != app.DefaultOwnerID || all[0].Channel != "weixin" {
+		t.Fatalf("file all-owner connector settings = %#v, %v", all, err)
 	}
 }

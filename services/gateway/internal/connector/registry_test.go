@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -32,7 +33,7 @@ type registryRuntime struct {
 	ready  chan struct{}
 }
 
-func (r *registryRuntime) Run(ctx context.Context) error {
+func (r *registryRuntime) Run(ctx context.Context, _ connectorruntime.RuntimeScope) error {
 	r.starts.Add(1)
 	close(r.ready)
 	<-ctx.Done()
@@ -76,7 +77,9 @@ func TestRegistryBuildsCapabilityRoutersAndRunsEnabledConnectors(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	registry.Start(ctx)
+	if err := registry.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-alphaRuntime.ready:
 	case <-time.After(time.Second):

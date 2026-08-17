@@ -189,10 +189,25 @@ MessageContent, DeliveryRequest, receipt, policy, audit, and store contracts.
 
 The same registry owns channel lifecycle control. `ConnectorSetting` stores the
 owner's versioned opt-in independently from account bindings. Static channel
-configuration is only the initial fallback when no setting exists. Enabling a
-channel starts its optional inbound Runtime; disabling cancels that Runtime and
-gates endpoint resolution and outbound delivery while retaining bindings.
-Creating or discovering a binding never changes the setting.
+configuration is the default when that owner has no setting. Registry preloads
+all owners before Gateway listens and serves effective-state checks from a
+write-through memory cache; it is the only supported writer. Creating or
+discovering a binding never changes the setting.
+
+Telegram and Weixin share one physical Runtime per channel rather than starting
+one provider poller per owner. The Runtime is wanted while the static default or
+any persisted owner is enabled, and applies the effective owner gate during
+binding acquisition and immediately before dispatch. Disabling one owner cannot
+stop another owner's work. Disabling the last owner stops acquisition and lets
+already-dispatched work drain; re-enable during drain waits for the old run to
+exit before starting one replacement.
+
+New endpoint resolution and outbound delivery are blocked immediately for the
+disabled owner. An exact source reply already admitted by Telegram, Weixin, or
+MCP may finish, while persisted but undispatched provider work stays pending and
+resumes after re-enable. Binding revocation still cancels its work and removes
+that exception. Full lifecycle and trust decisions are in
+[Per-owner connector activation](connector-owner-runtime-design.md).
 
 Provider-specific behavior is documented in [External integrations](integrations.md).
 
@@ -207,6 +222,8 @@ Provider-specific behavior is documented in [External integrations](integrations
   mutations are persisted for audit and recovery.
 - Scheduled sends use the frozen return route. They never fall back to whichever
   Web session happens to be active.
+- A frozen admitted source route can complete after a later connector opt-out,
+  but cannot bypass binding identity, revocation, or Gateway shutdown.
 
 ## Verification
 

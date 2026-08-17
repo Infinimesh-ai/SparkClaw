@@ -194,6 +194,7 @@ type ReturnRoute struct {
 	Mode             ReturnMode `json:"mode"`
 	SourceEndpointID EndpointID `json:"source_endpoint_id,omitempty"`
 	EndpointID       EndpointID `json:"endpoint_id,omitempty"`
+	SourceAdmitted   bool       `json:"source_admitted,omitempty"`
 }
 
 type MessageEnvelope struct {
@@ -386,6 +387,7 @@ type DeliveryRequest struct {
 	Target         EndpointID           `json:"target"`
 	Content        MessageContent       `json:"content"`
 	Origin         DeliveryOrigin       `json:"origin"`
+	SourceAdmitted bool                 `json:"source_admitted,omitempty"`
 	ApprovalSource string               `json:"approval_source,omitempty"`
 	ContentDigest  string               `json:"content_digest,omitempty"`
 	CreatedAt      time.Time            `json:"created_at"`

@@ -9,14 +9,23 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/connectorruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+func telegramTestRuntimeScope() connectorruntime.RuntimeScope {
+	return connectorruntime.RuntimeScope{
+		Channel:      "telegram",
+		OwnerEnabled: func(string) bool { return true },
+	}
+}
 
 func TestServicePersistsUpdateBeforeAdvancingOffset(t *testing.T) {
 	cfg := telegramTestConfig(t)
@@ -48,7 +57,7 @@ func TestServicePersistsUpdateBeforeAdvancingOffset(t *testing.T) {
 	}
 	service := NewService(st, cfg.Tools.Notifications.Channels["telegram"], nil, dispatcher).
 		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return bot, nil })
-	if err := service.Run(ctx); err != nil {
+	if err := service.Run(ctx, telegramTestRuntimeScope()); err != nil {
 		t.Fatal(err)
 	}
 	if calls < 2 {
@@ -86,7 +95,7 @@ func TestServicePollsEveryTelegramBinding(t *testing.T) {
 			return bots[binding.ID], nil
 		})
 
-	if err := service.Run(ctx); err != nil {
+	if err := service.Run(ctx, telegramTestRuntimeScope()); err != nil {
 		t.Fatal(err)
 	}
 	if polled[bindingA.ID] == 0 || polled[bindingB.ID] == 0 {
@@ -379,7 +388,7 @@ func TestServiceOrdersSameChatAndBoundsGlobalWorkers(t *testing.T) {
 	a2 := saveInboxFixture(t, st, bindingA.ID, Update{UpdateID: 2, Message: telegramTextMessage(2, 1, 101, "a2")})
 	b1 := saveInboxFixture(t, st, bindingB.ID, Update{UpdateID: 3, Message: telegramTextMessage(1, 2, 202, "b1")})
 	_ = a2
-	service.dispatchPending(context.Background())
+	service.dispatchPending(context.Background(), telegramTestRuntimeScope())
 	first := <-runtime.started
 	second := <-runtime.started
 	if first == "a2" || second == "a2" || first == second {
@@ -392,12 +401,63 @@ func TestServiceOrdersSameChatAndBoundsGlobalWorkers(t *testing.T) {
 	runtime.release <- struct{}{}
 	waitForInboxStatus(t, st, a1.ID, "completed")
 	waitForInboxStatus(t, st, b1.ID, "completed")
-	service.dispatchPending(context.Background())
+	service.dispatchPending(context.Background(), telegramTestRuntimeScope())
 	if third := <-runtime.started; third != "a2" {
 		t.Fatalf("same-chat second item = %q, want a2", third)
 	}
 	runtime.release <- struct{}{}
 	waitForInboxStatus(t, st, a2.ID, "completed")
+}
+
+func TestServiceOwnerGateDrainsDispatchedWorkAndSuspendsPendingInbox(t *testing.T) {
+	cfg := telegramTestConfig(t)
+	channel := cfg.Tools.Notifications.Channels["telegram"]
+	channel.MaxConcurrency = 1
+	channel.MaxPending = 8
+	st := store.NewMemoryStore()
+	binding := activeTelegramBinding("bind_owner_gate", 1, 101)
+	binding.OwnerID = "owner-a"
+	binding = st.SaveNotificationBinding(binding)
+	runtime := newBlockingRuntime()
+	service := NewService(st, channel, nil, NewDispatcher(st, runtime, cfg).WithResultDeliverer(&recordingWorkflowResultDeliverer{})).
+		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return &fakeBotAPI{}, nil })
+	first := saveInboxFixture(t, st, binding.ID, Update{UpdateID: 1, Message: telegramTextMessage(1, 1, 101, "first")})
+	second := saveInboxFixture(t, st, binding.ID, Update{UpdateID: 2, Message: telegramTextMessage(2, 1, 101, "second")})
+	var enabled atomic.Bool
+	enabled.Store(true)
+	scope := connectorruntime.RuntimeScope{
+		Channel:      "telegram",
+		OwnerEnabled: func(ownerID string) bool { return ownerID == "owner-a" && enabled.Load() },
+	}
+	if bindings := service.pollingBindings(scope); len(bindings) != 1 || bindings[0].ID != binding.ID {
+		t.Fatalf("enabled owner polling bindings = %#v", bindings)
+	}
+	service.dispatchPending(context.Background(), scope)
+	if started := <-runtime.started; started != "first" {
+		t.Fatalf("first dispatched item = %q", started)
+	}
+	enabled.Store(false)
+	if bindings := service.pollingBindings(scope); len(bindings) != 0 {
+		t.Fatalf("disabled owner remained pollable: %#v", bindings)
+	}
+	runtime.release <- struct{}{}
+	waitForInboxStatus(t, st, first.ID, "completed")
+	service.dispatchPending(context.Background(), scope)
+	if pending, _ := st.GetChannelInboxUpdate(second.ID); pending.Status != "pending" {
+		t.Fatalf("disabled owner's queued inbox was not suspended: %#v", pending)
+	}
+	select {
+	case started := <-runtime.started:
+		t.Fatalf("disabled owner's pending inbox dispatched as %q", started)
+	case <-time.After(50 * time.Millisecond):
+	}
+	enabled.Store(true)
+	service.dispatchPending(context.Background(), scope)
+	if started := <-runtime.started; started != "second" {
+		t.Fatalf("resumed inbox item = %q, want second", started)
+	}
+	runtime.release <- struct{}{}
+	waitForInboxStatus(t, st, second.ID, "completed")
 }
 
 func TestServiceRecoversOnlyExpiredProcessingLeases(t *testing.T) {
@@ -424,7 +484,7 @@ func TestServiceCancelBindingCancelsQueuedAndActiveUpdates(t *testing.T) {
 		WithClientFactory(func(context.Context, app.NotificationBinding) (BotAPI, error) { return &fakeBotAPI{}, nil })
 	active := saveInboxFixture(t, st, binding.ID, Update{UpdateID: 1, Message: telegramTextMessage(1, 1, 1, "active")})
 	queued := saveInboxFixture(t, st, binding.ID, Update{UpdateID: 2, Message: telegramTextMessage(2, 1, 1, "queued")})
-	service.dispatchPending(context.Background())
+	service.dispatchPending(context.Background(), telegramTestRuntimeScope())
 	if started := <-runtime.started; started != "active" {
 		t.Fatalf("active message = %q", started)
 	}

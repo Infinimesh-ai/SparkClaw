@@ -2025,6 +2025,30 @@ func (s *PostgresStore) ListConnectorSettings(ownerID string) []app.ConnectorSet
 	return collectRows(rows, scanConnectorSetting)
 }
 
+func (s *PostgresStore) ListAllConnectorSettings() ([]app.ConnectorSetting, error) {
+	rows, err := s.db.Query(context.Background(), `
+		SELECT owner_id, channel, enabled, iscp_enabled, lan_access_enabled, version, updated_by, updated_at
+		FROM connector_settings
+		ORDER BY owner_id ASC, channel ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	settings := []app.ConnectorSetting{}
+	for rows.Next() {
+		setting, err := scanConnectorSetting(rows)
+		if err != nil {
+			return nil, err
+		}
+		settings = append(settings, setting)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
 func (s *PostgresStore) UpdateConnectorSetting(setting app.ConnectorSetting, expectedVersion int64) (app.ConnectorSetting, error) {
 	setting.OwnerID = normalizeConnectorOwner(setting.OwnerID)
 	setting.Channel = normalizeConnectorChannel(setting.Channel)

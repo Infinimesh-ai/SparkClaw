@@ -40,6 +40,12 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Connector activation is now owner-isolated inside one household Gateway:
+  startup restores every owner's persisted setting into a write-through cache,
+  one shared worker per channel uses owner gates, one owner's opt-out cannot
+  stop another's runtime, admitted replies drain while undispatched input
+  pauses, and preload failure prevents Gateway listen. `/api/config` now reports
+  the real static bootstrap default in `operator_enabled`.
 - Unified consumer-scoped evidence projections across document decisions,
   document/browser model stages, and finalization with lineage/coverage audit;
   added normalized document operation candidates, one bounded PPTX semantic

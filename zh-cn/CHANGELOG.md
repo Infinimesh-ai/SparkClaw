@@ -33,6 +33,10 @@
 
 ### Changed
 
+- Connector 启用现已在一个家庭 Gateway 内按 owner 隔离：启动时把全部 owner 的持久化 setting
+  恢复到 write-through cache；每 channel 一个共享 worker 使用 owner gate；一个 owner 关闭不会
+  停止另一 owner 的 runtime；已接纳 reply 会排空，未 dispatch input 会暂停；预加载失败会阻止
+  Gateway listen。`/api/config` 的 `operator_enabled` 现在返回真实静态启动默认值。
 - 为文档决策、文档/浏览器模型阶段和最终化统一了消费者级证据投影与谱系/覆盖 audit；
   增加规范化文档操作候选、带 approval 前临时 layout/preservation 预检的一次受限 PPTX
   语义修复、PDF claim coverage、浏览器 transition 证据、重复 action 阻断和确定性 visible

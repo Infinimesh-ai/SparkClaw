@@ -178,6 +178,17 @@ Connector Registry 为所有已注册第三方消息渠道提供统一 provider-
 持久化 owner `ConnectorSetting` 控制 inbound Runtime、Endpoint Registry 可见性和 outbound
 Provider 访问。binding record 和加密 credential 是独立保留的账号状态，绝不表示渠道已开启。
 
+启动时，Registry 会在 Gateway listen 前加载全部 owner setting。静态 channel `Enabled` 只作为
+没有记录的 owner 默认值，显式 owner setting 可以覆盖它。进程内 write-through cache 是读取权威，
+Connector Registry 是唯一受支持 writer；预加载错误会令启动失败，而不是回退静态状态。
+
+Telegram 与微信各自保持每 channel 一个物理 worker。当静态默认值或任一持久化 owner 需要时，
+worker 保持运行，并在 acquisition 与 dispatch 前通过 owner gate 过滤。关闭一个 owner 后，只会立即
+阻断该 owner 的新 endpoint 解析、binding setup、polling 和 outbound send。已经 dispatch 的工作会
+通过其已接纳 source reply 排空；已持久化但未 dispatch 的工作保持 pending，直到重新开启。这是同一
+可信 Gateway 内的家庭逻辑隔离，不是 hostile-tenant 进程或 Store 边界。见
+[按 Owner 的 Connector 启用](connector-owner-runtime-design.md)。
+
 ### 浏览器、文档与集成
 
 浏览器使用固定 agent-browser 和 SparkClaw-owned Chromium profile，没有备用 browser backend。

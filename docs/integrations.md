@@ -19,6 +19,9 @@ commands live in [Deployment](deployment.md).
   limits, and audit records.
 - Messaging providers enter through Connector and Delivery registries; data
   providers enter through typed adapter contracts.
+- Owner isolation is logical inside one household Gateway. It protects settings,
+  bindings, endpoints, and delivery authorization from cross-owner use, but is
+  not a hostile-tenant process or Store boundary.
 
 ## LocalMind Workspace MCP
 
@@ -359,10 +362,22 @@ GET    /api/delivery-endpoints
 ```
 
 The PATCH body contains `enabled` and the last observed `expected_version`.
-Disabling a channel cancels its inbound runtime and blocks its outbound Provider
-and Endpoint Registry entries. It retains encrypted credentials and bindings so
-the owner can re-enable the channel without repeating setup. Existing bindings
-never imply opt-in. A persisted enabled choice is restored on Gateway restart.
+The static channel `Enabled` value is a bootstrap default for an owner without a
+persisted choice, not an operator gate; `/api/config.operator_enabled` reports
+that static value while connector `enabled` reports the owner-effective state.
+
+Gateway preloads every owner's settings before listening, restores every
+persisted choice after restart, and fails startup if the all-owner read fails.
+Connector Registry is the only supported setting writer; direct SQL changes at
+runtime are not observed. Existing bindings never imply opt-in.
+
+Disabling a channel blocks that owner's new polling, binding setup, outbound
+Provider, and Endpoint Registry access while retaining encrypted credentials and
+bindings. A shared per-channel worker continues for other enabled owners. Work
+already dispatched from the disabled owner's source can finish and deliver its
+exact admitted reply; persisted but undispatched input pauses and resumes after
+re-enable. See
+[Per-owner connector activation](connector-owner-runtime-design.md).
 
 The UI displays software, account, recipient, conversation, capabilities, and
 status from the Endpoint Registry. It does not infer a destination from channel

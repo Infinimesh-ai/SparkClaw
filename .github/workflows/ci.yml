@@ -124,11 +124,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 -m unittest scripts/test_install.py
+      - run: python3 -m unittest scripts/test_dotenv.py
       - run: python3 -m unittest scripts/test_model_readiness.py
       - run: python3 -m unittest scripts/test_serve_models_compose.py
+      - run: python3 -m unittest scripts/test_runtime_compose.py
       - run: python3 -m unittest scripts/test_autostart_compose.py
       - run: python3 -m unittest scripts/test_jingsi_lan.py
-      - run: bash -n install.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/restart_jingsi_lan_compose.sh scripts/start_compose.sh scripts/doctor.sh
+      - run: bash -n install.sh scripts/lib/dotenv.sh scripts/deploy.sh scripts/autostart_compose.sh scripts/install_autostart_systemd.sh scripts/serve_models_compose.sh scripts/restart_runtime_compose.sh scripts/restart_jingsi_lan_compose.sh scripts/start_compose.sh scripts/doctor.sh
       - run: bash -s -- --help < install.sh | grep -F 'curl -fsSL'
       - run: cp docker/env/sparkclaw.example.env .env
       - run: docker compose --env-file .env -f docker/compose.yaml config --quiet
@@ -158,6 +160,17 @@ jobs:
           assert "postgres" in config["services"]
           assert "sparkclaw-ocr" in config["services"]
           assert not config["services"]["gateway"].get("ports")
+          fast = config["services"]["sparkclaw-fast"]
+          assert fast["image"] == "sparkclaw-vllm-readiness:local"
+          assert fast["build"]["dockerfile"] == "docker/images/vllm.Dockerfile"
+          assert all(
+              volume["target"] != "/opt/sparkclaw/model_readiness.py"
+              for volume in fast.get("volumes", [])
+          )
+          assert fast["tmpfs"] == [
+              "/run/sparkclaw-readiness:rw,noexec,nosuid,nodev,size=1m,mode=1777"
+          ]
+          assert "/run/sparkclaw-readiness/fast-warmed" in fast["healthcheck"]["test"]
           assert config["services"]["webchat"]["ports"] == [{
               "mode": "ingress",
               "host_ip": "0.0.0.0",
@@ -165,6 +178,34 @@ jobs:
               "published": "18790",
               "protocol": "tcp",
           }]
+          PY
+      - name: Verify custom WebChat host port
+        run: |
+          SPARKCLAW_WEBCHAT_PORT=19876 docker compose \
+            --env-file .env \
+            -f docker/compose.yaml \
+            --profile models-local \
+            config --format json > /tmp/sparkclaw-compose-custom-port.json
+          SPARKCLAW_WEBCHAT_PORT=19876 docker compose \
+            --env-file .env \
+            -f docker/compose.dev.yaml \
+            config --format json > /tmp/sparkclaw-compose-dev-custom-port.json
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/sparkclaw-compose-custom-port.json", encoding="utf-8") as source:
+              config = json.load(source)
+          expected_ports = [{
+              "mode": "ingress",
+              "host_ip": "0.0.0.0",
+              "target": 18790,
+              "published": "19876",
+              "protocol": "tcp",
+          }]
+          assert config["services"]["webchat"]["ports"] == expected_ports
+          with open("/tmp/sparkclaw-compose-dev-custom-port.json", encoding="utf-8") as source:
+              dev_config = json.load(source)
+          assert dev_config["services"]["webchat"]["ports"] == expected_ports
           PY
       - run: >-
           SPARKCLAW_BROWSER_DISPLAY=:1

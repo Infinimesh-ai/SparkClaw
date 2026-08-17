@@ -52,7 +52,9 @@ The first run downloads roughly 70-85 GiB of model data plus container images
 and can take hours. Model health and joint startup share a three-hour default
 window. Set `SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS` to a larger positive
 number when the download link is slower. Later runs reuse downloaded checkpoints
-and container images, but recreate GPU containers and runtime compilation caches.
+and container images. A running, healthy, configuration-current model group is
+retained; only a degraded or drifted group is recreated with fresh GPU runtime
+state and process-local caches.
 
 For a non-interactive install, export the token before starting the pipeline;
 the deployment persists it only in the ignored, mode-`0600` local environment
@@ -89,9 +91,12 @@ bash scripts/deploy.sh
 | `models-local` | PostgreSQL 18/pgvector, MinIO, sandbox-runner, Gateway, WebChat and optional vLLM lanes. |
 
 WebChat is the only application ingress and binds host port `18790` to
-`0.0.0.0` by default. Gateway is not published on the host; WebChat proxies its
-selected routes to `gateway:18789` over the private `sparkclaw_internal`
-network. Set `SPARKCLAW_WEBCHAT_BIND=127.0.0.1` when WebChat must remain local.
+`0.0.0.0` by default. Set `SPARKCLAW_WEBCHAT_PORT` to publish another host port;
+the container and Nginx listener remain on internal port `18790`. Gateway is not
+published on the host; WebChat proxies its selected routes to `gateway:18789`
+over the private `sparkclaw_internal` network. Set
+`SPARKCLAW_WEBCHAT_BIND=127.0.0.1` when WebChat must remain local. Both values
+are read from `.env`, and an invalid port fails before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
@@ -108,11 +113,14 @@ npm start
 
 The entrypoint delegates model ownership to `serve_models_compose.sh
 single-fast`, which treats Fast, embedding, guard, and OCR as one resident
-group. Every model startup stops and recreates all four, including an already
-healthy group. The command waits for every model health check, including the
-configured Fast and Guard completion warmups, before it starts PostgreSQL,
-Sandbox Runner, Gateway, and WebChat. PostgreSQL must become healthy before
-Gateway is recreated. Gateway then verifies
+group. Startup retains the complete group when every container is running,
+healthy, and on the current Compose configuration hash. If one member is
+absent, stopped, unhealthy, or drifted, all four are stopped and force-recreated
+together. Set `SPARKCLAW_FORCE_MODEL_RECREATE=true` to perform that same refresh
+on an otherwise healthy group. The command waits for every model health check,
+including the configured Fast and Guard completion warmups, before it starts
+PostgreSQL, Sandbox Runner, Gateway, and WebChat. PostgreSQL must become healthy
+before Gateway is recreated. Gateway then verifies
 `model_mode=external` with the PostgreSQL state backend; the logical Deep
 profile aliases the Fast endpoint. Set `SPARKCLAW_MODEL_MODE=mock` explicitly
 only for isolated deterministic debugging or evaluation.
@@ -128,11 +136,11 @@ SPARKCLAW_AUTOSTART_ENABLED=true
 
 At boot, `sparkclaw-autostart.service` runs as the deploying user, waits up to
 ten minutes for Docker and the NVIDIA runtime, then calls the same product entry
-used by `npm start`. Consequently Fast, embedding, guard, and OCR are recreated,
-their weights are loaded from `data/models`, and application services start only
-after model health and warmup pass. The long cold load runs without blocking the
-host from reaching its normal login target. The systemd unit never uses Docker's
-container restart policy, so it cannot bypass the GPU cold-recreate boundary.
+used by `npm start`. It retains a healthy model group or automatically
+force-recreates a degraded group before application services start. The unit is
+a `Type=oneshot` service with `RemainAfterExit=yes`; it stays activating while
+reconciliation runs and fails after the fixed `TimeoutStartSec=4h` bound rather
+than waiting forever. It does not use Docker's container restart policy.
 
 Set `SPARKCLAW_AUTOSTART_ENABLED=false` to skip startup at the next boot. The
 unit remains enabled so changing the setting back to `true` is sufficient; it
@@ -147,8 +155,9 @@ journalctl -u sparkclaw-autostart.service -b
 
 Installing the unit does not restart the current deployment. To apply a changed
 setting without rebooting, run `sudo systemctl restart
-sparkclaw-autostart.service`; when enabled, this intentionally performs a full
-model cold restart.
+sparkclaw-autostart.service`. A healthy group is retained. To request a full
+refresh, set `SPARKCLAW_FORCE_MODEL_RECREATE=true` in `.env`, restart the unit,
+then restore the setting to `false` for later boots.
 
 Check status:
 
@@ -349,6 +358,12 @@ mock mode, and the exact security boundary.
 
 ## State Backends
 
+The product `.env` template, `npm start`, one-command deployment, and boot
+service select PostgreSQL. An older `data/memory/gateway-state.json` file is not
+migrated, imported, or deleted during an upgrade; the PostgreSQL product runtime
+starts from the records already in PostgreSQL. The project is pre-release and
+does not provide a file-to-PostgreSQL migration tool.
+
 File state used by isolated host/mock runs:
 
 ```text
@@ -479,13 +494,18 @@ Fast is not healthy until a bounded production-shaped `/chat/completions`
 request succeeds. On the current Qwen3.6 tokenizer it carries about 3.4K input
 tokens and forces a 480-token decode, so startup absorbs the long-prompt and
 generation cold path seen by Tree routing. Guard separately requires its small
-bounded completion. Each marker includes the current model-process start time,
-so stopping and starting an existing container cannot reuse readiness from the
-previous process; after one-time warmup, periodic checks use the lightweight
-model listing endpoint. If any member of the four-service product group is
-absent or unhealthy, the shortcut stops all four before reloading them together;
-a Compose configuration-hash change does the same. It never adds or recreates
-one model alone inside the resident product group. The single-Fast embedding
+bounded completion. The readiness helper is copied into a local derivative of
+`SPARKCLAW_VLLM_IMAGE`; health checks have no source-file bind mount back to the
+checkout. Each marker lives on a dedicated container-local tmpfs and includes
+the current model-process start time, so a new process cannot reuse readiness
+from its predecessor. A successful warmup remains healthy if its marker cannot
+be written; if even the dedicated tmpfs is unavailable, a later probe may repeat
+the warmup. Periodic checks use the lightweight model listing endpoint after a
+marker is stored. If any member of the four-service product group is absent,
+stopped, unhealthy, or configuration-drifted, the shortcut force-recreates all
+four together. `SPARKCLAW_FORCE_MODEL_RECREATE=true` requests the same action
+for a healthy group. It never adds or recreates one model alone inside the
+resident product group. The single-Fast embedding
 endpoint admits 128 short sequences under its fixed 2 GiB KV budget so the
 110-entry startup index completes within its 20-second bound.
 
@@ -516,6 +536,7 @@ startup and is not part of the current single-Fast readiness check.
 Important environment variables:
 
 - `SPARKCLAW_VLLM_IMAGE`
+- `SPARKCLAW_FORCE_MODEL_RECREATE` (`false` by default; set `true` for one explicit full model-group refresh)
 - `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
 - `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
@@ -800,7 +821,7 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 |---|---|
 | Docker permission denied | Use `sudo -n docker ...` or add the user to the Docker group. |
 | Golden eval browser step fails | Start Gateway with `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal` for Docker eval or `127.0.0.1` for host eval. |
-| CUDA or Triton reports `operation not permitted` after a host restart | Run `scripts/serve_models_compose.sh single-fast`. Every model startup recreates the requested GPU containers with fresh runtime caches while retaining `data/models`. |
+| CUDA or Triton reports `operation not permitted` after a host restart | Run `scripts/serve_models_compose.sh single-fast`. A stopped or unhealthy member triggers automatic whole-group recreation with fresh runtime caches while retaining `data/models`; set `SPARKCLAW_FORCE_MODEL_RECREATE=true` to force the same recovery manually. |
 | Model returns reasoning but no answer | Set `SPARKCLAW_MODEL_DISABLE_THINKING=true`. |
 | Postgres vector extension unavailable | SparkClaw falls back to JSON vectors and Gateway-side hybrid scoring. |
 | 128K fast+deep does not fit | Run one chat lane at a time or lower context/MTP and re-benchmark. |

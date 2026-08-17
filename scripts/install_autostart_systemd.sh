@@ -37,18 +37,18 @@ trap 'rm -f -- "$unit_file"' EXIT
 
 cat >"$unit_file" <<EOF
 [Unit]
-Description=SparkClaw cold-recreate startup after host boot
+Description=SparkClaw product runtime reconciliation after host boot
 Wants=docker.service network-online.target
 After=docker.service network-online.target
 RequiresMountsFor=$(systemd_quote "$ROOT")
 
 [Service]
-Type=exec
+Type=oneshot
 User=$service_user
 Group=$service_group
 ExecStart=$(systemd_quote "$bash_path") $(systemd_quote "$ROOT/scripts/autostart_compose.sh")
 RemainAfterExit=yes
-TimeoutStartSec=infinity
+TimeoutStartSec=4h
 UMask=0077
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin"
 

@@ -7,6 +7,7 @@ import unittest
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 from scripts import model_readiness
 
@@ -120,6 +121,23 @@ class ModelReadinessTest(unittest.TestCase):
                 self.check(base_url, marker)
 
             self.assertFalse(marker.exists())
+
+    def test_marker_write_failure_does_not_override_successful_warmup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, probe_server() as base_url:
+            marker = Path(directory) / "ready"
+
+            with mock.patch.object(
+                model_readiness,
+                "write_marker",
+                side_effect=PermissionError("read-only marker directory"),
+            ), mock.patch("sys.stderr") as stderr:
+                self.check(base_url, marker)
+
+            self.assertEqual(ProbeHandler.post_count, 1)
+            self.assertFalse(marker.exists())
+            warning = "".join(call.args[0] for call in stderr.write.call_args_list)
+            self.assertIn("warmup succeeded", warning)
+            self.assertNotIn("read-only marker directory", warning)
 
     def test_model_change_requires_another_warmup(self) -> None:
         with tempfile.TemporaryDirectory() as directory, probe_server() as base_url:

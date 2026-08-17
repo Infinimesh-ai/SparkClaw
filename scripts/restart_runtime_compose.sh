@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/lib/dotenv.sh"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.single-fast.env}"
@@ -12,7 +13,13 @@ EXTRA_COMPOSE_FILE="${SPARKCLAW_RUNTIME_EXTRA_COMPOSE_FILE:-}"
 OCR_ENV="docker/env/sparkclaw.ocr.env"
 OCR_COMPOSE_FILE="docker/compose.ocr.yaml"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
-GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:18790/readyz}"
+webchat_port="$(sparkclaw_resolve_env_value "$ROOT/.env" SPARKCLAW_WEBCHAT_PORT 18790)"
+sparkclaw_tcp_port_valid "$webchat_port" || {
+  echo "SPARKCLAW_WEBCHAT_PORT must be an integer between 1 and 65535" >&2
+  exit 1
+}
+export SPARKCLAW_WEBCHAT_PORT="$webchat_port"
+GATEWAY_READY_URL="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:$webchat_port/readyz}"
 EXPECTED_MODEL_MODE="${SPARKCLAW_EXPECTED_MODEL_MODE:-external}"
 EXPECTED_STATE_BACKEND="${SPARKCLAW_EXPECTED_STATE_BACKEND:-postgres}"
 services=("$@")

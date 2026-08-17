@@ -44,7 +44,8 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 1
 首次运行约下载 70-85 GiB 模型数据以及容器镜像，可能持续数小时。模型 health check 与
 联合启动共用默认三小时窗口；下载链路较慢时可把
 `SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS` 设置为更大的正整数。后续运行会复用已下载的
-checkpoint 与容器镜像，但会重建 GPU 容器和运行时编译 cache。
+checkpoint 与容器镜像。running、healthy 且配置一致的模型组会被保留；只有 degraded 或
+drifted 的模型组才使用新的 GPU runtime 状态与进程本地 cache 进行重建。
 
 非交互部署应在启动管道前导出 token；部署脚本只将其持久化到已忽略且权限为 `0600` 的
 本地环境文件：
@@ -78,11 +79,12 @@ bash scripts/deploy.sh
 | `compat` | Gateway 连接外部 OpenAI-compatible endpoints。 |
 | `models-local` | PostgreSQL 18/pgvector、MinIO、sandbox-runner、Gateway、WebChat 和可选 vLLM lanes。 |
 
-WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。Gateway 不发布 host
-port；WebChat 通过私有 `sparkclaw_internal` network，把选定路由代理到
-`gateway:18789`。WebChat 必须只在本机可达时设置
-`SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。模型、状态服务和 sandbox runner 仍绑定
-localhost 或私有 Docker network。
+WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设置
+`SPARKCLAW_WEBCHAT_PORT` 可以发布另一个 host port；容器与 Nginx listener 仍使用内部
+端口 `18790`。Gateway 不发布 host port；WebChat 通过私有 `sparkclaw_internal` network，
+把选定路由代理到 `gateway:18789`。WebChat 必须只在本机可达时设置
+`SPARKCLAW_WEBCHAT_BIND=127.0.0.1`。两个值都从 `.env` 读取，非法端口会在修改容器前失败。
+模型、状态服务和 sandbox runner 仍绑定 localhost 或私有 Docker network。
 
 ## Product Runtime
 
@@ -95,10 +97,12 @@ npm start
 ```
 
 该入口把模型所有权交给 `serve_models_compose.sh single-fast`，将 Fast、embedding、guard
-与 OCR 视为一个常驻组。每次模型启动都会停止并重建全部四个模型，即使当前组已经健康。
-命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion 预热，然后才启动
-PostgreSQL、Sandbox Runner、Gateway 与 WebChat。PostgreSQL 必须健康后才会重建 Gateway。
-Gateway 随后验证 PostgreSQL state backend 下的
+与 OCR 视为一个常驻组。全部容器 running、healthy 且 Compose configuration hash 一致时，
+启动会保留完整模型组；任一成员 absent、stopped、unhealthy 或 drifted 时，四者一起停止并
+force-recreate。设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可对原本健康的模型组执行相同
+刷新。命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion 预热，然后才
+启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。PostgreSQL 必须健康后才会重建
+Gateway。Gateway 随后验证 PostgreSQL state backend 下的
 `model_mode=external`；默认拓扑中，逻辑 Deep profile 别名到 Fast endpoint。只有隔离的
 确定性调试或评测才应显式设置 `SPARKCLAW_MODEL_MODE=mock`。
 
@@ -111,10 +115,10 @@ SPARKCLAW_AUTOSTART_ENABLED=true
 ```
 
 开机时，`sparkclaw-autostart.service` 以部署用户身份运行，最多等待十分钟让 Docker 与
-NVIDIA runtime 就绪，然后调用与 `npm start` 相同的产品入口。因此 Fast、embedding、guard
-与 OCR 会被重建，权重从 `data/models` 载入；所有模型通过 health check 和预热后才启动应用
-服务。长时间冷加载不会阻塞宿主机进入正常登录界面。systemd 单元不使用 Docker 的容器
-restart policy，因此不会绕过 GPU 冷重建边界。
+NVIDIA runtime 就绪，然后调用与 `npm start` 相同的产品入口。它会保留健康模型组，或在模型
+组 degraded 时自动 force-recreate，随后才启动应用服务。该 unit 是带
+`RemainAfterExit=yes` 的 `Type=oneshot`；reconciliation 期间保持 activating，并在固定
+`TimeoutStartSec=4h` 后失败，而不会永久等待。它不使用 Docker container restart policy。
 
 设置 `SPARKCLAW_AUTOSTART_ENABLED=false` 后，下次开机会跳过启动。systemd 单元仍保持
 enabled，因此把配置改回 `true` 就足够，下一次开机会重新读取。仓库移动后可执行以下命令
@@ -127,7 +131,9 @@ journalctl -u sparkclaw-autostart.service -b
 ```
 
 安装单元不会重启当前实例。若不重启主机而直接应用配置，可运行 `sudo systemctl restart
-sparkclaw-autostart.service`；配置为开启时，该操作会按预期执行完整模型冷启动。
+sparkclaw-autostart.service`。健康模型组会被保留。需要完整刷新时，先在 `.env` 设置
+`SPARKCLAW_FORCE_MODEL_RECREATE=true`，重启 unit，再把该设置恢复为 `false`，供后续 boot
+使用。
 
 检查状态：
 
@@ -302,6 +308,10 @@ bundle 前不要重启。
 
 ## State Backends
 
+产品 `.env` template、`npm start`、一键部署与 boot service 都选择 PostgreSQL。升级时不会
+迁移、导入或删除旧的 `data/memory/gateway-state.json`；PostgreSQL 产品 runtime 从数据库中
+已有的 records 启动。项目仍为 pre-release，不提供 file 到 PostgreSQL 的迁移工具。
+
 隔离 host/mock 运行使用的 file state：
 
 ```text
@@ -437,12 +447,16 @@ guard 和 OCR。旧的 `single-fast-with-ocr` 名称是相同启动方式的兼�
 dual-light 命令仅作为显式测试/benchmark 入口。命令会等待所有选中服务进入 healthy。
 Fast 必须先成功完成一次贴近生产负载的有界 `/chat/completions` 请求才会变为 healthy。
 当前合成输入在 Qwen3.6 tokenizer 上约为 3.4K token，并强制解码 480 token，让启动阶段承担
-Tree routing 会遇到的长 prompt 与生成冷路径。Guard 另行执行较小的有界 completion。每个
-marker 都包含当前模型服务进程的启动时刻，因此停止并重新启动已有容器时，不能复用上一个
-进程的 readiness；一次性预热完成后，周期健康检查改用轻量模型列表 endpoint。如果四服务
-产品组中有任一服务缺失或不健康，快捷命令会先停止全部四个服务，再统一加载；Compose 配置
-hash 变化时也采用相同流程，绝不会在常驻产品组中单独增加或重建一个模型。单 Fast Embedding
-endpoint 在固定 2 GiB KV budget 下允许 128 条短 sequence，使 110 项启动索引在 20 秒时限内完成。
+Tree routing 会遇到的长 prompt 与生成冷路径。Guard 另行执行较小的有界 completion。
+readiness helper 会复制进以 `SPARKCLAW_VLLM_IMAGE` 为 base 的本地派生镜像，healthcheck 不再
+bind-mount checkout 中的 source file。每个 marker 都存放在专用的容器本地 tmpfs，并包含
+当前模型服务进程的启动时刻，因此新进程不能复用上一个进程的 readiness。成功 warmup 后即使
+marker 无法写入，服务仍保持 healthy；如果连专用 tmpfs 也不可用，后续 probe 可能再次
+warmup。marker 成功保存后，周期健康检查改用轻量模型列表 endpoint。如果四服务产品组中有
+任一服务缺失、停止、不健康或配置漂移，快捷命令会 force-recreate 全部四个服务；
+`SPARKCLAW_FORCE_MODEL_RECREATE=true` 会对健康模型组执行相同操作。脚本绝不会在常驻产品组
+中单独增加或重建一个模型。单 Fast Embedding endpoint 在固定 2 GiB KV budget 下允许 128 条
+短 sequence，使 110 项启动索引在 20 秒时限内完成。
 
 默认 endpoints：
 
@@ -471,6 +485,7 @@ ready 检查不包含该端口。
 重要环境变量：
 
 - `SPARKCLAW_VLLM_IMAGE`
+- `SPARKCLAW_FORCE_MODEL_RECREATE`（默认 `false`；一次显式完整模型组刷新时设为 `true`）
 - `SPARKCLAW_FAST_MODEL_ID`, `SPARKCLAW_FAST_MODEL`, `SPARKCLAW_FAST_MAX_MODEL_LEN`, `SPARKCLAW_FAST_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_FAST_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_FAST_MAX_NUM_SEQS`, `SPARKCLAW_FAST_SPECULATIVE_CONFIG`
 - `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
@@ -737,7 +752,7 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 |---|---|
 | Docker permission denied | 使用 `sudo -n docker ...` 或将用户加入 Docker group。 |
 | Golden eval browser step fails | Docker eval 启动 Gateway 时设置 `SPARKCLAW_BROWSER_READ_ALLOW_HOSTS=host.docker.internal`；host eval 使用 `127.0.0.1`。 |
-| 主机重启后 CUDA 或 Triton 报 `operation not permitted` | 运行 `scripts/serve_models_compose.sh single-fast`。每次模型启动都会重建请求的 GPU 容器，以新的运行时 cache 启动，同时保留 `data/models`。 |
+| 主机重启后 CUDA 或 Triton 报 `operation not permitted` | 运行 `scripts/serve_models_compose.sh single-fast`。任一成员停止或不健康时会自动整组重建，以新的 runtime cache 启动，同时保留 `data/models`；设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可手动强制相同恢复。 |
 | Model returns reasoning but no answer | 设置 `SPARKCLAW_MODEL_DISABLE_THINKING=true`。 |
 | Postgres vector extension unavailable | SparkClaw fallback 到 JSON vectors 和 Gateway-side hybrid scoring。 |
 | 128K fast+deep does not fit | 一次运行一个 chat lane，或降低 context/MTP 后重新 benchmark。 |

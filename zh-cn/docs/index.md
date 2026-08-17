@@ -38,6 +38,7 @@
 | 文档 | 范围 |
 |---|---|
 | [模型加载](model-loading.md) | 单机和多机模型加载策略及验证状态 |
+| [Issue #15 部署启动可靠性](issue-15-deployment-reliability-design.md) | 已实现的 state backend、模型 reconciliation、可配置 WebChat port、自包含 readiness 与有限 systemd 启动契约 |
 | [模型基线](../benchmarks/model_baseline.md) | 模型端点实测证据和运行边界 |
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |

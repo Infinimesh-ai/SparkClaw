@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/lib/dotenv.sh"
 
 LANES="${1:-single-fast}"
 MODEL_PROFILE="${SPARKCLAW_MODEL_LOADING_PROFILE:-}"
@@ -35,6 +36,19 @@ elif [[ "$LANES" == "dual-light-chat" || "$LANES" == "light-dual-chat" ]]; then
 fi
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+force_model_recreate="$(sparkclaw_resolve_env_value "$ROOT/.env" SPARKCLAW_FORCE_MODEL_RECREATE false)"
+case "$(printf '%s' "$force_model_recreate" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    force_model_recreate=true
+    ;;
+  0|false|no|off)
+    force_model_recreate=false
+    ;;
+  *)
+    echo "SPARKCLAW_FORCE_MODEL_RECREATE must be true or false" >&2
+    exit 1
+    ;;
+esac
 MODEL_STARTUP_TIMEOUT_SECONDS="${SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS:-10800}"
 if [[ ! "$MODEL_STARTUP_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   echo "SPARKCLAW_MODEL_STARTUP_TIMEOUT_SECONDS must be a positive integer" >&2
@@ -103,8 +117,77 @@ if [[ "$SINGLE_FAST" == "true" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" stop sparkclaw-deep
 fi
 
-echo "Recreating requested model containers with fresh runtime caches"
-"${docker_cmd[@]}" "${compose_args[@]}" stop "${services[@]}"
+recreate_reason=""
+if [[ "$force_model_recreate" == "true" ]]; then
+  recreate_reason="requested by SPARKCLAW_FORCE_MODEL_RECREATE"
+else
+  for service in "${services[@]}"; do
+    if ! container_id="$("${docker_cmd[@]}" "${compose_args[@]}" ps --all -q "$service")"; then
+      echo "failed to inspect Compose container for $service" >&2
+      exit 1
+    fi
+    if [[ -z "$container_id" ]]; then
+      recreate_reason="$service is absent"
+      break
+    fi
+    if ! state_status="$(
+      "${docker_cmd[@]}" inspect --format '{{.State.Status}}' "$container_id"
+    )"; then
+      echo "failed to inspect container state for $service" >&2
+      exit 1
+    fi
+    if [[ "$state_status" != "running" ]]; then
+      recreate_reason="$service is $state_status"
+      break
+    fi
+    if ! health_status="$(
+      "${docker_cmd[@]}" inspect \
+        --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' \
+        "$container_id"
+    )"; then
+      echo "failed to inspect container health for $service" >&2
+      exit 1
+    fi
+    if [[ "$health_status" != "healthy" ]]; then
+      recreate_reason="$service health is $health_status"
+      break
+    fi
+    if ! config_hash_line="$(
+      "${docker_cmd[@]}" "${compose_args[@]}" config --hash "$service"
+    )"; then
+      echo "failed to resolve Compose configuration hash for $service" >&2
+      exit 1
+    fi
+    expected_config_hash="${config_hash_line##* }"
+    if [[ -z "$expected_config_hash" || "$expected_config_hash" == "$config_hash_line" ]]; then
+      echo "Compose returned an invalid configuration hash for $service" >&2
+      exit 1
+    fi
+    if ! actual_config_hash="$(
+      "${docker_cmd[@]}" inspect \
+        --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
+        "$container_id"
+    )"; then
+      echo "failed to inspect running configuration hash for $service" >&2
+      exit 1
+    fi
+    if [[ "$actual_config_hash" != "$expected_config_hash" ]]; then
+      recreate_reason="$service configuration drifted"
+      break
+    fi
+  done
+fi
+
+recreate_args=()
+if [[ -n "$recreate_reason" ]]; then
+  echo "Force-recreating requested model group: $recreate_reason"
+  "${docker_cmd[@]}" "${compose_args[@]}" stop "${services[@]}"
+  recreate_args+=(--force-recreate)
+else
+  echo "Requested model group is running, healthy, and configuration-current; retaining containers"
+  recreate_args+=(--no-recreate)
+fi
 
 exec "${docker_cmd[@]}" "${compose_args[@]}" up -d --wait \
-  --wait-timeout "$MODEL_STARTUP_TIMEOUT_SECONDS" --force-recreate "${services[@]}"
+  --wait-timeout "$MODEL_STARTUP_TIMEOUT_SECONDS" --build \
+  "${recreate_args[@]}" "${services[@]}"

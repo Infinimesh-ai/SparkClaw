@@ -51,9 +51,13 @@ The current profile is implemented as `dgx-spark-single-fast-v1`:
 The shortcut first stops a previously running Deep container, then starts Fast,
 embedding, guard, and OCR in one Compose operation. Run
 `scripts/restart_runtime_compose.sh` afterward; it uses the single-Fast and OCR
-environments by default. Every model startup stops and recreates the requested
-model group, including an already healthy group; do not use `docker start` or
-`docker restart` as the product startup or recovery path.
+environments by default. Before changing the selected group, startup verifies
+that every container exists, is running and healthy, and carries the current
+Compose configuration hash. A healthy/current group is retained. If any member
+is absent, stopped, unhealthy, or drifted, the complete selected group is
+stopped and force-recreated. Set `SPARKCLAW_FORCE_MODEL_RECREATE=true` for the
+same full refresh on a healthy group; do not use `docker start` or `docker
+restart` as the product startup or recovery path.
 
 Model checkpoints and Hugging Face metadata remain durable under `data/models`.
 vLLM/TorchInductor AOT artifacts, Triton kernels, FlashInfer caches, and NVIDIA
@@ -66,9 +70,14 @@ startup waits for Docker health. Fast health includes one production-shaped
 chat completion per model process: the current synthetic input is about 3.4K
 tokens on Qwen3.6 and forces a 480-token decode, covering the Tree-routing cold
 path before user traffic is admitted. Guard health retains its smaller bounded
-chat completion. Both probes bind their completion marker to the model, warmup
-shape, and current server-process start time; periodic checks use the lightweight
-model listing only after that exact process is warm. Embedding keeps the fixed
+chat completion. The readiness helper is copied into a local derivative of the
+configured vLLM image, so health checks do not depend on a source-file bind
+mount from the checkout. Both probes keep their completion marker on a dedicated
+container-local tmpfs and bind it to the model, warmup shape, and current
+server-process start time. Marker persistence is best-effort after successful
+warmup; if the tmpfs is unwritable, readiness succeeds but a later probe may
+repeat the warmup. Periodic checks use the lightweight model listing only after
+the exact process is warm and its marker is stored. Embedding keeps the fixed
 2 GiB KV budget but admits up to 128 short sequences so the 110-entry semantic
 corpus can be embedded as one startup request within the 20-second index bound.
 

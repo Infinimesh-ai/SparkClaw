@@ -6,6 +6,7 @@ umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/lib/dotenv.sh"
 
 ENV_FILE="$ROOT/.env"
 ENV_TEMPLATE="$ROOT/docker/env/sparkclaw.example.env"
@@ -85,22 +86,7 @@ done
 [[ "$EUID" -ne 0 ]] || fail "run this script as a normal user; it uses passwordless sudo only when Docker requires it"
 
 dotenv_value() {
-  local key="$1"
-  local line=""
-  local value=""
-  if [[ -f "$ENV_FILE" ]]; then
-    line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
-  fi
-  if [[ -n "$line" ]]; then
-    value="${line#*=}"
-    value="${value%$'\r'}"
-    if [[ "$value" == \"*\" && ${#value} -ge 2 ]]; then
-      value="${value:1:${#value}-2}"
-    elif [[ "$value" == \'*\' && ${#value} -ge 2 ]]; then
-      value="${value:1:${#value}-2}"
-    fi
-  fi
-  printf '%s' "$value"
+  sparkclaw_dotenv_value "$ENV_FILE" "$1"
 }
 
 set_dotenv_value() {
@@ -137,6 +123,12 @@ else
   chmod go-rwx "$ENV_FILE"
   log "preserving existing $ENV_FILE"
 fi
+
+webchat_port="$(sparkclaw_resolve_env_value "$ENV_FILE" SPARKCLAW_WEBCHAT_PORT 18790)"
+sparkclaw_tcp_port_valid "$webchat_port" ||
+  fail "SPARKCLAW_WEBCHAT_PORT must be an integer between 1 and 65535"
+export SPARKCLAW_WEBCHAT_PORT="$webchat_port"
+webchat_base_url="http://127.0.0.1:$webchat_port"
 
 autostart_enabled="$(dotenv_value SPARKCLAW_AUTOSTART_ENABLED)"
 if [[ -z "$autostart_enabled" ]]; then
@@ -282,15 +274,15 @@ bash scripts/start_compose.sh
 
 webchat_ready=false
 for _ in $(seq 1 60); do
-  if curl -fsS --max-time 3 http://127.0.0.1:18790/ >/dev/null 2>&1; then
+  if curl -fsS --max-time 3 "$webchat_base_url/" >/dev/null 2>&1; then
     webchat_ready=true
     break
   fi
   sleep 2
 done
-[[ "$webchat_ready" == true ]] || fail "Gateway is ready, but WebChat did not respond at http://127.0.0.1:18790"
+[[ "$webchat_ready" == true ]] || fail "Gateway is ready, but WebChat did not respond at $webchat_base_url"
 
-ready_json="$(curl -fsS --max-time 5 http://127.0.0.1:18790/readyz)"
+ready_json="$(curl -fsS --max-time 5 "$webchat_base_url/readyz")"
 printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' || fail "Gateway ready check returned an unexpected response"
 
 case "$(printf '%s' "$autostart_enabled" | tr '[:upper:]' '[:lower:]')" in
@@ -309,11 +301,11 @@ if command -v ip >/dev/null 2>&1; then
 fi
 
 log "deployment complete"
-printf '  WebChat (local): http://127.0.0.1:18790\n'
+printf '  WebChat (local): http://127.0.0.1:%s\n' "$webchat_port"
 if [[ -n "$lan_ip" ]]; then
-  printf '  WebChat (LAN):   http://%s:18790\n' "$lan_ip"
+  printf '  WebChat (LAN):   http://%s:%s\n' "$lan_ip" "$webchat_port"
 fi
-printf '  Gateway ready:  http://127.0.0.1:18790/readyz (WebChat ingress)\n'
+printf '  Gateway ready:  http://127.0.0.1:%s/readyz (WebChat ingress)\n' "$webchat_port"
 "${docker_cmd[@]}" ps \
   --filter label=com.docker.compose.project=sparkclaw \
   --format '  {{.Names}}: {{.Status}}'

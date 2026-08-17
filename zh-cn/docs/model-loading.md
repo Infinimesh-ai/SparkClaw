@@ -49,8 +49,11 @@
 
 快捷方式会先停止此前运行的 Deep 容器，再通过一次 Compose 操作同时启动 Fast、embedding、
 guard 和 OCR。随后运行 `scripts/restart_runtime_compose.sh`；该脚本默认使用单 Fast 与 OCR
-环境。每次模型启动都会先停止并重建请求的模型组，即使该组当前健康也不会复用。产品启动或
-故障恢复不要直接使用 `docker start` 或 `docker restart`。
+环境。修改目标组之前，启动脚本会验证每个容器存在、running、healthy，并使用当前 Compose
+configuration hash。healthy/current 模型组会被保留；任一成员缺失、停止、不健康或配置漂移
+时，完整目标组会先停止再 force-recreate。设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可对
+健康模型组执行相同的完整刷新。产品启动或故障恢复不要直接使用 `docker start` 或
+`docker restart`。
 
 模型 checkpoint 与 Hugging Face 元数据继续持久化在 `data/models`。GPU 进程缓存与其分离：
 vLLM/TorchInductor AOT 产物、Triton kernel、FlashInfer cache 与 NVIDIA runtime 注入都
@@ -60,10 +63,13 @@ vLLM/TorchInductor AOT 产物、Triton kernel、FlashInfer cache 与 NVIDIA runt
 直接当作未经测量的容量提升。模型启动会等待 Docker health。Fast health 会为每个模型进程
 执行一次贴近生产负载的 chat completion：当前合成输入在 Qwen3.6 上约为 3.4K token，并强制
 解码 480 token，在接收用户流量前覆盖 Tree routing 的冷路径。Guard health 保留较小的有界
-chat completion。两个 probe 都把完成 marker 绑定到模型、预热形状和当前服务进程启动时刻；
-只有该进程准确完成预热后，周期检查才改用轻量模型列表。Embedding 保持固定 2 GiB KV budget，
-但允许最多 128 条短 sequence，使 110 项语义语料能够通过一次启动请求在 20 秒索引时限内完成
-embedding。
+chat completion。readiness helper 被复制进配置的 vLLM 镜像派生出的本地镜像，因此
+healthcheck 不依赖 checkout source file 的 bind mount。两个 probe 都把完成 marker 存放在
+专用的容器本地 tmpfs，并绑定到模型、预热形状和当前服务进程启动时刻。成功 warmup 后 marker
+持久化是 best-effort；tmpfs 不可写时 readiness 仍成功，但后续 probe 可能再次 warmup。只有
+准确进程完成预热且 marker 成功保存后，周期检查才改用轻量模型列表。Embedding 保持固定
+2 GiB KV budget，但允许最多 128 条短 sequence，使 110 项语义语料能够通过一次启动请求在
+20 秒索引时限内完成 embedding。
 
 OvisOCR2 是 document adapter，不是第五个 Model Router lane。`single-fast` 产品 profile
 会通过 `docker/compose.ocr.yaml` 在端口 `8007` 将 `ATH-MaaS/OvisOCR2` 与 Fast、embedding、

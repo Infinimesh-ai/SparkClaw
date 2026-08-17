@@ -2,7 +2,12 @@ name: sparkclaw
 
 x-vllm-common: &vllm-common
   profiles: ["models-local"]
-  image: ${SPARKCLAW_VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly}
+  image: sparkclaw-vllm-readiness:local
+  build:
+    context: ..
+    dockerfile: docker/images/vllm.Dockerfile
+    args:
+      SPARKCLAW_VLLM_IMAGE: ${SPARKCLAW_VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly}
   ipc: host
   shm_size: ${SPARKCLAW_VLLM_SHM_SIZE:-16gb}
   gpus: all
@@ -13,7 +18,8 @@ x-vllm-common: &vllm-common
     VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
   volumes:
     - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
-    - ../scripts/model_readiness.py:/opt/sparkclaw/model_readiness.py:ro
+  tmpfs:
+    - /run/sparkclaw-readiness:rw,noexec,nosuid,nodev,size=1m,mode=1777
   networks:
     - sparkclaw_internal
 
@@ -172,7 +178,7 @@ services:
       context: ..
       dockerfile: docker/images/webchat.Dockerfile
     ports:
-      - "${SPARKCLAW_WEBCHAT_BIND:-0.0.0.0}:18790:18790"
+      - "${SPARKCLAW_WEBCHAT_BIND:-0.0.0.0}:${SPARKCLAW_WEBCHAT_PORT:-18790}:18790"
     depends_on:
       gateway:
         condition: service_healthy
@@ -215,7 +221,7 @@ services:
         - --model
         - ${SPARKCLAW_FAST_SERVED_NAME:-sparkclaw-fast}
         - --marker
-        - /tmp/sparkclaw-fast-warmed
+        - /run/sparkclaw-readiness/fast-warmed
         - --health-timeout
         - "3"
         - --warmup-timeout
@@ -318,7 +324,7 @@ services:
         - --model
         - ${SPARKCLAW_GUARD_SERVED_NAME:-Qwen/Qwen3Guard-Gen-0.6B}
         - --marker
-        - /tmp/sparkclaw-guard-warmed
+        - /run/sparkclaw-readiness/guard-warmed
         - --health-timeout
         - "3"
         - --warmup-timeout

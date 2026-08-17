@@ -43,7 +43,7 @@ services:
       VITE_SPARKCLAW_API_BASE: ""
       SPARKCLAW_WEBCHAT_PROXY_TARGET: http://gateway:18789
     ports:
-      - "${SPARKCLAW_WEBCHAT_BIND:-0.0.0.0}:18790:18790"
+      - "${SPARKCLAW_WEBCHAT_BIND:-0.0.0.0}:${SPARKCLAW_WEBCHAT_PORT:-18790}:18790"
     volumes:
       - ..:/workspace
     depends_on:

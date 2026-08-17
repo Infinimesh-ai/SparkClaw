@@ -40,6 +40,12 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Deployment startup now aligns the product template on PostgreSQL without
+  migrating legacy file snapshots, retains healthy/current model groups while
+  atomically recovering degraded groups, offers an explicit force-refresh flag,
+  owns the WebChat host port through one validated setting, embeds readiness in
+  the vLLM image with best-effort tmpfs markers, and bounds boot reconciliation
+  with a four-hour oneshot systemd unit.
 - Managed Weixin QR-login Chromium windows now use independent per-binding
   locks and a fixed 10-minute sliding lease. A 30-second janitor retries failed
   expiry cleanup, graceful shutdown releases every tracked window before the

@@ -33,6 +33,10 @@
 
 ### Changed
 
+- 部署启动现在把产品 template 对齐到 PostgreSQL，且不迁移旧 file snapshot；
+  healthy/current 模型组会被保留，degraded 模型组会原子整组恢复，同时提供显式 force-refresh
+  flag；WebChat host port 由一个经过校验的配置统一拥有；readiness 内置于 vLLM 镜像并使用
+  best-effort tmpfs marker；boot reconciliation 由最长四小时的 oneshot systemd unit 约束。
 - 受管微信 QR 登录 Chromium 窗口现在使用独立的 per-binding lock 与固定 10 分钟 sliding
   lease。30 秒 janitor 会重试失败的过期清理；graceful shutdown 会在 browser adapter 关闭前
   释放全部 tracked window；无关 owner 不再因另一窗口的 browser round trip 而串行等待。

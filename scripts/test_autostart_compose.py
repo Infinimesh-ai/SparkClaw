@@ -86,11 +86,11 @@ class AutostartComposeTest(unittest.TestCase):
                 calls = [json.loads(line) for line in log_path.read_text().splitlines()]
             return result, calls
 
-    def test_missing_setting_defaults_to_enabled_cold_start(self):
+    def test_missing_setting_defaults_to_enabled_reconciliation(self):
         result, calls = self.run_autostart("SPARKCLAW_PORT=18789\n")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("cold-recreate", result.stdout)
+        self.assertIn("Reconciling", result.stdout)
         self.assertIn(["docker", "ps"], calls)
         self.assertTrue(
             any(
@@ -161,8 +161,10 @@ class InstallAutostartSystemdTest(unittest.TestCase):
             unit = (unit_dir / "sparkclaw-autostart.service").read_text()
             calls = [json.loads(line) for line in log_path.read_text().splitlines()]
             self.assertIn("scripts/autostart_compose.sh", unit)
-            self.assertIn("Type=exec", unit)
-            self.assertIn("TimeoutStartSec=infinity", unit)
+            self.assertIn("Type=oneshot", unit)
+            self.assertIn("RemainAfterExit=yes", unit)
+            self.assertIn("TimeoutStartSec=4h", unit)
+            self.assertNotIn("TimeoutStartSec=infinity", unit)
             if systemd_analyze := shutil.which("systemd-analyze"):
                 verify = subprocess.run(
                     [systemd_analyze, "verify", str(unit_dir / "sparkclaw-autostart.service")],

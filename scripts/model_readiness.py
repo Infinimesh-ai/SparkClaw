@@ -167,7 +167,7 @@ def check_readiness(
     )
     try:
         stored_marker = marker.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
+    except OSError:
         stored_marker = ""
     if stored_marker == expected_marker:
         response = request_json(base_url + "/models", timeout=health_timeout)
@@ -180,7 +180,13 @@ def check_readiness(
         payload=payload,
     )
     require_completion(response)
-    write_marker(marker, expected_marker)
+    try:
+        write_marker(marker, expected_marker)
+    except OSError:
+        print(
+            "model readiness warning: warmup succeeded but marker could not be persisted",
+            file=sys.stderr,
+        )
 
 
 def parse_args() -> argparse.Namespace:

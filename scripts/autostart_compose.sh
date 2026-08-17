@@ -3,27 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/lib/dotenv.sh"
 
 ENV_FILE="${SPARKCLAW_AUTOSTART_ENV_FILE:-$ROOT/.env}"
 
 dotenv_value() {
-  local key="$1"
-  local line=""
-  local value=""
-
-  if [[ -f "$ENV_FILE" ]]; then
-    line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
-  fi
-  if [[ -n "$line" ]]; then
-    value="${line#*=}"
-    value="${value%$'\r'}"
-    if [[ "$value" == \"*\" && ${#value} -ge 2 ]]; then
-      value="${value:1:${#value}-2}"
-    elif [[ "$value" == \'*\' && ${#value} -ge 2 ]]; then
-      value="${value:1:${#value}-2}"
-    fi
-  fi
-  printf '%s' "$value"
+  sparkclaw_dotenv_value "$ENV_FILE" "$1"
 }
 
 if [[ -z "${SPARKCLAW_AUTOSTART_ENABLED+x}" ]]; then
@@ -85,5 +70,5 @@ while true; do
   sleep "$ready_poll_seconds"
 done
 
-echo "Starting SparkClaw through the cold-recreate product path"
+echo "Reconciling the SparkClaw product runtime"
 exec "$BASH_BIN" "$ROOT/scripts/start_compose.sh"

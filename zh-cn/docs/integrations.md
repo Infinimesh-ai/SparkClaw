@@ -205,19 +205,34 @@ Happy 使用两个彼此独立的端点。Happy Team 提供 Cloud Agent 任务�
   "happy-tasks": {
     "url": "https://happy.example.com/v1/team/mcp",
     "token_env": "HAPPY_TEAM_MCP_TOKEN",
-    "expected_server_name": "happy-team-tasks"
+    "expected_server_name": "happy-team-tasks",
+    "allow_mutations": true,
+    "tool_allow": [],
+    "tool_deny": []
   },
   "happy-bridge": {
     "url": "http://127.0.0.1:8790/",
     "token_file": "~/.happy/mcp.token",
-    "expected_server_name": "happy-bridge"
+    "expected_server_name": "happy-bridge",
+    "allow_mutations": true,
+    "tool_allow": [],
+    "tool_deny": []
   }
 }
 ```
 
 发现结果以 `mcp.<server-name>.<remote-tool-name>` 原子注册，并保留 input/output schema
-与 MCP annotation。读取工具可以进入 `coding.agent_manage` Workflow；远端修改会停在正常
-审批边界。`approve_plan` 与 `reject_plan` 使用独立 capability，绝不会暴露给聊天模型选工具。
+与 MCP annotation。只有显式 MCP `readOnlyHint: true` 才能把 tool 分类为无需审批的 read；
+`list_` 与 `get_` 名称不携带任何权限。Destructive 或 open-world annotation 会覆盖矛盾的
+read-only annotation。所有无 annotation tool 都按 mutation 处理：`allow_mutations` 为 false
+时保持隐藏，启用后也会停在正常审批边界。`approve_plan` 与 `reject_plan` 使用独立 capability，
+绝不会暴露给聊天模型选工具。
+
+通用 mutation 默认关闭。现有 Happy 配置必须显式设置 `allow_mutations: true`，才能继续使用
+create、message、stop、cancel、approve 与 reject 操作。`tool_allow` 和 `tool_deny` 精确匹配
+remote name，只能缩小发现的 catalog；空 allow list 不增加限制，allow/deny 重叠会被拒绝。同一
+policy 也约束 Happy plan 同步使用的固定 direct call，因此生产配置应按部署实际需要的精确 tool 填写
+`tool_allow`。
 
 两个端点独立降级。个人 bridge 离线不会移除或拖垮 Happy Team 任务端点。Team 端点返回
 401 时会要求 owner 重新签发个人 MCP token；bridge 返回 401 时会要求核对本地 token
@@ -228,6 +243,10 @@ Happy 使用两个彼此独立的端点。Happy Team 提供 Cloud Agent 任务�
 正常 observation 路径归档和摘要，绝不会成为下一次工具调用的指令或授权。
 `wait_for_idle` 的调用 deadline 会长于请求的等待时间；调用方也可以改用有界
 `get_session` 轮询。
+
+所有通用 MCP 结果在持久化前都会递归脱敏。Workflow state 最多接收 16 KiB canonical result，
+独立的已脱敏 archive projection 最多保留 16 MiB MCP envelope。Secret key、Bearer 值、签名 URL
+与大段 base64 不能进入 pending external MCP ToolCall 或 Approval。
 
 配置 `happy-tasks` 后，一个有界 worker 每 60 秒轮询
 `list_tasks {"status":"WAITING_APPROVAL"}`，并按 Happy task ID 创建 typed approval。新项目会
@@ -241,11 +260,13 @@ Happy 使用两个彼此独立的端点。Happy Team 提供 Cloud Agent 任务�
 
 通用 `mcp_servers.<name>` 条目接受 `request_timeout_seconds`（默认 30，上限
 3600）、`discovery_refresh_seconds`（默认 60，上限 86400）与
-`response_body_max_bytes`（默认 4 MiB，上限 32 MiB）。专用 `localmind` 条目
+`response_body_max_bytes`（默认 4 MiB，上限 32 MiB）、`allow_mutations`（默认 false）以及精确
+name 的 `tool_allow`/`tool_deny`。通用 state/archive projection 上限固定为 16 KiB/16 MiB。
+专用 `localmind` 条目
 则接受 `request_timeout_seconds`（默认 30）、`long_call_grace_seconds`（默认
 10）、`refresh_interval_seconds`（默认 300）、`max_response_bytes`、
 `state_output_max_bytes`（默认 16 KiB）与 `archive_output_max_bytes`（默认
-16 MiB）。两组键有意互斥；用错组的键会在配置加载时被拒绝。
+16 MiB）。两种 endpoint 与 projection-tuning 键仍有意互斥；用错组的键会在配置加载时被拒绝。
 
 入站 MCP 访问通过 `mcp_access.local_domain_id`（默认 `sparkclaw-local`）
 做域隔离：签发的访问票据绑定该域，来自其他 ISCP 域的对端兑换会被拒绝。

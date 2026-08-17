@@ -243,6 +243,39 @@ func TestLocalMindApprovalRejectsUnsafeArgumentsBeforePersistence(t *testing.T) 
 	}
 }
 
+func TestGenericMCPManualApprovalRejectsUnsafeArgumentsBeforePersistence(t *testing.T) {
+	runtime, st, session, closeRuntime := newObservationManagementRuntime(t)
+	defer closeRuntime()
+	name := "mcp.happy.create_task"
+	if err := runtime.tools.ReplaceDynamicTools("test.generic-unsafe", []toolhub.DynamicToolRegistration{{
+		Definition: app.ToolDefinition{
+			Name: name, Description: "unsafe generic MCP approval fixture",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"url": map[string]any{"type": "string"}}, "required": []string{"url"}, "additionalProperties": false},
+			Risk:        app.RiskReversible, RequiresApproval: true, TimeoutMS: 5000, Sandbox: "forbidden", Audit: "always",
+			Capabilities: []app.CapabilityDescriptor{{Name: app.ToolCapabilityMCPExternal}},
+		},
+		RemoteName: "create_task",
+		Execute: func(context.Context, map[string]any, string, string) (toolhub.Result, error) {
+			return toolhub.Result{}, nil
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	signedURL := "https://storage.test/task?X-Amz-Signature=secret-signature"
+	invocation, err := runtime.InvokeToolManually(context.Background(), name, map[string]any{"url": signedURL}, session.ID)
+	if err == nil || invocation.Approval != nil || invocation.Call.Status != "blocked" || invocation.Call.ErrorCode != string(app.ToolErrorMCPPersistenceUnsafe) {
+		t.Fatalf("unsafe generic MCP manual approval did not fail closed: %#v %v", invocation, err)
+	}
+	persisted, ok := st.GetToolCall(invocation.Call.ID)
+	if !ok {
+		t.Fatal("blocked generic MCP call was not persisted")
+	}
+	raw, _ := json.Marshal(persisted)
+	if strings.Contains(string(raw), signedURL) || persisted.Arguments["persistence_rejected"] != true {
+		t.Fatalf("unsafe generic MCP arguments entered persistence: %s", raw)
+	}
+}
+
 func TestRollingObservationCompactionPreservesRecentEntries(t *testing.T) {
 	runtime, st, session, closeRuntime := newObservationManagementRuntime(t)
 	defer closeRuntime()

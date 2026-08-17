@@ -260,22 +260,39 @@ while the personal bridge is reachable only while the member machine and
   "happy-tasks": {
     "url": "https://happy.example.com/v1/team/mcp",
     "token_env": "HAPPY_TEAM_MCP_TOKEN",
-    "expected_server_name": "happy-team-tasks"
+    "expected_server_name": "happy-team-tasks",
+    "allow_mutations": true,
+    "tool_allow": [],
+    "tool_deny": []
   },
   "happy-bridge": {
     "url": "http://127.0.0.1:8790/",
     "token_file": "~/.happy/mcp.token",
-    "expected_server_name": "happy-bridge"
+    "expected_server_name": "happy-bridge",
+    "allow_mutations": true,
+    "tool_allow": [],
+    "tool_deny": []
   }
 }
 ```
 
 Discovered names are registered atomically as
 `mcp.<server-name>.<remote-tool-name>` with their input/output schemas and MCP
-annotations. Read tools can run in the `coding.agent_manage` Workflow; remote
-mutations stop at the normal approval boundary. `approve_plan` and
+annotations. Only an explicit MCP `readOnlyHint: true` classifies a tool as an
+unapproved read; `list_` and `get_` names carry no authority. Destructive or
+open-world annotations override a contradictory read-only annotation. All
+unannotated tools are mutations, remain hidden while `allow_mutations` is false,
+and stop at the normal approval boundary when enabled. `approve_plan` and
 `reject_plan` use a separate capability that is never exposed to chat model
 tool selection.
+
+Generic mutations default off. Existing Happy configurations must explicitly
+set `allow_mutations: true` to retain create, message, stop, cancel, approve, and
+reject operations. `tool_allow` and `tool_deny` match exact remote names and can
+only reduce the discovered catalog; an empty allow list adds no restriction and
+allow/deny overlap is rejected. The same policy gates the fixed direct calls
+used by Happy plan synchronization, so production configurations should
+populate `tool_allow` from the exact tools the deployment intends to use.
 
 The endpoints degrade independently. An offline personal bridge does not remove
 or fail the Happy Team task endpoint. A Team 401 asks the owner to mint a new
@@ -288,6 +305,12 @@ remain untrusted observations. They are archived and summarized through the
 normal observation path and never become instructions or authority for another
 tool call. `wait_for_idle` receives a call deadline longer than its requested
 wait; callers may use bounded `get_session` polling instead.
+
+Every generic MCP result is recursively redacted before persistence. Workflow
+state receives at most 16 KiB of canonical result data, while a separate
+sanitized archive projection retains at most 16 MiB of the MCP envelope. Secret
+keys, bearer values, signed URLs, and large base64 values cannot enter a pending
+external MCP ToolCall or Approval.
 
 When `happy-tasks` is configured, one bounded worker polls
 `list_tasks {"status":"WAITING_APPROVAL"}` every 60 seconds and creates a typed
@@ -304,13 +327,15 @@ Items absent from a later waiting list receive the same reconciliation check.
 
 Generic `mcp_servers.<name>` entries accept `request_timeout_seconds`
 (default 30, max 3600), `discovery_refresh_seconds` (default 60, max 86400),
-and `response_body_max_bytes` (default 4 MiB, max 32 MiB). The dedicated
+`response_body_max_bytes` (default 4 MiB, max 32 MiB), `allow_mutations`
+(default false), and exact-name `tool_allow`/`tool_deny`. Generic state/archive
+projection bounds are fixed at 16 KiB/16 MiB. The dedicated
 `localmind` entry instead accepts `request_timeout_seconds` (default 30),
 `long_call_grace_seconds` (default 10), `refresh_interval_seconds`
 (default 300), `max_response_bytes`, `state_output_max_bytes`
 (default 16 KiB), and `archive_output_max_bytes` (default 16 MiB). The two
-key families are intentionally disjoint; a key from the wrong family is
-rejected at configuration load.
+endpoint and projection-tuning key families remain intentionally disjoint; a
+key from the wrong family is rejected at configuration load.
 
 Inbound MCP access is domain-scoped through `mcp_access.local_domain_id`
 (default `sparkclaw-local`): issued access tickets are bound to this domain

@@ -718,6 +718,13 @@ func normalizeGenericMCPServer(name string, server MCPServerConfig) (MCPServerCo
 		server.Namespace = "mcp." + name
 	}
 	server.ExpectedServerName = strings.TrimSpace(server.ExpectedServerName)
+	server.ToolAllow = normalizeStringSet(server.ToolAllow)
+	server.ToolDeny = normalizeStringSet(server.ToolDeny)
+	for _, allowed := range server.ToolAllow {
+		if slicesContains(server.ToolDeny, allowed) {
+			return MCPServerConfig{}, fmt.Errorf("MCP server %q tool %q cannot be both allowed and denied", name, allowed)
+		}
+	}
 	if server.RequestTimeoutSeconds <= 0 {
 		server.RequestTimeoutSeconds = 30
 	}
@@ -836,8 +843,7 @@ func normalizeLocalMindMCPServer(name string, server MCPServerConfig) (MCPServer
 
 func hasLocalMindOnlyMCPSettings(server MCPServerConfig) bool {
 	return server.Transport != "" || server.URLEnv != "" || server.BearerTokenEnv != "" ||
-		server.ProtocolVersion != "" || server.AllowMutations || server.AllowPrivateHTTP ||
-		len(server.ToolAllow) > 0 || len(server.ToolDeny) > 0 || server.LongCallGraceSeconds != 0 ||
+		server.ProtocolVersion != "" || server.AllowPrivateHTTP || server.LongCallGraceSeconds != 0 ||
 		server.MaxResponseBytes != 0 || server.StateOutputMaxBytes != 0 ||
 		server.ArchiveOutputMaxBytes != 0 || server.RefreshIntervalSeconds != 0
 }

@@ -7,12 +7,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpsafety"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcptools"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -34,7 +37,7 @@ func TestIndependentServersDiscoverAndRegisterWithoutSharedFailure(t *testing.T)
 	cfg.MCPServers = map[string]config.MCPServerConfig{
 		"happy-tasks": {
 			URL: teamServer.URL, TokenEnv: "HAPPY_TEAM_MCP_TOKEN", Namespace: "mcp.happy-tasks", ExpectedServerName: "happy-team-tasks",
-			RequestTimeoutSeconds: 2, DiscoveryRefreshSeconds: 60, ResponseBodyMaxBytes: 1 << 20,
+			AllowMutations: true, RequestTimeoutSeconds: 2, DiscoveryRefreshSeconds: 60, ResponseBodyMaxBytes: 1 << 20,
 		},
 		"happy-bridge": {
 			URL: "http://127.0.0.1:1/", Namespace: "mcp.happy-bridge", ExpectedServerName: "happy-bridge",
@@ -71,11 +74,14 @@ func TestIndependentServersDiscoverAndRegisterWithoutSharedFailure(t *testing.T)
 	if result.Output.(map[string]any)["tasks"] == nil {
 		t.Fatalf("Happy JSON text result was not projected: %#v", result.Output)
 	}
+	if archive, ok := result.ArchiveOutput.(map[string]any); !ok || archive["remote_name"] != "list_tasks" || archive["content"] == nil {
+		t.Fatalf("Happy archive projection = %#v", result.ArchiveOutput)
+	}
 }
 
 func TestBusinessErrorIsCheckedAndRetainedAsUntrustedOutput(t *testing.T) {
 	server := newMCPFixture(t, "happy-team-tasks", []map[string]any{
-		{"name": "approve_plan", "inputSchema": map[string]any{"type": "object"}},
+		{"name": "approve_plan", "inputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"destructiveHint": true}},
 	}, func(string) map[string]any {
 		return map[string]any{"content": []any{map[string]any{"type": "text", "text": "Task is not awaiting approval"}}, "isError": true}
 	})
@@ -83,7 +89,7 @@ func TestBusinessErrorIsCheckedAndRetainedAsUntrustedOutput(t *testing.T) {
 	cfg := config.Default()
 	cfg.MCPServers = map[string]config.MCPServerConfig{"happy-tasks": {
 		URL: server.URL, Namespace: "mcp.happy-tasks", ExpectedServerName: "happy-team-tasks",
-		RequestTimeoutSeconds: 2, DiscoveryRefreshSeconds: 60, ResponseBodyMaxBytes: 1 << 20,
+		AllowMutations: true, RequestTimeoutSeconds: 2, DiscoveryRefreshSeconds: 60, ResponseBodyMaxBytes: 1 << 20,
 	}}
 	hub := toolhub.New(cfg, store.NewMemoryStore())
 	defer hub.Close()
@@ -99,15 +105,16 @@ func TestBusinessErrorIsCheckedAndRetainedAsUntrustedOutput(t *testing.T) {
 	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorMCPTool {
 		t.Fatalf("business error was not classified: result=%#v err=%v", result, err)
 	}
-	if result.Output.(map[string]any)["content"] != "Task is not awaiting approval" {
+	if result.Output != "Task is not awaiting approval" {
 		t.Fatalf("business result was not retained: %#v", result.Output)
 	}
 }
 
 func TestStructuredContentResultIsCanonicalToolHubOutput(t *testing.T) {
-	output := projectToolResult(mcpclient.ToolResult{StructuredContent: map[string]any{
+	projection := mcpsafety.ProjectToolResult(mcpclient.ToolResult{StructuredContent: map[string]any{
 		"result": map[string]any{"documents": []any{"one"}}, "diagnostic": "not canonical",
-	}})
+	}}, "fixture", "read", mcpsafety.Limits{})
+	output := projection.Output
 	projected, ok := output.(map[string]any)
 	if !ok || projected["documents"] == nil || projected["diagnostic"] != nil {
 		t.Fatalf("structuredContent.result was not canonical: %#v", output)
@@ -197,7 +204,7 @@ func TestRunRefreshesWithoutBlockingOnUnavailablePeer(t *testing.T) {
 
 func TestCallToolWaitsForConcurrentInitialDiscovery(t *testing.T) {
 	server := newMCPFixture(t, "happy-team-tasks", []map[string]any{
-		{"name": "list_tasks", "inputSchema": map[string]any{"type": "object"}},
+		{"name": "list_tasks", "inputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true}},
 	}, func(string) map[string]any {
 		return map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"tasks":[]}`}}}
 	})
@@ -220,11 +227,88 @@ func TestCallToolWaitsForConcurrentInitialDiscovery(t *testing.T) {
 		}, server.Client())
 		manager.mu.Lock()
 		manager.server["happy-tasks"].client = client
+		manager.server["happy-tasks"].allowed = map[string]mcptools.Classification{
+			"list_tasks": mcptools.Classify(mcpclient.Tool{Name: "list_tasks", Annotations: map[string]any{"readOnlyHint": true}}),
+		}
 		manager.server["happy-tasks"].busy = false
 		manager.mu.Unlock()
 	}()
 	result, err := manager.CallTool(t.Context(), "happy-tasks", "list_tasks", map[string]any{})
 	if err != nil || result.IsError {
 		t.Fatalf("call did not wait for concurrent discovery: result=%#v err=%v", result, err)
+	}
+}
+
+func TestGenericPolicyFiltersSpoofedAndMutationToolsFromRegistrationAndDirectCalls(t *testing.T) {
+	server := newMCPFixture(t, "generic", []map[string]any{
+		{"name": "read_status", "inputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true}},
+		{"name": "get_wipe_workspace", "inputSchema": map[string]any{"type": "object"}},
+		{"name": "create_task", "inputSchema": map[string]any{"type": "object"}},
+	}, func(name string) map[string]any {
+		if name != "read_status" {
+			t.Fatalf("filtered tool %q reached the MCP transport", name)
+		}
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"status":"ok"}`}}}
+	})
+	defer server.Close()
+	cfg := config.Default()
+	cfg.MCPServers = map[string]config.MCPServerConfig{"generic": {
+		URL: server.URL, Namespace: "mcp.generic", ExpectedServerName: "generic",
+		RequestTimeoutSeconds: 2, DiscoveryRefreshSeconds: 60, ResponseBodyMaxBytes: 1 << 20,
+	}}
+	hub := toolhub.New(cfg, store.NewMemoryStore())
+	defer hub.Close()
+	manager := New(cfg.MCPServers, hub, server.Client())
+	status, err := manager.Refresh(t.Context(), "generic")
+	if err != nil || status.ToolCount != 1 {
+		t.Fatalf("filtered refresh: status=%#v err=%v", status, err)
+	}
+	if _, ok := hub.Definition("mcp.generic.read_status"); !ok {
+		t.Fatal("explicit read tool was not registered")
+	}
+	for _, name := range []string{"get_wipe_workspace", "create_task", "missing_tool"} {
+		if _, ok := hub.Definition("mcp.generic." + name); ok {
+			t.Fatalf("filtered tool %q was registered", name)
+		}
+		if _, err := manager.CallTool(t.Context(), "generic", name, map[string]any{}); err == nil || !strings.Contains(err.Error(), "not allowed") {
+			t.Fatalf("direct call to filtered tool %q was accepted: %v", name, err)
+		}
+	}
+	if _, err := manager.CallTool(t.Context(), "generic", "read_status", map[string]any{}); err != nil {
+		t.Fatalf("direct call to allowed read failed: %v", err)
+	}
+}
+
+func TestGenericResultProjectionRedactsStateAndArchive(t *testing.T) {
+	server := newMCPFixture(t, "generic", []map[string]any{
+		{"name": "read_secret", "inputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true}},
+	}, func(string) map[string]any {
+		return map[string]any{
+			"structuredContent": map[string]any{"result": map[string]any{
+				"token": "secret-value", "url": "https://storage.test/a?signature=signed-value",
+			}},
+		}
+	})
+	defer server.Close()
+	cfg := config.Default()
+	cfg.MCPServers = map[string]config.MCPServerConfig{"generic": {
+		URL: server.URL, Namespace: "mcp.generic", ExpectedServerName: "generic",
+		RequestTimeoutSeconds: 2, DiscoveryRefreshSeconds: 60, ResponseBodyMaxBytes: 1 << 20,
+	}}
+	hub := toolhub.New(cfg, store.NewMemoryStore())
+	defer hub.Close()
+	manager := New(cfg.MCPServers, hub, server.Client())
+	if _, err := manager.Refresh(t.Context(), "generic"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := hub.Execute(t.Context(), "mcp.generic.read_secret", map[string]any{}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, value := range map[string]any{"state": result.Output, "archive": result.ArchiveOutput} {
+		raw, _ := json.Marshal(value)
+		if strings.Contains(string(raw), "secret-value") || strings.Contains(string(raw), "signed-value") {
+			t.Fatalf("%s projection leaked remote secret: %s", label, raw)
+		}
 	}
 }

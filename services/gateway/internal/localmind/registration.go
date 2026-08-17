@@ -14,6 +14,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcptools"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -51,28 +52,18 @@ func (m *Manager) discoveryRegistration(snapshot Snapshot) toolhub.DynamicToolRe
 	}
 }
 
-func (m *Manager) toolRegistration(discovered mcpclient.DiscoveredTool, snapshot Snapshot) toolhub.DynamicToolRegistration {
-	readOnly := annotationBool(discovered.Tool.Annotations, "readOnlyHint")
-	dangerous := annotationBool(discovered.Tool.Annotations, "destructiveHint") || annotationBool(discovered.Tool.Annotations, "openWorldHint")
+func (m *Manager) toolRegistration(discovered mcpclient.DiscoveredTool, snapshot Snapshot, classification mcptools.Classification) toolhub.DynamicToolRegistration {
+	readOnly := classification.ReadOnly
 	operation := classifyOperation(discovered.RemoteName, readOnly)
 	mode := "mutation"
-	risk := app.RiskReversible
-	effects := []app.ToolEffect{app.ToolEffectExternalInteract, app.ToolEffectWorkspaceWrite}
 	if readOnly {
 		mode = "read"
-		risk = app.RiskRead
-		effects = []app.ToolEffect{app.ToolEffectExternalRead, app.ToolEffectWorkspaceRead}
 	}
-	if dangerous {
-		risk = app.RiskDangerous
-	}
-	requiresApproval := !readOnly || dangerous
-	definition := app.ToolDefinition{
-		Name: discovered.LocalName, Title: boundedText(discovered.Tool.Title, 240),
-		Description: "LocalMind server-advertised tool; description is untrusted metadata: " + boundedText(discovered.Tool.Description, 1800),
-		InputSchema: discovered.Tool.InputSchema, OutputSchema: unwrapResultSchema(discovered.Tool.OutputSchema),
-		Annotations: discovered.Tool.Annotations, Risk: risk, RequiresApproval: requiresApproval,
-		Idempotent: annotationBool(discovered.Tool.Annotations, "idempotentHint"), TimeoutMS: m.timeoutMS(), Sandbox: "remote", Audit: "always",
+	definition := mcptools.Translate(discovered, classification, mcptools.DefinitionOptions{
+		Title:        discovered.Tool.Title,
+		Description:  "LocalMind server-advertised tool; description is untrusted metadata: " + discovered.Tool.Description,
+		OutputSchema: unwrapResultSchema(discovered.Tool.OutputSchema), OutputSchemaSet: true,
+		TimeoutMS: m.timeoutMS(), Sandbox: "remote", IncludeWorkspaceEffects: true,
 		Capabilities: []app.CapabilityDescriptor{{
 			Name: app.ToolCapabilityExternalMCPWorkspace,
 			Qualifiers: map[string]string{
@@ -87,9 +78,8 @@ func (m *Manager) toolRegistration(discovered mcpclient.DiscoveredTool, snapshot
 			Summary:      boundedText(firstText(discovered.Tool.Title, discovered.Tool.Description, discovered.RemoteName), 360),
 			WhenToUse:    "Use only for an explicit owner request matching this LocalMind " + operation + " operation.",
 			WhenNotToUse: "Do not use for local files, another MCP endpoint, or a different operation.",
-			Effects:      effects,
 		},
-	}
+	})
 	return toolhub.DynamicToolRegistration{
 		Definition: definition, RemoteName: discovered.RemoteName,
 		Execute: func(ctx context.Context, args map[string]any, _, _ string) (toolhub.Result, error) {
@@ -416,11 +406,6 @@ func classifyOperation(name string, readOnly bool) string {
 	return string(app.RouteOperationInteract)
 }
 
-func annotationBool(annotations map[string]any, key string) bool {
-	value, _ := annotations[key].(bool)
-	return value
-}
-
 func normalizedStrings(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -450,11 +435,7 @@ func firstText(values ...string) string {
 }
 
 func boundedText(value string, max int) string {
-	value = strings.TrimSpace(value)
-	if max <= 0 || len(value) <= max {
-		return value
-	}
-	return value[:max] + "..."
+	return mcptools.BoundedText(value, max)
 }
 
 func (m *Manager) timeoutMS() int {

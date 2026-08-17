@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -411,6 +412,57 @@ func TestLoadNormalizesMixedMCPServerKinds(t *testing.T) {
 	}
 	if cfg.MCPServers["happy-tasks"].Namespace != "mcp.happy-tasks" {
 		t.Fatalf("generic MCP server did not retain its defaults: %#v", cfg.MCPServers["happy-tasks"])
+	}
+}
+
+func TestLoadNormalizesGenericMCPSafeguards(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "sparkclaw.json")
+	if err := os.WriteFile(configPath, []byte(`{
+  "model": {"mock": true},
+  "workspaces": {"default_root": "`+escapeJSONPath(root)+`"},
+  "mcp_servers": {
+    "happy-tasks": {
+      "url": "https://happy.example.test/mcp",
+      "allow_mutations": true,
+      "tool_allow": ["list_tasks", "create_task", "list_tasks", " create_task "],
+      "tool_deny": ["approve_plan", "approve_plan"]
+    }
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCPServers["happy-tasks"]
+	if !server.AllowMutations || !slices.Equal(server.ToolAllow, []string{"create_task", "list_tasks"}) ||
+		!slices.Equal(server.ToolDeny, []string{"approve_plan"}) {
+		t.Fatalf("generic MCP safeguards were not normalized: %#v", server)
+	}
+}
+
+func TestLoadDefaultsGenericMCPMutationsOffAndRejectsFilterConflict(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "sparkclaw.json")
+	base := `{"model":{"mock":true},"workspaces":{"default_root":"` + escapeJSONPath(root) + `"},"mcp_servers":%s}`
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(base, `{"happy":{"url":"https://happy.example.test/mcp"}}`)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCPServers["happy"].AllowMutations {
+		t.Fatal("generic MCP mutations did not default off")
+	}
+	conflict := `{"happy":{"url":"https://happy.example.test/mcp","tool_allow":["get_task"],"tool_deny":["get_task"]}}`
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(base, conflict)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(configPath); err == nil || !strings.Contains(err.Error(), "both allowed and denied") {
+		t.Fatalf("generic MCP filter conflict was accepted: %v", err)
 	}
 }
 

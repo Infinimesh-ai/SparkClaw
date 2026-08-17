@@ -19,6 +19,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpclient"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcptools"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -151,10 +152,11 @@ func (m *Manager) Refresh(ctx context.Context) (snapshot Snapshot, err error) {
 	}
 	registrations := []toolhub.DynamicToolRegistration{m.discoveryRegistration(snapshot)}
 	for _, discovered := range discovery.Tools {
-		if discovered.RemoteName == discoveryRemoteName || !m.toolAllowed(discovered.Tool) {
+		decision := m.toolDecision(discovered.Tool)
+		if discovered.RemoteName == discoveryRemoteName || !decision.Visible {
 			continue
 		}
-		registration := m.toolRegistration(discovered, snapshot)
+		registration := m.toolRegistration(discovered, snapshot, decision.Classification)
 		registrations = append(registrations, registration)
 		snapshot.VisibleToolNames = append(snapshot.VisibleToolNames, discovered.LocalName)
 	}
@@ -263,15 +265,15 @@ func (m *Manager) retainDiscoveryOnly() error {
 }
 
 func (m *Manager) toolAllowed(tool mcpclient.Tool) bool {
-	readOnly := annotationBool(tool.Annotations, "readOnlyHint")
-	dangerous := annotationBool(tool.Annotations, "destructiveHint") || annotationBool(tool.Annotations, "openWorldHint")
-	if (!readOnly || dangerous) && !m.cfg.AllowMutations {
-		return false
-	}
-	if len(m.cfg.ToolAllow) > 0 && !slices.Contains(m.cfg.ToolAllow, tool.Name) {
-		return false
-	}
-	return !slices.Contains(m.cfg.ToolDeny, tool.Name)
+	return m.toolDecision(tool).Visible
+}
+
+func (m *Manager) toolDecision(tool mcpclient.Tool) mcptools.Decision {
+	return mcptools.Evaluate(tool, mcptools.Policy{
+		AllowMutations: m.cfg.AllowMutations,
+		ToolAllow:      m.cfg.ToolAllow,
+		ToolDeny:       m.cfg.ToolDeny,
+	})
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {

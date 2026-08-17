@@ -21,14 +21,16 @@ import (
 )
 
 type bindingBrowserController struct {
-	openedOwner string
-	openedID    string
-	openedURL   string
-	closedID    string
+	openedOwner  string
+	openedID     string
+	openedURL    string
+	openedExpiry time.Time
+	closedID     string
 }
 
-func (c *bindingBrowserController) OpenManagedBrowserWindow(_ context.Context, ownerID, windowID, targetURL string) error {
+func (c *bindingBrowserController) OpenManagedBrowserWindow(_ context.Context, ownerID, windowID, targetURL string, expiresAt time.Time) error {
 	c.openedOwner, c.openedID, c.openedURL = ownerID, windowID, targetURL
+	c.openedExpiry = expiresAt
 	return nil
 }
 func (c *bindingBrowserController) CloseManagedBrowserWindow(_ context.Context, _ string, windowID string) error {
@@ -60,10 +62,11 @@ func TestNotificationBindingBrowserUsesPersistedWeixinURLAndClosesAfterActivatio
 	server := New(cfg, st, tools, runtime, WithBindingRouter(router), WithManagedBrowserWindows(controller))
 
 	now := time.Now().UTC()
+	expiresAt := now.Add(5 * time.Minute)
 	record := st.SaveNotificationBinding(app.NotificationBinding{
 		ID: "bind-managed", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
 		Channel: "weixin", Provider: weixinproto.QRProvider, Status: "waiting_scan",
-		QRCodeURL: "https://liteapp.weixin.qq.com/q/provider-ticket", CreatedAt: now, UpdatedAt: now,
+		QRCodeURL: "https://liteapp.weixin.qq.com/q/provider-ticket", CreatedAt: now, UpdatedAt: now, ExpiresAt: &expiresAt,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/notification-bindings/"+record.ID+"/browser", strings.NewReader(`{"url":"https://attacker.example"}`))
 	resp := httptest.NewRecorder()
@@ -71,7 +74,7 @@ func TestNotificationBindingBrowserUsesPersistedWeixinURLAndClosesAfterActivatio
 	if resp.Code != http.StatusOK {
 		t.Fatalf("open managed browser returned %d: %s", resp.Code, resp.Body.String())
 	}
-	if controller.openedOwner != app.DefaultOwnerID || controller.openedID != record.ID || controller.openedURL != record.QRCodeURL {
+	if controller.openedOwner != app.DefaultOwnerID || controller.openedID != record.ID || controller.openedURL != record.QRCodeURL || !controller.openedExpiry.Equal(expiresAt) {
 		t.Fatalf("managed browser did not use persisted owner-scoped binding data: %#v", controller)
 	}
 
@@ -91,10 +94,12 @@ func TestNotificationBindingBrowserRejectsUntrustedOrInactiveRecords(t *testing.
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime, WithManagedBrowserWindows(&bindingBrowserController{}))
 	now := time.Now().UTC()
+	expiredAt := now.Add(-time.Minute)
 
 	for _, record := range []app.NotificationBinding{
 		{ID: "bad-host", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "weixin", Provider: weixinproto.QRProvider, Status: "waiting_scan", QRCodeURL: "https://attacker.example/q", CreatedAt: now, UpdatedAt: now},
 		{ID: "active", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "weixin", Provider: weixinproto.QRProvider, Status: "active", QRCodeURL: "https://liteapp.weixin.qq.com/q/old", CreatedAt: now, UpdatedAt: now},
+		{ID: "expired", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Channel: "weixin", Provider: weixinproto.QRProvider, Status: "waiting_scan", QRCodeURL: "https://liteapp.weixin.qq.com/q/expired", CreatedAt: now, UpdatedAt: now, ExpiresAt: &expiredAt},
 	} {
 		st.SaveNotificationBinding(record)
 		req := httptest.NewRequest(http.MethodPost, "/api/notification-bindings/"+record.ID+"/browser", nil)

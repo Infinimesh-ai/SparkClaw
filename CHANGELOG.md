@@ -40,6 +40,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Managed Weixin QR-login Chromium windows now use independent per-binding
+  locks and a fixed 10-minute sliding lease. A 30-second janitor retries failed
+  expiry cleanup, graceful shutdown releases every tracked window before the
+  browser adapter closes, and unrelated owners no longer serialize behind
+  another window's browser round trips.
 - Connector activation is now owner-isolated inside one household Gateway:
   startup restores every owner's persisted setting into a write-through cache,
   one shared worker per channel uses owner gates, one owner's opt-out cannot

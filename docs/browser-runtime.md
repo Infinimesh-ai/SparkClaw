@@ -166,7 +166,19 @@ loading requires that window to cover the two consecutive model-owned stages
 that can occur between a snapshot and its bound click, including the configured
 model request and Workflow step limits. This prevents slow model reasoning from
 closing and relaunching Chromium underneath a still-current snapshot. Visible
-sessions do not use the daemon idle timeout and remain open for the owner.
+sessions use a separate six-times-longer finite idle bound, two hours with the
+default configuration, so abandoned presentation processes cannot live forever.
+
+Binding-scoped Weixin QR-login windows have a stricter ToolHub lifecycle. Each
+successful open or navigation receives a fixed 10-minute sliding lease capped by
+an earlier binding expiry. A 30-second janitor sweep releases expired sessions;
+it does not poll tabs merely to detect a manually closed window. The registry
+uses one operation lock per `(owner_id, binding_id)`, so unrelated QR opens do
+not serialize behind browser round trips. Poll-observed terminal state and
+revocation still release immediately. Graceful ToolHub shutdown stops the
+janitor and drains every tracked window before closing the adapter; an
+ungraceful exit relies on deterministic leaked-profile recovery at the next
+acquisition.
 
 After acquiring the exclusive profile lock, session startup validates Chromium's
 native `SingletonLock`, `SingletonSocket`, and `SingletonCookie`. A live
@@ -197,9 +209,9 @@ intentionally different: its entire health/open/read path is hidden and
 successful reads do not create a visible result window. A fresh visible session
 navigates directly to the target instead of first exposing its startup
 `about:blank` tab; an already initialized reusable profile is never replaced
-with a blank login prompt. Verified visible results remain open without the
-headless daemon idle timeout, and production completion does not call
-`browser.close`.
+with a blank login prompt. Verified visible results remain open after Workflow
+completion, subject to the longer visible-session idle bound, and production
+completion does not call `browser.close`.
 
 Safe result descriptors persist origin, path, route-shaped fragments
 (`#/...` in-page routes; value-carrying fragments such as OAuth
@@ -312,6 +324,8 @@ access to the host desktop.
 Browser changes should cover:
 
 - adapter protocol, timeout, process ownership, and profile locking tests;
+- managed QR-window lease renewal/expiry, per-key locking, janitor retry,
+  stale-generation, and shutdown ordering/race tests;
 - passive Linux ARM64 environment preflight and reason-code tests;
 - settle timeout/cancellation, snapshot normalization, and untrusted-evidence tests;
 - explicit URL, registered destination, tab focus, and redirect cases;

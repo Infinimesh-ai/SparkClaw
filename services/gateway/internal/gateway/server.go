@@ -113,7 +113,7 @@ type ExternalApprovalResolver interface {
 }
 
 type ManagedBrowserWindowController interface {
-	OpenManagedBrowserWindow(context.Context, string, string, string) error
+	OpenManagedBrowserWindow(context.Context, string, string, string, time.Time) error
 	CloseManagedBrowserWindow(context.Context, string, string) error
 }
 
@@ -1019,7 +1019,8 @@ func (s *Server) openNotificationBindingBrowser(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
 		return
 	}
-	if binding.Channel != "weixin" || !weixinproto.IsQRLoginProvider(binding.Provider) || !isPendingNotificationBinding(binding.Status) {
+	if binding.Channel != "weixin" || !weixinproto.IsQRLoginProvider(binding.Provider) || !isPendingNotificationBinding(binding.Status) ||
+		(binding.ExpiresAt != nil && !binding.ExpiresAt.After(time.Now().UTC())) {
 		writeError(w, http.StatusConflict, errors.New("notification binding has no pending Weixin login"))
 		return
 	}
@@ -1031,7 +1032,11 @@ func (s *Server) openNotificationBindingBrowser(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusServiceUnavailable, errors.New("managed Chromium is unavailable"))
 		return
 	}
-	if err := s.managedBrowserWindows.OpenManagedBrowserWindow(r.Context(), binding.OwnerID, binding.ID, binding.QRCodeURL); err != nil {
+	bindingExpiresAt := time.Time{}
+	if binding.ExpiresAt != nil {
+		bindingExpiresAt = *binding.ExpiresAt
+	}
+	if err := s.managedBrowserWindows.OpenManagedBrowserWindow(r.Context(), binding.OwnerID, binding.ID, binding.QRCodeURL, bindingExpiresAt); err != nil {
 		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("open managed Chromium: %w", err))
 		return
 	}

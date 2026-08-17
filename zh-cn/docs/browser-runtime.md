@@ -136,8 +136,16 @@ Gateway 使用 init 进程回收 browser session 退出后的 Chromium 后代进
 hidden Chromium 默认使用 20 分钟的 daemon idle window。配置加载会要求该窗口覆盖
 snapshot 与其绑定 click 之间可能连续出现的两个 model-owned stage，并计入已配置的
 model request 与 Workflow step 上限。这样，较慢的模型推理不会在仍有效的 snapshot
-下方关闭并重新拉起 Chromium。visible session 不使用 daemon idle timeout，会继续为
-owner 保持打开。
+下方关闭并重新拉起 Chromium。visible session 使用单独的六倍有限 idle bound；默认配置下为
+两小时，因此被遗弃的 presentation process 不会永久存活。
+
+Binding-scoped 微信 QR 登录窗口使用更严格的 ToolHub lifecycle。每次成功 open 或 navigate 都会
+获得固定 10 分钟 sliding lease，并由更早的 binding expiry 截短。Janitor 每 30 秒清理过期
+session，不会只为检测 owner 手动关闭窗口而轮询 tab。Registry 为每个
+`(owner_id, binding_id)` 使用一个 operation lock，因此无关 QR open 不会在 browser round trip
+后方串行。Poll 观察到 terminal state 或 revoke 时仍立即释放。Graceful ToolHub shutdown 会
+停止 janitor，并在关闭 adapter 前排空所有 tracked window；ungraceful exit 则在下次
+acquisition 时依赖 deterministic leaked-profile recovery。
 
 session startup 取得 exclusive profile lock 后，还会校验 Chromium 原生的
 `SingletonLock`、`SingletonSocket` 和 `SingletonCookie`。同主机 PID 仍存活或 Unix
@@ -160,8 +168,8 @@ rendered-content digest 都匹配时，Runtime 会生成类型化 presentation-e
 或对应的等价 assertion，run 不能成功。`browser.page_read` 有意保持不同：其 health/open/read 全链路都是
 hidden，成功读取不会创建 visible 结果窗口。全新的 visible session 会直接导航目标，不先暴露
 启动时的 `about:blank` tab；已经初始化且可复用的 profile 不会被替换为空白登录提示。已验证
-visible 结果页面不受 headless daemon 空闲超时影响并保持打开，生产完成流程不会调用
-`browser.close`。
+visible 结果页面在 Workflow 完成后继续保持打开，但仍受更长的 visible-session idle bound
+约束；生产完成流程不会调用 `browser.close`。
 
 持久化的安全结果 descriptor 保存 origin、path、路由型 fragment（`#/...` 页内路由；
 携带值的 fragment 如 OAuth `#access_token=...` 会被丢弃）和 query provenance，不保存
@@ -254,7 +262,8 @@ docker compose --env-file .env -f docker/compose.yaml \
 
 ## 验证
 
-浏览器改动应覆盖：adapter 协议、timeout、进程 ownership 和 profile lock；被动 Linux
+浏览器改动应覆盖：adapter 协议、timeout、进程 ownership 和 profile lock；managed QR-window
+lease 续期/过期、per-key locking、janitor retry、stale generation 与 shutdown ordering/race；被动 Linux
 ARM64 environment preflight 与 reason code；settle timeout/cancellation、snapshot
 规范化和不可信证据；明确 URL、注册 destination、tab focus 和 redirect；stale
 generation/ref、重复状态、unsafe control 和尝试上限；固定 hidden page-read 顺序、active-page

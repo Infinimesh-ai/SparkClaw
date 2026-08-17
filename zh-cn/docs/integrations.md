@@ -99,9 +99,13 @@ block 和对应环境变量只在尚无 owner 持久化选择时作为启动默�
 Chromium profile 打开持久化的 provider 登录 URL。Gateway 只允许当前 owner 仍处于待处理状态的
 微信 binding 执行该动作，并且只接受 provider 的 HTTPS `liteapp.weixin.qq.com` URL；client
 不能提交 URL。重复点击会复用同一个 binding-scoped 窗口。polling 观察到绑定已激活、过期或失败，
-或者 owner 撤销 binding 时，Gateway 会释放对应的受管 browser session 并关闭 Chromium 窗口。
-该功能要求可信桌面 runtime 启用 `docker/compose.visible-browser.yaml` overlay；没有 visible
-display 时会明确失败，绝不回退到默认浏览器。
+并续期固定 10 分钟 lease；若 binding 更早过期则由其截短。ToolHub-owned janitor 每 30 秒清理
+过期 lease，不轮询 browser tab。polling 观察到 binding 已激活、过期或失败，以及 owner 显式
+撤销 binding 时，仍会立即释放对应受管 browser session。Gateway graceful shutdown 会在关闭
+browser adapter 前排空全部 tracked QR window；ungraceful exit 后，现有 deterministic profile
+recovery 会在下次 acquisition 时回收遗留进程。该功能要求可信桌面 runtime 启用
+`docker/compose.visible-browser.yaml` overlay；没有 visible display 时会明确失败，绝不回退到
+默认浏览器。
 
 ## 语音转写
 

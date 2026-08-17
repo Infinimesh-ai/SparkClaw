@@ -33,6 +33,9 @@
 
 ### Changed
 
+- 受管微信 QR 登录 Chromium 窗口现在使用独立的 per-binding lock 与固定 10 分钟 sliding
+  lease。30 秒 janitor 会重试失败的过期清理；graceful shutdown 会在 browser adapter 关闭前
+  释放全部 tracked window；无关 owner 不再因另一窗口的 browser round trip 而串行等待。
 - Connector 启用现已在一个家庭 Gateway 内按 owner 隔离：启动时把全部 owner 的持久化 setting
   恢复到 write-through cache；每 channel 一个共享 worker 使用 owner gate；一个 owner 关闭不会
   停止另一 owner 的 runtime；已接纳 reply 会排空，未 dispatch input 会暂停；预加载失败会阻止

@@ -121,9 +121,13 @@ dedicated visible Chromium profile instead of a link in the owner's default
 browser. Gateway accepts that action only for the current owner's pending
 Weixin binding and only for the provider's HTTPS `liteapp.weixin.qq.com` URL;
 the client cannot supply a URL. A repeated action reuses the same binding-scoped
-window. When polling observes activation, expiry, or failure, or when the owner
-revokes the binding, Gateway releases that managed browser session and closes
-the Chromium window. This surface requires the trusted desktop runtime's
+window and renews its fixed 10-minute lease, capped by any earlier binding
+expiry. A ToolHub-owned janitor sweeps expired leases every 30 seconds without
+polling browser tabs. Poll-observed activation, expiry, or failure and explicit
+owner revocation still release immediately. Graceful Gateway shutdown drains
+every tracked QR window before closing the browser adapter; after an ungraceful
+exit, the existing deterministic profile recovery reclaims a leaked process on
+the next acquisition. This surface requires the trusted desktop runtime's
 `docker/compose.visible-browser.yaml` overlay; it fails explicitly when no
 visible display is available and never falls back to the default browser.
 

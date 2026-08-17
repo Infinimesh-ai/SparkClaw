@@ -47,6 +47,12 @@ type ToolHub struct {
 	ocr                   documentocr.Adapter
 	ocrRuntime            *documentOCRRuntime
 	documents             *document.Pipeline
+	lifecycle             *toolHubLifecycle
+}
+
+type toolHubLifecycle struct {
+	closeOnce sync.Once
+	closeErr  error
 }
 
 type runtimeToolRegistry struct {
@@ -118,9 +124,10 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 		webSearch:             websearch.NewAdapter(cfg),
 		weatherInfo:           weatherInfo,
 		browser:               browserautomation.NewAdapter(cfg),
-		managedBrowserWindows: &managedBrowserWindowRegistry{windows: map[string]bool{}},
+		managedBrowserWindows: newManagedBrowserWindowRegistry(),
 		ocr:                   ocrAdapter,
 		ocrRuntime:            newDocumentOCRRuntime(cfg.Adapters.DocumentOCR, ocrAdapter, ocrConstructorErr),
+		lifecycle:             &toolHubLifecycle{},
 	}
 	h.documents = newDocumentPipeline(h)
 	for _, def := range defaultDefinitions() {
@@ -144,14 +151,21 @@ func New(cfg config.Config, st store.Store) *ToolHub {
 
 // Close releases resources held by tool adapters. Safe to call multiple times.
 func (h *ToolHub) Close() error {
-	var errs []error
-	if h.browser != nil {
-		errs = append(errs, h.browser.Close())
+	if h == nil {
+		return nil
 	}
-	if h.ocr != nil {
-		errs = append(errs, h.ocr.Close())
-	}
-	return errors.Join(errs...)
+	h.lifecycle.closeOnce.Do(func() {
+		var errs []error
+		errs = append(errs, h.closeManagedBrowserWindows())
+		if h.browser != nil {
+			errs = append(errs, h.browser.Close())
+		}
+		if h.ocr != nil {
+			errs = append(errs, h.ocr.Close())
+		}
+		h.lifecycle.closeErr = errors.Join(errs...)
+	})
+	return h.lifecycle.closeErr
 }
 
 func (h *ToolHub) ArtifactStore() artifact.Store {

@@ -98,6 +98,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install CJK weather-card font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fontconfig fonts-noto-cjk
+          fc-list ':lang=zh-cn' family | grep 'Noto' >/dev/null
       - uses: actions/setup-node@v4
         with:
           node-version: "26"

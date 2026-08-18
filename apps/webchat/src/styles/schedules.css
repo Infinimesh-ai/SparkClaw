@@ -1,0 +1,293 @@
+.scheduleBar {
+  min-width: 0;
+  margin: 12px var(--gutter) 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-deep);
+}
+
+.scheduleBarHeader {
+  display: grid;
+  grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 42px;
+  padding: 6px 9px 6px 12px;
+}
+
+.scheduleBarIdentity,
+.scheduleBarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scheduleBarIdentity > svg {
+  flex: 0 0 auto;
+  color: var(--cyber-blue);
+}
+
+.scheduleBarIdentity strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduleCount {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid rgba(96, 208, 68, 0.28);
+  border-radius: 6px;
+  color: var(--emerald-success);
+  background: rgba(96, 208, 68, 0.08);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.scheduleNext {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduleBarActions {
+  gap: 4px;
+}
+
+.scheduleBarActions .miniIconButton {
+  width: 26px;
+  height: 26px;
+}
+
+.scheduleToggle svg {
+  transition: transform 160ms ease;
+}
+
+.scheduleBar.open .scheduleToggle svg {
+  transform: rotate(180deg);
+}
+
+.scheduleBarActions .spin {
+  animation: schedule-spin 800ms linear infinite;
+}
+
+.scheduleList {
+	max-height: 190px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.scheduleRow {
+	display: grid;
+	grid-template-columns: 8px minmax(110px, 1.25fr) minmax(100px, 0.9fr) minmax(68px, 0.55fr) minmax(100px, 0.7fr) minmax(54px, auto) 58px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+
+.scheduleRow:last-child {
+  border-bottom: 0;
+}
+
+.scheduleRow > strong,
+.scheduleRow > span,
+.scheduleRow > time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduleEndpoint {
+	color: var(--text-secondary);
+	font-size: 10px;
+}
+
+.scheduleRow > strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.schedulePattern,
+.scheduleRow time {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.scheduleStatusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--emerald-success);
+}
+
+.scheduleStatusDot.sending {
+  background: var(--amber-warning);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.scheduleState {
+  justify-self: end;
+  color: var(--emerald-success);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.scheduleState.sending {
+	color: var(--amber-warning);
+}
+
+.scheduleRowActions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 3px;
+}
+
+.scheduleRowActions .miniIconButton {
+	width: 26px;
+	height: 26px;
+}
+
+.dangerIconButton:not(:disabled) {
+	color: var(--crimson-danger);
+}
+
+.scheduleDialog {
+	display: grid;
+	gap: 14px;
+	width: min(560px, calc(100vw - 32px));
+	max-height: calc(100vh - 48px);
+	padding: 16px;
+	overflow: auto;
+	border: 1px solid var(--border-strong);
+	border-radius: 8px;
+	background: var(--surface-deep);
+	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.scheduleDialog label {
+	display: grid;
+	gap: 6px;
+	min-width: 0;
+	color: var(--text-secondary);
+	font-size: 11px;
+}
+
+.scheduleDialog input,
+.scheduleDialog textarea {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	padding: 9px 10px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 6px;
+	outline: none;
+	color: var(--text-primary);
+	background: var(--surface-raised);
+	font: inherit;
+}
+
+.scheduleDialog textarea {
+	resize: vertical;
+}
+
+.scheduleDialog input:focus,
+.scheduleDialog textarea:focus {
+	border-color: var(--cyber-blue);
+}
+
+.scheduleDialogGrid {
+	display: grid;
+	grid-template-columns: minmax(0, 1.25fr) minmax(150px, 0.75fr);
+	gap: 10px;
+}
+
+.scheduleDialogEndpoint {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 12px;
+	min-width: 0;
+	padding: 10px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 6px;
+	color: var(--text-secondary);
+	font-size: 11px;
+}
+
+.scheduleDialogEndpoint strong {
+	overflow-wrap: anywhere;
+	color: var(--text-primary);
+	text-align: right;
+}
+
+.scheduleDialogActions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.scheduleDeleteDialog {
+	justify-items: start;
+	width: min(440px, calc(100vw - 32px));
+}
+
+.scheduleDeleteDialog > svg {
+	color: var(--amber-warning);
+}
+
+.scheduleDeleteDialog p,
+.scheduleDeleteDialog blockquote {
+	margin: 0;
+	color: var(--text-secondary);
+	font-size: 12px;
+}
+
+.scheduleDeleteDialog blockquote {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 10px;
+	border-left: 2px solid var(--crimson-danger);
+	background: var(--surface-raised);
+	overflow-wrap: anywhere;
+}
+
+.scheduleDeleteDialog .scheduleDialogActions {
+	justify-self: stretch;
+	justify-content: flex-end;
+}
+
+.scheduleEmpty {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@keyframes schedule-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+

@@ -1,0 +1,779 @@
+.inspectorColumn {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  padding: 16px 16px 0;
+  overflow: hidden;
+}
+
+.inspectorTitle {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  min-width: 0;
+  gap: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tabs button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 4px 8px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.tabs button:hover {
+  color: var(--text-primary);
+  background: rgba(233, 239, 234, 0.06);
+}
+
+.tabs button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs button.selected {
+  color: var(--cyber-blue);
+  border-bottom-color: var(--cyber-blue);
+}
+
+.sectionHeader {
+  gap: 8px;
+  min-height: 28px;
+  color: var(--text-secondary);
+}
+
+.sectionHeader h2 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.headerAction {
+  margin-left: auto;
+}
+
+.smallHeader {
+  margin-top: 10px;
+}
+
+.panelStack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  margin-top: 0;
+  padding: 16px 2px 18px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.inspectorColumn > .panelStack {
+  height: 100%;
+  max-height: 100%;
+}
+
+.panelStack > * {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.nestedPanel {
+  padding: 0;
+  overflow: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
+}
+
+.toolCall {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  min-width: 0;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.toolCall.started,
+.toolCall.running_after_approval {
+  border-color: rgba(96, 208, 68, 0.36);
+  box-shadow: 0 0 15px rgba(96, 208, 68, 0.05);
+}
+
+.toolCall.started::before,
+.toolCall.running_after_approval::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to right, rgba(96, 208, 68, 0.1), transparent);
+}
+
+.toolCall.dangerous {
+  border-color: rgba(239, 68, 68, 0.42);
+}
+
+.toolCall.reversible {
+  border-color: rgba(245, 158, 11, 0.42);
+}
+
+.toolCall.failed,
+.toolCall.failed_after_approval,
+.toolCall.rejected {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.toolIcon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--cyber-blue);
+  background: var(--surface);
+}
+
+.toolBody {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.toolTitle,
+.approvalTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.toolBadges {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.miniIconButton {
+  width: 25px;
+  height: 25px;
+}
+
+.toolTitle strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusLine,
+.muted,
+.resolved {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.statusLine {
+  display: inline-block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.toolCall small,
+.traceRow small,
+.diagnosticRow small {
+  color: var(--text-secondary);
+}
+
+.compactError {
+  margin: 6px 0 0;
+  color: var(--crimson-danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.approvalItem,
+.memoryItem,
+.evalResult,
+.traceSummary,
+.traceRow,
+.diagnosticRow,
+.episodeItem,
+.settingsBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.approvalTop > strong,
+.settingsTitle > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approvalItem.dangerous {
+  border-color: rgba(239, 68, 68, 0.62);
+}
+
+.approvalItem.reversible {
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.approvalItem p,
+.memoryItem p,
+.evalResult p,
+.traceSummary p,
+.episodeItem p,
+.settingsBlock p {
+  margin: 0;
+  color: var(--text-primary);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.approvalItem code {
+  display: block;
+  max-height: 96px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: var(--radius-small);
+  color: var(--text-secondary);
+  background: var(--surface-deep);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.happyPlanDetails {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.happyPlanDetails > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.happyPlanDetails small,
+.approvalSource {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.happyPlanDetails pre {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.workspaceApprovalDetails {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.workspaceApprovalDetails small,
+.workspaceApprovalDetails dt {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.workspaceApprovalIdentity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspaceApprovalIdentity > span {
+  display: grid;
+  gap: 2px;
+}
+
+.workspaceApprovalLocators {
+  display: grid;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.workspaceApprovalLocators > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--amber-warning);
+}
+
+.workspaceApprovalLocators span,
+.workspaceApprovalLocators code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspaceApprovalLocators code {
+  grid-column: 1;
+  max-height: none;
+  padding: 0;
+  background: transparent;
+}
+
+.workspaceApprovalLocators em {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  color: var(--amber-warning);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.workspaceApprovalDetails dl {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.65fr) minmax(0, 1.35fr);
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.workspaceApprovalDetails dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspaceApprovalDetails details summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.workspaceApprovalDetails details .jsonBlock {
+  margin-top: 7px;
+}
+
+.approvalItem .buttonRow .spin {
+  animation: schedule-spin 0.9s linear infinite;
+}
+
+.jsonBlock {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 180px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-deep);
+}
+
+.jsonBlock pre {
+  min-width: 0;
+  margin: 0;
+  color: var(--emerald-success);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.jsonCopy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0.55;
+}
+
+.jsonBlock:hover .jsonCopy {
+  opacity: 1;
+}
+
+.approvalEdit textarea,
+.memoryEdit textarea,
+.ownerEditor textarea,
+.policyEditor textarea {
+  min-height: 96px;
+  max-height: 190px;
+  overflow: auto;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.approvalEdit textarea,
+.memoryEdit input,
+.memoryEdit textarea,
+.ownerEditor input,
+.ownerEditor textarea,
+.policyEditor textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  outline: none;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+}
+
+.approvalEdit textarea,
+.ownerEditor textarea,
+.policyEditor textarea {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.memoryEdit,
+.ownerEditor,
+.policyEditor,
+.artifactList,
+.clientList,
+.traceHistory,
+.traceList,
+.diagnosticList,
+.evalHistory,
+.archiveList {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ownerEditor label,
+.policyEditor label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ownerEditor input,
+.memoryEdit input {
+  height: 34px;
+}
+
+.approvalEdit textarea:focus,
+.memoryEdit input:focus,
+.memoryEdit textarea:focus,
+.ownerEditor input:focus,
+.ownerEditor textarea:focus,
+.policyEditor textarea:focus {
+  border-color: var(--cyber-blue);
+  box-shadow: 0 0 0 1px rgba(96, 208, 68, 0.18);
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.compactButtons {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.buttonRow button {
+  width: 34px;
+  height: 32px;
+}
+
+.compactButtons button {
+  width: 30px;
+  height: 28px;
+}
+
+.approve {
+  color: #0c1409;
+  background: var(--cyber-blue);
+}
+
+.approvalItem.dangerous .approve {
+  color: #ffffff;
+  background: var(--crimson-danger);
+}
+
+.reject {
+  color: #ffffff;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.42);
+}
+
+.edit {
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.riskPill,
+.pill {
+  flex: 0 0 auto;
+  max-width: 160px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--text-secondary);
+  background: var(--surface-deep);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.riskPill.draft {
+  color: var(--cyber-blue);
+  border-color: var(--cyber-blue);
+  background: transparent;
+}
+
+.riskPill.reversible {
+  color: var(--amber-warning);
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.riskPill.dangerous {
+  color: #ffffff;
+  border-color: var(--crimson-danger);
+  background: var(--crimson-danger);
+}
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: minmax(72px, 104px) minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
+
+.statusGrid dt {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.statusGrid dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.statusGrid.compact {
+  grid-template-columns: minmax(64px, 82px) minmax(0, 1fr);
+}
+
+.memoryCounts,
+.compactEpisode,
+.traceRow,
+.diagnosticRow,
+.artifactItem,
+.clientItem {
+  background: var(--surface-muted);
+}
+
+.memoryCounts {
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+}
+
+.artifactItem {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+}
+
+.artifactItem span,
+.artifactItem small {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traceHistory button,
+.evalHistory button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(42px, auto) minmax(0, auto);
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--text-primary);
+  background: var(--surface-muted);
+  text-align: left;
+}
+
+.traceHistory button.selected,
+.evalHistory button.selected {
+  border-color: rgba(96, 208, 68, 0.52);
+  background: rgba(96, 208, 68, 0.08);
+}
+
+.traceHistory button span,
+.traceHistory button strong,
+.traceHistory button small,
+.evalHistory button span,
+.evalHistory button strong,
+.evalHistory button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traceHistory button span,
+.evalHistory button span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.traceHistory button strong,
+.traceHistory button small,
+.evalHistory button strong,
+.evalHistory button small {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.traceRow {
+  gap: 4px;
+}
+
+.traceRow span {
+  min-width: 0;
+  color: var(--text-primary);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.diagnosticList > strong,
+.settingsBlock strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.diagnosticRow {
+  gap: 5px;
+  padding: 9px;
+}
+
+.diagnosticRow div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.diagnosticRow span,
+.diagnosticRow small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnosticRow span {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.diagnosticRow small {
+  font-family: var(--mono);
+  font-size: 10px;
+}
+

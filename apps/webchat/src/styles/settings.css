@@ -1,0 +1,527 @@
+.settingsTitle {
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bindingCapability {
+  min-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.connectorToggle {
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.connectorToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.connectorToggle > span {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-deep);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.connectorToggle > span::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  content: "";
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.connectorToggle input:checked + span {
+  border-color: var(--cyber-blue);
+  background: rgba(96, 208, 68, 0.16);
+}
+
+.connectorToggle input:checked + span::after {
+  background: var(--cyber-blue);
+  transform: translateX(16px);
+}
+
+.connectorToggle input:focus-visible + span {
+  outline: 2px solid var(--cyber-blue);
+  outline-offset: 2px;
+}
+
+.connectorToggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.inputGroup.compact {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inputGroup.compact input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  outline: none;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+}
+
+.inputGroup.compact input:focus {
+  border-color: var(--cyber-blue);
+  box-shadow: 0 0 0 1px rgba(96, 208, 68, 0.18);
+}
+
+.inputGroup.compact input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.bindingQr,
+.bindingEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bindingQr {
+  align-items: center;
+  padding: 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-small);
+  background: rgba(233, 239, 234, 0.04);
+}
+
+.bindingQr img {
+  display: block;
+  width: min(220px, 100%);
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.bindingQr a,
+.bindingQr .secondaryButton {
+  max-width: 100%;
+}
+
+.bindingQr a {
+  color: var(--cyber-blue);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.bindingQr small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.bindingScanned {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid rgba(96, 208, 68, 0.32);
+  border-radius: var(--radius-small);
+  color: #7bd65e;
+  background: rgba(96, 208, 68, 0.08);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.bindingList {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.externalMCPBlock {
+  border-color: rgba(96, 208, 68, 0.32);
+  background: var(--surface-muted);
+}
+
+.externalMCPStatusLine,
+.externalMCPSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.externalMCPStatusLine > span:not(.statusDot, .pill) {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.externalMCPSection {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.externalMCPSectionTitle {
+  color: var(--text-primary);
+}
+
+.externalMCPSectionHeading,
+.externalMCPRecordActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.externalMCPDeleteAll {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+}
+
+.externalMCPActionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.externalMCPTransportList {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.externalMCPTransport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-deep);
+}
+
+.externalMCPTransport > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.externalMCPTransport code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.externalMCPAction,
+.externalMCPPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-small);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.externalMCPPrimary {
+  width: 100%;
+}
+
+.externalMCPAction:disabled,
+.externalMCPPrimary:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.35);
+  opacity: 0.48;
+}
+
+.externalMCPRecordList {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.externalMCPGrant {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-deep);
+}
+
+.externalMCPGrant > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.externalMCPGrant small {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.copyOnceCredential {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.52);
+  border-radius: var(--radius-small);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.copyOnceCredential .approvalTop > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.copyOnceCredential small {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.copyOnceCredential code {
+  max-height: 128px;
+  min-width: 0;
+  overflow: auto;
+  padding: 8px;
+  color: var(--text-primary);
+  background: var(--surface-deep);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.externalMCPRecord {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: var(--surface-deep);
+}
+
+.externalMCPRecordInfo {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.externalMCPRecord strong,
+.externalMCPRecord small,
+.externalMCPRecord > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.externalMCPRecord small,
+.externalMCPRecord > span {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.externalMCPRecordActions {
+  justify-content: flex-end;
+}
+
+.externalMCPRecordActions > button {
+  width: 28px;
+  height: 28px;
+}
+
+.bindingItem {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  background: rgba(233, 239, 234, 0.04);
+}
+
+.bindingItemTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bindingItemTop div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bindingItemTop strong,
+.bindingItemTop span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clientItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+}
+
+.clientItem div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.clientItem strong,
+.clientItem small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clientItem small {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.clientItem button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border-radius: var(--radius-small);
+}
+
+.evalResult.passed {
+  border-color: rgba(96, 208, 68, 0.5);
+}
+
+.evalResult.failed {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.evalCases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.evalCases span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  color: var(--text-secondary);
+  background: var(--surface-deep);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evalCases span.passed {
+  color: var(--emerald-success);
+  border-color: rgba(96, 208, 68, 0.35);
+  background: rgba(96, 208, 68, 0.08);
+}
+
+.evalCases span.failed {
+  color: var(--crimson-danger);
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.archiveList span {
+  overflow: hidden;
+  padding: 5px 7px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-small);
+  color: var(--amber-warning);
+  background: rgba(245, 158, 11, 0.08);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evalHistory button strong.passed {
+  color: var(--emerald-success);
+}
+
+.evalHistory button strong.failed {
+  color: var(--crimson-danger);
+}
+

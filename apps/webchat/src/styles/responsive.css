@@ -1,0 +1,262 @@
+@media (max-width: 1280px) {
+  body {
+    overflow: auto;
+  }
+
+  .shell {
+    grid-template-columns: 280px minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    grid-auto-rows: minmax(0, auto);
+    align-items: stretch;
+    overflow: visible;
+  }
+
+  .sidebar {
+    max-height: calc(100vh - 22px);
+    max-height: calc(100dvh - 22px);
+  }
+
+  .workspace {
+    height: calc(100vh - 22px);
+    height: calc(100dvh - 22px);
+    min-height: 640px;
+  }
+
+  .inspectorColumn {
+    grid-column: 1 / -1;
+    height: min(720px, calc(100vh - 22px));
+    height: min(720px, calc(100dvh - 22px));
+    min-height: 520px;
+  }
+
+  .notificationInbox {
+    right: 24px;
+  }
+}
+
+@media (max-width: 900px) {
+  body {
+    overflow: auto;
+  }
+
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 6px 12px 12px;
+    overflow: visible;
+  }
+
+  .sidebar {
+    max-height: none;
+    min-height: 0;
+    padding: 18px 16px;
+  }
+
+  .sessionList {
+    flex-direction: row;
+    gap: 8px;
+    min-height: 58px;
+    padding: 0 2px 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .sessionItem {
+    width: 210px;
+    min-width: 210px;
+    max-width: 210px;
+  }
+
+  .sessionActions {
+    opacity: 1;
+  }
+
+  .workspace,
+  .inspectorColumn {
+    height: auto;
+    min-height: 0;
+  }
+
+  .inspectorColumn {
+    padding: 14px 14px 0;
+  }
+
+  .workspace {
+    min-height: 760px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    height: auto;
+    min-height: 94px;
+    padding: 16px;
+  }
+
+  .topbarActions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .message {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .message.user,
+  .message.assistant {
+    max-width: 100%;
+  }
+
+  .tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .panelStack {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .inspectorColumn > .panelStack {
+    height: auto;
+    max-height: none;
+  }
+
+  .nestedPanel {
+    overflow: visible;
+  }
+
+  .errorBanner,
+  .noticeBanner {
+    align-items: stretch;
+    flex-direction: column;
+    margin-inline: 16px;
+  }
+
+  .scheduleBar {
+    margin-inline: 16px;
+  }
+
+  .scheduleBarHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .scheduleNext {
+    display: none;
+  }
+
+	.scheduleRow {
+		grid-template-columns: 8px minmax(90px, 1fr) minmax(90px, 0.8fr) minmax(90px, auto) minmax(54px, auto) 58px;
+	}
+
+	.schedulePattern {
+		display: none;
+	}
+
+	.scheduleDialogGrid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+  .authActions {
+    width: 100%;
+    flex: 0 0 auto;
+    justify-content: stretch;
+  }
+
+  .tokenForm {
+    flex: 1 1 auto;
+  }
+
+  .messageList {
+    max-height: 58vh;
+    padding: 16px;
+  }
+
+  .composer {
+    margin: 0 16px 16px;
+  }
+}
+
+@media (max-width: 480px) {
+
+  .notificationInbox {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: auto;
+    left: -17px;
+    width: calc(100vw - 24px);
+    max-height: min(480px, calc(100vh - 24px));
+  }
+
+  .notificationToast {
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+
+  .deliveryTargetPicker {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  .deliveryTargetContext {
+    max-width: 100px;
+  }
+
+  .scheduleCount {
+    display: none;
+  }
+
+	.scheduleRow {
+		grid-template-columns: 8px minmax(0, 1fr) minmax(58px, auto) 58px;
+	}
+
+	.scheduleRow time,
+	.scheduleEndpoint {
+		display: none;
+	}
+  .bindingItemTop {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .externalMCPActionRow,
+  .externalMCPRecord {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .externalMCPAction,
+  .externalMCPRecordActions {
+    width: 100%;
+  }
+
+  .externalMCPRecord > span {
+    white-space: normal;
+  }
+
+  .bindingItemTop .compactButtons {
+    justify-content: flex-end;
+  }
+
+  .statusGrid.compact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .statusGrid.compact dd {
+    margin-bottom: 6px;
+  }
+
+  .bindingScanned {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bindingEmpty .secondaryButton {
+    width: 100%;
+  }
+}

@@ -1,6 +1,6 @@
 package toolhub
 
-import _ "embed"
+import "embed"
 
 // Adapter scripts are maintained as standalone files under scripts/ so they
 // can be linted and edited as real Python/JavaScript sources.
@@ -23,8 +23,8 @@ var docxAdapterScript string
 //go:embed scripts/pptx_edit.py
 var pptxAdapterScript string
 
-//go:embed scripts/pptx_slide.py
-var pptxSlideAdapterScript string
+//go:embed scripts/pptx_slide/*.py
+var pptxSlideAdapterPackage embed.FS
 
 //go:embed scripts/xlsx_edit.js
 var xlsxAdapterScript string

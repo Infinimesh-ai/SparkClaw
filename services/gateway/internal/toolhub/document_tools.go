@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,6 +96,51 @@ const documentAdapterTimeout = 60 * time.Second
 func runPythonAdapter(ctx context.Context, script string, request map[string]any) (map[string]any, error) {
 	return runSubprocessAdapter(ctx, request, func(ctx context.Context) *exec.Cmd {
 		return exec.CommandContext(ctx, documentPythonBinary(), "-c", script)
+	})
+}
+
+func runPythonPackageAdapter(ctx context.Context, packageFS fs.FS, packageRoot, packageName string, request map[string]any) (map[string]any, error) {
+	if strings.TrimSpace(packageName) == "" || strings.ContainsAny(packageName, `/\\`) || packageName == "." || packageName == ".." {
+		return nil, errors.New("python adapter package name is invalid")
+	}
+	packageSource, err := fs.Sub(packageFS, packageRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open python adapter package: %w", err)
+	}
+	tempRoot, err := os.MkdirTemp("", "sparkclaw-python-adapter-")
+	if err != nil {
+		return nil, fmt.Errorf("create python adapter directory: %w", err)
+	}
+	defer os.RemoveAll(tempRoot)
+
+	packageDir := filepath.Join(tempRoot, packageName)
+	if err := fs.WalkDir(packageSource, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		target := packageDir
+		if name != "." {
+			target = filepath.Join(packageDir, filepath.FromSlash(name))
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		content, err := fs.ReadFile(packageSource, name)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(target, content, 0o600)
+	}); err != nil {
+		return nil, fmt.Errorf("materialize python adapter package: %w", err)
+	}
+
+	return runSubprocessAdapter(ctx, request, func(ctx context.Context) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, documentPythonBinary(), "-m", packageName)
+		cmd.Dir = tempRoot
+		return cmd
 	})
 }
 

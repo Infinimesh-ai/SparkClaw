@@ -1,0 +1,2 @@
+class PPTXLayoutFitError(ValueError):
+    pass

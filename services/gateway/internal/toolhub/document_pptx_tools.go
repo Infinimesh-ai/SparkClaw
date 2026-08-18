@@ -14,7 +14,7 @@ import (
 )
 
 func runPptxSlideAdapter(ctx context.Context, request map[string]any) (map[string]any, error) {
-	result, err := runPythonAdapter(ctx, pptxSlideAdapterScript, request)
+	result, err := runPythonPackageAdapter(ctx, pptxSlideAdapterPackage, "scripts/pptx_slide", "pptx_slide", request)
 	if documentAdapterErrorCode(err) == "pptx_layout_fit_conflict" {
 		return nil, &app.CodedToolError{Code: app.ToolErrorPPTXLayoutFitConflict, Err: err}
 	}

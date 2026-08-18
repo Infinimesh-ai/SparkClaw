@@ -50,3 +50,42 @@ func TestRemoteMutationKeepsApprovalWithoutClaimingLocalSandbox(t *testing.T) {
 		t.Fatalf("remote mutation was mislabeled as local sandbox execution: %#v", decision)
 	}
 }
+
+func TestExternalMCPWorkspaceDataContextEscalatesReadOnlyTool(t *testing.T) {
+	cfg := config.Default()
+	def := app.ToolDefinition{Name: "files.read", Risk: app.RiskRead}
+	engine := New(cfg)
+
+	human := engine.Decide(def, map[string]any{"path": "notes.txt"})
+	if !human.Allowed || human.RequiresApproval {
+		t.Fatalf("human workspace read changed its registered baseline: %#v", human)
+	}
+	external := engine.DecideWithContext(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{
+		PrincipalClass: app.PolicyPrincipalExternalMCPAI,
+		ResourceClass:  app.PolicyResourceSparkClawWorkspaceData,
+		AccessClass:    app.PolicyAccessWorkspaceSourceRead,
+	})
+	if !external.Allowed || !external.RequiresApproval || external.Reason != "external MCP AI workspace data access requires owner approval" {
+		t.Fatalf("external MCP workspace read was not escalated: %#v", external)
+	}
+}
+
+func TestExternalMCPContextDoesNotEscalateSafeNonWorkspaceTool(t *testing.T) {
+	cfg := config.Default()
+	def := app.ToolDefinition{Name: "weather.lookup", Risk: app.RiskRead}
+	decision := New(cfg).DecideWithContext(def, map[string]any{"location": "Shanghai"}, app.PolicyExecutionContext{
+		PrincipalClass: app.PolicyPrincipalExternalMCPAI,
+	})
+	if !decision.Allowed || decision.RequiresApproval {
+		t.Fatalf("external MCP weather lookup was escalated: %#v", decision)
+	}
+}
+
+func TestExecutionContextCannotDowngradeRegisteredApproval(t *testing.T) {
+	cfg := config.Default()
+	def := app.ToolDefinition{Name: "file.delete", Risk: app.RiskDangerous, RequiresApproval: true}
+	decision := New(cfg).DecideWithContext(def, map[string]any{"path": "notes.txt"}, app.PolicyExecutionContext{})
+	if !decision.Allowed || !decision.RequiresApproval {
+		t.Fatalf("empty execution context downgraded registered approval: %#v", decision)
+	}
+}

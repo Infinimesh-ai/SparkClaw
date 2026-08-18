@@ -332,7 +332,7 @@ func TestSourceReplyRemainsOrdinaryFrozenReplyWithoutSendApproval(t *testing.T) 
 	}
 }
 
-func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.T) {
+func TestBusinessApprovalResumeDoesNotAddDestinationApproval(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		writeTestOfficePackage(t, filepath.Join(cfg.root, "note.docx"), "word/document.xml")
 	})
@@ -386,50 +386,20 @@ func TestExternalSendApprovalResumePreservesStructuredWorkflowResult(t *testing.
 	st.SaveRun(dispatch.Run)
 	frozenRoute := dispatch.Run.Workflow.Route
 	frozenPlanDigest := dispatch.Run.Workflow.PlanDigest
-	pendingSend, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, run.ID)
-	if err != nil || !resumed || pendingSend.Run.State != "approval_pending" || len(pendingSend.Approvals) != 1 {
-		t.Fatalf("business approval did not advance to distinct send approval: resumed=%v result=%#v err=%v", resumed, pendingSend, err)
-	}
-	approval := pendingSend.Approvals[0]
-	if cleanOptionalString(approval.Arguments["message_control_action"]) != externalSendApprovalAction || approval.ToolCallID == call.ID {
-		t.Fatalf("business and send approvals were not distinct: business_call=%s send=%#v", call.ID, approval)
-	}
-	before := pendingSend.WorkflowResult
-	if before == nil || len(before.Content.Parts) != 1 || before.Content.Parts[0].Kind != app.MessagePartFile || before.Content.Parts[0].Disposition != app.MessageDispositionAttachment {
-		t.Fatalf("pre-approval structured content is incomplete: %#v", before)
-	}
-	if pendingSend.Run.Workflow == nil || !reflect.DeepEqual(pendingSend.Run.Workflow.Route, frozenRoute) || pendingSend.Run.Workflow.PlanDigest != frozenPlanDigest ||
-		pendingSend.Run.Workflow.Route.Slots.TargetRef != "note.docx" || pendingSend.Run.Workflow.Route.Slots.OutputRef != "note-sparkclaw-edit.docx" {
-		t.Fatalf("business approval resume changed the frozen document route or resources: %#v", pendingSend.Run.Workflow)
-	}
-	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *before, exactOnlyReturnRouteResolver{}); err != nil || deliverable {
-		t.Fatalf("structured pre-approval result was deliverable: deliverable=%v err=%v", deliverable, err)
-	}
-	resolved, err := st.ResolveApproval(approval.ID, "approved", "owner confirmed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved); err != nil {
-		t.Fatal(err)
-	}
 	after, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, run.ID)
-	if err != nil || !resumed || after.WorkflowResult == nil {
-		t.Fatalf("structured result did not resume: resumed=%v result=%#v err=%v", resumed, after, err)
+	if err != nil || !resumed || after.Run.State != "completed" || len(after.Approvals) != 0 || after.WorkflowResult == nil {
+		t.Fatalf("business approval did not complete directly: resumed=%v result=%#v err=%v", resumed, after, err)
 	}
-	if after.WorkflowResult.ReturnRoute != returnRoute || after.WorkflowResult.ID != before.ID ||
-		!reflect.DeepEqual(after.WorkflowResult.Content, before.Content) || !reflect.DeepEqual(after.WorkflowResult.References, before.References) {
-		t.Fatalf("structured workflow result changed across send approval: before=%#v after=%#v", before, after.WorkflowResult)
+	if len(after.WorkflowResult.Content.Parts) != 1 || after.WorkflowResult.Content.Parts[0].Kind != app.MessagePartFile ||
+		after.WorkflowResult.Content.Parts[0].Disposition != app.MessageDispositionAttachment {
+		t.Fatalf("approved structured content is incomplete: %#v", after.WorkflowResult)
 	}
 	if after.Run.Workflow == nil || !reflect.DeepEqual(after.Run.Workflow.Route, frozenRoute) || after.Run.Workflow.PlanDigest != frozenPlanDigest {
-		t.Fatalf("send approval resume changed the frozen document Workflow: %#v", after.Run.Workflow)
+		t.Fatalf("business approval resume changed the frozen document Workflow: %#v", after.Run.Workflow)
 	}
 	request, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *after.WorkflowResult, exactOnlyReturnRouteResolver{})
 	if err != nil || !deliverable || request.Target != returnRoute.EndpointID || request.IdempotencyKey != after.WorkflowResult.ID+":"+string(returnRoute.EndpointID) {
-		t.Fatalf("approved structured result delivery changed causation/idempotency: request=%#v deliverable=%v err=%v", request, deliverable, err)
-	}
-	if cleanOptionalString(approval.Arguments["owner_id"]) != session.OwnerID || cleanOptionalString(approval.Arguments["actor_id"]) != session.OwnerID ||
-		cleanOptionalString(approval.Arguments["idempotency_key"]) != "message_document" || cleanOptionalString(approval.Arguments["causation_id"]) != "cause_document" {
-		t.Fatalf("approval did not preserve identity and causation metadata: %#v", approval.Arguments)
+		t.Fatalf("approved structured result did not retain direct delivery: request=%#v deliverable=%v err=%v", request, deliverable, err)
 	}
 }
 

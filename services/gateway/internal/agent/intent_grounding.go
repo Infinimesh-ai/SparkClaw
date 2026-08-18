@@ -22,6 +22,7 @@ type intentGroundingProjection struct {
 	WorkspaceRoot string
 	SessionID     string
 	RunID         string
+	ExternalMCP   bool
 }
 
 func (r Runtime) projectIntentGrounding(sessionID, runID, content string, documents documentContextResolution) intentGroundingProjection {
@@ -29,6 +30,9 @@ func (r Runtime) projectIntentGrounding(sessionID, runID, content string, docume
 	if r.store != nil {
 		if session, ok := r.store.GetSession(sessionID); ok {
 			projection.WorkspaceRoot = session.WorkspaceRoot
+		}
+		if run, ok := r.store.GetRun(runID); ok && run.MessageContext != nil {
+			projection.ExternalMCP = isExternalMCPInvocation(run.MessageContext.MCP)
 		}
 	}
 	if strings.TrimSpace(projection.WorkspaceRoot) == "" && r.tools != nil {
@@ -143,7 +147,13 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 		target := compatible[0]
 		if target.Kind == "workspace_path" {
 			edit := candidate.Route.Operation == app.RouteOperationEdit || candidate.Route.Operation == app.RouteOperationTransform
-			preflight, err := preflightDocumentPath(grounding.WorkspaceRoot, target.Ref, edit)
+			var preflight documentPreflight
+			var err error
+			if grounding.ExternalMCP {
+				preflight, err = preflightExternalMCPDocumentPath(target.Ref, edit)
+			} else {
+				preflight, err = preflightDocumentPath(grounding.WorkspaceRoot, target.Ref, edit)
+			}
 			if err != nil {
 				base.Status, base.Slots, base.Facts = app.RouteBlocked, app.RouteSlots{}, nil
 				base.Reason = "document_preflight_failed: " + err.Error()
@@ -162,7 +172,7 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 			}
 			target.Facts["path"] = preflight.InputRef
 			target.Facts["document_format"] = preflight.Format
-			if r.store != nil {
+			if r.store != nil && !grounding.ExternalMCP {
 				record := r.confirmDocumentRecord(grounding.SessionID, grounding.RunID, target.Document, preflight)
 				target.Facts["document_id"] = record.ID
 				target.Facts["document_source"] = record.Source

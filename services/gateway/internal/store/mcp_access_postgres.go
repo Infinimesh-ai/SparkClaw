@@ -93,8 +93,8 @@ func (s *PostgresStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPee
 	}, now)
 	binding.LinkedSessionID = "s_" + binding.ID
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO sessions (id,owner_id,title,source,hidden,created_at,updated_at) VALUES ($1,$2,$3,'mcp',true,$4,$4)
-	`, binding.LinkedSessionID, binding.OwnerID, "External MCP", now); err != nil {
+		INSERT INTO sessions (id,owner_id,title,source,hidden,created_at,updated_at) VALUES ($1,$2,$3,'mcp',false,$4,$4)
+	`, binding.LinkedSessionID, binding.OwnerID, mcpSessionTitle(binding.RequesterDeviceID), now); err != nil {
 		return app.MCPBinding{}, err
 	}
 	if _, err := tx.Exec(ctx, `

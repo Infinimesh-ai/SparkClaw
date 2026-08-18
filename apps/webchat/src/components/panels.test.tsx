@@ -51,6 +51,61 @@ describe("ApprovalPanel Happy plans", () => {
   });
 });
 
+describe("ApprovalPanel context-bound approvals", () => {
+  it("keeps approve and reject actions but omits argument editing", () => {
+    const approval: Approval = {
+      ...happyApproval("available"),
+      id: "ap-workspace",
+      source: "tool",
+      external_context: undefined,
+      tool: "workspace.data.access",
+      risk: "read",
+      summary: "Approve workspace.data.access",
+      arguments: { locators: [{ path: "report.txt" }] },
+      policy_context: { principal_class: "external_mcp_ai", contract_digest: "frozen" },
+      presentation: {
+        kind: "external_mcp_workspace_data_access",
+        session_id: "session-mcp",
+        requester: "AI · device-a",
+        locators: [{ path: "report.txt", caption: "Quarterly report" }],
+        locator_status: "unverified",
+        access_class: "workspace_source_read",
+        output_class: "document_content",
+        return_route: { mode: "source", source_endpoint_id: "mcp:binding-a" },
+        scope: "single_operation"
+      }
+    };
+    const markup = renderToStaticMarkup(
+      <ApprovalPanel approvals={[approval]} text={dictionaries.en} onResolve={() => {}} onModify={() => {}} onModifyPlan={() => {}} />
+    );
+    expect(markup).toContain(dictionaries.en.common.approve);
+    expect(markup).toContain(dictionaries.en.common.reject);
+    expect(markup).toContain(dictionaries.en.approval.workspaceDataTitle);
+    expect(markup).toContain("AI · device-a");
+    expect(markup).toContain("Quarterly report");
+    expect(markup).toContain("report.txt");
+    expect(markup).toContain(dictionaries.en.approval.unverified);
+    expect(markup).toContain(dictionaries.en.approval.originalMCPConversation);
+    expect(markup).not.toContain(dictionaries.en.approval.editArguments);
+  });
+
+  it("disables both decisions while the approval request is resolving", () => {
+    const approval: Approval = {
+      ...happyApproval("available"),
+      id: "ap-resolving",
+      source: "tool",
+      external_context: undefined,
+      tool: "workspace.data.access",
+      policy_context: { principal_class: "external_mcp_ai" }
+    };
+    const markup = renderToStaticMarkup(
+      <ApprovalPanel approvals={[approval]} text={dictionaries.en} resolvingId={approval.id} onResolve={() => {}} onModify={() => {}} onModifyPlan={() => {}} />
+    );
+    expect(markup.match(/disabled/g)?.length).toBe(2);
+    expect(markup).toContain('class="lucide lucide-refresh-cw spin"');
+  });
+});
+
 describe("SettingsPanel External MCP", () => {
   it("renders MCP through its dedicated management surface instead of a message binding card", () => {
     const connector: ConnectorStatus = {

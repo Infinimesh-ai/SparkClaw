@@ -457,6 +457,47 @@ func directMCPRequest(handler http.Handler, body, bearer, sessionID string) *htt
 	return response
 }
 
+func TestSuppressedCrossTargetResultStillUpdatesMCPApprovalState(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+	ref := app.MCPInvocationRef{
+		InvocationID: "inv-cross-target", OperationID: "op-cross-target", BindingRef: "binding-cross-target",
+		BindingRevision: 1, RequesterDeviceID: "device-cross-target",
+	}
+	_, created, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "cross-target", Fingerprint: "cross-target",
+		Invocation: app.MCPInvocationContext{
+			ID: ref.InvocationID, OperationID: ref.OperationID, BindingRef: ref.BindingRef,
+			BindingRevision: ref.BindingRevision, RequesterDeviceID: ref.RequesterDeviceID, RunID: "run-cross-target",
+		},
+		State: app.MCPOperationRunning,
+	})
+	if err != nil || !created {
+		t.Fatalf("create MCP operation: created=%v err=%v", created, err)
+	}
+	result := agent.Result{
+		Run: app.AgentRun{ID: "run-cross-target"},
+		WorkflowResult: &app.WorkflowResult{
+			RunID: "run-cross-target", Status: app.WorkflowResultWaiting,
+			Content:     app.MessageContent{Parts: []app.MessagePart{{Kind: app.MessagePartText, Text: "private workspace content"}}},
+			ReturnRoute: app.ReturnRoute{Mode: app.ReturnNowhere}, MCP: &ref,
+		},
+	}
+	receipt, err := server.deliverAgentResult(t.Context(), result)
+	if err != nil || receipt != nil {
+		t.Fatalf("suppressed result delivery = %#v, err=%v", receipt, err)
+	}
+	operation, _ := st.GetMCPOperation(ref.OperationID)
+	if operation.State != app.MCPOperationApprovalRequired || operation.CompletedAt != nil ||
+		strings.Contains(string(operation.Result), "private workspace content") {
+		t.Fatalf("suppressed result did not safely update MCP approval state: %#v", operation)
+	}
+}
+
 func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 	st := store.NewMemoryStore()
 	server := &Server{store: st}
@@ -479,6 +520,34 @@ func TestValidateMCPApprovalRequiresLiveOperation(t *testing.T) {
 	}
 	if err := server.validateMCPApproval(approval); err == nil {
 		t.Fatal("approval succeeded after the MCP operation became terminal")
+	}
+}
+
+func TestWorkspaceApprovalPresentationUsesFrozenContextAndManagedSessionTitle(t *testing.T) {
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("AI · device-a", app.DefaultOwnerID, "", "mcp", false)
+	server := &Server{store: st}
+	approval := app.Approval{
+		SessionID: session.ID,
+		Tool:      app.ToolWorkspaceDataAccess,
+		Arguments: map[string]any{
+			"locators":   []any{map[string]any{"query": "quarterly report", "caption": "Latest report"}},
+			"invocation": map[string]any{"requester_device_id": "untrusted-display-override"},
+		},
+		PolicyContext: &app.PolicyExecutionContext{
+			PrincipalClass: app.PolicyPrincipalExternalMCPAI,
+			ResourceClass:  app.PolicyResourceSparkClawWorkspaceData,
+			AccessClass:    app.PolicyAccessWorkspaceDerivativeDisclosure,
+			OutputClass:    "response_media",
+			ReturnRoute:    app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: "mcp:binding-a"},
+		},
+	}
+	presentation := server.approvalPresentation(approval)
+	if presentation == nil || presentation.Requester != session.Title || presentation.Requester == "untrusted-display-override" ||
+		presentation.LocatorStatus != "unverified" || len(presentation.Locators) != 1 || presentation.Locators[0].Query != "quarterly report" ||
+		presentation.AccessClass != app.PolicyAccessWorkspaceDerivativeDisclosure || presentation.OutputClass != "response_media" ||
+		presentation.ReturnRoute.SourceEndpointID != "mcp:binding-a" || presentation.Scope != "single_operation" {
+		t.Fatalf("workspace approval presentation did not preserve its display contract: %#v", presentation)
 	}
 }
 

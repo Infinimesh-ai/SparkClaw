@@ -33,6 +33,15 @@ func TestRetiredPatchToolIsNotRegistered(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDataAccessToolIsRuntimeOnly(t *testing.T) {
+	hub := New(config.Default(), store.NewMemoryStore())
+	definition, ok := hub.Definition(app.ToolWorkspaceDataAccess)
+	if !ok || definition.Risk != app.RiskRead || definition.RequiresApproval || len(definition.Capabilities) != 0 ||
+		len(definition.Directory.Effects) != 1 || definition.Directory.Effects[0] != app.ToolEffectWorkspaceRead {
+		t.Fatalf("workspace data confirmation is outside its Runtime-only read boundary: %#v", definition)
+	}
+}
+
 func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.Web.Search.Enabled = true

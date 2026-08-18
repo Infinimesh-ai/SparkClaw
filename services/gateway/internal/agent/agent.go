@@ -148,12 +148,13 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		messageID = app.NewID("m")
 	}
 	message := app.Message{
-		ID:          messageID,
-		SessionID:   sessionID,
-		Role:        "user",
-		Content:     visibleContent,
-		Attachments: attachments,
-		CreatedAt:   time.Now().UTC(),
+		ID:             messageID,
+		SessionID:      sessionID,
+		Role:           "user",
+		Content:        visibleContent,
+		Attachments:    attachments,
+		RequestedMedia: append([]app.MessageMediaLocator(nil), mediaLocators...),
+		CreatedAt:      time.Now().UTC(),
 	}
 	session, ok := r.store.GetSession(sessionID)
 	if !ok {
@@ -313,6 +314,11 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		return result, nil
 	}
 	run = dispatch.Run
+	if run.State == "approval_pending" {
+		result := r.resultForExistingRun(run)
+		result.Approvals = approvalsForRun(r.store.ListApprovals("pending"), run.ID)
+		return result, nil
+	}
 	run.State = "executing"
 	r.store.SaveRun(run)
 
@@ -347,7 +353,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	}
 	run.Summary = r.applyGroundedSummary(sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
 	if emit != nil && run.State == "completed" && !execution.FinalAnswerStreamed && len(approvals) == 0 &&
-		execution.BrowserLoginBlock == nil && !r.isExternalMediaPublication(run) {
+		execution.BrowserLoginBlock == nil && !isEndpointMediaPublication(run) {
 		if err := emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit); err != nil {
 			r.store.AddAudit(app.AuditEvent{
 				SessionID: sessionID,
@@ -360,11 +366,6 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 				},
 			})
 		}
-	}
-	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
-		toolCalls = append(toolCalls, call)
-		approvals = append(approvals, approval)
-		currentToolCalls = append(currentToolCalls, call)
 	}
 	r.store.SaveRun(run)
 	allToolCalls := currentToolCalls
@@ -407,7 +408,7 @@ func finalizeWorkflowRunState(run *app.AgentRun, execution workflowExecutionResu
 }
 
 func (r Runtime) resultForExistingRun(run app.AgentRun) Result {
-	suppressAssistant := r.isExternalMediaPublication(run)
+	suppressAssistant := isEndpointMediaPublication(run)
 	message := app.Message{}
 	if !suppressAssistant {
 		message = app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary}
@@ -453,10 +454,14 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	if approvalsStillPending(r.store.ListApprovals("pending"), runID) {
 		return Result{}, false, nil
 	}
-	if result, handled, err := r.resumeExternalSendApproval(ctx, run); handled || err != nil {
-		return result, handled, err
+	if legacy := r.legacyExternalSendApprovalForRun(runID); legacy != nil {
+		result := r.blockLegacyExternalSendApproval(ctx, run, *legacy)
+		return result, true, nil
 	}
 	content := requestContentForRun(r.store.ListMessages(sessionID), run)
+	if result, handled, err := r.resumeMCPWorkspaceDataApproval(ctx, run, content); handled || err != nil {
+		return result, handled, err
+	}
 	if strings.TrimSpace(content) == "" {
 		return Result{}, false, nil
 	}
@@ -539,10 +544,6 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	run.State = "completed"
 	run.CompletedAt = &now
 	run.Summary = summary
-	queuedCall, queuedApproval, queued := r.queueExternalSendApproval(&run)
-	if queued {
-		currentToolCalls = append(currentToolCalls, queuedCall)
-	}
 	r.store.SaveRun(run)
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
 	feedback := r.store.ListRunFeedback(run.ID)
@@ -577,10 +578,6 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 	})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
-	if queued {
-		result.ToolCalls = append(result.ToolCalls, queuedCall)
-		result.Approvals = append(result.Approvals, queuedApproval)
-	}
 	if run.MessageContext != nil {
 		route := run.MessageContext.Route
 		result.RouteDecision = &route
@@ -1017,7 +1014,9 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 		r.store.SaveToolCall(call)
 		return call, nil, call.ObservationSummary
 	}
-	decision := r.policy.Decide(def, plan.Args)
+	executionContext := r.toolPolicyExecutionContext(runID, def, plan.Args)
+	call.PolicyContext = persistedPolicyExecutionContext(executionContext)
+	decision := r.policy.DecideWithContext(def, plan.Args, executionContext)
 	if !decision.Allowed {
 		call.Status = "blocked"
 		call.Error = decision.Reason
@@ -1057,19 +1056,20 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			})
 		}
 		approval := app.Approval{
-			ID:         app.NewID("ap"),
-			Source:     app.ApprovalSourceTool,
-			SessionID:  sessionID,
-			RunID:      runID,
-			ToolCallID: call.ID,
-			Tool:       plan.Name,
-			Risk:       def.Risk,
-			Status:     "pending",
-			Summary:    r.approvalSummaryForPlan(runID, plan.Name, plan.Args),
-			Reason:     decision.Reason,
-			Resources:  decision.Resources,
-			Arguments:  plan.Args,
-			CreatedAt:  time.Now().UTC(),
+			ID:            app.NewID("ap"),
+			Source:        app.ApprovalSourceTool,
+			SessionID:     sessionID,
+			RunID:         runID,
+			ToolCallID:    call.ID,
+			Tool:          plan.Name,
+			Risk:          def.Risk,
+			Status:        "pending",
+			Summary:       r.approvalSummaryForPlan(runID, plan.Name, plan.Args),
+			Reason:        decision.Reason,
+			Resources:     decision.Resources,
+			Arguments:     plan.Args,
+			CreatedAt:     time.Now().UTC(),
+			PolicyContext: persistedPolicyExecutionContext(executionContext),
 		}
 		call.Status = "approval_pending"
 		call.ApprovalID = approval.ID

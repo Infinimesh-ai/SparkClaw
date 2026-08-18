@@ -93,8 +93,11 @@ func TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound(t *testing.T) {
 	if !ok || binding.OwnerID != ticket.OwnerID || binding.ActorID != ticket.ActorID || binding.RequesterDeviceID == binding.ActorID {
 		t.Fatalf("binding did not preserve requester/executor separation: %#v ok=%v", binding, ok)
 	}
-	if session, ok := st.GetSession(binding.LinkedSessionID); !ok || !session.Hidden || session.OwnerID != binding.OwnerID {
+	if session, ok := st.GetSession(binding.LinkedSessionID); !ok || session.Hidden || session.OwnerID != binding.OwnerID || session.Title != "AI · device-a" || session.Source != "mcp" {
 		t.Fatalf("binding session was not created atomically: %#v ok=%v", session, ok)
+	}
+	if sessions := st.ListSessions(); len(sessions) != 1 || sessions[0].ID != binding.LinkedSessionID {
+		t.Fatalf("binding conversation was not visible in the ordinary session list: %#v", sessions)
 	}
 	if _, ok := st.FindMCPBindingForPeer(peer.DomainID, "device-b", peer.KeyThumbprint); ok {
 		t.Fatal("device substitution found a binding")
@@ -135,8 +138,64 @@ func TestFileStorePersistsMCPAccessWithoutPlaintextSecret(t *testing.T) {
 	if got, ok := reloaded.GetMCPOperation(operation.ID); !ok || got.Invocation.ID != "inv-file" {
 		t.Fatalf("operation did not persist: %#v ok=%v", got, ok)
 	}
+	if session, ok := reloaded.GetSession(binding.LinkedSessionID); !ok || session.Hidden || session.Title != "AI · device-file" {
+		t.Fatalf("visible MCP conversation did not survive restart: %#v ok=%v", session, ok)
+	}
 	if got, ok := reloaded.FindMCPAccessTicketBySecretHash(ticket.SecretHash); !ok || got.SecretHash != "sha256-only" {
 		t.Fatalf("ticket hash did not persist: %#v ok=%v", got, ok)
+	}
+}
+
+func TestFileStoreNormalizesLegacyHiddenMCPConversation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-mcp-state.json")
+	now := time.Now().UTC()
+	binding := app.MCPBinding{
+		ID: "mcp_binding_legacy", OwnerID: app.DefaultOwnerID, RequesterDeviceID: "legacy-device-identifier",
+		LinkedSessionID: "s_mcp_binding_legacy", CreatedAt: now, UpdatedAt: now,
+	}
+	snapshot := Snapshot{
+		Sessions: map[string]app.Session{binding.LinkedSessionID: {
+			ID: binding.LinkedSessionID, OwnerID: binding.OwnerID, Title: "External MCP", Source: "mcp", Hidden: true,
+		}},
+		MCPBindings: map[string]app.MCPBinding{binding.ID: binding},
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, ok := st.GetSession(binding.LinkedSessionID)
+	if !ok || session.Hidden || session.Title != "AI · legacy-devic" || session.Source != "mcp" {
+		t.Fatalf("legacy MCP conversation was not normalized: %#v ok=%v", session, ok)
+	}
+}
+
+func TestFileStorePersistsRequestedMediaRequirements(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "requested-media-state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, "", "mcp", false)
+	st.AddMessage(app.Message{
+		SessionID: session.ID, Role: "user", Content: "",
+		RequestedMedia: []app.MessageMediaLocator{{Name: "report.pdf", Caption: "Latest report"}},
+	})
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := reloaded.ListMessages(session.ID)
+	if len(messages) != 1 || strings.TrimSpace(messages[0].Content) != "" || len(messages[0].Attachments) != 0 ||
+		len(messages[0].RequestedMedia) != 1 || messages[0].RequestedMedia[0].Name != "report.pdf" ||
+		messages[0].RequestedMedia[0].Caption != "Latest report" {
+		t.Fatalf("requested media requirement did not survive file Store restart: %#v", messages)
 	}
 }
 

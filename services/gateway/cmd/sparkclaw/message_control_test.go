@@ -81,7 +81,7 @@ func TestEndpointMessageControlRouterRejectsMismatchedSourceRoute(t *testing.T) 
 	}
 }
 
-func TestTypedRouterFreezesEndpointAndApprovalProtectsConversationSend(t *testing.T) {
+func TestTypedRouterFreezesEndpointWithoutDestinationApproval(t *testing.T) {
 	cfg := integrationTestConfig(t)
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -97,16 +97,16 @@ MOCK_CONVERSATION_RESPONSE:Greeting ready.`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Run.State != "approval_pending" || result.Run.MessageContext == nil ||
+	if result.Run.State != "completed" || result.Run.MessageContext == nil ||
 		result.Run.MessageContext.ReturnRoute.Mode != app.ReturnToEndpoint || result.Run.MessageContext.ReturnRoute.EndpointID != "chat-c" ||
 		result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || len(result.RouteDecision.CapabilityPath) != 2 ||
-		result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer || len(result.Approvals) != 1 || len(result.ToolCalls) != 1 ||
-		result.ToolCalls[0].Tool != "notify.ask_approval" || result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultWaiting ||
-		result.WorkflowResult.ReturnRoute.Mode != app.ReturnNowhere {
-		t.Fatalf("conversation send did not enter the exact endpoint approval boundary: %#v", result)
+		result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer || len(result.Approvals) != 0 || len(result.ToolCalls) != 0 ||
+		result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultSucceeded ||
+		result.WorkflowResult.ReturnRoute.Mode != app.ReturnToEndpoint || result.WorkflowResult.ReturnRoute.EndpointID != "chat-c" {
+		t.Fatalf("conversation send did not preserve the exact authorized endpoint: %#v", result)
 	}
-	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *result.WorkflowResult, messagecontrol.NewReturnRouteResolver(endpoints)); err != nil || deliverable {
-		t.Fatalf("unapproved conversation result became deliverable: deliverable=%v err=%v", deliverable, err)
+	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *result.WorkflowResult, messagecontrol.NewReturnRouteResolver(endpoints)); err != nil || !deliverable {
+		t.Fatalf("authorized conversation result was not deliverable: deliverable=%v err=%v", deliverable, err)
 	}
 }
 

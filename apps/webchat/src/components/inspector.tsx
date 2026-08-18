@@ -114,15 +114,21 @@ export function InspectorColumn({
   setOwnerProfile
 }: InspectorColumnProps) {
   const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
+  const [resolvingApprovalId, setResolvingApprovalId] = useState("");
 
   async function resolveApproval(id: string, accepted: boolean) {
+    if (resolvingApprovalId) return;
     try {
       setError("");
+      setResolvingApprovalId(id);
       if (accepted) await api.approve(id);
       else await api.reject(id);
       await Promise.all([refreshGlobal(), refreshActiveSession()]);
     } catch (err) {
       surfaceError(err, text.errors.approval);
+      await Promise.allSettled([refreshGlobal(), refreshActiveSession()]);
+    } finally {
+      setResolvingApprovalId("");
     }
   }
 
@@ -314,6 +320,7 @@ export function InspectorColumn({
         <ApprovalPanel
           approvals={approvals}
           text={text}
+          resolvingId={resolvingApprovalId}
           onResolve={(id, accepted) => void resolveApproval(id, accepted)}
           onModify={(id, args) => void modifyApproval(id, args)}
           onModifyPlan={(id, plan) => void modifyApprovalPlan(id, plan)}

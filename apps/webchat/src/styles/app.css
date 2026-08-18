@@ -1375,6 +1375,38 @@ button:disabled {
   background: rgba(96, 208, 68, 0.12);
 }
 
+.requestedMedia {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.requestedMedia > small {
+  color: var(--text-muted);
+}
+
+.requestedMediaItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  max-width: min(100%, 420px);
+  padding: 7px 9px;
+  border-left: 2px solid var(--amber-warning);
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+}
+
+.requestedMediaItem > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.requestedMediaItem strong,
+.requestedMediaItem span span {
+  overflow-wrap: anywhere;
+}
+
 .streamStatusList {
   display: flex;
   flex-wrap: wrap;
@@ -2349,6 +2381,94 @@ button.finderRow {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.workspaceApprovalDetails {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.workspaceApprovalDetails small,
+.workspaceApprovalDetails dt {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.workspaceApprovalIdentity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspaceApprovalIdentity > span {
+  display: grid;
+  gap: 2px;
+}
+
+.workspaceApprovalLocators {
+  display: grid;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.workspaceApprovalLocators > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--amber-warning);
+}
+
+.workspaceApprovalLocators span,
+.workspaceApprovalLocators code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspaceApprovalLocators code {
+  grid-column: 1;
+  max-height: none;
+  padding: 0;
+  background: transparent;
+}
+
+.workspaceApprovalLocators em {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  color: var(--amber-warning);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.workspaceApprovalDetails dl {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.65fr) minmax(0, 1.35fr);
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.workspaceApprovalDetails dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspaceApprovalDetails details summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.workspaceApprovalDetails details .jsonBlock {
+  margin-top: 7px;
+}
+
+.approvalItem .buttonRow .spin {
+  animation: schedule-spin 0.9s linear infinite;
 }
 
 .jsonBlock {

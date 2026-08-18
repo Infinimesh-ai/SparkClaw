@@ -2,11 +2,11 @@
 // workspace images/screenshots, and stream status lines.
 import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Bot, Check, Download, FileSearch, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
+import { Bot, Check, Download, FileQuestion, FileSearch, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
 import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
 import { MESSAGE_STREAM_STARTED_EVENT } from "../lib/messageStream";
-import type { Message, MessageAttachment } from "../api/types";
+import type { Message, MessageAttachment, MessageMediaLocator } from "../api/types";
 import type { Copy, Language } from "../i18n";
 
 export type StreamStatus = {
@@ -20,12 +20,14 @@ export function MessageBubble({
   streamStatuses,
   text,
   language,
+  sessionSource,
   onFeedback
 }: {
   message: Message;
   streamStatuses: StreamStatus[];
   text: Copy;
   language: Language;
+  sessionSource?: string;
   onFeedback: (rating: "up" | "down" | "corrected", correction?: string) => Promise<void>;
 }) {
   const [correction, setCorrection] = useState("");
@@ -47,7 +49,7 @@ export function MessageBubble({
   return (
     <article className={`message ${message.role}`}>
       <div className="messageMeta">
-        <span>{message.role === "user" ? text.chat.you : text.chat.assistant}</span>
+        <span>{message.role === "user" ? (sessionSource === "mcp" ? text.chat.requirement : text.chat.you) : text.chat.assistant}</span>
         <time>{formatTime(message.created_at, language)}</time>
       </div>
       {message.attachments && message.attachments.length > 0 && (
@@ -55,6 +57,9 @@ export function MessageBubble({
       )}
       {streamStatuses.length > 0 && <StreamStatusList statuses={streamStatuses} />}
       {message.content.trim() && <MessageContent content={message.content} sessionId={message.session_id} text={text} />}
+      {message.requested_media && message.requested_media.length > 0 && (
+        <RequestedMedia locators={message.requested_media} text={text} />
+      )}
       {message.role === "assistant" && message.run_id && (
         <div className="feedbackBar">
           <button onClick={() => void submit("up")} disabled={saving} title={text.chat.helpful}>
@@ -76,6 +81,26 @@ export function MessageBubble({
         </div>
       )}
     </article>
+  );
+}
+
+export function RequestedMedia({ locators, text }: { locators: MessageMediaLocator[]; text: Copy }) {
+  return (
+    <div className="requestedMedia" aria-label={text.chat.requestedMedia}>
+      <small>{text.chat.requestedMediaUnverified}</small>
+      {locators.map((locator, index) => {
+        const value = locator.path || locator.name || locator.query || text.common.notSet;
+        return (
+          <div className="requestedMediaItem" key={`${value}-${index}`}>
+            <FileQuestion size={15} />
+            <span>
+              {locator.caption && <strong>{locator.caption}</strong>}
+              <span>{value}</span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

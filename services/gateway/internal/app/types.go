@@ -16,6 +16,38 @@ const (
 	RiskDangerous  RiskLevel = "dangerous"
 )
 
+type PolicyPrincipalClass string
+type PolicyResourceClass string
+type PolicyAccessClass string
+
+const (
+	PolicyPrincipalExternalMCPAI PolicyPrincipalClass = "external_mcp_ai"
+
+	PolicyResourceSparkClawWorkspaceData PolicyResourceClass = "sparkclaw_workspace_data"
+
+	PolicyAccessWorkspaceSourceRead           PolicyAccessClass = "workspace_source_read"
+	PolicyAccessWorkspaceDerivativeDisclosure PolicyAccessClass = "workspace_derivative_disclosure"
+)
+
+// PolicyExecutionContext persists authenticated invocation and governed
+// resource facts that may only strengthen a ToolDefinition decision.
+type PolicyExecutionContext struct {
+	SchemaVersion    int                  `json:"schema_version"`
+	PrincipalClass   PolicyPrincipalClass `json:"principal_class,omitempty"`
+	ResourceClass    PolicyResourceClass  `json:"resource_class,omitempty"`
+	AccessClass      PolicyAccessClass    `json:"access_class,omitempty"`
+	RunID            string               `json:"run_id,omitempty"`
+	OwnerID          string               `json:"owner_id,omitempty"`
+	Authorization    MessageAuthorization `json:"authorization,omitempty"`
+	WorkflowID       WorkflowID           `json:"workflow_id,omitempty"`
+	WorkflowRevision int                  `json:"workflow_revision,omitempty"`
+	PlanDigest       string               `json:"plan_digest,omitempty"`
+	MCP              *MCPInvocationRef    `json:"mcp,omitempty"`
+	ReturnRoute      ReturnRoute          `json:"return_route,omitempty"`
+	OutputClass      string               `json:"output_class,omitempty"`
+	ContractDigest   string               `json:"contract_digest,omitempty"`
+}
+
 type ToolDefinition struct {
 	Name             string                 `json:"name"`
 	Title            string                 `json:"title,omitempty"`
@@ -35,25 +67,26 @@ type ToolDefinition struct {
 }
 
 type ToolCall struct {
-	ID                 string         `json:"id"`
-	SessionID          string         `json:"session_id"`
-	RunID              string         `json:"run_id"`
-	Tool               string         `json:"tool"`
-	Risk               RiskLevel      `json:"risk"`
-	Status             string         `json:"status"`
-	Arguments          map[string]any `json:"arguments"`
-	Result             any            `json:"result,omitempty"`
-	Error              string         `json:"error,omitempty"`
-	ErrorCode          string         `json:"error_code,omitempty"`
-	ApprovalID         string         `json:"approval_id,omitempty"`
-	StartedAt          time.Time      `json:"started_at"`
-	CompletedAt        *time.Time     `json:"completed_at,omitempty"`
-	ObservationRef     string         `json:"observation_ref,omitempty"`
-	ObservationSummary string         `json:"observation_summary,omitempty"`
-	WorkflowID         WorkflowID     `json:"workflow_id,omitempty"`
-	WorkflowNodeID     WorkflowNodeID `json:"workflow_node_id,omitempty"`
-	ScopeRevision      int            `json:"scope_revision,omitempty"`
-	Capability         string         `json:"capability,omitempty"`
+	ID                 string                  `json:"id"`
+	SessionID          string                  `json:"session_id"`
+	RunID              string                  `json:"run_id"`
+	Tool               string                  `json:"tool"`
+	Risk               RiskLevel               `json:"risk"`
+	Status             string                  `json:"status"`
+	Arguments          map[string]any          `json:"arguments"`
+	Result             any                     `json:"result,omitempty"`
+	Error              string                  `json:"error,omitempty"`
+	ErrorCode          string                  `json:"error_code,omitempty"`
+	ApprovalID         string                  `json:"approval_id,omitempty"`
+	StartedAt          time.Time               `json:"started_at"`
+	CompletedAt        *time.Time              `json:"completed_at,omitempty"`
+	ObservationRef     string                  `json:"observation_ref,omitempty"`
+	ObservationSummary string                  `json:"observation_summary,omitempty"`
+	WorkflowID         WorkflowID              `json:"workflow_id,omitempty"`
+	WorkflowNodeID     WorkflowNodeID          `json:"workflow_node_id,omitempty"`
+	ScopeRevision      int                     `json:"scope_revision,omitempty"`
+	Capability         string                  `json:"capability,omitempty"`
+	PolicyContext      *PolicyExecutionContext `json:"policy_context,omitempty"`
 }
 
 type Approval struct {
@@ -74,6 +107,20 @@ type Approval struct {
 	CreatedAt       time.Time                `json:"created_at"`
 	ResolvedAt      *time.Time               `json:"resolved_at,omitempty"`
 	ResolutionNote  string                   `json:"resolution_note,omitempty"`
+	PolicyContext   *PolicyExecutionContext  `json:"policy_context,omitempty"`
+	Presentation    *ApprovalPresentation    `json:"presentation,omitempty"`
+}
+
+type ApprovalPresentation struct {
+	Kind          string                `json:"kind"`
+	SessionID     string                `json:"session_id"`
+	Requester     string                `json:"requester"`
+	Locators      []MessageMediaLocator `json:"locators,omitempty"`
+	LocatorStatus string                `json:"locator_status,omitempty"`
+	AccessClass   PolicyAccessClass     `json:"access_class,omitempty"`
+	OutputClass   string                `json:"output_class,omitempty"`
+	ReturnRoute   ReturnRoute           `json:"return_route"`
+	Scope         string                `json:"scope"`
 }
 
 type ApprovalSource string
@@ -236,18 +283,18 @@ type ExternalChatSession struct {
 }
 
 type ExternalChatMessage struct {
-	ID                string    `json:"id"`
-	ChatSessionID     string    `json:"chat_session_id"`
-	BindingID         string    `json:"binding_id"`
-	Channel           string    `json:"channel"`
-	Direction         string    `json:"direction"`
-	Role              string    `json:"role"`
-	ExternalMessageID string    `json:"external_message_id,omitempty"`
-	Content           string    `json:"content"`
-	ContextToken      string    `json:"context_token,omitempty"`
-	LinkedRunID       string    `json:"linked_run_id,omitempty"`
-	Status            string    `json:"status"`
-	Error             string    `json:"error,omitempty"`
+	ID                string `json:"id"`
+	ChatSessionID     string `json:"chat_session_id"`
+	BindingID         string `json:"binding_id"`
+	Channel           string `json:"channel"`
+	Direction         string `json:"direction"`
+	Role              string `json:"role"`
+	ExternalMessageID string `json:"external_message_id,omitempty"`
+	Content           string `json:"content"`
+	ContextToken      string `json:"context_token,omitempty"`
+	LinkedRunID       string `json:"linked_run_id,omitempty"`
+	Status            string `json:"status"`
+	Error             string `json:"error,omitempty"`
 	// PendingReplyKind and PendingReply carry the already-produced reply of a
 	// message whose provider delivery failed, so a redelivery retries only the
 	// send instead of re-running the workflow that produced the reply.
@@ -431,13 +478,14 @@ type MemoryExportCounts struct {
 }
 
 type Message struct {
-	ID          string              `json:"id"`
-	SessionID   string              `json:"session_id"`
-	Role        string              `json:"role"`
-	Content     string              `json:"content"`
-	CreatedAt   time.Time           `json:"created_at"`
-	RunID       string              `json:"run_id,omitempty"`
-	Attachments []MessageAttachment `json:"attachments,omitempty"`
+	ID             string                `json:"id"`
+	SessionID      string                `json:"session_id"`
+	Role           string                `json:"role"`
+	Content        string                `json:"content"`
+	CreatedAt      time.Time             `json:"created_at"`
+	RunID          string                `json:"run_id,omitempty"`
+	Attachments    []MessageAttachment   `json:"attachments,omitempty"`
+	RequestedMedia []MessageMediaLocator `json:"requested_media,omitempty"`
 }
 
 type MessageAttachment struct {

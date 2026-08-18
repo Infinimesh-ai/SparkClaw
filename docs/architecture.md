@@ -408,8 +408,21 @@ The SparkClaw-owned local runtime is implemented: strict MCP `2025-06-18`,
 hash-only single-use MCP Access Tickets, durable peer Bindings with schema-v2
 conversation scope, the single `sparkclaw.conversation.send` business tool,
 ordinary semantic routing, bounded filename-only Top-1 response-media
-resolution, shared Delivery, binding-scoped
+resolution behind a pre-discovery owner approval, shared Delivery, binding-scoped
 operation recovery, default-off channel gates, and redacted lifecycle audit.
+Each Binding owns a visible `AI · <short device ID>` conversation whose title
+and content lifecycle cannot be changed through ordinary session controls;
+requirements enter only through the authenticated Binding, and WebChat presents
+the conversation as read-only. Inbound media locators appear as unverified
+non-downloadable requirements. Binding revocation or record deletion retains
+the read-only conversation history. Workspace
+approvals expose a derived human-readable review projection while authorization
+continues to bind only the frozen tool arguments and authenticated policy
+context. Approval resolution returns after the decision is durable; detached
+Gateway work advances the MCP operation from `approval_required` through
+`running` to a distinct execution or delivery outcome while remaining bound to
+operation cancellation, Binding revocation, the invocation deadline, and
+Gateway shutdown.
 Encrypted Bridge tests carry the MCP request and response through an established
 ISCP session. Production external onboarding is not active until the configured
 ISCP authority implementing the configured PairingTicket endpoint, a deployable external
@@ -449,6 +462,32 @@ audio are not artifacts.
   Host-process Gateway debugging remains loopback-only.
 - Authenticated requests carry one owner/actor principal. Endpoint and schedule
   queries are owner-scoped.
+- ToolHub registration is the baseline approval authority. Policy may only
+  strengthen `RequiresApproval` and risk decisions through typed execution
+  context; requester text, channel, destination, and local-model participation
+  cannot lower or independently raise that baseline.
+- A persisted inbound MCP invocation represents an external-AI principal. Its
+  access to original or derived SparkClaw workspace data requires owner
+  approval before file/index discovery, metadata inspection, symlink
+  resolution, hashing, parsing, or content reads. The approval binds the MCP
+  identity, local owner/authorized principal, locator/query, Workflow plan,
+  output class, and return route.
+- Inbound MCP runs do not receive prior session messages, tool summaries,
+  memories, images, or episode summaries as implicit model context. Approved
+  current-run evidence remains available; explicit workspace locators enter the
+  governed access contract instead of inheriting cached derivatives.
+- One approved external-MCP workspace data contract covers its exact bound read
+  and frozen return/send. Delivery does not request a second approval. A changed
+  identity, locator, Workflow, output, or target fails closed; tool-native
+  reversible or dangerous approvals still apply and cannot be downgraded.
+- A frozen cross-channel result updates the originating durable MCP operation
+  after target delivery. A waiting result suppressed from that target still
+  records `approval_required`, so operation polling cannot remain stuck in
+  `running`; the MCP result does not duplicate the payload delivered elsewhere.
+- An authenticated human's explicit text, image, audio, file, mixed, or
+  multipart send is already authorized and gains no destination-only approval.
+  Persisted legacy `message_control.external_send` approvals cannot resume
+  delivery.
 - Reversible and dangerous effects require Policy approval; shell execution is
   sandboxed and network-disabled by default.
 - Browser URLs, artifact paths, workspace paths, and provider destinations are

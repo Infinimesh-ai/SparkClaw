@@ -44,8 +44,12 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if got := st.GetOwnerProfile(); got.DisplayName != "Postgres Owner" || got.Email != "pg-owner@example.test" || got.Preferences["tone"] != "brief" {
 		t.Fatalf("owner profile did not round trip: %#v", got)
 	}
-	message := st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "remember postgres"})
-	if messages := st.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID {
+	message := st.AddMessage(app.Message{
+		SessionID: session.ID, Role: "user", Content: "remember postgres",
+		RequestedMedia: []app.MessageMediaLocator{{Query: "quarterly report", Caption: "Latest report"}},
+	})
+	if messages := st.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID || len(messages[0].RequestedMedia) != 1 ||
+		messages[0].RequestedMedia[0].Query != "quarterly report" || messages[0].RequestedMedia[0].Caption != "Latest report" {
 		t.Fatalf("messages did not round trip: %#v", messages)
 	}
 	messageHead, err := st.MessageEventHead(session.ID)
@@ -83,6 +87,17 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if got, ok := st.GetRun(run.ID); !ok || got.Workflow == nil || got.Workflow.PlanDigest != "sha256:postgres-plan" || got.Workflow.Nodes["read"].Status != app.WorkflowNodeSucceeded {
 		t.Fatalf("workflow state did not round trip: %#v ok=%v", got, ok)
 	}
+	policyContext := &app.PolicyExecutionContext{
+		SchemaVersion: 1, PrincipalClass: app.PolicyPrincipalExternalMCPAI,
+		ResourceClass: app.PolicyResourceSparkClawWorkspaceData, AccessClass: app.PolicyAccessWorkspaceSourceRead,
+		RunID: run.ID, OwnerID: app.DefaultOwnerID, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID},
+		WorkflowID: app.WorkflowWebExplicitURL, WorkflowRevision: 1,
+		PlanDigest: "sha256:postgres-plan", ContractDigest: "sha256:postgres-policy-contract",
+		MCP: &app.MCPInvocationRef{
+			InvocationID: "inv-postgres-policy", OperationID: "op-postgres-policy", BindingRef: "binding-postgres-policy",
+			BindingRevision: 1, RequesterDeviceID: "device-postgres-policy",
+		},
+	}
 	call := app.ToolCall{
 		ID:                 app.NewID("tc"),
 		SessionID:          session.ID,
@@ -97,11 +112,14 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		Arguments:          map[string]any{"content": "postgres memory"},
 		Result:             map[string]any{"status": "ok"},
 		ObservationSummary: "memory.write_candidate returned 1 result(s). Observation bytes=15.",
+		PolicyContext:      policyContext,
 		StartedAt:          time.Now().UTC(),
 	}
 	st.SaveToolCall(call)
 	if got, ok := st.GetToolCall(call.ID); !ok || got.Arguments["content"] != "postgres memory" || got.ObservationSummary != call.ObservationSummary ||
-		got.WorkflowID != app.WorkflowWebExplicitURL || got.WorkflowNodeID != "read" || got.ScopeRevision != 1 || got.Capability != "web.page.read" {
+		got.WorkflowID != app.WorkflowWebExplicitURL || got.WorkflowNodeID != "read" || got.ScopeRevision != 1 || got.Capability != "web.page.read" ||
+		got.PolicyContext == nil || got.PolicyContext.ContractDigest != policyContext.ContractDigest ||
+		got.PolicyContext.MCP == nil || got.PolicyContext.MCP.RequesterDeviceID != policyContext.MCP.RequesterDeviceID {
 		t.Fatalf("tool call did not round trip: %#v ok=%v", got, ok)
 	}
 	documentRecord := st.SaveDocumentRecord(app.DocumentRecord{
@@ -141,26 +159,40 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	}
 
 	approval := app.Approval{
-		ID:         app.NewID("ap"),
-		SessionID:  session.ID,
-		RunID:      run.ID,
-		ToolCallID: call.ID,
-		Tool:       "memory.write_sensitive",
-		Risk:       app.RiskDangerous,
-		Status:     "pending",
-		Summary:    "Write sensitive memory",
-		Reason:     "test",
-		Resources:  []string{"memory"},
-		Arguments:  map[string]any{"content": "test"},
-		CreatedAt:  time.Now().UTC(),
+		ID:            app.NewID("ap"),
+		SessionID:     session.ID,
+		RunID:         run.ID,
+		ToolCallID:    call.ID,
+		Tool:          "memory.write_sensitive",
+		Risk:          app.RiskDangerous,
+		Status:        "pending",
+		Summary:       "Write sensitive memory",
+		Reason:        "test",
+		Resources:     []string{"memory"},
+		Arguments:     map[string]any{"content": "test"},
+		PolicyContext: policyContext,
+		CreatedAt:     time.Now().UTC(),
 	}
 	st.SaveApproval(approval)
 	resolved, err := st.ResolveApproval(approval.ID, "approved", "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Status != "approved" || resolved.ResolutionNote != "ok" {
+	if resolved.Status != "approved" || resolved.ResolutionNote != "ok" || resolved.PolicyContext == nil ||
+		resolved.PolicyContext.ContractDigest != policyContext.ContractDigest {
 		t.Fatalf("approval did not resolve: %#v", resolved)
+	}
+	restarted, err := NewPostgresStore(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	restartedCall, callOK := restarted.GetToolCall(call.ID)
+	restartedApproval, approvalOK := restarted.GetApproval(approval.ID)
+	if !callOK || !approvalOK || restartedCall.PolicyContext == nil || restartedApproval.PolicyContext == nil ||
+		restartedCall.PolicyContext.ContractDigest != policyContext.ContractDigest ||
+		restartedApproval.PolicyContext.ContractDigest != policyContext.ContractDigest {
+		t.Fatalf("policy context did not survive PostgreSQL reconnect: call=%#v approval=%#v", restartedCall, restartedApproval)
 	}
 	externalApproval := app.Approval{
 		ID: "ap_happy_postgres", Source: app.ApprovalSourceHappyTeamPlan,
@@ -410,6 +442,9 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	if _, err := st.UpdateMCPOperation(stale, operation.Version); !errors.Is(err, ErrMCPOperationVersionConflict) {
 		t.Fatalf("PostgreSQL stale operation update error = %v", err)
 	}
+	if _, err := st.db.Exec(context.Background(), `UPDATE sessions SET title='External MCP', hidden=true WHERE id=$1`, binding.LinkedSessionID); err != nil {
+		t.Fatal(err)
+	}
 	st.Close()
 
 	restarted, err := NewPostgresStore(context.Background(), dsn)
@@ -424,6 +459,9 @@ func TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery(t *testing.T) {
 	storedBinding, ok := restarted.GetMCPBinding(binding.ID)
 	if !ok || storedBinding.RequesterDeviceID != peer.DeviceID || storedBinding.LinkedSessionID == "" {
 		t.Fatalf("PostgreSQL binding did not recover: %#v ok=%v", storedBinding, ok)
+	}
+	if linked, ok := restarted.GetSession(storedBinding.LinkedSessionID); !ok || linked.Hidden || linked.Source != "mcp" || linked.Title != "AI · postgres-dev" {
+		t.Fatalf("PostgreSQL legacy MCP conversation was not normalized on restart: %#v ok=%v", linked, ok)
 	}
 	storedOperation, ok := restarted.GetMCPOperation(operation.ID)
 	if !ok || storedOperation.State != app.MCPOperationSucceeded || storedOperation.Version != first.Version {

@@ -1139,6 +1139,10 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if session, ok := s.store.GetSession(r.PathValue("id")); ok && session.Source == "mcp" {
+		writeError(w, http.StatusConflict, errors.New("MCP conversation titles are managed by the MCP binding"))
+		return
+	}
 	session, err := s.store.UpdateSessionTitle(r.PathValue("id"), input.Title)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -1152,6 +1156,10 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
+	if session, ok := s.store.GetSession(r.PathValue("id")); ok && session.Source == "mcp" {
+		writeError(w, http.StatusConflict, errors.New("MCP conversations are managed by the MCP binding"))
+		return
+	}
 	session, err := s.store.DeleteSession(r.PathValue("id"))
 	if err != nil {
 		status := http.StatusBadRequest
@@ -1173,6 +1181,10 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.store.GetSession(sessionID)
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	if session.Source == "mcp" {
+		writeError(w, http.StatusConflict, errors.New("MCP conversations receive requirements through their managed binding"))
 		return
 	}
 	var input webMessageInput
@@ -1233,6 +1245,10 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.store.GetSession(sessionID)
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	if session.Source == "mcp" {
+		writeError(w, http.StatusConflict, errors.New("MCP conversations receive requirements through their managed binding"))
 		return
 	}
 	var input webMessageInput
@@ -1546,7 +1562,46 @@ func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"approvals": s.store.ListApprovals(r.URL.Query().Get("status"))})
+	approvals := s.store.ListApprovals(r.URL.Query().Get("status"))
+	for index := range approvals {
+		approvals[index].Presentation = s.approvalPresentation(approvals[index])
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"approvals": approvals})
+}
+
+func (s *Server) approvalPresentation(approval app.Approval) *app.ApprovalPresentation {
+	if approval.Tool != app.ToolWorkspaceDataAccess || approval.PolicyContext == nil ||
+		approval.PolicyContext.PrincipalClass != app.PolicyPrincipalExternalMCPAI ||
+		approval.PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
+		return nil
+	}
+	locatorsRaw, ok := approval.Arguments["locators"]
+	if !ok {
+		return nil
+	}
+	raw, err := json.Marshal(locatorsRaw)
+	if err != nil {
+		return nil
+	}
+	var locators []app.MessageMediaLocator
+	if err := json.Unmarshal(raw, &locators); err != nil || len(locators) == 0 {
+		return nil
+	}
+	requester := "AI"
+	if session, ok := s.store.GetSession(approval.SessionID); ok && strings.TrimSpace(session.Title) != "" {
+		requester = session.Title
+	}
+	return &app.ApprovalPresentation{
+		Kind:          "external_mcp_workspace_data_access",
+		SessionID:     approval.SessionID,
+		Requester:     requester,
+		Locators:      locators,
+		LocatorStatus: "unverified",
+		AccessClass:   approval.PolicyContext.AccessClass,
+		OutputClass:   approval.PolicyContext.OutputClass,
+		ReturnRoute:   approval.PolicyContext.ReturnRoute,
+		Scope:         "single_operation",
+	}
 }
 
 func (s *Server) approveApproval(w http.ResponseWriter, r *http.Request) {
@@ -1598,6 +1653,10 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if call.Status != "approval_pending" {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("tool call cannot be modified from status %q", call.Status))
+		return
+	}
+	if approval.PolicyContext != nil {
+		writeError(w, http.StatusConflict, errors.New("context-bound workspace data approvals cannot be modified; reject and submit a new request"))
 		return
 	}
 	args := mergeApprovalArgs(approval.Arguments, newArgs)
@@ -1694,6 +1753,10 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
 		return
 	}
+	mcpRun := false
+	if run, ok := s.store.GetRun(approval.RunID); ok && run.MessageContext != nil && run.MessageContext.MCP != nil {
+		mcpRun = true
+	}
 	if status == "approved" {
 		if err := s.validateMCPApproval(approval); err != nil {
 			writeError(w, http.StatusConflict, err)
@@ -1709,9 +1772,28 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if status == "approved" && mcpRun && s.mcpAccess != nil {
+		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(approval.RunID)
+		if beginErr != nil {
+			s.refreshTrace(r.Context(), approval.RunID)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"approval": approval, "approval_status": approval.Status, "execution_status": operation.State,
+				"execution_error": beginErr.Error(), "tool_call": nil, "workflow_result": nil, "delivery_receipt": nil,
+			})
+			return
+		}
+		s.startApprovedMCPExecution(approval, executionCtx, finishExecution)
+		s.refreshTrace(r.Context(), approval.RunID)
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"approval": approval, "approval_status": approval.Status, "execution_status": operation.State,
+			"operation": operation, "tool_call": nil, "workflow_result": nil, "delivery_receipt": nil,
+		})
+		return
+	}
 	var call *app.ToolCall
 	var workflowResult *app.WorkflowResult
 	var deliveryReceipt *app.DeliveryReceipt
+	executionStatus := "not_started"
 	resumed := false
 	if status == "approved" {
 		executed, err := s.runtime.ExecuteApprovedToolCall(r.Context(), approval)
@@ -1720,12 +1802,19 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			return
 		}
 		call = &executed
+		executionStatus = "succeeded"
+		if strings.HasPrefix(executed.Status, "failed") {
+			executionStatus = "failed"
+		}
 		if result, ok, err := s.runtime.ResumeRunAfterApproval(r.Context(), approval.SessionID, approval.RunID); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		} else if ok {
 			resumed = true
 			workflowResult = result.WorkflowResult
+			if workflowResult != nil {
+				executionStatus = string(workflowResult.Status)
+			}
 			if receipt, err := s.deliverAgentResult(r.Context(), result); err != nil {
 				writeError(w, http.StatusBadGateway, err)
 				return
@@ -1747,8 +1836,88 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	if !resumed {
 		s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
 	}
+	if status == "rejected" && mcpRun && s.mcpAccess != nil {
+		s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_rejected", "The local owner rejected the pending action")
+		executionStatus = string(app.MCPOperationFailed)
+	}
 	s.refreshTrace(r.Context(), approval.RunID)
-	writeJSON(w, http.StatusOK, map[string]any{"approval": approval, "tool_call": call, "workflow_result": workflowResult, "delivery_receipt": deliveryReceipt})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"approval": approval, "approval_status": approval.Status, "execution_status": executionStatus,
+		"tool_call": call, "workflow_result": workflowResult, "delivery_receipt": deliveryReceipt,
+	})
+}
+
+func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx context.Context, finishExecution func()) {
+	s.streamWG.Add(1)
+	go func() {
+		defer s.streamWG.Done()
+		defer finishExecution()
+		defer s.refreshTrace(executionCtx, approval.RunID)
+
+		executed, err := s.runtime.ExecuteApprovedToolCall(executionCtx, approval)
+		if err != nil {
+			s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_execution_failed", "Approved tool execution could not be started")
+			return
+		}
+		if err := executionCtx.Err(); err != nil {
+			s.failCancelledMCPApprovalExecution(approval.RunID, err)
+			return
+		}
+		if strings.HasPrefix(executed.Status, "failed") {
+			s.mcpAccess.FailApprovalExecution(approval.RunID, "approval_tool_failed", "The approved tool execution failed")
+			return
+		}
+		result, resumed, err := s.runtime.ResumeRunAfterApproval(executionCtx, approval.SessionID, approval.RunID)
+		if err != nil {
+			if executionCtx.Err() != nil {
+				s.failCancelledMCPApprovalExecution(approval.RunID, executionCtx.Err())
+				return
+			}
+			s.mcpAccess.FailApprovalExecution(approval.RunID, "workflow_resume_failed", "SparkClaw workflow resume failed after approval")
+			return
+		}
+		if !resumed {
+			if runHasPendingApproval(s.store, approval.RunID) {
+				s.mcpAccess.RestoreApprovalRequired(approval.RunID)
+				return
+			}
+			s.runtime.CompleteRunIfApprovalsResolved(approval.RunID)
+			s.mcpAccess.FailApprovalExecution(approval.RunID, "workflow_resume_unavailable", "SparkClaw workflow could not continue after approval")
+			return
+		}
+		if err := executionCtx.Err(); err != nil {
+			s.failCancelledMCPApprovalExecution(approval.RunID, err)
+			return
+		}
+		if _, err := s.deliverAgentResult(executionCtx, result); err != nil {
+			if executionCtx.Err() != nil {
+				s.failCancelledMCPApprovalExecution(approval.RunID, executionCtx.Err())
+				return
+			}
+			s.mcpAccess.FailApprovalExecution(approval.RunID, "delivery_failed", "Approved MCP result delivery failed")
+			return
+		}
+		s.mcpAccess.RecordWorkflowResult(result)
+	}()
+}
+
+func (s *Server) failCancelledMCPApprovalExecution(runID string, err error) {
+	code := "approval_execution_cancelled"
+	message := "Approved MCP execution was cancelled"
+	if errors.Is(err, context.DeadlineExceeded) {
+		code = "approval_execution_expired"
+		message = "Approved MCP execution exceeded the operation deadline"
+	}
+	s.mcpAccess.FailApprovalExecution(runID, code, message)
+}
+
+func runHasPendingApproval(st store.Store, runID string) bool {
+	for _, approval := range st.ListApprovals("pending") {
+		if approval.RunID == runID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) resolveHappyPlanApproval(w http.ResponseWriter, r *http.Request, approval app.Approval, status, note string) {

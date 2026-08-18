@@ -36,6 +36,21 @@ func (r Runtime) completeConversationMediaDetection(ctx context.Context, run *ap
 		run.Workflow.Plan.ProfileRevision != 3 || len(run.Workflow.ActiveNodeIDs) != 1 || run.Workflow.ActiveNodeIDs[0] != "detect_response_media" {
 		return nil
 	}
+	if _, required, err := mcpResponseMediaAccessRequest(run); err != nil {
+		return err
+	} else if required {
+		call := r.workspaceDataAccessCallForRun(run.ID)
+		if call == nil || call.Status != "completed_after_approval" {
+			return errors.New("external MCP workspace data access requires owner approval")
+		}
+		approval, ok := r.store.GetApproval(call.ApprovalID)
+		if !ok || approval.Status != "approved" {
+			return errors.New("external MCP workspace data access approval is unavailable")
+		}
+		if err := r.validateWorkspaceDataAccessApproval(*call, approval); err != nil {
+			return err
+		}
+	}
 	nodeID := run.Workflow.ActiveNodeIDs[0]
 	node, ok := workflowPlanNode(run.Workflow.Plan, nodeID)
 	if !ok || node.Goal.Completion != app.CompletionDeterministic {

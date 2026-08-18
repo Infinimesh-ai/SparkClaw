@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 func TestConversationSemanticRoutingCoversOnlySimpleNoEvidenceRequests(t *testing.T) {
@@ -152,7 +154,7 @@ func TestConversationPublishSendsOnlyMediaToSelectedExternalEndpoint(t *testing.
 	}
 }
 
-func TestConversationTextPublishToExternalEndpointStillRequiresApproval(t *testing.T) {
+func TestConversationTextPublishToExternalEndpointUsesHumanInstructionAuthority(t *testing.T) {
 	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	result, err := runtime.HandleMessageWithIngress(t.Context(), session.ID, "message_text_publish", "run_text_publish", "把这段文字作为消息发送", nil, app.MessageIngressContext{
@@ -163,10 +165,14 @@ func TestConversationTextPublishToExternalEndpointStillRequiresApproval(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Run.State != "approval_pending" || len(result.Approvals) != 1 || result.WorkflowResult == nil ||
-		result.WorkflowResult.ReturnRoute.Mode != app.ReturnNowhere || len(result.WorkflowResult.Content.Parts) != 1 ||
+	if result.Run.State != "completed" || len(result.Approvals) != 0 || result.WorkflowResult == nil ||
+		result.WorkflowResult.ReturnRoute.Mode != app.ReturnToEndpoint || result.WorkflowResult.ReturnRoute.EndpointID != "endpoint_selected" || len(result.WorkflowResult.Content.Parts) != 1 ||
 		result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartText {
-		t.Fatalf("pure text publication bypassed the external-send approval boundary: %#v", result)
+		t.Fatalf("human-explicit text publication gained a destination approval: %#v", result)
+	}
+	request, deliverable, err := delivery.RequestFromWorkflowResult(t.Context(), *result.WorkflowResult, exactOnlyReturnRouteResolver{})
+	if err != nil || !deliverable || request.Target != "endpoint_selected" {
+		t.Fatalf("authorized text publication did not enter shared delivery: request=%#v deliverable=%v err=%v", request, deliverable, err)
 	}
 }
 
@@ -230,7 +236,7 @@ func TestConversationAnswerRunsWithoutToolsOrLegacyFallback(t *testing.T) {
 }
 
 func TestMCPConversationMediaLocatorResolvesExactPath(t *testing.T) {
-	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		if err := os.MkdirAll(filepath.Join(cfg.root, "exports"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -246,6 +252,14 @@ func TestMCPConversationMediaLocatorResolvesExactPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertPendingMCPWorkspaceApproval(t, st, result)
+	messages := st.ListMessages(session.ID)
+	if len(messages) != 1 || strings.TrimSpace(messages[0].Content) != "" || len(messages[0].Attachments) != 0 ||
+		len(messages[0].RequestedMedia) != 1 || messages[0].RequestedMedia[0].Path != "exports/report.pdf" ||
+		messages[0].RequestedMedia[0].Caption != "Annual report" {
+		t.Fatalf("pure-media MCP request was not persisted as a visible unverified requirement: %#v", messages)
+	}
+	result = approveMCPWorkspaceAccess(t, runtime, st, result)
 	if result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileRevision != 3 || result.Run.MessageContext.ResponseMedia == nil ||
 		result.Run.MessageContext.ResponseMedia.Status != app.ResponseMediaSelected || len(result.WorkflowResult.Content.Parts) != 1 ||
 		result.WorkflowResult.Content.Parts[0].Resource == nil || result.WorkflowResult.Content.Parts[0].Resource.Ref != "exports/report.pdf" ||
@@ -284,6 +298,8 @@ func TestMCPConversationMediaNameAndQuerySelectStableTopOne(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			assertPendingMCPWorkspaceApproval(t, st, result)
+			result = approveMCPWorkspaceAccess(t, runtime, st, result)
 			part := result.WorkflowResult.Content.Parts[0]
 			if part.Resource == nil || part.Resource.Ref != test.want || len(result.Run.MessageContext.ResponseMedia.Resources) != 1 {
 				t.Fatalf("locator did not select stable Top-1: want=%q part=%#v decision=%#v", test.want, part, result.Run.MessageContext.ResponseMedia)
@@ -297,7 +313,7 @@ func TestMCPConversationMediaNameAndQuerySelectStableTopOne(t *testing.T) {
 }
 
 func TestMCPConversationAnswerCombinesModelTextWithFrozenMedia(t *testing.T) {
-	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
 		path := filepath.Join(cfg.root, "answer.pdf")
 		if err := os.WriteFile(path, []byte("answer media"), 0o644); err != nil {
 			t.Fatal(err)
@@ -312,6 +328,8 @@ func TestMCPConversationAnswerCombinesModelTextWithFrozenMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertPendingMCPWorkspaceApproval(t, st, result)
+	result = approveMCPWorkspaceAccess(t, runtime, st, result)
 	parts := result.WorkflowResult.Content.Parts
 	if result.Run.State != "completed" || result.Run.MessageContext.ResponseMedia.Status != app.ResponseMediaSelected || len(parts) != 2 ||
 		parts[0].Kind != app.MessagePartText || !strings.Contains(parts[0].Text, "answer this directly") ||
@@ -337,7 +355,7 @@ func TestFrozenResponseMediaIdentityRejectsArtifactSubstitution(t *testing.T) {
 }
 
 func TestMCPConversationMissingMediaAsksForRefinement(t *testing.T) {
-	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
 	defer closeRuntime()
 	result, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_missing", "run_missing", app.MCPConversationRequest{
 		Media:      []app.MessageMediaLocator{{Query: "file that does not exist"}},
@@ -346,11 +364,240 @@ func TestMCPConversationMissingMediaAsksForRefinement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertPendingMCPWorkspaceApproval(t, st, result)
+	result = approveMCPWorkspaceAccess(t, runtime, st, result)
 	if result.Run.MessageContext.ResponseMedia == nil || result.Run.MessageContext.ResponseMedia.Status != app.ResponseMediaClarify ||
 		result.Run.MessageContext.ResponseMedia.ReasonCode != "file_not_found" || len(result.Run.MessageContext.ResponseMedia.Resources) != 0 ||
 		len(result.WorkflowResult.Content.Parts) != 1 || result.WorkflowResult.Content.Parts[0].Kind != app.MessagePartText {
 		t.Fatalf("zero-result locator did not return a text clarification: %#v", result)
 	}
+}
+
+func TestMCPConversationQueuesApprovalWhenWorkspaceRootIsUnavailable(t *testing.T) {
+	var root string
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		root = cfg.root
+	})
+	defer closeRuntime()
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_unavailable_root", "run_unavailable_root", app.MCPConversationRequest{
+		Media: []app.MessageMediaLocator{{Path: "private/report.pdf"}},
+		Invocation: app.MCPInvocationRef{
+			InvocationID: "inv_unavailable_root", OperationID: "op_unavailable_root", BindingRef: "binding_unavailable_root",
+			BindingRevision: 1, RequesterDeviceID: "device",
+		},
+	}, mcpTestIngress(session, "binding_unavailable_root"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPendingMCPWorkspaceApproval(t, st, result)
+}
+
+func TestMCPDocumentReadQueuesApprovalBeforePreflight(t *testing.T) {
+	var root string
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		root = cfg.root
+	})
+	defer closeRuntime()
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_document_missing_root", "run_document_missing_root", app.MCPConversationRequest{
+		Text: `Summarize the document private/report.txt
+MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"private/report.txt"}}`,
+		Invocation: app.MCPInvocationRef{
+			InvocationID: "inv_document_missing_root", OperationID: "op_document_missing_root", BindingRef: "binding_document_missing_root",
+			BindingRevision: 1, RequesterDeviceID: "device",
+		},
+	}, mcpTestIngress(session, "binding_document_missing_root"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPendingMCPWorkspaceApproval(t, st, result)
+	if result.Run.Workflow == nil || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead ||
+		result.Approvals[0].Arguments["contract_revision"] != documentPathAccessContractRevision ||
+		len(st.ListDocumentRecords("", session.ID, 10)) != 0 {
+		t.Fatalf("external MCP document request performed pre-approval preflight: %#v", result)
+	}
+}
+
+func TestApprovedMCPDocumentReadUsesOneWorkspaceApproval(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		if err := os.WriteFile(filepath.Join(cfg.root, "report.txt"), []byte("approved workspace evidence"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	defer closeRuntime()
+	pending, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_document_once", "run_document_once", app.MCPConversationRequest{
+		Text: `Summarize the document report.txt
+MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"report.txt"}}`,
+		Invocation: app.MCPInvocationRef{
+			InvocationID: "inv_document_once", OperationID: "op_document_once", BindingRef: "binding_document_once",
+			BindingRevision: 1, RequesterDeviceID: "device",
+		},
+	}, mcpTestIngress(session, "binding_document_once"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPendingMCPWorkspaceApproval(t, st, pending)
+	result := approveMCPWorkspaceAccess(t, runtime, st, pending)
+	if result.Run.State != "completed" || result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
+		t.Fatalf("approved external MCP document read did not complete: %#v", result)
+	}
+	approvals := approvalsForRun(st.ListApprovals(""), result.Run.ID)
+	calls := toolCallsForRun(st.ListToolCalls(session.ID), result.Run.ID)
+	if len(approvals) != 1 || len(calls) != 2 || calls[0].Tool != app.ToolWorkspaceDataAccess || calls[1].Tool != "files.read" || calls[1].Status != "completed" {
+		t.Fatalf("approved document operation did not reuse its single data-boundary approval: approvals=%#v calls=%#v", approvals, calls)
+	}
+}
+
+func TestApprovedMCPDocumentReadDoesNotCoverDifferentPathDerivative(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		if err := os.WriteFile(filepath.Join(cfg.root, "report.txt"), []byte("approved workspace evidence"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	defer closeRuntime()
+	pending, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_document_derivative_scope", "run_document_derivative_scope", app.MCPConversationRequest{
+		Text: `Summarize the document report.txt
+MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"report.txt"}}`,
+		Invocation: app.MCPInvocationRef{
+			InvocationID: "inv_document_derivative_scope", OperationID: "op_document_derivative_scope", BindingRef: "binding_document_derivative_scope",
+			BindingRevision: 1, RequesterDeviceID: "device",
+		},
+	}, mcpTestIngress(session, "binding_document_derivative_scope"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := approveMCPWorkspaceAccess(t, runtime, st, pending)
+	foreignArtifact := "artifact://sparkclaw/observations/foreign-path.json"
+	st.SaveToolCall(app.ToolCall{
+		ID: "tc_foreign_path", SessionID: session.ID, RunID: result.Run.ID, Tool: "files.read", Status: "completed",
+		Arguments: map[string]any{"path": "other.txt"}, ObservationRef: foreignArtifact, StartedAt: time.Now().UTC(),
+	})
+
+	call, approval, _ := runtime.runToolPlan(t.Context(), session.ID, result.Run.ID, toolPlan{
+		Name: "observation.read", Args: map[string]any{"artifact_uri": foreignArtifact, "max_bytes": 100},
+	})
+	if approval == nil || call.Status != "approval_pending" || call.PolicyContext == nil ||
+		call.PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
+		t.Fatalf("different-path derivative reused the document approval: call=%#v approval=%#v", call, approval)
+	}
+}
+
+func TestRejectedMCPWorkspaceApprovalExposesNoResourceFacts(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	pending, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_rejected_workspace", "run_rejected_workspace", app.MCPConversationRequest{
+		Media: []app.MessageMediaLocator{{Query: "private quarterly report"}},
+		Invocation: app.MCPInvocationRef{
+			InvocationID: "inv_rejected_workspace", OperationID: "op_rejected_workspace", BindingRef: "binding_rejected_workspace",
+			BindingRevision: 1, RequesterDeviceID: "device",
+		},
+	}, mcpTestIngress(session, "binding_rejected_workspace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPendingMCPWorkspaceApproval(t, st, pending)
+	if _, err := st.ResolveApproval(pending.Approvals[0].ID, "rejected", "not authorized"); err != nil {
+		t.Fatal(err)
+	}
+	runtime.CompleteRunIfApprovalsResolved(pending.Run.ID)
+	blocked, _ := st.GetRun(pending.Run.ID)
+	if blocked.State != "blocked" || blocked.MessageContext.ResponseMedia != nil {
+		t.Fatalf("rejected workspace approval exposed a resource decision: %#v", blocked)
+	}
+	for _, event := range st.ListAudit(session.ID) {
+		if event.RunID == blocked.ID && event.Type == "workflow.response_media_lookup" {
+			t.Fatalf("rejected workspace approval performed discovery: %#v", event)
+		}
+	}
+}
+
+func TestMCPWorkspaceApprovalCannotBeReusedAfterLocatorOrTargetChange(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*app.AgentRun)
+	}{
+		{name: "locator", mutate: func(run *app.AgentRun) {
+			run.MessageContext.MediaLocators[0].Path = "different.pdf"
+		}},
+		{name: "return target", mutate: func(run *app.AgentRun) {
+			run.MessageContext.ReturnRoute.SourceEndpointID = "mcp:different-binding"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+			defer closeRuntime()
+			id := strings.ReplaceAll(test.name, " ", "_")
+			pending, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_changed_"+id, "run_changed_"+id, app.MCPConversationRequest{
+				Media: []app.MessageMediaLocator{{Path: "report.pdf"}},
+				Invocation: app.MCPInvocationRef{
+					InvocationID: "inv_changed_" + id, OperationID: "op_changed_" + id, BindingRef: "binding_changed_" + id,
+					BindingRevision: 1, RequesterDeviceID: "device",
+				},
+			}, mcpTestIngress(session, "binding_changed_"+id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertPendingMCPWorkspaceApproval(t, st, pending)
+			approved, err := st.ResolveApproval(pending.Approvals[0].ID, "approved", "owner approved original contract")
+			if err != nil {
+				t.Fatal(err)
+			}
+			changed, _ := st.GetRun(pending.Run.ID)
+			test.mutate(&changed)
+			st.SaveRun(changed)
+			call, err := runtime.ExecuteApprovedToolCall(t.Context(), approved)
+			if err != nil || call.Status != "failed_after_approval" {
+				t.Fatalf("changed workspace contract reused approval: call=%#v err=%v", call, err)
+			}
+			result, resumed, err := runtime.ResumeRunAfterApproval(t.Context(), session.ID, pending.Run.ID)
+			if err != nil || !resumed || result.Run.State != "blocked" || result.Run.MessageContext.ResponseMedia != nil {
+				t.Fatalf("changed workspace contract did not fail closed: resumed=%v result=%#v err=%v", resumed, result, err)
+			}
+			for _, event := range st.ListAudit(session.ID) {
+				if event.RunID == pending.Run.ID && event.Type == "workflow.response_media_lookup" {
+					t.Fatalf("changed workspace contract performed discovery: %#v", event)
+				}
+			}
+		})
+	}
+}
+
+func assertPendingMCPWorkspaceApproval(t *testing.T, st *store.MemoryStore, result Result) {
+	t.Helper()
+	if result.Run.State != "approval_pending" || result.Run.MessageContext == nil || result.Run.MessageContext.ResponseMedia != nil ||
+		result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultWaiting ||
+		result.WorkflowResult.ReturnRoute.Mode != app.ReturnToSource || len(result.Approvals) != 1 ||
+		len(result.ToolCalls) != 1 || result.ToolCalls[0].Tool != app.ToolWorkspaceDataAccess || result.ToolCalls[0].PolicyContext == nil ||
+		result.Approvals[0].PolicyContext == nil || result.Approvals[0].PolicyContext.ResourceClass != app.PolicyResourceSparkClawWorkspaceData {
+		t.Fatalf("MCP workspace request did not pause at the data boundary: %#v", result)
+	}
+	for _, event := range st.ListAudit(result.Run.SessionID) {
+		if event.RunID == result.Run.ID && event.Type == "workflow.response_media_lookup" {
+			t.Fatalf("MCP workspace lookup ran before approval: %#v", event)
+		}
+	}
+}
+
+func approveMCPWorkspaceAccess(t *testing.T, runtime Runtime, st *store.MemoryStore, pending Result) Result {
+	t.Helper()
+	approval, err := st.ResolveApproval(pending.Approvals[0].ID, "approved", "owner approved exact workspace request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, err := runtime.ExecuteApprovedToolCall(t.Context(), approval)
+	if err != nil || call.Status != "completed_after_approval" {
+		t.Fatalf("workspace approval confirmation failed: call=%#v err=%v", call, err)
+	}
+	result, resumed, err := runtime.ResumeRunAfterApproval(t.Context(), pending.Run.SessionID, pending.Run.ID)
+	if err != nil || !resumed || result.Run.State == "approval_pending" {
+		t.Fatalf("workspace request did not resume after approval: resumed=%v result=%#v err=%v", resumed, result, err)
+	}
+	return result
 }
 
 func mcpTestIngress(session app.Session, bindingID string) app.MessageIngressContext {

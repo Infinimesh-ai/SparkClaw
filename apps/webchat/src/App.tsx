@@ -301,13 +301,14 @@ export function App() {
     speech: ready?.speech ?? null,
     sessionId: activeSession,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || !activeSession,
+    externallyDisabled: busy || !activeSession || active?.source === "mcp",
     onTranscript: applyVoiceTranscript
   });
   async function send(content = activeInput, sessionId = activeSession) {
     const trimmed = content.trim();
     const attachments = attachmentsBySession[sessionId] ?? [];
-    if (!sessionId || (!trimmed && attachments.length === 0) || busy || voice.active) return;
+    const session = sessions.find((item) => item.id === sessionId);
+    if (!sessionId || session?.source === "mcp" || (!trimmed && attachments.length === 0) || busy || voice.active) return;
     const userMessageId = `local-user-${Date.now()}`;
     const assistantMessageId = `local-assistant-${Date.now()}`;
     let streamAccepted = false;
@@ -545,7 +546,7 @@ export function App() {
               endpoints={deliveryEndpoints}
               activeEndpoint={activeDeliveryEndpoint}
               hasExternalIntent={externalDeliveryIntent}
-              disabled={busy || voice.active}
+              disabled={busy || voice.active || active?.source === "mcp"}
               text={text}
               onSelect={selectDeliveryTarget}
             />
@@ -618,26 +619,29 @@ export function App() {
                   streamStatuses={streamStatusesByMessage[message.id] ?? []}
                   text={text}
                   language={language}
+                  sessionSource={active?.source}
                   onFeedback={(rating, correction) => saveFeedback(message, rating, correction)}
                 />
               ))
             )}
           </div>
-          <ComposerDock
-            text={text}
-            language={language}
-            activeSession={activeSession}
-            activeInput={activeInput}
-            activeAttachments={activeAttachments}
-            busy={busy}
-            voice={voice}
-            composerInputRef={composerInputRef}
-            setDraftsBySession={setDraftsBySession}
-            setAttachmentsBySession={setAttachmentsBySession}
-            setError={setError}
-            refreshGlobal={refreshGlobal}
-            onSend={() => void send()}
-          />
+          {active?.source !== "mcp" && (
+            <ComposerDock
+              text={text}
+              language={language}
+              activeSession={activeSession}
+              activeInput={activeInput}
+              activeAttachments={activeAttachments}
+              busy={busy}
+              voice={voice}
+              composerInputRef={composerInputRef}
+              setDraftsBySession={setDraftsBySession}
+              setAttachmentsBySession={setAttachmentsBySession}
+              setError={setError}
+              refreshGlobal={refreshGlobal}
+              onSend={() => void send()}
+            />
+          )}
         </section>
       </section>
 

@@ -492,6 +492,50 @@ func TestFileStorePersistsWorkflowStateAndToolBinding(t *testing.T) {
 	}
 }
 
+func TestFileStorePersistsPolicyExecutionContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	st, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := st.CreateSession("Policy context")
+	run := app.AgentRun{ID: "run_policy_context", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	policyContext := &app.PolicyExecutionContext{
+		SchemaVersion: 1, PrincipalClass: app.PolicyPrincipalExternalMCPAI,
+		ResourceClass: app.PolicyResourceSparkClawWorkspaceData, AccessClass: app.PolicyAccessWorkspaceSourceRead,
+		RunID: run.ID, WorkflowID: app.WorkflowDocumentRead, WorkflowRevision: 4,
+		PlanDigest: "plan-digest", OutputClass: "document_content", ContractDigest: "contract-digest",
+		MCP: &app.MCPInvocationRef{
+			InvocationID: "inv-file", OperationID: "op-file", BindingRef: "binding-file", BindingRevision: 1, RequesterDeviceID: "device-file",
+		},
+	}
+	call := app.ToolCall{
+		ID: "tc_policy_context", SessionID: session.ID, RunID: run.ID, Tool: app.ToolWorkspaceDataAccess,
+		Risk: app.RiskRead, Status: "approval_pending", Arguments: map[string]any{"request_digest": "digest"},
+		PolicyContext: policyContext, StartedAt: time.Now().UTC(),
+	}
+	approval := app.Approval{
+		ID: "ap_policy_context", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool,
+		Risk: app.RiskRead, Status: "pending", Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
+	}
+	call.ApprovalID = approval.ID
+	st.SaveToolCall(call)
+	st.SaveApproval(approval)
+
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotCall, callOK := reloaded.GetToolCall(call.ID)
+	gotApproval, approvalOK := reloaded.GetApproval(approval.ID)
+	if !callOK || !approvalOK || gotCall.PolicyContext == nil || gotApproval.PolicyContext == nil ||
+		gotCall.PolicyContext.ContractDigest != policyContext.ContractDigest ||
+		gotApproval.PolicyContext.MCP == nil || gotApproval.PolicyContext.MCP.RequesterDeviceID != "device-file" {
+		t.Fatalf("policy execution context did not survive file-store reload: call=%#v approval=%#v", gotCall, gotApproval)
+	}
+}
+
 func TestFileStorePersistsMemoryRetentionPrune(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gateway-state.json")
 	st, err := NewFileStore(path)

@@ -28,6 +28,13 @@ type agentContextSnapshot struct {
 }
 
 func (r Runtime) buildAgentContextSnapshot(sessionID, currentRunID, currentContent string) agentContextSnapshot {
+	if run, ok := r.store.GetRun(currentRunID); ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
+		// An inbound MCP request must not inherit cached workspace derivatives
+		// through conversation, tool, memory, image, or episode context. Exact
+		// workspace access is admitted through the current run's bound approval
+		// and its current-run observations instead.
+		return agentContextSnapshot{}
+	}
 	return agentContextSnapshot{
 		Messages:     recentContextMessages(r.store.ListMessages(sessionID), currentRunID, defaultContextMessageLimit),
 		Episodes:     recentContextEpisodes(r.store.ListEpisodeSummaries(sessionID), defaultContextEpisodeLimit),

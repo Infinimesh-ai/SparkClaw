@@ -33,6 +33,10 @@ func (e Engine) MayExpose(def app.ToolDefinition) Decision {
 }
 
 func (e Engine) Decide(def app.ToolDefinition, args map[string]any) Decision {
+	return e.DecideWithContext(def, args, app.PolicyExecutionContext{})
+}
+
+func (e Engine) DecideWithContext(def app.ToolDefinition, args map[string]any, execution app.PolicyExecutionContext) Decision {
 	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) {
 		return Decision{Allowed: false, Reason: "tool is denied by policy"}
 	}
@@ -40,6 +44,11 @@ func (e Engine) Decide(def app.ToolDefinition, args map[string]any) Decision {
 	if def.RequiresApproval || slices.Contains(e.cfg.Security.ApprovalRequiredTools, def.Name) || def.Risk == app.RiskDangerous && e.cfg.Security.ApprovalRequiredForDangerousTools {
 		decision.RequiresApproval = true
 		decision.Reason = "approval required by risk policy"
+	}
+	if execution.PrincipalClass == app.PolicyPrincipalExternalMCPAI &&
+		execution.ResourceClass == app.PolicyResourceSparkClawWorkspaceData && execution.AccessClass != "" {
+		decision.RequiresApproval = true
+		decision.Reason = "external MCP AI workspace data access requires owner approval"
 	}
 	if def.Sandbox == "required" || def.Sandbox != "remote" && (def.Risk == app.RiskReversible || def.Risk == app.RiskDangerous) && e.cfg.Security.SandboxRequiredForMutatingTools {
 		decision.RequiresSandbox = true

@@ -19,11 +19,29 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if !ok {
 		return app.ToolCall{}, fmt.Errorf("approved tool call not found")
 	}
+	persistedApproval, ok := r.store.GetApproval(call.ApprovalID)
+	if !ok || persistedApproval.ID != approval.ID || persistedApproval.ToolCallID != call.ID ||
+		persistedApproval.SessionID != call.SessionID || persistedApproval.RunID != call.RunID ||
+		persistedApproval.Tool != call.Tool {
+		return app.ToolCall{}, fmt.Errorf("approval does not match its persisted tool call")
+	}
+	if persistedApproval.Status != "approved" {
+		return app.ToolCall{}, fmt.Errorf("approval cannot execute from status %q", persistedApproval.Status)
+	}
+	approval = persistedApproval
 	if call.Status != "approval_pending" {
 		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
 	}
 	if call.Tool == "notify.ask_approval" {
 		now := time.Now().UTC()
+		if isLegacyExternalSendApproval(approval) {
+			call.Status = "failed_after_approval"
+			call.CompletedAt = &now
+			call.Error = "legacy external-send approval is retired; submit a fresh instruction"
+			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
+			r.store.SaveToolCall(call)
+			return call, nil
+		}
 		call.Status = "completed_after_approval"
 		call.CompletedAt = &now
 		call.Result = map[string]any{"status": "approval_confirmed"}
@@ -34,12 +52,35 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		r.store.SaveToolCall(call)
 		return call, nil
 	}
+	workspaceDataApproval := call.Tool == app.ToolWorkspaceDataAccess
+	if workspaceDataApproval {
+		if err := r.validateWorkspaceDataAccessApproval(call, approval); err != nil {
+			now := time.Now().UTC()
+			call.Status = "failed_after_approval"
+			call.CompletedAt = &now
+			call.Error = err.Error()
+			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
+			r.store.SaveToolCall(call)
+			return call, nil
+		}
+	}
 	if r.tools == nil {
 		return app.ToolCall{}, fmt.Errorf("approval execution is not configured")
 	}
 	def, ok := r.tools.Definition(call.Tool)
 	if !ok {
 		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
+	}
+	if call.PolicyContext != nil && !workspaceDataApproval {
+		if err := r.validateContextBoundToolApproval(call, approval, def); err != nil {
+			now := time.Now().UTC()
+			call.Status = "failed_after_approval"
+			call.CompletedAt = &now
+			call.Error = err.Error()
+			call.ErrorCode = string(app.ToolErrorPolicyBlocked)
+			r.store.SaveToolCall(call)
+			return call, nil
+		}
 	}
 	timeout := time.Duration(def.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
@@ -100,7 +141,10 @@ func (r Runtime) CompleteRunIfApprovalsResolved(runID string) {
 		}
 	}
 	now := time.Now().UTC()
-	if approval := r.externalSendApprovalForRun(runID); approval != nil && approval.Status == "rejected" {
+	for _, approval := range approvalsForRun(r.store.ListApprovals(""), runID) {
+		if approval.Status != "rejected" && !isLegacyExternalSendApproval(approval) {
+			continue
+		}
 		run.State = "blocked"
 		run.CompletedAt = &now
 		r.store.SaveRun(run)

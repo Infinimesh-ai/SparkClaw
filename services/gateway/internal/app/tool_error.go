@@ -39,6 +39,7 @@ const (
 	ToolErrorMCPToolResult                   ToolErrorCode = ToolErrorMCPTool
 	ToolErrorMCPAuthorization                ToolErrorCode = "mcp_authorization"
 	ToolErrorMCPPersistenceUnsafe            ToolErrorCode = "mcp_persistence_unsafe"
+	ToolErrorPolicyBlocked                   ToolErrorCode = "policy_blocked"
 	// ToolErrorObservationBinaryContent: an observation.read window contains
 	// bytes that are not valid UTF-8. The error message carries the offset to
 	// retry with so the caller can skip past the binary region.

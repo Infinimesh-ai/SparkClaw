@@ -392,6 +392,27 @@ func defaultDefinitions() []app.ToolDefinition {
 func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 	return []app.ToolDefinition{
 		{
+			Name:        app.ToolWorkspaceDataAccess,
+			Description: "Confirm one frozen Runtime-owned workspace data access contract before protected discovery or reading.",
+			InputSchema: schema("object", []string{"contract_revision", "locators", "access_class", "output_class", "request_digest", "invocation", "workflow", "return_route"}, map[string]any{
+				"contract_revision": stringSchema(),
+				"locators":          arraySchema(objectValueSchema()),
+				"access_class": map[string]any{"type": "string", "enum": []any{
+					string(app.PolicyAccessWorkspaceSourceRead), string(app.PolicyAccessWorkspaceDerivativeDisclosure),
+				}},
+				"output_class":   stringSchema(),
+				"request_digest": stringSchema(),
+				"invocation":     objectValueSchema(),
+				"workflow":       objectValueSchema(),
+				"return_route":   objectValueSchema(),
+			}),
+			OutputSchema: objectSchema([]string{"status", "request_digest"}, map[string]any{
+				"status": stringSchema(), "request_digest": stringSchema(),
+			}),
+			Risk: app.RiskRead, RequiresApproval: false, Idempotent: true,
+			TimeoutMS: 1000, Sandbox: "forbidden", Audit: "always",
+		},
+		{
 			Name:        "observation.read",
 			Description: "Read one bounded byte window from a persisted artifact owned by the current session.",
 			InputSchema: schema("object", []string{"artifact_uri"}, map[string]any{
@@ -522,6 +543,12 @@ func defaultDefinitionsBeforeDocumentFormats() []app.ToolDefinition {
 			Audit:            "always",
 		},
 	}
+}
+
+func (h *ToolHub) confirmWorkspaceDataAccess(_ context.Context, args map[string]any) (Result, error) {
+	return Result{Output: map[string]any{
+		"status": "approval_contract_confirmed", "request_digest": strings.TrimSpace(fmt.Sprint(args["request_digest"])),
+	}}, nil
 }
 
 func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {

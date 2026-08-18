@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   attachments JSONB NOT NULL DEFAULT '[]',
+	requested_media JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -210,7 +211,8 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	  observation_ref TEXT,
 	  observation_summary TEXT NOT NULL DEFAULT '',
 	  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	  completed_at TIMESTAMPTZ
+	  completed_at TIMESTAMPTZ,
+	  policy_context JSONB
 	);
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS observation_ref TEXT;
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS observation_summary TEXT NOT NULL DEFAULT '';
@@ -219,6 +221,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS scope_revision INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT '';
 	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS error_code TEXT;
+	ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS policy_context JSONB;
 
 	CREATE TABLE IF NOT EXISTS document_records (
 	  id TEXT PRIMARY KEY,
@@ -264,11 +267,13 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   arguments JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   resolved_at TIMESTAMPTZ,
-  resolution_note TEXT
+  resolution_note TEXT,
+  policy_context JSONB
 );
 ALTER TABLE approvals ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'tool';
 ALTER TABLE approvals ADD COLUMN IF NOT EXISTS external_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE approvals ADD COLUMN IF NOT EXISTS external_context JSONB;
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS policy_context JSONB;
 ALTER TABLE approvals ALTER COLUMN session_id DROP NOT NULL;
 ALTER TABLE approvals ALTER COLUMN run_id DROP NOT NULL;
 ALTER TABLE approvals ALTER COLUMN tool_call_id DROP NOT NULL;
@@ -722,6 +727,7 @@ CREATE TABLE IF NOT EXISTS eval_runs (
 
 ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS failure_archives JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS requested_media JSONB NOT NULL DEFAULT '[]';
 
 CREATE TABLE IF NOT EXISTS artifact_objects (
   id TEXT PRIMARY KEY,
@@ -794,6 +800,50 @@ func (s *PostgresStore) Close() {
 func (s *PostgresStore) migrate(ctx context.Context) error {
 	if _, err := s.db.Exec(ctx, postgresSchema); err != nil {
 		return fmt.Errorf("migrate postgres store: %w", err)
+	}
+	if err := s.normalizeMCPBindingSessions(ctx); err != nil {
+		return fmt.Errorf("normalize MCP binding sessions: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) normalizeMCPBindingSessions(ctx context.Context) error {
+	rows, err := s.db.Query(ctx, `SELECT payload FROM mcp_bindings`)
+	if err != nil {
+		return err
+	}
+	bindings := make([]app.MCPBinding, 0)
+	for rows.Next() {
+		var raw []byte
+		var binding app.MCPBinding
+		if err := rows.Scan(&raw); err != nil {
+			rows.Close()
+			return err
+		}
+		if err := json.Unmarshal(raw, &binding); err != nil {
+			rows.Close()
+			return err
+		}
+		bindings = append(bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, binding := range bindings {
+		if strings.TrimSpace(binding.LinkedSessionID) == "" {
+			continue
+		}
+		createdAt := firstNonZeroTime(binding.CreatedAt, time.Now().UTC())
+		updatedAt := firstNonZeroTime(binding.UpdatedAt, createdAt)
+		if _, err := s.db.Exec(ctx, `
+			INSERT INTO sessions (id, owner_id, title, source, hidden, created_at, updated_at)
+			VALUES ($1, $2, $3, 'mcp', false, $4, $5)
+			ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id, title=EXCLUDED.title, source='mcp', hidden=false
+		`, binding.LinkedSessionID, binding.OwnerID, mcpSessionTitle(binding.RequesterDeviceID), createdAt, updatedAt); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1233,9 +1283,9 @@ func (s *PostgresStore) AddMessage(message app.Message) app.Message {
 		return message
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO messages (id, session_id, run_id, role, content, attachments, created_at)
-		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7)
-	`, message.ID, message.SessionID, message.RunID, message.Role, message.Content, mustJSON(message.Attachments), message.CreatedAt); err != nil {
+		INSERT INTO messages (id, session_id, run_id, role, content, attachments, requested_media, created_at)
+		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8)
+	`, message.ID, message.SessionID, message.RunID, message.Role, message.Content, mustJSON(message.Attachments), mustJSON(message.RequestedMedia), message.CreatedAt); err != nil {
 		return message
 	}
 
@@ -1269,7 +1319,7 @@ func (s *PostgresStore) AddMessage(message app.Message) app.Message {
 
 func (s *PostgresStore) ListMessages(sessionID string) []app.Message {
 	rows, err := s.db.Query(context.Background(), `
-		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, created_at
+		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
 		FROM messages
 		WHERE session_id = $1
 		ORDER BY created_at ASC
@@ -1455,13 +1505,14 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 	}
 	args := mustJSON(call.Arguments)
 	result := optionalJSON(call.Result)
+	policyContext := optionalJSON(call.PolicyContext)
 	_, _ = s.db.Exec(ctx, `
 		INSERT INTO tool_calls (
 			id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
 			tool, risk_level, status, arguments, result, error, error_code,
-			approval_id, observation_ref, observation_summary, started_at, completed_at
+			approval_id, observation_ref, observation_summary, started_at, completed_at, policy_context
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), nullif($14, ''), nullif($15, ''), nullif($16, ''), $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, nullif($13, ''), nullif($14, ''), nullif($15, ''), nullif($16, ''), $17, $18, $19, $20)
 		ON CONFLICT (id) DO UPDATE SET
 			workflow_id = EXCLUDED.workflow_id,
 			workflow_node_id = EXCLUDED.workflow_node_id,
@@ -1477,9 +1528,10 @@ func (s *PostgresStore) SaveToolCall(call app.ToolCall) {
 			observation_ref = EXCLUDED.observation_ref,
 			observation_summary = EXCLUDED.observation_summary,
 			started_at = EXCLUDED.started_at,
-			completed_at = EXCLUDED.completed_at
+			completed_at = EXCLUDED.completed_at,
+			policy_context = EXCLUDED.policy_context
 	`, call.ID, call.SessionID, call.RunID, string(call.WorkflowID), string(call.WorkflowNodeID), call.ScopeRevision, call.Capability,
-		call.Tool, string(call.Risk), call.Status, args, result, call.Error, call.ErrorCode, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt)
+		call.Tool, string(call.Risk), call.Status, args, result, call.Error, call.ErrorCode, call.ApprovalID, call.ObservationRef, call.ObservationSummary, call.StartedAt, call.CompletedAt, policyContext)
 	s.appendAudit(ctx, "tool_call."+call.Status, call.SessionID, call.RunID, "agent", call.Tool, map[string]any{
 		"risk": call.Risk,
 		"id":   call.ID,
@@ -1491,7 +1543,7 @@ func (s *PostgresStore) GetToolCall(id string) (app.ToolCall, bool) {
 	row := s.db.QueryRow(context.Background(), `
 		SELECT id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
 			tool, risk_level, status, arguments, result, coalesce(error, ''), coalesce(error_code, ''),
-			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, '')
+			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, ''), policy_context
 		FROM tool_calls
 		WHERE id = $1
 	`, id)
@@ -1503,7 +1555,7 @@ func (s *PostgresStore) ListToolCalls(sessionID string) []app.ToolCall {
 	rows, err := s.db.Query(context.Background(), `
 		SELECT id, session_id, run_id, workflow_id, workflow_node_id, scope_revision, capability,
 			tool, risk_level, status, arguments, result, coalesce(error, ''), coalesce(error_code, ''),
-			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, '')
+			coalesce(approval_id, ''), started_at, completed_at, coalesce(observation_ref, ''), coalesce(observation_summary, ''), policy_context
 		FROM tool_calls
 		WHERE $1 = '' OR session_id = $1
 		ORDER BY started_at ASC
@@ -1625,10 +1677,10 @@ func (s *PostgresStore) SaveApproval(approval app.Approval) {
 		INSERT INTO approvals (
 			id, source, external_id, external_context, session_id, run_id, tool_call_id,
 			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, resolution_note
+			resolved_at, resolution_note, policy_context
 		)
 		VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), nullif($7, ''), $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''))
+			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''), $18)
 		ON CONFLICT (id) DO UPDATE SET
 			source = EXCLUDED.source,
 			external_id = EXCLUDED.external_id,
@@ -1639,8 +1691,9 @@ func (s *PostgresStore) SaveApproval(approval app.Approval) {
 			resources = EXCLUDED.resources,
 			arguments = EXCLUDED.arguments,
 			resolved_at = EXCLUDED.resolved_at,
-			resolution_note = EXCLUDED.resolution_note
-	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID, approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), approval.Status, approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt, approval.ResolvedAt, approval.ResolutionNote)
+			resolution_note = EXCLUDED.resolution_note,
+			policy_context = EXCLUDED.policy_context
+	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID, approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), approval.Status, approval.Summary, approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.CreatedAt, approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.PolicyContext))
 	actor := "policy"
 	if approval.Source != app.ApprovalSourceTool {
 		actor = "integration"
@@ -1657,7 +1710,7 @@ func (s *PostgresStore) GetApproval(id string) (app.Approval, bool) {
 		SELECT id, source, external_id, external_context,
 			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
 			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, '')
+			resolved_at, coalesce(resolution_note, ''), policy_context
 		FROM approvals
 		WHERE id = $1
 	`, id)
@@ -1670,7 +1723,7 @@ func (s *PostgresStore) FindApprovalByExternalRef(source app.ApprovalSource, ext
 		SELECT id, source, external_id, external_context,
 			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
 			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, '')
+			resolved_at, coalesce(resolution_note, ''), policy_context
 		FROM approvals
 		WHERE source = $1 AND external_id = $2
 	`, source, externalID)
@@ -1714,7 +1767,7 @@ func (s *PostgresStore) ResolveApproval(id, status, note string) (app.Approval, 
 		SELECT id, source, external_id, external_context,
 			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
 			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, '')
+			resolved_at, coalesce(resolution_note, ''), policy_context
 		FROM approvals
 		WHERE id = $1
 		FOR UPDATE
@@ -1757,7 +1810,7 @@ func (s *PostgresStore) ListApprovals(status string) []app.Approval {
 		SELECT id, source, external_id, external_context,
 			coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
 			tool, risk_level, status, summary, reason, resources, arguments, created_at,
-			resolved_at, coalesce(resolution_note, '')
+			resolved_at, coalesce(resolution_note, ''), policy_context
 		FROM approvals
 		WHERE $1 = '' OR status = $1
 		ORDER BY created_at DESC
@@ -3813,10 +3866,13 @@ func scanPairingCode(row scanner) (app.PairingCode, error) {
 
 func scanMessage(row scanner) (app.Message, error) {
 	var message app.Message
-	var attachments []byte
-	err := row.Scan(&message.ID, &message.SessionID, &message.RunID, &message.Role, &message.Content, &attachments, &message.CreatedAt)
+	var attachments, requestedMedia []byte
+	err := row.Scan(&message.ID, &message.SessionID, &message.RunID, &message.Role, &message.Content, &attachments, &requestedMedia, &message.CreatedAt)
 	if len(attachments) > 0 {
 		_ = json.Unmarshal(attachments, &message.Attachments)
+	}
+	if len(requestedMedia) > 0 {
+		_ = json.Unmarshal(requestedMedia, &message.RequestedMedia)
 	}
 	return message, err
 }
@@ -3983,8 +4039,9 @@ func scanToolCall(row scanner) (app.ToolCall, error) {
 	var risk string
 	var args []byte
 	var result []byte
+	var policyContext []byte
 	err := row.Scan(&call.ID, &call.SessionID, &call.RunID, &call.WorkflowID, &call.WorkflowNodeID, &call.ScopeRevision, &call.Capability,
-		&call.Tool, &risk, &call.Status, &args, &result, &call.Error, &call.ErrorCode, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary)
+		&call.Tool, &risk, &call.Status, &args, &result, &call.Error, &call.ErrorCode, &call.ApprovalID, &call.StartedAt, &call.CompletedAt, &call.ObservationRef, &call.ObservationSummary, &policyContext)
 	if err != nil {
 		return app.ToolCall{}, err
 	}
@@ -3992,6 +4049,10 @@ func scanToolCall(row scanner) (app.ToolCall, error) {
 	call.Arguments = map[string]any{}
 	_ = json.Unmarshal(args, &call.Arguments)
 	call.Result = decodeJSON(result)
+	if len(policyContext) > 0 && string(policyContext) != "null" {
+		call.PolicyContext = &app.PolicyExecutionContext{}
+		_ = json.Unmarshal(policyContext, call.PolicyContext)
+	}
 	return call, nil
 }
 
@@ -4029,10 +4090,11 @@ func scanApproval(row scanner) (app.Approval, error) {
 	var externalContext []byte
 	var resources []byte
 	var args []byte
+	var policyContext []byte
 	err := row.Scan(&approval.ID, &source, &approval.ExternalID, &externalContext,
 		&approval.SessionID, &approval.RunID, &approval.ToolCallID, &approval.Tool, &risk,
 		&approval.Status, &approval.Summary, &approval.Reason, &resources, &args,
-		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote)
+		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote, &policyContext)
 	if err != nil {
 		return app.Approval{}, err
 	}
@@ -4046,6 +4108,10 @@ func scanApproval(row scanner) (app.Approval, error) {
 	_ = json.Unmarshal(resources, &approval.Resources)
 	approval.Arguments = map[string]any{}
 	_ = json.Unmarshal(args, &approval.Arguments)
+	if len(policyContext) > 0 && string(policyContext) != "null" {
+		approval.PolicyContext = &app.PolicyExecutionContext{}
+		_ = json.Unmarshal(policyContext, approval.PolicyContext)
+	}
 	return normalizeApproval(approval), nil
 }
 

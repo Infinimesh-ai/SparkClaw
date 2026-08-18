@@ -34,6 +34,22 @@ type documentContextResolution struct {
 	References []documentContextReference
 }
 
+// resolveExternalMCPDocumentContext only projects locators supplied in the
+// current request. Recent-record and artifact lookup would disclose workspace
+// names before the external AI's data-access request is approved.
+func resolveExternalMCPDocumentContext(content string, resources []app.MessagePart) documentContextResolution {
+	if paths := documentRoutePaths(content); len(paths) > 0 {
+		references := make([]documentContextReference, 0, len(paths))
+		for _, path := range paths {
+			references = append(references, documentContextReference{
+				Ref: path, Name: filepath.Base(filepath.FromSlash(path)), Provenance: documentProvenanceExplicitCurrent,
+			})
+		}
+		return documentContextResolution{References: dedupeDocumentReferences(references)}
+	}
+	return documentContextResolution{References: documentReferencesFromMessageParts(resources)}
+}
+
 func (r Runtime) resolveDocumentContext(sessionID, runID, content string, resources []app.MessagePart) documentContextResolution {
 	if paths := documentRoutePaths(content); len(paths) > 0 {
 		references := make([]documentContextReference, 0, len(paths))

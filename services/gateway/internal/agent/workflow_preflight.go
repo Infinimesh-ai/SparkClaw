@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +17,25 @@ type documentPreflight struct {
 	InputRef  string
 	OutputRef string
 	Format    string
+}
+
+func preflightExternalMCPDocumentPath(requestedPath string, edit bool) (documentPreflight, error) {
+	requestedPath = strings.TrimSpace(strings.ReplaceAll(requestedPath, "\\", "/"))
+	if requestedPath == "" || strings.ContainsRune(requestedPath, 0) || strings.Contains(requestedPath, "://") {
+		return documentPreflight{}, errors.New("document path is invalid")
+	}
+	cleaned := path.Clean(requestedPath)
+	if strings.HasPrefix(cleaned, "/") || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return documentPreflight{}, errors.New("document path must be workspace-relative")
+	}
+	format := documentFormatFromMetadata(path.Base(cleaned), "")
+	if format == "" {
+		return documentPreflight{}, errors.New("document format cannot be determined from the requested path")
+	}
+	if edit && format != app.DocumentFormatText && format != app.DocumentFormatDOCX && format != app.DocumentFormatXLSX && format != app.DocumentFormatPPTX && format != app.DocumentFormatPDF {
+		return documentPreflight{}, fmt.Errorf("document format %q is read-only", format)
+	}
+	return documentPreflight{InputRef: cleaned, Format: format}, nil
 }
 
 func attachedWorkspaceImageCanFinalize(resources []app.MessagePart, content string) bool {

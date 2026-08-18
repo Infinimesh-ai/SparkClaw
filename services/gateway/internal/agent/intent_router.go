@@ -84,7 +84,12 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
-	documents := r.resolveDocumentContext(sessionID, runID, groundingContent, resources)
+	var documents documentContextResolution
+	if run, ok := r.store.GetRun(runID); ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
+		documents = resolveExternalMCPDocumentContext(groundingContent, resources)
+	} else {
+		documents = r.resolveDocumentContext(sessionID, runID, groundingContent, resources)
+	}
 	grounding := r.projectIntentGrounding(sessionID, runID, groundingContent, documents)
 	routingContext := r.semanticRoutingContext(sessionID, runID, ownerText, resources, documents)
 	channelInputs := newSemanticChannelInputs(businessContent, routingContext)

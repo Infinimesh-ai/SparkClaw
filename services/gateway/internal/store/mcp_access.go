@@ -14,6 +14,25 @@ type MCPAccessRecordDeletion struct {
 	DeletedBindings int `json:"deleted_bindings"`
 }
 
+const mcpSessionDeviceIDLength = 12
+
+func mcpSessionTitle(deviceID string) string {
+	var identifier strings.Builder
+	for _, char := range strings.TrimSpace(deviceID) {
+		if identifier.Len() >= mcpSessionDeviceIDLength {
+			break
+		}
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("-_.", char) {
+			identifier.WriteRune(char)
+		}
+	}
+	shortID := strings.Trim(identifier.String(), "-_.")
+	if shortID == "" {
+		return "AI"
+	}
+	return "AI · " + shortID
+}
+
 func normalizeMCPAccessTicket(ticket app.MCPAccessTicket, now time.Time) app.MCPAccessTicket {
 	if ticket.ID == "" {
 		ticket.ID = app.NewID("mcp_ticket")
@@ -206,7 +225,7 @@ func (s *MemoryStore) RedeemMCPAccessTicket(secretHash string, peer app.MCPPeerI
 		}, now)
 		binding.LinkedSessionID = "s_" + binding.ID
 		s.sessions[binding.LinkedSessionID] = app.Session{
-			ID: binding.LinkedSessionID, OwnerID: binding.OwnerID, Title: "External MCP", Source: "mcp", Hidden: true,
+			ID: binding.LinkedSessionID, OwnerID: binding.OwnerID, Title: mcpSessionTitle(binding.RequesterDeviceID), Source: "mcp", Hidden: false,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		s.mcpBindings[binding.ID] = cloneMCPBinding(binding)

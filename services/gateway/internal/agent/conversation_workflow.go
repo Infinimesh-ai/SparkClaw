@@ -228,6 +228,11 @@ func isOrdinaryMediaPublication(run app.AgentRun) bool {
 	return true
 }
 
+func isEndpointMediaPublication(run app.AgentRun) bool {
+	return isOrdinaryMediaPublication(run) && run.MessageContext != nil &&
+		run.MessageContext.ReturnRoute.Mode == app.ReturnToEndpoint && run.MessageContext.ReturnRoute.EndpointID != ""
+}
+
 func isMediaMessagePart(kind app.MessagePartKind) bool {
 	switch kind {
 	case app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile:

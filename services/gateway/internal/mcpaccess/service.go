@@ -30,12 +30,16 @@ type Runtime interface {
 
 type ResultDeliverer func(context.Context, agent.Result) error
 
+type operationExecution struct {
+	cancel context.CancelFunc
+}
+
 type Service struct {
 	store            store.Store
 	runtime          Runtime
 	deliver          ResultDeliverer
 	mu               sync.Mutex
-	cancels          map[string]context.CancelFunc
+	cancels          map[string]*operationExecution
 	channelEnabled   func(string) bool
 	executionContext func() context.Context
 }
@@ -55,7 +59,7 @@ func (s *Service) WithExecutionContext(executionContext func() context.Context) 
 }
 
 func New(st store.Store, runtime Runtime, deliver ResultDeliverer) *Service {
-	return &Service{store: st, runtime: runtime, deliver: deliver, cancels: map[string]context.CancelFunc{}}
+	return &Service{store: st, runtime: runtime, deliver: deliver, cancels: map[string]*operationExecution{}}
 }
 
 func (s *Service) IssueTicket(ownerID, actorID string, input IssueTicketRequest, now time.Time) (IssuedTicket, error) {
@@ -335,24 +339,15 @@ func (s *Service) callTool(ctx context.Context, peer app.MCPPeerIdentity, bindin
 
 func (s *Service) executeOperation(deadline time.Time, sessionID, messageID, runID, operationID string, request app.MCPConversationRequest, ingress app.MessageIngressContext, done chan<- struct{}) {
 	defer close(done)
-	base := context.Background()
-	if s.executionContext != nil {
-		if current := s.executionContext(); current != nil {
-			base = current
-		}
-	}
-	executionCtx, cancel := context.WithDeadline(base, deadline)
 	s.mu.Lock()
-	s.cancels[operationID] = cancel
 	operation, ok := s.store.GetMCPOperation(operationID)
 	if !ok || operationTerminal(operation.State) {
-		delete(s.cancels, operationID)
 		s.mu.Unlock()
-		cancel()
 		return
 	}
+	executionCtx, finishExecution := s.registerOperationExecutionLocked(operationID, deadline)
 	s.mu.Unlock()
-	defer func() { cancel(); s.mu.Lock(); delete(s.cancels, operationID); s.mu.Unlock() }()
+	defer finishExecution()
 	result, runErr := s.runtime.HandleMCPConversation(executionCtx, sessionID, messageID, runID, request, ingress)
 	if runErr != nil {
 		if errors.Is(runErr, context.Canceled) {
@@ -399,8 +394,8 @@ func (s *Service) operationTool(peer app.MCPPeerIdentity, binding app.MCPBinding
 			current.CompletedAt = &now
 			return true
 		})
-		if cancel := s.cancels[operation.ID]; cancel != nil {
-			cancel()
+		if execution := s.cancels[operation.ID]; execution != nil {
+			execution.cancel()
 		}
 		s.mu.Unlock()
 		if err != nil {
@@ -519,9 +514,43 @@ func (s *Service) cancelRevokedOperationsLocked(operations []app.MCPOperation) {
 		if operation.State != app.MCPOperationRevoked {
 			continue
 		}
-		if cancel := s.cancels[operation.ID]; cancel != nil {
-			cancel()
+		if execution := s.cancels[operation.ID]; execution != nil {
+			execution.cancel()
 		}
+	}
+}
+
+func (s *Service) registerOperationExecutionLocked(operationID string, deadline time.Time) (context.Context, func()) {
+	base := context.Background()
+	if s.executionContext != nil {
+		if current := s.executionContext(); current != nil {
+			base = current
+		}
+	}
+	var (
+		executionCtx context.Context
+		cancel       context.CancelFunc
+	)
+	if deadline.IsZero() {
+		executionCtx, cancel = context.WithCancel(base)
+	} else {
+		executionCtx, cancel = context.WithDeadline(base, deadline)
+	}
+	if previous := s.cancels[operationID]; previous != nil {
+		previous.cancel()
+	}
+	registered := &operationExecution{cancel: cancel}
+	s.cancels[operationID] = registered
+	var once sync.Once
+	return executionCtx, func() {
+		once.Do(func() {
+			cancel()
+			s.mu.Lock()
+			if s.cancels[operationID] == registered {
+				delete(s.cancels, operationID)
+			}
+			s.mu.Unlock()
+		})
 	}
 }
 
@@ -547,11 +576,24 @@ func (s *Service) toolsForBinding(binding app.MCPBinding) []Tool {
 }
 
 func (s *Service) syncOperationFromResult(id string, result agent.Result) {
+	s.syncOperationFromResultWithContent(id, result, true)
+}
+
+func (s *Service) syncOperationFromResultWithContent(id string, result agent.Result, includeContent bool) {
 	updated, changed, err := updateOperationRecord(s.store, id, func(operation *app.MCPOperation) bool {
 		if operationTerminal(operation.State) || result.WorkflowResult == nil {
 			return false
 		}
-		raw, _ := json.Marshal(map[string]any{"content": result.WorkflowResult.Content, "run_id": result.Run.ID})
+		if result.WorkflowResult.Status == app.WorkflowResultWaiting && runHasApprovedApproval(s.store, result.Run.ID) && !runHasPendingApproval(s.store, result.Run.ID) {
+			return false
+		}
+		payload := map[string]any{"run_id": result.Run.ID}
+		if includeContent {
+			payload["content"] = result.WorkflowResult.Content
+		} else {
+			payload["delivery_recorded"] = result.WorkflowResult.Status == app.WorkflowResultSucceeded
+		}
+		raw, _ := json.Marshal(payload)
 		operation.Result = raw
 		applyWorkflowResultToOperation(operation, result.WorkflowResult.Status, result.WorkflowResult.Error)
 		return true
@@ -562,6 +604,152 @@ func (s *Service) syncOperationFromResult(id string, result agent.Result) {
 	auditOperationStore(s.store, "mcp.operation.result_recorded", updated, "Recorded a Workflow result for an MCP operation", map[string]any{
 		"outcome": updated.State, "error_code": updated.ErrorCode,
 	})
+}
+
+func runHasApprovedApproval(st store.Store, runID string) bool {
+	for _, approval := range st.ListApprovals("approved") {
+		if approval.RunID == runID {
+			return true
+		}
+	}
+	return false
+}
+
+func runHasPendingApproval(st store.Store, runID string) bool {
+	for _, approval := range st.ListApprovals("pending") {
+		if approval.RunID == runID {
+			return true
+		}
+	}
+	return false
+}
+
+// BeginApprovalExecution moves an operation out of its owner-waiting state
+// after the approval decision is durable. The actual tool and Workflow resume
+// may then continue independently of the approval HTTP request.
+func (s *Service) BeginApprovalExecution(runID string) (app.MCPOperation, error) {
+	return s.beginApprovalExecution(runID)
+}
+
+// StartApprovalExecution also registers the resumed work under the operation's
+// cancellable lifetime. Binding revocation, operation cancellation, Gateway
+// shutdown, and the original invocation deadline therefore stop the resumed
+// tool/Workflow path, not only the durable operation status.
+func (s *Service) StartApprovalExecution(runID string) (app.MCPOperation, context.Context, func(), error) {
+	if s == nil || s.store == nil {
+		return app.MCPOperation{}, nil, nil, errors.New("MCP access service is unavailable")
+	}
+	s.mu.Lock()
+	operation, err := s.beginApprovalExecution(runID)
+	if err != nil {
+		s.mu.Unlock()
+		return operation, nil, nil, err
+	}
+	executionCtx, finishExecution := s.registerOperationExecutionLocked(operation.ID, operation.Invocation.Deadline)
+	s.mu.Unlock()
+	if err := executionCtx.Err(); err != nil {
+		finishExecution()
+		s.finishOperationError(operation.ID, "approval_execution_expired", "The MCP operation deadline expired before approved execution could start")
+		if current, ok := s.store.GetMCPOperation(operation.ID); ok {
+			operation = current
+		}
+		return operation, nil, nil, errors.New("MCP operation deadline expired before approved execution could start")
+	}
+	return operation, executionCtx, finishExecution, nil
+}
+
+func (s *Service) beginApprovalExecution(runID string) (app.MCPOperation, error) {
+	operation, err := s.operationForRun(runID)
+	if err != nil {
+		return app.MCPOperation{}, err
+	}
+	updated, changed, err := updateOperationRecord(s.store, operation.ID, func(current *app.MCPOperation) bool {
+		if current.State == app.MCPOperationRunning {
+			return false
+		}
+		if current.State != app.MCPOperationApprovalRequired {
+			return false
+		}
+		current.State = app.MCPOperationRunning
+		current.Result = nil
+		current.ErrorCode = ""
+		current.ErrorMessage = ""
+		current.CompletedAt = nil
+		return true
+	})
+	if err != nil {
+		return app.MCPOperation{}, err
+	}
+	if !changed && updated.State != app.MCPOperationRunning {
+		return updated, errors.New("MCP operation is no longer available for approved execution")
+	}
+	if changed {
+		auditOperationStore(s.store, "mcp.operation.approval_resumed", updated, "Resumed an MCP operation after owner approval", map[string]any{"outcome": updated.State})
+	}
+	return updated, nil
+}
+
+func (s *Service) RestoreApprovalRequired(runID string) {
+	operation, err := s.operationForRun(runID)
+	if err != nil {
+		return
+	}
+	updated, changed, err := updateOperationRecord(s.store, operation.ID, func(current *app.MCPOperation) bool {
+		if current.State != app.MCPOperationRunning {
+			return false
+		}
+		current.State = app.MCPOperationApprovalRequired
+		current.Result = nil
+		current.CompletedAt = nil
+		return true
+	})
+	if err == nil && changed {
+		auditOperationStore(s.store, "mcp.operation.approval_required", updated, "Parked an MCP operation for another owner approval", map[string]any{"outcome": updated.State})
+	}
+}
+
+func (s *Service) FailApprovalExecution(runID, code, message string) {
+	operation, err := s.operationForRun(runID)
+	if err != nil {
+		return
+	}
+	s.finishOperationError(operation.ID, code, message)
+}
+
+func (s *Service) operationForRun(runID string) (app.MCPOperation, error) {
+	if s == nil || s.store == nil {
+		return app.MCPOperation{}, errors.New("MCP access service is unavailable")
+	}
+	run, ok := s.store.GetRun(runID)
+	if !ok || run.MessageContext == nil || run.MessageContext.MCP == nil {
+		return app.MCPOperation{}, errors.New("MCP run is unavailable")
+	}
+	ref := run.MessageContext.MCP
+	operation, ok := s.store.GetMCPOperation(ref.OperationID)
+	if !ok || operation.Invocation.RunID != run.ID || operation.Invocation.ID != ref.InvocationID ||
+		operation.BindingID != ref.BindingRef || operation.Invocation.BindingRevision != ref.BindingRevision ||
+		operation.Invocation.RequesterDeviceID != ref.RequesterDeviceID {
+		return app.MCPOperation{}, errors.New("MCP operation does not match the persisted invocation")
+	}
+	return operation, nil
+}
+
+// RecordWorkflowResult synchronizes an MCP operation even when the frozen
+// Workflow return route targets another delivery provider or intentionally
+// suppresses a waiting/failed external send.
+func (s *Service) RecordWorkflowResult(result agent.Result) {
+	if s == nil || result.WorkflowResult == nil || result.WorkflowResult.MCP == nil {
+		return
+	}
+	ref := result.WorkflowResult.MCP
+	operation, ok := s.store.GetMCPOperation(ref.OperationID)
+	if !ok || operation.Invocation.ID != ref.InvocationID || operation.BindingID != ref.BindingRef ||
+		operation.Invocation.BindingRevision != ref.BindingRevision || operation.Invocation.RequesterDeviceID != ref.RequesterDeviceID ||
+		operation.Invocation.RunID != result.Run.ID || operation.Invocation.RunID != result.WorkflowResult.RunID {
+		return
+	}
+	includeContent := result.WorkflowResult.ReturnRoute.Mode == app.ReturnToSource
+	s.syncOperationFromResultWithContent(operation.ID, result, includeContent)
 }
 
 func (s *Service) finishOperationError(id, code, message string) {

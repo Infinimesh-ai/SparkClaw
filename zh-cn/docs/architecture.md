@@ -304,8 +304,16 @@ conversation-scoped Binding，其中不包含 Catalog grant。
 SparkClaw 自身负责的本地
 runtime 已实现：严格 MCP `2025-06-18`、只存 hash 的单次 MCP Access Ticket、持久 peer
 Binding schema v2 conversation scope、唯一业务工具 `sparkclaw.conversation.send`、普通语义路由、
-有界且只匹配文件名的 Top-1 response-media 查询、共享 Delivery、Binding-scoped operation
-恢复、默认关闭 channel gate 和脱敏 lifecycle audit。加密 Bridge 测试已在建立好的 ISCP session
+经 discovery 前 owner approval 保护的有界纯文件名 Top-1 response-media 查询、共享 Delivery、Binding-scoped operation
+恢复、默认关闭 channel gate 和脱敏 lifecycle audit。每个 Binding 拥有一个可见的
+`AI · <设备短 ID>` 对话，其标题与内容生命周期不能通过普通 session control 修改；请求只经
+authenticated Binding 进入，WebChat 将该对话作为只读界面展示。Inbound media locator 以尚未
+验证且不可下载的要求展示；Binding revoke 或记录删除仍保留只读会话历史。Workspace approval
+提供派生的人类可读审阅投影，而
+授权仍只绑定冻结的 tool argument 与 authenticated policy context。Approval resolution 在
+decision 持久化后立即返回；脱离 HTTP request 的 Gateway work 让 MCP operation 从
+`approval_required` 经 `running` 进入独立的 execution 或 delivery 结果，同时仍受 operation
+cancel、Binding revoke、invocation deadline 与 Gateway shutdown 约束。加密 Bridge 测试已在建立好的 ISCP session
 中传输 MCP 请求和响应。生产 external onboarding 仍需真实 ISCP authority 实现已配置的
 PairingTicket endpoint、可部署 external Access Gateway 和真实 Relay 验证，因此
 现有 `agent.*.v1` Bridge 只临时保持可执行。LocalMind 使用新的 ISCP PairingTicket/Provisioning
@@ -335,6 +343,25 @@ audio 不是 artifact。
   RFC1918 address 的 `18793` 发布精确 presentation allowlist。Host-process Gateway 调试继续只
   绑定 loopback。
 - authenticated request 携带一个 owner/actor principal；endpoint/schedule query 按 owner 限制。
+- ToolHub registration 是审批基线权威。Policy 只能通过类型化 execution context 加强
+  `RequiresApproval` 与 risk decision；requester text、channel、destination 和本地模型参与都不能
+  降低或独立提高该基线。
+- 持久化 inbound MCP invocation 代表 external-AI principal。它访问 SparkClaw workspace 的原始或
+  派生数据时，必须在文件/索引发现、metadata 检查、symlink 解析、hash、parse 或内容读取前取得
+  owner approval。该 approval 绑定 MCP identity、local owner/authorized principal、locator/query、
+  Workflow plan、output class 和 return route。
+- Inbound MCP run 不把先前 session message、tool summary、memory、image 或 episode summary
+  作为隐式 model context。已审批的当前 run evidence 仍可用；明确 workspace locator 必须进入
+  governed access contract，而不能继承 cached derivative。
+- 一个已批准的 external-MCP workspace data contract 覆盖其精确绑定 read 和冻结的 return/send，
+  Delivery 不再二次审批。identity、locator、Workflow、output 或 target 改变会 fail closed；工具
+  自身原有 reversible/dangerous approval 仍然适用，且不能被降低。
+- 冻结的跨渠道结果在 target delivery 后更新原始 durable MCP operation。对 target 抑制的 waiting
+  result 仍会记录 `approval_required`，因此 operation polling 不会一直停在 `running`；MCP result
+  不会复制已经投递到其他目标的 payload。
+- authenticated human 明确要求发送 text、image、audio、file、mixed 或 multipart 内容时已经完成
+  授权，不增加 destination-only approval。持久化 legacy `message_control.external_send` approval
+  不能恢复 delivery。
 - reversible/dangerous effect 需要 Policy approval；shell 默认 sandboxed 且 network-disabled。
 - browser URL、artifact path、workspace path 和 provider destination 确定性 normalize/validate。
 - LocalMind MCP endpoint 只能来自 operator 配置，绑定到一个 workspace path，拒绝 redirect；

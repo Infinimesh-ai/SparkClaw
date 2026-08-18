@@ -367,9 +367,10 @@ func TestHandleInboundApprovalReplyApprovesPendingAction(t *testing.T) {
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: chatSession.BindingID, OwnerID: "owner", Channel: "weixin", Status: "active", ExternalUserID: chatSession.ExternalUserID, BaseURL: ts.URL})
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "approval_pending", ModelLane: "fast", Risk: app.RiskReversible, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
-	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval", Risk: app.RiskReversible, Status: "approval_pending", StartedAt: time.Now().UTC()}
+	approvalID := app.NewID("ap")
+	call := app.ToolCall{ID: app.NewID("tc"), SessionID: session.ID, RunID: run.ID, Tool: "notify.ask_approval", Risk: app.RiskReversible, Status: "approval_pending", ApprovalID: approvalID, StartedAt: time.Now().UTC()}
 	st.SaveToolCall(call)
-	approval := app.Approval{ID: app.NewID("ap"), SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve notify", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
+	approval := app.Approval{ID: approvalID, SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Approve notify", Arguments: map[string]any{}, CreatedAt: time.Now().UTC()}
 	st.SaveApproval(approval)
 
 	cfg := config.Default()

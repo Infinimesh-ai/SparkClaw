@@ -190,6 +190,7 @@ const (
 	ToolCapabilityDocumentEdit              = "document.edit"
 	ToolCapabilityScheduleManage            = "schedule.manage"
 	ToolCapabilityObservationRead           = "observation.read"
+	ToolWorkspaceDataAccess                 = "workspace.data.access"
 	ToolCapabilityExternalMCPDiscovery      = "external.mcp.discovery"
 	ToolCapabilityExternalMCPWorkspace      = "external.mcp.workspace"
 

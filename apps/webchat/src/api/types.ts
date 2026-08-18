@@ -50,6 +50,14 @@ export type Message = {
   created_at: string;
   run_id?: string;
   attachments?: MessageAttachment[];
+  requested_media?: MessageMediaLocator[];
+};
+
+export type MessageMediaLocator = {
+  path?: string;
+  name?: string;
+  query?: string;
+  caption?: string;
 };
 
 export type RunFeedback = {
@@ -103,9 +111,27 @@ export type Approval = {
   reason: string;
   resources: string[];
   arguments: Record<string, unknown>;
+  policy_context?: Record<string, unknown>;
+  presentation?: ApprovalPresentation;
   created_at: string;
   resolved_at?: string;
   resolution_note?: string;
+};
+
+export type ApprovalPresentation = {
+  kind: "external_mcp_workspace_data_access" | string;
+  session_id: string;
+  requester: string;
+  locators?: MessageMediaLocator[];
+  locator_status?: "unverified" | string;
+  access_class?: string;
+  output_class?: string;
+  return_route: {
+    mode?: string;
+    source_endpoint_id?: string;
+    endpoint_id?: string;
+  };
+  scope: "single_operation" | string;
 };
 
 export type MemoryCandidate = {
@@ -230,6 +256,9 @@ export type ModelStreamEvent = {
 
 export type ApprovalResolution = {
   approval: Approval;
+  approval_status: string;
+  execution_status: string;
+  execution_error?: string;
   tool_call?: ToolCall | null;
   workflow_result?: WorkflowResult | null;
 };

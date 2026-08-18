@@ -120,11 +120,6 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	if strings.TrimSpace(run.Summary) == "" {
 		run.Summary = "The matched workflow completed after its approved action."
 	}
-	if call, approval, queued := r.queueExternalSendApproval(&run); queued {
-		workflowExecution.ToolCalls = append(workflowExecution.ToolCalls, call)
-		workflowExecution.Approvals = append(workflowExecution.Approvals, approval)
-		currentToolCalls = append(currentToolCalls, call)
-	}
 	r.store.SaveRun(run)
 	allApprovals := approvalsForRun(r.store.ListApprovals(""), run.ID)
 	feedback := r.store.ListRunFeedback(run.ID)
@@ -156,9 +151,18 @@ func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, 
 		return matchedWorkflowDispatch{}, err
 	}
 	run.Workflow = newWorkflowState(route, returnRoute, resolved.Intent, resolved.Plan)
+	// Persist the frozen plan before Policy binds it into an approval contract.
+	// This write contains no workspace discovery or file metadata.
+	r.store.SaveRun(run)
+	if _, _, queued, err := r.queueMCPWorkspaceDataApproval(ctx, &run); err != nil {
+		return matchedWorkflowDispatch{}, err
+	} else if queued {
+		return matchedWorkflowDispatch{Run: run, Profile: resolved.Profile}, nil
+	}
 	if err := prepareWorkflowState(resolved.Profile, run.Workflow); err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
+	r.store.SaveRun(run)
 	if err := r.completeConversationMediaDetection(ctx, &run); err != nil {
 		return matchedWorkflowDispatch{}, err
 	}
@@ -235,7 +239,7 @@ func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision,
 		Workflow:   app.WorkflowContractRef{ID: run.Workflow.Plan.ProfileID, Revision: run.Workflow.Plan.ProfileRevision},
 		Data:       r.workflowResultData(run),
 		Content:    r.workflowResultContent(run, summary),
-		References: workflowResourceRefs(run.Workflow), ReturnRoute: returnRoute,
+		References: workflowResourceRefs(run.Workflow), ReturnRoute: workflowResultReturnRoute(status, returnRoute),
 	}
 	if run.MessageContext != nil {
 		result.MCP = run.MessageContext.MCP
@@ -243,7 +247,7 @@ func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision,
 	if status == app.WorkflowResultFailed || status == app.WorkflowResultBlocked {
 		result.Error = &app.WorkflowResultError{Code: "workflow_" + string(status), Message: summary}
 	}
-	return r.protectExternalSendResult(run, result)
+	return result
 }
 
 func (r Runtime) workflowResultData(run app.AgentRun) map[string]any {
@@ -613,7 +617,7 @@ func (r Runtime) messageWithWorkflowResult(message app.Message, result *app.Work
 }
 
 func (r Runtime) persistWorkflowAssistantMessage(run app.AgentRun, result *app.WorkflowResult, now time.Time) app.Message {
-	if r.isExternalMediaPublication(run) {
+	if isEndpointMediaPublication(run) {
 		return app.Message{}
 	}
 	return r.store.AddMessage(r.messageWithWorkflowResult(app.Message{
@@ -685,12 +689,12 @@ func (r Runtime) workflowResultForDispatchFailure(run app.AgentRun, route app.Ro
 		OwnerID: ownerID, Authorization: authorization,
 		Status: app.WorkflowResultFailed, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...), Workflow: workflow,
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
-		ReturnRoute: returnRoute, Error: &app.WorkflowResultError{Code: "workflow_dispatch_failed", Message: summary},
+		ReturnRoute: workflowResultReturnRoute(app.WorkflowResultFailed, returnRoute), Error: &app.WorkflowResultError{Code: "workflow_dispatch_failed", Message: summary},
 	}
 	if run.MessageContext != nil {
 		result.MCP = run.MessageContext.MCP
 	}
-	return r.protectExternalSendResult(run, result)
+	return result
 }
 
 func (r Runtime) workflowResultForTerminalRoute(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
@@ -707,12 +711,12 @@ func (r Runtime) workflowResultForTerminalRoute(run app.AgentRun, route app.Rout
 		Status: status, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...),
 		Workflow:    app.WorkflowContractRef{ID: workflowID, Revision: 1},
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
-		ReturnRoute: returnRoute,
+		ReturnRoute: workflowResultReturnRoute(status, returnRoute),
 	}
 	if run.MessageContext != nil {
 		result.MCP = run.MessageContext.MCP
 	}
-	return r.protectExternalSendResult(run, result)
+	return result
 }
 
 func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
@@ -728,12 +732,19 @@ func (r Runtime) workflowResultForUnmatched(run app.AgentRun, route app.RouteDec
 		OwnerID: ownerID, Authorization: authorization,
 		Status: status, CapabilityPath: nil, Workflow: app.WorkflowContractRef{ID: "legacy.unmatched", Revision: 1},
 		Content:     r.workflowResultContentFromToolCalls(run, summary),
-		ReturnRoute: returnRoute,
+		ReturnRoute: workflowResultReturnRoute(status, returnRoute),
 	}
 	if run.MessageContext != nil {
 		result.MCP = run.MessageContext.MCP
 	}
-	return r.protectExternalSendResult(run, result)
+	return result
+}
+
+func workflowResultReturnRoute(status app.WorkflowResultStatus, route app.ReturnRoute) app.ReturnRoute {
+	if status != app.WorkflowResultSucceeded && route.Mode == app.ReturnToEndpoint {
+		return app.ReturnRoute{Mode: app.ReturnNowhere}
+	}
+	return route
 }
 
 func (r Runtime) workflowResultIdentity(run app.AgentRun) (string, app.MessageAuthorization) {

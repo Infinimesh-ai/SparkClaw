@@ -79,6 +79,139 @@ func TestServiceCASConflictReturnsConcurrentTerminalOperation(t *testing.T) {
 	}
 }
 
+func TestApprovalExecutionStateTransitionsAreDurable(t *testing.T) {
+	st := store.NewMemoryStore()
+	ref := &app.MCPInvocationRef{
+		InvocationID: "inv-approval-state", OperationID: "operation-approval-state", BindingRef: "binding-approval-state",
+		BindingRevision: 2, RequesterDeviceID: "device-approval-state",
+	}
+	st.SaveRun(app.AgentRun{ID: "run-approval-state", MessageContext: &app.MessageRunContext{MCP: ref}})
+	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "approval-state", Fingerprint: "approval-state",
+		State: app.MCPOperationApprovalRequired, Result: json.RawMessage(`{"pending":true}`),
+		Invocation: app.MCPInvocationContext{
+			ID: ref.InvocationID, RunID: "run-approval-state", BindingRevision: ref.BindingRevision, RequesterDeviceID: ref.RequesterDeviceID,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := New(st, &fakeRuntime{}, nil)
+	running, err := service.BeginApprovalExecution("run-approval-state")
+	if err != nil || running.State != app.MCPOperationRunning || len(running.Result) != 0 || running.Version <= operation.Version {
+		t.Fatalf("approval execution did not enter running: operation=%#v err=%v", running, err)
+	}
+	service.RestoreApprovalRequired("run-approval-state")
+	waiting, _ := st.GetMCPOperation(operation.ID)
+	if waiting.State != app.MCPOperationApprovalRequired || waiting.CompletedAt != nil {
+		t.Fatalf("operation did not return to approval_required: %#v", waiting)
+	}
+	if _, err := service.BeginApprovalExecution("run-approval-state"); err != nil {
+		t.Fatal(err)
+	}
+	service.FailApprovalExecution("run-approval-state", "delivery_failed", "Approved MCP result delivery failed")
+	failed, _ := st.GetMCPOperation(operation.ID)
+	if failed.State != app.MCPOperationFailed || failed.ErrorCode != "delivery_failed" || failed.CompletedAt == nil {
+		t.Fatalf("post-approval failure was not distinct from the approval decision: %#v", failed)
+	}
+}
+
+func TestApprovedExecutionRemainsBoundToOperationCancellation(t *testing.T) {
+	st := store.NewMemoryStore()
+	ref := &app.MCPInvocationRef{
+		InvocationID: "inv-approval-cancel", OperationID: "operation-approval-cancel", BindingRef: "binding-approval-cancel",
+		BindingRevision: 1, RequesterDeviceID: "device-approval-cancel",
+	}
+	st.SaveRun(app.AgentRun{ID: "run-approval-cancel", MessageContext: &app.MessageRunContext{MCP: ref}})
+	_, _, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "approval-cancel", Fingerprint: "approval-cancel",
+		State: app.MCPOperationApprovalRequired,
+		Invocation: app.MCPInvocationContext{
+			ID: ref.InvocationID, RunID: "run-approval-cancel", BindingRevision: ref.BindingRevision,
+			RequesterDeviceID: ref.RequesterDeviceID, Deadline: time.Now().UTC().Add(time.Minute),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := New(st, &fakeRuntime{}, nil)
+	operation, executionCtx, finishExecution, err := service.StartApprovalExecution("run-approval-cancel")
+	if err != nil || operation.State != app.MCPOperationRunning || executionCtx == nil || finishExecution == nil {
+		t.Fatalf("start approved execution: operation=%#v ctx=%v finish=%v err=%v", operation, executionCtx, finishExecution != nil, err)
+	}
+	defer finishExecution()
+	_, rpcErr := service.operationTool(app.MCPPeerIdentity{}, app.MCPBinding{ID: ref.BindingRef}, CallToolParams{
+		Name: "sparkclaw.operation.cancel", Arguments: map[string]any{"operation_id": ref.OperationID},
+	})
+	if rpcErr != nil {
+		t.Fatalf("cancel approved execution: %#v", rpcErr)
+	}
+	select {
+	case <-executionCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("operation cancellation did not cancel approved background execution")
+	}
+	stored, _ := st.GetMCPOperation(ref.OperationID)
+	if stored.State != app.MCPOperationCancelled {
+		t.Fatalf("cancelled approved operation state = %q", stored.State)
+	}
+}
+
+func TestExpiredApprovedExecutionDoesNotStart(t *testing.T) {
+	st := store.NewMemoryStore()
+	ref := &app.MCPInvocationRef{
+		InvocationID: "inv-approval-expired", OperationID: "operation-approval-expired", BindingRef: "binding-approval-expired",
+		BindingRevision: 1, RequesterDeviceID: "device-approval-expired",
+	}
+	st.SaveRun(app.AgentRun{ID: "run-approval-expired", MessageContext: &app.MessageRunContext{MCP: ref}})
+	_, _, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "approval-expired", Fingerprint: "approval-expired",
+		State: app.MCPOperationApprovalRequired,
+		Invocation: app.MCPInvocationContext{
+			ID: ref.InvocationID, RunID: "run-approval-expired", BindingRevision: ref.BindingRevision,
+			RequesterDeviceID: ref.RequesterDeviceID, Deadline: time.Now().UTC().Add(-time.Second),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := New(st, &fakeRuntime{}, nil)
+	operation, executionCtx, finishExecution, err := service.StartApprovalExecution("run-approval-expired")
+	if err == nil || executionCtx != nil || finishExecution != nil || operation.State != app.MCPOperationFailed || operation.ErrorCode != "approval_execution_expired" {
+		t.Fatalf("expired approved execution started: operation=%#v ctx=%v finish=%v err=%v", operation, executionCtx, finishExecution != nil, err)
+	}
+}
+
+func TestStaleWaitingResultDoesNotRegressApprovedRunningOperation(t *testing.T) {
+	st := store.NewMemoryStore()
+	operation, _, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: "operation-stale-waiting", BindingID: "binding-stale-waiting", IdempotencyKey: "stale-waiting", Fingerprint: "stale-waiting",
+		State: app.MCPOperationRunning, Invocation: app.MCPInvocationContext{RunID: "run-stale-waiting"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.SaveApproval(app.Approval{ID: "approval-stale-waiting", RunID: "run-stale-waiting", Status: "approved"})
+	service := New(st, &fakeRuntime{}, nil)
+	service.syncOperationFromResult(operation.ID, agent.Result{
+		Run:            app.AgentRun{ID: "run-stale-waiting"},
+		WorkflowResult: &app.WorkflowResult{RunID: "run-stale-waiting", Status: app.WorkflowResultWaiting},
+	})
+	current, _ := st.GetMCPOperation(operation.ID)
+	if current.State != app.MCPOperationRunning || len(current.Result) != 0 {
+		t.Fatalf("stale waiting result regressed approved execution: %#v", current)
+	}
+	st.SaveApproval(app.Approval{ID: "approval-next", RunID: "run-stale-waiting", Status: "pending"})
+	service.syncOperationFromResult(operation.ID, agent.Result{
+		Run:            app.AgentRun{ID: "run-stale-waiting"},
+		WorkflowResult: &app.WorkflowResult{RunID: "run-stale-waiting", Status: app.WorkflowResultWaiting},
+	})
+	current, _ = st.GetMCPOperation(operation.ID)
+	if current.State != app.MCPOperationApprovalRequired {
+		t.Fatalf("a new pending approval did not park the operation: %#v", current)
+	}
+}
+
 func (r *fakeRuntime) HandleMCPConversation(ctx context.Context, sessionID, _, _ string, request app.MCPConversationRequest, ingress app.MessageIngressContext) (agent.Result, error) {
 	r.request, r.ingress = request, ingress
 	if r.invoked != nil {
@@ -605,6 +738,23 @@ func TestApprovalLifecycleUpdatesSameDurableOperation(t *testing.T) {
 	}))
 	if completed.ID != operation.ID || completed.State != app.MCPOperationSucceeded || completed.CompletedAt == nil {
 		t.Fatalf("approved operation did not survive service restart: %#v", completed)
+	}
+
+	crossTargetOperation, crossTargetRef := createOperation("operation-cross-target", "run-cross-target")
+	crossTargetWaiting := result("cross-target-waiting", "run-cross-target", crossTargetRef, app.WorkflowResultWaiting, "approval required")
+	crossTargetWaiting.ReturnRoute = app.ReturnRoute{Mode: app.ReturnNowhere}
+	service.RecordWorkflowResult(agent.Result{Run: app.AgentRun{ID: "run-cross-target"}, WorkflowResult: &crossTargetWaiting})
+	waitingCrossTarget, _ := st.GetMCPOperation(crossTargetOperation.ID)
+	if waitingCrossTarget.State != app.MCPOperationApprovalRequired || waitingCrossTarget.CompletedAt != nil {
+		t.Fatalf("suppressed cross-target waiting result did not park the MCP operation: %#v", waitingCrossTarget)
+	}
+	crossTargetCompleted := result("cross-target-completed", "run-cross-target", crossTargetRef, app.WorkflowResultSucceeded, "sent to target")
+	crossTargetCompleted.ReturnRoute = app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "telegram:recipient"}
+	service.RecordWorkflowResult(agent.Result{Run: app.AgentRun{ID: "run-cross-target"}, WorkflowResult: &crossTargetCompleted})
+	completedCrossTarget, _ := st.GetMCPOperation(crossTargetOperation.ID)
+	if completedCrossTarget.State != app.MCPOperationSucceeded || completedCrossTarget.CompletedAt == nil ||
+		strings.Contains(string(completedCrossTarget.Result), "sent to target") || !strings.Contains(string(completedCrossTarget.Result), `"delivery_recorded":true`) {
+		t.Fatalf("cross-target delivery did not complete the MCP operation: %#v", completedCrossTarget)
 	}
 
 	rejectedOperation, rejectedRef := createOperation("operation-rejected", "run-rejected")

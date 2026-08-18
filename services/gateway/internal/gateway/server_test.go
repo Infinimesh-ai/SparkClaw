@@ -140,6 +140,121 @@ func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
 	}
 }
 
+func TestMCPConversationCannotBeMutatedThroughSessionAPI(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, root, "mcp", false)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+
+	rename := httptest.NewRequest(http.MethodPatch, "/api/sessions/"+session.ID, bytes.NewBufferString(`{"title":"ordinary chat"}`))
+	rename.Header.Set("Content-Type", "application/json")
+	renameResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(renameResponse, rename)
+	if renameResponse.Code != http.StatusConflict {
+		t.Fatalf("MCP conversation rename returned %d, want %d", renameResponse.Code, http.StatusConflict)
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+session.ID, nil)
+	deleteResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusConflict {
+		t.Fatalf("MCP conversation delete returned %d, want %d", deleteResponse.Code, http.StatusConflict)
+	}
+	if current, ok := st.GetSession(session.ID); !ok || current.Title != session.Title {
+		t.Fatalf("MCP conversation changed through the ordinary session API: %#v ok=%v", current, ok)
+	}
+
+	for _, path := range []string{
+		"/api/sessions/" + session.ID + "/messages",
+		"/api/sessions/" + session.ID + "/messages/stream",
+	} {
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{"content":"local message"}`))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusConflict {
+			t.Fatalf("MCP conversation message write %s returned %d, want %d: %s", path, response.Code, http.StatusConflict, response.Body.String())
+		}
+	}
+	if messages := st.ListMessages(session.ID); len(messages) != 0 {
+		t.Fatalf("ordinary session API wrote into an MCP conversation: %#v", messages)
+	}
+}
+
+func TestMCPApprovalReturnsAfterDurableDecisionBeforeBackgroundExecution(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("AI · device", app.DefaultOwnerID, root, "mcp", false)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := New(cfg, st, tools, runtime)
+
+	ref := &app.MCPInvocationRef{
+		InvocationID: "inv-async-approval", OperationID: "operation-async-approval", BindingRef: "binding-async-approval",
+		BindingRevision: 1, RequesterDeviceID: "device-async-approval",
+	}
+	runID := "run-async-approval"
+	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "Continue after approval"})
+	st.SaveRun(app.AgentRun{
+		ID: runID, SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC(),
+		MessageContext: &app.MessageRunContext{MCP: ref},
+	})
+	call := app.ToolCall{
+		ID: "call-async-approval", SessionID: session.ID, RunID: runID, Tool: "notify.ask_approval", Risk: app.RiskRead,
+		Status: "approval_pending", Arguments: map[string]any{"summary": "Continue"}, StartedAt: time.Now().UTC(),
+		ApprovalID: "approval-async",
+	}
+	st.SaveToolCall(call)
+	st.SaveApproval(app.Approval{
+		ID: call.ApprovalID, Source: app.ApprovalSourceTool, SessionID: session.ID, RunID: runID, ToolCallID: call.ID,
+		Tool: call.Tool, Risk: call.Risk, Status: "pending", Summary: "Continue", Reason: "Owner decision", Arguments: call.Arguments,
+		CreatedAt: time.Now().UTC(),
+	})
+	if _, _, err := st.CreateMCPOperation(app.MCPOperation{
+		ID: ref.OperationID, BindingID: ref.BindingRef, IdempotencyKey: "async-approval", Fingerprint: "async-approval",
+		State: app.MCPOperationApprovalRequired,
+		Invocation: app.MCPInvocationContext{
+			ID: ref.InvocationID, RunID: runID, BindingRevision: ref.BindingRevision, RequesterDeviceID: ref.RequesterDeviceID,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/approvals/"+call.ApprovalID+"/approve", bytes.NewBufferString(`{"note":"approved"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("MCP approval returned %d, want %d: %s", response.Code, http.StatusAccepted, response.Body.String())
+	}
+	var body struct {
+		ApprovalStatus  string                `json:"approval_status"`
+		ExecutionStatus app.MCPOperationState `json:"execution_status"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ApprovalStatus != "approved" || body.ExecutionStatus != app.MCPOperationRunning {
+		t.Fatalf("approval and execution states were not separated: %#v", body)
+	}
+	waitCtx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	if err := server.WaitForBackgroundWork(waitCtx); err != nil {
+		t.Fatal(err)
+	}
+	storedApproval, _ := st.GetApproval(call.ApprovalID)
+	operation, _ := st.GetMCPOperation(ref.OperationID)
+	if storedApproval.Status != "approved" || operation.State != app.MCPOperationFailed || operation.ErrorCode != "workflow_resume_unavailable" {
+		t.Fatalf("background failure was conflated with the durable approval: approval=%#v operation=%#v", storedApproval, operation)
+	}
+}
+
 func TestUploadDocumentAddsExtensionFromContentType(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
@@ -470,8 +585,8 @@ func TestRunCompletesOnlyAfterAllApprovalsResolve(t *testing.T) {
 	if !ok {
 		t.Fatalf("run %q missing after approvals", run.ID)
 	}
-	if completedRun.State != "completed" || completedRun.CompletedAt == nil {
-		t.Fatalf("run did not complete after all approvals resolved: %#v", completedRun)
+	if completedRun.State != "blocked" || completedRun.CompletedAt == nil {
+		t.Fatalf("run did not fail closed after an approval was rejected: %#v", completedRun)
 	}
 }
 
@@ -1431,6 +1546,51 @@ func TestManualNotifyApprovalCanBeConfirmed(t *testing.T) {
 	}
 	if approved.ToolCall.Status != "completed_after_approval" || approved.ToolCall.Result["status"] != "approval_confirmed" {
 		t.Fatalf("notify approval did not complete cleanly: %#v", approved)
+	}
+}
+
+func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("context approval", app.DefaultOwnerID, root, "web", false)
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := NewWithTrace(cfg, st, tools, runtime, trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	run := app.AgentRun{ID: "run_context_modify", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
+	st.SaveRun(run)
+	policyContext := &app.PolicyExecutionContext{
+		SchemaVersion: 1, PrincipalClass: app.PolicyPrincipalExternalMCPAI,
+		ResourceClass: app.PolicyResourceSparkClawWorkspaceData, AccessClass: app.PolicyAccessWorkspaceSourceRead,
+		RunID: run.ID, ContractDigest: "frozen-contract",
+	}
+	call := app.ToolCall{
+		ID: "tc_context_modify", SessionID: session.ID, RunID: run.ID, Tool: app.ToolWorkspaceDataAccess,
+		Risk: app.RiskRead, Status: "approval_pending", Arguments: map[string]any{"request_digest": "frozen"},
+		PolicyContext: policyContext, StartedAt: time.Now().UTC(),
+	}
+	approval := app.Approval{
+		ID: "ap_context_modify", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool,
+		Risk: app.RiskRead, Status: "pending", Arguments: call.Arguments, PolicyContext: policyContext, CreatedAt: time.Now().UTC(),
+	}
+	call.ApprovalID = approval.ID
+	st.SaveToolCall(call)
+	st.SaveApproval(approval)
+
+	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"arguments":{"request_digest":"changed"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("context-bound approval modify returned %d", resp.StatusCode)
+	}
+	stored, _ := st.GetApproval(approval.ID)
+	if stored.Arguments["request_digest"] != "frozen" {
+		t.Fatalf("context-bound approval was modified: %#v", stored)
 	}
 }
 

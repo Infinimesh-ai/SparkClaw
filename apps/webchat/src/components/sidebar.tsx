@@ -121,14 +121,16 @@ export function SessionSidebar({
                   <span>{session.title}</span>
                   <small>{shortId(session.id)}</small>
                 </button>
-                <div className="sessionActions">
-                  <button className="miniIconButton" onClick={() => onStartRename(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
-                    <Pencil size={13} />
-                  </button>
-                  <button className="miniIconButton dangerIcon" onClick={() => onDeleteSession(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
-                    <Trash2 size={13} />
-                  </button>
-                </div>
+                {session.source !== "mcp" && (
+                  <div className="sessionActions">
+                    <button className="miniIconButton" onClick={() => onStartRename(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
+                      <Pencil size={13} />
+                    </button>
+                    <button className="miniIconButton dangerIcon" onClick={() => onDeleteSession(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>

@@ -53,7 +53,11 @@ func (s *Server) webMessageIngress(ctx context.Context, r *http.Request, session
 }
 
 func (s *Server) deliverAgentResult(ctx context.Context, result agent.Result) (*app.DeliveryReceipt, error) {
-	if result.WorkflowResult == nil || result.WorkflowResult.ReturnRoute.Mode == app.ReturnNowhere {
+	if result.WorkflowResult == nil {
+		return nil, nil
+	}
+	if result.WorkflowResult.ReturnRoute.Mode == app.ReturnNowhere {
+		s.mcpAccess.RecordWorkflowResult(result)
 		return nil, nil
 	}
 	if s.endpoints == nil || s.delivery == nil {
@@ -69,5 +73,6 @@ func (s *Server) deliverAgentResult(ctx context.Context, result agent.Result) (*
 	if err != nil {
 		return &receipt, err
 	}
+	s.mcpAccess.RecordWorkflowResult(result)
 	return &receipt, nil
 }

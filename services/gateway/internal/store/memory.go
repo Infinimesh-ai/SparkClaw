@@ -257,6 +257,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		s.indexArtifactObjectLocked(object)
 	}
 	s.episodeSummaries = ensureMap(snapshot.EpisodeSummaries)
+	s.normalizeLinkedMCPSessionsLocked()
 	s.hideLinkedExternalChatSessionsLocked()
 }
 
@@ -314,6 +315,37 @@ func (s *MemoryStore) hideLinkedExternalChatSessionsLocked() {
 			s.sessions[linked.ID] = linked
 		}
 	}
+}
+
+func (s *MemoryStore) normalizeLinkedMCPSessionsLocked() {
+	now := time.Now().UTC()
+	for _, binding := range s.mcpBindings {
+		if strings.TrimSpace(binding.LinkedSessionID) == "" {
+			continue
+		}
+		linked := s.sessions[binding.LinkedSessionID]
+		linked.ID = binding.LinkedSessionID
+		linked.OwnerID = binding.OwnerID
+		linked.Title = mcpSessionTitle(binding.RequesterDeviceID)
+		linked.Source = "mcp"
+		linked.Hidden = false
+		if linked.CreatedAt.IsZero() {
+			linked.CreatedAt = firstNonZeroTime(binding.CreatedAt, now)
+		}
+		if linked.UpdatedAt.IsZero() {
+			linked.UpdatedAt = firstNonZeroTime(binding.UpdatedAt, linked.CreatedAt)
+		}
+		s.sessions[linked.ID] = linked
+	}
+}
+
+func firstNonZeroTime(values ...time.Time) time.Time {
+	for _, value := range values {
+		if !value.IsZero() {
+			return value
+		}
+	}
+	return time.Time{}
 }
 
 func (s *MemoryStore) ListSessions() []app.Session {

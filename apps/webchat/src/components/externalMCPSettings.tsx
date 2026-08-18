@@ -24,6 +24,7 @@ import type {
   MCPBinding
 } from "../api/types";
 import type { Copy, Language } from "../i18n";
+import { useAsyncAction } from "../hooks/useAsyncAction";
 import { formatTime, shortId } from "../lib/format";
 
 type ExternalMCPSettingsProps = {
@@ -50,7 +51,6 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
   const [issuedPairing, setIssuedPairing] = useState<IssuedISCPPairing | null>(null);
   const [issuedAccess, setIssuedAccess] = useState<IssuedMCPAccessTicket | null>(null);
   const [expanded, setExpanded] = useState(true);
-  const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState("");
   const [error, setError] = useState("");
   const mountedRef = useRef(true);
@@ -117,18 +117,11 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
   const canPair = enabled && iscpEnabled && status?.ready === true && displayName.trim().length > 0;
   const canIssue = enabled && (iscpEnabled || lanAccessEnabled) && Boolean(accessDomainID) && accessScope === "conversation";
 
-  async function run(action: string, task: () => Promise<void>) {
-    if (busy) return;
-    setBusy(action);
-    setError("");
-    try {
-      await task();
-    } catch (err) {
-      if (mountedRef.current) setError(err instanceof Error ? err.message : text.errors.externalMCP);
-    } finally {
-      if (mountedRef.current) setBusy("");
-    }
-  }
+  const externalAction = useAsyncAction({
+    clearError: () => setError(""),
+    onError: (error) => setError(error instanceof Error ? error.message : text.errors.externalMCP)
+  });
+  const { busy, run } = externalAction;
 
   async function toggleConnector() {
     if (!activeConnector) return;

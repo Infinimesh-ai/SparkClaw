@@ -137,42 +137,42 @@ func DefaultCatalog() (Catalog, error) {
 			QueryOptionalOperations: []app.RouteOperation{app.RouteOperationPublish},
 		}),
 		branch("browser", string(RootID), "Use current Internet facts, a single-location weather card, or a managed browser session."),
-		leaf(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", RouteContract{
+		leafRevision(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSearch}, FactScopes: []app.RouteFactScope{app.RouteFactScopeCurrentInternet}, RequireQuery: true,
 		}),
-		leaf(string(app.CapabilityBrowserWeather), "browser", "Query current weather through Info and render one card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", RouteContract{
+		leafRevision(string(app.CapabilityBrowserWeather), "browser", "Query current weather through Info and render one card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, TargetKinds: []string{string(app.TargetKindLocation)},
 			RequireQuery: true, RequireLocation: true, RequireTarget: true, RequiredFacts: []string{"location_source"},
 		}),
-		leafRevision(string(app.CapabilityBrowserAutomation), "browser", "Open or focus one explicit URL, registered destination, or named public website in the managed browser.", app.BrowserWorkflowRevision2, RouteContract{
+		leafRevision(string(app.CapabilityBrowserAutomation), "browser", "Open or focus one explicit URL, registered destination, or named public website in the managed browser.", app.BrowserWorkflowRevision3, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationOpen}, TargetKinds: []string{"url", string(app.TargetKindPublicNamedTarget)}, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
 		leaf(string(app.CapabilityBrowserPageRead), "browser", "Read and return bounded content from one explicit URL or named public page through managed headless Chromium.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url", string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
-		leafRevision(string(app.CapabilityBrowserInteraction), "browser", "Inspect a managed Chromium page and perform up to three verified clicks for one frozen interaction goal.", app.BrowserWorkflowRevision2, RouteContract{
+		leafRevision(string(app.CapabilityBrowserInteraction), "browser", "Inspect a managed Chromium page and perform up to three verified clicks for one frozen interaction goal.", app.BrowserWorkflowRevision3, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationInteract}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
-		leaf(string(app.CapabilityBrowserFormDraft), "browser", "Fill or select reversible form draft values without clicking, submitting, sending, uploading, or entering credentials.", RouteContract{
+		leafRevision(string(app.CapabilityBrowserFormDraft), "browser", "Fill or select reversible form draft values without clicking, submitting, sending, uploading, or entering credentials.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationDraft}, TargetKinds: []string{"url", string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget)}, RequireQuery: true, RequireTarget: true, TargetPolicy: RouteTargetRouteOrWorkflowPublicHTTPS,
 		}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
 		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type, using optional OCR for verbatim in-image text and scanned PDF pages.", 4, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
-		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 6, RouteContract{
+		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 7, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),
-		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 2, RouteContract{
+		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 3, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationCreate, app.RouteOperationRead, app.RouteOperationEdit, app.RouteOperationDelete}, RequireQuery: true,
 		}),
 		branch("coding", string(RootID), "Inspect and manage coding-agent tasks and sessions through configured MCP servers."),
-		leaf(string(app.CapabilityCodingAgentManage), "coding", "Inspect or manage the owner's coding-agent tasks, sessions, machines, and transcripts through configured MCP servers. Plan approval decisions belong only to the approval inbox.", RouteContract{
+		leafRevision(string(app.CapabilityCodingAgentManage), "coding", "Inspect or manage the owner's coding-agent tasks, sessions, machines, and transcripts through configured MCP servers. Plan approval decisions belong only to the approval inbox.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead, app.RouteOperationInteract}, RequireQuery: true,
 		}),
 		branch("external_mcp", string(RootID), "Use explicitly configured external MCP workspace providers without exposing their complete catalogs to every model call."),
-		leaf(string(app.CapabilityExternalMCPWorkspace), "external_mcp", "Read or explicitly mutate the configured LocalMind workspace through its scoped MCP credential. Local files, ordinary document attachments, public Internet research, and generic workspace requests belong to their existing capabilities.", RouteContract{
+		leafRevision(string(app.CapabilityExternalMCPWorkspace), "external_mcp", "Read or explicitly mutate the configured LocalMind workspace through its scoped MCP credential. Local files, ordinary document attachments, public Internet research, and generic workspace requests belong to their existing capabilities.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead, app.RouteOperationCreate, app.RouteOperationEdit, app.RouteOperationDelete, app.RouteOperationInteract}, RequireQuery: true,
 		}),
 	})

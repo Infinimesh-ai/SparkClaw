@@ -11,7 +11,7 @@ const externalMCPDirectoryLimit = 16
 type externalMCPWorkspaceProfile struct{}
 
 func (externalMCPWorkspaceProfile) ID() app.WorkflowID { return app.WorkflowExternalMCPWorkspace }
-func (externalMCPWorkspaceProfile) Revision() int      { return 1 }
+func (externalMCPWorkspaceProfile) Revision() int      { return 2 }
 func (externalMCPWorkspaceProfile) Capability() app.CapabilityID {
 	return app.CapabilityExternalMCPWorkspace
 }

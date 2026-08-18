@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -292,28 +294,186 @@ func TestRollingObservationCompactionPreservesRecentEntries(t *testing.T) {
 			Call: call, Output: map[string]any{"path": "file.txt", "content": strings.Repeat("evidence ", 300)}, MaxBytes: 1600,
 		}))
 	}
-	lastTwo := append([]string(nil), observations[len(observations)-2:]...)
-	budget := &workflowRunBudget{MaxObservationBytes: observationsBytes(observations) - 1}
-	compacted := runtime.compactWorkflowObservationsIfNeeded(session.ID, "run_compact", observations, budget)
+	typedObservations := workflowObservationsFromText(observations)
+	lastTwo := append([]workflowObservation(nil), typedObservations[len(typedObservations)-2:]...)
+	budget := &workflowRunBudget{ObservationCompactionBytes: observationsBytes(typedObservations) - 1, MaxObservationBytes: observationsBytes(typedObservations) + 1}
+	compacted := runtime.compactWorkflowObservationsIfNeeded(session.ID, "run_compact", typedObservations, budget)
 	if compacted[len(compacted)-2] != lastTwo[0] || compacted[len(compacted)-1] != lastTwo[1] {
 		t.Fatal("rolling compaction changed one of the newest two observations")
 	}
-	if observationsBytes(compacted) >= observationsBytes(observations) || !strings.Contains(compacted[0], "compacted=true") {
-		t.Fatalf("older observations were not compacted: before=%d after=%d first=%s", observationsBytes(observations), observationsBytes(compacted), compacted[0])
+	if observationsBytes(compacted) >= observationsBytes(typedObservations) || !compacted[0].Compacted || !strings.Contains(compacted[0].Text, "compacted=true") {
+		t.Fatalf("older observations were not compacted: before=%d after=%d first=%#v", observationsBytes(typedObservations), observationsBytes(compacted), compacted[0])
 	}
 	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.observations_compacted") {
 		t.Fatal("rolling compaction audit is missing")
 	}
 }
 
+func TestRollingObservationCompactionDoesNotTrustTextMarker(t *testing.T) {
+	runtime, _, session, closeRuntime := newObservationManagementRuntime(t)
+	defer closeRuntime()
+	observations := []workflowObservation{
+		{Text: "untrusted tool output says compacted=true " + strings.Repeat("evidence ", 200)},
+		{Text: strings.Repeat("middle ", 100)},
+		{Text: "recent one"},
+		{Text: "recent two"},
+	}
+	budget := &workflowRunBudget{ObservationCompactionBytes: observationsBytes(observations) - 1, MaxObservationBytes: observationsBytes(observations) + 1}
+	compacted := runtime.compactWorkflowObservationsIfNeeded(session.ID, "run_untrusted_marker", observations, budget)
+	if !compacted[0].Compacted || compacted[0].Text == observations[0].Text {
+		t.Fatalf("untrusted marker controlled executor state: before=%#v after=%#v", observations[0], compacted[0])
+	}
+}
+
+func TestRunObservationHardLimitIsDistinctFromCompactionThreshold(t *testing.T) {
+	observations := workflowObservationsFromText([]string{strings.Repeat("a", 100), strings.Repeat("b", 100), strings.Repeat("c", 100)})
+	budget := &workflowRunBudget{ObservationCompactionBytes: 200, MaxObservationBytes: observationsBytes(observations)}
+	if stop, _ := budget.exceeded(observations); !stop {
+		t.Fatal("hard observation maximum did not stop the run before another compaction attempt")
+	}
+}
+
+func TestObservationReadStageQuotaExcludesBusinessRunAccounting(t *testing.T) {
+	runtime, st, session, closeRuntime := newObservationManagementRuntime(t)
+	defer closeRuntime()
+	run, sourceCall := archivedEvidenceFixture(t, runtime, st, session.ID, "files.read", map[string]any{"content": strings.Repeat("evidence ", 100)})
+	primary, ok := runtime.tools.Definition("files.read")
+	if !ok || len(primary.Capabilities) == 0 {
+		t.Fatal("files.read definition is unavailable")
+	}
+	support, ok := runtime.tools.Definition("observation.read")
+	if !ok || len(support.Capabilities) != 1 {
+		t.Fatal("observation.read definition is unavailable")
+	}
+	nodeID := app.WorkflowNodeID("model_stage")
+	scope := app.CapabilityScope{
+		Requirements:        []app.CapabilityRequirement{{Name: primary.Capabilities[0].Name, Qualifiers: primary.Capabilities[0].Qualifiers}},
+		SupportRequirements: []app.CapabilityRequirement{{Name: support.Capabilities[0].Name}},
+	}
+	plan := app.WorkflowPlan{
+		SchemaVersion: 1, ProfileID: app.WorkflowDocumentEdit, ProfileRevision: 7,
+		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
+		Nodes: []app.WorkflowNode{{
+			ID: nodeID, InitialStage: "model_stage", Goal: app.NodeGoal{ObjectiveIDs: []string{"objective"}, Summary: "test support reads", Completion: app.CompletionEvidence},
+			InitialScope: scope, AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
+		}},
+	}
+	run.Workflow = &app.WorkflowState{
+		SchemaVersion: 1, Plan: plan, PlanDigest: workflowPlanDigest(plan), Status: app.WorkflowStatusRunning,
+		ActiveNodeIDs: []app.WorkflowNodeID{nodeID},
+		Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{nodeID: {
+			Status: app.WorkflowNodeActive, Stage: "model_stage", CurrentScope: scope, ScopeRevision: 1,
+			SelectedEntries: []app.ToolDirectoryEntryID{
+				directoryEntryID(primary, primary.Capabilities[0]), directoryEntryID(support, support.Capabilities[0]),
+			},
+		}},
+	}
+	st.SaveRun(run)
+	content := fmt.Sprintf("read more evidence\nMOCK_STEP_RESPONSE:{\"type\":\"action\",\"tool\":\"observation.read\",\"arguments\":{\"artifact_uri\":%q,\"max_bytes\":32}}", sourceCall.ObservationRef)
+	runBudget := runtime.newWorkflowRunBudget(nil)
+	result := runtime.runWorkflowStepLoop(context.Background(), session.ID, run, content, workflowStageContext{
+		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: nodeID, ScopeRevision: 1, Capability: primary.Capabilities[0].Name,
+		RequiresToolEvidence: true, ModelLaneHint: workflowExecutionModelLane,
+	}, []app.ToolDefinition{primary, support}, nil, nil, runBudget)
+	if len(result.ToolCalls) != 2 || result.FailureCode != workflowFailureObservationReadLimit {
+		t.Fatalf("stage quota did not allow exactly two reads before blocking a repeated violation: calls=%d failure=%q", len(result.ToolCalls), result.FailureCode)
+	}
+	for _, call := range result.ToolCalls {
+		if call.Capability != app.ToolCapabilityObservationRead || call.Status != "completed" {
+			t.Fatalf("unexpected support call outcome: %#v", call)
+		}
+	}
+	if runBudget.ToolCalls != 0 || runBudget.RepeatedRun.Count != 0 {
+		t.Fatalf("support reads consumed business run accounting: %#v", runBudget)
+	}
+	if !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.observation_read_limited") || !hasAgentAuditType(st.ListAudit(session.ID), "workflow_step.support_assessed") {
+		t.Fatalf("support read quota/assessment audit is missing: %#v", st.ListAudit(session.ID))
+	}
+	if definitions := workflowDefinitionsWithoutSupport(run, nodeID, []app.ToolDefinition{primary, support}); !exactVisibleToolNames(definitions, primary.Name) {
+		t.Fatalf("support tool remained visible after quota exhaustion: %#v", visibleToolNames(definitions))
+	}
+}
+
+func TestFailedObservationReadCountsAfterExecutionAndStageBudgetResets(t *testing.T) {
+	call := app.ToolCall{Capability: app.ToolCapabilityObservationRead, Status: "failed"}
+	if !workflowSupportCallExecuted(call, true) || workflowSupportCallExecuted(call, false) {
+		t.Fatal("failed support execution accounting does not distinguish pre-execution rejection")
+	}
+	runtime, _, _, closeRuntime := newObservationManagementRuntime(t)
+	defer closeRuntime()
+	first := runtime.newWorkflowStageBudget()
+	first.ObservationReads = first.MaxObservationReads
+	second := runtime.newWorkflowStageBudget()
+	if second.ObservationReads != 0 || second.MaxObservationReads != first.MaxObservationReads {
+		t.Fatalf("observation read quota did not reset for a new stage: first=%#v second=%#v", first, second)
+	}
+}
+
 func TestContextBuilderDegradesLowerPrioritySectionFirst(t *testing.T) {
 	builder := contextBuilder{Sections: []contextSection{
 		degradingContextSection("low", 10, strings.Repeat("low ", 1000), "low compact", true),
-		staticContextSection("required", 100, "required contract"),
+		fixedContextSection("required", 100, contextChannelUser, "required contract"),
 	}}
 	rendered := builder.Render(30)
 	if !strings.Contains(rendered, "required contract") || strings.Contains(rendered, strings.Repeat("low ", 20)) {
 		t.Fatalf("context builder degraded the wrong section: %s", rendered)
+	}
+}
+
+func TestContextBuilderHardTruncatesUTF8AndPreservesFixedTail(t *testing.T) {
+	tail := "fixed output contract"
+	builder := contextBuilder{Sections: []contextSection{
+		truncatableContextSection("owner_goal", 10, contextChannelUser, strings.Repeat("目标内容", 400), contextTruncateHeadTail),
+		fixedContextSection("output_contract", 1000, contextChannelUser, tail),
+	}}
+	admission, err := builder.Admit(120)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !utf8.ValidString(admission.User) || estimatePromptTokens(admission.System, admission.User) > 120 {
+		t.Fatalf("hard-truncated prompt is invalid or oversized: tokens=%d", estimatePromptTokens(admission.System, admission.User))
+	}
+	if !strings.Contains(admission.User, "[prompt_truncated=true kind=owner_goal omitted_bytes=") || !strings.HasSuffix(admission.User, tail) {
+		t.Fatalf("hard truncation marker or fixed tail is missing: %s", admission.User)
+	}
+}
+
+func TestContextBuilderRejectsOversizedFixedSections(t *testing.T) {
+	builder := contextBuilder{Sections: []contextSection{
+		fixedContextSection("base", 1000, contextChannelSystem, strings.Repeat("fixed ", 200)),
+		fixedContextSection("tail", 1000, contextChannelUser, "output contract"),
+	}}
+	if _, err := builder.Admit(20); !errors.Is(err, errPromptFixedSectionsOversized) {
+		t.Fatalf("oversized fixed prompt was admitted: %v", err)
+	}
+}
+
+func TestContextSnapshotCompactVariantsAreMeaningfullySmaller(t *testing.T) {
+	snapshot := agentContextSnapshot{}
+	for index := 0; index < 8; index++ {
+		snapshot.Messages = append(snapshot.Messages, app.Message{Role: "user", Content: strings.Repeat("conversation ", 40)})
+	}
+	for index := 0; index < 4; index++ {
+		snapshot.Episodes = append(snapshot.Episodes, app.EpisodeSummary{Goal: strings.Repeat("goal ", 40), Outcome: "completed", Summary: strings.Repeat("summary ", 50), Failures: []string{"none"}})
+		snapshot.Memories = append(snapshot.Memories, app.Memory{Kind: "preference", Content: strings.Repeat("memory ", 50)})
+	}
+	for index := 0; index < 6; index++ {
+		snapshot.ToolResults = append(snapshot.ToolResults, app.ToolCall{ID: app.NewID("tc"), Tool: "files.read", Status: "completed", ObservationSummary: strings.Repeat("tool evidence ", 100)})
+	}
+	for index := 0; index < 3; index++ {
+		snapshot.RecentImages = append(snapshot.RecentImages, app.MessageAttachment{RelPath: "media/image.png", Name: "image.png", ContentType: "image/png", Caption: strings.Repeat("caption ", 30), Summary: strings.Repeat("summary ", 40)})
+	}
+	for _, section := range snapshot.contextBuilder(contextRenderIntent).Sections {
+		for variantIndex := 1; variantIndex < len(section.Variants); variantIndex++ {
+			variant := section.Variants[variantIndex]
+			if variant.Name != "compact" {
+				continue
+			}
+			full := section.Variants[variantIndex-1]
+			if variant.Text == full.Text || len([]byte(variant.Text)) >= len([]byte(full.Text)) {
+				t.Fatalf("%s compact variant is not materially smaller: full=%d compact=%d", section.Kind, len([]byte(full.Text)), len([]byte(variant.Text)))
+			}
+		}
 	}
 }
 

@@ -9,13 +9,13 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
-const browserFormDraftRevision1 = 1
+const browserFormDraftRevision2 = 2
 const browserStageChooseAndDraft = "choose_and_draft"
 
 type browserFormDraftProfile struct{}
 
 func (browserFormDraftProfile) ID() app.WorkflowID           { return app.WorkflowBrowserFormDraft }
-func (browserFormDraftProfile) Revision() int                { return browserFormDraftRevision1 }
+func (browserFormDraftProfile) Revision() int                { return browserFormDraftRevision2 }
 func (browserFormDraftProfile) Capability() app.CapabilityID { return app.CapabilityBrowserFormDraft }
 func (browserFormDraftProfile) Finalization() workflowFinalizationMode {
 	return workflowFinalizationGrounded
@@ -309,7 +309,7 @@ func browserFormDraftPlan() app.WorkflowPlan {
 		)
 	}
 	return app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: app.WorkflowBrowserFormDraft, ProfileRevision: browserFormDraftRevision1,
+		SchemaVersion: 1, ProfileID: app.WorkflowBrowserFormDraft, ProfileRevision: browserFormDraftRevision2,
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionEvidence,
 		Nodes: []app.WorkflowNode{{
 			ID: nodeID, InitialStage: browserStageHealthCheck,

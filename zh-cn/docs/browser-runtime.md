@@ -27,14 +27,14 @@ Workflow leaf
 
 | Capability | 当前 revision 边界 |
 |---|---|
-| `browser.internet_search` r1 | 通过 `web.search` 搜索公开当前信息，不打开来源页面 |
-| `browser.weather` r1 | 通过 Infinimesh Info `POST /v1/info/weather` 查询 typed metric 数据，并为一个明确地点生成天气卡片 |
-| `browser.automation` r2 | 取得明确 URL、注册 destination 或由 Info 识别的命名公网目标，在 hidden Chromium 校验后，再在 visible Chromium 呈现并验证 |
+| `browser.internet_search` r2 | 通过 `web.search` 搜索公开当前信息，不打开来源页面 |
+| `browser.weather` r2 | 通过 Infinimesh Info `POST /v1/info/weather` 查询 typed metric 数据，并为一个明确地点生成天气卡片 |
+| `browser.automation` r3 | 取得明确 URL、注册 destination 或由 Info 识别的命名公网目标，在 hidden Chromium 校验后，再在 visible Chromium 呈现并验证 |
 | `browser.page_read` r1 | 执行固定 hidden health -> open -> session-required read 链，从一个明确或经 Info 识别的 URL 返回有界内容 |
-| `browser.interaction` r2 | 在托管 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
-| `browser.form_draft` r1 | 先在 hidden Chromium 中发现并评估普通可逆字段，再在同一 visible session 中 type 或 select 最多五个经独立审批、由 owner 原文提供的精确值，并原位验证未提交草稿 |
+| `browser.interaction` r3 | 在托管 acquisition/presentation 链中执行最多三次受限、ref-bound click，并独立验证 transition 与目标 |
+| `browser.form_draft` r2 | 先在 hidden Chromium 中发现并评估普通可逆字段，再在同一 visible session 中 type 或 select 最多五个经独立审批、由 owner 原文提供的精确值，并原位验证未提交草稿 |
 
-`browser.interaction` r2 保持 click-only。`browser.form_draft` r1 只在 action stage 暴露
+`browser.interaction` r3 保持 click-only。`browser.form_draft` r2 只在 action stage 暴露
 type/select，绝不暴露 click、submit、send、publish、upload、download、凭据、captcha/2FA、
 payment/purchase 或页面脚本动作。登录和人工验证使用显式 owner handoff。底层 browser
 tool 不会扩大已支持 Workflow 表面；以

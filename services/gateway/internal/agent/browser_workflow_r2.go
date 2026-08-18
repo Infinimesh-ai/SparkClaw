@@ -9,7 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-const browserWorkflowRevision2 = 2
+const browserWorkflowRevision3 = 3
 const browserResultPresentationReason = "workflow_result_presentation"
 const browserSnapshotSettleRetryLimit = 2
 
@@ -45,7 +45,7 @@ const (
 type browserAutomationProfile struct{}
 
 func (browserAutomationProfile) ID() app.WorkflowID           { return app.WorkflowBrowserAutomation }
-func (browserAutomationProfile) Revision() int                { return browserWorkflowRevision2 }
+func (browserAutomationProfile) Revision() int                { return browserWorkflowRevision3 }
 func (browserAutomationProfile) Capability() app.CapabilityID { return app.CapabilityBrowserAutomation }
 func (browserAutomationProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
@@ -95,7 +95,7 @@ func (browserAutomationProfile) DirectStageArguments(state *app.WorkflowState) m
 type browserInteractionProfile struct{}
 
 func (browserInteractionProfile) ID() app.WorkflowID { return app.WorkflowBrowserInteraction }
-func (browserInteractionProfile) Revision() int      { return browserWorkflowRevision2 }
+func (browserInteractionProfile) Revision() int      { return browserWorkflowRevision3 }
 func (browserInteractionProfile) Capability() app.CapabilityID {
 	return app.CapabilityBrowserInteraction
 }

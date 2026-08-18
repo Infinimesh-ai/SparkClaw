@@ -1063,11 +1063,11 @@ func browserHandoffResetPersisted(run app.AgentRun, nodeID app.WorkflowNodeID) b
 func browserHandoffProfileRevisionSupported(id app.WorkflowID, revision int) bool {
 	switch id {
 	case app.WorkflowBrowserAutomation, app.WorkflowBrowserInteraction:
-		return revision == app.BrowserWorkflowRevision2
+		return revision == app.BrowserWorkflowRevision2 || revision == app.BrowserWorkflowRevision3
 	case app.WorkflowBrowserPageRead:
 		return revision == browserPageReadRevision1
 	case app.WorkflowBrowserFormDraft:
-		return revision == browserFormDraftRevision1
+		return revision == 1 || revision == browserFormDraftRevision2
 	default:
 		return false
 	}
@@ -1240,7 +1240,7 @@ func (r Runtime) blockPersistedWorkflowResume(ctx context.Context, run app.Agent
 	if run.Workflow != nil {
 		route := run.Workflow.Route
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForRun(result.Run, route, run.Workflow.ReturnRoute, result.Message.Content)
+		result.WorkflowResult = r.workflowResultForRun(result.Run, route, run.Workflow.ReturnRoute, result.Message.Content, workflowFailureSetup)
 	}
 	return result
 }

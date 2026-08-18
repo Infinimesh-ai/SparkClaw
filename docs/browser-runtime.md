@@ -28,14 +28,14 @@ attachment, cookie export, or second DOM perception engine.
 
 | Capability | Current revision boundary |
 |---|---|
-| `browser.internet_search` r1 | Search public current information through `web.search`; it does not open source pages |
-| `browser.weather` r1 | Query typed metric data through Infinimesh Info `POST /v1/info/weather` and render one card for one explicit location |
-| `browser.automation` r2 | Acquire an explicit URL, registered destination, or Info-identified named public target, validate it in hidden Chromium, then present and validate it in visible Chromium |
+| `browser.internet_search` r2 | Search public current information through `web.search`; it does not open source pages |
+| `browser.weather` r2 | Query typed metric data through Infinimesh Info `POST /v1/info/weather` and render one card for one explicit location |
+| `browser.automation` r3 | Acquire an explicit URL, registered destination, or Info-identified named public target, validate it in hidden Chromium, then present and validate it in visible Chromium |
 | `browser.page_read` r1 | Run a fixed hidden health -> open -> session-required read chain and return bounded content from one explicit or Info-identified URL |
-| `browser.interaction` r2 | Use the managed acquisition and presentation chain around at most three bounded, ref-bound clicks with independent transition and goal validation |
-| `browser.form_draft` r1 | Discover and assess ordinary reversible fields in hidden Chromium, then type or select at most five independently approved, exact owner-supplied values in one visible session and verify the uncommitted draft in place |
+| `browser.interaction` r3 | Use the managed acquisition and presentation chain around at most three bounded, ref-bound clicks with independent transition and goal validation |
+| `browser.form_draft` r2 | Discover and assess ordinary reversible fields in hidden Chromium, then type or select at most five independently approved, exact owner-supplied values in one visible session and verify the uncommitted draft in place |
 
-`browser.interaction` r2 remains click-only. `browser.form_draft` r1 exposes only
+`browser.interaction` r3 remains click-only. `browser.form_draft` r2 exposes only
 type and select during its action stage and never exposes click, submit, send,
 publish, upload, download, credential, captcha/2FA, payment/purchase, or page
 script actions. Login and human verification are explicit owner handoffs.

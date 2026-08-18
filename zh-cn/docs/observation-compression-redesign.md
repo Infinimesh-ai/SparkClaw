@@ -5,6 +5,8 @@
 状态：2026-08-03 已实施。统一观测信封、运行时证据供给、
 `observation.read`、滚动压缩、ContextBuilder 整合和多观测最终合成都已
 交付；上下文方案 1.3（模型生成的情节摘要）仍是独立待办。
+Issue #17 于 2026-08-18 收紧了已交付实现的准入、scope、配额和硬停止语义；当本文原始
+设计与当前实现不同时，以 [Workflow 执行](workflow-execution.md)为准。
 
 范围：工具结果压缩（`services/gateway/internal/agent/tool_result_adapter.go`）、
 按工具区分的观测预算（`agent.go` 的 `toolResultObservationBudget`）、workflow
@@ -116,24 +118,26 @@ schema 或 artifact 归档写入语义；内部 artifact store 读取接口扩�
 
 按上下文组装方案 1.2 的规格执行，实质不变：参数 `artifact_uri`（必填）、
 `offset`、`max_bytes`；read 风险、无需审批；会话内不透明键；注册于
-`internal/toolhub/registry.go`，registry 一致性测试自动覆盖；在所有模型
-步骤 scope 暴露。其结果经过同一个统一信封返回，请求窗口作为证据摘录。
+`internal/toolhub/registry.go`，registry 一致性测试自动覆盖；在合格模型步骤 scope 中
+通过冻结的通用 `SupportRequirements` 选择，旧持久化 plan 不会被扩大。其结果经过同一个
+统一信封返回，请求窗口作为证据摘录。默认每阶段允许执行两次 read；它们计入 observation
+byte，但不计入 business tool-call 或重复调用预算。
 
 ### 3.4 滚动观测压缩
 
-按方案 0.2 的规格执行：run 观测预算触顶时，把最旧一半压为单行条目
-（tool、status、关键字段、artifact ref、`compacted=true`），最新两条永不
-压缩，顺序保持，以 `workflow_step.observations_compacted` 审计前后字节数；
-全部可压条目压完仍超预算才停止。统一信封后最坏情形有界
+滚动压缩在 36,000 byte 启动，把合格的较旧条目压为单行类型化状态（tool、status、
+关键字段、artifact ref），最新两条永不压缩，顺序保持，以
+`workflow_step.observations_compacted` 审计前后字节数。48,000 byte 最大值优先检查，
+达到后不再尝试压缩而直接停止。统一信封后最坏情形有界
 （32 次调用 × 约 2.4 KB ≈ 77 KB），压缩因此是长 run 的常规路径而非悬崖，
 且因 3.3 提供读回而无损。
 
 ### 3.5 ContextBuilder 整合
 
-方案 1.1 照常推进，追加一点：供给证据注册为独立小节、独立预算，排在当前
-run 观测与输出契约之间。builder 强制执行合计准入预算（方案 0.4 的
-lane 上下文 × 0.85）；需要降级时，先缩减供给证据的切片预算，再进一步压缩
-观测。
+供给证据注册为独立可降级小节和独立预算，排在当前 run 观测与固定输出契约之间。
+一个 builder 强制执行合计准入预算（lane 上下文 × 0.85），依次降级命名 variant，
+并只对明确声明的 section 做 UTF-8 安全截断。每个获准 prompt 都低于阈值；固定 section
+超限会在模型调用前失败。
 
 ### 3.6 跨 run 上下文有意保持索引定位
 
@@ -155,7 +159,9 @@ lane 上下文 × 0.85）；需要降级时，先缩减供给证据的切片预�
 |---|---|---|
 | `observation_summary_max_bytes` | 2400 | 唯一的信封尺寸旋钮，适用于所有工具 |
 | `workflow_stage_evidence_max_bytes` | 8000 | 新增：每阶段供给证据上限 |
-| `workflow_run_max_observation_bytes` | 48000 | 仅作 run 累积预算；触发压缩（3.4），不再放大信封 |
+| `workflow_stage_max_observation_reads` | 2 | 每阶段允许执行的 support read 数量 |
+| `workflow_run_observation_compaction_bytes` | 36000 | 启动滚动压缩 |
+| `workflow_run_max_observation_bytes` | 48000 | 压缩前优先检查的硬停止线；不再放大信封 |
 
 新增审计事件：`workflow_step.evidence_provisioned`、
 `workflow_step.evidence_blocked`、`workflow_step.observations_compacted`。
@@ -171,7 +177,7 @@ lane 上下文 × 0.85）；需要降级时，先缩减供给证据的切片预�
 - artifact 归档（`store.ArchiveToolObservation`）不变。artifact store 接口
   新增有界读取，由 filesystem 与 S3-compatible 后端实现；unsupported 后端
   继续显式报错。
-- 浏览器 r2 计划形状不变，仅其阶段上下文增加证据需求。
+- 当前模型工具 Profile revision 会冻结 support requirement；旧持久化 plan 恢复时保持原 scope。
 
 ## 7. 风险
 

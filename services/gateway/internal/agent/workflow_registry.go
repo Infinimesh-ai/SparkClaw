@@ -65,6 +65,73 @@ type workflowDirectStageProfile interface {
 	DirectStageArguments(*app.WorkflowState) map[string]any
 }
 
+type workflowAlwaysDirectProfile interface {
+	workflowDirectStageProfile
+	alwaysDirectWorkflowProfile()
+}
+
+type legacyWorkflowProfile struct {
+	workflowProfile
+	revision int
+}
+
+func (profile legacyWorkflowProfile) Revision() int { return profile.revision }
+
+func (profile legacyWorkflowProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+	intent, plan, err := profile.workflowProfile.Resolve(route, sourceTurnID)
+	if err != nil {
+		return intent, plan, err
+	}
+	plan.ProfileRevision = profile.revision
+	stripWorkflowSupportRequirements(&plan)
+	return intent, plan, nil
+}
+
+func (profile legacyWorkflowProfile) DirectStage(state *app.WorkflowState) bool {
+	direct, ok := profile.workflowProfile.(workflowDirectStageProfile)
+	return ok && direct.DirectStage(state)
+}
+
+func (profile legacyWorkflowProfile) DirectStageArguments(state *app.WorkflowState) map[string]any {
+	direct, ok := profile.workflowProfile.(workflowDirectStageProfile)
+	if !ok {
+		return nil
+	}
+	return direct.DirectStageArguments(state)
+}
+
+func (profile legacyWorkflowProfile) DirectoryLimit() int {
+	bounded, ok := profile.workflowProfile.(workflowDirectoryLimitProfile)
+	if !ok {
+		return 0
+	}
+	return bounded.DirectoryLimit()
+}
+
+func (profile legacyWorkflowProfile) DecisionReasonCodes() workflowDecisionReasonCodes {
+	semantic, ok := profile.workflowProfile.(workflowDecisionReasonProfile)
+	if !ok {
+		return workflowDecisionReasonCodes{}
+	}
+	return semantic.DecisionReasonCodes()
+}
+
+func (profile legacyWorkflowProfile) DecisionRules(node app.WorkflowNode) []string {
+	semantic, ok := profile.workflowProfile.(workflowDecisionSemantics)
+	if !ok {
+		return nil
+	}
+	return semantic.DecisionRules(node)
+}
+
+func (profile legacyWorkflowProfile) DecisionResolvedInstruction(entry app.ToolDirectoryEntry) string {
+	semantic, ok := profile.workflowProfile.(workflowDecisionSemantics)
+	if !ok {
+		return ""
+	}
+	return semantic.DecisionResolvedInstruction(entry)
+}
+
 type workflowFinalizationMode string
 
 const (
@@ -158,16 +225,25 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		conversationAnswerProfileV1{},
 		conversationAnswerProfileV2{},
 		conversationAnswerProfile{},
+		legacyWorkflowProfile{workflowProfile: browserInternetSearchProfile{}, revision: 1},
 		browserInternetSearchProfile{},
+		legacyWorkflowProfile{workflowProfile: browserWeatherProfile{}, revision: 1},
 		browserWeatherProfile{},
+		legacyWorkflowProfile{workflowProfile: browserAutomationProfile{}, revision: 2},
 		browserAutomationProfile{},
 		browserPageReadProfile{},
+		legacyWorkflowProfile{workflowProfile: browserInteractionProfile{}, revision: 2},
 		browserInteractionProfile{},
+		legacyWorkflowProfile{workflowProfile: browserFormDraftProfile{}, revision: 1},
 		browserFormDraftProfile{},
 		documentReadProfile{},
+		legacyWorkflowProfile{workflowProfile: documentEditProfile{}, revision: 6},
 		documentEditProfile{},
+		legacyWorkflowProfile{workflowProfile: scheduleManageProfile{}, revision: 2},
 		scheduleManageProfile{},
+		legacyWorkflowProfile{workflowProfile: codingAgentManageProfile{}, revision: 1},
 		codingAgentManageProfile{},
+		legacyWorkflowProfile{workflowProfile: externalMCPWorkspaceProfile{}, revision: 1},
 		externalMCPWorkspaceProfile{},
 	)
 }
@@ -259,8 +335,45 @@ func (r workflowProfileRegistry) Resolve(catalog capability.Catalog, decision ap
 	if err != nil {
 		return resolvedWorkflow{}, err
 	}
+	freezeWorkflowSupportRequirements(profile, &plan)
 	if err := validateWorkflowPlan(intent, profile, plan); err != nil {
 		return resolvedWorkflow{}, err
 	}
 	return resolvedWorkflow{Profile: profile, Intent: intent, Plan: plan}, nil
+}
+
+func freezeWorkflowSupportRequirements(profile workflowProfile, plan *app.WorkflowPlan) {
+	if plan == nil {
+		return
+	}
+	if _, alwaysDirect := profile.(workflowAlwaysDirectProfile); alwaysDirect {
+		return
+	}
+	support := []app.CapabilityRequirement{{Name: app.ToolCapabilityObservationRead}}
+	for nodeIndex := range plan.Nodes {
+		node := &plan.Nodes[nodeIndex]
+		if node.Goal.Completion != app.CompletionEvidence || node.InvocationMode == app.WorkflowInvocationDirectOnce {
+			continue
+		}
+		node.InitialScope.SupportRequirements = append([]app.CapabilityRequirement(nil), support...)
+		for transitionIndex := range node.Transitions {
+			if node.Transitions[transitionIndex].Replace != nil {
+				node.Transitions[transitionIndex].Replace.SupportRequirements = append([]app.CapabilityRequirement(nil), support...)
+			}
+		}
+	}
+}
+
+func stripWorkflowSupportRequirements(plan *app.WorkflowPlan) {
+	if plan == nil {
+		return
+	}
+	for nodeIndex := range plan.Nodes {
+		plan.Nodes[nodeIndex].InitialScope.SupportRequirements = nil
+		for transitionIndex := range plan.Nodes[nodeIndex].Transitions {
+			if plan.Nodes[nodeIndex].Transitions[transitionIndex].Replace != nil {
+				plan.Nodes[nodeIndex].Transitions[transitionIndex].Replace.SupportRequirements = nil
+			}
+		}
+	}
 }

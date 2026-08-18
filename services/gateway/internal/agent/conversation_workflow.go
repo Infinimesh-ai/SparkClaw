@@ -173,14 +173,20 @@ func (conversationAnswerProfile) TransitionInstruction(app.ToolOutcome, app.Node
 
 func (r Runtime) runWorkflowMessageContentStep(run app.AgentRun) workflowExecutionResult {
 	if run.Workflow == nil || run.Workflow.Route.Slots.Operation != app.RouteOperationPublish || run.MessageContext == nil {
-		return workflowExecutionResult{Halted: true, FinalAnswer: "The ordinary message workflow lost its normalized request content."}
+		result := workflowExecutionResult{Halted: true}
+		result.fail(workflowFailureMessageContentInvalid, errors.New("ordinary message workflow lost its normalized request content"))
+		r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		return result
 	}
 	if run.Workflow.Plan.ProfileRevision == 3 {
 		return r.runConversationResponseContentStep(run)
 	}
 	content, err := r.governWorkflowRequestContent(run)
 	if err != nil {
-		return workflowExecutionResult{Halted: true, FinalAnswer: "The ordinary message could not be prepared for delivery: " + err.Error()}
+		result := workflowExecutionResult{Halted: true}
+		result.fail(workflowFailureMessageContentInvalid, err)
+		r.auditWorkflowExecutionFailure(run.SessionID, run.ID, "workflow.message_content_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		return result
 	}
 	run.MessageContext.RequestContent = content
 	r.store.SaveRun(run)
@@ -255,7 +261,7 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 			}
 		}
 	}
-	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForWorkflowStepCompact()
+	contextText := r.buildAgentContextSnapshot(sessionID, run.ID, content).ForWorkflowStep()
 	system := strings.Join([]string{
 		conversationAnswerSystemPrompt(run.MessageContext),
 		finalAnswerLanguageInstruction(finalAnswerGoal(run, content)),
@@ -272,11 +278,17 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 	completed := time.Now().UTC()
 	r.store.SaveModelCall(modelCallFromChat(sessionID, run.ID, "workflow_answer", chat, err, started, completed))
 	if err != nil {
-		return workflowExecutionResult{Chat: chat, FinalAnswer: "The conversation answer model was unavailable: " + err.Error(), FinalAnswerStreamed: emit != nil}
+		result := workflowExecutionResult{Chat: chat, Halted: true}
+		result.fail(workflowFailureModelUnavailable, err)
+		r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.model_answer_failed", result.FailureCode, result.FailureDiagnostic, nil)
+		return result
 	}
 	answer, answerErr := workflowFinalAnswerContent(chat.Content)
 	if answerErr != nil {
-		return workflowExecutionResult{Chat: chat, FinalAnswer: "The conversation answer model returned no usable answer: " + answerErr.Error(), FinalAnswerStreamed: emit != nil}
+		result := workflowExecutionResult{Chat: chat, Halted: true}
+		result.fail(workflowFailureConversationOutputInvalid, answerErr)
+		r.auditWorkflowExecutionFailure(sessionID, run.ID, "workflow.model_answer_invalid", result.FailureCode, result.FailureDiagnostic, nil)
+		return result
 	}
 	return workflowExecutionResult{Chat: chat, FinalAnswer: answer, FinalAnswerStreamed: emit != nil, Completed: true}
 }

@@ -727,6 +727,13 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 - Runtime 预算键拆分为 `workflow_stage_max_*` 与 `workflow_run_max_*`
   （旧的 `workflow_step_max_*`/`react_max_*` 仍可回退映射；见
   [Workflow execution](workflow-execution.md)）。
+- Observation 压力现在有两条边界：
+  `workflow_run_observation_compaction_bytes=36000` 开始滚动压缩，
+  `workflow_run_max_observation_bytes=48000` 是优先检查的硬停止线。旧配置按已解析最大值
+  的 75% 派生较低值；两值都显式配置时必须满足 `0 < compaction < maximum`。
+- `workflow_stage_max_observation_reads=2` 独立限制已执行的 `observation.read` support
+  call。环境变量覆盖为 `SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES` 与
+  `SPARKCLAW_WORKFLOW_STAGE_MAX_OBSERVATION_READS`。
 
 
 ## Secure Defaults

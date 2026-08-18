@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -46,10 +47,10 @@ func validateWorkflowPlan(intent app.IntentEnvelope, profile workflowProfile, pl
 			return fmt.Errorf("workflow node %q has unsupported invocation mode %q", node.ID, node.InvocationMode)
 		}
 		if directOnceNode && (node.Goal.Completion != app.CompletionEvidence || node.MaxAttempts != 1 ||
-			node.InitialScope.MaterializeAll || len(node.InitialScope.Requirements) != 1 || len(node.Transitions) != 0) {
+			node.InitialScope.MaterializeAll || len(node.InitialScope.Requirements) != 1 || len(node.InitialScope.SupportRequirements) != 0 || len(node.Transitions) != 0) {
 			return fmt.Errorf("workflow node %q direct-once invocation requires one evidence capability, one attempt, and no transitions", node.ID)
 		}
-		if (modelAnswerNode || messageNode || deterministicNode) && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0 || len(node.InitialScope.Requirements) != 0) {
+		if (modelAnswerNode || messageNode || deterministicNode) && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll || len(node.InitialScope.DeniedEffects) != 0 || len(node.InitialScope.Requirements) != 0 || len(node.InitialScope.SupportRequirements) != 0) {
 			return fmt.Errorf("workflow node %q non-tool completion contract cannot expose tools, bindings, scopes, or transitions", node.ID)
 		}
 		if decisionNode && (len(node.Transitions) != 0 || len(node.ArgumentBindings) != 0 || len(node.StageCapabilities) != 0 || node.InitialScope.MaterializeAll) {
@@ -195,12 +196,43 @@ func validateCapabilityScope(scope app.CapabilityScope, allowEmpty bool) error {
 	if len(scope.Requirements) == 0 && !allowEmpty {
 		return errors.New("at least one capability requirement is required")
 	}
-	for _, requirement := range scope.Requirements {
-		if strings.TrimSpace(requirement.Name) == "" {
-			return errors.New("capability requirement name is empty")
+	seen := map[string]bool{}
+	validate := func(requirements []app.CapabilityRequirement, support bool) error {
+		for _, requirement := range requirements {
+			if strings.TrimSpace(requirement.Name) == "" {
+				return errors.New("capability requirement name is empty")
+			}
+			key := capabilityRequirementKey(requirement)
+			if seen[key] {
+				if support {
+					return errors.New("support capability requirement overlaps or duplicates another requirement")
+				}
+				return errors.New("capability requirement is duplicated")
+			}
+			seen[key] = true
 		}
+		return nil
+	}
+	if err := validate(scope.Requirements, false); err != nil {
+		return err
+	}
+	if err := validate(scope.SupportRequirements, true); err != nil {
+		return err
 	}
 	return nil
+}
+
+func capabilityRequirementKey(requirement app.CapabilityRequirement) string {
+	keys := make([]string, 0, len(requirement.Qualifiers))
+	for key := range requirement.Qualifiers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := []string{requirement.Name}
+	for _, key := range keys {
+		parts = append(parts, key+"="+requirement.Qualifiers[key])
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func validateNodeTransitions(node app.WorkflowNode) error {
@@ -268,7 +300,7 @@ func nodeCanRequireCapability(node app.WorkflowNode, capability string) bool {
 }
 
 func scopeRequiresCapability(scope app.CapabilityScope, capability string) bool {
-	for _, requirement := range scope.Requirements {
+	for _, requirement := range append(append([]app.CapabilityRequirement(nil), scope.Requirements...), scope.SupportRequirements...) {
 		if requirement.Name == capability {
 			return true
 		}

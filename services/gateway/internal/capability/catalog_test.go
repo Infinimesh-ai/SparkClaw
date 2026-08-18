@@ -35,16 +35,20 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 			wantRevision = 3
 		}
 		if leaf.ID == app.CapabilityScheduleManage {
-			wantRevision = 2
+			wantRevision = 3
 		}
 		if leaf.ID == app.CapabilityDocumentRead {
 			wantRevision = 4
 		}
 		if leaf.ID == app.CapabilityDocumentEdit {
-			wantRevision = 6
+			wantRevision = 7
 		}
 		if leaf.ID == app.CapabilityBrowserAutomation || leaf.ID == app.CapabilityBrowserInteraction {
-			wantRevision = app.BrowserWorkflowRevision2
+			wantRevision = app.BrowserWorkflowRevision3
+		}
+		if leaf.ID == app.CapabilityBrowserInternetSearch || leaf.ID == app.CapabilityBrowserWeather ||
+			leaf.ID == app.CapabilityBrowserFormDraft || leaf.ID == app.CapabilityExternalMCPWorkspace {
+			wantRevision = 2
 		}
 		if leaf.Workflow == nil || app.CapabilityID(leaf.Workflow.ID) != leaf.ID || leaf.Workflow.Revision != wantRevision {
 			t.Fatalf("leaf %q has invalid workflow contract: %#v", leaf.ID, leaf.Workflow)
@@ -219,7 +223,7 @@ func TestCatalogReturnsDefensiveWorkflowCopies(t *testing.T) {
 	node.Workflow.Revision = 99
 	node.Route.Operations[0] = app.RouteOperationDelete
 	again, _ := catalog.Node("browser.internet_search")
-	if again.Workflow.Revision != 1 {
+	if again.Workflow.Revision != 2 {
 		t.Fatalf("catalog workflow mutated through returned node: %#v", again.Workflow)
 	}
 	if again.Route.Operations[0] != app.RouteOperationSearch {

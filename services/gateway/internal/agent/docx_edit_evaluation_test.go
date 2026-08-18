@@ -229,7 +229,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
 	editTools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
-	if err != nil || len(editTools) != 1 || editTools[0].Name != "docx.set_text_style" {
+	if err != nil || !exactVisibleToolNames(editTools, "docx.set_text_style", "observation.read") {
 		t.Fatalf("selected DOCX style editor did not materialize: tools=%#v err=%v", visibleToolNames(editTools), err)
 	}
 

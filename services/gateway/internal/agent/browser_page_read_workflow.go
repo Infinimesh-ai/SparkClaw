@@ -43,6 +43,7 @@ func (browserPageReadProfile) Prepare(state *app.WorkflowState) (workflowPrepara
 	return workflowPreparation{}, nil
 }
 func (browserPageReadProfile) DirectStage(*app.WorkflowState) bool { return true }
+func (browserPageReadProfile) alwaysDirectWorkflowProfile()        {}
 func (browserPageReadProfile) DirectStageArguments(state *app.WorkflowState) map[string]any {
 	args := map[string]any{}
 	switch browserActiveStage(state) {

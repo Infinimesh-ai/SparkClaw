@@ -62,11 +62,11 @@ type JingSiLANConfig struct {
 }
 
 type GatewayConfig struct {
-	Bind            string          `json:"bind"`
-	Port            int             `json:"port"`
-	PairingRequired bool            `json:"pairing_required"`
-	RemoteAccess    string          `json:"remote_access"`
-	APIToken        string          `json:"api_token,omitempty"`
+	Bind            string `json:"bind"`
+	Port            int    `json:"port"`
+	PairingRequired bool   `json:"pairing_required"`
+	RemoteAccess    string `json:"remote_access"`
+	APIToken        string `json:"api_token,omitempty"`
 	// BridgeToken is the dedicated credential for the loopback ISCP bridge
 	// dispatch routes. When set, bridge dispatch requires exactly this bearer
 	// token; when empty, bridge dispatch requires gateway authentication and
@@ -349,12 +349,15 @@ type RuntimeConfig struct {
 	// step-loop entry inside a workflow scope revision).
 	StageMaxDurationSeconds   int `json:"workflow_stage_max_duration_seconds"`
 	StageMaxNoProgressActions int `json:"workflow_stage_max_no_progress_actions"`
+	StageMaxObservationReads  int `json:"workflow_stage_max_observation_reads"`
 
 	// Run budgets bound one whole workflow run across all of its stages.
-	RunMaxDurationSeconds   int `json:"workflow_run_max_duration_seconds"`
-	RunMaxToolCalls         int `json:"workflow_run_max_tool_calls"`
-	RunMaxObservationBytes  int `json:"workflow_run_max_observation_bytes"`
-	RunMaxRepeatedToolCalls int `json:"workflow_run_max_repeated_tool_calls"`
+	RunMaxDurationSeconds            int `json:"workflow_run_max_duration_seconds"`
+	RunMaxToolCalls                  int `json:"workflow_run_max_tool_calls"`
+	RunObservationCompactionBytes    int `json:"workflow_run_observation_compaction_bytes"`
+	RunMaxObservationBytes           int `json:"workflow_run_max_observation_bytes"`
+	RunMaxRepeatedToolCalls          int `json:"workflow_run_max_repeated_tool_calls"`
+	runObservationCompactionExplicit bool
 }
 
 // UnmarshalJSON accepts the workflow_stage_max_* / workflow_run_max_* keys
@@ -369,12 +372,14 @@ func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 		ObservationSummaryMaxBytes *int `json:"observation_summary_max_bytes"`
 		StageEvidenceMaxBytes      *int `json:"workflow_stage_evidence_max_bytes"`
 
-		StageMaxDurationSeconds   *int `json:"workflow_stage_max_duration_seconds"`
-		StageMaxNoProgressActions *int `json:"workflow_stage_max_no_progress_actions"`
-		RunMaxDurationSeconds     *int `json:"workflow_run_max_duration_seconds"`
-		RunMaxToolCalls           *int `json:"workflow_run_max_tool_calls"`
-		RunMaxObservationBytes    *int `json:"workflow_run_max_observation_bytes"`
-		RunMaxRepeatedToolCalls   *int `json:"workflow_run_max_repeated_tool_calls"`
+		StageMaxDurationSeconds       *int `json:"workflow_stage_max_duration_seconds"`
+		StageMaxNoProgressActions     *int `json:"workflow_stage_max_no_progress_actions"`
+		StageMaxObservationReads      *int `json:"workflow_stage_max_observation_reads"`
+		RunMaxDurationSeconds         *int `json:"workflow_run_max_duration_seconds"`
+		RunMaxToolCalls               *int `json:"workflow_run_max_tool_calls"`
+		RunObservationCompactionBytes *int `json:"workflow_run_observation_compaction_bytes"`
+		RunMaxObservationBytes        *int `json:"workflow_run_max_observation_bytes"`
+		RunMaxRepeatedToolCalls       *int `json:"workflow_run_max_repeated_tool_calls"`
 
 		StepMaxDurationSeconds   *int `json:"workflow_step_max_duration_seconds"`
 		StepMaxToolCalls         *int `json:"workflow_step_max_tool_calls"`
@@ -407,8 +412,13 @@ func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 	}
 	applyBudget(&rt.StageMaxDurationSeconds, keys.StageMaxDurationSeconds, keys.StepMaxDurationSeconds, keys.LegacyMaxDurationSeconds)
 	applyBudget(&rt.StageMaxNoProgressActions, keys.StageMaxNoProgressActions, keys.StepMaxNoProgressActions, keys.LegacyMaxNoProgressActions)
+	applyBudget(&rt.StageMaxObservationReads, keys.StageMaxObservationReads)
 	applyBudget(&rt.RunMaxDurationSeconds, keys.RunMaxDurationSeconds)
 	applyBudget(&rt.RunMaxToolCalls, keys.RunMaxToolCalls, keys.StepMaxToolCalls, keys.LegacyMaxToolCalls)
+	if keys.RunObservationCompactionBytes != nil {
+		rt.RunObservationCompactionBytes = *keys.RunObservationCompactionBytes
+		rt.runObservationCompactionExplicit = true
+	}
 	applyBudget(&rt.RunMaxObservationBytes, keys.RunMaxObservationBytes, keys.StepMaxObservationBytes, keys.LegacyMaxObservationBytes)
 	applyBudget(&rt.RunMaxRepeatedToolCalls, keys.RunMaxRepeatedToolCalls, keys.StepMaxRepeatedToolCalls, keys.LegacyMaxRepeatedToolCalls)
 	return nil
@@ -519,7 +529,9 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("resolve browser profile directory: %w", err)
 	}
 	cfg.Adapters.BrowserAutomation.ProfileDir = profileDir
-	normalizeRuntimeLimits(&cfg.Runtime)
+	if err := normalizeRuntimeLimits(&cfg.Runtime); err != nil {
+		return Config{}, err
+	}
 	// The idle-timeout floor couples the browser daemon to the model and
 	// workflow windows; a deployment with browser automation disabled must
 	// not be refused boot over knobs its daemon will never use.
@@ -907,7 +919,7 @@ func validateModelConfig(model *ModelConfig) error {
 // normalizeRuntimeLimits backfills non-positive workflow budgets with the
 // defaults so a partial runtime section in JSON cannot silently disable the
 // stage or run stop conditions.
-func normalizeRuntimeLimits(rt *RuntimeConfig) {
+func normalizeRuntimeLimits(rt *RuntimeConfig) error {
 	defaults := Default().Runtime
 	if rt.ObservationSummaryMaxBytes <= 0 {
 		rt.ObservationSummaryMaxBytes = defaults.ObservationSummaryMaxBytes
@@ -921,6 +933,9 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	if rt.StageMaxNoProgressActions <= 0 {
 		rt.StageMaxNoProgressActions = defaults.StageMaxNoProgressActions
 	}
+	if rt.StageMaxObservationReads <= 0 {
+		rt.StageMaxObservationReads = defaults.StageMaxObservationReads
+	}
 	if rt.RunMaxDurationSeconds <= 0 {
 		rt.RunMaxDurationSeconds = defaults.RunMaxDurationSeconds
 	}
@@ -930,9 +945,15 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) {
 	if rt.RunMaxObservationBytes <= 0 {
 		rt.RunMaxObservationBytes = defaults.RunMaxObservationBytes
 	}
+	if !rt.runObservationCompactionExplicit {
+		rt.RunObservationCompactionBytes = rt.RunMaxObservationBytes * 3 / 4
+	} else if rt.RunObservationCompactionBytes <= 0 || rt.RunObservationCompactionBytes >= rt.RunMaxObservationBytes {
+		return fmt.Errorf("runtime.workflow_run_observation_compaction_bytes must be greater than zero and lower than workflow_run_max_observation_bytes")
+	}
 	if rt.RunMaxRepeatedToolCalls <= 0 {
 		rt.RunMaxRepeatedToolCalls = defaults.RunMaxRepeatedToolCalls
 	}
+	return nil
 }
 
 func minimumBrowserDaemonIdleTimeoutMS(cfg Config) (int, error) {
@@ -1404,14 +1425,16 @@ func Default() Config {
 			CredentialKeyFile: "./data/memory/gateway-credentials.key",
 		},
 		Runtime: RuntimeConfig{
-			ObservationSummaryMaxBytes: 2400,
-			StageEvidenceMaxBytes:      8000,
-			StageMaxDurationSeconds:    180,
-			StageMaxNoProgressActions:  3,
-			RunMaxDurationSeconds:      1800,
-			RunMaxToolCalls:            32,
-			RunMaxObservationBytes:     48000,
-			RunMaxRepeatedToolCalls:    3,
+			ObservationSummaryMaxBytes:    2400,
+			StageEvidenceMaxBytes:         8000,
+			StageMaxDurationSeconds:       180,
+			StageMaxNoProgressActions:     3,
+			StageMaxObservationReads:      2,
+			RunMaxDurationSeconds:         1800,
+			RunMaxToolCalls:               32,
+			RunObservationCompactionBytes: 36000,
+			RunMaxObservationBytes:        48000,
+			RunMaxRepeatedToolCalls:       3,
 		},
 		Logging: LoggingConfig{
 			Level:          "info",
@@ -1934,6 +1957,17 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"); v != "" {
 		if maxBytes, err := strconv.Atoi(v); err == nil {
 			cfg.Runtime.StageEvidenceMaxBytes = maxBytes
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_WORKFLOW_STAGE_MAX_OBSERVATION_READS"); v != "" {
+		if maxReads, err := strconv.Atoi(v); err == nil {
+			cfg.Runtime.StageMaxObservationReads = maxReads
+		}
+	}
+	if v := os.Getenv("SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"); v != "" {
+		if maxBytes, err := strconv.Atoi(v); err == nil {
+			cfg.Runtime.RunObservationCompactionBytes = maxBytes
+			cfg.Runtime.runObservationCompactionExplicit = true
 		}
 	}
 	if v := os.Getenv("SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"); v != "" {

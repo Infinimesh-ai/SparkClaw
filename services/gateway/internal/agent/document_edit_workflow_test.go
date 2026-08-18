@@ -71,7 +71,7 @@ func TestDocumentEditWorkflowReadsApprovesResumesAndReturnsTextCopy(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(editTools) != 1 || editTools[0].Name != "text.replace_text" {
+	if !exactVisibleToolNames(editTools, "text.replace_text", "observation.read") {
 		t.Fatalf("text edit stage exposed the wrong editor: %#v", visibleToolNames(editTools))
 	}
 
@@ -234,7 +234,7 @@ func TestDocumentEditDirectLocalizationRejectsMismatchedWorkflowHint(t *testing.
 
 	result := runtime.runWorkflowDirectToolOnce(context.Background(), session.ID, dispatch.Run, dispatch.Context, dispatch.Tools, nil, nil)
 
-	if result.WorkflowFailure != workflowFailureDirectToolInvocationInvalid || len(result.ToolCalls) != 0 {
+	if result.FailureCode != workflowFailureDirectToolInvocationInvalid || len(result.ToolCalls) != 0 {
 		t.Fatalf("mismatched direct localization hint was not rejected before execution: %#v", result)
 	}
 	if calls := toolCallsForRun(st.ListToolCalls(session.ID), dispatch.Run.ID); len(calls) != 0 {
@@ -273,7 +273,7 @@ MOCK_STEP_RESPONSE:{"type":"final","answer":"已经完善。"}`, dispatch.Profil
 	locate := storedRun.Workflow.Nodes["document_locate_evidence"]
 	editor := storedRun.Workflow.Nodes["document_edit"]
 	if locate.Status != app.WorkflowNodeSucceeded || editor.Status != app.WorkflowNodeBlocked ||
-		editor.LastAssessment == nil || editor.LastAssessment.ReasonCode != workflowFailureRequiredToolNotCalled {
+		editor.LastAssessment == nil || editor.LastAssessment.ReasonCode != string(workflowFailureRequiredToolNotCalled) {
 		t.Fatalf("premature final did not block the editor after direct localization: %#v", storedRun.Workflow)
 	}
 	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Tool != "files.read" {

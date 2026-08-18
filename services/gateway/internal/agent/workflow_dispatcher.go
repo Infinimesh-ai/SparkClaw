@@ -112,11 +112,15 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 		run.CompletedAt = &now
 	}
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(run.SessionID), run.ID)
-	run.Summary = summarizeRun(workflowExecution.Chat, workflowExecution.Observations, workflowExecution.Approvals)
-	if strings.TrimSpace(workflowExecution.FinalAnswer) != "" {
-		run.Summary = workflowExecution.FinalAnswer
+	if workflowExecution.FailureCode != "" {
+		run.Summary = publicWorkflowFailureMessage(workflowExecution.FailureCode)
+	} else {
+		run.Summary = summarizeRun(workflowExecution.Chat, workflowObservationTexts(workflowExecution.Observations), workflowExecution.Approvals)
+		if strings.TrimSpace(workflowExecution.FinalAnswer) != "" {
+			run.Summary = workflowExecution.FinalAnswer
+		}
+		run.Summary = r.applyGroundedSummary(run.SessionID, run.ID, content, run.Summary, currentToolCalls)
 	}
-	run.Summary = r.applyGroundedSummary(run.SessionID, run.ID, content, run.Summary, currentToolCalls)
 	if strings.TrimSpace(run.Summary) == "" {
 		run.Summary = "The matched workflow completed after its approved action."
 	}
@@ -126,7 +130,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	episode := summarizeEpisode(content, run, currentToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 	route := run.Workflow.Route
-	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary)
+	workflowResult := r.workflowResultForRun(run, route, run.Workflow.ReturnRoute, run.Summary, workflowExecution.FailureCode)
 	assistant := r.persistWorkflowAssistantMessage(run, workflowResult, now)
 	r.store.AddAudit(app.AuditEvent{SessionID: run.SessionID, RunID: run.ID, Actor: "workflow_dispatcher", Type: auditType, Summary: string(run.Workflow.Status)})
 	r.writeTrace(ctx, run, modelrouter.ChatResult{}, currentToolCalls, allApprovals, feedback, &episode)
@@ -218,7 +222,7 @@ func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, go
 	return Result{Run: run, Message: assistant, RouteDecision: &route, WorkflowResult: result, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}
 }
 
-func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
+func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string, failureCodes ...workflowFailureCode) *app.WorkflowResult {
 	if run.Workflow == nil {
 		return nil
 	}
@@ -245,7 +249,11 @@ func (r Runtime) workflowResultForRun(run app.AgentRun, route app.RouteDecision,
 		result.MCP = run.MessageContext.MCP
 	}
 	if status == app.WorkflowResultFailed || status == app.WorkflowResultBlocked {
-		result.Error = &app.WorkflowResultError{Code: "workflow_" + string(status), Message: summary}
+		code := "workflow_" + string(status)
+		if len(failureCodes) > 0 && failureCodes[0] != "" {
+			code = string(failureCodes[0])
+		}
+		result.Error = &app.WorkflowResultError{Code: code, Message: summary}
 	}
 	return result
 }
@@ -678,18 +686,22 @@ func containsOutputKind(values []app.OutputKind, expected app.OutputKind) bool {
 	return false
 }
 
-func (r Runtime) workflowResultForDispatchFailure(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string) *app.WorkflowResult {
+func (r Runtime) workflowResultForDispatchFailure(run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string, failureCodes ...workflowFailureCode) *app.WorkflowResult {
 	workflow := app.WorkflowContractRef{}
 	if leaf, err := r.capabilities.ResolveLeaf(route.CapabilityPath); err == nil && leaf.Workflow != nil {
 		workflow = *leaf.Workflow
 	}
 	ownerID, authorization := r.workflowResultIdentity(run)
+	code := "workflow_dispatch_failed"
+	if len(failureCodes) > 0 && failureCodes[0] != "" {
+		code = string(failureCodes[0])
+	}
 	result := &app.WorkflowResult{
 		SchemaVersion: app.WorkflowResultSchemaVersion, ID: "workflow_result_" + run.ID, RunID: run.ID,
 		OwnerID: ownerID, Authorization: authorization,
 		Status: app.WorkflowResultFailed, CapabilityPath: append([]app.CapabilityID(nil), route.CapabilityPath...), Workflow: workflow,
 		Content:     app.MessageContent{Parts: []app.MessagePart{{ID: "result_text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: summary}}},
-		ReturnRoute: workflowResultReturnRoute(app.WorkflowResultFailed, returnRoute), Error: &app.WorkflowResultError{Code: "workflow_dispatch_failed", Message: summary},
+		ReturnRoute: workflowResultReturnRoute(app.WorkflowResultFailed, returnRoute), Error: &app.WorkflowResultError{Code: code, Message: summary},
 	}
 	if run.MessageContext != nil {
 		result.MCP = run.MessageContext.MCP

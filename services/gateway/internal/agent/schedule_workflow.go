@@ -51,7 +51,7 @@ func (r Runtime) scheduleActionRoute(action ScheduleAction, canonical string) (a
 }
 
 func (scheduleManageProfile) ID() app.WorkflowID           { return app.WorkflowScheduleManage }
-func (scheduleManageProfile) Revision() int                { return 2 }
+func (scheduleManageProfile) Revision() int                { return 3 }
 func (scheduleManageProfile) Capability() app.CapabilityID { return app.CapabilityScheduleManage }
 func (scheduleManageProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{

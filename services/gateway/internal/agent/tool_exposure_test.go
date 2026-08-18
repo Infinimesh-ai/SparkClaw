@@ -51,6 +51,61 @@ func TestToolExposureSearchAndMaterializeWebDiscovery(t *testing.T) {
 	}
 }
 
+func TestToolExposureMaterializesFrozenSupportEntryAlongsideBusinessSelection(t *testing.T) {
+	st, engine, request := newWebExposureFixture(t, nil)
+	run, _ := st.GetRun(request.RunID)
+	node := run.Workflow.Plan.Nodes[0]
+	node.InitialScope.SupportRequirements = []app.CapabilityRequirement{{Name: app.ToolCapabilityObservationRead}}
+	run.Workflow.Plan.Nodes[0] = node
+	state := run.Workflow.Nodes[request.NodeID]
+	state.CurrentScope = node.InitialScope
+	run.Workflow.Nodes[request.NodeID] = state
+	run.Workflow.PlanDigest = workflowPlanDigest(run.Workflow.Plan)
+	st.SaveRun(run)
+
+	view, err := engine.Search(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Entries) != 2 || view.Entries[1].Capability.Name != app.ToolCapabilityObservationRead {
+		t.Fatalf("support entry was not appended after business directory entries: %#v", view.Entries)
+	}
+	entryIDs, err := workflowDirectorySelection(run, state, view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exposure, err := engine.Materialize(context.Background(), app.MaterializeRequest{
+		ViewID: view.ViewID, RunID: request.RunID, WorkflowID: request.WorkflowID, NodeID: request.NodeID,
+		ScopeRevision: request.ScopeRevision, EntryIDs: entryIDs, ActorRef: request.ActorRef,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exactVisibleToolNames(exposure.Definitions, "web.search", "observation.read") {
+		t.Fatalf("business and support definitions were not materialized together: %#v", visibleToolNames(exposure.Definitions))
+	}
+	stored, _ := st.GetRun(request.RunID)
+	if len(stored.Workflow.Nodes[request.NodeID].SelectedEntries) != 2 {
+		t.Fatalf("support entry was not frozen in selected entries: %#v", stored.Workflow.Nodes[request.NodeID].SelectedEntries)
+	}
+}
+
+func TestWorkflowDirectorySupportRequirementMustMatchExactlyOneEntry(t *testing.T) {
+	state := app.WorkflowNodeState{CurrentScope: app.CapabilityScope{
+		Requirements:        []app.CapabilityRequirement{{Name: app.ToolCapabilityWebDiscovery}},
+		SupportRequirements: []app.CapabilityRequirement{{Name: app.ToolCapabilityObservationRead}},
+	}}
+	primary := app.ToolDirectoryEntry{ID: "primary", Capability: app.CapabilityDescriptor{Name: app.ToolCapabilityWebDiscovery}}
+	if _, _, _, err := workflowDirectoryPartitions(state, app.DirectoryView{Entries: []app.ToolDirectoryEntry{primary}}); err == nil {
+		t.Fatal("missing support definition did not fail closed")
+	}
+	supportA := app.ToolDirectoryEntry{ID: "support_a", Capability: app.CapabilityDescriptor{Name: app.ToolCapabilityObservationRead}}
+	supportB := app.ToolDirectoryEntry{ID: "support_b", Capability: app.CapabilityDescriptor{Name: app.ToolCapabilityObservationRead}}
+	if _, _, _, err := workflowDirectoryPartitions(state, app.DirectoryView{Entries: []app.ToolDirectoryEntry{primary, supportA, supportB}}); err == nil {
+		t.Fatal("ambiguous support definition did not fail closed")
+	}
+}
+
 func TestDirectoryRelevanceUsesOwnerQueryAndDefinitionMetadata(t *testing.T) {
 	definition := app.ToolDefinition{
 		Name: "localmind.keyword_search", Title: "Keyword search",

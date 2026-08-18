@@ -237,8 +237,10 @@
     "workflow_stage_evidence_max_bytes": 8000,
     "workflow_stage_max_duration_seconds": 180,
     "workflow_stage_max_no_progress_actions": 3,
+    "workflow_stage_max_observation_reads": 2,
     "workflow_run_max_duration_seconds": 1800,
     "workflow_run_max_tool_calls": 32,
+    "workflow_run_observation_compaction_bytes": 36000,
     "workflow_run_max_observation_bytes": 48000,
     "workflow_run_max_repeated_tool_calls": 3
   },

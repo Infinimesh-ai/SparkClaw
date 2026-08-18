@@ -168,14 +168,23 @@ Workflow.
 degradable sections. Current-run observations use one uniform small envelope,
 appear once in causal order, and retain their artifact references. A stage may
 materialize declared, consumer-sized slices of persisted evidence into a
-`PROVISIONED_EVIDENCE` section; `observation.read` supplies bounded,
-session-scoped read-back when the declared slice is insufficient. Prompt
+`PROVISIONED_EVIDENCE` section; a frozen generic `SupportRequirements` entry
+may expose `observation.read` for bounded, session-scoped read-back when the
+declared slice is insufficient. Support entries use ordinary exposure,
+selection, Policy, and persisted-scope validation; old plans are not widened
+on resume. Prompt
 admission uses the model profile selected by the same Router task policy as
 execution, an 85% context-window safety factor, and an offline-calibrated
 conservative token estimate. It degrades session/tool context first, then
 provisioned slices, then older observations while preserving the newest two;
-the output contract remains the user-prompt tail. Run-level observation
-pressure similarly compacts the oldest entries before it stops execution.
+the output contract remains the user-prompt tail, and an oversized fixed tail
+fails before model invocation. Run-level observations begin compaction at
+36,000 bytes but hard-stop at 48,000 bytes before another compaction attempt.
+Support reads have a separate two-execution stage quota and do not consume the
+business tool-call or repetition budgets.
+Execution failures keep a typed reason separate from their internal diagnostic;
+only stable safe messages reach run summaries, assistant messages, and
+`WorkflowResult`, while raw diagnostics remain in audit.
 Migrated document and browser-control model views additionally omit governed paths, source and
 target hashes, page/snapshot identity, URLs, generations, and digests when those
 facts are already bound in Runtime. They retain coverage and omission metadata,
@@ -286,7 +295,7 @@ preservation checks remain on the shared path. Parsed representations may be
 incomplete, replaced, or regenerated without losing document identity or
 activity lineage.
 XLSX reads additionally project bounded typed sheet/row/cell evidence with
-stable source hashes. Revision 6 binds every spreadsheet edit to that read
+stable source hashes. Revision 7 binds every spreadsheet edit to that read
 before approval and admits a successful output only after OOXML feature gating,
 typed reread checks, and package-part preservation verification; unsupported
 features or undeclared package drift fail closed and leave no output copy.

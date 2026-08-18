@@ -66,24 +66,31 @@ Gateway 关闭时会取消生命周期上下文，并等待脱离流连接的后
 
 - `runWorkflowModelStep` 是唯一入口。它采用 Profile stage context 指定的通道，只在
   未指定通道时默认使用 Deep，然后调用 `runWorkflowStepLoop`。
-- 循环在启动时冻结完整与 compact 两份 system prompt
-  （`workflowStepSystemPrompt`，基于上下文快照的 `ForWorkflowStep` /
-  `ForWorkflowStepCompact` 视图）。当前运行的 observation 只在 user prompt 中
-  按因果顺序出现一次，其后是步骤输出契约。
-- Prompt 准入（`admitWorkflowStepPrompt`）用标定过的每 token 4 字节系数估算；达到
-  可用输入预算的 80% 时，依次降级 session 视图、供给的 evidence projection 与较旧
-  observation，并记录 `workflow_step.prompt_compressed` 审计事件。预算来自与执行同一路由
-  任务策略选出的模型 profile，并带 85% 上下文窗口安全系数
-  （`effectiveWorkflowStepPromptBudget`）。`runWorkflowModelStep` 的固定阶段上下文会声明
-  未解决的 `semantic_variables`：工具 stage 从最终模型可见 schema 推导，无工具回答、
-  operation selection 与 finalization 调用则直接声明其有界输出。
+- 一次 `ContextBuilder` 准入统一管理有序 system/user section。section 可以是固定、按命名
+  variant 降级，或允许 UTF-8 安全截断。当前运行的 observation 只按因果顺序出现一次，
+  固定的步骤输出契约始终是 user prompt 的精确末尾。
+- Prompt 准入用标定过的每 token 4 字节系数估算，先降级低价值 session context、供给
+  evidence、schema 与较旧 observation，再只对声明为 truncatable 的 section 做硬截断。
+  每次成功模型调用都不超过有效输入阈值；若固定 section 本身超限，则在模型调用前返回
+  `workflow_prompt_fixed_sections_oversized`。降级决策记录为
+  `workflow_step.prompt_compressed`，但不记录被丢弃的原文。阈值来自与执行同一路由任务
+  策略选出的模型 profile，并带 85% 上下文窗口安全系数。
 
 ### 工具结果与证据
 
 每个工具结果都会完整归档，而模型可见 observation 不再按工具名放宽，统一使用
 `observation_summary_max_bytes` 信封（默认 2400）。截断信封保留 artifact URI，并
 提示模型使用 `observation.read`；该辅助工具只读取当前 session 所属 artifact 的有界、
-UTF-8 安全窗口。它仅暴露给模型步骤，调用后继续当前步骤循环，不推进 workflow 节点。
+UTF-8 安全窗口。模型节点通过冻结的 `CapabilityScope.SupportRequirements` 声明它；普通
+exposure 与精确 directory selection 会把 support entry 与 primary business entry 一起
+持久化。缺少该 requirement 的旧持久化 plan 在恢复时不会自动获得它。直接节点只投影
+primary entry，模型节点投影 primary 加已选择的 support entry。
+
+默认每个阶段最多执行两次 support read。ToolHub 中 completed 或 failed 的执行都会消耗
+该配额和 observation byte，但不消耗 run-wide business tool-call 或重复调用预算。达到
+配额后，下一个模型投影不再包含该 helper；首次越限尝试产生类型化协议 observation，重复
+违反则以 `observation_read_limit_exceeded` 阻断。Runtime 自行评估 support outcome，
+不会调用 Profile 的 business `Assess`，也不会推进节点。
 文档与浏览器 tool-message 的 summary/structured field 是消费者投影：受治理 path、源 byte
 metadata、page/snapshot identity、URL、generation 和 digest 留在归档 Runtime 状态中，不再
 复制进模型消息。历史持久化 envelope 会在模型 context 边界重新投影；无法解析的旧文档/浏览器
@@ -135,6 +142,7 @@ JSON 对象：
 |---|---|---|
 | `workflow_stage_max_duration_seconds` | 180 | 该阶段墙钟时间耗尽 |
 | `workflow_stage_max_no_progress_actions` | 3 | 连续动作未产生新证据 |
+| `workflow_stage_max_observation_reads` | 2 | 已执行的 `observation.read` support call 达到阶段配额 |
 
 `workflow_stage_evidence_max_bytes`（默认 8000）限制单阶段供给的持久化证据总量。
 必需来源缺失、为空或无法装入预算时，阶段 fail closed 阻断；环境变量
@@ -146,13 +154,18 @@ JSON 对象：
 | 配置键（`runtime` 段） | 默认值 | 触发停止的条件 |
 |---|---|---|
 | `workflow_run_max_duration_seconds` | 1800 | 整个运行的墙钟时间耗尽 |
-| `workflow_run_max_tool_calls` | 32 | 所有阶段累计的已执行工具调用达到上限 |
-| `workflow_run_max_observation_bytes` | 48000 | 较旧条目压缩后 observation 仍达到上限 |
+| `workflow_run_max_tool_calls` | 32 | 所有阶段累计的已执行 business 工具调用达到上限 |
+| `workflow_run_observation_compaction_bytes` | 36000 | 较旧且合格的 observation 开始滚动压缩 |
+| `workflow_run_max_observation_bytes` | 48000 | 当前模型可见 observation 在压缩前达到硬停止线 |
 | `workflow_run_max_repeated_tool_calls` | 3 | 同一工具在连续已执行调用中以相同指纹重复，可跨阶段累计 |
 
-`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` 可覆盖 observation 预算。达到
-上限时先压缩可压缩条目中最旧的一半，始终保留最新两条；必要时继续压缩其余较旧
-条目，仅当压缩后仍超限才停止运行。已废弃的 `workflow_step_max_*` 与
+`SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES` 与
+`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` 可覆盖两条 observation 边界。
+Runtime 先检查 48,000 byte 硬上限，达到后直接停止，不再尝试压缩；低于硬上限时，达到
+36,000 byte 才压缩合格的较旧条目，并保留最新两条及因果顺序。旧配置省略较低阈值时，
+按已解析硬上限的 75% 派生；两值都显式配置时必须满足 `0 < compaction < maximum`。
+压缩状态由执行器类型化字段持有，不从不可信 observation 文本标记推断。已废弃的
+`workflow_step_max_*` 与
 `react_max_*` 键（以及
 `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` /
 `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` 覆盖）仍作为回退加载（多个同时存在时
@@ -165,6 +178,8 @@ JSON 对象：
 
 - `materializedWorkflowCapability` 把所选工具映射到 active 节点/scope revision
   已物化的能力，否则该步骤失败。
+- Primary `Requirements` 和通用 `SupportRequirements` 走同一套 exposure、Policy、
+  精确 directory-entry、qualifier 与 active-scope 校验；工具名不会形成授权例外。
 - `validateWorkflowToolPlan`（`workflow_runtime.go`）在执行前依据持久化的计划
   摘要、active 节点状态、阶段能力规则、qualifier 绑定和冻结参数绑定重新校验每
   个计划。
@@ -196,6 +211,7 @@ JSON 对象：
 | `workflow_step.evidence_provisioned` | 已为 active 阶段解析并切片持久化证据 |
 | `workflow_step.evidence_blocked` | 必需阶段证据无法解析或装入预算 |
 | `workflow_step.observations_compacted` | 预算检查前已压缩较旧的 run observations |
+| `workflow_step.observation_read_limited` / `workflow_step.support_assessed` | Support read 配额执行与 Runtime 自有评估 |
 | `workflow_step.budget_stopped` | 阶段或运行预算停止了步骤循环 |
 | `workflow_run.budget_stopped` | 运行预算在阶段开始前停止了阶段循环 |
 | `workflow.required_tool_not_called` | 拒绝了跳过必需工具证据的最终回答 |
@@ -209,10 +225,23 @@ JSON 对象：
 | `workflow.finalization_failed` | 已完成证据无法渲染为最终回答 |
 | `workflow.legacy_resume_retired` / `workflow.legacy_login_resume_retired` | 迁移前的持久化运行被关闭而非恢复 |
 
-## 浏览器 Revision 2 执行
+## 公开失败投影
 
-`browser.automation` 与 `browser.interaction` 只注册 revision 2。持久化的浏览器 r1 plan
-会作为未注册契约被拒绝，不会由当前代码重新解释。共享 r2 plan 负责 acquisition、
+执行失败分别携带类型化内部 `FailureCode` 与诊断。原始模型输出、schema payload、provider
+错误、artifact body、主机路径和 wrapped error 只保留在审计或 model-call 记录中。Runtime
+在创建 `run.Summary`、assistant message 或 `WorkflowResult` 前，用稳定且对 owner 安全的
+文案替换失败，并通过 `WorkflowResult.Error.Code` 暴露类型化代码。
+
+明确协议代码包括 `required_evidence_unavailable`、`tool_outside_active_scope`、
+`semantic_preflight_failed`、`semantic_output_invalid`、
+`workflow_prompt_fixed_sections_oversized` 与 `observation_read_limit_exceeded`。新增失败
+路径必须增加类型化代码和安全投影，不能把 `err.Error()` 赋给 `FinalAnswer`。
+
+## 浏览器 Revision 3 执行
+
+`browser.automation` 与 `browser.interaction` 注册 revision 3；revision 3 增加冻结的 support
+capability 契约，但不改变 business tool 链。持久化的浏览器 r1 plan 会作为未注册契约被
+拒绝，不会由当前代码重新解释。共享 plan 负责 acquisition、
 evidence、interaction 与 presentation：
 
 - Runtime 直接调用被动 environment preflight、tab discovery、focus/open/navigation、

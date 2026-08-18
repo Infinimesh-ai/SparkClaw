@@ -17,6 +17,8 @@ const (
 	contextToolSummaryLimit        = 4000
 	compactContextToolLimit        = 3
 	compactContextToolSummaryLimit = 1200
+	compactContextMemoryLimit      = 2
+	compactContextMemoryBytes      = 120
 )
 
 type agentContextSnapshot struct {
@@ -52,16 +54,6 @@ func (snapshot agentContextSnapshot) ForWorkflowStep() string {
 	return snapshot.contextBuilder(contextRenderWorkflow).Render(0)
 }
 
-func (snapshot agentContextSnapshot) ForWorkflowStepCompact() string {
-	builder := snapshot.contextBuilder(contextRenderWorkflow)
-	for index := range builder.Sections {
-		if len(builder.Sections[index].Variants) > 1 {
-			builder.Sections[index].level = 1
-		}
-	}
-	return builder.Render(0)
-}
-
 type contextRenderMode string
 
 const (
@@ -74,21 +66,24 @@ func (snapshot agentContextSnapshot) contextBuilder(mode contextRenderMode) cont
 	messageCompact := titledContextSection("Recent conversation (older context compacted):", formatContextMessages(tailMessages(snapshot.Messages, 4)))
 	toolFull := titledContextSection("Recent tool results / current working context:", formatContextToolResults(snapshot.ToolResults))
 	toolCompact := titledContextSection("Recent tool results / prior working context (old session context compacted; current workflow step observations are preserved separately):", formatContextToolResultsWithLimit(tailToolCalls(snapshot.ToolResults, compactContextToolLimit), compactContextToolSummaryLimit))
-	images := titledContextSection("Recent session images available for image understanding or final Markdown media replies:", formatContextImages(snapshot.RecentImages))
-	memories := titledContextSection("Relevant accepted memories:", formatContextMemories(snapshot.Memories))
+	imageFull := titledContextSection("Recent session images available for image understanding or final Markdown media replies:", formatContextImages(snapshot.RecentImages))
+	imageCompact := titledContextSection("Latest session image available for image understanding or final Markdown media replies:", formatCompactContextImages(snapshot.RecentImages))
+	memoryFull := titledContextSection("Relevant accepted memories:", formatContextMemories(snapshot.Memories))
+	memoryCompact := titledContextSection("Most relevant accepted memories (compact):", formatContextMemoriesWithLimit(snapshot.Memories, compactContextMemoryLimit, compactContextMemoryBytes))
 	sections := []contextSection{
 		degradingContextSection("recent_conversation", 40, messageFull, messageCompact, true),
 	}
 	if mode == contextRenderIntent {
 		episodes := titledContextSection("Recent episode summaries:", formatContextEpisodes(snapshot.Episodes))
-		sections = append(sections, degradingContextSection("episodes", 10, episodes, episodes, true))
+		compactEpisodes := titledContextSection("Recent episode summaries (compact):", formatCompactContextEpisodes(snapshot.Episodes))
+		sections = append(sections, degradingContextSection("episodes", 10, episodes, compactEpisodes, true))
 	}
 	sections = append(sections,
 		degradingContextSection("session_tool_results", 50, toolFull, toolCompact, true),
-		degradingContextSection("recent_images", 20, images, images, true),
-		degradingContextSection("memories", 20, memories, memories, true),
+		degradingContextSection("recent_images", 20, imageFull, imageCompact, true),
+		degradingContextSection("memories", 20, memoryFull, memoryCompact, true),
 	)
-	return contextBuilder{Sections: sections, Joiner: "\n\n"}
+	return contextBuilder{Sections: sections, SystemJoiner: "\n\n", UserJoiner: "\n\n"}
 }
 
 func titledContextSection(title, body string) string {
@@ -291,16 +286,66 @@ func formatContextEpisodes(episodes []app.EpisodeSummary) string {
 	return strings.Join(lines, "\n")
 }
 
+func formatCompactContextEpisodes(episodes []app.EpisodeSummary) string {
+	if len(episodes) > 2 {
+		episodes = episodes[:2]
+	}
+	lines := make([]string, 0, len(episodes))
+	for _, episode := range episodes {
+		fields := []string{
+			"goal=" + quoteEpisodeField(episode.Goal, 120),
+			"outcome=" + quoteEpisodeField(episode.Outcome, 60),
+		}
+		if len(episode.Failures) > 0 {
+			fields = append(fields, "failures="+quoteEpisodeField(strings.Join(episode.Failures, ","), 120))
+		}
+		if episode.Summary != "" {
+			fields = append(fields, "summary="+quoteEpisodeField(episode.Summary, 160))
+		}
+		lines = append(lines, "- "+strings.Join(fields, " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func formatContextMemories(memories []app.Memory) string {
+	return formatContextMemoriesWithLimit(memories, len(memories), 260)
+}
+
+func formatContextMemoriesWithLimit(memories []app.Memory, limit, contentBytes int) string {
+	if limit > 0 && len(memories) > limit {
+		memories = memories[:limit]
+	}
 	lines := make([]string, 0, len(memories))
 	for _, memory := range memories {
 		content := strings.Join(strings.Fields(memory.Content), " ")
 		if content == "" {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("- kind=%s content=%s", quoteEpisodeField(memory.Kind, 60), quoteEpisodeField(content, 260)))
+		lines = append(lines, fmt.Sprintf("- kind=%s content=%s", quoteEpisodeField(memory.Kind, 60), quoteEpisodeField(content, contentBytes)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatCompactContextImages(images []app.MessageAttachment) string {
+	if len(images) == 0 {
+		return ""
+	}
+	image := images[len(images)-1]
+	relPath := strings.TrimSpace(filepath.ToSlash(image.RelPath))
+	if relPath == "" {
+		return ""
+	}
+	fields := []string{
+		"path=" + quoteEpisodeField(relPath, 180),
+		"name=" + quoteEpisodeField(image.Name, 120),
+	}
+	if image.ContentType != "" {
+		fields = append(fields, "content_type="+quoteEpisodeField(image.ContentType, 80))
+	}
+	if image.Summary != "" {
+		fields = append(fields, "summary="+quoteEpisodeField(image.Summary, 140))
+	}
+	return "- " + strings.Join(fields, " ")
 }
 
 func formatContextImages(images []app.MessageAttachment) string {

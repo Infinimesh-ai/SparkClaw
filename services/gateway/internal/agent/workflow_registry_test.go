@@ -50,13 +50,16 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 			wantRevision = 3
 		}
 		if test.want == app.WorkflowBrowserAutomation || test.want == app.WorkflowBrowserInteraction {
-			wantRevision = app.BrowserWorkflowRevision2
+			wantRevision = app.BrowserWorkflowRevision3
+		}
+		if test.want == app.WorkflowBrowserInternetSearch || test.want == app.WorkflowBrowserWeather || test.want == app.WorkflowBrowserFormDraft {
+			wantRevision = 2
 		}
 		if test.want == app.WorkflowDocumentRead {
 			wantRevision = 4
 		}
 		if test.want == app.WorkflowDocumentEdit {
-			wantRevision = 6
+			wantRevision = 7
 		}
 		if resolved.Profile.ID() != test.want || resolved.Plan.ProfileID != test.want || resolved.Plan.ProfileRevision != wantRevision {
 			t.Fatalf("leaf %v resolved wrong contract: %#v", test.decision.CapabilityPath, resolved)
@@ -227,19 +230,56 @@ func TestLegacyWorkflowIdentityFailsClosedInsteadOfBeingReinterpreted(t *testing
 	}
 }
 
-func TestBrowserRevision1ContractsAreRetired(t *testing.T) {
+func TestBrowserRevision1ContractsAreRetiredAndRevision2RemainsCompatible(t *testing.T) {
 	registry := defaultWorkflowProfileRegistry()
 	for _, id := range []app.WorkflowID{app.WorkflowBrowserAutomation, app.WorkflowBrowserInteraction} {
 		if _, err := registry.Get(id, 1); err == nil || !strings.Contains(err.Error(), "not registered") {
 			t.Fatalf("retired browser contract %s r1 remained resumable: %v", id, err)
 		}
-		profile, err := registry.Get(id, app.BrowserWorkflowRevision2)
-		if err != nil {
-			t.Fatalf("current browser contract %s r2 is not registered: %v", id, err)
+		if _, err := registry.Get(id, app.BrowserWorkflowRevision2); err != nil {
+			t.Fatalf("compatible browser contract %s r2 is not registered: %v", id, err)
 		}
-		if profile.Revision() != app.BrowserWorkflowRevision2 {
+		profile, err := registry.Get(id, app.BrowserWorkflowRevision3)
+		if err != nil {
+			t.Fatalf("current browser contract %s r3 is not registered: %v", id, err)
+		}
+		if profile.Revision() != app.BrowserWorkflowRevision3 {
 			t.Fatalf("browser contract %s resolved revision %d", id, profile.Revision())
 		}
+	}
+}
+
+func TestLegacyProfilePlansDoNotGainObservationReadOnResume(t *testing.T) {
+	registry := defaultWorkflowProfileRegistry()
+	legacy, err := registry.Get(app.WorkflowBrowserInternetSearch, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := app.RouteDecision{Slots: app.RouteSlots{Operation: app.RouteOperationSearch, Query: "current facts"}}
+	_, legacyPlan, err := legacy.Resolve(route, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legacyPlan.Nodes) != 1 || len(legacyPlan.Nodes[0].InitialScope.SupportRequirements) != 0 {
+		t.Fatalf("legacy plan was widened during resolution: %#v", legacyPlan.Nodes)
+	}
+	state := newWorkflowState(route, app.ReturnRoute{}, app.IntentEnvelope{}, legacyPlan)
+	if len(state.Nodes[legacyPlan.InitialNodeIDs[0]].CurrentScope.SupportRequirements) != 0 {
+		t.Fatalf("legacy persisted state gained a support capability: %#v", state.Nodes)
+	}
+
+	currentRoute := route
+	currentRoute.SchemaVersion = app.RouteDecisionSchemaVersion
+	currentRoute.Status = app.RouteMatched
+	currentRoute.CatalogRevision = capability.MustDefaultCatalog().Revision()
+	currentRoute.CapabilityPath = []app.CapabilityID{"browser", app.CapabilityBrowserInternetSearch}
+	currentRoute.Slots.FactScope = app.RouteFactScopeCurrentInternet
+	resolved, err := registry.Resolve(capability.MustDefaultCatalog(), currentRoute, "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Plan.Nodes[0].InitialScope.SupportRequirements) != 1 || resolved.Plan.Nodes[0].InitialScope.SupportRequirements[0].Name != app.ToolCapabilityObservationRead {
+		t.Fatalf("current plan omitted its frozen support requirement: %#v", resolved.Plan.Nodes[0].InitialScope)
 	}
 }
 

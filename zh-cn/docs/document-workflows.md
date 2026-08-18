@@ -9,7 +9,7 @@
 
 `document.read` revision 4 读取、总结一个明确的受治理 workspace 文件，或逐字提取图片内原文。其格式限定 reader
 是 `direct_once` 节点：Runtime 使用冻结路径直接调用唯一 reader，Fast 只根据已完成证据生成
-最终回答。`document.edit` revision 6 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
+最终回答。`document.edit` revision 7 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级
 `<name>-sparkclaw-edit.<ext>` 输出副本。如果该名称已存在，preflight 会选择第一个可用的
 带编号同级名称，例如 `<name>-sparkclaw-edit-2.<ext>`。继续编辑其中一个副本时，会沿用同一

@@ -129,7 +129,7 @@ POST /api/deliveries/{id}/retry
 
 ## Scheduled Message Contract
 
-`schedule.manage` revision 2 is the only lifecycle Workflow. A schema-v2
+`schedule.manage` revision 3 is the only lifecycle Workflow. A schema-v2
 `ScheduleSpec` stores:
 
 - due-time `MessageContent` without `literal` or `ExpectedCapabilityPath`;

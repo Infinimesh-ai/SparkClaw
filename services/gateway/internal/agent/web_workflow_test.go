@@ -168,7 +168,7 @@ func TestBrowserWeatherDispatchesOnlyInfoQuestionInitially(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "weather.lookup" || dispatch.Context.Capability != app.ToolCapabilityInfoQuestion {
+	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || !exactVisibleToolNames(dispatch.Tools, "weather.lookup", "observation.read") || dispatch.Context.Capability != app.ToolCapabilityInfoQuestion {
 		t.Fatalf("browser.weather exposed the wrong Workflow capability: %#v", dispatch)
 	}
 }
@@ -829,7 +829,7 @@ func TestDocumentEditPreflightExposesCompatibleEditorAndReturnsOutputCopy(t *tes
 		t.Fatalf("document edit did not begin with its reader: %#v", visibleToolNames(dispatch.Tools))
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "docx.replace_paragraph", "replace_paragraph")
-	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "docx.replace_paragraph" {
+	if !exactVisibleToolNames(dispatch.Tools, "docx.replace_paragraph", "observation.read") {
 		t.Fatalf("document edit stage exposed the wrong editor set after reading: %#v", visibleToolNames(dispatch.Tools))
 	}
 	definition, ok := runtime.tools.Definition("docx.replace_paragraph")

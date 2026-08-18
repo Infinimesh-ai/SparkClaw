@@ -327,9 +327,10 @@ type CapabilityDescriptor struct {
 }
 
 type CapabilityScope struct {
-	Requirements   []CapabilityRequirement `json:"requirements"`
-	DeniedEffects  []ToolEffect            `json:"denied_effects,omitempty"`
-	MaterializeAll bool                    `json:"materialize_all,omitempty"`
+	Requirements        []CapabilityRequirement `json:"requirements"`
+	SupportRequirements []CapabilityRequirement `json:"support_requirements,omitempty"`
+	DeniedEffects       []ToolEffect            `json:"denied_effects,omitempty"`
+	MaterializeAll      bool                    `json:"materialize_all,omitempty"`
 }
 
 type StageCapabilityRule struct {

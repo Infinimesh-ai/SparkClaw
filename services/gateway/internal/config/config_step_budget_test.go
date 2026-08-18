@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -22,24 +23,27 @@ func writeRuntimeBudgetConfig(t *testing.T, runtime map[string]any) string {
 
 func TestRuntimeBudgetReadsStageAndRunKeys(t *testing.T) {
 	cfg, err := Load(writeRuntimeBudgetConfig(t, map[string]any{
-		"workflow_stage_evidence_max_bytes":      6400,
-		"workflow_stage_max_duration_seconds":    90,
-		"workflow_stage_max_no_progress_actions": 5,
-		"workflow_run_max_duration_seconds":      600,
-		"workflow_run_max_tool_calls":            12,
-		"workflow_run_max_observation_bytes":     32000,
-		"workflow_run_max_repeated_tool_calls":   4,
+		"workflow_stage_evidence_max_bytes":         6400,
+		"workflow_stage_max_duration_seconds":       90,
+		"workflow_stage_max_no_progress_actions":    5,
+		"workflow_stage_max_observation_reads":      2,
+		"workflow_run_max_duration_seconds":         600,
+		"workflow_run_max_tool_calls":               12,
+		"workflow_run_observation_compaction_bytes": 24000,
+		"workflow_run_max_observation_bytes":        32000,
+		"workflow_run_max_repeated_tool_calls":      4,
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Runtime.StageMaxDurationSeconds != 90 || cfg.Runtime.StageMaxNoProgressActions != 5 {
+	if cfg.Runtime.StageMaxDurationSeconds != 90 || cfg.Runtime.StageMaxNoProgressActions != 5 || cfg.Runtime.StageMaxObservationReads != 2 {
 		t.Fatalf("workflow_stage_* keys were not applied: %#v", cfg.Runtime)
 	}
 	if cfg.Runtime.StageEvidenceMaxBytes != 6400 {
 		t.Fatalf("workflow stage evidence budget was not applied: %#v", cfg.Runtime)
 	}
 	if cfg.Runtime.RunMaxDurationSeconds != 600 || cfg.Runtime.RunMaxToolCalls != 12 ||
+		cfg.Runtime.RunObservationCompactionBytes != 24000 ||
 		cfg.Runtime.RunMaxObservationBytes != 32000 || cfg.Runtime.RunMaxRepeatedToolCalls != 4 {
 		t.Fatalf("workflow_run_* keys were not applied: %#v", cfg.Runtime)
 	}
@@ -55,11 +59,35 @@ func TestRuntimeBudgetKeepsDefaultsForUnsetKeys(t *testing.T) {
 	defaults := Default().Runtime
 	if cfg.Runtime.StageMaxNoProgressActions != defaults.StageMaxNoProgressActions ||
 		cfg.Runtime.StageEvidenceMaxBytes != defaults.StageEvidenceMaxBytes ||
+		cfg.Runtime.StageMaxObservationReads != defaults.StageMaxObservationReads ||
 		cfg.Runtime.RunMaxDurationSeconds != defaults.RunMaxDurationSeconds ||
 		cfg.Runtime.RunMaxToolCalls != defaults.RunMaxToolCalls ||
+		cfg.Runtime.RunObservationCompactionBytes != defaults.RunObservationCompactionBytes ||
 		cfg.Runtime.RunMaxObservationBytes != defaults.RunMaxObservationBytes ||
 		cfg.Runtime.RunMaxRepeatedToolCalls != defaults.RunMaxRepeatedToolCalls {
 		t.Fatalf("unset budgets should keep defaults: %#v", cfg.Runtime)
+	}
+}
+
+func TestRuntimeBudgetDerivesCompactionThresholdFromLegacyMaximum(t *testing.T) {
+	cfg, err := Load(writeRuntimeBudgetConfig(t, map[string]any{
+		"workflow_step_max_observation_bytes": 24000,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Runtime.RunMaxObservationBytes != 24000 || cfg.Runtime.RunObservationCompactionBytes != 18000 {
+		t.Fatalf("legacy maximum did not derive a lower compaction threshold: %#v", cfg.Runtime)
+	}
+}
+
+func TestRuntimeBudgetRejectsExplicitCompactionAtHardMaximum(t *testing.T) {
+	_, err := Load(writeRuntimeBudgetConfig(t, map[string]any{
+		"workflow_run_observation_compaction_bytes": 32000,
+		"workflow_run_max_observation_bytes":        32000,
+	}))
+	if err == nil || !strings.Contains(err.Error(), "workflow_run_observation_compaction_bytes") {
+		t.Fatalf("invalid explicit compaction threshold was accepted: %v", err)
 	}
 }
 

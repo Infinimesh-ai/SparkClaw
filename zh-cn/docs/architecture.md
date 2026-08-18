@@ -136,11 +136,17 @@ identity、locator、hash、generation 和其他权威值。确定性 acquisitio
 `ContextBuilder` 从带优先级、可降级的小节组装每个有界 model/tool loop。本轮
 observations 使用统一的小信封，按因果顺序只出现一次并保留 artifact 引用。阶段可将
 声明的、按消费者定尺的持久化证据切片物化到 `PROVISIONED_EVIDENCE` 小节；声明切片
-不足时，`observation.read` 提供当前 session 内的有界回读。Prompt 准入复用与实际
+不足时，冻结的通用 `SupportRequirements` entry 可暴露 `observation.read`，提供当前
+session 内的有界回读。support entry 走普通 exposure、selection、Policy 和持久化 scope
+校验；旧 plan 恢复时不会被扩大。Prompt 准入复用与实际
 执行相同的 Router task policy 选择 model profile，采用 85% context window 安全系数
 和离线标定的保守 token 估算；依次降级 session/tool 上下文、供给切片、较旧
-observations，并始终保留最新两条，output contract 仍是 user prompt 尾部。run 级
-observation 压力也会先压缩最旧条目，再停止执行。
+observations，并始终保留最新两条，output contract 仍是 user prompt 尾部；固定尾部超限
+会在模型调用前失败。run 级 observation 在 36,000 byte 开始压缩，但达到 48,000 byte 时
+会先硬停止，不再尝试压缩。support read 有独立的每阶段两次执行配额，不消耗 business
+tool-call 或重复调用预算。
+执行失败把类型化原因与内部诊断分开；run summary、assistant message 和
+`WorkflowResult` 只接收稳定安全文案，原始诊断只保留在审计中。
 在已迁移的文档与浏览器控制视图中，当事实已经由 Runtime 绑定时，模型视图还会移除受治理 path、源/目标 hash、
 page/snapshot identity、URL、generation 与 digest；只保留当前语义变量所需的 coverage/
 omission metadata、candidate 局部内容与结构、opaque 可选 ref 和 eligible operation 描述。
@@ -217,7 +223,7 @@ ToolHub entry。PPTX 语义生成同样会在 approval 前过滤 no-op，并对�
 一次类型化修复；原内联目录二次路由仍保持删除。
 approval、output-copy write 和 post-edit preservation check 继续走共享路径。解析
 representation 可以不完整、被替换或重新生成，而不会丢失文档身份和活动谱系。
-XLSX 读取还会投影带稳定 source hash 的有界类型化 sheet/row/cell 证据。revision 6 在
+XLSX 读取还会投影带稳定 source hash 的有界类型化 sheet/row/cell 证据。revision 7 在
 approval 前把每次电子表格修改绑定到该读取，并且只有通过 OOXML feature gate、类型化重读和
 package part 保真校验后才接纳成功输出；不支持的特性或未声明 package drift 会失败关闭且不留下
 输出副本。

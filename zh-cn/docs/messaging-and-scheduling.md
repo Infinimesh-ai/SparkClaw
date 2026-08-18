@@ -105,7 +105,7 @@ POST /api/deliveries/{id}/retry
 
 ## 定时消息契约
 
-`schedule.manage` revision 2 是唯一 lifecycle Workflow。schema-v2 `ScheduleSpec` 保存：
+`schedule.manage` revision 3 是唯一 lifecycle Workflow。schema-v2 `ScheduleSpec` 保存：
 
 - 到期时的 `MessageContent`，不包含 `literal` 或 `ExpectedCapabilityPath`；
 - owner、actor 和 authorization context；

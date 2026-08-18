@@ -795,6 +795,15 @@ sudo -n docker compose --env-file .env -f docker/compose.yaml --profile models-l
 - Runtime budget keys split into `workflow_stage_max_*` and
   `workflow_run_max_*` (legacy `workflow_step_max_*`/`react_max_*` keys
   still map; see [Workflow execution](workflow-execution.md)).
+- Observation pressure now has two boundaries:
+  `workflow_run_observation_compaction_bytes=36000` starts rolling compaction,
+  while `workflow_run_max_observation_bytes=48000` is a hard stop checked first.
+  Legacy config derives the lower value as 75% of the resolved maximum; two
+  explicit values must satisfy `0 < compaction < maximum`.
+- `workflow_stage_max_observation_reads=2` independently limits executed
+  `observation.read` support calls. Environment overrides are
+  `SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES` and
+  `SPARKCLAW_WORKFLOW_STAGE_MAX_OBSERVATION_READS`.
 
 ## Secure Defaults
 

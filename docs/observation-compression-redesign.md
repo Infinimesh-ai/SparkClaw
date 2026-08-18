@@ -6,6 +6,9 @@ Status: Implemented 2026-08-03. The uniform observation envelope, runtime
 evidence provisioning, `observation.read`, rolling compaction, ContextBuilder
 integration, and multi-observation finalization are delivered. Context-plan
 item 1.3 (model-generated episode summaries) remains separate and open.
+Issue #17 tightened the shipped admission, scope, quota, and hard-stop
+semantics on 2026-08-18; [Workflow execution](workflow-execution.md) is the
+current runtime authority where this original design differs.
 
 Scope: tool-result compression (`services/gateway/internal/agent/tool_result_adapter.go`),
 the per-tool observation budget (`agent.go` `toolResultObservationBudget`),
@@ -145,28 +148,31 @@ As specified in the Context assembly plan item 1.2, unchanged in substance:
 arguments `artifact_uri` (required), `offset`, `max_bytes`; read risk, no
 approval; session-scoped opaque keys; registered in
 `internal/toolhub/registry.go` so the registry consistency test covers it;
-exposed in every model-step scope. Its result passes through the same
-uniform envelope, with the requested window as the evidence excerpt.
+selected through frozen generic `SupportRequirements` in eligible model-step
+scopes. Old persisted plans are not widened. Its result passes through the same
+uniform envelope, with the requested window as the evidence excerpt. Two
+executed reads are allowed per stage by default; they count toward observation
+bytes but not business tool-call or repetition budgets.
 
 ### 3.4 Rolling observation compaction
 
-As specified in plan item 0.2: when the run observation budget is reached,
-compact the oldest half to one-line entries (tool, status, key fields,
-artifact ref, `compacted=true`), never the newest two, order preserved,
-audited as `workflow_step.observations_compacted` with byte counts; stop
-only if still over budget after full compaction. With uniform envelopes the
+Rolling compaction starts at 36,000 bytes and compacts eligible older entries
+to one-line typed state (tool, status, key fields, artifact ref), never the
+newest two, with order preserved and byte counts audited as
+`workflow_step.observations_compacted`. The 48,000-byte maximum is checked
+first and stops the run without another compaction attempt. With uniform envelopes the
 worst case is bounded (32 calls x ~2.4 KB ≈ 77 KB), so compaction is the
 normal long-run path rather than a cliff, and it is lossless because 3.3
 provides read-back.
 
 ### 3.5 ContextBuilder integration
 
-Plan item 1.1 proceeds as specified, with one addition: provisioned
-evidence registers as its own section with its own budget, ordered between
-current-run observations and the output contract. The builder enforces the
-combined admission budget (lane context x 0.85 from plan item 0.4); when
-degradation is required, provisioned evidence degrades by reducing slice
-budgets before observations are compacted further.
+Provisioned evidence registers as its own degradable section with its own
+budget, ordered between current-run observations and the fixed output contract.
+One builder enforces the combined admission budget (lane context x 0.85),
+degrades named variants, and UTF-8-safely truncates only declared sections.
+Every admitted prompt remains under the threshold; fixed-section overflow
+fails before model invocation.
 
 ### 3.6 Cross-run context is an index, on purpose
 
@@ -192,7 +198,9 @@ summary), not from carrying more prose across runs.
 |---|---|---|
 | `observation_summary_max_bytes` | 2400 | The only envelope size knob, applied to every tool |
 | `workflow_stage_evidence_max_bytes` | 8000 | New: per-stage provisioned-evidence ceiling |
-| `workflow_run_max_observation_bytes` | 48000 | Run accumulation budget only; triggers compaction (3.4), no longer inflates envelopes |
+| `workflow_stage_max_observation_reads` | 2 | Executed support reads allowed per stage |
+| `workflow_run_observation_compaction_bytes` | 36000 | Starts rolling compaction |
+| `workflow_run_max_observation_bytes` | 48000 | Hard stop checked before compaction; never inflates envelopes |
 
 New audit events: `workflow_step.evidence_provisioned`,
 `workflow_step.evidence_blocked`, and
@@ -211,8 +219,8 @@ signal.
   artifact store interface adds bounded retrieval, implemented by the
   filesystem and S3-compatible backends; the unsupported backend continues
   to fail explicitly.
-- Browser r2 plan shapes are unchanged; only their stage contexts gain
-  evidence requirements.
+- Current model-tool profile revisions freeze their support requirements; older
+  persisted plans retain their original scope on resume.
 
 ## 7. Risks
 

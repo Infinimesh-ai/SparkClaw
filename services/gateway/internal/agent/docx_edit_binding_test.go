@@ -87,7 +87,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(editTools) != 1 || editTools[0].Name != "docx.replace_paragraph" {
+	if !exactVisibleToolNames(editTools, "docx.replace_paragraph", "observation.read") {
 		t.Fatalf("materialized the wrong DOCX editor: %#v", editTools)
 	}
 	for _, runtimeBound := range []string{"path", "output_path", "source_document_sha256", "source_evidence", "location", "source_hash", "old_text"} {
@@ -456,7 +456,7 @@ func prepareDOCXMutationRun(t *testing.T, root, selectedTool, selectedOperation 
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
 	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
-	if err != nil || len(tools) != 1 || tools[0].Name != selectedTool {
+	if err != nil || !exactVisibleToolNames(tools, selectedTool, "observation.read") {
 		closeRuntime()
 		t.Fatalf("DOCX editor did not materialize: tools=%#v err=%v", visibleToolNames(tools), err)
 	}

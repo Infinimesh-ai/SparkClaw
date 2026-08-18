@@ -87,18 +87,19 @@ request that is still in flight when the budget trips.
   `semantic_variables`; tool stages derive them from the final model-visible
   schema, while no-tool answer, operation-selection, and finalization calls name
   their bounded output directly.
-- The loop freezes a full and a compact system prompt at loop start
-  (`workflowStepSystemPrompt` over the context snapshot's `ForWorkflowStep` /
-  `ForWorkflowStepCompact` views). Current-run observations appear exactly
-  once, in causal order, in the user prompt, followed by the step output
-  contract.
-- Prompt admission (`admitWorkflowStepPrompt`) estimates tokens with a
-  calibrated 4-bytes-per-token coefficient. At 80% of the available input
-  budget it degrades the session view, provisioned evidence projection, and
-  older observations in that order, audited as
-  `workflow_step.prompt_compressed`. The budget derives from the model profile
-  chosen by the same router task policy as execution, with an 85%
-  context-window safety factor (`effectiveWorkflowStepPromptBudget`).
+- One `ContextBuilder` admission pass owns ordered system and user sections.
+  Sections are fixed, degradable through named variants, or UTF-8-safe
+  truncatable. Current-run observations appear exactly once in causal order,
+  and the fixed step output contract remains the exact user-prompt tail.
+- Prompt admission estimates tokens with a calibrated 4-bytes-per-token
+  coefficient. It degrades lower-value session context, provisioned evidence,
+  schemas, and older observations before hard-truncating only declared
+  truncatable sections. Every successful model call is at or below the
+  effective input threshold; fixed-section overflow returns
+  `workflow_prompt_fixed_sections_oversized` before a model call. Decisions are
+  audited as `workflow_step.prompt_compressed` without recording dropped text.
+  The threshold derives from the model profile chosen by the same router task
+  policy as execution, with an 85% context-window safety factor.
 
 ### Tool Results And Evidence
 
@@ -106,8 +107,20 @@ Every tool result is archived in full, while its model-visible observation uses
 the same `observation_summary_max_bytes` envelope (default 2400) regardless of
 tool name. A truncated envelope retains its artifact URI and directs the model
 to `observation.read`, which reads a bounded UTF-8-safe window from an artifact
-owned by the current session. The helper is exposed only to model steps; using
-it continues the current step loop and does not advance the workflow node.
+owned by the current session. A model node declares this helper through frozen
+`CapabilityScope.SupportRequirements`; normal exposure and exact directory
+selection persist its entry beside the primary business entries. Old persisted
+plans without that requirement do not gain it on resume. Direct nodes project
+only primary entries, while model nodes project primary plus selected support
+entries.
+
+At most two executed support reads are allowed per stage by default. Completed
+and failed ToolHub executions consume this quota and observation bytes, but do
+not consume the run-wide business tool-call or repeated-call budgets. After the
+quota, the helper disappears from the next model projection. One attempted
+over-limit call yields a typed protocol observation; a repeated violation
+blocks with `observation_read_limit_exceeded`. Runtime assesses support outcomes
+without invoking the profile's business `Assess` or advancing its node.
 Document and browser tool-message summaries and structured fields are consumer
 projections: governed paths, source byte metadata, page/snapshot identity, URLs,
 generations, and digests stay in archived Runtime state instead of being copied
@@ -169,6 +182,7 @@ Stage budgets stop the step loop (audited as `workflow_step.budget_stopped`):
 |---|---|---|
 | `workflow_stage_max_duration_seconds` | 180 | the stage's wall-clock time is exhausted |
 | `workflow_stage_max_no_progress_actions` | 3 | consecutive actions produce no new evidence |
+| `workflow_stage_max_observation_reads` | 2 | executed `observation.read` support calls reach the stage quota |
 
 `workflow_stage_evidence_max_bytes` (default 8000) clamps total persisted
 evidence provisioned to one stage. A required source that is missing, empty, or
@@ -182,14 +196,20 @@ each stage (the latter audited as `workflow_run.budget_stopped`):
 | Config key (`runtime` section) | Default | Stops the run when |
 |---|---|---|
 | `workflow_run_max_duration_seconds` | 1800 | the run's wall-clock time is exhausted |
-| `workflow_run_max_tool_calls` | 32 | executed tool calls across all stages reach the cap |
-| `workflow_run_max_observation_bytes` | 48000 | observations remain at the cap after older entries are compacted |
+| `workflow_run_max_tool_calls` | 32 | executed business tool calls across all stages reach the cap |
+| `workflow_run_observation_compaction_bytes` | 36000 | older eligible observations begin rolling compaction |
+| `workflow_run_max_observation_bytes` | 48000 | current model-visible observations reach the hard stop before compaction |
 | `workflow_run_max_repeated_tool_calls` | 3 | one tool repeats with an identical fingerprint in consecutive executed calls, across stage boundaries |
 
-`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` overrides the observation
-budget. Reaching it first compacts the oldest half of eligible observations,
-never the newest two, and continues compacting older entries if needed; the run
-stops only when the compacted list still exceeds the limit. The deprecated
+`SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES` and
+`SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES` override the two observation
+boundaries. Runtime checks the 48,000-byte hard maximum first and stops without
+another compaction attempt. Below that maximum, reaching 36,000 bytes compacts
+eligible older entries while preserving the newest two and causal order. A
+legacy configuration that omits the lower threshold derives it as 75% of the
+resolved hard maximum; explicitly configuring both values requires
+`0 < compaction < maximum`. Compaction state is a typed executor field rather
+than a marker inferred from untrusted observation text. The deprecated
 `workflow_step_max_*` and `react_max_*` keys (and the
 `SPARKCLAW_WORKFLOW_STEP_MAX_OBSERVATION_BYTES` /
 `SPARKCLAW_REACT_MAX_OBSERVATION_BYTES` overrides) still load as fallbacks
@@ -203,6 +223,9 @@ Model output cannot widen a workflow's boundary:
 
 - `materializedWorkflowCapability` maps the selected tool to a capability that
   was materialized for the active node/scope revision or fails the step.
+- Primary `Requirements` and generic `SupportRequirements` use the same
+  exposure, Policy, exact directory-entry, qualifier, and active-scope checks;
+  no tool name creates an authorization exception.
 - `validateWorkflowToolPlan` (`workflow_runtime.go`) re-validates every plan
   against the persisted plan digest, active node state, stage capability
   rules, qualifier bindings, and frozen argument bindings before execution.
@@ -236,6 +259,7 @@ Key audit event types emitted by the executor:
 | `workflow_step.evidence_provisioned` | Persisted evidence was resolved and sliced for the active stage |
 | `workflow_step.evidence_blocked` | Required stage evidence could not be resolved or admitted |
 | `workflow_step.observations_compacted` | Older run observations were compacted before budget enforcement |
+| `workflow_step.observation_read_limited` / `workflow_step.support_assessed` | Support-read quota enforcement and Runtime-owned assessment |
 | `workflow_step.budget_stopped` | A stage or run budget stopped the step loop |
 | `workflow_run.budget_stopped` | The run budget stopped the stage loop before a stage |
 | `workflow.required_tool_not_called` | Rejected a final answer that skipped required tool evidence |
@@ -249,11 +273,28 @@ Key audit event types emitted by the executor:
 | `workflow.finalization_failed` | Completed evidence could not be rendered into a final answer |
 | `workflow.legacy_resume_retired` / `workflow.legacy_login_resume_retired` | A pre-workflow persisted run was closed instead of resumed |
 
-## Browser Revision 2 Execution
+## Public Failure Projection
 
-`browser.automation` and `browser.interaction` register only revision 2. A
+Execution failures carry a typed internal `FailureCode` separately from their
+diagnostic. Raw model output, schema payloads, provider errors, artifact bodies,
+host paths, and wrapped errors stay in audit/model-call records. Before creating
+`run.Summary`, an assistant message, or `WorkflowResult`, Runtime replaces the
+failure with a stable owner-safe message and exposes the typed code through
+`WorkflowResult.Error.Code`.
+
+The explicit protocol codes include `required_evidence_unavailable`,
+`tool_outside_active_scope`, `semantic_preflight_failed`,
+`semantic_output_invalid`, `workflow_prompt_fixed_sections_oversized`, and
+`observation_read_limit_exceeded`. New failure paths must add a typed code and
+safe projection rather than assigning `err.Error()` to `FinalAnswer`.
+
+## Browser Revision 3 Execution
+
+`browser.automation` and `browser.interaction` register revision 3. Revision 3
+adds the frozen support-capability contract without changing their business
+tool path. A
 persisted browser r1 plan is rejected as an unregistered contract rather than
-reinterpreted under current code. The shared r2 plan owns acquisition, evidence,
+reinterpreted under current code. The shared plan owns acquisition, evidence,
 interaction, and presentation:
 
 - Runtime directly invokes passive environment preflight, tab discovery,

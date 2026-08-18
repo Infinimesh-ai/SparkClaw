@@ -53,9 +53,9 @@ func (r Runtime) approvedWorkspaceContractCoversTool(run app.AgentRun, definitio
 		(run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead && run.Workflow.Plan.ProfileID != app.WorkflowDocumentEdit) {
 		return false
 	}
-	if definition.Name == "observation.read" {
+	if toolDefinitionHasCapability(definition, app.ToolCapabilityObservationRead) {
 		source := r.workspaceObservationSourceCall(run, strings.TrimSpace(stringValue(args["artifact_uri"])))
-		if source == nil || !toolCallCompleted(*source) || source.Tool == "observation.read" {
+		if source == nil || !toolCallCompleted(*source) || source.Capability == app.ToolCapabilityObservationRead {
 			return false
 		}
 		sourceDefinition, ok := r.tools.Definition(source.Tool)
@@ -98,7 +98,7 @@ func toolReadsSparkClawWorkspaceData(r Runtime, run app.AgentRun, definition app
 	if containsToolEffect(definition.Directory.Effects, app.ToolEffectWorkspaceRead) {
 		return true
 	}
-	if definition.Name != "observation.read" {
+	if !toolDefinitionHasCapability(definition, app.ToolCapabilityObservationRead) {
 		return false
 	}
 	artifactURI := strings.TrimSpace(stringValue(args["artifact_uri"]))
@@ -111,6 +111,15 @@ func toolReadsSparkClawWorkspaceData(r Runtime, run app.AgentRun, definition app
 	}
 	source, ok := r.tools.Definition(call.Tool)
 	return ok && containsToolEffect(source.Directory.Effects, app.ToolEffectWorkspaceRead)
+}
+
+func toolDefinitionHasCapability(definition app.ToolDefinition, name string) bool {
+	for _, capability := range definition.Capabilities {
+		if capability.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func toolPolicyOutputClass(definition app.ToolDefinition, args map[string]any) string {

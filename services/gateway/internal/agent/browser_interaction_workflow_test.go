@@ -81,8 +81,8 @@ func TestBrowserInteractionExposesOnlyActiveStageWhilePersistingFullBoundary(t *
 		t.Fatal("browser interaction workflow was not persisted")
 	}
 	node := stored.Workflow.Nodes["browser_result"]
-	if len(node.SelectedEntries) != 10 {
-		t.Fatalf("stage projection changed the fixed revision-2 ten-tool boundary: %#v", node.SelectedEntries)
+	if len(node.SelectedEntries) != 11 {
+		t.Fatalf("stage projection changed the fixed revision-3 business-plus-support boundary: %#v", node.SelectedEntries)
 	}
 }
 

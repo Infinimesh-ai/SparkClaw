@@ -7,6 +7,7 @@ const (
 	BrowserHandoffSchemaVersion       = 2
 	BrowserGoalContractSchemaVersion  = 1
 	BrowserWorkflowRevision2          = 2
+	BrowserWorkflowRevision3          = 3
 	BrowserFormDraftMaxActions        = 5
 )
 

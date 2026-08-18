@@ -51,7 +51,7 @@ func TestExternalMCPWorkflowIsRegisteredInCatalogAndSemanticGraph(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if leaf.Workflow == nil || leaf.Workflow.ID != app.WorkflowExternalMCPWorkspace || leaf.Workflow.Revision != 1 {
+	if leaf.Workflow == nil || leaf.Workflow.ID != app.WorkflowExternalMCPWorkspace || leaf.Workflow.Revision != 2 {
 		t.Fatalf("unexpected LocalMind workflow contract: %#v", leaf.Workflow)
 	}
 	graph, err := defaultWorkflowProfileRegistry().SemanticGraph(catalog)

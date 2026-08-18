@@ -81,7 +81,7 @@ func TestDocumentEditBindsCurrentXLSXRowEvidenceBeforeApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(editTools) != 1 || editTools[0].Name != "xlsx.update_row" {
+	if !exactVisibleToolNames(editTools, "xlsx.update_row", "observation.read") {
 		t.Fatalf("operation selection exposed the wrong XLSX editor: %#v", visibleToolNames(editTools))
 	}
 	for _, runtimeBound := range []string{"path", "output_path", "operation", "source_sha256", "source_row_hash"} {
@@ -199,7 +199,7 @@ func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing
 		t.Fatal(err)
 	}
 	storedRun, tools := advanceDocumentEditToEditor(t, runtime, st, dispatch, inputRef, "xlsx.update_cell", "update_cell")
-	if len(tools) != 1 || tools[0].Name != "xlsx.update_cell" {
+	if !exactVisibleToolNames(tools, "xlsx.update_cell", "observation.read") {
 		t.Fatalf("XLSX table fixture did not reach the selected editor: %#v", visibleToolNames(tools))
 	}
 	readOutput := replaceAgentXLSXLocateEvidence(t, runtime, st, storedRun, inputRef)

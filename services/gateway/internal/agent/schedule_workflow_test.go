@@ -83,7 +83,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "reminders.list" {
+	if !exactVisibleToolNames(dispatch.Tools, "reminders.list", "observation.read") {
 		t.Fatalf("edit workflow must expose list first: %#v", visibleToolNames(dispatch.Tools))
 	}
 
@@ -114,7 +114,7 @@ func TestScheduleEditWorkflowListsResolvesAndVersionBindsMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mutationTools) != 1 || mutationTools[0].Name != "reminders.update" {
+	if !exactVisibleToolNames(mutationTools, "reminders.update", "observation.read") {
 		t.Fatalf("edit workflow exposed the wrong mutation: %#v", visibleToolNames(mutationTools))
 	}
 	node := storedRun.Workflow.Nodes["schedule_manage"]

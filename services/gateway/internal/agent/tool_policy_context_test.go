@@ -85,6 +85,29 @@ func TestExternalMCPWorkspaceDerivativeReadUsesSameEscalation(t *testing.T) {
 	}
 }
 
+func TestExternalMCPWorkspaceDerivativePolicyUsesCapabilityNotToolName(t *testing.T) {
+	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
+	defer closeRuntime()
+	run := externalMCPPolicyTestRun(session, "run_external_derivative_capability")
+	st.SaveRun(run)
+	st.SaveToolCall(app.ToolCall{
+		ID: "tc_workspace_capability_source", SessionID: session.ID, RunID: run.ID, Tool: "files.read", Status: "completed",
+		ObservationRef: "artifact://sparkclaw/observations/capability-source.json", StartedAt: time.Now().UTC(),
+	})
+	definition, ok := runtime.tools.Definition("observation.read")
+	if !ok {
+		t.Fatal("observation.read is unavailable in policy test runtime")
+	}
+	definition.Name = "support.evidence.read"
+	execution := runtime.toolPolicyExecutionContext(run.ID, definition, map[string]any{
+		"artifact_uri": "artifact://sparkclaw/observations/capability-source.json", "max_bytes": 100,
+	})
+	if execution.ResourceClass != app.PolicyResourceSparkClawWorkspaceData ||
+		execution.AccessClass != app.PolicyAccessWorkspaceSourceRead || execution.ContractDigest == "" {
+		t.Fatalf("renamed observation capability bypassed workspace policy: %#v", execution)
+	}
+}
+
 func TestExternalMCPContextSnapshotDoesNotReadPriorSessionDerivatives(t *testing.T) {
 	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
 	defer closeRuntime()

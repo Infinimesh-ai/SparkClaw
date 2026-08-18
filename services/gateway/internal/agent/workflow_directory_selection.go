@@ -8,29 +8,66 @@ import (
 )
 
 func workflowDirectorySelection(run app.AgentRun, state app.WorkflowNodeState, view app.DirectoryView) ([]app.ToolDirectoryEntryID, error) {
-	if entryIDs, decided, err := workflowPersistedDecisionSelection(run, state, view); decided || err != nil {
-		return entryIDs, err
+	primaryView, primaryState, supportEntryIDs, err := workflowDirectoryPartitions(state, view)
+	if err != nil {
+		return nil, err
+	}
+	if entryIDs, decided, err := workflowPersistedDecisionSelection(run, primaryState, primaryView); decided || err != nil {
+		return append(entryIDs, supportEntryIDs...), err
 	}
 	if state.CurrentScope.MaterializeAll {
-		entryIDs := make([]app.ToolDirectoryEntryID, 0, len(view.Entries))
-		for _, entry := range view.Entries {
+		entryIDs := make([]app.ToolDirectoryEntryID, 0, len(primaryView.Entries)+len(supportEntryIDs))
+		for _, entry := range primaryView.Entries {
 			entryIDs = append(entryIDs, entry.ID)
 		}
-		return entryIDs, nil
+		return append(entryIDs, supportEntryIDs...), nil
 	}
-	if len(state.SelectedEntries) > 0 {
-		if len(state.SelectedEntries) != 1 {
+	if len(primaryState.SelectedEntries) > 0 {
+		if len(primaryState.SelectedEntries) != 1 {
 			return nil, errors.New("persisted workflow directory selection is no longer eligible")
 		}
-		if _, eligible := directoryViewEntry(view, state.SelectedEntries[0]); !eligible {
+		if _, eligible := directoryViewEntry(primaryView, primaryState.SelectedEntries[0]); !eligible {
 			return nil, errors.New("persisted workflow directory selection is no longer eligible")
 		}
-		return append([]app.ToolDirectoryEntryID(nil), state.SelectedEntries...), nil
+		return append(append([]app.ToolDirectoryEntryID(nil), primaryState.SelectedEntries...), supportEntryIDs...), nil
 	}
-	if len(view.Entries) == 1 {
-		return []app.ToolDirectoryEntryID{view.Entries[0].ID}, nil
+	if len(primaryView.Entries) == 1 {
+		return append([]app.ToolDirectoryEntryID{primaryView.Entries[0].ID}, supportEntryIDs...), nil
 	}
 	return nil, errors.New("multiple tools satisfy the active workflow scope; an explicit decision node is required")
+}
+
+func workflowDirectoryPartitions(state app.WorkflowNodeState, view app.DirectoryView) (app.DirectoryView, app.WorkflowNodeState, []app.ToolDirectoryEntryID, error) {
+	primaryView := view
+	primaryView.Entries = nil
+	supportEntryIDs := make([]app.ToolDirectoryEntryID, 0, len(state.CurrentScope.SupportRequirements))
+	supportSet := map[app.ToolDirectoryEntryID]bool{}
+	for _, requirement := range state.CurrentScope.SupportRequirements {
+		matches := []app.ToolDirectoryEntryID{}
+		for _, entry := range view.Entries {
+			if matchesAnyRequirement(entry.Capability, []app.CapabilityRequirement{requirement}) {
+				matches = append(matches, entry.ID)
+			}
+		}
+		if len(matches) != 1 || supportSet[matches[0]] {
+			return app.DirectoryView{}, app.WorkflowNodeState{}, nil, errors.New("support capability requirement must match exactly one directory entry")
+		}
+		supportSet[matches[0]] = true
+		supportEntryIDs = append(supportEntryIDs, matches[0])
+	}
+	for _, entry := range view.Entries {
+		if !supportSet[entry.ID] {
+			primaryView.Entries = append(primaryView.Entries, entry)
+		}
+	}
+	primaryState := state
+	primaryState.SelectedEntries = nil
+	for _, entryID := range state.SelectedEntries {
+		if !supportSet[entryID] {
+			primaryState.SelectedEntries = append(primaryState.SelectedEntries, entryID)
+		}
+	}
+	return primaryView, primaryState, supportEntryIDs, nil
 }
 
 func workflowPersistedDecisionSelection(run app.AgentRun, state app.WorkflowNodeState, view app.DirectoryView) ([]app.ToolDirectoryEntryID, bool, error) {

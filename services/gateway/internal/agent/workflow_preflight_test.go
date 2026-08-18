@@ -122,7 +122,7 @@ func TestDocumentEditPreflightDispatchesFormatThenSelectsCompatibleEditor(t *tes
 				t.Fatalf("edit read stage exposed an incompatible reader: %#v", visibleToolNames(dispatch.Tools))
 			}
 			dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, test.tool, test.operation)
-			if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != test.tool {
+			if !exactVisibleToolNames(dispatch.Tools, test.tool, "observation.read") {
 				t.Fatalf("edit stage exposed an incompatible editor: %#v", visibleToolNames(dispatch.Tools))
 			}
 			node := dispatch.Run.Workflow.Nodes["document_edit"]
@@ -308,11 +308,11 @@ func TestDocumentContentMutationRoutesToEditR6ThenSelectsXLSXEditor(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.Revision() != 6 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
-		t.Fatalf("XLSX edit did not start in document.edit r6 evidence stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
+	if dispatch.Profile.Revision() != 7 || len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "files.read" {
+		t.Fatalf("XLSX edit did not start in document.edit r7 evidence stage: profile=%d tools=%#v", dispatch.Profile.Revision(), visibleToolNames(dispatch.Tools))
 	}
 	dispatch.Run, dispatch.Tools = advanceDocumentEditToEditor(t, runtime, st, dispatch, route.Slots.TargetRef, "xlsx.append_row", "append_row")
-	if len(dispatch.Tools) != 1 || dispatch.Tools[0].Name != "xlsx.append_row" {
+	if !exactVisibleToolNames(dispatch.Tools, "xlsx.append_row", "observation.read") {
 		t.Fatalf("XLSX content mutation exposed the wrong editor: %#v", visibleToolNames(dispatch.Tools))
 	}
 	if !hasModelCallOperation(st.ListModelCalls(session.ID, dispatch.Run.ID), "workflow_operation_selection", documentWorkflowModelLane) ||

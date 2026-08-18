@@ -6,7 +6,7 @@ type codingAgentManageProfile struct{}
 
 func (codingAgentManageProfile) ID() app.WorkflowID { return app.WorkflowCodingAgentManage }
 
-func (codingAgentManageProfile) Revision() int { return 1 }
+func (codingAgentManageProfile) Revision() int { return 2 }
 
 func (codingAgentManageProfile) Capability() app.CapabilityID {
 	return app.CapabilityCodingAgentManage

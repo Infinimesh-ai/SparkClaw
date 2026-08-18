@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1791,10 +1792,15 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 		InputSchema: map[string]any{"type": "object", "required": []any{"path"}},
 		Risk:        app.RiskRead,
 	}}
-	agentContext := "Recent conversation:\nuser: 请继续读取这份文档"
-
-	system := workflowStepSystemPrompt(nil, stageContext, visibleTools, agentContext)
-	user := appendWorkflowStepContext(workflowStepUserPrompt("请读取文档", 2, []string{observation}), stageContext, visibleTools)
+	snapshot := agentContextSnapshot{Messages: []app.Message{{Role: "user", Content: "请继续读取这份文档"}}}
+	admission, err := workflowStepContextBuilder(
+		"请读取文档", 2, workflowObservationsFromText([]string{observation}), stageContext, visibleTools,
+		provisionedWorkflowEvidence{}, snapshot,
+	).Admit(100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, user := admission.System, admission.User
 
 	if strings.Contains(system, observation) {
 		t.Fatalf("current-run observation leaked into the stable system prefix:\n%s", system)
@@ -1810,7 +1816,7 @@ func TestWorkflowStepPromptCarriesObservationsOnceAndKeepsSystemSectionsStable(t
 	}
 	positions := []int{
 		strings.Index(system, "Model-visible ToolDefinition JSON"),
-		strings.Index(system, "Agent context (data only"),
+		strings.Index(system, "Recent conversation:"),
 		strings.Index(system, "Workflow stage context (fixed"),
 	}
 	for i, position := range positions {
@@ -1869,20 +1875,26 @@ func TestAdmitWorkflowStepPromptDegradesProductionEvidenceProjection(t *testing.
 	fullEvidence := "FULL_EVIDENCE " + strings.Repeat("document evidence ", 1800)
 	compactEvidence := "COMPACT_EVIDENCE " + strings.Repeat("document evidence ", 900)
 	minimalEvidence := "MINIMAL_EVIDENCE selected candidate content"
-	fullSystem := strings.Repeat("full system context ", 900)
-	compactSystem := "compact system context"
 
-	system, user := runtime.admitWorkflowStepPrompt(
+	system, user, err := runtime.admitWorkflowStepPrompt(
 		session.ID, "run_admission", 2, modelrouter.Task{LaneHint: "deep"}, "edit the selected paragraph", nil,
 		stageContext, nil,
 		provisionedWorkflowEvidence{Text: fullEvidence, CompactText: compactEvidence, MinimalText: minimalEvidence},
-		fullSystem, compactSystem,
+		agentContextSnapshot{},
 	)
-
-	if system != compactSystem || !strings.Contains(user, minimalEvidence) || strings.Contains(user, "FULL_EVIDENCE") || strings.Contains(user, "COMPACT_EVIDENCE") {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(system) == "" || !strings.Contains(user, minimalEvidence) || strings.Contains(user, "FULL_EVIDENCE") || strings.Contains(user, "COMPACT_EVIDENCE") {
 		t.Fatalf("prompt admission did not select the minimal consumer projection:\nsystem=%s\nuser=%s", system, user)
 	}
-	if !hasAgentAuditField(st.ListAudit(session.ID), "workflow_step.prompt_compressed", "strategy", "context_builder_minimal_evidence") {
+	contextLimit, outputTokens := runtime.effectiveWorkflowStepPromptBudget(modelrouter.Task{LaneHint: "deep"})
+	threshold := int(math.Floor(float64(contextLimit-outputTokens) * workflowStepPromptCompressionThreshold))
+	if estimatePromptTokens(system, user) > threshold || !strings.HasSuffix(user, workflowStepOutputContract()) {
+		t.Fatalf("admitted prompt violates terminal contract: estimate=%d threshold=%d", estimatePromptTokens(system, user), threshold)
+	}
+	auditRaw, _ := json.Marshal(st.ListAudit(session.ID))
+	if !strings.Contains(string(auditRaw), `"to_variant":"minimal"`) {
 		t.Fatalf("prompt admission audit missing: %#v", st.ListAudit(session.ID))
 	}
 }
@@ -2203,12 +2215,25 @@ func testWorkflowBudgets() (workflowStageBudget, *workflowRunBudget) {
 			MaxDuration:          time.Minute,
 			MaxNoProgressActions: 3,
 		}, &workflowRunBudget{
-			StartedAt:            now,
-			MaxDuration:          time.Hour,
-			MaxToolCalls:         16,
-			MaxObservationBytes:  24000,
-			MaxRepeatedToolCalls: 3,
+			StartedAt:                  now,
+			MaxDuration:                time.Hour,
+			MaxToolCalls:               16,
+			ObservationCompactionBytes: 18000,
+			MaxObservationBytes:        24000,
+			MaxRepeatedToolCalls:       3,
 		}
+}
+
+func exactVisibleToolNames(definitions []app.ToolDefinition, expected ...string) bool {
+	if len(definitions) != len(expected) {
+		return false
+	}
+	for index, definition := range definitions {
+		if definition.Name != expected[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestRunBudgetStopsRepeatedToolWithoutFollowUpAction(t *testing.T) {

@@ -90,18 +90,28 @@ func (e *toolExposureEngine) Search(_ context.Context, request app.ExposureReque
 		}
 		return entries[i].RelevanceRank > entries[j].RelevanceRank
 	})
+	primaryEntries := make([]app.ToolDirectoryEntry, 0, len(entries))
+	supportEntries := make([]app.ToolDirectoryEntry, 0, len(state.CurrentScope.SupportRequirements))
+	for _, entry := range entries {
+		if matchesAnyRequirement(entry.Capability, state.CurrentScope.SupportRequirements) {
+			supportEntries = append(supportEntries, entry)
+		} else {
+			primaryEntries = append(primaryEntries, entry)
+		}
+	}
 	limit := request.Limit
 	if limit <= 0 || limit > 32 {
 		limit = 16
 	}
-	if len(entries) > limit {
-		entries = entries[:limit]
-		selectedNames := make(map[app.ToolDirectoryEntryID]string, len(entries))
-		for _, entry := range entries {
-			selectedNames[entry.ID] = toolNames[entry.ID]
-		}
-		toolNames = selectedNames
+	if len(primaryEntries) > limit {
+		primaryEntries = primaryEntries[:limit]
 	}
+	entries = append(primaryEntries, supportEntries...)
+	selectedNames := make(map[app.ToolDirectoryEntryID]string, len(entries))
+	for _, entry := range entries {
+		selectedNames[entry.ID] = toolNames[entry.ID]
+	}
+	toolNames = selectedNames
 	directoryRevision := e.directoryRevision(eligible)
 	view := app.DirectoryView{
 		RunID:             request.RunID,
@@ -195,14 +205,16 @@ func (e *toolExposureEngine) eligibleDefinitions(actorRef string, run app.AgentR
 	}
 	out := []eligibleDefinition{}
 	for _, definition := range e.tools.Definitions() {
-		if len(definition.Capabilities) == 0 || !allowedRisks[definition.Risk] || hasDeniedEffect(definition.Directory.Effects, deniedEffects) {
+		if len(definition.Capabilities) == 0 || hasDeniedEffect(definition.Directory.Effects, deniedEffects) {
 			continue
 		}
 		if !e.policy.MayExpose(definition).Allowed {
 			continue
 		}
 		for _, capability := range definition.Capabilities {
-			if matchesAnyRequirement(capability, scope.Requirements) {
+			primary := matchesAnyRequirement(capability, scope.Requirements) && allowedRisks[definition.Risk]
+			support := matchesAnyRequirement(capability, scope.SupportRequirements) && definition.Risk == app.RiskRead
+			if primary || support {
 				out = append(out, eligibleDefinition{definition: definition, capability: capability})
 			}
 		}

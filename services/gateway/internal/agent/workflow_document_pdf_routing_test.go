@@ -153,7 +153,7 @@ func TestPDFTransformWorkflowRoutesApprovesExecutesAndRereads(t *testing.T) {
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
 	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
-	if err != nil || len(tools) != 1 || tools[0].Name != "pdf.transform" {
+	if err != nil || !exactVisibleToolNames(tools, "pdf.transform", "observation.read") {
 		t.Fatalf("PDF transform did not materialize: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
 	for _, runtimeBound := range []string{"operation", "path", "output_path"} {

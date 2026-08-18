@@ -14,7 +14,7 @@ import (
 type browserInternetSearchProfile struct{}
 
 func (browserInternetSearchProfile) ID() app.WorkflowID { return app.WorkflowBrowserInternetSearch }
-func (browserInternetSearchProfile) Revision() int      { return 1 }
+func (browserInternetSearchProfile) Revision() int      { return 2 }
 func (browserInternetSearchProfile) Capability() app.CapabilityID {
 	return app.CapabilityBrowserInternetSearch
 }
@@ -135,7 +135,7 @@ func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssess
 type documentEditProfile struct{}
 
 func (documentEditProfile) ID() app.WorkflowID           { return app.WorkflowDocumentEdit }
-func (documentEditProfile) Revision() int                { return 6 }
+func (documentEditProfile) Revision() int                { return 7 }
 func (documentEditProfile) Capability() app.CapabilityID { return app.CapabilityDocumentEdit }
 func (documentEditProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentEditRoutingSemantics()
@@ -452,11 +452,13 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	}
 	stageContext.ScopeRevision = view.ScopeRevision
 	r.auditFixedWorkflowExposure(run, view, entryIDs, exposure.Definitions)
-	visibleDefinitions, capabilities, err := workflowStageVisibleTools(run, stageContext.WorkflowNodeID, exposure.Definitions)
+	includeSupport := workflowStageUsesModel(profile, run.Workflow, node, state)
+	visibleDefinitions, capabilities, err := workflowStageVisibleTools(run, stageContext.WorkflowNodeID, exposure.Definitions, includeSupport)
 	if err != nil {
 		return nil, err
 	}
-	visibleDefinitions = materializeDocumentOperationSchemas(visibleDefinitions, view, entryIDs)
+	primaryEntryIDs := workflowEntryIDsMatchingRequirements(view, entryIDs, state.CurrentScope.Requirements)
+	visibleDefinitions = materializeDocumentOperationSchemas(visibleDefinitions, view, primaryEntryIDs)
 	visibleDefinitions = materializeBrowserGoalAssessmentSchemas(visibleDefinitions, run, stageContext.WorkflowNodeID)
 	visibleDefinitions = materializeBrowserFormDraftSchemas(visibleDefinitions, run, stageContext.WorkflowNodeID)
 	visibleDefinitions = workflowModelToolProjection(run, entryIDs, visibleDefinitions)
@@ -465,7 +467,28 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	return visibleDefinitions, nil
 }
 
-func workflowStageVisibleTools(run app.AgentRun, nodeID app.WorkflowNodeID, definitions []app.ToolDefinition) ([]app.ToolDefinition, []string, error) {
+func workflowEntryIDsMatchingRequirements(view app.DirectoryView, selected []app.ToolDirectoryEntryID, requirements []app.CapabilityRequirement) []app.ToolDirectoryEntryID {
+	out := make([]app.ToolDirectoryEntryID, 0, len(selected))
+	for _, entryID := range selected {
+		entry, ok := directoryViewEntry(view, entryID)
+		if ok && matchesAnyRequirement(entry.Capability, requirements) {
+			out = append(out, entryID)
+		}
+	}
+	return out
+}
+
+func workflowStageUsesModel(profile workflowProfile, workflow *app.WorkflowState, node app.WorkflowNode, state app.WorkflowNodeState) bool {
+	if node.Goal.Completion != app.CompletionEvidence || node.InvocationMode == app.WorkflowInvocationDirectOnce {
+		return false
+	}
+	if direct, ok := profile.(workflowDirectStageProfile); ok && direct.DirectStage(workflow) {
+		return false
+	}
+	return true
+}
+
+func workflowStageVisibleTools(run app.AgentRun, nodeID app.WorkflowNodeID, definitions []app.ToolDefinition, includeSupport bool) ([]app.ToolDefinition, []string, error) {
 	if run.Workflow == nil {
 		return nil, nil, errors.New("workflow state is unavailable while projecting stage tools")
 	}
@@ -479,7 +502,10 @@ func workflowStageVisibleTools(run app.AgentRun, nodeID app.WorkflowNodeID, defi
 	}
 	capabilities, gated := workflowStageCapabilityNames(node, state.Stage)
 	if !gated {
-		return definitions, nil, nil
+		if includeSupport {
+			return definitions, nil, nil
+		}
+		return workflowDefinitionsMatchingRequirements(definitions, state.CurrentScope.Requirements), nil, nil
 	}
 	if len(capabilities) == 0 {
 		return nil, nil, errors.New("active workflow stage has no capability rule")
@@ -491,7 +517,7 @@ func workflowStageVisibleTools(run app.AgentRun, nodeID app.WorkflowNodeID, defi
 	visible := make([]app.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
 		for _, capability := range definition.Capabilities {
-			if allowed[capability.Name] {
+			if allowed[capability.Name] || includeSupport && matchesAnyRequirement(capability, state.CurrentScope.SupportRequirements) {
 				visible = append(visible, definition)
 				break
 			}
@@ -501,6 +527,19 @@ func workflowStageVisibleTools(run app.AgentRun, nodeID app.WorkflowNodeID, defi
 		return nil, nil, errors.New("no materialized tool is valid in the active workflow stage")
 	}
 	return visible, capabilities, nil
+}
+
+func workflowDefinitionsMatchingRequirements(definitions []app.ToolDefinition, requirements []app.CapabilityRequirement) []app.ToolDefinition {
+	visible := make([]app.ToolDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		for _, capability := range definition.Capabilities {
+			if matchesAnyRequirement(capability, requirements) {
+				visible = append(visible, definition)
+				break
+			}
+		}
+	}
+	return visible
 }
 
 func workflowStageCapabilityNames(node app.WorkflowNode, stage string) ([]string, bool) {

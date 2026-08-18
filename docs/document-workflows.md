@@ -11,7 +11,7 @@ its durable format, evidence, and preservation contracts.
 `document.read` revision 4 reads, summarizes, or extracts verbatim in-image text from one exact governed workspace
 file. Its format-qualified reader is a `direct_once` node: Runtime invokes the
 single reader with the frozen path, and Fast only synthesizes the final
-answer from completed evidence. `document.edit` revision 6 reads one exact
+answer from completed evidence. `document.edit` revision 7 reads one exact
 file, resolves one supported
 operation through an explicit Workflow decision node, obtains approval for the
 reversible edit, and writes a new sibling output copy named

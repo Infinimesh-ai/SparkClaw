@@ -310,7 +310,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if err != nil {
 		result := r.blockWorkflowSetup(ctx, run, visibleContent, err)
 		result.RouteDecision = &route
-		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content)
+		result.WorkflowResult = r.workflowResultForDispatchFailure(result.Run, route, returnRoute, result.Message.Content, workflowFailureSetup)
 		return result, nil
 	}
 	run = dispatch.Run
@@ -329,7 +329,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	}
 	toolCalls := execution.ToolCalls
 	approvals := execution.Approvals
-	observations := execution.Observations
+	observations := workflowObservationTexts(execution.Observations)
 	currentToolCalls := toolCallsForRun(r.store.ListToolCalls(sessionID), run.ID)
 
 	now := time.Now().UTC()
@@ -344,14 +344,18 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		})
 	}
 	run.ModelLane = execution.Chat.Lane
-	run.Summary = summarizeRun(execution.Chat, observations, approvals)
-	if strings.TrimSpace(execution.FinalAnswer) != "" {
-		run.Summary = execution.FinalAnswer
-		if len(observations) > 0 || len(approvals) > 0 {
-			run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, observations, approvals)
+	if execution.FailureCode != "" {
+		run.Summary = publicWorkflowFailureMessage(execution.FailureCode)
+	} else {
+		run.Summary = summarizeRun(execution.Chat, observations, approvals)
+		if strings.TrimSpace(execution.FinalAnswer) != "" {
+			run.Summary = execution.FinalAnswer
+			if len(observations) > 0 || len(approvals) > 0 {
+				run.Summary = summarizeRun(modelrouter.ChatResult{Content: execution.FinalAnswer}, observations, approvals)
+			}
 		}
+		run.Summary = r.applyGroundedSummary(sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
 	}
-	run.Summary = r.applyGroundedSummary(sessionID, run.ID, executionContent, run.Summary, currentToolCalls)
 	if emit != nil && run.State == "completed" && !execution.FinalAnswerStreamed && len(approvals) == 0 &&
 		execution.BrowserLoginBlock == nil && !isEndpointMediaPublication(run) {
 		if err := emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit); err != nil {
@@ -374,7 +378,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	episode := summarizeEpisode(visibleContent, run, allToolCalls, allApprovals, run.Summary, now)
 	r.store.SaveEpisodeSummary(episode)
 
-	workflowResult := r.workflowResultForRun(run, route, returnRoute, run.Summary)
+	workflowResult := r.workflowResultForRun(run, route, returnRoute, run.Summary, execution.FailureCode)
 	assistant := r.persistWorkflowAssistantMessage(run, workflowResult, now)
 	r.writeTrace(ctx, run, execution.Chat, allToolCalls, allApprovals, feedback, &episode)
 	result := Result{Run: run, Message: assistant, ToolCalls: toolCalls, Approvals: approvals, RouteDecision: &route, WorkflowResult: workflowResult}

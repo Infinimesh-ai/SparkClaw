@@ -354,7 +354,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 		name           string
 		initialText    string
 		repairText     string
-		wantFailure    string
+		wantFailure    workflowFailureCode
 		wantToolCalls  int
 		wantApprovals  int
 		wantRejections int
@@ -363,7 +363,7 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 		{name: "valid repair reaches approval", repairText: "Revised title", wantToolCalls: 1, wantApprovals: 1, wantRejections: 1},
 		{name: "cosmetic repair reaches approval", initialText: "Original third title!", repairText: "A clearer third-slide title", wantToolCalls: 1, wantApprovals: 1, wantRejections: 1, wantErrorCode: "cosmetic_only_change"},
 		{name: "layout preflight repair reaches one approval", initialText: strings.Repeat("Expanded title ", 80), repairText: "Concise title", wantToolCalls: 1, wantApprovals: 1, wantRejections: 1, wantErrorCode: string(app.ToolErrorPPTXLayoutFitConflict)},
-		{name: "second invalid output blocks", repairText: "", wantFailure: "semantic_output_invalid", wantRejections: 2},
+		{name: "second invalid output blocks", repairText: "", wantFailure: workflowFailureSemanticOutputInvalid, wantRejections: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime, st, session, run, root, closeRuntime := prepareRealPPTXUpdateNode(t)
@@ -382,8 +382,8 @@ func TestPPTXSemanticMutationGetsOneSameProjectionRepair(t *testing.T) {
 			result := runtime.runWorkflowStepLoop(
 				context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil,
 			)
-			if result.WorkflowFailure != test.wantFailure || len(result.ToolCalls) != test.wantToolCalls || len(result.Approvals) != test.wantApprovals {
-				t.Fatalf("unexpected semantic repair result: failure=%q calls=%#v approvals=%#v observations=%#v", result.WorkflowFailure, result.ToolCalls, result.Approvals, result.Observations)
+			if result.FailureCode != test.wantFailure || len(result.ToolCalls) != test.wantToolCalls || len(result.Approvals) != test.wantApprovals {
+				t.Fatalf("unexpected semantic repair result: failure=%q calls=%#v approvals=%#v observations=%#v", result.FailureCode, result.ToolCalls, result.Approvals, result.Observations)
 			}
 			if test.wantApprovals == 1 && result.ToolCalls[0].Status != "approval_pending" {
 				t.Fatalf("valid repaired mutation did not stop at approval: %#v", result.ToolCalls[0])
@@ -441,9 +441,9 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"pptx.update_slide","arguments":{"upd
 	result := runtime.runWorkflowStepLoop(
 		context.Background(), session.ID, run, content, stageContext, visibleTools, nil, nil, nil,
 	)
-	if result.WorkflowFailure != "" || len(result.ToolCalls) != 1 || len(result.Approvals) != 1 ||
+	if result.FailureCode != "" || len(result.ToolCalls) != 1 || len(result.Approvals) != 1 ||
 		result.ToolCalls[0].Status != "approval_pending" {
-		t.Fatalf("PPTX replacement_text alias did not reach approval: failure=%q calls=%#v approvals=%#v", result.WorkflowFailure, result.ToolCalls, result.Approvals)
+		t.Fatalf("PPTX replacement_text alias did not reach approval: failure=%q calls=%#v approvals=%#v", result.FailureCode, result.ToolCalls, result.Approvals)
 	}
 	updates := anySlice(result.ToolCalls[0].Arguments["updates"])
 	if len(updates) != 1 {
@@ -679,7 +679,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	}
 	stageContext := dispatch.Profile.StageContext(storedRun.Workflow)
 	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), storedRun, runtime.workflowActorRef(session.ID), &stageContext)
-	if err != nil || len(tools) != 1 || tools[0].Name != "pptx.update_slide" {
+	if err != nil || !exactVisibleToolNames(tools, "pptx.update_slide", "observation.read") {
 		t.Fatalf("single-slide scope exposed the wrong operation: tools=%#v err=%v", visibleToolNames(tools), err)
 	}
 	if !containsString(stageContext.SemanticVariables, "pptx.update_slide.updates") {
@@ -906,7 +906,7 @@ func prepareRealPPTXEditorNode(t *testing.T, request, selectedTool, selectedOper
 	}
 	stageContext := dispatch.Profile.StageContext(run.Workflow)
 	tools, err := runtime.materializeActiveWorkflowTools(context.Background(), run, runtime.workflowActorRef(session.ID), &stageContext)
-	if err != nil || len(tools) != 1 || tools[0].Name != selectedTool {
+	if err != nil || !exactVisibleToolNames(tools, selectedTool, "observation.read") {
 		closeRuntime()
 		t.Fatalf("prepare real PPTX tool: tools=%#v err=%v", visibleToolNames(tools), err)
 	}

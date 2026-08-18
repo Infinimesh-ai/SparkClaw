@@ -5,7 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 func TestNormalizeProducesStableLocatableIDs(t *testing.T) {
@@ -115,7 +118,7 @@ func TestPipelineRejectsAdapterTruncationAndPreservesOriginalOnEdit(t *testing.T
 	if err := os.WriteFile(inputPath, []byte("original"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	metadata := Metadata{Path: inputPath, Relative: "note.docx", Format: "docx", Size: 8}
+	metadata := Metadata{Path: inputPath, Relative: "note.docx", Format: app.DocumentFormatDOCX, Size: 8, SHA256: "stable"}
 	truncated := NewSmallFileStrategy(map[string]Parser{
 		"docx": ParserFunc(func(context.Context, Metadata, int) (AdapterReadResult, error) {
 			return AdapterReadResult{Content: "partial", Truncated: true}, nil
@@ -153,7 +156,7 @@ func TestPipelineRejectsAdapterTruncationAndPreservesOriginalOnEdit(t *testing.T
 		return metadata, nil
 	}), strategy)
 	result, err := pipeline.Edit(context.Background(), EditRequest{
-		Root: root, Path: inputPath, OutputPath: outputPath, Operation: "replace_text",
+		Root: root, Path: inputPath, OutputPath: outputPath, Operation: app.DocumentOperationReplaceText, SourceSHA256: metadata.SHA256,
 		Target: LocatorRequest{Kind: LocatorExactText, Text: "target"},
 	})
 	if err != nil {
@@ -266,7 +269,7 @@ func TestPipelineRejectsEvidenceCategoryChangesAndRemovesOutput(t *testing.T) {
 		return Metadata{Path: path, Relative: filepath.Base(path), Format: "docx", Size: 8, SHA256: "stable"}, nil
 	}), strategy)
 	_, err := pipeline.Edit(context.Background(), EditRequest{
-		Root: root, Path: inputPath, OutputPath: outputPath, Operation: "replace_text",
+		Root: root, Path: inputPath, OutputPath: outputPath, Operation: app.DocumentOperationReplaceText, SourceSHA256: "stable",
 		Target:    LocatorRequest{Kind: LocatorExactText, Text: "target"},
 		Arguments: map[string]any{"replacements": []any{map[string]any{"find": "target", "replace": "updated"}}},
 	})
@@ -275,6 +278,59 @@ func TestPipelineRejectsEvidenceCategoryChangesAndRemovesOutput(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("invalid output was not removed: %v", statErr)
+	}
+}
+
+func TestPipelineEnforcesCanonicalSourceSHA256Contract(t *testing.T) {
+	for _, formatSpec := range app.DocumentFormatOperationSpecs() {
+		formatSpec := formatSpec
+		parser := ParserFunc(func(context.Context, Metadata, int) (AdapterReadResult, error) {
+			return AdapterReadResult{Document: map[string]any{}}, nil
+		})
+		for _, operationSpec := range formatSpec.Operations {
+			operationSpec := operationSpec
+			t.Run(formatSpec.Format+"/"+operationSpec.Name, func(t *testing.T) {
+				metadata := Metadata{
+					Path: "/workspace/input." + formatSpec.Format, Relative: "input." + formatSpec.Format,
+					Format: formatSpec.Format, Size: 1, SHA256: "current-source-sha256",
+				}
+				pipeline := NewPipeline(
+					InspectorFunc(func(context.Context, string, string) (Metadata, error) { return metadata, nil }),
+					NewSmallFileStrategy(map[string]Parser{formatSpec.Format: parser}, nil),
+				)
+				request := EditRequest{
+					Root: "/workspace", Path: metadata.Path, OutputPath: "/workspace/output." + formatSpec.Format,
+					Operation: operationSpec.Name, Target: LocatorRequest{Kind: LocatorExactText, Text: "missing"},
+				}
+
+				if !operationSpec.RequiresSourceSHA256 {
+					_, err := pipeline.Edit(context.Background(), request)
+					var pipelineErr *PipelineError
+					if errors.As(err, &pipelineErr) && pipelineErr.Code == CodeResourceInvalid &&
+						strings.Contains(strings.ToLower(pipelineErr.Detail), "source hash") {
+						t.Fatalf("%s:%s unexpectedly requires a source hash: %v", formatSpec.Format, operationSpec.Name, err)
+					}
+					return
+				}
+
+				for _, test := range []struct {
+					name string
+					hash string
+				}{
+					{name: "missing"},
+					{name: "stale", hash: "stale-source-sha256"},
+				} {
+					t.Run(test.name, func(t *testing.T) {
+						request.SourceSHA256 = test.hash
+						_, err := pipeline.Edit(context.Background(), request)
+						var pipelineErr *PipelineError
+						if !errors.As(err, &pipelineErr) || pipelineErr.Code != CodeResourceInvalid || pipelineErr.Stage != StageConstrain {
+							t.Fatalf("%s:%s accepted %s source hash: %v", formatSpec.Format, operationSpec.Name, test.name, err)
+						}
+					})
+				}
+			})
+		}
 	}
 }
 

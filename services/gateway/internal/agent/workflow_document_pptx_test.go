@@ -686,7 +686,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 		t.Fatalf("PPTX editor stage did not declare its semantic content variable: %#v", stageContext.SemanticVariables)
 	}
 	properties, _ := anyMap(tools[0].InputSchema["properties"])
-	for _, name := range []string{"path", "output_path", "source_document_sha256", "slide_index"} {
+	for _, name := range []string{"path", "output_path", "source_sha256", "slide_index"} {
 		if _, exposed := properties[name]; exposed || slices.Contains(toolDefinitionRequiredArgs(tools[0].InputSchema), name) {
 			t.Fatalf("runtime-owned PPTX argument %s leaked into the model schema: %#v", name, tools[0].InputSchema)
 		}
@@ -705,7 +705,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	registeredProperties, _ := anyMap(registeredUpdateSlide.InputSchema["properties"])
 	registeredUpdates, _ := anyMap(registeredProperties["updates"])
 	registeredUpdateItem, _ := anyMap(registeredUpdates["items"])
-	for _, name := range []string{"path", "output_path", "source_document_sha256", "slide_index"} {
+	for _, name := range []string{"path", "output_path", "source_sha256", "slide_index"} {
 		if _, declared := registeredProperties[name]; !declared || !slices.Contains(toolDefinitionRequiredArgs(registeredUpdateSlide.InputSchema), name) {
 			t.Fatalf("registered PPTX editor lost required Runtime argument %s: %#v", name, registeredUpdateSlide.InputSchema)
 		}
@@ -733,7 +733,7 @@ func TestPPTXRouteApprovalExecuteAndRereadRealFile(t *testing.T) {
 	readRaw, _ := json.Marshal(readCall.Result)
 	if readCall.Result.(map[string]any)["projection_schema"] != pptxBusinessProjectionSchema ||
 		strings.Contains(string(readRaw), "text_structure") || strings.TrimSpace(stringValue(readMetadata["sha256"])) == "" ||
-		editCall.Arguments["source_document_sha256"] != readMetadata["sha256"] {
+		editCall.Arguments["source_sha256"] != readMetadata["sha256"] {
 		t.Fatalf("PPTX edit was not bound to the compact localization projection: read=%s args=%#v", readRaw, editCall.Arguments)
 	}
 	if !strings.Contains(editApproval.Summary, "第 3 页") || !strings.Contains(editApproval.Summary, "deck.pptx") {

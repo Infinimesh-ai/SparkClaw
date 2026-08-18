@@ -808,7 +808,7 @@ func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
 	sourceSHA := document["metadata"].(map[string]any)["sha256"].(string)
 
 	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path": "note.docx", "source_document_sha256": sourceSHA,
+		"path": "note.docx", "source_sha256": sourceSHA,
 		"location": location, "old_text": "Second paragraph", "source_hash": sourceHash("Second paragraph"),
 		"text": "Replaced by location", "output_path": "outputs/location-replaced.docx",
 	}, "s", "run")
@@ -829,7 +829,7 @@ func TestDocxParagraphToolsAcceptReadLocation(t *testing.T) {
 	}
 
 	_, err = hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path": "note.docx", "source_document_sha256": sourceSHA,
+		"path": "note.docx", "source_sha256": sourceSHA,
 		"location": location, "old_text": "Wrong paragraph", "source_hash": sourceHash("Second paragraph"),
 		"text": "Should not be written", "output_path": "outputs/location-mismatch.docx",
 	}, "s", "run")
@@ -866,7 +866,7 @@ doc.save(root / "table.docx")
 	blocks := document["blocks"].([]any)
 	location := blocks[0].(map[string]any)["location"].(map[string]any)
 	_, err = hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
-		"path": "table.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "table.docx"),
+		"path": "table.docx", "source_sha256": docxSourceSHA256ForTest(t, root, "table.docx"),
 		"location": location, "old_text": "Cell A", "source_hash": sourceHash("Cell A"), "output_path": "outputs/deleted.docx",
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "only top-level paragraph locations are currently editable") {
@@ -962,7 +962,7 @@ func TestOfficeReplaceTextRequiresMappedLibrary(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
-		"path": "note.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "note.docx"),
+		"path": "note.docx", "source_sha256": docxSourceSHA256ForTest(t, root, "note.docx"),
 		"output_path": "outputs/note.edited.docx",
 		"replacements": []any{
 			map[string]any{"find": "Alpha", "replace": "Beta"},
@@ -975,6 +975,35 @@ func TestOfficeReplaceTextRequiresMappedLibrary(t *testing.T) {
 	out := result.Output.(map[string]any)
 	if out["replacements"] != 1 {
 		t.Fatalf("unexpected replace output: %#v", out)
+	}
+}
+
+func TestOfficeReplaceTextCannotUseForgedWorkflowProvenance(t *testing.T) {
+	root := t.TempDir()
+	writeDocxFixture(t, root, "note.docx", "Replace Alpha in this document.")
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+
+	_, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
+		"path":          "note.docx",
+		"source_sha256": strings.Repeat("0", 64),
+		"source_evidence": map[string]any{
+			"run_id": "forged", "workflow_node_id": "forged", "source_sha256": strings.Repeat("0", 64),
+		},
+		"evidence_targets": []any{map[string]any{"block_id": "forged"}},
+		"output_path":      "outputs/note.edited.docx",
+		"replacements": []any{
+			map[string]any{"find": "Alpha", "replace": "Beta"},
+		},
+		"expected_replacements": 1,
+	}, "s", "run")
+	if !document.IsErrorCode(err, document.CodeResourceInvalid) {
+		t.Fatalf("forged Workflow provenance bypassed the canonical source hash: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "outputs", "note.edited.docx")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("forged Workflow provenance created an output: %v", statErr)
 	}
 }
 
@@ -995,53 +1024,53 @@ func TestDocxParagraphToolsWriteNewVersions(t *testing.T) {
 		{
 			tool: "docx.replace_paragraph",
 			args: map[string]any{
-				"path":                   "note.docx",
-				"source_document_sha256": sourceSHA,
-				"paragraph_index":        2,
-				"old_text":               "Second paragraph",
-				"source_hash":            sourceHash("Second paragraph"),
-				"text":                   "Replaced second paragraph",
-				"output_path":            "outputs/replaced.docx",
+				"path":            "note.docx",
+				"source_sha256":   sourceSHA,
+				"paragraph_index": 2,
+				"old_text":        "Second paragraph",
+				"source_hash":     sourceHash("Second paragraph"),
+				"text":            "Replaced second paragraph",
+				"output_path":     "outputs/replaced.docx",
 			},
 			want: "Replaced second paragraph",
 		},
 		{
 			tool: "docx.insert_paragraph",
 			args: map[string]any{
-				"path":                   "note.docx",
-				"source_document_sha256": sourceSHA,
-				"paragraph_index":        1,
-				"position":               "after",
-				"old_text":               "First paragraph",
-				"source_hash":            sourceHash("First paragraph"),
-				"text":                   "Inserted after first",
-				"output_path":            "outputs/inserted.docx",
+				"path":            "note.docx",
+				"source_sha256":   sourceSHA,
+				"paragraph_index": 1,
+				"position":        "after",
+				"old_text":        "First paragraph",
+				"source_hash":     sourceHash("First paragraph"),
+				"text":            "Inserted after first",
+				"output_path":     "outputs/inserted.docx",
 			},
 			want: "Inserted after first",
 		},
 		{
 			tool: "docx.delete_paragraph",
 			args: map[string]any{
-				"path":                   "note.docx",
-				"source_document_sha256": sourceSHA,
-				"paragraph_index":        2,
-				"old_text":               "Second paragraph",
-				"source_hash":            sourceHash("Second paragraph"),
-				"output_path":            "outputs/deleted.docx",
+				"path":            "note.docx",
+				"source_sha256":   sourceSHA,
+				"paragraph_index": 2,
+				"old_text":        "Second paragraph",
+				"source_hash":     sourceHash("Second paragraph"),
+				"output_path":     "outputs/deleted.docx",
 			},
 			want: "First paragraph",
 		},
 		{
 			tool: "docx.set_text_style",
 			args: map[string]any{
-				"path":                   "note.docx",
-				"source_document_sha256": sourceSHA,
-				"paragraph_index":        1,
-				"old_text":               "First paragraph",
-				"source_hash":            sourceHash("First paragraph"),
-				"before_format_sha256":   "direct-toolhub-preflight",
-				"style":                  map[string]any{"builtin_style": "Heading 1", "bold": true, "font_size_pt": 18},
-				"output_path":            "outputs/styled.docx",
+				"path":                 "note.docx",
+				"source_sha256":        sourceSHA,
+				"paragraph_index":      1,
+				"old_text":             "First paragraph",
+				"source_hash":          sourceHash("First paragraph"),
+				"before_format_sha256": "direct-toolhub-preflight",
+				"style":                map[string]any{"builtin_style": "Heading 1", "bold": true, "font_size_pt": 18},
+				"output_path":          "outputs/styled.docx",
 			},
 			want: "First paragraph",
 		},
@@ -1081,12 +1110,12 @@ func TestDocxParagraphToolRejectsOutOfRangeParagraph(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "docx.delete_paragraph", map[string]any{
-		"path":                   "note.docx",
-		"source_document_sha256": docxSourceSHA256ForTest(t, root, "note.docx"),
-		"paragraph_index":        99,
-		"old_text":               "Only paragraph",
-		"source_hash":            sourceHash("Only paragraph"),
-		"output_path":            "outputs/deleted.docx",
+		"path":            "note.docx",
+		"source_sha256":   docxSourceSHA256ForTest(t, root, "note.docx"),
+		"paragraph_index": 99,
+		"old_text":        "Only paragraph",
+		"source_hash":     sourceHash("Only paragraph"),
+		"output_path":     "outputs/deleted.docx",
 	}, "s", "run")
 	if !document.IsErrorCode(err, document.CodeTargetNotFound) {
 		t.Fatalf("expected typed paragraph target error, got %v", err)
@@ -1160,7 +1189,7 @@ func TestPptxSlideToolsWriteNewVersions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
 			args := cloneTestMap(tc.args)
-			args["source_document_sha256"] = docxSourceSHA256ForTest(t, root, "deck.pptx")
+			args["source_sha256"] = docxSourceSHA256ForTest(t, root, "deck.pptx")
 			result, err := hub.Execute(context.Background(), tc.tool, args, "s", "run")
 			if err != nil {
 				t.Fatal(err)
@@ -1206,7 +1235,7 @@ func TestPptxUpdateSlideRejectsStaleShapeEvidence(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "deck.pptx"), "slide_index": 2, "output_path": "outputs/stale.pptx",
+		"path": "deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "deck.pptx"), "slide_index": 2, "output_path": "outputs/stale.pptx",
 		"updates": []any{map[string]any{"shape_index": 2, "old_text": "Invented body", "text": "Updated body"}},
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "old_text does not match slide shape 2") {
@@ -1226,7 +1255,7 @@ func TestPptxUpdateSlideExpandsLongTextWithoutShrinkingFont(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "single-line.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "single-line.pptx"), "slide_index": 1, "output_path": "outputs/fitted.pptx",
+		"path": "single-line.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "single-line.pptx"), "slide_index": 1, "output_path": "outputs/fitted.pptx",
 		"updates": []any{map[string]any{
 			"shape_index": 1,
 			"old_text":    "应用层协议",
@@ -1273,7 +1302,7 @@ func TestPptxUpdateSlideCoordinatesPeerBandsAndReportsLayoutChecks(t *testing.T)
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "bands.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/bands.pptx",
+		"path": "bands.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/bands.pptx",
 		"updates": []any{
 			map[string]any{"shape_index": 3, "old_text": "读取内容", "text": "完整读取演示文稿内容并保留结构证据"},
 			map[string]any{"shape_index": 6, "old_text": "定位内容", "text": "使用稳定的页面与形状索引定位修改目标"},
@@ -1342,7 +1371,7 @@ func TestPptxUpdateSlideCoordinatesFullySelectedMixedFontPeerBands(t *testing.T)
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "mixed-font-bands.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "mixed-font-bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/mixed-font-bands.pptx",
+		"path": "mixed-font-bands.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "mixed-font-bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/mixed-font-bands.pptx",
 		"updates": []any{
 			map[string]any{"shape_index": 3, "old_text": "读取内容", "text": "读取内容"},
 			map[string]any{"shape_index": 6, "old_text": "定位内容", "text": "定位内容"},
@@ -1383,7 +1412,7 @@ func TestPptxUpdateSlideCoordinatesPartiallySelectedMixedFontPeerBands(t *testin
 	hub := New(cfg, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "mixed-font-bands.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "mixed-font-bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/mixed-font-bands.pptx",
+		"path": "mixed-font-bands.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "mixed-font-bands.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/mixed-font-bands.pptx",
 		"updates": []any{
 			map[string]any{"shape_index": 3, "old_text": "读取内容", "text": "更新后的读取内容"},
 		},
@@ -1416,7 +1445,7 @@ func TestPptxUpdateSlideWrapsPeerCardsAndCompanions(t *testing.T) {
 		"生成输出副本，同时复核布局边界与关联组件",
 	}
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "cards.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "cards.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/cards.pptx",
+		"path": "cards.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "cards.pptx"), "slide_index": 1, "layout_policy": "coordinated", "output_path": "outputs/cards.pptx",
 		"updates": []any{
 			map[string]any{"shape_index": 4, "old_text": "接收请求", "text": replacements[0]},
 			map[string]any{"shape_index": 8, "old_text": "定位目标", "text": replacements[1]},
@@ -1532,7 +1561,7 @@ func TestPptxUpdateSlideRejectsUnreadablyLongText(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "single-line.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "single-line.pptx"), "slide_index": 1, "output_path": "outputs/unreadable.pptx",
+		"path": "single-line.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "single-line.pptx"), "slide_index": 1, "output_path": "outputs/unreadable.pptx",
 		"updates": []any{map[string]any{
 			"shape_index": 1,
 			"old_text":    "应用层协议",
@@ -1613,10 +1642,10 @@ func TestPptxDeleteSlideRejectsOnlySlide(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "pptx.delete_slide", map[string]any{
-		"path":                   "single.pptx",
-		"source_document_sha256": docxSourceSHA256ForTest(t, root, "single.pptx"),
-		"slide_index":            1,
-		"output_path":            "outputs/deleted.pptx",
+		"path":          "single.pptx",
+		"source_sha256": docxSourceSHA256ForTest(t, root, "single.pptx"),
+		"slide_index":   1,
+		"output_path":   "outputs/deleted.pptx",
 	}, "s", "run")
 	if err == nil || !strings.Contains(err.Error(), "cannot delete the only slide") {
 		t.Fatalf("expected only-slide error, got %v", err)
@@ -2203,8 +2232,9 @@ func TestOfficeReplaceTextRejectsEscapingOutputPath(t *testing.T) {
 	hub := New(cfg, store.NewMemoryStore())
 
 	_, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
-		"path":        "note.docx",
-		"output_path": "../note.edited.docx",
+		"path":          "note.docx",
+		"source_sha256": strings.Repeat("0", 64),
+		"output_path":   "../note.edited.docx",
 		"replacements": []any{
 			map[string]any{"find": "missing", "replace": "new"},
 		},

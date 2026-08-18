@@ -36,7 +36,7 @@ func TestDOCXSetTextStyleRoundTripsEveryRequestedProperty(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			output := filepath.Join("outputs", tc.name+".docx")
 			result, err := hub.Execute(context.Background(), "docx.set_text_style", map[string]any{
-				"path": "style.docx", "paragraph_index": 1, "source_document_sha256": sourceSHA,
+				"path": "style.docx", "paragraph_index": 1, "source_sha256": sourceSHA,
 				"source_hash": sourceHash("Styled paragraph"), "old_text": "Styled paragraph",
 				"before_format_sha256": "direct-toolhub-preflight", "style": tc.style, "output_path": output,
 			}, "session", "run")
@@ -88,7 +88,7 @@ func TestDOCXSetTextStyleRejectsInvalidContractBeforeWriting(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			args := cloneTestMap(tc.args)
-			args["source_document_sha256"] = sourceSHA
+			args["source_sha256"] = sourceSHA
 			args["source_hash"] = sourceHash("Styled paragraph")
 			args["old_text"] = "Styled paragraph"
 			args["before_format_sha256"] = "direct-toolhub-preflight"
@@ -263,7 +263,7 @@ func TestDOCXTextReplacementPreservesRunsRelationshipsAndUnsupportedSiblings(t *
 	t.Run("mixed_format_rejected", func(t *testing.T) {
 		outputRef := "outputs/mixed.docx"
 		_, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
-			"path": "runs.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
+			"path": "runs.docx", "source_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
 			"output_path": outputRef, "expected_replacements": 1,
 			"replacements": []any{map[string]any{"find": "ed for", "replace": " across "}},
 		}, "session", "run")
@@ -305,7 +305,7 @@ func TestDOCXParagraphReplacementPreservesPropertiesAndRejectsMixedRuns(t *testi
 	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
 
 	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path": "runs.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
+		"path": "runs.docx", "source_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
 		"paragraph_index": 5, "old_text": "Whole paragraph", "source_hash": sourceHash("Whole paragraph"),
 		"text": "Rewritten paragraph", "output_path": "outputs/paragraph.docx",
 	}, "session", "run")
@@ -326,7 +326,7 @@ func TestDOCXParagraphReplacementPreservesPropertiesAndRejectsMixedRuns(t *testi
 
 	mixedOutput := "outputs/paragraph-mixed.docx"
 	_, err = hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path": "runs.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
+		"path": "runs.docx", "source_sha256": docxSourceSHA256ForTest(t, root, "runs.docx"),
 		"paragraph_index": 6, "old_text": "Mixed paragraph", "source_hash": sourceHash("Mixed paragraph"),
 		"text": "Must not flatten", "output_path": mixedOutput,
 	}, "session", "run")
@@ -341,7 +341,7 @@ func TestDOCXParagraphReplacementPreservesPropertiesAndRejectsMixedRuns(t *testi
 func executeDOCXTextReplacement(t *testing.T, hub *ToolHub, root, input, output, find, replacement string) map[string]any {
 	t.Helper()
 	result, err := hub.Execute(context.Background(), "office.replace_text", map[string]any{
-		"path": input, "source_document_sha256": docxSourceSHA256ForTest(t, root, input),
+		"path": input, "source_sha256": docxSourceSHA256ForTest(t, root, input),
 		"output_path": output, "expected_replacements": 1,
 		"replacements": []any{map[string]any{"find": find, "replace": replacement}},
 	}, "session", "run")

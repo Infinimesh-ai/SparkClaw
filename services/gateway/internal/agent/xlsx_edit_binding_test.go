@@ -225,7 +225,7 @@ func TestDocumentEditBlocksUnverifiedXLSXPackageFeatureBeforeApproval(t *testing
 	}
 }
 
-func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationBeforeApproval(t *testing.T) {
+func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationThroughPipeline(t *testing.T) {
 	root := t.TempDir()
 	inputRef := "ledger.xlsx"
 	outputRef := "ledger-sparkclaw-edit.xlsx"
@@ -252,11 +252,16 @@ func TestDocumentEditRejectsWorkbookChangedAfterXLSXLocalizationBeforeApproval(t
 		Args:       map[string]any{"path": inputRef, "output_path": outputRef, "sheet": "Data", "cell": "B2", "value": 55},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
-	if approval != nil || call.Status != "blocked" || !strings.Contains(call.Error, "changed after current workflow localization evidence") {
-		t.Fatalf("physically stale XLSX evidence reached approval: call=%#v approval=%#v", call, approval)
+	if approval == nil || call.Status != "approval_pending" {
+		t.Fatalf("evidence-bound XLSX edit did not reach approval: call=%#v approval=%#v", call, approval)
 	}
-	if approvals := st.ListApprovals(""); len(approvals) != 0 {
-		t.Fatalf("physically stale XLSX evidence created an owner approval: %#v", approvals)
+	resolved, err := st.ResolveApproval(approval.ID, "approved", "approve stale-source regression")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executed, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved)
+	if err != nil || executed.Status != "failed_after_approval" || !strings.Contains(strings.ToLower(executed.Error), "stale") {
+		t.Fatalf("Pipeline did not reject the stale XLSX source: call=%#v err=%v", executed, err)
 	}
 	if _, statErr := os.Stat(filepath.Join(root, outputRef)); !os.IsNotExist(statErr) {
 		t.Fatalf("physically stale XLSX evidence left an output: %v", statErr)

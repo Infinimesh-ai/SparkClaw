@@ -17,18 +17,18 @@ type documentFormatCatalogEntry struct {
 }
 
 func toolhubDocumentFormatCatalog() []documentFormatCatalogEntry {
-	return []documentFormatCatalogEntry{
-		{Provider: textDocumentFormatProvider(), Tools: textDocumentToolProviders},
-		{Provider: docxDocumentFormatProvider(), Tools: func() []documentToolProvider {
+	entries := map[string]documentFormatCatalogEntry{
+		app.DocumentFormatText: {Provider: textDocumentFormatProvider(), Tools: textDocumentToolProviders},
+		app.DocumentFormatDOCX: {Provider: docxDocumentFormatProvider(), Tools: func() []documentToolProvider {
 			return formatDocumentToolProviders(docxDocumentFormatProvider(), docxToolDefinitions(), nil)
 		}},
-		{Provider: xlsxDocumentFormatProvider(), Tools: func() []documentToolProvider {
+		app.DocumentFormatXLSX: {Provider: xlsxDocumentFormatProvider(), Tools: func() []documentToolProvider {
 			return formatDocumentToolProviders(xlsxDocumentFormatProvider(), xlsxToolDefinitions(), nil)
 		}},
-		{Provider: pptxDocumentFormatProvider(), Tools: func() []documentToolProvider {
+		app.DocumentFormatPPTX: {Provider: pptxDocumentFormatProvider(), Tools: func() []documentToolProvider {
 			return formatDocumentToolProviders(pptxDocumentFormatProvider(), pptxToolDefinitions(), nil)
 		}},
-		{Provider: pdfDocumentFormatProvider(), Tools: func() []documentToolProvider {
+		app.DocumentFormatPDF: {Provider: pdfDocumentFormatProvider(), Tools: func() []documentToolProvider {
 			return formatDocumentToolProviders(pdfDocumentFormatProvider(), pdfToolDefinitions(), map[string]toolRegistration{
 				"pdf.extract_text": documentReadRegistration(
 					ctxArgsSessionRun((*ToolHub).pdfExtractText), []string{app.DocumentFormatPDF},
@@ -37,6 +37,19 @@ func toolhubDocumentFormatCatalog() []documentFormatCatalogEntry {
 			})
 		}},
 	}
+	catalog := make([]documentFormatCatalogEntry, 0, len(entries))
+	for _, spec := range app.DocumentFormatOperationSpecs() {
+		entry, ok := entries[spec.Format]
+		if !ok {
+			panic(fmt.Sprintf("toolhub: document format catalog entry %q is missing", spec.Format))
+		}
+		catalog = append(catalog, entry)
+		delete(entries, spec.Format)
+	}
+	if len(entries) != 0 {
+		panic("toolhub: document format catalog has entries absent from the canonical operation catalog")
+	}
+	return catalog
 }
 
 func documentFormatProvidersFromCatalog() []documentFormatProvider {
@@ -250,15 +263,8 @@ func officeReplaceTextDefinition() app.ToolDefinition {
 	return app.ToolDefinition{
 		Name:        "office.replace_text",
 		Description: "Replace explicit text pairs in a workspace docx/xlsx/pptx and write a new Office file without overwriting the original.",
-		InputSchema: schema("object", []string{"path", "replacements", "output_path"}, map[string]any{
-			"path": stringSchema(), "output_path": stringSchema(), "source_document_sha256": stringSchema(),
-			"source_sha256": stringSchema(), "source_evidence": objectValueSchema(),
-			"evidence_targets": arraySchema(map[string]any{
-				"type": "object", "required": []string{"find", "occurrences", "source_hash", "location"},
-				"properties": map[string]any{
-					"find": stringSchema(), "occurrences": integerSchema(), "source_hash": stringSchema(), "location": objectValueSchema(),
-				},
-			}),
+		InputSchema: schema("object", []string{"path", app.DocumentSourceSHA256Argument, "replacements", "output_path"}, map[string]any{
+			"path": stringSchema(), "output_path": stringSchema(), app.DocumentSourceSHA256Argument: stringSchema(),
 			"replacements": arraySchema(map[string]any{
 				"type": "object", "required": []string{"find", "replace"},
 				"properties": map[string]any{"find": stringSchema(), "replace": stringSchema()},

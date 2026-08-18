@@ -68,7 +68,7 @@ func TestPPTXRunAwareReplacementAndShapeUpdatePreserveStyles(t *testing.T) {
 	originalStructure := originalBlock["format_metadata"].(map[string]any)["text_structure"].(map[string]any)
 
 	if _, err := hub.Execute(context.Background(), "pptx.replace_text", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/replaced.pptx", "expected_replacements": 1,
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/replaced.pptx", "expected_replacements": 1,
 		"replacements": []any{map[string]any{"find": "Alpha linked", "replace": "Quarterly linked"}},
 	}, "session", "run"); err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestPPTXRunAwareReplacementAndShapeUpdatePreserveStyles(t *testing.T) {
 	assertPPTXRunStylesPreserved(t, originalStructure, pptxTestBlock(t, replaced, 1, 1, 0), "Quarterly linked")
 
 	if _, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/exact-span.pptx", "slide_index": 1, "layout_policy": "preserve",
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/exact-span.pptx", "slide_index": 1, "layout_policy": "preserve",
 		"updates": []any{map[string]any{
 			"shape_index": 1, "old_text": originalBlock["text"], "mode": "exact_span", "find": "Alpha linked", "text": "Quarterly linked",
 		}},
@@ -88,7 +88,7 @@ func TestPPTXRunAwareReplacementAndShapeUpdatePreserveStyles(t *testing.T) {
 	assertPPTXRunStylesPreserved(t, originalStructure, pptxTestBlock(t, updated, 1, 1, 0), "Quarterly linked")
 
 	if _, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/ambiguous-span.pptx", "slide_index": 1, "layout_policy": "preserve",
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/ambiguous-span.pptx", "slide_index": 1, "layout_policy": "preserve",
 		"updates": []any{map[string]any{
 			"shape_index": 1, "old_text": originalBlock["text"], "mode": "exact_span", "find": "a", "text": "x",
 		}},
@@ -108,7 +108,7 @@ func TestPPTXSingleParagraphMultilineDefaultsToSoftBreak(t *testing.T) {
 	soft := pptxTestBlock(t, original, 1, 2, 0)
 
 	if _, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"),
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"),
 		"output_path": "outputs/soft-break.pptx", "slide_index": 1, "layout_policy": "coordinated",
 		"updates": []any{map[string]any{
 			"shape_index": 2, "old_text": soft["text"], "mode": "rewrite_shape",
@@ -134,11 +134,11 @@ func TestPPTXMutationRequiresCurrentSourceSHA256(t *testing.T) {
 		"path": "rich-deck.pptx", "output_path": "outputs/source-bound.pptx", "slide_index": 10,
 		"updates": []any{map[string]any{"shape_index": 1, "old_text": "Late target", "text": "Late revised"}},
 	}
-	if _, err := hub.Execute(context.Background(), "pptx.update_slide", cloneTestMap(base), "session", "run"); err == nil || !strings.Contains(err.Error(), "source_document_sha256") {
+	if _, err := hub.Execute(context.Background(), "pptx.update_slide", cloneTestMap(base), "session", "run"); err == nil || !strings.Contains(err.Error(), "source_sha256") {
 		t.Fatalf("missing PPTX source SHA was not rejected: %v", err)
 	}
 	mismatch := cloneTestMap(base)
-	mismatch["source_document_sha256"] = strings.Repeat("0", 64)
+	mismatch["source_sha256"] = strings.Repeat("0", 64)
 	if _, err := hub.Execute(context.Background(), "pptx.update_slide", mismatch, "session", "run"); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("stale PPTX source SHA was not rejected: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestPPTXWholeDeckUpdateIsAtomicAndBounded(t *testing.T) {
 	late := pptxTestBlock(t, read, 10, 1, 0)
 
 	result, err := hub.Execute(context.Background(), "pptx.update_deck", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/deck-updated.pptx",
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/deck-updated.pptx",
 		"slide_updates": []any{
 			map[string]any{"slide_index": 1, "layout_policy": "preserve", "updates": []any{map[string]any{
 				"shape_index": 1, "old_text": rich["text"], "text": "First revised paragraph\nSecond revised paragraph", "break_mode": "paragraph",
@@ -203,7 +203,7 @@ func TestPPTXWholeDeckUpdateIsAtomicAndBounded(t *testing.T) {
 
 	failedPath := filepath.Join(root, "outputs", "atomic-failure.pptx")
 	_, err = hub.Execute(context.Background(), "pptx.update_deck", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/atomic-failure.pptx",
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/atomic-failure.pptx",
 		"slide_updates": []any{
 			map[string]any{"slide_index": 1, "updates": []any{map[string]any{"shape_index": 1, "old_text": rich["text"], "text": "Temporary"}}},
 			map[string]any{"slide_index": 10, "updates": []any{map[string]any{"shape_index": 1, "old_text": "stale", "text": "Must fail"}}},
@@ -221,7 +221,7 @@ func TestPPTXWholeDeckUpdateIsAtomicAndBounded(t *testing.T) {
 		tooMany[index] = map[string]any{"slide_index": index + 1, "updates": []any{map[string]any{"shape_index": 1, "old_text": "x", "text": "y"}}}
 	}
 	if _, err := hub.Execute(context.Background(), "pptx.update_deck", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/too-many.pptx", "slide_updates": tooMany,
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/too-many.pptx", "slide_updates": tooMany,
 	}, "session", "run"); err == nil || !strings.Contains(err.Error(), "at most 12") {
 		t.Fatalf("whole-deck batch bound was not enforced: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestPPTXMaximumWholeDeckBatchCompletesWithinTimeout(t *testing.T) {
 		})
 	}
 	result, err := hub.Execute(ctx, "pptx.update_deck", map[string]any{
-		"path": "maximum-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "maximum-deck.pptx"), "output_path": "outputs/maximum-updated.pptx", "slide_updates": slideUpdates,
+		"path": "maximum-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "maximum-deck.pptx"), "output_path": "outputs/maximum-updated.pptx", "slide_updates": slideUpdates,
 	}, "session", "run")
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestPPTXTemplateAwareInsertionPreservesRelationshipsAndOrder(t *testing.T) 
 	}
 
 	if _, err := hub.Execute(context.Background(), "pptx.add_slide", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/layout-added.pptx", "after_slide_index": 4,
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/layout-added.pptx", "after_slide_index": 4,
 		"layout_ref": "layout:/ppt/slideLayouts/slideLayout2.xml", "title": "Inserted title", "body": "Inserted body",
 	}, "session", "run"); err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestPPTXTemplateAwareInsertionPreservesRelationshipsAndOrder(t *testing.T) 
 
 	rich := pptxTestBlock(t, read, 1, 1, 0)
 	if _, err := hub.Execute(context.Background(), "pptx.add_slide", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/template-added.pptx", "after_slide_index": 4,
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/template-added.pptx", "after_slide_index": 4,
 		"template_slide_ref": "slide:1", "template_updates": []any{map[string]any{
 			"shape_index": 1, "old_text": rich["text"], "mode": "exact_span", "find": "Alpha linked", "text": "Cloned linked",
 		}},
@@ -319,7 +319,7 @@ func TestPPTXTemplateAwareInsertionPreservesRelationshipsAndOrder(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			args := cloneTestMap(test.args)
 			args["path"] = "rich-deck.pptx"
-			args["source_document_sha256"] = docxSourceSHA256ForTest(t, root, "rich-deck.pptx")
+			args["source_sha256"] = docxSourceSHA256ForTest(t, root, "rich-deck.pptx")
 			args["output_path"] = "outputs/rejected-" + strings.ReplaceAll(test.name, " ", "-") + ".pptx"
 			_, err := hub.Execute(context.Background(), "pptx.add_slide", args, "session", "run")
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -339,7 +339,7 @@ func TestPPTXExpiredDeadlineReturnsStableCodeWithoutOutput(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	_, err := hub.Execute(ctx, "pptx.update_slide", map[string]any{
-		"path": "rich-deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/timed-out.pptx", "slide_index": 10,
+		"path": "rich-deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "rich-deck.pptx"), "output_path": "outputs/timed-out.pptx", "slide_index": 10,
 		"updates": []any{map[string]any{"shape_index": 1, "old_text": "Late target", "text": "Late revised"}},
 	}, "session", "run")
 	if app.ToolErrorCodeFrom(err) != app.ToolErrorDocumentOperationTimeout || !document.IsErrorCode(err, document.CodeOperationTimeout) {

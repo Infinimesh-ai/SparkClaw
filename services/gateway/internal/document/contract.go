@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const (
@@ -367,8 +369,19 @@ func (p *Pipeline) Edit(ctx context.Context, request EditRequest) (EditResult, e
 	if err != nil {
 		return EditResult{}, err
 	}
-	if expected := strings.TrimSpace(request.SourceSHA256); expected != "" && !strings.EqualFold(expected, metadata.SHA256) {
-		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "input document does not match the trusted source hash"}
+	operation, ok := app.DocumentOperationFor(metadata.Format, request.Operation)
+	if !ok {
+		return EditResult{}, &PipelineError{
+			Code: CodeMutationUnsupported, Stage: StageConstrain, Format: metadata.Format,
+			Detail: fmt.Sprintf("operation %q is not registered for this format", request.Operation),
+		}
+	}
+	expectedSourceSHA256 := strings.TrimSpace(request.SourceSHA256)
+	if operation.RequiresSourceSHA256 && expectedSourceSHA256 == "" {
+		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "document edit requires a trusted source hash"}
+	}
+	if expectedSourceSHA256 != "" && !strings.EqualFold(expectedSourceSHA256, metadata.SHA256) {
+		return EditResult{}, &PipelineError{Code: CodeResourceInvalid, Stage: StageConstrain, Format: metadata.Format, Detail: "input document is stale and does not match the trusted source hash"}
 	}
 	formatPolicy, ok := registeredDocumentFormatPolicies.format(metadata.Format)
 	if !ok {

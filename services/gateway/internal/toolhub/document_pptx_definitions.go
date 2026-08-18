@@ -9,39 +9,39 @@ const pptxEditTimeoutMS = 125000
 
 func pptxToolDefinitions() []app.ToolDefinition {
 	return []app.ToolDefinition{
-		pptxToolDefinition("pptx.replace_text", "Replace exact evidence-bound PPTX text spans while preserving paragraph and run formatting, then write a new PPTX file.", []string{"path", "source_document_sha256", "replacements", "output_path"}, map[string]any{
-			"path":                   stringSchema(),
-			"source_document_sha256": stringSchema(),
+		pptxToolDefinition("pptx.replace_text", "Replace exact evidence-bound PPTX text spans while preserving paragraph and run formatting, then write a new PPTX file.", []string{"path", app.DocumentSourceSHA256Argument, "replacements", "output_path"}, map[string]any{
+			"path":                           stringSchema(),
+			app.DocumentSourceSHA256Argument: stringSchema(),
 			"replacements": arraySchema(strictObjectSchema([]string{"find", "replace"}, map[string]any{
 				"find": stringSchema(), "replace": stringSchema(),
 			})),
 			"expected_replacements": integerSchema(),
 			"output_path":           stringSchema(),
 		}),
-		pptxToolDefinition("pptx.add_slide", "Add one PPTX slide from a current-read layout_ref or template_slide_ref at an evidence-bound position, optionally applying template text updates atomically.", []string{"path", "source_document_sha256", "output_path"}, map[string]any{
-			"path":                   stringSchema(),
-			"source_document_sha256": stringSchema(),
-			"layout_ref":             stringSchema(),
-			"template_slide_ref":     stringSchema(),
-			"after_slide_index":      integerSchema(),
-			"title":                  stringSchema(),
-			"body":                   stringSchema(),
-			"template_updates":       arraySchema(pptxTextUpdateSchema()),
-			"output_path":            stringSchema(),
+		pptxToolDefinition("pptx.add_slide", "Add one PPTX slide from a current-read layout_ref or template_slide_ref at an evidence-bound position, optionally applying template text updates atomically.", []string{"path", app.DocumentSourceSHA256Argument, "output_path"}, map[string]any{
+			"path":                           stringSchema(),
+			app.DocumentSourceSHA256Argument: stringSchema(),
+			"layout_ref":                     stringSchema(),
+			"template_slide_ref":             stringSchema(),
+			"after_slide_index":              integerSchema(),
+			"title":                          stringSchema(),
+			"body":                           stringSchema(),
+			"template_updates":               arraySchema(pptxTextUpdateSchema()),
+			"output_path":                    stringSchema(),
 		}),
-		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating one or more selected text shapes from files.read evidence. Replacement text may contain line breaks. Use layout_policy=coordinated so wrapping, text-box height, verified companion backgrounds, and peer rows or cards adapt together; use preserve only when existing geometry already fits. Runtime owns layout changes. Never submit a whole slide as one replacement.", []string{"path", "source_document_sha256", "slide_index", "updates", "output_path"}, map[string]any{
-			"path":                   stringSchema(),
-			"source_document_sha256": stringSchema(),
-			"slide_index":            integerSchema(),
+		pptxToolDefinition("pptx.update_slide", "Improve one existing PPTX slide by updating one or more selected text shapes from files.read evidence. Replacement text may contain line breaks. Use layout_policy=coordinated so wrapping, text-box height, verified companion backgrounds, and peer rows or cards adapt together; use preserve only when existing geometry already fits. Runtime owns layout changes. Never submit a whole slide as one replacement.", []string{"path", app.DocumentSourceSHA256Argument, "slide_index", "updates", "output_path"}, map[string]any{
+			"path":                           stringSchema(),
+			app.DocumentSourceSHA256Argument: stringSchema(),
+			"slide_index":                    integerSchema(),
 			"layout_policy": map[string]any{
 				"type": "string", "enum": []string{"preserve", "coordinated"},
 			},
 			"updates":     arraySchema(pptxTextUpdateSchema()),
 			"output_path": stringSchema(),
 		}),
-		pptxToolDefinition("pptx.update_deck", "Atomically update a bounded whole PPTX deck through current-read slide and shape evidence; partial deck writes are forbidden.", []string{"path", "source_document_sha256", "slide_updates", "output_path"}, map[string]any{
-			"path":                   stringSchema(),
-			"source_document_sha256": stringSchema(),
+		pptxToolDefinition("pptx.update_deck", "Atomically update a bounded whole PPTX deck through current-read slide and shape evidence; partial deck writes are forbidden.", []string{"path", app.DocumentSourceSHA256Argument, "slide_updates", "output_path"}, map[string]any{
+			"path":                           stringSchema(),
+			app.DocumentSourceSHA256Argument: stringSchema(),
 			"slide_updates": map[string]any{
 				"type": "array", "minItems": float64(1), "maxItems": float64(document.PPTXWholeDeckMaxSlides),
 				"items": strictObjectSchema([]string{"slide_index", "updates"}, map[string]any{
@@ -54,17 +54,17 @@ func pptxToolDefinitions() []app.ToolDefinition {
 			},
 			"output_path": stringSchema(),
 		}),
-		pptxToolDefinition("pptx.duplicate_slide", "Duplicate one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "source_document_sha256", "slide_index", "output_path"}, map[string]any{
-			"path":                   stringSchema(),
-			"source_document_sha256": stringSchema(),
-			"slide_index":            integerSchema(),
-			"output_path":            stringSchema(),
+		pptxToolDefinition("pptx.duplicate_slide", "Duplicate one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", app.DocumentSourceSHA256Argument, "slide_index", "output_path"}, map[string]any{
+			"path":                           stringSchema(),
+			app.DocumentSourceSHA256Argument: stringSchema(),
+			"slide_index":                    integerSchema(),
+			"output_path":                    stringSchema(),
 		}),
-		pptxToolDefinition("pptx.delete_slide", "Delete one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", "source_document_sha256", "slide_index", "output_path"}, map[string]any{
-			"path":                   stringSchema(),
-			"source_document_sha256": stringSchema(),
-			"slide_index":            integerSchema(),
-			"output_path":            stringSchema(),
+		pptxToolDefinition("pptx.delete_slide", "Delete one PPTX slide by 1-based slide_index and write a new PPTX file.", []string{"path", app.DocumentSourceSHA256Argument, "slide_index", "output_path"}, map[string]any{
+			"path":                           stringSchema(),
+			app.DocumentSourceSHA256Argument: stringSchema(),
+			"slide_index":                    integerSchema(),
+			"output_path":                    stringSchema(),
 		}),
 	}
 }

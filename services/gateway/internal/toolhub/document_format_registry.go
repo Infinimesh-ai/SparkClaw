@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
@@ -25,7 +27,6 @@ type documentOperationProvider struct {
 	Validate      documentInvocationValidator
 	BuildTargets  documentTargetBuilder
 	Editor        document.Editor
-	SourceSHA256  func(map[string]any) string
 	ProjectResult documentResultProjector
 	WrapError     documentErrorWrapper
 	SuccessStatus string
@@ -69,6 +70,74 @@ func newDocumentProviderRegistry(providers ...documentFormatProvider) documentPr
 		registry.formats[format] = provider
 	}
 	return registry
+}
+
+func newRegisteredDocumentProviderRegistry(providers ...documentFormatProvider) documentProviderRegistry {
+	registry := newDocumentProviderRegistry(providers...)
+	specs := app.DocumentFormatOperationSpecs()
+	canonicalFormats := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		canonicalFormats[spec.Format] = true
+		provider, ok := registry.formats[spec.Format]
+		if !ok {
+			panic(fmt.Sprintf("toolhub: canonical document provider %q is missing", spec.Format))
+		}
+		wantOrder := make([]string, 0, len(spec.Operations))
+		for _, operation := range spec.Operations {
+			wantOrder = append(wantOrder, operation.Name)
+			if _, ok := provider.Operations[operation.Name]; !ok {
+				panic(fmt.Sprintf("toolhub: canonical document operation provider %s:%s is missing", spec.Format, operation.Name))
+			}
+		}
+		if !slices.Equal(provider.OperationOrder, wantOrder) {
+			panic(fmt.Sprintf("toolhub: operation order for %q does not match canonical catalog", spec.Format))
+		}
+		for operation := range provider.Operations {
+			if _, ok := app.DocumentOperationFor(spec.Format, operation); !ok {
+				panic(fmt.Sprintf("toolhub: document operation provider %s:%s is absent from the canonical catalog", spec.Format, operation))
+			}
+		}
+	}
+	for format := range registry.formats {
+		if !canonicalFormats[format] {
+			panic(fmt.Sprintf("toolhub: document provider %q is absent from the canonical catalog", format))
+		}
+	}
+	validateDocumentErrorWrapperAliases(registry, specs)
+	return registry
+}
+
+func validateDocumentErrorWrapperAliases(registry documentProviderRegistry, specs []app.DocumentFormatOperationSpec) {
+	owners := map[string]string{}
+	for _, spec := range specs {
+		provider := registry.formats[spec.Format]
+		for _, operation := range spec.Operations {
+			candidate := provider.Operations[operation.Name]
+			if candidate.WrapError == nil {
+				continue
+			}
+			for _, toolName := range append([]string{candidate.ToolName}, candidate.ToolAliases...) {
+				key := toolName + "\x00" + operation.Name
+				owner := spec.Format + ":" + operation.Name
+				if previous, exists := owners[key]; exists {
+					panic(fmt.Sprintf("toolhub: ambiguous document error wrapper for %s:%s (%s and %s)", toolName, operation.Name, previous, owner))
+				}
+				owners[key] = owner
+			}
+		}
+	}
+}
+
+func canonicalDocumentOperationOrder(format string) []string {
+	operations, ok := app.DocumentOperationsForFormat(format)
+	if !ok {
+		panic(fmt.Sprintf("toolhub: document format %q is absent from the canonical operation catalog", format))
+	}
+	order := make([]string, 0, len(operations))
+	for _, operation := range operations {
+		order = append(order, operation.Name)
+	}
+	return order
 }
 
 func canonicalDocumentKey(value string) string {
@@ -187,12 +256,10 @@ func (h *ToolHub) executeDocumentOperation(ctx context.Context, toolName, reques
 		Path: inputPath, OutputPath: outputPath, Operation: operation,
 		Targets: targets, ExpectedMatches: expectedMatches,
 		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
+		SourceSHA256: strings.TrimSpace(stringArg(args, app.DocumentSourceSHA256Argument, "")),
 	}
 	if len(targets) > 0 {
 		request.Target = targets[0]
-	}
-	if provider.SourceSHA256 != nil {
-		request.SourceSHA256 = strings.TrimSpace(provider.SourceSHA256(args))
 	}
 	result, err := h.editDocumentWorkflow(ctx, request)
 	if err != nil {
@@ -246,10 +313,10 @@ func withDocumentDirectoryBoundary(provider documentOperationProvider, whenToUse
 
 func textDocumentFormatProvider() documentFormatProvider {
 	return documentFormatProvider{
-		Format: "text", Parser: document.ParserFunc(parseTextDocument), ReadToolNames: []string{"files.read"},
-		OperationOrder: []string{"replace_text"},
+		Format: app.DocumentFormatText, Parser: document.ParserFunc(parseTextDocument), ReadToolNames: []string{"files.read"},
+		OperationOrder: canonicalDocumentOperationOrder(app.DocumentFormatText),
 		Operations: map[string]documentOperationProvider{
-			"replace_text": {
+			app.DocumentOperationReplaceText: {
 				ToolName: "text.replace_text", Summary: "Replace bounded text and write a new plain-text output copy.",
 				BuildTargets:  exactTextTargets,
 				Editor:        document.EditorFunc(applyTextReplacement),
@@ -266,7 +333,7 @@ var (
 
 func toolhubDocumentProviderRegistry() documentProviderRegistry {
 	documentProvidersOnce.Do(func() {
-		documentProviders = newDocumentProviderRegistry(documentFormatProvidersFromCatalog()...)
+		documentProviders = newRegisteredDocumentProviderRegistry(documentFormatProvidersFromCatalog()...)
 	})
 	return documentProviders
 }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -10,33 +11,68 @@ import (
 )
 
 func TestAgentDocumentPoliciesRegisterExactOperations(t *testing.T) {
-	expected := map[string][]string{
-		app.DocumentFormatText:  {"replace_text"},
-		app.DocumentFormatDOCX:  {"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style"},
-		app.DocumentFormatXLSX:  {"replace_text", "update_cell", "insert_row", "delete_row", "update_row", "append_row"},
-		app.DocumentFormatPPTX:  {"replace_text", "add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"},
-		app.DocumentFormatPDF:   {"extract_pages", "delete_pages", "rotate_pages", "split"},
-		app.DocumentFormatImage: {},
-	}
 	registry := registeredAgentDocumentFormatPolicies()
-	for format, operations := range expected {
-		policy, ok := registry.format(format)
+	for _, spec := range app.DocumentFormatOperationSpecs() {
+		policy, ok := registry.format(spec.Format)
 		if !ok {
-			t.Fatalf("agent document format policy %q is missing", format)
+			t.Fatalf("agent document format policy %q is missing", spec.Format)
 		}
-		for _, operation := range operations {
-			if _, ok := registry.operation(format, operation); !ok {
-				t.Errorf("agent document operation policy %s:%s is missing", format, operation)
+		expectedOperations := make([]string, 0, len(spec.Operations))
+		for _, operation := range spec.Operations {
+			expectedOperations = append(expectedOperations, operation.Name)
+			if _, ok := registry.operation(spec.Format, operation.Name); !ok {
+				t.Errorf("agent document operation policy %s:%s is missing", spec.Format, operation.Name)
 			}
 		}
 		for operation := range policy.Operations {
-			if !slices.Contains(operations, operation) {
-				t.Errorf("unexpected agent document operation policy %s:%s", format, operation)
+			if !slices.Contains(expectedOperations, operation) {
+				t.Errorf("unexpected agent document operation policy %s:%s", spec.Format, operation)
 			}
 		}
 	}
+	image, ok := registry.format(app.DocumentFormatImage)
+	if !ok || len(image.Operations) != 0 {
+		t.Fatalf("image routing policy is missing or executable: %#v", image)
+	}
 	if _, ok := registry.operation(app.DocumentFormatXLSX, "update_slide"); ok {
 		t.Fatal("cross-format operation lookup unexpectedly succeeded")
+	}
+}
+
+func TestRegisteredAgentDocumentPoliciesRejectCatalogMismatch(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]agentDocumentFormatPolicy)
+		want   string
+	}{
+		{name: "missing operation", mutate: func(policies []agentDocumentFormatPolicy) {
+			delete(policies[0].Operations, app.DocumentOperationReplaceText)
+		}, want: app.DocumentFormatText + ":" + app.DocumentOperationReplaceText},
+		{name: "extra operation", mutate: func(policies []agentDocumentFormatPolicy) {
+			policies[0].Operations["rewrite"] = agentDocumentOperationPolicy{}
+		}, want: app.DocumentFormatText + ":rewrite"},
+		{name: "executable image", mutate: func(policies []agentDocumentFormatPolicy) {
+			policies[len(policies)-1].Operations = map[string]agentDocumentOperationPolicy{"rewrite": {}}
+		}, want: "image routing policy"},
+		{name: "missing format", mutate: func(policies []agentDocumentFormatPolicy) {
+			policies[0].Format = "retired"
+		}, want: `canonical document policy "text" is missing`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policies := agentDocumentFormatPolicies()
+			test.mutate(policies)
+			defer func() {
+				recovered := recover()
+				if recovered == nil {
+					t.Fatal("canonical Agent document policy mismatch did not panic")
+				}
+				if message := fmt.Sprint(recovered); !strings.Contains(message, test.want) {
+					t.Fatalf("canonical Agent document policy panic %q does not identify %q", message, test.want)
+				}
+			}()
+			_ = newRegisteredAgentDocumentFormatPolicyRegistry(policies...)
+		})
 	}
 }
 

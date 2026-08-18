@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 func xlsxEditTarget(operation string, args map[string]any) document.LocatorRequest {
 	sheet := stringArg(args, "sheet", "")
 	switch operation {
-	case "update_cell":
+	case app.DocumentOperationUpdateCell:
 		return document.LocatorRequest{Kind: document.LocatorCell, Sheet: sheet, Cell: stringArg(args, "cell", "")}
-	case "append_row":
+	case app.DocumentOperationAppendRow:
 		return document.LocatorRequest{Kind: document.LocatorSheet, Sheet: sheet}
 	default:
 		return document.LocatorRequest{Kind: document.LocatorRow, Sheet: sheet, Row: intArg(args, "row", 0), AllowMultiple: true}
@@ -26,7 +27,7 @@ func runXlsxStructureAdapter(ctx context.Context, request map[string]any) (map[s
 
 func applyXLSXStructure(ctx context.Context, operation string, request document.ApplyRequest) (document.ApplyResult, error) {
 	args := request.Edit.Arguments
-	canonicalSheet, err := validateXLSXEditEvidence(operation, request.Metadata, request.Document, args)
+	canonicalSheet, err := validateXLSXEditEvidence(operation, request.Document, args)
 	if err != nil {
 		return document.ApplyResult{}, err
 	}
@@ -35,7 +36,7 @@ func applyXLSXStructure(ctx context.Context, operation string, request document.
 		"sheet": canonicalSheet, "cell": strings.ToUpper(strings.TrimSpace(stringArg(args, "cell", ""))), "row": intArg(args, "row", 0),
 		"position": stringArg(args, "position", ""), "value": args["value"], "values": args["values"],
 	}
-	if operation == "append_row" {
+	if operation == app.DocumentOperationAppendRow {
 		appendAfterRow, locateErr := lastStructuredXLSXRow(request.Document, stringArg(args, "sheet", ""))
 		if locateErr != nil {
 			return document.ApplyResult{}, locateErr
@@ -49,27 +50,24 @@ func applyXLSXStructure(ctx context.Context, operation string, request document.
 	return document.ApplyResult{OutputPath: request.Edit.OutputPath, Changed: intArg(out, "changed", 1), Details: out}, nil
 }
 
-func validateXLSXEditEvidence(operation string, metadata document.Metadata, representation document.Representation, args map[string]any) (string, error) {
-	if expected := strings.TrimSpace(stringArg(args, "source_sha256", "")); expected == "" || !strings.EqualFold(expected, metadata.SHA256) {
-		return "", xlsxEvidenceError(representation.Format, "trusted workbook source hash is missing or stale")
-	}
+func validateXLSXEditEvidence(operation string, representation document.Representation, args map[string]any) (string, error) {
 	sheet, ok := xlsxSheetByName(representation, stringArg(args, "sheet", ""))
 	if !ok {
 		return "", xlsxEvidenceError(representation.Format, "trusted worksheet evidence is missing or ambiguous")
 	}
 	name := stringArg(sheet, "name", "")
 	switch operation {
-	case "update_cell":
+	case app.DocumentOperationUpdateCell:
 		cell := strings.ToUpper(strings.TrimSpace(stringArg(args, "cell", "")))
 		if evidence, found := xlsxCellByAddress(sheet, cell); !found || stringArg(args, "source_cell_hash", "") != stringArg(evidence, "source_hash", "") {
 			return "", xlsxEvidenceError(representation.Format, "trusted cell evidence is missing or stale")
 		}
-	case "insert_row", "delete_row", "update_row":
+	case app.DocumentOperationInsertRow, app.DocumentOperationDeleteRow, app.DocumentOperationUpdateRow:
 		row := intArg(args, "row", 0)
 		if evidence, found := xlsxRowByIndex(sheet, row); !found || stringArg(args, "source_row_hash", "") != stringArg(evidence, "source_hash", "") {
 			return "", xlsxEvidenceError(representation.Format, "trusted row evidence is missing or stale")
 		}
-	case "append_row":
+	case app.DocumentOperationAppendRow:
 		if stringArg(args, "source_sheet_hash", "") == "" || stringArg(args, "source_sheet_hash", "") != stringArg(sheet, "source_hash", "") {
 			return "", xlsxEvidenceError(representation.Format, "trusted sheet evidence is missing or stale")
 		}

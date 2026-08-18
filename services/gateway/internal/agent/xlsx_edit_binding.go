@@ -23,8 +23,8 @@ func (r Runtime) bindXLSXEditEvidence(run app.AgentRun, operation string, args m
 	if !ok {
 		return args
 	}
-	if cleanOptionalString(args["source_sha256"]) == "" {
-		args["source_sha256"] = evidence.SourceSHA256
+	if cleanOptionalString(args[app.DocumentSourceSHA256Argument]) == "" {
+		args[app.DocumentSourceSHA256Argument] = evidence.SourceSHA256
 	}
 	if evidence.Sheet != "" {
 		args["sheet"] = evidence.Sheet
@@ -39,13 +39,13 @@ func (r Runtime) bindXLSXEditEvidence(run app.AgentRun, operation string, args m
 	return args
 }
 
-func (r Runtime) validateXLSXEditEvidence(ctx context.Context, run app.AgentRun, operation string, args map[string]any) error {
+func (r Runtime) validateXLSXEditEvidence(_ context.Context, run app.AgentRun, operation string, args map[string]any) error {
 	evidence, ok := r.currentXLSXEditEvidence(run, operation, args)
 	if !ok {
 		return errors.New("XLSX edit target does not match current workflow localization evidence")
 	}
-	if cleanOptionalString(args["source_sha256"]) != evidence.SourceSHA256 {
-		return errors.New("XLSX source_sha256 conflicts with current workflow localization evidence")
+	if cleanOptionalString(args[app.DocumentSourceSHA256Argument]) != evidence.SourceSHA256 {
+		return errors.New("XLSX " + app.DocumentSourceSHA256Argument + " conflicts with current workflow localization evidence")
 	}
 	if field := xlsxTargetHashArgument(operation); field != "" && cleanOptionalString(args[field]) != evidence.TargetHash {
 		return errors.New("XLSX " + field + " conflicts with current workflow localization evidence")
@@ -56,13 +56,6 @@ func (r Runtime) validateXLSXEditEvidence(ctx context.Context, run app.AgentRun,
 		return errors.New("XLSX package preflight could not resolve the evidence-bound workbook")
 	}
 	packagePath := filepath.Join(root, filepath.FromSlash(preflight.InputRef))
-	metadata, err := document.InspectFile(ctx, root, packagePath)
-	if err != nil {
-		return err
-	}
-	if !strings.EqualFold(metadata.SHA256, evidence.SourceSHA256) {
-		return errors.New("XLSX workbook changed after current workflow localization evidence was read")
-	}
 	if _, err := document.ValidateXLSXPackageForOperation(packagePath, operation, args); err != nil {
 		return err
 	}
@@ -81,7 +74,7 @@ func (r Runtime) currentXLSXEditEvidence(run app.AgentRun, operation string, arg
 	if evidence.SourceSHA256 == "" {
 		return xlsxEditEvidence{}, false
 	}
-	if operation == "replace_text" {
+	if operation == app.DocumentOperationReplaceText {
 		return evidence, true
 	}
 	sheet, ok := matchXLSXSheetEvidence(documentAnySliceFromAny(document["sheets"]), cleanOptionalString(args["sheet"]))
@@ -90,20 +83,20 @@ func (r Runtime) currentXLSXEditEvidence(run app.AgentRun, operation string, arg
 	}
 	evidence.Sheet = cleanOptionalString(sheet["name"])
 	switch operation {
-	case "update_cell":
+	case app.DocumentOperationUpdateCell:
 		cell, found := matchXLSXCellEvidence(sheet, cleanOptionalString(args["cell"]))
 		if !found {
 			return xlsxEditEvidence{}, false
 		}
 		evidence.Cell = strings.ToUpper(cleanOptionalString(cell["address"]))
 		evidence.TargetHash = cleanOptionalString(cell["source_hash"])
-	case "insert_row", "delete_row", "update_row":
+	case app.DocumentOperationInsertRow, app.DocumentOperationDeleteRow, app.DocumentOperationUpdateRow:
 		row, found := matchXLSXRowEvidence(sheet, intLikeValue(args["row"]))
 		if !found {
 			return xlsxEditEvidence{}, false
 		}
 		evidence.TargetHash = cleanOptionalString(row["source_hash"])
-	case "append_row":
+	case app.DocumentOperationAppendRow:
 		evidence.TargetHash = cleanOptionalString(sheet["source_hash"])
 	default:
 		return xlsxEditEvidence{}, false
@@ -190,11 +183,11 @@ func matchXLSXCellEvidence(sheet map[string]any, address string) (map[string]any
 
 func xlsxTargetHashArgument(operation string) string {
 	switch operation {
-	case "update_cell":
+	case app.DocumentOperationUpdateCell:
 		return "source_cell_hash"
-	case "insert_row", "delete_row", "update_row":
+	case app.DocumentOperationInsertRow, app.DocumentOperationDeleteRow, app.DocumentOperationUpdateRow:
 		return "source_row_hash"
-	case "append_row":
+	case app.DocumentOperationAppendRow:
 		return "source_sheet_hash"
 	default:
 		return ""

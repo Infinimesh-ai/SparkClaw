@@ -24,9 +24,9 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 	if run.Workflow == nil {
 		return args
 	}
-	if cleanOptionalString(args["source_document_sha256"]) == "" {
+	if cleanOptionalString(args[app.DocumentSourceSHA256Argument]) == "" {
 		if sourceSHA := r.currentPPTXWorkflowSourceSHA256(run, args); sourceSHA != "" {
-			args["source_document_sha256"] = sourceSHA
+			args[app.DocumentSourceSHA256Argument] = sourceSHA
 		}
 	}
 	indexes := decodePPTXSlideIndexes(run.Workflow.Route.Facts[pptxSlideIndexesFact])
@@ -34,14 +34,14 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 		indexes = explicitSlideIndexes(run.Workflow.Route.Slots.Query)
 	}
 	switch operation {
-	case "update_slide":
+	case app.DocumentOperationUpdateSlide:
 		slideIndex := intLikeValue(args["slide_index"])
 		if len(indexes) > 0 {
 			slideIndex = indexes[0]
 			args["slide_index"] = slideIndex
 		}
 		args["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(args["updates"]))
-	case "update_deck":
+	case app.DocumentOperationUpdateDeck:
 		for _, value := range anySlice(args["slide_updates"]) {
 			slideUpdate, ok := anyMap(value)
 			if !ok {
@@ -50,7 +50,7 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 			slideIndex := intLikeValue(slideUpdate["slide_index"])
 			slideUpdate["updates"] = r.bindPPTXUpdates(run, args, slideIndex, anySlice(slideUpdate["updates"]))
 		}
-	case "add_slide":
+	case app.DocumentOperationAddSlide:
 		if len(indexes) > 0 {
 			args["after_slide_index"] = indexes[0]
 		}
@@ -64,7 +64,7 @@ func (r Runtime) bindPPTXEditArguments(run app.AgentRun, operation string, args 
 		if _, err := fmt.Sscanf(strings.TrimSpace(stringValue(args["template_slide_ref"])), "slide:%d", &templateIndex); err == nil && templateIndex > 0 {
 			args["template_updates"] = r.bindPPTXUpdates(run, args, templateIndex, anySlice(args["template_updates"]))
 		}
-	case "duplicate_slide", "delete_slide":
+	case app.DocumentOperationDuplicateSlide, app.DocumentOperationDeleteSlide:
 		if len(indexes) > 0 {
 			args["slide_index"] = indexes[0]
 		}
@@ -95,7 +95,7 @@ func (r Runtime) currentPPTXWorkflowSourceSHA256(run app.AgentRun, args map[stri
 		return ""
 	}
 	metadata, _ := anyMap(document["metadata"])
-	return strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result["source_sha256"])))
+	return strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result[app.DocumentSourceSHA256Argument])))
 }
 
 func (r Runtime) bindPPTXUpdates(run app.AgentRun, args map[string]any, slideIndex int, updates []any) []any {
@@ -177,10 +177,10 @@ func (r Runtime) validatePPTXEditEvidence(run app.AgentRun, operation string, ar
 	if err != nil {
 		return err
 	}
-	if source := strings.TrimSpace(stringValue(args["source_document_sha256"])); source == "" {
-		return fmt.Errorf("pptx.%s requires current source_document_sha256 evidence", operation)
+	if source := strings.TrimSpace(stringValue(args[app.DocumentSourceSHA256Argument])); source == "" {
+		return fmt.Errorf("pptx.%s requires current %s evidence", operation, app.DocumentSourceSHA256Argument)
 	} else if !strings.EqualFold(source, evidence.SourceSHA256) {
-		return fmt.Errorf("pptx.%s source_document_sha256 conflicts with current workflow localization evidence", operation)
+		return fmt.Errorf("pptx.%s %s conflicts with current workflow localization evidence", operation, app.DocumentSourceSHA256Argument)
 	}
 	return validatePPTXEditAgainstEvidence(run, operation, args, evidence)
 }
@@ -191,7 +191,7 @@ func validatePPTXEditAgainstEvidence(run app.AgentRun, operation string, args ma
 	}
 	scope := strings.TrimSpace(run.Workflow.Route.Facts[pptxScopeFact])
 	switch operation {
-	case "replace_text":
+	case app.DocumentOperationReplaceText:
 		if scope != pptxScopeExactText {
 			return errors.New("pptx.replace_text is outside the frozen PPTX scope")
 		}
@@ -222,7 +222,7 @@ func validatePPTXEditAgainstEvidence(run app.AgentRun, operation string, args ma
 				return errors.New("pptx.replace_text target is stale or absent from current workflow evidence")
 			}
 		}
-	case "update_slide":
+	case app.DocumentOperationUpdateSlide:
 		if scope != pptxScopeSingleSlide {
 			return errors.New("pptx.update_slide is outside the frozen PPTX scope")
 		}
@@ -231,7 +231,7 @@ func validatePPTXEditAgainstEvidence(run app.AgentRun, operation string, args ma
 			return errors.New("pptx.update_slide conflicts with the frozen owner slide scope")
 		}
 		return validatePPTXEvidenceUpdates(evidence, slideIndex, anySlice(args["updates"]))
-	case "update_deck":
+	case app.DocumentOperationUpdateDeck:
 		if scope != pptxScopeWholeDeck {
 			return errors.New("pptx.update_deck is outside the frozen PPTX scope")
 		}
@@ -253,7 +253,7 @@ func validatePPTXEditAgainstEvidence(run app.AgentRun, operation string, args ma
 				return err
 			}
 		}
-	case "add_slide":
+	case app.DocumentOperationAddSlide:
 		if scope != pptxScopeStructural {
 			return errors.New("pptx.add_slide is outside the frozen PPTX scope")
 		}
@@ -280,7 +280,7 @@ func validatePPTXEditAgainstEvidence(run app.AgentRun, operation string, args ma
 			}
 			return validatePPTXEvidenceUpdates(evidence, templateIndex, anySlice(args["template_updates"]))
 		}
-	case "duplicate_slide", "delete_slide":
+	case app.DocumentOperationDuplicateSlide, app.DocumentOperationDeleteSlide:
 		if scope != pptxScopeStructural {
 			return fmt.Errorf("pptx.%s is outside the frozen PPTX scope", operation)
 		}
@@ -288,7 +288,7 @@ func validatePPTXEditAgainstEvidence(run app.AgentRun, operation string, args ma
 		if _, ok := evidence.slides[slideIndex]; !ok {
 			return fmt.Errorf("pptx.%s slide_index is stale or absent from current workflow evidence", operation)
 		}
-		if operation == "duplicate_slide" && evidence.notesSlides[slideIndex] {
+		if operation == app.DocumentOperationDuplicateSlide && evidence.notesSlides[slideIndex] {
 			return errors.New("pptx.duplicate_slide cannot clone a slide with speaker notes without loss")
 		}
 	}
@@ -300,7 +300,7 @@ func validatePPTXWorkflowEditBounds(operation string, args map[string]any) error
 	updates := []any{}
 	replacementBytes := 0
 	switch operation {
-	case "replace_text":
+	case app.DocumentOperationReplaceText:
 		replacements := anySlice(args["replacements"])
 		if len(replacements) == 0 {
 			return errors.New("pptx.replace_text requires at least one evidence-bound replacement")
@@ -309,17 +309,17 @@ func validatePPTXWorkflowEditBounds(operation string, args map[string]any) error
 			replacement, _ := anyMap(value)
 			replacementBytes += len([]byte(stringValue(replacement["replace"])))
 		}
-	case "update_slide":
+	case app.DocumentOperationUpdateSlide:
 		slides = 1
 		updates = anySlice(args["updates"])
-	case "update_deck":
+	case app.DocumentOperationUpdateDeck:
 		slideUpdates := anySlice(args["slide_updates"])
 		slides = len(slideUpdates)
 		for _, value := range slideUpdates {
 			slideUpdate, _ := anyMap(value)
 			updates = append(updates, anySlice(slideUpdate["updates"])...)
 		}
-	case "add_slide":
+	case app.DocumentOperationAddSlide:
 		slides = 1
 		updates = anySlice(args["template_updates"])
 		replacementBytes += len([]byte(stringValue(args["title"]))) + len([]byte(stringValue(args["body"])))
@@ -362,7 +362,7 @@ func pptxWorkflowEditEvidenceFromResult(result map[string]any) (pptxWorkflowEdit
 		return pptxWorkflowEditEvidence{}, errors.New("PPTX edit requires a completed structured PPTX read")
 	}
 	metadata, _ := anyMap(document["metadata"])
-	sourceSHA := strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result["source_sha256"])))
+	sourceSHA := strings.TrimSpace(stringValue(firstNonNil(metadata["sha256"], result[app.DocumentSourceSHA256Argument])))
 	if sourceSHA == "" || sourceSHA == "<nil>" {
 		return pptxWorkflowEditEvidence{}, errors.New("PPTX edit requires source SHA-256 evidence")
 	}
@@ -435,7 +435,7 @@ func (r Runtime) revalidateApprovedPPTXMutation(ctx context.Context, call app.To
 	if err != nil {
 		return errors.New("approved PPTX mutation lost its workflow localization evidence")
 	}
-	if source := strings.TrimSpace(stringValue(call.Arguments["source_document_sha256"])); source == "" || !strings.EqualFold(source, initial.SourceSHA256) {
+	if source := strings.TrimSpace(stringValue(call.Arguments[app.DocumentSourceSHA256Argument])); source == "" || !strings.EqualFold(source, initial.SourceSHA256) {
 		return errors.New("approved PPTX mutation source evidence conflicts with its localization read")
 	}
 	if err := validatePPTXEditAgainstEvidence(run, operation, call.Arguments, initial); err != nil {
@@ -452,9 +452,6 @@ func (r Runtime) revalidateApprovedPPTXMutation(ctx context.Context, call app.To
 	fresh, err := pptxWorkflowEditEvidenceFromResult(result)
 	if err != nil {
 		return fmt.Errorf("approved PPTX mutation source reread lacks structured evidence: %w", err)
-	}
-	if !strings.EqualFold(initial.SourceSHA256, fresh.SourceSHA256) {
-		return errors.New("approved PPTX mutation is stale: source document changed while approval was pending")
 	}
 	if err := validatePPTXEditAgainstEvidence(run, operation, call.Arguments, fresh); err != nil {
 		return fmt.Errorf("approved PPTX mutation is stale: %w", err)

@@ -112,7 +112,7 @@ func TestDocumentWorkflowAppliesConstrainedSmallFormatEditsToCopies(t *testing.T
 			args["path"] = test.input
 			args["output_path"] = test.output
 			if test.name == "docx" || test.name == "pptx" {
-				args["source_document_sha256"] = docxSourceSHA256ForTest(t, root, test.input)
+				args["source_sha256"] = docxSourceSHA256ForTest(t, root, test.input)
 			}
 			if test.name == "xlsx" {
 				read := executeDocumentRead(t, hub, test.input)
@@ -164,7 +164,7 @@ func TestDocumentWorkflowUpdatesStablePPTXSlideFromShapeEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := hub.Execute(context.Background(), "pptx.update_slide", map[string]any{
-		"path": "deck.pptx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "deck.pptx"), "slide_index": 2, "output_path": "outputs/deck.pptx",
+		"path": "deck.pptx", "source_sha256": docxSourceSHA256ForTest(t, root, "deck.pptx"), "slide_index": 2, "output_path": "outputs/deck.pptx",
 		"updates": []any{map[string]any{
 			"shape_index": bodyShape["shape_index"], "old_text": bodyShape["text"], "text": "Expanded second body",
 		}},
@@ -218,13 +218,13 @@ func TestDocumentWorkflowReplacesStableDOCXParagraph25(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := hub.Execute(context.Background(), "docx.replace_paragraph", map[string]any{
-		"path":                   "reflection.docx",
-		"location":               location,
-		"old_text":               "Original reflection",
-		"source_document_sha256": docxSourceSHA256ForTest(t, root, "reflection.docx"),
-		"source_hash":            sourceHash("Original reflection"),
-		"text":                   "Improved reflection",
-		"output_path":            "outputs/reflection.docx",
+		"path":          "reflection.docx",
+		"location":      location,
+		"old_text":      "Original reflection",
+		"source_sha256": docxSourceSHA256ForTest(t, root, "reflection.docx"),
+		"source_hash":   sourceHash("Original reflection"),
+		"text":          "Improved reflection",
+		"output_path":   "outputs/reflection.docx",
 	}, "session", "run")
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +259,7 @@ func TestDocumentWorkflowRejectsMissingAmbiguousAndUnsupportedInputs(t *testing.
 	hub := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
 
 	baseArgs := map[string]any{
-		"path": "ambiguous.docx", "source_document_sha256": docxSourceSHA256ForTest(t, root, "ambiguous.docx"),
+		"path": "ambiguous.docx", "source_sha256": docxSourceSHA256ForTest(t, root, "ambiguous.docx"),
 		"replacements": []any{map[string]any{"find": "Repeated target", "replace": "Updated"}},
 	}
 	missing := cloneTestMap(baseArgs)

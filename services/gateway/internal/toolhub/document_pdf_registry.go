@@ -10,14 +10,19 @@ import (
 func pdfDocumentFormatProvider() documentFormatProvider {
 	provider := documentFormatProvider{
 		Format: app.DocumentFormatPDF, ReadToolNames: []string{"pdf.extract_text"},
-		OperationOrder: []string{"extract_pages", "delete_pages", "rotate_pages", "split"},
+		OperationOrder: canonicalDocumentOperationOrder(app.DocumentFormatPDF),
 		Parser: adapterDocumentParser(func(ctx context.Context, request map[string]any) (map[string]any, error) {
 			request["operation"] = "read"
 			return runPDFPython(ctx, request)
 		}),
 		Operations: map[string]documentOperationProvider{},
 	}
-	for _, operation := range []string{"extract_pages", "delete_pages", "rotate_pages", "split"} {
+	for _, operation := range []string{
+		app.DocumentOperationExtractPages,
+		app.DocumentOperationDeletePages,
+		app.DocumentOperationRotatePages,
+		app.DocumentOperationSplit,
+	} {
 		operation := operation
 		provider.Operations[operation] = documentOperationProvider{
 			ToolName: "pdf.transform", Summary: "Apply a bounded PDF transform and write an output copy.",
@@ -26,7 +31,7 @@ func pdfDocumentFormatProvider() documentFormatProvider {
 			},
 			BuildTargets: func(args map[string]any) ([]document.LocatorRequest, int, error) {
 				target := document.LocatorRequest{Kind: document.LocatorDocument}
-				if operation != "split" {
+				if operation != app.DocumentOperationSplit {
 					target = document.LocatorRequest{Kind: document.LocatorPages, PageIndexes: intList(args["pages"]), AllowMultiple: true}
 				}
 				return []document.LocatorRequest{target}, 0, nil

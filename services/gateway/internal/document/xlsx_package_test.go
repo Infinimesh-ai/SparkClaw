@@ -131,8 +131,12 @@ func TestPipelineRemovesXLSXOutputWithUnreportedPackageDelta(t *testing.T) {
 		}),
 	})
 	pipeline := NewPipeline(InspectorFunc(InspectFile), strategy)
-	_, err := pipeline.Edit(context.Background(), EditRequest{
-		Root: root, Path: inputPath, OutputPath: outputPath, Operation: "update_cell",
+	metadata, err := InspectFile(context.Background(), root, inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pipeline.Edit(context.Background(), EditRequest{
+		Root: root, Path: inputPath, OutputPath: outputPath, Operation: app.DocumentOperationUpdateCell, SourceSHA256: metadata.SHA256,
 		Target:    LocatorRequest{Kind: LocatorCell, Sheet: "Data", Cell: "A1"},
 		Arguments: map[string]any{"sheet": "Data", "cell": "A1", "value": "Beta"},
 	})

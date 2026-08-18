@@ -243,7 +243,7 @@ func TestDOCXEditFileStoreEndToEndRereadsAndVerifiesPreservation(t *testing.T) {
 		t.Fatalf("real DOCX mutation did not wait for approval: call=%#v approval=%#v", editCall, editApproval)
 	}
 	if editCall.Arguments["path"] != "report.docx" || editCall.Arguments["output_path"] != "report-sparkclaw-edit.docx" ||
-		cleanOptionalString(editCall.Arguments["source_document_sha256"]) == "" || cleanOptionalString(editCall.Arguments["before_format_sha256"]) == "" {
+		cleanOptionalString(editCall.Arguments["source_sha256"]) == "" || cleanOptionalString(editCall.Arguments["before_format_sha256"]) == "" {
 		t.Fatalf("approval omitted frozen path/version/format evidence: %#v", editCall.Arguments)
 	}
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {

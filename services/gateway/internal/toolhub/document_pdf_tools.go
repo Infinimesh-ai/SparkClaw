@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
@@ -65,7 +66,7 @@ func validatePDFTransformArguments(args map[string]any) error {
 		return errors.New("pdf.transform output_path is required")
 	}
 	switch operation {
-	case "extract_pages", "delete_pages", "rotate_pages":
+	case app.DocumentOperationExtractPages, app.DocumentOperationDeletePages, app.DocumentOperationRotatePages:
 		pages, err := validatedPDFPageIndexes(args["pages"])
 		if err != nil {
 			return err
@@ -73,7 +74,7 @@ func validatePDFTransformArguments(args map[string]any) error {
 		if len(pages) == 0 {
 			return errors.New("pdf.transform pages must not be empty")
 		}
-		if operation == "rotate_pages" {
+		if operation == app.DocumentOperationRotatePages {
 			rotation, ok := integerArgument(args["rotation"])
 			if !ok || !validPDFRotation(rotation) {
 				return errors.New("pdf.transform rotation must be one of -270, -180, -90, 90, 180, or 270")
@@ -81,7 +82,7 @@ func validatePDFTransformArguments(args map[string]any) error {
 		} else if _, supplied := args["rotation"]; supplied {
 			return fmt.Errorf("pdf.transform %s does not accept rotation", operation)
 		}
-	case "split":
+	case app.DocumentOperationSplit:
 		for _, key := range []string{"pages", "rotation", "inputs"} {
 			if _, supplied := args[key]; supplied {
 				return fmt.Errorf("pdf.transform split does not accept %s", key)
@@ -160,7 +161,7 @@ func applyPDFTransform(ctx context.Context, operation string, request document.A
 	}
 	changed := len(request.Matches)
 	outputPaths := []string{request.Edit.OutputPath}
-	if operation == "split" {
+	if operation == app.DocumentOperationSplit {
 		changed = len(request.Document.Pages)
 		outputPaths = outputStringArray(out["outputs"])
 	}

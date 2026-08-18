@@ -90,7 +90,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 	if !exactVisibleToolNames(editTools, "docx.replace_paragraph", "observation.read") {
 		t.Fatalf("materialized the wrong DOCX editor: %#v", editTools)
 	}
-	for _, runtimeBound := range []string{"path", "output_path", "source_document_sha256", "source_evidence", "location", "source_hash", "old_text"} {
+	for _, runtimeBound := range []string{"path", "output_path", "source_sha256", "source_evidence", "location", "source_hash", "old_text"} {
 		if containsString(toolDefinitionRequiredArgs(editTools[0].InputSchema), runtimeBound) ||
 			containsString(toolDefinitionPropertyNames(editTools[0].InputSchema), runtimeBound) {
 			t.Fatalf("model-visible DOCX editor exposes runtime-bound %s: %#v", runtimeBound, editTools[0].InputSchema)
@@ -106,7 +106,7 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 			t.Fatalf("DOCX editor stage did not declare semantic variable %s: %#v", semantic, stageContext.SemanticVariables)
 		}
 	}
-	if !containsString(toolDefinitionRequiredArgs(editorDefinition.InputSchema), "source_document_sha256") {
+	if !containsString(toolDefinitionRequiredArgs(editorDefinition.InputSchema), "source_sha256") {
 		t.Fatalf("registered DOCX editor lost its runtime-validated document hash: %#v", editorDefinition.InputSchema)
 	}
 	storedRun, _ = st.GetRun(storedRun.ID)
@@ -137,12 +137,12 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		Name: "docx.replace_paragraph",
 		Args: map[string]any{
 			"path": inputRef, "output_path": outputRef, "paragraph_index": 25,
-			"source_document_sha256": "sha1:stale-document-evidence", "source_hash": evidence.SourceHash, "text": replacement,
+			"source_sha256": "sha1:stale-document-evidence", "source_hash": evidence.SourceHash, "text": replacement,
 		},
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
 	if conflictingDocumentApproval != nil || conflictingDocumentCall.Status != "blocked" ||
-		!strings.Contains(conflictingDocumentCall.Error, "source_document_sha256 conflicts with current workflow localization evidence") {
+		!strings.Contains(conflictingDocumentCall.Error, "source_sha256 conflicts with current workflow localization evidence") {
 		t.Fatalf("conflicting document hash was not blocked before approval: call=%#v approval=%#v", conflictingDocumentCall, conflictingDocumentApproval)
 	}
 
@@ -165,8 +165,8 @@ func TestDocumentEditBindsCurrentDOCXParagraphEvidenceBeforeApproval(t *testing.
 		t.Fatalf("current localization source_hash was not bound before approval: call=%#v approval=%#v evidence=%#v", editCall.Arguments, editApproval.Arguments, evidence)
 	}
 	boundEvidence, ok := docxReadEvidenceFromResult(readResult)
-	if !ok || editCall.Arguments["source_document_sha256"] != boundEvidence.SourceSHA256 ||
-		editApproval.Arguments["source_document_sha256"] != boundEvidence.SourceSHA256 {
+	if !ok || editCall.Arguments["source_sha256"] != boundEvidence.SourceSHA256 ||
+		editApproval.Arguments["source_sha256"] != boundEvidence.SourceSHA256 {
 		t.Fatalf("runtime did not bind the current DOCX document hash: call=%#v approval=%#v evidence=%#v", editCall.Arguments, editApproval.Arguments, boundEvidence)
 	}
 
@@ -238,7 +238,7 @@ func TestDocumentEditBlocksDOCXParagraphWithoutDependencyEvidence(t *testing.T) 
 		WorkflowID: app.WorkflowDocumentEdit, WorkflowNodeID: "document_edit", ScopeRevision: 1, Capability: app.ToolCapabilityDocumentEdit,
 	})
 	if approval != nil || call.Status != "failed" ||
-		!strings.Contains(call.Error, `requires "source_document_sha256"`) {
+		!strings.Contains(call.Error, `requires "source_sha256"`) {
 		t.Fatalf("DOCX edit without dependency evidence was not blocked before approval: call=%#v approval=%#v", call, approval)
 	}
 	if call.Arguments["path"] != "report.docx" || call.Arguments["output_path"] != "report-sparkclaw-edit.docx" {
@@ -319,7 +319,7 @@ func TestDocumentEditBindsEveryDOCXMutationToCurrentReadEvidence(t *testing.T) {
 			if approval == nil || call.Status != "approval_pending" {
 				t.Fatalf("evidence-bound %s did not enter approval: call=%#v approval=%#v", tc.operation, call, approval)
 			}
-			if cleanOptionalString(call.Arguments["source_document_sha256"]) == "" {
+			if cleanOptionalString(call.Arguments["source_sha256"]) == "" {
 				t.Fatalf("%s lacks current document SHA: %#v", tc.operation, call.Arguments)
 			}
 			source, ok := anyMap(call.Arguments["source_evidence"])

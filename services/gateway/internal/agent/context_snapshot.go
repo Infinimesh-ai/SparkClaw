@@ -514,14 +514,14 @@ func persistedToolMessageHasRuntimeFields(call app.ToolCall, structured map[stri
 	}
 	for _, key := range []string{
 		"path", "rel_path", "output_path", "url", "final_url", "page_id", "snapshot_id",
-		"previous_snapshot_id", "digest", "operation", "source_sha256", "source_document_sha256",
+		"previous_snapshot_id", "digest", "operation", app.DocumentSourceSHA256Argument,
 	} {
 		if usefulStructuredValue(structured[key]) {
 			return true
 		}
 	}
 	if source, ok := anyMap(structured["source"]); ok {
-		for _, key := range []string{"path", "rel_path", "kind", "bytes", "max_bytes", "content_type", "source_sha256"} {
+		for _, key := range []string{"path", "rel_path", "kind", "bytes", "max_bytes", "content_type", app.DocumentSourceSHA256Argument} {
 			if usefulStructuredValue(source[key]) {
 				return true
 			}

@@ -94,7 +94,7 @@ func applyPPTXStructure(ctx context.Context, operation string, request document.
 		return document.ApplyResult{}, err
 	}
 	changed := 1
-	if operation == "update_slide" || operation == "update_deck" {
+	if operation == app.DocumentOperationUpdateSlide || operation == app.DocumentOperationUpdateDeck {
 		changed = intArg(out, "updated_shapes", 1)
 	}
 	return document.ApplyResult{OutputPath: request.Edit.OutputPath, Changed: changed, Details: out}, nil
@@ -119,7 +119,7 @@ func validatePPTXEditArguments(operation string, args map[string]any) error {
 	slides := 0
 	replacementBytes := 0
 	switch operation {
-	case "replace_text":
+	case app.DocumentOperationReplaceText:
 		replacements := pptxArray(args["replacements"])
 		if len(replacements) == 0 {
 			return errors.New("replacements must be a non-empty array")
@@ -131,10 +131,10 @@ func validatePPTXEditArguments(operation string, args map[string]any) error {
 			}
 			replacementBytes += len([]byte(stringArg(replacement, "replace", "")))
 		}
-	case "update_slide":
+	case app.DocumentOperationUpdateSlide:
 		slides = 1
 		updates = pptxArray(args["updates"])
-	case "add_slide":
+	case app.DocumentOperationAddSlide:
 		slides = 1
 		layoutRef := strings.TrimSpace(stringArg(args, "layout_ref", ""))
 		templateRef := strings.TrimSpace(stringArg(args, "template_slide_ref", ""))
@@ -149,7 +149,7 @@ func validatePPTXEditArguments(operation string, args map[string]any) error {
 		}
 		updates = pptxArray(args["template_updates"])
 		replacementBytes += len([]byte(stringArg(args, "title", ""))) + len([]byte(stringArg(args, "body", "")))
-	case "update_deck":
+	case app.DocumentOperationUpdateDeck:
 		slideUpdates := pptxArray(args["slide_updates"])
 		slides = len(slideUpdates)
 		if len(slideUpdates) == 0 || len(slideUpdates) > document.PPTXWholeDeckMaxSlides {

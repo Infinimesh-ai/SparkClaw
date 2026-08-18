@@ -81,6 +81,40 @@ func newAgentDocumentFormatPolicyRegistry(policies ...agentDocumentFormatPolicy)
 	return registry
 }
 
+func newRegisteredAgentDocumentFormatPolicyRegistry(policies ...agentDocumentFormatPolicy) agentDocumentFormatPolicyRegistry {
+	registry := newAgentDocumentFormatPolicyRegistry(policies...)
+	specs := app.DocumentFormatOperationSpecs()
+	canonicalFormats := make(map[string]bool, len(specs)+1)
+	for _, spec := range specs {
+		canonicalFormats[spec.Format] = true
+		policy, ok := registry.formats[spec.Format]
+		if !ok {
+			panic(fmt.Sprintf("agent: canonical document policy %q is missing", spec.Format))
+		}
+		for _, operation := range spec.Operations {
+			if _, ok := policy.Operations[operation.Name]; !ok {
+				panic(fmt.Sprintf("agent: canonical document operation policy %s:%s is missing", spec.Format, operation.Name))
+			}
+		}
+		for operation := range policy.Operations {
+			if _, ok := app.DocumentOperationFor(spec.Format, operation); !ok {
+				panic(fmt.Sprintf("agent: document operation policy %s:%s is absent from the canonical catalog", spec.Format, operation))
+			}
+		}
+	}
+	image, ok := registry.formats[app.DocumentFormatImage]
+	if !ok || len(image.Operations) != 0 {
+		panic("agent: image routing policy must exist without executable document operations")
+	}
+	canonicalFormats[app.DocumentFormatImage] = true
+	for format := range registry.formats {
+		if !canonicalFormats[format] {
+			panic(fmt.Sprintf("agent: document policy %q is absent from the canonical catalog", format))
+		}
+	}
+	return registry
+}
+
 func canonicalAgentDocumentKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
@@ -141,44 +175,66 @@ var (
 
 func registeredAgentDocumentFormatPolicies() agentDocumentFormatPolicyRegistry {
 	agentDocumentPoliciesOnce.Do(func() {
-		agentDocumentPolicies = newAgentDocumentFormatPolicyRegistry(
-			textAgentDocumentPolicy(),
-			docxAgentDocumentPolicy(),
-			xlsxAgentDocumentPolicy(),
-			pptxAgentDocumentPolicy(),
-			pdfAgentDocumentPolicy(),
-			imageAgentDocumentPolicy(),
-		)
+		agentDocumentPolicies = newRegisteredAgentDocumentFormatPolicyRegistry(agentDocumentFormatPolicies()...)
 	})
 	return agentDocumentPolicies
+}
+
+func agentDocumentFormatPolicies() []agentDocumentFormatPolicy {
+	implementations := map[string]agentDocumentFormatPolicy{
+		app.DocumentFormatText: textAgentDocumentPolicy(),
+		app.DocumentFormatDOCX: docxAgentDocumentPolicy(),
+		app.DocumentFormatXLSX: xlsxAgentDocumentPolicy(),
+		app.DocumentFormatPPTX: pptxAgentDocumentPolicy(),
+		app.DocumentFormatPDF:  pdfAgentDocumentPolicy(),
+	}
+	policies := make([]agentDocumentFormatPolicy, 0, len(implementations)+1)
+	for _, spec := range app.DocumentFormatOperationSpecs() {
+		policy, ok := implementations[spec.Format]
+		if !ok {
+			panic(fmt.Sprintf("agent: document policy implementation %q is missing", spec.Format))
+		}
+		policies = append(policies, policy)
+		delete(implementations, spec.Format)
+	}
+	if len(implementations) != 0 {
+		panic("agent: document policy implementation is absent from the canonical catalog")
+	}
+	return append(policies, imageAgentDocumentPolicy())
 }
 
 func textAgentDocumentPolicy() agentDocumentFormatPolicy {
 	return agentDocumentFormatPolicy{
 		Format: app.DocumentFormatText, RouteOperations: []app.RouteOperation{app.RouteOperationEdit},
-		Operations: map[string]agentDocumentOperationPolicy{"replace_text": {}},
+		Operations: map[string]agentDocumentOperationPolicy{app.DocumentOperationReplaceText: {}},
 	}
 }
 
 func docxAgentDocumentPolicy() agentDocumentFormatPolicy {
 	operations := map[string]agentDocumentOperationPolicy{}
-	for _, operation := range []string{"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style"} {
+	for _, operation := range []string{
+		app.DocumentOperationReplaceText,
+		app.DocumentOperationReplaceParagraph,
+		app.DocumentOperationInsertParagraph,
+		app.DocumentOperationDeleteParagraph,
+		app.DocumentOperationSetTextStyle,
+	} {
 		operation := operation
-		runtimeBound := []string{"source_document_sha256", "source_sha256", "source_evidence"}
+		runtimeBound := []string{app.DocumentSourceSHA256Argument, "source_evidence"}
 		switch operation {
-		case "replace_text":
+		case app.DocumentOperationReplaceText:
 			runtimeBound = append(runtimeBound, "evidence_targets")
-		case "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style":
+		case app.DocumentOperationReplaceParagraph, app.DocumentOperationInsertParagraph, app.DocumentOperationDeleteParagraph, app.DocumentOperationSetTextStyle:
 			runtimeBound = append(runtimeBound, "location", "source_hash", "old_text")
 		}
-		if operation == "insert_paragraph" {
+		if operation == app.DocumentOperationInsertParagraph {
 			runtimeBound = append(runtimeBound, "document_boundary")
 		}
-		if operation == "set_text_style" {
+		if operation == app.DocumentOperationSetTextStyle {
 			runtimeBound = append(runtimeBound, "before_format_sha256")
 		}
 		modelRequired := []string{}
-		if operation == "replace_paragraph" || operation == "delete_paragraph" || operation == "set_text_style" {
+		if operation == app.DocumentOperationReplaceParagraph || operation == app.DocumentOperationDeleteParagraph || operation == app.DocumentOperationSetTextStyle {
 			modelRequired = append(modelRequired, "paragraph_index")
 		}
 		operations[operation] = agentDocumentOperationPolicy{
@@ -213,13 +269,13 @@ func materializeDOCXMutationSchemas(definitions []app.ToolDefinition, _ app.Dire
 		properties, ok := anyMap(schema["properties"])
 		if ok {
 			properties = cloneAnyMap(properties)
-			delete(properties, "source_document_sha256")
+			delete(properties, app.DocumentSourceSHA256Argument)
 			schema["properties"] = properties
 		}
 		required := toolDefinitionRequiredArgs(schema)
 		visibleRequired := make([]string, 0, len(required))
 		for _, name := range required {
-			if name != "source_document_sha256" {
+			if name != app.DocumentSourceSHA256Argument {
 				visibleRequired = append(visibleRequired, name)
 			}
 		}
@@ -231,9 +287,16 @@ func materializeDOCXMutationSchemas(definitions []app.ToolDefinition, _ app.Dire
 
 func xlsxAgentDocumentPolicy() agentDocumentFormatPolicy {
 	operations := map[string]agentDocumentOperationPolicy{}
-	for _, operation := range []string{"replace_text", "update_cell", "insert_row", "delete_row", "update_row", "append_row"} {
+	for _, operation := range []string{
+		app.DocumentOperationReplaceText,
+		app.DocumentOperationUpdateCell,
+		app.DocumentOperationInsertRow,
+		app.DocumentOperationDeleteRow,
+		app.DocumentOperationUpdateRow,
+		app.DocumentOperationAppendRow,
+	} {
 		operation := operation
-		runtimeBound := []string{"source_sha256", "source_document_sha256", "source_evidence", "evidence_targets"}
+		runtimeBound := []string{app.DocumentSourceSHA256Argument, "source_evidence", "evidence_targets"}
 		if targetHash := xlsxTargetHashArgument(operation); targetHash != "" {
 			runtimeBound = append(runtimeBound, targetHash)
 		}
@@ -272,10 +335,17 @@ func xlsxAgentDocumentPolicy() agentDocumentFormatPolicy {
 
 func pptxAgentDocumentPolicy() agentDocumentFormatPolicy {
 	operations := map[string]agentDocumentOperationPolicy{}
-	for _, operation := range []string{"replace_text", "add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"} {
+	for _, operation := range []string{
+		app.DocumentOperationReplaceText,
+		app.DocumentOperationAddSlide,
+		app.DocumentOperationUpdateSlide,
+		app.DocumentOperationUpdateDeck,
+		app.DocumentOperationDuplicateSlide,
+		app.DocumentOperationDeleteSlide,
+	} {
 		operation := operation
 		operations[operation] = agentDocumentOperationPolicy{
-			RuntimeBoundArguments: []string{"source_document_sha256"},
+			RuntimeBoundArguments: []string{app.DocumentSourceSHA256Argument},
 			BindArguments: func(runtime Runtime, run app.AgentRun, args map[string]any) map[string]any {
 				return runtime.bindPPTXEditArguments(run, operation, args)
 			},
@@ -345,7 +415,7 @@ func materializePPTXMutationSchemas(definitions []app.ToolDefinition, _ app.Dire
 		properties, ok := anyMap(schema["properties"])
 		if ok {
 			properties = cloneAnyMap(properties)
-			for _, name := range []string{"path", "output_path", "source_document_sha256"} {
+			for _, name := range []string{"path", "output_path", app.DocumentSourceSHA256Argument} {
 				delete(properties, name)
 			}
 			switch projected[index].Name {
@@ -442,7 +512,12 @@ func projectPPTXTextUpdateArraySchema(value any) any {
 
 func pdfAgentDocumentPolicy() agentDocumentFormatPolicy {
 	operations := map[string]agentDocumentOperationPolicy{}
-	for _, operation := range []string{"extract_pages", "delete_pages", "rotate_pages", "split"} {
+	for _, operation := range []string{
+		app.DocumentOperationExtractPages,
+		app.DocumentOperationDeletePages,
+		app.DocumentOperationRotatePages,
+		app.DocumentOperationSplit,
+	} {
 		operations[operation] = agentDocumentOperationPolicy{}
 	}
 	return agentDocumentFormatPolicy{

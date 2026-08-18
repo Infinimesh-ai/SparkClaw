@@ -9,20 +9,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-func validateDOCXSourceEvidence(metadata document.Metadata, args map[string]any) error {
-	expected := strings.TrimSpace(stringArg(args, "source_document_sha256", ""))
-	if expected == "" {
-		return errors.New("DOCX mutation requires source_document_sha256 preflight evidence")
-	}
-	if metadata.Format != app.DocumentFormatDOCX {
-		return errors.New("DOCX mutation source is not a DOCX document")
-	}
-	if metadata.SHA256 == "" || metadata.SHA256 != expected {
-		return errors.New("DOCX mutation source_document_sha256 does not match the current input file")
-	}
-	return nil
-}
-
 func isDOCXDocumentBoundaryPosition(args map[string]any) bool {
 	position := strings.ToLower(strings.TrimSpace(stringArg(args, "position", "")))
 	return position == "start" || position == "end"
@@ -34,7 +20,7 @@ func validateDOCXStructureArguments(operation string, args map[string]any) error
 	if err != nil {
 		return err
 	}
-	if operation == "insert_paragraph" {
+	if operation == app.DocumentOperationInsertParagraph {
 		switch position {
 		case "start", "end":
 			if hasTarget {
@@ -60,7 +46,7 @@ func validateDOCXStructureArguments(operation string, args map[string]any) error
 			return errors.New("docx.insert_paragraph position must be start, end, before, or after")
 		}
 	}
-	if operation == "replace_paragraph" || operation == "delete_paragraph" || operation == "set_text_style" {
+	if operation == app.DocumentOperationReplaceParagraph || operation == app.DocumentOperationDeleteParagraph || operation == app.DocumentOperationSetTextStyle {
 		if !hasTarget {
 			return errors.New("docx paragraph edit requires paragraph_index or location")
 		}
@@ -68,7 +54,7 @@ func validateDOCXStructureArguments(operation string, args map[string]any) error
 	if index > 0 && locationIndex > 0 && index != locationIndex {
 		return errors.New("docx paragraph_index conflicts with location.paragraph_index")
 	}
-	if operation == "set_text_style" {
+	if operation == app.DocumentOperationSetTextStyle {
 		style, ok := args["style"].(map[string]any)
 		if !ok || len(style) == 0 {
 			return errors.New("docx.set_text_style style must contain builtin_style, bold, or font_size_pt")
@@ -115,7 +101,7 @@ func docxArgumentTarget(args map[string]any) (int, int, bool, error) {
 }
 
 func docxEditTarget(operation string, args map[string]any) document.LocatorRequest {
-	if position := stringArg(args, "position", ""); operation == "insert_paragraph" && (position == "start" || position == "end") {
+	if position := stringArg(args, "position", ""); operation == app.DocumentOperationInsertParagraph && (position == "start" || position == "end") {
 		return document.LocatorRequest{Kind: document.LocatorDocument}
 	}
 	if location, ok := args["location"].(map[string]any); ok {

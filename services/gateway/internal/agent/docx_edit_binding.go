@@ -43,20 +43,20 @@ func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, operation string, ar
 	if !ok {
 		return args
 	}
-	if cleanOptionalString(args["source_document_sha256"]) == "" {
-		args["source_document_sha256"] = evidence.SourceSHA256
+	if cleanOptionalString(args[app.DocumentSourceSHA256Argument]) == "" {
+		args[app.DocumentSourceSHA256Argument] = evidence.SourceSHA256
 	}
 	if _, supplied := anyMap(args["source_evidence"]); !supplied {
 		args["source_evidence"] = docxSourceEvidenceBinding(evidence, operation)
 	}
-	if operation == "replace_text" {
+	if operation == app.DocumentOperationReplaceText {
 		if len(documentAnySliceFromAny(args["evidence_targets"])) == 0 {
 			args["evidence_targets"] = docxReplacementEvidence(evidence.Blocks, args)
 		}
 		return args
 	}
 	position := strings.ToLower(cleanOptionalString(args["position"]))
-	if operation == "insert_paragraph" && (position == "start" || position == "end") {
+	if operation == app.DocumentOperationInsertParagraph && (position == "start" || position == "end") {
 		args["document_boundary"] = position
 		return args
 	}
@@ -72,7 +72,7 @@ func (r Runtime) bindDOCXMutationEvidence(run app.AgentRun, operation string, ar
 	if cleanOptionalString(args["old_text"]) == "" {
 		args["old_text"] = paragraph.Text
 	}
-	if operation == "set_text_style" && cleanOptionalString(args["before_format_sha256"]) == "" {
+	if operation == app.DocumentOperationSetTextStyle && cleanOptionalString(args["before_format_sha256"]) == "" {
 		args["before_format_sha256"] = docxParagraphFormatSHA256(evidence.Paragraphs, paragraph)
 	}
 	return args
@@ -87,15 +87,19 @@ func (r Runtime) validateDOCXMutationEvidence(run app.AgentRun, toolName, operat
 }
 
 func validateDOCXMutationAgainstEvidence(toolName, operation string, args map[string]any, evidence docxReadEvidence) error {
-	if source := cleanOptionalString(args["source_document_sha256"]); source == "" {
-		return fmt.Errorf("%s requires current source_document_sha256 evidence", toolName)
+	if source := cleanOptionalString(args[app.DocumentSourceSHA256Argument]); source == "" {
+		return fmt.Errorf("%s requires current %s evidence", toolName, app.DocumentSourceSHA256Argument)
 	} else if source != evidence.SourceSHA256 {
-		return fmt.Errorf("%s source_document_sha256 conflicts with current workflow localization evidence", toolName)
+		return fmt.Errorf("%s %s conflicts with current workflow localization evidence", toolName, app.DocumentSourceSHA256Argument)
 	}
 	if !sameDOCXSourceEvidence(args["source_evidence"], docxSourceEvidenceBinding(evidence, operation)) {
 		return fmt.Errorf("%s source_evidence conflicts with current workflow localization evidence", toolName)
 	}
-	if operation == "replace_text" {
+	return validateDOCXMutationTargetAgainstEvidence(toolName, operation, args, evidence)
+}
+
+func validateDOCXMutationTargetAgainstEvidence(toolName, operation string, args map[string]any, evidence docxReadEvidence) error {
+	if operation == app.DocumentOperationReplaceText {
 		expected := docxReplacementEvidence(evidence.Blocks, args)
 		if len(expected) == 0 || !sameDOCXEvidence(expected, documentAnySliceFromAny(args["evidence_targets"])) {
 			return fmt.Errorf("%s replacement targets conflict with current workflow localization evidence", toolName)
@@ -103,7 +107,7 @@ func validateDOCXMutationAgainstEvidence(toolName, operation string, args map[st
 		return nil
 	}
 	position := strings.ToLower(cleanOptionalString(args["position"]))
-	if operation == "insert_paragraph" && (position == "start" || position == "end") {
+	if operation == app.DocumentOperationInsertParagraph && (position == "start" || position == "end") {
 		if cleanOptionalString(args["document_boundary"]) != position {
 			return fmt.Errorf("%s document boundary conflicts with current workflow localization evidence", toolName)
 		}
@@ -129,10 +133,10 @@ func validateDOCXMutationAgainstEvidence(toolName, operation string, args map[st
 		normalizeDOCXEvidenceText(oldText) != normalizeDOCXEvidenceText(paragraph.Text) {
 		return fmt.Errorf("%s old_text conflicts with current workflow localization evidence", toolName)
 	}
-	if operation == "delete_paragraph" && cleanOptionalString(args["old_text"]) == "" {
+	if operation == app.DocumentOperationDeleteParagraph && cleanOptionalString(args["old_text"]) == "" {
 		return errors.New("docx.delete_paragraph requires current old_text evidence")
 	}
-	if operation == "set_text_style" {
+	if operation == app.DocumentOperationSetTextStyle {
 		style, ok := anyMap(args["style"])
 		if !ok || len(style) == 0 {
 			return errors.New("docx.set_text_style requires builtin_style, bold, or font_size_pt before approval")
@@ -182,7 +186,7 @@ func docxReadEvidenceFromResult(result map[string]any) (docxReadEvidence, bool) 
 		return docxReadEvidence{}, false
 	}
 	metadata, _ := anyMap(document["metadata"])
-	sourceSHA := cleanOptionalString(firstNonNil(metadata["sha256"], result["source_sha256"]))
+	sourceSHA := cleanOptionalString(firstNonNil(metadata["sha256"], result[app.DocumentSourceSHA256Argument]))
 	blocks := documentAnySliceFromAny(document["evidence_blocks"])
 	if len(blocks) == 0 {
 		blocks = documentAnySliceFromAny(document["blocks"])
@@ -405,13 +409,7 @@ func (r Runtime) revalidateApprovedDOCXMutation(ctx context.Context, call app.To
 	if !ok {
 		return errors.New("approved DOCX mutation source reread lacks structured evidence")
 	}
-	fresh.SourceToolCallID = initial.SourceToolCallID
-	fresh.SourceNodeID = initial.SourceNodeID
-	fresh.SourceScopeRevision = initial.SourceScopeRevision
-	fresh.SourceSessionID = initial.SourceSessionID
-	fresh.SourceRunID = initial.SourceRunID
-	fresh.SourcePath = initial.SourcePath
-	if err := validateDOCXMutationAgainstEvidence(call.Tool, operation, call.Arguments, fresh); err != nil {
+	if err := validateDOCXMutationTargetAgainstEvidence(call.Tool, operation, call.Arguments, fresh); err != nil {
 		return fmt.Errorf("approved DOCX mutation is stale: %w", err)
 	}
 	return nil

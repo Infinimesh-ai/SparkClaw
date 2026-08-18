@@ -72,6 +72,35 @@ func newDocumentFormatPolicyRegistry(policies ...documentFormatPolicy) documentF
 	return registry
 }
 
+func newRegisteredDocumentFormatPolicyRegistry(policies ...documentFormatPolicy) documentFormatPolicyRegistry {
+	registry := newDocumentFormatPolicyRegistry(policies...)
+	specs := app.DocumentFormatOperationSpecs()
+	canonicalFormats := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		canonicalFormats[spec.Format] = true
+		policy, ok := registry.formats[spec.Format]
+		if !ok {
+			panic(fmt.Sprintf("document: canonical format policy %q is missing", spec.Format))
+		}
+		for _, operation := range spec.Operations {
+			if _, ok := policy.Operations[operation.Name]; !ok {
+				panic(fmt.Sprintf("document: canonical preservation policy %s:%s is missing", spec.Format, operation.Name))
+			}
+		}
+		for operation := range policy.Operations {
+			if _, ok := app.DocumentOperationFor(spec.Format, operation); !ok {
+				panic(fmt.Sprintf("document: preservation policy %s:%s is absent from the canonical catalog", spec.Format, operation))
+			}
+		}
+	}
+	for format := range registry.formats {
+		if !canonicalFormats[format] {
+			panic(fmt.Sprintf("document: format policy %q is absent from the canonical catalog", format))
+		}
+	}
+	return registry
+}
+
 func canonicalDocumentPolicyKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
@@ -90,36 +119,58 @@ func (r documentFormatPolicyRegistry) operation(format, operation string) (prese
 	return policy, ok
 }
 
-var registeredDocumentFormatPolicies = newDocumentFormatPolicyRegistry(
-	textDocumentPolicy(),
-	docxDocumentPolicy(),
-	xlsxDocumentPolicy(),
-	pptxDocumentPolicy(),
-	pdfDocumentPolicy(),
-)
+var registeredDocumentFormatPolicies = newRegisteredDocumentFormatPolicyRegistry(documentFormatPolicies()...)
+
+func documentFormatPolicies() []documentFormatPolicy {
+	implementations := map[string]documentFormatPolicy{
+		app.DocumentFormatText: textDocumentPolicy(),
+		app.DocumentFormatDOCX: docxDocumentPolicy(),
+		app.DocumentFormatXLSX: xlsxDocumentPolicy(),
+		app.DocumentFormatPPTX: pptxDocumentPolicy(),
+		app.DocumentFormatPDF:  pdfDocumentPolicy(),
+	}
+	policies := make([]documentFormatPolicy, 0, len(implementations))
+	for _, spec := range app.DocumentFormatOperationSpecs() {
+		policy, ok := implementations[spec.Format]
+		if !ok {
+			panic(fmt.Sprintf("document: format policy implementation %q is missing", spec.Format))
+		}
+		policies = append(policies, policy)
+		delete(implementations, spec.Format)
+	}
+	if len(implementations) != 0 {
+		panic("document: format policy implementation is absent from the canonical catalog")
+	}
+	return policies
+}
 
 func textDocumentPolicy() documentFormatPolicy {
 	return documentFormatPolicy{
 		Format: app.DocumentFormatText, NormalizationSource: "plain_text",
 		OutputExtension: func(metadata Metadata) string { return strings.ToLower(filepath.Ext(metadata.Path)) },
 		Operations: map[string]preservationPolicy{
-			"replace_text": replaceTextPreservationPolicy(nil),
+			app.DocumentOperationReplaceText: replaceTextPreservationPolicy(nil),
 		},
 	}
 }
 
 func docxDocumentPolicy() documentFormatPolicy {
 	operations := map[string]preservationPolicy{
-		"replace_text": replaceTextPreservationPolicy(verifyDOCXTextReplacementRuns),
+		app.DocumentOperationReplaceText: replaceTextPreservationPolicy(verifyDOCXTextReplacementRuns),
 	}
-	for _, operation := range []string{"replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style"} {
+	for _, operation := range []string{
+		app.DocumentOperationReplaceParagraph,
+		app.DocumentOperationInsertParagraph,
+		app.DocumentOperationDeleteParagraph,
+		app.DocumentOperationSetTextStyle,
+	} {
 		operation := operation
 		operations[operation] = preservationPolicy{
 			VerifyExpected: func(before, after Representation, edit EditRequest, matches []Match) error {
 				_, err := verifyDOCXExpectedMutation(operation, before, after, edit, matches)
 				return err
 			},
-			CheckUnchangedContent: operation == "replace_paragraph" || operation == "set_text_style",
+			CheckUnchangedContent: operation == app.DocumentOperationReplaceParagraph || operation == app.DocumentOperationSetTextStyle,
 			ChangesEntityIndexes:  docxOperationChangesEntityIndexes(operation),
 		}
 	}
@@ -128,16 +179,22 @@ func docxDocumentPolicy() documentFormatPolicy {
 
 func xlsxDocumentPolicy() documentFormatPolicy {
 	operations := map[string]preservationPolicy{
-		"replace_text": replaceTextPreservationPolicy(nil),
+		app.DocumentOperationReplaceText: replaceTextPreservationPolicy(nil),
 	}
-	for _, operation := range []string{"update_cell", "insert_row", "delete_row", "update_row", "append_row"} {
+	for _, operation := range []string{
+		app.DocumentOperationUpdateCell,
+		app.DocumentOperationInsertRow,
+		app.DocumentOperationDeleteRow,
+		app.DocumentOperationUpdateRow,
+		app.DocumentOperationAppendRow,
+	} {
 		operation := operation
 		policy := preservationPolicy{
 			VerifyExpected: func(before, after Representation, edit EditRequest, _ []Match) error {
 				_, err := verifyXLSXExpectedMutation(operation, before, after, edit)
 				return err
 			},
-			CheckUnchangedContent: operation == "update_cell" || operation == "update_row",
+			CheckUnchangedContent: operation == app.DocumentOperationUpdateCell || operation == app.DocumentOperationUpdateRow,
 			ChangesEntityIndexes:  xlsxOperationChangesEntityIndexes(operation),
 			NormalizeEvidence: func(_, key string, projection map[string]any, edit EditRequest, after bool) {
 				if key == "merged_ranges" && after {
@@ -145,7 +202,7 @@ func xlsxDocumentPolicy() documentFormatPolicy {
 				}
 			},
 		}
-		if operation == "update_row" {
+		if operation == app.DocumentOperationUpdateRow {
 			policy.AllowsBlock = func(edit EditRequest, block Block) bool {
 				allowed, _ := xlsxMutationAllowsBlock(operation, edit, block)
 				return allowed
@@ -194,9 +251,15 @@ func xlsxDocumentPolicy() documentFormatPolicy {
 
 func pptxDocumentPolicy() documentFormatPolicy {
 	operations := map[string]preservationPolicy{
-		"replace_text": replaceTextPreservationPolicy(nil),
+		app.DocumentOperationReplaceText: replaceTextPreservationPolicy(nil),
 	}
-	for _, operation := range []string{"add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"} {
+	for _, operation := range []string{
+		app.DocumentOperationAddSlide,
+		app.DocumentOperationUpdateSlide,
+		app.DocumentOperationUpdateDeck,
+		app.DocumentOperationDuplicateSlide,
+		app.DocumentOperationDeleteSlide,
+	} {
 		operation := operation
 		policy := preservationPolicy{
 			VerifyExpected: func(before, after Representation, edit EditRequest, _ []Match) error {
@@ -205,7 +268,7 @@ func pptxDocumentPolicy() documentFormatPolicy {
 			},
 			ChangesEntityIndexes: pptxOperationChangesEntityIndexes(operation),
 		}
-		if operation == "update_slide" || operation == "update_deck" {
+		if operation == app.DocumentOperationUpdateSlide || operation == app.DocumentOperationUpdateDeck {
 			policy.CheckUnchangedContent = true
 			policy.AllowsBlock = func(edit EditRequest, block Block) bool {
 				allowed, _ := pptxMutationAllowsBlock(operation, edit, block)
@@ -215,7 +278,7 @@ func pptxDocumentPolicy() documentFormatPolicy {
 			policy.VerifyTargetStructure = verifyPPTXRichTextPreservation
 			policy.VerifyLayoutChanges = verifyReportedLayoutChanges
 		}
-		if operation == "add_slide" || operation == "duplicate_slide" || operation == "delete_slide" {
+		if operation == app.DocumentOperationAddSlide || operation == app.DocumentOperationDuplicateSlide || operation == app.DocumentOperationDeleteSlide {
 			policy.AllowsEvidenceDelta = func(before, after []string) bool {
 				allowed, _ := pptxOperationAllowsEvidenceDelta(operation, before, after)
 				return allowed
@@ -223,10 +286,10 @@ func pptxDocumentPolicy() documentFormatPolicy {
 		}
 		operations[operation] = policy
 	}
-	replace := operations["replace_text"]
+	replace := operations[app.DocumentOperationReplaceText]
 	replace.VerifyTargetStructure = verifyPPTXRichTextPreservation
 	replace.AllowsAnnotationText = pptxMutationAllowsAnnotationText
-	operations["replace_text"] = replace
+	operations[app.DocumentOperationReplaceText] = replace
 	return documentFormatPolicy{
 		Format: app.DocumentFormatPPTX, NormalizationSource: "python_pptx",
 		FallbackBlocks: func(documentID string, representation Representation) []Block {
@@ -238,23 +301,28 @@ func pptxDocumentPolicy() documentFormatPolicy {
 
 func pdfDocumentPolicy() documentFormatPolicy {
 	operations := map[string]preservationPolicy{}
-	for _, operation := range []string{"extract_pages", "delete_pages", "rotate_pages", "split"} {
+	for _, operation := range []string{
+		app.DocumentOperationExtractPages,
+		app.DocumentOperationDeletePages,
+		app.DocumentOperationRotatePages,
+		app.DocumentOperationSplit,
+	} {
 		operation := operation
 		policy := preservationPolicy{
 			VerifyExpected: func(before, after Representation, edit EditRequest, _ []Match) error {
 				_, err := verifyPDFExpectedMutation(operation, before, after, edit)
 				return err
 			},
-			CheckUnchangedContent: operation == "rotate_pages",
+			CheckUnchangedContent: operation == app.DocumentOperationRotatePages,
 			ChangesEntityIndexes:  pdfOperationChangesEntityIndexes(operation),
 		}
-		if operation == "extract_pages" || operation == "delete_pages" || operation == "split" {
+		if operation == app.DocumentOperationExtractPages || operation == app.DocumentOperationDeletePages || operation == app.DocumentOperationSplit {
 			policy.AllowsEvidenceDelta = func(before, after []string) bool {
 				allowed, _ := pdfOperationAllowsEvidenceDelta(operation, before, after)
 				return allowed
 			}
 		}
-		if operation == "rotate_pages" {
+		if operation == app.DocumentOperationRotatePages {
 			policy.NormalizeEvidence = func(category, _ string, projection map[string]any, _ EditRequest, _ bool) {
 				if category == "layout" {
 					delete(projection, "rotation")

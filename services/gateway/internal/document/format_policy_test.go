@@ -1,6 +1,7 @@
 package document
 
 import (
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -10,21 +11,16 @@ import (
 )
 
 func TestDocumentFormatPoliciesRegisterLifecycleAndOperations(t *testing.T) {
-	expectedOperations := map[string][]string{
-		app.DocumentFormatText: {"replace_text"},
-		app.DocumentFormatDOCX: {"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "set_text_style"},
-		app.DocumentFormatXLSX: {"replace_text", "update_cell", "insert_row", "delete_row", "update_row", "append_row"},
-		app.DocumentFormatPPTX: {"replace_text", "add_slide", "update_slide", "update_deck", "duplicate_slide", "delete_slide"},
-		app.DocumentFormatPDF:  {"extract_pages", "delete_pages", "rotate_pages", "split"},
-	}
-	for format, operations := range expectedOperations {
-		policy, ok := registeredDocumentFormatPolicies.format(format)
+	for _, spec := range app.DocumentFormatOperationSpecs() {
+		policy, ok := registeredDocumentFormatPolicies.format(spec.Format)
 		if !ok || policy.NormalizationSource == "" {
-			t.Fatalf("format policy %q is missing or incomplete: %#v", format, policy)
+			t.Fatalf("format policy %q is missing or incomplete: %#v", spec.Format, policy)
 		}
-		for _, operation := range operations {
-			if _, ok := registeredDocumentFormatPolicies.operation(format, operation); !ok {
-				t.Errorf("preservation policy %s:%s is not registered", format, operation)
+		expectedOperations := make([]string, 0, len(spec.Operations))
+		for _, operation := range spec.Operations {
+			expectedOperations = append(expectedOperations, operation.Name)
+			if _, ok := registeredDocumentFormatPolicies.operation(spec.Format, operation.Name); !ok {
+				t.Errorf("preservation policy %s:%s is not registered", spec.Format, operation.Name)
 			}
 		}
 		registered := make([]string, 0, len(policy.Operations))
@@ -32,8 +28,8 @@ func TestDocumentFormatPoliciesRegisterLifecycleAndOperations(t *testing.T) {
 			registered = append(registered, operation)
 		}
 		for _, operation := range registered {
-			if !slices.Contains(operations, operation) {
-				t.Errorf("unexpected preservation policy %s:%s", format, operation)
+			if !slices.Contains(expectedOperations, operation) {
+				t.Errorf("unexpected preservation policy %s:%s", spec.Format, operation)
 			}
 		}
 	}
@@ -45,6 +41,40 @@ func TestDocumentFormatPoliciesRegisterLifecycleAndOperations(t *testing.T) {
 	pdf, _ := registeredDocumentFormatPolicies.format(app.DocumentFormatPDF)
 	if pdf.AfterEnrich == nil || pdf.FallbackBlocks == nil {
 		t.Fatalf("PDF lifecycle hooks are incomplete: %#v", pdf)
+	}
+}
+
+func TestRegisteredDocumentFormatPoliciesRejectCatalogMismatch(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]documentFormatPolicy)
+		want   string
+	}{
+		{name: "missing operation", mutate: func(policies []documentFormatPolicy) {
+			delete(policies[0].Operations, app.DocumentOperationReplaceText)
+		}, want: app.DocumentFormatText + ":" + app.DocumentOperationReplaceText},
+		{name: "extra operation", mutate: func(policies []documentFormatPolicy) {
+			policies[0].Operations["rewrite"] = preservationPolicy{}
+		}, want: app.DocumentFormatText + ":rewrite"},
+		{name: "missing format", mutate: func(policies []documentFormatPolicy) {
+			policies[0].Format = "retired"
+		}, want: `canonical format policy "text" is missing`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policies := documentFormatPolicies()
+			test.mutate(policies)
+			defer func() {
+				recovered := recover()
+				if recovered == nil {
+					t.Fatal("canonical document policy mismatch did not panic")
+				}
+				if message := fmt.Sprint(recovered); !strings.Contains(message, test.want) {
+					t.Fatalf("canonical document policy panic %q does not identify %q", message, test.want)
+				}
+			}()
+			_ = newRegisteredDocumentFormatPolicyRegistry(policies...)
+		})
 	}
 }
 

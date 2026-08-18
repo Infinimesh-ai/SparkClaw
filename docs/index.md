@@ -42,6 +42,7 @@ documentation tree.
 | [Model loading](model-loading.md) | Single-machine and multi-machine model-loading strategy and validation status |
 | [Issue #15 deployment startup reliability](issue-15-deployment-reliability-design.md) | Implemented state-backend, model reconciliation, configurable WebChat port, self-contained readiness, and finite systemd startup contract |
 | [Issue #16 tool-policy approval](issue-16-external-media-approval-design.md) | Implemented ToolDefinition/Policy boundary for external-MCP-AI workspace access without treating the local model as an external principal |
+| [Issue #18 document operation contract](issue-18-document-operation-contract-design.md) | Implemented canonical format-operation catalog, source-hash contract, and runtime-only provenance boundary |
 | [Model baseline](../benchmarks/model_baseline.md) | Measured model endpoint evidence and operating limits |
 | [Engineering baseline](engineering-baseline.md) | Non-negotiable implementation rules |
 | [Refactoring playbook](refactor-playbook.md) | Periodic architecture review procedure |

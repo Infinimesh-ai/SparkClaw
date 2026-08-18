@@ -154,6 +154,25 @@ they do not share implementation types or form a cross-package registry. The
 common Workflow, Policy/Approval, inspection, output-copy, cleanup, and audit
 paths remain format-neutral.
 
+The ordered executable format/operation matrix is defined once by
+`internal/app.DocumentFormatOperationSpecs`. ToolHub, `document`, and Agent
+retain their own behavior registries, but each registry must exactly join that
+catalog during construction and rejects a missing format, missing operation,
+extra implementation, duplicate key, or ordering drift with the offending key.
+The catalog contains text, DOCX, XLSX, PPTX, and PDF operations only; Agent's
+non-executable image routing policy remains outside it.
+
+Office mutation schemas use one public whole-source argument,
+`source_sha256`, required for every DOCX, XLSX, and PPTX edit. Agent binds it
+from the current Workflow localization observation and keeps
+`source_evidence` and `evidence_targets` as Runtime-only provenance. Those
+fields are not ToolHub schema inputs and a direct caller cannot use them to
+gain authority. `document.Pipeline.Edit` is the sole owner of comparing the
+bound whole-source hash with freshly inspected metadata; format providers keep
+only target-level evidence checks. The Pipeline's later reinspection remains a
+separate within-call time-of-check/time-of-use guard. Text edits and PDF
+transforms do not require a source hash.
+
 ToolHub's registered schema remains the execution authority, while each model
 stage receives a derived schema projection. Runtime removes frozen bindings and
 provable operation-specific fields from that projection, records the remaining

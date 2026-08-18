@@ -278,6 +278,28 @@ without content or run identifiers as labels.
 | PPTX | `replace_text`, `add_slide`, `update_slide`, `update_deck`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
 
+This order and membership come from the canonical `internal/app` document
+operation catalog. ToolHub execution providers, `document` preservation
+policies, and Agent orchestration policies must cover it exactly and fail at
+construction when a pair is missing or extra.
+
+Every DOCX, XLSX, and PPTX mutation requires the same public
+`source_sha256` argument. Agent derives it from the single completed
+localization read and validates it against that persisted observation before
+approval. Agent-only `source_evidence` and `evidence_targets` bind Workflow
+provenance and never appear in a ToolHub input schema. The shared
+`document.Pipeline.Edit` compares `source_sha256` with freshly inspected source
+metadata before reading or applying an edit; target-level hashes remain
+format-specific, and the later Pipeline reinspection protects against a source
+change during that call. Text replacement and PDF transforms do not require
+the source hash.
+
+The retired `source_document_sha256` spelling has no decoder. An unexpected
+non-terminal edit using it fails the new contract without mutation. Completed
+messages, runs, approvals, ToolCalls, audit records, document records,
+artifacts, source files, and output files remain historical data and are not
+rewritten or deleted.
+
 ### XLSX Edit Boundaries
 
 - `replace_text` requires explicit old/new text and changes matching text-valued
@@ -297,8 +319,9 @@ without content or run identifiers as labels.
 Every XLSX edit is bound before Policy and Approval to the current run's single
 completed localization read. Runtime owns `source_sha256` plus the applicable
 `source_cell_hash`, `source_row_hash`, or `source_sheet_hash`, canonicalizes the
-sheet name and A1 address, and rejects conflicting or physically stale evidence
-without creating an approval.
+sheet name and A1 address, and rejects arguments that conflict with persisted
+Workflow provenance. The shared Pipeline, rather than this format binding,
+rejects a physically stale workbook before mutation.
 
 XLSX mutation is also package-gated. The OOXML inspector verifies content types,
 relationships, package parts, feature classes, and opaque hashes before an edit.

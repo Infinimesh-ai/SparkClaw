@@ -214,6 +214,21 @@ hit 复用其 provenance，不创建虚假调用。Audit/trace metadata 不包�
 | PPTX | `replace_text`, `add_slide`, `update_slide`, `update_deck`, `duplicate_slide`, `delete_slide` |
 | PDF | `extract_pages`, `delete_pages`, `rotate_pages`, `split` |
 
+该顺序与成员由 `internal/app` 的规范文档 operation 目录统一提供。ToolHub execution
+provider、`document` preservation policy 与 Agent orchestration policy 必须精确覆盖目录；
+任一 pair 缺失或多出都会在构造期失败。
+
+每个 DOCX、XLSX、PPTX mutation 都要求同一个公共参数 `source_sha256`。Agent 从唯一一次
+已完成定位读取中派生该参数，并在 approval 前对照持久化 observation 校验。仅供 Agent 使用的
+`source_evidence` 与 `evidence_targets` 绑定 Workflow provenance，不会出现在 ToolHub input
+schema。共享 `document.Pipeline.Edit` 会在读取或应用 edit 前，把 `source_sha256` 与最新检查
+得到的 source metadata 比较；目标级 hash 继续由各格式负责，Pipeline 随后的再次 inspection
+用于防止同一次调用期间源文件发生变化。text replacement 与 PDF transform 不要求源 hash。
+
+已废弃的 `source_document_sha256` 拼写没有 decoder。意外出现的未终态旧 edit 会按新契约失败，
+不会执行 mutation。已完成的 message、run、approval、ToolCall、audit record、document
+record、artifact、源文件和输出文件继续作为历史数据保留，不会被重写或删除。
+
 ### XLSX 编辑边界
 
 - `replace_text` 要求明确 old/new 文本，并修改匹配的文本值 cell；已定位 cell/row 或非文本
@@ -227,8 +242,8 @@ hit 复用其 provenance，不创建虚假调用。Audit/trace metadata 不包�
 
 每次 XLSX 编辑都会在 Policy 与 Approval 前绑定到当前 run 唯一已完成的定位读取。Runtime
 拥有 `source_sha256` 以及适用的 `source_cell_hash`、`source_row_hash` 或
-`source_sheet_hash`，规范化 sheet 名和 A1 地址，并在不创建 approval 的情况下拒绝冲突或物理
-过期证据。
+`source_sheet_hash`，规范化 sheet 名和 A1 地址，并拒绝与持久化 Workflow provenance 冲突的
+参数。物理过期的工作簿由共享 Pipeline 在 mutation 前拒绝，而不是由该格式 binding 比较。
 
 XLSX 修改还受 package gate 约束。OOXML inspector 会在编辑前校验 content type、relationship、
 package part、feature class 和 opaque hash。table、chart、conditional formatting、data

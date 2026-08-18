@@ -127,6 +127,21 @@ directory scope、decision evidence、argument binding、schema materialization 
 也不形成跨 package mega-registry。公共 Workflow、Policy/Approval、inspection、output-copy、
 cleanup 和 audit 路径继续保持格式无关。
 
+有序、可执行的 format/operation 矩阵只在
+`internal/app.DocumentFormatOperationSpecs` 定义一次。ToolHub、`document` 和 Agent
+仍各自持有行为 registry，但每套 registry 在构造时都必须与该目录精确连接；缺少格式、缺少
+operation、存在额外实现、重复 key 或顺序漂移时，会带具体错误 key 直接拒绝。目录只包含
+text、DOCX、XLSX、PPTX 与 PDF operation；Agent 中不可执行的 image 路由 policy 不属于该
+目录。
+
+Office mutation schema 统一使用公共整文件参数 `source_sha256`，且每个 DOCX、XLSX、PPTX
+edit 都必须提供。Agent 从当前 Workflow 定位 observation 绑定该参数，并把
+`source_evidence` 与 `evidence_targets` 保持为仅 Runtime 使用的 provenance；它们不是
+ToolHub schema 输入，直接调用方不能借此获得额外权限。只有 `document.Pipeline.Edit` 会把
+绑定的整文件 hash 与最新 inspection metadata 比较；format provider 只保留目标级 evidence
+校验。Pipeline 随后的再次 inspection 是同一次调用内独立的 TOCTOU 防护。text edit 与 PDF
+transform 不要求源 hash。
+
 ToolHub 注册 schema 继续作为执行权威，每个模型 stage 只接收派生的 schema 投影。Runtime
 从该投影移除冻结 binding 与可证明的 operation 专属字段，把剩余模型可见参数记录为
 `semantic_variables`，然后在 ToolHub 校验与 Policy 前回绑选中 capability qualifier、path、

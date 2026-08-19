@@ -42,6 +42,7 @@ import type {
   ToolCall
 } from "./types";
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
+import { clientTimezone } from "../lib/timezone";
 
 const API_BASE = import.meta.env.VITE_SPARKCLAW_API_BASE ?? "";
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
@@ -114,11 +115,20 @@ type SendMessageStreamHandlers = {
   onError?: (error: Error) => void;
 };
 
-export function messageStreamRequestBody(content: string, attachments: MessageAttachment[], targetEndpointId = "") {
+export function messageStreamRequestBody(content: string, attachments: MessageAttachment[], targetEndpointId = "", timezone = "") {
   return {
     content,
     attachments,
-    ...(targetEndpointId ? { target_endpoint_id: targetEndpointId } : {})
+    ...(targetEndpointId ? { target_endpoint_id: targetEndpointId } : {}),
+    ...(timezone ? { client_timezone: timezone } : {})
+  };
+}
+
+export function scheduleActionRequestBody(content: string, action: ScheduleAction, timezone = "") {
+  return {
+    content,
+    schedule_action: action,
+    ...(timezone ? { client_timezone: timezone } : {})
   };
 }
 
@@ -370,7 +380,7 @@ export const api = {
   scheduleAction: (sessionId: string, content: string, action: ScheduleAction) =>
     request<AgentResult>(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content, schedule_action: action })
+      body: JSON.stringify(scheduleActionRequestBody(content, action, clientTimezone()))
     }),
   updateToolPolicy: (deny: string[], approvalRequired: string[]) =>
     request<PublicConfig["tool_policy"]>("/api/tool-policy", {
@@ -396,7 +406,7 @@ export const api = {
       `/api/sessions/${sessionId}/messages/stream`,
       {
         method: "POST",
-        body: JSON.stringify(messageStreamRequestBody(content, attachments, handlers.targetEndpointId)),
+        body: JSON.stringify(messageStreamRequestBody(content, attachments, handlers.targetEndpointId, clientTimezone())),
         signal: handlers.signal
       },
       (event, rawData) => {

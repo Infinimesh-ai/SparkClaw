@@ -1,7 +1,8 @@
 import type { Schedule } from "../api/types";
 import type { Language } from "../i18n";
+import { clientTimezone } from "./timezone";
 
-export function formatScheduleTime(schedule: Schedule, language: Language) {
+export function formatScheduleTime(schedule: Schedule, language: Language, timezone = clientTimezone()) {
   const date = new Date(schedule.due_time);
   if (Number.isNaN(date.getTime())) return schedule.due_time;
   try {
@@ -12,7 +13,7 @@ export function formatScheduleTime(schedule: Schedule, language: Language) {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-      timeZone: schedule.timezone || undefined
+      ...(timezone ? { timeZone: timezone } : {})
     }).format(date);
   } catch {
     return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", {

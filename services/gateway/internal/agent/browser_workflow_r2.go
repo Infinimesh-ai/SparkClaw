@@ -454,7 +454,7 @@ func browserRevision2DirectArguments(state *app.WorkflowState) map[string]any {
 				state.Browser.Result.Target.CanonicalURL != "" {
 				expectedURL = state.Browser.Result.Target.CanonicalURL
 			}
-			if expectedURL != "" {
+			if expectedURL != "" && stage != browserStageSettleAfterAction {
 				args["expected_url"] = expectedURL
 			}
 			if state.Browser.Target.TargetKind != "" {

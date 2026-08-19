@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, Clock3, Pencil, RefreshCw, Trash2, X } from
 import type { Schedule } from "../api/types";
 import type { Copy, Language } from "../i18n";
 import { formatScheduleTime, schedulePattern } from "../lib/schedules";
+import { clientTimezone } from "../lib/timezone";
 
 export type ScheduleEditDraft = {
   text: string;
@@ -37,10 +38,11 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
   };
 
   const beginEdit = (schedule: Schedule) => {
+    const timezone = clientTimezone();
     setDraft({
       text: schedule.text,
-      dueTime: scheduleLocalDateTime(schedule),
-      timezone: schedule.timezone,
+      dueTime: scheduleLocalDateTime(schedule, timezone),
+      timezone: timezone || schedule.timezone,
       recurrence: schedule.recurrence || "none"
     });
     setEditing(schedule);
@@ -199,17 +201,18 @@ function scheduleEndpointLabel(schedule: Schedule, text: Copy) {
   return endpoint.status === "active" ? label : `${label} · ${text.schedules.endpointUnavailable}`;
 }
 
-function scheduleLocalDateTime(schedule: Schedule) {
+function scheduleLocalDateTime(schedule: Schedule, timezone: string) {
   const date = new Date(schedule.due_time);
   if (Number.isNaN(date.getTime())) return "";
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: schedule.timezone || undefined,
+      ...(timezone ? { timeZone: timezone } : {}),
       year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
     }).formatToParts(date);
     const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${value.year}-${value.month}-${value.day}T${value.hour}:${value.minute}`;
   } catch {
-    return date.toISOString().slice(0, 16);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 }

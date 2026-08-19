@@ -76,7 +76,14 @@ func queryHasFreshnessIntent(query, date string) bool {
 }
 
 func currentSearchDate() string {
-	return time.Now().Local().Format("2006-01-02")
+	return currentSearchDateForTimezone(time.Now(), "")
+}
+
+func currentSearchDateForTimezone(now time.Time, timezone string) string {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return now.In(clientTimeLocation(timezone)).Format("2006-01-02")
 }
 
 func containsCJK(value string) bool {

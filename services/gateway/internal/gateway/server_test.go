@@ -947,7 +947,7 @@ func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
 	attachment := agent.MessageAttachment{ArtifactID: "artifact-file", Name: "report.txt", RelPath: "uploads/report.txt", ContentType: "text/plain", Bytes: 12}
 	response := postJSON(t, ts.URL+"/api/sessions/"+session.ID+"/messages/stream", map[string]any{
 		"content": "Summarize the attached report", "attachments": []agent.MessageAttachment{attachment},
-		"target_endpoint_id": chat.ID,
+		"target_endpoint_id": chat.ID, "client_timezone": "America/New_York",
 	})
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("selected-target stream returned %d: %s", response.StatusCode, readResponse(t, response))
@@ -959,8 +959,21 @@ func TestMessageStreamFreezesSelectedTargetWithoutChangingInput(t *testing.T) {
 		t.Fatalf("target selection changed the message input: %#v", got)
 	}
 	if got.ingress.Source.Kind != app.MessageSourceWeb || got.ingress.Source.EndpointID != messagecontrol.WebEndpointID(session.ID) ||
-		got.ingress.ReturnRoute.Mode != app.ReturnToEndpoint || got.ingress.ReturnRoute.EndpointID != app.EndpointID(chat.ID) {
+		got.ingress.ReturnRoute.Mode != app.ReturnToEndpoint || got.ingress.ReturnRoute.EndpointID != app.EndpointID(chat.ID) ||
+		got.ingress.ClientTimezone != "America/New_York" {
 		t.Fatalf("selected target was not isolated to the return route: %#v", got.ingress)
+	}
+}
+
+func TestNormalizeClientTimezoneRejectsInvalidOrOversizedValues(t *testing.T) {
+	if got := normalizeClientTimezone(" Asia/Shanghai "); got != "Asia/Shanghai" {
+		t.Fatalf("valid client timezone = %q", got)
+	}
+	if got := normalizeClientTimezone("Not/A-Timezone"); got != "" {
+		t.Fatalf("invalid client timezone was retained: %q", got)
+	}
+	if got := normalizeClientTimezone(strings.Repeat("x", 129)); got != "" {
+		t.Fatalf("oversized client timezone was retained: %q", got)
 	}
 }
 

@@ -1207,9 +1207,14 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	var result agent.Result
 	var err error
 	if input.Schedule != nil {
-		result, err = s.runtime.HandleScheduleAction(r.Context(), sessionID, input.Content, input.Schedule.agentAction())
+		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, "", input.ClientTimezone)
+		if ingressErr != nil {
+			writeError(w, http.StatusBadRequest, ingressErr)
+			return
+		}
+		result, err = s.runtime.HandleScheduleActionWithIngress(r.Context(), sessionID, input.Content, input.Schedule.agentAction(), ingress)
 	} else {
-		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID)
+		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID, input.ClientTimezone)
 		if ingressErr != nil {
 			status := deliveryHTTPStatus(errorCode(ingressErr))
 			if input.TargetEndpointID != "" && errorCode(ingressErr) == "" {
@@ -1268,7 +1273,7 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content or an attachment is required"))
 		return
 	}
-	ingress, err := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID)
+	ingress, err := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID, input.ClientTimezone)
 	if err != nil {
 		status := deliveryHTTPStatus(errorCode(err))
 		if input.TargetEndpointID != "" && errorCode(err) == "" {

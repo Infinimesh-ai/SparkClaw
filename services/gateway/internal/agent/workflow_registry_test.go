@@ -34,8 +34,8 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserPageRead}, Slots: app.RouteSlots{Operation: app.RouteOperationRead, Query: "read this page", TargetKind: "url", TargetRef: "https://example.com/"}, Facts: map[string]string{"url": "https://example.com/"}}, app.WorkflowBrowserPageRead},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserInteraction}, Slots: app.RouteSlots{Operation: app.RouteOperationInteract, Query: "click Next", TargetKind: string(app.TargetKindBrowserCurrentTab), TargetRef: "selected"}}, app.WorkflowBrowserInteraction},
 		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"browser", app.CapabilityBrowserFormDraft}, Slots: app.RouteSlots{Operation: app.RouteOperationDraft, Query: "fill the name field with Alice", TargetKind: string(app.TargetKindBrowserCurrentTab), TargetRef: "selected"}}, app.WorkflowBrowserFormDraft},
-		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentRead}, Slots: app.RouteSlots{Operation: app.RouteOperationRead, TargetKind: "workspace_path", TargetRef: "test.txt"}, Facts: map[string]string{"path": "test.txt", "document_format": app.DocumentFormatText}}, app.WorkflowDocumentRead},
-		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentEdit}, Slots: app.RouteSlots{Operation: app.RouteOperationEdit, TargetKind: "workspace_path", TargetRef: "test.docx"}, Facts: map[string]string{"path": "test.docx", "output_path": "test-sparkclaw-edit.docx", "document_format": app.DocumentFormatDOCX}}, app.WorkflowDocumentEdit},
+		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentRead}, Slots: app.RouteSlots{Operation: app.RouteOperationRead, Query: "read test.txt", TargetKind: "workspace_path", TargetRef: "test.txt"}, Facts: map[string]string{"path": "test.txt", "document_format": app.DocumentFormatText}}, app.WorkflowDocumentRead},
+		{app.RouteDecision{CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentEdit}, Slots: app.RouteSlots{Operation: app.RouteOperationEdit, Query: "edit test.docx", TargetKind: "workspace_path", TargetRef: "test.docx"}, Facts: map[string]string{"path": "test.docx", "output_path": "test-sparkclaw-edit.docx", "document_format": app.DocumentFormatDOCX}}, app.WorkflowDocumentEdit},
 	}
 	for _, test := range tests {
 		test.decision.SchemaVersion = app.RouteDecisionSchemaVersion
@@ -52,8 +52,11 @@ func TestWorkflowRegistryResolvesExactlyOneContractPerLeaf(t *testing.T) {
 		if test.want == app.WorkflowBrowserAutomation || test.want == app.WorkflowBrowserInteraction {
 			wantRevision = app.BrowserWorkflowRevision3
 		}
-		if test.want == app.WorkflowBrowserInternetSearch || test.want == app.WorkflowBrowserWeather || test.want == app.WorkflowBrowserFormDraft {
+		if test.want == app.WorkflowBrowserInternetSearch || test.want == app.WorkflowBrowserFormDraft {
 			wantRevision = 2
+		}
+		if test.want == app.WorkflowBrowserWeather {
+			wantRevision = 3
 		}
 		if test.want == app.WorkflowDocumentRead {
 			wantRevision = 4
@@ -319,7 +322,7 @@ func TestWorkflowStatePersistsRouteIdentity(t *testing.T) {
 	route := app.RouteDecision{
 		SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteMatched, CatalogRevision: catalog.Revision(),
 		CapabilityPath: []app.CapabilityID{"document", app.CapabilityDocumentRead},
-		Slots:          app.RouteSlots{Operation: app.RouteOperationRead, TargetKind: "workspace_path", TargetRef: "note.txt"},
+		Slots:          app.RouteSlots{Operation: app.RouteOperationRead, Query: "read note.txt", TargetKind: "workspace_path", TargetRef: "note.txt"},
 		Facts:          map[string]string{"path": "note.txt", "document_format": app.DocumentFormatText},
 	}
 	resolved, err := defaultWorkflowProfileRegistry().Resolve(catalog, route, "turn")

@@ -250,7 +250,7 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 		}
 		system, user, evidencePayload, admissionErr := r.admitWorkflowStepPromptWithProjection(
 			sessionID, run.ID, stepNumber, task, content, result.Observations, stageContext,
-			stepVisibleTools, provisioned, contextSnapshot,
+			stepVisibleTools, provisioned, contextSnapshot, workflowClientTimezone(run),
 		)
 		if admissionErr != nil {
 			result.Halted = true
@@ -566,7 +566,7 @@ func (r Runtime) admitWorkflowStepPrompt(
 ) (string, string, error) {
 	system, user, _, err := r.admitWorkflowStepPromptWithProjection(
 		sessionID, runID, step, task, goal, observations, stageContext,
-		visibleTools, provisioned, snapshot,
+		visibleTools, provisioned, snapshot, "",
 	)
 	return system, user, err
 }
@@ -581,8 +581,9 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 	visibleTools []app.ToolDefinition,
 	provisioned provisionedWorkflowEvidence,
 	snapshot agentContextSnapshot,
+	clientTimezone string,
 ) (string, string, string, error) {
-	builder := workflowStepContextBuilder(goal, step, observations, stageContext, visibleTools, provisioned, snapshot)
+	builder := workflowStepContextBuilderForTimezone(goal, step, observations, stageContext, visibleTools, provisioned, snapshot, clientTimezone)
 	contextLimit, maxOutputTokens := r.effectiveWorkflowStepPromptBudget(task)
 	availableInputTokens := contextLimit - maxOutputTokens
 	threshold := int(math.Floor(float64(availableInputTokens) * workflowStepPromptCompressionThreshold))
@@ -628,8 +629,12 @@ func (r Runtime) admitWorkflowStepPromptWithProjection(
 }
 
 func workflowStepContextBuilder(goal string, step int, observations []workflowObservation, stageContext workflowStageContext, visibleTools []app.ToolDefinition, provisioned provisionedWorkflowEvidence, snapshot agentContextSnapshot) contextBuilder {
+	return workflowStepContextBuilderForTimezone(goal, step, observations, stageContext, visibleTools, provisioned, snapshot, "")
+}
+
+func workflowStepContextBuilderForTimezone(goal string, step int, observations []workflowObservation, stageContext workflowStageContext, visibleTools []app.ToolDefinition, provisioned provisionedWorkflowEvidence, snapshot agentContextSnapshot, clientTimezone string) contextBuilder {
 	sections := []contextSection{
-		fixedContextSection("base_instructions", 1000, contextChannelSystem, systemPrompt()),
+		fixedContextSection("base_instructions", 1000, contextChannelSystem, systemPromptForTimezone(clientTimezone)),
 	}
 	episodeFull := titledContextSection("Recent episode summaries:", formatContextEpisodes(snapshot.Episodes))
 	episodeCompact := titledContextSection("Recent episode summaries (compact):", formatCompactContextEpisodes(snapshot.Episodes))
@@ -694,6 +699,13 @@ func workflowStepContextBuilder(goal string, step int, observations []workflowOb
 	}
 	sections = append(sections, fixedContextSection("output_contract", 1000, contextChannelUser, workflowStepOutputContract()))
 	return contextBuilder{Sections: sections, SystemJoiner: "\n\n", UserJoiner: "\n\n"}
+}
+
+func workflowClientTimezone(run app.AgentRun) string {
+	if run.MessageContext == nil {
+		return ""
+	}
+	return strings.TrimSpace(run.MessageContext.ClientTimezone)
 }
 
 func workflowToolDefinitionContextSection(visibleTools []app.ToolDefinition) contextSection {

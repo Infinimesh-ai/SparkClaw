@@ -614,6 +614,29 @@ func TestBrowserSettleArgumentsCarryFrozenRegisteredDestinationKind(t *testing.T
 	}
 }
 
+func TestBrowserPostActionSettleAllowsNavigationAwayFromAcquisitionURL(t *testing.T) {
+	state := &app.WorkflowState{
+		Browser: &app.BrowserWorkflowState{Target: app.BrowserTargetDescriptor{
+			TargetKind: app.BrowserTargetExplicitURL, CanonicalURL: "https://example.com/paginated-1.html",
+		}},
+		ActiveNodeIDs: []app.WorkflowNodeID{"browser_result"},
+		Nodes: map[app.WorkflowNodeID]app.WorkflowNodeState{
+			"browser_result": {
+				Stage: browserStageSettleAfterAction,
+				OutcomeRefs: []app.ResourceRef{{Kind: "browser_snapshot", Ref: "snapshot_before", Attributes: map[string]string{
+					"content_digest": "page-1", "session_generation": "7",
+				}}},
+			},
+		},
+	}
+
+	args := (browserInteractionProfile{}).DirectStageArguments(state)
+	if _, exists := args["expected_url"]; exists || args["require_url_stable"] != true ||
+		args["allow_no_change"] != false || args["before_digest"] != "page-1" {
+		t.Fatalf("post-action settle still binds the acquisition URL or lost stability checks: %#v", args)
+	}
+}
+
 func TestBrowserVisibleSettleArgumentsUseVerifiedHiddenResultURL(t *testing.T) {
 	state := &app.WorkflowState{
 		Browser: &app.BrowserWorkflowState{

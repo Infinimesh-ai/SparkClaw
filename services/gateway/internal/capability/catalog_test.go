@@ -45,12 +45,18 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		if leaf.ID == app.CapabilityBrowserAutomation || leaf.ID == app.CapabilityBrowserInteraction {
 			wantRevision = app.BrowserWorkflowRevision3
 		}
-		if leaf.ID == app.CapabilityBrowserInternetSearch || leaf.ID == app.CapabilityBrowserWeather ||
-			leaf.ID == app.CapabilityBrowserFormDraft {
+		if leaf.ID == app.CapabilityBrowserInternetSearch || leaf.ID == app.CapabilityBrowserFormDraft {
 			wantRevision = 2
+		}
+		if leaf.ID == app.CapabilityBrowserWeather {
+			wantRevision = 3
 		}
 		if leaf.Workflow == nil || app.CapabilityID(leaf.Workflow.ID) != leaf.ID || leaf.Workflow.Revision != wantRevision {
 			t.Fatalf("leaf %q has invalid workflow contract: %#v", leaf.ID, leaf.Workflow)
+		}
+		if (leaf.ID == app.CapabilityDocumentRead || leaf.ID == app.CapabilityDocumentEdit) &&
+			(leaf.Route == nil || !leaf.Route.RequireQuery) {
+			t.Fatalf("document leaf %q does not preserve the owner request: %#v", leaf.ID, leaf.Route)
 		}
 	}
 	if catalog.Revision() != DefaultCatalogRevision {

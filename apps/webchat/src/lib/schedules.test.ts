@@ -17,8 +17,8 @@ const schedule: Schedule = {
 };
 
 describe("schedule formatting", () => {
-  it("formats the next run in the schedule timezone", () => {
-    expect(formatScheduleTime(schedule, "zh")).toContain("09:30");
+  it("formats the next run in the client timezone instead of the schedule timezone", () => {
+    expect(formatScheduleTime(schedule, "zh", "UTC")).toContain("01:30");
   });
 
   it("maps known recurrence values and preserves custom expressions", () => {

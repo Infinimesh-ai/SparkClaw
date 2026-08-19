@@ -228,6 +228,7 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		legacyWorkflowProfile{workflowProfile: browserInternetSearchProfile{}, revision: 1},
 		browserInternetSearchProfile{},
 		legacyWorkflowProfile{workflowProfile: browserWeatherProfile{}, revision: 1},
+		legacyWorkflowProfile{workflowProfile: browserWeatherProfile{}, revision: 2},
 		browserWeatherProfile{},
 		legacyWorkflowProfile{workflowProfile: browserAutomationProfile{}, revision: 2},
 		browserAutomationProfile{},

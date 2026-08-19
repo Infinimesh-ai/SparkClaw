@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageStreamDeliveryError } from "../lib/messageStream";
-import { api, APIError, documentFileURL, messageStreamRequestBody } from "./client";
+import { api, APIError, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody } from "./client";
 
 describe("documentFileURL", () => {
   it("keeps the workspace path scoped to its session", () => {
@@ -30,6 +30,23 @@ describe("messageStreamRequestBody", () => {
       content: "",
       attachments,
       target_endpoint_id: "endpoint-selected"
+    });
+
+    expect(messageStreamRequestBody("hello", [], "", "America/New_York")).toEqual({
+      content: "hello",
+      attachments: [],
+      client_timezone: "America/New_York"
+    });
+  });
+});
+
+describe("scheduleActionRequestBody", () => {
+  it("sends the browser timezone with schedule mutations", () => {
+    const action = { operation: "delete" as const, schedule_id: "schedule-1", expected_updated_at: "2026-08-19T01:00:00Z" };
+    expect(scheduleActionRequestBody("Delete schedule", action, "America/New_York")).toEqual({
+      content: "Delete schedule",
+      schedule_action: action,
+      client_timezone: "America/New_York"
     });
   });
 });

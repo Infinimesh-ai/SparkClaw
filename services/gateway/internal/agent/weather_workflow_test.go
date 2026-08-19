@@ -91,6 +91,27 @@ func TestWeatherWorkflowFreezesDedicatedLookupAndRenderScopes(t *testing.T) {
 		node.ArgumentBindings[1].Source != app.ArgumentBindingOutcomeRef {
 		t.Fatalf("weather arguments are not bound to the frozen route and lookup outcome: %#v", node.ArgumentBindings)
 	}
+	if len(node.InitialScope.SupportRequirements) != 0 || len(node.Transitions[0].Replace.SupportRequirements) != 0 {
+		t.Fatalf("deterministic weather stages unexpectedly expose model support tools: %#v", node)
+	}
+}
+
+func TestWeatherRevision3InvokesBothBoundStagesDirectly(t *testing.T) {
+	profile := browserWeatherProfile{}
+	for _, stage := range []string{"lookup_weather", "render_card"} {
+		state := &app.WorkflowState{
+			Plan:          app.WorkflowPlan{ProfileID: app.WorkflowBrowserWeather, ProfileRevision: 3},
+			ActiveNodeIDs: []app.WorkflowNodeID{"weather"},
+			Nodes:         map[app.WorkflowNodeID]app.WorkflowNodeState{"weather": {Stage: stage}},
+		}
+		if !profile.DirectStage(state) || len(profile.DirectStageArguments(state)) != 0 {
+			t.Fatalf("weather stage %q was not a parameter-free direct invocation", stage)
+		}
+	}
+	legacy := &app.WorkflowState{Plan: app.WorkflowPlan{ProfileID: app.WorkflowBrowserWeather, ProfileRevision: 2}}
+	if profile.DirectStage(legacy) {
+		t.Fatal("legacy weather runs changed execution semantics during resume")
+	}
 }
 
 func TestWeatherTransitionInstructionOnlyRendersBoundTypedPayload(t *testing.T) {

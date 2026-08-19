@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-19.v21"
+	DefaultCatalogRevision = "2026-08-19.v23"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -140,7 +140,7 @@ func DefaultCatalog() (Catalog, error) {
 		leafRevision(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSearch}, FactScopes: []app.RouteFactScope{app.RouteFactScopeCurrentInternet}, RequireQuery: true,
 		}),
-		leafRevision(string(app.CapabilityBrowserWeather), "browser", "Query current weather through Info and render one card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", 2, RouteContract{
+		leafRevision(string(app.CapabilityBrowserWeather), "browser", "Query current weather through Info and render one card for a single explicit location's current conditions or short forecast. Weather alerts, news, historical research, and multi-location comparisons belong to Internet search.", 3, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, FactScopes: []app.RouteFactScope{app.RouteFactScopeWeatherSnapshot}, TargetKinds: []string{string(app.TargetKindLocation)},
 			RequireQuery: true, RequireLocation: true, RequireTarget: true, RequiredFacts: []string{"location_source"},
 		}),
@@ -158,10 +158,10 @@ func DefaultCatalog() (Catalog, error) {
 		}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
 		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file by its detected type, using optional OCR for verbatim in-image text and scanned PDF pages.", 4, RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
+			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireQuery: true, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 7, RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireTarget: true, RequiredFacts: []string{"path"},
+			Operations: []app.RouteOperation{app.RouteOperationEdit, app.RouteOperationTransform}, TargetKinds: []string{"workspace_path"}, RequireQuery: true, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),
 		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 3, RouteContract{

@@ -627,3 +627,44 @@ func TestHandleMessagePersistsFinalTopTwoIntentFusionEvidence(t *testing.T) {
 		t.Fatalf("persisted semantic fusion evidence is incomplete: %#v", fusion)
 	}
 }
+
+func TestHandleMessagePersistsClientTimezoneFromWebIngress(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	ingress := app.MessageIngressContext{
+		Source:  app.MessageSourceContext{Kind: app.MessageSourceWeb, Adapter: "web", EndpointID: app.EndpointID("session:" + session.ID)},
+		OwnerID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID},
+		ReturnRoute:    app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("session:" + session.ID)},
+		ClientTimezone: "America/New_York",
+	}
+	result, err := runtime.HandleMessageWithIngress(t.Context(), session.ID, "message_timezone", "run_timezone", "法国的首都是什么？\nMOCK_CONVERSATION_RESPONSE:巴黎。", nil, ingress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, ok := st.GetRun(result.Run.ID)
+	if !ok || stored.MessageContext == nil || stored.MessageContext.ClientTimezone != "America/New_York" {
+		t.Fatalf("client timezone was not persisted with the run: %#v ok=%t", stored.MessageContext, ok)
+	}
+}
+
+func TestHandleScheduleActionPersistsClientTimezoneFromWebIngress(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	ingress := app.MessageIngressContext{
+		Source:         app.MessageSourceContext{Kind: app.MessageSourceWeb, Adapter: "web", EndpointID: app.EndpointID("session:" + session.ID)},
+		OwnerID:        session.OwnerID,
+		Authorization:  app.MessageAuthorization{PrincipalID: session.OwnerID},
+		ReturnRoute:    app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("session:" + session.ID)},
+		ClientTimezone: "America/New_York",
+	}
+	result, err := runtime.HandleScheduleActionWithIngress(t.Context(), session.ID, "删除定时任务", ScheduleAction{
+		Operation: app.RouteOperationDelete, ScheduleID: "missing-schedule", ExpectedUpdatedAt: "2026-08-19T01:00:00Z",
+	}, ingress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, ok := st.GetRun(result.Run.ID)
+	if !ok || stored.MessageContext == nil || stored.MessageContext.ClientTimezone != "America/New_York" {
+		t.Fatalf("schedule action lost the client timezone: %#v ok=%t", stored.MessageContext, ok)
+	}
+}

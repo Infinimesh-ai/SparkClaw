@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -43,7 +45,7 @@ func TestDOCXEditBilingualRouteAndOperationSelectionMatrix(t *testing.T) {
 				t.Fatal(err)
 			}
 			if route.Status != app.RouteMatched || len(route.CapabilityPath) < 2 || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
-				route.Facts["document_format"] != app.DocumentFormatDOCX || route.Facts["document_operation"] != "" {
+				route.Slots.Query != tc.request || route.Facts["document_format"] != app.DocumentFormatDOCX || route.Facts["document_operation"] != "" {
 				t.Fatalf("bilingual DOCX case did not route to the format-bounded edit workflow: %#v", route)
 			}
 			dispatch, err := runtime.dispatchMatchedWorkflow(context.Background(), app.AgentRun{
@@ -149,6 +151,84 @@ func TestDOCXUnsupportedTargetsBlockWithoutApproval(t *testing.T) {
 				t.Fatalf("unsupported target created mutation state: approvals=%#v calls=%#v", st.ListApprovals(""), st.ListToolCalls(session.ID))
 			}
 		})
+	}
+}
+
+func TestRealFastDOCXSectionImprovementSelection(t *testing.T) {
+	if os.Getenv("SPARKCLAW_RUN_REAL_DOCX_OPERATION_EVAL") != "1" {
+		t.Skip("set SPARKCLAW_RUN_REAL_DOCX_OPERATION_EVAL=1 to call the configured Fast model")
+	}
+	runtime, _, _, dispatch := newDocumentDecisionFixture(t, "完善 report.docx 中的心得与体会")
+	node, ok := workflowPlanNode(dispatch.Run.Workflow.Plan, "select_edit_operation")
+	if !ok {
+		t.Fatal("decision node is missing")
+	}
+	if got := dispatch.Run.Workflow.Route.Slots.Query; got != "完善 report.docx 中的心得与体会" {
+		t.Fatalf("document route lost the owner request before operation selection: %q", got)
+	}
+	state := dispatch.Run.Workflow.Nodes[node.ID]
+	view, err := runtime.exposure.Search(t.Context(), app.ExposureRequest{
+		RunID: dispatch.Run.ID, WorkflowID: dispatch.Run.Workflow.Plan.ProfileID, NodeID: node.ID,
+		ScopeRevision: state.ScopeRevision, ActorRef: runtime.workflowActorRef(dispatch.Run.SessionID), Limit: 32,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.Entries = scopeDocumentDirectoryEntries(dispatch.Run.Workflow.Route, view.Entries)
+	candidateProjection, bindings, err := buildWorkflowDecisionCandidateProjection(view.Entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := syntheticDOCXDecisionOutput(25)
+	if observationPath := os.Getenv("SPARKCLAW_DOCX_OBSERVATION_PATH"); observationPath != "" {
+		raw, err := os.ReadFile(observationPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var observation struct {
+			Output map[string]any `json:"output"`
+		}
+		if err := json.Unmarshal(raw, &observation); err != nil {
+			t.Fatal(err)
+		}
+		output = observation.Output
+	} else {
+		document, _ := anyMap(output["document"])
+		blocks := documentAnySliceFromAny(document["evidence_blocks"])
+		heading, _ := anyMap(blocks[23])
+		heading["type"] = "heading"
+		heading["text"] = "五、心得与体会"
+		paragraph, _ := anyMap(blocks[24])
+		paragraph["text"] = "本次实验以航空订票系统为对象，完成了 Selenium 自动化测试实践。"
+	}
+	dispatch.Run.Workflow.Route.Slots.Query = "完善心得与体会"
+	evidence := projectDOCXDecisionEvidence(output, dispatch.Run.Workflow.Route, view.Entries, 8000)
+	system, user := workflowDecisionSelectionPromptWithLimit(
+		dispatch.Run, dispatch.Profile, node, candidateProjection, evidence, 8000,
+	)
+	cfg, err := config.Load(filepath.Join("..", "..", "..", "..", "configs", "sparkclaw.default.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Model.Mock = false
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	chat, err := modelrouter.New(cfg).ChatWithProfile(ctx, documentWorkflowModelLane, system, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chat.Mock {
+		t.Fatal("real DOCX operation eval resolved to the mock model")
+	}
+	selection, err := parseWorkflowDecisionSelection(chat.Content)
+	if err != nil {
+		t.Fatalf("Fast returned invalid selection %q: %v", chat.Content, err)
+	}
+	entryID := bindings[selection.CandidateID]
+	entry, ok := directoryViewEntry(view, entryID)
+	if !ok || entry.Capability.Qualifiers[app.CapabilityQualifierOperation] != app.DocumentOperationReplaceParagraph {
+		t.Fatalf("Fast selected %q (%q), want %q; response=%s evidence=%s", entryID,
+			entry.Capability.Qualifiers[app.CapabilityQualifierOperation], app.DocumentOperationReplaceParagraph, chat.Content, evidence)
 	}
 }
 

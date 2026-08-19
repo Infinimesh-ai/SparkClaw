@@ -381,6 +381,21 @@ func TestWorkflowFinalEvidenceUsesDocumentContentWithoutLocatorDuplication(t *te
 	}
 }
 
+func TestWorkflowFinalEvidenceProjectsScheduleTimeInClientTimezone(t *testing.T) {
+	run := app.AgentRun{ID: "run_schedule", MessageContext: &app.MessageRunContext{ClientTimezone: "America/New_York"}}
+	projection := buildWorkflowFinalEvidenceProjection(run, []app.ToolCall{{
+		ID: "tc_schedule", Tool: "reminders.list", Status: "completed", Capability: app.ToolCapabilityScheduleManage,
+		Result: map[string]any{"reminders": []map[string]any{{
+			"reminder_id": "reminder-1", "due_time": "2026-08-19T16:00:00Z", "timezone": "Asia/Shanghai",
+		}}},
+	}}, []string{`{"due_time":"2026-08-19T16:00:00Z","timezone":"Asia/Shanghai"}`}, nil)
+	payload := projection.modelPayload()
+	if !strings.Contains(payload, `due_time="2026-08-19T12:00:00-04:00"`) ||
+		!strings.Contains(payload, `timezone="America/New_York"`) || projection.SourceEventIDs[0] != "tc_schedule" {
+		t.Fatalf("schedule evidence did not project the client-local time: %s", payload)
+	}
+}
+
 func TestRuntimeRoutesExplicitURLReadWithoutLegacyHTTPFallback(t *testing.T) {
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -3397,6 +3412,37 @@ func TestTemporalContextIncludesRelativeDateAnchors(t *testing.T) {
 		if !strings.Contains(context, want) {
 			t.Fatalf("temporal context missing %q:\n%s", want, context)
 		}
+	}
+}
+
+func TestTemporalContextAndFreshSearchDateUseClientTimezone(t *testing.T) {
+	now := time.Date(2026, time.January, 1, 1, 30, 0, 0, time.UTC)
+	context := temporalContextForTimezone(now, "America/New_York")
+	for _, want := range []string{
+		"local_datetime: 2025-12-31T20:30:00-05:00",
+		"local_date: 2025-12-31",
+		"local_timezone: America/New_York",
+		"Display every user-visible date and time in local_timezone",
+	} {
+		if !strings.Contains(context, want) {
+			t.Fatalf("client temporal context missing %q:\n%s", want, context)
+		}
+	}
+	if got := currentSearchDateForTimezone(now, "America/New_York"); got != "2025-12-31" {
+		t.Fatalf("New York fresh-search date = %q; want 2025-12-31", got)
+	}
+	if got := currentSearchDateForTimezone(now, "Asia/Tokyo"); got != "2026-01-01" {
+		t.Fatalf("Tokyo fresh-search date = %q; want 2026-01-01", got)
+	}
+	admission, err := workflowStepContextBuilderForTimezone(
+		"What time is it?", 1, nil, workflowStageContext{}, nil,
+		provisionedWorkflowEvidence{}, agentContextSnapshot{}, "America/New_York",
+	).Admit(100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(admission.System, "local_timezone: America/New_York") {
+		t.Fatalf("workflow prompt lost the run client timezone:\n%s", admission.System)
 	}
 }
 

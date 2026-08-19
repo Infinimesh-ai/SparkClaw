@@ -141,10 +141,11 @@ type MessageAuthorization struct {
 // MessageIngressContext carries provider-neutral source and return metadata
 // alongside the legacy text/attachment Agent API during migration.
 type MessageIngressContext struct {
-	Source        MessageSourceContext `json:"source"`
-	OwnerID       string               `json:"owner_id"`
-	Authorization MessageAuthorization `json:"authorization"`
-	ReturnRoute   ReturnRoute          `json:"return_route"`
+	Source         MessageSourceContext `json:"source"`
+	OwnerID        string               `json:"owner_id"`
+	Authorization  MessageAuthorization `json:"authorization"`
+	ReturnRoute    ReturnRoute          `json:"return_route"`
+	ClientTimezone string               `json:"client_timezone,omitempty"`
 }
 
 type MessagePart struct {
@@ -282,6 +283,7 @@ type MessageRunContext struct {
 	Route           RouteDecision          `json:"route"`
 	IntentFusion    *IntentFusionDecision  `json:"intent_fusion,omitempty"`
 	MCP             *MCPInvocationRef      `json:"mcp,omitempty"`
+	ClientTimezone  string                 `json:"client_timezone,omitempty"`
 }
 
 type RouteOperation string

@@ -3,6 +3,7 @@ package agent
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
@@ -128,7 +129,61 @@ func buildWorkflowFinalEvidenceProjection(
 		projection.Evidence[0] = "finalization_manifest claim_coverage=" + projection.Coverage.Claim +
 			" limitation_required=" + strconv.FormatBool(limitationRequired) + "\ncontent:\n" + projection.Evidence[0]
 	}
+	if display, sourceEventIDs := clientScheduleDisplayEvidence(run, calls); display != "" {
+		projection.Evidence = append([]string{display}, projection.Evidence...)
+		for _, sourceEventID := range sourceEventIDs {
+			projection.SourceEventIDs = appendUniqueString(projection.SourceEventIDs, sourceEventID)
+		}
+		projection.Coverage.Source = workflowCoverageComplete
+	}
 	return projection
+}
+
+func clientScheduleDisplayEvidence(run app.AgentRun, calls []app.ToolCall) (string, []string) {
+	if run.MessageContext == nil || strings.TrimSpace(run.MessageContext.ClientTimezone) == "" {
+		return "", nil
+	}
+	clientTimezone := strings.TrimSpace(run.MessageContext.ClientTimezone)
+	location, err := time.LoadLocation(clientTimezone)
+	if err != nil {
+		return "", nil
+	}
+	lines := []string{}
+	sourceEventIDs := []string{}
+	for _, call := range calls {
+		if !toolCallCompleted(call) || call.Capability != app.ToolCapabilityScheduleManage {
+			continue
+		}
+		result, ok := anyMap(call.Result)
+		if !ok {
+			continue
+		}
+		items := []any{result}
+		if reminders := anySlice(result["reminders"]); len(reminders) > 0 {
+			items = reminders
+		}
+		added := false
+		for _, item := range items {
+			reminder, ok := anyMap(item)
+			if !ok {
+				continue
+			}
+			dueTime, err := time.Parse(time.RFC3339, strings.TrimSpace(stringValue(reminder["due_time"])))
+			if err != nil {
+				continue
+			}
+			lines = append(lines, "schedule_client_display reminder_id="+strconv.Quote(strings.TrimSpace(stringValue(reminder["reminder_id"])))+
+				" due_time="+strconv.Quote(dueTime.In(location).Format(time.RFC3339))+" timezone="+strconv.Quote(clientTimezone))
+			added = true
+		}
+		if added {
+			sourceEventIDs = appendUniqueString(sourceEventIDs, firstNonEmptyString(call.ObservationRef, call.ID))
+		}
+	}
+	if len(lines) == 0 {
+		return "", nil
+	}
+	return "schedule_display_manifest: Display schedule times using only these client-local due_time and timezone values.\n" + strings.Join(lines, "\n"), sourceEventIDs
 }
 
 func workflowCallForFinalObservation(calls []app.ToolCall, observation string, index int) (app.ToolCall, bool) {

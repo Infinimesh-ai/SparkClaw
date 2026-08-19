@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
@@ -86,7 +87,7 @@ func dedupeGroundedTargets(targets []groundedTarget) []groundedTarget {
 	return out
 }
 
-func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundingProjection, decision semanticrouting.Decision) (app.RouteDecision, error) {
+func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundingProjection, decision semanticrouting.Decision, clientTimezone string) (app.RouteDecision, error) {
 	base := app.RouteDecision{
 		SchemaVersion: app.RouteDecisionSchemaVersion, CatalogRevision: r.capabilities.Revision(),
 		Confidence: decision.Confidence, Reason: decision.ReasonCode,
@@ -118,7 +119,7 @@ func (r Runtime) routeFromFusionDecision(content string, grounding intentGroundi
 	base.Slots.Operation = candidate.Route.Operation
 	base.Slots.FactScope = candidate.Route.FactScope
 	if node.Route.RequireQuery {
-		base.Slots.Query = materializeRoutedQuery(candidate.Capability, content, currentSearchDate())
+		base.Slots.Query = materializeRoutedQuery(candidate.Capability, content, currentSearchDateForTimezone(time.Now(), clientTimezone))
 	}
 	if node.Route.RequireTarget {
 		compatible := make([]groundedTarget, 0, 1)

@@ -1,6 +1,7 @@
 import { Bell, CheckCheck, ExternalLink, X } from "lucide-react";
 import type { PassiveNotification } from "../api/types";
 import type { Copy, Language } from "../i18n";
+import { formatDateTime } from "../lib/format";
 
 type NotificationCenterProps = {
   notifications: PassiveNotification[];
@@ -35,15 +36,6 @@ function notificationSource(notification: PassiveNotification) {
   const source = notification.source?.trim() ?? "";
   if (!source) return SOURCE_LABELS.localmind;
   return SOURCE_LABELS[source] ?? source;
-}
-
-function notificationTime(notification: PassiveNotification, language: Language) {
-  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(notification.occurred_at));
 }
 
 export function NotificationCenter({
@@ -99,7 +91,7 @@ export function NotificationCenter({
                   <div>
                     <strong>{notificationSource(notification)}</strong>
                     <span>{notificationKind(notification, text)}</span>
-                    <time dateTime={notification.occurred_at}>{notificationTime(notification, language)}</time>
+                    <time dateTime={notification.occurred_at}>{formatDateTime(notification.occurred_at, language)}</time>
                   </div>
                   <a
                     className="notificationOpen"

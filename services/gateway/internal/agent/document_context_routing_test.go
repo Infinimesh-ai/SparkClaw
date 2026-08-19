@@ -123,8 +123,35 @@ func TestAttachedDocumentContextRoutesImplicitQuestionToDocumentRead(t *testing.
 	}}, app.MessageSourceWeb)
 	route := routing.Route
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 ||
-		route.CapabilityPath[1] != app.CapabilityDocumentRead || route.Slots.TargetRef != "student-notice.docx" {
+		route.CapabilityPath[1] != app.CapabilityDocumentRead || route.Slots.Query != "作为23级学生要注意什么" ||
+		route.Slots.TargetRef != "student-notice.docx" {
 		t.Fatalf("implicit question with one governed document did not route to document.read: route=%#v fusion=%#v", route, routing.Fusion)
+	}
+}
+
+func TestAttachedDocumentEditRetainsOwnerRequest(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		writeDOCXParagraphFixture(t, filepath.Join(cfg.root, "report.docx"), []string{
+			"五、心得与体会",
+			"本次实验完成了 Selenium 自动化测试实践。",
+		})
+	})
+	defer closeRuntime()
+
+	request := "完善心得与体会"
+	routing := mustRouteIntentOutput(t, runtime, session.ID, request, []app.MessagePart{{
+		Kind: app.MessagePartFile,
+		Name: "实验报告.docx",
+		Resource: &app.ResourceRef{
+			Kind: "workspace_file",
+			Ref:  "report.docx",
+		},
+	}}, app.MessageSourceWeb)
+	route := routing.Route
+	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 ||
+		route.CapabilityPath[1] != app.CapabilityDocumentEdit || route.Slots.Query != request ||
+		route.Slots.TargetRef != "report.docx" {
+		t.Fatalf("attached document edit lost the owner request: route=%#v fusion=%#v", route, routing.Fusion)
 	}
 }
 

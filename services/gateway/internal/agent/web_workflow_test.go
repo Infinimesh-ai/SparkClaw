@@ -168,8 +168,12 @@ func TestBrowserWeatherDispatchesOnlyInfoQuestionInitially(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || !exactVisibleToolNames(dispatch.Tools, "weather.lookup", "observation.read") || dispatch.Context.Capability != app.ToolCapabilityInfoQuestion {
+	if dispatch.Profile.ID() != app.WorkflowBrowserWeather || !exactVisibleToolNames(dispatch.Tools, "weather.lookup") || dispatch.Context.Capability != app.ToolCapabilityInfoQuestion {
 		t.Fatalf("browser.weather exposed the wrong Workflow capability: %#v", dispatch)
+	}
+	properties, _ := anyMap(dispatch.Tools[0].InputSchema["properties"])
+	if _, modelCanGenerateLocation := properties["location"]; modelCanGenerateLocation || len(toolDefinitionRequiredArgs(dispatch.Tools[0].InputSchema)) != 0 {
+		t.Fatalf("weather lookup exposed Runtime-bound location to the model: %#v", dispatch.Tools[0].InputSchema)
 	}
 }
 
@@ -706,6 +710,26 @@ func TestBrowserInteractionRouteRunsVerifiedClickWithoutApproval(t *testing.T) {
 	}
 }
 
+func TestBrowserInteractionClickMayNavigateToANewSameOriginPage(t *testing.T) {
+	adapter := &fakeInteractionBrowserAdapter{navigateOnClick: true}
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
+		cfg.config.Tools.BrowserAutomation.Enabled = true
+		cfg.browserAdapter = adapter
+	})
+	defer closeRuntime()
+
+	result, err := runtime.HandleMessage(context.Background(), session.ID, "点击当前页面的下一步按钮")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Run.State != "completed" || result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
+		t.Fatalf("same-origin click navigation did not complete: run=%#v calls=%#v", result.Run, result.ToolCalls)
+	}
+	if adapter.currentURL != "https://example.com/paginated-2.html" || adapter.postActionExpectedURL != "" {
+		t.Fatalf("post-action settle was still tied to the acquisition URL: adapter=%#v", adapter)
+	}
+}
+
 func TestBrowserInteractionRouteReassessesMateriallyDifferentVisibleResult(t *testing.T) {
 	adapter := &fakeInteractionBrowserAdapter{visibleContentDigest: "checkout-visible-delta"}
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
@@ -1076,14 +1100,16 @@ func newWorkflowE2ERuntime(t *testing.T, customize func(*testRuntimeConfig)) (Ru
 }
 
 type fakeInteractionBrowserAdapter struct {
-	snapshots            int
-	clicks               int
-	closes               int
-	emptyTabs            bool
-	opened               bool
-	closedPageID         string
-	currentURL           string
-	visibleContentDigest string
+	snapshots             int
+	clicks                int
+	closes                int
+	emptyTabs             bool
+	opened                bool
+	closedPageID          string
+	currentURL            string
+	visibleContentDigest  string
+	navigateOnClick       bool
+	postActionExpectedURL string
 }
 
 func (a *fakeInteractionBrowserAdapter) Health(context.Context, map[string]any) (browserautomation.Result, error) {
@@ -1128,6 +1154,12 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 		pages := []any{fakeBrowserPage("page_2", a.currentURL, args)}
 		return browserautomation.Result{Tool: tool, RawTool: "agent_browser_tab_new", Output: map[string]any{"pages": pages}, Pages: pages, Text: "* page_2: Checkout (https://example.com/)", Untrusted: true, Provider: "fake-interaction-browser"}, nil
 	case "browser.wait":
+		if a.navigateOnClick && a.clicks > 0 && a.snapshots == 1 {
+			a.postActionExpectedURL, _ = args["expected_url"].(string)
+			if a.postActionExpectedURL != "" && a.postActionExpectedURL != a.currentURL {
+				return browserautomation.Result{}, errors.New("browser_settle_timeout: post-action wait required the acquisition URL")
+			}
+		}
 		generation, presentation := fakeBrowserIdentity(args)
 		return browserautomation.Result{
 			Tool: tool, RawTool: "agent_browser_stable_state", Arguments: args,
@@ -1190,9 +1222,12 @@ func (a *fakeInteractionBrowserAdapter) Call(_ context.Context, tool string, arg
 			return browserautomation.Result{}, fmt.Errorf("click was not bound to the latest pre-click snapshot: %#v", args)
 		}
 		a.clicks++
+		if a.navigateOnClick {
+			a.currentURL = "https://example.com/paginated-2.html"
+		}
 		return browserautomation.Result{
 			Tool: tool, RawTool: "agent_browser_click", Arguments: args,
-			Output:    map[string]any{"clicked": args["uid"], "snapshot_id": args["snapshot_id"], "page_id": pageID, "url": "https://example.com/checkout"},
+			Output:    map[string]any{"clicked": args["uid"], "snapshot_id": args["snapshot_id"], "page_id": pageID, "url": a.currentURL},
 			Untrusted: true, Provider: "fake-interaction-browser",
 		}, nil
 	case "browser.close":
@@ -1273,7 +1308,8 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 		}
 	}
 	directOnly := workflowID == app.WorkflowBrowserAutomation && result.Run.Workflow.Plan.ProfileRevision >= app.BrowserWorkflowRevision2 ||
-		workflowID == app.WorkflowDocumentRead && result.Run.Workflow.Plan.ProfileRevision >= 3
+		workflowID == app.WorkflowDocumentRead && result.Run.Workflow.Plan.ProfileRevision >= 3 ||
+		workflowID == app.WorkflowBrowserWeather && result.Run.Workflow.Plan.ProfileRevision >= 3
 	if directOnly {
 		if foundWorkflowStep || !hasAgentAuditType(st.ListAudit(sessionID), "workflow.direct_tool_invoked") {
 			t.Fatalf("%s must run its structural stages without model tool selection: model_calls=%#v", workflowID, modelCalls)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -17,9 +18,10 @@ type webMessageInput struct {
 	Attachments      []agent.MessageAttachment `json:"attachments"`
 	TargetEndpointID app.EndpointID            `json:"target_endpoint_id,omitempty"`
 	Schedule         *scheduleActionInput      `json:"schedule_action,omitempty"`
+	ClientTimezone   string                    `json:"client_timezone,omitempty"`
 }
 
-func (s *Server) webMessageIngress(ctx context.Context, r *http.Request, session app.Session, target app.EndpointID) (app.MessageIngressContext, error) {
+func (s *Server) webMessageIngress(ctx context.Context, r *http.Request, session app.Session, target app.EndpointID, clientTimezone string) (app.MessageIngressContext, error) {
 	principal := principalForRequest(r)
 	ownerID := strings.TrimSpace(session.OwnerID)
 	if ownerID == "" {
@@ -46,10 +48,22 @@ func (s *Server) webMessageIngress(ctx context.Context, r *http.Request, session
 		Source: app.MessageSourceContext{
 			Kind: app.MessageSourceWeb, Adapter: "web", EndpointID: sourceEndpointID,
 		},
-		OwnerID:       principal.OwnerID,
-		Authorization: app.MessageAuthorization{PrincipalID: principal.ActorID},
-		ReturnRoute:   returnRoute,
+		OwnerID:        principal.OwnerID,
+		Authorization:  app.MessageAuthorization{PrincipalID: principal.ActorID},
+		ReturnRoute:    returnRoute,
+		ClientTimezone: normalizeClientTimezone(clientTimezone),
 	}, nil
+}
+
+func normalizeClientTimezone(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return ""
+	}
+	if _, err := time.LoadLocation(value); err != nil {
+		return ""
+	}
+	return value
 }
 
 func (s *Server) deliverAgentResult(ctx context.Context, result agent.Result) (*app.DeliveryReceipt, error) {

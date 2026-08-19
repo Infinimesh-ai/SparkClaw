@@ -33,23 +33,22 @@ const (
 	weatherCardHeight = 1200
 )
 
-var weatherCardLocation = mustWeatherCardLocation()
-
 type weatherCardData struct {
-	Location    string
-	UpdatedAt   string
-	Condition   string
-	Temperature string
-	MissingData bool
-	FeelsLike   string
-	Humidity    string
-	Wind        string
-	Precip      string
-	UV          string
-	Suggestion  string
-	Forecast    []weatherForecastDay
-	Hourly      []weatherForecastHour
-	Source      string
+	Location        string
+	UpdatedAt       string
+	Condition       string
+	Temperature     string
+	MissingData     bool
+	FeelsLike       string
+	Humidity        string
+	Wind            string
+	Precip          string
+	UV              string
+	Suggestion      string
+	Forecast        []weatherForecastDay
+	Hourly          []weatherForecastHour
+	Source          string
+	displayLocation *time.Location
 }
 
 type weatherForecastDay struct {
@@ -91,8 +90,9 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 		return Result{}, err
 	}
 	data := weatherCardDataFromPayload(payload)
+	data.displayLocation = h.weatherCardDisplayLocation(runID, payload.Timezone)
 	if strings.TrimSpace(data.UpdatedAt) == "" {
-		data.UpdatedAt = weatherCardNow().Format("2006-01-02 15:04")
+		data.UpdatedAt = weatherCardNow(data.displayLocation).Format("2006-01-02 15:04")
 	}
 	if strings.TrimSpace(data.Suggestion) == "" {
 		data.Suggestion = weatherSuggestion(data)
@@ -141,6 +141,29 @@ func (h *ToolHub) renderWeatherCard(ctx context.Context, args map[string]any, se
 		"summary":      fmt.Sprintf("%s天气卡片", data.Location),
 		"untrusted":    true,
 	}}, nil
+}
+
+func (h *ToolHub) weatherCardDisplayLocation(runID, payloadTimezone string) *time.Location {
+	if h != nil && h.store != nil {
+		if run, ok := h.store.GetRun(runID); ok && run.MessageContext != nil {
+			if location, ok := loadWeatherCardLocation(run.MessageContext.ClientTimezone); ok {
+				return location
+			}
+		}
+	}
+	if location, ok := loadWeatherCardLocation(payloadTimezone); ok {
+		return location
+	}
+	return time.Local
+}
+
+func loadWeatherCardLocation(value string) (*time.Location, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, false
+	}
+	location, err := time.LoadLocation(value)
+	return location, err == nil
 }
 
 func (h *ToolHub) writeMediaPNG(raw []byte, sessionID, prefix string) (string, string, error) {
@@ -269,12 +292,13 @@ func weatherSummaryLine(data weatherCardData, condition string) string {
 }
 
 func weatherTempRange(data weatherCardData) (string, string) {
-	date := weatherCardNow().Format("2006-01-02")
-	if reference, ok := weatherTimestamp(data.UpdatedAt); ok {
-		date = reference.In(weatherCardLocation).Format("2006-01-02")
+	location := weatherCardDataLocation(data)
+	date := weatherCardNow(location).Format("2006-01-02")
+	if reference, ok := weatherTimestamp(data.UpdatedAt, location); ok {
+		date = reference.In(location).Format("2006-01-02")
 	}
 	for _, day := range data.Forecast {
-		dayDate, ok := weatherForecastDate(day.Date)
+		dayDate, ok := weatherForecastDate(day.Date, location)
 		if !ok || dayDate != date {
 			continue
 		}
@@ -292,12 +316,13 @@ func weatherTempRange(data weatherCardData) (string, string) {
 	return "", ""
 }
 
-func weatherForecastDate(value string) (string, bool) {
+func weatherForecastDate(value string, location *time.Location) (string, bool) {
+	location = normalizedWeatherCardLocation(location)
 	value = strings.TrimSpace(value)
-	if parsed, ok := weatherTimestamp(value); ok {
-		return parsed.In(weatherCardLocation).Format("2006-01-02"), true
+	if parsed, ok := weatherTimestamp(value, location); ok {
+		return parsed.In(location).Format("2006-01-02"), true
 	}
-	if parsed, err := time.ParseInLocation("2006-01-02", value, weatherCardLocation); err == nil {
+	if parsed, err := time.ParseInLocation("2006-01-02", value, location); err == nil {
 		return parsed.Format("2006-01-02"), true
 	}
 	return "", false
@@ -340,17 +365,18 @@ type weatherForecastSlot struct {
 }
 
 func weatherForecastSlots(data weatherCardData, kind string) []weatherForecastSlot {
+	location := weatherCardDataLocation(data)
 	slots := []weatherForecastSlot{{
 		Label: "现在",
 		Temp:  data.Temperature,
 		Kind:  kind,
 		Rain:  data.Precip,
 	}}
-	for _, hour := range upcomingHourlyForecast(data.Hourly, data.UpdatedAt, 5) {
+	for _, hour := range upcomingHourlyForecast(data.Hourly, data.UpdatedAt, 5, location) {
 		if len(slots) >= 6 {
 			break
 		}
-		label := displayHourLabel(hour.Time)
+		label := displayHourLabel(hour.Time, location)
 		if label == "" {
 			continue
 		}
@@ -368,15 +394,15 @@ func weatherForecastSlots(data weatherCardData, kind string) []weatherForecastSl
 	return slots
 }
 
-func upcomingHourlyForecast(hours []weatherForecastHour, updatedAt string, limit int) []weatherForecastHour {
+func upcomingHourlyForecast(hours []weatherForecastHour, updatedAt string, limit int, location *time.Location) []weatherForecastHour {
 	if limit <= 0 || len(hours) == 0 {
 		return nil
 	}
-	referenceTime, hasReferenceTime := weatherTimestamp(updatedAt)
-	ref, hasRef := weatherReferenceMinute(updatedAt)
+	referenceTime, hasReferenceTime := weatherTimestamp(updatedAt, location)
+	ref, hasRef := weatherReferenceMinute(updatedAt, location)
 	out := []weatherForecastHour{}
 	for _, hour := range hours {
-		if forecastTime, ok := weatherTimestamp(hour.Time); ok && hasReferenceTime {
+		if forecastTime, ok := weatherTimestamp(hour.Time, location); ok && hasReferenceTime {
 			if !forecastTime.After(referenceTime) {
 				continue
 			}
@@ -398,13 +424,14 @@ func classifyConditionText(condition string) string {
 	return weatherConditionDisplayFor(condition).kind
 }
 
-func displayHourLabel(value string) string {
+func displayHourLabel(value string, location *time.Location) string {
+	location = normalizedWeatherCardLocation(location)
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
 	}
-	if parsed, ok := weatherTimestamp(value); ok {
-		return fmt.Sprintf("%d时", parsed.In(weatherCardLocation).Hour())
+	if parsed, ok := weatherTimestamp(value, location); ok {
+		return fmt.Sprintf("%d时", parsed.In(location).Hour())
 	}
 	if strings.Contains(value, ":") {
 		fields := strings.Fields(value)
@@ -426,21 +453,22 @@ func displayHourLabel(value string) string {
 	return value
 }
 
-func weatherReferenceMinute(value string) (int, bool) {
+func weatherReferenceMinute(value string, location *time.Location) (int, bool) {
+	location = normalizedWeatherCardLocation(location)
 	value = strings.TrimSpace(value)
 	if value == "" {
-		now := weatherCardNow()
+		now := weatherCardNow(location)
 		return now.Hour()*60 + now.Minute(), true
 	}
-	if parsed, ok := weatherTimestamp(value); ok {
-		local := parsed.In(weatherCardLocation)
+	if parsed, ok := weatherTimestamp(value, location); ok {
+		local := parsed.In(location)
 		return local.Hour()*60 + local.Minute(), true
 	}
 	for _, layout := range []string{
 		"15:04",
 		"3:04 PM",
 	} {
-		if parsed, err := time.ParseInLocation(layout, value, weatherCardLocation); err == nil {
+		if parsed, err := time.ParseInLocation(layout, value, location); err == nil {
 			return parsed.Hour()*60 + parsed.Minute(), true
 		}
 	}
@@ -453,13 +481,14 @@ func weatherReferenceMinute(value string) (int, bool) {
 	return 0, false
 }
 
-func weatherTimestamp(value string) (time.Time, bool) {
+func weatherTimestamp(value string, location *time.Location) (time.Time, bool) {
+	location = normalizedWeatherCardLocation(location)
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return time.Time{}, false
 	}
 	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-		return parsed.In(weatherCardLocation), true
+		return parsed.In(location), true
 	}
 	for _, layout := range []string{
 		"2006-01-02 15:04:05",
@@ -468,7 +497,7 @@ func weatherTimestamp(value string) (time.Time, bool) {
 		"2006-01-02T15:04:05",
 		"2006-01-02T15:04",
 	} {
-		if parsed, err := time.ParseInLocation(layout, value, weatherCardLocation); err == nil {
+		if parsed, err := time.ParseInLocation(layout, value, location); err == nil {
 			return parsed, true
 		}
 	}
@@ -927,7 +956,8 @@ func displayCondition(condition string) string {
 	return weatherConditionDisplayFor(condition).label
 }
 
-func displayUpdateTime(value string) string {
+func displayUpdateTime(value string, location *time.Location) string {
+	location = normalizedWeatherCardLocation(location)
 	value = strings.TrimSpace(value)
 	for _, layout := range []string{
 		"2006-01-02 15:04",
@@ -935,15 +965,15 @@ func displayUpdateTime(value string) string {
 		"15:04",
 		"3:04 PM",
 	} {
-		if parsed, err := time.ParseInLocation(layout, value, weatherCardLocation); err == nil {
+		if parsed, err := time.ParseInLocation(layout, value, location); err == nil {
 			return parsed.Format("15:04")
 		}
 	}
 	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-		return parsed.In(weatherCardLocation).Format("15:04")
+		return parsed.In(location).Format("15:04")
 	}
 	if value == "" {
-		return weatherCardNow().Format("15:04")
+		return weatherCardNow(location).Format("15:04")
 	}
 	fields := strings.Fields(value)
 	if len(fields) > 0 {
@@ -955,16 +985,19 @@ func displayUpdateTime(value string) string {
 	return value
 }
 
-func weatherCardNow() time.Time {
-	return time.Now().In(weatherCardLocation)
+func weatherCardNow(location *time.Location) time.Time {
+	return time.Now().In(normalizedWeatherCardLocation(location))
 }
 
-func mustWeatherCardLocation() *time.Location {
-	loc, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		return time.FixedZone("Asia/Shanghai", 8*60*60)
+func weatherCardDataLocation(data weatherCardData) *time.Location {
+	return normalizedWeatherCardLocation(data.displayLocation)
+}
+
+func normalizedWeatherCardLocation(location *time.Location) *time.Location {
+	if location == nil {
+		return time.Local
 	}
-	return loc
+	return location
 }
 
 func classifyWeatherKind(data weatherCardData) string {

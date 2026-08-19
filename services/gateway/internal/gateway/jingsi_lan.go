@@ -239,7 +239,7 @@ func (s *Server) postJingSiMessageStream(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	ingress, err := s.webMessageIngress(r.Context(), r, session, "")
+	ingress, err := s.webMessageIngress(r.Context(), r, session, "", "")
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("Web message ingress is unavailable"))
 		return

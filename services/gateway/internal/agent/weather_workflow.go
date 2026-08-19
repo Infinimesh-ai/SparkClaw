@@ -17,7 +17,7 @@ var (
 type browserWeatherProfile struct{}
 
 func (browserWeatherProfile) ID() app.WorkflowID           { return app.WorkflowBrowserWeather }
-func (browserWeatherProfile) Revision() int                { return 2 }
+func (browserWeatherProfile) Revision() int                { return 3 }
 func (browserWeatherProfile) Capability() app.CapabilityID { return app.CapabilityBrowserWeather }
 func (browserWeatherProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
@@ -154,6 +154,16 @@ func (p browserWeatherProfile) Resolve(route app.RouteDecision, sourceTurnID str
 
 func (browserWeatherProfile) Prepare(*app.WorkflowState) (workflowPreparation, error) {
 	return workflowPreparation{}, nil
+}
+
+func (browserWeatherProfile) DirectStage(state *app.WorkflowState) bool {
+	return state != nil && state.Plan.ProfileRevision >= 3
+}
+
+func (browserWeatherProfile) alwaysDirectWorkflowProfile() {}
+
+func (browserWeatherProfile) DirectStageArguments(*app.WorkflowState) map[string]any {
+	return nil
 }
 
 func (browserWeatherProfile) Assess(state *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {

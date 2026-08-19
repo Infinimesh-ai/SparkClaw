@@ -1,6 +1,7 @@
 // Pure formatting/parsing helpers shared by App and the panel components.
 import type { ArtifactObject, ModelCall, NotificationBinding, PublicConfig } from "../api/types";
 import type { Copy, Language } from "../i18n";
+import { clientTimezone } from "./timezone";
 
 export type DocumentUsage = {
   count: number;
@@ -213,15 +214,32 @@ export function formatLatency(calls: ModelCall[] | undefined, text: Copy) {
   return `${Math.round(total / calls.length)} ms ${text.units.avg}`;
 }
 
-export function formatTime(value: string, language: Language) {
-  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+export function formatTime(value: string, language: Language, timezone = clientTimezone()) {
+  const options: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(timezone ? { timeZone: timezone } : {})
+  };
+  try {
+    return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", options).format(new Date(value));
+  } catch {
+    delete options.timeZone;
+    return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", options).format(new Date(value));
+  }
 }
 
-export function formatDateTime(value: string, language: Language) {
-  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+export function formatDateTime(value: string, language: Language, timezone = clientTimezone()) {
+  const options: Intl.DateTimeFormatOptions = {
     month: "short",
     day: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
+    minute: "2-digit",
+    ...(timezone ? { timeZone: timezone } : {})
+  };
+  try {
+    return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", options).format(new Date(value));
+  } catch {
+    delete options.timeZone;
+    return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", options).format(new Date(value));
+  }
 }

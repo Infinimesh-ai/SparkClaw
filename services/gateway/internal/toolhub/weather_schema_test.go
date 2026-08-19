@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
@@ -107,7 +108,14 @@ func TestRenderWeatherCardCreatesMediaPNGFromDedicatedLookup(t *testing.T) {
 	}
 	session := st.CreateSessionWithScope("weather", app.DefaultOwnerID, root, "web", false)
 	runID := "run_weather"
+	st.SaveRun(app.AgentRun{
+		ID: runID, SessionID: session.ID,
+		MessageContext: &app.MessageRunContext{ClientTimezone: "America/New_York"},
+	})
 	hub := New(cfg, st).WithWeatherInfoAdapter(&weatherInfoStub{response: dedicatedWeatherResponse()})
+	if got := hub.weatherCardDisplayLocation(runID, "Asia/Shanghai").String(); got != "America/New_York" {
+		t.Fatalf("weather display timezone = %q; want client timezone", got)
+	}
 	lookup, err := hub.Execute(context.Background(), "weather.lookup", map[string]any{"location": "杭州"}, session.ID, runID)
 	if err != nil {
 		t.Fatal(err)
@@ -257,9 +265,10 @@ func TestWeatherForecastSlotsFilterPastHours(t *testing.T) {
 
 func TestWeatherForecastSlotsSupportCrossMidnightTimestampsAndCapAtFive(t *testing.T) {
 	slots := weatherForecastSlots(weatherCardData{
-		Temperature: "30°C",
-		Condition:   "Cloudy",
-		UpdatedAt:   "2026-07-17T23:30:00+08:00",
+		Temperature:     "30°C",
+		Condition:       "Cloudy",
+		UpdatedAt:       "2026-07-17T23:30:00+08:00",
+		displayLocation: time.FixedZone("Asia/Shanghai", 8*60*60),
 		Hourly: []weatherForecastHour{
 			{Time: "2026-07-17 23:00", Temp: "30°C", Condition: "Cloudy"},
 			{Time: "2026-07-18 00:00", Temp: "29°C", Condition: "Cloudy"},
@@ -284,8 +293,9 @@ func TestWeatherForecastSlotsSupportCrossMidnightTimestampsAndCapAtFive(t *testi
 
 func TestWeatherTempRangeHidesConflictingRange(t *testing.T) {
 	low, high := weatherTempRange(weatherCardData{
-		Temperature: "35°C",
-		UpdatedAt:   "2026-07-17T10:00:00+08:00",
+		Temperature:     "35°C",
+		UpdatedAt:       "2026-07-17T10:00:00+08:00",
+		displayLocation: time.FixedZone("Asia/Shanghai", 8*60*60),
 		Forecast: []weatherForecastDay{
 			{Date: "2026-07-17", MinTemp: "24°C", MaxTemp: "31°C"},
 		},
@@ -295,8 +305,9 @@ func TestWeatherTempRangeHidesConflictingRange(t *testing.T) {
 	}
 
 	low, high = weatherTempRange(weatherCardData{
-		Temperature: "28°C",
-		UpdatedAt:   "2026-07-17T10:00:00+08:00",
+		Temperature:     "28°C",
+		UpdatedAt:       "2026-07-17T10:00:00+08:00",
+		displayLocation: time.FixedZone("Asia/Shanghai", 8*60*60),
 		Forecast: []weatherForecastDay{
 			{Date: "2026-07-18", MinTemp: "25°C", MaxTemp: "36°C"},
 			{Date: "2026-07-17", MinTemp: "24°C", MaxTemp: "35°C"},
@@ -306,22 +317,32 @@ func TestWeatherTempRangeHidesConflictingRange(t *testing.T) {
 		t.Fatalf("valid range should render, got %q/%q", low, high)
 	}
 
-	low, high = weatherTempRange(weatherCardData{Temperature: "28°C", FeelsLike: "31°C", UpdatedAt: "2026-07-17T10:00:00+08:00"})
+	low, high = weatherTempRange(weatherCardData{
+		Temperature: "28°C", FeelsLike: "31°C", UpdatedAt: "2026-07-17T10:00:00+08:00",
+		displayLocation: time.FixedZone("Asia/Shanghai", 8*60*60),
+	})
 	if low != "" || high != "" {
 		t.Fatalf("missing daily range must not fall back to current/feels-like values, got %q/%q", low, high)
 	}
 }
 
-func TestWeatherReferenceMinuteUsesBeijingTime(t *testing.T) {
-	minute, ok := weatherReferenceMinute("2026-07-03T09:04:00Z")
+func TestWeatherTimeDisplaysUseClientTimezone(t *testing.T) {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	minute, ok := weatherReferenceMinute("2026-07-03T09:04:00Z", location)
 	if !ok {
 		t.Fatal("expected RFC3339 updated_at to parse")
 	}
-	if minute != 17*60+4 {
-		t.Fatalf("weatherReferenceMinute RFC3339 = %d; want Beijing 17:04", minute)
+	if minute != 5*60+4 {
+		t.Fatalf("weatherReferenceMinute RFC3339 = %d; want New York 05:04", minute)
 	}
 
-	if got := displayUpdateTime("2026-07-03T09:04:00Z"); got != "17:04" {
-		t.Fatalf("displayUpdateTime RFC3339 = %q; want Beijing 17:04", got)
+	if got := displayUpdateTime("2026-07-03T09:04:00Z", location); got != "05:04" {
+		t.Fatalf("displayUpdateTime RFC3339 = %q; want New York 05:04", got)
+	}
+	if got := displayHourLabel("2026-07-03T09:04:00Z", location); got != "5时" {
+		t.Fatalf("displayHourLabel RFC3339 = %q; want New York 5时", got)
 	}
 }

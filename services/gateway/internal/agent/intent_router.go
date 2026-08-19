@@ -84,8 +84,13 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
+	clientTimezone := ""
+	run, hasRun := r.store.GetRun(runID)
+	if hasRun && run.MessageContext != nil {
+		clientTimezone = run.MessageContext.ClientTimezone
+	}
 	var documents documentContextResolution
-	if run, ok := r.store.GetRun(runID); ok && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
+	if hasRun && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP) {
 		documents = resolveExternalMCPDocumentContext(groundingContent, resources)
 	} else {
 		documents = r.resolveDocumentContext(sessionID, runID, groundingContent, resources)
@@ -129,7 +134,7 @@ func (r Runtime) routeIntentWithRequest(ctx context.Context, sessionID, runID, o
 	}
 	decision = enforceDeliveryFusionBoundary(decision, delivery)
 	fusion := persistedIntentFusion(r.semanticRouter, channels, decision)
-	route, err := r.routeFromFusionDecision(content, grounding, decision)
+	route, err := r.routeFromFusionDecision(content, grounding, decision, clientTimezone)
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}

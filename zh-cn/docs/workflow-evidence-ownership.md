@@ -283,7 +283,8 @@ claim 不会产生另一个 assertion。Semantic verdict 是 decision event；�
 | 文档 | Document ID、冻结的受治理 path、format、source hash、稳定 block/paragraph/cell/row/slide/shape/page locator、package feature gate、parent lineage | 当前调用所需的 candidate 周围文本/结构、eligible editor 描述或内容生成上下文；绝不接收自由生成的替代 locator |
 | 浏览器 | Profile/tab、规范 URL、hidden/visible mode、session/page generation、settled snapshot digest、control ref membership、transition before/after digest | 当前 goal/control/tool 判断所需的有界 rendered text、control label/state 和 opaque candidate ref；不接收 generation/digest 转录任务 |
 | 定时任务与消息 | Owner-scoped record ID、version、endpoint、return route、idempotency key、CAS result、delivery receipt | 只有 owner 表述导致 target 歧义时才提供 candidate label 或 content |
-| 外部 MCP 与 coding agent | 配置的 endpoint identity、credential scope snapshot、catalog revision、namespaced entry ID、remote object ID/version、mutation class | 有界 eligible operation/object 描述和不可信 returned content |
+| 通用外部 MCP 与 coding agent | 配置的 endpoint identity、credential scope snapshot、catalog revision、namespaced entry ID、remote object ID/version、mutation class | 有界 eligible operation/object 描述和不可信 returned content |
+| LocalMind task | 配置的 endpoint identity、固定 contract revision、task ID、state version 和内部生成的 idempotency key | LocalMind Workflow 规划前不向模型提供；直接工具结果仍是有界、不可信数据 |
 | 搜索与天气 | Provider、request/result ID、query binding、source URL、observation time、response/card status | 比较、综合或解释所需的 result snippet 或 payload fact |
 | Artifact 与 multipart message | Session ownership、artifact URI/key、media kind、digest、ordered part index、governed source message | 解释所需的 content；ordering 与 ownership 绝不依赖模型输出 |
 

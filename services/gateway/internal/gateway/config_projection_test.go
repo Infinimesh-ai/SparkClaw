@@ -47,8 +47,8 @@ func TestPublicMCPConfigOmitsCredentialEnvironmentReferences(t *testing.T) {
 	servers := map[string]config.MCPServerConfig{
 		"localmind": {
 			Transport: "streamable-http", URLEnv: "VERY_PRIVATE_LOCALMIND_URL_ENV", BearerTokenEnv: "VERY_PRIVATE_LOCALMIND_TOKEN_ENV",
-			Namespace: "localmind", ExpectedServerName: "localmind-workspace", ProtocolVersion: "2025-06-18",
-			AllowMutations: true, ToolAllow: []string{"read_document"},
+			Namespace: "localmind", ExpectedServerName: "localmind-ai", ProtocolVersion: "2025-06-18",
+			AllowMutations: true,
 		},
 		"happy-tasks": {
 			URL: "https://private-happy.example.test/mcp", TokenEnv: "VERY_PRIVATE_HAPPY_TOKEN_ENV",
@@ -64,8 +64,12 @@ func TestPublicMCPConfigOmitsCredentialEnvironmentReferences(t *testing.T) {
 		strings.Contains(text, "url_env") || strings.Contains(text, "bearer_token_env") || strings.Contains(text, "token_env") {
 		t.Fatalf("public MCP config exposed an endpoint or credential reference: %s", text)
 	}
-	if !strings.Contains(text, `"configured":true`) || !strings.Contains(text, `"allow_mutations":true`) {
+	if !strings.Contains(text, `"configured":true`) || !strings.Contains(text, `"task_contract":"localmind.task.v1"`) {
 		t.Fatalf("public MCP config omitted safe status fields: %s", text)
+	}
+	localMindRaw, _ := json.Marshal(publicMCPServersConfig(servers)["localmind"])
+	if strings.Contains(string(localMindRaw), "allow_mutations") || strings.Contains(string(localMindRaw), "tool_allow") || strings.Contains(string(localMindRaw), "tool_deny") {
+		t.Fatalf("public LocalMind config retained obsolete catalog controls: %s", localMindRaw)
 	}
 }
 

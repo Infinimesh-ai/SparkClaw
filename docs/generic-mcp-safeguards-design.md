@@ -5,14 +5,20 @@
 > Status: implemented for
 > [issue #10](https://github.com/Infinimesh-ai/SparkClaw/issues/10) with the
 > secure defaults recorded under Resolved Decisions.
+>
+> LocalMind contract update (2026-08-19): LocalMind no longer discovers or
+> translates remote catalogs and no longer uses `internal/mcptools`. Its fixed
+> three-tool task adapter retains the shared `internal/mcpsafety` projection and
+> approval-persistence guard. LocalMind discovery/filter/translation details
+> below are retained only as issue #10 history and are superseded by
+> [External integrations](integrations.md).
 
 ## Decision Summary
 
-The generic external MCP client and the LocalMind workspace MCP client use
-the same safeguards for remote tool visibility, tool-definition translation,
-result redaction and bounded state/archive projection, and approval-argument
-persistence. Provider adapters may add narrower capability qualifiers and
-execution behavior, but they may not weaken these shared safeguards.
+The generic external MCP client owns remote catalog filtering and translation.
+Generic and LocalMind clients share result redaction, bounded state/archive
+projection, and approval-argument persistence. Provider adapters may add
+narrower behavior but may not weaken those shared safeguards.
 
 Two dependency-safe owner packages enforce that contract:
 
@@ -21,9 +27,10 @@ Two dependency-safe owner packages enforce that contract:
 | `internal/mcptools` | Normalize remote tool metadata, apply allow/deny and mutation policy, classify risk/effects, and translate one discovered MCP tool into an `app.ToolDefinition`. |
 | `internal/mcpsafety` | Detect sensitive keys, bearer values, signed URLs, and large base64 payloads; build redacted, byte-bounded state and archive projections; reject unsafe approval arguments. |
 
-`mcpintegration`, `localmind`, and `agent` consume these packages. Neither
-shared package imports an adapter, Gateway handler, Store implementation, or
-Agent runtime, so the existing dependency direction remains intact.
+`mcpintegration` consumes both packages; `localmind` consumes only
+`mcpsafety`; `agent` consumes the approval guard. Neither shared package imports
+an adapter, Gateway handler, Store implementation, or Agent runtime, so the
+existing dependency direction remains intact.
 
 ## Problem And Threat Model
 
@@ -80,8 +87,9 @@ credentials into durable state, or create unbounded persisted observations.
 
 Generic `mcp_servers.<name>` entries accept the existing fields
 `allow_mutations`, `tool_allow`, and `tool_deny`. Normalization and conflict
-validation are identical to LocalMind. Filters refer to the remote MCP tool
-name, before namespace translation.
+validation apply only to generic servers. Filters refer to the remote MCP tool
+name, before namespace translation. LocalMind rejects these fields because its
+three-tool contract is fixed.
 
 Example generic shape:
 
@@ -128,8 +136,9 @@ Adapters still own:
 - timeout exceptions such as Happy's `wait_for_idle`;
 - the execution closure, refresh/retry policy, and coded transport errors.
 
-The LocalMind capability snapshot remains a stronger, provider-specific scope
-check. The generic path does not synthesize a LocalMind workspace scope.
+LocalMind instead validates the exact `localmind-ai` delegate/get/cancel schemas
+before atomically registering its three fixed wrappers. The generic path does
+not synthesize a LocalMind task contract.
 
 ## Shared Result Projection
 

@@ -23,7 +23,6 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 		{"document", "document.read"},
 		{"document", "document.edit"},
 		{"schedule", "schedule.manage"},
-		{"external_mcp", "external_mcp.workspace"},
 	}
 	for _, path := range paths {
 		leaf, err := catalog.ResolveLeaf(path)
@@ -47,7 +46,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 			wantRevision = app.BrowserWorkflowRevision3
 		}
 		if leaf.ID == app.CapabilityBrowserInternetSearch || leaf.ID == app.CapabilityBrowserWeather ||
-			leaf.ID == app.CapabilityBrowserFormDraft || leaf.ID == app.CapabilityExternalMCPWorkspace {
+			leaf.ID == app.CapabilityBrowserFormDraft {
 			wantRevision = 2
 		}
 		if leaf.Workflow == nil || app.CapabilityID(leaf.Workflow.ID) != leaf.ID || leaf.Workflow.Revision != wantRevision {

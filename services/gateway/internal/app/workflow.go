@@ -11,7 +11,6 @@ const (
 	CapabilityDocumentEdit          CapabilityID = "document.edit"
 	CapabilityScheduleManage        CapabilityID = "schedule.manage"
 	CapabilityCodingAgentManage     CapabilityID = "coding.agent_manage"
-	CapabilityExternalMCPWorkspace  CapabilityID = "external_mcp.workspace"
 )
 
 type IntentDomain string
@@ -141,7 +140,6 @@ const (
 	WorkflowDocumentEdit          WorkflowID = "document.edit"
 	WorkflowScheduleManage        WorkflowID = "schedule.manage"
 	WorkflowCodingAgentManage     WorkflowID = "coding.agent_manage"
-	WorkflowExternalMCPWorkspace  WorkflowID = "external_mcp.workspace"
 
 	WorkflowBrowserSearch       = WorkflowBrowserInternetSearch
 	WorkflowDocumentInformation = WorkflowDocumentRead
@@ -191,7 +189,6 @@ const (
 	ToolCapabilityScheduleManage            = "schedule.manage"
 	ToolCapabilityObservationRead           = "observation.read"
 	ToolWorkspaceDataAccess                 = "workspace.data.access"
-	ToolCapabilityExternalMCPDiscovery      = "external.mcp.discovery"
 	ToolCapabilityExternalMCPWorkspace      = "external.mcp.workspace"
 
 	CapabilityQualifierFormat           = "format"

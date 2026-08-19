@@ -323,9 +323,7 @@ func TestLoadNormalizesLocalMindMCPServer(t *testing.T) {
   "mcp_servers": {
     "localmind": {
       "url_env": "LOCALMIND_MCP_URL",
-      "bearer_token_env": "LOCALMIND_MCP_TOKEN",
-      "tool_allow": ["keyword_search", "keyword_search", " read_document "],
-      "tool_deny": ["delete_workspace"]
+      "bearer_token_env": "LOCALMIND_MCP_TOKEN"
     }
   }
 }`), 0o644); err != nil {
@@ -348,9 +346,8 @@ func TestLoadNormalizesLocalMindMCPServer(t *testing.T) {
 		server.ArchiveOutputMaxBytes != 16<<20 || server.RefreshIntervalSeconds != 300 {
 		t.Fatalf("LocalMind bounds missing: %#v", server)
 	}
-	if !slices.Equal(server.ToolAllow, []string{"keyword_search", "read_document"}) ||
-		!slices.Equal(server.ToolDeny, []string{"delete_workspace"}) {
-		t.Fatalf("LocalMind tool filters were not normalized: %#v", server)
+	if len(server.ToolAllow) != 0 || len(server.ToolDeny) != 0 {
+		t.Fatalf("LocalMind retained obsolete tool filters: %#v", server)
 	}
 }
 
@@ -365,7 +362,8 @@ func TestLoadRejectsInvalidLocalMindMCPServer(t *testing.T) {
 		{name: "environment reference", server: `"localmind":{"url_env":"https://localmind.test","bearer_token_env":"TOKEN"}`, want: "environment variable names"},
 		{name: "protocol", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","protocol_version":"2024-11-05"}`, want: LocalMindMCPProtocolVersion},
 		{name: "server name", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","expected_server_name":"wrong"}`, want: LocalMindMCPServerName},
-		{name: "filter conflict", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","tool_allow":["read_document"],"tool_deny":["read_document"]}`, want: "both allowed and denied"},
+		{name: "obsolete filters", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","tool_allow":["read_document"]}`, want: "not supported"},
+		{name: "obsolete mutation switch", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","allow_mutations":true}`, want: "allow_mutations"},
 		{name: "response bound", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","max_response_bytes":33554433}`, want: "max_response_bytes"},
 		{name: "refresh bound", server: `"localmind":{"url_env":"URL","bearer_token_env":"TOKEN","refresh_interval_seconds":29}`, want: "refresh_interval_seconds"},
 	} {

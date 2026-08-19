@@ -3051,17 +3051,22 @@ func publicGatewayConfig(cfg config.GatewayConfig) config.GatewayConfig {
 func publicMCPServersConfig(servers map[string]config.MCPServerConfig) map[string]any {
 	out := map[string]any{}
 	for name, server := range servers {
-		out[name] = map[string]any{
+		projected := map[string]any{
 			"configured":           true,
 			"transport":            server.Transport,
 			"namespace":            server.Namespace,
 			"expected_server_name": server.ExpectedServerName,
 			"protocol_version":     server.ProtocolVersion,
-			"allow_mutations":      server.AllowMutations,
 			"allow_private_http":   server.AllowPrivateHTTP,
-			"tool_allow":           append([]string(nil), server.ToolAllow...),
-			"tool_deny":            append([]string(nil), server.ToolDeny...),
 		}
+		if name == config.LocalMindMCPServerKey {
+			projected["task_contract"] = "localmind.task.v1"
+		} else {
+			projected["allow_mutations"] = server.AllowMutations
+			projected["tool_allow"] = append([]string(nil), server.ToolAllow...)
+			projected["tool_deny"] = append([]string(nil), server.ToolDeny...)
+		}
+		out[name] = projected
 	}
 	return out
 }

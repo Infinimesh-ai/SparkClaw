@@ -243,8 +243,6 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		scheduleManageProfile{},
 		legacyWorkflowProfile{workflowProfile: codingAgentManageProfile{}, revision: 1},
 		codingAgentManageProfile{},
-		legacyWorkflowProfile{workflowProfile: externalMCPWorkspaceProfile{}, revision: 1},
-		externalMCPWorkspaceProfile{},
 	)
 }
 

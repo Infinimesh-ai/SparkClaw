@@ -323,12 +323,11 @@ LOCALMIND_MCP_URL=https://localmind.example/api/workspaces/<workspace-id>/mcp
 LOCALMIND_MCP_TOKEN=<workspace-bound-token>
 ```
 
-`docker/compose.yaml` forwards both variables to Gateway, but the empty
-`mcp_servers` default means environment values alone do not enable the
-integration. Keep the token out of committed configuration and use a read-only
-LocalMind credential first. Restart Gateway after changing the JSON entry; it
-performs an initial scope discovery and then refreshes it at the configured
-interval.
+`docker/compose.yaml` forwards both variables to Gateway. The shipped LocalMind
+entry is inert while either value is empty. Keep the token out of committed
+configuration. Restart Gateway after changing the JSON entry; it validates the
+fixed server identity and exact three-tool task contract, then repeats that
+refresh at the configured interval.
 
 For a host LocalMind reached from containerized Gateway, replace `localhost`
 with `host.docker.internal`. A LocalMind service attached to

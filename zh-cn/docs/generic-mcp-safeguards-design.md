@@ -4,12 +4,17 @@
 
 > 状态：[issue #10](https://github.com/Infinimesh-ai/SparkClaw/issues/10) 已按
 > Resolved Decisions 中记录的安全默认值实现。
+>
+> LocalMind contract 更新（2026-08-19）：LocalMind 不再发现或转换远端 catalog，也不再使用
+> `internal/mcptools`。固定三工具 task adapter 只保留共享 `internal/mcpsafety` 投影与 approval
+> persistence guard。下文涉及 LocalMind discovery/filter/translation 的内容仅保留为 issue #10
+> 历史，并由[外部集成](integrations.md)取代。
 
 ## 决策摘要
 
-通用 external MCP client 与 LocalMind workspace MCP client 共同使用一套远端 tool 可见性、
-ToolDefinition 转换、结果脱敏和有界 state/archive 投影，以及 approval argument 持久化防护。
-Provider adapter 可以增加更窄的 capability qualifier 和执行行为，但不能削弱这些共享防护。
+通用 external MCP client 负责远端 catalog filter 与 translation。通用和 LocalMind client 共享结果
+脱敏、有界 state/archive 投影及 approval argument 持久化防护。Provider adapter 可以增加更窄
+的行为，但不能削弱这些共享防护。
 
 两个保持依赖方向的 owner package 执行该契约：
 
@@ -18,8 +23,9 @@ Provider adapter 可以增加更窄的 capability qualifier 和执行行为，�
 | `internal/mcptools` | 规范化远端 tool metadata，应用 allow/deny 与 mutation policy，分类 risk/effect，并把一个已发现 MCP tool 转为 `app.ToolDefinition`。 |
 | `internal/mcpsafety` | 检测敏感 key、Bearer 值、签名 URL 和大段 base64；生成脱敏且有字节上限的 state/archive 投影；拒绝不安全的 approval argument。 |
 
-`mcpintegration`、`localmind` 和 `agent` 使用这些 package。共享 package 均不导入 adapter、
-Gateway handler、Store 实现或 Agent runtime，因此不会破坏现有依赖方向。
+`mcpintegration` 使用两个 package，`localmind` 只使用 `mcpsafety`，`agent` 使用 approval guard。
+共享 package 均不导入 adapter、Gateway handler、Store 实现或 Agent runtime，因此不会破坏
+现有依赖方向。
 
 ## 问题与威胁模型
 
@@ -61,7 +67,8 @@ Gateway handler、Store 实现或 Agent runtime，因此不会破坏现有依赖
 ## 配置契约
 
 通用 `mcp_servers.<name>` entry 接受已有字段 `allow_mutations`、`tool_allow` 与 `tool_deny`。
-其规范化和冲突校验与 LocalMind 完全一致。Filter 在 namespace 转换前匹配 remote MCP tool name。
+其规范化和冲突校验只适用于通用 server。Filter 在 namespace 转换前匹配 remote MCP tool name；
+LocalMind 因三工具 contract 固定而拒绝这些字段。
 
 建议的通用配置示例：
 
@@ -105,8 +112,8 @@ Adapter 仍负责：
 - Happy `wait_for_idle` 等 timeout 特例；
 - execution closure、refresh/retry policy 与 coded transport error。
 
-LocalMind capability snapshot 仍是更强的 provider-specific scope check。通用路径不会伪造 LocalMind
-workspace scope。
+LocalMind 改为先校验 `localmind-ai` 的 delegate/get/cancel 精确 schema，再原子注册三个固定
+wrapper。通用路径不会伪造 LocalMind task contract。
 
 ## 共享结果投影
 

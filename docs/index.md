@@ -27,13 +27,13 @@ documentation tree.
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
 | [Browser runtime](browser-runtime.md) | agent-browser transport, managed Chromium profiles, browser Workflow boundaries, and security |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
-| [External integrations](integrations.md) | Telegram, Weixin, speech transcription, and Infinimesh Info |
+| [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [WebChat voice input design](webchat-voice-input-design.md) | Phase 1 stable capture loop and Phase 2 native record-time ASR, partial/final reconciliation, silence stop, and batch fallback design; LLM polish deferred to Phase 3 |
 | [WebChat voice Phase 2 design](webchat-voice-phase2-design.md) | Normative native record-time Qwen ASR transport, revisioned partial/final output, silence auto-stop, complete-WAV fallback, and acceptance gates |
 | [JingSi LAN Web client connection](jingsi-lan-connection-design.md) | SparkClaw side implemented for one server-bound WebChat session, text send, and filtered realtime/catch-up message projection on a dedicated allowlisted LAN port; JingSi client work and physical validation remain pending |
 | [ISCP Bridge](iscp-bridge.md) | Current shared Bridge; LocalMind use is legacy, while JingSi use remains until its direct-LAN client and physical validation are complete |
 | [Unified third-party ISCP MCP access](unified-third-party-access-design.md) | Implemented local Route MCP runtime with separate ISCP pairing and SparkClaw MCP access tickets; production provisioning, external gateway validation, and LocalMind legacy removal remain pending; JingSi excluded |
-| [Generic external MCP safeguards](generic-mcp-safeguards-design.md) | Implemented shared tool filtering/classification, bounded redacted results, and approval persistence across generic and LocalMind MCP clients |
+| [Generic external MCP safeguards](generic-mcp-safeguards-design.md) | Generic catalog filtering/classification plus bounded redacted results and approval persistence shared with the fixed LocalMind task adapter |
 | [Per-owner connector activation](connector-owner-runtime-design.md) | Accepted issue #13 design for owner-isolated settings, shared channel workers, cache coherence, drain semantics, and restart reconciliation |
 | [WebChat](webchat.md) | Owner workbench responsibilities, API ownership, refresh model, and frontend verification |
 

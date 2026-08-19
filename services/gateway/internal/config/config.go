@@ -21,7 +21,7 @@ const DefaultBrowserDaemonIdleTimeoutMS = 20 * 60 * 1000
 
 const (
 	LocalMindMCPServerKey          = "localmind"
-	LocalMindMCPServerName         = "localmind-workspace"
+	LocalMindMCPServerName         = "localmind-ai"
 	LocalMindMCPProtocolVersion    = "2025-06-18"
 	LocalMindMCPDefaultNamespace   = "localmind"
 	LocalMindMCPDefaultMaxResponse = int64(16 << 20)
@@ -807,12 +807,11 @@ func normalizeLocalMindMCPServer(name string, server MCPServerConfig) (MCPServer
 	if server.ProtocolVersion != LocalMindMCPProtocolVersion {
 		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s.protocol_version must be %q", name, LocalMindMCPProtocolVersion)
 	}
-	server.ToolAllow = normalizeStringSet(server.ToolAllow)
-	server.ToolDeny = normalizeStringSet(server.ToolDeny)
-	for _, allowed := range server.ToolAllow {
-		if slicesContains(server.ToolDeny, allowed) {
-			return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s tool %q cannot be both allowed and denied", name, allowed)
-		}
+	if len(server.ToolAllow) != 0 || len(server.ToolDeny) != 0 {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s tool_allow and tool_deny are not supported by the fixed LocalMind task contract", name)
+	}
+	if server.AllowMutations {
+		return MCPServerConfig{}, fmt.Errorf("mcp_servers.%s allow_mutations is not supported by the fixed LocalMind task contract", name)
 	}
 	if server.RequestTimeoutSeconds <= 0 {
 		server.RequestTimeoutSeconds = defaults.RequestTimeoutSeconds

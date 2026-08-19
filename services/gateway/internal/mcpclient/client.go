@@ -141,11 +141,14 @@ func (c *Client) ListTools(ctx context.Context, cursor string) (ToolList, error)
 }
 
 func (c *Client) CallTool(ctx context.Context, remoteName string, args map[string]any) (ToolResult, error) {
+	return c.CallToolWithTimeout(ctx, remoteName, args, c.toolCallTimeout(remoteName, args))
+}
+
+func (c *Client) CallToolWithTimeout(ctx context.Context, remoteName string, args map[string]any, timeout time.Duration) (ToolResult, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
 	var result ToolResult
-	timeout := c.toolCallTimeout(remoteName, args)
 	err := c.request(ctx, "tools/call", map[string]any{"name": remoteName, "arguments": args}, &result, timeout)
 	return result, err
 }

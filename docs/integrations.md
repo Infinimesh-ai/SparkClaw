@@ -25,9 +25,9 @@ commands live in [Deployment](deployment.md).
 
 ## LocalMind Workspace MCP
 
-LocalMind is an optional workspace-scoped MCP integration and ships disabled.
-Enable it by adding the fixed `localmind` entry to the Gateway configuration;
-the default configuration keeps `mcp_servers` empty:
+LocalMind is an optional workspace-scoped MCP integration. The shipped
+configuration contains its fixed environment references, but the integration
+remains disabled until both referenced values are present:
 
 ```json
 {
@@ -37,12 +37,9 @@ the default configuration keeps `mcp_servers` empty:
       "url_env": "LOCALMIND_MCP_URL",
       "bearer_token_env": "LOCALMIND_MCP_TOKEN",
       "namespace": "localmind",
-      "expected_server_name": "localmind-workspace",
+      "expected_server_name": "localmind-ai",
       "protocol_version": "2025-06-18",
-      "allow_mutations": false,
-      "allow_private_http": false,
-      "tool_allow": [],
-      "tool_deny": []
+      "allow_private_http": false
     }
   }
 }
@@ -50,26 +47,30 @@ the default configuration keeps `mcp_servers` empty:
 
 Set `LOCALMIND_MCP_URL` to the exact
 `/api/workspaces/<workspace-id>/mcp` endpoint and set
-`LOCALMIND_MCP_TOKEN` to a credential bound to that workspace. Start with a
-read-only LocalMind credential and leave `allow_mutations` false. URL and token
+`LOCALMIND_MCP_TOKEN` to a credential bound to that workspace. URL and token
 values are resolved from the environment at every refresh, omitted from public
-Gateway configuration, and never accepted from an owner utterance. `tool_allow`
-and `tool_deny` can only reduce the credential-visible catalog.
+Gateway configuration, and never accepted from an owner utterance. The fixed
+task contract has no `allow_mutations`, `tool_allow`, or `tool_deny` setting.
 
 Gateway initializes through the shared MCP 2025-06-18 Streamable HTTP client,
-verifies `localmind-workspace`, discovers the credential scope, and atomically
-refreshes namespaced `localmind.*` ToolHub entries. The model sees at most 16
-matching directory entries and only the selected tool's full schema. Read-only
-operations require no approval. Every mutation requires owner approval;
-destructive or open-world operations additionally require deep verification.
-Remote execution remains subject to LocalMind authorization, DLP, and audit and
-is never represented as running in SparkClaw's local sandbox.
+verifies `localmind-ai`, rejects Resources and any catalog other than the exact
+three-tool task contract, and atomically registers exactly three SparkClaw
+tools: `localmind.task.delegate`, `localmind.task.get`, and
+`localmind.task.cancel`. Delegate and cancel are conservatively dangerous,
+approval-gated remote effects; get is read-only. Remote execution remains
+subject to LocalMind authorization, DLP, and audit and is never represented as
+running in SparkClaw's local sandbox.
 
-Canonical results come from `structuredContent.result`; MCP `isError` remains a
-failed tool call. Text fallback, Resources, and archived large results are
-bounded and treated as untrusted evidence. Authentication or scope changes
-trigger a fresh discovery. Reads may retry once after a successful refresh,
-while mutations are never replayed automatically.
+Each wrapper requires a `localmind.task.v1` value in
+`structuredContent.result`; MCP `isError` remains a failed tool call. Delegate
+and cancel idempotency keys are generated inside SparkClaw, while get supports
+the protocol's bounded `knownStateVersion`/`waitMs` long poll. Results and large
+archives remain bounded untrusted evidence. Calls are not replayed after an
+authentication failure.
+
+These tools are not currently attached to a Catalog leaf or natural-language
+Workflow. Their business orchestration is intentionally deferred; registration
+alone does not advertise a user-visible LocalMind capability.
 
 Use public HTTPS whenever possible. From the Gateway container, `localhost`
 means that container, not the host. Use a LocalMind service name on the shared

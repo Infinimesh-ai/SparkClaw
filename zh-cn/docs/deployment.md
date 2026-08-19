@@ -278,10 +278,9 @@ LOCALMIND_MCP_URL=https://localmind.example/api/workspaces/<workspace-id>/mcp
 LOCALMIND_MCP_TOKEN=<workspace-bound-token>
 ```
 
-`docker/compose.yaml` 会把这两个变量转发给 Gateway，但默认 `mcp_servers` 为空，因此仅设置
-环境变量不会启用集成。token 不得进入已提交配置，并应首先使用 LocalMind read-only
-credential。修改 JSON entry 后重启 Gateway；Gateway 会先执行一次 scope discovery，之后按
-配置间隔刷新。
+`docker/compose.yaml` 会把这两个变量转发给 Gateway。出厂 LocalMind entry 在任一值为空时
+保持 inert。token 不得进入已提交配置。修改 JSON entry 后重启 Gateway；Gateway 会校验固定
+server identity 与精确三工具 task contract，之后按配置间隔重复刷新。
 
 若 containerized Gateway 访问 host 上的 LocalMind，请把 `localhost` 替换为
 `host.docker.internal`。连接到 `sparkclaw_internal` 的 LocalMind service 可使用 Compose

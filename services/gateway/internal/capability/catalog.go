@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-08-13.v20"
+	DefaultCatalogRevision = "2026-08-19.v21"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -170,10 +170,6 @@ func DefaultCatalog() (Catalog, error) {
 		branch("coding", string(RootID), "Inspect and manage coding-agent tasks and sessions through configured MCP servers."),
 		leafRevision(string(app.CapabilityCodingAgentManage), "coding", "Inspect or manage the owner's coding-agent tasks, sessions, machines, and transcripts through configured MCP servers. Plan approval decisions belong only to the approval inbox.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead, app.RouteOperationInteract}, RequireQuery: true,
-		}),
-		branch("external_mcp", string(RootID), "Use explicitly configured external MCP workspace providers without exposing their complete catalogs to every model call."),
-		leafRevision(string(app.CapabilityExternalMCPWorkspace), "external_mcp", "Read or explicitly mutate the configured LocalMind workspace through its scoped MCP credential. Local files, ordinary document attachments, public Internet research, and generic workspace requests belong to their existing capabilities.", 2, RouteContract{
-			Operations: []app.RouteOperation{app.RouteOperationRead, app.RouteOperationCreate, app.RouteOperationEdit, app.RouteOperationDelete, app.RouteOperationInteract}, RequireQuery: true,
 		}),
 	})
 }

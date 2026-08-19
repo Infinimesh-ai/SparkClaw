@@ -330,11 +330,13 @@ See [Document workflows](document-workflows.md).
 
 LocalMind uses the shared MCP 2025-06-18 Streamable HTTP client behind a
 workspace-scoped manager. The manager resolves environment credentials on every
-refresh, verifies the fixed server identity and workspace endpoint, discovers
-scope before atomic registration, and removes stale scoped tools on refresh
-failure. Resources and tool results enter the bounded untrusted observation and
-artifact path. Policy treats remote writes as remote effects: they retain
-SparkClaw approval without claiming local sandbox execution.
+refresh, verifies the `localmind-ai` identity and workspace endpoint, rejects
+Resources and any schema outside the exact delegate/get/cancel task contract,
+and atomically registers exactly three SparkClaw tools. A refresh failure removes
+all stale LocalMind tools. Task results enter the bounded untrusted observation
+and artifact path; delegate and cancel retain dangerous remote-effect approval
+without claiming local sandbox execution. No Catalog leaf or natural-language
+Workflow currently consumes these tools; that orchestration is deferred.
 
 The current legacy reverse direction uses ISCP: an authenticated LocalMind peer
 can submit a structured mention through `agent.notification.deliver.v1`.

@@ -251,9 +251,11 @@ Markdown 作为不可信证据保留。扫描 PDF 页在 page/byte budget 内栅
 
 LocalMind 在 workspace-scoped manager 后复用 MCP 2025-06-18 Streamable HTTP client。
 manager 每次刷新都重新解析环境 credential，校验固定 server identity 和 workspace endpoint，
-先发现 scope 再原子注册，并在刷新失败时移除 stale scoped tool。Resource/tool result 进入有界、
-不可信 observation/artifact 路径。Policy 把远端 write 视为 remote effect：保留 SparkClaw
-approval，但不声称在本地 sandbox 执行。
+拒绝 Resources 和任何不符合 delegate/get/cancel 精确 task contract 的 schema，并原子注册恰好
+三个 SparkClaw 工具；刷新失败会移除全部 stale LocalMind 工具。task result 进入有界、不可信
+observation/artifact 路径；delegate/cancel 保留 dangerous remote-effect approval，但不声称在
+本地 sandbox 执行。当前没有 Catalog leaf 或自然语言 Workflow 消费这些工具，业务编排留待
+后续规划。
 
 当前旧反向链路使用 ISCP：通过认证的 LocalMind peer 可通过
 `agent.notification.deliver.v1` 提交结构化提及。Gateway 校验不可信 deep link，并在确认前

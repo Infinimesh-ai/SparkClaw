@@ -17,28 +17,9 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
-func TestValidateCapabilityToolsIgnoresDiscoveryToolOnEitherSide(t *testing.T) {
-	discovered := []mcpclient.DiscoveredTool{
-		{RemoteName: discoveryRemoteName},
-		{RemoteName: "keyword_search"},
-	}
-	for _, reported := range [][]string{
-		{"keyword_search"},
-		{discoveryRemoteName, "keyword_search"},
-	} {
-		if err := validateCapabilityTools(discovered, reported); err != nil {
-			t.Fatalf("equivalent capability tools were rejected: %v", err)
-		}
-	}
-	if err := validateCapabilityTools(discovered, []string{"read_document"}); err == nil {
-		t.Fatal("different capability tools were accepted")
-	}
-}
-
-func TestRefreshRegistersScopedLocalMindToolsAndResources(t *testing.T) {
+func TestRefreshRegistersExactlyThreeLocalMindTaskTools(t *testing.T) {
 	fake := newFakeLocalMind(t)
-	defer fake.server.Close()
-	manager, hub := newTestManager(t, fake.server.URL, false)
+	manager, hub := newTestManager(t, fake.server.URL)
 
 	snapshot, err := manager.Refresh(t.Context())
 	if err != nil {
@@ -47,70 +28,31 @@ func TestRefreshRegistersScopedLocalMindToolsAndResources(t *testing.T) {
 	if snapshot.ServerInfo.Name != config.LocalMindMCPServerName || snapshot.ProtocolVersion != config.LocalMindMCPProtocolVersion || snapshot.EndpointID == "" || snapshot.Revision == "" {
 		t.Fatalf("unexpected snapshot identity: %#v", snapshot)
 	}
-	for _, name := range []string{
-		"localmind.discover_localmind_capabilities", "localmind.keyword_search", "localmind.text_only", "localmind.fail_tool",
-		resourceListLocalName, resourceTemplatesLocalName, resourceReadLocalName,
-	} {
+	if !slices.Equal(snapshot.RemoteToolNames, []string{delegateRemoteName, getTaskRemoteName, controlRemoteName}) ||
+		!slices.Equal(snapshot.RegisteredToolNames, []string{delegateLocalName, getTaskLocalName, cancelLocalName}) {
+		t.Fatalf("unexpected LocalMind task snapshot: %#v", snapshot)
+	}
+	for _, name := range snapshot.RegisteredToolNames {
 		if _, ok := hub.Definition(name); !ok {
 			t.Fatalf("missing registered LocalMind tool %q", name)
 		}
 	}
-	for _, name := range []string{"localmind.create_document", "localmind.delete_workspace"} {
-		if _, ok := hub.Definition(name); ok {
-			t.Fatalf("mutation %q was registered while allow_mutations=false", name)
+	for _, obsolete := range []string{
+		"localmind.discover_localmind_capabilities", "localmind.resources.list", "localmind.resources.templates.list", "localmind.resources.read",
+	} {
+		if _, ok := hub.Definition(obsolete); ok {
+			t.Fatalf("obsolete LocalMind tool %q remained registered", obsolete)
 		}
 	}
-	keyword, _ := hub.Definition("localmind.keyword_search")
-	properties := keyword.InputSchema["properties"].(map[string]any)
-	query := properties["query"].(map[string]any)
-	if _, ok := query["anyOf"]; !ok || query["const"] != "fixed" {
-		t.Fatalf("LocalMind input schema lost anyOf/const: %#v", keyword.InputSchema)
+	dynamic := []string{}
+	for _, definition := range hub.Definitions() {
+		if origin, ok := hub.DynamicToolOrigin(definition.Name); ok && origin.Source == DynamicSource {
+			dynamic = append(dynamic, definition.Name)
+		}
 	}
-	if len(keyword.OutputSchema) != 0 || keyword.Risk != app.RiskRead || keyword.RequiresApproval || keyword.Sandbox != "remote" {
-		t.Fatalf("unexpected read definition: %#v", keyword)
+	if !slices.Equal(dynamic, []string{cancelLocalName, delegateLocalName, getTaskLocalName}) {
+		t.Fatalf("LocalMind registered %d tools instead of exactly three: %v", len(dynamic), dynamic)
 	}
-	origin, ok := hub.DynamicToolOrigin("localmind.keyword_search")
-	if !ok || origin.Source != DynamicSource || origin.RemoteName != "keyword_search" {
-		t.Fatalf("unexpected dynamic origin: %#v %t", origin, ok)
-	}
-
-	result, err := hub.Execute(t.Context(), "localmind.keyword_search", map[string]any{"query": "fixed"}, "session", "run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	output := result.Output.(map[string]any)
-	if output["source"] != "structured" || output["query"] != "fixed" {
-		t.Fatalf("structuredContent.result was not canonical: %#v", output)
-	}
-	if archive := result.ArchiveOutput.(map[string]any); archive["structured_content"] == nil || archive["content"] == nil {
-		t.Fatalf("archive projection lost the MCP result envelope: %#v", archive)
-	}
-	textResult, err := hub.Execute(t.Context(), "localmind.text_only", map[string]any{}, "session", "run")
-	if err != nil || textResult.Output != "text fallback" {
-		t.Fatalf("text fallback = %#v, %v", textResult.Output, err)
-	}
-
-	listResult, err := hub.Execute(t.Context(), resourceListLocalName, map[string]any{"cursor": "next-page"}, "session", "run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	listed := listResult.Output.(map[string]any)
-	if listed["nextCursor"] != "done" || fake.lastResourceCursor() != "next-page" {
-		t.Fatalf("resource cursor was not preserved: %#v cursor=%q", listed, fake.lastResourceCursor())
-	}
-	uri := "localmind://workspace/ws-1/documents/doc-1"
-	readResult, err := hub.Execute(t.Context(), resourceReadLocalName, map[string]any{"uri": uri}, "session", "run")
-	if err != nil {
-		t.Fatal(err)
-	}
-	contents := readResult.Output.(map[string]any)["contents"].([]any)
-	if contents[0].(map[string]any)["uri"] != uri {
-		t.Fatalf("unexpected resource read: %#v", readResult.Output)
-	}
-	if _, err := hub.Execute(t.Context(), resourceReadLocalName, map[string]any{"uri": "localmind://workspace/other/documents/doc-1"}, "session", "run"); err == nil {
-		t.Fatal("resource URI outside the configured workspace was accepted")
-	}
-
 	for _, request := range fake.requestsSnapshot() {
 		if request.accept != "application/json, text/event-stream" || request.protocol != config.LocalMindMCPProtocolVersion || request.authorization != "Bearer token-1" {
 			t.Fatalf("request headers did not follow MCP contract: %#v", request)
@@ -118,72 +60,98 @@ func TestRefreshRegistersScopedLocalMindToolsAndResources(t *testing.T) {
 	}
 }
 
-func TestLocalMindMutationAnnotationsTightenPolicy(t *testing.T) {
+func TestLocalMindTaskToolPolicyIsConservativeWithoutWorkflowPlanning(t *testing.T) {
 	fake := newFakeLocalMind(t)
-	defer fake.server.Close()
-	manager, hub := newTestManager(t, fake.server.URL, true)
+	manager, hub := newTestManager(t, fake.server.URL)
 	if _, err := manager.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default()
-	engine := policy.New(cfg)
-	create, ok := hub.Definition("localmind.create_document")
-	if !ok || create.Risk != app.RiskReversible || !create.RequiresApproval || create.Sandbox != "remote" || !create.Idempotent {
-		t.Fatalf("reversible mutation mapping mismatch: %#v", create)
-	}
-	createDecision := engine.Decide(create, map[string]any{"title": "x"})
-	if !createDecision.RequiresApproval || createDecision.RequiresSandbox || createDecision.RequiresDeep {
-		t.Fatalf("remote reversible policy mismatch: %#v", createDecision)
-	}
-	destructive, ok := hub.Definition("localmind.delete_workspace")
-	if !ok || destructive.Risk != app.RiskDangerous || !destructive.RequiresApproval {
-		t.Fatalf("dangerous mutation mapping mismatch: %#v", destructive)
-	}
-	deleteDecision := engine.Decide(destructive, map[string]any{"confirm": true})
-	if !deleteDecision.RequiresApproval || deleteDecision.RequiresSandbox || !deleteDecision.RequiresDeep {
-		t.Fatalf("remote dangerous policy mismatch: %#v", deleteDecision)
-	}
-}
-
-func TestLocalMindAllowAndDenyOnlyReduceCredentialTools(t *testing.T) {
-	fake := newFakeLocalMind(t)
-	defer fake.server.Close()
-	manager, hub := newTestManager(t, fake.server.URL, true)
-	manager.cfg.ToolAllow = []string{"keyword_search", "create_document"}
-	manager.cfg.ToolDeny = []string{"create_document"}
-	if _, err := manager.Refresh(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := hub.Definition("localmind.keyword_search"); !ok {
-		t.Fatal("allowed credential-visible tool was removed")
-	}
-	for _, name := range []string{"localmind.text_only", "localmind.create_document", "localmind.delete_workspace"} {
-		if _, ok := hub.Definition(name); ok {
-			t.Fatalf("filtered tool %q remained registered", name)
+	engine := policy.New(config.Default())
+	for _, name := range []string{delegateLocalName, cancelLocalName} {
+		definition, ok := hub.Definition(name)
+		if !ok || definition.Risk != app.RiskDangerous || !definition.RequiresApproval || definition.Sandbox != "remote" || !definition.Idempotent {
+			t.Fatalf("dangerous LocalMind definition mismatch for %s: %#v", name, definition)
+		}
+		decision := engine.Decide(definition, map[string]any{"request": "test"})
+		if !decision.RequiresApproval || decision.RequiresSandbox || !decision.RequiresDeep {
+			t.Fatalf("dangerous LocalMind policy mismatch for %s: %#v", name, decision)
 		}
 	}
+	getDefinition, ok := hub.Definition(getTaskLocalName)
+	if !ok || getDefinition.Risk != app.RiskRead || getDefinition.RequiresApproval || !getDefinition.Idempotent {
+		t.Fatalf("LocalMind get definition mismatch: %#v", getDefinition)
+	}
 }
 
-func TestLocalMindIsErrorReturnsTypedFailureWithSanitizedObservation(t *testing.T) {
+func TestLocalMindTaskWrappersTranslateArgumentsAndGenerateStableKeys(t *testing.T) {
 	fake := newFakeLocalMind(t)
-	defer fake.server.Close()
-	manager, hub := newTestManager(t, fake.server.URL, false)
+	fake.setToolResult(delegateRemoteName, taskToolResult("task-1", "queued", false, "v1"))
+	fake.setToolResult(getTaskRemoteName, taskToolResult("task-1", "approval_required", false, "v2"))
+	fake.setToolResult(controlRemoteName, taskToolResult("task-1", "cancelled", true, "v3"))
+	manager, hub := newTestManager(t, fake.server.URL)
 	if _, err := manager.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	result, err := hub.Execute(t.Context(), "localmind.fail_tool", map[string]any{}, "session", "run")
-	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorMCPToolResult {
-		t.Fatalf("isError did not become a typed failure: %v", err)
+
+	delegateArgs := map[string]any{"request": "Prepare a class age table", "document_ids": []any{"doc-1"}}
+	for range 2 {
+		result, err := hub.Execute(t.Context(), delegateLocalName, delegateArgs, "session-1", "run-1")
+		if err != nil || result.Output.(map[string]any)["taskId"] != "task-1" {
+			t.Fatalf("delegate result=%#v err=%v", result.Output, err)
+		}
 	}
-	if result.Output != "authorization=[REDACTED]" || strings.Contains(err.Error(), "super-secret") {
-		t.Fatalf("isError observation was not sanitized: output=%#v err=%v", result.Output, err)
+	delegateCalls := fake.toolRequests(delegateRemoteName)
+	if len(delegateCalls) != 2 {
+		t.Fatalf("delegate calls=%d", len(delegateCalls))
+	}
+	firstKey := stringValue(delegateCalls[0].arguments["idempotencyKey"])
+	if firstKey == "" || firstKey != stringValue(delegateCalls[1].arguments["idempotencyKey"]) || strings.Contains(firstKey, "session-1") {
+		t.Fatalf("delegate idempotency key is not stable and opaque: %q %q", firstKey, delegateCalls[1].arguments["idempotencyKey"])
+	}
+	if delegateCalls[0].arguments["request"] != delegateArgs["request"] || !slices.Equal(delegateCalls[0].arguments["documentIds"].([]any), []any{"doc-1"}) {
+		t.Fatalf("delegate arguments were not translated exactly: %#v", delegateCalls[0].arguments)
+	}
+
+	getResult, err := hub.Execute(t.Context(), getTaskLocalName, map[string]any{
+		"task_id": "task-1", "known_state_version": "v1", "wait_ms": 500,
+	}, "session-1", "run-1")
+	if err != nil || getResult.Output.(map[string]any)["status"] != "approval_required" {
+		t.Fatalf("get result=%#v err=%v", getResult.Output, err)
+	}
+	getCall := fake.toolRequests(getTaskRemoteName)[0]
+	if getCall.arguments["taskId"] != "task-1" || getCall.arguments["knownStateVersion"] != "v1" || getCall.arguments["waitMs"] != float64(500) {
+		t.Fatalf("get arguments were not translated exactly: %#v", getCall.arguments)
+	}
+
+	cancelResult, err := hub.Execute(t.Context(), cancelLocalName, map[string]any{"task_id": "task-1", "reason": "Owner cancelled"}, "session-1", "run-1")
+	if err != nil || cancelResult.Output.(map[string]any)["status"] != "cancelled" {
+		t.Fatalf("cancel result=%#v err=%v", cancelResult.Output, err)
+	}
+	cancelCall := fake.toolRequests(controlRemoteName)[0]
+	if cancelCall.arguments["taskId"] != "task-1" || cancelCall.arguments["action"] != "cancel" || cancelCall.arguments["reason"] != "Owner cancelled" || stringValue(cancelCall.arguments["idempotencyKey"]) == "" {
+		t.Fatalf("cancel arguments were not translated exactly: %#v", cancelCall.arguments)
 	}
 }
 
-func TestRefreshFailureRemovesStaleLocalMindTools(t *testing.T) {
+func TestLocalMindAuthorizationFailureNeverReplaysDelegate(t *testing.T) {
 	fake := newFakeLocalMind(t)
-	defer fake.server.Close()
-	manager, hub := newTestManager(t, fake.server.URL, false)
+	manager, hub := newTestManager(t, fake.server.URL)
+	if _, err := manager.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	fake.setAuthorized(false)
+	_, err := hub.Execute(t.Context(), delegateLocalName, map[string]any{"request": "read only task"}, "session", "run")
+	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorMCPAuthorization {
+		t.Fatalf("delegate authorization failure was not typed: %v", err)
+	}
+	if calls := len(fake.toolRequests(delegateRemoteName)); calls != 1 {
+		t.Fatalf("delegate was replayed after authorization failure: %d calls", calls)
+	}
+}
+
+func TestRefreshFailureRemovesAllStaleLocalMindTools(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	manager, hub := newTestManager(t, fake.server.URL)
 	if _, err := manager.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -194,61 +162,71 @@ func TestRefreshFailureRemovesStaleLocalMindTools(t *testing.T) {
 	if _, ok := manager.Snapshot(); ok {
 		t.Fatal("failed refresh retained a stale snapshot")
 	}
-	if _, ok := hub.Definition("localmind.keyword_search"); ok {
-		t.Fatal("failed refresh retained a stale scoped tool")
-	}
-	if _, ok := hub.Definition("localmind.discover_localmind_capabilities"); !ok {
-		t.Fatal("failed refresh removed the retryable discovery wrapper")
+	for _, name := range []string{delegateLocalName, getTaskLocalName, cancelLocalName} {
+		if _, ok := hub.Definition(name); ok {
+			t.Fatalf("failed refresh retained stale tool %q", name)
+		}
 	}
 }
 
-func TestAuthorizationFailureRefreshesReadsButNeverReplaysMutations(t *testing.T) {
-	fake := newFakeLocalMind(t)
-	defer fake.server.Close()
-	manager, hub := newTestManager(t, fake.server.URL, true)
-	token := "token-1"
-	manager.env = func(name string) string {
-		if name == manager.cfg.URLEnv {
-			return fake.server.URL + "/api/workspaces/ws-1/mcp"
-		}
-		return token
+func TestRefreshRejectsAnythingOutsideExactTaskContract(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*fakeLocalMind)
+		want   string
+	}{
+		{name: "old server", mutate: func(fake *fakeLocalMind) { fake.serverName = "localmind-workspace" }, want: "server name mismatch"},
+		{name: "resources", mutate: func(fake *fakeLocalMind) { fake.capabilities["resources"] = map[string]any{} }, want: "must not advertise Resources"},
+		{name: "extra tool", mutate: func(fake *fakeLocalMind) {
+			fake.tools = append(fake.tools, mcpclient.Tool{Name: "discover_localmind_capabilities", InputSchema: objectSchema(nil, nil), OutputSchema: taskOutputSchema(), Annotations: contractAnnotations(true, false, true, false)})
+		}, want: "exactly 3 tools"},
+		{name: "schema drift", mutate: func(fake *fakeLocalMind) {
+			fake.tools[0].InputSchema["additionalProperties"] = true
+		}, want: "does not match"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newFakeLocalMind(t)
+			test.mutate(fake)
+			manager, hub := newTestManager(t, fake.server.URL)
+			if _, err := manager.Refresh(t.Context()); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid LocalMind contract was accepted: %v", err)
+			}
+			for _, name := range []string{delegateLocalName, getTaskLocalName, cancelLocalName} {
+				if _, ok := hub.Definition(name); ok {
+					t.Fatalf("failed contract validation registered %q", name)
+				}
+			}
+		})
 	}
+}
+
+func TestLocalMindToolErrorPreservesSanitizedObservation(t *testing.T) {
+	fake := newFakeLocalMind(t)
+	fake.setToolResult(delegateRemoteName, mcpclient.ToolResult{
+		IsError: true, Content: []mcpclient.ContentBlock{{"type": "text", "text": "authorization=super-secret"}},
+	})
+	manager, hub := newTestManager(t, fake.server.URL)
 	if _, err := manager.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-
-	fake.setToken("token-2")
-	token = "token-2"
-	beforeRead := fake.toolCallCount("keyword_search")
-	result, err := hub.Execute(t.Context(), "localmind.keyword_search", map[string]any{"query": "fixed"}, "session", "run")
-	if err != nil || result.Output.(map[string]any)["source"] != "structured" {
-		t.Fatalf("read did not recover after token rotation: %#v %v", result.Output, err)
+	result, err := hub.Execute(t.Context(), delegateLocalName, map[string]any{"request": "test"}, "session", "run")
+	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorMCPToolResult {
+		t.Fatalf("isError did not become a typed failure: %v", err)
 	}
-	if calls := fake.toolCallCount("keyword_search") - beforeRead; calls != 2 {
-		t.Fatalf("read auth recovery made %d calls, want initial failure plus one retry", calls)
-	}
-
-	fake.setToken("token-3")
-	token = "token-3"
-	beforeMutation := fake.toolCallCount("create_document")
-	_, err = hub.Execute(t.Context(), "localmind.create_document", map[string]any{"title": "once"}, "session", "run")
-	if err == nil || app.ToolErrorCodeFrom(err) != app.ToolErrorMCPAuthorization {
-		t.Fatalf("mutation auth failure was not surfaced: %v", err)
-	}
-	if calls := fake.toolCallCount("create_document") - beforeMutation; calls != 1 {
-		t.Fatalf("mutation was replayed after auth refresh: %d calls", calls)
+	if result.Output != "authorization=[REDACTED]" || strings.Contains(err.Error(), "super-secret") {
+		t.Fatalf("isError observation was not sanitized: output=%#v err=%v", result.Output, err)
 	}
 }
 
 func TestLocalMindRejectsRedirectsAndUnsafeHTTP(t *testing.T) {
 	targetCalls := 0
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { targetCalls++ }))
-	defer target.Close()
+	t.Cleanup(target.Close)
 	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
 	}))
-	defer redirect.Close()
-	manager, _ := newTestManager(t, redirect.URL, false)
+	t.Cleanup(redirect.Close)
+	manager, _ := newTestManager(t, redirect.URL)
 	if _, err := manager.Refresh(t.Context()); err == nil {
 		t.Fatal("LocalMind redirect was followed")
 	}
@@ -258,7 +236,7 @@ func TestLocalMindRejectsRedirectsAndUnsafeHTTP(t *testing.T) {
 
 	cfg := testServerConfig(false)
 	hub := toolhub.New(config.Default(), store.NewMemoryStore())
-	defer hub.Close()
+	t.Cleanup(func() { _ = hub.Close() })
 	unsafe, err := New(cfg, hub, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -277,10 +255,8 @@ func TestLocalMindRejectsRedirectsAndUnsafeHTTP(t *testing.T) {
 func TestLocalMindResultProjectionRedactsSecretsAndBoundsState(t *testing.T) {
 	base64Value := strings.Repeat("QUJD", 2048)
 	value := map[string]any{
-		"token":  "secret-token",
-		"url":    "https://storage.example/file?X-Amz-Signature=signed&X-Amz-Expires=60",
-		"base64": base64Value,
-		"text":   strings.Repeat("document text ", 3000),
+		"token": "secret-token", "url": "https://storage.example/file?X-Amz-Signature=signed&X-Amz-Expires=60",
+		"base64": base64Value, "text": strings.Repeat("document text ", 3000),
 	}
 	state := boundedProjection(value, projectionState, 16<<10).(map[string]any)
 	archive := boundedProjection(value, projectionArchive, 1<<20).(map[string]any)
@@ -302,6 +278,7 @@ func TestLocalMindResultProjectionRedactsSecretsAndBoundsState(t *testing.T) {
 type fakeRequest struct {
 	method        string
 	tool          string
+	arguments     map[string]any
 	accept        string
 	protocol      string
 	authorization string
@@ -311,17 +288,30 @@ type fakeLocalMind struct {
 	t      *testing.T
 	server *httptest.Server
 
-	mu             sync.Mutex
-	authorized     bool
-	token          string
-	requests       []fakeRequest
-	resourceCursor string
+	mu           sync.Mutex
+	authorized   bool
+	token        string
+	serverName   string
+	capabilities map[string]any
+	tools        []mcpclient.Tool
+	toolResults  map[string]mcpclient.ToolResult
+	requests     []fakeRequest
 }
 
 func newFakeLocalMind(t *testing.T) *fakeLocalMind {
 	t.Helper()
-	fake := &fakeLocalMind{t: t, authorized: true, token: "token-1"}
+	fake := &fakeLocalMind{
+		t: t, authorized: true, token: "token-1", serverName: config.LocalMindMCPServerName,
+		capabilities: map[string]any{"tools": map[string]any{"listChanged": false}},
+		tools:        fakeTaskToolDefinitions(),
+		toolResults: map[string]mcpclient.ToolResult{
+			delegateRemoteName: taskToolResult("task-1", "queued", false, "v1"),
+			getTaskRemoteName:  taskToolResult("task-1", "running", false, "v2"),
+			controlRemoteName:  taskToolResult("task-1", "cancelled", true, "v3"),
+		},
+	}
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.serveHTTP))
+	t.Cleanup(fake.server.Close)
 	return fake
 }
 
@@ -335,10 +325,14 @@ func (f *fakeLocalMind) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	method, _ := request["method"].(string)
 	params, _ := request["params"].(map[string]any)
 	toolName, _ := params["name"].(string)
+	arguments, _ := params["arguments"].(map[string]any)
 	f.mu.Lock()
 	authorized := f.authorized
 	token := f.token
-	f.requests = append(f.requests, fakeRequest{method: method, tool: toolName, accept: r.Header.Get("Accept"), protocol: r.Header.Get("MCP-Protocol-Version"), authorization: r.Header.Get("Authorization")})
+	f.requests = append(f.requests, fakeRequest{
+		method: method, tool: toolName, arguments: arguments, accept: r.Header.Get("Accept"),
+		protocol: r.Header.Get("MCP-Protocol-Version"), authorization: r.Header.Get("Authorization"),
+	})
 	f.mu.Unlock()
 	if !authorized || r.Header.Get("Authorization") != "Bearer "+token {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -353,32 +347,21 @@ func (f *fakeLocalMind) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	var result any
 	switch method {
 	case "initialize":
+		f.mu.Lock()
 		result = map[string]any{
 			"protocolVersion": config.LocalMindMCPProtocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}, "resources": map[string]any{"subscribe": false, "listChanged": false}},
-			"serverInfo":      map[string]any{"name": config.LocalMindMCPServerName, "version": "2.1.0"},
-			"instructions":    "untrusted server instructions",
+			"capabilities":    cloneMap(f.capabilities),
+			"serverInfo":      map[string]any{"name": f.serverName, "version": "3.2.1"},
 		}
-	case "tools/list":
-		result = map[string]any{"tools": fakeToolDefinitions()}
-	case "tools/call":
-		name, _ := params["name"].(string)
-		args, _ := params["arguments"].(map[string]any)
-		result = f.callTool(name, args)
-	case "resources/list":
-		cursor, _ := params["cursor"].(string)
-		f.mu.Lock()
-		f.resourceCursor = cursor
 		f.mu.Unlock()
-		result = map[string]any{"resources": []any{map[string]any{"uri": "localmind://workspace/ws-1/documents/doc-1", "name": "Doc 1", "mimeType": "text/markdown"}}}
-		if cursor == "next-page" {
-			result.(map[string]any)["nextCursor"] = "done"
-		}
-	case "resources/templates/list":
-		result = map[string]any{"resourceTemplates": []any{map[string]any{"uriTemplate": "localmind://workspace/ws-1/documents/{docId}", "name": "Document"}}}
-	case "resources/read":
-		uri, _ := params["uri"].(string)
-		result = map[string]any{"contents": []any{map[string]any{"uri": uri, "mimeType": "text/markdown", "text": "document body"}}}
+	case "tools/list":
+		f.mu.Lock()
+		result = map[string]any{"tools": slices.Clone(f.tools)}
+		f.mu.Unlock()
+	case "tools/call":
+		f.mu.Lock()
+		result = f.toolResults[toolName]
+		f.mu.Unlock()
 	default:
 		f.writeRPCError(w, id, -32601, "Method not found")
 		return
@@ -387,51 +370,36 @@ func (f *fakeLocalMind) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-func (f *fakeLocalMind) callTool(name string, args map[string]any) any {
-	switch name {
-	case discoveryRemoteName:
-		return map[string]any{
-			"content": []any{map[string]any{"type": "text", "text": "capabilities"}},
-			"structuredContent": map[string]any{"result": map[string]any{
-				"grantedCapabilities":   []string{"documents:read", "documents:write", "workspace:write"},
-				"supportedCapabilities": []any{map[string]any{"capability": "documents:read", "description": "read"}},
-				"tools":                 []string{"keyword_search", "text_only", "fail_tool", "create_document", "delete_workspace"}, "resources": true,
-			}},
-		}
-	case "keyword_search":
-		return map[string]any{
-			"content":           []any{map[string]any{"type": "text", "text": "text should not be canonical"}},
-			"structuredContent": map[string]any{"result": map[string]any{"source": "structured", "query": args["query"]}},
-		}
-	case "text_only":
-		return map[string]any{"content": []any{map[string]any{"type": "text", "text": "text fallback"}}}
-	case "fail_tool":
-		return map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "authorization=super-secret"}}}
-	default:
-		return map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}, "structuredContent": map[string]any{"result": map[string]any{"ok": true}}}
+func fakeTaskToolDefinitions() []mcpclient.Tool {
+	contracts := expectedTaskTools()
+	names := []string{delegateRemoteName, getTaskRemoteName, controlRemoteName}
+	tools := make([]mcpclient.Tool, 0, len(names))
+	for _, name := range names {
+		contract := contracts[name]
+		tools = append(tools, mcpclient.Tool{
+			Name: name, InputSchema: contract.InputSchema, OutputSchema: taskOutputSchema(), Annotations: contract.Annotations,
+		})
+	}
+	return tools
+}
+
+func taskToolResult(taskID, status string, terminal bool, stateVersion string) mcpclient.ToolResult {
+	result := map[string]any{
+		"protocolVersion": taskProtocolVersion, "taskId": taskID, "stateVersion": stateVersion,
+		"status": status, "terminal": terminal, "phase": "execute", "pollAfterMs": nil,
+		"result": map[string]any{"kind": "answer", "answer": "ok"}, "error": nil,
+	}
+	return mcpclient.ToolResult{
+		Content:           []mcpclient.ContentBlock{{"type": "text", "text": status}},
+		StructuredContent: map[string]any{"result": result},
 	}
 }
 
-func fakeToolDefinitions() []any {
-	annotations := func(read, destructive, idempotent, open bool) map[string]any {
-		return map[string]any{"readOnlyHint": read, "destructiveHint": destructive, "idempotentHint": idempotent, "openWorldHint": open}
-	}
-	resultSchema := map[string]any{"type": "object", "properties": map[string]any{"result": map[string]any{}}, "required": []string{"result"}, "additionalProperties": false}
-	tool := func(name string, annotation map[string]any, properties map[string]any, required []string) map[string]any {
-		return map[string]any{
-			"name": name, "title": strings.ReplaceAll(name, "_", " "), "description": "Use " + name,
-			"inputSchema":  map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false},
-			"outputSchema": resultSchema, "annotations": annotation,
-		}
-	}
-	return []any{
-		tool(discoveryRemoteName, annotations(true, false, true, false), map[string]any{}, nil),
-		tool("keyword_search", annotations(true, false, true, false), map[string]any{"query": map[string]any{"anyOf": []any{map[string]any{"type": "string"}}, "const": "fixed"}}, []string{"query"}),
-		tool("text_only", annotations(true, false, true, false), map[string]any{}, nil),
-		tool("fail_tool", annotations(true, false, true, false), map[string]any{}, nil),
-		tool("create_document", annotations(false, false, true, false), map[string]any{"title": map[string]any{"type": "string"}}, []string{"title"}),
-		tool("delete_workspace", annotations(false, true, false, true), map[string]any{"confirm": map[string]any{"type": "boolean"}}, []string{"confirm"}),
-	}
+func cloneMap(value map[string]any) map[string]any {
+	raw, _ := json.Marshal(value)
+	var cloned map[string]any
+	_ = json.Unmarshal(raw, &cloned)
+	return cloned
 }
 
 func (f *fakeLocalMind) writeRPCError(w http.ResponseWriter, id any, code int, message string) {
@@ -445,22 +413,10 @@ func (f *fakeLocalMind) setAuthorized(value bool) {
 	f.mu.Unlock()
 }
 
-func (f *fakeLocalMind) setToken(value string) {
+func (f *fakeLocalMind) setToolResult(name string, result mcpclient.ToolResult) {
 	f.mu.Lock()
-	f.token = value
+	f.toolResults[name] = result
 	f.mu.Unlock()
-}
-
-func (f *fakeLocalMind) toolCallCount(name string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	count := 0
-	for _, request := range f.requests {
-		if request.method == "tools/call" && request.tool == name {
-			count++
-		}
-	}
-	return count
 }
 
 func (f *fakeLocalMind) requestsSnapshot() []fakeRequest {
@@ -469,16 +425,21 @@ func (f *fakeLocalMind) requestsSnapshot() []fakeRequest {
 	return slices.Clone(f.requests)
 }
 
-func (f *fakeLocalMind) lastResourceCursor() string {
+func (f *fakeLocalMind) toolRequests(name string) []fakeRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.resourceCursor
+	requests := []fakeRequest{}
+	for _, request := range f.requests {
+		if request.method == "tools/call" && request.tool == name {
+			requests = append(requests, request)
+		}
+	}
+	return requests
 }
 
-func newTestManager(t *testing.T, serverURL string, allowMutations bool) (*Manager, *toolhub.ToolHub) {
+func newTestManager(t *testing.T, serverURL string) (*Manager, *toolhub.ToolHub) {
 	t.Helper()
 	cfg := testServerConfig(true)
-	cfg.AllowMutations = allowMutations
 	hub := toolhub.New(config.Default(), store.NewMemoryStore())
 	t.Cleanup(func() { _ = hub.Close() })
 	manager, err := New(cfg, hub, nil)

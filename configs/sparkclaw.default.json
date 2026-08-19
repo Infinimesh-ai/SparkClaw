@@ -143,12 +143,9 @@
       "url_env": "LOCALMIND_MCP_URL",
       "bearer_token_env": "LOCALMIND_MCP_TOKEN",
       "namespace": "localmind",
-      "expected_server_name": "localmind-workspace",
+      "expected_server_name": "localmind-ai",
       "protocol_version": "2025-06-18",
-      "allow_mutations": false,
-      "allow_private_http": false,
-      "tool_allow": [],
-      "tool_deny": []
+      "allow_private_http": false
     }
   },
   "memory": {

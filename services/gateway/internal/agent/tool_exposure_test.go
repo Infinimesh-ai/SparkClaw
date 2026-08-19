@@ -120,7 +120,8 @@ func TestDirectoryRelevanceUsesOwnerQueryAndDefinitionMetadata(t *testing.T) {
 	}
 }
 
-func TestExternalMCPDirectoryBoundsLargeCatalogAndMaterializesOneSchema(t *testing.T) {
+func TestDynamicToolDirectoryBoundsLargeCatalogAndMaterializesOneSchema(t *testing.T) {
+	const directoryLimit = 16
 	cfg := config.Default()
 	st := store.NewMemoryStore()
 	hub := toolhub.New(cfg, st)
@@ -155,7 +156,7 @@ func TestExternalMCPDirectoryBoundsLargeCatalogAndMaterializesOneSchema(t *testi
 	}
 	nodeID := app.WorkflowNodeID("select_external_operation")
 	plan := app.WorkflowPlan{
-		SchemaVersion: 1, ProfileID: app.WorkflowExternalMCPWorkspace, ProfileRevision: 1,
+		SchemaVersion: 1, ProfileID: app.WorkflowCodingAgentManage, ProfileRevision: 1,
 		InitialNodeIDs: []app.WorkflowNodeID{nodeID}, Completion: app.CompletionDecision,
 		Nodes: []app.WorkflowNode{{
 			ID: nodeID, InitialStage: "select", Goal: app.NodeGoal{Summary: "select LocalMind reader", Completion: app.CompletionDecision},
@@ -175,14 +176,14 @@ func TestExternalMCPDirectoryBoundsLargeCatalogAndMaterializesOneSchema(t *testi
 	st.SaveRun(app.AgentRun{ID: "run_large_localmind", SessionID: "session", StartedAt: time.Now().UTC(), Workflow: state})
 	engine := newToolExposureEngine(st, hub, policy.New(cfg))
 	request := app.ExposureRequest{
-		RunID: "run_large_localmind", WorkflowID: app.WorkflowExternalMCPWorkspace, NodeID: nodeID,
-		ScopeRevision: 1, ActorRef: "owner", Limit: externalMCPDirectoryLimit,
+		RunID: "run_large_localmind", WorkflowID: app.WorkflowCodingAgentManage, NodeID: nodeID,
+		ScopeRevision: 1, ActorRef: "owner", Limit: directoryLimit,
 	}
 	view, err := engine.Search(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Entries) != externalMCPDirectoryLimit {
+	if len(view.Entries) != directoryLimit {
 		t.Fatalf("large LocalMind catalog returned %d directory entries", len(view.Entries))
 	}
 	rawView, _ := json.Marshal(view)

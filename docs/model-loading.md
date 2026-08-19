@@ -4,7 +4,7 @@
 
 This document records the current model-loading strategy for SparkClaw on DGX Spark-class hardware. It complements the measured endpoint evidence in [Model baseline](../benchmarks/model_baseline.md) and the operational steps in [Deployment](deployment.md).
 
-The short version: the current single-machine product runtime loads the responsive `fast` MoE chat model together with embedding, guard, and the OvisOCR2 document adapter. The logical Deep Workflow profile is temporarily aliased to the Fast endpoint, so no Deep model process starts. Historical Deep and dual-residency measurements remain below for future evaluation; they are not the current startup policy.
+The short version: the current single-machine product runtime loads the responsive `fast` MoE chat model together with embedding, guard, Qwen3-ASR speech, and the OvisOCR2 document adapter. The logical Deep Workflow profile is temporarily aliased to the Fast endpoint, so no Deep model process starts. Historical Deep and dual-residency measurements remain below for future evaluation; they are not the current startup policy.
 
 ## Current Baseline
 
@@ -29,6 +29,8 @@ Default single-machine operation uses the `single-fast-v1` profile:
 - Keep embedding and the dedicated guard small but resident in the product
   profile. Embedding builds the semantic routing index and scores each request;
   guard moderates the owner prompt before routing or tool execution.
+- Keep Qwen3-ASR resident as the bounded speech-transcription adapter. It is not
+  a Model Router lane and accepts only the Gateway's validated audio requests.
 - Keep OvisOCR2 resident as a document adapter. It is not a Model Router lane;
   it supplies bounded, untrusted text evidence for selected document images.
 
@@ -49,9 +51,9 @@ The current profile is implemented as `dgx-spark-single-fast-v1`:
 - Startup shortcut: `scripts/serve_models_compose.sh single-fast`
 
 The shortcut first stops a previously running Deep container, then starts Fast,
-embedding, guard, and OCR in one Compose operation. Run
-`scripts/restart_runtime_compose.sh` afterward; it uses the single-Fast and OCR
-environments by default. Before changing the selected group, startup verifies
+embedding, guard, ASR, and OCR in one Compose operation. Run
+`scripts/restart_runtime_compose.sh` afterward; it uses the single-Fast, ASR,
+and OCR environments by default. Before changing the selected group, startup verifies
 that every container exists, is running and healthy, and carries the current
 Compose configuration hash. A healthy/current group is retained. If any member
 is absent, stopped, unhealthy, or drifted, the complete selected group is
@@ -81,15 +83,28 @@ the exact process is warm and its marker is stored. Embedding keeps the fixed
 2 GiB KV budget but admits up to 128 short sequences so the 110-entry semantic
 corpus can be embedded as one startup request within the 20-second index bound.
 
-OvisOCR2 is a document adapter, not a fifth Model Router lane. The `single-fast`
-product profile loads `ATH-MaaS/OvisOCR2` with Fast, embedding, and guard through
+Qwen3-ASR is a speech adapter, not a Model Router lane. The `single-fast`
+product profile loads `Qwen/Qwen3-ASR-0.6B` through `docker/compose.asr.yaml` on
+port `8006`; the derivative vLLM image adds bounded audio dependencies, while
+the model itself uses the shared Hugging Face cache. The service assigns a
+fixed 2 GiB KV cache: utilization-only allocation calculated `-10.24 GiB`
+available after encoder profiling during a five-service cold start. Gateway
+enables the OpenAI-compatible transcription adapter from the matching ASR
+environment. With the fixed cache, vLLM reported 44.55 GiB initially free,
+18,720 cached tokens, and 2.29x estimated concurrency at 8K; ASR became healthy
+in 92 seconds during the complete five-service force-recreate, and a one-second
+WAV transcription smoke request completed successfully.
+
+OvisOCR2 is likewise a document adapter rather than a Model Router lane. The `single-fast`
+product profile loads `ATH-MaaS/OvisOCR2` with Fast, embedding, guard, and ASR through
 `docker/compose.ocr.yaml` on port `8007`. The older `single-fast-with-ocr`
-command remains an alias for the same four-model startup. That
+command remains an alias for the same five-service startup. That
 overlay pins the model's documented vLLM `0.22.1` runtime, disables thinking,
 uses deterministic generation, assigns a fixed 2 GiB KV cache, and keeps
 response, concurrency, and queue limits in Gateway. On the GB10, combined
 startup was validated only after stopping the already-resident model services
-and reloading Fast, embedding, guard, and OCR together. Adding OCR to the
+and reloading Fast, embedding, guard, and OCR together. The current product
+startup extends that atomic group with ASR. Adding OCR to the
 already-resident stack failed during CUDA initialization. OvisOCR2 then loaded
 1.72 GiB of weights, but `gpu-memory-utilization=0.12` alone calculated
 `-1.96 GiB` of available KV cache; the explicit 2 GiB KV cache is therefore a
@@ -216,8 +231,8 @@ Every new loading profile should record:
 - Startup success, idle memory, first-request latency and warmed-request latency.
 - Throughput for chat, summary, email triage and coding scenarios.
 - Embedding and guard availability plus Gateway semantic-router readiness.
-- Optional OCR startup, page latency, scanned-PDF recovery, and malformed or
-  incomplete Markdown behavior when the OCR overlay is under evaluation.
+- ASR startup and transcription latency, plus OCR startup, page latency,
+  scanned-PDF recovery, and malformed or incomplete Markdown behavior.
 - Golden eval result and any regression notes.
 
 Append durable measurements to [Model baseline](../benchmarks/model_baseline.md). Keep this document focused on strategy and accepted loading profiles.

@@ -86,7 +86,12 @@ class RuntimeComposeTest(unittest.TestCase):
         self.assertIn("SparkClaw runtime ready", result.stdout)
         self.assertTrue(any("up" in call and "webchat" in call for call in docker_calls))
         self.assertEqual(len(curl_calls), 1)
+        self.assertIn("--connect-timeout", curl_calls[0])
+        self.assertIn("--max-time", curl_calls[0])
         self.assertIn("http://127.0.0.1:19876/readyz", curl_calls[0])
+        up_call = next(call for call in docker_calls if "up" in call)
+        self.assertIn("docker/env/sparkclaw.asr.env", up_call)
+        self.assertIn("docker/compose.asr.yaml", up_call)
 
     def test_invalid_webchat_port_fails_before_docker_access(self) -> None:
         result, docker_calls, curl_calls = self.run_script("0")

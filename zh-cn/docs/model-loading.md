@@ -4,7 +4,7 @@
 
 本文记录 SparkClaw 在 DGX Spark 级硬件上的模型加载策略。它补充 [模型基线](../benchmarks/model_baseline.md) 中的实测证据，以及 [部署文档](deployment.md) 中的运行步骤。
 
-简短结论：当前单机产品 runtime 会同时加载响应快的 `fast` MoE chat 模型、embedding、guard 与 OvisOCR2 文档适配器。逻辑 Deep Workflow profile 暂时别名到 Fast endpoint，因此不会启动 Deep 模型进程。历史 Deep 与双常驻实测继续保留给后续评估，但不再是当前启动策略。
+简短结论：当前单机产品 runtime 会同时加载响应快的 `fast` MoE chat 模型、embedding、guard、Qwen3-ASR 语音转写与 OvisOCR2 文档适配器。逻辑 Deep Workflow profile 暂时别名到 Fast endpoint，因此不会启动 Deep 模型进程。历史 Deep 与双常驻实测继续保留给后续评估，但不再是当前启动策略。
 
 ## 当前基线
 
@@ -28,6 +28,8 @@
 - 产品启动路径不启动 `sparkclaw-deep` 容器。
 - embedding 和专用 guard 保持小型并在产品 profile 中常驻。Embedding 构建 semantic
   routing index 并为请求评分；guard 在 routing 或 tool execution 前审核 owner prompt。
+- Qwen3-ASR 作为有界语音转写 adapter 常驻。它不是 Model Router lane，只接受 Gateway
+  已校验的音频请求。
 - OvisOCR2 作为文档适配器保持常驻。它不是 Model Router lane，只为选中的文档图片提供
   有界且不可信的文本证据。
 
@@ -48,8 +50,8 @@
 - 启动快捷方式：`scripts/serve_models_compose.sh single-fast`
 
 快捷方式会先停止此前运行的 Deep 容器，再通过一次 Compose 操作同时启动 Fast、embedding、
-guard 和 OCR。随后运行 `scripts/restart_runtime_compose.sh`；该脚本默认使用单 Fast 与 OCR
-环境。修改目标组之前，启动脚本会验证每个容器存在、running、healthy，并使用当前 Compose
+guard、ASR 和 OCR。随后运行 `scripts/restart_runtime_compose.sh`；该脚本默认使用单 Fast、ASR
+与 OCR 环境。修改目标组之前，启动脚本会验证每个容器存在、running、healthy，并使用当前 Compose
 configuration hash。healthy/current 模型组会被保留；任一成员缺失、停止、不健康或配置漂移
 时，完整目标组会先停止再 force-recreate。设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可对
 健康模型组执行相同的完整刷新。产品启动或故障恢复不要直接使用 `docker start` 或
@@ -71,12 +73,22 @@ healthcheck 不依赖 checkout source file 的 bind mount。两个 probe 都把�
 2 GiB KV budget，但允许最多 128 条短 sequence，使 110 项语义语料能够通过一次启动请求在
 20 秒索引时限内完成 embedding。
 
-OvisOCR2 是 document adapter，不是第五个 Model Router lane。`single-fast` 产品 profile
+Qwen3-ASR 是 speech adapter，不是 Model Router lane。`single-fast` 产品 profile 通过
+`docker/compose.asr.yaml` 在端口 `8006` 加载 `Qwen/Qwen3-ASR-0.6B`；派生 vLLM 镜像补充
+有界音频依赖，模型使用共享 Hugging Face cache。服务分配显式 2 GiB KV cache：
+五服务冷启动的 encoder profiling 后，仅依赖 utilization 的分配算出
+`-10.24 GiB` 可用 cache。Gateway 通过匹配的 ASR 环境启用 OpenAI-compatible
+transcription adapter。使用固定 cache 后，vLLM 报告初始空闲 44.55 GiB、
+18,720 cached tokens，8K 下预计并发 2.29x；整个五服务 force-recreate 中
+ASR 在 92 秒后 healthy，1 秒 WAV 转写冒烟请求也成功完成。
+
+OvisOCR2 同样是 document adapter，而不是 Model Router lane。`single-fast` 产品 profile
 会通过 `docker/compose.ocr.yaml` 在端口 `8007` 将 `ATH-MaaS/OvisOCR2` 与 Fast、embedding、
-guard 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一四模型启动的兼容别名。该 overlay 固定使用
+guard、ASR 一起加载；旧的 `single-fast-with-ocr` 命令保留为同一五服务启动的兼容别名。该 overlay 固定使用
 模型文档要求的 vLLM `0.22.1`，关闭 thinking、使用确定性生成，并由 Gateway 限制响应、并发
 和队列，同时给 OCR 分配固定 2 GiB KV cache。在 GB10 上，只有先停止已常驻的模型服务，
-再一起加载 Fast、embedding、guard 和 OCR，组合启动才验证成功；直接向已常驻栈增加 OCR
+再一起加载 Fast、embedding、guard 和 OCR，组合启动才验证成功；当前产品启动在该原子组中
+继续加入 ASR。直接向已常驻栈增加 OCR
 会在 CUDA 初始化阶段失败。OvisOCR2 随后成功加载 1.72 GiB 权重，但仅设置
 `gpu-memory-utilization=0.12` 会算出 -1.96 GiB 可用 KV cache，因此显式 2 GiB KV cache
 是该 profile 的必需配置，不是可选调优。设置后 vLLM 报告初始空闲 53.26 GiB、2 GiB cache
@@ -195,8 +207,8 @@ python3 scripts/record_model_loading.py --profile dual-light-v1
 - Startup success、idle memory、first-request latency、warmed-request latency。
 - Chat、summary、email triage、coding 场景吞吐。
 - 记录 embedding、guard 可用性和 Gateway semantic-router readiness。
-- 评估 OCR overlay 时记录 OCR 启动、单页延迟、扫描 PDF 恢复，以及 malformed/incomplete
-  Markdown 行为。
+- 记录 ASR 启动与转写延迟，以及 OCR 启动、单页延迟、扫描 PDF 恢复和
+  malformed/incomplete Markdown 行为。
 - Golden eval 结果和 regression notes。
 
 长期测量结果追加到 [模型基线](../benchmarks/model_baseline.md)。本文档只维护策略和被接受的加载方案。

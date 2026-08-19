@@ -17,6 +17,7 @@ PRODUCT_SERVICES = (
     "sparkclaw-fast",
     "sparkclaw-embedding",
     "sparkclaw-guard",
+    "sparkclaw-asr",
     "sparkclaw-ocr",
 )
 
@@ -161,6 +162,17 @@ class ServeModelsComposeTest(unittest.TestCase):
         self.assertIn("--build", up_call)
         deep_stop = next(call for call in calls if "stop" in call)
         self.assertIn("sparkclaw-deep", deep_stop)
+        self.assertIn("docker/env/sparkclaw.asr.env", up_call)
+        self.assertIn("docker/compose.asr.yaml", up_call)
+
+    def test_missing_asr_recreates_the_whole_product_group(self) -> None:
+        state = healthy_state()
+        state["sparkclaw-asr"]["id"] = ""
+
+        result, calls = self.run_script("single-fast", state=state)
+
+        self.assertIn("sparkclaw-asr is absent", result.stdout)
+        self.assert_product_group_recreated(calls)
 
     def test_missing_member_recreates_the_whole_product_group(self) -> None:
         state = healthy_state()

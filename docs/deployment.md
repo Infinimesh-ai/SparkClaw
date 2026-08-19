@@ -41,8 +41,8 @@ The streamed bootstrap and deployment entrypoints:
    Compose, `nvidia-smi`, and sufficient free space.
 4. Create or preserve a mode-`0600` `.env`, accept a Hugging Face token
    without echoing it, and align bind-mounted data with the current user.
-5. Use vLLM's Hugging Face integration to download Fast, embedding, guard, and
-   OvisOCR2 into the shared `data/models` cache.
+5. Use vLLM's Hugging Face integration to download Fast, embedding, guard,
+   Qwen3-ASR, and OvisOCR2 into the shared `data/models` cache.
 6. Wait for model readiness and Fast/Guard warmup, build Gateway, Sandbox
    Runner, and WebChat, then verify both Gateway and WebChat.
 7. Install and enable the system-level `sparkclaw-autostart.service` for the
@@ -112,10 +112,10 @@ npm start
 ```
 
 The entrypoint delegates model ownership to `serve_models_compose.sh
-single-fast`, which treats Fast, embedding, guard, and OCR as one resident
+single-fast`, which treats Fast, embedding, guard, ASR, and OCR as one resident
 group. Startup retains the complete group when every container is running,
 healthy, and on the current Compose configuration hash. If one member is
-absent, stopped, unhealthy, or drifted, all four are stopped and force-recreated
+absent, stopped, unhealthy, or drifted, all five are stopped and force-recreated
 together. Set `SPARKCLAW_FORCE_MODEL_RECREATE=true` to perform that same refresh
 on an otherwise healthy group. The command waits for every model health check,
 including the configured Fast and Guard completion warmups, before it starts
@@ -132,11 +132,14 @@ Deployment enables host-boot startup by default. The setting lives in the local
 
 ```dotenv
 SPARKCLAW_AUTOSTART_ENABLED=true
+SPARKCLAW_AUTOSTART_READY_TIMEOUT_SECONDS=600
+SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS=10
 ```
 
 At boot, `sparkclaw-autostart.service` runs as the deploying user, waits up to
-ten minutes for Docker and the NVIDIA runtime, then calls the same product entry
-used by `npm start`. It retains a healthy model group or automatically
+the configured total timeout for Docker and the NVIDIA runtime, and bounds each
+individual readiness command by the probe timeout. It then calls the same product
+entry used by `npm start`. It retains a healthy model group or automatically
 force-recreates a degraded group before application services start. The unit is
 a `Type=oneshot` service with `RemainAfterExit=yes`; it stays activating while
 reconciliation runs and fails after the fixed `TimeoutStartSec=4h` bound rather
@@ -455,7 +458,7 @@ For model-backed operation, recreate Gateway in external mode after the selected
 scripts/restart_runtime_compose.sh
 ```
 
-Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. It loads `docker/env/sparkclaw.single-fast.env` and `docker/env/sparkclaw.ocr.env` after `.env`, then stacks `docker/compose.ocr.yaml`. This selects PostgreSQL, keeps both logical chat profiles mapped to Fast, and enables the document OCR adapter against the co-resident OCR service. The script starts and waits for PostgreSQL when Gateway is requested, then checks `/readyz` and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another chat/runtime profile; the OCR environment remains part of this product runtime.
+Use this script instead of a plain `docker compose up --force-recreate gateway webchat` for the durable product runtime. It loads `docker/env/sparkclaw.single-fast.env`, `docker/env/sparkclaw.asr.env`, and `docker/env/sparkclaw.ocr.env` after `.env`, then stacks the ASR and OCR overlays. This selects PostgreSQL, keeps both logical chat profiles mapped to Fast, and enables speech transcription and document OCR against the co-resident services. The script starts and waits for PostgreSQL when Gateway is requested, then checks `/readyz` with a bounded request and exits non-zero unless Gateway reports `model_mode=external` and `state_backend=postgres`. Set `SPARKCLAW_RUNTIME_ENV` explicitly to use another chat/runtime profile; the ASR and OCR environments remain part of this product runtime.
 
 When the host has a resolvable X11/XWayland display, the script additionally stacks the `docker/compose.visible-browser.yaml` overlay so login handoffs can open a visible Chromium on the owner's desktop. On a headless host it starts the same stack without the overlay; hidden browser automation remains available and the base compose file grants Gateway no access to any host display.
 
@@ -486,8 +489,8 @@ scripts/serve_models_compose.sh all-with-asr
 
 With no argument, `serve_models_compose.sh` also selects `single-fast`. This is
 the current product startup path: it stops a previously running Deep container
-and starts Fast, embedding, guard, and OCR together with the single-Fast and
-OCR environments. The older `single-fast-with-ocr` name is an alias for this
+and starts Fast, embedding, guard, ASR, and OCR together with the single-Fast,
+ASR, and OCR environments. The older `single-fast-with-ocr` name is an alias for this
 same startup. Deep and dual-light commands are explicit test/benchmark
 entrypoints. The command waits for every selected service to become healthy.
 Fast is not healthy until a bounded production-shaped `/chat/completions`
@@ -501,9 +504,9 @@ the current model-process start time, so a new process cannot reuse readiness
 from its predecessor. A successful warmup remains healthy if its marker cannot
 be written; if even the dedicated tmpfs is unavailable, a later probe may repeat
 the warmup. Periodic checks use the lightweight model listing endpoint after a
-marker is stored. If any member of the four-service product group is absent,
+marker is stored. If any member of the five-service product group is absent,
 stopped, unhealthy, or configuration-drifted, the shortcut force-recreates all
-four together. `SPARKCLAW_FORCE_MODEL_RECREATE=true` requests the same action
+five together. `SPARKCLAW_FORCE_MODEL_RECREATE=true` requests the same action
 for a healthy group. It never adds or recreates one model alone inside the
 resident product group. The single-Fast embedding
 endpoint admits 128 short sequences under its fixed 2 GiB KV budget so the
@@ -541,7 +544,7 @@ Important environment variables:
 - `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
 - `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
-- `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
+- `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
 - `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
 - `SPARKCLAW_OCR_ENABLED`, `SPARKCLAW_OCR_PROVIDER` (`openai-http`, the default and only adapter today; `disabled` turns the adapter off explicitly), `SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_TOKENS`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
 - `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_MAX_MODEL_LEN`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
@@ -584,7 +587,7 @@ document evidence and never selects a model lane or authorizes an edit.
 The overlay pins vLLM `0.22.1`, exposes port `8007` only on loopback, uses an
 explicit 2 GiB KV cache budget, and shares the Hugging Face cache. The default
 `single-fast` command starts OCR in the same Compose operation as Fast,
-embedding, and guard:
+embedding, guard, and ASR:
 
 ```bash
 scripts/serve_models_compose.sh single-fast
@@ -619,11 +622,16 @@ allocation alone produced a negative available-cache calculation. One
 concurrent image and scanned-PDF smoke call completed successfully, but it is
 not an OCR quality baseline; broader document measurements are still required.
 
-### Qwen3-ASR From ModelScope
+### Qwen3-ASR Speech
 
-SparkClaw speech uses the OpenAI-compatible transcription endpoint. Qwen3-ASR supports vLLM serving and the OpenAI transcription API, and the [official Qwen3-ASR README](https://github.com/QwenLM/Qwen3-ASR) recommends ModelScope downloads for users in Mainland China. On one GB10 with the validated `dual-light` residency profile, start with `Qwen/Qwen3-ASR-0.6B`; switch to `Qwen/Qwen3-ASR-1.7B` only after measuring memory and latency with the local fast, deep, and embedding services resident.
+SparkClaw speech uses the OpenAI-compatible transcription endpoint. Qwen3-ASR supports vLLM serving and the OpenAI transcription API. The default product group uses `Qwen/Qwen3-ASR-0.6B` and downloads it through the same Hugging Face cache used by the other resident models. Switch to `Qwen/Qwen3-ASR-1.7B` only after measuring memory and latency with the complete resident group.
 
-Download the ASR checkpoint into the shared model cache:
+The ASR service uses an explicit 2 GiB KV cache budget. During a five-service
+cold start, utilization-based allocation alone accounted for the audio encoder
+profiling peak and calculated `-10.24 GiB` of available KV cache after loading
+the 1.53 GiB model, so the fixed cache is required rather than optional tuning.
+
+The [official Qwen3-ASR README](https://github.com/QwenLM/Qwen3-ASR) recommends ModelScope for users in Mainland China. To use a preloaded ModelScope copy instead, download it into the shared cache and set `SPARKCLAW_ASR_MODEL_ID=/models/modelscope/Qwen3-ASR-0.6B` in the process environment that invokes startup:
 
 ```bash
 python3 -m pip install -U modelscope
@@ -637,7 +645,7 @@ The ASR compose override builds a small derivative of the local vLLM image that 
 - Environment: `docker/env/sparkclaw.asr.env`
 - Image recipe: `docker/images/asr-vllm.Dockerfile`
 - Default served model: `sparkclaw-asr`
-- Default model path in container: `/models/modelscope/Qwen3-ASR-0.6B`
+- Default model ID: `Qwen/Qwen3-ASR-0.6B`
 
 Start ASR by itself:
 
@@ -645,7 +653,8 @@ Start ASR by itself:
 scripts/serve_models_compose.sh asr
 ```
 
-Start the validated residency profile with ASR:
+The default product startup already includes ASR. The historical dual-light
+experiment can also be started with ASR explicitly:
 
 ```bash
 scripts/serve_models_compose.sh dual-light-asr
@@ -697,10 +706,12 @@ scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-This applies the single-Fast and OCR environments plus the bounded service
-settings from `docker/compose.dual-light.yaml` and `docker/compose.ocr.yaml`.
-Fast, embedding, guard, and OCR start together. Gateway sends both logical chat
-profiles to `sparkclaw-fast` and uses `sparkclaw-ocr` for document OCR.
+This applies the single-Fast, ASR, and OCR environments plus the bounded service
+settings from `docker/compose.dual-light.yaml`, `docker/compose.asr.yaml`, and
+`docker/compose.ocr.yaml`. Fast, embedding, guard, ASR, and OCR start together.
+Gateway sends both logical chat profiles to `sparkclaw-fast`, uses
+`sparkclaw-asr` for speech transcription, and uses `sparkclaw-ocr` for document
+OCR.
 
 Historical light dual-residency experiment:
 

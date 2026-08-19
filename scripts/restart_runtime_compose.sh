@@ -10,6 +10,8 @@ RUNTIME_ENV="${SPARKCLAW_RUNTIME_ENV:-docker/env/sparkclaw.single-fast.env}"
 RUNTIME_OVERRIDE_ENV="${SPARKCLAW_RUNTIME_OVERRIDE_ENV:-}"
 COMPOSE_FILE="${SPARKCLAW_COMPOSE_FILE:-docker/compose.yaml}"
 EXTRA_COMPOSE_FILE="${SPARKCLAW_RUNTIME_EXTRA_COMPOSE_FILE:-}"
+ASR_ENV="docker/env/sparkclaw.asr.env"
+ASR_COMPOSE_FILE="docker/compose.asr.yaml"
 OCR_ENV="docker/env/sparkclaw.ocr.env"
 OCR_COMPOSE_FILE="docker/compose.ocr.yaml"
 PROFILE="${SPARKCLAW_COMPOSE_PROFILE:-models-local}"
@@ -47,6 +49,10 @@ done
 
 if [[ ! -f "$RUNTIME_ENV" ]]; then
   echo "runtime env file not found: $RUNTIME_ENV" >&2
+  exit 1
+fi
+if [[ ! -f "$ASR_ENV" || ! -f "$ASR_COMPOSE_FILE" ]]; then
+  echo "ASR runtime files not found: $ASR_ENV or $ASR_COMPOSE_FILE" >&2
   exit 1
 fi
 if [[ ! -f "$OCR_ENV" || ! -f "$OCR_COMPOSE_FILE" ]]; then
@@ -99,11 +105,11 @@ compose_args=(compose)
 if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
 fi
-compose_args+=(--env-file "$RUNTIME_ENV" --env-file "$OCR_ENV")
+compose_args+=(--env-file "$RUNTIME_ENV" --env-file "$ASR_ENV" --env-file "$OCR_ENV")
 if [[ -n "$RUNTIME_OVERRIDE_ENV" ]]; then
   compose_args+=(--env-file "$RUNTIME_OVERRIDE_ENV")
 fi
-compose_args+=(-f "$COMPOSE_FILE" -f "$OCR_COMPOSE_FILE")
+compose_args+=(-f "$COMPOSE_FILE" -f "$ASR_COMPOSE_FILE" -f "$OCR_COMPOSE_FILE")
 if [[ -n "$EXTRA_COMPOSE_FILE" ]]; then
   compose_args+=(-f "$EXTRA_COMPOSE_FILE")
 fi
@@ -122,7 +128,7 @@ fi
 "${docker_cmd[@]}" "${compose_args[@]}" up -d --build --force-recreate --no-deps "${services[@]}"
 
 for _ in $(seq 1 30); do
-  ready_json="$(curl -fsS "$GATEWAY_READY_URL" 2>/dev/null || true)"
+  ready_json="$(curl -fsS --connect-timeout 2 --max-time 5 "$GATEWAY_READY_URL" 2>/dev/null || true)"
   if [[ -n "$ready_json" ]]; then
     if printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' &&
       printf '%s' "$ready_json" | grep -Fq "\"model_mode\":\"$EXPECTED_MODEL_MODE\"" &&

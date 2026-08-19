@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
+import time
 import unittest
 
 
@@ -21,10 +22,15 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 name = Path(sys.argv[0]).name
 with Path(os.environ["AUTOSTART_TEST_LOG"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps([name, *sys.argv[1:]]) + "\n")
+
+if name == os.environ.get("AUTOSTART_TEST_HANG_COMMAND"):
+    time.sleep(30)
+    raise SystemExit(1)
 
 if name == "sudo":
     args = sys.argv[1:]
@@ -61,6 +67,8 @@ class AutostartComposeTest(unittest.TestCase):
 
             env = os.environ.copy()
             env.pop("SPARKCLAW_AUTOSTART_ENABLED", None)
+            env.pop("SPARKCLAW_AUTOSTART_READY_TIMEOUT_SECONDS", None)
+            env.pop("SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS", None)
             env.update(
                 {
                     "SPARKCLAW_AUTOSTART_ENV_FILE": str(env_path),
@@ -130,6 +138,32 @@ class AutostartComposeTest(unittest.TestCase):
         self.assertIn("must be true or false", result.stderr)
         self.assertEqual(calls, [])
 
+    def test_hung_probe_is_bounded_by_the_ready_deadline(self):
+        started = time.monotonic()
+        result, calls = self.run_autostart(
+            "SPARKCLAW_AUTOSTART_ENABLED=true\n",
+            {
+                "AUTOSTART_TEST_HANG_COMMAND": "docker",
+                "SPARKCLAW_AUTOSTART_READY_TIMEOUT_SECONDS": "1",
+                "SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS": "1",
+            },
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("did not become ready", result.stderr)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertFalse(any(call[0] == "bash" for call in calls))
+
+    def test_invalid_timeout_fails_before_runtime_commands(self):
+        result, calls = self.run_autostart(
+            "SPARKCLAW_AUTOSTART_ENABLED=true\n"
+            "SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS=0\n",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("timeouts must be positive integers", result.stderr)
+        self.assertEqual(calls, [])
+
 
 class InstallAutostartSystemdTest(unittest.TestCase):
     def test_installs_and_enables_without_starting_service(self):
@@ -177,6 +211,29 @@ class InstallAutostartSystemdTest(unittest.TestCase):
             self.assertEqual(calls[1][1:], ["enable", "sparkclaw-autostart.service"])
             self.assertFalse(any("--now" in call or "start" in call for call in calls))
             self.assertIn("was not started now", result.stdout)
+
+            check = subprocess.run(
+                ["bash", str(INSTALL_SCRIPT), "--check"],
+                cwd=ROOT,
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(check.returncode, 0, check.stderr)
+
+            with (unit_dir / "sparkclaw-autostart.service").open("a", encoding="utf-8") as stream:
+                stream.write("# stale\n")
+            stale = subprocess.run(
+                ["bash", str(INSTALL_SCRIPT), "--check"],
+                cwd=ROOT,
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(stale.returncode, 0)
+            self.assertIn("stale", stale.stderr)
 
 
 if __name__ == "__main__":

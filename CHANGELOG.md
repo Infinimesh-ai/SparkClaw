@@ -49,6 +49,10 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   warm-up before advertising readiness. Gateway exposes realtime only through
   an authenticated, single-use WebSocket ticket and shares admission capacity
   with batch transcription.
+- Boot startup now bounds each Docker/NVIDIA readiness probe, detects stale
+  installed systemd units in doctor, and includes Qwen3-ASR in the atomic
+  single-Fast resident group and Gateway runtime by default, with a fixed ASR
+  KV cache budget that avoids negative utilization-based cache estimates.
 - Deployment startup now aligns the product template on PostgreSQL without
   migrating legacy file snapshots, retains healthy/current model groups while
   atomically recovering degraded groups, offers an explicit force-refresh flag,

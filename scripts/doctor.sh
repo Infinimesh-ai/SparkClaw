@@ -40,7 +40,11 @@ done
 case "$(printf '%s' "${SPARKCLAW_AUTOSTART_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on)
     if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled sparkclaw-autostart.service >/dev/null 2>&1; then
-      echo "ok  boot autostart enabled"
+      if bash "$ROOT/scripts/install_autostart_systemd.sh" --check >/dev/null 2>&1; then
+        echo "ok  boot autostart enabled and current"
+      else
+        echo "warn boot autostart is enabled but its systemd unit is stale; run npm run autostart:install"
+      fi
     else
       echo "warn boot autostart is configured but the systemd service is not enabled"
     fi

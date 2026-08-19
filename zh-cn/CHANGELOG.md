@@ -40,6 +40,9 @@
   call 串行固定在一个 owner thread，并在声明 ready 前完成首次 inference warm-up。Gateway
   只通过 authenticated single-use WebSocket ticket 暴露 realtime，并与 batch transcription
   共享 admission capacity。
+- 开机启动现在为每个 Docker/NVIDIA readiness probe 设置硬超时，doctor 会发现过期的
+  systemd unit，并默认把 Qwen3-ASR 纳入单 Fast 原子常驻组与 Gateway runtime；
+  固定 ASR KV cache budget 避免 utilization 估算得到负的可用 cache。
 - 部署启动现在把产品 template 对齐到 PostgreSQL，且不迁移旧 file snapshot；
   healthy/current 模型组会被保留，degraded 模型组会原子整组恢复，同时提供显式 force-refresh
   flag；WebChat host port 由一个经过校验的配置统一拥有；readiness 内置于 vLLM 镜像并使用

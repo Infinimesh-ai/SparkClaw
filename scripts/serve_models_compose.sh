@@ -11,9 +11,10 @@ INCLUDE_ASR=false
 INCLUDE_OCR=false
 SINGLE_FAST=false
 if [[ "$LANES" == "single-fast" || "$LANES" == "fast-only" || "$LANES" == "single-fast-with-ocr" ]]; then
-  LANES="fast,embedding,guard,ocr"
+  LANES="fast,embedding,guard,asr,ocr"
   MODEL_PROFILE="single-fast"
   SINGLE_FAST=true
+  INCLUDE_ASR=true
   INCLUDE_OCR=true
 elif [[ "$LANES" == "all" ]]; then
   LANES="fast,deep,embedding,guard"

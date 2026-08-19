@@ -5,6 +5,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_NAME="sparkclaw-autostart.service"
 UNIT_DIR="${SPARKCLAW_SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
+MODE="install"
+
+case "${1:-}" in
+  "") ;;
+  --check) MODE="check" ;;
+  *)
+    echo "usage: $0 [--check]" >&2
+    exit 2
+    ;;
+esac
+[[ $# -le 1 ]] || {
+  echo "usage: $0 [--check]" >&2
+  exit 2
+}
 
 [[ "$(uname -s)" == "Linux" ]] || {
   echo "SparkClaw boot autostart requires Linux with systemd" >&2
@@ -58,6 +72,20 @@ EOF
 
 if command -v systemd-analyze >/dev/null 2>&1; then
   systemd-analyze verify "$unit_file"
+fi
+
+if [[ "$MODE" == "check" ]]; then
+  installed_unit="$UNIT_DIR/$UNIT_NAME"
+  [[ -f "$installed_unit" ]] || {
+    echo "SparkClaw boot autostart unit is not installed: $installed_unit" >&2
+    exit 1
+  }
+  cmp -s "$unit_file" "$installed_unit" || {
+    echo "SparkClaw boot autostart unit is stale: $installed_unit" >&2
+    exit 1
+  }
+  echo "Installed $UNIT_NAME matches the current repository"
+  exit 0
 fi
 
 privileged=()

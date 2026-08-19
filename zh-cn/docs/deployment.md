@@ -35,8 +35,8 @@ curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 1
    `nvidia-smi` 与磁盘空间。
 4. 创建或保留权限为 `0600` 的 `.env`，接收不回显的 Hugging Face token，并把 bind mount
    数据目录对齐到当前用户。
-5. 使用 vLLM 的 Hugging Face 集成，将 Fast、embedding、guard 与 OvisOCR2 下载到共享的
-   `data/models` 缓存。
+5. 使用 vLLM 的 Hugging Face 集成，将 Fast、embedding、guard、Qwen3-ASR 与 OvisOCR2
+   下载到共享的 `data/models` 缓存。
 6. 等待模型 ready 以及 Fast/Guard 预热，构建 Gateway、Sandbox Runner 与 WebChat，
    最后验证 Gateway 和 WebChat。
 7. 为部署用户安装并启用系统级 `sparkclaw-autostart.service`；安装过程不会重启当前运行实例。
@@ -96,9 +96,9 @@ control plane：
 npm start
 ```
 
-该入口把模型所有权交给 `serve_models_compose.sh single-fast`，将 Fast、embedding、guard
-与 OCR 视为一个常驻组。全部容器 running、healthy 且 Compose configuration hash 一致时，
-启动会保留完整模型组；任一成员 absent、stopped、unhealthy 或 drifted 时，四者一起停止并
+该入口把模型所有权交给 `serve_models_compose.sh single-fast`，将 Fast、embedding、guard、
+ASR 与 OCR 视为一个常驻组。全部容器 running、healthy 且 Compose configuration hash 一致时，
+启动会保留完整模型组；任一成员 absent、stopped、unhealthy 或 drifted 时，五者一起停止并
 force-recreate。设置 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 可对原本健康的模型组执行相同
 刷新。命令等待所有模型 health checks，包括已配置的 Fast 与 Guard completion 预热，然后才
 启动 PostgreSQL、Sandbox Runner、Gateway 与 WebChat。PostgreSQL 必须健康后才会重建
@@ -112,10 +112,13 @@ Gateway。Gateway 随后验证 PostgreSQL state backend 下的
 
 ```dotenv
 SPARKCLAW_AUTOSTART_ENABLED=true
+SPARKCLAW_AUTOSTART_READY_TIMEOUT_SECONDS=600
+SPARKCLAW_AUTOSTART_PROBE_TIMEOUT_SECONDS=10
 ```
 
-开机时，`sparkclaw-autostart.service` 以部署用户身份运行，最多等待十分钟让 Docker 与
-NVIDIA runtime 就绪，然后调用与 `npm start` 相同的产品入口。它会保留健康模型组，或在模型
+开机时，`sparkclaw-autostart.service` 以部署用户身份运行，在配置的总时限内等待 Docker 与
+NVIDIA runtime 就绪，并用单次探针时限约束每条 readiness 命令；随后调用与 `npm start`
+相同的产品入口。它会保留健康模型组，或在模型
 组 degraded 时自动 force-recreate，随后才启动应用服务。该 unit 是带
 `RemainAfterExit=yes` 的 `Type=oneshot`；reconciliation 期间保持 activating，并在固定
 `TimeoutStartSec=4h` 后失败，而不会永久等待。它不使用 Docker container restart policy。
@@ -404,12 +407,12 @@ scripts/restart_runtime_compose.sh
 
 durable 产品运行态应使用该脚本，而不是直接执行
 `docker compose up --force-recreate gateway webchat`。脚本在 `.env` 后加载
-`docker/env/sparkclaw.single-fast.env` 与 `docker/env/sparkclaw.ocr.env`，并叠加
-`docker/compose.ocr.yaml`。这会选择 PostgreSQL，保持两个逻辑 chat profile 都映射到
-Fast，同时让文档 OCR adapter 指向共同常驻的 OCR 服务。请求启动 Gateway 时，脚本会先
-启动并等待 PostgreSQL；随后检查 `/readyz`，只有 Gateway 报告 `model_mode=external` 且
+`docker/env/sparkclaw.single-fast.env`、`docker/env/sparkclaw.asr.env` 与
+`docker/env/sparkclaw.ocr.env`，并叠加 ASR 与 OCR overlay。这会选择 PostgreSQL，保持两个
+逻辑 chat profile 都映射到 Fast，同时让语音转写和文档 OCR adapter 指向共同常驻的服务。
+请求启动 Gateway 时，脚本会先启动并等待 PostgreSQL；随后通过有界请求检查 `/readyz`，只有 Gateway 报告 `model_mode=external` 且
 `state_backend=postgres` 时才成功退出。需要其他 chat/runtime profile 时应显式设置
-`SPARKCLAW_RUNTIME_ENV`；OCR 环境仍属于该产品运行态。
+`SPARKCLAW_RUNTIME_ENV`；ASR 与 OCR 环境仍属于该产品运行态。
 
 当主机存在可解析的 X11/XWayland display 时，脚本还会叠加
 `docker/compose.visible-browser.yaml` overlay，使登录 handoff 可以在 owner 桌面
@@ -442,8 +445,8 @@ scripts/serve_models_compose.sh all-with-asr
 ```
 
 不传参数时，`serve_models_compose.sh` 也会选择 `single-fast`。这是当前产品启动路径：
-它会停止此前运行的 Deep 容器，并使用单 Fast 与 OCR 环境同时启动 Fast、embedding、
-guard 和 OCR。旧的 `single-fast-with-ocr` 名称是相同启动方式的兼容别名。Deep 与
+它会停止此前运行的 Deep 容器，并使用单 Fast、ASR 与 OCR 环境同时启动 Fast、embedding、
+guard、ASR 和 OCR。旧的 `single-fast-with-ocr` 名称是相同启动方式的兼容别名。Deep 与
 dual-light 命令仅作为显式测试/benchmark 入口。命令会等待所有选中服务进入 healthy。
 Fast 必须先成功完成一次贴近生产负载的有界 `/chat/completions` 请求才会变为 healthy。
 当前合成输入在 Qwen3.6 tokenizer 上约为 3.4K token，并强制解码 480 token，让启动阶段承担
@@ -452,8 +455,8 @@ readiness helper 会复制进以 `SPARKCLAW_VLLM_IMAGE` 为 base 的本地派生
 bind-mount checkout 中的 source file。每个 marker 都存放在专用的容器本地 tmpfs，并包含
 当前模型服务进程的启动时刻，因此新进程不能复用上一个进程的 readiness。成功 warmup 后即使
 marker 无法写入，服务仍保持 healthy；如果连专用 tmpfs 也不可用，后续 probe 可能再次
-warmup。marker 成功保存后，周期健康检查改用轻量模型列表 endpoint。如果四服务产品组中有
-任一服务缺失、停止、不健康或配置漂移，快捷命令会 force-recreate 全部四个服务；
+warmup。marker 成功保存后，周期健康检查改用轻量模型列表 endpoint。如果五服务产品组中有
+任一服务缺失、停止、不健康或配置漂移，快捷命令会 force-recreate 全部五个服务；
 `SPARKCLAW_FORCE_MODEL_RECREATE=true` 会对健康模型组执行相同操作。脚本绝不会在常驻产品组
 中单独增加或重建一个模型。单 Fast Embedding endpoint 在固定 2 GiB KV budget 下允许 128 条
 短 sequence，使 110 项启动索引在 20 秒时限内完成。
@@ -490,7 +493,7 @@ ready 检查不包含该端口。
 - `SPARKCLAW_DEEP_MODEL_ID`, `SPARKCLAW_DEEP_MODEL`, `SPARKCLAW_DEEP_MAX_MODEL_LEN`, `SPARKCLAW_DEEP_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_DEEP_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_DEEP_MAX_NUM_SEQS`, `SPARKCLAW_DEEP_SPECULATIVE_CONFIG`
 - `SPARKCLAW_EMBEDDING_MODEL_ID`, `SPARKCLAW_EMBEDDING_MODEL`, `SPARKCLAW_EMBEDDING_MAX_MODEL_LEN`, `SPARKCLAW_EMBEDDING_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_EMBEDDING_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_EMBEDDING_MAX_NUM_SEQS`
 - `SPARKCLAW_GUARD_MODEL_ID`, `SPARKCLAW_GUARD_MODEL`, `SPARKCLAW_GUARD_SERVED_NAME`, `SPARKCLAW_GUARD_MAX_TOKENS`, `SPARKCLAW_GUARD_CONTEXT_TOKENS`, `SPARKCLAW_GUARD_MAX_MODEL_LEN`, `SPARKCLAW_GUARD_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_GUARD_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_GUARD_MAX_NUM_SEQS`
-- `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
+- `SPARKCLAW_ASR_MODEL_ID`, `SPARKCLAW_ASR_SERVED_NAME`, `SPARKCLAW_ASR_MAX_MODEL_LEN`, `SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_ASR_MAX_NUM_SEQS`, `SPARKCLAW_ASR_DTYPE`
 - `SPARKCLAW_SPEECH_ENABLED`, `SPARKCLAW_SPEECH_BASE_URL`, `SPARKCLAW_SPEECH_ALLOWED_HOSTS`, `SPARKCLAW_SPEECH_MODEL`, `SPARKCLAW_SPEECH_TIMEOUT_SECONDS`, `SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS`, `SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES`
 - `SPARKCLAW_OCR_ENABLED`、`SPARKCLAW_OCR_PROVIDER`（`openai-http` 为默认且目前唯一的适配器；`disabled` 显式关闭适配器）、`SPARKCLAW_OCR_BASE_URL`, `SPARKCLAW_OCR_ALLOWED_HOSTS`, `SPARKCLAW_OCR_MODEL`, `SPARKCLAW_OCR_TIMEOUT_SECONDS`, `SPARKCLAW_OCR_MAX_UPLOAD_BYTES`, `SPARKCLAW_OCR_MAX_OUTPUT_BYTES`, `SPARKCLAW_OCR_MAX_TOKENS`, `SPARKCLAW_OCR_MAX_CONCURRENCY`, `SPARKCLAW_OCR_MAX_PENDING`
 - `SPARKCLAW_OCR_IMAGE`, `SPARKCLAW_OCR_MODEL_ID`, `SPARKCLAW_OCR_SERVED_NAME`, `SPARKCLAW_OCR_MAX_MODEL_LEN`, `SPARKCLAW_OCR_GPU_MEMORY_UTILIZATION`, `SPARKCLAW_OCR_KV_CACHE_MEMORY_BYTES`, `SPARKCLAW_OCR_MAX_NUM_SEQS`
@@ -528,7 +531,7 @@ OCR 输出是不可信文档证据，不能选择 model lane 或授权 edit。
 
 overlay 固定 vLLM `0.22.1`，只在 loopback 暴露 `8007`，使用显式 2 GiB KV cache budget，
 并复用 Hugging Face cache。默认 `single-fast` 命令通过同一次 Compose 操作同时启动 OCR、
-Fast、embedding 与 guard：
+Fast、embedding、guard 与 ASR：
 
 ```bash
 scripts/serve_models_compose.sh single-fast
@@ -557,11 +560,15 @@ SPARKCLAW_OCR_BASE_URL=http://127.0.0.1:8007/v1 scripts/doctor.sh
 显式 2 GiB KV cache，仅依赖 utilization 分配会得到负数的可用 cache 计算结果。一次并发图片
 与扫描 PDF 冒烟调用已成功，但它不是 OCR 质量基线，仍需覆盖更多真实文档的质量测量。
 
-### 从魔塔加载 Qwen3-ASR
+### Qwen3-ASR 语音转写
 
-SparkClaw speech 使用 OpenAI-compatible transcription endpoint。Qwen3-ASR 支持 vLLM serving 和 OpenAI transcription API，[官方 Qwen3-ASR README](https://github.com/QwenLM/Qwen3-ASR) 也建议中国大陆用户通过 ModelScope 下载。单台 GB10 同时运行已验证的 `dual-light` 常驻 profile 时，先用 `Qwen/Qwen3-ASR-0.6B`；只有在 fast、deep、embedding 都常驻后重新测过内存和延迟，再切到 `Qwen/Qwen3-ASR-1.7B`。
+SparkClaw speech 使用 OpenAI-compatible transcription endpoint。Qwen3-ASR 支持 vLLM serving 和 OpenAI transcription API。默认产品组使用 `Qwen/Qwen3-ASR-0.6B`，并通过其他常驻模型共用的 Hugging Face cache 下载。只有在完整常驻组下重新测过内存和延迟，才能切换到 `Qwen/Qwen3-ASR-1.7B`。
 
-把 ASR checkpoint 下载到共享模型缓存：
+ASR 服务使用显式 2 GiB KV cache budget。五服务冷启动时，仅依赖 utilization
+的分配方式在加载 1.53 GiB 模型后把音频 encoder profiling 峰值计入预算，算出
+`-10.24 GiB` 可用 KV cache，因此固定 cache 是必需配置，不是可选调优。
+
+[官方 Qwen3-ASR README](https://github.com/QwenLM/Qwen3-ASR) 建议中国大陆用户使用 ModelScope。若要使用预下载的 ModelScope 副本，可将其下载到共享 cache，并在调用启动命令的 process environment 中设置 `SPARKCLAW_ASR_MODEL_ID=/models/modelscope/Qwen3-ASR-0.6B`：
 
 ```bash
 python3 -m pip install -U modelscope
@@ -575,7 +582,7 @@ ASR compose override 会基于本地 vLLM image 构建一个轻量派生镜像�
 - 环境变量：`docker/env/sparkclaw.asr.env`
 - 镜像配方：`docker/images/asr-vllm.Dockerfile`
 - 默认 served model：`sparkclaw-asr`
-- 容器内默认模型路径：`/models/modelscope/Qwen3-ASR-0.6B`
+- 默认模型 ID：`Qwen/Qwen3-ASR-0.6B`
 
 只启动 ASR：
 
@@ -583,7 +590,7 @@ ASR compose override 会基于本地 vLLM image 构建一个轻量派生镜像�
 scripts/serve_models_compose.sh asr
 ```
 
-启动已验证的常驻 profile 并带 ASR：
+默认产品启动已经包含 ASR。历史 dual-light 实验也可显式带 ASR 启动：
 
 ```bash
 scripts/serve_models_compose.sh dual-light-asr
@@ -635,9 +642,10 @@ scripts/serve_models_compose.sh single-fast
 scripts/restart_runtime_compose.sh
 ```
 
-该命令应用单 Fast 与 OCR 环境，并复用 `docker/compose.dual-light.yaml` 和
-`docker/compose.ocr.yaml` 中有界的服务设置；Fast、embedding、guard 与 OCR 一起启动，
-Gateway 的两个逻辑 chat profiles 都发送到 `sparkclaw-fast`，文档 OCR 使用 `sparkclaw-ocr`。
+该命令应用单 Fast、ASR 与 OCR 环境，并复用 `docker/compose.dual-light.yaml`、
+`docker/compose.asr.yaml` 和 `docker/compose.ocr.yaml` 中有界的服务设置；Fast、embedding、
+guard、ASR 与 OCR 一起启动。Gateway 的两个逻辑 chat profiles 都发送到
+`sparkclaw-fast`，语音转写使用 `sparkclaw-asr`，文档 OCR 使用 `sparkclaw-ocr`。
 
 历史轻量双常驻实验：
 

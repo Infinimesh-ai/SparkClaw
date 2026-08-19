@@ -140,9 +140,11 @@ jobs:
           docker compose \
             --env-file .env \
             --env-file docker/env/sparkclaw.single-fast.env \
+            --env-file docker/env/sparkclaw.asr.env \
             --env-file docker/env/sparkclaw.ocr.env \
             -f docker/compose.yaml \
             -f docker/compose.dual-light.yaml \
+            -f docker/compose.asr.yaml \
             -f docker/compose.ocr.yaml \
             --profile models-local \
             config --format json > /tmp/sparkclaw-compose.json
@@ -154,11 +156,16 @@ jobs:
           environment = config["services"]["gateway"]["environment"]
           assert environment["SPARKCLAW_MODEL_MODE"] == "external"
           assert environment["SPARKCLAW_STATE_BACKEND"] == "postgres"
+          assert environment["SPARKCLAW_SPEECH_ENABLED"] == "true"
           assert environment["SPARKCLAW_OCR_ENABLED"] == "true"
           assert environment["SPARKCLAW_DEEP_BASE_URL"] == environment["SPARKCLAW_FAST_BASE_URL"]
           assert environment["SPARKCLAW_DEEP_MODEL"] == environment["SPARKCLAW_FAST_MODEL"]
           assert "postgres" in config["services"]
+          assert "sparkclaw-asr" in config["services"]
           assert "sparkclaw-ocr" in config["services"]
+          asr_command = config["services"]["sparkclaw-asr"]["command"]
+          assert asr_command[0] == "Qwen/Qwen3-ASR-0.6B"
+          assert asr_command[asr_command.index("--kv-cache-memory-bytes") + 1] == "2G"
           assert not config["services"]["gateway"].get("ports")
           fast = config["services"]["sparkclaw-fast"]
           assert fast["image"] == "sparkclaw-vllm-readiness:local"

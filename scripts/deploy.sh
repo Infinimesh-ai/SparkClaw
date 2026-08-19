@@ -244,9 +244,11 @@ model_compose=(
   compose
   --env-file .env
   --env-file docker/env/sparkclaw.single-fast.env
+  --env-file docker/env/sparkclaw.asr.env
   --env-file docker/env/sparkclaw.ocr.env
   -f docker/compose.yaml
   -f docker/compose.dual-light.yaml
+  -f docker/compose.asr.yaml
   -f docker/compose.ocr.yaml
   --profile models-local
 )
@@ -254,8 +256,10 @@ runtime_compose=(
   compose
   --env-file .env
   --env-file docker/env/sparkclaw.single-fast.env
+  --env-file docker/env/sparkclaw.asr.env
   --env-file docker/env/sparkclaw.ocr.env
   -f docker/compose.yaml
+  -f docker/compose.asr.yaml
   -f docker/compose.ocr.yaml
   --profile models-local
 )

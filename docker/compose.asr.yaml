@@ -41,7 +41,7 @@ services:
     volumes:
       - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
     command:
-      - ${SPARKCLAW_ASR_MODEL_ID:-/models/modelscope/Qwen3-ASR-0.6B}
+      - ${SPARKCLAW_ASR_MODEL_ID:-Qwen/Qwen3-ASR-0.6B}
       - --host
       - 0.0.0.0
       - --port
@@ -50,6 +50,8 @@ services:
       - ${SPARKCLAW_ASR_SERVED_NAME:-sparkclaw-asr}
       - --gpu-memory-utilization
       - ${SPARKCLAW_ASR_GPU_MEMORY_UTILIZATION:-0.10}
+      - --kv-cache-memory-bytes
+      - ${SPARKCLAW_ASR_KV_CACHE_MEMORY_BYTES:-2G}
       - --max-model-len
       - ${SPARKCLAW_ASR_MAX_MODEL_LEN:-8192}
       - --max-num-seqs

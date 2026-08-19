@@ -36,6 +36,7 @@ import type {
   ScheduleAction,
   Session,
   SpeechStatus,
+  SpeechRealtimeTicket,
   SpeechTranscriptionResult,
   TraceMetadata,
   ToolCall
@@ -271,6 +272,17 @@ export async function openDocumentFile(path: string, sessionId = "") {
 export const api = {
   ready: () => request<ReadyStatus>("/readyz"),
   speechStatus: () => request<SpeechStatus>("/api/speech/status"),
+  createSpeechRealtimeSession: (sessionId: string, requestId: string, language: string, signal?: AbortSignal) =>
+    request<SpeechRealtimeTicket>("/api/speech/realtime-sessions", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, request_id: requestId, language: language || "auto" }),
+      signal
+    }),
+  cancelSpeechRealtimeSession: (id: string, signal?: AbortSignal) =>
+    request<{ cancelled: boolean }>(`/api/speech/realtime-sessions/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      signal
+    }),
   transcribeSpeech: (sessionId: string, requestId: string, language: string, file: Blob, signal?: AbortSignal) => {
     const form = new FormData();
     form.append("file", file, "recording.wav");

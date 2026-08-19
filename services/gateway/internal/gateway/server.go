@@ -68,6 +68,9 @@ type Server struct {
 	policies                 policy.Engine
 	bindings                 binding.Router
 	speech                   speech.Transcriber
+	speechRealtimeMu         sync.Mutex
+	speechRealtimeTickets    map[string]*speechRealtimeTicket
+	speechRealtimeTicketIDs  map[string]string
 	credentials              credential.CredentialVault
 	cancelBinding            func(app.NotificationBinding)
 	managedBrowserWindows    ManagedBrowserWindowController
@@ -208,11 +211,13 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 			Key:     cfg.State.CredentialKey,
 			KeyFile: cfg.State.CredentialKeyFile,
 		}),
-		mux:            http.NewServeMux(),
-		started:        time.Now().UTC(),
-		limiter:        newRateLimiter(cfg.Gateway.RateLimit),
-		lifecycleCtx:   context.Background(),
-		passiveStreams: map[string]int{},
+		mux:                     http.NewServeMux(),
+		started:                 time.Now().UTC(),
+		limiter:                 newRateLimiter(cfg.Gateway.RateLimit),
+		lifecycleCtx:            context.Background(),
+		passiveStreams:          map[string]int{},
+		speechRealtimeTickets:   map[string]*speechRealtimeTicket{},
+		speechRealtimeTicketIDs: map[string]string{},
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
@@ -405,6 +410,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	s.mux.HandleFunc("GET /api/speech/status", s.getSpeechStatus)
 	s.mux.HandleFunc("POST /api/speech/transcriptions", s.postSpeechTranscription)
+	s.mux.HandleFunc("POST /api/speech/realtime-sessions", s.postSpeechRealtimeSession)
+	s.mux.HandleFunc("DELETE /api/speech/realtime-sessions/{id}", s.deleteSpeechRealtimeSession)
+	s.mux.HandleFunc("GET /api/speech/realtime", s.getSpeechRealtime)
 	s.mux.HandleFunc("POST /api/documents/upload", s.uploadDocument)
 	s.mux.HandleFunc("GET /api/documents/available", s.listAvailableDocuments)
 	s.mux.HandleFunc("GET /api/documents/file", s.getUploadedDocument)
@@ -2712,6 +2720,10 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			}
 		}
 		if s.isPublicRoute(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/speech/realtime" {
 			next.ServeHTTP(w, r)
 			return
 		}

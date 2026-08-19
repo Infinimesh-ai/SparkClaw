@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
@@ -20,10 +21,12 @@ import (
 const maxSpeechResponseBytes = 1 << 20
 
 type OpenAIHTTPTranscriber struct {
-	cfg      config.SpeechConfig
-	client   *http.Client
-	admitted chan struct{}
-	workers  chan struct{}
+	cfg        config.SpeechConfig
+	client     *http.Client
+	admitted   chan struct{}
+	workers    chan struct{}
+	sessionsMu sync.Mutex
+	sessions   map[*openAIRealtimeSession]struct{}
 }
 
 func NewOpenAIHTTP(cfg config.SpeechConfig) (*OpenAIHTTPTranscriber, error) {
@@ -49,6 +52,7 @@ func NewOpenAIHTTP(cfg config.SpeechConfig) (*OpenAIHTTPTranscriber, error) {
 		},
 		admitted: make(chan struct{}, cfg.MaxConcurrency+cfg.MaxPending),
 		workers:  make(chan struct{}, cfg.MaxConcurrency),
+		sessions: map[*openAIRealtimeSession]struct{}{},
 	}, nil
 }
 
@@ -90,7 +94,8 @@ func (t *OpenAIHTTPTranscriber) Status(ctx context.Context) Status {
 		return status
 	}
 	defer resp.Body.Close()
-	if err := discardBoundedResponse(resp.Body); err != nil {
+	raw, err := readBoundedResponse(resp.Body)
+	if err != nil {
 		status.Reason = "speech service health response exceeded the limit"
 		return status
 	}
@@ -100,6 +105,22 @@ func (t *OpenAIHTTPTranscriber) Status(ctx context.Context) Status {
 	}
 	status.Ready = true
 	status.State = StateReady
+	if len(bytes.TrimSpace(raw)) > 0 {
+		var health struct {
+			SupportsStreaming bool   `json:"supports_streaming"`
+			Protocol          string `json:"protocol"`
+			SampleRate        int    `json:"sample_rate"`
+			FrameMS           int    `json:"frame_ms"`
+		}
+		if json.Unmarshal(raw, &health) == nil && health.SupportsStreaming && health.Protocol == RealtimeProtocol &&
+			health.SampleRate == RealtimeSampleRate && health.FrameMS == RealtimeFrameMS {
+			status.SupportsStreaming = true
+			status.Realtime = &RealtimeCapabilities{
+				Protocol: RealtimeProtocol, SampleRate: health.SampleRate,
+				Channels: 1, BitsPerSample: 16, FrameMS: health.FrameMS,
+			}
+		}
+	}
 	if len(t.workers) >= cap(t.workers) {
 		status.State = StateBusy
 	}
@@ -107,17 +128,11 @@ func (t *OpenAIHTTPTranscriber) Status(ctx context.Context) Status {
 }
 
 func (t *OpenAIHTTPTranscriber) Transcribe(ctx context.Context, input Request) (Result, error) {
-	if err := t.acquire(ctx); err != nil {
+	release, err := t.acquireOperation(ctx)
+	if err != nil {
 		return Result{}, err
 	}
-	defer func() { <-t.admitted }()
-
-	select {
-	case t.workers <- struct{}{}:
-		defer func() { <-t.workers }()
-	case <-ctx.Done():
-		return Result{}, contextSpeechError(ctx.Err())
-	}
+	defer release()
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -206,7 +221,35 @@ func (t *OpenAIHTTPTranscriber) acquire(ctx context.Context) error {
 	}
 }
 
+func (t *OpenAIHTTPTranscriber) acquireOperation(ctx context.Context) (func(), error) {
+	if err := t.acquire(ctx); err != nil {
+		return nil, err
+	}
+	select {
+	case t.workers <- struct{}{}:
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				<-t.workers
+				<-t.admitted
+			})
+		}, nil
+	case <-ctx.Done():
+		<-t.admitted
+		return nil, contextSpeechError(ctx.Err())
+	}
+}
+
 func (t *OpenAIHTTPTranscriber) Close() error {
+	t.sessionsMu.Lock()
+	sessions := make([]*openAIRealtimeSession, 0, len(t.sessions))
+	for session := range t.sessions {
+		sessions = append(sessions, session)
+	}
+	t.sessionsMu.Unlock()
+	for _, session := range sessions {
+		_ = session.Close()
+	}
 	t.client.CloseIdleConnections()
 	return nil
 }

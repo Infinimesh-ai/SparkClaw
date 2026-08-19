@@ -21,7 +21,7 @@ services:
 
   sparkclaw-asr:
     profiles: ["models-local"]
-    image: ${SPARKCLAW_ASR_IMAGE:-sparkclaw-asr-vllm:cu130-nightly-audio}
+    image: ${SPARKCLAW_ASR_IMAGE:-sparkclaw-asr-vllm:cu130-nightly-realtime}
     build:
       context: ..
       dockerfile: docker/images/asr-vllm.Dockerfile
@@ -37,6 +37,7 @@ services:
       MODELSCOPE_CACHE: /models/modelscope
       VLLM_LOGGING_LEVEL: ${SPARKCLAW_VLLM_LOGGING_LEVEL:-INFO}
       VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: ${SPARKCLAW_ASR_VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS:-0}
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
     volumes:
       - ${SPARKCLAW_MODEL_CACHE:-../data/models}:/models
     command:
@@ -56,10 +57,16 @@ services:
       - --dtype
       - ${SPARKCLAW_ASR_DTYPE:-bfloat16}
       - --enforce-eager
+      - --max-audio-seconds
+      - ${SPARKCLAW_SPEECH_MAX_AUDIO_SECONDS:-60}
+      - --max-upload-bytes
+      - ${SPARKCLAW_SPEECH_MAX_UPLOAD_BYTES:-3145728}
+      - --chunk-size-sec
+      - ${SPARKCLAW_ASR_STREAMING_CHUNK_SECONDS:-1.0}
     ports:
       - "127.0.0.1:${SPARKCLAW_ASR_PORT:-8006}:${SPARKCLAW_ASR_PORT:-8006}"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SPARKCLAW_ASR_PORT:-8006}/v1/models', timeout=3).read()"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SPARKCLAW_ASR_PORT:-8006}/health', timeout=3).read()"]
       interval: 30s
       timeout: 5s
       retries: 20

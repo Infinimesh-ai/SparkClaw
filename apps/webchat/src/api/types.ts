@@ -292,6 +292,55 @@ export type SpeechStatus = {
   max_audio_seconds: number;
   max_upload_bytes: number;
   reason?: string;
+  realtime?: SpeechRealtimeCapabilities;
+};
+
+export type SpeechRealtimeCapabilities = {
+  protocol: string;
+  sample_rate: number;
+  channels: number;
+  bits_per_sample: number;
+  frame_ms: number;
+};
+
+export type SpeechRealtimeFormat = {
+  sample_rate: number;
+  channels: number;
+  bits_per_sample: number;
+  frame_ms: number;
+};
+
+export type SpeechRealtimeLimits = {
+  max_audio_seconds: number;
+  max_frame_samples: number;
+};
+
+export type SpeechRealtimeTicket = {
+  id: string;
+  url: string;
+  expires_at: string;
+  protocol: string;
+  format: SpeechRealtimeFormat;
+  limits: SpeechRealtimeLimits;
+};
+
+export type SpeechRealtimeEvent = {
+  event: "ready" | "ack" | "partial" | "final" | "fallback" | "error";
+  protocol?: string;
+  format?: SpeechRealtimeFormat;
+  limits?: SpeechRealtimeLimits;
+  accepted_sequence?: number;
+  received_audio_ms?: number;
+  revision?: number;
+  text?: string;
+  language?: string;
+  audio_end_ms?: number;
+  duration_ms?: number;
+  inference_ms?: number;
+  stop_reason?: string;
+  model?: string;
+  code?: string;
+  retryable?: boolean;
 };
 
 export type SpeechTranscriptionResult = {

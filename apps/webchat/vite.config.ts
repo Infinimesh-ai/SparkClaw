@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 18790,
       proxy: {
+        "/api/speech/realtime": { target: gatewayTarget, ws: true },
         "/api": gatewayTarget,
         "/mcp": gatewayTarget,
         "/healthz": gatewayTarget,

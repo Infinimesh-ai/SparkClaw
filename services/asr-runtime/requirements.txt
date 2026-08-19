@@ -1,0 +1,5 @@
+librosa==1.0.0
+nagisa==0.2.11
+qwen-omni-utils==0.0.9
+sox==1.5.0
+soynlp==0.0.493

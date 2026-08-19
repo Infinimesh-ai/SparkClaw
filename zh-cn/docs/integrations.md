@@ -109,21 +109,51 @@ recovery 会在下次 acquisition 时回收遗留进程。该功能要求可信�
 
 ## 语音转写
 
-Speech 是 WebChat microphone 和 Telegram voice note 共享的可选 OpenAI-compatible
-transcription adapter。WebChat 录制有界 mono 16 kHz PCM16 WAV，并调用：
+Speech 是 WebChat microphone 和 Telegram voice note 共享的可选 adapter。一个 SparkClaw ASR
+runtime 包装单个 `Qwen/Qwen3-ASR-0.6B` instance，同时暴露 OpenAI-compatible complete-WAV
+endpoint 和 native stateful realtime endpoint。WebChat 通过单个 AudioWorklet capture 原生 mono
+PCM，并只做一次 stateful resample 得到 16 kHz PCM16。系统会先尝试 browser-local 选择的麦克风；
+该设备缺失时只 fallback 一次到 system default。device picker 和短时 live-level preview 不持久化
+audio。
+
+公开 Gateway surface 为：
 
 ```text
 GET  /api/speech/status
 POST /api/speech/transcriptions
+POST /api/speech/realtime-sessions
+DELETE /api/speech/realtime-sessions/{id}
+GET  /api/speech/realtime?ticket=...  (WebSocket upgrade)
 ```
 
 Gateway 在调用配置的 allowlisted endpoint 前校验 media type、WAV structure、duration、
-upload size、request ID、session 和 language。adapter 默认关闭，endpoint 和 allowlist
-默认为空；只有显式配置 service URL、allowed host 和 served model 后才能启用。
+upload size、request ID、language 和 authenticated owner/session scope。一个 request deadline
+覆盖 admission wait 与 inference。实际 transcription call 是 readiness authority；health result
+只用于 status projection，不作为前置请求。adapter 默认关闭，endpoint 和 allowlist 默认为空；
+只有显式配置 service URL、allowed host 和 served model 后才能启用。
 
-WebChat transcript 只插入当前 draft，绝不自动发送。转写不创建 chat message、Agent run、
-Tool Call、approval 或 artifact。audio byte 不保留，audit 只记录有界 metadata 和 outcome。
-queue/concurrency 超限返回明确 busy 或 unavailable 状态。
+Realtime session 只有在 Gateway 认证 owner/session、预留共享 model slot、签发单次使用且 30 秒
+过期的 ticket、完成 WebSocket upgrade，并针对固定 16 kHz mono PCM16 format 发出 `ready` 后，
+才启动 AudioWorklet capture。WebChat 发送连续 100 ms frame，并按 revision 替换 textarea 外的单个
+partial preview。健康 stream 从同一 model state flush 一个 authoritative final，不发 batch request。
+browser-local silence controller 默认 Off；Standard 与 Patient 只有在 confirmed speech 后，才分别在
+1.2 或 2.0 秒 trailing silence 后停止。
+
+Capture 前 ticket、connection 或 readiness failure 会明确 fallback 到 batch-only recording。Capture
+开始后的 transport、protocol、backpressure、device 或 finalization failure 会立即 close/flush
+microphone boundary、释放 realtime slot，并自动提交恰好一个包含本地全部 canonical PCM 的完整 WAV；
+failure 后绝不继续录音。Realtime 与 batch 共享同一 model admission limit。
+
+只有 captured draft snapshot 仍是当前值时，WebChat final transcript 才插入原 selection，且绝不自动发送。
+draft 已改变时，transcript 作为 in-memory candidate 保留，由 owner 显式 insert 或 dismiss。retryable
+busy、timeout、unavailable 和 network failure 会在内存中保留 byte-identical WAV 与同一 request ID，
+最多五分钟内可显式 retry。success、cancel、expiry、session change 或新 recording 都会丢弃它。
+转写不创建 chat message、Agent run、Tool Call、approval 或 artifact。Gateway 不保留 audio byte；
+audit 只记录有界 metadata 和 outcome。queue/concurrency 超限返回明确 busy 或 unavailable 状态。
+
+只有 configured runtime 宣告精确的 native contract 时，`GET /api/speech/status` 才报告
+`supports_streaming=true` 和 structured protocol/format projection；否则 WebChat 保留 complete-WAV
+batch path，且不宣称 live transcription。SparkClaw 绝不通过切分或重复上传 WAV 模拟 streaming。
 
 配置使用 `SPARKCLAW_SPEECH_*`，包括 endpoint、allowlist、model、language、timeout、duration、
 upload、concurrency、pending 和 expected runtime version。

@@ -146,6 +146,40 @@ func TestOpenAIHTTPTranscriberBoundsConcurrency(t *testing.T) {
 	}
 }
 
+func TestOpenAIHTTPTranscriberQueueWaitUsesCallerDeadline(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(started) })
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{"text": "done"})
+	}))
+	defer server.Close()
+	transcriber, err := NewOpenAIHTTP(testSpeechConfig(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transcriber.Close()
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := transcriber.Transcribe(context.Background(), Request{RequestID: "voice-running", PCM16WAV: testWAV(16000, 1, 16, 8000)})
+		firstDone <- err
+	}()
+	<-started
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	_, err = transcriber.Transcribe(ctx, Request{RequestID: "voice-queued", PCM16WAV: testWAV(16000, 1, 16, 8000)})
+	if errorCode(err) != CodeTimeout {
+		t.Fatalf("queued request should use the caller deadline, got %v", err)
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOpenAIHTTPTranscriberDoesNotExposeUpstreamErrorBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

@@ -353,7 +353,7 @@ button.finderRow {
 
 .composer {
   display: grid;
-  grid-template-columns: 42px 42px 42px minmax(0, 1fr) 42px;
+  grid-template-columns: 42px 42px 66px minmax(0, 1fr) 42px;
   flex: 0 0 auto;
   gap: 10px;
   min-width: 0;
@@ -383,6 +383,37 @@ button.finderRow {
   transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
+.voiceControl {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px 24px;
+  width: 66px;
+  height: 42px;
+  align-self: end;
+}
+
+.voiceControl .voiceButton {
+  border-radius: 12px 0 0 12px;
+}
+
+.voiceDeviceButton {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 42px;
+  border: 1px solid var(--border-subtle);
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.voiceDeviceButton:hover,
+.voiceDeviceButton[aria-expanded="true"] {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
 .uploadButton:hover,
 .voiceButton:hover {
   color: var(--text-primary);
@@ -390,13 +421,20 @@ button.finderRow {
   background: var(--surface-hover);
 }
 
-.voiceButton.recording {
+.voiceButton.recording_realtime,
+.voiceButton.recording_batch_only {
   color: #fff;
   border-color: rgba(239, 68, 68, 0.72);
   background: rgba(239, 68, 68, 0.78);
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.14);
 }
 
+.voiceButton.acquiring_microphone,
+.voiceButton.connecting_realtime,
+.voiceButton.starting_capture,
+.voiceButton.starting_batch_capture,
+.voiceButton.finalizing_realtime,
+.voiceButton.recovering_batch,
 .voiceButton.encoding,
 .voiceButton.transcribing {
   color: var(--amber-warning);
@@ -409,6 +447,130 @@ button.finderRow {
 
 .voiceButton .spin {
   animation: voice-spin 900ms linear infinite;
+}
+
+.voiceDeviceMenu {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  display: grid;
+  gap: 3px;
+  width: min(300px, calc(100vw - 32px));
+  max-height: min(340px, 52vh);
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+  transform: translateX(-50%);
+}
+
+.voiceDeviceMenu > strong {
+  padding: 6px 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.voiceDeviceMenu > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  background: transparent;
+  text-align: left;
+}
+
+.voiceDeviceMenu > button:hover,
+.voiceDeviceMenu > button.selected {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.voiceDeviceMenu > button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voicePreviewRow {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(64px, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 3px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.voicePreviewButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 0;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.voicePreviewLevel {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-muted);
+}
+
+.voicePreviewLevel i {
+  display: block;
+  height: 100%;
+  max-width: 100%;
+  border-radius: inherit;
+  background: var(--emerald-success);
+  transition: width 80ms linear;
+}
+
+.voicePreviewError {
+  padding: 0 8px 6px;
+  color: var(--crimson-danger);
+  font-size: 10px;
+}
+
+.voicePartial {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.voicePartial small {
+  color: var(--emerald-success);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.voicePartial span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.voicePartial.frozen small {
+  color: var(--amber-warning);
 }
 
 .voiceStatus {
@@ -425,7 +587,9 @@ button.finderRow {
   font-weight: 700;
 }
 
-.voiceStatus.error {
+.voiceStatus.error,
+.voiceStatus.retryable_error,
+.voiceStatus.pending_insert {
   color: var(--crimson-danger);
 }
 
@@ -468,6 +632,32 @@ button.finderRow {
   transition: height 80ms linear;
 }
 
+.voiceStatusAction,
+.voiceStatusDismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: var(--surface);
+}
+
+.voiceStatusAction {
+  gap: 5px;
+  margin-left: auto;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.voiceStatusDismiss {
+  width: 28px;
+  padding: 0;
+}
+
 @keyframes voice-spin {
   to {
     transform: rotate(360deg);
@@ -508,4 +698,3 @@ button.finderRow {
   align-self: end;
   border-radius: 12px;
 }
-

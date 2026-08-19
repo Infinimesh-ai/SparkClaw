@@ -45,6 +45,10 @@ func (t *recordingSpeechTranscriber) Transcribe(_ context.Context, request speec
 	return t.result, nil
 }
 
+func (t *recordingSpeechTranscriber) StartRealtime(context.Context, speech.RealtimeRequest) (speech.RealtimeSession, error) {
+	return nil, speech.NewError(speech.CodeUnavailable, "realtime speech is unavailable", true, nil)
+}
+
 func (t *recordingSpeechTranscriber) Close() error {
 	return nil
 }

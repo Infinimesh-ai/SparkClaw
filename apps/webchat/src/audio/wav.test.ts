@@ -3,9 +3,9 @@ import { encodeSpeechWAV, resampleMono, SPEECH_SAMPLE_RATE, VoiceAudioError } fr
 
 describe("speech WAV encoding", () => {
   it("encodes canonical 16 kHz mono PCM16 WAV", async () => {
-    const samples = new Float32Array(16000);
-    samples[0] = -1;
-    samples[1] = 1;
+    const samples = new Int16Array(16000);
+    samples[0] = -32768;
+    samples[1] = 32767;
     const wav = encodeSpeechWAV({ samples, sampleRate: 16000, durationMs: 1000 }, 60, 3 << 20);
     const view = new DataView(await wav.arrayBuffer());
     expect(wav.type).toBe("audio/wav");
@@ -26,7 +26,7 @@ describe("speech WAV encoding", () => {
   });
 
   it("rejects recordings below the minimum duration", () => {
-    expect(() => encodeSpeechWAV({ samples: new Float32Array(100), sampleRate: 16000, durationMs: 100 }, 60, 3 << 20))
+    expect(() => encodeSpeechWAV({ samples: new Int16Array(100), sampleRate: 16000, durationMs: 100 }, 60, 3 << 20))
       .toThrowError(VoiceAudioError);
   });
 });

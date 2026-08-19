@@ -17,7 +17,8 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
 - 带当前 schedule 和 typed edit/delete 的任务栏；
 - 普通消息 composer 上按 session 选择第三方 result destination，覆盖 text、upload、workspace
   file 和 voice draft；
-- 把 microphone transcription 插入 draft；
+- microphone selection、live input preview、native record-time transcription、可选静音结束、
+  完整 WAV 恢复，以及显式插入 draft；
 - tool timeline、approval inbox、memory review、trace、model call、audit、episode summary、
   artifact、eval、status、owner/client setting、connector activation/binding 和 policy setting；
 - 简体中文和英文 UI。
@@ -45,7 +46,13 @@ memory action、feedback、owner/client/policy change、connector activation/bin
 - 普通 tool approval modification 校验 JSON，并让 verifier-owned field 保持只读；Happy Team
   plan approval 展示 typed task/goal/plan，只提交编辑后的计划文本，不暴露 raw remote tool argument。
 - workspace file 通过 authenticated document API 上传和读取。
-- speech transcription 只返回 draft text，绝不调用 message send。
+- speech capture 会先取得 microphone，再预留 realtime ASR；只有 realtime session ready 后才启动
+  单个 AudioWorklet。stateful resampler 把同一份 16 kHz PCM16 同时交给 revisioned live preview、
+  默认关闭的可选 silence detector 和完整 WAV fallback。setup failure 会进入明确标记的 batch-only
+  recording；live capture 开始后的任何 failure 都会立即 stop/flush capture、释放 realtime session，
+  并自动 batch-transcribe 已保留 WAV，绝不恢复录音。device loss 走同一 retained-audio path。
+  retryable batch failure 会把 byte-identical WAV 在内存中最多保留五分钟；draft 已改变时生成显式
+  insert-at-cursor candidate。partial text 不修改 draft，transcription 绝不调用 message send。
 - connector setting 从 `/api/connectors` 渲染已注册渠道列表；版本化 toggle 只改变 activation，
   credential/QR binding 保持独立 action，并且只有渠道开启后才可操作。
 - External MCP 访问记录把撤销授权与永久删除记录分开。Owner 可以删除任意 ticket 或 binding，
@@ -85,6 +92,8 @@ owner/client setting、config 和 policy。
 - icon-only control 必须有 accessible label、tooltip 和 visible focus。
 - 长 path、ID、model name、endpoint label 和 JSON 必须 wrap/truncate，不能造成整页横向 overflow。
 - mobile layout 必须让 navigation、conversation、composer、task control 和 inspector 可达且不重叠。
+- 麦克风 device ID 只保留在 browser local。raw audio 只存在于当前 recording 或 retry
+  operation，绝不写入 browser storage。
 
 ## 开发
 

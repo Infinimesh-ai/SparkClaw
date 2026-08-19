@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 18790",
     "test": "npm run lint:i18n && vitest run",
     "lint:i18n": "node scripts/check-i18n-usage.mjs",
-    "test:voice": "vitest run src/audio/wav.test.ts src/lib/voiceDraft.test.ts"
+    "test:voice": "vitest run src/audio/microphones.test.ts src/audio/pcm16.test.ts src/audio/pcmCapture.test.ts src/audio/realtimeSpeech.test.ts src/audio/silenceDetector.test.ts src/audio/wav.test.ts src/hooks/useVoiceInput.test.tsx src/lib/voiceDraft.test.ts src/lib/voiceState.test.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.2",

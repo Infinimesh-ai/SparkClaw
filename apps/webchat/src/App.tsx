@@ -73,6 +73,8 @@ export function App() {
   const [traceList, setTraceList] = useState<TraceMetadata[]>([]);
   const [traceLoading, setTraceLoading] = useState(false);
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
+  const draftsBySessionRef = useRef(draftsBySession);
+  draftsBySessionRef.current = draftsBySession;
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState(false);
@@ -279,22 +281,21 @@ export function App() {
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
   const active = sessions.find((session) => session.id === activeSession);
   const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
-    let nextCaret = 0;
-    setDraftsBySession((current) => {
-      const currentDraft = current[anchor.sessionId] ?? "";
-      const selectionStillValid = currentDraft === anchor.draft;
-      const start = selectionStillValid ? Math.min(anchor.selectionStart, currentDraft.length) : currentDraft.length;
-      const end = selectionStillValid ? Math.min(Math.max(anchor.selectionEnd, start), currentDraft.length) : currentDraft.length;
-      const inserted = insertVoiceTranscript(currentDraft, result.text, start, end);
-      nextCaret = inserted.caret;
-      return { ...current, [anchor.sessionId]: inserted.value };
-    });
+    const currentDraft = draftsBySessionRef.current[anchor.sessionId] ?? "";
+    if (currentDraft !== anchor.draft) return false;
+    const start = Math.min(anchor.selectionStart, currentDraft.length);
+    const end = Math.min(Math.max(anchor.selectionEnd, start), currentDraft.length);
+    const inserted = insertVoiceTranscript(currentDraft, result.text, start, end);
+    const nextDrafts = { ...draftsBySessionRef.current, [anchor.sessionId]: inserted.value };
+    draftsBySessionRef.current = nextDrafts;
+    setDraftsBySession(nextDrafts);
     if (anchor.sessionId === activeSession) {
       window.requestAnimationFrame(() => {
         composerInputRef.current?.focus();
-        composerInputRef.current?.setSelectionRange(nextCaret, nextCaret);
+        composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
       });
     }
+    return true;
   }, [activeSession]);
 
   const voice = useVoiceInput({

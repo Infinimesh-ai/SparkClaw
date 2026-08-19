@@ -184,6 +184,32 @@
 
 @media (max-width: 480px) {
 
+  .composer {
+    grid-template-columns: 42px 42px 66px minmax(0, 1fr) 42px;
+  }
+
+  .composer textarea {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    height: 88px;
+    min-height: 88px;
+    max-height: 88px;
+  }
+
+  .composer .sendButton {
+    grid-column: 5;
+    grid-row: 2;
+  }
+
+  .voiceStatusAction span {
+    display: none;
+  }
+
+  .voiceStatusAction {
+    width: 28px;
+    padding: 0;
+  }
+
   .notificationInbox {
     position: absolute;
     top: calc(100% + 8px);

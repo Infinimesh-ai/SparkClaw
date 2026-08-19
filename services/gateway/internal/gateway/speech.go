@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 )
 
@@ -23,23 +25,21 @@ func (s *Server) getSpeechStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request) {
-	status := s.speech.Status(r.Context())
-	if !status.Enabled {
+	if !s.cfg.Speech.Enabled || s.cfg.Speech.Backend == "disabled" {
 		writeSpeechError(w, http.StatusServiceUnavailable, speech.NewError(speech.CodeDisabled, "speech transcription is disabled", false, nil))
 		return
 	}
-	if !status.Ready {
-		message := strings.TrimSpace(status.Reason)
-		if message == "" {
-			message = "the speech model is not ready"
-		}
-		writeSpeechError(w, http.StatusServiceUnavailable, speech.NewError(speech.CodeUnavailable, message, true, nil))
-		return
+	timeoutSeconds := s.cfg.Speech.TimeoutSeconds
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = config.Default().Speech.TimeoutSeconds
 	}
+	requestCtx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+	r = r.WithContext(requestCtx)
 
-	maxUploadBytes := status.MaxUploadBytes
+	maxUploadBytes := s.cfg.Speech.MaxUploadBytes
 	if maxUploadBytes <= 0 {
-		maxUploadBytes = s.cfg.Speech.MaxUploadBytes
+		maxUploadBytes = config.Default().Speech.MaxUploadBytes
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
@@ -80,7 +80,8 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 		writeSpeechError(w, http.StatusBadRequest, speech.NewError(speech.CodeInvalidRequest, "session_id is required", false, nil))
 		return
 	}
-	if _, ok := s.store.GetSession(sessionID); !ok {
+	session, ok := s.store.GetSession(sessionID)
+	if !ok || sessionOwnerID(session) != principalForRequest(r).OwnerID {
 		writeSpeechError(w, http.StatusNotFound, speech.NewError(speech.CodeInvalidRequest, "session not found", false, nil))
 		return
 	}
@@ -103,7 +104,11 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 		writeSpeechError(w, http.StatusRequestEntityTooLarge, err)
 		return
 	}
-	wavInfo, err := speech.ValidatePCM16WAV(audio, status.MaxAudioSeconds)
+	maxAudioSeconds := s.cfg.Speech.MaxAudioSeconds
+	if maxAudioSeconds <= 0 {
+		maxAudioSeconds = config.Default().Speech.MaxAudioSeconds
+	}
+	wavInfo, err := speech.ValidatePCM16WAV(audio, maxAudioSeconds)
 	if err != nil {
 		writeSpeechError(w, speechHTTPStatus(err), err)
 		return
@@ -114,9 +119,9 @@ func (s *Server) postSpeechTranscription(w http.ResponseWriter, r *http.Request)
 		"bytes":       len(audio),
 		"duration_ms": wavInfo.DurationMS,
 		"language":    language,
-		"model":       status.Model,
+		"model":       s.cfg.Speech.Model,
 	})
-	result, err := s.speech.Transcribe(r.Context(), speech.Request{
+	result, err := s.speech.Transcribe(requestCtx, speech.Request{
 		RequestID:  requestID,
 		SessionID:  sessionID,
 		Language:   language,

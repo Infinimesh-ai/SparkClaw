@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
@@ -21,19 +23,33 @@ import (
 )
 
 type fakeSpeechTranscriber struct {
-	status speech.Status
-	result speech.Result
-	err    error
-	input  speech.Request
+	status        speech.Status
+	result        speech.Result
+	err           error
+	input         speech.Request
+	statusCalls   int
+	transcribe    func(context.Context, speech.Request) (speech.Result, error)
+	startRealtime func(context.Context, speech.RealtimeRequest) (speech.RealtimeSession, error)
 }
 
 func (f *fakeSpeechTranscriber) Status(context.Context) speech.Status {
+	f.statusCalls++
 	return f.status
 }
 
-func (f *fakeSpeechTranscriber) Transcribe(_ context.Context, input speech.Request) (speech.Result, error) {
+func (f *fakeSpeechTranscriber) Transcribe(ctx context.Context, input speech.Request) (speech.Result, error) {
 	f.input = input
+	if f.transcribe != nil {
+		return f.transcribe(ctx, input)
+	}
 	return f.result, f.err
+}
+
+func (f *fakeSpeechTranscriber) StartRealtime(ctx context.Context, input speech.RealtimeRequest) (speech.RealtimeSession, error) {
+	if f.startRealtime != nil {
+		return f.startRealtime(ctx, input)
+	}
+	return nil, speech.NewError(speech.CodeUnavailable, "realtime speech is unavailable", true, nil)
 }
 
 func (f *fakeSpeechTranscriber) Close() error {
@@ -169,6 +185,8 @@ func TestSpeechTranscriptionReturnsDraftTextWithoutCreatingMessageOrArtifact(t *
 
 func TestSpeechTranscriptionRejectsNonCanonicalWAV(t *testing.T) {
 	cfg := testConfig(t.TempDir())
+	cfg.Speech.Enabled = true
+	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
 	session := st.CreateSession("Voice input")
 	tools := toolhub.New(cfg, st)
@@ -203,6 +221,8 @@ func TestSpeechTranscriptionRejectsNonCanonicalWAV(t *testing.T) {
 
 func TestSpeechTranscriptionRejectsUnexpectedFileField(t *testing.T) {
 	cfg := testConfig(t.TempDir())
+	cfg.Speech.Enabled = true
+	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
 	session := st.CreateSession("Voice input")
 	tools := toolhub.New(cfg, st)
@@ -228,6 +248,8 @@ func TestSpeechTranscriptionRejectsUnexpectedFileField(t *testing.T) {
 
 func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 	cfg := testConfig(t.TempDir())
+	cfg.Speech.Enabled = true
+	cfg.Speech.Backend = "openai-http"
 	st := store.NewMemoryStore()
 	session := st.CreateSession("Voice cancellation")
 	tools := toolhub.New(cfg, st)
@@ -262,6 +284,103 @@ func TestSpeechTranscriptionRecordsCancellationWithoutTranscript(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("missing cancellation audit: %#v", st.ListAudit(session.ID))
+	}
+}
+
+func TestSpeechTranscriptionUsesInferenceAsReadinessAuthority(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.Speech.Enabled = true
+	cfg.Speech.Backend = "openai-http"
+	st := store.NewMemoryStore()
+	session := st.CreateSession("Voice readiness")
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	fake := &fakeSpeechTranscriber{
+		status: speech.Status{Enabled: true, Ready: false, State: speech.StateUnavailable, Reason: "stale health failure"},
+		result: speech.Result{Text: "actual inference succeeded", Model: "test-asr"},
+	}
+	server := New(cfg, st, tools, runtime, WithSpeechTranscriber(fake))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	resp, err := http.DefaultClient.Do(newSpeechRequest(t, ts.URL, session.ID, "voice-readiness", "auto", gatewayTestWAV(8000)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("transcription with successful inference returned %d", resp.StatusCode)
+	}
+	if fake.statusCalls != 0 {
+		t.Fatalf("transcription performed %d prerequisite health checks", fake.statusCalls)
+	}
+}
+
+func TestSpeechTranscriptionRejectsSessionOwnedByAnotherPrincipal(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.Speech.Enabled = true
+	cfg.Speech.Backend = "openai-http"
+	cfg.Gateway.APIToken = "default-owner-token"
+	st := store.NewMemoryStore()
+	session := st.CreateSessionWithScope("Other owner voice", "owner-other", cfg.Workspaces.DefaultRoot, "webchat", false)
+	st.SaveClient(app.Client{
+		ID:        "client-requester",
+		OwnerID:   "owner-requester",
+		ActorID:   "owner-requester",
+		Name:      "Requester",
+		TokenHash: hashSecret("requester-token"),
+		CreatedAt: time.Now().UTC(),
+	})
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	fake := &fakeSpeechTranscriber{result: speech.Result{Text: "must not run"}}
+	server := New(cfg, st, tools, runtime, WithSpeechTranscriber(fake))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req := newSpeechRequest(t, ts.URL, session.ID, "voice-cross-owner", "auto", gatewayTestWAV(8000))
+	req.Header.Set("Authorization", "Bearer requester-token")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-owner speech request returned %d", resp.StatusCode)
+	}
+	if fake.input.RequestID != "" {
+		t.Fatalf("cross-owner request reached the transcriber: %#v", fake.input)
+	}
+}
+
+func TestSpeechTranscriptionAppliesEndToEndDeadline(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.Speech.Enabled = true
+	cfg.Speech.Backend = "openai-http"
+	cfg.Speech.TimeoutSeconds = 1
+	st := store.NewMemoryStore()
+	session := st.CreateSession("Voice deadline")
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	fake := &fakeSpeechTranscriber{transcribe: func(ctx context.Context, _ speech.Request) (speech.Result, error) {
+		<-ctx.Done()
+		return speech.Result{}, speech.NewError(speech.CodeTimeout, "speech transcription timed out", true, ctx.Err())
+	}}
+	server := New(cfg, st, tools, runtime, WithSpeechTranscriber(fake))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	started := time.Now()
+	resp, err := http.DefaultClient.Do(newSpeechRequest(t, ts.URL, session.ID, "voice-deadline", "auto", gatewayTestWAV(8000)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("deadline request returned %d", resp.StatusCode)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("speech request exceeded its end-to-end deadline: %v", elapsed)
 	}
 }
 

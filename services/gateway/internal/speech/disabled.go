@@ -28,6 +28,10 @@ func (d *DisabledTranscriber) Transcribe(context.Context, Request) (Result, erro
 	return Result{}, NewError(CodeDisabled, "speech transcription is disabled", false, nil)
 }
 
+func (d *DisabledTranscriber) StartRealtime(context.Context, RealtimeRequest) (RealtimeSession, error) {
+	return nil, NewError(CodeDisabled, "realtime speech transcription is disabled", false, nil)
+}
+
 func (d *DisabledTranscriber) Close() error {
 	return nil
 }

@@ -10,6 +10,9 @@
 
 ### Added
 
+- 新增 WebChat 原生边录边转写：Qwen3-ASR 持续返回 revisioned partial，同一 session 返回
+  authoritative final；增加 browser-local 静音结束模式（默认关闭），并在录音中途发生任意
+  realtime failure 后自动使用一份完整 WAV 执行 batch recovery。
 - 新增网站可流式提供的安装器与 GB10 DGX Spark 部署入口：安全 clone/update checkout，
   在 `curl | bash` 中保留交互式 secret 输入，准备本地配置、下载并预热常驻模型组，启动
   Gateway/Sandbox/WebChat，并验证 ready 状态。
@@ -33,6 +36,10 @@
 
 ### Changed
 
+- Qwen3-ASR image 现在由一个 SparkClaw-owned runtime 同时处理 batch/realtime，把全部 model
+  call 串行固定在一个 owner thread，并在声明 ready 前完成首次 inference warm-up。Gateway
+  只通过 authenticated single-use WebSocket ticket 暴露 realtime，并与 batch transcription
+  共享 admission capacity。
 - 部署启动现在把产品 template 对齐到 PostgreSQL，且不迁移旧 file snapshot；
   healthy/current 模型组会被保留，degraded 模型组会原子整组恢复，同时提供显式 force-refresh
   flag；WebChat host port 由一个经过校验的配置统一拥有；readiness 内置于 vLLM 镜像并使用
@@ -62,6 +69,10 @@
 
 ### Validated
 
+- 已验证 Qwen3-ASR candidate 的冷启动 readiness 与首请求预热、batch output parity、真实
+  4.439 秒 partial/final stream、按录音速度发送且未超过 5 秒 backpressure bound 的 60 秒
+  stream，以及 realtime/batch capacity 的互斥与释放；desktop/mobile fake-microphone pass
+  也验证了 AudioWorklet 到草稿的完整路径，健康路径未发起 batch request。
 - 证据投影改动通过 Gateway build/test/vet、WebChat test/build、双语文档检查、doctor
   和 47 条隔离 mock/file golden eval。
 - PostgreSQL 产品启动 Compose 选择与 readiness。

@@ -1,17 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { APIError, api } from "../api/client";
 import type { SpeechStatus, SpeechTranscriptionResult } from "../api/types";
-import { PCMInputCapture } from "../audio/pcmCapture";
+import { enumerateMicrophones, loadPreferredMicrophone, savePreferredMicrophone } from "../audio/microphones";
+import type { MicrophoneDevice } from "../audio/microphones";
+import { PCMInputCapture, VoiceCaptureError } from "../audio/pcmCapture";
+import type { CapturedPCM } from "../audio/pcmCapture";
+import { SpeechRealtimeClient } from "../audio/realtimeSpeech";
+import type { SpeechRealtimeFailure } from "../audio/realtimeSpeech";
+import {
+  loadSilenceMode,
+  saveSilenceMode,
+  SilenceDetector
+} from "../audio/silenceDetector";
+import type { SilenceMode } from "../audio/silenceDetector";
 import { encodeSpeechWAV, VoiceAudioError } from "../audio/wav";
+import {
+  initialVoiceOperationState,
+  reduceVoiceOperation,
+  voicePhaseIsRecording,
+  voicePhaseOwnsWork
+} from "../lib/voiceState";
+import type { VoicePhase } from "../lib/voiceState";
 
-export type VoiceInputState =
-  | "disabled"
-  | "idle"
-  | "requesting_permission"
-  | "recording"
-  | "encoding"
-  | "transcribing"
-  | "error";
+export type VoiceInputState = VoicePhase | "disabled";
 
 export type VoiceDraftAnchor = {
   sessionId: string;
@@ -20,13 +31,32 @@ export type VoiceDraftAnchor = {
   selectionEnd: number;
 };
 
+type VoicePartial = {
+  revision: number;
+  text: string;
+  language: string;
+  frozen: boolean;
+};
+
 type VoiceOperation = {
   id: number;
   anchor: VoiceDraftAnchor;
+  requestId: string;
   capture?: PCMInputCapture;
+  realtime?: SpeechRealtimeClient;
+  realtimeCaptureStarted: boolean;
+  realtimeSetupFailure?: SpeechRealtimeFailure;
+  ticketId?: string;
+  setupController?: AbortController;
   controller?: AbortController;
+  captured?: CapturedPCM;
+  wav?: Blob;
+  pending?: SpeechTranscriptionResult;
+  silence: SilenceDetector;
+  recovery?: Promise<void>;
   interval?: number;
   timeout?: number;
+  retryTimeout?: number;
   startedAt: number;
 };
 
@@ -35,25 +65,133 @@ type Options = {
   sessionId: string;
   language: string;
   externallyDisabled: boolean;
-  onTranscript: (result: SpeechTranscriptionResult, anchor: VoiceDraftAnchor) => void;
+  onTranscript: (result: SpeechTranscriptionResult, anchor: VoiceDraftAnchor) => boolean;
 };
 
+const RETRY_AUDIO_TTL_MS = 5 * 60 * 1000;
+
 export function useVoiceInput({ speech, sessionId, language, externallyDisabled, onTranscript }: Options) {
-  const [phase, setPhase] = useState<Exclude<VoiceInputState, "disabled">>("idle");
+  const [machine, dispatch] = useReducer(reduceVoiceOperation, initialVoiceOperationState);
   const [level, setLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [errorCode, setErrorCode] = useState("");
-  const [errorDetail, setErrorDetail] = useState("");
+  const [partial, setPartial] = useState<VoicePartial | null>(null);
+  const [silenceMode, setSilenceModeState] = useState<SilenceMode>(() => loadSilenceMode());
+  const [devices, setDevices] = useState<MicrophoneDevice[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(() => loadPreferredMicrophone());
+  const [deviceFallback, setDeviceFallback] = useState(false);
+  const [previewState, setPreviewState] = useState<"idle" | "starting" | "active">("idle");
+  const [previewLevel, setPreviewLevel] = useState(0);
+  const [previewErrorCode, setPreviewErrorCode] = useState("");
   const operation = useRef<VoiceOperation | null>(null);
+  const previewCapture = useRef<PCMInputCapture | null>(null);
   const generation = useRef(0);
+  const previewGeneration = useRef(0);
+  const mounted = useRef(true);
+  const recoverRef = useRef<((current: VoiceOperation, failure: unknown, captured?: CapturedPCM) => Promise<void>) | undefined>(undefined);
+  const stopRef = useRef<((reason?: "manual_stop" | "silence_stop" | "max_duration") => Promise<void>) | undefined>(undefined);
+  const noSpeechRef = useRef<((current: VoiceOperation) => Promise<void>) | undefined>(undefined);
   const supported = PCMInputCapture.supported();
   const capabilityReady = Boolean(speech?.enabled && speech.ready);
-  const state: VoiceInputState = supported && capabilityReady ? phase : "disabled";
-  const active = phase === "requesting_permission" || phase === "recording" || phase === "encoding" || phase === "transcribing";
+  const realtimeReady = Boolean(
+    capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
+    speech.realtime.sample_rate === 16_000 && speech.realtime.channels === 1 && speech.realtime.bits_per_sample === 16
+  );
+  const state: VoiceInputState = supported && capabilityReady ? machine.phase : "disabled";
+  const active = voicePhaseOwnsWork(machine.phase);
 
   const clearTimers = useCallback((current: VoiceOperation | null) => {
     if (current?.interval) window.clearInterval(current.interval);
     if (current?.timeout) window.clearTimeout(current.timeout);
+    if (current?.retryTimeout) window.clearTimeout(current.retryTimeout);
+    if (current) {
+      current.interval = undefined;
+      current.timeout = undefined;
+      current.retryTimeout = undefined;
+    }
+  }, []);
+
+  const refreshDevices = useCallback(async () => {
+    try {
+      const next = await enumerateMicrophones();
+      if (mounted.current) setDevices(next);
+    } catch {
+      if (mounted.current) setDevices([]);
+    }
+  }, []);
+
+  const stopPreview = useCallback(async () => {
+    previewGeneration.current += 1;
+    const capture = previewCapture.current;
+    previewCapture.current = null;
+    await capture?.cancel().catch(() => undefined);
+    if (mounted.current) {
+      setPreviewState("idle");
+      setPreviewLevel(0);
+    }
+  }, []);
+
+  const selectDevice = useCallback((deviceId: string) => {
+    void stopPreview();
+    setSelectedDeviceId(deviceId);
+    savePreferredMicrophone(deviceId);
+    setDeviceFallback(false);
+    setPreviewErrorCode("");
+  }, [stopPreview]);
+
+  const setSilenceMode = useCallback((mode: SilenceMode) => {
+    setSilenceModeState(mode);
+    saveSilenceMode(mode);
+  }, []);
+
+  const startPreview = useCallback(async () => {
+    if (!supported || operation.current || previewState !== "idle") return;
+    const id = ++previewGeneration.current;
+    setPreviewState("starting");
+    setPreviewErrorCode("");
+    try {
+      const capture = await PCMInputCapture.start({
+        deviceId: selectedDeviceId,
+        retainSamples: false,
+        onLevel: setPreviewLevel,
+        onFailure: (error) => {
+          if (previewGeneration.current !== id) return;
+          previewCapture.current = null;
+          setPreviewState("idle");
+          setPreviewLevel(0);
+          setPreviewErrorCode(error.code);
+        }
+      });
+      if (previewGeneration.current !== id || operation.current) {
+        await capture.cancel();
+        return;
+      }
+      previewCapture.current = capture;
+      if (capture.usedDefaultFallback) {
+        setSelectedDeviceId("");
+        savePreferredMicrophone("");
+        setDeviceFallback(true);
+      }
+      setPreviewState("active");
+      void refreshDevices();
+    } catch (error) {
+      if (previewGeneration.current !== id) return;
+      const failure = voiceFailure(error);
+      setPreviewState("idle");
+      setPreviewLevel(0);
+      setPreviewErrorCode(failure.code);
+    }
+  }, [previewState, refreshDevices, selectedDeviceId, supported]);
+
+  const togglePreview = useCallback(() => {
+    if (previewState === "idle") void startPreview();
+    else void stopPreview();
+  }, [previewState, startPreview, stopPreview]);
+
+  const releaseUnusedTicket = useCallback(async (current: VoiceOperation) => {
+    const ticketId = current.ticketId;
+    current.ticketId = undefined;
+    if (!ticketId) return;
+    await api.cancelSpeechRealtimeSession(ticketId).catch(() => undefined);
   }, []);
 
   const cancel = useCallback(async () => {
@@ -61,119 +199,389 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     const current = operation.current;
     operation.current = null;
     clearTimers(current);
+    current?.setupController?.abort();
     current?.controller?.abort();
-    await current?.capture?.cancel().catch(() => undefined);
+    await Promise.all([
+      current?.capture?.cancel().catch(() => undefined),
+      current?.realtime?.cancel().catch(() => undefined),
+      current ? releaseUnusedTicket(current) : Promise.resolve()
+    ]);
     setLevel(0);
     setElapsedMs(0);
-    setErrorCode("");
-    setErrorDetail("");
-    setPhase("idle");
+    setPartial(null);
+    setDeviceFallback(false);
+    dispatch({ type: "reset" });
+  }, [clearTimers, releaseUnusedTicket]);
+
+  const failOperation = useCallback((current: VoiceOperation, error: unknown) => {
+    if (operation.current !== current) return;
+    operation.current = null;
+    clearTimers(current);
+    setLevel(0);
+    setElapsedMs(0);
+    setPartial(null);
+    const failure = voiceFailure(error);
+    dispatch({ type: "failure", code: failure.code, detail: failure.detail });
   }, [clearTimers]);
 
-  const stop = useCallback(async () => {
-    const current = operation.current;
-    if (!current?.capture) return;
-    const currentGeneration = generation.current;
+  const applyResult = useCallback((current: VoiceOperation, result: SpeechTranscriptionResult) => {
+    if (operation.current !== current) return;
+    setPartial(null);
+    if (!result.text.trim()) {
+      failOperation(current, { code: "speech_no_speech" });
+      return;
+    }
+    if (!onTranscript(result, current.anchor)) {
+      current.pending = result;
+      current.wav = undefined;
+      dispatch({ type: "pending_insert" });
+      return;
+    }
+    operation.current = null;
     clearTimers(current);
-    setPhase("encoding");
+    setLevel(0);
+    setElapsedMs(0);
+    dispatch({ type: "reset" });
+  }, [clearTimers, failOperation, onTranscript]);
+
+  const transcribe = useCallback(async (current: VoiceOperation) => {
+    if (!current.wav) return;
+    const id = current.id;
+    const controller = new AbortController();
+    current.controller = controller;
     try {
-      const captured = await current.capture.stop();
-      current.capture = undefined;
-      if (generation.current !== currentGeneration || operation.current !== current) return;
-      const wav = encodeSpeechWAV(
+      const result = await api.transcribeSpeech(
+        current.anchor.sessionId,
+        current.requestId,
+        language || "auto",
+        current.wav,
+        controller.signal
+      );
+      current.controller = undefined;
+      if (generation.current !== id || operation.current !== current) return;
+      applyResult(current, result);
+    } catch (error) {
+      current.controller = undefined;
+      if (generation.current !== id || operation.current !== current) return;
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      const failure = voiceFailure(error);
+      if (failure.retryable && current.wav) {
+        if (current.retryTimeout) window.clearTimeout(current.retryTimeout);
+        current.retryTimeout = window.setTimeout(() => {
+          if (generation.current !== id || operation.current !== current) return;
+          operation.current = null;
+          setPartial(null);
+          dispatch({ type: "failure", code: "speech_retry_expired", detail: "" });
+        }, RETRY_AUDIO_TTL_MS);
+        dispatch({ type: "retryable_failure", code: failure.code, detail: failure.detail });
+        return;
+      }
+      failOperation(current, error);
+    }
+  }, [applyResult, failOperation, language]);
+
+  const encodeAndTranscribe = useCallback(async (current: VoiceOperation, captured: CapturedPCM, recovering: boolean) => {
+    if (operation.current !== current) return;
+    current.captured = captured;
+    if (recovering) dispatch({ type: "recovery_captured" });
+    try {
+      current.wav = encodeSpeechWAV(
         captured,
         speech?.max_audio_seconds ?? 60,
         speech?.max_upload_bytes ?? 3 * 1024 * 1024
       );
-      setPhase("transcribing");
-      const controller = new AbortController();
-      current.controller = controller;
-      const result = await api.transcribeSpeech(
-        current.anchor.sessionId,
-        createRequestID(),
-        language || "auto",
-        wav,
-        controller.signal
-      );
-      if (generation.current !== currentGeneration || operation.current !== current) return;
-      if (!result.text.trim()) {
-        operation.current = null;
-        setLevel(0);
-        setElapsedMs(0);
-        setErrorCode("speech_no_speech");
-        setErrorDetail("");
-        setPhase("error");
-        return;
-      }
-      onTranscript(result, current.anchor);
-      operation.current = null;
-      setLevel(0);
-      setElapsedMs(0);
-      setPhase("idle");
+      dispatch({ type: "encoded" });
+      await transcribe(current);
     } catch (error) {
-      if (generation.current !== currentGeneration || operation.current !== current) return;
-      operation.current = null;
-      setLevel(0);
-      setElapsedMs(0);
-      if (error instanceof DOMException && error.name === "AbortError") {
-        setPhase("idle");
-        return;
-      }
-      const failure = voiceFailure(error);
-      setErrorCode(failure.code);
-      setErrorDetail(failure.detail);
-      setPhase("error");
+      failOperation(current, error);
     }
-  }, [clearTimers, language, onTranscript, speech?.max_audio_seconds, speech?.max_upload_bytes]);
+  }, [failOperation, speech?.max_audio_seconds, speech?.max_upload_bytes, transcribe]);
+
+  const recoverBatch = useCallback((current: VoiceOperation, _failure: unknown, captured?: CapturedPCM) => {
+    if (current.recovery) return current.recovery;
+    current.recovery = (async () => {
+      if (operation.current !== current) return;
+      clearTimers(current);
+      dispatch({ type: "realtime_failure" });
+      setPartial((value) => value ? { ...value, frozen: true } : null);
+      const realtime = current.realtime;
+      current.realtime = undefined;
+      const release = realtime?.closeForFallback().catch(() => undefined);
+      let fallbackCapture = captured;
+      if (!fallbackCapture && current.capture) {
+        fallbackCapture = await current.capture.stop();
+      }
+      current.capture = undefined;
+      await release;
+      if (operation.current !== current || generation.current !== current.id) return;
+      if (!fallbackCapture) throw new VoiceCaptureError("voice_capture_interrupted", "microphone capture ended before audio could be retained");
+      await encodeAndTranscribe(current, fallbackCapture, true);
+    })().catch((error) => failOperation(current, error));
+    return current.recovery;
+  }, [clearTimers, encodeAndTranscribe, failOperation]);
+  recoverRef.current = recoverBatch;
+
+  const stop = useCallback(async (reason: "manual_stop" | "silence_stop" | "max_duration" = "manual_stop") => {
+    const current = operation.current;
+    if (!current?.capture || current.recovery) return;
+    clearTimers(current);
+    if (current.realtime) {
+      dispatch({ type: "stop_realtime" });
+      try {
+        const captured = await current.capture.stop();
+        current.capture = undefined;
+        current.captured = captured;
+        if (generation.current !== current.id || operation.current !== current || current.recovery) return;
+        const final = await current.realtime.finish(reason);
+        if (generation.current !== current.id || operation.current !== current || current.recovery) return;
+        current.realtime = undefined;
+        applyResult(current, {
+          id: `stt-${current.requestId}`,
+          request_id: current.requestId,
+          session_id: current.anchor.sessionId,
+          text: final.text,
+          language: final.language,
+          duration_ms: final.durationMs,
+          inference_ms: final.inferenceMs,
+          model: final.model,
+          audio_retained: false
+        });
+      } catch (error) {
+        await recoverBatch(current, error, current.captured);
+      }
+      return;
+    }
+    dispatch({ type: "stop_batch" });
+    try {
+      const captured = await current.capture.stop();
+      current.capture = undefined;
+      if (generation.current !== current.id || operation.current !== current) return;
+      await encodeAndTranscribe(current, captured, false);
+    } catch (error) {
+      failOperation(current, error);
+    }
+  }, [applyResult, clearTimers, encodeAndTranscribe, failOperation, recoverBatch]);
+  stopRef.current = stop;
+
+  const noSpeechCancel = useCallback(async (current: VoiceOperation) => {
+    if (operation.current !== current) return;
+    generation.current += 1;
+    operation.current = null;
+    clearTimers(current);
+    await Promise.all([
+      current.capture?.cancel().catch(() => undefined),
+      current.realtime?.cancel().catch(() => undefined),
+      releaseUnusedTicket(current)
+    ]);
+    setLevel(0);
+    setElapsedMs(0);
+    setPartial(null);
+    dispatch({ type: "failure", code: "speech_no_speech", detail: "" });
+  }, [clearTimers, releaseUnusedTicket]);
+  noSpeechRef.current = noSpeechCancel;
+
+  const startCaptureTimers = useCallback((current: VoiceOperation) => {
+    current.startedAt = Date.now();
+    current.interval = window.setInterval(() => setElapsedMs(Date.now() - current.startedAt), 250);
+    current.timeout = window.setTimeout(() => void stopRef.current?.("max_duration"), (speech?.max_audio_seconds ?? 60) * 1000);
+  }, [speech?.max_audio_seconds]);
+
+  const handleCapturedSamples = useCallback((current: VoiceOperation, samples: Int16Array) => {
+    if (operation.current !== current || generation.current !== current.id || current.recovery) return;
+    current.realtime?.push(samples);
+    if (current.recovery) return;
+    const decision = current.silence.process(samples);
+    if (decision === "auto_stop") void stopRef.current?.("silence_stop");
+    if (decision === "no_speech_cancel") void noSpeechRef.current?.(current);
+  }, []);
+
+  const startBatchCapture = useCallback(async (current: VoiceOperation) => {
+    if (!current.capture || operation.current !== current) return;
+    try {
+      await current.capture.start();
+      if (operation.current !== current || generation.current !== current.id) return;
+      startCaptureTimers(current);
+      dispatch({ type: "capture_batch_ready" });
+      void refreshDevices();
+    } catch (error) {
+      await current.capture?.cancel().catch(() => undefined);
+      current.capture = undefined;
+      failOperation(current, error);
+    }
+  }, [failOperation, refreshDevices, startCaptureTimers]);
 
   const start = useCallback(async (anchor: VoiceDraftAnchor) => {
     if (!supported || !capabilityReady || externallyDisabled || operation.current) return;
     const id = ++generation.current;
-    const current: VoiceOperation = { id, anchor, startedAt: Date.now() };
+    const current: VoiceOperation = {
+      id,
+      anchor,
+      requestId: createRequestID(),
+      realtimeCaptureStarted: false,
+      silence: new SilenceDetector(silenceMode),
+      startedAt: Date.now()
+    };
     operation.current = current;
-    setErrorCode("");
-    setErrorDetail("");
+    setDeviceFallback(false);
     setElapsedMs(0);
     setLevel(0);
-    setPhase("requesting_permission");
+    setPartial(null);
+    dispatch({ type: "start" });
+    await stopPreview();
+    if (generation.current !== id || operation.current !== current) return;
     try {
-      const capture = await PCMInputCapture.start(setLevel);
+      current.capture = await PCMInputCapture.prepare({
+        deviceId: selectedDeviceId,
+        onLevel: setLevel,
+        onSamples: (samples) => handleCapturedSamples(current, samples),
+        onFailure: (error, captured) => {
+          if (generation.current !== id || operation.current !== current) return;
+          current.capture = undefined;
+          if (current.realtimeCaptureStarted) {
+            void recoverRef.current?.(current, error, captured);
+          } else if (captured) {
+            dispatch({ type: "stop_batch" });
+            void encodeAndTranscribe(current, captured, false);
+          } else {
+            failOperation(current, error);
+          }
+        }
+      });
+      if (current.capture.usedDefaultFallback) {
+        setSelectedDeviceId("");
+        savePreferredMicrophone("");
+        setDeviceFallback(true);
+      }
+    } catch (error) {
+      failOperation(current, error);
+      return;
+    }
+    if (generation.current !== id || operation.current !== current) {
+      await current.capture?.cancel().catch(() => undefined);
+      return;
+    }
+    if (!realtimeReady) {
+      dispatch({ type: "microphone_ready_batch" });
+      await startBatchCapture(current);
+      return;
+    }
+
+    dispatch({ type: "microphone_ready_realtime" });
+    try {
+      const controller = new AbortController();
+      current.setupController = controller;
+      const ticket = await api.createSpeechRealtimeSession(
+        current.anchor.sessionId,
+        current.requestId,
+        language || "auto",
+        controller.signal
+      );
+      current.ticketId = ticket.id;
+      const realtime = await SpeechRealtimeClient.connect(ticket, {
+        onPartial: (event) => {
+          if (generation.current !== id || operation.current !== current || current.recovery) return;
+          setPartial((previous) => !previous || event.revision > previous.revision
+            ? { revision: event.revision, text: event.text, language: event.language, frozen: false }
+            : previous);
+        },
+        onFailure: (failure) => {
+          if (generation.current !== id || operation.current !== current) return;
+          if (!current.realtimeCaptureStarted) {
+            current.realtimeSetupFailure = failure;
+            return;
+          }
+          void recoverRef.current?.(current, failure);
+        }
+      });
+      current.ticketId = undefined;
+      current.setupController = undefined;
+      if (current.realtimeSetupFailure) {
+        await realtime.cancel();
+        throw current.realtimeSetupFailure;
+      }
       if (generation.current !== id || operation.current !== current) {
-        await capture.cancel();
+        await realtime.cancel();
         return;
       }
-      current.capture = capture;
-      current.startedAt = Date.now();
-      current.interval = window.setInterval(() => setElapsedMs(Date.now() - current.startedAt), 250);
-      current.timeout = window.setTimeout(() => void stop(), (speech?.max_audio_seconds ?? 60) * 1000);
-      setPhase("recording");
-    } catch (error) {
+      current.realtime = realtime;
+      dispatch({ type: "realtime_ready" });
+      current.realtimeCaptureStarted = true;
+      await current.capture.start();
+      if (current.recovery) {
+        await current.recovery;
+        return;
+      }
       if (generation.current !== id || operation.current !== current) return;
-      operation.current = null;
-      const failure = voiceFailure(error);
-      setErrorCode(failure.code);
-      setErrorDetail(failure.detail);
-      setPhase("error");
+      startCaptureTimers(current);
+      dispatch({ type: "capture_realtime_ready" });
+      void refreshDevices();
+    } catch (error) {
+      current.setupController = undefined;
+      await releaseUnusedTicket(current);
+      if (current.recovery) {
+        await current.recovery;
+        return;
+      }
+      if (current.realtimeCaptureStarted) {
+        await recoverBatch(current, error);
+        return;
+      }
+      current.realtime = undefined;
+      setPartial(null);
+      if (generation.current !== id || operation.current !== current) return;
+      dispatch({ type: "realtime_unavailable" });
+      await startBatchCapture(current);
     }
-  }, [capabilityReady, externallyDisabled, speech?.max_audio_seconds, stop, supported]);
+  }, [capabilityReady, encodeAndTranscribe, externallyDisabled, failOperation, handleCapturedSamples, language, realtimeReady, recoverBatch, refreshDevices, releaseUnusedTicket, selectedDeviceId, silenceMode, startBatchCapture, startCaptureTimers, stopPreview, supported]);
+
+  const retry = useCallback(() => {
+    const current = operation.current;
+    if (!current?.wav || machine.phase !== "retryable_error") return;
+    if (current.retryTimeout) window.clearTimeout(current.retryTimeout);
+    current.retryTimeout = undefined;
+    dispatch({ type: "retry" });
+    void transcribe(current);
+  }, [machine.phase, transcribe]);
+
+  const insertPending = useCallback((anchor: VoiceDraftAnchor) => {
+    const current = operation.current;
+    if (!current?.pending || machine.phase !== "pending_insert") return;
+    if (!onTranscript(current.pending, anchor)) return;
+    operation.current = null;
+    clearTimers(current);
+    dispatch({ type: "reset" });
+  }, [clearTimers, machine.phase, onTranscript]);
 
   const toggle = useCallback((anchor: VoiceDraftAnchor) => {
-    if (phase === "recording") {
+    if (voicePhaseIsRecording(machine.phase)) {
       void stop();
-    } else if (phase === "encoding" || phase === "transcribing") {
+    } else if (voicePhaseOwnsWork(machine.phase)) {
       void cancel();
-    } else if (phase === "idle" || phase === "error") {
-      void start(anchor);
+    } else {
+      void (async () => {
+        if (operation.current) await cancel();
+        await start(anchor);
+      })();
     }
-  }, [cancel, phase, start, stop]);
+  }, [cancel, machine.phase, start, stop]);
+
+  useEffect(() => {
+    void refreshDevices();
+    const mediaDevices = navigator.mediaDevices;
+    const onDeviceChange = () => void refreshDevices();
+    mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
+    return () => mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
+  }, [refreshDevices]);
 
   useEffect(() => {
     if (operation.current && operation.current.anchor.sessionId !== sessionId) void cancel();
-  }, [cancel, sessionId]);
+    void stopPreview();
+  }, [cancel, sessionId, stopPreview]);
 
   useEffect(() => {
     if ((!supported || !capabilityReady) && operation.current) void cancel();
-  }, [cancel, capabilityReady, supported]);
+    if (!supported || !capabilityReady) void stopPreview();
+  }, [cancel, capabilityReady, stopPreview, supported]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -183,24 +591,52 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [cancel]);
 
-  useEffect(() => () => {
-    generation.current += 1;
-    const current = operation.current;
-    operation.current = null;
-    clearTimers(current);
-    current?.controller?.abort();
-    void current?.capture?.cancel();
-  }, [clearTimers]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      generation.current += 1;
+      previewGeneration.current += 1;
+      const current = operation.current;
+      operation.current = null;
+      clearTimers(current);
+      current?.setupController?.abort();
+      current?.controller?.abort();
+      void current?.capture?.cancel();
+      void current?.realtime?.cancel();
+      if (current) void releaseUnusedTicket(current);
+      void previewCapture.current?.cancel();
+      previewCapture.current = null;
+    };
+  }, [clearTimers, releaseUnusedTicket]);
 
   return {
     state,
     active,
     level,
     elapsedMs,
-    errorCode: !supported ? "voice_capture_unsupported" : !capabilityReady ? "speech_model_unavailable" : errorCode,
-    errorDetail: !supported ? "" : !capabilityReady ? speech?.reason ?? "" : errorDetail,
-    disabled: externallyDisabled || state === "disabled" || state === "requesting_permission",
+    partialText: partial?.text ?? "",
+    partialFrozen: partial?.frozen ?? false,
+    silenceMode,
+    errorCode: !supported ? "voice_capture_unsupported" : !capabilityReady ? "speech_model_unavailable" : machine.errorCode,
+    errorDetail: !supported ? "" : !capabilityReady ? speech?.reason ?? "" : machine.errorDetail,
+    disabled: externallyDisabled || state === "disabled",
+    retryable: machine.phase === "retryable_error",
+    hasPendingTranscript: machine.phase === "pending_insert",
+    devices,
+    selectedDeviceId,
+    deviceFallback,
+    previewState,
+    previewLevel,
+    previewErrorCode,
+    refreshDevices,
+    selectDevice,
+    setSilenceMode,
+    togglePreview,
+    stopPreview,
     toggle,
+    retry,
+    insertPending,
     cancel
   };
 }
@@ -211,13 +647,37 @@ function createRequestID() {
 }
 
 function voiceFailure(error: unknown) {
-  if (error instanceof VoiceAudioError) return { code: error.code, detail: error.message };
-  if (error instanceof APIError) return { code: error.code || "speech_inference_failed", detail: error.message };
+  if (error instanceof VoiceAudioError || error instanceof VoiceCaptureError) {
+    return { code: error.code, detail: error.message, retryable: false };
+  }
+  if (error instanceof APIError) {
+    return { code: error.code || "speech_inference_failed", detail: error.message, retryable: error.retryable };
+  }
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+    return {
+      code: error.code || "speech_inference_failed",
+      detail: "detail" in error && typeof error.detail === "string" ? error.detail : "",
+      retryable: "retryable" in error && error.retryable === true
+    };
+  }
   if (error instanceof DOMException) {
-    if (error.name === "NotAllowedError" || error.name === "SecurityError") return { code: "voice_permission_denied", detail: error.message };
-    if (error.name === "NotFoundError") return { code: "voice_no_device", detail: error.message };
-    if (error.name === "NotReadableError" || error.name === "AbortError") return { code: "voice_capture_failed", detail: error.message };
+    if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+      return { code: "voice_permission_denied", detail: error.message, retryable: false };
+    }
+    if (error.name === "NotFoundError" || error.name === "OverconstrainedError") {
+      return { code: "voice_no_device", detail: error.message, retryable: false };
+    }
+    if (error.name === "NotReadableError" || error.name === "AbortError") {
+      return { code: "voice_capture_failed", detail: error.message, retryable: false };
+    }
+  }
+  if (error instanceof TypeError) {
+    return { code: "speech_model_unavailable", detail: error.message, retryable: true };
   }
   const detail = error instanceof Error ? error.message : String(error ?? "");
-  return { code: detail === "voice_capture_unsupported" ? detail : "speech_inference_failed", detail };
+  return {
+    code: detail === "voice_capture_unsupported" ? detail : "speech_inference_failed",
+    detail,
+    retryable: false
+  };
 }

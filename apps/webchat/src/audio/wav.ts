@@ -22,7 +22,10 @@ export function encodeSpeechWAV(capture: CapturedPCM, maxDurationSeconds: number
   if (capture.sampleRate <= 0 || capture.samples.length === 0) {
     throw new VoiceAudioError("speech_unsupported_format", "recording format is invalid");
   }
-  const samples = resampleMono(capture.samples, capture.sampleRate, SPEECH_SAMPLE_RATE);
+  if (capture.sampleRate !== SPEECH_SAMPLE_RATE) {
+    throw new VoiceAudioError("speech_unsupported_format", "recording is not canonical PCM");
+  }
+  const samples = capture.samples;
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
   writeASCII(view, 0, "RIFF");
@@ -39,8 +42,7 @@ export function encodeSpeechWAV(capture: CapturedPCM, maxDurationSeconds: number
   writeASCII(view, 36, "data");
   view.setUint32(40, samples.length * 2, true);
   for (let index = 0; index < samples.length; index += 1) {
-    const sample = Math.max(-1, Math.min(1, samples[index]));
-    view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    view.setInt16(44 + index * 2, samples[index], true);
   }
   if (buffer.byteLength > maxUploadBytes) {
     throw new VoiceAudioError("speech_too_large", "recording exceeds the upload limit");

@@ -10,6 +10,10 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Added
 
+- Native record-time WebChat speech transcription with revisioned Qwen3-ASR
+  partials, an authoritative same-session final, browser-local silence stop
+  modes (Off by default), and automatic complete-WAV batch recovery after any
+  mid-recording realtime failure.
 - A website-streamable installer and GB10 DGX Spark deployment entrypoint that
   safely clone/update the checkout, preserve an interactive secret prompt across
   `curl | bash`, prepare local configuration, download and warm the resident
@@ -40,6 +44,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- The Qwen3-ASR image now runs one SparkClaw-owned batch/realtime runtime,
+  serializes all model calls on one owner thread, and completes a first-inference
+  warm-up before advertising readiness. Gateway exposes realtime only through
+  an authenticated, single-use WebSocket ticket and shares admission capacity
+  with batch transcription.
 - Deployment startup now aligns the product template on PostgreSQL without
   migrating legacy file snapshots, retains healthy/current model groups while
   atomically recovering degraded groups, offers an explicit force-refresh flag,
@@ -80,6 +89,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Validated
 
+- Qwen3-ASR candidate cold readiness and first-request warm-up, batch output
+  parity, a genuine 4.439-second partial/final stream, a record-paced 60-second
+  stream below the 5-second backpressure bound, and realtime/batch capacity
+  exclusion and release; desktop/mobile fake-microphone passes also verified
+  the AudioWorklet-to-draft path without a healthy-path batch request.
 - Gateway build/test/vet, WebChat tests/build, bilingual documentation checks,
   doctor, and 47 isolated mock/file golden evals for evidence projection changes.
 - PostgreSQL product-start Compose selection and readiness.

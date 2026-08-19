@@ -20,7 +20,9 @@ The workbench includes:
 - task toolbar with current schedules and typed edit/delete actions;
 - per-session third-party result destination selection on the ordinary message
   composer, including text, uploads, workspace files, and voice drafts;
-- microphone transcription into the draft;
+- microphone selection, live input preview, native record-time transcription,
+  optional silence stop, complete-WAV recovery, and explicit insertion into the
+  draft;
 - tool timeline, approval inbox, memory review, traces, model calls, audits,
   episode summaries, artifacts, evals, status, owner/client settings, connector
   activation and bindings, and policy settings;
@@ -57,7 +59,17 @@ Structured owner actions are not converted back into ambiguous prose:
   fields read-only; Happy Team plan approvals render typed task/goal/plan data
   and submit only edited plan text, never raw remote tool arguments;
 - workspace files are uploaded and fetched through authenticated document APIs;
-- speech transcription returns text to the draft and never calls message send.
+- speech capture acquires the microphone before reserving realtime ASR, then
+  starts one AudioWorklet only after the realtime session is ready. Its stateful
+  resampler feeds the same 16 kHz PCM16 to revisioned live preview, the optional
+  Off-by-default silence detector, and the retained complete-WAV fallback. A
+  setup failure starts a visibly batch-only recording. Any failure after live
+  capture starts immediately stops and flushes capture, releases the realtime
+  session, and automatically batch-transcribes the retained WAV without
+  resuming recording. Device loss follows the same retained-audio path. A
+  retryable batch failure keeps the byte-identical WAV for up to five minutes;
+  a changed draft produces an explicit insert-at-cursor candidate. Partial text
+  never mutates the draft, and transcription never calls message send.
 - connector settings render the registered channel list from `/api/connectors`;
   a versioned toggle changes activation, while credential or QR binding remains
   a separate action that is unavailable until the channel is enabled.
@@ -108,6 +120,8 @@ config, and policy.
   without horizontal page overflow.
 - Mobile layout must keep navigation, conversation, composer, task controls,
   and inspector panels reachable without overlap.
+- Microphone device IDs remain browser-local. Raw audio is held only by the
+  active recording or retry operation and is never written to browser storage.
 
 ## Development
 

@@ -133,26 +133,65 @@ visible display is available and never falls back to the default browser.
 
 ## Speech Transcription
 
-Speech is an optional OpenAI-compatible transcription adapter shared by
-WebChat microphone input and Telegram voice notes. WebChat records bounded mono
-16 kHz PCM16 WAV and posts it to:
+Speech is an optional adapter shared by WebChat microphone input and Telegram
+voice notes. One SparkClaw ASR runtime wraps a single `Qwen/Qwen3-ASR-0.6B`
+instance and exposes both the OpenAI-compatible complete-WAV endpoint and a
+native stateful realtime endpoint. WebChat captures native mono PCM with one
+AudioWorklet and statefully resamples it once to 16 kHz PCM16. The selected
+browser-local microphone is tried first, with one fallback to the system
+default when that device is missing. A device picker and short live-level
+preview do not persist audio.
+
+The public Gateway surface is:
 
 ```text
 GET  /api/speech/status
 POST /api/speech/transcriptions
+POST /api/speech/realtime-sessions
+DELETE /api/speech/realtime-sessions/{id}
+GET  /api/speech/realtime?ticket=...  (WebSocket upgrade)
 ```
 
 Gateway validates media type, WAV structure, duration, upload size, request ID,
-session, and language before calling the configured allowlisted endpoint. The
-adapter is disabled and its endpoint and allowlist are empty by default. Enable
-it only after explicitly configuring the service URL, allowed host, and served
-model name.
+language, and authenticated owner/session scope before calling the configured
+allowlisted endpoint. One request deadline covers admission wait and inference.
+The transcription call is the readiness authority; the health result remains a
+status projection and is not a prerequisite request. The adapter is disabled
+and its endpoint and allowlist are empty by default. Enable it only after
+explicitly configuring the service URL, allowed host, and served model name.
 
-A WebChat transcript is inserted into the current draft and is never sent
-automatically. Transcription does not create a chat message, Agent run, Tool
-Call, approval, or artifact. Audio bytes are not retained; audit stores bounded
-metadata and outcome only. Queue and concurrency limits return explicit busy or
-unavailable states.
+A realtime session starts AudioWorklet capture only after the Gateway has
+authenticated the owner/session, reserved the shared model slot, issued a
+single-use 30-second ticket, upgraded the WebSocket, and emitted `ready` for
+the fixed 16 kHz mono PCM16 format. WebChat sends contiguous 100 ms frames and
+replaces one out-of-draft partial preview by revision. A healthy stream flushes
+the same model state to one authoritative final and makes no batch request.
+The browser-local silence controller is Off by default; Standard and Patient
+stop after 1.2 or 2.0 seconds of trailing silence only after confirmed speech.
+
+Ticket, connection, or readiness failure before capture visibly falls back to
+batch-only recording. Transport, protocol, backpressure, device, or finalization
+failure after capture begins closes and flushes the microphone boundary,
+releases the realtime slot, and automatically submits exactly one complete WAV
+containing the locally retained canonical PCM. Recording never continues after
+that failure. Realtime and batch share one model admission limit.
+
+A WebChat final transcript is inserted into the captured selection only while that
+draft snapshot remains current and is never sent automatically. A changed draft
+keeps the transcript as an in-memory candidate with explicit insert or dismiss
+actions. Retryable busy, timeout, unavailable, and network failures keep the
+same byte-identical WAV and request ID in memory for an explicit retry for up to
+five minutes. Success, cancellation, expiry, session change, or a new recording
+discards it. Transcription does not create a chat message, Agent run, Tool Call,
+approval, or artifact. Audio bytes are not retained by Gateway; audit stores
+bounded metadata and outcome only. Queue and concurrency limits return explicit
+busy or unavailable states.
+
+`GET /api/speech/status` reports `supports_streaming=true` and the structured
+protocol/format projection only when the configured runtime advertises the
+exact native contract. Otherwise WebChat retains the complete-WAV batch path
+and does not claim live transcription. SparkClaw never splits or repeatedly
+uploads WAV files to imitate streaming.
 
 Configuration uses `SPARKCLAW_SPEECH_*`, including endpoint, allowlist, model,
 language, timeout, duration, upload, concurrency, pending, and expected runtime

@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/webchat-voice-phase2-design.md)
 
-> Status: implemented in the active worktree and candidate-qualified on
-> 2026-08-19. Production services have not been cut over; physical desktop and
-> mobile microphone acceptance remains pending. This document expands Phase 2
+> Status: implemented in commit `849f927`, candidate-qualified, and cut over to
+> the production WebChat entry on 2026-08-19. Physical desktop and mobile
+> microphone acceptance remains pending. This document expands Phase 2
 > of the [WebChat voice input loop design](webchat-voice-input-design.md).
 > Phase 1 remains the batch fallback and LLM polishing remains Phase 3.
 
@@ -27,8 +27,8 @@ upload whose decoder output is streamed afterward is explicitly out of scope.
 
 ## Implementation And Qualification Status
 
-The active worktree implements the full Phase 2 path across the ASR runtime,
-Gateway, Nginx/Vite proxy, and WebChat. The candidate image uses one
+The production path implements the full Phase 2 flow across the ASR runtime,
+Gateway, Nginx proxy, and WebChat. The ASR image uses one
 `Qwen3ASRModel.LLM` instance for batch and native realtime calls, keeps every
 model operation on one owner thread, and performs a 300 ms silent inference
 before opening its HTTP listener. Consequently, `ready=true` no longer leaves
@@ -57,10 +57,16 @@ and produced the following evidence:
   without sending it, and the healthy path made no batch transcription request.
 - The ASR runtime protocol and owner-thread warm-up suite passes 6 tests. The
   focused Gateway race suite and WebChat unit/build gates are also green.
+- Production cutover replaced the ASR, Gateway, and WebChat containers behind
+  port `18790`. Readiness advertises native streaming, and a production-path
+  WebSocket smoke received `ready`, 10 ordered audio acknowledgements, and one
+  same-session `final`; the isolated `18792`, `18794`, and `18006` listeners
+  were then retired.
 
-This is candidate qualification, not production cutover evidence. Physical
-microphone interaction, device/noise corpus validation for silence stop, and a
-live failure-to-complete-WAV recovery drill remain release checks.
+Candidate qualification and the production transport smoke establish the
+deployment cutover. Physical microphone interaction, device/noise corpus
+validation for silence stop, and a live failure-to-complete-WAV recovery drill
+remain release checks.
 
 ## Non-Negotiable Realtime Definition
 

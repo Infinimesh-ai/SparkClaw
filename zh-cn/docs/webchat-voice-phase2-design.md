@@ -2,8 +2,8 @@
 
 > 语言：[English](../../docs/webchat-voice-phase2-design.md) | 简体中文
 
-> 状态：已在 active worktree 完成实现，并于 2026-08-19 通过 candidate qualification。
-> Production service 尚未切换；desktop 与 mobile 的实体麦克风验收仍待完成。本文展开
+> 状态：已在 commit `849f927` 完成实现、通过 candidate qualification，并于 2026-08-19
+> 切换到 production WebChat 入口；desktop 与 mobile 的实体麦克风验收仍待完成。本文展开
 > [WebChat 语音输入闭环设计](webchat-voice-input-design.md)的 Phase 2。Phase 1 继续作为
 > batch fallback，LLM 润色继续属于 Phase 3。
 
@@ -22,8 +22,8 @@
 
 ## 实现与 Qualification 状态
 
-Active worktree 已完成 ASR runtime、Gateway、Nginx/Vite proxy 与 WebChat 的完整 Phase 2
-链路。Candidate image 以一个 `Qwen3ASRModel.LLM` instance 同时处理 batch 与 native realtime
+Production path 已完成 ASR runtime、Gateway、Nginx proxy 与 WebChat 的完整 Phase 2 链路。
+ASR image 以一个 `Qwen3ASRModel.LLM` instance 同时处理 batch 与 native realtime
 调用，把全部 model operation 固定在同一个 owner thread，并在打开 HTTP listener 前执行一次
 300 ms 静音 inference。因此，`ready=true` 后的第一个 owner request 不再承担 backend 的首次
 inference 冷启动。
@@ -46,9 +46,14 @@ inference 冷启动。
   final 只进入草稿而未发送，且健康路径没有发起 batch transcription request。
 - ASR runtime protocol 与 owner-thread warm-up suite 的 6 条测试通过；focused Gateway race
   suite 和 WebChat unit/build gate 也已通过。
+- Production cutover 已替换 port `18790` 后的 ASR、Gateway 与 WebChat container。Readiness
+  已声明 native streaming；production path WebSocket smoke 收到 `ready`、10 个有序 audio
+  acknowledgement 和同一 session 的 `final`，随后关闭隔离的 `18792`、`18794` 与 `18006`
+  listener。
 
-以上属于 candidate qualification，不是 production cutover 证据。实体麦克风交互、silence stop
-的 device/noise corpus，以及 live failure 到 complete-WAV recovery drill 仍是 release check。
+Candidate qualification 与 production transport smoke 已形成 deployment cutover 证据。实体
+麦克风交互、silence stop 的 device/noise corpus，以及 live failure 到 complete-WAV recovery
+drill 仍是 release check。
 
 ## 不可妥协的 Realtime 定义
 

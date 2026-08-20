@@ -21,10 +21,10 @@ func TestPostgresMigrationManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 2 {
-		t.Fatalf("migration count = %d, want 2", len(migrations))
+	if len(migrations) != 3 {
+		t.Fatalf("migration count = %d, want 3", len(migrations))
 	}
-	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql"}
+	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql"}
 	for index, migration := range migrations {
 		if migration.Version != index+1 || migration.Filename != wantNames[index] {
 			t.Fatalf("migration %d = %#v", index, migration)
@@ -74,9 +74,9 @@ SELECT count(*), min(applied_at) FROM sparkclaw_schema_migrations
 		st.Close()
 		t.Fatal(err)
 	}
-	if count != 2 {
+	if count != 3 {
 		st.Close()
-		t.Fatalf("ledger count = %d, want 2", count)
+		t.Fatalf("ledger count = %d, want 3", count)
 	}
 	st.Close()
 
@@ -188,6 +188,48 @@ INSERT INTO external_chat_messages (
 				t.Fatal(err)
 			}
 			if _, err := NewPostgresStore(context.Background(), dsn); err == nil || !strings.Contains(err.Error(), "canonical natural key") {
+				t.Fatalf("migration error = %v", err)
+			}
+			assertPostgresLedgerCount(t, pool, 0)
+		})
+	}
+}
+
+func TestPostgresMigrationRejectsDuplicateLegacyNaturalKeys(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup string
+	}{
+		{
+			name: "session",
+			setup: `
+INSERT INTO weixin_chat_sessions (id, binding_id, external_user_id, status)
+VALUES
+  ('source-session-a', 'binding', 'duplicate-user', 'active'),
+  ('source-session-b', 'binding', 'duplicate-user', 'active');
+`,
+		},
+		{
+			name: "non-empty message key",
+			setup: `
+INSERT INTO weixin_chat_messages (
+  id, chat_session_id, binding_id, direction, role, external_message_id, content, status
+) VALUES
+  ('source-message-a', 'chat', 'binding', 'inbound', 'user', 'duplicate-message', 'first', 'received'),
+  ('source-message-b', 'chat', 'binding', 'inbound', 'user', 'duplicate-message', 'second', 'received');
+`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dsn := newPostgresMigrationTestSchema(t)
+			pool := openPostgresMigrationTestPool(t, dsn)
+			defer pool.Close()
+			prepareUnversionedCurrentPostgresSchema(t, pool)
+			if _, err := pool.Exec(context.Background(), test.setup); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := NewPostgresStore(context.Background(), dsn); err == nil || !strings.Contains(err.Error(), "duplicate canonical natural key") {
 				t.Fatalf("migration error = %v", err)
 			}
 			assertPostgresLedgerCount(t, pool, 0)
@@ -424,7 +466,7 @@ func TestPostgresMigrationCommitUncertainty(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertPostgresLedgerCount(t, pool, 2)
+		assertPostgresLedgerCount(t, pool, 3)
 	})
 
 	t.Run("not committed retries once", func(t *testing.T) {
@@ -449,7 +491,7 @@ func TestPostgresMigrationCommitUncertainty(t *testing.T) {
 		if got := commits.Load(); got != 2 {
 			t.Fatalf("commit attempts = %d, want 2", got)
 		}
-		assertPostgresLedgerCount(t, pool, 2)
+		assertPostgresLedgerCount(t, pool, 3)
 	})
 
 	t.Run("complete ledger validates as committed", func(t *testing.T) {
@@ -644,5 +686,5 @@ SELECT status, schema_version, version FROM browser_login_blocks ORDER BY id
 	if index != len(wantStatuses) {
 		t.Fatalf("browser row count = %d", index)
 	}
-	assertPostgresLedgerCount(t, pool, 2)
+	assertPostgresLedgerCount(t, pool, 3)
 }

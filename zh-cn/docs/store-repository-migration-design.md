@@ -501,6 +501,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Owner contract review 1 | `57d5b6d` | `REVISE` | existing-row unknown outcome 缺少 commit proof；startup seed、candidate normalization、legacy File owner precedence 与 Weixin pre-download context path 定义不足 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract review 2 | `08a327b` | `REVISE` | exact candidate matching 仍允许后续相同 writer 重新生成 rolled-back microsecond timestamp，且 blank display-name default 与 accepted behavior 分叉 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract review 3 | `00d9a11` | `REVISE` | non-rollback candidate uniqueness 与 display-name parity 已关闭，但精确保留已有 `CreatedAt` 与无条件 microsecond canonicalization 冲突 | Context-isolated gatekeeper / 2026-08-20 |
-| S3 Owner contract repair | pending | pending | 仅对新分配时间使用 UTC microsecond canonicalization，并精确保留 legacy existing `CreatedAt` | 等待独立复审 / 2026-08-20 |
+| S3 Owner contract repair | `0caaea7` | `GO` | 仅对新分配时间使用 UTC microsecond canonicalization，并精确保留 legacy existing `CreatedAt`；更早的 outcome-proof、normalization、startup、File compatibility 和 caller-context finding 均已关闭 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

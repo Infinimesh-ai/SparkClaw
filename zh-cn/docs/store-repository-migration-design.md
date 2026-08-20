@@ -320,7 +320,9 @@ type OwnerRepository interface {
   owner 的空 display name default 为 `Owner`，把 nil preferences 变成 cloned
   non-nil empty map。仅新 row 可
   使用 caller 提供的 non-zero `CreatedAt`，否则使用 repository clock；已有 row
-  永远保留其 `CreatedAt`。持久化时间为 UTC PostgreSQL microsecond precision；
+  永远精确保留其 `CreatedAt`，包括 legacy File/Memory nanosecond precision，不能
+  通过 preservation 静默改写历史时间。只有 repository 新分配的持久化时间使用
+  UTC PostgreSQL microsecond precision；
   `UpdatedAt` 由 repository 分配，必须严格大于 current persisted value 与该 owner
   的 process-local last-issued high-water mark，包括之后失败或保持 unknown 的
   candidate；high-water mark 永不随 rollback 回退；
@@ -498,6 +500,7 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S2 pilot 修复实现 | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | completion 在披露前立即读取 live clock，并新增同一调用内过期覆盖、独立重复的 disposable real-PostgreSQL full/race run、完整 File failure evidence，以及经过验证的 Compose read/write timeout override 转发 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S3 Owner contract review 1 | `57d5b6d` | `REVISE` | existing-row unknown outcome 缺少 commit proof；startup seed、candidate normalization、legacy File owner precedence 与 Weixin pre-download context path 定义不足 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract review 2 | `08a327b` | `REVISE` | exact candidate matching 仍允许后续相同 writer 重新生成 rolled-back microsecond timestamp，且 blank display-name default 与 accepted behavior 分叉 | Context-isolated gatekeeper / 2026-08-20 |
-| S3 Owner contract repair | pending | pending | 增加 non-rollback per-owner candidate high-water mark，并为每个 owner 保留 blank display-name normalization | 等待独立复审 / 2026-08-20 |
+| S3 Owner contract review 3 | `00d9a11` | `REVISE` | non-rollback candidate uniqueness 与 display-name parity 已关闭，但精确保留已有 `CreatedAt` 与无条件 microsecond canonicalization 冲突 | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner contract repair | pending | pending | 仅对新分配时间使用 UTC microsecond canonicalization，并精确保留 legacy existing `CreatedAt` | 等待独立复审 / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

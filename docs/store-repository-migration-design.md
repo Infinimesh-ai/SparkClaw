@@ -360,9 +360,12 @@ The stable repository semantics are:
   into a cloned non-nil empty map, uses
   a supplied non-zero `CreatedAt` only for a new row (otherwise the repository
   clock), and always preserves an existing row's `CreatedAt`. Persisted times
-  are UTC at PostgreSQL microsecond precision. `UpdatedAt` is repository-owned
-  and strictly greater than both the current persisted value and that owner's
-  process-local last-issued high-water mark, including candidates from commands
+  newly assigned by the repository are UTC at PostgreSQL microsecond precision.
+  An existing `CreatedAt` is preserved exactly, including legacy File/Memory
+  nanosecond precision; preservation never silently rewrites historical time.
+  `UpdatedAt` is repository-owned and strictly greater than both the current
+  persisted value and that owner's process-local last-issued high-water mark,
+  including candidates from commands
   that later fail or remain unknown; the high-water mark never rolls back;
   and
 - save/update atomically persist the owner profile, one
@@ -566,6 +569,7 @@ migrations remain in place.
 | S2 pilot repair implementation | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | Completion reads a live clock immediately before disclosure, with intra-call expiry coverage, independently repeated disposable real-PostgreSQL full/race runs, complete File failure evidence, and verified Compose forwarding for read/write timeout overrides | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S3 Owner contract review 1 | `57d5b6d` | `REVISE` | Existing-row unknown outcome lacked a commit proof; startup seed, candidate normalization, legacy File owner precedence, and the Weixin pre-download context path were underspecified | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract review 2 | `08a327b` | `REVISE` | Exact candidate matching still allowed a later identical writer to regenerate a rolled-back microsecond timestamp, and blank display-name defaulting diverged from accepted behavior | Context-isolated gatekeeper / 2026-08-20 |
-| S3 Owner contract repair | pending | pending | Adds a non-rollback per-owner candidate high-water mark and preserves blank display-name normalization for every owner | Pending independent re-review / 2026-08-20 |
+| S3 Owner contract review 3 | `00d9a11` | `REVISE` | Non-rollback candidate uniqueness and display-name parity were closed, but exact existing `CreatedAt` preservation conflicted with unconditional microsecond canonicalization | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner contract repair | pending | pending | Limits UTC microsecond canonicalization to newly assigned times and preserves legacy existing `CreatedAt` exactly | Pending independent re-review / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

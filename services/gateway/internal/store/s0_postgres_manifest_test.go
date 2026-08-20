@@ -1,15 +1,11 @@
 package store
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -522,8 +518,7 @@ func normalizeS0SQL(value string) string {
 
 func readS0RootMigration(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "migrations", "0001_core.sql")
-	raw, err := os.ReadFile(path)
+	raw, err := postgresMigrationFiles.ReadFile("migrations/0001_core.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,37 +527,11 @@ func readS0RootMigration(t *testing.T) string {
 
 func readS0PostgresSchema(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile("postgres.go")
+	raw, err := postgresMigrationFiles.ReadFile("migrations/0002_reconcile_current.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parser.ParseFile(token.NewFileSet(), "postgres.go", raw, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, declaration := range parsed.Decls {
-		general, ok := declaration.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, spec := range general.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok || len(value.Names) != 1 || value.Names[0].Name != "postgresSchema" || len(value.Values) != 1 {
-				continue
-			}
-			literal, ok := value.Values[0].(*ast.BasicLit)
-			if !ok {
-				t.Fatal("postgresSchema is no longer a string literal")
-			}
-			out, err := strconv.Unquote(literal.Value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return out
-		}
-	}
-	t.Fatal("postgresSchema constant not found")
-	return ""
+	return string(raw)
 }
 
 func assertS0StringSet(t *testing.T, label string, got, want []string) {

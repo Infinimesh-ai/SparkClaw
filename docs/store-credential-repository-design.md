@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-credential-repository-design.md)
 
-> Status: S3 design revision 3, 2026-08-20. Reviews 1-2 returned `REVISE`; no
+> Status: S3 design revision 4, 2026-08-20. Reviews 1-3 returned `REVISE`; no
 > CredentialRepository code is authorized before an independent
 > context-isolated design GO.
 
@@ -190,27 +190,28 @@ No reconciliation result is inferred from an unlocked read.
 ## Vault And Consumer Migration
 
 Vault propagates each method context to every repository call and maps typed
-Store failures without string matching. `CredentialVault` changes its mutation
-methods to carry an explicit bounded, non-secret operation identity:
+Store failures without string matching. `CredentialVault.Seal` carries an
+explicit bounded, non-secret one-shot binding identity:
 
 ```go
 type CredentialVault interface {
     Ready() error
     BindLifecycle(context.Context)
-    Seal(context.Context, string, string, []byte) (string, error) // operation ID, kind, plaintext
+    Seal(context.Context, string, string, []byte) (string, error) // binding ID, kind, plaintext
     Open(context.Context, string) ([]byte, error)
-    Delete(context.Context, string, string) error // operation ID, ref
+    Delete(context.Context, string) error // ref
 }
 ```
 
-The operation ID is trimmed, required, at most 256 bytes, retained only in
-process memory, and never logged, persisted, audited, or projected. Binding
-flows derive it from the already-created binding ID plus the exact action
-(`seal`, `start-compensation`, or `revoke`). Vault derives a separate ref key as
+The seal identity is the immutable binding ID already created before an
+adapter starts. It is trimmed, required, and at most 256 bytes. The binding
+record remains the authority for its normal ID persistence/projection; Vault
+does not create an additional identity log, receipt, audit, or public field.
+Vault derives a separate ref key as
 HMAC-SHA-256(master key, `sparkclaw-credential-ref-key-v1`), then
 derives each new ref as `cred_` plus the unpadded base64url encoding of the full
 HMAC-SHA-256 over domain `sparkclaw-credential-ref-v1` and the length-delimited
-operation ID. The kind is not part of this derivation, so operation-ID reuse
+seal identity. The kind is not part of this derivation, so binding-ID reuse
 with another kind addresses the same row and is detected rather than creating
 another ref.
 
@@ -219,20 +220,33 @@ create command. A present authenticated envelope with the same kind and
 constant-time-equal plaintext is a completed replay and returns the same ref
 without another save/audit. Any other present row is stable
 `credential_invalid` and is never overwritten. Consequently immediate success
-may clear volatile state: same-operation replay reconstructs the exact ref even
-after process restart, while equal kind/plaintext under another operation ID
-has an independent ref and cannot share or clean up the first credential.
+may clear volatile state: replay for the same live binding reconstructs the
+exact ref even after process restart, while equal kind/plaintext under another
+binding ID has an independent ref and cannot share or clean up the first
+credential.
+
+This is deliberately a live-binding replay contract, not a durable generic
+operation ledger. A confirmed Delete retires that binding's seal identity; a
+later Seal with the retired binding ID is outside the contract and may create a
+new row at the deterministic ref. Production makes the precondition structural:
+Gateway creates a fresh immutable binding ID before every Start, adapters never
+generate or replace it, and no revoked/compensated binding ID returns to Seal.
+Delete has no caller-supplied operation ID, so it cannot be replayed against a
+different ref under a stale identity. ConnectorRepository may later add a
+durable cross-repository lifecycle receipt; this wave does not pretend Audit is
+such a ledger.
 
 Vault has one capacity-one in-memory command coordinator with three explicit,
 disjoint pending modes:
 
-1. **Create** retains operation ID, kind, a plaintext fingerprint, ref, sealed
+1. **Create** retains binding ID, kind, a plaintext fingerprint, ref, sealed
    payload, and any normalized candidate returned by Store, never plaintext.
-   Exact committed candidate completes a matching operation. Before a different
-   operation proceeds, it conditionally deletes an exact undisclosed orphan.
+   Exact committed candidate completes the matching binding Seal. Before a
+   different Vault mutation proceeds, it conditionally deletes an exact
+   undisclosed orphan.
    Absence proves rollback and retries the same create payload. A different row
    at the derived ref is identity conflict and is never deleted or overwritten.
-2. **Delete/cleanup** retains operation ID, ref, and the opaque delete
+2. **Delete/cleanup** is identified by ref and retains the opaque delete
    condition, never candidate value. Absence proves completion. The exact prior
    version proves rollback and permits one new conditional delete without an
    unlocked get/delete gap. A replacement version is conflict and is never
@@ -262,8 +276,8 @@ increments a generation and starts one cancellation watcher; cancellation
 clears pending material only when its generation still matches. Rebinding first
 invalidates the old generation. The Server does not construct a fallback Vault.
 
-All new Weixin QR credentials use `CredentialVault.Seal` with the binding seal
-operation ID; Gateway assigns the returned durable ref to the binding only
+All new Weixin QR credentials use `CredentialVault.Seal` with the immutable
+binding ID; Gateway assigns the returned durable ref to the binding only
 after Seal succeeds. Notification and Syncer use `CredentialVault.Open` with
 their owned request/work context instead of reading `CredentialSecret.Value`.
 Static operator-configured Weixin tokens remain configuration inputs and do not
@@ -284,7 +298,7 @@ Vault never returns a raw Store error. It preserves the cause only behind
 
 | Source | Vault code | Public/worker behavior |
 |---|---|---|
-| invalid operation ID/kind/value or operation-ID input conflict | `credential_invalid` | HTTP 400; stable validation copy |
+| invalid binding ID/kind/value or live binding-ID input conflict | `credential_invalid` | HTTP 400; stable validation copy |
 | caller cancellation | `credential_canceled` | HTTP 408 when a response is still writable; worker stops the owned item |
 | Store timeout/unavailable/durability/unknown/internal/corrupt, unresolved conditional conflict, or local random/encryption failure | `credential_unavailable` | HTTP 503; worker returns retryable unavailable without treating it as absence |
 | key missing or unusable | `credential_key_unavailable` | HTTP 503; connector unavailable |
@@ -301,7 +315,7 @@ Implementation follows this accepted design in separate reviewable commits:
 
 1. repository behavior across interface, operations, three backends, private
    File wire format, and compatibility validation;
-2. Vault operation identity, save/delete coordinator, lifecycle binding,
+2. Vault seal identity, save/delete coordinator, lifecycle binding,
    legacy Weixin rewrap, consumer/context migration, and safe Gateway
    projection; and
 3. any independent File encrypted-envelope fail-closed defect fix, if kept
@@ -317,8 +331,8 @@ The implementation gate requires:
 - PostgreSQL acquire/begin/statement/commit/rollback classification,
   terminate-not-release, context-aware admission, barrier isolation, scan
   propagation, atomic audit, startup validation, and real-DSN evidence;
-- Vault deterministic same-operation replay before/after process restart,
-  different-input conflict, independent identical plaintext operations,
+- Vault deterministic live-binding replay before/after process restart,
+  live-binding different-input conflict, independent identical plaintext bindings,
   create/delete immediate and next-call reconciliation, conditional orphan
   cleanup, all legacy rewrap state transitions without orphan deletion,
   generation-safe lifecycle cleanup, safe typed errors, wrong-key failure, and
@@ -345,4 +359,5 @@ receives an independent context-isolated GO.
 |---|---|---|---|---|
 | Credential contract review 1 | `de4cd93` | `REVISE` | Seal lacked logical operation identity; ref-only Delete could remove a replacement and had no pending cleanup owner; File high-water rollback contradicted non-rollback timestamps; lifecycle and public error mappings were incomplete | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 2 | `1d646f0` | `REVISE` | Immediate success cleared all replay identity; legacy rewrap lacked a distinct non-orphan state machine; delete digest used overflow-prone UnixNano encoding | Context-isolated gatekeeper / 2026-08-20 |
-| Credential contract review 3 | pending | pending | pending | pending |
+| Credential contract review 3 | `b6def5d` | `REVISE` | Deterministic refs preserved identity only while a row existed, but the document still promised generic post-delete operation-ID conflict; Delete also accepted a reusable caller operation ID without a durable binding | Context-isolated gatekeeper / 2026-08-20 |
+| Credential contract review 4 | pending | pending | pending | pending |

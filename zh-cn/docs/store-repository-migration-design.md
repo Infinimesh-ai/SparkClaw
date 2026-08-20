@@ -4,8 +4,8 @@
 
 > 状态：S2 pilot 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在
 > `0b85cc4` 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83`
-> 获得接受。CredentialRepository 是下一设计波次；审查 1-2 返回 `REVISE`，当前为
-> 修订 3。其设计获得 GO 前不授权实现。
+> 获得接受。CredentialRepository 是下一设计波次；审查 1-3 返回 `REVISE`，当前为
+> 修订 4。其设计获得 GO 前不授权实现。
 
 ## 目标与阶段边界
 
@@ -530,5 +530,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Client 实现最终审查 | `a4ddc83` | `GO` | context-aware admission 与精确 `Begin` classification 关闭两项 finding；修复候选的 full normal/race 和 disposable configured PostgreSQL full/race gate 均通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S3 Credential contract 审查 1 | `de4cd93` | `REVISE` | Vault 缺少显式 operation identity 与 pending delete ownership；ref-only cleanup 可能删除 replacement；File high-water rollback、lifecycle binding 与安全 public error mapping 不完整 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 2 | `1d646f0` | `REVISE` | immediate success 不具备 replay idempotency；legacy rewrap 没有独立 non-orphan state machine；delete digest 时间编码不完整 | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract 审查 3 | `b6def5d` | `REVISE` | 合同承诺 delete 后仍有 generic durable operation identity 却没有 tombstone，且 Delete 接受可复用于另一 ref 的 caller identity | Context-isolated gatekeeper / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

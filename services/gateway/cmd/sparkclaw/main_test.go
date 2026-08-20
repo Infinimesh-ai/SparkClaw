@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +296,33 @@ func TestNewStoreHonorsCanceledStartupContext(t *testing.T) {
 	cancel()
 	if _, err := newStore(ctx, cfg); err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled store startup error = %v", err)
+	}
+}
+
+func TestNewStorePropagatesOperationTimeouts(t *testing.T) {
+	for _, backend := range []string{"memory", "file"} {
+		t.Run(backend, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.State.Backend = backend
+			cfg.State.Path = filepath.Join(t.TempDir(), "state.json")
+			cfg.State.ReadTimeoutSeconds = 7
+			cfg.State.WriteTimeoutSeconds = 19
+			st, err := newStore(context.Background(), cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := reflect.ValueOf(st).Elem()
+			fieldName := "operationTimeouts"
+			if backend == "file" {
+				fieldName = "timeouts"
+			}
+			timeouts := value.FieldByName(fieldName)
+			read := time.Duration(timeouts.FieldByName("Read").Int())
+			write := time.Duration(timeouts.FieldByName("Write").Int())
+			if read != 7*time.Second || write != 19*time.Second {
+				t.Fatalf("assembled %s timeouts = read %s write %s", backend, read, write)
+			}
+		})
 	}
 }
 

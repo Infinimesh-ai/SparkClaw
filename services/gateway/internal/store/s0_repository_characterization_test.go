@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sort"
@@ -194,14 +195,14 @@ func characterizeS0ISCPOnboardingRepository(t *testing.T, st Store, dimension st
 	switch dimension {
 	case s0DimensionSuccess:
 		receipt := testISCPOnboarding(base, "iscp-s0", "owner-s0")
-		if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+		if _, err := st.SaveISCPOnboarding(context.Background(), receipt); err != nil {
 			t.Fatal(err)
 		}
-		if got, ok := st.GetISCPOnboarding(receipt.ID); !ok || got.OwnerID != receipt.OwnerID {
+		if got, ok, err := st.GetISCPOnboarding(context.Background(), receipt.ID); err != nil || !ok || got.OwnerID != receipt.OwnerID {
 			t.Fatalf("ISCP onboarding save/get = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetISCPOnboarding("missing"); ok {
+		if _, ok, err := st.GetISCPOnboarding(context.Background(), "missing"); err != nil || ok {
 			t.Fatal("missing ISCP onboarding was found")
 		}
 	case s0DimensionOrderScope:
@@ -210,28 +211,28 @@ func characterizeS0ISCPOnboardingRepository(t *testing.T, st Store, dimension st
 			testISCPOnboarding(base.Add(time.Minute), "iscp-new", "owner-s0"),
 			testISCPOnboarding(base.Add(2*time.Minute), "iscp-other", "other-owner"),
 		} {
-			if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+			if _, err := st.SaveISCPOnboarding(context.Background(), receipt); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if got := st.ListISCPOnboardings("owner-s0"); len(got) != 2 || got[0].ID != "iscp-new" || got[1].ID != "iscp-old" {
+		if got, err := st.ListISCPOnboardings(context.Background(), "owner-s0"); err != nil || len(got) != 2 || got[0].ID != "iscp-new" || got[1].ID != "iscp-old" {
 			t.Fatalf("ISCP onboarding order/scope = %#v", got)
 		}
 	case s0DimensionDuplicate:
 		receipt := testISCPOnboarding(base, "iscp-s0", "owner-s0")
-		if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+		if _, err := st.SaveISCPOnboarding(context.Background(), receipt); err != nil {
 			t.Fatal(err)
 		}
-		_, _ = st.SaveISCPOnboarding(receipt)
-		if got := st.ListISCPOnboardings("owner-s0"); len(got) != 1 {
+		_, _ = st.SaveISCPOnboarding(context.Background(), receipt)
+		if got, err := st.ListISCPOnboardings(context.Background(), "owner-s0"); err != nil || len(got) != 1 {
 			t.Fatalf("duplicate ISCP onboarding created extra records: %#v", got)
 		}
 	case s0DimensionConflictDeletion:
 		receipt := testISCPOnboarding(base, "iscp-s0", "owner-s0")
-		if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+		if _, err := st.SaveISCPOnboarding(context.Background(), receipt); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.SaveISCPOnboarding(receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
+		if _, err := st.SaveISCPOnboarding(context.Background(), receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
 			t.Fatalf("duplicate ISCP onboarding error = %v", err)
 		}
 	default:

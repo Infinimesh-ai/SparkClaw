@@ -510,17 +510,20 @@ func TestPostgresStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 	}
 	truncatePostgresStore(t, st)
 	now := time.Now().UTC()
-	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(now, "iscp_onboarding_postgres", app.DefaultOwnerID))
+	receipt, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(now, "iscp_onboarding_postgres", app.DefaultOwnerID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.SaveISCPOnboarding(receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
+	if _, err := st.SaveISCPOnboarding(context.Background(), receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
 		t.Fatalf("duplicate onboarding error = %v", err)
 	}
-	if _, err := st.SaveISCPOnboarding(testISCPOnboarding(now.Add(time.Second), "iscp_onboarding_other", "other-owner")); err != nil {
+	if _, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(now.Add(time.Second), "iscp_onboarding_other", "other-owner")); err != nil {
 		t.Fatal(err)
 	}
-	listed := st.ListISCPOnboardings(app.DefaultOwnerID)
+	listed, err := st.ListISCPOnboardings(context.Background(), app.DefaultOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(listed) != 1 || listed[0].ID != receipt.ID {
 		t.Fatalf("owner-scoped PostgreSQL onboardings = %#v", listed)
 	}
@@ -538,7 +541,10 @@ func TestPostgresStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	got, ok := restarted.GetISCPOnboarding(receipt.ID)
+	got, ok, err := restarted.GetISCPOnboarding(context.Background(), receipt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || got.AuthorityRef != receipt.AuthorityRef || got.TicketID != receipt.TicketID || got.MaxUses != 1 {
 		t.Fatalf("PostgreSQL onboarding receipt did not survive restart: %#v ok=%v", got, ok)
 	}

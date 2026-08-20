@@ -127,7 +127,6 @@ func TestS0StoreMethodCatalogCharacterization(t *testing.T) {
 func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 	wantDirectConsumers := map[string]int{
 		"cmd/sparkclaw/bootstrap.go:func newGatewayServices":             1,
-		"cmd/sparkclaw/bootstrap.go:func newISCPPairingService":          1,
 		"cmd/sparkclaw/connectors.go:func newConnectorAssembly":          1,
 		"cmd/sparkclaw/main.go:func newStore":                            1,
 		"internal/agent/agent.go:func NewRuntime":                        1,
@@ -145,8 +144,6 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 		"internal/happyapproval/service.go:type Service":                 1,
 		"internal/iscpbridge/adapter.go:func NewGatewayAdapter":          1,
 		"internal/iscpbridge/adapter.go:type GatewayAdapter":             1,
-		"internal/iscppairing/service.go:func New":                       1,
-		"internal/iscppairing/service.go:type Service":                   1,
 		"internal/mcpaccess/operation.go:func rejectPendingApprovals":    1,
 		"internal/mcpaccess/operation.go:func updateOperationRecord":     1,
 		"internal/mcpaccess/provider.go:func NewProvider":                1,
@@ -193,6 +190,7 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 		"internal/delivery/resource.go:artifactStore":                   {"ListArtifactObjects"},
 		"internal/delivery/resource.go:endpointResourceStore":           {"GetSession", "ListArtifactObjects"},
 		"internal/delivery/web.go:webMessageStore":                      {"AddMessage", "ListMessages"},
+		"internal/iscppairing/service.go:Repository":                    {"AddAudit"},
 		"internal/messagecontrol/endpoint_registry.go:endpointStore":    {"GetExternalChatSession", "GetNotificationBinding", "GetSession", "ListExternalChatSessions"},
 		"internal/messagecontrol/endpoint_registry.go:mcpEndpointStore": {"GetMCPBinding"},
 		"internal/messagecontrol/receive_lifecycle.go:receiveStore":     {"FindMessageReceive", "SaveMessageReceive"},
@@ -679,7 +677,6 @@ type s0PostgresRowsErrCase struct {
 }
 
 var s0PostgresRowsErrCases = []s0PostgresRowsErrCase{
-	{"ISCPOnboardingRepository", "iscp_onboarding_postgres.go", "ListISCPOnboardings", 1},
 	{"MCPRepository", "mcp_access_postgres.go", "ListMCPAccessTickets", 1},
 	{"MCPRepository", "mcp_access_postgres.go", "ListMCPBindings", 1},
 	{"MCPRepository", "mcp_access_postgres.go", "ListMCPOperations", 1},
@@ -704,8 +701,8 @@ func TestS0DefectEvidencePostgresRowsErrIsNotChecked(t *testing.T) {
 			loopCount += strings.Count(body, ".Next()")
 		})
 	}
-	if loopCount != 10 {
-		t.Fatalf("unchecked PostgreSQL row loop count = %d, want S0 defect baseline 10", loopCount)
+	if loopCount != 9 {
+		t.Fatalf("unchecked PostgreSQL row loop count = %d, want remaining S0 defect baseline 9", loopCount)
 	}
 }
 

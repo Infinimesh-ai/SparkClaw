@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -20,7 +21,7 @@ func TestFileStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(now, "iscp_onboarding_file", app.DefaultOwnerID))
+	receipt, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(now, "iscp_onboarding_file", app.DefaultOwnerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +29,10 @@ func TestFileStorePersistsOnlyISCPOnboardingReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := reloaded.GetISCPOnboarding(receipt.ID)
+	got, ok, err := reloaded.GetISCPOnboarding(context.Background(), receipt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || got.AuthorityRef != receipt.AuthorityRef || got.TicketID != receipt.TicketID {
 		t.Fatalf("ISCP onboarding receipt did not survive restart: %#v ok=%v", got, ok)
 	}
@@ -51,9 +55,10 @@ func TestFileStoreDoesNotRetainISCPOnboardingWhenPersistenceFails(t *testing.T) 
 		t.Fatal(err)
 	}
 	st := newTestFileStore(filepath.Join(parentFile, "state.json"))
-	receipt, err := st.SaveISCPOnboarding(testISCPOnboarding(time.Now().UTC(), "iscp_onboarding_rollback", app.DefaultOwnerID))
-	if err == nil || receipt.ID != "" || len(st.ListISCPOnboardings("")) != 0 {
-		t.Fatalf("failed onboarding persistence returned or retained a receipt: receipt=%#v count=%d err=%v", receipt, len(st.ListISCPOnboardings("")), err)
+	receipt, err := st.SaveISCPOnboarding(context.Background(), testISCPOnboarding(time.Now().UTC(), "iscp_onboarding_rollback", app.DefaultOwnerID))
+	listed, listErr := st.ListISCPOnboardings(context.Background(), "")
+	if err == nil || receipt.ID != "" || listErr != nil || len(listed) != 0 {
+		t.Fatalf("failed onboarding persistence returned or retained a receipt: receipt=%#v count=%d err=%v list_err=%v", receipt, len(listed), err, listErr)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -27,6 +28,10 @@ type FileStore struct {
 	path       string
 	encryption *fileEncryption
 	admission  *semaphore.Weighted
+	timeouts   OperationTimeouts
+	commitOps  fileCommitOps
+	fenceMu    sync.Mutex
+	fence      *fileSubmittedOutcome
 }
 
 type FileStoreOptions struct {
@@ -34,6 +39,8 @@ type FileStoreOptions struct {
 	EncryptAtRest     bool
 	EncryptionKey     string
 	EncryptionKeyFile string
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
 }
 
 type Snapshot struct {
@@ -82,15 +89,16 @@ func NewFileStore(path string) (*FileStore, error) {
 }
 
 func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
-	inner := NewMemoryStore()
+	timeouts := normalizeOperationTimeouts(OperationTimeouts{Read: opts.ReadTimeout, Write: opts.WriteTimeout})
+	inner := NewMemoryStoreWithOptions(timeouts)
 	admission := newFileAdmission()
 	path := opts.Path
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("file state path is required")
+	}
 	encryption, err := newFileEncryption(opts)
 	if err != nil {
 		return nil, err
-	}
-	if path == "" {
-		return &FileStore{inner: inner, encryption: encryption, admission: admission}, nil
 	}
 	if raw, err := os.ReadFile(path); err == nil {
 		if encryption != nil {
@@ -104,11 +112,14 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		if err := json.Unmarshal(raw, &snapshot); err != nil {
 			return nil, err
 		}
+		if err := normalizePersistedISCPOnboardings(snapshot.ISCPOnboardings); err != nil {
+			return nil, err
+		}
 		inner.loadSnapshot(snapshot)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return &FileStore{inner: inner, path: path, encryption: encryption, admission: admission}, nil
+	return &FileStore{inner: inner, path: path, encryption: encryption, admission: admission, timeouts: timeouts, commitOps: osFileCommitOps{}}, nil
 }
 
 func newFileAdmission() *semaphore.Weighted {
@@ -124,10 +135,21 @@ func (s *FileStore) admitLegacyCommand() func() {
 }
 
 func (s *FileStore) admitLegacy(weight int64) func() {
-	if err := s.admission.Acquire(context.Background(), weight); err != nil {
-		panic(fmt.Sprintf("acquire FileStore admission: %v", err))
+	for {
+		if fence := s.currentFileFence(); fence != nil {
+			<-fence.done
+			continue
+		}
+		if err := s.admission.Acquire(context.Background(), weight); err != nil {
+			panic(fmt.Sprintf("acquire FileStore admission: %v", err))
+		}
+		if fence := s.currentFileFence(); fence == nil {
+			return func() { s.admission.Release(weight) }
+		} else {
+			s.admission.Release(weight)
+			<-fence.done
+		}
 	}
-	return func() { s.admission.Release(weight) }
 }
 
 func (s *FileStore) CreateSession(title string) app.Session {
@@ -262,29 +284,16 @@ func (s *FileStore) ClaimPairingCode(id, clientID string) (app.PairingCode, erro
 	return out, err
 }
 
-func (s *FileStore) SaveISCPOnboarding(onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.SaveISCPOnboarding(onboarding)
-	if err != nil {
-		return app.ISCPOnboarding{}, err
-	}
-	if err := s.persistSnapshotLocked(); err != nil {
-		s.inner.mu.Lock()
-		delete(s.inner.iscpOnboardings, out.ID)
-		s.inner.mu.Unlock()
-		return app.ISCPOnboarding{}, err
-	}
-	return out, nil
+func (s *FileStore) SaveISCPOnboarding(ctx context.Context, onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error) {
+	return s.saveISCPOnboarding(ctx, onboarding)
 }
 
-func (s *FileStore) GetISCPOnboarding(id string) (app.ISCPOnboarding, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetISCPOnboarding(id)
+func (s *FileStore) GetISCPOnboarding(ctx context.Context, id string) (app.ISCPOnboarding, bool, error) {
+	return s.getISCPOnboarding(ctx, id)
 }
 
-func (s *FileStore) ListISCPOnboardings(ownerID string) []app.ISCPOnboarding {
-	defer s.admitLegacyRead()()
-	return s.inner.ListISCPOnboardings(ownerID)
+func (s *FileStore) ListISCPOnboardings(ctx context.Context, ownerID string) ([]app.ISCPOnboarding, error) {
+	return s.listISCPOnboardings(ctx, ownerID)
 }
 
 func (s *FileStore) SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error) {

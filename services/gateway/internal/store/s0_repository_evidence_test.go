@@ -106,7 +106,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0NA("The repository intentionally owns no lifecycle event; iscppairing writes the caller-owned audit record."),
 		s0Tests("TestFileStorePersistsOnlyISCPOnboardingReceipt@mcp_access_test.go"),
 		s0NA("The unique-ID conflict is the concurrency boundary; there is no revision or compare-and-swap field."),
-		s0Tests("TestPostgresStorePersistsOnlyISCPOnboardingReceipt@postgres_test.go", s0PostgresRowsErrTest("ISCPOnboardingRepository", "ListISCPOnboardings")),
+		s0Tests("TestPostgresStorePersistsOnlyISCPOnboardingReceipt@postgres_test.go", "TestPostgresOnboardingListReturnsRowsError@iscp_onboarding_postgres_test.go"),
 	),
 	"CredentialRepository": s0EvidenceRow(
 		s0RepositoryTest("CredentialRepository", s0DimensionSuccess),

@@ -1026,7 +1026,8 @@ func TestLoadValidatesStateConfiguration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.State.Backend != "file" || !filepath.IsAbs(cfg.State.Path) || cfg.State.StartupTimeoutSeconds != 180 {
+		if cfg.State.Backend != "file" || !filepath.IsAbs(cfg.State.Path) || cfg.State.StartupTimeoutSeconds != 180 ||
+			cfg.State.ReadTimeoutSeconds != 10 || cfg.State.WriteTimeoutSeconds != 30 {
 			t.Fatalf("normalized state config = %#v", cfg.State)
 		}
 	})
@@ -1106,6 +1107,54 @@ func TestLoadValidatesStateStartupTimeoutOverride(t *testing.T) {
 				t.Fatalf("timeout range error = %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadValidatesStateOperationTimeoutOverrides(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_READ_TIMEOUT_SECONDS", " 7 ")
+		t.Setenv("SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS", " 19 ")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.State.ReadTimeoutSeconds != 7 || cfg.State.WriteTimeoutSeconds != 19 {
+			t.Fatalf("operation timeouts = read %d write %d", cfg.State.ReadTimeoutSeconds, cfg.State.WriteTimeoutSeconds)
+		}
+	})
+
+	for _, testCase := range []struct {
+		name     string
+		variable string
+		field    string
+	}{
+		{"read", "SPARKCLAW_STATE_READ_TIMEOUT_SECONDS", "state.read_timeout_seconds"},
+		{"write", "SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS", "state.write_timeout_seconds"},
+	} {
+		t.Run(testCase.name+" malformed", func(t *testing.T) {
+			t.Setenv(testCase.variable, "soon")
+			if _, err := Load(""); err == nil || !strings.Contains(err.Error(), testCase.variable) {
+				t.Fatalf("malformed timeout error = %v", err)
+			}
+		})
+		for _, value := range []string{"0", "901"} {
+			t.Run(testCase.name+" range "+value, func(t *testing.T) {
+				t.Setenv(testCase.variable, value)
+				if _, err := Load(""); err == nil || !strings.Contains(err.Error(), testCase.field) {
+					t.Fatalf("timeout range error = %v", err)
+				}
+			})
+			t.Run(testCase.name+" file range "+value, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "sparkclaw.json")
+				field := strings.TrimPrefix(testCase.field, "state.")
+				if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"state":{"%s":%s}}`, field, value)), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := Load(path); err == nil || !strings.Contains(err.Error(), testCase.field) {
+					t.Fatalf("file timeout range error = %v", err)
+				}
+			})
+		}
 	}
 }
 

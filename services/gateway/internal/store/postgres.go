@@ -16,7 +16,9 @@ import (
 )
 
 type PostgresStore struct {
-	db *pgxpool.Pool
+	db                 *pgxpool.Pool
+	operationTimeouts  OperationTimeouts
+	onboardingPostgres onboardingPostgresOps
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
@@ -26,6 +28,10 @@ type PostgresStore struct {
 }
 
 func NewPostgresStore(ctx context.Context, dsn string) (*PostgresStore, error) {
+	return NewPostgresStoreWithOptions(ctx, dsn, defaultOperationTimeouts)
+}
+
+func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts OperationTimeouts) (*PostgresStore, error) {
 	if strings.TrimSpace(dsn) == "" {
 		return nil, errors.New("postgres state backend requires SPARKCLAW_STATE_DSN or SPARKCLAW_POSTGRES_DSN")
 	}
@@ -33,7 +39,11 @@ func NewPostgresStore(ctx context.Context, dsn string) (*PostgresStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &PostgresStore{db: pool, passiveNotificationRevs: map[string]uint64{}}
+	st := &PostgresStore{
+		db: pool, operationTimeouts: normalizeOperationTimeouts(timeouts),
+		onboardingPostgres:      pgxOnboardingPostgresOps{pool: pool},
+		passiveNotificationRevs: map[string]uint64{},
+	}
 	if err := st.migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err

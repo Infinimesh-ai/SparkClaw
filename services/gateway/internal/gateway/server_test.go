@@ -2235,6 +2235,8 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 		State struct {
 			DSN                   string `json:"dsn"`
 			StartupTimeoutSeconds int    `json:"startup_timeout_seconds"`
+			ReadTimeoutSeconds    int    `json:"read_timeout_seconds"`
+			WriteTimeoutSeconds   int    `json:"write_timeout_seconds"`
 			EncryptAtRest         bool   `json:"encrypt_at_rest"`
 			EncryptionKey         string `json:"encryption_key"`
 			EncryptionKeyFile     string `json:"encryption_key_file"`
@@ -2272,6 +2274,9 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	}
 	if decoded.State.StartupTimeoutSeconds != 180 {
 		t.Fatalf("state startup timeout missing: %#v", decoded.State)
+	}
+	if decoded.State.ReadTimeoutSeconds != 10 || decoded.State.WriteTimeoutSeconds != 30 {
+		t.Fatalf("state operation timeouts missing: %#v", decoded.State)
 	}
 	if !decoded.State.EncryptAtRest || decoded.State.EncryptionKey != "configured" || decoded.State.EncryptionKeyFile != "missing" {
 		t.Fatalf("state encryption status was not exposed safely: %#v", decoded.State)

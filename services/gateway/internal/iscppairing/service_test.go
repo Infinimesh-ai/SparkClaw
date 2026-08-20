@@ -59,7 +59,11 @@ func TestHTTPAuthorityAndServiceIssueCopyOnceTicket(t *testing.T) {
 	if issued.Ticket.Signature.Value != "signed-ticket-value" || issued.Onboarding.TicketID != issued.Ticket.TicketID {
 		t.Fatalf("invalid issued pairing: %#v", issued)
 	}
-	snapshot, _ := json.Marshal(st.ListISCPOnboardings(app.DefaultOwnerID))
+	onboardings, err := st.ListISCPOnboardings(context.Background(), app.DefaultOwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _ := json.Marshal(onboardings)
 	if strings.Contains(string(snapshot), "signed-ticket-value") || strings.Contains(string(snapshot), `"signature"`) {
 		t.Fatalf("persisted onboarding leaked the Pairing Ticket: %s", snapshot)
 	}

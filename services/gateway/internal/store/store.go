@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -41,7 +42,14 @@ type MessageEventPage struct {
 	HasMore    bool
 }
 
+type ISCPOnboardingRepository interface {
+	SaveISCPOnboarding(context.Context, app.ISCPOnboarding) (app.ISCPOnboarding, error)
+	GetISCPOnboarding(context.Context, string) (app.ISCPOnboarding, bool, error)
+	ListISCPOnboardings(context.Context, string) ([]app.ISCPOnboarding, error)
+}
+
 type Store interface {
+	ISCPOnboardingRepository
 	CreateSession(title string) app.Session
 	CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session
 	ListSessions() []app.Session
@@ -63,9 +71,6 @@ type Store interface {
 	SavePairingCode(code app.PairingCode)
 	GetPairingCode(id string) (app.PairingCode, bool)
 	ClaimPairingCode(id, clientID string) (app.PairingCode, error)
-	SaveISCPOnboarding(onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error)
-	GetISCPOnboarding(id string) (app.ISCPOnboarding, bool)
-	ListISCPOnboardings(ownerID string) []app.ISCPOnboarding
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -198,7 +203,10 @@ type Store interface {
 
 // Compile-time checks that every backend implements the full Store interface.
 var (
-	_ Store = (*MemoryStore)(nil)
-	_ Store = (*FileStore)(nil)
-	_ Store = (*PostgresStore)(nil)
+	_ ISCPOnboardingRepository = (*MemoryStore)(nil)
+	_ ISCPOnboardingRepository = (*FileStore)(nil)
+	_ ISCPOnboardingRepository = (*PostgresStore)(nil)
+	_ Store                    = (*MemoryStore)(nil)
+	_ Store                    = (*FileStore)(nil)
+	_ Store                    = (*PostgresStore)(nil)
 )

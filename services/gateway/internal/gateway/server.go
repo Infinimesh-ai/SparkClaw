@@ -3131,6 +3131,8 @@ func publicStateConfig(cfg config.StateConfig) map[string]any {
 		"path":                    cfg.Path,
 		"dsn":                     configuredStatus(cfg.DSN),
 		"startup_timeout_seconds": cfg.StartupTimeoutSeconds,
+		"read_timeout_seconds":    cfg.ReadTimeoutSeconds,
+		"write_timeout_seconds":   cfg.WriteTimeoutSeconds,
 		"encrypt_at_rest":         cfg.EncryptAtRest,
 		"encryption_key":          stateEncryptionStatus(cfg.EncryptionKey),
 		"encryption_key_file":     stateEncryptionStatus(cfg.EncryptionKeyFile),

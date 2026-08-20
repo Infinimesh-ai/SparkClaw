@@ -37,6 +37,12 @@ var fileCommandMethods = map[string]struct{}{
 	"UpdatePendingApproval": {}, "UpdatePendingReminder": {}, "UpdateSessionTitle": {},
 }
 
+var migratedFileAdmissions = map[string]string{
+	"SaveISCPOnboarding":  "saveISCPOnboarding",
+	"GetISCPOnboarding":   "getISCPOnboarding",
+	"ListISCPOnboardings": "listISCPOnboardings",
+}
+
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 	accepted := map[string]struct{}{}
 	for _, methods := range s0RepositoryMethods {
@@ -93,6 +99,9 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			if _, command := fileCommandMethods[name]; command {
 				want = "admitLegacyCommand"
 			}
+			if migrated := migratedFileAdmissions[name]; migrated != "" {
+				want = migrated
+			}
 			got := firstFileAdmission(function)
 			if got != want {
 				t.Errorf("%s first statement admission = %q, want %q", name, got, want)
@@ -128,17 +137,29 @@ func firstFileAdmission(function *ast.FuncDecl) string {
 	if function.Body == nil || len(function.Body.List) == 0 {
 		return ""
 	}
-	deferred, ok := function.Body.List[0].(*ast.DeferStmt)
-	if !ok || len(deferred.Call.Args) != 0 {
+	var call *ast.CallExpr
+	switch statement := function.Body.List[0].(type) {
+	case *ast.DeferStmt:
+		call = statement.Call
+	case *ast.ReturnStmt:
+		if len(statement.Results) != 1 {
+			return ""
+		}
+		call, _ = statement.Results[0].(*ast.CallExpr)
+	}
+	if call == nil {
 		return ""
 	}
-	acquire, ok := deferred.Call.Fun.(*ast.CallExpr)
-	if !ok || len(acquire.Args) != 0 {
-		return ""
-	}
-	selector, ok := acquire.Fun.(*ast.SelectorExpr)
+	selector, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return ""
+		acquire, nested := call.Fun.(*ast.CallExpr)
+		if !nested || len(acquire.Args) != 0 {
+			return ""
+		}
+		selector, ok = acquire.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return ""
+		}
 	}
 	receiver, ok := selector.X.(*ast.Ident)
 	if !ok || receiver.Name != "s" {
@@ -151,7 +172,8 @@ func countFileAdmissions(function *ast.FuncDecl) int {
 	count := 0
 	ast.Inspect(function.Body, func(node ast.Node) bool {
 		selector, ok := node.(*ast.SelectorExpr)
-		if ok && (selector.Sel.Name == "admitLegacyRead" || selector.Sel.Name == "admitLegacyCommand") {
+		if ok && (selector.Sel.Name == "admitLegacyRead" || selector.Sel.Name == "admitLegacyCommand" ||
+			selector.Sel.Name == "saveISCPOnboarding" || selector.Sel.Name == "getISCPOnboarding" || selector.Sel.Name == "listISCPOnboardings") {
 			count++
 		}
 		return true
@@ -264,7 +286,11 @@ func TestFileStoreAdmissionDoesNotLetReadersBypassQueuedCommand(t *testing.T) {
 }
 
 func newTestFileStore(path string) *FileStore {
-	return &FileStore{inner: NewMemoryStore(), path: path, admission: newFileAdmission()}
+	timeouts := normalizeOperationTimeouts(OperationTimeouts{})
+	return &FileStore{
+		inner: NewMemoryStoreWithOptions(timeouts), path: path, admission: newFileAdmission(),
+		timeouts: timeouts, commitOps: osFileCommitOps{},
+	}
 }
 
 func waitForQueuedFileCommand(t *testing.T, store *FileStore) {

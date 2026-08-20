@@ -12,6 +12,7 @@ import (
 
 type MemoryStore struct {
 	mu                   sync.RWMutex
+	operationTimeouts    OperationTimeouts
 	sessions             map[string]app.Session
 	clients              map[string]app.Client
 	ownerProfile         app.OwnerProfile
@@ -61,7 +62,12 @@ type MemoryStore struct {
 }
 
 func NewMemoryStore() *MemoryStore {
+	return NewMemoryStoreWithOptions(defaultOperationTimeouts)
+}
+
+func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 	return &MemoryStore{
+		operationTimeouts:           normalizeOperationTimeouts(timeouts),
 		sessions:                    map[string]app.Session{},
 		clients:                     map[string]app.Client{},
 		ownerProfile:                app.DefaultOwnerProfile(),

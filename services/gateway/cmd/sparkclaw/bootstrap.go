@@ -87,7 +87,7 @@ func newGatewayServices(
 	}, nil
 }
 
-func newISCPPairingService(cfg config.Config, st store.Store) (*iscppairing.Service, error) {
+func newISCPPairingService(cfg config.Config, st iscppairing.Repository) (*iscppairing.Service, error) {
 	options := iscppairing.Options{
 		Enabled: cfg.ISCPPairing.Enabled, DomainID: cfg.ISCPPairing.DomainID,
 		ExpectedTicketType: cfg.ISCPPairing.ExpectedTicketType,

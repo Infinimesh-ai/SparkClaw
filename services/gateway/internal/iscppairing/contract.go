@@ -15,9 +15,50 @@ const (
 )
 
 var (
-	ErrUnavailable = errors.New("ISCP pairing authority is unavailable")
-	ErrAuthority   = errors.New("ISCP pairing authority request failed")
+	ErrUnavailable     = errors.New("ISCP pairing is temporarily unavailable")
+	ErrAuthority       = errors.New("ISCP pairing authority request failed")
+	ErrPersistence     = errors.New("ISCP onboarding receipt could not be persisted")
+	ErrPendingConflict = errors.New("another ISCP onboarding request is awaiting reconciliation")
+	ErrTicketExpired   = errors.New("the reconciled ISCP Pairing Ticket has expired; start a new request")
 )
+
+type FailureCode string
+
+const (
+	FailureTimeout     FailureCode = "timeout"
+	FailureUnavailable FailureCode = "unavailable"
+	FailureConflict    FailureCode = "conflict"
+	FailureInvalid     FailureCode = "invalid"
+	FailureExpired     FailureCode = "expired"
+)
+
+type Failure struct {
+	Code   FailureCode
+	Public error
+	Cause  error
+}
+
+func (e *Failure) Error() string {
+	if e == nil || e.Public == nil {
+		return ""
+	}
+	return e.Public.Error()
+}
+
+func (e *Failure) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Public
+}
+
+func FailureCodeOf(err error) FailureCode {
+	var failure *Failure
+	if errors.As(err, &failure) {
+		return failure.Code
+	}
+	return ""
+}
 
 type StartRequest struct {
 	DisplayName string `json:"display_name"`

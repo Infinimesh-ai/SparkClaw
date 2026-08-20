@@ -128,6 +128,10 @@ func main() {
 }
 
 func newStore(ctx context.Context, cfg config.Config) (store.Store, error) {
+	timeouts := store.OperationTimeouts{
+		Read:  time.Duration(cfg.State.ReadTimeoutSeconds) * time.Second,
+		Write: time.Duration(cfg.State.WriteTimeoutSeconds) * time.Second,
+	}
 	switch cfg.State.Backend {
 	case "", "file":
 		return store.NewFileStoreWithOptions(store.FileStoreOptions{
@@ -135,11 +139,13 @@ func newStore(ctx context.Context, cfg config.Config) (store.Store, error) {
 			EncryptAtRest:     cfg.State.EncryptAtRest,
 			EncryptionKey:     cfg.State.EncryptionKey,
 			EncryptionKeyFile: cfg.State.EncryptionKeyFile,
+			ReadTimeout:       timeouts.Read,
+			WriteTimeout:      timeouts.Write,
 		})
 	case "memory":
-		return store.NewMemoryStore(), nil
+		return store.NewMemoryStoreWithOptions(timeouts), nil
 	case "postgres":
-		return store.NewPostgresStore(ctx, cfg.State.DSN)
+		return store.NewPostgresStoreWithOptions(ctx, cfg.State.DSN, timeouts)
 	default:
 		return nil, fmt.Errorf("unsupported state backend %q", cfg.State.Backend)
 	}

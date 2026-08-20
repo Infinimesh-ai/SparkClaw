@@ -149,33 +149,39 @@ func (s *FileStore) saveISCPOnboarding(ctx context.Context, onboarding app.ISCPO
 	if s.path == "" {
 		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorInvalid, errors.New("file state path is required"))
 	}
+	return runFileCommand(s, ctx, OperationISCPOnboardingSave, func(ctx context.Context) (app.ISCPOnboarding, error) {
+		return s.inner.SaveISCPOnboarding(ctx, onboarding)
+	})
+}
 
+func runFileCommand[T any](s *FileStore, ctx context.Context, operation StoreOperation, command func(context.Context) (T, error)) (T, error) {
+	var zero T
 	rollback := s.captureFileRollback()
 	previous, previousExists, err := s.readFileDestination()
 	if err != nil {
-		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorUnavailable, err)
+		return zero, storeError(operation, StoreErrorUnavailable, err)
 	}
-	out, err := s.inner.SaveISCPOnboarding(ctx, onboarding)
+	out, err := command(ctx)
 	if err != nil {
-		return app.ISCPOnboarding{}, rebindStoreOperation(err, OperationISCPOnboardingSave)
+		return zero, rebindStoreOperation(err, operation)
 	}
 	candidate, err := s.commitOps.Encode(s.inner.snapshot(), s.encryption)
 	if err != nil {
 		s.restoreFileRollback(rollback)
-		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorDurability, err)
+		return zero, storeError(operation, StoreErrorDurability, err)
 	}
-	if err := s.commitOnboardingSnapshot(ctx, candidate, previous, previousExists); err != nil {
+	if err := s.commitFileSnapshot(ctx, operation, candidate, previous, previousExists); err != nil {
 		if StoreErrorCodeOf(err) == StoreErrorUnknownOutcome {
 			fence := &fileSubmittedOutcome{
-				operation: OperationISCPOnboardingSave, candidate: sha256.Sum256(candidate),
+				operation: operation, candidate: sha256.Sum256(candidate),
 				previous: sha256.Sum256(previous), previousExists: previousExists,
 				rollback: rollback, done: make(chan struct{}),
 			}
 			s.installFileFence(fence)
-			return app.ISCPOnboarding{}, err
+			return zero, err
 		}
 		s.restoreFileRollback(rollback)
-		return app.ISCPOnboarding{}, err
+		return zero, err
 	}
 	return out, nil
 }
@@ -198,14 +204,14 @@ func (s *FileStore) listISCPOnboardings(ctx context.Context, ownerID string) ([]
 	return s.inner.ListISCPOnboardings(ctx, ownerID)
 }
 
-func (s *FileStore) commitOnboardingSnapshot(ctx context.Context, candidate, previous []byte, previousExists bool) error {
+func (s *FileStore) commitFileSnapshot(ctx context.Context, operation StoreOperation, candidate, previous []byte, previousExists bool) error {
 	directory := filepath.Dir(s.path)
 	if err := s.commitOps.MkdirAll(directory, 0o755); err != nil {
-		return storeError(OperationISCPOnboardingSave, StoreErrorDurability, err)
+		return storeError(operation, StoreErrorDurability, err)
 	}
 	temporary, err := s.commitOps.CreateTemp(directory, ".sparkclaw-state-*")
 	if err != nil {
-		return storeError(OperationISCPOnboardingSave, StoreErrorDurability, err)
+		return storeError(operation, StoreErrorDurability, err)
 	}
 	temporaryPath := temporary.Name()
 	failBeforeSubmit := func(primary error) error {
@@ -215,7 +221,7 @@ func (s *FileStore) commitOnboardingSnapshot(ctx context.Context, candidate, pre
 		if removeErr := s.commitOps.Remove(temporaryPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			primary = errors.Join(primary, removeErr)
 		}
-		return storeError(OperationISCPOnboardingSave, StoreErrorDurability, primary)
+		return storeError(operation, StoreErrorDurability, primary)
 	}
 	if err := writeFileCommit(temporary, candidate); err != nil {
 		return failBeforeSubmit(err)
@@ -227,9 +233,9 @@ func (s *FileStore) commitOnboardingSnapshot(ctx context.Context, candidate, pre
 		if removeErr := s.commitOps.Remove(temporaryPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			err = errors.Join(err, removeErr)
 		}
-		return storeError(OperationISCPOnboardingSave, StoreErrorDurability, err)
+		return storeError(operation, StoreErrorDurability, err)
 	}
-	if err := operationContextError(OperationISCPOnboardingSave, ctx); err != nil {
+	if err := operationContextError(operation, ctx); err != nil {
 		if removeErr := s.commitOps.Remove(temporaryPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			err = errors.Join(err, removeErr)
 		}
@@ -240,26 +246,26 @@ func (s *FileStore) commitOnboardingSnapshot(ctx context.Context, candidate, pre
 		if readErr == nil {
 			digest := sha256.Sum256(destination)
 			if digest == sha256.Sum256(candidate) {
-				return storeError(OperationISCPOnboardingSave, StoreErrorUnknownOutcome, err)
+				return storeError(operation, StoreErrorUnknownOutcome, err)
 			}
 			if previousExists && digest == sha256.Sum256(previous) {
 				if removeErr := s.commitOps.Remove(temporaryPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 					err = errors.Join(err, removeErr)
 				}
-				return storeError(OperationISCPOnboardingSave, StoreErrorDurability, err)
+				return storeError(operation, StoreErrorDurability, err)
 			}
-			return storeError(OperationISCPOnboardingSave, StoreErrorUnknownOutcome, err)
+			return storeError(operation, StoreErrorUnknownOutcome, err)
 		}
 		if errors.Is(readErr, os.ErrNotExist) && !previousExists {
 			if removeErr := s.commitOps.Remove(temporaryPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				err = errors.Join(err, removeErr)
 			}
-			return storeError(OperationISCPOnboardingSave, StoreErrorDurability, err)
+			return storeError(operation, StoreErrorDurability, err)
 		}
-		return storeError(OperationISCPOnboardingSave, StoreErrorUnknownOutcome, errors.Join(err, readErr))
+		return storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, readErr))
 	}
 	if err := s.syncFileDirectory(); err != nil {
-		return storeError(OperationISCPOnboardingSave, StoreErrorUnknownOutcome, err)
+		return storeError(operation, StoreErrorUnknownOutcome, err)
 	}
 	return nil
 }

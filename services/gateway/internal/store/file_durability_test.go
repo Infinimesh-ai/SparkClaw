@@ -281,6 +281,25 @@ func TestFileOnboardingPreSubmitFailuresRestoreCompleteState(t *testing.T) {
 	}
 }
 
+func TestFileOnboardingDestinationReadFailureDoesNotMutate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SaveClient(app.Client{ID: "baseline-client", Name: "baseline"})
+	before := store.captureFileRollback()
+	store.commitOps = &controlledFileCommitOps{failStage: "read", failRemaining: 1}
+
+	_, err = store.SaveISCPOnboarding(context.Background(), testISCPOnboarding(time.Now().UTC(), "receipt-read-failure", app.DefaultOwnerID))
+	if StoreErrorCodeOf(err) != StoreErrorUnavailable || !errors.Is(err, errFileCommitInjected) {
+		t.Fatalf("destination read error = %v code=%q", err, StoreErrorCodeOf(err))
+	}
+	if after := store.captureFileRollback(); !reflect.DeepEqual(after, before) {
+		t.Fatal("destination read failure mutated in-memory state")
+	}
+}
+
 func TestFileOnboardingCancellationBeforeAdmissionDoesNotMutate(t *testing.T) {
 	store, err := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
@@ -363,6 +382,35 @@ func TestFileOnboardingRenameFailureClassification(t *testing.T) {
 			t.Fatalf("candidate reconciliation = %#v found=%v err=%v fence=%v", got, found, err, store.currentFileFence())
 		}
 	})
+}
+
+func TestFileOnboardingDirectoryFailuresFenceAndReconcile(t *testing.T) {
+	for _, mode := range []struct {
+		name      string
+		encrypted bool
+	}{{name: "plaintext"}, {name: "encrypted", encrypted: true}} {
+		for _, stage := range []string{"dir_open", "dir_close"} {
+			t.Run(mode.name+"/"+stage, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "state.json")
+				store, err := NewFileStoreWithOptions(FileStoreOptions{
+					Path: path, EncryptAtRest: mode.encrypted, EncryptionKey: "onboarding-test-key",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				store.commitOps = &controlledFileCommitOps{failStage: stage, failRemaining: 1}
+				receipt := testISCPOnboarding(time.Now().UTC(), "receipt-"+mode.name+"-"+stage, app.DefaultOwnerID)
+
+				if _, err := store.SaveISCPOnboarding(context.Background(), receipt); StoreErrorCodeOf(err) != StoreErrorUnknownOutcome || store.currentFileFence() == nil {
+					t.Fatalf("%s result = %v code=%q fence=%v", stage, err, StoreErrorCodeOf(err), store.currentFileFence())
+				}
+				got, found, err := store.GetISCPOnboarding(context.Background(), receipt.ID)
+				if err != nil || !found || got.ID != receipt.ID || store.currentFileFence() != nil {
+					t.Fatalf("%s reconciliation = %#v found=%v err=%v fence=%v", stage, got, found, err, store.currentFileFence())
+				}
+			})
+		}
+	}
 }
 
 func TestFileOnboardingFenceBlocksPrequeuedLegacyWaiters(t *testing.T) {

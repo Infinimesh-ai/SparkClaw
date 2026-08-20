@@ -2,9 +2,9 @@
 
 > 语言：[English](../../docs/store-client-repository-design.md) | 简体中文
 
-> 状态：基于已接受 Owner 实现 `0b85cc4` 的 S3 设计修复候选。`bae3623`
-> 审查结论为 REVISE。在修复合同获得 fresh context-isolated 设计 GO 前，
-> 不授权 Client 代码实现。
+> 状态：基于已接受 Owner 实现 `0b85cc4` 的第二个 S3 设计修复候选。
+> `bae3623` 与 `9ff7c14` 审查结论均为 REVISE。在本修复合同获得 fresh
+> context-isolated 设计 GO 前，不授权 Client 代码实现。
 
 ## 边界修正
 
@@ -110,6 +110,9 @@ unknown-outcome fence 与 read reconciliation。client/pairing command 使用
   绝不认证或 claim，且允许多个 empty hash。PostgreSQL 现有 unique constraint
   使其每种 hash 最多一个 blank，而 File 可保留多个；
 - non-empty client token hash 与 pairing code hash 必须唯一；
+- client creation time 必须非零；每个 present client last-seen/revoked 或 pairing
+  claimed pointer 也必须包含非零时间。legacy clock rollback 合法，因此 startup
+  不为这些非零值虚构 chronological ordering constraint；
 - pairing status 只能是 pending、claimed 或 expired。pending/expired 不带
   claim time/client；claimed 必须同时具备二者且引用 present client；pairing
   creation/expiry time 必须非零。
@@ -156,20 +159,28 @@ secret。每个 installed intent 都有 process-local 单调递增 generation；
 `gatewayServices.Start` 绑定的 lifecycle context；lifecycle cancellation 清除
 matching generation 并退出，不再调用 Store。
 
-- `SavePairingCode` 前，start 在持有 coordinator gate 时保存 plaintext code、
-  owner、canonical request fingerprint 与 expiry。repository 返回的 normalized
-  candidate 在 success 或 unknown reconciliation 前附加。unknown save 立即执行
-  get barrier。unresolved 时保留 pending；后续同一 start 可 reconcile 并取得
-  原 code，不同 request conflict。pending 时不生成第二个 code/save。
+- `SavePairingCode` 前，Gateway 先生成 non-empty pairing ID 与 code hash；start
+  在持有 coordinator gate 时保存 plaintext code、owner、canonical request
+  fingerprint、expiry 及完整 attempted pairing command identity。repository
+  仍支持为其他 caller 生成 ID，但本 flow 绝不使用。repository 返回的 normalized
+  candidate 在 success 或 unknown reconciliation 前附加。unknown save 使用保留的
+  attempted ID 立即执行 get barrier。unresolved 时保留 pending；后续同一 start
+  可 reconcile 并取得原 code，不同 request conflict。pending 时不生成第二个
+  code/save。
   zero-candidate unknown 只能通过 barrier absence 证明 rollback；任何 present
   record 都不匹配，因此 conflict，绝不披露 code。
-- 校验 submitted pairing code 后、repository claim 前，claim 先保存 plaintext
-  bearer token，owner/pairing ID/submitted code hash/normalized
-  client name 的 canonical fingerprint，以及 pre-command pairing record/expiry。
-  repository 返回的 normalized pairing/client candidate 在 success 或 unknown
-  reconciliation 前附加。后续 matching request 必须重新 constant-time 校验 code
-  才能 reconcile 并恢复原 token；不同 request conflict，pending 时不生成第二个
-  token/client/claim。
+- 校验 submitted pairing code 后、repository claim 前，Gateway 生成 non-empty
+  client ID 与 token hash。claim 保存 plaintext bearer token、完整 attempted
+  client command identity、owner/pairing
+  ID/submitted code hash/normalized client name 的 canonical fingerprint，以及
+  pre-command pairing record/expiry。repository 仍支持为其他 caller 生成 client
+  ID，但本 flow 绝不使用。repository 返回的 normalized pairing/client candidate
+  在 success 或 unknown reconciliation 前附加。后续同 pairing request 先针对
+  retained pre-command code hash 重复 constant-time comparison；invalid code 仍为
+  unauthorized。然后只有 exact fingerprint 才能 reconcile 并恢复原 token；
+  不同的 valid request conflict，pending 时不生成第二个 token/client/claim。
+  zero-candidate unknown 使用保留的 attempted client ID 做 absence barrier，绝不
+  从 repository result 推断该 ID。
 - definite failure 清除对应 pending secret。start 的 barrier absence 证明 rollback；
   claim 的 exact pre-command pending pairing 加 client absence 证明 rollback。两者都
   清除 pending 并报告 persistence failure，不自动 retry。exact command candidate
@@ -197,6 +208,19 @@ matching generation 并退出，不再调用 Store。
 - bearer authentication 区分 invalid/revoked credential 与 Store failure。
   invalid/revoked 保持 401；lookup/touch timeout 为 504，其他 Store failure 为
   503；Touch 必须确认 client 仍 active。
+- 现有 bootstrap validation 保持稳定：pairing disabled 为 400
+  `pairing is not required`，non-local start 为 403
+  `pairing can only be started locally`，malformed input 为 400，absent claim 为
+  400 `pairing code not found`，non-pending/expired claim 为 400
+  `pairing code is not active`，code mismatch 为 401 `invalid pairing code`。
+  不同 pending fingerprint 为 409 `another pairing request is pending`；different
+  reconciled state 为 409 `pairing state changed`。start 在 disclosure 前即时
+  expiry 为 503 `pairing is temporarily unavailable`；claim 此时使用同一个稳定
+  inactive 结果返回 400。start、claim 或 reconciliation 的 Store timeout 均为
+  504 `pairing request timed out`；definite persistence failure、unresolved unknown
+  outcome、response 仍可写时的 canceled operation、corruption、internal failure
+  或其他 Store failure 均为 503 `pairing is temporarily unavailable`。response
+  绝不包含 raw Store error、candidate、code/token hash 或 plaintext secret。
 - migrated Client path 不使用 `context.Background()`，也不忽略 repository error。
 
 ## Gate 与 Commit 边界
@@ -230,4 +254,5 @@ matching generation 并退出，不再调用 Store。
 | 审查 | Revision | 决定 | 证据 | Reviewer/date |
 |---|---|---|---|---|
 | Client contract review 1 | `bae3623` | `REVISE` | unknown claim 可能丢失 bearer token；legacy/corrupt backend parity、pairing pointer isolation、audit ordering 与 live expiry disclosure 不完整 | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair | pending | pending | pending | pending |
+| Client contract review 2 | `9ff7c14` | `REVISE` | zero-candidate recovery 缺 attempted command identity；pairing public error projection 未冻结；roadmap 状态过期 | Context-isolated gatekeeper / 2026-08-20 |
+| Client contract repair 2 | pending | pending | pending | pending |

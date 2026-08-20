@@ -2,9 +2,10 @@
 
 > 语言：[English](../../docs/store-contract-reliability-migration-design.md) | 简体中文
 
-> 状态：新的 context-isolated 复审关闭 stale-clock、真实 PostgreSQL、File
-> failure coverage 和 Compose override blocker 后，S2 实现已于 2026-08-20
-> 在 `42b62bd` 获得接受。S3 已激活，当前只迁移 `OwnerRepository`。
+> 状态：S2 实现已于 2026-08-20 在 `42b62bd` 获得接受。S3
+> `OwnerRepository` 实现已在 `0b85cc4` 获得接受，gate record 为 `fc5acba`。
+> `ClientRepository` 是当前唯一迁移波次；其设计仍在 context-isolated review，
+> 尚未授权 Client 代码。
 
 ## 目的
 

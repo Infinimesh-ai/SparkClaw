@@ -2,10 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-contract-reliability-migration-design.md)
 
-> Status: S2 implementation accepted at `42b62bd` on 2026-08-20 after fresh
-> context-isolated re-review closed the stale-clock, real-PostgreSQL, File
-> failure-coverage, and Compose override blockers. S3 is active with
-> `OwnerRepository` as the only current migration wave.
+> Status: S2 implementation was accepted at `42b62bd` on 2026-08-20. S3
+> `OwnerRepository` implementation was accepted at `0b85cc4` with gate record
+> `fc5acba`. `ClientRepository` is the only current migration wave; its design
+> remains under context-isolated review and no Client code is authorized yet.
 
 ## Purpose
 

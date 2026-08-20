@@ -2,9 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-client-repository-design.md)
 
-> Status: S3 design repair candidate based on accepted Owner implementation
-> `0b85cc4`. Review of `bae3623` returned REVISE. Client code is not authorized
-> until the repaired contract receives a fresh context-isolated design GO.
+> Status: second S3 design repair candidate based on accepted Owner
+> implementation `0b85cc4`. Reviews of `bae3623` and `9ff7c14` returned REVISE.
+> Client code is not authorized until this repaired contract receives a fresh
+> context-isolated design GO.
 
 ## Boundary Correction
 
@@ -121,6 +122,10 @@ uses this explicit compatibility matrix:
   permitted. PostgreSQL's existing unique constraints mean it can contain at
   most one blank of each hash, while File may preserve more than one;
 - non-empty client token hashes and pairing code hashes must be unique;
+- client creation time is non-zero, and every present client last-seen/revoked
+  or pairing claimed pointer contains a non-zero time. Legacy clock rollback is
+  legitimate, so startup does not invent chronological ordering constraints
+  among those non-zero values;
 - pairing status is exactly pending, claimed, or expired. Pending/expired rows
   have no claim time/client; claimed rows require both and reference a present
   client; and pairing creation/expiry times must be non-zero.
@@ -175,24 +180,32 @@ The timer also selects on the lifecycle context bound by
 `gatewayServices.Start`; lifecycle cancellation clears the matching generation
 and exits without another Store call.
 
-- Before `SavePairingCode`, start stores the plaintext code, owner, canonical
-  request fingerprint, and expiry while holding the coordinator gate. The
-  repository-returned normalized candidate is attached before success or
-  unknown reconciliation. Unknown save immediately runs the get barrier.
+- Before `SavePairingCode`, Gateway generates a non-empty pairing ID and code
+  hash, then start stores the plaintext code, owner, canonical request
+  fingerprint, expiry, and complete attempted pairing command identity while
+  holding the coordinator gate. Repository ID generation remains supported for
+  other callers but is never used by this flow. The repository-returned
+  normalized candidate is attached before success or unknown reconciliation.
+  Unknown save immediately runs the get barrier with the retained attempted ID.
   Unresolved reconciliation retains pending; the same later start reconciles
   and can receive the original code, while a different request gets conflict.
   No second code/save is generated while pending exists. A zero-candidate
   unknown can prove only rollback through barrier absence; any present record
   is non-matching and therefore conflicts rather than disclosing the code.
 - After validating the submitted pairing code but before repository claim,
-  claim stores the plaintext bearer token, canonical fingerprint of owner,
-  pairing ID, submitted code hash, and normalized client name, plus the
-  pre-command pairing record and expiry. The repository-returned normalized
-  pairing/client candidates are attached before success or unknown
-  reconciliation. A later matching request must repeat the constant-time code
-  check before it can reconcile and recover the original token. A different
+  Gateway generates a non-empty client ID and token hash. Claim stores the
+  plaintext bearer token, complete attempted client command identity, canonical
+  fingerprint of owner, pairing ID, submitted code hash, and normalized client
+  name, plus the pre-command pairing record and expiry. Repository client-ID
+  generation remains supported for other callers but is never used by this
+  flow. The repository-returned normalized pairing/client candidates are
+  attached before success or unknown reconciliation. A later request for the
+  same pairing first repeats the constant-time comparison against the retained
+  pre-command code hash; an invalid code remains unauthorized. Only then may an
+  exact fingerprint reconcile and recover the original token. A different valid
   request conflicts, and no second token/client/claim is generated while
-  pending.
+  pending. A zero-candidate unknown uses the retained attempted client ID for
+  the absence barrier and can never infer it from the repository result.
 - A definite failure clears the matching pending secret. For start, barrier
   absence proves rollback. For claim, the exact pre-command pending pairing
   together with client absence proves rollback. Either result clears pending
@@ -226,6 +239,21 @@ and exits without another Store call.
 - Bearer authentication distinguishes invalid/revoked credentials from Store
   failure. Invalid or revoked stays 401; lookup/touch timeout is 504 and other
   Store failure is 503. Touch must confirm the client is still active.
+- Existing bootstrap validation remains stable: disabled pairing is 400
+  `pairing is not required`, non-local start is 403
+  `pairing can only be started locally`, malformed input is 400, absent claim is
+  400 `pairing code not found`, non-pending/expired claim is 400
+  `pairing code is not active`, and a code mismatch is 401
+  `invalid pairing code`. A different pending fingerprint is 409
+  `another pairing request is pending`; a different reconciled state is 409
+  `pairing state changed`. Start expiry immediately before disclosure is 503
+  `pairing is temporarily unavailable`; claim expiry at that point is the same
+  stable 400 inactive result. Any Store timeout in start, claim, or
+  reconciliation is 504 `pairing request timed out`; definite persistence
+  failure, unresolved unknown outcome, canceled operation whose response remains
+  writable, corruption, internal failure, or other Store failure is 503
+  `pairing is temporarily unavailable`. No response contains raw Store errors,
+  candidates, code/token hashes, or plaintext secrets.
 - No migrated Client path uses `context.Background()` or ignores a repository
   error.
 
@@ -263,4 +291,5 @@ receives an independent context-isolated GO.
 | Review | Revision | Decision | Evidence | Reviewer/date |
 |---|---|---|---|---|
 | Client contract review 1 | `bae3623` | `REVISE` | Unknown claim could lose the bearer token; legacy/corrupt backend parity, pairing pointer isolation, audit ordering, and live expiry disclosure were incomplete | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair | pending | pending | pending | pending |
+| Client contract review 2 | `9ff7c14` | `REVISE` | Zero-candidate recovery lacked attempted command identities; pairing public error projection was not frozen; roadmap status was stale | Context-isolated gatekeeper / 2026-08-20 |
+| Client contract repair 2 | pending | pending | pending | pending |

@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: S2 pilot implementation accepted at `9d86c50` on 2026-08-20 after
-> independent review. S3 is active with `OwnerRepository` as the only current
-> repository wave.
+> Status: S2 pilot implementation re-review is pending at `6f4c1bf` after a
+> fresh context-isolated review found a ticket-expiry disclosure defect. S3 is
+> paused; `OwnerRepository` remains the next wave only after S2 receives `GO`.
 
 ## Objective And Stage Boundary
 
@@ -410,6 +410,8 @@ migrations remain in place.
 | S2 pilot/S3 design review 2 | `4f8b2e5` | `REVISE` | Immediate negative query after uncertain autocommit was not final because the original backend transaction could commit later | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 design review 3 | `d88d321` | `REVISE` | Reconciliation did not freeze `READ COMMITTED`; a higher default isolation could retain the pre-lock snapshot and return false absence | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 design review 4 | `49b0858` | `GO` | Explicit `READ COMMITTED` and separate advisory-lock/query statements make found/absence final independent of server isolation defaults; all earlier fence, pending-ticket, and submission findings are closed | Independent gatekeeper / 2026-08-20 |
-| S2 pilot implementation | `9d86c50` | `GO` | Complete File admission and onboarding migration passed the accepted focused/full/race/default-File/real-PostgreSQL matrix; independent review found no actionable finding | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| S2 pilot implementation initial review | `9d86c50` | superseded `GO` | Complete File admission and onboarding migration passed the initial evidence review; a later fresh review superseded this decision | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| S2 pilot implementation fresh re-review | `9d86c50` | `REVISE` | A ticket could expire during persistence/reconciliation yet still be disclosed because completion reused the request-start time | Context-isolated gatekeeper / 2026-08-20 |
+| S2 pilot repair candidate | `bc1bfb4`, `6f4c1bf` | pending | Completion now reads a live clock immediately before disclosure, with intra-call expiry coverage and a fresh disposable real-PostgreSQL full/race run | Pending independent re-review / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

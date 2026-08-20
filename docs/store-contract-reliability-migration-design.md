@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-contract-reliability-migration-design.md)
 
-> Status: S2 implementation accepted at `9d86c50` on 2026-08-20 after
-> independent review. S3 is active with `OwnerRepository` as the only current
-> migration wave.
+> Status: S2 implementation re-review is pending at `6f4c1bf` after a fresh
+> context-isolated review rejected the earlier `9d86c50` acceptance. S3 is
+> paused until the repaired candidate receives `GO`.
 
 ## Purpose
 
@@ -142,4 +142,6 @@ whether any module split is justified.
 | S1 design | `361612c` | `GO` | Three independent design reviews accepted migration ownership, adoption, configuration, failure, and PostgreSQL verification contracts | Independent gatekeeper; user authorized implementation / 2026-08-20 |
 | S1 implementation | `b2f9115` | `GO` | Independent implementation review found and closed the duplicate legacy-key blocker; user accepted the green implementation and authorized S2 design | Independent gatekeeper and user / 2026-08-20 |
 | S2 design | `49b0858` | `GO` | Four review rounds closed File fence admission, pending authority-ticket retry, PostgreSQL final reconciliation, and isolation-default blockers; implementation may start | Independent gatekeeper / 2026-08-20 |
-| S2 implementation | `9d86c50` | `GO` | Both implementation commits, focused and full tests, race, default File, WebChat, docs, Compose, doctor, and real PostgreSQL evidence passed; independent review found no actionable finding | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| S2 implementation initial review | `9d86c50` | superseded `GO` | The initial reviewer accepted the implementation evidence; a later fresh review superseded this decision | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| S2 implementation fresh re-review | `9d86c50` | `REVISE` | Ticket expiry used the request-start time after persistence/reconciliation, and the fresh review lacked recorded real-DSN evidence | Context-isolated gatekeeper / 2026-08-20 |
+| S2 repair candidate | `bc1bfb4`, `6f4c1bf` | pending | Rechecks a live clock immediately before ticket disclosure; adds intra-call expiry and missing File destination/directory failure coverage; focused/full/race/default-File/WebChat/docs/Compose and disposable real-PostgreSQL gates passed | Pending independent re-review / 2026-08-20 |

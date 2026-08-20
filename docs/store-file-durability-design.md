@@ -2,8 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-file-durability-design.md)
 
-> Status: S2 implementation accepted at `9d86c50` on 2026-08-20 after
-> independent review. S3 repository migration is active.
+> Status: S2 implementation re-review is pending at `6f4c1bf`. The repaired
+> candidate adds the missing destination-read and directory-open/close failure
+> evidence; S3 remains paused until independent `GO`.
 
 ## Problem And S2 Claim
 
@@ -273,4 +274,6 @@ cannot start on gate scaffolding alone.
 |---|---|---|---|---|
 | Design review 1 | `3aff151` | `REVISE` | Fence observation and semaphore acquisition lacked an atomic handshake, allowing a pre-queued legacy waiter either to pass the fence or deadlock reconciliation | Independent gatekeeper / 2026-08-20 |
 | Design review 2 | `49b0858` | `GO` | Double-check admission, immutable fence ownership, and the dedicated reconciliation lease close the queued-waiter pass/deadlock window; later linked reviews closed pilot/PostgreSQL blockers | Independent gatekeeper / 2026-08-20 |
-| Implementation | `0e7817b`, `9d86c50` | `GO` | All-method admission, rollback/fence/reconciliation, plaintext/encrypted restart, race, default File, and full regression evidence passed; independent review found no actionable finding | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| Implementation initial review | `0e7817b`, `9d86c50` | superseded `GO` | All-method admission, rollback/fence/reconciliation, plaintext/encrypted restart, race, default File, and full regression evidence passed; a later fresh review superseded this decision | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| Implementation fresh re-review | `9d86c50` | `REVISE` | The review identified unexercised destination-read and directory-open/close File failure branches in addition to the pairing-service blocker | Context-isolated gatekeeper / 2026-08-20 |
+| Repair candidate | `6f4c1bf` | pending | Deterministic tests now cover destination-read isolation and directory-open/close uncertainty with plaintext/encrypted reconciliation parity | Pending independent re-review / 2026-08-20 |

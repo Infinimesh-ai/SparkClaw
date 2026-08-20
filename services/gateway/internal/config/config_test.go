@@ -1004,11 +1004,8 @@ func TestLoadAppliesExternalModelEnvironment(t *testing.T) {
 }
 
 func TestLoadAppliesStateEncryptionEnvironment(t *testing.T) {
-	root := t.TempDir()
-	keyFile := filepath.Join(root, "state.key")
 	t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", "true")
 	t.Setenv("SPARKCLAW_STATE_ENCRYPTION_KEY", "env-secret")
-	t.Setenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE", keyFile)
 
 	cfg, err := Load("")
 	if err != nil {
@@ -1017,9 +1014,178 @@ func TestLoadAppliesStateEncryptionEnvironment(t *testing.T) {
 	if !cfg.State.EncryptAtRest || cfg.State.EncryptionKey != "env-secret" {
 		t.Fatalf("state encryption env did not apply: %#v", cfg.State)
 	}
-	if cfg.State.EncryptionKeyFile != keyFile {
-		t.Fatalf("state encryption key file was not normalized: %#v", cfg.State)
+	if cfg.State.EncryptionKeyFile != "" {
+		t.Fatalf("unexpected state encryption key file: %#v", cfg.State)
 	}
+}
+
+func TestLoadValidatesStateConfiguration(t *testing.T) {
+	t.Run("normalizes backend and default file path", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_BACKEND", " FiLe ")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.State.Backend != "file" || !filepath.IsAbs(cfg.State.Path) || cfg.State.StartupTimeoutSeconds != 180 {
+			t.Fatalf("normalized state config = %#v", cfg.State)
+		}
+	})
+
+	t.Run("memory", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_BACKEND", " MEMORY ")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.State.Backend != "memory" {
+			t.Fatalf("memory state config = %#v", cfg.State)
+		}
+	})
+
+	t.Run("invalid backend", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_BACKEND", "sqlite")
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "state.backend") {
+			t.Fatalf("invalid backend error = %v", err)
+		}
+	})
+
+	t.Run("file path required", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_BACKEND", "file")
+		t.Setenv("SPARKCLAW_STATE_PATH", "   ")
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "state.path") {
+			t.Fatalf("missing file path error = %v", err)
+		}
+	})
+
+	t.Run("postgres DSN required", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_BACKEND", "postgres")
+		t.Setenv("SPARKCLAW_STATE_DSN", "")
+		t.Setenv("SPARKCLAW_POSTGRES_DSN", "")
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "state.dsn") {
+			t.Fatalf("missing postgres DSN error = %v", err)
+		}
+	})
+
+	t.Run("legacy postgres DSN retains precedence", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_BACKEND", "postgres")
+		t.Setenv("SPARKCLAW_STATE_DSN", "postgres://canonical")
+		t.Setenv("SPARKCLAW_POSTGRES_DSN", " postgres://legacy ")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.State.DSN != "postgres://legacy" {
+			t.Fatalf("postgres DSN precedence = %q", cfg.State.DSN)
+		}
+	})
+}
+
+func TestLoadValidatesStateStartupTimeoutOverride(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS", " 42 ")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.State.StartupTimeoutSeconds != 42 {
+			t.Fatalf("startup timeout = %d", cfg.State.StartupTimeoutSeconds)
+		}
+	})
+
+	t.Run("malformed", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS", "soon")
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS") {
+			t.Fatalf("malformed timeout error = %v", err)
+		}
+	})
+
+	for _, value := range []string{"0", "901"} {
+		t.Run("range "+value, func(t *testing.T) {
+			t.Setenv("SPARKCLAW_STATE_STARTUP_TIMEOUT_SECONDS", value)
+			if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "state.startup_timeout_seconds") {
+				t.Fatalf("timeout range error = %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadValidatesStateEncryptionBooleanOverride(t *testing.T) {
+	for _, value := range []string{"0", "false", "no", "off", "FALSE"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", value)
+			cfg, err := Load("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.State.EncryptAtRest {
+				t.Fatalf("%q parsed true", value)
+			}
+		})
+	}
+	t.Run("malformed", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", "sometimes")
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "SPARKCLAW_STATE_ENCRYPT_AT_REST") {
+			t.Fatalf("malformed encryption boolean error = %v", err)
+		}
+	})
+}
+
+func TestLoadValidatesEncryptedFileStateKeySource(t *testing.T) {
+	t.Run("key file", func(t *testing.T) {
+		keyFile := filepath.Join(t.TempDir(), "state.key")
+		if err := os.WriteFile(keyFile, []byte("file-secret\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", "true")
+		t.Setenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE", keyFile)
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.State.EncryptionKeyFile != keyFile || cfg.State.EncryptionKey != "" {
+			t.Fatalf("key-file state config = %#v", cfg.State)
+		}
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", "true")
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "exactly one") {
+			t.Fatalf("missing key source error = %v", err)
+		}
+	})
+
+	t.Run("both", func(t *testing.T) {
+		keyFile := filepath.Join(t.TempDir(), "state.key")
+		if err := os.WriteFile(keyFile, []byte("file-secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", "true")
+		t.Setenv("SPARKCLAW_STATE_ENCRYPTION_KEY", "direct-secret")
+		t.Setenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE", keyFile)
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "exactly one") {
+			t.Fatalf("dual key source error = %v", err)
+		}
+	})
+
+	t.Run("unreadable", func(t *testing.T) {
+		t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", "true")
+		t.Setenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE", filepath.Join(t.TempDir(), "missing.key"))
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "state.encryption_key_file") {
+			t.Fatalf("unreadable key file error = %v", err)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		keyFile := filepath.Join(t.TempDir(), "state.key")
+		if err := os.WriteFile(keyFile, []byte(" \n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SPARKCLAW_STATE_ENCRYPT_AT_REST", "true")
+		t.Setenv("SPARKCLAW_STATE_ENCRYPTION_KEY_FILE", keyFile)
+		if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "must not be empty") {
+			t.Fatalf("empty key file error = %v", err)
+		}
+	})
 }
 
 func TestLoadAppliesCredentialKeyEnvironment(t *testing.T) {

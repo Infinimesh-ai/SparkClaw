@@ -32,7 +32,12 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
-	st, err := newStore(cfg)
+	storeStartupCtx, cancelStoreStartup := context.WithTimeout(
+		context.Background(),
+		time.Duration(cfg.State.StartupTimeoutSeconds)*time.Second,
+	)
+	st, err := newStore(storeStartupCtx, cfg)
+	cancelStoreStartup()
 	if err != nil {
 		slog.Error("failed to initialize store", "error", err)
 		os.Exit(1)
@@ -122,7 +127,7 @@ func main() {
 	slog.Info("sparkclaw gateway stopped")
 }
 
-func newStore(cfg config.Config) (store.Store, error) {
+func newStore(ctx context.Context, cfg config.Config) (store.Store, error) {
 	switch cfg.State.Backend {
 	case "", "file":
 		return store.NewFileStoreWithOptions(store.FileStoreOptions{
@@ -134,7 +139,7 @@ func newStore(cfg config.Config) (store.Store, error) {
 	case "memory":
 		return store.NewMemoryStore(), nil
 	case "postgres":
-		return store.NewPostgresStore(context.Background(), cfg.State.DSN)
+		return store.NewPostgresStore(ctx, cfg.State.DSN)
 	default:
 		return nil, fmt.Errorf("unsupported state backend %q", cfg.State.Backend)
 	}

@@ -223,6 +223,7 @@
   "state": {
     "backend": "file",
     "path": "./data/memory/gateway-state.json",
+    "startup_timeout_seconds": 180,
     "encrypt_at_rest": false,
     "encryption_key": "",
     "encryption_key_file": "",

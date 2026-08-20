@@ -3127,12 +3127,13 @@ func publicStorageConfig(cfg config.StorageConfig) map[string]any {
 
 func publicStateConfig(cfg config.StateConfig) map[string]any {
 	return map[string]any{
-		"backend":             cfg.Backend,
-		"path":                cfg.Path,
-		"dsn":                 configuredStatus(cfg.DSN),
-		"encrypt_at_rest":     cfg.EncryptAtRest,
-		"encryption_key":      stateEncryptionStatus(cfg.EncryptionKey),
-		"encryption_key_file": stateEncryptionStatus(cfg.EncryptionKeyFile),
+		"backend":                 cfg.Backend,
+		"path":                    cfg.Path,
+		"dsn":                     configuredStatus(cfg.DSN),
+		"startup_timeout_seconds": cfg.StartupTimeoutSeconds,
+		"encrypt_at_rest":         cfg.EncryptAtRest,
+		"encryption_key":          stateEncryptionStatus(cfg.EncryptionKey),
+		"encryption_key_file":     stateEncryptionStatus(cfg.EncryptionKeyFile),
 	}
 }
 

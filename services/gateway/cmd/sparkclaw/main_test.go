@@ -196,7 +196,7 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	cfg.State.CredentialKey = "01234567890123456789012345678901"
 	cfg.State.CredentialKeyFile = ""
 
-	st, err := newStore(cfg)
+	st, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,6 +287,17 @@ func TestAllOptionalFeaturesComposeWithFileBackend(t *testing.T) {
 	}
 }
 
+func TestNewStoreHonorsCanceledStartupContext(t *testing.T) {
+	cfg := config.Default()
+	cfg.State.Backend = "postgres"
+	cfg.State.DSN = "postgres://sparkclaw:sparkclaw@127.0.0.1:1/sparkclaw?sslmode=disable"
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := newStore(ctx, cfg); err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled store startup error = %v", err)
+	}
+}
+
 func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()
@@ -298,7 +309,7 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 	cfg.State.Backend = "file"
 	cfg.State.Path = filepath.Join(root, "gateway-state.json")
 
-	st, err := newStore(cfg)
+	st, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +380,7 @@ func TestDefaultFileBackendProductionEntryReadsStructuredDocument(t *testing.T) 
 	cfg.Workspaces.DefaultRoot = workspace
 	cfg.Workspaces.Allowlist = []string{workspace}
 
-	st, err := newStore(cfg)
+	st, err := newStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

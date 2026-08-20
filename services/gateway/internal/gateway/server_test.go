@@ -2233,10 +2233,11 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 			} `json:"fast"`
 		} `json:"model"`
 		State struct {
-			DSN               string `json:"dsn"`
-			EncryptAtRest     bool   `json:"encrypt_at_rest"`
-			EncryptionKey     string `json:"encryption_key"`
-			EncryptionKeyFile string `json:"encryption_key_file"`
+			DSN                   string `json:"dsn"`
+			StartupTimeoutSeconds int    `json:"startup_timeout_seconds"`
+			EncryptAtRest         bool   `json:"encrypt_at_rest"`
+			EncryptionKey         string `json:"encryption_key"`
+			EncryptionKeyFile     string `json:"encryption_key_file"`
 		} `json:"state"`
 		Tools struct {
 			Web struct {
@@ -2268,6 +2269,9 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	}
 	if decoded.State.DSN != "" {
 		t.Fatalf("state dsn should be redacted/empty for non-postgres config: %#v", decoded.State)
+	}
+	if decoded.State.StartupTimeoutSeconds != 180 {
+		t.Fatalf("state startup timeout missing: %#v", decoded.State)
 	}
 	if !decoded.State.EncryptAtRest || decoded.State.EncryptionKey != "configured" || decoded.State.EncryptionKeyFile != "missing" {
 		t.Fatalf("state encryption status was not exposed safely: %#v", decoded.State)

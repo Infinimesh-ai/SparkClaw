@@ -522,6 +522,54 @@ CREATE INDEX IF NOT EXISTS passive_notifications_owner_created_idx
 CREATE INDEX IF NOT EXISTS passive_notifications_owner_unread_idx
   ON passive_notifications(owner_id, created_at DESC) WHERE read_at IS NULL;
 
+LOCK TABLE weixin_chat_sessions, weixin_chat_messages,
+  external_chat_sessions, external_chat_messages
+  IN SHARE ROW EXCLUSIVE MODE;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM weixin_chat_sessions AS source
+    WHERE NOT EXISTS (
+      SELECT 1 FROM external_chat_sessions AS target WHERE target.id = source.id
+    )
+      AND EXISTS (
+        SELECT 1
+        FROM external_chat_sessions AS conflicting_target
+        WHERE conflicting_target.id <> source.id
+          AND conflicting_target.binding_id = source.binding_id
+          AND conflicting_target.external_chat_id = source.external_user_id
+          AND conflicting_target.external_thread_id = ''
+      )
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'external chat session adoption conflicts with an existing canonical natural key';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM weixin_chat_messages AS source
+    WHERE source.external_message_id <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM external_chat_messages AS target WHERE target.id = source.id
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM external_chat_messages AS conflicting_target
+        WHERE conflicting_target.id <> source.id
+          AND conflicting_target.chat_session_id = source.chat_session_id
+          AND conflicting_target.external_message_id = source.external_message_id
+      )
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'external chat message adoption conflicts with an existing canonical natural key';
+  END IF;
+END
+$$;
+
 INSERT INTO external_chat_sessions (
   id, owner_id, workspace_root, binding_id, channel, provider, external_user_id,
   external_chat_id, external_thread_id, display_name, linked_session_id, status,
@@ -541,6 +589,26 @@ SELECT id, chat_session_id, binding_id, 'weixin', direction, role, external_mess
        content, context_token, linked_run_id, status, error, created_at, updated_at
 FROM weixin_chat_messages
 ON CONFLICT (id) DO NOTHING;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM weixin_chat_sessions) <>
+     (SELECT count(*) FROM weixin_chat_sessions AS source
+        JOIN external_chat_sessions AS target ON target.id = source.id) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'external chat session adoption did not preserve every source ID';
+  END IF;
+
+  IF (SELECT count(*) FROM weixin_chat_messages) <>
+     (SELECT count(*) FROM weixin_chat_messages AS source
+        JOIN external_chat_messages AS target ON target.id = source.id) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'external chat message adoption did not preserve every source ID';
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS credential_secrets (
   ref TEXT PRIMARY KEY,
@@ -638,6 +706,35 @@ UPDATE browser_login_blocks SET status = 'waiting_owner', schema_version = 2
 UPDATE browser_login_blocks SET status = 'validating_visible', schema_version = 2
   WHERE status = 'resuming';
 UPDATE browser_login_blocks SET version = 1 WHERE version <= 0;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM browser_login_blocks WHERE status IN ('waiting', 'resuming')
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'browser login block adoption left a legacy status';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM browser_login_blocks
+    WHERE status IN ('waiting_owner', 'validating_visible')
+      AND schema_version <> 2
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'browser login block adoption left a migrated status at the wrong schema version';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM browser_login_blocks WHERE version <= 0) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'browser login block adoption left a non-positive version';
+  END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS browser_login_blocks_active_idx
   ON browser_login_blocks(session_id, status, updated_at DESC);

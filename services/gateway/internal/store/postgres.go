@@ -46,10 +46,12 @@ func (s *PostgresStore) Close() {
 }
 
 func (s *PostgresStore) migrate(ctx context.Context) error {
-	if _, err := s.db.Exec(ctx, postgresSchema); err != nil {
+	startupCtx, cancel := postgresMigrationStartupContext(ctx)
+	defer cancel()
+	if err := runPostgresMigrations(startupCtx, s.db); err != nil {
 		return fmt.Errorf("migrate postgres store: %w", err)
 	}
-	if err := s.normalizeMCPBindingSessions(ctx); err != nil {
+	if err := s.normalizeMCPBindingSessions(startupCtx); err != nil {
 		return fmt.Errorf("normalize MCP binding sessions: %w", err)
 	}
 	return nil

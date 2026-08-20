@@ -2,9 +2,9 @@
 
 > 语言：[English](../../docs/store-client-repository-design.md) | 简体中文
 
-> 状态：基于已接受 Owner 实现 `0b85cc4` 的第四个 S3 设计修复候选。
-> `bae3623`、`9ff7c14`、`1ccd5db` 与 `b33343a` 审查结论均为 REVISE。在本修复
-> 合同获得 fresh context-isolated 设计 GO 前，不授权 Client 代码实现。
+> 状态：经过四个修复候选后，S3 Client 设计于 2026-08-20 在 `fba19a6`
+> 获得接受。Client 实现获准严格依据该合同开始；在下一个 repository 启动前，
+> exact Client 实现仍必须获得独立 context-isolated GO。
 
 ## 边界修正
 
@@ -301,4 +301,4 @@ matching generation 并退出，不再调用 Store。
 | Client contract review 2 | `9ff7c14` | `REVISE` | zero-candidate recovery 缺 attempted command identity；pairing public error projection 未冻结；roadmap 状态过期 | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth 与 malformed-claim public copy 不完整；repository roadmap 仍把 Owner 标成 active | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 4 | `b33343a` | `REVISE` | repository method 与 legacy blank-hash pairing row 的确定性 typed outcome 和 validation precedence 仍不完整 | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair 4 | pending | pending | pending | pending |
+| Client contract review 5 | `fba19a6` | `GO` | exact outcome/precedence 已冻结；atomicity、recovery、backend compatibility、public mapping 与实现证据完整且一致 | Context-isolated gatekeeper / 2026-08-20 |

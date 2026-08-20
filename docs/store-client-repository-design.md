@@ -2,10 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-client-repository-design.md)
 
-> Status: fourth S3 design repair candidate based on accepted Owner
-> implementation `0b85cc4`. Reviews of `bae3623`, `9ff7c14`, `1ccd5db`, and
-> `b33343a` returned REVISE. Client code is not authorized until this repaired
-> contract receives a fresh context-isolated design GO.
+> Status: S3 Client design accepted at `fba19a6` on 2026-08-20 after four
+> repaired candidates. Client implementation is authorized against this exact
+> contract and still requires an independent context-isolated implementation
+> GO before the next repository starts.
 
 ## Boundary Correction
 
@@ -341,4 +341,4 @@ receives an independent context-isolated GO.
 | Client contract review 2 | `9ff7c14` | `REVISE` | Zero-candidate recovery lacked attempted command identities; pairing public error projection was not frozen; roadmap status was stale | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth and malformed-claim public copy remained incomplete; repository roadmap still labeled Owner active | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 4 | `b33343a` | `REVISE` | Deterministic typed outcomes and validation precedence remained incomplete across repository methods and legacy blank-hash pairing rows | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair 4 | pending | pending | pending | pending |
+| Client contract review 5 | `fba19a6` | `GO` | Exact outcomes and precedence are frozen; atomicity, recovery, backend compatibility, public mappings, and implementation evidence are complete and coherent | Context-isolated gatekeeper / 2026-08-20 |

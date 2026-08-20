@@ -435,7 +435,8 @@ compatibility 与实现 gate 由 [ClientRepository contract](store-client-reposi
 
 CredentialRepository 是唯一获授权的设计波次。其精确 method、secret-redaction、
 overwrite/delete、durability、reconciliation、consumer 与 backend compatibility
-合同必须先获得独立 GO 才能开始代码。Credential 实现获得自身 GO 前，Session
+合同由 [CredentialRepository contract](store-credential-repository-design.md) 定义，
+并且必须先获得独立 GO 才能开始代码。Credential 实现获得自身 GO 前，Session
 及后续 repository 设计仍保持阻塞。
 
 S2 实现并经人工验收后，推荐风险顺序保持为：

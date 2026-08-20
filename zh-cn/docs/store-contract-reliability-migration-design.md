@@ -27,6 +27,7 @@ PostgreSQL schema/配置是 Store 的前置工作。
 | [File Store 持久性](store-file-durability-design.md) | 读隔离、串行提交、崩溃阶段、回滚和确定性失败注入 |
 | [PostgreSQL schema 与状态配置](store-postgresql-schema-config-design.md) | 内嵌迁移权威、现有数据库接管、严格状态配置和保持不变的 DSN 门控测试 |
 | [Repository 迁移](store-repository-migration-design.md) | 单 repository 实现波次、临时宽接口规则和最终删除 `store.Store` |
+| [CredentialRepository contract](store-credential-repository-design.md) | Credential 持久化语义、redaction、Vault/Weixin 迁移、reconciliation 与全 backend 实现门禁 |
 | [Runtime 与统一监管](store-runtime-supervision-design.md) | 迁移后的 Runtime 组装、有限操作监管、健康、指标、探针和生命周期 |
 
 ## 审查协议

@@ -497,9 +497,10 @@ implementation received GO at `a4ddc83`.
 
 CredentialRepository is the only authorized design wave. Its exact method,
 secret-redaction, overwrite/delete, durability, reconciliation, consumer, and
-backend compatibility contract must receive an independent GO before code
-starts. Session and later repository design remains blocked until Credential
-implementation receives its own GO.
+backend compatibility contract is defined by the
+[CredentialRepository contract](store-credential-repository-design.md) and must
+receive an independent GO before code starts. Session and later repository
+design remains blocked until Credential implementation receives its own GO.
 
 After S2 implementation and human acceptance, preferred risk order remains:
 

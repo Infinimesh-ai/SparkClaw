@@ -32,6 +32,7 @@ pre-approved by this roadmap.
 | [File Store durability](store-file-durability-design.md) | Read isolation, serialized commits, crash stages, rollback, and deterministic failure injection |
 | [PostgreSQL schema and state configuration](store-postgresql-schema-config-design.md) | Embedded migration authority, existing-database adoption, strict state configuration, and unchanged DSN-gated tests |
 | [Repository migration](store-repository-migration-design.md) | One-repository implementation waves, temporary broad-interface rules, and final `store.Store` deletion |
+| [CredentialRepository contract](store-credential-repository-design.md) | Credential persistence semantics, redaction, Vault/Weixin migration, reconciliation, and all-backend implementation gate |
 | [Runtime and supervision](store-runtime-supervision-design.md) | Post-migration Runtime assembly, finite operation supervision, health, metrics, probes, and lifecycle |
 
 ## Review Protocol

@@ -2,9 +2,8 @@
 
 > 语言：[English](../../docs/store-contract-reliability-migration-design.md) | 简体中文
 
-> 状态：S1 实现已于 2026-08-20 由用户在 `b2f9115` 验收；S2 设计是当前
-> 门禁。只有关联的 File 和 pilot repository 设计记录得到 `GO` 后，才能开始
-> S2 代码。
+> 状态：S2 设计经过四轮独立审查后，已于 2026-08-20 在 `49b0858` 获得
+> 接受。S2 实现已激活；S3 仍需等待独立 S2 实现审查和人工验收。
 
 ## 目的
 
@@ -116,3 +115,4 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S0 实现 | `207462154fa2377ed786af671f41e0f353d11ba9` | `GO` | 清单、manifest、测试、基线和已分配残余风险已接受；可开始 S1 | 用户 / 2026-08-20 |
 | S1 设计 | `361612c` | `GO` | 三轮独立设计审查接受 migration 权威、adoption、配置、失败和 PostgreSQL 验证契约 | 独立 gatekeeper；用户授权实现 / 2026-08-20 |
 | S1 实现 | `b2f9115` | `GO` | 独立实现审查发现并闭合 legacy 重复键阻断；用户接受绿色实现并授权 S2 设计 | 独立 gatekeeper 和用户 / 2026-08-20 |
+| S2 设计 | `49b0858` | `GO` | 四轮审查关闭 File fence admission、pending authority-ticket retry、PostgreSQL 最终对账和 isolation-default blocker；可开始实现 | 独立 gatekeeper / 2026-08-20 |

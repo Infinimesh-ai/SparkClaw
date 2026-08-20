@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-file-durability-design.md)
 
-> Status: S2 design-review candidate revision 2, 2026-08-20. S2 production
-> code starts only after this document and the linked repository pilot design
-> receive an independent `GO`.
+> Status: S2 design accepted at `49b0858` on 2026-08-20 after four independent
+> review rounds across the linked File and pilot records. S2 implementation is
+> active; S3 remains gated by S2 implementation review and human acceptance.
 
 ## Problem And S2 Claim
 
@@ -273,5 +273,5 @@ cannot start on gate scaffolding alone.
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
 | Design review 1 | `3aff151` | `REVISE` | Fence observation and semaphore acquisition lacked an atomic handshake, allowing a pre-queued legacy waiter either to pass the fence or deadlock reconciliation | Independent gatekeeper / 2026-08-20 |
-| Design review 2 | revision 2 candidate | pending | Double-check admission loop, fence synchronization ownership, and dedicated reconciliation lease await re-review | pending |
+| Design review 2 | `49b0858` | `GO` | Double-check admission, immutable fence ownership, and the dedicated reconciliation lease close the queued-waiter pass/deadlock window; later linked reviews closed pilot/PostgreSQL blockers | Independent gatekeeper / 2026-08-20 |
 | Implementation | pending | pending | pending | pending |

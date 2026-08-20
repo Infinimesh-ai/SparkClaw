@@ -2,9 +2,9 @@
 
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
-> 状态：S2 pilot 设计审查候选 revision 4，2026-08-20。只有本文档和关联的
-> File durability 设计都获得独立 `GO` 后才开始 pilot；其余 repository code
-> 仍由 S2 实现验收门禁控制。
+> 状态：S2 pilot 设计经过四轮独立审查后，已于 2026-08-20 在 `49b0858`
+> 获得接受。S2 实现已激活；其余 repository code 仍需等待 S2 实现审查和人工
+> 验收。
 
 ## 目标与阶段边界
 
@@ -362,6 +362,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S2 pilot/S3 设计审查 1 | `3aff151` | `REVISE` | uncertain save 未阻止 retried Start 签发第二张 authority ticket，且 PostgreSQL autocommit 缺少可验证 submission classifier | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 设计审查 2 | `4f8b2e5` | `REVISE` | uncertain autocommit 后立即 negative query 不具最终性，因为原 backend transaction 可能稍后 commit | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 设计审查 3 | `d88d321` | `REVISE` | reconciliation 未冻结 `READ COMMITTED`；更高 default isolation 可能保留 pre-lock snapshot 并返回 false absence | Independent gatekeeper / 2026-08-20 |
-| S2 pilot/S3 设计审查 4 | revision 4 candidate | pending | 显式 `READ COMMITTED`、独立 lock/query statement 与非默认 isolation evidence 等待复审 | pending |
+| S2 pilot/S3 设计审查 4 | `49b0858` | `GO` | 显式 `READ COMMITTED` 与独立 advisory-lock/query statement 使 found/absence 不受 server isolation default 影响而具最终性；更早的 fence、pending-ticket 与 submission finding 均已关闭 | Independent gatekeeper / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

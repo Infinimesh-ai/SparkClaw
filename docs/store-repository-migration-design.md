@@ -2,10 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: S2 pilot design-review candidate revision 4, 2026-08-20. The pilot
-> starts only after this document and the linked File durability design receive
-> an independent `GO`. Remaining repository code remains gated by S2
-> implementation acceptance.
+> Status: S2 pilot design accepted at `49b0858` on 2026-08-20 after four
+> independent review rounds. S2 implementation is active; remaining repository
+> code remains gated by S2 implementation review and human acceptance.
 
 ## Objective And Stage Boundary
 
@@ -410,6 +409,6 @@ migrations remain in place.
 | S2 pilot/S3 design review 1 | `3aff151` | `REVISE` | Uncertain save did not prevent a retried Start from issuing a second authority ticket, and PostgreSQL autocommit lacked a verifiable submission classifier | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 design review 2 | `4f8b2e5` | `REVISE` | Immediate negative query after uncertain autocommit was not final because the original backend transaction could commit later | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 design review 3 | `d88d321` | `REVISE` | Reconciliation did not freeze `READ COMMITTED`; a higher default isolation could retain the pre-lock snapshot and return false absence | Independent gatekeeper / 2026-08-20 |
-| S2 pilot/S3 design review 4 | revision 4 candidate | pending | Explicit `READ COMMITTED`, separate lock/query statements, and non-default-isolation evidence await re-review | pending |
+| S2 pilot/S3 design review 4 | `49b0858` | `GO` | Explicit `READ COMMITTED` and separate advisory-lock/query statements make found/absence final independent of server isolation defaults; all earlier fence, pending-ticket, and submission findings are closed | Independent gatekeeper / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

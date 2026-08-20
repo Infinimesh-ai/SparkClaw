@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-contract-reliability-migration-design.md)
 
-> Status: S1 implementation accepted by the user on 2026-08-20 at `b2f9115`;
-> S2 design is the active gate. S2 code starts only after its linked File and
-> pilot repository design records receive `GO`.
+> Status: S2 design accepted at `49b0858` on 2026-08-20 after four independent
+> review rounds. S2 implementation is active; S3 remains gated by independent
+> S2 implementation review and human acceptance.
 
 ## Purpose
 
@@ -134,3 +134,4 @@ whether any module split is justified.
 | S0 implementation | `207462154fa2377ed786af671f41e0f353d11ba9` | `GO` | Inventory, manifest, tests, baseline, and assigned residual risks accepted; S1 may start | User / 2026-08-20 |
 | S1 design | `361612c` | `GO` | Three independent design reviews accepted migration ownership, adoption, configuration, failure, and PostgreSQL verification contracts | Independent gatekeeper; user authorized implementation / 2026-08-20 |
 | S1 implementation | `b2f9115` | `GO` | Independent implementation review found and closed the duplicate legacy-key blocker; user accepted the green implementation and authorized S2 design | Independent gatekeeper and user / 2026-08-20 |
+| S2 design | `49b0858` | `GO` | Four review rounds closed File fence admission, pending authority-ticket retry, PostgreSQL final reconciliation, and isolation-default blockers; implementation may start | Independent gatekeeper / 2026-08-20 |

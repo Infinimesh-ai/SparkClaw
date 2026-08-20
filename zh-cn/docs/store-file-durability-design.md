@@ -2,9 +2,8 @@
 
 > 语言：[English](../../docs/store-file-durability-design.md) | 简体中文
 
-> 状态：关联 File 与 pilot 记录经过四轮独立审查后，S2 设计已于
-> 2026-08-20 在 `49b0858` 获得接受。S2 实现已激活；S3 仍需等待 S2 实现
-> 审查和人工验收。
+> 状态：S2 实现经过独立审查后，已于 2026-08-20 在 `9d86c50` 获得接受。
+> S3 repository 迁移已激活。
 
 ## 问题与 S2 声明
 
@@ -235,4 +234,4 @@ evidence、snapshot JSON 不变、默认后端无回归且无未使用 gate 或 
 |---|---|---|---|---|
 | 设计审查 1 | `3aff151` | `REVISE` | fence observation 与 semaphore acquire 缺少原子握手，pre-queued legacy waiter 可能穿透 fence 或让 reconciliation 死锁 | Independent gatekeeper / 2026-08-20 |
 | 设计审查 2 | `49b0858` | `GO` | double-check admission、immutable fence ownership 与专用 reconciliation lease 关闭 queued-waiter 穿透/死锁窗口；后续关联审查关闭 pilot/PostgreSQL blocker | Independent gatekeeper / 2026-08-20 |
-| 实现 | pending | pending | pending | pending |
+| 实现 | `0e7817b`, `9d86c50` | `GO` | 全方法 admission、rollback/fence/reconciliation、明文/加密 restart、race、默认 File 和完整回归证据均通过；独立审查未发现 actionable finding | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |

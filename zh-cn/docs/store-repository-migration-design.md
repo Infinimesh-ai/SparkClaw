@@ -2,9 +2,8 @@
 
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
-> 状态：S2 pilot 设计经过四轮独立审查后，已于 2026-08-20 在 `49b0858`
-> 获得接受。S2 实现已激活；其余 repository code 仍需等待 S2 实现审查和人工
-> 验收。
+> 状态：S2 pilot 实现经过独立审查后，已于 2026-08-20 在 `9d86c50`
+> 获得接受。S3 已激活，当前只有 `OwnerRepository` 一个 repository 波次在进行。
 
 ## 目标与阶段边界
 
@@ -363,5 +362,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S2 pilot/S3 设计审查 2 | `4f8b2e5` | `REVISE` | uncertain autocommit 后立即 negative query 不具最终性，因为原 backend transaction 可能稍后 commit | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 设计审查 3 | `d88d321` | `REVISE` | reconciliation 未冻结 `READ COMMITTED`；更高 default isolation 可能保留 pre-lock snapshot 并返回 false absence | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 设计审查 4 | `49b0858` | `GO` | 显式 `READ COMMITTED` 与独立 advisory-lock/query statement 使 found/absence 不受 server isolation default 影响而具最终性；更早的 fence、pending-ticket 与 submission finding 均已关闭 | Independent gatekeeper / 2026-08-20 |
+| S2 pilot 实现 | `9d86c50` | `GO` | 完整 File admission 与 onboarding 迁移通过已接受的 focused/full/race/default-File/real-PostgreSQL matrix；独立审查未发现 actionable finding | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

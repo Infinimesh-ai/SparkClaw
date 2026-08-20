@@ -2,8 +2,8 @@
 
 > 语言：[English](../../docs/store-contract-reliability-migration-design.md) | 简体中文
 
-> 状态：S2 设计经过四轮独立审查后，已于 2026-08-20 在 `49b0858` 获得
-> 接受。S2 实现已激活；S3 仍需等待独立 S2 实现审查和人工验收。
+> 状态：S2 实现经过独立审查后，已于 2026-08-20 在 `9d86c50` 获得接受。
+> S3 已激活，当前只有 `OwnerRepository` 一个迁移波次在进行。
 
 ## 目的
 
@@ -45,6 +45,11 @@ PostgreSQL schema/配置是 Store 的前置工作。
 
 审查记录包含日期、被审查的 commit 或文档修订、结论、证据、未解决风险和
 审查人。口头假设、仅通过 build，或缺少 PostgreSQL DSN，都不构成 `GO`。
+
+S2 之后，owner 把中间阶段的 `GO`/`REVISE` 决策授权给 primary implementation
+agent。每个被授权的决定仍必须具备已接受契约、完整自动化证据和 context-isolated
+gatekeeper 审查。跨阶段风险继续保留记录，并在完整计划收口时统一交给 owner
+审查；只有新发现的产品边界决策才会在此之前返回 owner。
 
 ## Store 阶段顺序
 
@@ -116,3 +121,4 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S1 设计 | `361612c` | `GO` | 三轮独立设计审查接受 migration 权威、adoption、配置、失败和 PostgreSQL 验证契约 | 独立 gatekeeper；用户授权实现 / 2026-08-20 |
 | S1 实现 | `b2f9115` | `GO` | 独立实现审查发现并闭合 legacy 重复键阻断；用户接受绿色实现并授权 S2 设计 | 独立 gatekeeper 和用户 / 2026-08-20 |
 | S2 设计 | `49b0858` | `GO` | 四轮审查关闭 File fence admission、pending authority-ticket retry、PostgreSQL 最终对账和 isolation-default blocker；可开始实现 | 独立 gatekeeper / 2026-08-20 |
+| S2 实现 | `9d86c50` | `GO` | 两个实现 commit、focused/full test、race、默认 File、WebChat、docs、Compose、doctor 和真实 PostgreSQL 证据均通过；独立审查未发现 actionable finding | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |

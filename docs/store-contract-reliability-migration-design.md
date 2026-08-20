@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-contract-reliability-migration-design.md)
 
-> Status: S2 design accepted at `49b0858` on 2026-08-20 after four independent
-> review rounds. S2 implementation is active; S3 remains gated by independent
-> S2 implementation review and human acceptance.
+> Status: S2 implementation accepted at `9d86c50` on 2026-08-20 after
+> independent review. S3 is active with `OwnerRepository` as the only current
+> migration wave.
 
 ## Purpose
 
@@ -53,6 +53,13 @@ A review result is one of:
 Review records include date, reviewed commit or document revision, decision,
 evidence, unresolved risks, and reviewer. A verbal assumption, a passing build,
 or an absent PostgreSQL DSN is not a `GO`.
+
+After S2, the owner delegated intermediate `GO`/`REVISE` decisions to the
+primary implementation agent. Every delegated decision still requires the
+accepted contract, complete automated evidence, and a context-isolated
+gatekeeper review. Cross-stage risks remain recorded and are consolidated for
+owner review when the full plan closes; only a newly discovered product-boundary
+decision returns to the owner before then.
 
 ## Store Stage Order
 
@@ -135,3 +142,4 @@ whether any module split is justified.
 | S1 design | `361612c` | `GO` | Three independent design reviews accepted migration ownership, adoption, configuration, failure, and PostgreSQL verification contracts | Independent gatekeeper; user authorized implementation / 2026-08-20 |
 | S1 implementation | `b2f9115` | `GO` | Independent implementation review found and closed the duplicate legacy-key blocker; user accepted the green implementation and authorized S2 design | Independent gatekeeper and user / 2026-08-20 |
 | S2 design | `49b0858` | `GO` | Four review rounds closed File fence admission, pending authority-ticket retry, PostgreSQL final reconciliation, and isolation-default blockers; implementation may start | Independent gatekeeper / 2026-08-20 |
+| S2 implementation | `9d86c50` | `GO` | Both implementation commits, focused and full tests, race, default File, WebChat, docs, Compose, doctor, and real PostgreSQL evidence passed; independent review found no actionable finding | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |

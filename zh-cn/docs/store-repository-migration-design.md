@@ -2,10 +2,9 @@
 
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
-> 状态：S2 pilot 实现已在 `42b62bd` 获得接受。经过新的 context-isolated
-> 修复审查，第一个 S3 repository `OwnerRepository` 已于 2026-08-20 在
-> `0b85cc4` 获得接受。下一波是 [ClientRepository contract](store-client-repository-design.md)
-> 设计；在其设计获得 GO 前，不授权 Client 实现。
+> 状态：S2 pilot 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在
+> `0b85cc4` 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83`
+> 获得接受。CredentialRepository 是下一设计波次；其设计获得 GO 前不授权实现。
 
 ## 目标与阶段边界
 
@@ -425,12 +424,19 @@ behavior byte-identical 的机械 File helper 泛化；以及跨所有 backend/c
 Owner behavior migration。精确 Owner candidate 完成独立、context-isolated 实现
 审查前，不开始下一个 repository。
 
-### 当前波次：ClientRepository
+### 已接受波次：ClientRepository
 
-Owner 实现在 `0b85cc4` 获得独立 GO，gate record 为 `fc5acba`。当前 Client 的
-精确边界、合并后的 pairing claim command、pending-secret recovery、backend
-compatibility 与实现 gate 只由 [ClientRepository contract](store-client-repository-design.md)
-负责。精确 Client 实现获得独立 GO 前，不开始 Credential 或其他 repository 设计。
+Owner 实现在 `0b85cc4` 获得独立 GO，gate record 为 `fc5acba`。Client 的精确
+边界、合并后的 pairing claim command、pending-secret recovery、backend
+compatibility 与实现 gate 由 [ClientRepository contract](store-client-repository-design.md)
+负责；其完整实现已在 `a4ddc83` 获得 GO。
+
+### 下一波次：CredentialRepository
+
+CredentialRepository 是唯一获授权的设计波次。其精确 method、secret-redaction、
+overwrite/delete、durability、reconciliation、consumer 与 backend compatibility
+合同必须先获得独立 GO 才能开始代码。Credential 实现获得自身 GO 前，Session
+及后续 repository 设计仍保持阻塞。
 
 S2 实现并经人工验收后，推荐风险顺序保持为：
 
@@ -518,5 +524,7 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Owner 实现审查 | `7dc70ed` | `REVISE` | candidate 形成前的 unsafe advisory-lock 与 current-row failure 被返回为 definite unavailable，并可能释放 uncertain session | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner 实现修复审查 | `3597b3f` | `REVISE` | production classification 与 termination 已修复，但测试未证明 terminated session 绝不会被 release 回连接池 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner 实现最终审查 | `0b85cc4` | `GO` | unsafe pre-candidate failure 返回 zero-candidate `unknown_outcome`，terminate 且不 release，并保留 definite PgError、retry-safe、corrupt-row、rollback 与 cleanup 分类。focused/full Store 与 race、全仓 build/test/vet、WebChat、44 项脚本测试、Compose、双语文档和 disposable real-PostgreSQL full/race 证据均通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
+| S3 Client 实现审查 | `1acdd2f` | `REVISE` | acquired-session `Begin` failure 与不可取消的 PostgreSQL command admission 违反已接受的 ownership/deadline 合同 | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Client 实现最终审查 | `a4ddc83` | `GO` | context-aware admission 与精确 `Begin` classification 关闭两项 finding；修复候选的 full normal/race 和 disposable configured PostgreSQL full/race gate 均通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

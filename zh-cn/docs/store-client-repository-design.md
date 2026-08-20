@@ -2,9 +2,9 @@
 
 > 语言：[English](../../docs/store-client-repository-design.md) | 简体中文
 
-> 状态：经过四个修复候选后，S3 Client 设计于 2026-08-20 在 `fba19a6`
-> 获得接受。Client 实现获准严格依据该合同开始；在下一个 repository 启动前，
-> exact Client 实现仍必须获得独立 context-isolated GO。
+> 状态：S3 Client 设计已在 `fba19a6` 获得接受；经过一次独立实现 REVISE
+> 与修复后，完整实现于 2026-08-20 在 `a4ddc83` 获得接受。现在可以开始
+> CredentialRepository 设计。
 
 ## 边界修正
 
@@ -290,8 +290,8 @@ matching generation 并退出，不再调用 Store。
   test/build、44 项 Python script、default Compose、双语 docs CI，以及 disposable
   configured real-PostgreSQL full/race run。
 
-在 exact Client 实现获得 independent context-isolated GO 前，不开始 Credential
-或 Session 设计。
+该 gate 已在 `a4ddc83` 满足。CredentialRepository 是下一设计波次；其自身设计
+获得 GO 前，不授权 Credential 实现。
 
 ## 审查记录
 
@@ -302,3 +302,5 @@ matching generation 并退出，不再调用 Store。
 | Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth 与 malformed-claim public copy 不完整；repository roadmap 仍把 Owner 标成 active | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 4 | `b33343a` | `REVISE` | repository method 与 legacy blank-hash pairing row 的确定性 typed outcome 和 validation precedence 仍不完整 | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 5 | `fba19a6` | `GO` | exact outcome/precedence 已冻结；atomicity、recovery、backend compatibility、public mapping 与实现证据完整且一致 | Context-isolated gatekeeper / 2026-08-20 |
+| Client 实现审查 1 | `1acdd2f` | `REVISE` | PostgreSQL 在取得 owned session 后错误释放 unsafe `Begin` failure，且四个写命令在 operation deadline 外等待不可取消 mutex | Context-isolated gatekeeper / 2026-08-20 |
+| Client 实现修复 | `a4ddc83` | `GO` | context-aware command admission 与精确的 safe/server/unsafe/context `Begin` ownership 关闭两项 finding。focused/full/race、default File、WebChat、脚本、Compose、双语文档及 disposable configured real-PostgreSQL full/race 证据均为绿色 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |

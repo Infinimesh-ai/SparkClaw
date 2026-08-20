@@ -2,10 +2,9 @@
 
 > 语言：[English](../../docs/store-contract-reliability-migration-design.md) | 简体中文
 
-> 状态：S2 实现已于 2026-08-20 在 `42b62bd` 获得接受。S3
-> `OwnerRepository` 实现已在 `0b85cc4` 获得接受，gate record 为 `fc5acba`。
-> `ClientRepository` 是当前唯一迁移波次；其设计仍在 context-isolated review，
-> 尚未授权 Client 代码。
+> 状态：S2 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在 `0b85cc4`
+> 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83` 获得接受。
+> CredentialRepository 是当前唯一设计波次；其设计获得 GO 前不授权实现。
 
 ## 目的
 
@@ -126,3 +125,5 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S2 实现初次审查 | `9d86c50` | 已被取代的 `GO` | 初次审查接受了实现证据；之后的新审查取代了这一决定 | 独立 gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S2 实现重新审查 | `9d86c50` | `REVISE` | 持久化/对账后仍使用请求开始时间判断 ticket 过期，且新审查缺少已记录的真实 DSN 证据 | Context-isolated gatekeeper / 2026-08-20 |
 | S2 修复实现 | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | ticket 披露前立即重读 live clock；新增同一调用内过期及 File destination/directory 缺失故障覆盖；把 read/write timeout override 转发给 Compose 并增加展开测试；focused/full/race/default-File/WebChat/docs/Compose 和独立重复的一次性真实 PostgreSQL 门禁通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
+| S3 Owner 实现 | `0b85cc4`，gate record `fc5acba` | `GO` | context-isolated 修复审查关闭 unsafe pre-candidate ownership 与 terminate-not-release 证据，完整本地及 disposable PostgreSQL gate 通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
+| S3 Client 实现 | `1acdd2f`，修复 `a4ddc83` | `REVISE` 后 `GO` | 修复替换不可取消的 PostgreSQL admission，并纠正 acquired-session `Begin` classification；exact 修复候选通过 full normal/race 与 configured PostgreSQL full/race gate | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |

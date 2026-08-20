@@ -2,10 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-client-repository-design.md)
 
-> Status: S3 Client design accepted at `fba19a6` on 2026-08-20 after four
-> repaired candidates. Client implementation is authorized against this exact
-> contract and still requires an independent context-isolated implementation
-> GO before the next repository starts.
+> Status: S3 Client design was accepted at `fba19a6`; the complete
+> implementation was accepted at `a4ddc83` on 2026-08-20 after one independent
+> implementation REVISE and repair. CredentialRepository design may now start.
 
 ## Boundary Correction
 
@@ -330,8 +329,8 @@ Its gate requires:
   test/build, 44 Python script tests, default Compose, bilingual docs CI, and a
   disposable configured real-PostgreSQL full plus race run.
 
-No Credential or Session design starts until the exact Client implementation
-receives an independent context-isolated GO.
+This gate was satisfied at `a4ddc83`. CredentialRepository is the next design
+wave; no Credential implementation is authorized before its own design GO.
 
 ## Review Record
 
@@ -342,3 +341,5 @@ receives an independent context-isolated GO.
 | Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth and malformed-claim public copy remained incomplete; repository roadmap still labeled Owner active | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 4 | `b33343a` | `REVISE` | Deterministic typed outcomes and validation precedence remained incomplete across repository methods and legacy blank-hash pairing rows | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 5 | `fba19a6` | `GO` | Exact outcomes and precedence are frozen; atomicity, recovery, backend compatibility, public mappings, and implementation evidence are complete and coherent | Context-isolated gatekeeper / 2026-08-20 |
+| Client implementation review 1 | `1acdd2f` | `REVISE` | PostgreSQL released unsafe `Begin` failures after acquiring an owned session, and four writes queued on a non-cancelable mutex outside the operation deadline | Context-isolated gatekeeper / 2026-08-20 |
+| Client implementation repair | `a4ddc83` | `GO` | Context-aware command admission and exact safe/server/unsafe/context `Begin` ownership close both findings. Focused/full/race, default File, WebChat, scripts, Compose, bilingual docs, and disposable configured real-PostgreSQL full/race evidence are green | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |

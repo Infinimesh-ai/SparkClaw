@@ -2,11 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: S2 pilot implementation was accepted at `42b62bd`. The first S3
-> repository, `OwnerRepository`, was accepted at `0b85cc4` on 2026-08-20 after
-> fresh context-isolated repair review. The
-> [ClientRepository contract](store-client-repository-design.md) is the next
-> wave; no Client implementation is authorized before its design GO.
+> Status: S2 pilot was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`;
+> and S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository is
+> the next design wave; no Credential implementation is authorized before its
+> design GO.
 
 ## Objective And Stage Boundary
 
@@ -486,14 +485,21 @@ behavior; and the complete Owner behavior migration across every backend and
 caller. No next repository starts until the exact Owner candidate receives an
 independent context-isolated implementation review.
 
-### Active Wave: ClientRepository
+### Accepted Wave: ClientRepository
 
 Owner implementation received its independent GO at `0b85cc4` with gate record
-`fc5acba`. The exact active Client boundary, merged pairing claim command,
-pending-secret recovery, backend compatibility, and implementation gate now
-live only in the [ClientRepository contract](store-client-repository-design.md).
-No Credential or other repository design starts before the exact Client
-implementation receives its independent GO.
+`fc5acba`. The Client boundary, merged pairing claim command, pending-secret
+recovery, backend compatibility, and implementation gate live in the
+[ClientRepository contract](store-client-repository-design.md). Its complete
+implementation received GO at `a4ddc83`.
+
+### Next Wave: CredentialRepository
+
+CredentialRepository is the only authorized design wave. Its exact method,
+secret-redaction, overwrite/delete, durability, reconciliation, consumer, and
+backend compatibility contract must receive an independent GO before code
+starts. Session and later repository design remains blocked until Credential
+implementation receives its own GO.
 
 After S2 implementation and human acceptance, preferred risk order remains:
 
@@ -590,5 +596,7 @@ migrations remain in place.
 | S3 Owner implementation review | `7dc70ed` | `REVISE` | Unsafe advisory-lock and current-row failures before candidate formation returned definite unavailable and could release an uncertain session | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner implementation repair review | `3597b3f` | `REVISE` | Production classification and termination were repaired, but the tests did not prove that a terminated session was never released back to the pool | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner implementation final | `0b85cc4` | `GO` | Unsafe pre-candidate failures return zero-candidate `unknown_outcome`, terminate without release, and retain definite PgError, retry-safe, corrupt-row, rollback, and cleanup classifications. Focused/full Store and race, full repository build/test/vet, WebChat, 44 script tests, Compose, bilingual docs, and disposable real-PostgreSQL full/race evidence passed | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| S3 Client implementation review | `1acdd2f` | `REVISE` | Acquired-session `Begin` failures and non-cancelable PostgreSQL command admission violated the accepted ownership and deadline contract | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Client implementation final | `a4ddc83` | `GO` | Context-aware admission and exact `Begin` classification close both findings; full normal/race and disposable configured PostgreSQL full/race gates passed on the repaired candidate | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/store-credential-repository-design.md) | 简体中文
 
-> 状态：S3 设计修订 6，2026-08-20。审查 1-5 返回 `REVISE`；在独立、
+> 状态：S3 设计修订 7，2026-08-20。审查 1-6 返回 `REVISE`；在独立、
 > 上下文隔离的设计审查获得 GO 之前，不授权编写 CredentialRepository 代码。
 > 设计 GO 只授权下述 live Credential foundation checkpoint，随后迁移
 > ConnectorRepository lifecycle，最后再执行 Credential integration gate。
@@ -185,9 +185,17 @@ type CredentialVault interface {
     Seal(context.Context, string, string, []byte) (string, error) // binding ID, kind, plaintext
     Open(context.Context, string) ([]byte, error)
     Delete(context.Context, string) error // ref
-    AbortSeal(context.Context, string, string) error // binding ID, kind
+}
+
+type CredentialSealRecovery interface { // 随 Connector proof path 引入
+    AbortSeal(context.Context, string, string) error // binding ID, kind；随 Connector proof path 增加
 }
 ```
+
+Connector recovery 接收由这两个 interface 组成的显式 consumer-owned composite，
+绝不通过 type assertion 或 optional capability 发现 recovery。foundation 只定义和
+使用 `CredentialVault`；`CredentialSealRecovery`、concrete method 与第一个 caller
+在 Connector wave 同时落地。
 
 seal identity 是 adapter 启动或 Vault 接收 plaintext 前已经持久提交的 immutable
 binding ID。它会 trim、必须非空、最多 256 bytes。已接受的 ConnectorRepository
@@ -252,26 +260,30 @@ invalid envelope、replacement 或 unresolved Store result 返回稳定 unavaila
 
 1. **Credential foundation checkpoint。** 本设计 GO 后，迁移三个 repository
    method、三个 backend、File codec/fail-closed loading、deterministic Vault Seal、
-   conditional Delete/rewrap、AbortSeal、lifecycle binding 与全部当前 credential
-   caller。Telegram 与 Weixin 使用 Seal；同一 request 的 binding-save compensation
-   使用 AbortSeal，因此每个新 primitive 都有 production caller。Notification 与
-   Syncer 使用 Open。该 checkpoint 修复 Store durability 与 plaintext handling，
-   但不是 Credential implementation GO：当前 Connector method 尚不能跨 restart
-   证明 pre-Seal identity。
+   conditional Delete/rewrap、lifecycle binding 与全部当前 credential caller。
+   Telegram 与 Weixin 使用 Seal；Notification 与 Syncer 使用 Open。
+   `CredentialSealRecovery` 刻意不在该 checkpoint 定义或实现。legacy unconditional binding save
+   的 mismatch 或 failure 属于 ambiguous，返回稳定 unavailable，但不删除 sealed
+   credential。该 checkpoint 修复 Store durability 与 plaintext handling，但不是
+   Credential implementation GO：当前 Connector method 尚不能跨 restart 证明
+   pre-Seal identity 或 safe compensation。
 2. **ConnectorRepository migration。** focused foundation review 必须证明 live
    primitive 与 backend contract 符合本设计；它可以授权 Connector wave，而不宣称
    Credential 已完成。Connector 随后迁移自己的 interface/backend/caller，并增加
    上述 durable state、barrier、startup recovery 与 terminal ID retention。该
-   repository wave 不修改 Credential repository method 或 Vault primitive。
+   repository wave 在 Connector barrier 证明 exact pre-active state 后，同一提交
+   增加 AbortSeal 与其第一个 production caller；不修改其他 Credential repository
+   method 或 Vault primitive。
 3. **最终 Credential integration gate。** Connector implementation GO 后，重新运行
    完整 Credential/Connector failure-window 与 restart matrix，删除 process-local
    Seal identity 的所有临时 allowance，并审查 exact integrated candidate。只有该
    决定才是 Credential implementation GO，并解锁 SessionRepository。
 
 每个 code step 只激活一个 Store repository implementation。foundation checkpoint
-不是 partial interface scaffold：Connector 代码开始前，三个 Credential backend 与
-全部现有 credential caller 都已 live。反过来，Connector 不得在 startup recovery
-尚未使用已经 live 的 AbortSeal 时获得 GO。
+不是 partial repository scaffold：Connector 代码开始前，三个 Credential backend 与
+全部现有 credential caller 都已 live。AbortSeal 是唯一刻意延后的 recovery
+capability；Connector 把 interface 与 method 同 proof-bearing startup caller 一起
+增加，因此它既不会成为 dead code，也不能在缺少所需授权时调用。
 
 Vault 使用一个容量为一的 in-memory command coordinator，并定义三个互斥 pending
 mode：
@@ -345,11 +357,12 @@ Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault m
 
 1. Credential foundation commit：interface、operation、三个 backend、private File
    wire format 与 compatibility validation；随后实现 live Vault seal identity、
-   AbortSeal、coordinator、lifecycle binding、legacy Weixin rewrap、consumer/context
+   coordinator、lifecycle binding、legacy Weixin rewrap、consumer/context
    migration 与安全 Gateway projection。File encrypted-envelope fail-closed defect
    可为便于 bisect 保持为单独 commit。
 2. foundation checkpoint review 授权单独文档化的完整 ConnectorRepository 设计与
-   实现，但不把 Credential 标记为 GO。
+   实现。该 wave 在同一提交增加 AbortSeal 与 exact barrier-proven recovery caller，
+   但不把 Credential 标记为 GO。
 3. Connector GO 后，对 exact integrated Credential/Connector candidate 做最终
    Credential implementation review。
 
@@ -363,9 +376,13 @@ Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault m
 - PostgreSQL acquire/begin/statement/commit/rollback classification、
   terminate-not-release、context-aware admission、barrier isolation、scan
   propagation、atomic audit、startup validation 与 real-DSN evidence；
-- foundation checkpoint 证明每个新 repository/Vault method 都有 production caller、
-  三个 Credential backend 同步迁移，并且 same-process compensation 使用 AbortSeal；
-  其记录的限制是尚未迁移的 Connector restart identity，而不是虚假的最终 GO；
+- foundation checkpoint 证明其实现的每个 method 都有 production caller，三个
+  Credential backend 同步迁移，并证明 ambiguous legacy binding-save result 绝不
+  调用 Delete 或 AbortSeal；它记录尚未迁移的 Connector restart identity，而不声称
+  虚假的最终 GO；
+- Connector gate 证明 AbortSeal 与第一个 production caller 同时引入，且只在 exact
+  pre-active barrier result 后调用；concurrent 或 unresolved binding state 绝不授权
+  credential deletion；
 - final gate 证明 Vault 从 durable recovered nonterminal binding 进行 deterministic replay、caller
   boundary 拒绝 process-local ID、live-binding different-input conflict、独立
   identical plaintext binding、create/delete immediate 与 next-call
@@ -383,7 +400,8 @@ Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault m
   与三个 implementation、无 legacy method、无 ignored result、无已迁移
   `context.Background()`、
   `CredentialSecret.Value` JSON redaction，以及 Vault 的最小 repository dependency；
-  以及
+  Connector recovery 使用包含 `CredentialSealRecovery` 的显式 composite，且没有
+  type assertion；以及
 - 完整 Go test/build/vet、聚焦 Store/credential/Gateway/Weixin race、默认 File
   production entry、WebChat test/build、44 个 Python script test、default Compose、
   双语 docs CI，以及一次性配置的真实 PostgreSQL full 与 race run。现有 PostgreSQL
@@ -403,4 +421,5 @@ implementation GO 前，不开始 SessionRepository 设计。
 | Credential contract review 3 | `b6def5d` | `REVISE` | deterministic ref 只在 row 存在时保留 identity，但文档仍承诺 generic post-delete operation-ID conflict；Delete 也接受没有 durable binding 的可复用 caller operation ID | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 4 | `30cbf24` | `REVISE` | Gateway 仅在 memory 保留 binding ID，直到 adapter Start/Seal 后才持久化，因此 crash 会丢失 replay identity 并遗留 orphan credential；compensated Weixin waiting record 也没有阻止 Poll/Seal reuse 的 durable terminal transition | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 5 | `4d54acf` | `REVISE` | Credential code 被阻塞到 Connector GO，但 Connector recovery 已要求尚未获授权的 AbortSeal，形成 sequencing cycle；旧文本仍把 cleanup 单独交给 volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
-| Credential contract review 6 | pending | pending | pending | pending |
+| Credential contract review 6 | `3c86739` | `REVISE` | foundation 在没有 Connector exact pre-active proof 时调用 AbortSeal，因此并发 Weixin activation 可能使 stale compensation 删除 active credential；路线图也重复安排了 Connector | Context-isolated gatekeeper / 2026-08-20 |
+| Credential contract review 7 | pending | pending | pending | pending |

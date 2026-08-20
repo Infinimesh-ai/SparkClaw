@@ -4,7 +4,7 @@
 
 > 状态：S2 pilot 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在
 > `0b85cc4` 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83`
-> 获得接受。CredentialRepository 合同修订 6 处于活动状态，审查 1-5 返回
+> 获得接受。CredentialRepository 合同修订 7 处于活动状态，审查 1-6 返回
 > `REVISE`。其设计 GO 将授权 live Credential foundation checkpoint，随后完成
 > ConnectorRepository lifecycle migration，最后执行 integrated Credential gate。
 
@@ -452,7 +452,7 @@ S2 实现并经人工验收后，推荐风险顺序保持为：
    Credential gate 与 Session；
 2. Conversation、Run、Document、Approval、Audit、Evaluation 与 artifact
    metadata；
-3. Schedule、Connector、Delivery Record、Passive Notification 与 External Chat；
+3. Schedule、Delivery Record、Passive Notification 与 External Chat；
 4. MCP、Browser State 与 Memory。
 
 每次只激活一个 repository。Session deletion、MCP redemption 和其他 cross-record
@@ -540,5 +540,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Credential contract 审查 3 | `b6def5d` | `REVISE` | 合同承诺 delete 后仍有 generic durable operation identity 却没有 tombstone，且 Delete 接受可复用于另一 ref 的 caller identity | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 4 | `30cbf24` | `REVISE` | binding identity 直到 adapter Start/Seal 后才从 memory 持久化，因此 restart replay 与 orphan cleanup 不具 durable 依据；Weixin compensation 也缺少阻止同一 ID 再次 Poll/Seal 的 terminal state | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 5 | `4d54acf` | `REVISE` | Credential code 被阻塞到 Connector GO，但 Connector recovery 已要求新的 AbortSeal，形成 sequencing cycle；旧 cleanup ownership 仍依赖 volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract 审查 6 | `3c86739` | `REVISE` | foundation 在没有 Connector exact pre-active proof 时尝试 AbortSeal，stale concurrent compensation 可能删除 active credential；Connector 也在迁移顺序中重复出现 | Context-isolated gatekeeper / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

@@ -4,7 +4,7 @@
 
 > Status: S2 pilot was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`;
 > and S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository
-> contract revision 6 is active after reviews 1-5 returned `REVISE`. Its design
+> contract revision 7 is active after reviews 1-6 returned `REVISE`. Its design
 > GO authorizes a live Credential foundation checkpoint, then a complete
 > ConnectorRepository lifecycle migration, then the final integrated Credential
 > gate.
@@ -516,8 +516,7 @@ After S2 implementation and human acceptance, preferred risk order remains:
    integrated Credential gate, and Session;
 2. Conversation, Run, Document, Approval, Audit, Evaluation, and artifact
    metadata;
-3. Schedule, Connector, Delivery Record, Passive Notification, and External
-   Chat;
+3. Schedule, Delivery Record, Passive Notification, and External Chat;
 4. MCP, Browser State, and Memory.
 
 Only one repository is active at a time. Session deletion, MCP redemption, and
@@ -613,5 +612,6 @@ migrations remain in place.
 | S3 Credential contract review 3 | `b6def5d` | `REVISE` | The contract promised generic durable operation identity after delete without a tombstone, and Delete accepted a caller identity reusable against another ref | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 4 | `30cbf24` | `REVISE` | Binding identity existed only in memory until after adapter Start/Seal, so restart replay and orphan cleanup were not durable; Weixin compensation lacked a terminal state preventing the same ID from polling and sealing again | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 5 | `4d54acf` | `REVISE` | Credential code was blocked until Connector GO even though Connector recovery required the new AbortSeal, creating a sequencing cycle; stale cleanup ownership still relied on volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract review 6 | `3c86739` | `REVISE` | Foundation attempted AbortSeal without Connector's exact pre-active proof, allowing stale concurrent compensation to delete an active credential; Connector also appeared twice in the migration order | Context-isolated gatekeeper / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

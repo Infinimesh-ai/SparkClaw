@@ -4,7 +4,7 @@
 
 > Status: S2 was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`; and
 > S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository contract
-> revision 7 is the only current design wave after reviews 1-6 returned
+> revision 8 is the only current design wave after reviews 1-7 returned
 > `REVISE`. Its design GO authorizes a live Credential foundation checkpoint,
 > then complete ConnectorRepository lifecycle migration, then the final
 > integrated Credential gate.
@@ -157,3 +157,4 @@ whether any module split is justified.
 | S3 Credential contract review 4 | `30cbf24` | `REVISE` | Binding identity was process-local until after adapter Start/Seal, so a crash could orphan the secret and lose replay identity; Weixin compensation had no durable terminal transition preventing Poll/Seal reuse | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 5 | `4d54acf` | `REVISE` | Credential code was blocked until Connector GO even though Connector recovery required the new AbortSeal, and stale text still assigned cross-restart cleanup to volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 6 | `3c86739` | `REVISE` | Foundation called AbortSeal without the required exact Connector proof, so concurrent stale compensation could delete an active credential; the repository order also duplicated Connector | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract review 7 | `8ef063f` | `REVISE` | The migration roadmap still authorized foundation AbortSeal; legacy revoke could delete a credential without durable transition proof, and deferral would leave public Vault Delete without a legal caller | Context-isolated gatekeepers / 2026-08-20 |

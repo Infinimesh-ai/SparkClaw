@@ -4,7 +4,7 @@
 
 > 状态：S2 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在 `0b85cc4`
 > 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83` 获得接受。
-> CredentialRepository 合同修订 7 是当前唯一设计波次；审查 1-6 返回 `REVISE`。
+> CredentialRepository 合同修订 8 是当前唯一设计波次；审查 1-7 返回 `REVISE`。
 > 其设计 GO 将授权 live Credential foundation checkpoint，随后完成
 > ConnectorRepository lifecycle migration，最后执行 integrated Credential gate。
 
@@ -136,3 +136,4 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S3 Credential contract 审查 4 | `30cbf24` | `REVISE` | binding identity 在 adapter Start/Seal 后才从 process memory 持久化，因此 crash 会遗留 secret 并丢失 replay identity；Weixin compensation 也没有阻止 Poll/Seal reuse 的 durable terminal transition | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 5 | `4d54acf` | `REVISE` | Credential code 被阻塞到 Connector GO，但 Connector recovery 已要求新的 AbortSeal，并且旧文本仍把 cross-restart cleanup 交给 volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 6 | `3c86739` | `REVISE` | foundation 在没有所需 exact Connector proof 时调用 AbortSeal，因此 concurrent stale compensation 可能删除 active credential；repository 顺序也重复安排了 Connector | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract 审查 7 | `8ef063f` | `REVISE` | migration roadmap 仍授权 foundation AbortSeal；legacy revoke 可在没有 durable transition proof 时删除 credential，推迟后 public Vault Delete 又没有合法 caller | Context-isolated gatekeepers / 2026-08-20 |

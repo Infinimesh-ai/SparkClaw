@@ -309,15 +309,16 @@ func TestPostgresOwnerPreCandidateFailureReturnsZeroAndRetainsCleanup(t *testing
 		wantCode       StoreErrorCode
 		wantRollback   int
 		wantTerminate  int
+		wantRelease    int
 		wantCauses     []error
 	}{
 		{name: "unsafe lock", lockError: unsafe, terminateError: terminate, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{unsafe, terminate}},
 		{name: "unsafe current row", row: fakeOwnerPostgresRow{err: unsafe}, terminateError: terminate, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{unsafe, terminate}},
 		{name: "canceled current row is uncertain", row: fakeOwnerPostgresRow{err: context.Canceled}, terminateError: terminate, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{context.Canceled, terminate}},
 		{name: "safe lock rollback cleanup", lockError: safePostgresRetryError{errors.New("lock not sent")}, rollbackError: rollback, terminateError: terminate, wantCode: StoreErrorUnavailable, wantRollback: 1, wantTerminate: 1, wantCauses: []error{rollback, terminate}},
-		{name: "safe current row", row: fakeOwnerPostgresRow{err: safePostgresRetryError{errors.New("query not sent")}}, wantCode: StoreErrorUnavailable, wantRollback: 1},
-		{name: "server lock rejection", lockError: &pgconn.PgError{Code: "42501"}, wantCode: StoreErrorInternal, wantRollback: 1},
-		{name: "corrupt current row", row: corruptRow, wantCode: StoreErrorCorrupt, wantRollback: 1},
+		{name: "safe current row", row: fakeOwnerPostgresRow{err: safePostgresRetryError{errors.New("query not sent")}}, wantCode: StoreErrorUnavailable, wantRollback: 1, wantRelease: 1},
+		{name: "server lock rejection", lockError: &pgconn.PgError{Code: "42501"}, wantCode: StoreErrorInternal, wantRollback: 1, wantRelease: 1},
+		{name: "corrupt current row", row: corruptRow, wantCode: StoreErrorCorrupt, wantRollback: 1, wantRelease: 1},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			row := testCase.row
@@ -331,8 +332,8 @@ func TestPostgresOwnerPreCandidateFailureReturnsZeroAndRetainsCleanup(t *testing
 			session.terminateErr = testCase.terminateError
 			candidate, err := store.SaveOwnerProfile(context.Background(), app.OwnerProfile{ID: "owner-before-candidate"})
 			if candidate.ID != "" || StoreErrorCodeOf(err) != testCase.wantCode ||
-				transaction.rollbacks != testCase.wantRollback || session.terminates != testCase.wantTerminate {
-				t.Fatalf("candidate=%#v err=%v code=%q rollback=%d terminate=%d", candidate, err, StoreErrorCodeOf(err), transaction.rollbacks, session.terminates)
+				transaction.rollbacks != testCase.wantRollback || session.terminates != testCase.wantTerminate || session.releases != testCase.wantRelease {
+				t.Fatalf("candidate=%#v err=%v code=%q rollback=%d terminate=%d release=%d", candidate, err, StoreErrorCodeOf(err), transaction.rollbacks, session.terminates, session.releases)
 			}
 			for _, cause := range testCase.wantCauses {
 				if !errors.Is(err, cause) {

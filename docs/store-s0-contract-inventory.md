@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-s0-contract-inventory.md)
 
-> Status: S0 implementation candidate, 2026-08-20. The user authorized S0 to
-> start on 2026-08-20. This inventory does not authorize S1, and the S0
-> implementation review remains pending human acceptance.
+> Status: accepted S0 inventory at
+> `207462154fa2377ed786af671f41e0f353d11ba9`, 2026-08-20. S1 owns any
+> production schema, configuration, or Store behavior change.
 
 This is the code-fact inventory for commit `df05cf5` plus the S0
 characterization tests. The sources are `store.go`, `memory.go`, `file.go`,

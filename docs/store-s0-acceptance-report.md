@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-s0-acceptance-report.md)
 
-> Status: candidate for human-assisted S0 implementation review, 2026-08-20.
-> The user authorized S0 to start on 2026-08-20. The implementation decision
-> remains `pending`; this report authorizes neither S1 nor S2.
+> Status: S0 implementation accepted on 2026-08-20. The user accepted candidate
+> `207462154fa2377ed786af671f41e0f353d11ba9` after reviewing its recorded risks
+> and authorized the next stage. This report does not authorize S2.
 
 ## Conclusion
 
@@ -195,7 +195,7 @@ go vet ./...
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
 | Design/start authorization | user authorization | `GO` for S0 only | S0 scope and human-assisted phase acceptance authorized; no authorization for S1 | User / 2026-08-20 |
-| Implementation | candidate SHA pending | `pending` | Inventory, tests, baseline, and risk record await human inspection | pending |
+| Implementation | `207462154fa2377ed786af671f41e0f353d11ba9` | `GO` | Complete inventory and executable evidence accepted; PostgreSQL runtime, persistence-error, alias, timeout, compatibility, and cross-repository risks remain assigned to their recorded later gates | User / 2026-08-20 |
 
 ## Links
 

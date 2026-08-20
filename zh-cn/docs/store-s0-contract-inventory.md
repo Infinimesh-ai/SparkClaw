@@ -2,8 +2,9 @@
 
 > 语言：[English](../../docs/store-s0-contract-inventory.md) | 简体中文
 
-> 状态：S0 实现候选，2026-08-20。用户已于 2026-08-20 授权开始 S0。
-> 本清单不授权 S1，S0 实现审查仍等待人工验收。
+> 状态：S0 清单已于 2026-08-20 在
+> `207462154fa2377ed786af671f41e0f353d11ba9` 验收。生产 schema、配置或
+> Store 行为变更由 S1 负责。
 
 本文是 commit `df05cf5` 加 S0 行为刻画测试的代码事实清单。来源包括
 `store.go`、`memory.go`、`file.go`、`postgres.go`、ISCP/MCP Store 文件、

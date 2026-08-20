@@ -2,8 +2,9 @@
 
 > 语言：[English](../../docs/store-contract-foundation-design.md) | 简体中文
 
-> 状态：用户已于 2026-08-20 授权 S0 设计/启动。实现审查仍等待人工验收。
-> 此状态不授权 S1，也不授权生产 Store 签名变更。
+> 状态：S0 实现已于 2026-08-20 在
+> `207462154fa2377ed786af671f41e0f353d11ba9` 验收。生产 Store 行为仍未
+> 改动；后续变更遵循独立门禁的路线图。
 
 ## 目标
 
@@ -138,4 +139,4 @@ rows 收集、commit 和 reconciliation 在底层支持时都使用有界 contex
 | 审查 | 修订/commit | 结论 | 证据和未解决风险 | 审查人/日期 |
 |---|---|---|---|---|
 | 设计/启动授权 | S0 计划 | 仅 S0 `GO` | 已授权范围、不变量、矩阵、行为刻画计划和人工辅助阶段验收；排除 S1 | 用户 / 2026-08-20 |
-| 实现 | 候选 SHA 待填写 | `pending` | [清单](store-s0-contract-inventory.md)、[PostgreSQL manifest](store-s0-postgresql-reconciliation-manifest.md)、测试、基线和风险等待人工检查 | pending |
+| 实现 | `207462154fa2377ed786af671f41e0f353d11ba9` | `GO` | [清单](store-s0-contract-inventory.md)、[PostgreSQL manifest](store-s0-postgresql-reconciliation-manifest.md)、测试、基线和已分配残余风险已接受 | 用户 / 2026-08-20 |

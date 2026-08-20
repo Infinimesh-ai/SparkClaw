@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-s0-postgresql-reconciliation-manifest.md)
 
-> Status: S0 implementation candidate, 2026-08-20. This is static source
-> evidence only. It changes no schema and does not authorize S1. The S0
-> implementation review remains pending human acceptance.
+> Status: accepted S0 static source evidence, 2026-08-20, at
+> `207462154fa2377ed786af671f41e0f353d11ba9`. It changes no schema; S1 owns the
+> runtime migration and configured PostgreSQL evidence.
 
 ## Sources And Executable Authority
 

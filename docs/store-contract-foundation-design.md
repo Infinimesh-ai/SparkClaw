@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-contract-foundation-design.md)
 
-> Status: S0 design/start authorized on 2026-08-20. The implementation review
-> remains pending human acceptance. This status authorizes no S1 work and no
-> production Store signature change.
+> Status: S0 implementation accepted on 2026-08-20 at
+> `207462154fa2377ed786af671f41e0f353d11ba9`. Production Store behavior remains
+> unchanged; later changes follow the separately gated roadmap.
 
 ## Objective
 
@@ -153,4 +153,4 @@ repository boundary. S2 cannot start without an accepted pilot.
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
 | Design/start authorization | S0 plan | `GO` for S0 only | Scope, invariants, matrices, characterization plan, and human-assisted phase acceptance authorized; S1 excluded | User / 2026-08-20 |
-| Implementation | candidate SHA pending | `pending` | [Inventory](store-s0-contract-inventory.md), [PostgreSQL manifest](store-s0-postgresql-reconciliation-manifest.md), tests, baseline, and risks await human inspection | pending |
+| Implementation | `207462154fa2377ed786af671f41e0f353d11ba9` | `GO` | [Inventory](store-s0-contract-inventory.md), [PostgreSQL manifest](store-s0-postgresql-reconciliation-manifest.md), tests, baseline, and assigned residual risks accepted | User / 2026-08-20 |

@@ -2,8 +2,9 @@
 
 > 语言：[English](../../docs/store-s0-postgresql-reconciliation-manifest.md) | 简体中文
 
-> 状态：S0 实现候选，2026-08-20。本文仅提供静态源码证据，不修改 schema，
-> 也不授权 S1。S0 实现审查仍等待人工验收。
+> 状态：S0 静态源码证据已于 2026-08-20 在
+> `207462154fa2377ed786af671f41e0f353d11ba9` 验收。本文不修改 schema；
+> runtime migration 和配置后的 PostgreSQL 证据由 S1 负责。
 
 ## 来源与可执行权威
 

@@ -2,10 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-contract-reliability-migration-design.md)
 
-> Status: S0 start authorized on 2026-08-20; S0 implementation review remains
-> pending. This document authorizes no S1 or runtime change. Each linked design
-> and each implementation result requires a separate recorded review decision
-> before the next Store stage starts.
+> Status: S0 implementation accepted on 2026-08-20 at
+> `207462154fa2377ed786af671f41e0f353d11ba9`; S1 is the active stage. Each linked
+> design and each implementation result still requires its recorded review
+> decision before the next Store stage starts.
 
 ## Purpose
 
@@ -132,4 +132,4 @@ whether any module split is justified.
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
 | S0 design/start authorization | S0 plan | `GO` for S0 only | Human-assisted S0 implementation authorized; all later stages excluded | User / 2026-08-20 |
-| S0 implementation | candidate SHA pending | `pending` | Awaiting human review of the S0 inventory, manifest, tests, and acceptance report | pending |
+| S0 implementation | `207462154fa2377ed786af671f41e0f353d11ba9` | `GO` | Inventory, manifest, tests, baseline, and assigned residual risks accepted; S1 may start | User / 2026-08-20 |

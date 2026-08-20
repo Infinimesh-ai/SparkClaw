@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: S2 pilot design-review candidate revision 3, 2026-08-20. The pilot
+> Status: S2 pilot design-review candidate revision 4, 2026-08-20. The pilot
 > starts only after this document and the linked File durability design receive
 > an independent `GO`. Remaining repository code remains gated by S2
 > implementation acceptance.
@@ -223,15 +223,22 @@ the underlying network connection even when its clean-close context fails. The
 close result is retained only as internal diagnostic evidence; it never proves
 commit or rollback.
 
-Get-by-ID is the resolution barrier. It acquires a different pool connection,
-begins a read transaction, obtains the same transaction-scoped advisory lock,
-and only then selects and validates the row. PostgreSQL cannot grant that lock
-until the original transaction/session releases it. Therefore a row found
-after the lock is a committed result, and absence after the lock is a final
-rollback/absence result. If acquire, lock, query, or read-transaction completion
-cannot finish within the effective read context, get returns an error and the
-service retains pending `unknown_outcome`; a pre-barrier absence is never
-reported.
+Get-by-ID is the resolution barrier. It acquires a different pool connection
+and explicitly begins with
+`pgx.TxOptions{IsoLevel: pgx.ReadCommitted}` regardless of DSN, role, or database
+default isolation. It obtains the same transaction-scoped advisory lock in one
+statement, then selects and validates the row in a separate second statement.
+PostgreSQL cannot grant the lock until the original transaction/session
+releases it. Under explicit `READ COMMITTED`, the second statement takes a new
+snapshot after that release. Therefore a row found after the lock is a committed
+result, and absence after the lock is a final rollback/absence result even when
+the configured server default is `REPEATABLE READ` or `SERIALIZABLE`.
+
+Combining lock and query into one statement, omitting `TxOptions`, or accepting
+a pre-lock snapshot is forbidden. If acquire, lock, query, or transaction
+completion cannot finish within the effective read context, get returns an
+error and the service retains pending `unknown_outcome`; a pre-barrier absence
+is never reported.
 
 In particular, a deadline/cancellation error after a transaction exists is not
 labeled `timeout`/`canceled` when `SafeToRetry` is false, and immediate negative
@@ -350,7 +357,9 @@ The pilot gate requires:
 - PostgreSQL unit classification for query/scan/rows/context and uncertain
   submission, including every acquired-connection/`SafeToRetry` table row, plus
   owned-session termination and both advisory-lock barrier results, plus real-
-  DSN integration evidence;
+  DSN integration evidence. The barrier tests set the session/server default
+  to `REPEATABLE READ` and `SERIALIZABLE` and still require the explicit
+  `READ COMMITTED` two-statement result;
 - `iscppairing` service tests proving context propagation, safe failure copy,
   no ticket disclosure after definite persistence failure, immediate and
   next-request unknown reconciliation, no second authority call, different-
@@ -400,6 +409,7 @@ migrations remain in place.
 |---|---|---|---|---|
 | S2 pilot/S3 design review 1 | `3aff151` | `REVISE` | Uncertain save did not prevent a retried Start from issuing a second authority ticket, and PostgreSQL autocommit lacked a verifiable submission classifier | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 design review 2 | `4f8b2e5` | `REVISE` | Immediate negative query after uncertain autocommit was not final because the original backend transaction could commit later | Independent gatekeeper / 2026-08-20 |
-| S2 pilot/S3 design review 3 | revision 3 candidate | pending | Explicit transaction, owned-session termination, and shared advisory-lock resolution barrier await re-review | pending |
+| S2 pilot/S3 design review 3 | `d88d321` | `REVISE` | Reconciliation did not freeze `READ COMMITTED`; a higher default isolation could retain the pre-lock snapshot and return false absence | Independent gatekeeper / 2026-08-20 |
+| S2 pilot/S3 design review 4 | revision 4 candidate | pending | Explicit `READ COMMITTED`, separate lock/query statements, and non-default-isolation evidence await re-review | pending |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

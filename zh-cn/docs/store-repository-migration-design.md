@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
-> 状态：S2 pilot 设计审查候选 revision 3，2026-08-20。只有本文档和关联的
+> 状态：S2 pilot 设计审查候选 revision 4，2026-08-20。只有本文档和关联的
 > File durability 设计都获得独立 `GO` 后才开始 pilot；其余 repository code
 > 仍由 S2 实现验收门禁控制。
 
@@ -198,13 +198,20 @@ context 的 `context.WithoutCancel` 派生的 5 秒 context 调用 `PgConn.Close
 即使 clean-close context 失败，`PgConn.Close` 也总会关闭底层 network connection。
 close result 只保留为内部 diagnostic evidence，不能证明 commit 或 rollback。
 
-get-by-ID 是 resolution barrier。它获取另一个 pool connection，begin read
-transaction，获取同一 transaction-scoped advisory lock，之后才 select 并 validate
-row。原 transaction/session 释放 lock 前 PostgreSQL 不会授予这个 lock。因此，
+get-by-ID 是 resolution barrier。它获取另一个 pool connection，并且无论 DSN、
+role 或 database default isolation 如何，都显式使用
+`pgx.TxOptions{IsoLevel: pgx.ReadCommitted}` begin。它用第一条独立 statement 获取
+同一 transaction-scoped advisory lock，再用第二条独立 statement select 并
+validate row。原 transaction/session 释放 lock 前 PostgreSQL 不会授予该 lock；
+显式 `READ COMMITTED` 使第二条 statement 在 lock 释放后取得新 snapshot。因此，
 拿到 lock 后找到 row 才是 committed result，拿到 lock 后 absence 才是最终
-rollback/absence。若 acquire、lock、query 或 read-transaction completion 无法在
-effective read context 内完成，get 返回 error，service 保留 pending
-`unknown_outcome`；绝不能报告 pre-barrier absence。
+rollback/absence，即使 configured server default 是 `REPEATABLE READ` 或
+`SERIALIZABLE` 也一样。
+
+禁止把 lock 与 query 合并成一条 statement、忽略 `TxOptions` 或接受 pre-lock
+snapshot。若 acquire、lock、query 或 transaction completion 无法在 effective
+read context 内完成，get 返回 error，service 保留 pending `unknown_outcome`；
+绝不能报告 pre-barrier absence。
 
 尤其是 transaction 已存在后的 deadline/cancellation error，在 `SafeToRetry` 为
 false 时不能标为 `timeout`/`canceled`；没有 lock barrier 就不能信任 immediate
@@ -308,7 +315,9 @@ pilot gate 要求：
   encryption、restart 与 race test；
 - PostgreSQL unit classification：query/scan/rows/context 与 uncertain submission，
   包括每个 acquired-connection/`SafeToRetry` table row、owned-session termination
-  和两个 advisory-lock barrier result，再加 real-DSN integration evidence；
+  和两个 advisory-lock barrier result，再加 real-DSN integration evidence。
+  barrier test 把 session/server default 设置为 `REPEATABLE READ` 与
+  `SERIALIZABLE`，仍要求显式 `READ COMMITTED` 两 statement 的结果；
 - `iscppairing` service test：context propagation、safe failure copy、persistence
   definite failure 后不披露 ticket、immediate 和 next-request unknown
   reconciliation、无第二次 authority call、different-request conflict、pending
@@ -352,6 +361,7 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 |---|---|---|---|---|
 | S2 pilot/S3 设计审查 1 | `3aff151` | `REVISE` | uncertain save 未阻止 retried Start 签发第二张 authority ticket，且 PostgreSQL autocommit 缺少可验证 submission classifier | Independent gatekeeper / 2026-08-20 |
 | S2 pilot/S3 设计审查 2 | `4f8b2e5` | `REVISE` | uncertain autocommit 后立即 negative query 不具最终性，因为原 backend transaction 可能稍后 commit | Independent gatekeeper / 2026-08-20 |
-| S2 pilot/S3 设计审查 3 | revision 3 candidate | pending | 显式 transaction、owned-session termination 与共享 advisory-lock resolution barrier 等待复审 | pending |
+| S2 pilot/S3 设计审查 3 | `d88d321` | `REVISE` | reconciliation 未冻结 `READ COMMITTED`；更高 default isolation 可能保留 pre-lock snapshot 并返回 false absence | Independent gatekeeper / 2026-08-20 |
+| S2 pilot/S3 设计审查 4 | revision 4 candidate | pending | 显式 `READ COMMITTED`、独立 lock/query statement 与非默认 isolation evidence 等待复审 | pending |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

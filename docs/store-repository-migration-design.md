@@ -2,9 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: S2 pilot implementation accepted at `42b62bd` on 2026-08-20 after
-> fresh context-isolated re-review. S3 is active with `OwnerRepository` as the
-> only current repository wave.
+> Status: S2 pilot implementation was accepted at `42b62bd`. The first S3
+> repository, `OwnerRepository`, was accepted at `0b85cc4` on 2026-08-20 after
+> fresh context-isolated repair review. `ClientRepository` contract design is
+> the next wave; no Client implementation is authorized before its design GO.
 
 ## Objective And Stage Boundary
 
@@ -576,5 +577,8 @@ migrations remain in place.
 | S3 Owner contract review 2 | `08a327b` | `REVISE` | Exact candidate matching still allowed a later identical writer to regenerate a rolled-back microsecond timestamp, and blank display-name defaulting diverged from accepted behavior | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract review 3 | `00d9a11` | `REVISE` | Non-rollback candidate uniqueness and display-name parity were closed, but exact existing `CreatedAt` preservation conflicted with unconditional microsecond canonicalization | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract repair | `0caaea7` | `GO` | Limits UTC microsecond canonicalization to newly assigned times and preserves legacy existing `CreatedAt` exactly; all earlier outcome-proof, normalization, startup, File compatibility, and caller-context findings are closed | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| S3 Owner implementation review | `7dc70ed` | `REVISE` | Unsafe advisory-lock and current-row failures before candidate formation returned definite unavailable and could release an uncertain session | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner implementation repair review | `3597b3f` | `REVISE` | Production classification and termination were repaired, but the tests did not prove that a terminated session was never released back to the pool | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner implementation final | `0b85cc4` | `GO` | Unsafe pre-candidate failures return zero-candidate `unknown_outcome`, terminate without release, and retain definite PgError, retry-safe, corrupt-row, rollback, and cleanup classifications. Focused/full Store and race, full repository build/test/vet, WebChat, 44 script tests, Compose, bilingual docs, and disposable real-PostgreSQL full/race evidence passed | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

@@ -2,8 +2,10 @@
 
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
-> 状态：新的 context-isolated 复审完成后，S2 pilot 实现已于 2026-08-20
-> 在 `42b62bd` 获得接受。S3 已激活，当前只有 `OwnerRepository` 一个波次。
+> 状态：S2 pilot 实现已在 `42b62bd` 获得接受。经过新的 context-isolated
+> 修复审查，第一个 S3 repository `OwnerRepository` 已于 2026-08-20 在
+> `0b85cc4` 获得接受。下一波是 `ClientRepository` contract 设计；在其设计
+> 获得 GO 前，不授权 Client 实现。
 
 ## 目标与阶段边界
 
@@ -506,5 +508,8 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Owner contract review 2 | `08a327b` | `REVISE` | exact candidate matching 仍允许后续相同 writer 重新生成 rolled-back microsecond timestamp，且 blank display-name default 与 accepted behavior 分叉 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract review 3 | `00d9a11` | `REVISE` | non-rollback candidate uniqueness 与 display-name parity 已关闭，但精确保留已有 `CreatedAt` 与无条件 microsecond canonicalization 冲突 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Owner contract repair | `0caaea7` | `GO` | 仅对新分配时间使用 UTC microsecond canonicalization，并精确保留 legacy existing `CreatedAt`；更早的 outcome-proof、normalization、startup、File compatibility 和 caller-context finding 均已关闭 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
+| S3 Owner 实现审查 | `7dc70ed` | `REVISE` | candidate 形成前的 unsafe advisory-lock 与 current-row failure 被返回为 definite unavailable，并可能释放 uncertain session | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner 实现修复审查 | `3597b3f` | `REVISE` | production classification 与 termination 已修复，但测试未证明 terminated session 绝不会被 release 回连接池 | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner 实现最终审查 | `0b85cc4` | `GO` | unsafe pre-candidate failure 返回 zero-candidate `unknown_outcome`，terminate 且不 release，并保留 definite PgError、retry-safe、corrupt-row、rollback 与 cleanup 分类。focused/full Store 与 race、全仓 build/test/vet、WebChat、44 项脚本测试、Compose、双语文档和 disposable real-PostgreSQL full/race 证据均通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

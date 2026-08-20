@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/semaphore"
 )
 
 type PostgresStore struct {
@@ -27,7 +28,7 @@ type PostgresStore struct {
 	ownerMu               sync.Mutex
 	ownerWriteHighWater   map[string]time.Time
 	ownerNow              func() time.Time
-	clientMu              sync.Mutex
+	clientCommandGate     *semaphore.Weighted
 	clientWriteHighWater  map[string]time.Time
 	pairingWriteHighWater map[string]time.Time
 	clientNow             func() time.Time
@@ -83,6 +84,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		onboardingPostgres:      pgxOnboardingPostgresOps{pool: pool},
 		ownerPostgres:           pgxOwnerPostgresOps{pool: pool},
 		clientPostgres:          pgxOwnerPostgresOps{pool: pool},
+		clientCommandGate:       semaphore.NewWeighted(1),
 		ownerWriteHighWater:     map[string]time.Time{},
 		ownerNow:                time.Now,
 		clientWriteHighWater:    map[string]time.Time{},

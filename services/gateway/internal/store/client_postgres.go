@@ -205,8 +205,11 @@ func (s *PostgresStore) RevokeClient(ctx context.Context, id string) (app.Client
 		return app.Client{}, err
 	}
 	id = strings.TrimSpace(id)
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
+	releaseCommand, err := s.acquireClientCommand(ctx, OperationClientRevoke)
+	if err != nil {
+		return app.Client{}, err
+	}
+	defer releaseCommand()
 	session, transaction, release, err := s.beginClientTransaction(ctx, OperationClientRevoke, pgx.TxOptions{})
 	if err != nil {
 		return app.Client{}, err
@@ -267,8 +270,11 @@ func (s *PostgresStore) TouchClient(ctx context.Context, id string) (app.Client,
 	if id == "" {
 		return app.Client{}, false, nil
 	}
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
+	releaseCommand, err := s.acquireClientCommand(ctx, OperationClientTouch)
+	if err != nil {
+		return app.Client{}, false, err
+	}
+	defer releaseCommand()
 	session, transaction, release, err := s.beginClientTransaction(ctx, OperationClientTouch, pgx.TxOptions{})
 	if err != nil {
 		return app.Client{}, false, err
@@ -328,8 +334,11 @@ func (s *PostgresStore) SavePairingCode(ctx context.Context, code app.PairingCod
 	if err != nil {
 		return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorInvalid, err)
 	}
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
+	releaseCommand, err := s.acquireClientCommand(ctx, OperationPairingCodeSave)
+	if err != nil {
+		return app.PairingCode{}, err
+	}
+	defer releaseCommand()
 	session, transaction, release, err := s.beginClientTransaction(ctx, OperationPairingCodeSave, pgx.TxOptions{})
 	if err != nil {
 		return app.PairingCode{}, err
@@ -443,8 +452,11 @@ func (s *PostgresStore) ClaimPairingCode(ctx context.Context, id string, client 
 		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorInvalid, err)
 	}
 	id = strings.TrimSpace(id)
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
+	releaseCommand, err := s.acquireClientCommand(ctx, OperationPairingCodeClaim)
+	if err != nil {
+		return app.PairingCode{}, app.Client{}, err
+	}
+	defer releaseCommand()
 	session, transaction, release, err := s.beginClientTransaction(ctx, OperationPairingCodeClaim, pgx.TxOptions{})
 	if err != nil {
 		return app.PairingCode{}, app.Client{}, err
@@ -549,10 +561,31 @@ func (s *PostgresStore) beginClientTransaction(ctx context.Context, operation St
 	release := true
 	transaction, err := session.Begin(ctx, options)
 	if err != nil {
-		session.Release()
-		return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) || pgconn.SafeToRetry(err) {
+			session.Release()
+			if postgresError != nil {
+				return nil, nil, nil, storeError(operation, StoreErrorInternal, err)
+			}
+			return nil, nil, nil, classifyPostgresPreTransaction(operation, ctx, err)
+		}
+		return nil, nil, nil, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return session, transaction, &release, nil
+}
+
+func (s *PostgresStore) acquireClientCommand(ctx context.Context, operation StoreOperation) (func(), error) {
+	if err := s.clientCommandGate.Acquire(ctx, 1); err != nil {
+		if contextErr := operationContextError(operation, ctx); contextErr != nil {
+			return nil, contextErr
+		}
+		return nil, storeError(operation, StoreErrorUnavailable, err)
+	}
+	if err := operationContextError(operation, ctx); err != nil {
+		s.clientCommandGate.Release(1)
+		return nil, err
+	}
+	return func() { s.clientCommandGate.Release(1) }, nil
 }
 
 func commitClientRead(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool) error {

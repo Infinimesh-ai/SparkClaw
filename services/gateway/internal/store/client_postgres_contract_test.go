@@ -12,6 +12,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"golang.org/x/sync/semaphore"
 )
 
 type fakeClientPostgresOps struct {
@@ -192,6 +193,7 @@ func newFakePostgresClientStore(now time.Time, transaction *fakeClientPostgresTx
 	return &PostgresStore{
 		operationTimeouts:    defaultOperationTimeouts,
 		clientPostgres:       operations,
+		clientCommandGate:    semaphore.NewWeighted(1),
 		clientWriteHighWater: map[string]time.Time{}, pairingWriteHighWater: map[string]time.Time{},
 		clientNow: func() time.Time { return now },
 	}, operations, session
@@ -208,6 +210,95 @@ func validPostgresPairing(now time.Time) app.PairingCode {
 	return app.PairingCode{
 		ID: "pair-postgres", CodeHash: "pair-postgres-hash", Status: "pending",
 		CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour),
+	}
+}
+
+func TestPostgresClientBeginFailureOwnsAcquiredSession(t *testing.T) {
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	unsafeFailure := errors.New("begin outcome unknown")
+	terminateFailure := errors.New("terminate failed")
+	for _, testCase := range []struct {
+		name          string
+		failure       error
+		terminateErr  error
+		wantCode      StoreErrorCode
+		wantRelease   int
+		wantTerminate int
+		wantCauses    []error
+	}{
+		{name: "safe transport", failure: safePostgresRetryError{errors.New("begin not sent")}, wantCode: StoreErrorUnavailable, wantRelease: 1},
+		{name: "server rejection", failure: &pgconn.PgError{Code: "40001", Message: "rejected"}, wantCode: StoreErrorInternal, wantRelease: 1},
+		{name: "unsafe transport", failure: unsafeFailure, terminateErr: terminateFailure, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{unsafeFailure, terminateFailure}},
+		{name: "context failure after acquire", failure: context.Canceled, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{context.Canceled}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			store, _, session := newFakePostgresClientStore(now, &fakeClientPostgresTx{})
+			session.beginErr = testCase.failure
+			session.terminateErr = testCase.terminateErr
+			_, err := store.RevokeClient(t.Context(), "client-postgres")
+			if StoreErrorCodeOf(err) != testCase.wantCode {
+				t.Fatalf("code = %q, want %q: %v", StoreErrorCodeOf(err), testCase.wantCode, err)
+			}
+			if session.releases != testCase.wantRelease || session.terminates != testCase.wantTerminate {
+				t.Fatalf("release=%d terminate=%d, want %d/%d", session.releases, session.terminates, testCase.wantRelease, testCase.wantTerminate)
+			}
+			if session.releases != 0 && session.terminates != 0 {
+				t.Fatal("terminated PostgreSQL session was released")
+			}
+			for _, cause := range testCase.wantCauses {
+				if !errors.Is(err, cause) {
+					t.Fatalf("error %v does not retain %v", err, cause)
+				}
+			}
+		})
+	}
+}
+
+func TestPostgresClientCommandAdmissionHonorsDeadline(t *testing.T) {
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	for _, testCase := range []struct {
+		name   string
+		invoke func(context.Context, *PostgresStore) error
+	}{
+		{name: "revoke", invoke: func(ctx context.Context, store *PostgresStore) error {
+			_, err := store.RevokeClient(ctx, "client-postgres")
+			return err
+		}},
+		{name: "touch", invoke: func(ctx context.Context, store *PostgresStore) error {
+			_, _, err := store.TouchClient(ctx, "client-postgres")
+			return err
+		}},
+		{name: "save pairing", invoke: func(ctx context.Context, store *PostgresStore) error {
+			_, err := store.SavePairingCode(ctx, validPostgresPairing(now))
+			return err
+		}},
+		{name: "claim pairing", invoke: func(ctx context.Context, store *PostgresStore) error {
+			client := validPostgresClient(now)
+			client.CreatedAt = time.Time{}
+			_, _, err := store.ClaimPairingCode(ctx, "pair-postgres", client)
+			return err
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			store, _, _ := newFakePostgresClientStore(now, &fakeClientPostgresTx{})
+			if err := store.clientCommandGate.Acquire(t.Context(), 1); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+			defer cancel()
+			result := make(chan error, 1)
+			go func() { result <- testCase.invoke(ctx, store) }()
+			select {
+			case err := <-result:
+				store.clientCommandGate.Release(1)
+				if StoreErrorCodeOf(err) != StoreErrorTimeout {
+					t.Fatalf("code = %q, want %q: %v", StoreErrorCodeOf(err), StoreErrorTimeout, err)
+				}
+			case <-time.After(time.Second):
+				store.clientCommandGate.Release(1)
+				t.Fatal("PostgreSQL client command admission ignored its deadline")
+			}
+		})
 	}
 }
 

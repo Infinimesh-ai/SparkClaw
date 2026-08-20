@@ -47,6 +47,15 @@
 | [模型基线](../benchmarks/model_baseline.md) | 模型端点实测证据和运行边界 |
 | [工程基线](engineering-baseline.md) | 不可违反的实现规则 |
 | [重构手册](refactor-playbook.md) | 周期性架构检查流程 |
+| [Store 可靠性迁移路线图](store-contract-reliability-migration-design.md) | Store 阶段顺序和强制设计/实现审查门禁草案；大型文件拆分推迟到 Store 收尾后 |
+| [Store 契约基础](store-contract-foundation-design.md) | S0 盘点、repository 归属、错误/context 契约、mutation 矩阵和行为刻画门禁 |
+| [Store S0 契约清单](store-s0-contract-inventory.md) | 可执行的 141 方法归属、后端状态、生产消费者、mutation 和 pilot 证据 |
+| [Store S0 PostgreSQL 协调清单](store-s0-postgresql-reconciliation-manifest.md) | 根 migration 与内嵌 schema 的约束级比较及显式解析边界 |
+| [Store S0 基线与验收报告](store-s0-acceptance-report.md) | 进入基线、验证证据、timeout 依据、未解决风险和 pending 人工审查记录 |
+| [File Store 持久性](store-file-durability-design.md) | S2 读隔离、context-aware transaction gate、pilot repository、持久 replacement、回滚和 unknown-outcome 契约 |
+| [PostgreSQL schema 与 Store 配置](store-postgresql-schema-config-design.md) | S1 内嵌 migration 权威、ledger 接管、严格 Store 配置和保持不变的 DSN 门控 CI 设置 |
+| [Store repository 迁移](store-repository-migration-design.md) | S2 pilot、S3 逐 repository 同步迁移全部后端/调用者，以及 S4 删除宽泛 Store 接口 |
+| [Store Runtime 与统一监管](store-runtime-supervision-design.md) | S5 组装层专用 Runtime、有限监管、健康、探针、指标和生命周期 |
 | [上下文组装方案](context-assembly-plan.md) | 拟议的阶段 0–1 prompt 组装与工具结果拼装优化 |
 | [Info 上游聚合结果消费](info-aggregate-result-consumption-design.md) | 已实现的 Info `answer_context` 类型化、无二次聚合消费方案，覆盖 citation、limitation 与 Info 最终浏览器顺序契约 |
 | [PPTX 超长文本韧性适配](pptx-overlength-resilience-design.md) | Phase 0 No-Go 报告与受限渲染检查设计；生产行为保持不变 |

@@ -2,10 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-client-repository-design.md)
 
-> Status: third S3 design repair candidate based on accepted Owner
-> implementation `0b85cc4`. Reviews of `bae3623`, `9ff7c14`, and `1ccd5db`
-> returned REVISE. Client code is not authorized until this repaired contract
-> receives a fresh context-isolated design GO.
+> Status: fourth S3 design repair candidate based on accepted Owner
+> implementation `0b85cc4`. Reviews of `bae3623`, `9ff7c14`, `1ccd5db`, and
+> `b33343a` returned REVISE. Client code is not authorized until this repaired
+> contract receives a fresh context-isolated design GO.
 
 ## Boundary Correction
 
@@ -92,6 +92,37 @@ or compatibility interface is introduced.
   unordered atomic set because the Audit contract has no sequence column; tests
   compare their exact types and shared command timestamp, not equal-time row order. No
   backend may expose or durably retain only part of that command.
+
+### Deterministic Method Outcomes
+
+Every backend applies the following precedence. It first applies and checks the
+effective operation context. It then trims every standalone string argument and
+normalizes candidate fields exactly as specified above. Candidate structural
+validation precedes target lookup; target lookup and persisted-row validation
+precede state and uniqueness checks. A persisted invariant violation outside an
+explicit compatibility exception is always `corrupt` and cannot be hidden by a
+later business result. Within the final business step, state preconditions
+precede uniqueness checks. These rules make a request with multiple defects
+produce the same result in Memory, File, and PostgreSQL.
+
+| Method or condition | Exact repository outcome |
+|---|---|
+| `GetClient` / `GetPairingCode` with an empty ID, or no matching row | `(zero, false, nil)` |
+| `FindClientByTokenHash` with an empty hash, no match, or only a revoked match | `(zero, false, nil)` |
+| `ListClients` success with no rows | non-nil empty slice and `nil` error |
+| `RevokeClient` with an empty or missing ID | `not_found` |
+| `TouchClient` with an empty or missing ID, or a client revoked before the command lock | `(zero, false, nil)` |
+| `SavePairingCode` with invalid status, claim fields, zero expiry, or empty normalized hash | `invalid` |
+| `ClaimPairingCode` with an invalid normalized client shape, including empty name/hash or supplied last-seen/revoked fields | `invalid` |
+| `ClaimPairingCode` with an empty or missing pairing ID after valid client normalization | `not_found` |
+| Pairing save with a duplicate non-empty pairing ID/hash, or claim with a duplicate non-empty client ID/hash | `conflict` |
+| Claim of a non-pending code, a code whose expiry is at or before the command clock, or a compatibility-valid pending row with an empty legacy code hash | `conflict` |
+| Any scanned row that violates the compatibility matrix outside its explicit blank-field exceptions | `corrupt` |
+
+Cancellation, timeout, transport, durability, unknown-outcome, and internal
+failures retain their operation-level typed results and never collapse into a
+business outcome above. Definite failures return the zero candidates already
+specified by the durability rules.
 
 ## Operation Registry
 
@@ -309,4 +340,5 @@ receives an independent context-isolated GO.
 | Client contract review 1 | `bae3623` | `REVISE` | Unknown claim could lose the bearer token; legacy/corrupt backend parity, pairing pointer isolation, audit ordering, and live expiry disclosure were incomplete | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 2 | `9ff7c14` | `REVISE` | Zero-candidate recovery lacked attempted command identities; pairing public error projection was not frozen; roadmap status was stale | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth and malformed-claim public copy remained incomplete; repository roadmap still labeled Owner active | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair 3 | pending | pending | pending | pending |
+| Client contract review 4 | `b33343a` | `REVISE` | Deterministic typed outcomes and validation precedence remained incomplete across repository methods and legacy blank-hash pairing rows | Context-isolated gatekeeper / 2026-08-20 |
+| Client contract repair 4 | pending | pending | pending | pending |

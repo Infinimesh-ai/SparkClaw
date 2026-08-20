@@ -2,9 +2,9 @@
 
 > 语言：[English](../../docs/store-client-repository-design.md) | 简体中文
 
-> 状态：基于已接受 Owner 实现 `0b85cc4` 的第三个 S3 设计修复候选。
-> `bae3623`、`9ff7c14` 与 `1ccd5db` 审查结论均为 REVISE。在本修复合同获得
-> fresh context-isolated 设计 GO 前，不授权 Client 代码实现。
+> 状态：基于已接受 Owner 实现 `0b85cc4` 的第四个 S3 设计修复候选。
+> `bae3623`、`9ff7c14`、`1ccd5db` 与 `b33343a` 审查结论均为 REVISE。在本修复
+> 合同获得 fresh context-isolated 设计 GO 前，不授权 Client 代码实现。
 
 ## 边界修正
 
@@ -80,6 +80,34 @@ type ClientRepository interface {
   contract 没有 sequence column，因此两条 audit 是 unordered atomic set；测试
   比较 exact type 与 shared command timestamp，不依赖 equal-time row order。任何
   backend 都不能暴露或持久保留 partial command。
+
+### 确定性 Method Outcome
+
+所有 backend 使用以下优先级。先应用并检查 effective operation context；随后 trim
+每个 standalone string argument，并完全按上述规则 normalize candidate field。
+candidate structural validation 先于 target lookup；target lookup 与 persisted-row
+validation 先于 state/uniqueness check。explicit compatibility exception 之外的
+persisted invariant violation 始终是 `corrupt`，不能被后续 business result 隐藏。
+最终 business step 中，state precondition 先于 uniqueness check。这样一个同时含有
+多个 defect 的 request 在 Memory、File 与 PostgreSQL 中会产生相同结果。
+
+| Method 或 condition | 精确 repository outcome |
+|---|---|
+| `GetClient` / `GetPairingCode` 收到空 ID，或没有 matching row | `(zero, false, nil)` |
+| `FindClientByTokenHash` 收到空 hash、无 match，或只有 revoked match | `(zero, false, nil)` |
+| `ListClients` 成功但没有 row | non-nil empty slice 与 `nil` error |
+| `RevokeClient` 收到空或 missing ID | `not_found` |
+| `TouchClient` 收到空或 missing ID，或 client 在 command lock 前已 revoked | `(zero, false, nil)` |
+| `SavePairingCode` 的 status、claim field、zero expiry 无效，或 normalized hash 为空 | `invalid` |
+| `ClaimPairingCode` 的 normalized client shape 无效，包括空 name/hash 或携带 last-seen/revoked field | `invalid` |
+| valid client normalization 后，`ClaimPairingCode` 收到空或 missing pairing ID | `not_found` |
+| pairing save 遇到重复 non-empty pairing ID/hash，或 claim 遇到重复 non-empty client ID/hash | `conflict` |
+| claim non-pending code、expiry 等于或早于 command clock 的 code，或 compatibility-valid 但 legacy code hash 为空的 pending row | `conflict` |
+| scanned row 在 explicit blank-field exception 之外违反 compatibility matrix | `corrupt` |
+
+cancellation、timeout、transport、durability、unknown-outcome 与 internal failure
+保留 operation-level typed result，绝不折叠成上述 business outcome。确定失败返回
+durability rule 已规定的 zero candidate。
 
 ## Operation Registry
 
@@ -272,4 +300,5 @@ matching generation 并退出，不再调用 Store。
 | Client contract review 1 | `bae3623` | `REVISE` | unknown claim 可能丢失 bearer token；legacy/corrupt backend parity、pairing pointer isolation、audit ordering 与 live expiry disclosure 不完整 | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 2 | `9ff7c14` | `REVISE` | zero-candidate recovery 缺 attempted command identity；pairing public error projection 未冻结；roadmap 状态过期 | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth 与 malformed-claim public copy 不完整；repository roadmap 仍把 Owner 标成 active | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair 3 | pending | pending | pending | pending |
+| Client contract review 4 | `b33343a` | `REVISE` | repository method 与 legacy blank-hash pairing row 的确定性 typed outcome 和 validation precedence 仍不完整 | Context-isolated gatekeeper / 2026-08-20 |
+| Client contract repair 4 | pending | pending | pending | pending |

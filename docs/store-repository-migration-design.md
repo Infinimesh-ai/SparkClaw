@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: S2 pilot design-review candidate revision 2, 2026-08-20. The pilot
+> Status: S2 pilot design-review candidate revision 3, 2026-08-20. The pilot
 > starts only after this document and the linked File durability design receive
 > an independent `GO`. Remaining repository code remains gated by S2
 > implementation acceptance.
@@ -114,9 +114,11 @@ public Store settings endpoint.
 
 The effective deadline is the earlier non-zero caller deadline or configured
 fallback. `context.Canceled` is never relabeled as timeout. The 60-second
-multi-record transaction setting is not added in S2 because the pilot has no
-multi-record transaction; it enters with the first S3 repository that consumes
-it. The accepted 180-second startup setting remains unchanged.
+multi-record transaction setting is not added in S2 because the pilot changes
+only one record. PostgreSQL uses the 30-second write context for its transaction-
+scoped resolution barrier below; the multi-record setting enters with the first
+S3 repository that consumes it. The accepted 180-second startup setting remains
+unchanged.
 
 Existing convenience constructors use the accepted defaults so tests and local
 callers remain deterministic. Production assembly passes the validated config
@@ -184,27 +186,60 @@ observed under the lock before any effect.
 - map `pgx.ErrNoRows` to normal absence only in get;
 - return query, scan, JSON decode/validation, and `rows.Err()` failures;
 - never turn a failed query into a successful empty list;
-- use one `Exec` for the one-row save; no caller-owned audit is included;
+- use one explicit transaction for the one-row save and its resolution lock; no
+  caller-owned audit is included;
 - classify a context outcome using both the effective context and PostgreSQL
   cause, without string matching.
 
-The save does not call `pgxpool.Exec` directly. It first acquires one pool
-connection with the effective context and then invokes one autocommit `Exec` on
-that acquired connection. The production classification is frozen as:
+Save and get share a transaction-scoped PostgreSQL advisory-lock protocol keyed
+by the onboarding ID. The key is the signed 64-bit value formed from the first
+eight bytes of SHA-256 over a fixed namespace plus the ID. A collision can only
+serialize unrelated IDs; it cannot merge or authorize their data.
+
+Save does not call `pgxpool.Exec` directly. It acquires one pool connection with
+the effective write context, begins an explicit transaction, obtains
+`pg_advisory_xact_lock($1)`, inserts the receipt, and commits. The transaction
+uses the 30-second write class because it changes one record; it does not
+activate the future multi-record transaction setting. The production
+classification is frozen as:
 
 | Stage/result | Classification | Retry rule |
 |---|---|---|
-| context ends or pool acquire fails before a connection is acquired | `canceled`, `timeout`, or `unavailable` | no statement was submitted; ordinary retry allowed |
-| acquired-connection Exec returns server `*pgconn.PgError` | SQLSTATE `23505` is `conflict`; other server rejections are mapped to their definite code | PostgreSQL rejected the statement; no unknown commit |
-| acquired-connection Exec error satisfies `pgconn.SafeToRetry(err)` | `canceled`, `timeout`, or `unavailable` from context/cause | driver guarantees the statement was not sent; ordinary retry allowed |
-| any other acquired-connection transport/context error | `unknown_outcome` | statement may have committed; get-by-ID required |
-| Exec succeeds | success | autocommit completed |
+| context ends or pool acquire/begin fails before a transaction exists | `canceled`, `timeout`, or `unavailable` | no insert transaction exists; ordinary retry allowed |
+| lock or insert returns server `*pgconn.PgError` | SQLSTATE `23505` is `conflict`; other server rejections map to their definite code, then rollback | PostgreSQL rejected the statement; no unknown commit |
+| pre-commit error satisfies `pgconn.SafeToRetry(err)` | `canceled`, `timeout`, or `unavailable` from context/cause, then rollback | the failing statement was not sent; the insert cannot commit without a later commit |
+| unsafe lock/insert transport error or any commit error | terminate the owned session and return `unknown_outcome` | transaction state or commit is uncertain; barrier get-by-ID required |
+| commit succeeds | success | transaction completed |
 
-In particular, a deadline/cancellation error after connection acquisition is
-not labeled `timeout`/`canceled` when `SafeToRetry` is false. A package-private
-acquire/exec seam drives every row of this table without replacing real-DSN
-evidence. The configured integration test proves real insert, duplicate,
-absence, list/rows handling, cancellation before pool acquisition, and restart.
+Every definite pre-commit branch attempts rollback. If rollback itself fails,
+Store hijacks and closes the session before returning; because no successful
+insert can be followed by a commit on those branches, their record effect
+remains definite even though the cleanup failure is retained as a cause.
+
+On an unsafe error, Store takes ownership with `pgxpool.Conn.Hijack`, then calls
+`PgConn.Close` with a five-second context derived from
+`context.WithoutCancel` of the operation context. `PgConn.Close` always closes
+the underlying network connection even when its clean-close context fails. The
+close result is retained only as internal diagnostic evidence; it never proves
+commit or rollback.
+
+Get-by-ID is the resolution barrier. It acquires a different pool connection,
+begins a read transaction, obtains the same transaction-scoped advisory lock,
+and only then selects and validates the row. PostgreSQL cannot grant that lock
+until the original transaction/session releases it. Therefore a row found
+after the lock is a committed result, and absence after the lock is a final
+rollback/absence result. If acquire, lock, query, or read-transaction completion
+cannot finish within the effective read context, get returns an error and the
+service retains pending `unknown_outcome`; a pre-barrier absence is never
+reported.
+
+In particular, a deadline/cancellation error after a transaction exists is not
+labeled `timeout`/`canceled` when `SafeToRetry` is false, and immediate negative
+reconciliation is not trusted without the lock barrier. A package-private
+acquire/begin/lock/exec/commit seam drives every row of this protocol without
+replacing real-DSN evidence. The configured integration test proves real
+insert, duplicate, barrier absence/found results, list/rows handling,
+cancellation before pool acquisition, and restart.
 
 ## Consumer And Assembly Migration
 
@@ -314,7 +349,8 @@ The pilot gate requires:
   restart, and race tests from the File design;
 - PostgreSQL unit classification for query/scan/rows/context and uncertain
   submission, including every acquired-connection/`SafeToRetry` table row, plus
-  real-DSN integration evidence;
+  owned-session termination and both advisory-lock barrier results, plus real-
+  DSN integration evidence;
 - `iscppairing` service tests proving context propagation, safe failure copy,
   no ticket disclosure after definite persistence failure, immediate and
   next-request unknown reconciliation, no second authority call, different-
@@ -363,6 +399,7 @@ migrations remain in place.
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
 | S2 pilot/S3 design review 1 | `3aff151` | `REVISE` | Uncertain save did not prevent a retried Start from issuing a second authority ticket, and PostgreSQL autocommit lacked a verifiable submission classifier | Independent gatekeeper / 2026-08-20 |
-| S2 pilot/S3 design review 2 | revision 2 candidate | pending | Pending-ticket coordinator and acquired-connection/`SafeToRetry` classification await re-review | pending |
+| S2 pilot/S3 design review 2 | `4f8b2e5` | `REVISE` | Immediate negative query after uncertain autocommit was not final because the original backend transaction could commit later | Independent gatekeeper / 2026-08-20 |
+| S2 pilot/S3 design review 3 | revision 3 candidate | pending | Explicit transaction, owned-session termination, and shared advisory-lock resolution barrier await re-review | pending |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
-> 状态：S2 pilot 设计审查候选 revision 2，2026-08-20。只有本文档和关联的
+> 状态：S2 pilot 设计审查候选 revision 3，2026-08-20。只有本文档和关联的
 > File durability 设计都获得独立 `GO` 后才开始 pilot；其余 repository code
 > 仍由 S2 实现验收门禁控制。
 
@@ -102,8 +102,9 @@ settings endpoint。
 
 effective deadline 取非零 caller deadline 与 configured fallback 中更早者。
 `context.Canceled` 绝不重新标记为 timeout。60 秒 multi-record transaction setting
-在 S2 不增加，因为 pilot 没有 multi-record transaction；由第一个实际消费它的
-S3 repository 引入。已接受的 180 秒 startup setting 保持不变。
+在 S2 不增加，因为 pilot 只修改一个 record。PostgreSQL 对下述 transaction-
+scoped resolution barrier 使用 30 秒 write context；multi-record setting 由第一个
+实际消费它的 S3 repository 引入。已接受的 180 秒 startup setting 保持不变。
 
 现有 convenience constructor 使用已接受 default，让 test 和 local caller 保持
 确定性。生产 assembly 通过 backend option 显式传入 validated config；不存在
@@ -166,25 +167,50 @@ pilot 不替换 Memory 现有 mutex。其 critical section 只在进程内执行
 - 只在 get 中把 `pgx.ErrNoRows` 映射为 normal absence；
 - 返回 query、scan、JSON decode/validation 与 `rows.Err()` failure；
 - 失败 query 绝不能变成成功空列表；
-- 一行 save 使用一个 `Exec`，不包含 caller-owned audit；
+- 一行 save 及其 resolution lock 使用一个显式 transaction，不包含 caller-owned
+  audit；
 - 同时依据 effective context 与 PostgreSQL cause 分类 context outcome，不使用
   string matching。
 
-save 不直接调用 `pgxpool.Exec`，而是先用 effective context 获取一个 pool
-connection，再在该 connection 上调用一次 autocommit `Exec`。生产分类冻结为：
+save 与 get 共享按 onboarding ID keyed 的 transaction-scoped PostgreSQL advisory-
+lock protocol。key 是对固定 namespace 加 ID 做 SHA-256 后，前八个 bytes 构成的
+signed 64-bit value。collision 只会串行化无关 ID，不能合并或授权其数据。
+
+save 不直接调用 `pgxpool.Exec`，而是用 effective write context 获取一个 pool
+connection，begin 显式 transaction，获取 `pg_advisory_xact_lock($1)`，insert
+receipt，然后 commit。transaction 只修改一个 record，因此使用 30 秒 write
+class，不激活未来 multi-record transaction setting。生产分类冻结为：
 
 | 阶段/结果 | 分类 | Retry 规则 |
 |---|---|---|
-| context 结束，或获取 connection 前 pool acquire 失败 | `canceled`、`timeout` 或 `unavailable` | statement 未提交，允许普通 retry |
-| acquired-connection Exec 返回服务端 `*pgconn.PgError` | SQLSTATE `23505` 为 `conflict`，其他服务端拒绝映射为对应 definite code | PostgreSQL 已拒绝 statement，不是 unknown commit |
-| acquired-connection Exec error 满足 `pgconn.SafeToRetry(err)` | 依据 context/cause 为 `canceled`、`timeout` 或 `unavailable` | driver 保证 statement 未发送，允许普通 retry |
-| 其他 acquired-connection transport/context error | `unknown_outcome` | statement 可能已 commit，必须按 ID get |
-| Exec 成功 | success | autocommit 已完成 |
+| context 结束，或 transaction 存在前 pool acquire/begin 失败 | `canceled`、`timeout` 或 `unavailable` | insert transaction 不存在，允许普通 retry |
+| lock 或 insert 返回服务端 `*pgconn.PgError` | SQLSTATE `23505` 为 `conflict`，其他服务端拒绝映射为对应 definite code，然后 rollback | PostgreSQL 拒绝 statement，不是 unknown commit |
+| pre-commit error 满足 `pgconn.SafeToRetry(err)` | 依据 context/cause 为 `canceled`、`timeout` 或 `unavailable`，然后 rollback | failing statement 未发送；insert 无后续 commit 就无法生效 |
+| unsafe lock/insert transport error 或任何 commit error | terminate owned session 并返回 `unknown_outcome` | transaction state 或 commit 不确定；必须 barrier get-by-ID |
+| commit 成功 | success | transaction 已完成 |
 
-尤其是 connection acquisition 后的 deadline/cancellation error，在
-`SafeToRetry` 为 false 时不能标为 `timeout`/`canceled`。package-private
-acquire/exec seam 覆盖此表每一行，但不替代 real-DSN evidence。configured
-integration test 验证真实 insert、duplicate、absence、list/rows handling、pool
+每个 definite pre-commit branch 都尝试 rollback。若 rollback 自身失败，Store 在
+返回前 hijack 并 close session；由于这些 branch 不存在成功 insert 后再 commit 的
+路径，其 record effect 仍是 definite，cleanup failure 只保留为 cause。
+
+unsafe error 时，Store 用 `pgxpool.Conn.Hijack` 接管 ownership，再用从 operation
+context 的 `context.WithoutCancel` 派生的 5 秒 context 调用 `PgConn.Close`。
+即使 clean-close context 失败，`PgConn.Close` 也总会关闭底层 network connection。
+close result 只保留为内部 diagnostic evidence，不能证明 commit 或 rollback。
+
+get-by-ID 是 resolution barrier。它获取另一个 pool connection，begin read
+transaction，获取同一 transaction-scoped advisory lock，之后才 select 并 validate
+row。原 transaction/session 释放 lock 前 PostgreSQL 不会授予这个 lock。因此，
+拿到 lock 后找到 row 才是 committed result，拿到 lock 后 absence 才是最终
+rollback/absence。若 acquire、lock、query 或 read-transaction completion 无法在
+effective read context 内完成，get 返回 error，service 保留 pending
+`unknown_outcome`；绝不能报告 pre-barrier absence。
+
+尤其是 transaction 已存在后的 deadline/cancellation error，在 `SafeToRetry` 为
+false 时不能标为 `timeout`/`canceled`；没有 lock barrier 就不能信任 immediate
+negative reconciliation。package-private acquire/begin/lock/exec/commit seam 覆盖
+此 protocol 每一行，但不替代 real-DSN evidence。configured integration test
+验证真实 insert、duplicate、barrier absence/found result、list/rows handling、pool
 acquisition 前 cancellation 与 restart。
 
 ## Consumer 与 Assembly 迁移
@@ -281,8 +307,8 @@ pilot gate 要求：
 - File 设计规定的默认 File injected-failure、rollback、fence、reconciliation、
   encryption、restart 与 race test；
 - PostgreSQL unit classification：query/scan/rows/context 与 uncertain submission，
-  包括每个 acquired-connection/`SafeToRetry` table row，再加 real-DSN integration
-  evidence；
+  包括每个 acquired-connection/`SafeToRetry` table row、owned-session termination
+  和两个 advisory-lock barrier result，再加 real-DSN integration evidence；
 - `iscppairing` service test：context propagation、safe failure copy、persistence
   definite failure 后不披露 ticket、immediate 和 next-request unknown
   reconciliation、无第二次 authority call、different-request conflict、pending
@@ -325,6 +351,7 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | 审查 | Revision/commit | 决定 | 证据与未解决风险 | Reviewer/date |
 |---|---|---|---|---|
 | S2 pilot/S3 设计审查 1 | `3aff151` | `REVISE` | uncertain save 未阻止 retried Start 签发第二张 authority ticket，且 PostgreSQL autocommit 缺少可验证 submission classifier | Independent gatekeeper / 2026-08-20 |
-| S2 pilot/S3 设计审查 2 | revision 2 candidate | pending | pending-ticket coordinator 与 acquired-connection/`SafeToRetry` classification 等待复审 | pending |
+| S2 pilot/S3 设计审查 2 | `4f8b2e5` | `REVISE` | uncertain autocommit 后立即 negative query 不具最终性，因为原 backend transaction 可能稍后 commit | Independent gatekeeper / 2026-08-20 |
+| S2 pilot/S3 设计审查 3 | revision 3 candidate | pending | 显式 transaction、owned-session termination 与共享 advisory-lock resolution barrier 等待复审 | pending |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

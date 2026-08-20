@@ -3,7 +3,7 @@
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
 > 状态：新的 context-isolated 审查发现 ticket-expiry 披露缺陷；S2 pilot 实现
-> 正在 `6f4c1bf` 等待复审。S3 已暂停；S2 获得 `GO` 后才以
+> 正在 `437e4bc` 等待复审。S3 已暂停；S2 获得 `GO` 后才以
 > `OwnerRepository` 作为下一波次。
 
 ## 目标与阶段边界
@@ -365,6 +365,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S2 pilot/S3 设计审查 4 | `49b0858` | `GO` | 显式 `READ COMMITTED` 与独立 advisory-lock/query statement 使 found/absence 不受 server isolation default 影响而具最终性；更早的 fence、pending-ticket 与 submission finding 均已关闭 | Independent gatekeeper / 2026-08-20 |
 | S2 pilot 实现初次审查 | `9d86c50` | 已被取代的 `GO` | 完整 File admission 与 onboarding 迁移通过初次证据审查；之后的新审查取代了这一决定 | 独立 gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S2 pilot 实现重新审查 | `9d86c50` | `REVISE` | ticket 可能在持久化/对账期间过期，但 completion 重用了请求开始时间，仍会披露它 | Context-isolated gatekeeper / 2026-08-20 |
-| S2 pilot 修复候选 | `bc1bfb4`, `6f4c1bf` | 待定 | completion 在披露前立即读取 live clock，并新增同一调用内过期覆盖及一次新的 disposable real-PostgreSQL full/race run | 等待独立复审 / 2026-08-20 |
+| S2 pilot 修复候选 | `bc1bfb4`, `6f4c1bf`, `437e4bc` | 待定 | completion 在披露前立即读取 live clock，并新增同一调用内过期覆盖、一次新的 disposable real-PostgreSQL full/race run，以及经过验证的 Compose read/write timeout override 转发 | 等待独立复审 / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

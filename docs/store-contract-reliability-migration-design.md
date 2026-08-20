@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-contract-reliability-migration-design.md)
 
-> Status: S2 implementation re-review is pending at `6f4c1bf` after a fresh
+> Status: S2 implementation re-review is pending at `437e4bc` after a fresh
 > context-isolated review rejected the earlier `9d86c50` acceptance. S3 is
 > paused until the repaired candidate receives `GO`.
 
@@ -144,4 +144,4 @@ whether any module split is justified.
 | S2 design | `49b0858` | `GO` | Four review rounds closed File fence admission, pending authority-ticket retry, PostgreSQL final reconciliation, and isolation-default blockers; implementation may start | Independent gatekeeper / 2026-08-20 |
 | S2 implementation initial review | `9d86c50` | superseded `GO` | The initial reviewer accepted the implementation evidence; a later fresh review superseded this decision | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S2 implementation fresh re-review | `9d86c50` | `REVISE` | Ticket expiry used the request-start time after persistence/reconciliation, and the fresh review lacked recorded real-DSN evidence | Context-isolated gatekeeper / 2026-08-20 |
-| S2 repair candidate | `bc1bfb4`, `6f4c1bf` | pending | Rechecks a live clock immediately before ticket disclosure; adds intra-call expiry and missing File destination/directory failure coverage; focused/full/race/default-File/WebChat/docs/Compose and disposable real-PostgreSQL gates passed | Pending independent re-review / 2026-08-20 |
+| S2 repair candidate | `bc1bfb4`, `6f4c1bf`, `437e4bc` | pending | Rechecks a live clock immediately before ticket disclosure; adds intra-call expiry and missing File destination/directory failure coverage; forwards read/write timeout overrides through Compose with an expansion test; focused/full/race/default-File/WebChat/docs/Compose and disposable real-PostgreSQL gates passed | Pending independent re-review / 2026-08-20 |

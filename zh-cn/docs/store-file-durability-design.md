@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/store-file-durability-design.md) | 简体中文
 
-> 状态：S2 实现正在 `6f4c1bf` 等待复审。修复候选补上 destination-read 与
+> 状态：S2 实现正在 `437e4bc` 等待复审。修复候选补上 destination-read 与
 > directory-open/close 失败证据；独立 `GO` 前继续暂停 S3。
 
 ## 问题与 S2 声明

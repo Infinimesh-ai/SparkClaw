@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-file-durability-design.md)
 
-> Status: S2 implementation re-review is pending at `6f4c1bf`. The repaired
+> Status: S2 implementation re-review is pending at `437e4bc`. The repaired
 > candidate adds the missing destination-read and directory-open/close failure
 > evidence; S3 remains paused until independent `GO`.
 

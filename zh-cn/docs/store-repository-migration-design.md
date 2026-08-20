@@ -286,6 +286,99 @@ field 或 constructor parameter。
 
 ## S3 规划顺序
 
+### 当前波次：OwnerRepository
+
+第一个 S3 波次把 S0 已接受的六个 Owner method 冻结为一个 repository：
+
+```go
+type OwnerRepository interface {
+    GetOwnerProfile(context.Context) (app.OwnerProfile, error)
+    UpdateOwnerProfile(context.Context, app.OwnerProfile) (app.OwnerProfile, error)
+    GetOwnerProfileByID(context.Context, string) (app.OwnerProfile, bool, error)
+    SaveOwnerProfile(context.Context, app.OwnerProfile) (app.OwnerProfile, error)
+    ListOwnerProfiles(context.Context) ([]app.OwnerProfile, error)
+    FindOwnerProfileByExternalRef(context.Context, string, string) (app.OwnerProfile, bool, error)
+}
+```
+
+稳定 repository 语义如下：
+
+- 所有 read 都无副作用。PostgreSQL default owner 只在 startup seed，绝不由
+  `GET` 或其他 repository read 写入；
+- 空 owner ID 解析为 `app.DefaultOwnerID`；正常缺失是
+  `(zero, false, nil)`，空 source 或 external ref 也是正常缺失；
+- backend、cancellation、timeout、corrupt data 以及 query/scan/`rows.Err()`
+  failure 必须返回 error，不能伪装为缺失或成功的空 list；
+- preferences 在每次 input/output 以及 File snapshot capture/load 时都复制，
+  caller 与 backend snapshot 不能共享可变 map；
+- list 顺序为 `UpdatedAt DESC`，再按 `ID ASC`；external-ref lookup 使用同样的
+  newest-first 与 ID tie-break；
+- save 按 ID overwrite 并保留已有 `CreatedAt`；update 强制使用
+  `app.DefaultOwnerID`；
+- save/update 原子持久化 owner profile、一条 `owner_profile.updated` audit 和
+  一条 `owner_profile.updated` event。任何 backend 都不能报告 profile-only
+  success。
+
+operation registry 原地扩展：
+
+| Operation ID | Mode | Timeout class | Reconciliation |
+|---|---|---|---|
+| `owner_profile.get` | read | read | self |
+| `owner_profile.update` | write | transaction | get by ID |
+| `owner_profile.get_by_id` | read | read | self |
+| `owner_profile.save` | write | transaction | get by ID |
+| `owner_profile.list` | read | read | none |
+| `owner_profile.find_external_ref` | read | read | none |
+
+首个 multi-record S3 command 新增 `StateConfig.TransactionTimeoutSeconds`、JSON
+`state.transaction_timeout_seconds` 和环境变量
+`SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS`，默认 60 秒，有效范围 1-900 秒。
+它同步传播到 defaults、受控 JSON config、example environment、Compose、公开
+redacted state projection、Memory/File/PostgreSQL options、assembly 和 tests。
+caller deadline 更早时仍优先；现有 read、write 和 180 秒 startup class 不变。
+
+Memory 在 lock 前及 lock 内检查 effective context，在两个边界复制 profile，并在
+同一把锁内完成 record/audit/event mutation。File 先用纯机械 commit 泛化 S2 已
+接受的 command helper，再复用完整 snapshot rollback、durable replacement、
+unknown-outcome fence 和 read reconciliation，且不改变 snapshot schema。File
+startup 遇到 owner-profile map key 与 profile 内 ID 不一致时拒绝启动，不得把损坏
+identity 正常化。
+
+PostgreSQL save/update 获取一条 owned connection，开始显式 transaction，以 owner
+ID 获取 transaction-scoped advisory lock，读取 current row 以保留 `CreatedAt`，
+upsert owner，append audit/event 后 commit。Commit 是 effect-submission point。
+safe pre-submit failure 是确定结果；unsafe statement/transport failure 或 commit
+failure 必须终止 owned session 并返回 `unknown_outcome`。Get-by-ID 是 resolution
+barrier：显式使用 `READ COMMITTED`，用一个 statement 获取相同 advisory lock，
+再用独立 statement 读取 owner。Owner preferences JSON decode failure 是
+`corrupt`，不能变成空 map 或 absence。
+
+生产 caller 传递自身拥有的 context：Gateway handler 使用 `r.Context()`；ISCP
+Bridge 把 `Dispatch` context 传进 session creation；Telegram 使用 `HandleUpdate`
+worker context；Weixin 使用 `HandleInbound` worker context。迁移后的 Owner path
+不得引入 `context.Background()`；helper 必须返回 error，不能忽略 repository
+failure。Gateway 将 timeout 映射为稳定 504，将 unavailable、durability、unknown、
+corrupt 或 internal 映射为不含 backend cause 的安全 503。Connector/Bridge path
+返回稳定、可重试的 unavailable error。save/update 收到 `unknown_outcome` 的 caller
+必须先用 `GetOwnerProfileByID` 对账，再 retry 或声明成功。Weixin 用确定性 owner ID
+对账，只为历史非确定性 profile 保留 external-ref lookup。
+
+Owner 波次门禁要求：Memory/File shared success、absence、ordering、scope、clone、
+cancellation 与 timeout tests；确定性 external-ref tie-break parity；File 对
+owner/audit/event 的 rollback、fence、reconciliation、restart、encryption 与 race
+证据；PostgreSQL statement/commit classification、session termination、atomic
+rollback、startup seed、read-only GET、corrupt JSON、query/scan/rows propagation 与
+显式 `READ COMMITTED` barrier 证据；real-DSN round-trip/restart/race tests；caller
+context 与 safe error projection tests；以及一个 embedded repository、无 legacy
+signature、无 ignored Owner error、无迁移后 `context.Background()` 的 source
+guards。现有 PostgreSQL CI topology 与 `SPARKCLAW_TEST_POSTGRES_DSN` skip behavior
+不变，但实际 configured PostgreSQL run 是 `GO` 的强制证据。
+
+本波次有三个可审查 commit boundary：双语 contract freeze；保持 onboarding
+behavior byte-identical 的机械 File helper 泛化；以及跨所有 backend/caller 的完整
+Owner behavior migration。精确 Owner candidate 完成独立、context-isolated 实现
+审查前，不开始下一个 repository。
+
 S2 实现并经人工验收后，推荐风险顺序保持为：
 
 1. Owner、Client、Credential 与 Session；
@@ -365,5 +458,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S2 pilot 实现初次审查 | `9d86c50` | 已被取代的 `GO` | 完整 File admission 与 onboarding 迁移通过初次证据审查；之后的新审查取代了这一决定 | 独立 gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S2 pilot 实现重新审查 | `9d86c50` | `REVISE` | ticket 可能在持久化/对账期间过期，但 completion 重用了请求开始时间，仍会披露它 | Context-isolated gatekeeper / 2026-08-20 |
 | S2 pilot 修复实现 | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | completion 在披露前立即读取 live clock，并新增同一调用内过期覆盖、独立重复的 disposable real-PostgreSQL full/race run、完整 File failure evidence，以及经过验证的 Compose read/write timeout override 转发 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
+| S3 Owner contract freeze | pending | pending | 实现前冻结六 method contract、transaction timeout、owner/audit/event 原子边界、backend rule、caller context、reconciliation 和 evidence matrix | Primary agent / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

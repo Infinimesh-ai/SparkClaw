@@ -325,6 +325,109 @@ parameter.
 
 ## S3 Planning Order
 
+### Active Wave: OwnerRepository
+
+The first S3 wave freezes the six accepted S0 Owner methods as one repository:
+
+```go
+type OwnerRepository interface {
+    GetOwnerProfile(context.Context) (app.OwnerProfile, error)
+    UpdateOwnerProfile(context.Context, app.OwnerProfile) (app.OwnerProfile, error)
+    GetOwnerProfileByID(context.Context, string) (app.OwnerProfile, bool, error)
+    SaveOwnerProfile(context.Context, app.OwnerProfile) (app.OwnerProfile, error)
+    ListOwnerProfiles(context.Context) ([]app.OwnerProfile, error)
+    FindOwnerProfileByExternalRef(context.Context, string, string) (app.OwnerProfile, bool, error)
+}
+```
+
+The stable repository semantics are:
+
+- every read is side-effect free. The PostgreSQL default owner is seeded during
+  startup, never by `GET` or another repository read;
+- an empty owner ID resolves to `app.DefaultOwnerID`; ordinary absence is
+  `(zero, false, nil)`, and an empty source or external ref is ordinary absence;
+- backend, cancellation, timeout, corrupt-data, and query/scan/`rows.Err()`
+  failures remain errors and never become absence or a successful empty list;
+- preferences are cloned on every input and output, including File snapshot
+  capture/load, so callers and backend snapshots cannot share a mutable map;
+- list ordering is `UpdatedAt DESC`, then `ID ASC`. External-ref lookup uses the
+  same newest-first ordering and ID tie-break;
+- save overwrites by ID while preserving the existing `CreatedAt`; update forces
+  `app.DefaultOwnerID`; and
+- save/update atomically persist the owner profile, one
+  `owner_profile.updated` audit row, and one `owner_profile.updated` event. No
+  backend may expose a profile-only success.
+
+The operation registry is extended in place:
+
+| Operation ID | Mode | Timeout class | Reconciliation |
+|---|---|---|---|
+| `owner_profile.get` | read | read | self |
+| `owner_profile.update` | write | transaction | get by ID |
+| `owner_profile.get_by_id` | read | read | self |
+| `owner_profile.save` | write | transaction | get by ID |
+| `owner_profile.list` | read | read | none |
+| `owner_profile.find_external_ref` | read | read | none |
+
+The first multi-record S3 command adds
+`StateConfig.TransactionTimeoutSeconds`, JSON
+`state.transaction_timeout_seconds`, and environment
+`SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS`, defaulting to 60 seconds with a
+valid range of 1-900 seconds. It is propagated through defaults, the checked-in
+JSON config, example environment, Compose, redacted public state projection,
+Memory/File/PostgreSQL options, assembly, and tests. Caller deadlines still win
+when earlier. Existing read, write, and 180-second startup classes remain
+unchanged.
+
+Memory applies the effective context before and under its lock, clones the
+profile at both boundaries, and performs record/audit/event mutation under one
+lock. File generalizes the accepted S2 command helper mechanically before this
+behavioral wave, then uses the complete snapshot rollback, durable replacement,
+unknown-outcome fence, and read reconciliation without changing the snapshot
+schema. File startup rejects an owner-profile map key that disagrees with the
+embedded profile ID rather than normalizing corrupt persisted identity.
+
+PostgreSQL save/update acquire one owned connection, begin an explicit
+transaction, take a transaction-scoped advisory lock keyed by owner ID, read the
+current row to preserve `CreatedAt`, upsert the owner, append audit and event,
+and commit. Commit is the effect-submission point. A safe pre-submit failure is
+definite; an unsafe statement/transport failure or commit failure terminates the
+owned session and returns `unknown_outcome`. Get-by-ID is the resolution barrier:
+it explicitly uses `READ COMMITTED`, takes the same advisory lock in one
+statement, and reads the owner in a separate statement. Owner preference JSON
+decode failure is `corrupt`, not an empty map or absence.
+
+Production callers pass their owned contexts: Gateway handlers use
+`r.Context()`, ISCP Bridge uses the `Dispatch` context through session creation,
+Telegram uses the `HandleUpdate` worker context, and Weixin uses the
+`HandleInbound` worker context. No migrated Owner path introduces
+`context.Background()`. Helpers return errors instead of ignoring repository
+failure. Gateway maps timeout to a stable 504 and unavailable, durability,
+unknown, corrupt, or internal failures to safe 503 copy. Connector/Bridge paths
+return stable retryable unavailable errors. A caller that receives
+`unknown_outcome` from save/update reconciles with `GetOwnerProfileByID` before
+retrying or claiming success. Weixin reconciles by its deterministic owner ID
+and retains external-ref lookup only for legacy nondeterministic profiles.
+
+The Owner wave gate requires shared Memory/File success, absence, ordering,
+scope, clone, cancellation, and timeout tests; deterministic external-ref
+tie-break parity; File rollback of owner/audit/event, fence, reconciliation,
+restart, encryption, and race evidence; PostgreSQL statement/commit
+classification, session termination, atomic rollback, startup seed, read-only
+GET, corrupt JSON, query/scan/rows propagation, and explicit `READ COMMITTED`
+barrier evidence; real-DSN round-trip/restart/race tests; caller context and safe
+error projection tests; and source guards for one embedded repository, no legacy
+signatures, no ignored Owner errors, and no migrated `context.Background()`.
+The existing PostgreSQL CI topology and `SPARKCLAW_TEST_POSTGRES_DSN` skip
+behavior do not change, but an actual configured PostgreSQL run is mandatory
+evidence for `GO`.
+
+This wave has three reviewable commit boundaries: the bilingual contract freeze;
+the mechanical File helper generalization with byte-identical onboarding
+behavior; and the complete Owner behavior migration across every backend and
+caller. No next repository starts until the exact Owner candidate receives an
+independent context-isolated implementation review.
+
 After S2 implementation and human acceptance, preferred risk order remains:
 
 1. Owner, Client, Credential, and Session;
@@ -413,5 +516,6 @@ migrations remain in place.
 | S2 pilot implementation initial review | `9d86c50` | superseded `GO` | Complete File admission and onboarding migration passed the initial evidence review; a later fresh review superseded this decision | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S2 pilot implementation fresh re-review | `9d86c50` | `REVISE` | A ticket could expire during persistence/reconciliation yet still be disclosed because completion reused the request-start time | Context-isolated gatekeeper / 2026-08-20 |
 | S2 pilot repair implementation | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | Completion reads a live clock immediately before disclosure, with intra-call expiry coverage, independently repeated disposable real-PostgreSQL full/race runs, complete File failure evidence, and verified Compose forwarding for read/write timeout overrides | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
+| S3 Owner contract freeze | pending | pending | Six-method contract, transaction timeout, atomic owner/audit/event boundary, backend rules, caller contexts, reconciliation, and evidence matrix frozen before implementation | Primary agent / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

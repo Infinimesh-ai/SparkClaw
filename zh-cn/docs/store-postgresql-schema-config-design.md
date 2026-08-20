@@ -2,8 +2,9 @@
 
 > 语言：[English](../../docs/store-postgresql-schema-config-design.md) | 简体中文
 
-> 状态：S1 实现于 2026-08-20 经一次实现 `REVISE`、修复提交 `74b7c5e`
-> 和独立复审 `GO` 后通过。当前等待用户验收本阶段；仍不授权 S2。
+> 状态：S1 实现于 2026-08-20 经一次独立实现 `REVISE`、修复提交
+> `74b7c5e` 和复审 `GO` 后，由用户在 `b2f9115` 验收。可以开始 S2 设计；
+> S2 实现仍受设计门禁约束。
 
 ## 目标
 
@@ -217,3 +218,4 @@ PostgreSQL 集成证据记录测试 commit、server version、migration 起始�
 | 设计审查 3 | 2026-08-20 修订 2 | `GO` | target-PK already-copied 权威和非滚动/四表锁协议闭合剩余 adoption 与旧 writer 窗口；未引入第二 schema 权威 | 独立 gatekeeper；用户授权阶段推进 / 2026-08-20 |
 | 实现审查 1 | `0c557ee` 至 `3f098f3` | `REVISE` | 静态审查和 PostgreSQL 18.4 测试发现两个缺失 legacy ID 可共享一个 session 或非空 message 自然键，并同时进入非唯一 canonical index | 独立 gatekeeper / 2026-08-20 |
 | 实现审查 2 | 修复 `74b7c5e` | `GO` | 保持 0002 不可变；transactional 0003 拒绝两类重复且 ledger 保持为空，同时保留已演进同 ID canonical target 的权威。完整 Go build/test/vet、Store race、WebChat、Compose/script、双语文档和真实 PostgreSQL 证据均通过。剩余低风险：重复 source 与 evolved target 的组合由 SQL 谓词和独立测试共同覆盖，未单设组合用例 | 独立 gatekeeper / 2026-08-20 |
+| 用户验收 | `b2f9115` | `GO` | 接受独立审查后的 S1 实现并授权推进到 S2 设计；S2 代码仍需独立设计 `GO` | 用户 / 2026-08-20 |

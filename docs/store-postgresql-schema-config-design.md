@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-postgresql-schema-config-design.md)
 
-> Status: S1 implementation passed independent review on 2026-08-20 after one
-> implementation `REVISE`, fix commit `74b7c5e`, and re-review `GO`. The stage
-> is awaiting user acceptance; S2 remains unauthorized.
+> Status: S1 implementation accepted by the user on 2026-08-20 at `b2f9115`
+> after one independent implementation `REVISE`, fix commit `74b7c5e`, and
+> re-review `GO`. S2 design may start; S2 implementation remains design-gated.
 
 ## Objective
 
@@ -248,3 +248,4 @@ authorities, and a real PostgreSQL run while retaining the existing CI gate.
 | Design review 3 | revision 2 dated 2026-08-20 | `GO` | Target-PK already-copied authority and non-rolling/four-table lock protocol close the remaining adoption and old-writer windows; no second schema authority introduced | Independent gatekeeper; user authorized stage progression / 2026-08-20 |
 | Implementation review 1 | `0c557ee` through `3f098f3` | `REVISE` | Static review and PostgreSQL 18.4 tests found that two missing legacy IDs could share one session or non-empty message natural key and both enter non-unique canonical indexes | Independent gatekeeper / 2026-08-20 |
 | Implementation review 2 | fix `74b7c5e` | `GO` | Immutable 0002 retained; transactional 0003 rejects both duplicate classes with ledger remaining empty, while evolved same-ID canonical targets remain authoritative. Full Go build/test/vet, Store race, WebChat, Compose/scripts, bilingual docs, and real PostgreSQL evidence are green. Remaining low risk: the combined duplicate-source/evolved-target case is covered by SQL predicates plus separate tests rather than one dedicated test | Independent gatekeeper / 2026-08-20 |
+| User acceptance | `b2f9115` | `GO` | Accepted the independently reviewed S1 implementation and authorized progression to S2 design; S2 code still requires its own design `GO` | User / 2026-08-20 |

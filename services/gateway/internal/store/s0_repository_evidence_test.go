@@ -142,7 +142,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0Tests("TestS0BackendNeutralRepositoryLifecycleEvidence/ConversationRepository@s0_repository_lifecycle_test.go", "TestMemoryMessageEventsAreBoundedAndSessionScoped@message_events_test.go"),
 		s0Tests("TestFileMessageEventsSurviveRestart@message_events_test.go", "TestS0BackendNeutralContractCharacterization/file/restart@s0_contract_characterization_test.go"),
 		s0NA("Message append has no repository revision; event sequence ordering, not a caller-visible CAS version, is its concurrency contract."),
-		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go"),
+		s0Tests("TestPostgresStoreRoundTrip@postgres_test.go", s0PostgresRowsErrTest("shared", "collectRows")),
 	),
 	"RunRepository": s0EvidenceRow(
 		s0RepositoryTest("RunRepository", s0DimensionSuccess),
@@ -238,7 +238,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0LifecycleTest("DeliveryRecordRepository"),
 		s0Tests("TestFileStoreMessageLifecycleRoundTrip@message_lifecycle_test.go", "TestFileStoreExternalChatAndInboxParity@external_chat_test.go"),
 		s0NA("Delivery records expose no numeric revision; source/native and owner/actor/idempotency keys are the serialized dedupe boundary."),
-		s0Tests("TestPostgresStoreExternalChatAndInboxParity@postgres_test.go", s0PostgresRowsErrTest("DeliveryRecordRepository", "ListMessageReceives"), s0PostgresRowsErrTest("DeliveryRecordRepository", "ListMessageDeliveries")),
+		s0Tests("TestPostgresStoreExternalChatAndInboxParity@postgres_test.go", s0PostgresRowsErrTest("DeliveryRecordRepository", "ListMessageReceives"), s0PostgresRowsErrTest("DeliveryRecordRepository", "ListMessageDeliveries"), s0PostgresRowsErrTest("shared", "collectRows")),
 	),
 	"MCPRepository": s0EvidenceRow(
 		s0Tests("TestS0BackendNeutralRepositoryCharacterization/MCPRepository/success@s0_repository_characterization_test.go", "TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound@mcp_access_test.go"),
@@ -355,6 +355,60 @@ func TestS0RepositoryCharacterizationMatrixCompleteness(t *testing.T) {
 		}
 	}
 	assertS0InventoryMatrixRows(t)
+}
+
+func TestS0RepositoryEvidenceMapsCollectRowsDefect(t *testing.T) {
+	parsed, err := parser.ParseFile(token.NewFileSet(), "postgres.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners := map[string]string{}
+	for repository, methods := range s0RepositoryMethods {
+		for _, method := range methods {
+			owners[method] = repository
+		}
+	}
+	want := s0PostgresRowsErrTest("shared", "collectRows")
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Body == nil || !s0CallsFunction(function.Body, "collectRows") {
+			continue
+		}
+		repository, ok := owners[function.Name.Name]
+		if !ok {
+			continue
+		}
+		cell := s0RepositoryCharacterizationEvidence[repository][s0DimensionPostgresRows]
+		if !s0ContainsString(cell.Tests, want) {
+			t.Errorf("%s.%s calls collectRows but its PostgreSQL evidence does not reference %s", repository, function.Name.Name, want)
+		}
+	}
+}
+
+func s0CallsFunction(node ast.Node, name string) bool {
+	found := false
+	ast.Inspect(node, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		identifier, ok := call.Fun.(*ast.Ident)
+		if ok && identifier.Name == name {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func s0ContainsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func collectS0TestPaths(t *testing.T) map[string]map[string]struct{} {

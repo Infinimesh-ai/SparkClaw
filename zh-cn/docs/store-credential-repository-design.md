@@ -2,8 +2,8 @@
 
 > 语言：[English](../../docs/store-credential-repository-design.md) | 简体中文
 
-> 状态：S3 设计候选，2026-08-20。在独立、上下文隔离的设计审查获得 GO
-> 之前，不授权编写 CredentialRepository 代码。
+> 状态：S3 设计修订 2，2026-08-20。审查 1 返回 `REVISE`；在独立、
+> 上下文隔离的设计审查获得 GO 之前，不授权编写 CredentialRepository 代码。
 
 ## 边界与现有缺陷
 
@@ -32,7 +32,7 @@ ConnectorRepository 负责该 command。
 type CredentialRepository interface {
     SaveCredentialSecret(context.Context, app.CredentialSecret) (app.CredentialSecret, error)
     GetCredentialSecret(context.Context, string) (app.CredentialSecret, bool, error)
-    DeleteCredentialSecret(context.Context, string) error
+    DeleteCredentialSecret(context.Context, CredentialDeleteCondition) (app.CredentialSecret, error)
 }
 ```
 
@@ -57,9 +57,13 @@ type assertion、dynamic repository lookup 或 optional capability。
   `credential_secret.saved` audit，其中仅包含 ref 与 kind；不发出 general event。
 - Get 无副作用。空 ref 或不存在的 ref 是普通 `(zero, false, nil)` 缺失。
   backend、scan、decode、validation 或 context failure 绝不能变成缺失。
-- Delete 要求 ref 已存在。缺失返回 typed `not_found`。成功时原子删除 secret，
-  并且只追加一条仅包含 ref 的 `credential_secret.deleted` audit；不发出
-  general event。
+- Delete 是 exact conditional command。Vault 从先前由 Get 或 Save 返回的完整
+  candidate 派生 opaque `CredentialDeleteCondition`。它包含 normalized ref 与覆盖
+  candidate 每个 field 的 domain-separated SHA-256 version，但不包含 value 或可逆
+  plaintext。空/无效 condition 返回 `invalid`，缺失返回 typed `not_found`，任一
+  persisted-field digest 不匹配则返回 `conflict` 且不修改。成功时返回 exact deleted
+  candidate，原子删除 secret，并且只追加一条仅包含 ref 的
+  `credential_secret.deleted` audit；不发出 general event。
 - `app.CredentialSecret.Value` 改为 `json:"-"`。File persistence codec 使用
   private wire type 保留 `value`；普通 JSON encoding、log、audit payload 和 HTTP
   response 仍保持 redacted。
@@ -75,15 +79,24 @@ business mutation。损坏的 stored row 不能被后续 not-found、overwrite �
 |---|---|
 | Get 使用空 ref 或不存在的 ref | `(zero, false, nil)` |
 | Save 使用 normalization 后为空的 ref/kind，或空 value | `invalid` |
-| Delete 使用空 ref 或不存在的 ref | `not_found` |
+| Delete 使用无效 expected condition | `invalid` |
+| Delete 使用有效 condition 但 ref 不存在 | `not_found` |
+| Delete 的 current row 与 expected version 不同 | `conflict` 且不修改 |
 | Save 新 ref 或 overwrite 有效 existing ref | 已持久化的 normalized candidate |
+| Delete 精确匹配的 current row | exact deleted candidate |
 | Backend/scan/decode failure | typed non-absence error |
 | compatibility rule 之外的 persisted invariant violation | `corrupt` |
-| 不安全的 submission/commit result | `unknown_outcome`；只有 Save 携带 save candidate |
+| candidate 形成后的不安全 submission/commit | `unknown_outcome`，携带 exact save/deleted candidate |
 
-确定的 save/delete failure 不返回 candidate 或 secret value。Store error string 与
-public projection 绝不包含不受信 caller 提供的 ref value、kind、opaque value、
-SQL、snapshot byte 或 backend cause。
+`NewCredentialDeleteCondition` 是唯一 condition constructor。digest 使用
+length-delimited normalized Ref/Kind、byte-exact Value，以及 UTC UnixNano
+CreatedAt/UpdatedAt。condition 只保留在 process memory，绝不 serialize、log、
+persist、audit、trace 或 project。
+
+确定的 save/delete failure 不返回 candidate 或 secret value。Delete 尚未读取、
+验证并匹配 current row 前发生的不安全 failure 也不返回 candidate。Store validation
+error 不插入不受信 ref、kind、opaque value、SQL 或 snapshot byte。raw backend
+cause 只保留在 internal error chain；Vault public projection 绝不披露它们。
 
 ## 兼容性与 Secret Format
 
@@ -114,16 +127,17 @@ decode 前拒绝。不能因为忽略未知 JSON field 而把它接受为空 Sna
 |---|---|---|---|
 | `credential_secret.save` | write | transaction | ref barrier 后的 exact candidate |
 | `credential_secret.get` | read | read | 解析 command 时使用 ref barrier |
-| `credential_secret.delete` | write | transaction | ref barrier 后的最终缺失 |
+| `credential_secret.delete` | write | transaction | ref barrier 后的缺失、exact prior candidate 或 conflicting replacement |
 
 Memory 在一把 lock 前后应用 context。secret mutation 与 audit append 都在该 lock
 下完成。
 
 File 使用已接受的 migrated admission 与 `runFileCommand`；credential path 不调用
 legacy `persist()`。一个 command snapshot 完整 pre-state，提交一份 encoded
-replacement，在确定 failure 时恢复全部 secret/audit/high-water state，并在未知的
-rename/directory-sync outcome 上安装已接受的 fence。read 不能跨越该 fence。
-startup 在加载 Memory 前验证 private secret wire representation。
+replacement，在确定 failure 时恢复 secret 与 audit state，但刻意保留 failed
+candidate 的 non-rollback high-water mark；并在未知的 rename/directory-sync
+outcome 上安装已接受的 fence。read 不能跨越该 fence。startup 在加载 Memory
+前验证 private secret wire representation。
 
 PostgreSQL save/delete 先为 high-water ownership 获取一个 context-aware、容量为一
 的 process admission，再取得 owned connection 并开启 explicit transaction。
@@ -137,33 +151,89 @@ PostgreSQL save/delete 先为 high-water ownership 获取一个 context-aware、
 全部 cause。
 
 Save reconciliation 只有在每个 persisted field 都与 exact candidate 相等时才成功。
-Delete reconciliation 只有最终缺失时才成功。不同 row 或失败的 barrier 保持
-unresolved，绝不报告成功。
+Delete reconciliation 给出三种不同 proof：最终缺失表示目标 command 已完成；
+exact prior candidate 表示没有 commit，可以再次条件删除；不同 row 是
+`conflict`，pending command 绝不能删除它。失败的 barrier 保持 unresolved。
+任何 reconciliation 结果都不能由未加锁 read 推断。
 
 ## Vault 与 Consumer 迁移
 
-`credential.Vault` 把 method context 传入每次 repository call，并在不做 string
-matching 的情况下把 typed Store failure 映射为稳定的 seal/unseal error。`Delete`
-只把 typed `not_found` 视为 idempotent success。
+Vault 把每个 method context 传入每次 repository call，并且不做 string matching，
+映射 typed Store failure。`CredentialVault` 修改 mutation method，使其携带显式、
+有界、非 secret 的 operation identity：
 
-Seal 为 unresolved save 保留一个容量为一的 in-memory pending coordinator。它只
-保留 plaintext fingerprint 与 sealed candidate，绝不保留 plaintext。同一个
-logical request 执行 reconciliation 并恢复原 ref；不同 request 必须先解析该状态，
-必要时删除已提交的 orphan candidate，然后才能生成另一个 ref。immediate success
-或 final absence 会清理 pending state。Gateway lifecycle cancellation 清理 volatile
-pending material。Repository candidate 与 error 绝不跨越 public API。
+```go
+type CredentialVault interface {
+    Ready() error
+    BindLifecycle(context.Context)
+    Seal(context.Context, string, string, []byte) (string, error) // operation ID, kind, plaintext
+    Open(context.Context, string) ([]byte, error)
+    Delete(context.Context, string, string) error // operation ID, ref
+}
+```
 
-所有新的 Weixin QR credential 都调用 `CredentialVault.Seal`；只有 Seal 成功后，
-Gateway 才把返回的 durable ref 赋给 binding。Notification 与 Syncer 使用其拥有的
-request/work context 调用 `CredentialVault.Open`，不再读取
+operation ID 会 trim、必须非空、最多 256 bytes，只保留在 process memory，绝不
+log、persist、audit 或 project。Binding flow 从已创建的 binding ID 与 exact action
+（`seal`、`start-compensation` 或 `revoke`）派生它。只有 operation ID、kind 和
+constant-time plaintext fingerprint 全部相同时，两次调用才属于同一 logical
+request。相同 operation ID 使用不同输入是稳定 conflict；不同 operation ID 下即使
+kind/plaintext 相同也相互独立，绝不能共享 ref 或清理对方的 candidate。
+
+Vault 使用一个容量为一的 in-memory command coordinator，覆盖 unresolved Seal、
+conditional Delete、orphan cleanup 与 legacy Weixin rewrap。pending save 保留
+operation ID、kind、plaintext fingerprint 和 sealed candidate，绝不保留 plaintext。
+pending delete 保留 operation ID、ref 与 opaque delete condition，绝不保留 candidate
+value。之后每个 Vault mutation 都先解析 pending state：
+
+- exact committed save 只返回给 matching operation；不同 operation 继续前，Vault
+  先条件删除该 exact orphan；
+- save absence 证明 rollback 并清理 pending；
+- delete absence 证明完成并清理 pending；
+- exact prior delete candidate 证明 rollback，并允许再次执行一次 conditional
+  delete，不引入未加锁 get/delete gap；以及
+- replacement row 是 conflict，pending command 绝不删除它；在返回稳定 failure
+  前清理该 stale command。
+
+未解析的 cleanup 保持 pending，并阻止生成另一个 ref。因此后续 binding start
+无需接收或披露旧 ref，也能完成此前 compensation。immediate success 与最终解析
+按 generation 清理匹配 state；迟到 cleanup 不能清理 replacement generation。
+Repository candidate 与 error 绝不跨越 public API。
+
+composition root 构造唯一 production Vault。启动 connector worker 前，
+`gatewayServices.Start` 调用 `BindLifecycle(ctx)`。每次 bind 增加 generation 并启动
+一个 cancellation watcher；只有 generation 仍匹配时，cancellation 才清理 pending
+material。rebind 先使旧 generation 失效。Server 不构造 fallback Vault。
+
+所有新的 Weixin QR credential 都使用 binding seal operation ID 调用
+`CredentialVault.Seal`；只有 Seal 成功后，Gateway 才把返回的 durable ref 赋给
+binding。Notification 与 Syncer 使用其拥有的 request/work context 调用
+`CredentialVault.Open`，不再读取
 `CredentialSecret.Value`。operator 静态配置的 Weixin token 仍是配置输入，不进入
 Store。
 
 Gateway 必须检查 credential cleanup error。binding-start compensation 与 binding
-revocation 可以在 binding operation 已完成后返回稳定 unavailable response；retry
-会重复执行 idempotent Vault deletion。不返回任何 raw Store、Vault、envelope、ref、
-token 或 backend error。ConnectorRepository 后续决定 binding 与 credential
-lifecycle 是否组成一个 cross-repository command。
+revocation 可以在 binding operation 已完成后返回稳定 unavailable response；Vault
+coordinator 持续拥有 conditional deletion 直到解析，后续 mutation 必须先解析它。
+不返回任何 raw Store、Vault、envelope、ref、token 或 backend error。
+ConnectorRepository 后续决定 binding 与 credential lifecycle 是否组成一个
+cross-repository command。
+
+### 稳定 Error Projection
+
+Vault 绝不返回 raw Store error。它只在 `Unwrap` 后保留 cause，并且不做 string
+matching，按以下规则映射结果：
+
+| 来源 | Vault code | Public/worker behavior |
+|---|---|---|
+| 无效 operation ID/kind/value，或 operation-ID input conflict | `credential_invalid` | HTTP 400；稳定 validation copy |
+| caller cancellation | `credential_canceled` | response 仍可写时返回 HTTP 408；worker 停止其 owned item |
+| Store timeout/unavailable/durability/unknown/internal/corrupt 或未解析 conditional conflict | `credential_unavailable` | HTTP 503；worker 返回 retryable unavailable，不把它当作 absence |
+| key 缺失或不可用 | `credential_key_unavailable` | HTTP 503；connector unavailable |
+| Open 时 ref 缺失、envelope 无效、wrong key/AAD 或 authentication failure | `credential_unseal_failed` | 稳定 credential failure；绝不包含 ref、kind、value 或 cause |
+
+`Delete` 只把 typed Store `not_found` 视为 idempotent success。Notification 与
+Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault message，绝不
+把 raw Store diagnostic 复制到 binding `last_error`。
 
 ## 门禁与 Commit 边界
 
@@ -171,8 +241,8 @@ lifecycle 是否组成一个 cross-repository command。
 
 1. interface、operation、三个 backend、private File wire format 与 compatibility
    validation 中的 repository behavior；
-2. Vault reconciliation、legacy Weixin rewrap、consumer/context migration 与安全
-   Gateway projection；以及
+2. Vault operation identity、save/delete coordinator、lifecycle binding、legacy
+   Weixin rewrap、consumer/context migration 与安全 Gateway projection；以及
 3. 独立的 File encrypted-envelope fail-closed defect fix；若为了便于 bisect 而与
    repository behavior 分离，则使用该 commit。
 
@@ -185,9 +255,10 @@ lifecycle 是否组成一个 cross-repository command。
 - PostgreSQL acquire/begin/statement/commit/rollback classification、
   terminate-not-release、context-aware admission、barrier isolation、scan
   propagation、atomic audit、startup validation 与 real-DSN evidence；
-- Vault save/delete immediate 与 next-call reconciliation、不得第二次生成
-  ref/value、pending cleanup、安全 typed error、wrong-key failure、legacy Weixin
-  rewrap 与 non-Weixin plaintext rejection；
+- Vault save/delete immediate 与 next-call reconciliation、same/different operation
+  identity、独立 operation 下的 identical plaintext、conditional orphan cleanup、
+  不得第二次生成 ref/value、generation-safe lifecycle cleanup、安全 typed error、
+  wrong-key failure、legacy Weixin rewrap 与 non-Weixin plaintext rejection；
 - Gateway/Notification/Syncer test，证明 Seal 失败时没有 active binding、没有 raw
   Store access、owned context propagation、cleanup error handling，并且不披露
   token/ref/error；
@@ -207,4 +278,5 @@ SessionRepository 设计。
 
 | 审查 | 修订 | 结论 | 证据 | 审查人/日期 |
 |---|---|---|---|---|
-| Credential contract review 1 | pending | pending | pending | pending |
+| Credential contract review 1 | `de4cd93` | `REVISE` | Seal 缺少 logical operation identity；ref-only Delete 可能删除 replacement 且没有 pending cleanup owner；File high-water rollback 与 non-rollback timestamp 冲突；lifecycle 与 public error mapping 不完整 | Context-isolated gatekeeper / 2026-08-20 |
+| Credential contract review 2 | pending | pending | pending | pending |

@@ -4,9 +4,9 @@
 
 > 状态：S2 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在 `0b85cc4`
 > 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83` 获得接受。
-> CredentialRepository 合同修订 5 是当前唯一设计波次；审查 1-4 返回 `REVISE`。
-> 其设计 GO 将推进 ConnectorRepository lifecycle 前置阶段；该前置实现获得 GO
-> 之前，Credential 实现仍被阻塞。
+> CredentialRepository 合同修订 6 是当前唯一设计波次；审查 1-5 返回 `REVISE`。
+> 其设计 GO 将授权 live Credential foundation checkpoint，随后完成
+> ConnectorRepository lifecycle migration，最后执行 integrated Credential gate。
 
 ## 目的
 
@@ -134,3 +134,4 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S3 Credential contract 审查 2 | `1d646f0` | `REVISE` | 修订 2 未保留 success 后的 operation replay、未把 active rewrap 与 orphan cleanup 分开，也未在 delete version 中编码全部已接受时间 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 3 | `b6def5d` | `REVISE` | 修订 3 在没有 durable tombstone 时过度承诺 post-delete operation identity，并允许 Delete 把 caller identity 复用于另一 ref | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 4 | `30cbf24` | `REVISE` | binding identity 在 adapter Start/Seal 后才从 process memory 持久化，因此 crash 会遗留 secret 并丢失 replay identity；Weixin compensation 也没有阻止 Poll/Seal reuse 的 durable terminal transition | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract 审查 5 | `4d54acf` | `REVISE` | Credential code 被阻塞到 Connector GO，但 Connector recovery 已要求新的 AbortSeal，并且旧文本仍把 cross-restart cleanup 交给 volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |

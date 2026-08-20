@@ -4,9 +4,10 @@
 
 > Status: S2 pilot was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`;
 > and S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository
-> contract revision 5 is active after reviews 1-4 returned `REVISE`. Its design
-> GO advances a ConnectorRepository lifecycle prerequisite; Credential
-> implementation remains blocked until that prerequisite receives GO.
+> contract revision 6 is active after reviews 1-5 returned `REVISE`. Its design
+> GO authorizes a live Credential foundation checkpoint, then a complete
+> ConnectorRepository lifecycle migration, then the final integrated Credential
+> gate.
 
 ## Objective And Stage Boundary
 
@@ -501,16 +502,18 @@ secret-redaction, overwrite/delete, durability, reconciliation, consumer, and
 backend compatibility contract is defined by the
 [CredentialRepository contract](store-credential-repository-design.md) and must
 receive an independent GO before code starts. That review exposed a durable
-NotificationBinding identity dependency: after Credential design GO,
-ConnectorRepository becomes the only authorized design and implementation
-prerequisite. Credential code begins only after Connector's implementation GO,
-then the Credential implementation resumes and receives its own gate. Session
-and later repository design remains blocked until that Credential GO.
+NotificationBinding identity dependency. After design GO, the live Credential
+foundation migrates all three backends and current callers, including
+same-process AbortSeal compensation, and receives a focused checkpoint review
+without final GO. ConnectorRepository then becomes the only active repository
+implementation and adds durable lifecycle/recovery using those live primitives.
+After Connector GO, the integrated Credential candidate receives its final
+gate. Session and later repository design remains blocked until that GO.
 
 After S2 implementation and human acceptance, preferred risk order remains:
 
-1. Owner, Client, Credential contract, Connector lifecycle prerequisite,
-   Credential implementation, and Session;
+1. Owner, Client, Credential contract/foundation, Connector lifecycle,
+   integrated Credential gate, and Session;
 2. Conversation, Run, Document, Approval, Audit, Evaluation, and artifact
    metadata;
 3. Schedule, Connector, Delivery Record, Passive Notification, and External
@@ -609,5 +612,6 @@ migrations remain in place.
 | S3 Credential contract review 2 | `1d646f0` | `REVISE` | Immediate success was not replay-idempotent; legacy rewrap had no distinct non-orphan state machine; delete digest time encoding was not total | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 3 | `b6def5d` | `REVISE` | The contract promised generic durable operation identity after delete without a tombstone, and Delete accepted a caller identity reusable against another ref | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 4 | `30cbf24` | `REVISE` | Binding identity existed only in memory until after adapter Start/Seal, so restart replay and orphan cleanup were not durable; Weixin compensation lacked a terminal state preventing the same ID from polling and sealing again | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract review 5 | `4d54acf` | `REVISE` | Credential code was blocked until Connector GO even though Connector recovery required the new AbortSeal, creating a sequencing cycle; stale cleanup ownership still relied on volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

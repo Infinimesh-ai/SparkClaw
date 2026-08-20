@@ -2,11 +2,11 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-credential-repository-design.md)
 
-> Status: S3 design revision 5, 2026-08-20. Reviews 1-4 returned `REVISE`; no
+> Status: S3 design revision 6, 2026-08-20. Reviews 1-5 returned `REVISE`; no
 > CredentialRepository code is authorized before an independent
-> context-isolated design GO. A design GO advances the ConnectorRepository
-> lifecycle prerequisite below; it does not authorize Credential implementation
-> before that prerequisite receives implementation GO.
+> context-isolated design GO. A design GO authorizes only the live Credential
+> foundation checkpoint below, followed by ConnectorRepository lifecycle
+> migration and then the final Credential integration gate.
 
 ## Boundary And Existing Defects
 
@@ -30,9 +30,10 @@ This contract fixes the complete credential boundary. Production cutover also
 needs a durable NotificationBinding identity before any credential can be
 sealed. That lifecycle is owned by ConnectorRepository rather than smuggled
 into CredentialRepository as a second binding log. The repository roadmap
-therefore freezes this contract first, migrates ConnectorRepository next, and
-then returns to Credential implementation. It does not claim a new atomic
-transaction across Store and an external provider.
+therefore freezes this contract first, implements the Credential
+repository/Vault primitives already consumed by production, then migrates
+ConnectorRepository, and finally reviews their integrated caller cutover. It
+does not claim a new atomic transaction across Store and an external provider.
 
 ## Interface
 
@@ -234,7 +235,9 @@ may clear volatile state: a caller that recovers the same durably nonterminal
 binding reconstructs the exact ref after process restart, while equal
 kind/plaintext under another binding ID has an independent ref and cannot share
 or clean up the first credential. No replay guarantee exists for an ID that was
-only process-local; production must not call Seal in that state.
+only process-local. The foundation checkpoint may retain that pre-existing
+failure window under an explicit non-final gate; the final accepted production
+path must not call Seal in that state.
 
 This is deliberately a live-binding replay contract, not a durable generic
 operation ledger. A confirmed Delete or AbortSeal is paired with a durable
@@ -246,8 +249,9 @@ receipt or an atomicity substitute.
 
 ### Durable Binding Prerequisite
 
-Credential production cutover is blocked until the separately reviewed
-ConnectorRepository contract and implementation provide all of these rules:
+The final restart-safe Credential lifecycle is blocked until the separately
+reviewed ConnectorRepository contract and implementation provide all of these
+rules:
 
 1. Gateway creates a fresh immutable binding ID and durably commits a `starting`
    binding before calling an adapter. A definite or unresolved binding create
@@ -281,6 +285,35 @@ replacement, or unresolved Store result is stable unavailable and is never
 deleted. This reconstructible cleanup is independent of Vault's volatile
 pending coordinator, but its authorization comes only from a proven Connector
 pre-active state.
+
+The dependency is implemented without dead code or a circular gate:
+
+1. **Credential foundation checkpoint.** After this design GO, migrate the
+   three repository methods, all three backends, File codec/fail-closed loading,
+   deterministic Vault Seal, conditional Delete/rewrap, AbortSeal, lifecycle
+   binding, and every current credential caller. Telegram and Weixin use Seal;
+   same-request binding-save compensation uses AbortSeal, so each new primitive
+   has a production caller. Notification and Syncer use Open. This checkpoint
+   fixes Store durability and plaintext handling, but it is not Credential
+   implementation GO: the current Connector methods cannot yet prove pre-Seal
+   identity across restart.
+2. **ConnectorRepository migration.** A focused foundation review must show the
+   live primitives and backend contract match this design. It may authorize the
+   Connector wave without declaring Credential complete. Connector then
+   migrates its own interface/backends/callers and adds the durable states,
+   barriers, startup recovery, and terminal ID retention above. No Credential
+   repository method or Vault primitive changes during that repository wave.
+3. **Final Credential integration gate.** After Connector implementation GO,
+   rerun the complete Credential/Connector failure-window and restart matrix,
+   remove every temporary allowance for process-local Seal identity, and review
+   the exact integrated candidate. Only that decision is Credential
+   implementation GO and unblocks SessionRepository.
+
+Only one Store repository implementation is active in each code step. The
+foundation checkpoint is not a partial interface scaffold: all three Credential
+backends and all existing credential callers are live before Connector code
+starts. Conversely, Connector cannot receive GO without using the already-live
+AbortSeal in startup recovery.
 
 Vault has one capacity-one in-memory command coordinator with three explicit,
 disjoint pending modes:
@@ -323,21 +356,24 @@ increments a generation and starts one cancellation watcher; cancellation
 clears pending material only when its generation still matches. Rebinding first
 invalidates the old generation. The Server does not construct a fallback Vault.
 
-After the Connector prerequisite is accepted, all new Weixin QR credentials use
-`CredentialVault.Seal` with the durably persisted immutable binding ID. Gateway
-first persists `credential_pending`, then assigns the returned durable ref only
-through the conditional `active` transition. Notification and Syncer use
-`CredentialVault.Open` with their owned request/work context instead of reading
-`CredentialSecret.Value`. Static operator-configured Weixin tokens remain
-configuration inputs and do not enter Store.
+The foundation moves all new Weixin QR credentials to `CredentialVault.Seal`
+and moves Notification and Syncer to `CredentialVault.Open` with their owned
+request/work context instead of reading `CredentialSecret.Value`. After the
+Connector wave, Seal receives the durably persisted immutable binding ID:
+Gateway first persists `credential_pending`, then assigns the returned durable
+ref only through the conditional `active` transition. Static
+operator-configured Weixin tokens remain configuration inputs and do not enter
+Store.
 
-Gateway must check credential cleanup errors. Binding-start compensation and
-binding revocation may return a stable unavailable response after the binding
-operation has completed; the Vault coordinator owns conditional deletion until
-resolution, and the next mutation resolves it before proceeding. No raw Store,
-Vault, envelope, ref, token, or backend error is returned. ConnectorRepository
-will later decide whether binding plus credential lifecycle becomes one
-cross-repository command.
+Gateway must check credential cleanup errors. Within one running process, the
+Vault coordinator retains conditional command material until resolution and the
+next mutation resolves it before proceeding. Across cancellation or restart,
+the durable Connector `starting`, `credential_pending`, or `revoking` record is
+the cleanup owner; startup recovery must resolve it before workers run. Binding
+start compensation and revocation may return stable unavailable while that
+durable record remains non-active and retryable. No raw Store, Vault, envelope,
+ref, token, or backend error is returned, and neither Audit nor volatile Vault
+state is treated as the cross-repository commit record.
 
 ### Stable Error Projection
 
@@ -359,16 +395,19 @@ binding `last_error`.
 
 ## Gate And Commit Boundary
 
-Implementation follows this accepted design in separate reviewable commits:
+Implementation follows this accepted design in separate reviewable checkpoints:
 
-1. repository behavior across interface, operations, three backends, private
-   File wire format, and compatibility validation;
-2. after the independently accepted ConnectorRepository prerequisite, Vault
-   seal identity, restart-reconstructible AbortSeal, save/delete coordinator,
-   lifecycle binding, legacy Weixin rewrap, consumer/context migration, and
-   safe Gateway projection; and
-3. any independent File encrypted-envelope fail-closed defect fix, if kept
-   separate from repository behavior for bisect clarity.
+1. Credential foundation commits: repository behavior across interface,
+   operations, three backends, private File wire format and compatibility
+   validation; then live Vault seal identity, AbortSeal, coordinators, lifecycle
+   binding, legacy Weixin rewrap, consumer/context migration, and safe Gateway
+   projection. The encrypted-envelope fail-closed defect may remain a separate
+   commit for bisect clarity.
+2. A foundation checkpoint review authorizes the separately documented complete
+   ConnectorRepository design and implementation, but does not mark Credential
+   GO.
+3. The exact integrated Credential/Connector candidate receives the final
+   Credential implementation review after Connector GO.
 
 The implementation gate requires:
 
@@ -380,8 +419,12 @@ The implementation gate requires:
 - PostgreSQL acquire/begin/statement/commit/rollback classification,
   terminate-not-release, context-aware admission, barrier isolation, scan
   propagation, atomic audit, startup validation, and real-DSN evidence;
-- Vault deterministic replay from a durably recovered nonterminal binding,
-  process-local ID rejection at the caller boundary, live-binding
+- the foundation checkpoint proves every new repository/Vault method has a
+  production caller, all three Credential backends are migrated together, and
+  same-process compensation uses AbortSeal; its recorded limitation is the
+  not-yet-migrated Connector restart identity, not a false final GO;
+- the final gate proves Vault deterministic replay from a durably recovered
+  nonterminal binding, process-local ID rejection at the caller boundary, live-binding
   different-input conflict, independent identical plaintext bindings,
   create/delete immediate and next-call reconciliation, conditional orphan
   cleanup, restart-reconstructed AbortSeal, all legacy rewrap state transitions
@@ -406,11 +449,11 @@ The implementation gate requires:
   plus race runs. Existing PostgreSQL CI topology and DSN skip behavior remain
   unchanged.
 
-After this design receives GO, ConnectorRepository is the only authorized
-design and implementation prerequisite. Credential code remains blocked until
-that implementation receives an independent GO. No SessionRepository design
-starts until the resumed exact Credential implementation receives its own
-context-isolated GO.
+After this design receives GO, only the Credential foundation checkpoint is
+authorized. Its focused review may authorize ConnectorRepository design and
+implementation without calling Credential complete. No SessionRepository
+design starts until Connector receives GO and the resumed exact integrated
+Credential candidate receives its own context-isolated implementation GO.
 
 ## Review Record
 
@@ -420,4 +463,5 @@ context-isolated GO.
 | Credential contract review 2 | `1d646f0` | `REVISE` | Immediate success cleared all replay identity; legacy rewrap lacked a distinct non-orphan state machine; delete digest used overflow-prone UnixNano encoding | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 3 | `b6def5d` | `REVISE` | Deterministic refs preserved identity only while a row existed, but the document still promised generic post-delete operation-ID conflict; Delete also accepted a reusable caller operation ID without a durable binding | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 4 | `30cbf24` | `REVISE` | Gateway kept the binding ID only in memory until after adapter Start/Seal, so a crash could lose replay identity and orphan the credential; a compensated Weixin waiting record had no durable terminal transition preventing Poll/Seal reuse | Context-isolated gatekeeper / 2026-08-20 |
-| Credential contract review 5 | pending | pending | pending | pending |
+| Credential contract review 5 | `4d54acf` | `REVISE` | Credential code was blocked until Connector GO while Connector recovery already required the not-yet-authorized AbortSeal, creating a sequencing cycle; stale text also left cleanup solely with volatile Vault state | Context-isolated gatekeeper / 2026-08-20 |
+| Credential contract review 6 | pending | pending | pending | pending |

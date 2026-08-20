@@ -8,8 +8,9 @@
 ## 结论
 
 S0 已具备完整、可执行的 141 方法/20 repository 目录、生产消费者矩阵、
-命令/reconciliation 证据、可执行 PostgreSQL 源码清单，以及后端无关的
-Memory/File 行为刻画。候选建议是**进入人工 S0 实现审查的 GO**，但实际审查
+命令/reconciliation 证据、可执行 PostgreSQL 源码清单，以及受守卫的完整
+20 repository × 10 维 characterization 矩阵。消费者守卫覆盖 58 个直接声明
+位置和 10 个局部接口。候选建议是**进入人工 S0 实现审查的 GO**，但实际审查
 记录有意保持 pending。在用户记录 `GO`、`REVISE` 或 `STOP` 之前，工作必须
 停在本候选，不进入下一阶段。
 
@@ -33,27 +34,34 @@ Memory/File 行为刻画。候选建议是**进入人工 S0 实现审查的 GO**
 
 ## S0 行为刻画证据
 
-`s0_contract_characterization_test.go` 增加一个后端无关 harness 和静态契约
-检查。`s0_postgres_manifest_test.go` 比较当前两个 schema 权威，但不修改任一
-来源。
+`s0_contract_characterization_test.go` 增加代表性后端无关 harness 和静态契约
+检查。`s0_repository_characterization_test.go` 在 Memory/File 上为全部 20 个
+repository 运行成功和正常缺失用例，记录当前可变别名缺陷，并补齐两个此前缺失
+的 File 重启用例。`s0_repository_evidence_test.go` 拥有完整矩阵及测试名称/文档
+守卫。`s0_postgres_manifest_test.go` 比较当前两个 schema 权威，但不修改任一来源。
+
+共享 harness 具有代表性，但不替代已接受的逐 repository 门禁。S0 清单包含
+完整的 20 repository × 10 维适用性/证据矩阵，并由可执行完整性和测试名称
+守卫支持。共享 harness 未覆盖的 repository 证据由现有专项测试提供。
 
 | 契约 | 证据 |
 |---|---|
 | 完整归属 | Reflection 证明恰好有 141 个 `Store` 方法，且每个方法在 20 个 repository 中只有一个 owner |
 | 后端完整性 | 现有编译断言覆盖 Memory、File、PostgreSQL；实现文件映射位于 S0 清单 |
-| 正常缺失 | Memory 和 File 查询不存在的 document 时返回 `found=false` |
-| 成功、顺序、过滤、owner scope | Document record 列表按最新 activity 排序，不跨 owner/session scope |
-| Clone / alias 安全 | Owner preference map、嵌套 MCP invocation map/result bytes 无法通过输入或输出 alias 修改后端保留状态 |
+| 生产消费者 | AST 守卫冻结 58 个直接 constructor/field/helper/worker 声明位置和 10 个展开后的局部 Store-compatible 接口 |
+| 逐 repository 成功与正常缺失 | 具名 Memory/File 子测试覆盖全部 20 个已接受 repository；受守卫矩阵链接更丰富的适用证据 |
+| 成功、顺序、过滤、owner scope | Repository 专项证据覆盖 document、owner、client、message、schedule、connector、passive、external-chat、delivery、run、audit、artifact 等适用查询契约 |
+| Clone / alias 行为 | Owner preference 与 MCP 嵌套值已隔离；缺陷证据记录其余 12 个 repository 当前在 Memory 和运行中的 File decorator 上存在可变 alias 逃逸 |
 | 幂等 | 相同 MCP binding/key/fingerprint 复用同一 operation；fingerprint 变化时 conflict |
 | CAS | MCP operation update 增加 version，并拒绝 stale expected version |
 | Event | Message event 按 session 隔离、有序，并暴露正确 head |
-| 重启 | File session、message、event、owner map、operation 和未改变的 Snapshot 形态在 reload 后保留；现有专项测试覆盖加密和旧格式规范化 |
+| 重启 | 显式断言证明 File session、message、message event/head、owner map、MCP operation、嵌套 invocation argument、result bytes、reminder/delivery 和 notification binding 在 reload 后保留；专项测试覆盖其余 repository、加密和旧格式规范化 |
 | 并发 | Memory/File 上 16 个同时发生的相同 operation create 只产生一次创建和一个稳定 ID |
 | Snapshot 兼容性 | Reflection 冻结全部 38 个字段名和 JSON tag，包括旧 Weixin 兼容字段 |
-| PostgreSQL 源码协调 | 约束级可执行 manifest 冻结根侧 18/16 个表/索引与 Go 侧 37/42 个对象；比较完整共享列/表/索引定义，并冻结全部仅 Go 侧列定义、表约束和索引定义 |
+| PostgreSQL 源码协调 | 约束级可执行 manifest 冻结根侧 18/16 个表/索引与 Go 侧 37/42 个对象；比较完整共享定义，并对 19 张仅 Go 侧表的每个列、类型、default、nullability、inline/table constraint 和索引执行冻结与文档检查 |
 | PostgreSQL DSN suite | 现有 9 个测试及其 skip 行为未改变；本候选没有 DSN |
 | `rows.Err()` | 静态缺陷证据列出 9 个函数中的 10 个未检查 row loop；`ListAllConnectorSettings`、binding revoke、delete、normalization 和 message-event paging 等已检查路径保持区分 |
-| 已知静默失败 | 静态证据冻结 48 个 File 丢弃错误调用点和 33 个 PostgreSQL 显式丢弃结果，留待后续用失败断言替换 |
+| 已知生产缺陷 | 静态证据冻结 48 个 File 丢弃错误点、33 个 PostgreSQL 显式丢弃结果、10 个未检查 row loop，以及 12 个 repository 的可变 alias 逃逸，留待后续用失败/隔离断言替换 |
 
 S0 测试刻画当前成功契约。缺陷证据测试有意命名为
 `TestS0DefectEvidence...`；S1-S3 修复所属行为时必须删除或替换每个断言。
@@ -110,8 +118,8 @@ onboarding pilot。PostgreSQL 命令保持与当前完全相同的 DSN gate。
 ```bash
 npm run setup:document-tools
 cd services/gateway
-go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
-go test -race ./internal/store -run '^(TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
+go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0RepositoryCharacterizationMatrixCompleteness|TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
+go test -race ./internal/store -run '^(TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
 SPARKCLAW_TEST_POSTGRES_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw_test?sslmode=disable' go test ./internal/store -run '^(TestPostgresStorePersistsOnlyISCPOnboardingReceipt|TestPostgresISCPOnboardingRepository.*)$' -count=1 -v
 go test ./...
 go vet ./...
@@ -129,7 +137,7 @@ git diff --check
 git status --short
 cd services/gateway
 go test ./internal/store -run '^TestS0' -count=1 -v
-go test -race ./internal/store -run '^TestS0BackendNeutralContractCharacterization$' -count=1
+go test -race ./internal/store -run '^TestS0(BackendNeutralContractCharacterization|BackendNeutralRepositorySuccessAndAbsence)$' -count=1
 go test ./...
 go vet ./...
 ```
@@ -143,6 +151,11 @@ go vet ./...
   且无差异或无实例的类别区分开。
 - 48 个 File 和 33 个 PostgreSQL 静默失败点按 S0 范围保留为生产缺陷。
   未检查 row-loop 和 lookup-to-absence 路径也仍存在。
+- Client、Conversation、Run、Approval、Schedule、Connector、
+  PassiveNotification、DeliveryRecord、BrowserState、Memory、Audit 和
+  Evaluation 记录当前会从 Memory 与运行中的 File decorator 暴露进程内
+  可变 alias。S0 只记录不修复；每个所属 repository wave 必须用隔离断言替换
+  该缺陷证据。
 - Timeout 默认值是基于推理的保守边界；只有 S1/S2 配置环境证据才能验证或
   修订。
 - `DeleteSession` 是宽跨 repository 事务。S1/S3 不得让 FK 行为或 repository
@@ -151,6 +164,9 @@ go vet ./...
   直到单独审查的 migration 证明可以删除。
 - 生产消费者矩阵按当前设计很宽。Repository 提取必须引入消费者自有
   composite，不得使用 optional type assertion 或 runtime service locator。
+- 共享 S0 harness 具有代表性；受守卫的逐 repository 矩阵才是完整性权威。
+  S2/S3 迁移各 repository 时必须增加失败契约证据，且不得弱化 S0
+  applicability 记录。
 
 ## 审查记录
 

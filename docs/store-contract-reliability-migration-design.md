@@ -16,8 +16,7 @@ stage gates. The linked designs own their individual contracts.
 The Store work fixes silently discarded File/PostgreSQL failures, introduces
 small domain repositories, deletes the broad `store.Store`, and only then adds
 assembly-owned Runtime supervision. PostgreSQL schema/configuration work is a
-Store prerequisite. ASR CI is an independent delivery and does not gate Store
-migration.
+Store prerequisite.
 
 Large-file splitting is deliberately excluded. After Store migration and
 supervision are complete, the repository will be inventoried again and any
@@ -34,7 +33,6 @@ pre-approved by this roadmap.
 | [PostgreSQL schema and state configuration](store-postgresql-schema-config-design.md) | Embedded migration authority, existing-database adoption, strict state configuration, and unchanged DSN-gated tests |
 | [Repository migration](store-repository-migration-design.md) | One-repository implementation waves, temporary broad-interface rules, and final `store.Store` deletion |
 | [Runtime and supervision](store-runtime-supervision-design.md) | Post-migration Runtime assembly, finite operation supervision, health, metrics, probes, and lifecycle |
-| [ASR runtime CI](asr-runtime-ci-design.md) | Independent fake-model ASR dependency and CI contract |
 
 ## Review Protocol
 
@@ -97,8 +95,7 @@ Included:
 - Store contracts, callers, all three backends, File snapshot durability,
   PostgreSQL migrations, Store-specific configuration, operation supervision,
   readiness, and Store lifecycle;
-- artifact metadata records currently owned by Store;
-- independent ASR fake-model CI work through its own document.
+- artifact metadata records currently owned by Store.
 
 Excluded until separately designed:
 

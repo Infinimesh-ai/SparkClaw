@@ -131,6 +131,13 @@ Characterization tests freeze intended successful behavior. A test that merely
 encodes a known silent failure is marked as defect evidence and replaced by a
 failure assertion in the owning migration stage.
 
+The representative backend-neutral cross-contract harness may share evidence
+across repositories only when paired with a complete per-repository
+applicability/evidence matrix. Every repository and dimension must reference an
+exact existing/new test or record `N/A` with a contract-specific reason. Later
+S2/S3 waves extend, rather than replace, this S0 evidence with failure-contract
+coverage for the migrated method set.
+
 ## S0 Review Gate
 
 Design `GO` requires the inventory templates, method/error/context rules, and

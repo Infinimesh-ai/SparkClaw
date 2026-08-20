@@ -9,7 +9,9 @@
 `store.go`、`memory.go`、`file.go`、`postgres.go`、ISCP/MCP Store 文件、
 `migrations/0001_core.sql`，以及 `services/gateway` 下每个生产
 `store.Store` 引用。方法归属的可执行权威是
-`s0_contract_characterization_test.go`；PostgreSQL 源码协调的可执行权威是
+`s0_contract_characterization_test.go`；逐 repository 适用性/证据的可执行
+权威是 `s0_repository_evidence_test.go` 和
+`s0_repository_characterization_test.go`；PostgreSQL 源码协调的可执行权威是
 `s0_postgres_manifest_test.go`。
 
 ## 已接受的 Repository 目录
@@ -103,11 +105,79 @@ PostgreSQL 对象。分号用于分隔兼容/派生状态与主要记录。
 | Evaluation | `EvalRuns` | `eval_runs` | PK 和 started-time 索引 |
 | Artifact metadata | `ArtifactObjects`；volatile URI-to-ID 索引在加载时重建 | `artifact_objects` | PK；created、run 和仅 Go 侧 URI 索引 |
 
+## 逐 Repository Characterization 证据
+
+下表是已接受的逐 repository 门禁，完整覆盖 20 个 repository 与 10 个维度。
+`TestS0RepositoryCharacterizationMatrixCompleteness` 是可执行权威：它要求恰好
+20 行 repository 和 10 个维度，把每个证据引用解析到精确测试函数与文件，
+拒绝无具体理由的 `N/A`，并要求本文档存在唯一对应行。
+`TestS0BackendNeutralRepositorySuccessAndAbsence` 为每个 repository 运行具名
+Memory/File 子测试；其余证据键指向相应的附加契约。
+
+| Repository | 成功 | 正常缺失 | 排序/过滤/作用域 | 克隆/别名 | 重复/幂等 | CAS/冲突/删除 | 事件/审计/序列 | File 重启/snapshot | 并发/revision | PostgreSQL row/`rows.Err()` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `OwnerRepository` | `BASE` | `BASE` | `OWNER` | `CROSS` | `BASE` | N/A：没有删除、CAS 或冲突命令 | `OWNER` | `CROSS` | N/A：没有 repository revision 或幂等创建结果 | `PG` + `PG-ROWS` |
+| `ClientRepository` | `BASE` | `BASE` | `BASE` | `ALIAS` 缺陷 | `BASE` | `BASE` claim/revoke | `BASE` | `FILE-ALL` | N/A：claim/revoke 暴露状态冲突而非 revision | `PG` + `PG-ROWS` |
+| `ISCPOnboardingRepository` | `BASE` | `BASE` | `ISCP` | N/A：记录没有可变成员 | `BASE` 唯一 ID 冲突 | `BASE` 冲突 | N/A：lifecycle audit 由调用方拥有 | `ISCP` | N/A：唯一 ID 是边界且没有 revision | `ISCP-PG` + `PG-ROWS` |
+| `CredentialRepository` | `BASE` | `BASE` | N/A：仅有精确 ref 查找 | N/A：记录没有可变成员 | `BASE` ref overwrite | `BASE` 删除 | `BASE` audit | `CREDENTIAL-FILE` | N/A：没有 revision/幂等创建结果 | N/A：仅 QueryRow/Exec，没有 row iterator |
+| `SessionRepository` | `BASE` | `BASE` | `BASE` hidden 过滤 | N/A：记录没有可变成员 | N/A：create 始终分配新 ID | `BASE` + `BROWSER` 删除 | `BASE` | `CROSS` | N/A：没有 version/revision 契约 | `PG` + `BROWSER-PG` + `PG-ROWS` |
+| `ConversationRepository` | `BASE` | `BASE` | `MESSAGE` | `ALIAS` 缺陷 | `BASE` message-ID reuse | N/A：append/cursor API 没有更新或删除 | `CROSS` + `MESSAGE` | `MESSAGE-FILE` + `CROSS` | N/A：event sequence 而非 CAS revision 对 append 排序 | `PG` |
+| `RunRepository` | `BASE` | `BASE` | `RUN` | `ALIAS` 缺陷 | `RUN` feedback replacement | N/A：overwrite/append API 没有删除或 CAS | `RUN` | `FILE-ALL` + `RUN-FILE` | N/A：没有调用方可见的 winner revision | `PG` + `PG-ROWS` |
+| `DocumentRepository` | `BASE` + `CROSS` | `BASE` + `CROSS` | `DOCUMENT` | N/A：记录没有可变成员 | `DOCUMENT` ID overwrite | N/A：没有删除、CAS 或冲突命令 | `DOCUMENT` | `DOCUMENT-FILE` | N/A：没有 revision/幂等创建结果 | `PG` + `PG-ROWS` |
+| `ApprovalRepository` | `BASE` | `BASE` | `APPROVAL` | `ALIAS` 缺陷 | `APPROVAL` external-ref identity | `APPROVAL` pending-state conflict | `APPROVAL` | `APPROVAL-FILE` | N/A：pending 状态而非数字 revision 是前置条件 | `PG` + `PG-ROWS` |
+| `ScheduleRepository` | `BASE` | `BASE` | `BASE` due 排序/过滤 | `ALIAS` 缺陷 | `BASE` ID overwrite | `SCHEDULE` CAS | `BASE` | `FILE-GAPS` | `SCHEDULE` CAS winner | `PG` + `PG-ROWS` |
+| `ConnectorRepository` | `BASE` | `BASE` | `CONNECTOR` | `ALIAS` 缺陷 | `BASE` binding ID overwrite | `CONNECTOR` CAS | `CONNECTOR` | `CONNECTOR-FILE` + `FILE-GAPS` | `CONNECTOR` 数字 revision | `CONNECTOR-PG` |
+| `PassiveNotificationRepository` | `BASE` + `PASSIVE` | `BASE` + `PASSIVE` | `PASSIVE` | `ALIAS` 缺陷 | `PASSIVE` 幂等 replay/conflict | `PASSIVE` prune/replay | `PASSIVE` revision/audit | `PASSIVE-FILE` | `PASSIVE` 进程内 revision | `PASSIVE-PG` + `PG-ROWS` |
+| `ExternalChatRepository` | `BASE` + `EXTERNAL` | `BASE` | `EXTERNAL` | N/A：记录没有可变成员 | `EXTERNAL` ID/external-ID 行为 | N/A：没有删除、CAS 或类型化冲突命令 | `EXTERNAL` | `EXTERNAL-FILE` | N/A：external-ID lookup 是 reconciliation 而非 CAS | `EXTERNAL-PG` + `PG-ROWS` |
+| `DeliveryRecordRepository` | `BASE` + `DELIVERY` | `BASE` | `DELIVERY` + `EXTERNAL` | `ALIAS` 缺陷 | `DELIVERY` + `EXTERNAL` dedupe key | N/A：lifecycle overwrite API 没有删除/CAS | `DELIVERY` | `DELIVERY-FILE` + `EXTERNAL-FILE` | N/A：dedupe key 序列化写入但没有数字 revision | `EXTERNAL-PG` + `PG-ROWS` |
+| `MCPRepository` | `BASE` + `MCP` | `BASE` | `MCP` owner scope | `MCP-ALIAS` | `MCP` 幂等性 | `MCP` CAS/revoke/delete | N/A：lifecycle audit 由调用方拥有；operation version 是序列 | `MCP-FILE` + `CROSS` | `CROSS` 并发幂等/version | `MCP-PG` + `PG-ROWS` |
+| `BrowserStateRepository` | `BASE` + `BROWSER` | `BASE` | `BROWSER` | `ALIAS` 缺陷 | `BROWSER` 规范化重复 ID | `BROWSER` CAS/delete | `BROWSER` | `BROWSER-FILE` + `FILE-ALL` | `BROWSER` 数字 revision | `BROWSER-PG` |
+| `MemoryRepository` | `BASE` + `MEMORY` | `BASE` | `MEMORY` | `ALIAS` 缺陷 | N/A：candidate create 分配 ID；resolve 是状态转换 | `MEMORY` delete/prune | `MEMORY` | `FILE-ALL` + `MEMORY-FILE` | N/A：状态冲突没有数字 revision | `PG` + `PG-ROWS` |
+| `AuditRepository` | `BASE` | `BASE` | `BASE` session/order | `ALIAS` 缺陷 | N/A：append 生成 ID 且没有幂等键 | N/A：仅 append，没有 update/delete/CAS | `BASE` supplied audit 加有序 event | `MEMORY-FILE` | N/A：event cursor sequence 是唯一排序 token | `PG` + `PG-ROWS` |
+| `EvaluationRepository` | `BASE` | `BASE` | `BASE` newest-first | `ALIAS` 缺陷 | `BASE` ID overwrite | N/A：没有删除、CAS 或冲突命令 | `BASE` | `FILE-ALL` | N/A：没有 revision/幂等创建结果 | `PG` + `PG-ROWS` |
+| `ArtifactMetadataRepository` | `BASE` + `ARTIFACT` | `BASE` + `ARTIFACT` | `ARTIFACT` | N/A：记录没有可变成员 | `ARTIFACT` ID/URI replacement | `ARTIFACT` session-delete cleanup | `ARTIFACT` | `FILE-ALL` | N/A：ID overwrite 原子替换 URI 索引且没有 revision | `PG` + `PG-ROWS` |
+
+证据键解析到以下精确测试与位置：
+
+- `BASE`：[`TestS0BackendNeutralRepositorySuccessAndAbsence`](../../services/gateway/internal/store/s0_repository_characterization_test.go)，使用 repository 具名 Memory/File 子测试。
+- `CROSS`：[`TestS0BackendNeutralContractCharacterization`](../../services/gateway/internal/store/s0_contract_characterization_test.go)。
+- `ALIAS`：[`TestS0DefectEvidenceMutableAliases`](../../services/gateway/internal/store/s0_repository_characterization_test.go)，使用 repository 具名 Memory/File 子测试。它记录当前不安全行为，不是期望契约。
+- `FILE-GAPS`：[`TestS0FileRepositoryRestartGaps`](../../services/gateway/internal/store/s0_repository_characterization_test.go)；`FILE-ALL`：[`TestFileStorePersistsAndReloadsState`](../../services/gateway/internal/store/file_test.go)；`PG-ROWS`：[`TestS0DefectEvidencePostgresRowsErrIsNotChecked`](../../services/gateway/internal/store/s0_contract_characterization_test.go)。
+- `OWNER`：[`TestMemoryStoreUpdatesOwnerProfile`](../../services/gateway/internal/store/memory_test.go)、[`TestMemoryStoreManagesMultipleOwnerProfiles`](../../services/gateway/internal/store/memory_test.go)。
+- `ISCP`：[`TestFileStorePersistsOnlyISCPOnboardingReceipt`](../../services/gateway/internal/store/mcp_access_test.go)；`ISCP-PG`：[`TestPostgresStorePersistsOnlyISCPOnboardingReceipt`](../../services/gateway/internal/store/postgres_test.go)。
+- `CREDENTIAL-FILE`：[`TestFileStoreEncryptsStateAtRest`](../../services/gateway/internal/store/file_test.go)。
+- `MESSAGE`：[`TestMemoryMessageEventsAreBoundedAndSessionScoped`](../../services/gateway/internal/store/message_events_test.go)；`MESSAGE-FILE`：[`TestFileMessageEventsSurviveRestart`](../../services/gateway/internal/store/message_events_test.go)。
+- `RUN`：[`TestMemoryStoreSavesRunFeedback`](../../services/gateway/internal/store/memory_test.go)；`RUN-FILE`：[`TestFileStorePersistsWorkflowStateAndToolBinding`](../../services/gateway/internal/store/file_test.go)。
+- `DOCUMENT`：[`TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped`](../../services/gateway/internal/store/memory_test.go)；`DOCUMENT-FILE`：[`TestFileStorePersistsDocumentRecords`](../../services/gateway/internal/store/file_test.go)。
+- `APPROVAL`：[`TestMemoryStoreFindsExternalApprovalByStableReference`](../../services/gateway/internal/store/memory_test.go)；`APPROVAL-FILE`：[`TestFileStorePersistsExternalApprovalContext`](../../services/gateway/internal/store/file_test.go)、[`TestFileStorePersistsPolicyExecutionContext`](../../services/gateway/internal/store/file_test.go)。
+- `SCHEDULE`：[`TestMemoryStoreUpdatePendingReminderUsesCompareAndSwap`](../../services/gateway/internal/store/memory_test.go)。
+- `CONNECTOR`：[`TestMemoryStoreConnectorSettingUsesCASAndOwnerScope`](../../services/gateway/internal/store/connector_settings_test.go)、[`TestMemoryStoreListsAllConnectorSettingsInStableOwnerChannelOrder`](../../services/gateway/internal/store/connector_settings_test.go)；`CONNECTOR-FILE`：[`TestFileStorePersistsConnectorSettingVersion`](../../services/gateway/internal/store/connector_settings_test.go)；`CONNECTOR-PG`：[`TestPostgresStoreListsAllConnectorSettings`](../../services/gateway/internal/store/postgres_test.go)。
+- `PASSIVE`：[`TestMemoryStorePassiveNotificationIdempotencyAndOwnerScope`](../../services/gateway/internal/store/passive_notifications_test.go)、[`TestMemoryStorePassiveNotificationIdempotentReingestionAtScale`](../../services/gateway/internal/store/passive_notifications_test.go)、[`TestPrunePassiveNotificationsRetentionSweep`](../../services/gateway/internal/store/passive_notifications_test.go)、[`TestPrunePassiveNotificationsCapEvictsReadOldestFirst`](../../services/gateway/internal/store/passive_notifications_test.go)、[`TestPassiveNotificationRevisionSignalsInboxChanges`](../../services/gateway/internal/store/passive_notifications_test.go)；`PASSIVE-FILE`：[`TestFileStorePassiveNotificationSurvivesRestart`](../../services/gateway/internal/store/passive_notifications_test.go)、[`TestFileStoreSnapshotRebuildsPassiveNotificationIndex`](../../services/gateway/internal/store/passive_notifications_test.go)；`PASSIVE-PG`：[`TestPostgresStorePassiveNotificationPruneAndRevision`](../../services/gateway/internal/store/postgres_test.go)。
+- `EXTERNAL`：[`TestMemoryStoreExternalChatAndInboxParity`](../../services/gateway/internal/store/external_chat_test.go)；`EXTERNAL-FILE`：[`TestFileStoreExternalChatAndInboxParity`](../../services/gateway/internal/store/external_chat_test.go)；`EXTERNAL-PG`：[`TestPostgresStoreExternalChatAndInboxParity`](../../services/gateway/internal/store/postgres_test.go)。
+- `DELIVERY`：[`TestMemoryStoreMessageLifecycleParity`](../../services/gateway/internal/store/message_lifecycle_test.go)；`DELIVERY-FILE`：[`TestFileStoreMessageLifecycleRoundTrip`](../../services/gateway/internal/store/message_lifecycle_test.go)。
+- `MCP`：[`TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound`](../../services/gateway/internal/store/mcp_access_test.go)、[`TestMCPOperationIdempotencyRejectsChangedRequest`](../../services/gateway/internal/store/mcp_access_test.go)、[`TestMCPBindingRevocationTerminatesOnlyNonterminalOperations`](../../services/gateway/internal/store/mcp_access_test.go)、[`TestMCPAccessRecordsCanBeDeletedIndividuallyAndByOwner`](../../services/gateway/internal/store/mcp_access_test.go)；`MCP-ALIAS`：[`TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore`](../../services/gateway/internal/store/mcp_access_test.go)；`MCP-FILE`：[`TestFileStorePersistsMCPAccessWithoutPlaintextSecret`](../../services/gateway/internal/store/mcp_access_test.go)；`MCP-PG`：[`TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery`](../../services/gateway/internal/store/postgres_test.go)。
+- `BROWSER`：[`TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite`](../../services/gateway/internal/store/memory_test.go)、[`TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate`](../../services/gateway/internal/store/memory_test.go)、[`TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite`](../../services/gateway/internal/store/memory_test.go)、[`TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields`](../../services/gateway/internal/store/memory_test.go)、[`TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks`](../../services/gateway/internal/store/memory_test.go)；`BROWSER-FILE`：[`TestFileStoreBrowserHandoffCASRoundTrip`](../../services/gateway/internal/store/file_test.go)；`BROWSER-PG`：[`TestPostgresStoreBrowserHandoffCASRoundTrip`](../../services/gateway/internal/store/postgres_test.go)、[`TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate`](../../services/gateway/internal/store/postgres_test.go)、[`TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks`](../../services/gateway/internal/store/postgres_test.go)。
+- `MEMORY`：[`TestMemoryStoreUpdatesAndDeletesAcceptedMemory`](../../services/gateway/internal/store/memory_test.go)、[`TestMemoryStorePrunesExpiredMemories`](../../services/gateway/internal/store/memory_test.go)；`MEMORY-FILE`：[`TestFileStorePersistsMemoryRetentionPrune`](../../services/gateway/internal/store/file_test.go)。
+- `ARTIFACT`：[`TestMemoryStoreListsArtifactObjectsNewestFirst`](../../services/gateway/internal/store/memory_test.go)、[`TestMemoryStoreFindsArtifactObjectByURI`](../../services/gateway/internal/store/memory_test.go)。
+- `PG`：[`TestPostgresStoreRoundTrip`](../../services/gateway/internal/store/postgres_test.go)。所有 PostgreSQL 键继续受 DSN gate；未设置 DSN 时不能计为通过。
+
+`ALIAS` 证据当前记录 Client、Conversation、Run、Approval、Schedule、
+Connector、PassiveNotification、DeliveryRecord、BrowserState、Memory、Audit
+和 Evaluation 记录在 Memory 以及运行中的 File decorator 中存在可变别名逃逸。
+S0 不修复这些生产契约。每个负责的 repository wave 必须用隔离断言替换相应
+defect-evidence 单元格。
+
 ## 生产消费者矩阵
 
-矩阵包含当前接受或保存 `store.Store` 的每个生产声明，包括 constructor、
-field、helper、worker 和 assembly 使用。重复 receiver 方法使用其所属类型所列
-composite。
+矩阵同时包含每个直接接受/保存 `store.Store` 的生产声明，以及方法集与
+`Store` 相交的每个具名生产局部接口。它覆盖 constructor、field、helper、
+worker、adapter、resolver 和 assembly 使用。重复 receiver 方法使用其所属
+类型所列 composite。
+
+`TestS0ProductionStoreConsumerInventory` 扫描 Gateway 中全部非测试 Go 文件。
+它按文件和外围 symbol 冻结每个直接 `store.Store` 声明、Store package 内
+helper，以及每个具名局部 Store-compatible 接口的展开 Store 方法集。新增、
+删除或重命名声明都会使可执行清单失败，并要求重新审查本矩阵。
 
 | Package / symbol | 类型 | 最小 repository 或消费者自有 composite |
 |---|---|---|
@@ -115,31 +185,47 @@ composite。
 | `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Session + Run + Approval + Audit |
 | `store.ArchiveToolObservation` | helper | ArtifactMetadata |
 | `credential.Vault`, `credential.New` | constructor + field | Credential |
-| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |
+| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |
 | `gateway.runHasPendingApproval` | helper | Approval |
 | `happyapproval.Service`, `New` | polling worker | Approval |
 | `iscpbridge.GatewayAdapter`, `NewGatewayAdapter` | adapter + field | Owner + Session + Conversation + Run + Approval + PassiveNotification + Audit |
 | `iscppairing.Service`, `New` | service + field | ISCPOnboarding + Audit |
 | `mcpaccess.Service`, `New` | service + field | MCP + Run + Approval + Audit |
-| `mcpaccess.Provider`, `NewProvider` | provider + field | MCP + Run + ArtifactMetadata |
+| `mcpaccess.Provider`, `NewProvider` | provider + field | MCP + Run + Session + ExternalChat + Audit + ArtifactMetadata |
 | `mcpaccess.updateOperationRecord`, `rejectPendingApprovals`, `finalizeRevokedOperations`, approval helpers | helpers | MCP + Run + Approval |
 | `notification.SendWeixinText/Image/File/Typing` | helper 入口 | Connector + Schedule + Credential |
-| `notification.WeixinAdapter`, `NewWeixinAdapter` | adapter + optional field | Connector + Schedule + Credential |
+| `notification.WeixinAdapter`, `NewWeixinAdapter` | adapter + optional field | Connector + Schedule + Credential + Session + ExternalChat + ArtifactMetadata |
 | `reminder.Scheduler`, `NewMessageScheduler` | worker + field | Schedule |
 | `remindertarget.Resolver`, `NewResolver` | resolver + field | ExternalChat + Connector |
 | `telegram.Dispatcher`, `NewDispatcher` | worker + field | Owner + Session + Conversation + Run + Approval + Schedule + Connector + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
 | `telegram.Service`, `NewService`, `hasDefaultActiveBinding` | worker + helper | Connector |
-| `telegram.NotificationAdapter`, `NewNotificationAdapter` | adapter + field | Connector + Credential |
+| `telegram.NotificationAdapter`, `NewNotificationAdapter` | adapter + field | Connector + Schedule + Session + ExternalChat + ArtifactMetadata；credential 来自独立 `CredentialVault`，不归其 Store 参数 |
 | `toolhub.ToolHub`, `New` | constructor + field | Session + Run + Approval + Schedule + Connector + ExternalChat + Memory + Audit + ArtifactMetadata |
-| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Session + Conversation + Run + Approval + Connector + ExternalChat + ArtifactMetadata + Audit |
-| `weixin.Syncer`, `NewSyncer` | polling worker + field | Connector + Credential + ExternalChat |
+| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Session + Conversation + Run + Approval + Connector + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
+| `weixin.Syncer`, `NewSyncer`, `WithConfig` | polling worker + field + adapter assembly | Session + Connector + Credential + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
 | `weixin.MediaAdapter`, `NewMediaAdapter` | adapter + field | Session + ArtifactMetadata + Audit |
 | `cmd/sparkclaw.newStore` | backend factory | 20 个 repository 组成的单一 concrete backend 结果；S4 后任何生产消费者都不应再接收此宽类型 |
 | `cmd/sparkclaw.buildRuntime` / bootstrap assembly | assembly forwarding | Agent + ToolHub composite、ISCPOnboarding + Audit，以及 ArtifactMetadata |
 | `cmd/sparkclaw.buildConnectors` | assembly forwarding | Connector + Credential + ExternalChat + DeliveryRecord + Session + Conversation + Owner + Run + Approval + Schedule + ArtifactMetadata + Audit |
 
-不存在其他生产 `store.Store` 声明。`artifact.Store` 是独立的 artifact-object
-接口，不属于本次迁移。
+生产局部 Store-compatible 消费者如下：
+
+| Package / symbol | 类型 | 已接受 repository 或 composite |
+|---|---|---|
+| `connector.Registry`, `connectorStore`, `NewRegistry` | field + 局部接口 + constructor | Connector |
+| `messagecontrol.EndpointRegistry`, `endpointStore`, `NewEndpointRegistry` | field + 局部接口 + constructor | Session + Connector + ExternalChat |
+| `messagecontrol.mcpEndpointStore`（位于 `EndpointRegistry.get`） | optional 局部 type assertion | MCP；当前 optional discovery 是已记录行为，迁移时必须改为显式的消费者自有 composite |
+| `messagecontrol.ScheduleRegistry`, `scheduleStore`, `NewScheduleRegistry` | field + 局部接口 + constructor | Schedule + Session + Connector + ExternalChat |
+| `messagecontrol.ReceiveLifecycle`, `receiveStore`, `NewReceiveLifecycle` | field + 局部接口 + constructor | DeliveryRecord |
+| `delivery.PersistentWebDelivery`, `webMessageStore`, `NewPersistentWebDelivery` | field + 局部接口 + constructor | Conversation |
+| `delivery.EndpointResourceResolver`, `endpointResourceStore`, `NewEndpointResourceResolver` | resolver + 局部 composite + constructor | Session + ArtifactMetadata |
+| `delivery.StoreResourceResolver`, `artifactStore`, `NewStoreResourceResolver` | resolver + 局部接口 + constructor | ArtifactMetadata |
+| `delivery.ResolveBrowserContent`, `governedArtifactStore` | helper + 局部 composite | Session + ArtifactMetadata |
+| `delivery.RecordExternalDelivery`, `externalDeliveryStore` | helper + 局部 composite | ExternalChat |
+
+不存在其他直接或具名局部 Store-compatible 生产声明。`delivery.EndpointRegistry`
+和 `delivery.WebDelivery` 是 delivery 领域接口，不是 Store-compatible 接口。
+`artifact.Store` 是独立的 artifact-object 接口，不属于本次迁移。
 
 ## Mutation 与命令矩阵
 
@@ -289,6 +375,9 @@ S0 有意不修复以下行为：
 - 多个 PostgreSQL lookup 把任意 scan/decode 失败转换为 `found=false`，多个
   list 方法把 query 失败转换为空列表。
 - PostgreSQL 生命周期 append 通常位于命令事务之外，且错误被丢弃。
+- 12 个 repository 记录族会从 Memory 和运行中的 File decorator 暴露可变
+  alias，使调用方无需另一个 Store 命令即可修改保留的 map、slice 或 pointer；
+  受守卫证据矩阵逐项列出所属 owner。
 
 行为刻画测试把这些标记为缺陷证据。S1-S3 中每个负责的迁移必须用失败契约
 测试替换对应证据断言。

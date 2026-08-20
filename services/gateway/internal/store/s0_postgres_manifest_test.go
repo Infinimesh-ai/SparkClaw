@@ -181,6 +181,37 @@ func TestS0PostgresReconciliationManifest(t *testing.T) {
 	if !reflect.DeepEqual(gotGoOnlyTableConstraints, wantGoOnlyTableConstraints) {
 		t.Fatalf("Go-only table constraints changed\n got: %#v\nwant: %#v", gotGoOnlyTableConstraints, wantGoOnlyTableConstraints)
 	}
+	wantGoOnlyTableDefinitions := map[string]string{
+		"browser_auth_records":     "column account_hint text not null default '' | column auth_strategy text not null | column browser_profile_id text not null | column cookie_jar_ref text not null default '' | column created_at timestamptz not null default now() | column credential_ref text not null default '' | column expires_at timestamptz | column id text primary key | column last_error text not null default '' | column last_verified_at timestamptz | column owner_id text not null | column revoked_at timestamptz | column session_ref text not null default '' | column site_origin text not null | column site_realm text not null default '' | column status text not null | column updated_at timestamptz not null default now()",
+		"browser_login_blocks":     "column account_hint text not null default '' | column browser_auth_status text not null default '' | column browser_profile_id text not null default 'default' | column created_at timestamptz not null default now() | column id text primary key | column last_error text not null default '' | column last_tool_call_id text not null default '' | column last_user_reply text not null default '' | column last_visible_page_id text not null default '' | column login_handoff_page_id text not null default '' | column login_handoff_url text not null default '' | column original_goal text not null default '' | column owner_id text not null default 'owner' | column resolved_at timestamptz | column resume_args jsonb not null default '{}' | column resume_tool text not null default 'browser.read' | column run_id text not null references agent_runs(id) | column schema_version integer not null default 2 | column session_generation bigint not null default 0 | column session_id text not null references sessions(id) | column site_origin text not null default '' | column site_realm text not null default '' | column status text not null | column target jsonb not null default '{}' | column transition_lease_until timestamptz | column transition_owner_id text not null default '' | column updated_at timestamptz not null default now() | column version bigint not null default 1 | column visible_evidence jsonb not null default 'null' | column workflow_id text not null default '' | column workflow_node_id text not null default '' | column workflow_revision integer not null default 0",
+		"channel_inbox_updates":    "column attempts integer not null default 0 | column available_at timestamptz not null default now() | column binding_id text not null | column channel text not null | column chat_key text not null default '' | column created_at timestamptz not null default now() | column external_id text not null | column id text primary key | column last_error text not null default '' | column payload jsonb not null default '{}' | column status text not null | column updated_at timestamptz not null default now() | constraint unique(binding_id,external_id)",
+		"connector_settings":       "column channel text not null | column enabled boolean not null default false | column iscp_enabled boolean not null default false | column lan_access_enabled boolean not null default false | column owner_id text not null | column updated_at timestamptz not null default now() | column updated_by text not null default '' | column version bigint not null default 1 | constraint primary key(owner_id,channel)",
+		"credential_secrets":       "column created_at timestamptz not null default now() | column kind text not null | column ref text primary key | column updated_at timestamptz not null default now() | column value text not null",
+		"document_records":         "column content_type text not null default '' | column created_at timestamptz not null default now() | column format text not null default '' | column governed_path text not null | column id text primary key | column last_activity text not null | column last_activity_at timestamptz not null | column last_activity_id text not null | column name text not null | column owner_id text not null default 'owner' | column parent_document_id text not null default '' | column session_id text not null references sessions(id) | column sha256 text not null default '' | column size_bytes bigint not null default 0 | column source text not null | column source_message_id text not null default '' | column source_run_id text not null default '' | column source_tool_call_id text not null default '' | column status text not null | column updated_at timestamptz not null default now()",
+		"external_chat_messages":   "column binding_id text not null | column channel text not null | column chat_session_id text not null | column content text not null | column context_token text not null default '' | column created_at timestamptz not null default now() | column direction text not null | column dispatch_attempts integer not null default 0 | column error text not null default '' | column external_message_id text not null default '' | column id text primary key | column linked_run_id text not null default '' | column pending_reply text not null default '' | column pending_reply_kind text not null default '' | column role text not null | column status text not null | column updated_at timestamptz not null default now()",
+		"external_chat_sessions":   "column authorized_actor_id text not null default '' | column authorized_owner_id text not null default '' | column binding_id text not null | column channel text not null | column created_at timestamptz not null default now() | column display_name text not null default '' | column external_chat_id text not null default '' | column external_thread_id text not null default '' | column external_user_id text not null default '' | column id text primary key | column last_context_token text not null default '' | column linked_session_id text not null default '' | column owner_id text not null default '' | column provider text not null default '' | column provider_cursor text not null default '' | column status text not null | column updated_at timestamptz not null default now() | column workspace_root text not null default ''",
+		"iscp_onboardings":         "column authority_ref text not null | column created_at timestamptz not null | column domain_id text not null | column id text primary key | column owner_id text not null | column payload jsonb not null | column status text not null | column ticket_id text not null",
+		"mcp_access_tickets":       "column domain_id text not null | column expires_at timestamptz not null | column id text primary key | column owner_id text not null | column payload jsonb not null | column secret_hash text not null unique | column status text not null",
+		"mcp_bindings":             "column domain_id text not null | column id text primary key | column owner_id text not null | column payload jsonb not null | column requester_device_id text not null | column requester_key_thumbprint text not null | column status text not null | column updated_at timestamptz not null",
+		"mcp_operations":           "column binding_id text not null references mcp_bindings(id) | column fingerprint text not null | column id text primary key | column idempotency_key text not null | column payload jsonb not null | column updated_at timestamptz not null | column version bigint not null | constraint unique(binding_id,idempotency_key)",
+		"message_delivery_records": "column actor_id text not null | column content_digest text not null | column id text primary key | column idempotency_key text not null | column owner_id text not null | column record jsonb not null | column status text not null | column updated_at timestamptz not null default now() | constraint unique(owner_id,actor_id,idempotency_key)",
+		"message_receive_records":  "column actor_id text not null | column id text primary key | column native_message_id text not null | column owner_id text not null | column record jsonb not null | column source_endpoint_id text not null default '' | column status text not null | column updated_at timestamptz not null default now() | constraint unique(source_endpoint_id,native_message_id)",
+		"notification_bindings":    "column account_id text not null default '' | column actor_id text not null default '' | column base_url text not null default '' | column channel text not null | column context_token text not null default '' | column created_at timestamptz not null default now() | column credential_ref text not null default '' | column default_for_channel boolean not null default false | column display_name text not null default '' | column expires_at timestamptz | column external_chat_id text not null default '' | column external_thread_id text not null default '' | column external_user_id text not null default '' | column id text primary key | column last_error text not null default '' | column owner_id text not null | column provider text not null | column provider_cursor text not null default '' | column provider_session_id text not null default '' | column provider_state text not null default '' | column qr_code_image text not null default '' | column qr_code_url text not null default '' | column revoked_at timestamptz | column scopes jsonb not null default '[]' | column status text not null | column updated_at timestamptz not null default now()",
+		"passive_notifications":    "column created_at timestamptz not null default now() | column deep_link text not null | column endpoint_id text not null | column fingerprint text not null | column id text primary key | column idempotency_key text not null | column kind text not null | column notification_id text not null | column occurred_at timestamptz not null | column owner_id text not null | column read_at timestamptz | column source text not null | column updated_at timestamptz not null default now() | constraint unique(endpoint_id,idempotency_key)",
+		"reminder_deliveries":      "column attempt integer not null default 0 | column channel text not null | column created_at timestamptz not null default now() | column error text not null default '' | column id text primary key | column provider text not null | column provider_status text not null default '' | column recipient text not null default '' | column reminder_id text not null references reminders(id) | column retry_state text not null default '' | column sent_at timestamptz | column status text not null",
+		"weixin_chat_messages":     "column binding_id text not null | column chat_session_id text not null | column content text not null | column context_token text not null default '' | column created_at timestamptz not null default now() | column direction text not null | column error text not null default '' | column external_message_id text not null default '' | column id text primary key | column linked_run_id text not null default '' | column role text not null | column status text not null | column updated_at timestamptz not null default now()",
+		"weixin_chat_sessions":     "column binding_id text not null | column channel text not null default 'weixin' | column created_at timestamptz not null default now() | column display_name text not null default '' | column external_user_id text not null default '' | column id text primary key | column last_context_token text not null default '' | column linked_session_id text not null default '' | column owner_id text not null default '' | column provider text not null default '' | column provider_cursor text not null default '' | column status text not null | column updated_at timestamptz not null default now() | column workspace_root text not null default ''",
+	}
+	gotGoOnlyTableDefinitions := map[string]string{}
+	for tableName, table := range current.tables {
+		if _, shared := root.tables[tableName]; !shared {
+			gotGoOnlyTableDefinitions[tableName] = canonicalS0TableDefinition(table)
+		}
+	}
+	if !reflect.DeepEqual(gotGoOnlyTableDefinitions, wantGoOnlyTableDefinitions) {
+		t.Fatalf("Go-only full table definitions changed\n got: %#v\nwant: %#v", gotGoOnlyTableDefinitions, wantGoOnlyTableDefinitions)
+	}
+	assertS0GoOnlyTableDefinitionsDocumented(t, wantGoOnlyTableDefinitions)
 
 	// These categories are parsed, rather than silently discarded. Their empty
 	// sets are therefore evidence that the current sources contain none.
@@ -200,6 +231,38 @@ func TestS0PostgresReconciliationManifest(t *testing.T) {
 	if root.syntax.dmlStatements != 0 || current.syntax.dmlStatements != 5 {
 		t.Fatalf("non-schema DML inventory changed: root=%d postgresSchema=%d", root.syntax.dmlStatements, current.syntax.dmlStatements)
 	}
+}
+
+func assertS0GoOnlyTableDefinitionsDocumented(t *testing.T, definitions map[string]string) {
+	t.Helper()
+	paths := []string{
+		filepath.Join("..", "..", "..", "..", "docs", "store-s0-postgresql-reconciliation-manifest.md"),
+		filepath.Join("..", "..", "..", "..", "zh-cn", "docs", "store-s0-postgresql-reconciliation-manifest.md"),
+	}
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		for table, definition := range definitions {
+			entry := table + ": " + definition
+			if strings.Count(text, entry) != 1 {
+				t.Errorf("%s must contain exactly one full definition for %s", path, table)
+			}
+		}
+	}
+}
+
+func canonicalS0TableDefinition(table *s0DDLTable) string {
+	parts := make([]string, 0, len(table.columns)+len(table.constraints))
+	for _, columnName := range sortedKeys(table.columns) {
+		parts = append(parts, "column "+columnName+" "+table.columns[columnName].definition)
+	}
+	for _, constraint := range sortedKeys(table.constraints) {
+		parts = append(parts, "constraint "+constraint)
+	}
+	return strings.Join(parts, " | ")
 }
 
 type s0DDLManifest struct {

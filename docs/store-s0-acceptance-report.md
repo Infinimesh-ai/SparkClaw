@@ -9,11 +9,13 @@
 ## Conclusion
 
 S0 has a complete executable 141-method/20-repository catalog, a production
-consumer matrix, command/reconciliation evidence, an executable PostgreSQL
-source manifest, and backend-neutral Memory/File characterization. The
-candidate recommendation is **GO for human S0 implementation review**, with
-the actual review record deliberately left pending. Work must stop at this
-candidate until the user records `GO`, `REVISE`, or `STOP`.
+consumer matrix guarded across 58 direct declaration sites and 10 local
+interfaces, command/reconciliation evidence, an executable PostgreSQL source
+manifest, and a complete guarded 20-repository by 10-dimension
+characterization matrix. The candidate recommendation is **GO for human S0
+implementation review**, with the actual review record deliberately left
+pending. Work must stop at this candidate until the user records `GO`,
+`REVISE`, or `STOP`.
 
 ## Entry Baseline
 
@@ -36,27 +38,38 @@ risk, not converted into a success claim.
 
 ## S0 Characterization Evidence
 
-`s0_contract_characterization_test.go` adds one backend-neutral harness and
-static contract checks. `s0_postgres_manifest_test.go` compares the two current
-schema authorities without changing either.
+`s0_contract_characterization_test.go` adds the representative backend-neutral
+harness and static contract checks. `s0_repository_characterization_test.go`
+runs success and normal-absence cases for all 20 repositories on Memory and
+File, records current mutable-alias defects, and fills the two previously
+missing File restart cases. `s0_repository_evidence_test.go` owns the complete
+matrix and its test-name/document guard. `s0_postgres_manifest_test.go`
+compares the two current schema authorities without changing either.
+
+The shared harness is representative, but it does not replace the accepted
+per-repository gate. The S0 inventory contains a complete 20-repository by
+10-dimension applicability/evidence matrix, backed by an executable
+completeness and test-name guard. Existing focused tests supply repository
+evidence where the shared harness does not.
 
 | Contract | Evidence |
 |---|---|
 | Complete ownership | Reflection proves exactly 141 `Store` methods and exactly one owner among 20 repositories |
 | Backend completeness | Existing compile assertions cover Memory, File, PostgreSQL; implementation-file map is in the S0 inventory |
-| Normal absence | Missing document lookup returns `found=false` for Memory and File |
-| Success, ordering, filtering, owner scope | Document records list newest activity first and do not cross owner/session scope |
-| Cloning / alias safety | Owner preference maps and nested MCP invocation maps/result bytes cannot mutate retained state through input or output aliases |
+| Production consumers | An AST guard freezes 58 direct constructor/field/helper/worker declaration sites and 10 flattened local Store-compatible interfaces |
+| Per-repository success and normal absence | A named Memory/File subtest exercises all 20 accepted repositories; the guarded matrix links richer applicable evidence |
+| Success, ordering, filtering, owner scope | Repository-specific evidence covers document, owner, client, message, schedule, connector, passive, external-chat, delivery, run, audit, artifact, and other applicable query contracts |
+| Cloning / alias behavior | Owner preferences and MCP nested values are isolated; defect evidence records current mutable alias escape for 12 other repositories on Memory and the live File decorator |
 | Idempotency | Same MCP binding/key/fingerprint reuses one operation; changed fingerprint conflicts |
 | CAS | MCP operation update increments version and rejects a stale expected version |
 | Events | Message events are session-scoped, ordered, and expose the correct head |
-| Restart | File sessions, messages, events, owner maps, operations, and the unchanged Snapshot shape survive reload; existing focused tests cover encryption and legacy normalization |
+| Restart | Explicit assertions prove File sessions, messages, message events/head, owner maps, MCP operations, nested invocation arguments, result bytes, reminders/deliveries, and notification bindings survive reload; focused tests cover every remaining repository, encryption, and legacy normalization |
 | Concurrency | Sixteen simultaneous identical operation creates produce exactly one creation and one stable ID on Memory and File |
 | Snapshot compatibility | Reflection freezes all 38 field names and JSON tags, including legacy Weixin compatibility fields |
-| PostgreSQL source reconciliation | Constraint-aware executable manifest freezes 18/16 root tables/indexes versus 37/42 in Go; it compares complete shared column/table/index definitions and freezes all Go-only column definitions, table constraints, and index definitions |
+| PostgreSQL source reconciliation | Constraint-aware executable manifest freezes 18/16 root tables/indexes versus 37/42 in Go; it compares complete shared definitions and freezes and documentation-checks every column, type, default, nullability, inline/table constraint, and index for all 19 Go-only tables |
 | PostgreSQL DSN suite | Existing 9 tests and skip behavior are unchanged; no DSN was present for this candidate |
 | `rows.Err()` | Static defect evidence names 9 functions containing 10 unchecked row loops; checked paths such as `ListAllConnectorSettings`, binding revocation, deletion, normalization, and message-event paging stay distinct |
-| Known silent failures | Static evidence freezes 48 File error-discard call sites and 33 explicit PostgreSQL discarded results for later replacement by failure assertions |
+| Known production defects | Static evidence freezes 48 File error-discard sites, 33 explicit PostgreSQL discarded results, 10 unchecked row loops, and mutable alias escape in 12 repositories for later replacement by failure/isolation assertions |
 
 The S0 tests characterize current success contracts. Their defect-evidence
 tests are intentionally named `TestS0DefectEvidence...`; S1-S3 must delete or
@@ -119,8 +132,8 @@ gated exactly as today.
 ```bash
 npm run setup:document-tools
 cd services/gateway
-go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
-go test -race ./internal/store -run '^(TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
+go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0RepositoryCharacterizationMatrixCompleteness|TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
+go test -race ./internal/store -run '^(TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
 SPARKCLAW_TEST_POSTGRES_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw_test?sslmode=disable' go test ./internal/store -run '^(TestPostgresStorePersistsOnlyISCPOnboardingReceipt|TestPostgresISCPOnboardingRepository.*)$' -count=1 -v
 go test ./...
 go vet ./...
@@ -139,7 +152,7 @@ git diff --check
 git status --short
 cd services/gateway
 go test ./internal/store -run '^TestS0' -count=1 -v
-go test -race ./internal/store -run '^TestS0BackendNeutralContractCharacterization$' -count=1
+go test -race ./internal/store -run '^TestS0(BackendNeutralContractCharacterization|BackendNeutralRepositorySuccessAndAbsence)$' -count=1
 go test ./...
 go vet ./...
 ```
@@ -155,6 +168,11 @@ go vet ./...
   have no difference or no occurrences.
 - The 48 File and 33 PostgreSQL silent failure sites remain production defects
   by S0 scope. The unchecked row-loop and lookup-to-absence paths also remain.
+- Client, Conversation, Run, Approval, Schedule, Connector,
+  PassiveNotification, DeliveryRecord, BrowserState, Memory, Audit, and
+  Evaluation records currently expose mutable in-process aliases from Memory
+  and the live File decorator. S0 records rather than repairs them; each owning
+  repository wave must replace the defect evidence with isolation assertions.
 - The timeout defaults are reasoned conservative bounds; only S1/S2 configured
   evidence can validate or revise them.
 - `DeleteSession` is a wide cross-repository transaction. S1/S3 must not let FK
@@ -164,6 +182,9 @@ go vet ./...
 - The production consumer matrix is broad by current design. Repository
   extraction must introduce consumer-owned composites without using optional
   type assertions or a runtime service locator.
+- The shared S0 harness is representative; the guarded per-repository matrix
+  is the completeness authority. S2/S3 must add failure-contract evidence as
+  each repository migrates without weakening the S0 applicability record.
 
 ## Review Record
 

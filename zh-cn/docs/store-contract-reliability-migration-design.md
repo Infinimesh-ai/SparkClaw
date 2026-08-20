@@ -13,8 +13,7 @@ Store 可靠性工作拆分为多个可审查的问题，不再使用一份覆�
 
 Store 工作将修复 File/PostgreSQL 静默丢弃错误的问题，引入领域 repository
 小接口，删除宽泛的 `store.Store`，然后才在组装层增加 Runtime 统一监管。
-PostgreSQL schema/配置是 Store 的前置工作。ASR CI 是独立交付，不作为
-Store 迁移门禁。
+PostgreSQL schema/配置是 Store 的前置工作。
 
 大型文件拆分明确不在当前范围内。Store 迁移和监管全部完成后，再重新盘点
 仓库并为必要的职责拆分编写新设计。本路线图不预先批准任何文件拆分。
@@ -29,7 +28,6 @@ Store 迁移门禁。
 | [PostgreSQL schema 与状态配置](store-postgresql-schema-config-design.md) | 内嵌迁移权威、现有数据库接管、严格状态配置和保持不变的 DSN 门控测试 |
 | [Repository 迁移](store-repository-migration-design.md) | 单 repository 实现波次、临时宽接口规则和最终删除 `store.Store` |
 | [Runtime 与统一监管](store-runtime-supervision-design.md) | 迁移后的 Runtime 组装、有限操作监管、健康、指标、探针和生命周期 |
-| [ASR runtime CI](asr-runtime-ci-design.md) | 独立的 fake-model ASR 依赖和 CI 契约 |
 
 ## 审查协议
 
@@ -83,8 +81,7 @@ Store 迁移门禁。
 
 - Store 契约、调用者、三个后端、File snapshot 持久性、PostgreSQL
   migrations、Store 专属配置、操作监管、readiness 和 Store 生命周期；
-- 当前由 Store 管理的 artifact metadata 记录；
-- 通过独立文档交付的 ASR fake-model CI。
+- 当前由 Store 管理的 artifact metadata 记录。
 
 完成后另行设计的范围：
 

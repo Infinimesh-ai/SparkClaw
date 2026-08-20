@@ -123,6 +123,233 @@ func TestS0StoreMethodCatalogCharacterization(t *testing.T) {
 	}
 }
 
+func TestS0ProductionStoreConsumerInventory(t *testing.T) {
+	wantDirectConsumers := map[string]int{
+		"cmd/sparkclaw/bootstrap.go:func newGatewayServices":             1,
+		"cmd/sparkclaw/bootstrap.go:func newISCPPairingService":          1,
+		"cmd/sparkclaw/connectors.go:func newConnectorAssembly":          1,
+		"cmd/sparkclaw/main.go:func newStore":                            1,
+		"internal/agent/agent.go:func NewRuntime":                        1,
+		"internal/agent/agent.go:func NewRuntimeWithContext":             1,
+		"internal/agent/agent.go:type Runtime":                           1,
+		"internal/agent/tool_exposure.go:func newToolExposureEngine":     1,
+		"internal/agent/tool_exposure.go:type toolExposureEngine":        1,
+		"internal/credential/vault.go:func New":                          1,
+		"internal/credential/vault.go:type Vault":                        1,
+		"internal/gateway/server.go:func New":                            1,
+		"internal/gateway/server.go:func NewWithTrace":                   1,
+		"internal/gateway/server.go:func runHasPendingApproval":          1,
+		"internal/gateway/server.go:type Server":                         1,
+		"internal/happyapproval/service.go:func New":                     1,
+		"internal/happyapproval/service.go:type Service":                 1,
+		"internal/iscpbridge/adapter.go:func NewGatewayAdapter":          1,
+		"internal/iscpbridge/adapter.go:type GatewayAdapter":             1,
+		"internal/iscppairing/service.go:func New":                       1,
+		"internal/iscppairing/service.go:type Service":                   1,
+		"internal/mcpaccess/operation.go:func rejectPendingApprovals":    1,
+		"internal/mcpaccess/operation.go:func updateOperationRecord":     1,
+		"internal/mcpaccess/provider.go:func NewProvider":                1,
+		"internal/mcpaccess/provider.go:type Provider":                   1,
+		"internal/mcpaccess/service.go:func New":                         1,
+		"internal/mcpaccess/service.go:func finalizeRevokedOperations":   1,
+		"internal/mcpaccess/service.go:func runHasApprovedApproval":      1,
+		"internal/mcpaccess/service.go:func runHasPendingApproval":       1,
+		"internal/mcpaccess/service.go:type Service":                     1,
+		"internal/notification/notification.go:func NewWeixinAdapter":    2,
+		"internal/notification/notification.go:func SendWeixinFile":      1,
+		"internal/notification/notification.go:func SendWeixinImage":     1,
+		"internal/notification/notification.go:func SendWeixinText":      1,
+		"internal/notification/notification.go:func SendWeixinTyping":    1,
+		"internal/notification/notification.go:type WeixinAdapter":       1,
+		"internal/reminder/scheduler.go:func NewMessageScheduler":        1,
+		"internal/reminder/scheduler.go:type Scheduler":                  1,
+		"internal/remindertarget/target.go:func NewResolver":             1,
+		"internal/remindertarget/target.go:type Resolver":                1,
+		"internal/store/artifact_helpers.go:func ArchiveToolObservation": 1,
+		"internal/telegram/dispatcher.go:func NewDispatcher":             1,
+		"internal/telegram/dispatcher.go:type Dispatcher":                1,
+		"internal/telegram/notification.go:func NewNotificationAdapter":  1,
+		"internal/telegram/notification.go:type NotificationAdapter":     1,
+		"internal/telegram/service.go:func NewService":                   1,
+		"internal/telegram/service.go:func hasDefaultActiveBinding":      1,
+		"internal/telegram/service.go:type Service":                      1,
+		"internal/toolhub/toolhub.go:func New":                           1,
+		"internal/toolhub/toolhub.go:type ToolHub":                       1,
+		"internal/weixin/chat.go:func NewDispatcher":                     1,
+		"internal/weixin/chat.go:func NewDispatcherWithConfig":           1,
+		"internal/weixin/chat.go:type Dispatcher":                        1,
+		"internal/weixin/media.go:func NewMediaAdapter":                  1,
+		"internal/weixin/media.go:type MediaAdapter":                     1,
+		"internal/weixin/syncer.go:func NewSyncer":                       1,
+		"internal/weixin/syncer.go:type Syncer":                          1,
+	}
+	wantLocalInterfaces := map[string][]string{
+		"internal/connector/registry.go:connectorStore": {
+			"GetConnectorSetting", "ListAllConnectorSettings", "ListConnectorSettings", "ListNotificationBindings", "UpdateConnectorSetting",
+		},
+		"internal/delivery/content.go:governedArtifactStore":            {"GetSession", "ListArtifactObjects"},
+		"internal/delivery/record.go:externalDeliveryStore":             {"GetExternalChatSession", "SaveExternalChatMessage"},
+		"internal/delivery/resource.go:artifactStore":                   {"ListArtifactObjects"},
+		"internal/delivery/resource.go:endpointResourceStore":           {"GetSession", "ListArtifactObjects"},
+		"internal/delivery/web.go:webMessageStore":                      {"AddMessage", "ListMessages"},
+		"internal/messagecontrol/endpoint_registry.go:endpointStore":    {"GetExternalChatSession", "GetNotificationBinding", "GetSession", "ListExternalChatSessions"},
+		"internal/messagecontrol/endpoint_registry.go:mcpEndpointStore": {"GetMCPBinding"},
+		"internal/messagecontrol/receive_lifecycle.go:receiveStore":     {"FindMessageReceive", "SaveMessageReceive"},
+		"internal/messagecontrol/schedule_registry.go:scheduleStore": {
+			"ClaimDueReminders", "GetExternalChatSession", "GetNotificationBinding", "GetReminder", "GetSession", "ListExternalChatSessions", "ListReminders", "SaveReminder", "UpdatePendingReminder",
+		},
+	}
+
+	gotDirectConsumers, gotLocalInterfaces := collectS0ProductionStoreConsumers(t)
+	if !reflect.DeepEqual(gotDirectConsumers, wantDirectConsumers) {
+		t.Fatalf("direct production store.Store consumers changed\n got: %#v\nwant: %#v", gotDirectConsumers, wantDirectConsumers)
+	}
+	if !reflect.DeepEqual(gotLocalInterfaces, wantLocalInterfaces) {
+		t.Fatalf("local Store-compatible consumer interfaces changed\n got: %#v\nwant: %#v", gotLocalInterfaces, wantLocalInterfaces)
+	}
+}
+
+func collectS0ProductionStoreConsumers(t *testing.T) (map[string]int, map[string][]string) {
+	t.Helper()
+	gatewayRoot := filepath.Clean(filepath.Join("..", ".."))
+	storeMethods := map[string]struct{}{}
+	typeOfStore := reflect.TypeOf((*Store)(nil)).Elem()
+	for index := range typeOfStore.NumMethod() {
+		storeMethods[typeOfStore.Method(index).Name] = struct{}{}
+	}
+	direct := map[string]int{}
+	localInterfaces := map[string][]string{}
+	err := filepath.WalkDir(gatewayRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(gatewayRoot, path)
+		if err != nil {
+			return err
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, raw, 0)
+		if err != nil {
+			return err
+		}
+		if parsed.Name.Name == "store" {
+			for _, declaration := range parsed.Decls {
+				function, ok := declaration.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				if count := countS0StoreIdentifiers(function); count != 0 {
+					direct[filepath.ToSlash(relative)+":func "+function.Name.Name] = count
+				}
+			}
+			return nil
+		}
+		interfaces := map[string]*ast.InterfaceType{}
+		for _, declaration := range parsed.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || general.Tok != token.TYPE {
+				continue
+			}
+			for _, rawSpec := range general.Specs {
+				spec := rawSpec.(*ast.TypeSpec)
+				if typed, ok := spec.Type.(*ast.InterfaceType); ok {
+					interfaces[spec.Name.Name] = typed
+				}
+			}
+		}
+		for name := range interfaces {
+			methods := s0InterfaceStoreMethods(name, interfaces, storeMethods, map[string]bool{})
+			if len(methods) != 0 {
+				localInterfaces[filepath.ToSlash(relative)+":"+name] = methods
+			}
+		}
+		for _, declaration := range parsed.Decls {
+			switch typed := declaration.(type) {
+			case *ast.FuncDecl:
+				if count := countS0StoreSelectors(typed); count != 0 {
+					direct[filepath.ToSlash(relative)+":func "+typed.Name.Name] = count
+				}
+			case *ast.GenDecl:
+				for _, rawSpec := range typed.Specs {
+					spec, ok := rawSpec.(*ast.TypeSpec)
+					if !ok {
+						continue
+					}
+					if count := countS0StoreSelectors(spec); count != 0 {
+						direct[filepath.ToSlash(relative)+":type "+spec.Name.Name] = count
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return direct, localInterfaces
+}
+
+func countS0StoreIdentifiers(node ast.Node) int {
+	count := 0
+	ast.Inspect(node, func(node ast.Node) bool {
+		if _, qualified := node.(*ast.SelectorExpr); qualified {
+			return false
+		}
+		if identifier, ok := node.(*ast.Ident); ok && identifier.Name == "Store" {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+func countS0StoreSelectors(node ast.Node) int {
+	count := 0
+	ast.Inspect(node, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "Store" {
+			return true
+		}
+		packageName, ok := selector.X.(*ast.Ident)
+		if ok && packageName.Name == "store" {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+func s0InterfaceStoreMethods(name string, interfaces map[string]*ast.InterfaceType, storeMethods map[string]struct{}, visiting map[string]bool) []string {
+	if visiting[name] {
+		return nil
+	}
+	visiting[name] = true
+	defer delete(visiting, name)
+	methods := map[string]struct{}{}
+	for _, field := range interfaces[name].Methods.List {
+		if len(field.Names) == 0 {
+			if embedded, ok := field.Type.(*ast.Ident); ok && interfaces[embedded.Name] != nil {
+				for _, method := range s0InterfaceStoreMethods(embedded.Name, interfaces, storeMethods, visiting) {
+					methods[method] = struct{}{}
+				}
+			}
+			continue
+		}
+		for _, method := range field.Names {
+			if _, exists := storeMethods[method.Name]; exists {
+				methods[method.Name] = struct{}{}
+			}
+		}
+	}
+	return sortedKeys(methods)
+}
+
 func TestS0SnapshotShapeCharacterization(t *testing.T) {
 	want := []string{
 		"Sessions:sessions", "Clients:clients", "OwnerProfile:owner_profile", "OwnerProfiles:owner_profiles,omitempty",
@@ -341,6 +568,18 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 	session := st.CreateSession("restart")
 	message := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "durable"})
 	profile := st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-restart", DisplayName: "Restart", Preferences: map[string]string{"key": "value"}})
+	eventHead, err := st.MessageEventHead(session.ID)
+	if err != nil || eventHead == "" {
+		t.Fatalf("message event head before restart = %q err=%v", eventHead, err)
+	}
+	operation, created, err := st.CreateMCPOperation(app.MCPOperation{
+		BindingID: "binding-restart", IdempotencyKey: "idem-restart", Fingerprint: "restart",
+		Invocation: app.MCPInvocationContext{Arguments: map[string]any{"nested": map[string]any{"value": "durable"}}},
+		Result:     json.RawMessage(`{"value":"durable"}`),
+	})
+	if err != nil || !created {
+		t.Fatalf("create operation before restart: created=%v err=%v", created, err)
+	}
 	reloaded := reopen(t)
 	if got, ok := reloaded.GetSession(session.ID); !ok || got.Title != session.Title {
 		t.Fatalf("session did not survive restart: %#v ok=%v", got, ok)
@@ -351,6 +590,29 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 	if got, ok := reloaded.GetOwnerProfileByID(profile.ID); !ok || got.Preferences["key"] != "value" {
 		t.Fatalf("owner profile did not survive restart: %#v ok=%v", got, ok)
 	}
+	page, err := reloaded.MessageEventsAfter(session.ID, "", 10)
+	if err != nil || len(page.Events) != 1 || page.NextCursor != eventHead || messageFromEvent(t, page.Events[0]).ID != message.ID {
+		t.Fatalf("message events did not survive restart: %#v err=%v", page, err)
+	}
+	gotOperation, ok := reloaded.GetMCPOperation(operation.ID)
+	if !ok || gotOperation.Invocation.Arguments["nested"].(map[string]any)["value"] != "durable" || s0JSONValue(t, gotOperation.Result, "value") != "durable" {
+		t.Fatalf("MCP operation did not survive restart: %#v ok=%v", gotOperation, ok)
+	}
+	gotOperation.Invocation.Arguments["nested"].(map[string]any)["value"] = "mutated-output"
+	gotOperation.Result[0] = '['
+	again, ok := reloaded.GetMCPOperation(operation.ID)
+	if !ok || again.Invocation.Arguments["nested"].(map[string]any)["value"] != "durable" || s0JSONValue(t, again.Result, "value") != "durable" {
+		t.Fatalf("reloaded MCP operation exposed backend aliases: %#v ok=%v", again, ok)
+	}
+}
+
+func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
+	t.Helper()
+	decoded := map[string]any{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode JSON result: %v", err)
+	}
+	return decoded[key]
 }
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
@@ -370,13 +632,18 @@ func TestS0DefectEvidencePostgresRowsErrIsNotChecked(t *testing.T) {
 		"mcp_access_postgres.go":      "ListMCPAccessTickets,ListMCPBindings,ListMCPOperations",
 		"postgres.go":                 "PrunePassiveNotifications,ListMessageReceives,ListMessageDeliveries,PruneMemories,collectRows",
 	}
+	loopCount := 0
 	for file, names := range functions {
 		for _, name := range strings.Split(names, ",") {
 			body := sourceFunctionBody(t, file, name)
 			if !strings.Contains(body, ".Next()") || strings.Contains(body, ".Err()") {
 				t.Errorf("%s.%s no longer matches the recorded rows.Err defect evidence; replace this evidence in the owning migration stage", file, name)
 			}
+			loopCount += strings.Count(body, ".Next()")
 		}
+	}
+	if loopCount != 10 {
+		t.Fatalf("unchecked PostgreSQL row loop count = %d, want S0 defect baseline 10", loopCount)
 	}
 }
 

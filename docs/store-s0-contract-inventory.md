@@ -10,8 +10,10 @@ This is the code-fact inventory for commit `df05cf5` plus the S0
 characterization tests. The sources are `store.go`, `memory.go`, `file.go`,
 `postgres.go`, the ISCP/MCP Store files, `migrations/0001_core.sql`, and every
 production `store.Store` reference under `services/gateway`. Method ownership
-is executable in `s0_contract_characterization_test.go`; PostgreSQL source
-reconciliation is executable in `s0_postgres_manifest_test.go`.
+is executable in `s0_contract_characterization_test.go`; per-repository
+applicability/evidence is executable in `s0_repository_evidence_test.go` and
+`s0_repository_characterization_test.go`; PostgreSQL source reconciliation is
+executable in `s0_postgres_manifest_test.go`.
 
 ## Accepted Repository Catalog
 
@@ -108,12 +110,84 @@ derived state from the primary record.
 | Evaluation | `EvalRuns` | `eval_runs` | PK and started-time index |
 | Artifact metadata | `ArtifactObjects`; volatile URI-to-ID index is rebuilt on load | `artifact_objects` | PK; created, run, and Go-only URI indexes |
 
+## Per-Repository Characterization Evidence
+
+The accepted per-repository gate is represented by the complete 20 by 10
+matrix below. `TestS0RepositoryCharacterizationMatrixCompleteness` is the
+executable authority: it requires exactly these 20 repository rows and ten
+dimensions, resolves every evidence reference to an exact test function and
+file, rejects an unreasoned `N/A`, and requires one matching row in this
+document. `TestS0BackendNeutralRepositorySuccessAndAbsence` runs a named
+Memory/File subtest for every repository; the other evidence keys identify the
+additional applicable contract.
+
+| Repository | Success | Absence | Order/filter/scope | Clone/alias | Duplicate/idempotency | CAS/conflict/delete | Event/audit/sequence | File restart/snapshot | Concurrency/revision | PostgreSQL row/`rows.Err()` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `OwnerRepository` | `BASE` | `BASE` | `OWNER` | `CROSS` | `BASE` | N/A: no delete, CAS, or conflict command | `OWNER` | `CROSS` | N/A: no repository revision or idempotent-create result | `PG` + `PG-ROWS` |
+| `ClientRepository` | `BASE` | `BASE` | `BASE` | `ALIAS` defect | `BASE` | `BASE` claim/revoke | `BASE` | `FILE-ALL` | N/A: claim/revoke expose state conflict, not a revision | `PG` + `PG-ROWS` |
+| `ISCPOnboardingRepository` | `BASE` | `BASE` | `ISCP` | N/A: record has no mutable members | `BASE` unique-ID conflict | `BASE` conflict | N/A: lifecycle audit is caller-owned | `ISCP` | N/A: unique ID is the boundary; no revision | `ISCP-PG` + `PG-ROWS` |
+| `CredentialRepository` | `BASE` | `BASE` | N/A: exact-ref lookup only | N/A: record has no mutable members | `BASE` ref overwrite | `BASE` delete | `BASE` audit | `CREDENTIAL-FILE` | N/A: no revision/idempotent-create result | N/A: QueryRow/Exec only; no row iterator |
+| `SessionRepository` | `BASE` | `BASE` | `BASE` hidden filtering | N/A: record has no mutable members | N/A: create always allocates an ID | `BASE` + `BROWSER` delete | `BASE` | `CROSS` | N/A: no version/revision contract | `PG` + `BROWSER-PG` + `PG-ROWS` |
+| `ConversationRepository` | `BASE` | `BASE` | `MESSAGE` | `ALIAS` defect | `BASE` message-ID reuse | N/A: append/cursor API has no update or delete | `CROSS` + `MESSAGE` | `MESSAGE-FILE` + `CROSS` | N/A: event sequence, not CAS revision, orders appends | `PG` |
+| `RunRepository` | `BASE` | `BASE` | `RUN` | `ALIAS` defect | `RUN` feedback replacement | N/A: overwrite/append API has no delete or CAS | `RUN` | `FILE-ALL` + `RUN-FILE` | N/A: no caller-visible winner revision | `PG` + `PG-ROWS` |
+| `DocumentRepository` | `BASE` + `CROSS` | `BASE` + `CROSS` | `DOCUMENT` | N/A: record has no mutable members | `DOCUMENT` ID overwrite | N/A: no delete, CAS, or conflict command | `DOCUMENT` | `DOCUMENT-FILE` | N/A: no revision/idempotent-create result | `PG` + `PG-ROWS` |
+| `ApprovalRepository` | `BASE` | `BASE` | `APPROVAL` | `ALIAS` defect | `APPROVAL` external-ref identity | `APPROVAL` pending-state conflict | `APPROVAL` | `APPROVAL-FILE` | N/A: pending state, not numeric revision, is the precondition | `PG` + `PG-ROWS` |
+| `ScheduleRepository` | `BASE` | `BASE` | `BASE` due ordering/filter | `ALIAS` defect | `BASE` ID overwrite | `SCHEDULE` CAS | `BASE` | `FILE-GAPS` | `SCHEDULE` CAS winner | `PG` + `PG-ROWS` |
+| `ConnectorRepository` | `BASE` | `BASE` | `CONNECTOR` | `ALIAS` defect | `BASE` binding ID overwrite | `CONNECTOR` CAS | `CONNECTOR` | `CONNECTOR-FILE` + `FILE-GAPS` | `CONNECTOR` numeric revision | `CONNECTOR-PG` |
+| `PassiveNotificationRepository` | `BASE` + `PASSIVE` | `BASE` + `PASSIVE` | `PASSIVE` | `ALIAS` defect | `PASSIVE` idempotent replay/conflict | `PASSIVE` prune/replay | `PASSIVE` revision/audit | `PASSIVE-FILE` | `PASSIVE` process-local revision | `PASSIVE-PG` + `PG-ROWS` |
+| `ExternalChatRepository` | `BASE` + `EXTERNAL` | `BASE` | `EXTERNAL` | N/A: records have no mutable members | `EXTERNAL` ID/external-ID behavior | N/A: no delete, CAS, or typed conflict command | `EXTERNAL` | `EXTERNAL-FILE` | N/A: external-ID lookup is reconciliation, not CAS | `EXTERNAL-PG` + `PG-ROWS` |
+| `DeliveryRecordRepository` | `BASE` + `DELIVERY` | `BASE` | `DELIVERY` + `EXTERNAL` | `ALIAS` defect | `DELIVERY` + `EXTERNAL` dedupe keys | N/A: lifecycle overwrite API has no delete/CAS | `DELIVERY` | `DELIVERY-FILE` + `EXTERNAL-FILE` | N/A: dedupe keys serialize writes without a numeric revision | `EXTERNAL-PG` + `PG-ROWS` |
+| `MCPRepository` | `BASE` + `MCP` | `BASE` | `MCP` owner scope | `MCP-ALIAS` | `MCP` idempotency | `MCP` CAS/revoke/delete | N/A: lifecycle audit is caller-owned; operation version is the sequence | `MCP-FILE` + `CROSS` | `CROSS` concurrent idempotency/version | `MCP-PG` + `PG-ROWS` |
+| `BrowserStateRepository` | `BASE` + `BROWSER` | `BASE` | `BROWSER` | `ALIAS` defect | `BROWSER` normalized duplicate ID | `BROWSER` CAS/delete | `BROWSER` | `BROWSER-FILE` + `FILE-ALL` | `BROWSER` numeric revision | `BROWSER-PG` |
+| `MemoryRepository` | `BASE` + `MEMORY` | `BASE` | `MEMORY` | `ALIAS` defect | N/A: candidate create allocates an ID; resolution is a state transition | `MEMORY` delete/prune | `MEMORY` | `FILE-ALL` + `MEMORY-FILE` | N/A: state conflicts have no numeric revision | `PG` + `PG-ROWS` |
+| `AuditRepository` | `BASE` | `BASE` | `BASE` session/order | `ALIAS` defect | N/A: append generates IDs and has no idempotency key | N/A: append-only, with no update/delete/CAS | `BASE` supplied audit plus ordered events | `MEMORY-FILE` | N/A: event cursor sequence is the only ordering token | `PG` + `PG-ROWS` |
+| `EvaluationRepository` | `BASE` | `BASE` | `BASE` newest-first | `ALIAS` defect | `BASE` ID overwrite | N/A: no delete, CAS, or conflict command | `BASE` | `FILE-ALL` | N/A: no revision/idempotent-create result | `PG` + `PG-ROWS` |
+| `ArtifactMetadataRepository` | `BASE` + `ARTIFACT` | `BASE` + `ARTIFACT` | `ARTIFACT` | N/A: record has no mutable members | `ARTIFACT` ID/URI replacement | `ARTIFACT` session-delete cleanup | `ARTIFACT` | `FILE-ALL` | N/A: ID overwrite atomically replaces URI index, with no revision | `PG` + `PG-ROWS` |
+
+Evidence keys resolve to these exact tests and locations:
+
+- `BASE`: [`TestS0BackendNeutralRepositorySuccessAndAbsence`](../services/gateway/internal/store/s0_repository_characterization_test.go), using the repository-named Memory and File subtest.
+- `CROSS`: [`TestS0BackendNeutralContractCharacterization`](../services/gateway/internal/store/s0_contract_characterization_test.go).
+- `ALIAS`: [`TestS0DefectEvidenceMutableAliases`](../services/gateway/internal/store/s0_repository_characterization_test.go), using the repository-named Memory and File subtest. It records current unsafe behavior; it is not a desired contract.
+- `FILE-GAPS`: [`TestS0FileRepositoryRestartGaps`](../services/gateway/internal/store/s0_repository_characterization_test.go); `FILE-ALL`: [`TestFileStorePersistsAndReloadsState`](../services/gateway/internal/store/file_test.go); `PG-ROWS`: [`TestS0DefectEvidencePostgresRowsErrIsNotChecked`](../services/gateway/internal/store/s0_contract_characterization_test.go).
+- `OWNER`: [`TestMemoryStoreUpdatesOwnerProfile`](../services/gateway/internal/store/memory_test.go), [`TestMemoryStoreManagesMultipleOwnerProfiles`](../services/gateway/internal/store/memory_test.go).
+- `ISCP`: [`TestFileStorePersistsOnlyISCPOnboardingReceipt`](../services/gateway/internal/store/mcp_access_test.go); `ISCP-PG`: [`TestPostgresStorePersistsOnlyISCPOnboardingReceipt`](../services/gateway/internal/store/postgres_test.go).
+- `CREDENTIAL-FILE`: [`TestFileStoreEncryptsStateAtRest`](../services/gateway/internal/store/file_test.go).
+- `MESSAGE`: [`TestMemoryMessageEventsAreBoundedAndSessionScoped`](../services/gateway/internal/store/message_events_test.go); `MESSAGE-FILE`: [`TestFileMessageEventsSurviveRestart`](../services/gateway/internal/store/message_events_test.go).
+- `RUN`: [`TestMemoryStoreSavesRunFeedback`](../services/gateway/internal/store/memory_test.go); `RUN-FILE`: [`TestFileStorePersistsWorkflowStateAndToolBinding`](../services/gateway/internal/store/file_test.go).
+- `DOCUMENT`: [`TestMemoryStoreDocumentRecordsAreRecentAndSessionScoped`](../services/gateway/internal/store/memory_test.go); `DOCUMENT-FILE`: [`TestFileStorePersistsDocumentRecords`](../services/gateway/internal/store/file_test.go).
+- `APPROVAL`: [`TestMemoryStoreFindsExternalApprovalByStableReference`](../services/gateway/internal/store/memory_test.go); `APPROVAL-FILE`: [`TestFileStorePersistsExternalApprovalContext`](../services/gateway/internal/store/file_test.go), [`TestFileStorePersistsPolicyExecutionContext`](../services/gateway/internal/store/file_test.go).
+- `SCHEDULE`: [`TestMemoryStoreUpdatePendingReminderUsesCompareAndSwap`](../services/gateway/internal/store/memory_test.go).
+- `CONNECTOR`: [`TestMemoryStoreConnectorSettingUsesCASAndOwnerScope`](../services/gateway/internal/store/connector_settings_test.go), [`TestMemoryStoreListsAllConnectorSettingsInStableOwnerChannelOrder`](../services/gateway/internal/store/connector_settings_test.go); `CONNECTOR-FILE`: [`TestFileStorePersistsConnectorSettingVersion`](../services/gateway/internal/store/connector_settings_test.go); `CONNECTOR-PG`: [`TestPostgresStoreListsAllConnectorSettings`](../services/gateway/internal/store/postgres_test.go).
+- `PASSIVE`: [`TestMemoryStorePassiveNotificationIdempotencyAndOwnerScope`](../services/gateway/internal/store/passive_notifications_test.go), [`TestMemoryStorePassiveNotificationIdempotentReingestionAtScale`](../services/gateway/internal/store/passive_notifications_test.go), [`TestPrunePassiveNotificationsRetentionSweep`](../services/gateway/internal/store/passive_notifications_test.go), [`TestPrunePassiveNotificationsCapEvictsReadOldestFirst`](../services/gateway/internal/store/passive_notifications_test.go), [`TestPassiveNotificationRevisionSignalsInboxChanges`](../services/gateway/internal/store/passive_notifications_test.go); `PASSIVE-FILE`: [`TestFileStorePassiveNotificationSurvivesRestart`](../services/gateway/internal/store/passive_notifications_test.go), [`TestFileStoreSnapshotRebuildsPassiveNotificationIndex`](../services/gateway/internal/store/passive_notifications_test.go); `PASSIVE-PG`: [`TestPostgresStorePassiveNotificationPruneAndRevision`](../services/gateway/internal/store/postgres_test.go).
+- `EXTERNAL`: [`TestMemoryStoreExternalChatAndInboxParity`](../services/gateway/internal/store/external_chat_test.go); `EXTERNAL-FILE`: [`TestFileStoreExternalChatAndInboxParity`](../services/gateway/internal/store/external_chat_test.go); `EXTERNAL-PG`: [`TestPostgresStoreExternalChatAndInboxParity`](../services/gateway/internal/store/postgres_test.go).
+- `DELIVERY`: [`TestMemoryStoreMessageLifecycleParity`](../services/gateway/internal/store/message_lifecycle_test.go); `DELIVERY-FILE`: [`TestFileStoreMessageLifecycleRoundTrip`](../services/gateway/internal/store/message_lifecycle_test.go).
+- `MCP`: [`TestMCPAccessTicketRedemptionIsAtomicAndDeviceBound`](../services/gateway/internal/store/mcp_access_test.go), [`TestMCPOperationIdempotencyRejectsChangedRequest`](../services/gateway/internal/store/mcp_access_test.go), [`TestMCPBindingRevocationTerminatesOnlyNonterminalOperations`](../services/gateway/internal/store/mcp_access_test.go), [`TestMCPAccessRecordsCanBeDeletedIndividuallyAndByOwner`](../services/gateway/internal/store/mcp_access_test.go); `MCP-ALIAS`: [`TestMemoryStoreMCPRecordsCannotBeMutatedOutsideStore`](../services/gateway/internal/store/mcp_access_test.go); `MCP-FILE`: [`TestFileStorePersistsMCPAccessWithoutPlaintextSecret`](../services/gateway/internal/store/mcp_access_test.go); `MCP-PG`: [`TestPostgresStoreMCPAccessAtomicityIdempotencyAndRecovery`](../services/gateway/internal/store/postgres_test.go).
+- `BROWSER`: [`TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite`](../services/gateway/internal/store/memory_test.go), [`TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate`](../services/gateway/internal/store/memory_test.go), [`TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite`](../services/gateway/internal/store/memory_test.go), [`TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields`](../services/gateway/internal/store/memory_test.go), [`TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks`](../services/gateway/internal/store/memory_test.go); `BROWSER-FILE`: [`TestFileStoreBrowserHandoffCASRoundTrip`](../services/gateway/internal/store/file_test.go); `BROWSER-PG`: [`TestPostgresStoreBrowserHandoffCASRoundTrip`](../services/gateway/internal/store/postgres_test.go), [`TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate`](../services/gateway/internal/store/postgres_test.go), [`TestPostgresStoreDeleteSessionRemovesBrowserLoginBlocks`](../services/gateway/internal/store/postgres_test.go).
+- `MEMORY`: [`TestMemoryStoreUpdatesAndDeletesAcceptedMemory`](../services/gateway/internal/store/memory_test.go), [`TestMemoryStorePrunesExpiredMemories`](../services/gateway/internal/store/memory_test.go); `MEMORY-FILE`: [`TestFileStorePersistsMemoryRetentionPrune`](../services/gateway/internal/store/file_test.go).
+- `ARTIFACT`: [`TestMemoryStoreListsArtifactObjectsNewestFirst`](../services/gateway/internal/store/memory_test.go), [`TestMemoryStoreFindsArtifactObjectByURI`](../services/gateway/internal/store/memory_test.go).
+- `PG`: [`TestPostgresStoreRoundTrip`](../services/gateway/internal/store/postgres_test.go). All PostgreSQL keys remain DSN-gated and are not counted as passed when the DSN is absent.
+
+The `ALIAS` evidence currently records mutable alias escape for Client,
+Conversation, Run, Approval, Schedule, Connector, PassiveNotification,
+DeliveryRecord, BrowserState, Memory, Audit, and Evaluation records in both
+Memory and the live File decorator. S0 does not repair those production
+contracts. Each owning repository wave must replace its defect-evidence cell
+with an isolation assertion.
+
 ## Production Consumer Matrix
 
-The matrix includes every production declaration that currently accepts or
-stores `store.Store`, including constructor, field, helper, worker, and
-assembly use. Repeated receiver methods use the composite listed for their
-owning type.
+The matrix includes both every production declaration that directly accepts or
+stores `store.Store` and every named production-local interface whose method
+set intersects `Store`. It covers constructor, field, helper, worker, adapter,
+resolver, and assembly use. Repeated receiver methods use the composite listed
+for their owning type.
+
+`TestS0ProductionStoreConsumerInventory` scans all non-test Gateway Go files.
+It freezes every direct `store.Store` declaration by file and enclosing symbol,
+the Store-package helper, and every named local Store-compatible interface with
+its flattened Store method set. A new, removed, or renamed declaration fails
+the executable inventory and requires this matrix to be reviewed.
 
 | Package / symbol | Kind | Minimum repository or consumer-owned composite |
 |---|---|---|
@@ -121,30 +195,47 @@ owning type.
 | `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Session + Run + Approval + Audit |
 | `store.ArchiveToolObservation` | helper | ArtifactMetadata |
 | `credential.Vault`, `credential.New` | constructor + field | Credential |
-| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |
+| `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |
 | `gateway.runHasPendingApproval` | helper | Approval |
 | `happyapproval.Service`, `New` | polling worker | Approval |
 | `iscpbridge.GatewayAdapter`, `NewGatewayAdapter` | adapter + field | Owner + Session + Conversation + Run + Approval + PassiveNotification + Audit |
 | `iscppairing.Service`, `New` | service + field | ISCPOnboarding + Audit |
 | `mcpaccess.Service`, `New` | service + field | MCP + Run + Approval + Audit |
-| `mcpaccess.Provider`, `NewProvider` | provider + field | MCP + Run + ArtifactMetadata |
+| `mcpaccess.Provider`, `NewProvider` | provider + field | MCP + Run + Session + ExternalChat + Audit + ArtifactMetadata |
 | `mcpaccess.updateOperationRecord`, `rejectPendingApprovals`, `finalizeRevokedOperations`, approval helpers | helpers | MCP + Run + Approval |
 | `notification.SendWeixinText/Image/File/Typing` | helper entry points | Connector + Schedule + Credential |
-| `notification.WeixinAdapter`, `NewWeixinAdapter` | adapter + optional field | Connector + Schedule + Credential |
+| `notification.WeixinAdapter`, `NewWeixinAdapter` | adapter + optional field | Connector + Schedule + Credential + Session + ExternalChat + ArtifactMetadata |
 | `reminder.Scheduler`, `NewMessageScheduler` | worker + field | Schedule |
 | `remindertarget.Resolver`, `NewResolver` | resolver + field | ExternalChat + Connector |
 | `telegram.Dispatcher`, `NewDispatcher` | worker + field | Owner + Session + Conversation + Run + Approval + Schedule + Connector + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
 | `telegram.Service`, `NewService`, `hasDefaultActiveBinding` | worker + helper | Connector |
-| `telegram.NotificationAdapter`, `NewNotificationAdapter` | adapter + field | Connector + Credential |
+| `telegram.NotificationAdapter`, `NewNotificationAdapter` | adapter + field | Connector + Schedule + Session + ExternalChat + ArtifactMetadata; credentials come from its separate `CredentialVault`, not its Store parameter |
 | `toolhub.ToolHub`, `New` | constructor + field | Session + Run + Approval + Schedule + Connector + ExternalChat + Memory + Audit + ArtifactMetadata |
-| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Session + Conversation + Run + Approval + Connector + ExternalChat + ArtifactMetadata + Audit |
-| `weixin.Syncer`, `NewSyncer` | polling worker + field | Connector + Credential + ExternalChat |
+| `weixin.Dispatcher`, `NewDispatcher`, `NewDispatcherWithConfig` | worker + field | Owner + Session + Conversation + Run + Approval + Connector + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
+| `weixin.Syncer`, `NewSyncer`, `WithConfig` | polling worker + field + adapter assembly | Session + Connector + Credential + ExternalChat + DeliveryRecord + ArtifactMetadata + Audit |
 | `weixin.MediaAdapter`, `NewMediaAdapter` | adapter + field | Session + ArtifactMetadata + Audit |
 | `cmd/sparkclaw.newStore` | backend factory | all 20 repositories as one concrete backend result; no production consumer should receive this broad type after S4 |
 | `cmd/sparkclaw.buildRuntime` / bootstrap assembly | assembly forwarding | Agent + ToolHub composites, ISCPOnboarding + Audit, and ArtifactMetadata |
 | `cmd/sparkclaw.buildConnectors` | assembly forwarding | Connector + Credential + ExternalChat + DeliveryRecord + Session + Conversation + Owner + Run + Approval + Schedule + ArtifactMetadata + Audit |
 
-No other production `store.Store` declaration exists. `artifact.Store` is a
+The production-local Store-compatible consumers are:
+
+| Package / symbol | Kind | Accepted repository or composite |
+|---|---|---|
+| `connector.Registry`, `connectorStore`, `NewRegistry` | field + local interface + constructor | Connector |
+| `messagecontrol.EndpointRegistry`, `endpointStore`, `NewEndpointRegistry` | field + local interface + constructor | Session + Connector + ExternalChat |
+| `messagecontrol.mcpEndpointStore` in `EndpointRegistry.get` | optional local type assertion | MCP; current optional discovery is recorded behavior and must become an explicit consumer-owned composite during migration |
+| `messagecontrol.ScheduleRegistry`, `scheduleStore`, `NewScheduleRegistry` | field + local interface + constructor | Schedule + Session + Connector + ExternalChat |
+| `messagecontrol.ReceiveLifecycle`, `receiveStore`, `NewReceiveLifecycle` | field + local interface + constructor | DeliveryRecord |
+| `delivery.PersistentWebDelivery`, `webMessageStore`, `NewPersistentWebDelivery` | field + local interface + constructor | Conversation |
+| `delivery.EndpointResourceResolver`, `endpointResourceStore`, `NewEndpointResourceResolver` | resolver + local composite + constructor | Session + ArtifactMetadata |
+| `delivery.StoreResourceResolver`, `artifactStore`, `NewStoreResourceResolver` | resolver + local interface + constructor | ArtifactMetadata |
+| `delivery.ResolveBrowserContent`, `governedArtifactStore` | helper + local composite | Session + ArtifactMetadata |
+| `delivery.RecordExternalDelivery`, `externalDeliveryStore` | helper + local composite | ExternalChat |
+
+No other direct or named local Store-compatible production declaration exists.
+`delivery.EndpointRegistry` and `delivery.WebDelivery` are delivery-domain
+interfaces rather than Store-compatible interfaces. `artifact.Store` is a
 separate artifact-object interface and is not part of this migration.
 
 ## Mutation And Command Matrix
@@ -308,6 +399,9 @@ S0 intentionally does not fix these behaviors:
   and many list methods translate query failure to an empty list.
 - PostgreSQL lifecycle appends are commonly outside the command transaction
   and their errors are discarded.
+- Twelve repository record families expose mutable aliases from Memory and the
+  live File decorator, so callers can mutate retained maps, slices, or pointers
+  without another Store command; the guarded evidence matrix names every owner.
 
 The characterization tests label these as defect evidence. Each owning S1-S3
 migration must replace its evidence assertion with a failure-contract test.

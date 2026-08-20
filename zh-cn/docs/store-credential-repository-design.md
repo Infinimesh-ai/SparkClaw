@@ -2,8 +2,10 @@
 
 > 语言：[English](../../docs/store-credential-repository-design.md) | 简体中文
 
-> 状态：S3 设计修订 4，2026-08-20。审查 1-3 返回 `REVISE`；在独立、
+> 状态：S3 设计修订 5，2026-08-20。审查 1-4 返回 `REVISE`；在独立、
 > 上下文隔离的设计审查获得 GO 之前，不授权编写 CredentialRepository 代码。
+> 设计 GO 只推进下述 ConnectorRepository lifecycle 前置阶段；该前置实现获得
+> GO 之前，仍不授权 Credential 实现。
 
 ## 边界与现有缺陷
 
@@ -22,9 +24,11 @@ S0 把三个方法分配给 CredentialRepository。它们持久化 opaque secret
 - `CredentialSecret.Value` 可以被 public JSON serialization，尽管任何 public
   response 都无权披露它。
 
-本波次修复完整 credential 边界。它不迁移 NotificationBinding persistence，
-也不把 credential 与 binding 变成新的 cross-repository transaction；后续由
-ConnectorRepository 负责该 command。
+本合同修复完整 credential 边界。生产切换还要求在 seal 任何 credential 前先持久化
+NotificationBinding identity。该 lifecycle 由 ConnectorRepository 负责，不能偷偷
+在 CredentialRepository 中增加第二份 binding log。因此路线图先冻结本合同，下一步
+迁移 ConnectorRepository，然后再返回 Credential 实现。本合同不声称 Store 与外部
+provider 之间存在新的原子事务。
 
 ## 接口
 
@@ -180,11 +184,14 @@ type CredentialVault interface {
     Seal(context.Context, string, string, []byte) (string, error) // binding ID, kind, plaintext
     Open(context.Context, string) ([]byte, error)
     Delete(context.Context, string) error // ref
+    AbortSeal(context.Context, string, string) error // binding ID, kind
 }
 ```
 
-seal identity 是 adapter 启动前已经创建的 immutable binding ID。它会 trim、必须
-非空、最多 256 bytes。binding record 仍是该 ID 正常 persistence/projection 的权威；
+seal identity 是 adapter 启动或 Vault 接收 plaintext 前已经持久提交的 immutable
+binding ID。它会 trim、必须非空、最多 256 bytes。已接受的 ConnectorRepository
+合同必须保证这个顺序；当前 best-effort `SaveNotificationBinding` 并不能保证。
+binding record 仍是 identity persistence 与 terminal reuse prevention 的权威；
 Vault 不创建额外 identity log、receipt、audit 或 public field。Vault 使用
 HMAC-SHA-256(master key, `sparkclaw-credential-ref-key-v1`) 派生独立 ref key，再以 domain
 `sparkclaw-credential-ref-v1` 对 length-delimited binding ID 计算 base64url
@@ -196,17 +203,48 @@ Seal 先解析 pending work，再派生 ref 并读取它。缺失时使用 creat
 且 authenticated envelope 的 kind 相同、plaintext constant-time-equal 时，表示
 completed replay，直接返回同一 ref，不再 save/audit。其他任何 existing row 都是
 稳定 `credential_invalid`，绝不覆盖。因此 immediate success 可以清理 volatile
-state：同一 live binding replay 即使跨 process restart 也能重建 exact ref；另一
-binding ID 下相同 kind/plaintext 仍拥有独立 ref，不能共享或清理第一份 credential。
+state：caller 从 durable nonterminal binding 恢复同一 ID 后，即使跨 process restart
+也能重建 exact ref；另一 binding ID 下相同 kind/plaintext 仍拥有独立 ref，不能共享
+或清理第一份 credential。只存在于 process memory 的 ID 没有 replay 保证；生产不得
+在该状态调用 Seal。
 
 这刻意是 live-binding replay contract，而不是 durable generic operation ledger。
-confirmed Delete 会 retire 该 binding 的 seal identity；之后使用 retired binding ID
-调用 Seal 超出 contract，可能在 deterministic ref 上新建 row。production 使此前置
-条件成为结构规则：Gateway 在每次 Start 前创建 fresh immutable binding ID，adapter
-不得生成或替换它，revoked/compensated binding ID 绝不再次进入 Seal。Delete 不接受
-caller-supplied operation ID，因此不会在 stale identity 下 replay 到另一 ref。
-ConnectorRepository 后续可以增加 durable cross-repository lifecycle receipt；本波次
-不把 Audit 假装成该 ledger。
+confirmed Delete 或 AbortSeal 必须与 durable terminal binding transition 配对。
+ConnectorRepository 保留该 record、拒绝复用 ID，并阻止 terminal ID 再次进入 Start、
+Poll 或 Seal。Delete 不接受 caller-supplied operation ID，因此不会在 stale identity
+下 replay 到另一 ref。Audit 不是 lifecycle receipt，也不能替代原子性。
+
+### Durable Binding 前置条件
+
+在单独审查的 ConnectorRepository 合同与实现满足以下全部规则前，不允许 Credential
+生产切换：
+
+1. Gateway 创建 fresh immutable binding ID，并在调用 adapter 前 durably commit
+   `starting` binding。binding create 的 definite 或 unresolved failure 都不能进入
+   provider verification 或 Seal。
+2. Telegram 只能从 exact `starting` version 调用 Seal。Seal 成功后，以返回 ref
+   conditional transition 到 `active`。
+3. Weixin 先把 `waiting_scan`/`waiting_confirm` conditional advance 到不可 poll 的
+   `credential_pending` version，持久化 non-secret provider metadata，并确认 transition
+   后才把返回 token 交给 Seal。因此 compensated 或 restarted record 不能再次 Poll 并
+   用同一 retired ID Seal。
+4. 未知的 `active` transition 必须在 binding Store barrier 后 reconcile。exact
+   `active` state 证明成功；只有 exact pre-active state 才证明允许 AbortSeal；
+   unresolved 或不同 state 绝不能 cleanup。
+5. connector worker 启动或 Gateway listen 前，recovery 扫描 `starting`、
+   `credential_pending` 与 `revoking` record，按情况调用
+   `AbortSeal(bindingID, kind)` 或 `Delete(ref)`，再 conditional commit `failed` 或
+   `revoked`。recovery failure 保留不可 poll state，并使 connector readiness 失败，
+   不能激活 binding 或放弃 cleanup ownership。
+6. revoke 先提交保留 ref 的 non-active `revoking` state，再删除 exact credential，
+   最后提交 `revoked`。restart 只重复 pending delete。terminal binding record 保留，
+   binding ID 永不复用。
+
+`AbortSeal` 从 binding ID 派生 deterministic ref，要求 exact expected kind，认证已有
+Vault envelope，并 conditional delete exact candidate。absence 是 success。不同 kind、
+invalid envelope、replacement 或 unresolved Store result 返回稳定 unavailable，绝不
+删除。该可重建 cleanup 不依赖 Vault volatile pending coordinator，但授权只能来自
+已证明的 Connector pre-active state。
 
 Vault 使用一个容量为一的 in-memory command coordinator，并定义三个互斥 pending
 mode：
@@ -231,19 +269,20 @@ mode：
 
 之后每个 Vault mutation 都先解析对应 pending mode。未解析的 create cleanup 或
 delete 会阻止生成另一个 ref；未解析 rewrap 会阻止 mutation，但绝不删除 active
-credential。因此后续 binding start 无需接收或披露旧 ref，也能完成此前
-compensation。immediate success 与最终解析按 generation 清理 matching state；迟到
-cleanup 不能清理 replacement generation。Repository candidate 与 error 绝不跨越
-public API。
+credential。restart 后由 Connector recovery 从 durable binding ID 重建 cleanup，
+不依赖 volatile state。immediate success 与最终解析按 generation 清理 matching
+state；迟到 cleanup 不能清理 replacement generation。Repository candidate 与 error
+绝不跨越 public API。
 
 composition root 构造唯一 production Vault。启动 connector worker 前，
 `gatewayServices.Start` 调用 `BindLifecycle(ctx)`。每次 bind 增加 generation 并启动
 一个 cancellation watcher；只有 generation 仍匹配时，cancellation 才清理 pending
 material。rebind 先使旧 generation 失效。Server 不构造 fallback Vault。
 
-所有新的 Weixin QR credential 都使用 immutable binding ID 调用
-`CredentialVault.Seal`；只有 Seal 成功后，Gateway 才把返回的 durable ref 赋给
-binding。Notification 与 Syncer 使用其拥有的 request/work context 调用
+Connector 前置阶段被接受后，所有新的 Weixin QR credential 都使用 durably persisted
+immutable binding ID 调用 `CredentialVault.Seal`。Gateway 先持久化
+`credential_pending`，随后只通过 conditional `active` transition 赋予返回的 durable
+ref。Notification 与 Syncer 使用其拥有的 request/work context 调用
 `CredentialVault.Open`，不再读取
 `CredentialSecret.Value`。operator 静态配置的 Weixin token 仍是配置输入，不进入
 Store。
@@ -278,8 +317,9 @@ Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault m
 
 1. interface、operation、三个 backend、private File wire format 与 compatibility
    validation 中的 repository behavior；
-2. Vault seal identity、save/delete coordinator、lifecycle binding、legacy
-   Weixin rewrap、consumer/context migration 与安全 Gateway projection；以及
+2. 独立接受 ConnectorRepository 前置阶段后，实现 Vault seal identity、可在 restart
+   重建的 AbortSeal、save/delete coordinator、lifecycle binding、legacy Weixin
+   rewrap、consumer/context migration 与安全 Gateway projection；以及
 3. 独立的 File encrypted-envelope fail-closed defect fix；若为了便于 bisect 而与
    repository behavior 分离，则使用该 commit。
 
@@ -293,15 +333,19 @@ Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault m
 - PostgreSQL acquire/begin/statement/commit/rollback classification、
   terminate-not-release、context-aware admission、barrier isolation、scan
   propagation、atomic audit、startup validation 与 real-DSN evidence；
-- Vault 在 process restart 前后的 deterministic live-binding replay、live-binding
-  different-input conflict、独立 identical plaintext binding、create/delete
-  immediate 与 next-call reconciliation、conditional orphan cleanup、legacy
-  rewrap 所有 state transition 且不执行 orphan deletion、generation-safe
-  lifecycle cleanup、安全 typed error、wrong-key failure 与 non-Weixin plaintext
-  rejection；
-- Gateway/Notification/Syncer test，证明 Seal 失败时没有 active binding、没有 raw
-  Store access、owned context propagation、cleanup error handling，并且不披露
-  token/ref/error；
+- Vault 从 durable recovered nonterminal binding 进行 deterministic replay、caller
+  boundary 拒绝 process-local ID、live-binding different-input conflict、独立
+  identical plaintext binding、create/delete immediate 与 next-call
+  reconciliation、conditional orphan cleanup、restart 重建 AbortSeal、legacy rewrap
+  所有 state transition 且不执行 orphan deletion、generation-safe lifecycle
+  cleanup、安全 typed error、wrong-key failure 与 non-Weixin plaintext rejection；
+- failure-injection 与 restart test 覆盖 durable binding create 后、Seal 后但 active
+  transition 前、unknown active transition 后，以及 revoke 后但 Delete/final revoke
+  前的 crash；Weixin 证明 durable `credential_pending` record 不可 poll，terminal
+  compensation 不能再次使用同一 ID 进入 Poll 或 Seal；
+- Gateway/Notification/Syncer test 证明 adapter 不能替换 binding ID、Seal 失败时没有
+  active binding、没有 raw Store access、owned context propagation、cleanup error
+  handling、worker 前完成 startup recovery，并且不披露 token/ref/error；
 - source guard：只 embed 一个 repository、exact signature、opaque command factory
   与三个 implementation、无 legacy method、无 ignored result、无已迁移
   `context.Background()`、
@@ -312,8 +356,9 @@ Syncer 区分 unavailable 和正常 credential absence，只披露稳定 Vault m
   双语 docs CI，以及一次性配置的真实 PostgreSQL full 与 race run。现有 PostgreSQL
   CI topology 和 DSN skip behavior 保持不变。
 
-在 exact Credential implementation 获得独立、上下文隔离的 GO 之前，不开始
-SessionRepository 设计。
+本设计获得 GO 后，ConnectorRepository 是唯一授权的设计与实现前置阶段；其实现获得
+独立 GO 前，Credential 代码仍被阻塞。恢复后的 exact Credential implementation 获得
+自身 context-isolated GO 前，不开始 SessionRepository 设计。
 
 ## 审查记录
 
@@ -322,4 +367,5 @@ SessionRepository 设计。
 | Credential contract review 1 | `de4cd93` | `REVISE` | Seal 缺少 logical operation identity；ref-only Delete 可能删除 replacement 且没有 pending cleanup owner；File high-water rollback 与 non-rollback timestamp 冲突；lifecycle 与 public error mapping 不完整 | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 2 | `1d646f0` | `REVISE` | immediate success 清除全部 replay identity；legacy rewrap 缺少独立 non-orphan state machine；delete digest 使用可能溢出的 UnixNano encoding | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 3 | `b6def5d` | `REVISE` | deterministic ref 只在 row 存在时保留 identity，但文档仍承诺 generic post-delete operation-ID conflict；Delete 也接受没有 durable binding 的可复用 caller operation ID | Context-isolated gatekeeper / 2026-08-20 |
-| Credential contract review 4 | pending | pending | pending | pending |
+| Credential contract review 4 | `30cbf24` | `REVISE` | Gateway 仅在 memory 保留 binding ID，直到 adapter Start/Seal 后才持久化，因此 crash 会丢失 replay identity 并遗留 orphan credential；compensated Weixin waiting record 也没有阻止 Poll/Seal reuse 的 durable terminal transition | Context-isolated gatekeeper / 2026-08-20 |
+| Credential contract review 5 | pending | pending | pending | pending |

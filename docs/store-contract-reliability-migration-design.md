@@ -3,9 +3,11 @@
 > Language: English | [简体中文](../zh-cn/docs/store-contract-reliability-migration-design.md)
 
 > Status: S2 was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`; and
-> S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository is the
-> only current design wave; reviews 1-3 returned `REVISE` and revision 4 is active.
-> Its implementation is not authorized before design GO.
+> S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository contract
+> revision 5 is the only current design wave after reviews 1-4 returned
+> `REVISE`. Its design GO advances the ConnectorRepository lifecycle
+> prerequisite; Credential implementation remains blocked until that
+> prerequisite receives implementation GO.
 
 ## Purpose
 
@@ -152,3 +154,4 @@ whether any module split is justified.
 | S3 Credential contract review 1 | `de4cd93` | `REVISE` | Revision 1 lacked operation identity, conditional/pending deletion, non-rollback File high-water consistency, lifecycle ownership, and exact safe error projection | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 2 | `1d646f0` | `REVISE` | Revision 2 did not preserve operation replay after success, separate active rewrap from orphan cleanup, or encode every accepted time in delete versions | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 3 | `b6def5d` | `REVISE` | Revision 3 overpromised post-delete operation identity without a durable tombstone and let Delete reuse a caller identity for another ref | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract review 4 | `30cbf24` | `REVISE` | Binding identity was process-local until after adapter Start/Seal, so a crash could orphan the secret and lose replay identity; Weixin compensation had no durable terminal transition preventing Poll/Seal reuse | Context-isolated gatekeeper / 2026-08-20 |

@@ -2,9 +2,11 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-credential-repository-design.md)
 
-> Status: S3 design revision 4, 2026-08-20. Reviews 1-3 returned `REVISE`; no
+> Status: S3 design revision 5, 2026-08-20. Reviews 1-4 returned `REVISE`; no
 > CredentialRepository code is authorized before an independent
-> context-isolated design GO.
+> context-isolated design GO. A design GO advances the ConnectorRepository
+> lifecycle prerequisite below; it does not authorize Credential implementation
+> before that prerequisite receives implementation GO.
 
 ## Boundary And Existing Defects
 
@@ -24,9 +26,13 @@ independent ways:
 - `CredentialSecret.Value` is publicly JSON-serializable even though no public
   response is authorized to expose it.
 
-This wave fixes that complete credential boundary. It does not migrate
-NotificationBinding persistence or make credential-plus-binding a new
-cross-repository transaction; ConnectorRepository owns that later command.
+This contract fixes the complete credential boundary. Production cutover also
+needs a durable NotificationBinding identity before any credential can be
+sealed. That lifecycle is owned by ConnectorRepository rather than smuggled
+into CredentialRepository as a second binding log. The repository roadmap
+therefore freezes this contract first, migrates ConnectorRepository next, and
+then returns to Credential implementation. It does not claim a new atomic
+transaction across Store and an external provider.
 
 ## Interface
 
@@ -200,13 +206,17 @@ type CredentialVault interface {
     Seal(context.Context, string, string, []byte) (string, error) // binding ID, kind, plaintext
     Open(context.Context, string) ([]byte, error)
     Delete(context.Context, string) error // ref
+    AbortSeal(context.Context, string, string) error // binding ID, kind
 }
 ```
 
-The seal identity is the immutable binding ID already created before an
-adapter starts. It is trimmed, required, and at most 256 bytes. The binding
-record remains the authority for its normal ID persistence/projection; Vault
-does not create an additional identity log, receipt, audit, or public field.
+The seal identity is an immutable binding ID durably created before an adapter
+starts or Vault receives plaintext. It is trimmed, required, and at most 256
+bytes. The accepted ConnectorRepository contract must make that ordering true;
+the current best-effort `SaveNotificationBinding` does not. The binding record
+remains the authority for identity persistence and terminal reuse prevention;
+Vault does not create an additional identity log, receipt, audit, or public
+field.
 Vault derives a separate ref key as
 HMAC-SHA-256(master key, `sparkclaw-credential-ref-key-v1`), then
 derives each new ref as `cred_` plus the unpadded base64url encoding of the full
@@ -220,21 +230,57 @@ create command. A present authenticated envelope with the same kind and
 constant-time-equal plaintext is a completed replay and returns the same ref
 without another save/audit. Any other present row is stable
 `credential_invalid` and is never overwritten. Consequently immediate success
-may clear volatile state: replay for the same live binding reconstructs the
-exact ref even after process restart, while equal kind/plaintext under another
-binding ID has an independent ref and cannot share or clean up the first
-credential.
+may clear volatile state: a caller that recovers the same durably nonterminal
+binding reconstructs the exact ref after process restart, while equal
+kind/plaintext under another binding ID has an independent ref and cannot share
+or clean up the first credential. No replay guarantee exists for an ID that was
+only process-local; production must not call Seal in that state.
 
 This is deliberately a live-binding replay contract, not a durable generic
-operation ledger. A confirmed Delete retires that binding's seal identity; a
-later Seal with the retired binding ID is outside the contract and may create a
-new row at the deterministic ref. Production makes the precondition structural:
-Gateway creates a fresh immutable binding ID before every Start, adapters never
-generate or replace it, and no revoked/compensated binding ID returns to Seal.
-Delete has no caller-supplied operation ID, so it cannot be replayed against a
-different ref under a stale identity. ConnectorRepository may later add a
-durable cross-repository lifecycle receipt; this wave does not pretend Audit is
-such a ledger.
+operation ledger. A confirmed Delete or AbortSeal is paired with a durable
+terminal binding transition. ConnectorRepository retains that record, rejects
+reuse of its ID, and prevents a terminal ID from returning to Start, Poll, or
+Seal. Delete has no caller-supplied operation ID, so it cannot be replayed
+against a different ref under a stale identity. Audit is not a lifecycle
+receipt or an atomicity substitute.
+
+### Durable Binding Prerequisite
+
+Credential production cutover is blocked until the separately reviewed
+ConnectorRepository contract and implementation provide all of these rules:
+
+1. Gateway creates a fresh immutable binding ID and durably commits a `starting`
+   binding before calling an adapter. A definite or unresolved binding create
+   never reaches provider verification or Seal.
+2. Telegram may Seal only from that exact `starting` version. A successful Seal
+   is followed by a conditional transition to `active` with the returned ref.
+3. Weixin first conditionally advances `waiting_scan`/`waiting_confirm` to a
+   non-pollable `credential_pending` version carrying non-secret provider
+   metadata, and confirms that transition before passing the returned token to
+   Seal. A compensated or restarted record therefore cannot Poll and Seal the
+   same retired ID again.
+4. An unknown transition to `active` is reconciled behind the binding's Store
+   barrier. Exact `active` state proves success. Only exact pre-active state
+   proves that AbortSeal is permitted; an unresolved or different state is
+   never cleaned up.
+5. Before connector workers start or Gateway listens, recovery scans
+   `starting`, `credential_pending`, and `revoking` records. It uses
+   `AbortSeal(bindingID, kind)` or `Delete(ref)` as appropriate, then
+   conditionally commits `failed` or `revoked`. Recovery failure keeps the
+   non-pollable state and fails connector readiness instead of activating a
+   binding or losing cleanup ownership.
+6. Revocation first commits a non-active `revoking` state retaining the ref,
+   then deletes the exact credential, then commits `revoked`. A restart repeats
+   only the pending delete. Terminal binding records are retained, and binding
+   IDs are never recycled.
+
+`AbortSeal` derives the deterministic ref from binding ID, requires the exact
+expected kind, authenticates a present Vault envelope, and conditionally deletes
+that exact candidate. Absence is success. A different kind, invalid envelope,
+replacement, or unresolved Store result is stable unavailable and is never
+deleted. This reconstructible cleanup is independent of Vault's volatile
+pending coordinator, but its authorization comes only from a proven Connector
+pre-active state.
 
 Vault has one capacity-one in-memory command coordinator with three explicit,
 disjoint pending modes:
@@ -265,10 +311,11 @@ disjoint pending modes:
 Every later Vault mutation resolves the applicable pending mode before it
 proceeds. An unresolved create cleanup or delete prevents generation of another
 ref; an unresolved rewrap blocks mutation but never deletes the active
-credential. Thus a later binding start can finish prior compensation without
-receiving or disclosing the old ref. Immediate success and final resolution
-clear matching state by generation; a late cleanup cannot clear a replacement
-generation. Repository candidates and errors never cross public APIs.
+credential. After restart, the Connector recovery path reconstructs cleanup
+from the durable binding ID instead of relying on this volatile state. Immediate
+success and final resolution clear matching state by generation; a late cleanup
+cannot clear a replacement generation. Repository candidates and errors never
+cross public APIs.
 
 The composition root constructs the only production Vault. Before starting
 connector workers, `gatewayServices.Start` calls `BindLifecycle(ctx)`. Binding
@@ -276,12 +323,13 @@ increments a generation and starts one cancellation watcher; cancellation
 clears pending material only when its generation still matches. Rebinding first
 invalidates the old generation. The Server does not construct a fallback Vault.
 
-All new Weixin QR credentials use `CredentialVault.Seal` with the immutable
-binding ID; Gateway assigns the returned durable ref to the binding only
-after Seal succeeds. Notification and Syncer use `CredentialVault.Open` with
-their owned request/work context instead of reading `CredentialSecret.Value`.
-Static operator-configured Weixin tokens remain configuration inputs and do not
-enter Store.
+After the Connector prerequisite is accepted, all new Weixin QR credentials use
+`CredentialVault.Seal` with the durably persisted immutable binding ID. Gateway
+first persists `credential_pending`, then assigns the returned durable ref only
+through the conditional `active` transition. Notification and Syncer use
+`CredentialVault.Open` with their owned request/work context instead of reading
+`CredentialSecret.Value`. Static operator-configured Weixin tokens remain
+configuration inputs and do not enter Store.
 
 Gateway must check credential cleanup errors. Binding-start compensation and
 binding revocation may return a stable unavailable response after the binding
@@ -315,9 +363,10 @@ Implementation follows this accepted design in separate reviewable commits:
 
 1. repository behavior across interface, operations, three backends, private
    File wire format, and compatibility validation;
-2. Vault seal identity, save/delete coordinator, lifecycle binding,
-   legacy Weixin rewrap, consumer/context migration, and safe Gateway
-   projection; and
+2. after the independently accepted ConnectorRepository prerequisite, Vault
+   seal identity, restart-reconstructible AbortSeal, save/delete coordinator,
+   lifecycle binding, legacy Weixin rewrap, consumer/context migration, and
+   safe Gateway projection; and
 3. any independent File encrypted-envelope fail-closed defect fix, if kept
    separate from repository behavior for bisect clarity.
 
@@ -331,15 +380,22 @@ The implementation gate requires:
 - PostgreSQL acquire/begin/statement/commit/rollback classification,
   terminate-not-release, context-aware admission, barrier isolation, scan
   propagation, atomic audit, startup validation, and real-DSN evidence;
-- Vault deterministic live-binding replay before/after process restart,
-  live-binding different-input conflict, independent identical plaintext bindings,
+- Vault deterministic replay from a durably recovered nonterminal binding,
+  process-local ID rejection at the caller boundary, live-binding
+  different-input conflict, independent identical plaintext bindings,
   create/delete immediate and next-call reconciliation, conditional orphan
-  cleanup, all legacy rewrap state transitions without orphan deletion,
-  generation-safe lifecycle cleanup, safe typed errors, wrong-key failure, and
-  non-Weixin plaintext rejection;
-- Gateway/Notification/Syncer tests proving no active binding on failed Seal,
-  no raw Store access, owned context propagation, cleanup error handling, and
-  no token/ref/error disclosure;
+  cleanup, restart-reconstructed AbortSeal, all legacy rewrap state transitions
+  without orphan deletion, generation-safe lifecycle cleanup, safe typed
+  errors, wrong-key failure, and non-Weixin plaintext rejection;
+- failure-injection and restart tests for crash after durable binding create,
+  after Seal but before active transition, after unknown active transition, and
+  after revoke but before Delete/final revoke; Weixin proves the durable
+  `credential_pending` record is non-pollable and terminal compensation cannot
+  re-enter Poll or Seal with the same ID;
+- Gateway/Notification/Syncer tests proving adapters never replace binding IDs,
+  no active binding on failed Seal, no raw Store access, owned context
+  propagation, cleanup error handling, startup recovery before workers, and no
+  token/ref/error disclosure;
 - source guards for one embedded repository, exact signatures, opaque command
   factories, and three implementations, no legacy methods, no ignored result, no migrated
   `context.Background()`, `CredentialSecret.Value` JSON redaction, and Vault's
@@ -350,8 +406,11 @@ The implementation gate requires:
   plus race runs. Existing PostgreSQL CI topology and DSN skip behavior remain
   unchanged.
 
-No SessionRepository design starts until the exact Credential implementation
-receives an independent context-isolated GO.
+After this design receives GO, ConnectorRepository is the only authorized
+design and implementation prerequisite. Credential code remains blocked until
+that implementation receives an independent GO. No SessionRepository design
+starts until the resumed exact Credential implementation receives its own
+context-isolated GO.
 
 ## Review Record
 
@@ -360,4 +419,5 @@ receives an independent context-isolated GO.
 | Credential contract review 1 | `de4cd93` | `REVISE` | Seal lacked logical operation identity; ref-only Delete could remove a replacement and had no pending cleanup owner; File high-water rollback contradicted non-rollback timestamps; lifecycle and public error mappings were incomplete | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 2 | `1d646f0` | `REVISE` | Immediate success cleared all replay identity; legacy rewrap lacked a distinct non-orphan state machine; delete digest used overflow-prone UnixNano encoding | Context-isolated gatekeeper / 2026-08-20 |
 | Credential contract review 3 | `b6def5d` | `REVISE` | Deterministic refs preserved identity only while a row existed, but the document still promised generic post-delete operation-ID conflict; Delete also accepted a reusable caller operation ID without a durable binding | Context-isolated gatekeeper / 2026-08-20 |
-| Credential contract review 4 | pending | pending | pending | pending |
+| Credential contract review 4 | `30cbf24` | `REVISE` | Gateway kept the binding ID only in memory until after adapter Start/Seal, so a crash could lose replay identity and orphan the credential; a compensated Weixin waiting record had no durable terminal transition preventing Poll/Seal reuse | Context-isolated gatekeeper / 2026-08-20 |
+| Credential contract review 5 | pending | pending | pending | pending |

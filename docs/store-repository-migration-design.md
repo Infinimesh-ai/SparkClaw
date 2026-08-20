@@ -3,9 +3,10 @@
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
 > Status: S2 pilot was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`;
-> and S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository is
-> the next design wave; reviews 1-3 returned `REVISE` and revision 4 is active. No
-> Credential implementation is authorized before its design GO.
+> and S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository
+> contract revision 5 is active after reviews 1-4 returned `REVISE`. Its design
+> GO advances a ConnectorRepository lifecycle prerequisite; Credential
+> implementation remains blocked until that prerequisite receives GO.
 
 ## Objective And Stage Boundary
 
@@ -493,18 +494,23 @@ recovery, backend compatibility, and implementation gate live in the
 [ClientRepository contract](store-client-repository-design.md). Its complete
 implementation received GO at `a4ddc83`.
 
-### Next Wave: CredentialRepository
+### Active Contract: CredentialRepository
 
 CredentialRepository is the only authorized design wave. Its exact method,
 secret-redaction, overwrite/delete, durability, reconciliation, consumer, and
 backend compatibility contract is defined by the
 [CredentialRepository contract](store-credential-repository-design.md) and must
-receive an independent GO before code starts. Session and later repository
-design remains blocked until Credential implementation receives its own GO.
+receive an independent GO before code starts. That review exposed a durable
+NotificationBinding identity dependency: after Credential design GO,
+ConnectorRepository becomes the only authorized design and implementation
+prerequisite. Credential code begins only after Connector's implementation GO,
+then the Credential implementation resumes and receives its own gate. Session
+and later repository design remains blocked until that Credential GO.
 
 After S2 implementation and human acceptance, preferred risk order remains:
 
-1. Owner, Client, Credential, and Session;
+1. Owner, Client, Credential contract, Connector lifecycle prerequisite,
+   Credential implementation, and Session;
 2. Conversation, Run, Document, Approval, Audit, Evaluation, and artifact
    metadata;
 3. Schedule, Connector, Delivery Record, Passive Notification, and External
@@ -602,5 +608,6 @@ migrations remain in place.
 | S3 Credential contract review 1 | `de4cd93` | `REVISE` | Vault lacked explicit operation identity and pending delete ownership; ref-only cleanup could delete a replacement; File high-water rollback, lifecycle binding, and safe public error mapping were incomplete | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 2 | `1d646f0` | `REVISE` | Immediate success was not replay-idempotent; legacy rewrap had no distinct non-orphan state machine; delete digest time encoding was not total | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract review 3 | `b6def5d` | `REVISE` | The contract promised generic durable operation identity after delete without a tombstone, and Delete accepted a caller identity reusable against another ref | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract review 4 | `30cbf24` | `REVISE` | Binding identity existed only in memory until after adapter Start/Seal, so restart replay and orphan cleanup were not durable; Weixin compensation lacked a terminal state preventing the same ID from polling and sealing again | Context-isolated gatekeeper / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

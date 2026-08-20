@@ -4,8 +4,9 @@
 
 > 状态：S2 pilot 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在
 > `0b85cc4` 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83`
-> 获得接受。CredentialRepository 是下一设计波次；审查 1-3 返回 `REVISE`，当前为
-> 修订 4。其设计获得 GO 前不授权实现。
+> 获得接受。CredentialRepository 合同修订 5 处于活动状态，审查 1-4 返回
+> `REVISE`。其设计 GO 将推进 ConnectorRepository lifecycle 前置阶段；该前置
+> 阶段获得 GO 之前，Credential 实现仍被阻塞。
 
 ## 目标与阶段边界
 
@@ -432,17 +433,20 @@ Owner 实现在 `0b85cc4` 获得独立 GO，gate record 为 `fc5acba`。Client �
 compatibility 与实现 gate 由 [ClientRepository contract](store-client-repository-design.md)
 负责；其完整实现已在 `a4ddc83` 获得 GO。
 
-### 下一波次：CredentialRepository
+### 活动合同：CredentialRepository
 
 CredentialRepository 是唯一获授权的设计波次。其精确 method、secret-redaction、
 overwrite/delete、durability、reconciliation、consumer 与 backend compatibility
 合同由 [CredentialRepository contract](store-credential-repository-design.md) 定义，
-并且必须先获得独立 GO 才能开始代码。Credential 实现获得自身 GO 前，Session
-及后续 repository 设计仍保持阻塞。
+并且必须先获得独立 GO 才能开始代码。该审查暴露出 durable NotificationBinding
+identity 依赖：Credential 设计 GO 后，ConnectorRepository 成为唯一授权的设计与实现
+前置阶段。只有 Connector 实现 GO 后才开始 Credential 代码，再恢复 Credential 实现
+并取得自己的 gate。Credential GO 前，Session 及后续 repository 设计仍保持阻塞。
 
 S2 实现并经人工验收后，推荐风险顺序保持为：
 
-1. Owner、Client、Credential 与 Session；
+1. Owner、Client、Credential 合同、Connector lifecycle 前置阶段、Credential 实现
+   与 Session；
 2. Conversation、Run、Document、Approval、Audit、Evaluation 与 artifact
    metadata；
 3. Schedule、Connector、Delivery Record、Passive Notification 与 External Chat；
@@ -531,5 +535,6 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S3 Credential contract 审查 1 | `de4cd93` | `REVISE` | Vault 缺少显式 operation identity 与 pending delete ownership；ref-only cleanup 可能删除 replacement；File high-water rollback、lifecycle binding 与安全 public error mapping 不完整 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 2 | `1d646f0` | `REVISE` | immediate success 不具备 replay idempotency；legacy rewrap 没有独立 non-orphan state machine；delete digest 时间编码不完整 | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Credential contract 审查 3 | `b6def5d` | `REVISE` | 合同承诺 delete 后仍有 generic durable operation identity 却没有 tombstone，且 Delete 接受可复用于另一 ref 的 caller identity | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract 审查 4 | `30cbf24` | `REVISE` | binding identity 直到 adapter Start/Seal 后才从 memory 持久化，因此 restart replay 与 orphan cleanup 不具 durable 依据；Weixin compensation 也缺少阻止同一 ID 再次 Poll/Seal 的 terminal state | Context-isolated gatekeeper / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

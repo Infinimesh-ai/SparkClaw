@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/store-repository-migration-design.md) | 简体中文
 
-> 状态：S2 pilot 设计审查候选 revision 1，2026-08-20。只有本文档和关联的
+> 状态：S2 pilot 设计审查候选 revision 2，2026-08-20。只有本文档和关联的
 > File durability 设计都获得独立 `GO` 后才开始 pilot；其余 repository code
 > 仍由 S2 实现验收门禁控制。
 
@@ -60,8 +60,10 @@ contract 如下：
 - repository 不拥有 audit row；`iscppairing.Service` 仍在 receipt save 成功后由
   caller append `iscp.onboarding.ticket_issued`。
 
-ID 是 idempotency/conflict 边界。caller 使用 `GetISCPOnboarding(ctx, id)` 对账
-uncertain save；对账完成前不得为同一 logical receipt 生成或提交另一次 save。
+ID 是 idempotency/conflict 边界。uncertain save 期间，由
+`iscppairing.Service` 而非 HTTP caller 持有 ID 和尚未披露的 issued ticket。它用
+`GetISCPOnboarding(ctx, id)` 对账；完成前不能为该 owner 再调用 authority 或生成
+另一次 save。
 
 ## 有限 Operation 边界
 
@@ -157,7 +159,7 @@ pilot 不替换 Memory 现有 mutex。其 critical section 只在进程内执行
 
 ### PostgreSQL
 
-- 把 effective context 传给每个 `Exec`、`Query`、`QueryRow`、scan loop 与
+- 把 effective context 传给 pool acquisition、每个 `Exec`、`Query`、`QueryRow`、scan loop 与
   reconciliation call；pilot 文件不含 `context.Background()`；
 - SQLSTATE `23505` 映射为 conflict，同时保留
   `ErrISCPOnboardingConflict`；
@@ -168,10 +170,22 @@ pilot 不替换 Memory 现有 mutex。其 critical section 只在进程内执行
 - 同时依据 effective context 与 PostgreSQL cause 分类 context outcome，不使用
   string matching。
 
-PostgreSQL 单行 autocommit 可能在 submission 后报告 connection failure。driver
-无法确认 insert 是否 commit 时，结果为 `unknown_outcome`，必须按 ID get。确定性
-unit test 通过 backend seam 验证此分类；configured integration test 验证真实
-insert、duplicate、absence、list/rows handling、cancellation 与 restart。
+save 不直接调用 `pgxpool.Exec`，而是先用 effective context 获取一个 pool
+connection，再在该 connection 上调用一次 autocommit `Exec`。生产分类冻结为：
+
+| 阶段/结果 | 分类 | Retry 规则 |
+|---|---|---|
+| context 结束，或获取 connection 前 pool acquire 失败 | `canceled`、`timeout` 或 `unavailable` | statement 未提交，允许普通 retry |
+| acquired-connection Exec 返回服务端 `*pgconn.PgError` | SQLSTATE `23505` 为 `conflict`，其他服务端拒绝映射为对应 definite code | PostgreSQL 已拒绝 statement，不是 unknown commit |
+| acquired-connection Exec error 满足 `pgconn.SafeToRetry(err)` | 依据 context/cause 为 `canceled`、`timeout` 或 `unavailable` | driver 保证 statement 未发送，允许普通 retry |
+| 其他 acquired-connection transport/context error | `unknown_outcome` | statement 可能已 commit，必须按 ID get |
+| Exec 成功 | success | autocommit 已完成 |
+
+尤其是 connection acquisition 后的 deadline/cancellation error，在
+`SafeToRetry` 为 false 时不能标为 `timeout`/`canceled`。package-private
+acquire/exec seam 覆盖此表每一行，但不替代 real-DSN evidence。configured
+integration test 验证真实 insert、duplicate、absence、list/rows handling、pool
+acquisition 前 cancellation 与 restart。
 
 ## Consumer 与 Assembly 迁移
 
@@ -183,6 +197,28 @@ service 获得无关 Store 方法。
 consumer 精确变化：
 
 - `Start` 把 request context 传给 save；
+- `Start` 在任何 authority call 前获取 context-aware capacity-one service
+  admission；SparkClaw 是 single-owner 产品，一个全局 admission 即可，并可阻止
+  并发 request 平行签发 ticket；
+- authority 返回后、save 开始前，service publish 一个 in-memory pending record，
+  其中保存 owner、onboarding ID、normalized request fingerprint、receipt 和尚未
+  披露的 signed ticket；该值绝不持久化、log、audit 或 public projection。
+  fingerprint 是 canonical owner、normalized display name、effective TTL、
+  configured domain 与 expected ticket type 的 SHA-256 digest；
+- definite save failure 清除 pending、丢弃 signed ticket，并且不再调用 authority
+  就返回；之后一次显式 Start 是新的 logical attempt，可以签发 fresh ticket；
+- save 返回 `unknown_outcome` 时，`Start` 立即在剩余 request context 内按 ID get
+  对账。确认 receipt 后完成原 operation、append caller-owned audit、只返回一次
+  原 ticket 并清除 pending；确认 absence 后清除 pending，返回 definite
+  persistence failure，且不再调用 authority；仍无法对账则保留 pending，返回
+  safe unavailable；
+- 每个后续 `Start` 都在 service admission 下先检查 pending 再调用 authority。
+  相同 normalized request 执行对账，并在 commit 后获得 retained original ticket；
+  不同 request 在 pending operation 解决前收到 stable conflict。pending 存在时
+  不存在签发第二张 authority ticket 的路径；
+- pending 受 authority ticket expiry 限制。若到 expiry 后才首次对账成功，receipt
+  保持可见，但丢弃 expired signature，并报告需要一次新的显式 start；该
+  reconciliation call 自身不能签发 fresh ticket；
 - `List` 变成 `List(ctx, ownerID) ([]app.ISCPOnboarding, error)`；
 - GET handler 传入 `r.Context()`，且不能把 backend failure 序列化成空 `200`
   list；
@@ -194,11 +230,12 @@ consumer 精确变化：
   和临时 broad assembly value 继续保留 `store.Store`。
 
 authority call 仍先于 receipt save，因为 receipt 来自已签名 authority response。
-authority contract 没有 revocation 或 idempotent request recovery。因此，确定的
-local save failure 可能留下未披露 remote ticket；unknown save 可能留下可 list 的
-receipt，但 signature 没有披露。service 在 persistence error 时 fail closed 且不
-暴露 ticket。解决 remote/local atomicity 需要 authority protocol 变化，不能藏进
-Store。
+pending coordinator 关闭了同一进程内 unknown-outcome retry window，并能在成功
+对账后返回原 ticket。authority contract 仍没有 revocation 或 idempotent request
+recovery。因此，确定的 local save failure、authority issuance 后的 process
+crash/restart，或对账前 ticket expiry 仍可能留下未披露 remote ticket。解决这些
+remote/local atomicity 与 crash-recovery case 需要 authority protocol 变化或可恢复
+authority request contract，不能藏进 Store。
 
 audit append 仍发生在 receipt persistence 成功之后，并在 `AuditRepository` 迁移
 前保留 legacy failure behavior。S0 已明确把 audit 分配给 caller，因此 pilot 不
@@ -244,9 +281,12 @@ pilot gate 要求：
 - File 设计规定的默认 File injected-failure、rollback、fence、reconciliation、
   encryption、restart 与 race test；
 - PostgreSQL unit classification：query/scan/rows/context 与 uncertain submission，
-  再加 real-DSN integration evidence；
+  包括每个 acquired-connection/`SafeToRetry` table row，再加 real-DSN integration
+  evidence；
 - `iscppairing` service test：context propagation、safe failure copy、persistence
-  failure 后不披露 ticket，以及 caller-owned audit order；
+  definite failure 后不披露 ticket、immediate 和 next-request unknown
+  reconciliation、无第二次 authority call、different-request conflict、pending
+  expiry、并发 Start serialization，以及 caller-owned audit order；
 - Gateway test：`r.Context()` propagation 和 list failure 非 200；
 - 两个新 timeout 的 config default/environment/range/assembly test；
 - source guard：interface 只 embed 一次、无 pilot 旧签名、无 pilot
@@ -284,6 +324,7 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 
 | 审查 | Revision/commit | 决定 | 证据与未解决风险 | Reviewer/date |
 |---|---|---|---|---|
-| S2 pilot/S3 设计 | revision 1 candidate | pending | 精确 pilot signature、timeout/config flow、error、三后端行为、consumer 迁移与 remote-effect 风险等待独立审查 | pending |
+| S2 pilot/S3 设计审查 1 | `3aff151` | `REVISE` | uncertain save 未阻止 retried Start 签发第二张 authority ticket，且 PostgreSQL autocommit 缺少可验证 submission classifier | Independent gatekeeper / 2026-08-20 |
+| S2 pilot/S3 设计审查 2 | revision 2 candidate | pending | pending-ticket coordinator 与 acquired-connection/`SafeToRetry` classification 等待复审 | pending |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

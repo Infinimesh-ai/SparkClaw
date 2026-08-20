@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: S2 pilot design-review candidate revision 1, 2026-08-20. The pilot
+> Status: S2 pilot design-review candidate revision 2, 2026-08-20. The pilot
 > starts only after this document and the linked File durability design receive
 > an independent `GO`. Remaining repository code remains gated by S2
 > implementation acceptance.
@@ -66,9 +66,11 @@ The contract is:
 - the repository owns no audit row. `iscppairing.Service` remains the caller
   that appends `iscp.onboarding.ticket_issued` after a successful receipt save.
 
-The ID is the idempotency/conflict boundary. A caller reconciles an uncertain
-save with `GetISCPOnboarding(ctx, id)` and must not generate or submit another
-save for that logical receipt until reconciliation completes.
+The ID is the idempotency/conflict boundary. `iscppairing.Service`, rather than
+the HTTP caller, owns the ID and the still-undisclosed issued ticket while a
+save is uncertain. It reconciles with `GetISCPOnboarding(ctx, id)` and must not
+call the authority or generate another save for that owner until reconciliation
+completes.
 
 ## Finite Operation Boundary
 
@@ -174,7 +176,8 @@ observed under the lock before any effect.
 
 ### PostgreSQL
 
-- pass the effective context to every `Exec`, `Query`, `QueryRow`, scan loop,
+- pass the effective context to pool acquisition, every `Exec`, `Query`,
+  `QueryRow`, scan loop,
   and reconciliation call; the pilot files contain no `context.Background()`;
 - map SQLSTATE `23505` to conflict while preserving
   `ErrISCPOnboardingConflict`;
@@ -185,11 +188,23 @@ observed under the lock before any effect.
 - classify a context outcome using both the effective context and PostgreSQL
   cause, without string matching.
 
-PostgreSQL's one-row autocommit can report connection failure after submission.
-When the driver cannot establish whether the insert committed, the result is
-`unknown_outcome` and get-by-ID is required. Deterministic unit tests use a
-backend seam for this classification; the configured integration test proves
-real insert, duplicate, absence, list/rows handling, cancellation, and restart.
+The save does not call `pgxpool.Exec` directly. It first acquires one pool
+connection with the effective context and then invokes one autocommit `Exec` on
+that acquired connection. The production classification is frozen as:
+
+| Stage/result | Classification | Retry rule |
+|---|---|---|
+| context ends or pool acquire fails before a connection is acquired | `canceled`, `timeout`, or `unavailable` | no statement was submitted; ordinary retry allowed |
+| acquired-connection Exec returns server `*pgconn.PgError` | SQLSTATE `23505` is `conflict`; other server rejections are mapped to their definite code | PostgreSQL rejected the statement; no unknown commit |
+| acquired-connection Exec error satisfies `pgconn.SafeToRetry(err)` | `canceled`, `timeout`, or `unavailable` from context/cause | driver guarantees the statement was not sent; ordinary retry allowed |
+| any other acquired-connection transport/context error | `unknown_outcome` | statement may have committed; get-by-ID required |
+| Exec succeeds | success | autocommit completed |
+
+In particular, a deadline/cancellation error after connection acquisition is
+not labeled `timeout`/`canceled` when `SafeToRetry` is false. A package-private
+acquire/exec seam drives every row of this table without replacing real-DSN
+evidence. The configured integration test proves real insert, duplicate,
+absence, list/rows handling, cancellation before pool acquisition, and restart.
 
 ## Consumer And Assembly Migration
 
@@ -202,6 +217,34 @@ service unrelated Store methods.
 Consumer changes are exact:
 
 - `Start` passes its request context to save;
+- `Start` uses a context-aware capacity-one service admission before any
+  authority call, which is sufficient for SparkClaw's single-owner product and
+  prevents concurrent requests from issuing parallel tickets;
+- after the authority returns but before save begins, the service publishes an
+  in-memory pending record containing owner, onboarding ID, normalized request
+  fingerprint, receipt, and still-undisclosed signed ticket; the value is never
+  persisted, logged, audited, or projected. The fingerprint is a SHA-256 digest
+  of canonical owner, normalized display name, effective TTL, configured
+  domain, and expected ticket type;
+- a definite save failure clears pending, discards the signed ticket, and
+  returns without another authority call. A later explicit Start is a new
+  logical attempt and may issue a fresh ticket;
+- if save returns `unknown_outcome`, `Start` immediately attempts get-by-ID
+  reconciliation within the remaining request context. A confirmed receipt
+  completes the original operation, appends the caller-owned audit, returns the
+  original ticket once, and clears pending. Confirmed absence clears pending
+  and returns a definite persistence failure without another authority call;
+  unresolved reconciliation retains pending and returns a safe unavailable
+  result;
+- every later `Start` checks pending under the service admission before calling
+  the authority. The same normalized request reconciles and, if committed,
+  receives the retained original ticket; a different request receives a stable
+  conflict until the pending operation resolves. No path issues a second
+  authority ticket while pending exists;
+- pending is bounded by the authority ticket expiry. If reconciliation first
+  succeeds after expiry, the receipt remains visible but the expired signature
+  is discarded and the service reports that a fresh explicit start is
+  required; it does not issue that fresh ticket in the reconciliation call;
 - `List` becomes `List(ctx, ownerID) ([]app.ISCPOnboarding, error)`;
 - the GET handler passes `r.Context()` and does not serialize a backend failure
   as an empty `200` list;
@@ -213,12 +256,14 @@ Consumer changes are exact:
   backend factory and temporary broad assembly value retain `store.Store`.
 
 The authority call still occurs before the receipt save because the receipt is
-derived from the signed authority response. The authority contract has no
-revocation or idempotent request recovery. Therefore a definite local save
-failure may strand an undisclosed remote ticket, and an unknown save may leave
-a receipt that can be listed but no disclosed signature. The service fails
-closed and exposes no ticket on persistence error. Solving remote/local
-atomicity requires an authority protocol change and is not hidden inside Store.
+derived from the signed authority response. The pending coordinator closes the
+same-process unknown-outcome retry window and can return the original ticket
+after successful reconciliation. The authority contract still has no revocation
+or idempotent request recovery. Therefore a definite local save failure, process
+crash/restart after authority issuance, or ticket expiry before reconciliation
+can strand an undisclosed remote ticket. Solving those remote/local atomicity
+and crash-recovery cases requires an authority protocol change or a recoverable
+authority request contract and is not hidden inside Store.
 
 The audit append remains after successful receipt persistence and retains its
 legacy failure behavior until `AuditRepository` migrates. The pilot does not
@@ -268,9 +313,13 @@ The pilot gate requires:
 - default File injected-failure, rollback, fence, reconciliation, encryption,
   restart, and race tests from the File design;
 - PostgreSQL unit classification for query/scan/rows/context and uncertain
-  submission plus real-DSN integration evidence;
+  submission, including every acquired-connection/`SafeToRetry` table row, plus
+  real-DSN integration evidence;
 - `iscppairing` service tests proving context propagation, safe failure copy,
-  no ticket disclosure after persistence failure, and caller-owned audit order;
+  no ticket disclosure after definite persistence failure, immediate and
+  next-request unknown reconciliation, no second authority call, different-
+  request conflict, pending expiry, concurrent Start serialization, and
+  caller-owned audit order;
 - Gateway tests proving `r.Context()` propagation and non-200 list failure;
 - config default/environment/range/assembly tests for both new timeouts;
 - source guards for one embedded interface, no old pilot signatures, no pilot
@@ -313,6 +362,7 @@ migrations remain in place.
 
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
-| S2 pilot/S3 design | revision 1 candidate | pending | Exact pilot signatures, timeout/config flow, errors, three-backend behavior, consumer migration, and remote-effect risk await independent review | pending |
+| S2 pilot/S3 design review 1 | `3aff151` | `REVISE` | Uncertain save did not prevent a retried Start from issuing a second authority ticket, and PostgreSQL autocommit lacked a verifiable submission classifier | Independent gatekeeper / 2026-08-20 |
+| S2 pilot/S3 design review 2 | revision 2 candidate | pending | Pending-ticket coordinator and acquired-connection/`SafeToRetry` classification await re-review | pending |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

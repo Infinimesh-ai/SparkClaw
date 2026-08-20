@@ -2,7 +2,7 @@
 
 > 语言：[English](../../docs/store-file-durability-design.md) | 简体中文
 
-> 状态：S2 设计审查候选 revision 1，2026-08-20。只有本文档和关联的
+> 状态：S2 设计审查候选 revision 2，2026-08-20。只有本文档和关联的
 > repository pilot 设计都获得独立 `GO` 后，才开始 S2 生产代码。
 
 ## 问题与 S2 声明
@@ -45,6 +45,27 @@ gate 规则如下：
   或 panic；
 - 删除旧 File 持久化 mutex；已持有独占 admission 的 helper 不能递归获取 gate；
 - `inner` 保持 private，生产代码不能在 admitted File 方法之外访问它。
+
+fence observation 与 semaphore acquire 使用显式 double-check loop，不能作为两个
+互不关联的检查：
+
+1. 在 `fenceMu` 下读取当前 fence pointer；
+2. 若存在，legacy 方法在 semaphore 外等待 completion channel 后重试，已迁移方法
+   进入 reconciliation；
+3. 若不存在，获取所需 semaphore weight；
+4. 在 `fenceMu` 下再次读取 fence pointer；
+5. 只有第二次仍为 nil 才返回 admission lease；
+6. 否则立即释放 semaphore，在 lease 外等待或对账，再从第一步重试。
+
+fence 在独占 admission 与 `fenceMu` 下安装，publish 后 payload immutable。清除时
+在 `fenceMu` 下比较同一 pointer，移除并且只 close 一次 completion channel。
+专用 reconciliation path 不要求普通 fence precondition，而是获取全部 semaphore
+capacity，再次核对 pointer identity 后检查 destination；它在报告或重试前释放
+admission。这是 fence 存在时唯一可以获取 admission 的 operation。
+
+因此，pilot 释放独占 admission 后，fence 安装前已排队的 legacy waiter 可能被
+wake，但其强制 post-acquire check 会看见 fence，立即释放，并在 gate 外等待。
+它既不能穿透 fence，也不能占有 reconciler 需要的 gate。
 
 gate commit 单独审查，其中不包含 pilot 签名或错误分类变化。AST source guard
 枚举 S0 接受的方法集，并证明每个 public File 方法在访问 `inner` 前恰好进入一个
@@ -124,6 +145,10 @@ JSON。
   reconciliation call 仍能获取 gate；
 - 未解决 fence 期间，legacy command 不能修改 Memory 或写入更新 snapshot。
 
+这些规则由上述 admission double-check loop 实现，不能只做一次 pre-acquire fence
+test。fence state 只由 `fenceMu` 拥有；semaphore ownership 保护 Memory/snapshot
+transition，但不能兼任 fence pointer lock。
+
 对账读取 destination 的精确 bytes。若与 candidate 相同，只重试 parent-directory
 sync；成功即确认 candidate 并清除 fence。若与已捕获的 previous bytes 或 previous
 absence 相同，Memory 恢复 rollback state，fence 解析为确定失败。若两个版本都
@@ -171,6 +196,8 @@ assertion 替换自己的 defect evidence。
 - rename failure 按 destination 精确对账分类；
 - directory-sync failure fence 所有 legacy command，并在对账前拒绝 migrated data
   read；
+- fence publish 前已排队的 legacy read/command waiter 在 post-acquire check 失败，
+  释放 admission，且 reconciler 保持可运行；
 - candidate 和 previous-state 两个 reconciliation branch；
 - 成功 commit 后 restart 精确重现 onboarding receipt；
 - 并发 duplicate save 只保留一个 winner 并返回 `ErrISCPOnboardingConflict`；
@@ -205,5 +232,6 @@ evidence、snapshot JSON 不变、默认后端无回归且无未使用 gate 或 
 
 | 审查 | Revision/commit | 决定 | 证据与未解决风险 | Reviewer/date |
 |---|---|---|---|---|
-| 设计 | revision 1 candidate | pending | scoped File invariant、精确 gate、submitted-outcome fence 与过渡风险等待独立审查 | pending |
+| 设计审查 1 | `3aff151` | `REVISE` | fence observation 与 semaphore acquire 缺少原子握手，pre-queued legacy waiter 可能穿透 fence 或让 reconciliation 死锁 | Independent gatekeeper / 2026-08-20 |
+| 设计审查 2 | revision 2 candidate | pending | double-check admission loop、fence synchronization ownership 与专用 reconciliation lease 等待复审 | pending |
 | 实现 | pending | pending | pending | pending |

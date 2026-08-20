@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-file-durability-design.md)
 
-> Status: S2 design-review candidate revision 1, 2026-08-20. S2 production
+> Status: S2 design-review candidate revision 2, 2026-08-20. S2 production
 > code starts only after this document and the linked repository pilot design
 > receive an independent `GO`.
 
@@ -52,6 +52,31 @@ The gate rules are:
   admission never recursively acquire the gate;
 - `inner` remains private, and production code outside an admitted File method
   cannot access it.
+
+Fence observation and semaphore acquisition use an explicit double-check loop;
+they are not two unrelated checks:
+
+1. read the current fence pointer under `fenceMu`;
+2. if present, a legacy method waits on its completion channel outside the
+   semaphore and retries, while a migrated method enters reconciliation;
+3. if absent, acquire the requested semaphore weight;
+4. read the fence pointer again under `fenceMu`;
+5. return the admission lease only when the second read is still nil;
+6. otherwise release the semaphore immediately, wait or reconcile outside that
+   lease, and retry from step 1.
+
+Fence installation occurs under exclusive admission and `fenceMu`. The fence
+payload is immutable after publication. Clearing compares the same pointer
+under `fenceMu`, removes it, and closes its completion channel exactly once.
+A dedicated reconciliation path acquires full semaphore capacity without the
+ordinary fence precondition, then rechecks pointer identity before inspecting
+the destination. It releases admission before reporting or retrying. This is
+the only operation allowed to acquire admission while a fence exists.
+
+Consequently, a legacy waiter already queued before fence installation may be
+woken after the pilot releases exclusive admission, but its mandatory
+post-acquire check sees the fence, releases immediately, and waits outside the
+gate. It cannot pass the fence or hold the gate needed by the reconciler.
 
 The gate commit is reviewed independently and contains no pilot signature or
 error-classification change. An AST source guard enumerates the accepted S0
@@ -144,6 +169,11 @@ Before any later operation proceeds:
 - no legacy command mutates Memory or writes a newer snapshot through an
   unresolved fence.
 
+These rules are implemented by the admission double-check loop above, not by a
+single pre-acquire fence test. Fence state is owned only by `fenceMu`; semaphore
+ownership protects Memory/snapshot transitions but is not used as the fence
+pointer lock.
+
 Reconciliation reads the exact destination bytes. If they match the candidate,
 it retries only the parent-directory sync; success confirms the candidate and
 clears the fence. If they match the captured previous bytes or previous
@@ -200,6 +230,8 @@ tests for:
 - rename failure classified by exact destination reconciliation;
 - directory-sync failure fencing all legacy commands and rejecting migrated
   data reads until reconciliation;
+- legacy read and command waiters queued before fence publication failing the
+  post-acquire check, releasing admission, and leaving the reconciler live;
 - candidate and previous-state reconciliation branches;
 - successful restart reproducing exactly the committed onboarding receipt;
 - concurrent duplicate saves preserving one winner and
@@ -240,5 +272,6 @@ cannot start on gate scaffolding alone.
 
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
-| Design | revision 1 candidate | pending | Scoped File invariant, exact gate, submitted-outcome fence, and transitional risks await independent review | pending |
+| Design review 1 | `3aff151` | `REVISE` | Fence observation and semaphore acquisition lacked an atomic handshake, allowing a pre-queued legacy waiter either to pass the fence or deadlock reconciliation | Independent gatekeeper / 2026-08-20 |
+| Design review 2 | revision 2 candidate | pending | Double-check admission loop, fence synchronization ownership, and dedicated reconciliation lease await re-review | pending |
 | Implementation | pending | pending | pending | pending |

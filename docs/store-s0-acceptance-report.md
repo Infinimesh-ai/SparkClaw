@@ -40,10 +40,10 @@ risk, not converted into a success claim.
 
 `s0_contract_characterization_test.go` adds the representative backend-neutral
 harness and static contract checks. `s0_repository_characterization_test.go`
-runs dimension-named cases for every applicable success, normal-absence,
-order/scope, duplicate, and conflict/delete contract across all 20 repositories
-on Memory and File, records current mutable-alias defects, and fills the two
-previously missing File restart cases. `s0_repository_lifecycle_test.go`
+maps each applicable success, normal-absence, order/scope, duplicate, and
+conflict/delete dimension to its own assertion branch across all 20
+repositories on Memory and File, records current mutable-alias defects, and
+fills the two previously missing File restart cases. `s0_repository_lifecycle_test.go`
 explicitly reads and asserts lifecycle audit/event evidence for the 18
 repositories that own it; ISCP onboarding and MCP retain concrete caller-owned
 lifecycle `N/A` rationales. `s0_repository_evidence_test.go` owns the complete

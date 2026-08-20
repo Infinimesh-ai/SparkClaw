@@ -111,8 +111,9 @@ PostgreSQL 对象。分号用于分隔兼容/派生状态与主要记录。
 `TestS0RepositoryCharacterizationMatrixCompleteness` 是可执行权威：它要求恰好
 20 行 repository 和 10 个维度，把每个 `Test[/subtest]@file.go` token 解析到
 完整子测试路径，拒绝无具体理由的 `N/A`，并逐单元格核对英文与中文矩阵和
-可执行权威。具名维度子测试在 Memory/File 上运行；更丰富的契约或当前缺陷
-继续链接到 focused test。
+可执行权威。每个具名维度键绑定自己的断言分支并在 Memory/File 上运行，
+不会把一个 repository 级宽检查换名后重复执行；更丰富的契约或当前缺陷继续
+链接到 focused test。
 
 | Repository | 成功 | 正常缺失 | 排序/过滤/作用域 | 克隆/别名 | 重复/幂等 | CAS/冲突/删除 | 事件/审计/序列 | File 重启/snapshot | 并发/revision | PostgreSQL row/`rows.Err()` |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -163,7 +164,7 @@ helper，以及每个具名或匿名局部 Store-compatible 接口的展开 Stor
 | Package / symbol | 类型 | 最小 repository 或消费者自有 composite |
 |---|---|---|
 | `agent.Runtime`, `NewRuntime`, `NewRuntimeWithContext` | constructor + field | Session + Conversation + Run + Document + Approval + BrowserState + Memory + Audit + ArtifactMetadata |
-| `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Session + Run + Approval + Audit |
+| `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Run |
 | `store.ArchiveToolObservation` | helper | ArtifactMetadata |
 | `credential.Vault`, `credential.New` | constructor + field | Credential |
 | `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |

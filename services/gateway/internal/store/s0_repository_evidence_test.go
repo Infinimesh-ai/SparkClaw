@@ -470,7 +470,7 @@ func collectS0StaticSubtestPaths(node ast.Node, prefix string, paths map[string]
 func addS0DynamicTestPaths(pathsByFile map[string]map[string]struct{}) {
 	repositoryPaths := pathsByFile["s0_repository_characterization_test.go"]
 	for repository, testCase := range s0RepositoryCharacterizationCases {
-		for _, dimension := range testCase.dimensions {
+		for dimension := range testCase.checks {
 			repositoryPaths["TestS0BackendNeutralRepositoryCharacterization/"+repository+"/"+s0DimensionSubtestName(dimension)] = struct{}{}
 		}
 	}

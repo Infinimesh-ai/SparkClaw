@@ -9,7 +9,7 @@ import (
 
 var s0ProductionConsumerComposites = map[string]string{
 	"agent.Runtime":                                 "Session + Conversation + Run + Document + Approval + BrowserState + Memory + Audit + ArtifactMetadata",
-	"agent.toolExposureEngine":                      "Session + Run + Approval + Audit",
+	"agent.toolExposureEngine":                      "Run",
 	"store.ArchiveToolObservation":                  "ArtifactMetadata",
 	"credential.Vault":                              "Credential",
 	"gateway.Server":                                "Owner + Client + Session + Conversation + Run + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential",

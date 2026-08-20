@@ -12,31 +12,50 @@ import (
 )
 
 type s0RepositoryCharacterizationCase struct {
-	check      func(*testing.T, Store)
-	dimensions []string
+	checks map[string]func(*testing.T, Store)
+}
+
+func s0RepositoryChecks(check func(*testing.T, Store, string), dimensions ...string) s0RepositoryCharacterizationCase {
+	if check == nil {
+		panic("S0 repository characterization check is nil")
+	}
+	checks := make(map[string]func(*testing.T, Store), len(dimensions))
+	for _, dimension := range dimensions {
+		if dimension == "" {
+			panic("S0 repository characterization dimension is empty")
+		}
+		if _, exists := checks[dimension]; exists {
+			panic("duplicate S0 repository characterization dimension: " + dimension)
+		}
+		dimension := dimension
+		checks[dimension] = func(t *testing.T, st Store) {
+			check(t, st, dimension)
+		}
+	}
+	return s0RepositoryCharacterizationCase{checks: checks}
 }
 
 var s0RepositoryCharacterizationCases = map[string]s0RepositoryCharacterizationCase{
-	"OwnerRepository":               {characterizeS0OwnerRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
-	"ClientRepository":              {characterizeS0ClientRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion}},
-	"ISCPOnboardingRepository":      {characterizeS0ISCPOnboardingRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion}},
-	"CredentialRepository":          {characterizeS0CredentialRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate, s0DimensionConflictDeletion}},
-	"SessionRepository":             {characterizeS0SessionRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionConflictDeletion}},
-	"ConversationRepository":        {characterizeS0ConversationRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
-	"RunRepository":                 {characterizeS0RunRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope}},
-	"DocumentRepository":            {characterizeS0DocumentRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
-	"ApprovalRepository":            {characterizeS0ApprovalRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion}},
-	"ScheduleRepository":            {characterizeS0ScheduleRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate}},
-	"ConnectorRepository":           {characterizeS0ConnectorRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
-	"PassiveNotificationRepository": {characterizeS0PassiveNotificationRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
-	"ExternalChatRepository":        {characterizeS0ExternalChatRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope}},
-	"DeliveryRecordRepository":      {characterizeS0DeliveryRecordRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
-	"MCPRepository":                 {characterizeS0MCPRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
-	"BrowserStateRepository":        {characterizeS0BrowserStateRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
-	"MemoryRepository":              {characterizeS0MemoryRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
-	"AuditRepository":               {characterizeS0AuditRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionEventSequence}},
-	"EvaluationRepository":          {characterizeS0EvaluationRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate}},
-	"ArtifactMetadataRepository":    {characterizeS0ArtifactMetadataRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
+	"OwnerRepository":               s0RepositoryChecks(characterizeS0OwnerRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate),
+	"ClientRepository":              s0RepositoryChecks(characterizeS0ClientRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
+	"ISCPOnboardingRepository":      s0RepositoryChecks(characterizeS0ISCPOnboardingRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
+	"CredentialRepository":          s0RepositoryChecks(characterizeS0CredentialRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate, s0DimensionConflictDeletion),
+	"SessionRepository":             s0RepositoryChecks(characterizeS0SessionRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionConflictDeletion),
+	"ConversationRepository":        s0RepositoryChecks(characterizeS0ConversationRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate),
+	"RunRepository":                 s0RepositoryChecks(characterizeS0RunRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope),
+	"DocumentRepository":            s0RepositoryChecks(characterizeS0DocumentRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate),
+	"ApprovalRepository":            s0RepositoryChecks(characterizeS0ApprovalRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
+	"ScheduleRepository":            s0RepositoryChecks(characterizeS0ScheduleRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate),
+	"ConnectorRepository":           s0RepositoryChecks(characterizeS0ConnectorRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate),
+	"PassiveNotificationRepository": s0RepositoryChecks(characterizeS0PassiveNotificationRepository, s0DimensionSuccess, s0DimensionAbsence),
+	"ExternalChatRepository":        s0RepositoryChecks(characterizeS0ExternalChatRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope),
+	"DeliveryRecordRepository":      s0RepositoryChecks(characterizeS0DeliveryRecordRepository, s0DimensionSuccess, s0DimensionAbsence),
+	"MCPRepository":                 s0RepositoryChecks(characterizeS0MCPRepository, s0DimensionSuccess, s0DimensionAbsence),
+	"BrowserStateRepository":        s0RepositoryChecks(characterizeS0BrowserStateRepository, s0DimensionSuccess, s0DimensionAbsence),
+	"MemoryRepository":              s0RepositoryChecks(characterizeS0MemoryRepository, s0DimensionSuccess, s0DimensionAbsence),
+	"AuditRepository":               s0RepositoryChecks(characterizeS0AuditRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionEventSequence),
+	"EvaluationRepository":          s0RepositoryChecks(characterizeS0EvaluationRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate),
+	"ArtifactMetadataRepository":    s0RepositoryChecks(characterizeS0ArtifactMetadataRepository, s0DimensionSuccess, s0DimensionAbsence),
 }
 
 func TestS0BackendNeutralRepositoryCharacterization(t *testing.T) {
@@ -45,7 +64,7 @@ func TestS0BackendNeutralRepositoryCharacterization(t *testing.T) {
 		t.Fatalf("backend-neutral repository cases = %d, want %d", len(cases), len(s0RepositoryMethods))
 	}
 	for repository := range s0RepositoryMethods {
-		if cases[repository].check == nil {
+		if len(cases[repository].checks) == 0 {
 			t.Errorf("backend-neutral repository case is missing for %s", repository)
 		}
 	}
@@ -62,11 +81,16 @@ func TestS0BackendNeutralRepositoryCharacterization(t *testing.T) {
 	for _, repository := range repositories {
 		t.Run(repository, func(t *testing.T) {
 			characterization := cases[repository]
-			for _, dimension := range characterization.dimensions {
+			dimensions := make([]string, 0, len(characterization.checks))
+			for dimension := range characterization.checks {
+				dimensions = append(dimensions, dimension)
+			}
+			sort.Strings(dimensions)
+			for _, dimension := range dimensions {
 				t.Run(s0DimensionSubtestName(dimension), func(t *testing.T) {
 					for _, backend := range newS0RepositoryBackends(t) {
 						t.Run(backend.name, func(t *testing.T) {
-							characterization.check(t, backend.store)
+							characterization.checks[dimension](t, backend.store)
 						})
 					}
 				})
@@ -88,319 +112,558 @@ func newS0RepositoryBackends(t *testing.T) []s0CharacterizationBackend {
 	return []s0CharacterizationBackend{{name: "memory", store: NewMemoryStore()}, {name: "file", store: fileStore}}
 }
 
-func characterizeS0OwnerRepository(t *testing.T, st Store) {
-	if _, ok := st.GetOwnerProfileByID("missing"); ok {
-		t.Fatal("missing owner profile was found")
-	}
+func characterizeS0OwnerRepository(t *testing.T, st Store, dimension string) {
 	profile := app.OwnerProfile{ID: "owner-s0", Source: "test", ExternalRef: "external-s0", DisplayName: "first"}
-	st.SaveOwnerProfile(profile)
-	profile.DisplayName = "updated"
-	st.SaveOwnerProfile(profile)
-	got, ok := st.FindOwnerProfileByExternalRef("test", "external-s0")
-	if !ok || got.DisplayName != "updated" {
-		t.Fatalf("owner profile overwrite/lookup = %#v ok=%v", got, ok)
+	switch dimension {
+	case s0DimensionSuccess:
+		st.SaveOwnerProfile(profile)
+		if got, ok := st.FindOwnerProfileByExternalRef(profile.Source, profile.ExternalRef); !ok || got.ID != profile.ID {
+			t.Fatalf("owner profile save/lookup = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetOwnerProfileByID("missing"); ok {
+			t.Fatal("missing owner profile was found")
+		}
+	case s0DimensionDuplicate:
+		st.SaveOwnerProfile(profile)
+		profile.DisplayName = "updated"
+		st.SaveOwnerProfile(profile)
+		matches := 0
+		for _, got := range st.ListOwnerProfiles() {
+			if got.ID == profile.ID {
+				matches++
+				if got.DisplayName != "updated" {
+					t.Fatalf("owner profile overwrite = %#v", got)
+				}
+			}
+		}
+		if matches != 1 {
+			t.Fatalf("owner profile ID occurrences = %d, want 1", matches)
+		}
+	default:
+		t.Fatalf("unexpected OwnerRepository dimension %q", dimension)
 	}
 }
 
-func characterizeS0ClientRepository(t *testing.T, st Store) {
-	if _, ok := st.GetClient("missing"); ok {
-		t.Fatal("missing client was found")
-	}
+func characterizeS0ClientRepository(t *testing.T, st Store, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
-	st.SaveClient(app.Client{ID: "client-old", Name: "old", TokenHash: "hash-old", CreatedAt: base})
-	st.SaveClient(app.Client{ID: "client-new", Name: "new", TokenHash: "hash-new", CreatedAt: base.Add(time.Minute)})
-	st.SaveClient(app.Client{ID: "client-new", Name: "updated", TokenHash: "hash-new", CreatedAt: base.Add(time.Minute)})
-	clients := st.ListClients()
-	if len(clients) != 2 || clients[0].ID != "client-new" {
-		t.Fatalf("client duplicate/order = %#v", clients)
-	}
-	if found, ok := st.FindClientByTokenHash("hash-new"); !ok || found.Name != "updated" {
-		t.Fatalf("client token lookup = %#v ok=%v", found, ok)
-	}
-	st.SavePairingCode(app.PairingCode{ID: "pair-s0", CodeHash: "pair-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour)})
-	if _, err := st.ClaimPairingCode("pair-s0", "client-new"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.ClaimPairingCode("pair-s0", "client-old"); err == nil {
-		t.Fatal("claimed pairing code was claimed twice")
-	}
-	if _, err := st.RevokeClient("client-new"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func characterizeS0ISCPOnboardingRepository(t *testing.T, st Store) {
-	if _, ok := st.GetISCPOnboarding("missing"); ok {
-		t.Fatal("missing ISCP onboarding was found")
-	}
-	receipt := testISCPOnboarding(time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC), "iscp-s0", "owner-s0")
-	if _, err := st.SaveISCPOnboarding(receipt); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.SaveISCPOnboarding(receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
-		t.Fatalf("duplicate ISCP onboarding error = %v", err)
-	}
-	if got := st.ListISCPOnboardings("other-owner"); len(got) != 0 {
-		t.Fatalf("ISCP onboarding crossed owner scope: %#v", got)
-	}
-}
-
-func characterizeS0CredentialRepository(t *testing.T, st Store) {
-	if _, ok := st.GetCredentialSecret("missing"); ok {
-		t.Fatal("missing credential was found")
-	}
-	st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})
-	st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "updated"})
-	if got, ok := st.GetCredentialSecret("credential-s0"); !ok || got.Value != "updated" {
-		t.Fatalf("credential overwrite = %#v ok=%v", got, ok)
-	}
-	if err := st.DeleteCredentialSecret("credential-s0"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := st.GetCredentialSecret("credential-s0"); ok {
-		t.Fatal("deleted credential was found")
+	switch dimension {
+	case s0DimensionSuccess:
+		client := app.Client{ID: "client-s0", Name: "client", TokenHash: "hash-s0", CreatedAt: base}
+		st.SaveClient(client)
+		if got, ok := st.FindClientByTokenHash(client.TokenHash); !ok || got.ID != client.ID {
+			t.Fatalf("client save/token lookup = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetClient("missing"); ok {
+			t.Fatal("missing client was found")
+		}
+	case s0DimensionOrderScope:
+		st.SaveClient(app.Client{ID: "client-old", Name: "old", CreatedAt: base})
+		st.SaveClient(app.Client{ID: "client-new", Name: "new", CreatedAt: base.Add(time.Minute)})
+		if got := st.ListClients(); len(got) != 2 || got[0].ID != "client-new" || got[1].ID != "client-old" {
+			t.Fatalf("client order = %#v", got)
+		}
+	case s0DimensionDuplicate:
+		client := app.Client{ID: "client-s0", Name: "first", TokenHash: "hash-s0", CreatedAt: base}
+		st.SaveClient(client)
+		client.Name = "updated"
+		st.SaveClient(client)
+		if got := st.ListClients(); len(got) != 1 || got[0].Name != "updated" {
+			t.Fatalf("client overwrite created duplicates: %#v", got)
+		}
+	case s0DimensionConflictDeletion:
+		st.SaveClient(app.Client{ID: "client-s0", Name: "client", CreatedAt: base})
+		st.SavePairingCode(app.PairingCode{ID: "pair-s0", CodeHash: "pair-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour)})
+		if _, err := st.ClaimPairingCode("pair-s0", "client-s0"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ClaimPairingCode("pair-s0", "other-client"); err == nil {
+			t.Fatal("claimed pairing code was claimed twice")
+		}
+		if revoked, err := st.RevokeClient("client-s0"); err != nil || revoked.RevokedAt == nil {
+			t.Fatalf("client revoke = %#v err=%v", revoked, err)
+		}
+	default:
+		t.Fatalf("unexpected ClientRepository dimension %q", dimension)
 	}
 }
 
-func characterizeS0SessionRepository(t *testing.T, st Store) {
-	if _, ok := st.GetSession("missing"); ok {
-		t.Fatal("missing session was found")
-	}
-	hidden := st.CreateSessionWithScope("hidden", "owner-s0", "/workspace", "test", true)
-	visible := st.CreateSession("visible")
-	if sessions := st.ListSessions(); len(sessions) != 1 || sessions[0].ID != visible.ID {
-		t.Fatalf("visible session filter = %#v", sessions)
-	}
-	updated, err := st.UpdateSessionTitle(visible.ID, "updated")
-	if err != nil || updated.Title != "updated" {
-		t.Fatalf("session update = %#v err=%v", updated, err)
-	}
-	if _, err := st.DeleteSession(hidden.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := st.GetSession(hidden.ID); ok {
-		t.Fatal("deleted session was found")
-	}
-}
-
-func characterizeS0ConversationRepository(t *testing.T, st Store) {
-	if got := st.ListMessages("missing"); len(got) != 0 {
-		t.Fatalf("missing conversation messages = %#v", got)
-	}
-	session := st.CreateSession("conversation")
-	message := st.AddMessage(app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
-	reused := st.AddMessage(app.Message{ID: message.ID, SessionID: session.ID, Role: "user", Content: "replacement"})
-	if messages := st.ListMessages(session.ID); len(messages) != 1 || reused.ID != message.ID || messages[0].Content != "first" {
-		t.Fatalf("message duplicate reuse = %#v reused=%#v", messages, reused)
-	}
-}
-
-func characterizeS0RunRepository(t *testing.T, st Store) {
-	if _, ok := st.GetRun("missing"); ok {
-		t.Fatal("missing run was found")
-	}
-	first := app.AgentRun{ID: "run-s0", SessionID: "session-s0", State: "running", StartedAt: time.Now().UTC()}
-	st.SaveRun(first)
-	first.State = "completed"
-	st.SaveRun(first)
-	if got, ok := st.GetRun(first.ID); !ok || got.State != "completed" {
-		t.Fatalf("run overwrite = %#v ok=%v", got, ok)
-	}
-	if got := st.ListRuns("other-session"); len(got) != 0 {
-		t.Fatalf("run crossed session scope: %#v", got)
-	}
-}
-
-func characterizeS0DocumentRepository(t *testing.T, st Store) {
-	if _, ok := st.GetDocumentRecord("missing"); ok {
-		t.Fatal("missing document was found")
-	}
-	record := st.SaveDocumentRecord(app.DocumentRecord{ID: "document-s0", OwnerID: "owner-s0", SessionID: "session-s0", Name: "first", LastActivityAt: time.Now().UTC()})
-	record.Name = "updated"
-	st.SaveDocumentRecord(record)
-	if got, ok := st.GetDocumentRecord(record.ID); !ok || got.Name != "updated" {
-		t.Fatalf("document overwrite = %#v ok=%v", got, ok)
-	}
-}
-
-func characterizeS0ApprovalRepository(t *testing.T, st Store) {
-	if _, ok := st.GetApproval("missing"); ok {
-		t.Fatal("missing approval was found")
-	}
+func characterizeS0ISCPOnboardingRepository(t *testing.T, st Store, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
-	st.SaveApproval(app.Approval{ID: "approval-other", Status: "rejected", Summary: "other", CreatedAt: base})
-	approval := app.Approval{ID: "approval-s0", Source: app.ApprovalSourceHappyTeamPlan, ExternalID: "external-s0", Status: "pending", Summary: "first", CreatedAt: base.Add(time.Minute)}
-	st.SaveApproval(approval)
-	approval.Summary = "updated"
-	st.SaveApproval(approval)
-	if got, ok := st.FindApprovalByExternalRef(approval.Source, approval.ExternalID); !ok || got.Summary != "updated" {
-		t.Fatalf("approval overwrite/lookup = %#v ok=%v", got, ok)
-	}
-	if pending := st.ListApprovals("pending"); len(pending) != 1 || pending[0].ID != approval.ID {
-		t.Fatalf("approval status filter = %#v", pending)
-	}
-	if _, err := st.ResolveApproval(approval.ID, "approved", "done"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.UpdatePendingApproval(approval); err == nil {
-		t.Fatal("resolved approval accepted pending update")
+	switch dimension {
+	case s0DimensionSuccess:
+		receipt := testISCPOnboarding(base, "iscp-s0", "owner-s0")
+		if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := st.GetISCPOnboarding(receipt.ID); !ok || got.OwnerID != receipt.OwnerID {
+			t.Fatalf("ISCP onboarding save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetISCPOnboarding("missing"); ok {
+			t.Fatal("missing ISCP onboarding was found")
+		}
+	case s0DimensionOrderScope:
+		for _, receipt := range []app.ISCPOnboarding{
+			testISCPOnboarding(base, "iscp-old", "owner-s0"),
+			testISCPOnboarding(base.Add(time.Minute), "iscp-new", "owner-s0"),
+			testISCPOnboarding(base.Add(2*time.Minute), "iscp-other", "other-owner"),
+		} {
+			if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := st.ListISCPOnboardings("owner-s0"); len(got) != 2 || got[0].ID != "iscp-new" || got[1].ID != "iscp-old" {
+			t.Fatalf("ISCP onboarding order/scope = %#v", got)
+		}
+	case s0DimensionDuplicate:
+		receipt := testISCPOnboarding(base, "iscp-s0", "owner-s0")
+		if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = st.SaveISCPOnboarding(receipt)
+		if got := st.ListISCPOnboardings("owner-s0"); len(got) != 1 {
+			t.Fatalf("duplicate ISCP onboarding created extra records: %#v", got)
+		}
+	case s0DimensionConflictDeletion:
+		receipt := testISCPOnboarding(base, "iscp-s0", "owner-s0")
+		if _, err := st.SaveISCPOnboarding(receipt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.SaveISCPOnboarding(receipt); !errors.Is(err, ErrISCPOnboardingConflict) {
+			t.Fatalf("duplicate ISCP onboarding error = %v", err)
+		}
+	default:
+		t.Fatalf("unexpected ISCPOnboardingRepository dimension %q", dimension)
 	}
 }
 
-func characterizeS0ScheduleRepository(t *testing.T, st Store) {
-	if _, ok := st.GetReminder("missing"); ok {
-		t.Fatal("missing reminder was found")
+func characterizeS0CredentialRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})
+		if got, ok := st.GetCredentialSecret("credential-s0"); !ok || got.Value != "first" {
+			t.Fatalf("credential save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetCredentialSecret("missing"); ok {
+			t.Fatal("missing credential was found")
+		}
+	case s0DimensionDuplicate:
+		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})
+		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "updated"})
+		if got, ok := st.GetCredentialSecret("credential-s0"); !ok || got.Value != "updated" {
+			t.Fatalf("credential overwrite = %#v ok=%v", got, ok)
+		}
+	case s0DimensionConflictDeletion:
+		st.SaveCredentialSecret(app.CredentialSecret{Ref: "credential-s0", Kind: "token", Value: "first"})
+		if err := st.DeleteCredentialSecret("credential-s0"); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := st.GetCredentialSecret("credential-s0"); ok {
+			t.Fatal("deleted credential was found")
+		}
+	default:
+		t.Fatalf("unexpected CredentialRepository dimension %q", dimension)
 	}
+}
+
+func characterizeS0SessionRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		session := st.CreateSession("session")
+		updated, err := st.UpdateSessionTitle(session.ID, "updated")
+		if err != nil || updated.Title != "updated" {
+			t.Fatalf("session create/update = %#v err=%v", updated, err)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetSession("missing"); ok {
+			t.Fatal("missing session was found")
+		}
+	case s0DimensionOrderScope:
+		hidden := st.CreateSessionWithScope("hidden", "owner-s0", "/workspace", "test", true)
+		visible := st.CreateSession("visible")
+		if got := st.ListSessions(); len(got) != 1 || got[0].ID != visible.ID || got[0].ID == hidden.ID {
+			t.Fatalf("visible session scope = %#v", got)
+		}
+	case s0DimensionConflictDeletion:
+		session := st.CreateSession("session")
+		if _, err := st.DeleteSession(session.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := st.GetSession(session.ID); ok {
+			t.Fatal("deleted session was found")
+		}
+	default:
+		t.Fatalf("unexpected SessionRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0ConversationRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		session := st.CreateSession("conversation")
+		message := st.AddMessage(app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
+		if got := st.ListMessages(session.ID); len(got) != 1 || got[0].ID != message.ID {
+			t.Fatalf("message append/list = %#v", got)
+		}
+	case s0DimensionAbsence:
+		if got := st.ListMessages("missing"); len(got) != 0 {
+			t.Fatalf("missing conversation messages = %#v", got)
+		}
+	case s0DimensionDuplicate:
+		session := st.CreateSession("conversation")
+		message := st.AddMessage(app.Message{ID: "message-s0", SessionID: session.ID, Role: "user", Content: "first"})
+		reused := st.AddMessage(app.Message{ID: message.ID, SessionID: session.ID, Role: "user", Content: "replacement"})
+		if got := st.ListMessages(session.ID); len(got) != 1 || reused.ID != message.ID || got[0].Content != "first" {
+			t.Fatalf("message duplicate reuse = %#v reused=%#v", got, reused)
+		}
+	default:
+		t.Fatalf("unexpected ConversationRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0RunRepository(t *testing.T, st Store, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
-	late := st.SaveReminder(app.Reminder{ID: "reminder-late", Text: "late", DueTime: base.Add(time.Hour), Status: "pending"})
-	early := st.SaveReminder(app.Reminder{ID: "reminder-early", Text: "early", DueTime: base, Status: "pending"})
-	early.Text = "updated"
-	st.SaveReminder(early)
-	items := st.ListReminders(app.ReminderFilter{Status: "pending"})
-	if len(items) != 2 || items[0].ID != early.ID || items[1].ID != late.ID || items[0].Text != "updated" {
-		t.Fatalf("reminder duplicate/order/filter = %#v", items)
-	}
-	st.SaveReminderDelivery(app.ReminderDelivery{ID: "delivery-s0", ReminderID: early.ID, Status: "sent", Attempt: 1})
-	if deliveries := st.ListReminderDeliveries(early.ID); len(deliveries) != 1 {
-		t.Fatalf("reminder delivery list = %#v", deliveries)
-	}
-}
-
-func characterizeS0ConnectorRepository(t *testing.T, st Store) {
-	if _, ok := st.GetConnectorSetting("owner-s0", "telegram"); ok {
-		t.Fatal("missing connector setting was found")
-	}
-	setting, err := st.UpdateConnectorSetting(app.ConnectorSetting{OwnerID: "owner-s0", Channel: "telegram", Enabled: true}, 0)
-	if err != nil || setting.Version != 1 {
-		t.Fatalf("connector setting create = %#v err=%v", setting, err)
-	}
-	if _, err := st.UpdateConnectorSetting(setting, 0); !errors.Is(err, ErrConnectorSettingConflict) {
-		t.Fatalf("connector setting stale CAS = %v", err)
-	}
-	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
-	binding.Status = "revoked"
-	st.SaveNotificationBinding(binding)
-	if got, ok := st.GetNotificationBinding(binding.ID); !ok || got.Channel != "telegram" || got.Status != "revoked" {
-		t.Fatalf("notification binding = %#v ok=%v", got, ok)
-	}
-	if bindings := st.ListNotificationBindings("telegram", ""); len(bindings) != 1 {
-		t.Fatalf("notification binding overwrite created duplicates: %#v", bindings)
+	switch dimension {
+	case s0DimensionSuccess:
+		run := app.AgentRun{ID: "run-s0", SessionID: "session-s0", State: "running", StartedAt: base}
+		st.SaveRun(run)
+		if got, ok := st.GetRun(run.ID); !ok || got.State != run.State {
+			t.Fatalf("run save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetRun("missing"); ok {
+			t.Fatal("missing run was found")
+		}
+	case s0DimensionOrderScope:
+		st.SaveRun(app.AgentRun{ID: "run-old", SessionID: "session-s0", State: "completed", StartedAt: base})
+		st.SaveRun(app.AgentRun{ID: "run-new", SessionID: "session-s0", State: "completed", StartedAt: base.Add(time.Minute)})
+		st.SaveRun(app.AgentRun{ID: "run-other", SessionID: "other-session", State: "completed", StartedAt: base.Add(2 * time.Minute)})
+		if got := st.ListRuns("session-s0"); len(got) != 2 || got[0].ID != "run-new" || got[1].ID != "run-old" {
+			t.Fatalf("run order/scope = %#v", got)
+		}
+	default:
+		t.Fatalf("unexpected RunRepository dimension %q", dimension)
 	}
 }
 
-func characterizeS0PassiveNotificationRepository(t *testing.T, st Store) {
-	if _, ok := st.GetPassiveNotification("owner-s0", "missing"); ok {
-		t.Fatal("missing passive notification was found")
-	}
-	notification := testPassiveNotification("passive-s0", "endpoint-s0", "delivery-s0", "fingerprint-s0")
-	notification.OwnerID = "owner-s0"
-	created, inserted, err := st.CreatePassiveNotification(notification)
-	if err != nil || !inserted || created.ID != notification.ID {
-		t.Fatalf("passive notification create = %#v inserted=%v err=%v", created, inserted, err)
-	}
-}
-
-func characterizeS0ExternalChatRepository(t *testing.T, st Store) {
-	if _, ok := st.GetExternalChatSession("missing"); ok {
-		t.Fatal("missing external chat session was found")
-	}
-	chat := st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-s0", BindingID: "binding-s0", Channel: "telegram", ExternalChatID: "chat", Status: "active"})
-	if got, ok := st.GetExternalChatSession(chat.ID); !ok || got.Channel != "telegram" {
-		t.Fatalf("external chat session = %#v ok=%v", got, ok)
-	}
-	st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-other", BindingID: "binding-other", Channel: "weixin", ExternalChatID: "other", Status: "revoked"})
-	if active := st.ListExternalChatSessions("telegram", "active"); len(active) != 1 || active[0].ID != chat.ID {
-		t.Fatalf("external chat channel/status scope = %#v", active)
+func characterizeS0DocumentRepository(t *testing.T, st Store, dimension string) {
+	record := app.DocumentRecord{ID: "document-s0", OwnerID: "owner-s0", SessionID: "session-s0", Name: "first", LastActivityAt: time.Now().UTC()}
+	switch dimension {
+	case s0DimensionSuccess:
+		saved := st.SaveDocumentRecord(record)
+		if got, ok := st.GetDocumentRecord(saved.ID); !ok || got.Name != record.Name {
+			t.Fatalf("document save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetDocumentRecord("missing"); ok {
+			t.Fatal("missing document was found")
+		}
+	case s0DimensionDuplicate:
+		record = st.SaveDocumentRecord(record)
+		record.Name = "updated"
+		st.SaveDocumentRecord(record)
+		if got := st.ListDocumentRecords("owner-s0", "session-s0", 0); len(got) != 1 || got[0].Name != "updated" {
+			t.Fatalf("document overwrite created duplicates: %#v", got)
+		}
+	default:
+		t.Fatalf("unexpected DocumentRepository dimension %q", dimension)
 	}
 }
 
-func characterizeS0DeliveryRecordRepository(t *testing.T, st Store) {
-	if _, ok := st.GetMessageReceive("missing"); ok {
-		t.Fatal("missing receive record was found")
-	}
-	record := st.SaveMessageReceive(app.MessageReceiveRecord{ID: "receive-s0", OwnerID: "owner-s0", ActorID: "actor-s0", SourceEndpointID: "endpoint-s0", NativeMessageID: "native-s0", Status: "received"})
-	if got, ok := st.GetMessageReceive(record.ID); !ok || got.Direction != app.MessageDirectionReceive {
-		t.Fatalf("receive record = %#v ok=%v", got, ok)
-	}
-}
-
-func characterizeS0MCPRepository(t *testing.T, st Store) {
-	if _, ok := st.GetMCPAccessTicket("missing"); ok {
-		t.Fatal("missing MCP ticket was found")
-	}
-	ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(time.Now().UTC(), "mcp-s0-hash"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := st.GetMCPAccessTicket(ticket.ID); !ok || got.SecretHash != ticket.SecretHash {
-		t.Fatalf("MCP ticket = %#v ok=%v", got, ok)
-	}
-}
-
-func characterizeS0BrowserStateRepository(t *testing.T, st Store) {
-	if _, ok := st.GetBrowserAuthRecord("missing"); ok {
-		t.Fatal("missing browser auth record was found")
-	}
-	record := st.SaveBrowserAuthRecord(app.BrowserAuthRecord{ID: "browser-auth-s0", OwnerID: "owner-s0", BrowserProfileID: "profile-s0", SiteOrigin: "https://example.com"})
-	if got, ok := st.GetBrowserAuthRecord(record.ID); !ok || got.SiteOrigin != "https://example.com" {
-		t.Fatalf("browser auth record = %#v ok=%v", got, ok)
-	}
-}
-
-func characterizeS0MemoryRepository(t *testing.T, st Store) {
-	if got := st.SearchMemories("missing"); len(got) != 0 {
-		t.Fatalf("missing memory search = %#v", got)
-	}
-	candidate := st.AddMemoryCandidate(app.MemoryCandidate{ID: "candidate-s0", SessionID: "session-s0", RunID: "run-s0", Status: "pending", Content: "remember"})
-	if items := st.ListMemoryCandidates("pending"); len(items) != 1 || items[0].ID != candidate.ID {
-		t.Fatalf("memory candidate = %#v", items)
-	}
-}
-
-func characterizeS0AuditRepository(t *testing.T, st Store) {
-	if got := st.ListAudit("session-s0"); len(got) != 0 {
-		t.Fatalf("missing audit list = %#v", got)
-	}
+func characterizeS0ApprovalRepository(t *testing.T, st Store, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
-	st.AddAudit(app.AuditEvent{ID: "audit-old", SessionID: "session-s0", Type: "old", Time: base})
-	st.AddAudit(app.AuditEvent{ID: "audit-new", SessionID: "session-s0", Type: "new", Time: base.Add(time.Minute)})
-	items := st.ListAudit("session-s0")
-	if len(items) != 2 || items[0].ID != "audit-new" || len(st.ListAudit("other-session")) != 0 {
-		t.Fatalf("audit order/scope = %#v", items)
-	}
-	st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-old", DisplayName: "old"})
-	st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-new", DisplayName: "new"})
-	events := st.EventsAfter("", "")
-	if len(events) != 2 || events[0].Type != "owner_profile.updated" || events[1].Type != "owner_profile.updated" {
-		t.Fatalf("event order = %#v", events)
-	}
-	after := st.EventsAfter("", events[0].ID)
-	if len(after) != 1 || after[0].ID != events[1].ID {
-		t.Fatalf("event after-cursor sequence = %#v", after)
+	switch dimension {
+	case s0DimensionSuccess:
+		approval := app.Approval{ID: "approval-s0", Source: app.ApprovalSourceHappyTeamPlan, ExternalID: "external-s0", Status: "pending", Summary: "first", CreatedAt: base}
+		st.SaveApproval(approval)
+		if got, ok := st.FindApprovalByExternalRef(approval.Source, approval.ExternalID); !ok || got.ID != approval.ID {
+			t.Fatalf("approval save/lookup = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetApproval("missing"); ok {
+			t.Fatal("missing approval was found")
+		}
+	case s0DimensionOrderScope:
+		st.SaveApproval(app.Approval{ID: "approval-rejected", Status: "rejected", CreatedAt: base.Add(2 * time.Minute)})
+		st.SaveApproval(app.Approval{ID: "approval-old", Status: "pending", CreatedAt: base})
+		st.SaveApproval(app.Approval{ID: "approval-new", Status: "pending", CreatedAt: base.Add(time.Minute)})
+		if got := st.ListApprovals("pending"); len(got) != 2 || got[0].ID != "approval-new" || got[1].ID != "approval-old" {
+			t.Fatalf("approval order/filter = %#v", got)
+		}
+	case s0DimensionDuplicate:
+		approval := app.Approval{ID: "approval-s0", Status: "pending", Summary: "first", CreatedAt: base}
+		st.SaveApproval(approval)
+		approval.Summary = "updated"
+		st.SaveApproval(approval)
+		if got := st.ListApprovals("pending"); len(got) != 1 || got[0].Summary != "updated" {
+			t.Fatalf("approval overwrite created duplicates: %#v", got)
+		}
+	case s0DimensionConflictDeletion:
+		approval := app.Approval{ID: "approval-s0", Status: "pending", CreatedAt: base}
+		st.SaveApproval(approval)
+		if _, err := st.ResolveApproval(approval.ID, "approved", "done"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.UpdatePendingApproval(approval); err == nil {
+			t.Fatal("resolved approval accepted pending update")
+		}
+	default:
+		t.Fatalf("unexpected ApprovalRepository dimension %q", dimension)
 	}
 }
 
-func characterizeS0EvaluationRepository(t *testing.T, st Store) {
-	if _, ok := st.GetEvalRun("missing"); ok {
-		t.Fatal("missing evaluation run was found")
-	}
+func characterizeS0ScheduleRepository(t *testing.T, st Store, dimension string) {
 	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
-	st.SaveEvalRun(app.EvalRun{ID: "eval-old", Status: "passed", Summary: "old", StartedAt: base})
-	st.SaveEvalRun(app.EvalRun{ID: "eval-new", Status: "failed", Summary: "first", StartedAt: base.Add(time.Minute)})
-	st.SaveEvalRun(app.EvalRun{ID: "eval-new", Status: "passed", Summary: "updated", StartedAt: base.Add(time.Minute)})
-	items := st.ListEvalRuns()
-	if len(items) != 2 || items[0].ID != "eval-new" || items[0].Summary != "updated" {
-		t.Fatalf("evaluation duplicate/order = %#v", items)
+	switch dimension {
+	case s0DimensionSuccess:
+		reminder := st.SaveReminder(app.Reminder{ID: "reminder-s0", Text: "reminder", DueTime: base, Status: "pending"})
+		st.SaveReminderDelivery(app.ReminderDelivery{ID: "delivery-s0", ReminderID: reminder.ID, Status: "sent", Attempt: 1})
+		if got := st.ListReminderDeliveries(reminder.ID); len(got) != 1 || got[0].ID != "delivery-s0" {
+			t.Fatalf("reminder delivery save/list = %#v", got)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetReminder("missing"); ok {
+			t.Fatal("missing reminder was found")
+		}
+	case s0DimensionOrderScope:
+		st.SaveReminder(app.Reminder{ID: "reminder-late", DueTime: base.Add(time.Hour), Status: "pending"})
+		st.SaveReminder(app.Reminder{ID: "reminder-early", DueTime: base, Status: "pending"})
+		st.SaveReminder(app.Reminder{ID: "reminder-done", DueTime: base.Add(-time.Hour), Status: "sent"})
+		if got := st.ListReminders(app.ReminderFilter{Status: "pending"}); len(got) != 2 || got[0].ID != "reminder-early" || got[1].ID != "reminder-late" {
+			t.Fatalf("reminder order/filter = %#v", got)
+		}
+	case s0DimensionDuplicate:
+		reminder := st.SaveReminder(app.Reminder{ID: "reminder-s0", Text: "first", DueTime: base, Status: "pending"})
+		reminder.Text = "updated"
+		st.SaveReminder(reminder)
+		if got := st.ListReminders(app.ReminderFilter{Status: "pending"}); len(got) != 1 || got[0].Text != "updated" {
+			t.Fatalf("reminder overwrite created duplicates: %#v", got)
+		}
+	default:
+		t.Fatalf("unexpected ScheduleRepository dimension %q", dimension)
 	}
 }
 
-func characterizeS0ArtifactMetadataRepository(t *testing.T, st Store) {
-	if _, ok := st.FindArtifactObjectByURI("artifact://missing", "", ""); ok {
-		t.Fatal("missing artifact was found")
+func characterizeS0ConnectorRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		setting, err := st.UpdateConnectorSetting(app.ConnectorSetting{OwnerID: "owner-s0", Channel: "telegram", Enabled: true}, 0)
+		if err != nil || setting.Version != 1 {
+			t.Fatalf("connector setting create = %#v err=%v", setting, err)
+		}
+		binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
+		if got, ok := st.GetNotificationBinding(binding.ID); !ok || got.Channel != binding.Channel {
+			t.Fatalf("notification binding save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetConnectorSetting("owner-s0", "telegram"); ok {
+			t.Fatal("missing connector setting was found")
+		}
+	case s0DimensionDuplicate:
+		binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
+		binding.Status = "revoked"
+		st.SaveNotificationBinding(binding)
+		if got := st.ListNotificationBindings("telegram", ""); len(got) != 1 || got[0].Status != "revoked" {
+			t.Fatalf("notification binding overwrite created duplicates: %#v", got)
+		}
+	default:
+		t.Fatalf("unexpected ConnectorRepository dimension %q", dimension)
 	}
-	st.SaveArtifactObject(app.ArtifactObject{ID: "artifact-s0", URI: "artifact://s0", Key: "s0", CreatedAt: time.Now().UTC()})
-	if got, ok := st.FindArtifactObjectByURI("artifact://s0", "", ""); !ok || got.ID != "artifact-s0" {
-		t.Fatalf("artifact lookup = %#v ok=%v", got, ok)
+}
+
+func characterizeS0PassiveNotificationRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		notification := testPassiveNotification("passive-s0", "endpoint-s0", "delivery-s0", "fingerprint-s0")
+		notification.OwnerID = "owner-s0"
+		created, inserted, err := st.CreatePassiveNotification(notification)
+		if err != nil || !inserted || created.ID != notification.ID {
+			t.Fatalf("passive notification create = %#v inserted=%v err=%v", created, inserted, err)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetPassiveNotification("owner-s0", "missing"); ok {
+			t.Fatal("missing passive notification was found")
+		}
+	default:
+		t.Fatalf("unexpected PassiveNotificationRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0ExternalChatRepository(t *testing.T, st Store, dimension string) {
+	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
+	switch dimension {
+	case s0DimensionSuccess:
+		chat := st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-s0", BindingID: "binding-s0", Channel: "telegram", ExternalChatID: "chat", Status: "active"})
+		if got, ok := st.GetExternalChatSession(chat.ID); !ok || got.Channel != "telegram" {
+			t.Fatalf("external chat session save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetExternalChatSession("missing"); ok {
+			t.Fatal("missing external chat session was found")
+		}
+	case s0DimensionOrderScope:
+		st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-old", BindingID: "binding-old", Channel: "telegram", ExternalChatID: "old", Status: "active", UpdatedAt: base})
+		st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-new", BindingID: "binding-new", Channel: "telegram", ExternalChatID: "new", Status: "active", UpdatedAt: base.Add(time.Minute)})
+		st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-other", BindingID: "binding-other", Channel: "weixin", ExternalChatID: "other", Status: "revoked", UpdatedAt: base.Add(2 * time.Minute)})
+		if got := st.ListExternalChatSessions("telegram", "active"); len(got) != 2 || got[0].ID != "chat-new" || got[1].ID != "chat-old" {
+			t.Fatalf("external chat order/scope = %#v", got)
+		}
+	default:
+		t.Fatalf("unexpected ExternalChatRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0DeliveryRecordRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		record := st.SaveMessageReceive(app.MessageReceiveRecord{ID: "receive-s0", OwnerID: "owner-s0", ActorID: "actor-s0", SourceEndpointID: "endpoint-s0", NativeMessageID: "native-s0", Status: "received"})
+		if got, ok := st.GetMessageReceive(record.ID); !ok || got.Direction != app.MessageDirectionReceive {
+			t.Fatalf("receive record save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetMessageReceive("missing"); ok {
+			t.Fatal("missing receive record was found")
+		}
+	default:
+		t.Fatalf("unexpected DeliveryRecordRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0MCPRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		ticket, err := st.SaveMCPAccessTicket(testMCPAccessTicket(time.Now().UTC(), "mcp-s0-hash"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := st.GetMCPAccessTicket(ticket.ID); !ok || got.SecretHash != ticket.SecretHash {
+			t.Fatalf("MCP ticket save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetMCPAccessTicket("missing"); ok {
+			t.Fatal("missing MCP ticket was found")
+		}
+	default:
+		t.Fatalf("unexpected MCPRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0BrowserStateRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		record := st.SaveBrowserAuthRecord(app.BrowserAuthRecord{ID: "browser-auth-s0", OwnerID: "owner-s0", BrowserProfileID: "profile-s0", SiteOrigin: "https://example.com"})
+		if got, ok := st.GetBrowserAuthRecord(record.ID); !ok || got.SiteOrigin != record.SiteOrigin {
+			t.Fatalf("browser auth record save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetBrowserAuthRecord("missing"); ok {
+			t.Fatal("missing browser auth record was found")
+		}
+	default:
+		t.Fatalf("unexpected BrowserStateRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0MemoryRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		candidate := st.AddMemoryCandidate(app.MemoryCandidate{ID: "candidate-s0", SessionID: "session-s0", RunID: "run-s0", Status: "pending", Content: "remember"})
+		if got := st.ListMemoryCandidates("pending"); len(got) != 1 || got[0].ID != candidate.ID {
+			t.Fatalf("memory candidate add/list = %#v", got)
+		}
+	case s0DimensionAbsence:
+		if got := st.SearchMemories("missing"); len(got) != 0 {
+			t.Fatalf("missing memory search = %#v", got)
+		}
+	default:
+		t.Fatalf("unexpected MemoryRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0AuditRepository(t *testing.T, st Store, dimension string) {
+	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
+	switch dimension {
+	case s0DimensionSuccess:
+		st.AddAudit(app.AuditEvent{ID: "audit-s0", SessionID: "session-s0", Type: "saved", Time: base})
+		if got := st.ListAudit("session-s0"); len(got) != 1 || got[0].ID != "audit-s0" {
+			t.Fatalf("audit add/list = %#v", got)
+		}
+	case s0DimensionAbsence:
+		if got := st.ListAudit("missing-session"); len(got) != 0 {
+			t.Fatalf("missing audit list = %#v", got)
+		}
+	case s0DimensionOrderScope:
+		st.AddAudit(app.AuditEvent{ID: "audit-old", SessionID: "session-s0", Type: "old", Time: base})
+		st.AddAudit(app.AuditEvent{ID: "audit-new", SessionID: "session-s0", Type: "new", Time: base.Add(time.Minute)})
+		st.AddAudit(app.AuditEvent{ID: "audit-other", SessionID: "other-session", Type: "other", Time: base.Add(2 * time.Minute)})
+		if got := st.ListAudit("session-s0"); len(got) != 2 || got[0].ID != "audit-new" || got[1].ID != "audit-old" {
+			t.Fatalf("audit order/scope = %#v", got)
+		}
+	case s0DimensionEventSequence:
+		st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-old", DisplayName: "old"})
+		st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-new", DisplayName: "new"})
+		events := st.EventsAfter("", "")
+		if len(events) != 2 || events[0].Type != "owner_profile.updated" || events[1].Type != "owner_profile.updated" {
+			t.Fatalf("event order = %#v", events)
+		}
+		if after := st.EventsAfter("", events[0].ID); len(after) != 1 || after[0].ID != events[1].ID {
+			t.Fatalf("event after-cursor sequence = %#v", after)
+		}
+	default:
+		t.Fatalf("unexpected AuditRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0EvaluationRepository(t *testing.T, st Store, dimension string) {
+	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
+	switch dimension {
+	case s0DimensionSuccess:
+		run := app.EvalRun{ID: "eval-s0", Status: "passed", Summary: "saved", StartedAt: base}
+		st.SaveEvalRun(run)
+		if got, ok := st.GetEvalRun(run.ID); !ok || got.Summary != run.Summary {
+			t.Fatalf("evaluation save/get = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.GetEvalRun("missing"); ok {
+			t.Fatal("missing evaluation run was found")
+		}
+	case s0DimensionOrderScope:
+		st.SaveEvalRun(app.EvalRun{ID: "eval-old", Status: "passed", StartedAt: base})
+		st.SaveEvalRun(app.EvalRun{ID: "eval-new", Status: "passed", StartedAt: base.Add(time.Minute)})
+		if got := st.ListEvalRuns(); len(got) != 2 || got[0].ID != "eval-new" || got[1].ID != "eval-old" {
+			t.Fatalf("evaluation order = %#v", got)
+		}
+	case s0DimensionDuplicate:
+		run := app.EvalRun{ID: "eval-s0", Status: "failed", Summary: "first", StartedAt: base}
+		st.SaveEvalRun(run)
+		run.Status = "passed"
+		run.Summary = "updated"
+		st.SaveEvalRun(run)
+		if got := st.ListEvalRuns(); len(got) != 1 || got[0].Summary != "updated" {
+			t.Fatalf("evaluation overwrite created duplicates: %#v", got)
+		}
+	default:
+		t.Fatalf("unexpected EvaluationRepository dimension %q", dimension)
+	}
+}
+
+func characterizeS0ArtifactMetadataRepository(t *testing.T, st Store, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		object := app.ArtifactObject{ID: "artifact-s0", URI: "artifact://s0", Key: "s0", CreatedAt: time.Now().UTC()}
+		st.SaveArtifactObject(object)
+		if got, ok := st.FindArtifactObjectByURI(object.URI, "", ""); !ok || got.ID != object.ID {
+			t.Fatalf("artifact save/lookup = %#v ok=%v", got, ok)
+		}
+	case s0DimensionAbsence:
+		if _, ok := st.FindArtifactObjectByURI("artifact://missing", "", ""); ok {
+			t.Fatal("missing artifact was found")
+		}
+	default:
+		t.Fatalf("unexpected ArtifactMetadataRepository dimension %q", dimension)
 	}
 }
 

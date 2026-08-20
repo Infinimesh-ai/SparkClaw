@@ -35,9 +35,9 @@ S0 已具备完整、可执行的 141 方法/20 repository 目录、生产消费
 ## S0 行为刻画证据
 
 `s0_contract_characterization_test.go` 增加代表性后端无关 harness 和静态契约
-检查。`s0_repository_characterization_test.go` 在 Memory/File 上为全部 20 个
+检查。`s0_repository_characterization_test.go` 在 Memory/File 上把全部 20 个
 repository 的每个适用 success、normal absence、order/scope、duplicate 和
-conflict/delete 契约运行维度具名用例，记录当前可变别名缺陷，并补齐两个此前
+conflict/delete 维度绑定到独立断言分支，记录当前可变别名缺陷，并补齐两个此前
 缺失的 File 重启用例。`s0_repository_lifecycle_test.go` 对拥有 lifecycle 的 18 个
 repository 显式读取并断言 audit/event 证据；ISCP onboarding 与 MCP 保留具体的
 caller-owned lifecycle `N/A` 理由。`s0_repository_evidence_test.go` 拥有完整矩阵

@@ -117,9 +117,10 @@ matrix below. `TestS0RepositoryCharacterizationMatrixCompleteness` is the
 executable authority: it requires exactly these 20 repository rows and ten
 dimensions, resolves every `Test[/subtest]@file.go` token through the complete
 subtest path, rejects an unreasoned `N/A`, and verifies every English and
-Chinese cell against the executable matrix. The named dimension subtests run
-on Memory and File. Focused tests remain linked where they capture a richer
-contract or current defect.
+Chinese cell against the executable matrix. Each named dimension key binds to
+its own assertion branch and runs on Memory and File; a repository-wide check
+is not replayed under multiple dimension names. Focused tests remain linked
+where they capture a richer contract or current defect.
 
 | Repository | Success | Absence | Order/filter/scope | Clone/alias | Duplicate/idempotency | CAS/conflict/delete | Event/audit/sequence | File restart/snapshot | Concurrency/revision | PostgreSQL row/`rows.Err()` |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -175,7 +176,7 @@ inventory and requires this matrix to be reviewed.
 | Package / symbol | Kind | Minimum repository or consumer-owned composite |
 |---|---|---|
 | `agent.Runtime`, `NewRuntime`, `NewRuntimeWithContext` | constructor + field | Session + Conversation + Run + Document + Approval + BrowserState + Memory + Audit + ArtifactMetadata |
-| `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Session + Run + Approval + Audit |
+| `agent.toolExposureEngine`, `newToolExposureEngine` | helper field + constructor | Run |
 | `store.ArchiveToolObservation` | helper | ArtifactMetadata |
 | `credential.Vault`, `credential.New` | constructor + field | Credential |
 | `gateway.Server`, `New`, `NewWithTrace` | constructor + field | Owner + Client + Session + Conversation + Run + Approval + Schedule + Connector + PassiveNotification + ExternalChat + DeliveryRecord + MCP + Memory + Audit + Evaluation + ArtifactMetadata + Credential |

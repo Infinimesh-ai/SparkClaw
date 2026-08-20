@@ -288,7 +288,7 @@ field 或 constructor parameter。
 
 ## S3 规划顺序
 
-### 当前波次：OwnerRepository
+### 已接受波次：OwnerRepository
 
 第一个 S3 波次把 S0 已接受的六个 Owner method 冻结为一个 repository：
 
@@ -424,6 +424,13 @@ PostgreSQL CI topology 与 `SPARKCLAW_TEST_POSTGRES_DSN` skip behavior
 behavior byte-identical 的机械 File helper 泛化；以及跨所有 backend/caller 的完整
 Owner behavior migration。精确 Owner candidate 完成独立、context-isolated 实现
 审查前，不开始下一个 repository。
+
+### 当前波次：ClientRepository
+
+Owner 实现在 `0b85cc4` 获得独立 GO，gate record 为 `fc5acba`。当前 Client 的
+精确边界、合并后的 pairing claim command、pending-secret recovery、backend
+compatibility 与实现 gate 只由 [ClientRepository contract](store-client-repository-design.md)
+负责。精确 Client 实现获得独立 GO 前，不开始 Credential 或其他 repository 设计。
 
 S2 实现并经人工验收后，推荐风险顺序保持为：
 

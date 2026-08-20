@@ -2,9 +2,9 @@
 
 > 语言：[English](../../docs/store-client-repository-design.md) | 简体中文
 
-> 状态：基于已接受 Owner 实现 `0b85cc4` 的第二个 S3 设计修复候选。
-> `bae3623` 与 `9ff7c14` 审查结论均为 REVISE。在本修复合同获得 fresh
-> context-isolated 设计 GO 前，不授权 Client 代码实现。
+> 状态：基于已接受 Owner 实现 `0b85cc4` 的第三个 S3 设计修复候选。
+> `bae3623`、`9ff7c14` 与 `1ccd5db` 审查结论均为 REVISE。在本修复合同获得
+> fresh context-isolated 设计 GO 前，不授权 Client 代码实现。
 
 ## 边界修正
 
@@ -63,15 +63,18 @@ type ClientRepository interface {
   `client.revoked` audit 与 event。重复 revoke 是使用更晚 candidate 的新显式
   command，不复用 uncertain candidate。
 - pairing ID 与 code hash 唯一。`SavePairingCode` 是 create-only，只接受没有
-  claim field 的 normalized pending record，并要求非零 expiry/code hash；空 ID
-  由 repository 生成。repository 用自己的 high-water time 替换 caller
-  `CreatedAt`，并原子追加 `pairing_code.created` audit/event。重复 ID/hash 为
-  `conflict`，已消费 code 不能通过 save 重新打开。
+  claim field 的 record；它 trim ID/code hash，把 empty 或 pending input status
+  normalize 为 pending，拒绝其他 status，并要求非零 expiry/code hash；空 ID 由
+  repository 生成。`ExpiresAt` normalize 为 UTC PostgreSQL microsecond precision；
+  repository 用自己的 high-water time 替换 caller `CreatedAt`，并原子追加
+  `pairing_code.created` audit/event。重复 ID/hash 为 `conflict`，已消费 code 不能
+  通过 save 重新打开。
 - `GetPairingCode` 无副作用。已过期的 pending record 仍以 pending 持久化；
   caller 同时判断 status 与 expiry。claim 过期 code 返回 `conflict`，不做隐藏写入。
-- `ClaimPairingCode` 要求 code 存在、pending、未过期，且 client ID/token hash
-  全新。它分配 client creation time 与 pairing claim time，原子创建 client、
-  两者使用严格大于两个 record high-water mark 的同一个 command timestamp；
+- `ClaimPairingCode` 要求 code 存在、pending、未过期，且 active client ID/token
+  hash 全新。它拒绝带 `LastSeenAt`/`RevokedAt` 的 client，忽略 caller
+  `CreatedAt`，并分配 client creation time 与 pairing claim time；两者使用严格
+  大于两个 record high-water mark 的同一个 command timestamp，原子创建 client、
   然后标记 code claimed，并追加一组 `client.saved` 与 `pairing_code.claimed`
   audit/event。event sequence 严格为 client-saved 后 pairing-claimed。Audit
   contract 没有 sequence column，因此两条 audit 是 unordered atomic set；测试
@@ -128,9 +131,11 @@ claim 还锁定生成的 client ID。resolution barrier read 显式使用
 
 readiness 前，PostgreSQL 通过同一个 compatibility validator 扫描所有 client/
 pairing row，包括 claimed-client existence。legacy blank owner/actor 只做上述
-projection backfill，GET 保持 read-only。后续每个 get/list/find/claim scan 也
-验证 row，invariant violation 映射 `corrupt` 而非 absence。这是 File startup
-validation 的 PostgreSQL 等价物；不需要 schema migration 或改变 CI service topology。
+projection backfill，GET 保持 read-only。后续每个 row scan 都调用同一个
+validator，包括 get/list/find result 与 revoke/touch/claim command precondition。
+invariant violation 映射 `corrupt`，绝不变成 absence、conflict 或 normalized
+write。这是 File startup validation 的 PostgreSQL 等价物；不需要 schema
+migration 或改变 CI service topology。
 
 获取 connection 后的 unsafe statement、transport、context 或 commit failure
 返回 `unknown_outcome`，terminate owned session 且绝不 release。candidate 形成前
@@ -161,7 +166,8 @@ matching generation 并退出，不再调用 Store。
 
 - `SavePairingCode` 前，Gateway 先生成 non-empty pairing ID 与 code hash；start
   在持有 coordinator gate 时保存 plaintext code、owner、canonical request
-  fingerprint、expiry 及完整 attempted pairing command identity。repository
+  fingerprint（精确等于 normalized owner ID）、expiry 及完整 attempted pairing
+  command identity。repository
   仍支持为其他 caller 生成 ID，但本 flow 绝不使用。repository 返回的 normalized
   candidate 在 success 或 unknown reconciliation 前附加。unknown save 使用保留的
   attempted ID 立即执行 get barrier。unresolved 时保留 pending；后续同一 start
@@ -198,20 +204,30 @@ matching generation 并退出，不再调用 Store。
 ## Gateway 迁移
 
 - 所有调用使用 `r.Context()` 或 authentication request 的 owned context。
-- client list failure 映射稳定 504 timeout 或 503 unavailable copy；revoke 仅对
-  typed `not_found` 保留 404。
+- client list timeout 为 504 `client list request timed out`；其他每个 list error
+  均为 503 `clients are temporarily unavailable`。
+- revoke `not_found` 为 404 `client not found`，timeout 为 504
+  `client revoke request timed out`，其他每个 typed/untyped error 均为 503
+  `clients are temporarily unavailable`。尤其是 canceled、conflict、invalid、
+  unavailable、durability、unknown-outcome、corrupt 与 internal failure 绝不继承
+  404，也不暴露 cause。
 - pairing start 仅在 exact pairing candidate durable/reconciled，且 live completion
   clock 仍早于 `ExpiresAt` 后披露 plaintext code。
 - pairing claim 只执行一个 repository command，仅在 pairing/client candidate
   durable/reconciled，且 live completion clock 仍早于 pairing expiry 后披露
   bearer token。
 - bearer authentication 区分 invalid/revoked credential 与 Store failure。
-  invalid/revoked 保持 401；lookup/touch timeout 为 504，其他 Store failure 为
-  503；Touch 必须确认 client 仍 active。
+  invalid、missing 或 concurrently revoked credential 保持 401
+  `valid bearer token required`；lookup/touch timeout 为 504
+  `authentication request timed out`；其他每个 lookup/touch error 均为 503
+  `authentication is temporarily unavailable`，包括 canceled、not-found、
+  conflict、invalid、unavailable、durability、unknown-outcome、corrupt、internal
+  与 untyped error。Touch 必须确认 client 仍 active。
 - 现有 bootstrap validation 保持稳定：pairing disabled 为 400
   `pairing is not required`，non-local start 为 403
-  `pairing can only be started locally`，malformed input 为 400，absent claim 为
-  400 `pairing code not found`，non-pending/expired claim 为 400
+  `pairing can only be started locally`，malformed claim JSON 为 400
+  `invalid pairing request`，absent claim 为 400 `pairing code not found`，
+  non-pending/expired claim 为 400
   `pairing code is not active`，code mismatch 为 401 `invalid pairing code`。
   不同 pending fingerprint 为 409 `another pairing request is pending`；different
   reconciled state 为 409 `pairing state changed`。start 在 disclosure 前即时
@@ -255,4 +271,5 @@ matching generation 并退出，不再调用 Store。
 |---|---|---|---|---|
 | Client contract review 1 | `bae3623` | `REVISE` | unknown claim 可能丢失 bearer token；legacy/corrupt backend parity、pairing pointer isolation、audit ordering 与 live expiry disclosure 不完整 | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 2 | `9ff7c14` | `REVISE` | zero-candidate recovery 缺 attempted command identity；pairing public error projection 未冻结；roadmap 状态过期 | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair 2 | pending | pending | pending | pending |
+| Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth 与 malformed-claim public copy 不完整；repository roadmap 仍把 Owner 标成 active | Context-isolated gatekeeper / 2026-08-20 |
+| Client contract repair 3 | pending | pending | pending | pending |

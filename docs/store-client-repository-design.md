@@ -2,10 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-client-repository-design.md)
 
-> Status: second S3 design repair candidate based on accepted Owner
-> implementation `0b85cc4`. Reviews of `bae3623` and `9ff7c14` returned REVISE.
-> Client code is not authorized until this repaired contract receives a fresh
-> context-isolated design GO.
+> Status: third S3 design repair candidate based on accepted Owner
+> implementation `0b85cc4`. Reviews of `bae3623`, `9ff7c14`, and `1ccd5db`
+> returned REVISE. Client code is not authorized until this repaired contract
+> receives a fresh context-isolated design GO.
 
 ## Boundary Correction
 
@@ -71,18 +71,22 @@ or compatibility interface is introduced.
   is a new explicit command with a later candidate, preserving existing
   behavior without reusing an uncertain candidate.
 - Pairing IDs and code hashes are unique. `SavePairingCode` is create-only,
-  accepts only a normalized pending record with no claim fields, and requires
-  a non-zero expiry and code hash; an empty ID is generated. The repository
+  trims its ID and code hash, accepts an empty or pending input status and
+  normalizes it to pending, rejects claim fields or another status, and requires
+  a non-zero expiry and code hash; an empty ID is generated. `ExpiresAt` is
+  normalized to UTC PostgreSQL microsecond precision, while the repository
   replaces caller `CreatedAt` with its own high-water time. It atomically
-  appends `pairing_code.created` audit and event records. A duplicate ID or
-  hash is `conflict`; a consumed code cannot be reopened by another save.
+  appends `pairing_code.created` audit and event records. A duplicate ID or hash
+  is `conflict`; a consumed code cannot be reopened by another save.
 - `GetPairingCode` is side-effect free. A pending record whose expiry is in the
   past remains persisted as pending; callers evaluate both status and expiry.
   Claiming an expired code returns `conflict` without a hidden state change.
 - `ClaimPairingCode` requires a present, pending, unexpired code and a new
-  client ID/token hash. It assigns the client creation time and pairing claim
-  time as one command timestamp strictly above both record high-water marks,
-  then atomically creates the client, marks the code claimed, and appends
+  active client ID/token hash. It rejects a client carrying `LastSeenAt` or
+  `RevokedAt`, ignores caller `CreatedAt`, and assigns the client creation time
+  and pairing claim time as one command timestamp strictly above both record
+  high-water marks. It then atomically creates the client, marks the code
+  claimed, and appends
   one `client.saved` and one `pairing_code.claimed` audit/event pair. Event
   sequence is strictly client-saved then pairing-claimed. Audit rows form an
   unordered atomic set because the Audit contract has no sequence column; tests
@@ -140,13 +144,14 @@ used as resolution barriers explicitly use `READ COMMITTED`, take the matching
 advisory lock in one statement, and query in a later statement. Unique
 violations map to `conflict`; other server rejections map to `internal`.
 
-Before readiness, PostgreSQL scans every client and pairing row through the
-same compatibility validator, including claimed-client existence. Legacy blank
+Before readiness, PostgreSQL scans every client and pairing row through the same
+compatibility validator, including claimed-client existence. Legacy blank
 owner/actor fields receive only the projection backfill above; the GET remains
-read-only. Every later get/list/find/claim scan also validates its row and maps
-an invariant violation to `corrupt`, never absence. This runtime validation is
-the PostgreSQL equivalent of File startup validation; no schema migration or CI
-service-topology change is required.
+read-only. Every later row scan validates through that same function, including
+get/list/find results and revoke/touch/claim command preconditions. An invariant
+violation maps to `corrupt`, never absence, conflict, or a normalized write.
+This runtime validation is the PostgreSQL equivalent of File startup
+validation; no schema migration or CI service-topology change is required.
 
 An unsafe statement, transport, context, or commit failure after connection
 acquisition returns `unknown_outcome`, terminates the owned session, and never
@@ -182,9 +187,10 @@ and exits without another Store call.
 
 - Before `SavePairingCode`, Gateway generates a non-empty pairing ID and code
   hash, then start stores the plaintext code, owner, canonical request
-  fingerprint, expiry, and complete attempted pairing command identity while
-  holding the coordinator gate. Repository ID generation remains supported for
-  other callers but is never used by this flow. The repository-returned
+  fingerprint (exactly the normalized owner ID), expiry, and complete attempted
+  pairing command identity while holding the coordinator gate. Repository ID
+  generation remains supported for other callers but is never used by this
+  flow. The repository-returned
   normalized candidate is attached before success or unknown reconciliation.
   Unknown save immediately runs the get barrier with the retained attempted ID.
   Unresolved reconciliation retains pending; the same later start reconciles
@@ -228,8 +234,13 @@ and exits without another Store call.
 ## Gateway Migration
 
 - Every call uses `r.Context()` or the owned authentication request context.
-- Client list failures return stable 504 timeout or 503 unavailable copy;
-  revoke preserves 404 only for typed `not_found`.
+- Client list timeout is 504 `client list request timed out`; every other list
+  error is 503 `clients are temporarily unavailable`.
+- Revoke `not_found` is 404 `client not found`, timeout is 504
+  `client revoke request timed out`, and every other typed or untyped error is
+  503 `clients are temporarily unavailable`. In particular, canceled,
+  conflict, invalid, unavailable, durability, unknown-outcome, corrupt, and
+  internal failures never inherit 404 and never expose their cause.
 - Pairing start never discloses the plaintext code until the exact saved
   pairing candidate is durable or reconciled and a live completion clock still
   precedes `ExpiresAt`.
@@ -237,12 +248,17 @@ and exits without another Store call.
   token until the pairing and client candidates are durable or reconciled and
   the live completion clock still precedes the pairing expiry.
 - Bearer authentication distinguishes invalid/revoked credentials from Store
-  failure. Invalid or revoked stays 401; lookup/touch timeout is 504 and other
-  Store failure is 503. Touch must confirm the client is still active.
+  failure. Invalid, missing, or concurrently revoked credentials stay 401
+  `valid bearer token required`. Lookup/touch timeout is 504
+  `authentication request timed out`; every other lookup/touch error is 503
+  `authentication is temporarily unavailable`, including canceled, not-found,
+  conflict, invalid, unavailable, durability, unknown-outcome, corrupt,
+  internal, and untyped errors. Touch must confirm the client is still active.
 - Existing bootstrap validation remains stable: disabled pairing is 400
   `pairing is not required`, non-local start is 403
-  `pairing can only be started locally`, malformed input is 400, absent claim is
-  400 `pairing code not found`, non-pending/expired claim is 400
+  `pairing can only be started locally`, malformed claim JSON is 400
+  `invalid pairing request`, absent claim is 400 `pairing code not found`,
+  non-pending/expired claim is 400
   `pairing code is not active`, and a code mismatch is 401
   `invalid pairing code`. A different pending fingerprint is 409
   `another pairing request is pending`; a different reconciled state is 409
@@ -292,4 +308,5 @@ receives an independent context-isolated GO.
 |---|---|---|---|---|
 | Client contract review 1 | `bae3623` | `REVISE` | Unknown claim could lose the bearer token; legacy/corrupt backend parity, pairing pointer isolation, audit ordering, and live expiry disclosure were incomplete | Context-isolated gatekeeper / 2026-08-20 |
 | Client contract review 2 | `9ff7c14` | `REVISE` | Zero-candidate recovery lacked attempted command identities; pairing public error projection was not frozen; roadmap status was stale | Context-isolated gatekeeper / 2026-08-20 |
-| Client contract repair 2 | pending | pending | pending | pending |
+| Client contract review 3 | `1ccd5db` | `REVISE` | Client list/revoke/auth and malformed-claim public copy remained incomplete; repository roadmap still labeled Owner active | Context-isolated gatekeeper / 2026-08-20 |
+| Client contract repair 3 | pending | pending | pending | pending |

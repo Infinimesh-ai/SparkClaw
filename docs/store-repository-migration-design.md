@@ -327,7 +327,7 @@ parameter.
 
 ## S3 Planning Order
 
-### Active Wave: OwnerRepository
+### Accepted Wave: OwnerRepository
 
 The first S3 wave freezes the six accepted S0 Owner methods as one repository:
 
@@ -485,6 +485,15 @@ the mechanical File helper generalization with byte-identical onboarding
 behavior; and the complete Owner behavior migration across every backend and
 caller. No next repository starts until the exact Owner candidate receives an
 independent context-isolated implementation review.
+
+### Active Wave: ClientRepository
+
+Owner implementation received its independent GO at `0b85cc4` with gate record
+`fc5acba`. The exact active Client boundary, merged pairing claim command,
+pending-secret recovery, backend compatibility, and implementation gate now
+live only in the [ClientRepository contract](store-client-repository-design.md).
+No Credential or other repository design starts before the exact Client
+implementation receives its independent GO.
 
 After S2 implementation and human acceptance, preferred risk order remains:
 

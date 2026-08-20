@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-postgresql-schema-config-design.md)
 
-> Status: S1 design accepted on 2026-08-20 after two `REVISE` rounds and an
-> independent third-review `GO`. The user authorized progression to this stage;
-> implementation may start, while S2 remains unauthorized.
+> Status: S1 implementation passed independent review on 2026-08-20 after one
+> implementation `REVISE`, fix commit `74b7c5e`, and re-review `GO`. The stage
+> is awaiting user acceptance; S2 remains unauthorized.
 
 ## Objective
 
@@ -26,17 +26,23 @@ authority.
    `d16479c0830460418d27d3595a513232a688cb8bc75173b53f2f7f068f6c5382`.
 2. Add `0002_reconcile_current.sql` from the exact prior `postgresSchema` SQL
    body. It remains idempotent and preserves the five compatibility DML
-   statements, while adding the preflight and postconditions below.
-3. Embed the ordered files with `go:embed` and execute them from Gateway Store
+   statements, while adding the preflight and postconditions below. Its frozen
+   SHA-256 is
+   `2c1cdfc20123dfdeffe6ef72c20decef78ca2fa75287b5985ed18e36e18dd0ed`.
+3. Append `0003_validate_legacy_chat_keys.sql` without changing applied
+   migration 0002. It rejects session and non-empty message natural-key
+   ambiguity produced by legacy adoption. Its frozen SHA-256 is
+   `709cdc2063f99ded33ed0714a3e7e418ec936fdfeec7fb50b596f9e8aee5addc`.
+4. Embed the ordered files with `go:embed` and execute them from Gateway Store
    startup.
-4. Remove the Go `postgresSchema` domain DDL and stop copying a separate schema
+5. Remove the Go `postgresSchema` domain DDL and stop copying a separate schema
    directory into the PostgreSQL image.
-5. Use the same runner for a fresh database and an existing SparkClaw database.
+6. Use the same runner for a fresh database and an existing SparkClaw database.
 
 The runner may contain only the minimal migration-ledger bootstrap DDL. It may
 not restate application tables or indexes in Go. The S0 manifest guard changes
-from root-SQL-versus-Go comparison to a comparison of the two embedded migration
-sources before the Go constant is deleted.
+from root-SQL-versus-Go comparison to validation of the ordered embedded
+migration set before the Go constant is deleted.
 
 ## Migration Ledger
 
@@ -83,8 +89,9 @@ of successful adoption.
 
 ### Compatibility DML Adoption
 
-`0002_reconcile_current.sql` owns the five historical DML statements and makes
-their adoption contract explicit:
+`0002_reconcile_current.sql` owns the five historical DML statements, while
+`0003_validate_legacy_chat_keys.sql` owns the appended ambiguity postcondition.
+Together they make the adoption contract explicit:
 
 - target primary-key existence is the already-copied criterion. Once the target
   ID exists, `external_chat_*` is authoritative and the migration never compares
@@ -97,6 +104,10 @@ their adoption contract explicit:
 - a missing message target ID is copied from the legacy source. Before that
   insert, a non-empty canonical `(chat_session_id, external_message_id)` already
   held by a different target ID fails adoption;
+- after copy, 0003 joins canonical targets to their legacy source IDs and rejects
+  duplicate session keys or duplicate non-empty message keys only where the
+  canonical key still equals the legacy projection. A same-ID target whose key
+  already evolved remains authoritative and is excluded from this check;
 - both copy statements retain `ON CONFLICT (id) DO NOTHING`, then require every
   source ID to have exactly one target ID and require that matched count to equal
   the source count. The transaction locks make every newly inserted target an
@@ -197,6 +208,8 @@ Required deterministic and configured-PostgreSQL evidence:
 - fresh empty database reaches the expected manifest;
 - current unversioned database adopts the ledger without data loss;
 - missing-ID natural-key Weixin copy conflicts fail without writing a ledger;
+- duplicate legacy session keys and duplicate non-empty legacy message keys
+  fail adoption without writing a ledger;
 - evolved target rows survive adoption unchanged, while a missing target ID
   colliding with another target's canonical natural key fails closed;
 - all five compatibility DML postconditions are proved and repeated adoption is
@@ -233,4 +246,5 @@ authorities, and a real PostgreSQL run while retaining the existing CI gate.
 | Design review 1 | draft dated 2026-08-19 | `REVISE` | Missing compatibility-DML adoption criteria, advisory lock, uncertain-commit state machine, and exact configuration/context entry path | Independent gatekeeper / 2026-08-20 |
 | Design review 2 | revision 1 dated 2026-08-20 | `REVISE` | Full-field legacy-copy equality rejected valid evolved targets; runner lock did not exclude old-Gateway compatibility writes | Independent gatekeeper / 2026-08-20 |
 | Design review 3 | revision 2 dated 2026-08-20 | `GO` | Target-PK already-copied authority and non-rolling/four-table lock protocol close the remaining adoption and old-writer windows; no second schema authority introduced | Independent gatekeeper; user authorized stage progression / 2026-08-20 |
-| Implementation | pending | pending | pending | pending |
+| Implementation review 1 | `0c557ee` through `3f098f3` | `REVISE` | Static review and PostgreSQL 18.4 tests found that two missing legacy IDs could share one session or non-empty message natural key and both enter non-unique canonical indexes | Independent gatekeeper / 2026-08-20 |
+| Implementation review 2 | fix `74b7c5e` | `GO` | Immutable 0002 retained; transactional 0003 rejects both duplicate classes with ledger remaining empty, while evolved same-ID canonical targets remain authoritative. Full Go build/test/vet, Store race, WebChat, Compose/scripts, bilingual docs, and real PostgreSQL evidence are green. Remaining low risk: the combined duplicate-source/evolved-target case is covered by SQL predicates plus separate tests rather than one dedicated test | Independent gatekeeper / 2026-08-20 |

@@ -2,8 +2,8 @@
 
 > 语言：[English](../../docs/store-postgresql-schema-config-design.md) | 简体中文
 
-> 状态：S1 设计已于 2026-08-20 在两轮 `REVISE` 和第三次独立复审 `GO`
-> 后接受。用户已授权推进到本阶段；可以开始实现，但仍不授权 S2。
+> 状态：S1 实现于 2026-08-20 经一次实现 `REVISE`、修复提交 `74b7c5e`
+> 和独立复审 `GO` 后通过。当前等待用户验收本阶段；仍不授权 S2。
 
 ## 目标
 
@@ -23,14 +23,20 @@ Store 专属配置在 `config.Load` 阶段失败，而不是到第一次持久�
    `d16479c0830460418d27d3595a513232a688cb8bc75173b53f2f7f068f6c5382`。
 2. 从原 `postgresSchema` SQL 正文精确生成 `0002_reconcile_current.sql`。
    它保持幂等并保留五条兼容 DML，同时加入下述 preflight 和 postcondition。
-3. 使用 `go:embed` 内嵌有序文件，并由 Gateway Store startup 执行。
-4. 删除 Go `postgresSchema` domain DDL，并停止把另一份 schema 目录复制
+   其冻结 SHA-256 为
+   `2c1cdfc20123dfdeffe6ef72c20decef78ca2fa75287b5985ed18e36e18dd0ed`。
+3. 在不修改已应用 migration 0002 的前提下追加
+   `0003_validate_legacy_chat_keys.sql`，拒绝 legacy adoption 产生的 session
+   和非空 message 自然键歧义。其冻结 SHA-256 为
+   `709cdc2063f99ded33ed0714a3e7e418ec936fdfeec7fb50b596f9e8aee5addc`。
+4. 使用 `go:embed` 内嵌有序文件，并由 Gateway Store startup 执行。
+5. 删除 Go `postgresSchema` domain DDL，并停止把另一份 schema 目录复制
    进 PostgreSQL image。
-5. 全新数据库和现有 SparkClaw 数据库使用同一个 runner。
+6. 全新数据库和现有 SparkClaw 数据库使用同一个 runner。
 
 runner 只能包含最小 migration ledger bootstrap DDL，不得在 Go 中重述应用表
-或索引。删除 Go 常量前，S0 manifest 守卫由根 SQL 与 Go 的比较改为两份内嵌
-migration 来源的比较。
+或索引。删除 Go 常量前，S0 manifest 守卫由根 SQL 与 Go 的比较改为验证有序的
+内嵌 migration 集合。
 
 ## Migration Ledger
 
@@ -70,7 +76,9 @@ table 不被接管或删除。scratch schema 随事务清理，不构成第二 s
 
 ### 兼容 DML Adoption
 
-`0002_reconcile_current.sql` 拥有五条历史 DML，并明确以下接管契约：
+`0002_reconcile_current.sql` 拥有五条历史 DML，
+`0003_validate_legacy_chat_keys.sql` 拥有追加的歧义 postcondition。两者共同
+明确以下接管契约：
 
 - target primary-key 是否存在是 already-copied 判据。target ID 一旦存在，
   `external_chat_*` 即为权威；migration 不比较或覆盖其 owner/workspace/
@@ -82,6 +90,9 @@ table 不被接管或删除。scratch schema 随事务清理，不构成第二 s
 - 缺失 message target ID 时从 legacy source 复制。在 insert 前，若非空
   canonical `(chat_session_id, external_message_id)` 已由不同 target ID 占用，
   则 adoption 失败；
+- copy 后，0003 通过 legacy source ID 关联 canonical target，仅当 canonical key
+  仍等于 legacy projection 时拒绝重复 session key 或重复非空 message key。
+  canonical key 已演进的同 ID target 仍为权威，不参与此检查；
 - 两条 copy 仍使用 `ON CONFLICT (id) DO NOTHING`，随后要求每个 source ID
   恰好存在一个 target ID，并要求匹配数等于 source 总数。transaction lock
   保证每个新 target 都精确来自 canonical `INSERT ... SELECT`；此前已存在的
@@ -169,6 +180,8 @@ migration 或 ledger row。
 - 全新空数据库达到预期 manifest；
 - 当前无版本数据库在不丢数据的情况下接管 ledger；
 - Weixin copy 的 missing-ID natural-key 冲突在不写 ledger 的情况下失败；
+- 重复 legacy session key 和重复非空 legacy message key 在不写 ledger 的情况下
+  使 adoption 失败；
 - 演进后的 target row 在 adoption 后保持不变，而缺失 target ID 与另一 target
   的 canonical natural key 冲突时 fail closed；
 - 五条兼容 DML 的 postcondition 均得到证明，重复 adoption 保持稳定；
@@ -202,4 +215,5 @@ PostgreSQL 集成证据记录测试 commit、server version、migration 起始�
 | 设计审查 1 | 2026-08-19 草案 | `REVISE` | 缺少兼容 DML adoption 判据、advisory lock、commit 不确定结果状态机和精确配置/context 入口 | 独立 gatekeeper / 2026-08-20 |
 | 设计审查 2 | 2026-08-20 修订 1 | `REVISE` | legacy copy 全字段相等会拒绝合法演进 target；runner lock 未排除旧 Gateway compatibility 写入 | 独立 gatekeeper / 2026-08-20 |
 | 设计审查 3 | 2026-08-20 修订 2 | `GO` | target-PK already-copied 权威和非滚动/四表锁协议闭合剩余 adoption 与旧 writer 窗口；未引入第二 schema 权威 | 独立 gatekeeper；用户授权阶段推进 / 2026-08-20 |
-| 实现 | pending | pending | pending | pending |
+| 实现审查 1 | `0c557ee` 至 `3f098f3` | `REVISE` | 静态审查和 PostgreSQL 18.4 测试发现两个缺失 legacy ID 可共享一个 session 或非空 message 自然键，并同时进入非唯一 canonical index | 独立 gatekeeper / 2026-08-20 |
+| 实现审查 2 | 修复 `74b7c5e` | `GO` | 保持 0002 不可变；transactional 0003 拒绝两类重复且 ledger 保持为空，同时保留已演进同 ID canonical target 的权威。完整 Go build/test/vet、Store race、WebChat、Compose/script、双语文档和真实 PostgreSQL 证据均通过。剩余低风险：重复 source 与 evolved target 的组合由 SQL 谓词和独立测试共同覆盖，未单设组合用例 | 独立 gatekeeper / 2026-08-20 |

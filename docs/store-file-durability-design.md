@@ -2,141 +2,243 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-file-durability-design.md)
 
-> Status: draft for S2 design review, 2026-08-19. Implementation starts only
-> after S0 and S1 implementation reviews and this design receive `GO`. S2 also
-> migrates the low-risk pilot repository accepted in S0.
+> Status: S2 design-review candidate revision 1, 2026-08-20. S2 production
+> code starts only after this document and the linked repository pilot design
+> receive an independent `GO`.
 
-## Problem
+## Problem And S2 Claim
 
 The File backend currently mutates `MemoryStore`, serializes afterward, and
-discards most persistence errors. Its mutex protects snapshot writing but not
-the preceding mutation or ordinary reads. A reader can therefore observe state
-that is not durable and may later need rollback. A later successful snapshot
-can also persist dirty state left by an earlier silent failure.
+discards 48 legacy persistence results. Its mutex protects snapshot writing but
+not the preceding mutation or ordinary reads. A reader can observe state that
+is not durable, and a later successful snapshot can persist dirty state left by
+an earlier silent failure.
 
-S2 first establishes one transaction boundary for every File method, then uses
-the accepted pilot repository to prove the complete durability behavior in a
-production path. Remaining repositories migrate in S3.
+S2 deliberately makes two different claims:
 
-## Commit Visibility Invariant
+| Surface | S2 guarantee |
+|---|---|
+| Every FileStore interface method | One in-process admission gate prevents a read or another command from interleaving with a command's Memory mutation and persistence attempt. |
+| Migrated `ISCPOnboardingRepository` methods | Caller context, typed backend errors, full pre-submit rollback, durable replacement, unknown-outcome fencing, and reconciliation. |
+| Remaining legacy repositories | Existing signatures and persistence-error behavior remain known defects for S3. S2 does not claim their post-failure state is durable. |
 
-A File read observes either the complete state before a command or the complete
-state after that command is durably committed. It never observes a tentative
-Memory mutation.
+The strong commit-visibility invariant therefore applies only to a migrated
+repository while the File backend is not fenced by an unresolved submitted
+outcome: its read observes either the complete pre-command state or the complete
+durably committed post-command state. The all-method gate alone is not evidence
+that a legacy repository has earned that invariant.
 
-All File reads and writes use one context-aware transaction gate:
+## One Admission Gate
 
-- reads acquire shared admission;
-- commands acquire exclusive admission before reading pre-state;
-- migrated methods use their caller context while legacy methods temporarily
-  use a bounded internal context;
-- direct access to `inner` outside an admitted File method is forbidden;
-- waiting for admission honors cancellation and deadlines.
+`FileStore` uses `golang.org/x/sync/semaphore.Weighted` as a direct dependency.
+The semaphore is initialized with one fixed private capacity. A read acquires
+weight 1 and a command acquires the full capacity. The dependency's FIFO waiter
+queue prevents new readers from bypassing a queued writer, and `Acquire` can
+return the waiting context's cancellation or deadline error.
 
-The gate foundation is a mechanical commit reviewed separately from the pilot
-command's error behavior. It must cover every existing File method, including
-the newer MCP/ISCP methods, before the pilot migration commit begins.
+The gate rules are:
 
-## Command Algorithm
+- all 141 public FileStore methods are classified once as read or command and
+  acquire this gate before touching `inner`;
+- commands retain exclusive admission from before Memory pre-state capture
+  through persistence, rollback, or unknown-outcome registration;
+- migrated methods acquire with their effective operation context;
+- legacy methods have no error channel, so they acquire with
+  `context.Background()` and may wait without a deadline until their repository
+  migrates in S3;
+- a legacy method does not invent a zero result, silently skip a command, or
+  panic merely to simulate admission cancellation;
+- the old File persistence mutex is removed; helpers called under exclusive
+  admission never recursively acquire the gate;
+- `inner` remains private, and production code outside an admitted File method
+  cannot access it.
 
-While holding exclusive admission, a migrated command:
+The gate commit is reviewed independently and contains no pilot signature or
+error-classification change. An AST source guard enumerates the accepted S0
+method set and proves that every public File method enters exactly one read or
+command wrapper before an `inner` access. Focused concurrency tests block a
+command between Memory mutation and persistence and prove that neither a read
+nor another command passes it.
 
-1. rejects an already canceled context;
-2. captures a complete pre-command rollback state containing the persisted
-   `Snapshot` plus a non-serialized sidecar for process-local revisions and any
-   other volatile derived state;
-3. applies the Memory command and its required event/audit changes;
-4. captures the candidate snapshot;
-5. encodes and optionally encrypts the candidate;
-6. creates a unique same-directory temporary file with mode `0600`;
-7. writes all bytes, fsyncs the file, and closes it;
-8. checks cancellation before the replacement submission point;
-9. atomically renames the temporary file over the state path;
-10. fsyncs the parent directory;
-11. releases admission and reports success.
+This is an in-process boundary. SparkClaw's product topology runs one Gateway
+against one File path; S2 does not add a cross-process file lease. Two processes
+writing the same path remain unsupported.
 
-The configured File backend requires a non-empty path. Tests that need
-non-durable state use `MemoryStore`, not a pathless File Store.
+## Migrated Command Algorithm
+
+While holding exclusive admission, migrated `SaveISCPOnboarding` performs:
+
+1. derive the effective caller-or-30-second write context and reject it if
+   already done;
+2. resolve any older submitted outcome for this FileStore or return that typed
+   error without mutation;
+3. capture the complete rollback state, the exact current on-disk bytes and
+   existence bit, and the current snapshot JSON shape;
+4. apply the Memory command under its lock and preserve domain/validation
+   errors without starting persistence;
+5. capture the candidate snapshot, JSON-encode it, and optionally encrypt it;
+6. ensure the parent directory exists, then create a unique same-directory
+   temporary file with `O_EXCL` and mode `0600`;
+7. write all bytes, fsync the temporary file, and close it;
+8. check the effective context once more before submission;
+9. atomically rename the temporary file over the state path;
+10. open and fsync the parent directory, then close it;
+11. clear temporary state, release admission, and report success.
+
+The replacement rename is the effect-submission point. Cancellation is checked
+before it; cancellation observed after a submitted rename cannot be reported as
+a definite rollback. A configured File backend and both File constructors
+require a non-empty path. Tests requiring intentionally non-durable state use
+`MemoryStore`.
+
+The new primitive does not change `Snapshot`, JSON field names, omission rules,
+plaintext formatting, or encrypted-envelope version. Plaintext and encrypted
+paths use the same create/write/file-sync/rename/directory-sync stages.
+
+## Filesystem Seam
+
+A package-private `fileCommitOps` dependency owns only the operations needed by
+the algorithm: encode/encrypt, mkdir, create-exclusive temp, write, file sync,
+file close, rename, read destination, remove temp, open directory, directory
+sync, and directory close. Production uses `os` and the existing encryption
+implementation. Tests inject deterministic results and partial writes; they do
+not depend on permissions, a full disk, mount behavior, sleeps, or races.
+
+Temporary files are unique and remain in the destination directory so rename
+does not cross filesystems. Every failure before rename attempts cleanup; a
+cleanup failure is joined to internal diagnostics but never replaces the
+primary classified outcome. A process crash may leave an unreferenced temp
+file, but startup reads only the exact configured state path.
 
 ## Failure State Machine
 
-| Stage | Memory action | Result |
+| Stage | In-memory action | Returned result |
 |---|---|---|
-| before Memory mutation | none | original domain, canceled, or timeout error |
-| Memory command rejects | unchanged by command contract | typed domain error |
-| encode/encrypt/create/write/file-sync/close fails before rename | restore complete pre-snapshot | `durability_failed` with cause |
-| context ends before rename | restore complete pre-snapshot | `canceled` or `timeout` |
-| rename reports failure | restore pre-snapshot when replacement is known not to have occurred | `durability_failed`; otherwise `unknown_outcome` |
-| rename succeeds, directory sync fails or completion becomes uncertain | keep candidate state; do not claim rollback | `unknown_outcome` |
-| commit succeeds | keep candidate state | nil |
+| before Memory mutation | none | preserved `canceled`, `timeout`, or validation error |
+| Memory command rejects | unchanged by command contract | preserved typed domain error, including `ErrISCPOnboardingConflict` |
+| encode/encrypt/mkdir/create/write/file-sync/file-close fails before rename | restore complete rollback state | `durability_failed` with cause |
+| context ends before rename | restore complete rollback state | `canceled` or `timeout` |
+| rename reports failure and destination is provably the previous bytes/absence | restore complete rollback state | `durability_failed` |
+| rename reports failure but destination is candidate or cannot be identified | keep candidate and install submitted-outcome fence | `unknown_outcome` |
+| rename succeeds, then directory open/sync/close fails | keep candidate and install submitted-outcome fence | `unknown_outcome` |
+| replacement and directory sync succeed | keep candidate | nil |
 
-After `unknown_outcome`, normal retries are forbidden until the command's
-repository reconciliation read establishes the durable version. Temporary-file
-cleanup is best effort and never hides the primary error.
+`durability_failed` means the candidate is definitely not the active durable
+state and normal caller retry is permitted. `unknown_outcome` means the effect
+may be active and normal retry is forbidden until reconciliation. No path
+claims that an already submitted rename was rolled back merely by changing
+Memory state.
 
-## Rollback Correctness
+## Submitted-Outcome Fence And Reconciliation
 
-Rollback loads the captured persisted snapshot through the same normalization
-path used at startup so durable derived indexes are rebuilt consistently, then
-restores the volatile sidecar. The sidecar never changes snapshot JSON.
-Hand-written restoration of one map entry is not accepted because a command
-may also change events, indexes, revisions, or related records.
+The fence stores no business label. It holds the operation ID, candidate byte
+digest, previous exact-byte digest/existence, rollback state, and a completion
+channel. It never changes snapshot JSON.
 
-No read is admitted while rollback or post-rename outcome handling is active.
+Before any later operation proceeds:
 
-## Failure Injection
+- a migrated method may take exclusive admission and reconcile within its
+  effective context;
+- a legacy method waits outside the admission gate for the fence completion
+  channel, leaving a migrated reconciliation call able to acquire the gate;
+- no legacy command mutates Memory or writes a newer snapshot through an
+  unresolved fence.
 
-File persistence uses a package-local filesystem seam supporting deterministic
-failures at:
+Reconciliation reads the exact destination bytes. If they match the candidate,
+it retries only the parent-directory sync; success confirms the candidate and
+clears the fence. If they match the captured previous bytes or previous
+absence, Memory restores the rollback state and the fence resolves as a
+definite failed command. If neither version can be established, or directory
+sync still fails, the fence remains and the migrated call returns
+`unknown_outcome` or `corrupt` as appropriate.
 
-- encode and encryption;
-- temporary creation and partial write;
-- file fsync and close;
-- rename;
-- directory open/fsync/close;
-- cleanup.
+For the pilot, `GetISCPOnboarding(id)` and `ListISCPOnboardings(ownerID)` are
+the caller-visible reconciliation reads. They never return candidate data with
+a nil error while the fence remains unresolved. S5 later adds proactive
+recovery probing; S2 intentionally provides reconciliation-on-operation only.
 
-Tests do not depend on permissions, full disks, mount behavior, or timing.
+## Complete Rollback State
 
-## Verification
+Rollback captures the whole persisted `Snapshot` plus a typed volatile sidecar.
+The current sidecar contains a clone of `passiveNotificationRevs`. Restoration
+calls the same `loadSnapshot` normalization used at startup so notification and
+artifact URI indexes and other derived maps are rebuilt, then restores the
+volatile revision sidecar under the Memory lock.
 
-Required tests include:
+Hand-written restoration of the onboarding map entry is deleted. Such rollback
+is not accepted because future commands can also change indexes, events,
+revisions, or related records. Tests compare the full snapshot and volatile
+sidecar before and after every injected pre-submit failure.
 
-- reader cannot observe a blocked tentative mutation;
-- queued read/write admission respects cancellation;
-- every pre-rename failure restores the full in-memory snapshot;
-- event, index, and revision state also rolls back;
-- post-rename directory-sync failure returns `unknown_outcome` without memory
-  rollback;
-- restart after successful commit reproduces the exact committed state;
-- concurrent commands serialize without lost updates;
-- encryption and plaintext use identical commit stages;
-- race tests cover read, command, rollback, and reload paths;
-- source guards reject discarded persistence errors and direct ungated `inner`
-  access.
+## Transitional Legacy Rule
 
-## Transitional Rule
+The mechanical gate prevents concurrent interleaving for every File method,
+but the 48 accepted S0 discarded-persistence sites remain explicit defect
+evidence. Their existing return values cannot surface admission timeout or
+durability failure. They therefore use unbounded admission, retain their current
+post-failure contract, and do not use the migrated rollback helper.
 
-After the S2 pilot and until all remaining repositories migrate, legacy commands retain their old public
-signatures but must use the same gate and bounded persistence path. System-wide
-reliability is not claimed during this interval. A repository earns the new
-contract only when its signatures, callers, all backends, failure tests, and
-reconciliation behavior migrate together.
+The S2 source guard is scoped accordingly: it rejects ignored commit errors and
+hand-written rollback in migrated onboarding methods, while separately
+asserting that the known legacy defect inventory has not grown. Each S3
+repository replaces its own defect evidence with positive error, rollback, and
+reconciliation assertions when its signatures and callers migrate together.
+
+## Verification And Commit Boundary
+
+The first implementation commit is mechanical admission coverage only. It must
+pass Store tests and `go test -race ./internal/store` and show no pilot API or
+snapshot diff.
+
+The second implementation commit migrates the pilot and includes deterministic
+tests for:
+
+- cancellation before admission and before rename;
+- a reader blocked from a tentative mutation;
+- every pre-rename failure restoring the full snapshot and volatile revision;
+- partial-write cleanup and preservation of the primary error;
+- rename failure classified by exact destination reconciliation;
+- directory-sync failure fencing all legacy commands and rejecting migrated
+  data reads until reconciliation;
+- candidate and previous-state reconciliation branches;
+- successful restart reproducing exactly the committed onboarding receipt;
+- concurrent duplicate saves preserving one winner and
+  `ErrISCPOnboardingConflict`;
+- plaintext/encrypted stage parity and state-file mode `0600`;
+- unchanged snapshot JSON keys and absence of plaintext secrets;
+- race coverage across read, command, rollback, fence, and reload paths.
+
+The default File backend production-entry tests, full Go build/test/vet, WebChat
+tests/build, bilingual docs CI, and a real configured PostgreSQL Store run gate
+S2. PostgreSQL CI topology and `SPARKCLAW_TEST_POSTGRES_DSN` skip semantics do
+not change.
+
+## Residual Risks Accepted For S2 Review
+
+- A submitted outcome can block legacy File commands until a migrated
+  onboarding read reconciles it. This is deliberate fail-closed behavior until
+  S5 adds proactive recovery; silently overwriting uncertain state is worse.
+- The gate does not protect against a second process using the same File path.
+- The ISCP authority effect occurs before local receipt persistence and exposes
+  no revocation/idempotent-recovery operation. A definite local failure can
+  strand an undisclosed authority ticket; Store cannot make the remote and
+  local effects atomic. The pilot makes this failure visible but does not claim
+  to compensate it.
+- Unmigrated repositories retain their known silent persistence failures until
+  their S3 stage.
 
 ## S2 Review Gate
 
-Design `GO` requires an accepted gate implementation strategy, pilot,
-submission point, failure table, and injection seam. Implementation proceeds as
-two reviewed commits: mechanical gate coverage for every File method, followed
-by the pilot repository across Memory, File, PostgreSQL, and callers.
-
-S2 implementation `GO` requires deterministic pilot failure tests, race
-evidence, unchanged snapshot JSON shape, no default-backend regression, and no
-unused transaction helper. S3 cannot start on gate scaffolding alone.
+Design `GO` requires acceptance of the scoped invariant, semaphore strategy,
+legacy behavior, submission/fence state machine, rollback state, filesystem
+seam, pilot reconciliation, and residual risks. Implementation `GO` requires
+both commits, deterministic failure and race evidence, unchanged snapshot JSON,
+no default-backend regression, and no unused gate or operation helper. S3
+cannot start on gate scaffolding alone.
 
 ## Review Record
 
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
-| Design | pending | pending | pending | pending |
+| Design | revision 1 candidate | pending | Scoped File invariant, exact gate, submitted-outcome fence, and transitional risks await independent review | pending |
 | Implementation | pending | pending | pending | pending |

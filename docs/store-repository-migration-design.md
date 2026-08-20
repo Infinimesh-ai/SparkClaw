@@ -2,154 +2,317 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-repository-migration-design.md)
 
-> Status: draft for S2 pilot and S3/S4 design review, 2026-08-19. The pilot
-> starts only after S0-S1 implementation reviews and the File design receive
-> `GO`; remaining repository code starts only after the S2 implementation `GO`.
+> Status: S2 pilot design-review candidate revision 1, 2026-08-20. The pilot
+> starts only after this document and the linked File durability design receive
+> an independent `GO`. Remaining repository code remains gated by S2
+> implementation acceptance.
 
-## Objective
+## Objective And Stage Boundary
 
 Replace the 141-method `store.Store` with reviewed domain repositories in small
-implementation waves. S2 migrates one accepted low-risk pilot while proving the
-File transaction model. S3 migrates every remaining repository. Each repository
-changes all callers and all three backends atomically. After the final
-repository, S4 removes the broad interface before Runtime/Supervisor work begins.
+implementation waves. S2 migrates only the accepted
+`ISCPOnboardingRepository` pilot while proving the File transaction model. S3
+migrates every remaining repository one at a time. S4 deletes the temporary
+broad interface. Runtime and Supervisor work remains S5.
+
+S2 does not split `file.go`, `memory.go`, `postgres.go`, or another large Store
+module by responsibility. File size and responsibility splitting is reviewed
+only after Store migration and supervision are complete.
 
 ## Unit Of Migration
 
 One repository is one implementation stage and normally one behavior-change
-commit. Planning batches below do not authorize multi-repository commits.
+commit. A completed stage must:
 
-Each repository stage contains:
-
-1. confirm its accepted S0 method and consumer matrix;
-2. add the repository interface and compile assertions;
-3. change every method to accept context and return backend failure;
-4. update Memory, File, PostgreSQL, and File `Snapshot` when applicable;
+1. confirm its accepted S0 method, command, reconciliation, and consumer rows;
+2. define one typed repository interface and all-backend assertions;
+3. add caller context and an error result to every backend-fallible method;
+4. update Memory, File, PostgreSQL, and File `Snapshot` only when the record
+   shape requires it;
 5. update every caller to pass its request, operation, worker, startup, or
    shutdown context;
 6. add shared contract, File failure, PostgreSQL classification, timeout,
    cancellation, and race tests as applicable;
-7. remove the old signatures for that repository;
-8. run its implementation review before another repository starts.
+7. remove the old signatures for that repository; and
+8. receive implementation review before another repository begins.
 
 No compatibility adapter, optional type assertion, duplicate method, dynamic
-repository map, or string-based dispatch may survive a completed stage.
+repository map, string-based dispatch, or `context.Background()` may survive in
+a completed repository path.
 
-## Stable Operation Boundary
+## S2 Pilot Contract
 
-The S2 pilot introduces a package-private, typed operation
-boundary used immediately by migrated methods:
+The interface introduced in `internal/store` is:
 
-- finite `OperationID` values identify repository and method;
-- operation specs select read, write, transaction, or startup fallback timeout;
-- caller deadlines always win when earlier;
-- the boundary preserves domain errors and classifies backend errors;
-- labels never contain owner IDs, record IDs, queries, paths, or content.
+```go
+type ISCPOnboardingRepository interface {
+    SaveISCPOnboarding(context.Context, app.ISCPOnboarding) (app.ISCPOnboarding, error)
+    GetISCPOnboarding(context.Context, string) (app.ISCPOnboarding, bool, error)
+    ListISCPOnboardings(context.Context, string) ([]app.ISCPOnboarding, error)
+}
+```
 
-During S2-S3 this boundary owns only deadline composition and classification. It
-does not expose health, metrics, repository lookup, or Runtime. S5 reuses the
-same operation IDs and call sites when adding supervision, avoiding a second
-rewrite of every repository method.
+The contract is:
 
-## Planning Order
+- save validates and normalizes the receipt, creates it exactly once by ID, and
+  preserves `errors.Is(err, ErrISCPOnboardingConflict)` for a duplicate;
+- get returns `(zero, false, nil)` only for normal absence;
+- list returns an empty non-nil slice and nil only for a successful empty
+  result, ordered newest `CreatedAt` first with deterministic ID tie-break;
+- cancellation and backend failure are errors, never absence or an empty
+  successful list;
+- returned receipts contain scalar/time fields and therefore expose no mutable
+  backend alias;
+- the repository owns no audit row. `iscppairing.Service` remains the caller
+  that appends `iscp.onboarding.ticket_issued` after a successful receipt save.
 
-The exact repository names are frozen by S0. The preferred risk order is:
+The ID is the idempotency/conflict boundary. A caller reconciles an uncertain
+save with `GetISCPOnboarding(ctx, id)` and must not generate or submit another
+save for that logical receipt until reconciliation completes.
 
-1. one S0-accepted pilot from an already-strong bounded domain such as ISCP
-   onboarding or MCP access, establishing context/error plumbing with limited
-   caller breadth in S2;
-2. Owner, Client, Credential, and Session;
-3. Conversation, Run, Document, Approval, Audit, Evaluation, and artifact
-   metadata;
-4. Schedule, Connector, Delivery Record, Passive Notification, and External
-   Chat;
-5. Browser State and Memory.
+## Finite Operation Boundary
 
-Within a planning group, only one repository is active. Session deletion and
-other cross-record commands receive their own explicit transaction cases; they
-are not treated as simple CRUD because the interface name is small.
+S2 introduces package-private finite operation metadata used immediately by
+the pilot:
+
+| Operation ID | Mode | Timeout class | Reconciliation |
+|---|---|---|---|
+| `iscp_onboarding.save` | write | write | get by ID |
+| `iscp_onboarding.get` | read | read | self |
+| `iscp_onboarding.list` | read | read | none |
+
+An `OperationSpec` binds ID, repository ID, method/mode, and timeout class.
+Registration tests reject duplicate IDs, missing pilot methods, unknown timeout
+classes, and an unreferenced spec. Operation IDs are constants; record IDs,
+owner IDs, queries, paths, DSNs, and content never become operation names or
+labels.
+
+During S2-S3 this boundary owns only deadline composition and typed error
+classification. It exposes no health, metrics, repository lookup, Runtime, or
+Supervisor. S5 wraps these exact call sites rather than changing repository
+signatures again.
+
+## Timeout Configuration
+
+Only timeout classes consumed by the S2 pilot are introduced:
+
+| Typed field | JSON | Environment | Default | Valid range |
+|---|---|---|---|---|
+| `StateConfig.ReadTimeoutSeconds` | `state.read_timeout_seconds` | `SPARKCLAW_STATE_READ_TIMEOUT_SECONDS` | 10 seconds | 1-900 seconds |
+| `StateConfig.WriteTimeoutSeconds` | `state.write_timeout_seconds` | `SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS` | 30 seconds | 1-900 seconds |
+
+Malformed environment values fail `config.Load` and name the exact variable;
+out-of-range file or environment values fail normalization and name the JSON
+field. The values are added to `config.Default`,
+`configs/sparkclaw.default.json`, File/Memory/PostgreSQL backend options, command
+assembly, and configuration tests in the same pilot commit. They are not
+credentials and may appear in the existing public redacted configuration only
+if that projection already exposes the `state` object; S2 does not create a new
+public Store settings endpoint.
+
+The effective deadline is the earlier non-zero caller deadline or configured
+fallback. `context.Canceled` is never relabeled as timeout. The 60-second
+multi-record transaction setting is not added in S2 because the pilot has no
+multi-record transaction; it enters with the first S3 repository that consumes
+it. The accepted 180-second startup setting remains unchanged.
+
+Existing convenience constructors use the accepted defaults so tests and local
+callers remain deterministic. Production assembly passes the validated config
+explicitly through backend options. There is no package-global mutable timeout.
+
+## Typed Error Contract
+
+The pilot introduces `StoreError` and a finite `StoreErrorCode` matching the S0
+contract:
+
+| Code | Pilot use |
+|---|---|
+| `not_found` | reserved for commands requiring a target; onboarding get uses normal absence instead |
+| `conflict` | duplicate onboarding ID, while preserving `ErrISCPOnboardingConflict` |
+| `invalid` | deterministic receipt contract violation |
+| `canceled` | caller context canceled before a known completed effect |
+| `timeout` | effective deadline exceeded before a known completed effect |
+| `unavailable` | backend cannot currently serve the operation |
+| `durability_failed` | File candidate definitely failed before/at submission and Memory was restored |
+| `unknown_outcome` | submitted File/PostgreSQL effect requires reconciliation |
+| `corrupt` | persisted payload cannot be decoded or violates receipt invariants |
+| `internal` | unclassified failure; fail closed and review classification |
+
+`StoreError` contains the code, finite operation ID, and wrapped cause. It
+implements `Unwrap`; helpers support `errors.As`, stable code extraction, and
+safe classification without parsing strings. It never includes record data in
+labels or public copy. Domain sentinels remain in the chain. Backend-specific
+errors such as `pgconn.PgError`, filesystem paths, DSNs, and raw payloads remain
+internal causes.
 
 ## Backend Rules
 
 ### Memory
 
-- preserves current successful ordering, scoping, CAS, and event semantics;
-- returns cloned data and never backend-owned mutable references;
-- checks cancellation before mutation;
-- applies record and required lifecycle changes under one lock.
+- check effective context before lock acquisition and again under the lock
+  immediately before mutation or read;
+- preserve normalization, duplicate, ordering, and scope behavior;
+- mutate the receipt and no caller-owned audit under one lock;
+- return an empty non-nil successful list;
+- never return backend-owned mutable data.
+
+Memory's existing mutex is not replaced for the pilot. Its critical sections
+are in-process and contain no I/O; cancellation that occurs while waiting is
+observed under the lock before any effect.
 
 ### File
 
-- uses the accepted [File Store durability](store-file-durability-design.md)
+- use the accepted [File Store durability](store-file-durability-design.md)
   gate and command state machine;
-- returns success only after durable replacement and directory sync;
-- restores the complete pre-snapshot for confirmed pre-submit failures;
-- returns `unknown_outcome` after an uncertain submitted replacement;
-- passes deterministic failure cases in the default Go test gate.
+- acquire read/write admission with the effective caller context;
+- return success only after replacement and parent-directory sync;
+- restore the complete pre-snapshot plus volatile sidecar for a definite
+  pre-submit failure;
+- return and fence `unknown_outcome` after an uncertain submitted replacement;
+- make get/list perform the defined reconciliation before returning data;
+- reject a missing state path and retain snapshot/encryption schema.
 
 ### PostgreSQL
 
-- uses no `context.Background()` in ordinary repository operations;
-- returns every `Exec`, `Query`, `QueryRow`, begin, scan, rows, commit, and
-  rollback failure;
-- maps `pgx.ErrNoRows` to normal absence only for lookups;
-- writes a command and its required event/audit records in one transaction;
-- reports uncertain commit as `unknown_outcome` and requires reconciliation.
+- pass the effective context to every `Exec`, `Query`, `QueryRow`, scan loop,
+  and reconciliation call; the pilot files contain no `context.Background()`;
+- map SQLSTATE `23505` to conflict while preserving
+  `ErrISCPOnboardingConflict`;
+- map `pgx.ErrNoRows` to normal absence only in get;
+- return query, scan, JSON decode/validation, and `rows.Err()` failures;
+- never turn a failed query into a successful empty list;
+- use one `Exec` for the one-row save; no caller-owned audit is included;
+- classify a context outcome using both the effective context and PostgreSQL
+  cause, without string matching.
+
+PostgreSQL's one-row autocommit can report connection failure after submission.
+When the driver cannot establish whether the insert committed, the result is
+`unknown_outcome` and get-by-ID is required. Deterministic unit tests use a
+backend seam for this classification; the configured integration test proves
+real insert, duplicate, absence, list/rows handling, cancellation, and restart.
+
+## Consumer And Assembly Migration
+
+`iscppairing.Service` stops storing `store.Store`. It accepts a
+consumer-owned minimal composite containing `store.ISCPOnboardingRepository`
+and the existing caller-owned audit append capability. This is temporary only
+for audit because `AuditRepository` is an S3 stage; it does not grant the
+service unrelated Store methods.
+
+Consumer changes are exact:
+
+- `Start` passes its request context to save;
+- `List` becomes `List(ctx, ownerID) ([]app.ISCPOnboarding, error)`;
+- the GET handler passes `r.Context()` and does not serialize a backend failure
+  as an empty `200` list;
+- backend timeout maps to a stable gateway-timeout response, while unavailable,
+  durability, unknown, corrupt, and internal failures map to a stable
+  service-unavailable response without raw Store causes;
+- conflict/invalid remain stable client/domain failures;
+- assembly accepts the minimal composite at `newISCPPairingService`; only the
+  backend factory and temporary broad assembly value retain `store.Store`.
+
+The authority call still occurs before the receipt save because the receipt is
+derived from the signed authority response. The authority contract has no
+revocation or idempotent request recovery. Therefore a definite local save
+failure may strand an undisclosed remote ticket, and an unknown save may leave
+a receipt that can be listed but no disclosed signature. The service fails
+closed and exposes no ticket on persistence error. Solving remote/local
+atomicity requires an authority protocol change and is not hidden inside Store.
+
+The audit append remains after successful receipt persistence and retains its
+legacy failure behavior until `AuditRepository` migrates. The pilot does not
+claim receipt-plus-audit atomicity because S0 explicitly assigns the audit to
+the caller.
 
 ## Temporary Broad Interface
 
-While unmigrated methods remain, the broad interface embeds completed
-repositories and declares only the remaining legacy methods. It does not repeat
-migrated signatures. A completed repository has exactly one implementation
-path.
+During S2 the broad interface embeds `ISCPOnboardingRepository` once and
+declares only the other 138 legacy methods. It does not repeat the three
+migrated signatures. `MemoryStore`, `FileStore`, and `PostgresStore` assert the
+small interface independently as well as the temporary broad interface.
 
-The temporary interface is migration scaffolding, not a supported abstraction.
-New production consumers may not accept it.
+New production consumers may not accept `store.Store`. A source guard proves
+that onboarding's old signatures and `context.Background()` calls are absent,
+and that `iscppairing.Service` retains no broad Store field or constructor
+parameter.
 
-## Per-Repository Review Gate
+## S3 Planning Order
 
-Design confirmation checks:
+After S2 implementation and human acceptance, preferred risk order remains:
 
-- method ownership and minimum consumer dependencies;
-- command transaction/reconciliation rows;
-- intended behavior changes and rollback;
-- focused verification commands.
+1. Owner, Client, Credential, and Session;
+2. Conversation, Run, Document, Approval, Audit, Evaluation, and artifact
+   metadata;
+3. Schedule, Connector, Delivery Record, Passive Notification, and External
+   Chat;
+4. MCP, Browser State, and Memory.
 
-Implementation `GO` requires:
+Only one repository is active at a time. Session deletion, MCP redemption, and
+other cross-record commands receive explicit transaction cases; a small
+interface name does not make them simple CRUD.
 
-- no old signatures or unbounded contexts for the repository;
-- all-backend compile assertions;
-- contract and default File injected-failure tests;
-- affected package tests, Go build, vet, and race tests where concurrent;
-- configured PostgreSQL evidence when SQL behavior changed;
-- diff review confirming no unrelated repository or mechanical split.
+## Pilot Verification And Commit Boundary
 
-## S4: Delete `store.Store`
+S2 implementation uses two independently reviewable commits:
 
-After the final repository implementation receives `GO`:
+1. mechanical all-method File admission, with no pilot signature or error
+   behavior change;
+2. timeout/error operation boundary plus the complete onboarding repository
+   migration across three backends, consumers, assembly, and tests.
 
-1. replace remaining constructor parameters and fields with the minimum
-   repository or a consumer-owned composite;
+The pilot gate requires:
+
+- shared Memory/File contract tests for success, absence, order/scope,
+  duplicate conflict, cancellation, timeout, and non-nil empty list;
+- default File injected-failure, rollback, fence, reconciliation, encryption,
+  restart, and race tests from the File design;
+- PostgreSQL unit classification for query/scan/rows/context and uncertain
+  submission plus real-DSN integration evidence;
+- `iscppairing` service tests proving context propagation, safe failure copy,
+  no ticket disclosure after persistence failure, and caller-owned audit order;
+- Gateway tests proving `r.Context()` propagation and non-200 list failure;
+- config default/environment/range/assembly tests for both new timeouts;
+- source guards for one embedded interface, no old pilot signatures, no pilot
+  `context.Background()`, no ignored pilot persistence/rows error, and no broad
+  Store dependency in the consumer;
+- `go test ./...`, `go build ./...`, `go vet ./...`, focused Store race, default
+  File production-entry tests, WebChat tests/build, and bilingual docs CI;
+- a real PostgreSQL run with the existing
+  `SPARKCLAW_TEST_POSTGRES_DSN` opt-in. CI service topology and skip behavior
+  remain unchanged.
+
+S2 cannot receive implementation `GO` for interface scaffolding, the operation
+registry, or File gate alone. The production caller and all three backends must
+use the new contract.
+
+## S4 Broad Store Removal
+
+After every S3 repository implementation receives `GO`:
+
+1. replace remaining constructor parameters and fields with minimum
+   repositories or consumer-owned composites;
 2. delete the broad interface and global backend assertions;
-3. retain per-repository assertions for Memory, File, and PostgreSQL;
-4. add source guards requiring zero production references to `store.Store`,
-   repository type assertions, and dynamic repository maps;
-5. verify the assembly root still constructs one selected backend without a
-   Runtime service locator.
+3. retain per-repository assertions for all three backends;
+4. require zero production references to `store.Store`, repository type
+   assertions, and dynamic repository maps; and
+5. verify assembly still constructs one selected backend without a service
+   locator.
 
 S4 is reviewed independently. S5 supervision cannot start merely because the
 last repository compiles.
 
 ## Rollback
 
-Repository stages do not change the File snapshot shape. A failed stage is
-reverted as one topic without reverting previously accepted repositories.
-Forward PostgreSQL migrations from S1 remain in place and additive.
+The pilot does not change File snapshot or PostgreSQL schema shape. If rejected,
+the behavior commit can be reverted without removing the independently accepted
+mechanical gate, subject to its own review decision. S1 forward PostgreSQL
+migrations remain in place.
 
 ## Review Record
 
 | Review | Revision/commit | Decision | Evidence and unresolved risks | Reviewer/date |
 |---|---|---|---|---|
-| S2 pilot/S3 design | pending | pending | pending | pending |
+| S2 pilot/S3 design | revision 1 candidate | pending | Exact pilot signatures, timeout/config flow, errors, three-backend behavior, consumer migration, and remote-effect risk await independent review | pending |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

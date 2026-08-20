@@ -2,8 +2,9 @@
 
 > 语言：[English](../../docs/store-contract-reliability-migration-design.md) | 简体中文
 
-> 状态：新的 context-isolated 审查推翻了先前对 `9d86c50` 的接受；S2 实现
-> 正在 `437e4bc` 等待复审。修复候选获得 `GO` 前暂停 S3。
+> 状态：新的 context-isolated 复审关闭 stale-clock、真实 PostgreSQL、File
+> failure coverage 和 Compose override blocker 后，S2 实现已于 2026-08-20
+> 在 `42b62bd` 获得接受。S3 已激活，当前只迁移 `OwnerRepository`。
 
 ## 目的
 
@@ -123,4 +124,4 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S2 设计 | `49b0858` | `GO` | 四轮审查关闭 File fence admission、pending authority-ticket retry、PostgreSQL 最终对账和 isolation-default blocker；可开始实现 | 独立 gatekeeper / 2026-08-20 |
 | S2 实现初次审查 | `9d86c50` | 已被取代的 `GO` | 初次审查接受了实现证据；之后的新审查取代了这一决定 | 独立 gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S2 实现重新审查 | `9d86c50` | `REVISE` | 持久化/对账后仍使用请求开始时间判断 ticket 过期，且新审查缺少已记录的真实 DSN 证据 | Context-isolated gatekeeper / 2026-08-20 |
-| S2 修复候选 | `bc1bfb4`, `6f4c1bf`, `437e4bc` | 待定 | ticket 披露前立即重读 live clock；新增同一调用内过期及 File destination/directory 缺失故障覆盖；把 read/write timeout override 转发给 Compose 并增加展开测试；focused/full/race/default-File/WebChat/docs/Compose 和一次性真实 PostgreSQL 门禁通过 | 等待独立复审 / 2026-08-20 |
+| S2 修复实现 | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | ticket 披露前立即重读 live clock；新增同一调用内过期及 File destination/directory 缺失故障覆盖；把 read/write timeout override 转发给 Compose 并增加展开测试；focused/full/race/default-File/WebChat/docs/Compose 和独立重复的一次性真实 PostgreSQL 门禁通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |

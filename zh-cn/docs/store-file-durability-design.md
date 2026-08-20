@@ -2,8 +2,8 @@
 
 > 语言：[English](../../docs/store-file-durability-design.md) | 简体中文
 
-> 状态：S2 实现正在 `437e4bc` 等待复审。修复候选补上 destination-read 与
-> directory-open/close 失败证据；独立 `GO` 前继续暂停 S3。
+> 状态：修复候选补上 destination-read 与 directory-open/close 失败证据并通过
+> 独立复审后，S2 实现已于 2026-08-20 在 `42b62bd` 获得接受。
 
 ## 问题与 S2 声明
 
@@ -236,4 +236,4 @@ evidence、snapshot JSON 不变、默认后端无回归且无未使用 gate 或 
 | 设计审查 2 | `49b0858` | `GO` | double-check admission、immutable fence ownership 与专用 reconciliation lease 关闭 queued-waiter 穿透/死锁窗口；后续关联审查关闭 pilot/PostgreSQL blocker | Independent gatekeeper / 2026-08-20 |
 | 实现初次审查 | `0e7817b`, `9d86c50` | 已被取代的 `GO` | 全方法 admission、rollback/fence/reconciliation、明文/加密 restart、race、默认 File 和完整回归证据均通过；之后的新审查取代了这一决定 | 独立 gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | 实现重新审查 | `9d86c50` | `REVISE` | 除 pairing-service blocker 外，审查还发现 destination-read 与 directory-open/close File failure branch 未执行 | Context-isolated gatekeeper / 2026-08-20 |
-| 修复候选 | `6f4c1bf` | 待定 | 确定性测试现已覆盖 destination-read isolation，以及明文/加密对账一致的 directory-open/close uncertainty | 等待独立复审 / 2026-08-20 |
+| 修复实现 | `6f4c1bf`, `42b62bd` | `GO` | 确定性测试覆盖 destination-read isolation，以及明文/加密对账一致的 directory-open/close uncertainty；focused/race 与独立重复的真实 PostgreSQL S2 门禁通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |

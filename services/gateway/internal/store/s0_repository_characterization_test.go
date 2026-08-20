@@ -4,40 +4,48 @@ import (
 	"errors"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-func TestS0BackendNeutralRepositorySuccessAndAbsence(t *testing.T) {
-	cases := map[string]func(*testing.T, Store){
-		"OwnerRepository":               characterizeS0OwnerRepository,
-		"ClientRepository":              characterizeS0ClientRepository,
-		"ISCPOnboardingRepository":      characterizeS0ISCPOnboardingRepository,
-		"CredentialRepository":          characterizeS0CredentialRepository,
-		"SessionRepository":             characterizeS0SessionRepository,
-		"ConversationRepository":        characterizeS0ConversationRepository,
-		"RunRepository":                 characterizeS0RunRepository,
-		"ApprovalRepository":            characterizeS0ApprovalRepository,
-		"ScheduleRepository":            characterizeS0ScheduleRepository,
-		"ConnectorRepository":           characterizeS0ConnectorRepository,
-		"ExternalChatRepository":        characterizeS0ExternalChatRepository,
-		"DeliveryRecordRepository":      characterizeS0DeliveryRecordRepository,
-		"MCPRepository":                 characterizeS0MCPRepository,
-		"BrowserStateRepository":        characterizeS0BrowserStateRepository,
-		"MemoryRepository":              characterizeS0MemoryRepository,
-		"AuditRepository":               characterizeS0AuditRepository,
-		"EvaluationRepository":          characterizeS0EvaluationRepository,
-		"ArtifactMetadataRepository":    characterizeS0ArtifactMetadataRepository,
-		"DocumentRepository":            characterizeS0DocumentRepository,
-		"PassiveNotificationRepository": characterizeS0PassiveNotificationRepository,
-	}
+type s0RepositoryCharacterizationCase struct {
+	check      func(*testing.T, Store)
+	dimensions []string
+}
+
+var s0RepositoryCharacterizationCases = map[string]s0RepositoryCharacterizationCase{
+	"OwnerRepository":               {characterizeS0OwnerRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
+	"ClientRepository":              {characterizeS0ClientRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion}},
+	"ISCPOnboardingRepository":      {characterizeS0ISCPOnboardingRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion}},
+	"CredentialRepository":          {characterizeS0CredentialRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate, s0DimensionConflictDeletion}},
+	"SessionRepository":             {characterizeS0SessionRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionConflictDeletion}},
+	"ConversationRepository":        {characterizeS0ConversationRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
+	"RunRepository":                 {characterizeS0RunRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope}},
+	"DocumentRepository":            {characterizeS0DocumentRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
+	"ApprovalRepository":            {characterizeS0ApprovalRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion}},
+	"ScheduleRepository":            {characterizeS0ScheduleRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate}},
+	"ConnectorRepository":           {characterizeS0ConnectorRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate}},
+	"PassiveNotificationRepository": {characterizeS0PassiveNotificationRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
+	"ExternalChatRepository":        {characterizeS0ExternalChatRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope}},
+	"DeliveryRecordRepository":      {characterizeS0DeliveryRecordRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
+	"MCPRepository":                 {characterizeS0MCPRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
+	"BrowserStateRepository":        {characterizeS0BrowserStateRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
+	"MemoryRepository":              {characterizeS0MemoryRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
+	"AuditRepository":               {characterizeS0AuditRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionEventSequence}},
+	"EvaluationRepository":          {characterizeS0EvaluationRepository, []string{s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate}},
+	"ArtifactMetadataRepository":    {characterizeS0ArtifactMetadataRepository, []string{s0DimensionSuccess, s0DimensionAbsence}},
+}
+
+func TestS0BackendNeutralRepositoryCharacterization(t *testing.T) {
+	cases := s0RepositoryCharacterizationCases
 	if len(cases) != len(s0RepositoryMethods) {
 		t.Fatalf("backend-neutral repository cases = %d, want %d", len(cases), len(s0RepositoryMethods))
 	}
 	for repository := range s0RepositoryMethods {
-		if cases[repository] == nil {
+		if cases[repository].check == nil {
 			t.Errorf("backend-neutral repository case is missing for %s", repository)
 		}
 	}
@@ -53,13 +61,22 @@ func TestS0BackendNeutralRepositorySuccessAndAbsence(t *testing.T) {
 	sort.Strings(repositories)
 	for _, repository := range repositories {
 		t.Run(repository, func(t *testing.T) {
-			for _, backend := range newS0RepositoryBackends(t) {
-				t.Run(backend.name, func(t *testing.T) {
-					cases[repository](t, backend.store)
+			characterization := cases[repository]
+			for _, dimension := range characterization.dimensions {
+				t.Run(s0DimensionSubtestName(dimension), func(t *testing.T) {
+					for _, backend := range newS0RepositoryBackends(t) {
+						t.Run(backend.name, func(t *testing.T) {
+							characterization.check(t, backend.store)
+						})
+					}
 				})
 			}
 		})
 	}
+}
+
+func s0DimensionSubtestName(dimension string) string {
+	return strings.NewReplacer("/", "_", " ", "_").Replace(dimension)
 }
 
 func newS0RepositoryBackends(t *testing.T) []s0CharacterizationBackend {
@@ -210,12 +227,17 @@ func characterizeS0ApprovalRepository(t *testing.T, st Store) {
 	if _, ok := st.GetApproval("missing"); ok {
 		t.Fatal("missing approval was found")
 	}
-	approval := app.Approval{ID: "approval-s0", Source: app.ApprovalSourceHappyTeamPlan, ExternalID: "external-s0", Status: "pending", Summary: "first"}
+	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
+	st.SaveApproval(app.Approval{ID: "approval-other", Status: "rejected", Summary: "other", CreatedAt: base})
+	approval := app.Approval{ID: "approval-s0", Source: app.ApprovalSourceHappyTeamPlan, ExternalID: "external-s0", Status: "pending", Summary: "first", CreatedAt: base.Add(time.Minute)}
 	st.SaveApproval(approval)
 	approval.Summary = "updated"
 	st.SaveApproval(approval)
 	if got, ok := st.FindApprovalByExternalRef(approval.Source, approval.ExternalID); !ok || got.Summary != "updated" {
 		t.Fatalf("approval overwrite/lookup = %#v ok=%v", got, ok)
+	}
+	if pending := st.ListApprovals("pending"); len(pending) != 1 || pending[0].ID != approval.ID {
+		t.Fatalf("approval status filter = %#v", pending)
 	}
 	if _, err := st.ResolveApproval(approval.ID, "approved", "done"); err != nil {
 		t.Fatal(err)
@@ -256,8 +278,13 @@ func characterizeS0ConnectorRepository(t *testing.T, st Store) {
 		t.Fatalf("connector setting stale CAS = %v", err)
 	}
 	binding := st.SaveNotificationBinding(app.NotificationBinding{ID: "binding-s0", OwnerID: "owner-s0", Channel: "telegram", Status: "active"})
-	if got, ok := st.GetNotificationBinding(binding.ID); !ok || got.Channel != "telegram" {
+	binding.Status = "revoked"
+	st.SaveNotificationBinding(binding)
+	if got, ok := st.GetNotificationBinding(binding.ID); !ok || got.Channel != "telegram" || got.Status != "revoked" {
 		t.Fatalf("notification binding = %#v ok=%v", got, ok)
+	}
+	if bindings := st.ListNotificationBindings("telegram", ""); len(bindings) != 1 {
+		t.Fatalf("notification binding overwrite created duplicates: %#v", bindings)
 	}
 }
 
@@ -280,6 +307,10 @@ func characterizeS0ExternalChatRepository(t *testing.T, st Store) {
 	chat := st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-s0", BindingID: "binding-s0", Channel: "telegram", ExternalChatID: "chat", Status: "active"})
 	if got, ok := st.GetExternalChatSession(chat.ID); !ok || got.Channel != "telegram" {
 		t.Fatalf("external chat session = %#v ok=%v", got, ok)
+	}
+	st.SaveExternalChatSession(app.ExternalChatSession{ID: "chat-other", BindingID: "binding-other", Channel: "weixin", ExternalChatID: "other", Status: "revoked"})
+	if active := st.ListExternalChatSessions("telegram", "active"); len(active) != 1 || active[0].ID != chat.ID {
+		t.Fatalf("external chat channel/status scope = %#v", active)
 	}
 }
 
@@ -336,6 +367,16 @@ func characterizeS0AuditRepository(t *testing.T, st Store) {
 	items := st.ListAudit("session-s0")
 	if len(items) != 2 || items[0].ID != "audit-new" || len(st.ListAudit("other-session")) != 0 {
 		t.Fatalf("audit order/scope = %#v", items)
+	}
+	st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-old", DisplayName: "old"})
+	st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-new", DisplayName: "new"})
+	events := st.EventsAfter("", "")
+	if len(events) != 2 || events[0].Type != "owner_profile.updated" || events[1].Type != "owner_profile.updated" {
+		t.Fatalf("event order = %#v", events)
+	}
+	after := st.EventsAfter("", events[0].ID)
+	if len(after) != 1 || after[0].ID != events[1].ID {
+		t.Fatalf("event after-cursor sequence = %#v", after)
 	}
 }
 
@@ -400,22 +441,23 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 	})
 }
 
+var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
+	"ClientRepository":              s0ClientAliasSafe,
+	"ConversationRepository":        s0ConversationAliasSafe,
+	"RunRepository":                 s0RunAliasSafe,
+	"ApprovalRepository":            s0ApprovalAliasSafe,
+	"ScheduleRepository":            s0ScheduleAliasSafe,
+	"ConnectorRepository":           s0ConnectorAliasSafe,
+	"PassiveNotificationRepository": s0PassiveAliasSafe,
+	"DeliveryRecordRepository":      s0DeliveryAliasSafe,
+	"BrowserStateRepository":        s0BrowserAliasSafe,
+	"MemoryRepository":              s0MemoryAliasSafe,
+	"AuditRepository":               s0AuditAliasSafe,
+	"EvaluationRepository":          s0EvaluationAliasSafe,
+}
+
 func TestS0DefectEvidenceMutableAliases(t *testing.T) {
-	checks := map[string]func(*testing.T, Store) bool{
-		"ClientRepository":              s0ClientAliasSafe,
-		"ConversationRepository":        s0ConversationAliasSafe,
-		"RunRepository":                 s0RunAliasSafe,
-		"ApprovalRepository":            s0ApprovalAliasSafe,
-		"ScheduleRepository":            s0ScheduleAliasSafe,
-		"ConnectorRepository":           s0ConnectorAliasSafe,
-		"PassiveNotificationRepository": s0PassiveAliasSafe,
-		"DeliveryRecordRepository":      s0DeliveryAliasSafe,
-		"BrowserStateRepository":        s0BrowserAliasSafe,
-		"MemoryRepository":              s0MemoryAliasSafe,
-		"AuditRepository":               s0AuditAliasSafe,
-		"EvaluationRepository":          s0EvaluationAliasSafe,
-	}
-	for repository, check := range checks {
+	for repository, check := range s0MutableAliasChecks {
 		t.Run(repository, func(t *testing.T) {
 			for _, backend := range newS0RepositoryBackends(t) {
 				t.Run(backend.name, func(t *testing.T) {

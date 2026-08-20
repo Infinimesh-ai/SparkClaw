@@ -10,9 +10,9 @@
 S0 已具备完整、可执行的 141 方法/20 repository 目录、生产消费者矩阵、
 命令/reconciliation 证据、可执行 PostgreSQL 源码清单，以及受守卫的完整
 20 repository × 10 维 characterization 矩阵。消费者守卫覆盖 58 个直接声明
-位置和 10 个局部接口。候选建议是**进入人工 S0 实现审查的 GO**，但实际审查
-记录有意保持 pending。在用户记录 `GO`、`REVISE` 或 `STOP` 之前，工作必须
-停在本候选，不进入下一阶段。
+位置、10 个具名局部接口和两个匿名局部接口。候选建议是**进入人工 S0 实现审查
+的 GO**，但实际审查记录有意保持 pending。在用户记录 `GO`、`REVISE` 或
+`STOP` 之前，工作必须停在本候选，不进入下一阶段。
 
 ## 进入基线
 
@@ -36,9 +36,13 @@ S0 已具备完整、可执行的 141 方法/20 repository 目录、生产消费
 
 `s0_contract_characterization_test.go` 增加代表性后端无关 harness 和静态契约
 检查。`s0_repository_characterization_test.go` 在 Memory/File 上为全部 20 个
-repository 运行成功和正常缺失用例，记录当前可变别名缺陷，并补齐两个此前缺失
-的 File 重启用例。`s0_repository_evidence_test.go` 拥有完整矩阵及测试名称/文档
-守卫。`s0_postgres_manifest_test.go` 比较当前两个 schema 权威，但不修改任一来源。
+repository 的每个适用 success、normal absence、order/scope、duplicate 和
+conflict/delete 契约运行维度具名用例，记录当前可变别名缺陷，并补齐两个此前
+缺失的 File 重启用例。`s0_repository_lifecycle_test.go` 对拥有 lifecycle 的 18 个
+repository 显式读取并断言 audit/event 证据；ISCP onboarding 与 MCP 保留具体的
+caller-owned lifecycle `N/A` 理由。`s0_repository_evidence_test.go` 拥有完整矩阵
+及精确子测试路径/文档守卫。`s0_postgres_manifest_test.go` 比较当前两个 schema
+权威，但不修改任一来源。
 
 共享 harness 具有代表性，但不替代已接受的逐 repository 门禁。S0 清单包含
 完整的 20 repository × 10 维适用性/证据矩阵，并由可执行完整性和测试名称
@@ -48,13 +52,13 @@ repository 运行成功和正常缺失用例，记录当前可变别名缺陷，
 |---|---|
 | 完整归属 | Reflection 证明恰好有 141 个 `Store` 方法，且每个方法在 20 个 repository 中只有一个 owner |
 | 后端完整性 | 现有编译断言覆盖 Memory、File、PostgreSQL；实现文件映射位于 S0 清单 |
-| 生产消费者 | AST 守卫冻结 58 个直接 constructor/field/helper/worker 声明位置和 10 个展开后的局部 Store-compatible 接口 |
-| 逐 repository 成功与正常缺失 | 具名 Memory/File 子测试覆盖全部 20 个已接受 repository；受守卫矩阵链接更丰富的适用证据 |
+| 生产消费者 | AST 守卫冻结 58 个直接 constructor/field/helper/worker 声明位置、10 个展开后的具名局部 Store-compatible 接口，以及两个 helper 局部匿名接口 |
+| 逐 repository 适用性 | 维度具名 Memory/File 子测试及专项测试覆盖全部 20 个已接受 repository 的所有适用单元格；完整精确子测试路径及两份 20 × 10 文档镜像均与可执行权威核对 |
 | 成功、顺序、过滤、owner scope | Repository 专项证据覆盖 document、owner、client、message、schedule、connector、passive、external-chat、delivery、run、audit、artifact 等适用查询契约 |
 | Clone / alias 行为 | Owner preference 与 MCP 嵌套值已隔离；缺陷证据记录其余 12 个 repository 当前在 Memory 和运行中的 File decorator 上存在可变 alias 逃逸 |
 | 幂等 | 相同 MCP binding/key/fingerprint 复用同一 operation；fingerprint 变化时 conflict |
 | CAS | MCP operation update 增加 version，并拒绝 stale expected version |
-| Event | Message event 按 session 隔离、有序，并暴露正确 head |
+| Event / audit / sequence | 显式 Memory/File lifecycle 子测试为 18 个 repository 读取并断言所需 audit/event 类型；Conversation event read 还证明 session scope、顺序与 head sequence；ISCP onboarding 和 MCP 记录 caller-owned lifecycle 边界 |
 | 重启 | 显式断言证明 File session、message、message event/head、owner map、MCP operation、嵌套 invocation argument、result bytes、reminder/delivery 和 notification binding 在 reload 后保留；专项测试覆盖其余 repository、加密和旧格式规范化 |
 | 并发 | Memory/File 上 16 个同时发生的相同 operation create 只产生一次创建和一个稳定 ID |
 | Snapshot 兼容性 | Reflection 冻结全部 38 个字段名和 JSON tag，包括旧 Weixin 兼容字段 |
@@ -118,8 +122,8 @@ onboarding pilot。PostgreSQL 命令保持与当前完全相同的 DSN gate。
 ```bash
 npm run setup:document-tools
 cd services/gateway
-go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0RepositoryCharacterizationMatrixCompleteness|TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
-go test -race ./internal/store -run '^(TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
+go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0RepositoryCharacterizationMatrixCompleteness|TestS0BackendNeutralRepositoryCharacterization|TestS0BackendNeutralRepositoryLifecycleEvidence|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
+go test -race ./internal/store -run '^(TestS0BackendNeutralRepositoryCharacterization|TestS0BackendNeutralRepositoryLifecycleEvidence|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
 SPARKCLAW_TEST_POSTGRES_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw_test?sslmode=disable' go test ./internal/store -run '^(TestPostgresStorePersistsOnlyISCPOnboardingReceipt|TestPostgresISCPOnboardingRepository.*)$' -count=1 -v
 go test ./...
 go vet ./...
@@ -137,7 +141,7 @@ git diff --check
 git status --short
 cd services/gateway
 go test ./internal/store -run '^TestS0' -count=1 -v
-go test -race ./internal/store -run '^TestS0(BackendNeutralContractCharacterization|BackendNeutralRepositorySuccessAndAbsence)$' -count=1
+go test -race ./internal/store -run '^TestS0(BackendNeutralContractCharacterization|BackendNeutralRepositoryCharacterization|BackendNeutralRepositoryLifecycleEvidence)$' -count=1
 go test ./...
 go vet ./...
 ```

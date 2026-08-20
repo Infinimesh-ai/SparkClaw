@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -199,17 +200,25 @@ func TestS0ProductionStoreConsumerInventory(t *testing.T) {
 			"ClaimDueReminders", "GetExternalChatSession", "GetNotificationBinding", "GetReminder", "GetSession", "ListExternalChatSessions", "ListReminders", "SaveReminder", "UpdatePendingReminder",
 		},
 	}
+	wantAnonymousInterfaces := map[string][]string{
+		"internal/mcpaccess/audit.go:func auditOperationStore:anonymous interface 1": {"AddAudit", "GetMCPBinding"},
+		"internal/mcpaccess/audit.go:func operationSessionID:anonymous interface 1":  {"GetMCPBinding"},
+	}
 
-	gotDirectConsumers, gotLocalInterfaces := collectS0ProductionStoreConsumers(t)
+	gotDirectConsumers, gotLocalInterfaces, gotAnonymousInterfaces := collectS0ProductionStoreConsumers(t)
 	if !reflect.DeepEqual(gotDirectConsumers, wantDirectConsumers) {
 		t.Fatalf("direct production store.Store consumers changed\n got: %#v\nwant: %#v", gotDirectConsumers, wantDirectConsumers)
 	}
 	if !reflect.DeepEqual(gotLocalInterfaces, wantLocalInterfaces) {
 		t.Fatalf("local Store-compatible consumer interfaces changed\n got: %#v\nwant: %#v", gotLocalInterfaces, wantLocalInterfaces)
 	}
+	if !reflect.DeepEqual(gotAnonymousInterfaces, wantAnonymousInterfaces) {
+		t.Fatalf("anonymous Store-compatible consumer interfaces changed\n got: %#v\nwant: %#v", gotAnonymousInterfaces, wantAnonymousInterfaces)
+	}
+	assertS0ProductionConsumerDocumentation(t)
 }
 
-func collectS0ProductionStoreConsumers(t *testing.T) (map[string]int, map[string][]string) {
+func collectS0ProductionStoreConsumers(t *testing.T) (map[string]int, map[string][]string, map[string][]string) {
 	t.Helper()
 	gatewayRoot := filepath.Clean(filepath.Join("..", ".."))
 	storeMethods := map[string]struct{}{}
@@ -219,6 +228,7 @@ func collectS0ProductionStoreConsumers(t *testing.T) (map[string]int, map[string
 	}
 	direct := map[string]int{}
 	localInterfaces := map[string][]string{}
+	anonymousInterfaces := map[string][]string{}
 	err := filepath.WalkDir(gatewayRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -272,6 +282,21 @@ func collectS0ProductionStoreConsumers(t *testing.T) (map[string]int, map[string
 		for _, declaration := range parsed.Decls {
 			switch typed := declaration.(type) {
 			case *ast.FuncDecl:
+				anonymousIndex := 0
+				ast.Inspect(typed, func(node ast.Node) bool {
+					interfaceType, ok := node.(*ast.InterfaceType)
+					if !ok {
+						return true
+					}
+					methods := s0AnonymousInterfaceStoreMethods(interfaceType, interfaces, storeMethods)
+					if len(methods) == 0 {
+						return true
+					}
+					anonymousIndex++
+					key := filepath.ToSlash(relative) + ":func " + typed.Name.Name + ":anonymous interface " + strconv.Itoa(anonymousIndex)
+					anonymousInterfaces[key] = methods
+					return true
+				})
 				if count := countS0StoreSelectors(typed); count != 0 {
 					direct[filepath.ToSlash(relative)+":func "+typed.Name.Name] = count
 				}
@@ -292,7 +317,7 @@ func collectS0ProductionStoreConsumers(t *testing.T) (map[string]int, map[string
 	if err != nil {
 		t.Fatal(err)
 	}
-	return direct, localInterfaces
+	return direct, localInterfaces, anonymousInterfaces
 }
 
 func countS0StoreIdentifiers(node ast.Node) int {
@@ -336,6 +361,26 @@ func s0InterfaceStoreMethods(name string, interfaces map[string]*ast.InterfaceTy
 		if len(field.Names) == 0 {
 			if embedded, ok := field.Type.(*ast.Ident); ok && interfaces[embedded.Name] != nil {
 				for _, method := range s0InterfaceStoreMethods(embedded.Name, interfaces, storeMethods, visiting) {
+					methods[method] = struct{}{}
+				}
+			}
+			continue
+		}
+		for _, method := range field.Names {
+			if _, exists := storeMethods[method.Name]; exists {
+				methods[method.Name] = struct{}{}
+			}
+		}
+	}
+	return sortedKeys(methods)
+}
+
+func s0AnonymousInterfaceStoreMethods(interfaceType *ast.InterfaceType, interfaces map[string]*ast.InterfaceType, storeMethods map[string]struct{}) []string {
+	methods := map[string]struct{}{}
+	for _, field := range interfaceType.Methods.List {
+		if len(field.Names) == 0 {
+			if embedded, ok := field.Type.(*ast.Ident); ok && interfaces[embedded.Name] != nil {
+				for _, method := range s0InterfaceStoreMethods(embedded.Name, interfaces, storeMethods, map[string]bool{}) {
 					methods[method] = struct{}{}
 				}
 			}
@@ -626,21 +671,38 @@ func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	}
 }
 
+type s0PostgresRowsErrCase struct {
+	repository string
+	file       string
+	function   string
+	loops      int
+}
+
+var s0PostgresRowsErrCases = []s0PostgresRowsErrCase{
+	{"ISCPOnboardingRepository", "iscp_onboarding_postgres.go", "ListISCPOnboardings", 1},
+	{"MCPRepository", "mcp_access_postgres.go", "ListMCPAccessTickets", 1},
+	{"MCPRepository", "mcp_access_postgres.go", "ListMCPBindings", 1},
+	{"MCPRepository", "mcp_access_postgres.go", "ListMCPOperations", 1},
+	{"PassiveNotificationRepository", "postgres.go", "PrunePassiveNotifications", 2},
+	{"DeliveryRecordRepository", "postgres.go", "ListMessageReceives", 1},
+	{"DeliveryRecordRepository", "postgres.go", "ListMessageDeliveries", 1},
+	{"MemoryRepository", "postgres.go", "PruneMemories", 1},
+	{"shared", "postgres.go", "collectRows", 1},
+}
+
 func TestS0DefectEvidencePostgresRowsErrIsNotChecked(t *testing.T) {
-	functions := map[string]string{
-		"iscp_onboarding_postgres.go": "ListISCPOnboardings",
-		"mcp_access_postgres.go":      "ListMCPAccessTickets,ListMCPBindings,ListMCPOperations",
-		"postgres.go":                 "PrunePassiveNotifications,ListMessageReceives,ListMessageDeliveries,PruneMemories,collectRows",
-	}
 	loopCount := 0
-	for file, names := range functions {
-		for _, name := range strings.Split(names, ",") {
-			body := sourceFunctionBody(t, file, name)
+	for _, testCase := range s0PostgresRowsErrCases {
+		t.Run(testCase.repository+"/"+testCase.function, func(t *testing.T) {
+			body := sourceFunctionBody(t, testCase.file, testCase.function)
 			if !strings.Contains(body, ".Next()") || strings.Contains(body, ".Err()") {
-				t.Errorf("%s.%s no longer matches the recorded rows.Err defect evidence; replace this evidence in the owning migration stage", file, name)
+				t.Errorf("%s.%s no longer matches the recorded rows.Err defect evidence; replace this evidence in the owning migration stage", testCase.file, testCase.function)
+			}
+			if got := strings.Count(body, ".Next()"); got != testCase.loops {
+				t.Errorf("%s.%s row loops = %d, want %d", testCase.file, testCase.function, got, testCase.loops)
 			}
 			loopCount += strings.Count(body, ".Next()")
-		}
+		})
 	}
 	if loopCount != 10 {
 		t.Fatalf("unchecked PostgreSQL row loop count = %d, want S0 defect baseline 10", loopCount)

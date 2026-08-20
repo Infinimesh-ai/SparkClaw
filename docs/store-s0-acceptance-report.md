@@ -9,13 +9,13 @@
 ## Conclusion
 
 S0 has a complete executable 141-method/20-repository catalog, a production
-consumer matrix guarded across 58 direct declaration sites and 10 local
-interfaces, command/reconciliation evidence, an executable PostgreSQL source
-manifest, and a complete guarded 20-repository by 10-dimension
-characterization matrix. The candidate recommendation is **GO for human S0
-implementation review**, with the actual review record deliberately left
-pending. Work must stop at this candidate until the user records `GO`,
-`REVISE`, or `STOP`.
+consumer matrix guarded across 58 direct declaration sites, 10 named local
+interfaces, and two anonymous local interfaces, command/reconciliation
+evidence, an executable PostgreSQL source manifest, and a complete guarded
+20-repository by 10-dimension characterization matrix. The candidate
+recommendation is **GO for human S0 implementation review**, with the actual
+review record deliberately left pending. Work must stop at this candidate
+until the user records `GO`, `REVISE`, or `STOP`.
 
 ## Entry Baseline
 
@@ -40,10 +40,14 @@ risk, not converted into a success claim.
 
 `s0_contract_characterization_test.go` adds the representative backend-neutral
 harness and static contract checks. `s0_repository_characterization_test.go`
-runs success and normal-absence cases for all 20 repositories on Memory and
-File, records current mutable-alias defects, and fills the two previously
-missing File restart cases. `s0_repository_evidence_test.go` owns the complete
-matrix and its test-name/document guard. `s0_postgres_manifest_test.go`
+runs dimension-named cases for every applicable success, normal-absence,
+order/scope, duplicate, and conflict/delete contract across all 20 repositories
+on Memory and File, records current mutable-alias defects, and fills the two
+previously missing File restart cases. `s0_repository_lifecycle_test.go`
+explicitly reads and asserts lifecycle audit/event evidence for the 18
+repositories that own it; ISCP onboarding and MCP retain concrete caller-owned
+lifecycle `N/A` rationales. `s0_repository_evidence_test.go` owns the complete
+matrix and its exact-subtest-path/document guard. `s0_postgres_manifest_test.go`
 compares the two current schema authorities without changing either.
 
 The shared harness is representative, but it does not replace the accepted
@@ -56,13 +60,13 @@ evidence where the shared harness does not.
 |---|---|
 | Complete ownership | Reflection proves exactly 141 `Store` methods and exactly one owner among 20 repositories |
 | Backend completeness | Existing compile assertions cover Memory, File, PostgreSQL; implementation-file map is in the S0 inventory |
-| Production consumers | An AST guard freezes 58 direct constructor/field/helper/worker declaration sites and 10 flattened local Store-compatible interfaces |
-| Per-repository success and normal absence | A named Memory/File subtest exercises all 20 accepted repositories; the guarded matrix links richer applicable evidence |
+| Production consumers | An AST guard freezes 58 direct constructor/field/helper/worker declaration sites, 10 flattened named local Store-compatible interfaces, and two anonymous helper-local interfaces |
+| Per-repository applicability | Dimension-named Memory/File subtests plus focused tests cover all applicable cells for all 20 accepted repositories; exact full subtest paths and both documented 20 by 10 mirrors are checked against the executable authority |
 | Success, ordering, filtering, owner scope | Repository-specific evidence covers document, owner, client, message, schedule, connector, passive, external-chat, delivery, run, audit, artifact, and other applicable query contracts |
 | Cloning / alias behavior | Owner preferences and MCP nested values are isolated; defect evidence records current mutable alias escape for 12 other repositories on Memory and the live File decorator |
 | Idempotency | Same MCP binding/key/fingerprint reuses one operation; changed fingerprint conflicts |
 | CAS | MCP operation update increments version and rejects a stale expected version |
-| Events | Message events are session-scoped, ordered, and expose the correct head |
+| Events / audit / sequence | Explicit Memory/File lifecycle subtests read and assert the required audit/event type for 18 repositories; Conversation event reads additionally prove session scope, order, and head sequence; ISCP onboarding and MCP document caller-owned lifecycle boundaries |
 | Restart | Explicit assertions prove File sessions, messages, message events/head, owner maps, MCP operations, nested invocation arguments, result bytes, reminders/deliveries, and notification bindings survive reload; focused tests cover every remaining repository, encryption, and legacy normalization |
 | Concurrency | Sixteen simultaneous identical operation creates produce exactly one creation and one stable ID on Memory and File |
 | Snapshot compatibility | Reflection freezes all 38 field names and JSON tags, including legacy Weixin compatibility fields |
@@ -132,8 +136,8 @@ gated exactly as today.
 ```bash
 npm run setup:document-tools
 cd services/gateway
-go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0RepositoryCharacterizationMatrixCompleteness|TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
-go test -race ./internal/store -run '^(TestS0BackendNeutralRepositorySuccessAndAbsence|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
+go test ./internal/store -run '^(TestS0StoreMethodCatalogCharacterization|TestS0RepositoryCharacterizationMatrixCompleteness|TestS0BackendNeutralRepositoryCharacterization|TestS0BackendNeutralRepositoryLifecycleEvidence|TestS0SnapshotShapeCharacterization|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestFileStoreUnknownOutcome.*|TestISCPOnboardingRepository.*)$' -count=1 -v
+go test -race ./internal/store -run '^(TestS0BackendNeutralRepositoryCharacterization|TestS0BackendNeutralRepositoryLifecycleEvidence|TestS0BackendNeutralContractCharacterization|TestFileStoreTransactionGate.*|TestFileStoreRollback.*|TestISCPOnboardingRepository.*)$' -count=1
 SPARKCLAW_TEST_POSTGRES_DSN='postgres://sparkclaw:sparkclaw@127.0.0.1:15432/sparkclaw_test?sslmode=disable' go test ./internal/store -run '^(TestPostgresStorePersistsOnlyISCPOnboardingReceipt|TestPostgresISCPOnboardingRepository.*)$' -count=1 -v
 go test ./...
 go vet ./...
@@ -152,7 +156,7 @@ git diff --check
 git status --short
 cd services/gateway
 go test ./internal/store -run '^TestS0' -count=1 -v
-go test -race ./internal/store -run '^TestS0(BackendNeutralContractCharacterization|BackendNeutralRepositorySuccessAndAbsence)$' -count=1
+go test -race ./internal/store -run '^TestS0(BackendNeutralContractCharacterization|BackendNeutralRepositoryCharacterization|BackendNeutralRepositoryLifecycleEvidence)$' -count=1
 go test ./...
 go vet ./...
 ```

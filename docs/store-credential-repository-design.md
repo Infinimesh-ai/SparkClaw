@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store-credential-repository-design.md)
 
-> Status: S3 design revision 2, 2026-08-20. Review 1 returned `REVISE`; no
+> Status: S3 design revision 3, 2026-08-20. Reviews 1-2 returned `REVISE`; no
 > CredentialRepository code is authorized before an independent
 > context-isolated design GO.
 
@@ -32,7 +32,7 @@ cross-repository transaction; ConnectorRepository owns that later command.
 
 ```go
 type CredentialRepository interface {
-    SaveCredentialSecret(context.Context, app.CredentialSecret) (app.CredentialSecret, error)
+    SaveCredentialSecret(context.Context, CredentialSaveCommand) (app.CredentialSecret, error)
     GetCredentialSecret(context.Context, string) (app.CredentialSecret, bool, error)
     DeleteCredentialSecret(context.Context, CredentialDeleteCondition) (app.CredentialSecret, error)
 }
@@ -51,15 +51,21 @@ repository lookup, or optional capability is introduced.
 - Standalone refs and candidate `Ref`/`Kind` fields are trimmed. `Value` is an
   opaque byte-preserving string: it is never trimmed, logged, included in an
   error, audit field, event, or public JSON value.
-- New saves require non-empty ref, kind, and value. Store never generates a
-  credential ref and ignores caller `CreatedAt`/`UpdatedAt`.
+- Save accepts only a `CredentialSaveCommand` built by the Store package. A
+  create command requires absence; a replace command carries an opaque expected
+  condition and requires an exact current version. Both require non-empty ref,
+  kind, and value. Store never generates a credential ref and ignores caller
+  `CreatedAt`/`UpdatedAt`.
 - A new ref receives one UTC PostgreSQL-microsecond command timestamp for both
-  `CreatedAt` and `UpdatedAt`. An overwrite preserves the existing
+  `CreatedAt` and `UpdatedAt`. A conditional replace preserves the existing
   `CreatedAt` exactly and assigns a strictly newer `UpdatedAt` from a
   per-ref non-rollback high-water mark.
-- Save is an explicit upsert. It atomically persists the complete secret and
-  exactly one `credential_secret.saved` audit containing only ref and kind.
-  It emits no general event.
+- Save is explicit create-or-conditional-replace, not an unlocked upsert.
+  Existing-row create or a stale replace condition is `conflict` without
+  mutation. A successful replace preserves the current `CreatedAt`. Success
+  atomically persists the complete secret and exactly one
+  `credential_secret.saved` audit containing only ref and kind. It emits no
+  general event.
 - Get is side-effect free. Empty or missing refs are ordinary
   `(zero, false, nil)` absence. Backend, scan, decode, validation, or context
   failures are never absence.
@@ -87,20 +93,28 @@ not-found, overwrite, or delete result.
 | Method or condition | Exact repository outcome |
 |---|---|
 | Get with empty/missing ref | `(zero, false, nil)` |
-| Save with empty normalized ref/kind or empty value | `invalid` |
+| Save with an invalid command or empty normalized ref/kind/value | `invalid` |
+| Create with an existing ref | `conflict` and no mutation |
+| Replace whose current row is absent or differs from the expected version | `conflict` and no mutation |
 | Delete with an invalid expected condition | `invalid` |
 | Delete with a valid condition whose ref is missing | `not_found` |
 | Delete whose current row differs from the expected version | `conflict` and no mutation |
-| Save new ref or overwrite valid existing ref | persisted normalized candidate |
+| Create absent ref or conditionally replace an exact current row | persisted normalized candidate |
 | Delete an exactly matching current row | exact deleted candidate |
 | Backend/scan/decode failure | typed non-absence error |
 | Persisted invariant violation outside compatibility rules | `corrupt` |
 | Unsafe submission/commit after candidate formation | `unknown_outcome` with the exact save/deleted candidate |
 
-`NewCredentialDeleteCondition` is the only condition constructor. Its digest
-uses length-delimited normalized Ref/Kind, byte-exact Value, and UTC UnixNano
-CreatedAt/UpdatedAt values. Conditions stay in process memory and are never
-serialized, logged, persisted, audited, traced, or projected.
+`NewCredentialCreate`, `NewCredentialReplace`, and
+`NewCredentialDeleteCondition` are the only command/condition constructors.
+Create retains the proposed secret. Replace retains the proposed ref/kind/value
+plus an opaque condition derived from the prior row; no constructor permits a
+caller-supplied timestamp or digest. The condition digest uses length-delimited
+normalized Ref/Kind, byte-exact Value, and UTC civil components for both times:
+signed year, month, day, hour, minute, second, and nanosecond. It does not use
+`UnixNano`, so every Go `time.Time` accepted by File or PostgreSQL has a
+non-overflowing representation. Conditions stay in process memory and are
+never serialized, logged, persisted, audited, traced, or projected.
 
 Definite save/delete failures return no candidate or secret value. An unsafe
 failure before Delete has read, validated, and matched the current row also
@@ -157,11 +171,12 @@ representation before loading Memory.
 PostgreSQL save/delete acquire a context-aware capacity-one process admission
 for high-water ownership, then an owned connection and explicit transaction.
 They take a ref-derived advisory transaction lock, read the current row, form a
-candidate, and write secret plus audit in that transaction. Resolution reads
-use explicit `READ COMMITTED`, take the same advisory lock in one statement,
-and query in a later statement. Server rejections are definite `internal`
-except applicable uniqueness/business codes; safe-to-retry transport failures
-are definite. Unsafe statement, context, or commit outcomes after connection
+candidate, validate create absence or the replace/delete condition under that
+lock, and write secret plus audit in that transaction. Resolution reads use
+explicit `READ COMMITTED`, take the same advisory lock in one statement, and
+query in a later statement. Server rejections are definite `internal` except
+applicable uniqueness/business codes; safe-to-retry transport failures are
+definite. Unsafe statement, context, or commit outcomes after connection
 acquisition terminate without release and return `unknown_outcome`. Rollback
 failure also terminates without release while retaining every cause.
 
@@ -191,33 +206,55 @@ type CredentialVault interface {
 The operation ID is trimmed, required, at most 256 bytes, retained only in
 process memory, and never logged, persisted, audited, or projected. Binding
 flows derive it from the already-created binding ID plus the exact action
-(`seal`, `start-compensation`, or `revoke`). Two calls are the same logical
-request only when operation ID, kind, and the constant-time plaintext
-fingerprint all match. Reusing an operation ID with different input is a stable
-conflict; equal kind/plaintext under different operation IDs is independent and
-can never share a ref or clean up the other operation's candidate.
+(`seal`, `start-compensation`, or `revoke`). Vault derives a separate ref key as
+HMAC-SHA-256(master key, `sparkclaw-credential-ref-key-v1`), then
+derives each new ref as `cred_` plus the unpadded base64url encoding of the full
+HMAC-SHA-256 over domain `sparkclaw-credential-ref-v1` and the length-delimited
+operation ID. The kind is not part of this derivation, so operation-ID reuse
+with another kind addresses the same row and is detected rather than creating
+another ref.
 
-Vault has one capacity-one in-memory command coordinator covering unresolved
-Seal, conditional Delete, orphan cleanup, and legacy Weixin rewrap. A pending
-save retains operation ID, kind, a plaintext fingerprint, and the sealed
-candidate, never plaintext. A pending delete retains operation ID, ref, and the
-opaque delete condition, never the candidate value. Every later Vault mutation
-first resolves pending state:
+Seal first resolves pending work, derives the ref, and reads it. Absence uses a
+create command. A present authenticated envelope with the same kind and
+constant-time-equal plaintext is a completed replay and returns the same ref
+without another save/audit. Any other present row is stable
+`credential_invalid` and is never overwritten. Consequently immediate success
+may clear volatile state: same-operation replay reconstructs the exact ref even
+after process restart, while equal kind/plaintext under another operation ID
+has an independent ref and cannot share or clean up the first credential.
 
-- an exact committed save is returned only to the matching operation; before a
-  different operation proceeds, Vault conditionally deletes that exact orphan;
-- save absence proves rollback and clears pending;
-- delete absence proves completion and clears pending;
-- an exact prior delete candidate proves rollback and permits one new
-  conditional delete attempt without an unlocked get/delete gap; and
-- a replacement row is conflict, is never deleted by the pending command, and
-  clears that stale command before returning a stable failure.
+Vault has one capacity-one in-memory command coordinator with three explicit,
+disjoint pending modes:
 
-An unresolved cleanup remains pending and prevents generation of another ref.
-Thus a later binding start can finish prior compensation without receiving or
-disclosing the old ref. Immediate success and final resolution clear matching
-state by generation; a late cleanup cannot clear a replacement generation.
-Repository candidates and errors never cross public APIs.
+1. **Create** retains operation ID, kind, a plaintext fingerprint, ref, sealed
+   payload, and any normalized candidate returned by Store, never plaintext.
+   Exact committed candidate completes a matching operation. Before a different
+   operation proceeds, it conditionally deletes an exact undisclosed orphan.
+   Absence proves rollback and retries the same create payload. A different row
+   at the derived ref is identity conflict and is never deleted or overwritten.
+2. **Delete/cleanup** retains operation ID, ref, and the opaque delete
+   condition, never candidate value. Absence proves completion. The exact prior
+   version proves rollback and permits one new conditional delete without an
+   unlocked get/delete gap. A replacement version is conflict and is never
+   deleted by the pending command.
+3. **Legacy rewrap** is identified by ref plus the opaque raw-prior condition;
+   it is never an orphan and never enters cleanup deletion. It retains only the
+   sealed replacement payload and any normalized encrypted candidate. An exact
+   encrypted candidate proves completion. The exact raw prior proves rollback
+   and permits another conditional replace using the same sealed payload. An
+   absent row clears pending and is unseal failure. Another authenticated
+   envelope for the same ref/kind/plaintext also proves that rewrap completed;
+   any other replacement is conflict and is neither overwritten nor deleted.
+   A read/barrier failure retains pending. Temporary plaintext used to compare
+   an authenticated replacement is zeroed before releasing the coordinator.
+
+Every later Vault mutation resolves the applicable pending mode before it
+proceeds. An unresolved create cleanup or delete prevents generation of another
+ref; an unresolved rewrap blocks mutation but never deletes the active
+credential. Thus a later binding start can finish prior compensation without
+receiving or disclosing the old ref. Immediate success and final resolution
+clear matching state by generation; a late cleanup cannot clear a replacement
+generation. Repository candidates and errors never cross public APIs.
 
 The composition root constructs the only production Vault. Before starting
 connector workers, `gatewayServices.Start` calls `BindLifecycle(ctx)`. Binding
@@ -249,7 +286,7 @@ Vault never returns a raw Store error. It preserves the cause only behind
 |---|---|---|
 | invalid operation ID/kind/value or operation-ID input conflict | `credential_invalid` | HTTP 400; stable validation copy |
 | caller cancellation | `credential_canceled` | HTTP 408 when a response is still writable; worker stops the owned item |
-| Store timeout/unavailable/durability/unknown/internal/corrupt or unresolved conditional conflict | `credential_unavailable` | HTTP 503; worker returns retryable unavailable without treating it as absence |
+| Store timeout/unavailable/durability/unknown/internal/corrupt, unresolved conditional conflict, or local random/encryption failure | `credential_unavailable` | HTTP 503; worker returns retryable unavailable without treating it as absence |
 | key missing or unusable | `credential_key_unavailable` | HTTP 503; connector unavailable |
 | absent ref, invalid envelope, wrong key/AAD, or authentication failure on Open | `credential_unseal_failed` | stable credential failure; never includes ref, kind, value, or cause |
 
@@ -272,23 +309,25 @@ Implementation follows this accepted design in separate reviewable commits:
 
 The implementation gate requires:
 
-- shared Memory/File success, overwrite, absence, validation precedence,
-  timestamps/high-water, cancellation/timeout, audit atomicity, and redaction;
+- shared Memory/File create/conditional-replace/delete, conflict, absence,
+  validation precedence, timestamps/high-water, cancellation/timeout, audit
+  atomicity, digest time extremes, and redaction;
 - File rollback, fence, final reconciliation, encrypted/plain restart, corrupt
   state, encrypted-without-key rejection, failure injection, and race evidence;
 - PostgreSQL acquire/begin/statement/commit/rollback classification,
   terminate-not-release, context-aware admission, barrier isolation, scan
   propagation, atomic audit, startup validation, and real-DSN evidence;
-- Vault save/delete immediate and next-call reconciliation, same/different
-  operation identity, identical plaintext under independent operations,
-  conditional orphan cleanup, no second ref/value generation, generation-safe
-  lifecycle cleanup, safe typed errors, wrong-key failure, legacy Weixin
-  rewrap, and non-Weixin plaintext rejection;
+- Vault deterministic same-operation replay before/after process restart,
+  different-input conflict, independent identical plaintext operations,
+  create/delete immediate and next-call reconciliation, conditional orphan
+  cleanup, all legacy rewrap state transitions without orphan deletion,
+  generation-safe lifecycle cleanup, safe typed errors, wrong-key failure, and
+  non-Weixin plaintext rejection;
 - Gateway/Notification/Syncer tests proving no active binding on failed Seal,
   no raw Store access, owned context propagation, cleanup error handling, and
   no token/ref/error disclosure;
-- source guards for one embedded repository, exact signatures and three
-  implementations, no legacy methods, no ignored result, no migrated
+- source guards for one embedded repository, exact signatures, opaque command
+  factories, and three implementations, no legacy methods, no ignored result, no migrated
   `context.Background()`, `CredentialSecret.Value` JSON redaction, and Vault's
   minimum repository dependency; and
 - full Go test/build/vet, focused Store/credential/Gateway/Weixin race, default
@@ -305,4 +344,5 @@ receives an independent context-isolated GO.
 | Review | Revision | Decision | Evidence | Reviewer/date |
 |---|---|---|---|---|
 | Credential contract review 1 | `de4cd93` | `REVISE` | Seal lacked logical operation identity; ref-only Delete could remove a replacement and had no pending cleanup owner; File high-water rollback contradicted non-rollback timestamps; lifecycle and public error mappings were incomplete | Context-isolated gatekeeper / 2026-08-20 |
-| Credential contract review 2 | pending | pending | pending | pending |
+| Credential contract review 2 | `1d646f0` | `REVISE` | Immediate success cleared all replay identity; legacy rewrap lacked a distinct non-orphan state machine; delete digest used overflow-prone UnixNano encoding | Context-isolated gatekeeper / 2026-08-20 |
+| Credential contract review 3 | pending | pending | pending | pending |

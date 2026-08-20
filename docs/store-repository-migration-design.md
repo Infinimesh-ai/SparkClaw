@@ -4,7 +4,7 @@
 
 > Status: S2 pilot was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`;
 > and S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository is
-> the next design wave; review 1 returned `REVISE` and revision 2 is active. No
+> the next design wave; reviews 1-2 returned `REVISE` and revision 3 is active. No
 > Credential implementation is authorized before its design GO.
 
 ## Objective And Stage Boundary
@@ -600,5 +600,6 @@ migrations remain in place.
 | S3 Client implementation review | `1acdd2f` | `REVISE` | Acquired-session `Begin` failures and non-cancelable PostgreSQL command admission violated the accepted ownership and deadline contract | Context-isolated gatekeeper / 2026-08-20 |
 | S3 Client implementation final | `a4ddc83` | `GO` | Context-aware admission and exact `Begin` classification close both findings; full normal/race and disposable configured PostgreSQL full/race gates passed on the repaired candidate | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S3 Credential contract review 1 | `de4cd93` | `REVISE` | Vault lacked explicit operation identity and pending delete ownership; ref-only cleanup could delete a replacement; File high-water rollback, lifecycle binding, and safe public error mapping were incomplete | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract review 2 | `1d646f0` | `REVISE` | Immediate success was not replay-idempotent; legacy rewrap had no distinct non-orphan state machine; delete digest time encoding was not total | Context-isolated gatekeeper / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

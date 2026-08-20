@@ -4,7 +4,7 @@
 
 > Status: S2 was accepted at `42b62bd`; S3 OwnerRepository at `0b85cc4`; and
 > S3 ClientRepository at `a4ddc83` on 2026-08-20. CredentialRepository is the
-> only current design wave; review 1 returned `REVISE` and revision 2 is active.
+> only current design wave; reviews 1-2 returned `REVISE` and revision 3 is active.
 > Its implementation is not authorized before design GO.
 
 ## Purpose
@@ -150,3 +150,4 @@ whether any module split is justified.
 | S3 Owner implementation | `0b85cc4`, gate record `fc5acba` | `GO` | Context-isolated repair review closed unsafe pre-candidate ownership and terminate-not-release evidence; complete local and disposable PostgreSQL gates passed | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S3 Client implementation | `1acdd2f`, repair `a4ddc83` | `GO` after `REVISE` | Repair replaced non-cancelable PostgreSQL admission and fixed acquired-session `Begin` classification; exact repaired candidate passed full normal/race and configured PostgreSQL full/race gates | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S3 Credential contract review 1 | `de4cd93` | `REVISE` | Revision 1 lacked operation identity, conditional/pending deletion, non-rollback File high-water consistency, lifecycle ownership, and exact safe error projection | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract review 2 | `1d646f0` | `REVISE` | Revision 2 did not preserve operation replay after success, separate active rewrap from orphan cleanup, or encode every accepted time in delete versions | Context-isolated gatekeeper / 2026-08-20 |

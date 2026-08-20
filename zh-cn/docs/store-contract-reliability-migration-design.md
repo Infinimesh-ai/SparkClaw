@@ -4,7 +4,7 @@
 
 > 状态：S2 已在 `42b62bd` 获得接受，S3 OwnerRepository 已在 `0b85cc4`
 > 获得接受，S3 ClientRepository 已于 2026-08-20 在 `a4ddc83` 获得接受。
-> CredentialRepository 是当前唯一设计波次；审查 1 返回 `REVISE`，当前为修订 2。
+> CredentialRepository 是当前唯一设计波次；审查 1-2 返回 `REVISE`，当前为修订 3。
 > 其设计获得 GO 前不授权实现。
 
 ## 目的
@@ -130,3 +130,4 @@ S0-S4 保持 File snapshot 布局不变。只要 repository 波次不包含持�
 | S3 Owner 实现 | `0b85cc4`，gate record `fc5acba` | `GO` | context-isolated 修复审查关闭 unsafe pre-candidate ownership 与 terminate-not-release 证据，完整本地及 disposable PostgreSQL gate 通过 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S3 Client 实现 | `1acdd2f`，修复 `a4ddc83` | `REVISE` 后 `GO` | 修复替换不可取消的 PostgreSQL admission，并纠正 acquired-session `Begin` classification；exact 修复候选通过 full normal/race 与 configured PostgreSQL full/race gate | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S3 Credential contract 审查 1 | `de4cd93` | `REVISE` | 修订 1 缺少 operation identity、conditional/pending deletion、File non-rollback high-water 一致性、lifecycle ownership 与精确安全 error projection | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Credential contract 审查 2 | `1d646f0` | `REVISE` | 修订 2 未保留 success 后的 operation replay、未把 active rewrap 与 orphan cleanup 分开，也未在 delete version 中编码全部已接受时间 | Context-isolated gatekeeper / 2026-08-20 |

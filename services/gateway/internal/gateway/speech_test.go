@@ -323,14 +323,22 @@ func TestSpeechTranscriptionRejectsSessionOwnedByAnotherPrincipal(t *testing.T) 
 	cfg.Gateway.APIToken = "default-owner-token"
 	st := store.NewMemoryStore()
 	session := st.CreateSessionWithScope("Other owner voice", "owner-other", cfg.Workspaces.DefaultRoot, "webchat", false)
-	st.SaveClient(app.Client{
+	pairing, err := st.SavePairingCode(t.Context(), app.PairingCode{
+		ID: "client-requester-pair", CodeHash: "client-requester-pair-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = st.ClaimPairingCode(t.Context(), pairing.ID, app.Client{
 		ID:        "client-requester",
 		OwnerID:   "owner-requester",
 		ActorID:   "owner-requester",
 		Name:      "Requester",
 		TokenHash: hashSecret("requester-token"),
-		CreatedAt: time.Now().UTC(),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	fake := &fakeSpeechTranscriber{result: speech.Result{Text: "must not run"}}

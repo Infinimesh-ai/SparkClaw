@@ -25,7 +25,7 @@ var fileCommandMethods = map[string]struct{}{
 	"RevokeClient": {}, "RevokeMCPAccessTicket": {}, "RevokeMCPBinding": {},
 	"RevokeNotificationBinding": {}, "SaveApproval": {}, "SaveArtifactObject": {},
 	"SaveBrowserAuthRecord": {}, "SaveBrowserLoginBlock": {}, "SaveChannelInboxUpdate": {},
-	"SaveClient": {}, "SaveCredentialSecret": {}, "SaveDocumentRecord": {},
+	"SaveCredentialSecret": {}, "SaveDocumentRecord": {},
 	"SaveEpisodeSummary": {}, "SaveEvalRun": {}, "SaveExternalChatMessage": {},
 	"SaveExternalChatSession": {}, "SaveISCPOnboarding": {}, "SaveMCPAccessTicket": {},
 	"SaveMessageDelivery": {}, "SaveMessageReceive": {}, "SaveModelCall": {},
@@ -44,6 +44,9 @@ var migratedFileAdmissions = map[string]string{
 	"GetOwnerProfile":     "admitMigrated", "UpdateOwnerProfile": "admitMigrated",
 	"GetOwnerProfileByID": "admitMigrated", "SaveOwnerProfile": "admitMigrated",
 	"ListOwnerProfiles": "admitMigrated", "FindOwnerProfileByExternalRef": "admitMigrated",
+	"GetClient": "admitMigrated", "ListClients": "admitMigrated", "RevokeClient": "admitMigrated",
+	"FindClientByTokenHash": "admitMigrated", "TouchClient": "admitMigrated",
+	"SavePairingCode": "admitMigrated", "GetPairingCode": "admitMigrated", "ClaimPairingCode": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
@@ -56,11 +59,11 @@ func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
 			accepted[method] = struct{}{}
 		}
 	}
-	if len(accepted) != 141 {
-		t.Fatalf("accepted FileStore method count = %d, want 141", len(accepted))
+	if len(accepted) != 140 {
+		t.Fatalf("accepted FileStore method count = %d, want 140", len(accepted))
 	}
-	if len(fileCommandMethods) != 62 {
-		t.Fatalf("FileStore command classification count = %d, want 62", len(fileCommandMethods))
+	if len(fileCommandMethods) != 61 {
+		t.Fatalf("FileStore command classification count = %d, want 61", len(fileCommandMethods))
 	}
 	for method := range fileCommandMethods {
 		if _, exists := accepted[method]; !exists {
@@ -200,14 +203,13 @@ func TestFileStoreAdmissionBlocksReadersAndCommandsUntilPersistence(t *testing.T
 		}
 	})
 
-	tentative := app.Client{ID: "client_tentative", Name: "tentative"}
-	store.inner.SaveClient(tentative)
+	tentative := mustClaimTestClient(t, store.inner, app.Client{ID: "client_tentative", Name: "tentative", TokenHash: "tentative-hash"})
 
 	readStarted := make(chan struct{})
 	readDone := make(chan struct{})
 	go func() {
 		close(readStarted)
-		_, _ = store.GetClient(tentative.ID)
+		_, _, _ = store.GetClient(t.Context(), tentative.ID)
 		close(readDone)
 	}()
 	<-readStarted
@@ -216,7 +218,7 @@ func TestFileStoreAdmissionBlocksReadersAndCommandsUntilPersistence(t *testing.T
 	commandDone := make(chan struct{})
 	go func() {
 		close(commandStarted)
-		store.SaveClient(app.Client{ID: "client_queued", Name: "queued"})
+		_, _ = store.SavePairingCode(t.Context(), app.PairingCode{ID: "pair_queued", CodeHash: "pair_queued_hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour)})
 		close(commandDone)
 	}()
 	<-commandStarted
@@ -235,10 +237,10 @@ func TestFileStoreAdmissionBlocksReadersAndCommandsUntilPersistence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := reloaded.GetClient(tentative.ID); !ok {
+	if _, ok, err := reloaded.GetClient(t.Context(), tentative.ID); err != nil || !ok {
 		t.Fatal("persisted mutation was lost after releasing admission")
 	}
-	if _, ok := reloaded.GetClient("client_queued"); !ok {
+	if _, ok, err := reloaded.GetPairingCode(t.Context(), "pair_queued"); err != nil || !ok {
 		t.Fatal("queued command did not persist after admission")
 	}
 }
@@ -257,14 +259,14 @@ func TestFileStoreAdmissionAllowsConcurrentReads(t *testing.T) {
 }
 
 func TestFileStoreAdmissionDoesNotLetReadersBypassQueuedCommand(t *testing.T) {
-	store := newTestFileStore("")
+	store := newTestFileStore(filepath.Join(t.TempDir(), "state.json"))
 	releaseRead := store.admitLegacyRead()
 
 	commandStarted := make(chan struct{})
 	commandDone := make(chan struct{})
 	go func() {
 		close(commandStarted)
-		store.SaveClient(app.Client{ID: "client_writer", Name: "writer"})
+		_, _ = store.SavePairingCode(t.Context(), app.PairingCode{ID: "pair_writer", CodeHash: "pair_writer_hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour)})
 		close(commandDone)
 	}()
 	<-commandStarted
@@ -272,7 +274,7 @@ func TestFileStoreAdmissionDoesNotLetReadersBypassQueuedCommand(t *testing.T) {
 
 	readDone := make(chan bool, 1)
 	go func() {
-		_, ok := store.GetClient("client_writer")
+		_, ok, _ := store.GetPairingCode(t.Context(), "pair_writer")
 		readDone <- ok
 	}()
 	select {

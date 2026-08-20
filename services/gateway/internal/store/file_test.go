@@ -233,8 +233,8 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := st.CreateSession("Persistent Session")
-	st.SaveClient(app.Client{ID: "client_test", Name: "Persistent Client", TokenHash: "hash"})
-	if _, err := st.RevokeClient("client_test"); err != nil {
+	mustClaimTestClient(t, st, app.Client{ID: "client_test", Name: "Persistent Client", TokenHash: "hash"})
+	if _, err := st.RevokeClient(t.Context(), "client_test"); err != nil {
 		t.Fatal(err)
 	}
 	st.AddMessage(app.Message{SessionID: session.ID, Role: "user", Content: "hello"})
@@ -337,7 +337,10 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if got, ok := reloaded.GetSession(session.ID); !ok || got.Title != "Persistent Session" {
 		t.Fatalf("session did not reload: %#v ok=%v", got, ok)
 	}
-	clients := reloaded.ListClients()
+	clients, err := reloaded.ListClients(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(clients) != 1 || clients[0].ID != "client_test" || clients[0].RevokedAt == nil {
 		t.Fatalf("client did not reload revoked: %#v", clients)
 	}

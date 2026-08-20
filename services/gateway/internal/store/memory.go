@@ -13,31 +13,34 @@ import (
 )
 
 type MemoryStore struct {
-	mu                   sync.RWMutex
-	operationTimeouts    OperationTimeouts
-	sessions             map[string]app.Session
-	clients              map[string]app.Client
-	ownerProfile         app.OwnerProfile
-	ownerProfiles        map[string]app.OwnerProfile
-	ownerWriteHighWater  map[string]time.Time
-	ownerNow             func() time.Time
-	pairingCodes         map[string]app.PairingCode
-	iscpOnboardings      map[string]app.ISCPOnboarding
-	mcpAccessTickets     map[string]app.MCPAccessTicket
-	mcpBindings          map[string]app.MCPBinding
-	mcpOperations        map[string]app.MCPOperation
-	messages             map[string][]app.Message
-	runFeedback          map[string][]app.RunFeedback
-	runs                 map[string]app.AgentRun
-	modelCalls           map[string]app.ModelCall
-	toolCalls            map[string]app.ToolCall
-	documentRecords      map[string]app.DocumentRecord
-	approvals            map[string]app.Approval
-	reminders            map[string]app.Reminder
-	reminderDelivery     map[string]app.ReminderDelivery
-	connectorSettings    map[string]app.ConnectorSetting
-	notificationBindings map[string]app.NotificationBinding
-	passiveNotifications map[string]app.PassiveNotification
+	mu                    sync.RWMutex
+	operationTimeouts     OperationTimeouts
+	sessions              map[string]app.Session
+	clients               map[string]app.Client
+	clientWriteHighWater  map[string]time.Time
+	pairingWriteHighWater map[string]time.Time
+	clientNow             func() time.Time
+	ownerProfile          app.OwnerProfile
+	ownerProfiles         map[string]app.OwnerProfile
+	ownerWriteHighWater   map[string]time.Time
+	ownerNow              func() time.Time
+	pairingCodes          map[string]app.PairingCode
+	iscpOnboardings       map[string]app.ISCPOnboarding
+	mcpAccessTickets      map[string]app.MCPAccessTicket
+	mcpBindings           map[string]app.MCPBinding
+	mcpOperations         map[string]app.MCPOperation
+	messages              map[string][]app.Message
+	runFeedback           map[string][]app.RunFeedback
+	runs                  map[string]app.AgentRun
+	modelCalls            map[string]app.ModelCall
+	toolCalls             map[string]app.ToolCall
+	documentRecords       map[string]app.DocumentRecord
+	approvals             map[string]app.Approval
+	reminders             map[string]app.Reminder
+	reminderDelivery      map[string]app.ReminderDelivery
+	connectorSettings     map[string]app.ConnectorSetting
+	notificationBindings  map[string]app.NotificationBinding
+	passiveNotifications  map[string]app.PassiveNotification
 	// passiveNotificationIDsByKey indexes passiveNotifications by
 	// (endpoint_id, idempotency_key) so ingestion dedup is O(1) instead of a
 	// scan. Derived data: never persisted, rebuilt from loadSnapshot.
@@ -75,6 +78,9 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 		operationTimeouts:           normalizeOperationTimeouts(timeouts),
 		sessions:                    map[string]app.Session{},
 		clients:                     map[string]app.Client{},
+		clientWriteHighWater:        map[string]time.Time{},
+		pairingWriteHighWater:       map[string]time.Time{},
+		clientNow:                   time.Now,
 		ownerProfile:                cloneOwnerProfile(defaultOwner),
 		ownerProfiles:               map[string]app.OwnerProfile{app.DefaultOwnerID: cloneOwnerProfile(defaultOwner)},
 		ownerWriteHighWater:         map[string]time.Time{app.DefaultOwnerID: defaultOwner.UpdatedAt},
@@ -122,10 +128,10 @@ func (s *MemoryStore) snapshot() Snapshot {
 	defer s.mu.RUnlock()
 	return Snapshot{
 		Sessions:             cloneMap(s.sessions),
-		Clients:              cloneMap(s.clients),
+		Clients:              cloneClientMap(s.clients),
 		OwnerProfile:         cloneOwnerProfile(s.ownerProfile),
 		OwnerProfiles:        cloneOwnerProfileMap(s.ownerProfiles),
-		PairingCodes:         cloneMap(s.pairingCodes),
+		PairingCodes:         clonePairingCodeMap(s.pairingCodes),
 		ISCPOnboardings:      cloneMap(s.iscpOnboardings),
 		MCPAccessTickets:     cloneMCPAccessTicketMap(s.mcpAccessTickets),
 		MCPBindings:          cloneMCPBindingMap(s.mcpBindings),
@@ -153,7 +159,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 		Memories:             cloneMap(s.memories),
 		MemoryCandidates:     cloneMap(s.memoryCandidates),
 		AuditEvents:          append([]app.AuditEvent(nil), s.auditEvents...),
-		Events:               append([]app.Event(nil), s.events...),
+		Events:               cloneClientLifecycleEvents(s.events),
 		EvalRuns:             cloneMap(s.evalRuns),
 		ArtifactObjects:      cloneMap(s.artifactObjects),
 		EpisodeSummaries:     cloneMap(s.episodeSummaries),
@@ -164,7 +170,10 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions = ensureMap(snapshot.Sessions)
-	s.clients = ensureMap(snapshot.Clients)
+	s.clients = cloneClientMap(ensureMap(snapshot.Clients))
+	if s.clientWriteHighWater == nil {
+		s.clientWriteHighWater = map[string]time.Time{}
+	}
 	for id, client := range s.clients {
 		if strings.TrimSpace(client.OwnerID) == "" {
 			client.OwnerID = app.DefaultOwnerID
@@ -172,7 +181,17 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		if strings.TrimSpace(client.ActorID) == "" {
 			client.ActorID = client.OwnerID
 		}
-		s.clients[id] = client
+		s.clients[id] = cloneClient(client)
+		highWater := client.CreatedAt
+		if client.LastSeenAt != nil && client.LastSeenAt.After(highWater) {
+			highWater = *client.LastSeenAt
+		}
+		if client.RevokedAt != nil && client.RevokedAt.After(highWater) {
+			highWater = *client.RevokedAt
+		}
+		if highWater.After(s.clientWriteHighWater[id]) {
+			s.clientWriteHighWater[id] = highWater
+		}
 	}
 	s.ownerProfile = cloneOwnerProfile(snapshot.OwnerProfile)
 	s.ownerProfiles = cloneOwnerProfileMap(snapshot.OwnerProfiles)
@@ -184,7 +203,19 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 			s.ownerWriteHighWater[id] = profile.UpdatedAt
 		}
 	}
-	s.pairingCodes = ensureMap(snapshot.PairingCodes)
+	s.pairingCodes = clonePairingCodeMap(ensureMap(snapshot.PairingCodes))
+	if s.pairingWriteHighWater == nil {
+		s.pairingWriteHighWater = map[string]time.Time{}
+	}
+	for id, code := range s.pairingCodes {
+		highWater := code.CreatedAt
+		if code.ClaimedAt != nil && code.ClaimedAt.After(highWater) {
+			highWater = *code.ClaimedAt
+		}
+		if highWater.After(s.pairingWriteHighWater[id]) {
+			s.pairingWriteHighWater[id] = highWater
+		}
+	}
 	s.iscpOnboardings = ensureMap(snapshot.ISCPOnboardings)
 	s.mcpAccessTickets = cloneMCPAccessTicketMap(ensureMap(snapshot.MCPAccessTickets))
 	s.mcpBindings = cloneMCPBindingMap(ensureMap(snapshot.MCPBindings))
@@ -270,7 +301,7 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.memories = ensureMap(snapshot.Memories)
 	s.memoryCandidates = ensureMap(snapshot.MemoryCandidates)
 	s.auditEvents = append([]app.AuditEvent(nil), snapshot.AuditEvents...)
-	s.events = append([]app.Event(nil), snapshot.Events...)
+	s.events = cloneClientLifecycleEvents(snapshot.Events)
 	s.evalRuns = ensureMap(snapshot.EvalRuns)
 	s.artifactObjects = ensureMap(snapshot.ArtifactObjects)
 	s.artifactObjectIDsByURI = map[string]map[string]struct{}{}
@@ -525,82 +556,147 @@ func (s *MemoryStore) DeleteSession(id string) (app.Session, error) {
 	return session, nil
 }
 
-func (s *MemoryStore) SaveClient(client app.Client) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if client.ID == "" {
-		client.ID = app.NewID("client")
+func (s *MemoryStore) GetClient(ctx context.Context, id string) (app.Client, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationClientGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientGet, ctx); err != nil {
+		return app.Client{}, false, err
 	}
-	if client.CreatedAt.IsZero() {
-		client.CreatedAt = time.Now().UTC()
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return app.Client{}, false, nil
 	}
-	if strings.TrimSpace(client.OwnerID) == "" {
-		client.OwnerID = app.DefaultOwnerID
-	}
-	if strings.TrimSpace(client.ActorID) == "" {
-		client.ActorID = client.OwnerID
-	}
-	s.clients[client.ID] = client
-	s.appendAuditLocked("client.saved", "", "", "gateway", client.Name, map[string]any{"client_id": client.ID})
-	s.appendEventLocked("client.saved", "", "", client)
-}
-
-func (s *MemoryStore) GetClient(id string) (app.Client, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	client, ok := s.clients[id]
-	return client, ok
-}
-
-func (s *MemoryStore) ListClients() []app.Client {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []app.Client{}
-	for _, client := range s.clients {
-		out = append(out, client)
+	if err := operationContextError(OperationClientGet, ctx); err != nil {
+		return app.Client{}, false, err
 	}
-	slices.SortFunc(out, func(a, b app.Client) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
-	})
-	return out
-}
-
-func (s *MemoryStore) RevokeClient(id string) (app.Client, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	client, ok := s.clients[id]
 	if !ok {
-		return app.Client{}, errors.New("client not found")
+		return app.Client{}, false, nil
 	}
-	now := time.Now().UTC()
-	client.RevokedAt = &now
-	s.clients[id] = client
-	s.appendAuditLocked("client.revoked", "", "", "owner", client.Name, map[string]any{"client_id": client.ID})
-	s.appendEventLocked("client.revoked", "", "", client)
-	return client, nil
+	if err := validatePersistedClient(client); err != nil {
+		return app.Client{}, false, storeError(OperationClientGet, StoreErrorCorrupt, err)
+	}
+	return cloneClient(client), true, nil
 }
 
-func (s *MemoryStore) FindClientByTokenHash(tokenHash string) (app.Client, bool) {
+func (s *MemoryStore) ListClients(ctx context.Context) ([]app.Client, error) {
+	ctx, cancel := operationContext(ctx, OperationClientList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationClientList, ctx); err != nil {
+		return nil, err
+	}
+	out := make([]app.Client, 0, len(s.clients))
 	for _, client := range s.clients {
-		if client.TokenHash == tokenHash && client.RevokedAt == nil {
-			return client, true
+		if err := validatePersistedClient(client); err != nil {
+			return nil, storeError(OperationClientList, StoreErrorCorrupt, err)
+		}
+		out = append(out, cloneClient(client))
+	}
+	slices.SortFunc(out, compareClients)
+	return out, nil
+}
+
+func compareClients(left, right app.Client) int {
+	if ordered := right.CreatedAt.Compare(left.CreatedAt); ordered != 0 {
+		return ordered
+	}
+	return strings.Compare(left.ID, right.ID)
+}
+
+func (s *MemoryStore) RevokeClient(ctx context.Context, id string) (app.Client, error) {
+	ctx, cancel := operationContext(ctx, OperationClientRevoke, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientRevoke, ctx); err != nil {
+		return app.Client{}, err
+	}
+	id = strings.TrimSpace(id)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := operationContextError(OperationClientRevoke, ctx); err != nil {
+		return app.Client{}, err
+	}
+	client, ok := s.clients[id]
+	if !ok {
+		return app.Client{}, storeError(OperationClientRevoke, StoreErrorNotFound, errors.New("client not found"))
+	}
+	if err := validatePersistedClient(client); err != nil {
+		return app.Client{}, storeError(OperationClientRevoke, StoreErrorCorrupt, err)
+	}
+	now := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[id], client.CreatedAt, timePointerValue(client.LastSeenAt), timePointerValue(client.RevokedAt))
+	client.RevokedAt = &now
+	s.clientWriteHighWater[id] = now
+	s.clients[id] = cloneClient(client)
+	s.appendAuditLockedAt(now, "client.revoked", "", "", "owner", client.Name, map[string]any{"client_id": client.ID})
+	s.appendEventLockedAt(now, "client.revoked", "", "", cloneClient(client))
+	return cloneClient(client), nil
+}
+
+func (s *MemoryStore) FindClientByTokenHash(ctx context.Context, tokenHash string) (app.Client, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationClientFindTokenHash, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientFindTokenHash, ctx); err != nil {
+		return app.Client{}, false, err
+	}
+	tokenHash = strings.TrimSpace(tokenHash)
+	if tokenHash == "" {
+		return app.Client{}, false, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationClientFindTokenHash, ctx); err != nil {
+		return app.Client{}, false, err
+	}
+	for _, client := range s.clients {
+		if client.TokenHash != tokenHash {
+			continue
+		}
+		if err := validatePersistedClient(client); err != nil {
+			return app.Client{}, false, storeError(OperationClientFindTokenHash, StoreErrorCorrupt, err)
+		}
+		if client.RevokedAt == nil {
+			return cloneClient(client), true, nil
 		}
 	}
-	return app.Client{}, false
+	return app.Client{}, false, nil
 }
 
-func (s *MemoryStore) TouchClient(id string) {
+func (s *MemoryStore) TouchClient(ctx context.Context, id string) (app.Client, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationClientTouch, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientTouch, ctx); err != nil {
+		return app.Client{}, false, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return app.Client{}, false, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := operationContextError(OperationClientTouch, ctx); err != nil {
+		return app.Client{}, false, err
+	}
 	client, ok := s.clients[id]
 	if !ok {
-		return
+		return app.Client{}, false, nil
 	}
-	now := time.Now().UTC()
+	if err := validatePersistedClient(client); err != nil {
+		return app.Client{}, false, storeError(OperationClientTouch, StoreErrorCorrupt, err)
+	}
+	if client.RevokedAt != nil {
+		return app.Client{}, false, nil
+	}
+	now := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[id], client.CreatedAt, timePointerValue(client.LastSeenAt))
 	client.LastSeenAt = &now
-	s.clients[id] = client
+	s.clientWriteHighWater[id] = now
+	s.clients[id] = cloneClient(client)
+	return cloneClient(client), true, nil
 }
 
 func (s *MemoryStore) GetOwnerProfile(ctx context.Context) (app.OwnerProfile, error) {
@@ -721,53 +817,112 @@ func (s *MemoryStore) FindOwnerProfileByExternalRef(ctx context.Context, source,
 	return matches[0], true, nil
 }
 
-func (s *MemoryStore) SavePairingCode(code app.PairingCode) {
+func (s *MemoryStore) SavePairingCode(ctx context.Context, code app.PairingCode) (app.PairingCode, error) {
+	ctx, cancel := operationContext(ctx, OperationPairingCodeSave, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPairingCodeSave, ctx); err != nil {
+		return app.PairingCode{}, err
+	}
+	code, err := normalizePairingSave(code)
+	if err != nil {
+		return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorInvalid, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if code.ID == "" {
-		code.ID = app.NewID("pair")
+	if err := operationContextError(OperationPairingCodeSave, ctx); err != nil {
+		return app.PairingCode{}, err
 	}
-	if code.CreatedAt.IsZero() {
-		code.CreatedAt = time.Now().UTC()
+	if _, exists := s.pairingCodes[code.ID]; exists {
+		return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorConflict, errors.New("pairing ID already exists"))
 	}
-	if code.Status == "" {
-		code.Status = "pending"
+	for _, existing := range s.pairingCodes {
+		if strings.TrimSpace(existing.CodeHash) != "" && existing.CodeHash == code.CodeHash {
+			return app.PairingCode{}, storeError(OperationPairingCodeSave, StoreErrorConflict, errors.New("pairing code hash already exists"))
+		}
 	}
-	s.pairingCodes[code.ID] = code
-	s.appendAuditLocked("pairing_code.created", "", "", "gateway", "Pairing code created", map[string]any{"pairing_id": code.ID})
-	s.appendEventLocked("pairing_code.created", "", "", code)
+	createdAt := nextRepositoryTime(s.clientNow(), s.pairingWriteHighWater[code.ID])
+	code.CreatedAt = createdAt
+	s.pairingWriteHighWater[code.ID] = createdAt
+	s.pairingCodes[code.ID] = clonePairingCode(code)
+	s.appendAuditLockedAt(createdAt, "pairing_code.created", "", "", "gateway", "Pairing code created", map[string]any{"pairing_id": code.ID})
+	s.appendEventLockedAt(createdAt, "pairing_code.created", "", "", clonePairingCode(code))
+	return clonePairingCode(code), nil
 }
 
-func (s *MemoryStore) GetPairingCode(id string) (app.PairingCode, bool) {
+func (s *MemoryStore) GetPairingCode(ctx context.Context, id string) (app.PairingCode, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationPairingCodeGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPairingCodeGet, ctx); err != nil {
+		return app.PairingCode{}, false, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return app.PairingCode{}, false, nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	code, ok := s.pairingCodes[id]
-	return code, ok
-}
-
-func (s *MemoryStore) ClaimPairingCode(id, clientID string) (app.PairingCode, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if err := operationContextError(OperationPairingCodeGet, ctx); err != nil {
+		return app.PairingCode{}, false, err
+	}
 	code, ok := s.pairingCodes[id]
 	if !ok {
-		return app.PairingCode{}, errors.New("pairing code not found")
+		return app.PairingCode{}, false, nil
 	}
-	if code.Status != "pending" {
-		return app.PairingCode{}, errors.New("pairing code is not pending")
+	if err := validatePersistedPairingCode(code, s.clients); err != nil {
+		return app.PairingCode{}, false, storeError(OperationPairingCodeGet, StoreErrorCorrupt, err)
 	}
-	now := time.Now().UTC()
-	if now.After(code.ExpiresAt) {
-		code.Status = "expired"
-		s.pairingCodes[id] = code
-		return app.PairingCode{}, errors.New("pairing code expired")
+	return clonePairingCode(code), true, nil
+}
+
+func (s *MemoryStore) ClaimPairingCode(ctx context.Context, id string, client app.Client) (app.PairingCode, app.Client, error) {
+	ctx, cancel := operationContext(ctx, OperationPairingCodeClaim, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationPairingCodeClaim, ctx); err != nil {
+		return app.PairingCode{}, app.Client{}, err
 	}
+	client, err := normalizeClaimClient(client)
+	if err != nil {
+		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorInvalid, err)
+	}
+	id = strings.TrimSpace(id)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := operationContextError(OperationPairingCodeClaim, ctx); err != nil {
+		return app.PairingCode{}, app.Client{}, err
+	}
+	code, ok := s.pairingCodes[id]
+	if !ok {
+		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorNotFound, errors.New("pairing code not found"))
+	}
+	if err := validatePersistedPairingCode(code, s.clients); err != nil {
+		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorCorrupt, err)
+	}
+	now := postgresTime(s.clientNow())
+	if code.Status != "pending" || strings.TrimSpace(code.CodeHash) == "" || !code.ExpiresAt.After(now) {
+		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorConflict, errors.New("pairing code is not claimable"))
+	}
+	if _, exists := s.clients[client.ID]; exists {
+		return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorConflict, errors.New("client ID already exists"))
+	}
+	for _, existing := range s.clients {
+		if strings.TrimSpace(existing.TokenHash) != "" && existing.TokenHash == client.TokenHash {
+			return app.PairingCode{}, app.Client{}, storeError(OperationPairingCodeClaim, StoreErrorConflict, errors.New("client token hash already exists"))
+		}
+	}
+	commandAt := nextRepositoryTime(now, s.pairingWriteHighWater[id], s.clientWriteHighWater[client.ID], code.CreatedAt, timePointerValue(code.ClaimedAt))
+	client.CreatedAt = commandAt
 	code.Status = "claimed"
-	code.ClaimedAt = &now
-	code.ClientID = clientID
-	s.pairingCodes[id] = code
-	s.appendAuditLocked("pairing_code.claimed", "", "", "gateway", "Pairing code claimed", map[string]any{"pairing_id": code.ID, "client_id": clientID})
-	s.appendEventLocked("pairing_code.claimed", "", "", code)
-	return code, nil
+	code.ClaimedAt = cloneTimePointer(&commandAt)
+	code.ClientID = client.ID
+	s.clientWriteHighWater[client.ID] = commandAt
+	s.pairingWriteHighWater[id] = commandAt
+	s.clients[client.ID] = cloneClient(client)
+	s.pairingCodes[id] = clonePairingCode(code)
+	s.appendAuditLockedAt(commandAt, "client.saved", "", "", "gateway", client.Name, map[string]any{"client_id": client.ID})
+	s.appendAuditLockedAt(commandAt, "pairing_code.claimed", "", "", "gateway", "Pairing code claimed", map[string]any{"pairing_id": code.ID, "client_id": client.ID})
+	s.appendEventLockedAt(commandAt, "client.saved", "", "", cloneClient(client))
+	s.appendEventLockedAt(commandAt, "pairing_code.claimed", "", "", clonePairingCode(code))
+	return clonePairingCode(code), cloneClient(client), nil
 }
 
 func (s *MemoryStore) AddMessage(message app.Message) app.Message {
@@ -2484,7 +2639,7 @@ func (s *MemoryStore) EventsAfter(sessionID, after string) []app.Event {
 			continue
 		}
 		if sessionID == "" || event.SessionID == sessionID {
-			out = append(out, event)
+			out = append(out, cloneClientLifecycleEvent(event))
 		}
 	}
 	return out
@@ -2693,9 +2848,13 @@ func (s *MemoryStore) ListEpisodeSummaries(sessionID string) []app.EpisodeSummar
 }
 
 func (s *MemoryStore) appendAuditLocked(typ, sessionID, runID, actor, summary string, fields map[string]any) {
+	s.appendAuditLockedAt(time.Now().UTC(), typ, sessionID, runID, actor, summary, fields)
+}
+
+func (s *MemoryStore) appendAuditLockedAt(at time.Time, typ, sessionID, runID, actor, summary string, fields map[string]any) {
 	s.auditEvents = append(s.auditEvents, app.AuditEvent{
 		ID:        app.NewID("audit"),
-		Time:      time.Now().UTC(),
+		Time:      at,
 		Type:      typ,
 		SessionID: sessionID,
 		RunID:     runID,
@@ -2706,9 +2865,13 @@ func (s *MemoryStore) appendAuditLocked(typ, sessionID, runID, actor, summary st
 }
 
 func (s *MemoryStore) appendEventLocked(typ, sessionID, runID string, payload any) {
+	s.appendEventLockedAt(time.Now().UTC(), typ, sessionID, runID, payload)
+}
+
+func (s *MemoryStore) appendEventLockedAt(at time.Time, typ, sessionID, runID string, payload any) {
 	s.events = append(s.events, app.Event{
 		ID:        app.NewID("evt"),
-		Time:      time.Now().UTC(),
+		Time:      at,
 		Type:      typ,
 		SessionID: sessionID,
 		RunID:     runID,

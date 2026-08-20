@@ -257,7 +257,7 @@ func TestFileOnboardingPreSubmitFailuresRestoreCompleteState(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				store.SaveClient(app.Client{ID: "baseline-client", Name: "baseline"})
+				mustClaimTestClient(t, store, app.Client{ID: "baseline-client", Name: "baseline", TokenHash: "baseline-client-hash"})
 				store.inner.mu.Lock()
 				store.inner.passiveNotificationRevs[app.DefaultOwnerID] = 17
 				store.inner.mu.Unlock()
@@ -287,7 +287,7 @@ func TestFileOnboardingDestinationReadFailureDoesNotMutate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.SaveClient(app.Client{ID: "baseline-client", Name: "baseline"})
+	mustClaimTestClient(t, store, app.Client{ID: "baseline-client", Name: "baseline", TokenHash: "baseline-client-hash"})
 	before := store.captureFileRollback()
 	store.commitOps = &controlledFileCommitOps{failStage: "read", failRemaining: 1}
 
@@ -357,7 +357,7 @@ func TestFileOnboardingRenameFailureClassification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		store.SaveClient(app.Client{ID: "baseline", Name: "baseline"})
+		mustClaimTestClient(t, store, app.Client{ID: "baseline", Name: "baseline", TokenHash: "baseline-hash"})
 		store.commitOps = &controlledFileCommitOps{failStage: "rename", failRemaining: 1}
 		_, err = store.SaveISCPOnboarding(context.Background(), testISCPOnboarding(time.Now().UTC(), "receipt-previous", app.DefaultOwnerID))
 		if StoreErrorCodeOf(err) != StoreErrorDurability || store.currentFileFence() != nil {
@@ -434,12 +434,12 @@ func TestFileOnboardingFenceBlocksPrequeuedLegacyWaiters(t *testing.T) {
 
 	readDone := make(chan struct{})
 	go func() {
-		store.GetClient("missing")
+		store.GetSession("missing")
 		close(readDone)
 	}()
 	commandDone := make(chan struct{})
 	go func() {
-		store.SaveClient(app.Client{ID: "queued-client", Name: "queued"})
+		store.CreateSession("queued session")
 		close(commandDone)
 	}()
 	close(controlled.dirSyncRelease)
@@ -463,7 +463,7 @@ func TestFileOnboardingFenceRestoresPreviousDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.SaveClient(app.Client{ID: "baseline", Name: "baseline"})
+	mustClaimTestClient(t, store, app.Client{ID: "baseline", Name: "baseline", TokenHash: "baseline-hash"})
 	previous, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

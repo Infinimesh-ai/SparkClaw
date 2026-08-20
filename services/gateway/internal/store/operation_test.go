@@ -45,6 +45,38 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationOwnerProfileFindExternalRef, Repository: "OwnerRepository",
 			Method: "FindOwnerProfileByExternalRef", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationClientGet: {
+			ID: OperationClientGet, Repository: "ClientRepository",
+			Method: "GetClient", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationClientList: {
+			ID: OperationClientList, Repository: "ClientRepository",
+			Method: "ListClients", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationClientRevoke: {
+			ID: OperationClientRevoke, Repository: "ClientRepository",
+			Method: "RevokeClient", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationClientFindTokenHash: {
+			ID: OperationClientFindTokenHash, Repository: "ClientRepository",
+			Method: "FindClientByTokenHash", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationClientTouch: {
+			ID: OperationClientTouch, Repository: "ClientRepository",
+			Method: "TouchClient", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationPairingCodeSave: {
+			ID: OperationPairingCodeSave, Repository: "ClientRepository",
+			Method: "SavePairingCode", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationPairingCodeGet: {
+			ID: OperationPairingCodeGet, Repository: "ClientRepository",
+			Method: "GetPairingCode", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationPairingCodeClaim: {
+			ID: OperationPairingCodeClaim, Repository: "ClientRepository",
+			Method: "ClaimPairingCode", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

@@ -190,6 +190,41 @@ func runFileCommand[T any](s *FileStore, ctx context.Context, operation StoreOpe
 	return out, nil
 }
 
+func runFileOptionalCommand[T any](s *FileStore, ctx context.Context, operation StoreOperation, command func(context.Context) (T, bool, error)) (T, bool, error) {
+	var zero T
+	rollback := s.captureFileRollback()
+	previous, previousExists, err := s.readFileDestination()
+	if err != nil {
+		return zero, false, storeError(operation, StoreErrorUnavailable, err)
+	}
+	out, changed, err := command(ctx)
+	if err != nil {
+		return zero, false, rebindStoreOperation(err, operation)
+	}
+	if !changed {
+		return out, false, nil
+	}
+	candidate, err := s.commitOps.Encode(s.inner.snapshot(), s.encryption)
+	if err != nil {
+		s.restoreFileRollback(rollback)
+		return zero, false, storeError(operation, StoreErrorDurability, err)
+	}
+	if err := s.commitFileSnapshot(ctx, operation, candidate, previous, previousExists); err != nil {
+		if StoreErrorCodeOf(err) == StoreErrorUnknownOutcome {
+			fence := &fileSubmittedOutcome{
+				operation: operation, candidate: sha256.Sum256(candidate),
+				previous: sha256.Sum256(previous), previousExists: previousExists,
+				rollback: rollback, done: make(chan struct{}),
+			}
+			s.installFileFence(fence)
+			return out, true, err
+		}
+		s.restoreFileRollback(rollback)
+		return zero, false, err
+	}
+	return out, true, nil
+}
+
 func (s *FileStore) getISCPOnboarding(ctx context.Context, id string) (app.ISCPOnboarding, bool, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationISCPOnboardingGet, 1)
 	if err != nil {

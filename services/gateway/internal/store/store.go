@@ -58,6 +58,17 @@ type OwnerRepository interface {
 	FindOwnerProfileByExternalRef(context.Context, string, string) (app.OwnerProfile, bool, error)
 }
 
+type ClientRepository interface {
+	GetClient(context.Context, string) (app.Client, bool, error)
+	ListClients(context.Context) ([]app.Client, error)
+	RevokeClient(context.Context, string) (app.Client, error)
+	FindClientByTokenHash(context.Context, string) (app.Client, bool, error)
+	TouchClient(context.Context, string) (app.Client, bool, error)
+	SavePairingCode(context.Context, app.PairingCode) (app.PairingCode, error)
+	GetPairingCode(context.Context, string) (app.PairingCode, bool, error)
+	ClaimPairingCode(context.Context, string, app.Client) (app.PairingCode, app.Client, error)
+}
+
 func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
 	if writeErr == nil {
 		return candidate, nil
@@ -78,21 +89,13 @@ func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository,
 type Store interface {
 	ISCPOnboardingRepository
 	OwnerRepository
+	ClientRepository
 	CreateSession(title string) app.Session
 	CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session
 	ListSessions() []app.Session
 	GetSession(id string) (app.Session, bool)
 	UpdateSessionTitle(id, title string) (app.Session, error)
 	DeleteSession(id string) (app.Session, error)
-	SaveClient(client app.Client)
-	GetClient(id string) (app.Client, bool)
-	ListClients() []app.Client
-	RevokeClient(id string) (app.Client, error)
-	FindClientByTokenHash(tokenHash string) (app.Client, bool)
-	TouchClient(id string)
-	SavePairingCode(code app.PairingCode)
-	GetPairingCode(id string) (app.PairingCode, bool)
-	ClaimPairingCode(id, clientID string) (app.PairingCode, error)
 	SaveMCPAccessTicket(ticket app.MCPAccessTicket) (app.MCPAccessTicket, error)
 	GetMCPAccessTicket(id string) (app.MCPAccessTicket, bool)
 	FindMCPAccessTicketBySecretHash(secretHash string) (app.MCPAccessTicket, bool)
@@ -231,6 +234,9 @@ var (
 	_ OwnerRepository          = (*MemoryStore)(nil)
 	_ OwnerRepository          = (*FileStore)(nil)
 	_ OwnerRepository          = (*PostgresStore)(nil)
+	_ ClientRepository         = (*MemoryStore)(nil)
+	_ ClientRepository         = (*FileStore)(nil)
+	_ ClientRepository         = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

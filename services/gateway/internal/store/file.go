@@ -85,6 +85,82 @@ type Snapshot struct {
 	EpisodeSummaries     map[string]app.EpisodeSummary        `json:"episode_summaries"`
 }
 
+type snapshotClient struct {
+	ID         string     `json:"id"`
+	OwnerID    string     `json:"owner_id,omitempty"`
+	ActorID    string     `json:"actor_id,omitempty"`
+	Name       string     `json:"name"`
+	TokenHash  string     `json:"token_hash,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+}
+
+type snapshotPairingCode struct {
+	ID        string     `json:"id"`
+	CodeHash  string     `json:"code_hash,omitempty"`
+	Status    string     `json:"status"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	ClaimedAt *time.Time `json:"claimed_at,omitempty"`
+	ClientID  string     `json:"client_id,omitempty"`
+}
+
+type snapshotJSON Snapshot
+
+func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
+	clients := make(map[string]snapshotClient, len(snapshot.Clients))
+	for id, client := range snapshot.Clients {
+		clients[id] = snapshotClient{
+			ID: client.ID, OwnerID: client.OwnerID, ActorID: client.ActorID, Name: client.Name,
+			TokenHash: client.TokenHash, CreatedAt: client.CreatedAt,
+			LastSeenAt: cloneTimePointer(client.LastSeenAt), RevokedAt: cloneTimePointer(client.RevokedAt),
+		}
+	}
+	pairings := make(map[string]snapshotPairingCode, len(snapshot.PairingCodes))
+	for id, code := range snapshot.PairingCodes {
+		pairings[id] = snapshotPairingCode{
+			ID: code.ID, CodeHash: code.CodeHash, Status: code.Status,
+			ExpiresAt: code.ExpiresAt, CreatedAt: code.CreatedAt,
+			ClaimedAt: cloneTimePointer(code.ClaimedAt), ClientID: code.ClientID,
+		}
+	}
+	return json.Marshal(struct {
+		snapshotJSON
+		Clients      map[string]snapshotClient      `json:"clients"`
+		PairingCodes map[string]snapshotPairingCode `json:"pairing_codes"`
+	}{snapshotJSON: snapshotJSON(snapshot), Clients: clients, PairingCodes: pairings})
+}
+
+func (snapshot *Snapshot) UnmarshalJSON(raw []byte) error {
+	var decoded struct {
+		snapshotJSON
+		Clients      map[string]snapshotClient      `json:"clients"`
+		PairingCodes map[string]snapshotPairingCode `json:"pairing_codes"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	*snapshot = Snapshot(decoded.snapshotJSON)
+	snapshot.Clients = make(map[string]app.Client, len(decoded.Clients))
+	for id, client := range decoded.Clients {
+		snapshot.Clients[id] = app.Client{
+			ID: client.ID, OwnerID: client.OwnerID, ActorID: client.ActorID, Name: client.Name,
+			TokenHash: client.TokenHash, CreatedAt: client.CreatedAt,
+			LastSeenAt: cloneTimePointer(client.LastSeenAt), RevokedAt: cloneTimePointer(client.RevokedAt),
+		}
+	}
+	snapshot.PairingCodes = make(map[string]app.PairingCode, len(decoded.PairingCodes))
+	for id, code := range decoded.PairingCodes {
+		snapshot.PairingCodes[id] = app.PairingCode{
+			ID: code.ID, CodeHash: code.CodeHash, Status: code.Status,
+			ExpiresAt: code.ExpiresAt, CreatedAt: code.CreatedAt,
+			ClaimedAt: cloneTimePointer(code.ClaimedAt), ClientID: code.ClientID,
+		}
+	}
+	return nil
+}
+
 func NewFileStore(path string) (*FileStore, error) {
 	return NewFileStoreWithOptions(FileStoreOptions{Path: path})
 }
@@ -112,6 +188,11 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		var snapshot Snapshot
 		if err := json.Unmarshal(raw, &snapshot); err != nil {
 			return nil, err
+		}
+		snapshot.Clients = ensureMap(snapshot.Clients)
+		snapshot.PairingCodes = ensureMap(snapshot.PairingCodes)
+		if err := normalizeAndValidatePersistedClientsAndPairings(snapshot.Clients, snapshot.PairingCodes); err != nil {
+			return nil, fmt.Errorf("validate client state: %w", err)
 		}
 		if err := normalizePersistedOwnerProfiles(&snapshot); err != nil {
 			return nil, err
@@ -251,40 +332,60 @@ func (s *FileStore) DeleteSession(id string) (app.Session, error) {
 	return out, err
 }
 
-func (s *FileStore) SaveClient(client app.Client) {
-	defer s.admitLegacyCommand()()
-	s.inner.SaveClient(client)
-	s.persist()
-}
-
-func (s *FileStore) GetClient(id string) (app.Client, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetClient(id)
-}
-
-func (s *FileStore) ListClients() []app.Client {
-	defer s.admitLegacyRead()()
-	return s.inner.ListClients()
-}
-
-func (s *FileStore) RevokeClient(id string) (app.Client, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.RevokeClient(id)
-	if err == nil {
-		s.persist()
+func (s *FileStore) GetClient(ctx context.Context, id string) (app.Client, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationClientGet, 1)
+	if err != nil {
+		return app.Client{}, false, err
 	}
-	return out, err
+	defer release()
+	return s.inner.GetClient(ctx, id)
 }
 
-func (s *FileStore) FindClientByTokenHash(tokenHash string) (app.Client, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindClientByTokenHash(tokenHash)
+func (s *FileStore) ListClients(ctx context.Context) ([]app.Client, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationClientList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListClients(ctx)
 }
 
-func (s *FileStore) TouchClient(id string) {
-	defer s.admitLegacyCommand()()
-	s.inner.TouchClient(id)
-	s.persist()
+func (s *FileStore) RevokeClient(ctx context.Context, id string) (app.Client, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationClientRevoke, fileAdmissionCapacity)
+	if err != nil {
+		return app.Client{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationClientRevoke, func(ctx context.Context) (app.Client, error) {
+		return s.inner.RevokeClient(ctx, id)
+	})
+}
+
+func (s *FileStore) FindClientByTokenHash(ctx context.Context, tokenHash string) (app.Client, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationClientFindTokenHash, 1)
+	if err != nil {
+		return app.Client{}, false, err
+	}
+	defer release()
+	return s.inner.FindClientByTokenHash(ctx, tokenHash)
+}
+
+type clientLookupResult struct {
+	client app.Client
+	found  bool
+}
+
+func (s *FileStore) TouchClient(ctx context.Context, id string) (app.Client, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationClientTouch, fileAdmissionCapacity)
+	if err != nil {
+		return app.Client{}, false, err
+	}
+	defer release()
+	result, found, err := runFileOptionalCommand(s, ctx, OperationClientTouch, func(ctx context.Context) (clientLookupResult, bool, error) {
+		client, found, err := s.inner.TouchClient(ctx, id)
+		return clientLookupResult{client: client, found: found}, found, err
+	})
+	return result.client, found && result.found, err
 }
 
 func (s *FileStore) GetOwnerProfile(ctx context.Context) (app.OwnerProfile, error) {
@@ -345,24 +446,42 @@ func (s *FileStore) FindOwnerProfileByExternalRef(ctx context.Context, source, e
 	return s.inner.FindOwnerProfileByExternalRef(ctx, source, externalRef)
 }
 
-func (s *FileStore) SavePairingCode(code app.PairingCode) {
-	defer s.admitLegacyCommand()()
-	s.inner.SavePairingCode(code)
-	s.persist()
-}
-
-func (s *FileStore) GetPairingCode(id string) (app.PairingCode, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetPairingCode(id)
-}
-
-func (s *FileStore) ClaimPairingCode(id, clientID string) (app.PairingCode, error) {
-	defer s.admitLegacyCommand()()
-	out, err := s.inner.ClaimPairingCode(id, clientID)
-	if err == nil {
-		s.persist()
+func (s *FileStore) SavePairingCode(ctx context.Context, code app.PairingCode) (app.PairingCode, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPairingCodeSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.PairingCode{}, err
 	}
-	return out, err
+	defer release()
+	return runFileCommand(s, ctx, OperationPairingCodeSave, func(ctx context.Context) (app.PairingCode, error) {
+		return s.inner.SavePairingCode(ctx, code)
+	})
+}
+
+func (s *FileStore) GetPairingCode(ctx context.Context, id string) (app.PairingCode, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPairingCodeGet, 1)
+	if err != nil {
+		return app.PairingCode{}, false, err
+	}
+	defer release()
+	return s.inner.GetPairingCode(ctx, id)
+}
+
+type pairingClaimResult struct {
+	pairing app.PairingCode
+	client  app.Client
+}
+
+func (s *FileStore) ClaimPairingCode(ctx context.Context, id string, client app.Client) (app.PairingCode, app.Client, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationPairingCodeClaim, fileAdmissionCapacity)
+	if err != nil {
+		return app.PairingCode{}, app.Client{}, err
+	}
+	defer release()
+	result, err := runFileCommand(s, ctx, OperationPairingCodeClaim, func(ctx context.Context) (pairingClaimResult, error) {
+		pairing, claimedClient, err := s.inner.ClaimPairingCode(ctx, id, client)
+		return pairingClaimResult{pairing: pairing, client: claimedClient}, err
+	})
+	return result.pairing, result.client, err
 }
 
 func (s *FileStore) SaveISCPOnboarding(ctx context.Context, onboarding app.ISCPOnboarding) (app.ISCPOnboarding, error) {

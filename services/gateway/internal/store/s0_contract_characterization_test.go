@@ -34,7 +34,7 @@ var s0RepositoryMethods = map[string][]string{
 		"ListBrowserLoginBlocks", "RevokeBrowserAuthRecord", "SaveBrowserAuthRecord", "SaveBrowserLoginBlock", "UpdateBrowserLoginBlock",
 	},
 	"ClientRepository": {
-		"ClaimPairingCode", "FindClientByTokenHash", "GetClient", "GetPairingCode", "ListClients", "RevokeClient", "SaveClient",
+		"ClaimPairingCode", "FindClientByTokenHash", "GetClient", "GetPairingCode", "ListClients", "RevokeClient",
 		"SavePairingCode", "TouchClient",
 	},
 	"ConnectorRepository": {
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0StoreMethodCatalogCharacterization(t *testing.T) {
 	typeOfStore := reflect.TypeOf((*Store)(nil)).Elem()
-	if typeOfStore.NumMethod() != 141 {
-		t.Fatalf("Store method count = %d, want S0 baseline 141", typeOfStore.NumMethod())
+	if typeOfStore.NumMethod() != 140 {
+		t.Fatalf("Store method count = %d, want migrated baseline 140", typeOfStore.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfStore.NumMethod())
@@ -660,8 +660,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 46 {
-		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 46", got)
+	if got := strings.Count(source, "s.persist()"); got != 41 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 41", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -712,8 +712,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 31 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 31", count)
+	if count != 27 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 27", count)
 	}
 }
 

@@ -19,13 +19,18 @@ import (
 )
 
 type PostgresStore struct {
-	db                  *pgxpool.Pool
-	operationTimeouts   OperationTimeouts
-	onboardingPostgres  onboardingPostgresOps
-	ownerPostgres       ownerPostgresOps
-	ownerMu             sync.Mutex
-	ownerWriteHighWater map[string]time.Time
-	ownerNow            func() time.Time
+	db                    *pgxpool.Pool
+	operationTimeouts     OperationTimeouts
+	onboardingPostgres    onboardingPostgresOps
+	ownerPostgres         ownerPostgresOps
+	clientPostgres        ownerPostgresOps
+	ownerMu               sync.Mutex
+	ownerWriteHighWater   map[string]time.Time
+	ownerNow              func() time.Time
+	clientMu              sync.Mutex
+	clientWriteHighWater  map[string]time.Time
+	pairingWriteHighWater map[string]time.Time
+	clientNow             func() time.Time
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
@@ -77,11 +82,19 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 		db: pool, operationTimeouts: normalizeOperationTimeouts(timeouts),
 		onboardingPostgres:      pgxOnboardingPostgresOps{pool: pool},
 		ownerPostgres:           pgxOwnerPostgresOps{pool: pool},
+		clientPostgres:          pgxOwnerPostgresOps{pool: pool},
 		ownerWriteHighWater:     map[string]time.Time{},
 		ownerNow:                time.Now,
+		clientWriteHighWater:    map[string]time.Time{},
+		pairingWriteHighWater:   map[string]time.Time{},
+		clientNow:               time.Now,
 		passiveNotificationRevs: map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := st.validateClientState(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -265,97 +278,6 @@ func (s *PostgresStore) DeleteSession(id string) (app.Session, error) {
 	s.appendAudit(ctx, "session.deleted", "", "", "owner", "Session deleted", map[string]any{"session_id": id, "title": session.Title})
 	s.appendEvent(ctx, "session.deleted", "", "", session)
 	return session, nil
-}
-
-func (s *PostgresStore) SaveClient(client app.Client) {
-	if client.ID == "" {
-		client.ID = app.NewID("client")
-	}
-	if client.CreatedAt.IsZero() {
-		client.CreatedAt = time.Now().UTC()
-	}
-	if strings.TrimSpace(client.OwnerID) == "" {
-		client.OwnerID = app.DefaultOwnerID
-	}
-	if strings.TrimSpace(client.ActorID) == "" {
-		client.ActorID = client.OwnerID
-	}
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO clients (id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (id) DO UPDATE SET
-			owner_id = EXCLUDED.owner_id,
-			actor_id = EXCLUDED.actor_id,
-			name = EXCLUDED.name,
-			token_hash = EXCLUDED.token_hash,
-			last_seen_at = EXCLUDED.last_seen_at,
-			revoked_at = EXCLUDED.revoked_at
-	`, client.ID, client.OwnerID, client.ActorID, client.Name, client.TokenHash, client.CreatedAt, client.LastSeenAt, client.RevokedAt)
-	s.appendAudit(ctx, "client.saved", "", "", "gateway", client.Name, map[string]any{"client_id": client.ID})
-	s.appendEvent(ctx, "client.saved", "", "", client)
-}
-
-func (s *PostgresStore) GetClient(id string) (app.Client, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
-		FROM clients
-		WHERE id = $1
-	`, id)
-	client, err := scanClient(row)
-	return client, err == nil
-}
-
-func (s *PostgresStore) ListClients() []app.Client {
-	rows, err := s.db.Query(context.Background(), `
-		SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
-		FROM clients
-		ORDER BY created_at DESC
-	`)
-	if err != nil {
-		return []app.Client{}
-	}
-	defer rows.Close()
-	return collectRows(rows, scanClient)
-}
-
-func (s *PostgresStore) RevokeClient(id string) (app.Client, error) {
-	ctx := context.Background()
-	now := time.Now().UTC()
-	row := s.db.QueryRow(ctx, `
-		UPDATE clients
-		SET revoked_at = $2
-		WHERE id = $1
-		RETURNING id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
-	`, id, now)
-	client, err := scanClient(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return app.Client{}, errors.New("client not found")
-		}
-		return app.Client{}, err
-	}
-	s.appendAudit(ctx, "client.revoked", "", "", "owner", client.Name, map[string]any{"client_id": client.ID})
-	s.appendEvent(ctx, "client.revoked", "", "", client)
-	return client, nil
-}
-
-func (s *PostgresStore) FindClientByTokenHash(tokenHash string) (app.Client, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at
-		FROM clients
-		WHERE token_hash = $1 AND revoked_at IS NULL
-	`, tokenHash)
-	client, err := scanClient(row)
-	return client, err == nil
-}
-
-func (s *PostgresStore) TouchClient(id string) {
-	_, _ = s.db.Exec(context.Background(), `
-		UPDATE clients
-		SET last_seen_at = $2
-		WHERE id = $1 AND revoked_at IS NULL
-	`, id, time.Now().UTC())
 }
 
 func (s *PostgresStore) seedDefaultOwner(ctx context.Context) error {
@@ -600,90 +522,6 @@ func (s *PostgresStore) FindOwnerProfileByExternalRef(ctx context.Context, sourc
 func ownerAdvisoryKey(id string) int64 {
 	digest := sha256.Sum256([]byte("sparkclaw/store/owner/v1\x00" + id))
 	return int64(binary.BigEndian.Uint64(digest[:8]))
-}
-
-func (s *PostgresStore) SavePairingCode(code app.PairingCode) {
-	if code.ID == "" {
-		code.ID = app.NewID("pair")
-	}
-	if code.CreatedAt.IsZero() {
-		code.CreatedAt = time.Now().UTC()
-	}
-	if code.Status == "" {
-		code.Status = "pending"
-	}
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO pairing_codes (id, code_hash, status, expires_at, created_at, claimed_at, client_id)
-		VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''))
-		ON CONFLICT (id) DO UPDATE SET
-			code_hash = EXCLUDED.code_hash,
-			status = EXCLUDED.status,
-			expires_at = EXCLUDED.expires_at,
-			claimed_at = EXCLUDED.claimed_at,
-			client_id = EXCLUDED.client_id
-	`, code.ID, code.CodeHash, code.Status, code.ExpiresAt, code.CreatedAt, code.ClaimedAt, code.ClientID)
-	s.appendAudit(ctx, "pairing_code.created", "", "", "gateway", "Pairing code created", map[string]any{"pairing_id": code.ID})
-	s.appendEvent(ctx, "pairing_code.created", "", "", code)
-}
-
-func (s *PostgresStore) GetPairingCode(id string) (app.PairingCode, bool) {
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, code_hash, status, expires_at, created_at, claimed_at, coalesce(client_id, '')
-		FROM pairing_codes
-		WHERE id = $1
-	`, id)
-	code, err := scanPairingCode(row)
-	return code, err == nil
-}
-
-func (s *PostgresStore) ClaimPairingCode(id, clientID string) (app.PairingCode, error) {
-	ctx := context.Background()
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return app.PairingCode{}, err
-	}
-	defer rollbackTx(ctx, tx)
-	row := tx.QueryRow(ctx, `
-		SELECT id, code_hash, status, expires_at, created_at, claimed_at, coalesce(client_id, '')
-		FROM pairing_codes
-		WHERE id = $1
-		FOR UPDATE
-	`, id)
-	code, err := scanPairingCode(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return app.PairingCode{}, errors.New("pairing code not found")
-		}
-		return app.PairingCode{}, err
-	}
-	if code.Status != "pending" {
-		return app.PairingCode{}, errors.New("pairing code is not pending")
-	}
-	now := time.Now().UTC()
-	if now.After(code.ExpiresAt) {
-		_, _ = tx.Exec(ctx, `UPDATE pairing_codes SET status = 'expired' WHERE id = $1`, id)
-		if err := tx.Commit(ctx); err != nil {
-			return app.PairingCode{}, err
-		}
-		return app.PairingCode{}, errors.New("pairing code expired")
-	}
-	code.Status = "claimed"
-	code.ClaimedAt = &now
-	code.ClientID = clientID
-	if _, err := tx.Exec(ctx, `
-		UPDATE pairing_codes
-		SET status = $2, claimed_at = $3, client_id = $4
-		WHERE id = $1
-	`, code.ID, code.Status, code.ClaimedAt, code.ClientID); err != nil {
-		return app.PairingCode{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.PairingCode{}, err
-	}
-	s.appendAudit(ctx, "pairing_code.claimed", "", "", "gateway", "Pairing code claimed", map[string]any{"pairing_id": code.ID, "client_id": clientID})
-	s.appendEvent(ctx, "pairing_code.claimed", "", "", code)
-	return code, nil
 }
 
 func (s *PostgresStore) AddMessage(message app.Message) app.Message {

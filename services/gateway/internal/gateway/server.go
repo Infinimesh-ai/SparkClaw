@@ -95,6 +95,7 @@ type Server struct {
 	streamMessage            streamMessageExecutor
 	streamWG                 sync.WaitGroup
 	approvalLocks            sync.Map
+	pairing                  *pairingCoordinator
 }
 
 type Option func(*Server)
@@ -218,6 +219,7 @@ func NewWithTrace(cfg config.Config, st store.Store, tools *toolhub.ToolHub, run
 		passiveStreams:          map[string]int{},
 		speechRealtimeTickets:   map[string]*speechRealtimeTicket{},
 		speechRealtimeTicketIDs: map[string]string{},
+		pairing:                 newPairingCoordinator(),
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
@@ -712,13 +714,29 @@ func writeOwnerStoreError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"clients": s.store.ListClients()})
+	clients, err := s.store.ListClients(r.Context())
+	if err != nil {
+		if store.StoreErrorCodeOf(err) == store.StoreErrorTimeout {
+			writeError(w, http.StatusGatewayTimeout, errors.New("client list request timed out"))
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, errors.New("clients are temporarily unavailable"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"clients": clients})
 }
 
 func (s *Server) revokeClient(w http.ResponseWriter, r *http.Request) {
-	client, err := s.store.RevokeClient(r.PathValue("id"))
+	client, err := s.store.RevokeClient(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err)
+		switch store.StoreErrorCodeOf(err) {
+		case store.StoreErrorNotFound:
+			writeError(w, http.StatusNotFound, errors.New("client not found"))
+		case store.StoreErrorTimeout:
+			writeError(w, http.StatusGatewayTimeout, errors.New("client revoke request timed out"))
+		default:
+			writeError(w, http.StatusServiceUnavailable, errors.New("clients are temporarily unavailable"))
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, client)
@@ -824,24 +842,67 @@ func (s *Server) startPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errors.New("pairing can only be started locally"))
 		return
 	}
+	if err := s.pairing.gate.Acquire(r.Context(), 1); err != nil {
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
+	defer s.pairing.gate.Release(1)
+	principal := principalForRequest(r)
+	fingerprint := pairingStartFingerprint(principal.OwnerID)
+	if pending := s.pairing.pending; pending != nil {
+		if pending.kind != pairingPendingStart || pending.fingerprint != fingerprint {
+			writeError(w, http.StatusConflict, errors.New("another pairing request is pending"))
+			return
+		}
+		response, status, err := s.reconcilePendingStartLocked(r.Context(), pending)
+		if err != nil {
+			writeError(w, status, err)
+			return
+		}
+		writeJSON(w, status, response)
+		return
+	}
 	code, err := randomSecret(8)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	now := s.pairing.currentTime()
 	pairing := app.PairingCode{
 		ID:        app.NewID("pair"),
 		CodeHash:  hashSecret(code),
 		Status:    "pending",
-		ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
-		CreatedAt: time.Now().UTC(),
+		ExpiresAt: now.Add(5 * time.Minute),
 	}
-	s.store.SavePairingCode(pairing)
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"pairing_id": pairing.ID,
-		"code":       code,
-		"expires_at": pairing.ExpiresAt,
-	})
+	pending := &pairingPending{
+		kind: pairingPendingStart, fingerprint: fingerprint, expiresAt: pairing.ExpiresAt,
+		plaintextCode: code, attemptedPairing: pairing,
+	}
+	s.installPairingPendingLocked(pending)
+	saved, err := s.store.SavePairingCode(r.Context(), pairing)
+	if saved.ID != "" {
+		pending.pairingCandidate = &saved
+	}
+	if err != nil {
+		if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
+			response, status, reconcileErr := s.reconcilePendingStartLocked(r.Context(), pending)
+			if reconcileErr != nil {
+				writeError(w, status, reconcileErr)
+				return
+			}
+			writeJSON(w, status, response)
+			return
+		}
+		s.clearPairingPendingLocked()
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
+	response, status, err := s.completePendingStartLocked(pending, saved)
+	if err != nil {
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, status, response)
 }
 
 func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
@@ -855,19 +916,57 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		ClientName string `json:"client_name"`
 	}
 	if err := readJSON(r, &input); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, http.StatusBadRequest, errors.New("invalid pairing request"))
 		return
 	}
-	pairing, ok := s.store.GetPairingCode(strings.TrimSpace(input.PairingID))
+	if err := s.pairing.gate.Acquire(r.Context(), 1); err != nil {
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
+	defer s.pairing.gate.Release(1)
+	pairingID := strings.TrimSpace(input.PairingID)
+	clientName := strings.TrimSpace(input.ClientName)
+	if clientName == "" {
+		clientName = "SparkClaw Client"
+	}
+	principal := principalForRequest(r)
+	submittedHash := hashSecret(input.Code)
+	fingerprint := pairingClaimFingerprint(principal.OwnerID, pairingID, submittedHash, clientName)
+	if pending := s.pairing.pending; pending != nil {
+		if pending.kind != pairingPendingClaim {
+			writeError(w, http.StatusConflict, errors.New("another pairing request is pending"))
+			return
+		}
+		if !pairingCodesMatch(pending.submittedCodeHash, submittedHash) {
+			writeError(w, http.StatusUnauthorized, errors.New("invalid pairing code"))
+			return
+		}
+		if pending.fingerprint != fingerprint {
+			writeError(w, http.StatusConflict, errors.New("another pairing request is pending"))
+			return
+		}
+		response, status, err := s.reconcilePendingClaimLocked(r.Context(), pending)
+		if err != nil {
+			writeError(w, status, err)
+			return
+		}
+		writeJSON(w, status, response)
+		return
+	}
+	pairing, ok, err := s.store.GetPairingCode(r.Context(), pairingID)
+	if err != nil {
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusBadRequest, errors.New("pairing code not found"))
 		return
 	}
-	if pairing.Status != "pending" || time.Now().UTC().After(pairing.ExpiresAt) {
+	if pairing.Status != "pending" || !pairing.ExpiresAt.After(s.pairing.currentTime()) {
 		writeError(w, http.StatusBadRequest, errors.New("pairing code is not active"))
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(pairing.CodeHash), []byte(hashSecret(input.Code))) != 1 {
+	if !pairingCodesMatch(pairing.CodeHash, submittedHash) {
 		writeError(w, http.StatusUnauthorized, errors.New("invalid pairing code"))
 		return
 	}
@@ -876,27 +975,49 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	clientName := strings.TrimSpace(input.ClientName)
-	if clientName == "" {
-		clientName = "SparkClaw Client"
-	}
 	client := app.Client{
 		ID:        app.NewID("client"),
-		OwnerID:   app.DefaultOwnerID,
-		ActorID:   app.DefaultOwnerID,
+		OwnerID:   principal.OwnerID,
+		ActorID:   principal.ActorID,
 		Name:      clientName,
 		TokenHash: hashSecret(token),
-		CreatedAt: time.Now().UTC(),
 	}
-	s.store.SaveClient(client)
-	if _, err := s.store.ClaimPairingCode(pairing.ID, client.ID); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	pending := &pairingPending{
+		kind: pairingPendingClaim, fingerprint: fingerprint, expiresAt: pairing.ExpiresAt,
+		plaintextToken: token, preClaimPairing: pairing, attemptedClient: client, submittedCodeHash: pairing.CodeHash,
+	}
+	s.installPairingPendingLocked(pending)
+	claimedPairing, claimedClient, err := s.store.ClaimPairingCode(r.Context(), pairing.ID, client)
+	if claimedPairing.ID != "" {
+		pending.pairingCandidate = &claimedPairing
+	}
+	if claimedClient.ID != "" {
+		pending.clientCandidate = &claimedClient
+	}
+	if err != nil {
+		if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
+			response, status, reconcileErr := s.reconcilePendingClaimLocked(r.Context(), pending)
+			if reconcileErr != nil {
+				writeError(w, status, reconcileErr)
+				return
+			}
+			writeJSON(w, status, response)
+			return
+		}
+		s.clearPairingPendingLocked()
+		if store.StoreErrorCodeOf(err) == store.StoreErrorConflict || store.StoreErrorCodeOf(err) == store.StoreErrorNotFound {
+			writeError(w, http.StatusConflict, errors.New("pairing state changed"))
+			return
+		}
+		writeError(w, pairingStoreStatus(err), pairingStorePublicError(err))
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"client": client,
-		"token":  token,
-	})
+	response, status, err := s.completePendingClaimLocked(pending, claimedPairing, claimedClient)
+	if err != nil {
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, status, response)
 }
 
 func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request) {
@@ -2800,8 +2921,20 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestPrincipalContextKey{}, defaultRequestPrincipal())))
 			return
 		}
-		principal, ok := s.authenticateBearer(got)
-		if got == "" || !ok {
+		if got == "" {
+			writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
+			return
+		}
+		principal, ok, err := s.authenticateBearer(r.Context(), got)
+		if err != nil {
+			if store.StoreErrorCodeOf(err) == store.StoreErrorTimeout {
+				writeError(w, http.StatusGatewayTimeout, errors.New("authentication request timed out"))
+				return
+			}
+			writeError(w, http.StatusServiceUnavailable, errors.New("authentication is temporarily unavailable"))
+			return
+		}
+		if !ok {
 			writeError(w, http.StatusUnauthorized, errors.New("valid bearer token required"))
 			return
 		}
@@ -2849,22 +2982,26 @@ func (s *Server) isPairingBootstrapRequest(r *http.Request) bool {
 	return false
 }
 
-func (s *Server) validBearerToken(token string) bool {
-	_, ok := s.authenticateBearer(token)
-	return ok
-}
-
-func (s *Server) authenticateBearer(token string) (requestPrincipal, bool) {
+func (s *Server) authenticateBearer(ctx context.Context, token string) (requestPrincipal, bool, error) {
 	if configured := strings.TrimSpace(s.cfg.Gateway.APIToken); configured != "" {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(configured)) == 1 {
-			return defaultRequestPrincipal(), true
+			return defaultRequestPrincipal(), true, nil
 		}
 	}
-	client, ok := s.store.FindClientByTokenHash(hashSecret(token))
-	if !ok {
-		return requestPrincipal{}, false
+	client, ok, err := s.store.FindClientByTokenHash(ctx, hashSecret(token))
+	if err != nil {
+		return requestPrincipal{}, false, err
 	}
-	s.store.TouchClient(client.ID)
+	if !ok {
+		return requestPrincipal{}, false, nil
+	}
+	client, ok, err = s.store.TouchClient(ctx, client.ID)
+	if err != nil {
+		return requestPrincipal{}, false, err
+	}
+	if !ok {
+		return requestPrincipal{}, false, nil
+	}
 	ownerID := strings.TrimSpace(client.OwnerID)
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
@@ -2873,7 +3010,7 @@ func (s *Server) authenticateBearer(token string) (requestPrincipal, bool) {
 	if actorID == "" {
 		actorID = ownerID
 	}
-	return requestPrincipal{OwnerID: ownerID, ActorID: actorID, ClientID: client.ID}, true
+	return requestPrincipal{OwnerID: ownerID, ActorID: actorID, ClientID: client.ID}, true, nil
 }
 
 type requestPrincipalContextKey struct{}

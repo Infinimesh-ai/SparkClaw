@@ -6,6 +6,10 @@
 > `207462154fa2377ed786af671f41e0f353d11ba9` 验收。生产 schema、配置或
 > Store 行为变更由 S1 负责。
 
+已验收的 S0 基线包含 141 个方法。ClientRepository 迁移删除独立
+`SaveClient`，并把 Client 创建并入原子 `ClaimPairingCode` 后，当前活动目录
+包含 140 个方法；上述历史验收 revision 保持不变。
+
 本文是 commit `df05cf5` 加 S0 行为刻画测试的代码事实清单。来源包括
 `store.go`、`memory.go`、`file.go`、`postgres.go`、ISCP/MCP Store 文件、
 `migrations/0001_core.sql`，以及 `services/gateway` 下每个生产
@@ -24,7 +28,7 @@ S0 冻结 20 个 repository。归属由事务范围决定，而不是组装便�
 | Repository | 方法数 | 职责 |
 |---|---:|---|
 | `OwnerRepository` | 6 | Owner profile 和外部 owner 查找 |
-| `ClientRepository` | 9 | Client、token 查找、撤销、last-seen 和 pairing code |
+| `ClientRepository` | 8 | Client、token 查找、撤销、last-seen 和 pairing code |
 | `ISCPOnboardingRepository` | 3 | 不含 secret 的 ISCP onboarding receipt |
 | `CredentialRepository` | 3 | 加密 credential secret metadata |
 | `SessionRepository` | 6 | Session 生命周期，包括跨记录删除事务 |
@@ -52,32 +56,33 @@ S0 冻结 20 个 repository。归属由事务范围决定，而不是组装便�
 | 序号 | Repository | 当前方法 |
 |---:|---|---|
 | 1-6 | `SessionRepository` | `CreateSession`, `CreateSessionWithScope`, `ListSessions`, `GetSession`, `UpdateSessionTitle`, `DeleteSession` |
-| 7-12, 19-21 | `ClientRepository` | `SaveClient`, `GetClient`, `ListClients`, `RevokeClient`, `FindClientByTokenHash`, `TouchClient`, `SavePairingCode`, `GetPairingCode`, `ClaimPairingCode` |
-| 13-18 | `OwnerRepository` | `GetOwnerProfile`, `UpdateOwnerProfile`, `GetOwnerProfileByID`, `SaveOwnerProfile`, `ListOwnerProfiles`, `FindOwnerProfileByExternalRef` |
-| 22-24 | `ISCPOnboardingRepository` | `SaveISCPOnboarding`, `GetISCPOnboarding`, `ListISCPOnboardings` |
-| 25-43 | `MCPRepository` | `SaveMCPAccessTicket`, `GetMCPAccessTicket`, `FindMCPAccessTicketBySecretHash`, `ListMCPAccessTickets`, `RedeemMCPAccessTicket`, `RevokeMCPAccessTicket`, `DeleteMCPAccessTicket`, `GetMCPBinding`, `FindMCPBindingForPeer`, `ListMCPBindings`, `RevokeMCPBinding`, `DeleteMCPBinding`, `DeleteMCPAccessRecords`, `TouchMCPBinding`, `CreateMCPOperation`, `GetMCPOperation`, `FindMCPOperationByIdempotency`, `ListMCPOperations`, `UpdateMCPOperation` |
-| 44-45, 132-133 | `ConversationRepository` | `AddMessage`, `ListMessages`, `MessageEventHead`, `MessageEventsAfter` |
-| 46-55, 140-141 | `RunRepository` | `SaveRunFeedback`, `ListRunFeedback`, `SaveRun`, `GetRun`, `ListRuns`, `SaveModelCall`, `ListModelCalls`, `SaveToolCall`, `GetToolCall`, `ListToolCalls`, `SaveEpisodeSummary`, `ListEpisodeSummaries` |
-| 56-58 | `DocumentRepository` | `SaveDocumentRecord`, `GetDocumentRecord`, `ListDocumentRecords` |
-| 59-64 | `ApprovalRepository` | `SaveApproval`, `GetApproval`, `FindApprovalByExternalRef`, `UpdatePendingApproval`, `ResolveApproval`, `ListApprovals` |
-| 65-71 | `ScheduleRepository` | `SaveReminder`, `UpdatePendingReminder`, `GetReminder`, `ListReminders`, `ClaimDueReminders`, `SaveReminderDelivery`, `ListReminderDeliveries` |
-| 72-79 | `ConnectorRepository` | `GetConnectorSetting`, `ListConnectorSettings`, `ListAllConnectorSettings`, `UpdateConnectorSetting`, `SaveNotificationBinding`, `GetNotificationBinding`, `ListNotificationBindings`, `RevokeNotificationBinding` |
-| 80-87 | `PassiveNotificationRepository` | `CreatePassiveNotification`, `GetPassiveNotification`, `ListPassiveNotifications`, `CountUnreadPassiveNotifications`, `MarkPassiveNotificationRead`, `MarkAllPassiveNotificationsRead`, `PrunePassiveNotifications`, `PassiveNotificationRevision` |
-| 88-96 | `ExternalChatRepository` | `SaveExternalChatSession`, `GetExternalChatSession`, `ListExternalChatSessions`, `FindExternalChatSession`, `FindExternalChatSessionByLinkedSessionID`, `SaveExternalChatMessage`, `GetExternalChatMessage`, `FindExternalChatMessageByExternalID`, `ListExternalChatMessages` |
-| 97-108 | `DeliveryRecordRepository` | `SaveMessageReceive`, `GetMessageReceive`, `FindMessageReceive`, `ListMessageReceives`, `SaveMessageDelivery`, `GetMessageDelivery`, `FindMessageDeliveryByIdempotency`, `ListMessageDeliveries`, `SaveChannelInboxUpdate`, `GetChannelInboxUpdate`, `FindChannelInboxUpdate`, `ListChannelInboxUpdates` |
-| 109-111 | `CredentialRepository` | `SaveCredentialSecret`, `GetCredentialSecret`, `DeleteCredentialSecret` |
-| 112-121 | `BrowserStateRepository` | `SaveBrowserAuthRecord`, `GetBrowserAuthRecord`, `FindBrowserAuthRecord`, `ListBrowserAuthRecords`, `RevokeBrowserAuthRecord`, `SaveBrowserLoginBlock`, `UpdateBrowserLoginBlock`, `GetBrowserLoginBlock`, `FindActiveBrowserLoginBlock`, `ListBrowserLoginBlocks` |
-| 122-128 | `MemoryRepository` | `AddMemoryCandidate`, `ResolveMemoryCandidate`, `ListMemoryCandidates`, `SearchMemories`, `UpdateMemory`, `DeleteMemory`, `PruneMemories` |
-| 129-131 | `AuditRepository` | `AddAudit`, `ListAudit`, `EventsAfter` |
-| 134-136 | `EvaluationRepository` | `SaveEvalRun`, `GetEvalRun`, `ListEvalRuns` |
-| 137-139 | `ArtifactMetadataRepository` | `SaveArtifactObject`, `ListArtifactObjects`, `FindArtifactObjectByURI` |
+| 7-11, 18-20 | `ClientRepository` | `GetClient`, `ListClients`, `RevokeClient`, `FindClientByTokenHash`, `TouchClient`, `SavePairingCode`, `GetPairingCode`, `ClaimPairingCode` |
+| 12-17 | `OwnerRepository` | `GetOwnerProfile`, `UpdateOwnerProfile`, `GetOwnerProfileByID`, `SaveOwnerProfile`, `ListOwnerProfiles`, `FindOwnerProfileByExternalRef` |
+| 21-23 | `ISCPOnboardingRepository` | `SaveISCPOnboarding`, `GetISCPOnboarding`, `ListISCPOnboardings` |
+| 24-42 | `MCPRepository` | `SaveMCPAccessTicket`, `GetMCPAccessTicket`, `FindMCPAccessTicketBySecretHash`, `ListMCPAccessTickets`, `RedeemMCPAccessTicket`, `RevokeMCPAccessTicket`, `DeleteMCPAccessTicket`, `GetMCPBinding`, `FindMCPBindingForPeer`, `ListMCPBindings`, `RevokeMCPBinding`, `DeleteMCPBinding`, `DeleteMCPAccessRecords`, `TouchMCPBinding`, `CreateMCPOperation`, `GetMCPOperation`, `FindMCPOperationByIdempotency`, `ListMCPOperations`, `UpdateMCPOperation` |
+| 43-44, 131-132 | `ConversationRepository` | `AddMessage`, `ListMessages`, `MessageEventHead`, `MessageEventsAfter` |
+| 45-54, 139-140 | `RunRepository` | `SaveRunFeedback`, `ListRunFeedback`, `SaveRun`, `GetRun`, `ListRuns`, `SaveModelCall`, `ListModelCalls`, `SaveToolCall`, `GetToolCall`, `ListToolCalls`, `SaveEpisodeSummary`, `ListEpisodeSummaries` |
+| 55-57 | `DocumentRepository` | `SaveDocumentRecord`, `GetDocumentRecord`, `ListDocumentRecords` |
+| 58-63 | `ApprovalRepository` | `SaveApproval`, `GetApproval`, `FindApprovalByExternalRef`, `UpdatePendingApproval`, `ResolveApproval`, `ListApprovals` |
+| 64-70 | `ScheduleRepository` | `SaveReminder`, `UpdatePendingReminder`, `GetReminder`, `ListReminders`, `ClaimDueReminders`, `SaveReminderDelivery`, `ListReminderDeliveries` |
+| 71-78 | `ConnectorRepository` | `GetConnectorSetting`, `ListConnectorSettings`, `ListAllConnectorSettings`, `UpdateConnectorSetting`, `SaveNotificationBinding`, `GetNotificationBinding`, `ListNotificationBindings`, `RevokeNotificationBinding` |
+| 79-86 | `PassiveNotificationRepository` | `CreatePassiveNotification`, `GetPassiveNotification`, `ListPassiveNotifications`, `CountUnreadPassiveNotifications`, `MarkPassiveNotificationRead`, `MarkAllPassiveNotificationsRead`, `PrunePassiveNotifications`, `PassiveNotificationRevision` |
+| 87-95 | `ExternalChatRepository` | `SaveExternalChatSession`, `GetExternalChatSession`, `ListExternalChatSessions`, `FindExternalChatSession`, `FindExternalChatSessionByLinkedSessionID`, `SaveExternalChatMessage`, `GetExternalChatMessage`, `FindExternalChatMessageByExternalID`, `ListExternalChatMessages` |
+| 96-107 | `DeliveryRecordRepository` | `SaveMessageReceive`, `GetMessageReceive`, `FindMessageReceive`, `ListMessageReceives`, `SaveMessageDelivery`, `GetMessageDelivery`, `FindMessageDeliveryByIdempotency`, `ListMessageDeliveries`, `SaveChannelInboxUpdate`, `GetChannelInboxUpdate`, `FindChannelInboxUpdate`, `ListChannelInboxUpdates` |
+| 108-110 | `CredentialRepository` | `SaveCredentialSecret`, `GetCredentialSecret`, `DeleteCredentialSecret` |
+| 111-120 | `BrowserStateRepository` | `SaveBrowserAuthRecord`, `GetBrowserAuthRecord`, `FindBrowserAuthRecord`, `ListBrowserAuthRecords`, `RevokeBrowserAuthRecord`, `SaveBrowserLoginBlock`, `UpdateBrowserLoginBlock`, `GetBrowserLoginBlock`, `FindActiveBrowserLoginBlock`, `ListBrowserLoginBlocks` |
+| 121-127 | `MemoryRepository` | `AddMemoryCandidate`, `ResolveMemoryCandidate`, `ListMemoryCandidates`, `SearchMemories`, `UpdateMemory`, `DeleteMemory`, `PruneMemories` |
+| 128-130 | `AuditRepository` | `AddAudit`, `ListAudit`, `EventsAfter` |
+| 133-135 | `EvaluationRepository` | `SaveEvalRun`, `GetEvalRun`, `ListEvalRuns` |
+| 136-138 | `ArtifactMetadataRepository` | `SaveArtifactObject`, `ListArtifactObjects`, `FindArtifactObjectByURI` |
 
 ## 后端与持久化映射
 
-全部 141 个方法都有 Memory、File 和 PostgreSQL 实现。File 方法全部位于
-`file.go`。普通 Memory/PostgreSQL 方法位于 `memory.go`/`postgres.go`；
-方法 22-24 使用 `iscp_onboarding.go` 和 `iscp_onboarding_postgres.go`；方法
-25-43 使用 `mcp_access.go` 和 `mcp_access_postgres.go`。`store.go` 的全局
+当前全部 140 个方法都有 Memory、File 和 PostgreSQL 实现。File 方法全部位于
+`file.go`。普通 Memory/PostgreSQL 方法位于 `memory.go`/`postgres.go`，已迁移的
+Client PostgreSQL 方法位于 `client_postgres.go`；方法 21-23 使用
+`iscp_onboarding.go` 和 `iscp_onboarding_postgres.go`；方法 24-42 使用
+`mcp_access.go` 和 `mcp_access_postgres.go`。`store.go` 的全局
 编译断言和方法目录测试共同证明后端完整性。
 
 下表把 repository 状态映射到全部 38 个序列化 `Snapshot` 字段和当前
@@ -122,7 +127,7 @@ PostgreSQL 对象。分号用于分隔兼容/派生状态与主要记录。
 | `ArtifactMetadataRepository` | `TestS0BackendNeutralRepositoryCharacterization/ArtifactMetadataRepository/success@s0_repository_characterization_test.go`<br>`TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ArtifactMetadataRepository/normal_absence@s0_repository_characterization_test.go`<br>`TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestMemoryStoreListsArtifactObjectsNewestFirst@memory_test.go`<br>`TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | N/A: ArtifactObject 只有 scalar/time 成员，不会跨 Store 边界泄漏可变别名。 | `TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestMemoryStoreFindsArtifactObjectByURI@memory_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/ArtifactMetadataRepository@s0_repository_lifecycle_test.go` | `TestFileStorePersistsAndReloadsState@file_test.go` | N/A: metadata 没有 revision；ID overwrite 会原子替换 URI index。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
 | `AuditRepository` | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/normal_absence@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/ordering_filtering_scope@s0_repository_characterization_test.go` | `TestS0DefectEvidenceMutableAliases/AuditRepository@s0_repository_characterization_test.go` | N/A: AddAudit 是 append-only 且缺失时生成 ID，没有调用方幂等键。 | N/A: Audit 仅 append，不提供 update、delete、CAS 或 conflict 命令。 | `TestS0BackendNeutralRepositoryCharacterization/AuditRepository/event_audit_sequence@s0_repository_characterization_test.go` | `TestFileStorePersistsMemoryRetentionPrune@file_test.go` | N/A: audit append 没有 revision；event cursor sequence 是其排序 token。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
 | `BrowserStateRepository` | `TestS0BackendNeutralRepositoryCharacterization/BrowserStateRepository/success@s0_repository_characterization_test.go`<br>`TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite@memory_test.go`<br>`TestMemoryStoreTracksActiveBrowserLoginBlock@memory_test.go` | `TestS0BackendNeutralRepositoryCharacterization/BrowserStateRepository/normal_absence@s0_repository_characterization_test.go` | `TestMemoryStoreScopesBrowserAuthRecordsByOwnerProfileAndSite@memory_test.go`<br>`TestMemoryStoreFindActiveBrowserLoginBlockPicksNewestStoredUpdate@memory_test.go` | `TestS0DefectEvidenceMutableAliases/BrowserStateRepository@s0_repository_characterization_test.go` | `TestMemoryStoreBrowserLoginBlockTrimsIDOnWrite@memory_test.go` | `TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields@memory_test.go`<br>`TestMemoryStoreDeleteSessionRemovesBrowserLoginBlocks@memory_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/BrowserStateRepository@s0_repository_lifecycle_test.go` | `TestFileStoreBrowserHandoffCASRoundTrip@file_test.go`<br>`TestFileStorePersistsAndReloadsState@file_test.go` | `TestMemoryStoreBrowserHandoffCASPreservesRevisionTwoFields@memory_test.go` | `TestPostgresStoreBrowserHandoffCASRoundTrip@postgres_test.go`<br>`TestPostgresStoreFindActiveBrowserLoginBlockMatchesSharedActivePredicate@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
-| `ClientRepository` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/normal_absence@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/ordering_filtering_scope@s0_repository_characterization_test.go` | `TestS0DefectEvidenceMutableAliases/ClientRepository@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/duplicate_idempotency@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/CAS_conflict_deletion@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/ClientRepository@s0_repository_lifecycle_test.go` | `TestFileStorePersistsAndReloadsState@file_test.go` | N/A: Client/pairing 命令没有 CAS/revision；claim/revoke 使用状态冲突。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
+| `ClientRepository` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/normal_absence@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/ordering_filtering_scope@s0_repository_characterization_test.go` | `TestClientRepositoryPointerIsolation@client_contract_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/duplicate_idempotency@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ClientRepository/CAS_conflict_deletion@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/ClientRepository@s0_repository_lifecycle_test.go` | `TestFileStorePersistsAndReloadsState@file_test.go` | N/A: Client/pairing 命令没有 CAS/revision；claim/revoke 使用状态冲突。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
 | `ConnectorRepository` | `TestS0BackendNeutralRepositoryCharacterization/ConnectorRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ConnectorRepository/normal_absence@s0_repository_characterization_test.go` | `TestMemoryStoreListsAllConnectorSettingsInStableOwnerChannelOrder@connector_settings_test.go` | `TestS0DefectEvidenceMutableAliases/ConnectorRepository@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ConnectorRepository/duplicate_idempotency@s0_repository_characterization_test.go` | `TestMemoryStoreConnectorSettingUsesCASAndOwnerScope@connector_settings_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/ConnectorRepository@s0_repository_lifecycle_test.go` | `TestFileStorePersistsConnectorSettingVersion@connector_settings_test.go`<br>`TestS0FileRepositoryRestartGaps/ConnectorRepository@s0_repository_characterization_test.go` | `TestMemoryStoreConnectorSettingUsesCASAndOwnerScope@connector_settings_test.go` | `TestPostgresStoreListsAllConnectorSettings@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
 | `ConversationRepository` | `TestS0BackendNeutralRepositoryCharacterization/ConversationRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ConversationRepository/normal_absence@s0_repository_characterization_test.go` | `TestMemoryMessageEventsAreBoundedAndSessionScoped@message_events_test.go` | `TestS0DefectEvidenceMutableAliases/ConversationRepository@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/ConversationRepository/duplicate_idempotency@s0_repository_characterization_test.go` | N/A: append/cursor API 提供 message reuse 与 cursor 校验，但没有 update/delete/CAS。 | `TestS0BackendNeutralRepositoryLifecycleEvidence/ConversationRepository@s0_repository_lifecycle_test.go`<br>`TestMemoryMessageEventsAreBoundedAndSessionScoped@message_events_test.go` | `TestFileMessageEventsSurviveRestart@message_events_test.go`<br>`TestS0BackendNeutralContractCharacterization/file/restart@s0_contract_characterization_test.go` | N/A: append 由 event sequence 排序，不暴露 CAS revision。 | `TestPostgresStoreRoundTrip@postgres_test.go`<br>`TestS0DefectEvidencePostgresRowsErrIsNotChecked/shared/collectRows@s0_contract_characterization_test.go` |
 | `CredentialRepository` | `TestS0BackendNeutralRepositoryCharacterization/CredentialRepository/success@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/CredentialRepository/normal_absence@s0_repository_characterization_test.go` | N/A: CredentialRepository 只有精确 ref get，没有 list/filter/order/owner scope query。 | N/A: CredentialSecret 只有 scalar/time 成员，不会跨 Store 边界泄漏可变别名。 | `TestS0BackendNeutralRepositoryCharacterization/CredentialRepository/duplicate_idempotency@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryCharacterization/CredentialRepository/CAS_conflict_deletion@s0_repository_characterization_test.go` | `TestS0BackendNeutralRepositoryLifecycleEvidence/CredentialRepository@s0_repository_lifecycle_test.go` | `TestFileStoreEncryptsStateAtRest@file_test.go` | N/A: credential save/delete 没有 CAS、revision 或幂等创建结果。 | N/A: PostgreSQL credential 仅使用 Exec/QueryRow，没有多行 iterator 或 rows.Err 路径。 |
@@ -221,9 +226,9 @@ Store-compatible 接口。`artifact.Store` 是独立的 artifact-object 接口�
 ## Mutation 与命令矩阵
 
 `M`、`F`、`P` 分别表示 Memory 锁内 mutation、File 原子替换和 PostgreSQL。
-`F rename` 是未来的持久 effect submission point；当前 48 个旧 File 调用点会
+`F rename` 是未来的持久 effect submission point；当前 41 个旧 File 调用点会
 丢弃结果。`P Exec` 是 autocommit submission point，`P Commit` 是事务
-submission point；当前 33 个 PostgreSQL `Exec` 结果被显式丢弃。未来必需的
+submission point；当前 27 个 PostgreSQL `Exec` 结果被显式丢弃。未来必需的
 生命周期行必须加入同一事务，即使 PostgreSQL 当前是在命令后追加且忽略失败。
 
 | Repository / 命令 | 记录和派生索引 mutation | 必需 event/audit | 原子边界和 effect submission | 幂等 / CAS | Reconciliation read |
@@ -231,9 +236,10 @@ submission point；当前 33 个 PostgreSQL `Exec` 结果被显式丢弃。未�
 | Session `CreateSession*` | session | `session.created` audit + event | session + lifecycle；M lock / F rename / P Exec | 生成 ID | `GetSession` |
 | Session `UpdateSessionTitle` | session title/update time | `session.updated` audit + event | session + lifecycle；M lock / F rename / P Exec | 当前必须存在 | `GetSession` |
 | Session `DeleteSession` | session，以及 message、run、feedback、model/tool call、document、approval、reminder/delivery、candidate/memory、browser block、artifact/URI 索引、episode summary、关联 external chat、旧 session audit/event | 替换后的 `session.deleted` audit + event | 单个跨 repository 事务；M lock / F rename / P Commit | 目标必须存在 | `GetSession` 缺失加各 scope 列表读取 |
-| Client `SaveClient` / `RevokeClient` | client 和 token lookup state | `client.saved` / `client.revoked` audit + event | record + lifecycle；M lock / F rename / P Exec | ID overwrite；revoke 要求目标 | `GetClient`, `FindClientByTokenHash` |
-| Client `TouchClient` | last-seen | 无 | 单记录；M lock / F rename / P Exec | 目标缺失当前为 no-op | `GetClient` |
-| Client `SavePairingCode` / `ClaimPairingCode` | pairing code status、claim time、client link | created/claimed audit + event | record + lifecycle；M lock / F rename / claim state check 使用 P Commit | pending + expiry state | `GetPairingCode` |
+| Client `RevokeClient` | client 撤销与 token 认证状态 | `client.revoked` audit + event | record + lifecycle；M lock / F rename / P Commit | 目标必须存在 | `GetClient`, `FindClientByTokenHash` |
+| Client `TouchClient` | last-seen | 无 | 单记录；M lock / F rename / P Commit | 缺失或已撤销目标为正常不存在 | `GetClient` |
+| Client `SavePairingCode` | 新 pending pairing code | `pairing_code.created` audit + event | record + lifecycle；M lock / F rename / P Commit | pairing ID 和非空 code hash 唯一 | `GetPairingCode` |
+| Client `ClaimPairingCode` | 原子创建 client/token 索引，再 claim 并关联 pairing code | `client.saved` 后接 `pairing_code.claimed` 的 event 序列，以及同类型的无序 audit 集合 | client + pairing + lifecycle；M lock / F rename / P Commit | pending 且未过期的 code，加唯一 client ID/token hash | `GetPairingCode`, `GetClient`, `FindClientByTokenHash` |
 | Owner `SaveOwnerProfile` / `UpdateOwnerProfile` | owner map/default owner | `owner_profile.updated` audit + event | record + lifecycle；M lock / F rename / P Exec | ID overwrite | `GetOwnerProfileByID` |
 | ISCP `SaveISCPOnboarding` | onboarding receipt | 当前由 caller 写 audit；repository 不拥有 lifecycle row | 单 receipt；M lock / 带 rollback 的 F rename / P Exec | 唯一 ID -> `ErrISCPOnboardingConflict` | `GetISCPOnboarding` |
 | MCP `SaveMCPAccessTicket` | ticket 和 secret-hash lookup | caller audit | 单 ticket；M lock / 带 rollback 的 F rename / P Exec | 唯一 ID/secret hash | `GetMCPAccessTicket`、secret-hash lookup |

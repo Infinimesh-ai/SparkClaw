@@ -88,7 +88,7 @@ var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
 		s0RepositoryTest("ClientRepository", s0DimensionSuccess),
 		s0RepositoryTest("ClientRepository", s0DimensionAbsence),
 		s0RepositoryTest("ClientRepository", s0DimensionOrderScope),
-		s0Tests("TestS0DefectEvidenceMutableAliases/ClientRepository@s0_repository_characterization_test.go"),
+		s0Tests("TestClientRepositoryPointerIsolation@client_contract_test.go"),
 		s0RepositoryTest("ClientRepository", s0DimensionDuplicate),
 		s0RepositoryTest("ClientRepository", s0DimensionConflictDeletion),
 		s0LifecycleTest("ClientRepository"),

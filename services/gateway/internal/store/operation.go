@@ -34,6 +34,14 @@ const (
 	OperationOwnerProfileSave            StoreOperation = "owner_profile.save"
 	OperationOwnerProfileList            StoreOperation = "owner_profile.list"
 	OperationOwnerProfileFindExternalRef StoreOperation = "owner_profile.find_external_ref"
+	OperationClientGet                   StoreOperation = "client.get"
+	OperationClientList                  StoreOperation = "client.list"
+	OperationClientRevoke                StoreOperation = "client.revoke"
+	OperationClientFindTokenHash         StoreOperation = "client.find_token_hash"
+	OperationClientTouch                 StoreOperation = "client.touch"
+	OperationPairingCodeSave             StoreOperation = "pairing_code.save"
+	OperationPairingCodeGet              StoreOperation = "pairing_code.get"
+	OperationPairingCodeClaim            StoreOperation = "pairing_code.claim"
 )
 
 type StoreError struct {
@@ -135,6 +143,38 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationOwnerProfileFindExternalRef: {
 		ID: OperationOwnerProfileFindExternalRef, Repository: "OwnerRepository",
 		Method: "FindOwnerProfileByExternalRef", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationClientGet: {
+		ID: OperationClientGet, Repository: "ClientRepository",
+		Method: "GetClient", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationClientList: {
+		ID: OperationClientList, Repository: "ClientRepository",
+		Method: "ListClients", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationClientRevoke: {
+		ID: OperationClientRevoke, Repository: "ClientRepository",
+		Method: "RevokeClient", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationClientFindTokenHash: {
+		ID: OperationClientFindTokenHash, Repository: "ClientRepository",
+		Method: "FindClientByTokenHash", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationClientTouch: {
+		ID: OperationClientTouch, Repository: "ClientRepository",
+		Method: "TouchClient", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationPairingCodeSave: {
+		ID: OperationPairingCodeSave, Repository: "ClientRepository",
+		Method: "SavePairingCode", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationPairingCodeGet: {
+		ID: OperationPairingCodeGet, Repository: "ClientRepository",
+		Method: "GetPairingCode", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationPairingCodeClaim: {
+		ID: OperationPairingCodeClaim, Repository: "ClientRepository",
+		Method: "ClaimPairingCode", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 }
 

@@ -147,42 +147,41 @@ func characterizeS0OwnerRepository(t *testing.T, st Store, dimension string) {
 }
 
 func characterizeS0ClientRepository(t *testing.T, st Store, dimension string) {
-	base := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	switch dimension {
 	case s0DimensionSuccess:
-		client := app.Client{ID: "client-s0", Name: "client", TokenHash: "hash-s0", CreatedAt: base}
-		st.SaveClient(client)
-		if got, ok := st.FindClientByTokenHash(client.TokenHash); !ok || got.ID != client.ID {
+		client := mustClaimTestClient(t, st, app.Client{ID: "client-s0", Name: "client", TokenHash: "hash-s0"})
+		if got, ok, err := st.FindClientByTokenHash(t.Context(), client.TokenHash); err != nil || !ok || got.ID != client.ID {
 			t.Fatalf("client save/token lookup = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetClient("missing"); ok {
+		if _, ok, err := st.GetClient(t.Context(), "missing"); err != nil || ok {
 			t.Fatal("missing client was found")
 		}
 	case s0DimensionOrderScope:
-		st.SaveClient(app.Client{ID: "client-old", Name: "old", CreatedAt: base})
-		st.SaveClient(app.Client{ID: "client-new", Name: "new", CreatedAt: base.Add(time.Minute)})
-		if got := st.ListClients(); len(got) != 2 || got[0].ID != "client-new" || got[1].ID != "client-old" {
+		mustClaimTestClient(t, st, app.Client{ID: "client-old", Name: "old", TokenHash: "hash-old"})
+		mustClaimTestClient(t, st, app.Client{ID: "client-new", Name: "new", TokenHash: "hash-new"})
+		if got, err := st.ListClients(t.Context()); err != nil || len(got) != 2 || got[0].ID != "client-new" || got[1].ID != "client-old" {
 			t.Fatalf("client order = %#v", got)
 		}
 	case s0DimensionDuplicate:
-		client := app.Client{ID: "client-s0", Name: "first", TokenHash: "hash-s0", CreatedAt: base}
-		st.SaveClient(client)
-		client.Name = "updated"
-		st.SaveClient(client)
-		if got := st.ListClients(); len(got) != 1 || got[0].Name != "updated" {
-			t.Fatalf("client overwrite created duplicates: %#v", got)
-		}
-	case s0DimensionConflictDeletion:
-		st.SaveClient(app.Client{ID: "client-s0", Name: "client", CreatedAt: base})
-		st.SavePairingCode(app.PairingCode{ID: "pair-s0", CodeHash: "pair-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour)})
-		if _, err := st.ClaimPairingCode("pair-s0", "client-s0"); err != nil {
+		pairing := app.PairingCode{ID: "pair-duplicate", CodeHash: "pair-duplicate-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour)}
+		if _, err := st.SavePairingCode(t.Context(), pairing); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.ClaimPairingCode("pair-s0", "other-client"); err == nil {
+		if _, err := st.SavePairingCode(t.Context(), pairing); StoreErrorCodeOf(err) != StoreErrorConflict {
+			t.Fatalf("duplicate pairing save = %v", err)
+		}
+	case s0DimensionConflictDeletion:
+		if _, err := st.SavePairingCode(t.Context(), app.PairingCode{ID: "pair-s0", CodeHash: "pair-hash", Status: "pending", ExpiresAt: time.Now().UTC().Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := st.ClaimPairingCode(t.Context(), "pair-s0", app.Client{ID: "client-s0", Name: "client", TokenHash: "client-s0-hash"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := st.ClaimPairingCode(t.Context(), "pair-s0", app.Client{ID: "other-client", Name: "other", TokenHash: "other-hash"}); err == nil {
 			t.Fatal("claimed pairing code was claimed twice")
 		}
-		if revoked, err := st.RevokeClient("client-s0"); err != nil || revoked.RevokedAt == nil {
+		if revoked, err := st.RevokeClient(t.Context(), "client-s0"); err != nil || revoked.RevokedAt == nil {
 			t.Fatalf("client revoke = %#v err=%v", revoked, err)
 		}
 	default:
@@ -706,7 +705,6 @@ func TestS0FileRepositoryRestartGaps(t *testing.T) {
 }
 
 var s0MutableAliasChecks = map[string]func(*testing.T, Store) bool{
-	"ClientRepository":              s0ClientAliasSafe,
 	"ConversationRepository":        s0ConversationAliasSafe,
 	"RunRepository":                 s0RunAliasSafe,
 	"ApprovalRepository":            s0ApprovalAliasSafe,
@@ -732,16 +730,6 @@ func TestS0DefectEvidenceMutableAliases(t *testing.T) {
 			}
 		})
 	}
-}
-
-func s0ClientAliasSafe(t *testing.T, st Store) bool {
-	t.Helper()
-	lastSeen := time.Now().UTC()
-	st.SaveClient(app.Client{ID: "client-alias", LastSeenAt: &lastSeen})
-	got, _ := st.GetClient("client-alias")
-	*got.LastSeenAt = got.LastSeenAt.Add(time.Hour)
-	again, _ := st.GetClient("client-alias")
-	return !again.LastSeenAt.Equal(*got.LastSeenAt)
 }
 
 func s0ConversationAliasSafe(t *testing.T, st Store) bool {

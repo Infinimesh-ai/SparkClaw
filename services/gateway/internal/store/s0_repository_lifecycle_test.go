@@ -21,8 +21,8 @@ var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 		auditType: "owner_profile.updated", eventType: "owner_profile.updated",
 	},
 	"ClientRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveClient(app.Client{ID: "client-lifecycle", Name: "Lifecycle"})
+		mutate: func(t *testing.T, st Store) {
+			mustClaimTestClient(t, st, app.Client{ID: "client-lifecycle", Name: "Lifecycle", TokenHash: "client-lifecycle-hash"})
 		},
 		auditType: "client.saved", eventType: "client.saved",
 	},

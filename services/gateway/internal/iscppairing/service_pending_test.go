@@ -124,10 +124,12 @@ func (a *countingPairingAuthority) IssuePairingTicket(ctx context.Context, reque
 }
 
 func newPendingTestService(now time.Time, repository Repository, authority Authority) *Service {
-	return New(repository, Options{
+	service := New(repository, Options{
 		Enabled: true, DomainID: "domain-a", ExpectedTicketType: provisioning.TypePairingTicket,
 		DefaultTTL: 10 * time.Minute, Authority: authority,
 	})
+	service.now = func() time.Time { return now }
+	return service
 }
 
 func pendingTestAuthority(now time.Time) *countingPairingAuthority {
@@ -175,6 +177,23 @@ func TestPairingUnknownOutcomeImmediatelyReconcilesOriginalTicket(t *testing.T) 
 	}
 	if saveContext != ctx || getContext != ctx {
 		t.Fatalf("request context was not propagated to save/get: save=%v get=%v", saveContext, getContext)
+	}
+}
+
+func TestPairingDoesNotDiscloseTicketThatExpiresDuringPersistence(t *testing.T) {
+	now := time.Now().UTC()
+	repository := newControlledPairingRepository()
+	authority := pendingTestAuthority(now)
+	service := newPendingTestService(now, repository, authority)
+	service.now = func() time.Time { return now.Add(11 * time.Minute) }
+
+	issued, err := service.Start(context.Background(), app.DefaultOwnerID, "actor-a", StartRequest{DisplayName: "gateway"}, now)
+	if issued.Ticket.Signature.Value != "" || !errors.Is(err, ErrTicketExpired) || service.pending != nil {
+		t.Fatalf("expired ticket disclosed after persistence: issued=%#v err=%v pending=%v", issued, err, service.pending)
+	}
+	onboardings, listErr := repository.memory.ListISCPOnboardings(context.Background(), app.DefaultOwnerID)
+	if listErr != nil || len(onboardings) != 1 || len(repository.memory.ListAudit("")) != 1 {
+		t.Fatalf("durable receipt/audit missing after expiry: onboardings=%#v list_err=%v audits=%d", onboardings, listErr, len(repository.memory.ListAudit("")))
 	}
 }
 
@@ -231,10 +250,12 @@ func TestPairingPendingExpiryDiscardsSignatureAfterReconciliation(t *testing.T) 
 	if _, err := service.Start(context.Background(), app.DefaultOwnerID, "actor-a", request, now); err == nil {
 		t.Fatal("initial unknown outcome unexpectedly reconciled")
 	}
-	if _, err := service.Start(context.Background(), app.DefaultOwnerID, "actor-a", request, now.Add(11*time.Minute)); err == nil || service.pending == nil || service.pending.ticket.Signature.Value != "" {
+	expiredAt := now.Add(11 * time.Minute)
+	service.now = func() time.Time { return expiredAt }
+	if _, err := service.Start(context.Background(), app.DefaultOwnerID, "actor-a", request, expiredAt); err == nil || service.pending == nil || service.pending.ticket.Signature.Value != "" {
 		t.Fatalf("expired unresolved pending retained signature: err=%v pending=%#v", err, service.pending)
 	}
-	issued, err := service.Start(context.Background(), app.DefaultOwnerID, "actor-a", request, now.Add(11*time.Minute))
+	issued, err := service.Start(context.Background(), app.DefaultOwnerID, "actor-a", request, expiredAt)
 	if issued.Ticket.Signature.Value != "" || !errors.Is(err, ErrTicketExpired) || authority.calls != 1 || service.pending != nil {
 		t.Fatalf("expired reconciliation issued=%#v err=%v calls=%d pending=%v", issued, err, authority.calls, service.pending)
 	}

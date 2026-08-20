@@ -49,6 +49,7 @@ func TestHTTPAuthorityAndServiceIssueCopyOnceTicket(t *testing.T) {
 		Enabled: true, DomainID: "domain-a", AuthorityHost: "authority.test",
 		ExpectedTicketType: provisioning.TypePairingTicket, DefaultTTL: 10 * time.Minute, Authority: authority,
 	})
+	service.now = func() time.Time { return now }
 	issued, err := service.Start(t.Context(), app.DefaultOwnerID, "owner-actor", StartRequest{DisplayName: "LocalMind gateway"}, now)
 	if err != nil {
 		t.Fatal(err)

@@ -27,6 +27,7 @@ type Service struct {
 	options    Options
 	startGate  *semaphore.Weighted
 	pending    *pendingOnboarding
+	now        func() time.Time
 }
 
 type pendingOnboarding struct {
@@ -45,7 +46,12 @@ func New(repository Repository, options Options) *Service {
 	if options.DefaultTTL <= 0 {
 		options.DefaultTTL = 10 * time.Minute
 	}
-	return &Service{repository: repository, options: options, startGate: semaphore.NewWeighted(1)}
+	return &Service{
+		repository: repository,
+		options:    options,
+		startGate:  semaphore.NewWeighted(1),
+		now:        func() time.Time { return time.Now().UTC() },
+	}
 }
 
 func (s *Service) Status(ctx context.Context) Status {
@@ -99,7 +105,7 @@ func (s *Service) Start(ctx context.Context, ownerID, actorID string, input Star
 		if s.pending.ownerID != ownerID || s.pending.fingerprint != fingerprint {
 			return IssuedPairing{}, &Failure{Code: FailureConflict, Public: ErrPendingConflict}
 		}
-		return s.reconcilePending(ctx, now)
+		return s.reconcilePending(ctx)
 	}
 	if !s.Status(ctx).Ready {
 		return IssuedPairing{}, &Failure{Code: FailureUnavailable, Public: ErrUnavailable}
@@ -130,13 +136,13 @@ func (s *Service) Start(ctx context.Context, ownerID, actorID string, input Star
 	saved, err := s.repository.SaveISCPOnboarding(ctx, receipt)
 	if err != nil {
 		if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
-			return s.reconcilePending(ctx, now)
+			return s.reconcilePending(ctx)
 		}
 		s.pending = nil
 		return IssuedPairing{}, failureFromStore(err)
 	}
 	s.pending.receipt = saved
-	return s.completePending(saved, now)
+	return s.completePending(saved)
 }
 
 func (s *Service) List(ctx context.Context, ownerID string) ([]app.ISCPOnboarding, error) {
@@ -150,9 +156,9 @@ func (s *Service) List(ctx context.Context, ownerID string) ([]app.ISCPOnboardin
 	return onboardings, nil
 }
 
-func (s *Service) reconcilePending(ctx context.Context, now time.Time) (IssuedPairing, error) {
+func (s *Service) reconcilePending(ctx context.Context) (IssuedPairing, error) {
 	pending := s.pending
-	if !pending.ticket.ExpiresAt.After(now) {
+	if !pending.ticket.ExpiresAt.After(s.currentTime()) {
 		pending.ticket.Signature = identity.Signature{}
 	}
 	receipt, found, err := s.repository.GetISCPOnboarding(ctx, pending.id)
@@ -166,20 +172,28 @@ func (s *Service) reconcilePending(ctx context.Context, now time.Time) (IssuedPa
 	if receipt.ID != pending.receipt.ID || receipt.OwnerID != pending.receipt.OwnerID || receipt.TicketID != pending.receipt.TicketID {
 		return IssuedPairing{}, &Failure{Code: FailureUnavailable, Public: ErrUnavailable}
 	}
-	return s.completePending(receipt, now)
+	return s.completePending(receipt)
 }
 
-func (s *Service) completePending(receipt app.ISCPOnboarding, now time.Time) (IssuedPairing, error) {
+func (s *Service) completePending(receipt app.ISCPOnboarding) (IssuedPairing, error) {
 	pending := s.pending
 	s.pending = nil
 	s.repository.AddAudit(app.AuditEvent{Actor: pending.actorID, Type: "iscp.onboarding.ticket_issued", Summary: "Requested a single-use ISCP Pairing Ticket", Fields: map[string]any{
 		"onboarding_id": receipt.ID, "authority_ref": receipt.AuthorityRef, "ticket_id": receipt.TicketID,
 		"domain_id": receipt.DomainID, "relay_id": receipt.RelayID, "expires_at": receipt.TicketExpiresAt,
 	}})
-	if !pending.ticket.ExpiresAt.After(now) {
+	if !pending.ticket.ExpiresAt.After(s.currentTime()) {
+		pending.ticket.Signature = identity.Signature{}
 		return IssuedPairing{}, &Failure{Code: FailureExpired, Public: ErrTicketExpired}
 	}
 	return IssuedPairing{Onboarding: receipt, Ticket: pending.ticket}, nil
+}
+
+func (s *Service) currentTime() time.Time {
+	if s != nil && s.now != nil {
+		return s.now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func onboardingRequestFingerprint(ownerID, displayName string, ttl time.Duration, domainID, ticketType string) string {

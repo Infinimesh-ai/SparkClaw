@@ -355,12 +355,15 @@ The stable repository semantics are:
 - save overwrites by ID while preserving the existing `CreatedAt`; update forces
   `app.DefaultOwnerID`;
 - candidate normalization trims every string field, defaults an empty ID to
-  `app.DefaultOwnerID`, defaults the default owner's empty source/display name
-  to `web`/`Owner`, turns nil preferences into a cloned non-nil empty map, uses
+  `app.DefaultOwnerID`, defaults the default owner's empty source to `web`,
+  defaults every owner's empty display name to `Owner`, turns nil preferences
+  into a cloned non-nil empty map, uses
   a supplied non-zero `CreatedAt` only for a new row (otherwise the repository
   clock), and always preserves an existing row's `CreatedAt`. Persisted times
-  are UTC at PostgreSQL microsecond precision. `UpdatedAt` is repository-owned;
-  for an existing row it is strictly greater than the current persisted value;
+  are UTC at PostgreSQL microsecond precision. `UpdatedAt` is repository-owned
+  and strictly greater than both the current persisted value and that owner's
+  process-local last-issued high-water mark, including candidates from commands
+  that later fail or remain unknown; the high-water mark never rolls back;
   and
 - save/update atomically persist the owner profile, one
   `owner_profile.updated` audit row, and one `owner_profile.updated` event. No
@@ -414,8 +417,13 @@ failure is `corrupt`, not an empty map or absence.
 
 Reconciliation accepts success only when the returned profile exactly matches
 the unknown candidate across every persisted string, timestamp, and preference
-entry. The strictly increasing candidate `UpdatedAt` proves that the matching
-profile came from this atomic owner/audit/event transaction. A different
+entry. Candidate allocation is serialized per owner. Its non-rollback high-water
+mark prevents a later command in the same Gateway process from regenerating an
+uncertain candidate even when the clock is fixed or moves backward, so an exact
+match proves that the profile came from this atomic owner/audit/event
+transaction. Candidates are internal and never survive or cross a Gateway
+process boundary; a process loss also terminates the request that owned the
+proof. A different
 profile, absence, a zero unknown candidate, or a reconciliation error remains
 unresolved: a later writer may have interposed, so the caller must not retry
 automatically or report success. It returns safe unavailable/conflict copy and
@@ -455,7 +463,8 @@ GET, corrupt JSON, query/scan/rows propagation, candidate-match reconciliation,
 and explicit `READ COMMITTED` barrier evidence; startup seed missing/existing/
 failure tests and GET-no-Exec proof; real-DSN round-trip/restart/race tests;
 caller context, normalization parity, safe error projection, and Weixin no-
-cursor-advance tests; and source guards for one embedded repository, no legacy
+cursor-advance tests; fixed/backward-clock and failed-candidate high-water tests;
+and source guards for one embedded repository, no legacy
 signatures, no ignored Owner errors, and no migrated `context.Background()`.
 The existing PostgreSQL CI topology and `SPARKCLAW_TEST_POSTGRES_DSN` skip
 behavior do not change, but an actual configured PostgreSQL run is mandatory
@@ -556,6 +565,7 @@ migrations remain in place.
 | S2 pilot implementation fresh re-review | `9d86c50` | `REVISE` | A ticket could expire during persistence/reconciliation yet still be disclosed because completion reused the request-start time | Context-isolated gatekeeper / 2026-08-20 |
 | S2 pilot repair implementation | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | Completion reads a live clock immediately before disclosure, with intra-call expiry coverage, independently repeated disposable real-PostgreSQL full/race runs, complete File failure evidence, and verified Compose forwarding for read/write timeout overrides | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S3 Owner contract review 1 | `57d5b6d` | `REVISE` | Existing-row unknown outcome lacked a commit proof; startup seed, candidate normalization, legacy File owner precedence, and the Weixin pre-download context path were underspecified | Context-isolated gatekeeper / 2026-08-20 |
-| S3 Owner contract repair | pending | pending | Adds exact monotonic candidate reconciliation, deterministic normalization, startup readiness, File compatibility invariants, and complete Weixin context/cursor behavior | Pending independent re-review / 2026-08-20 |
+| S3 Owner contract review 2 | `08a327b` | `REVISE` | Exact candidate matching still allowed a later identical writer to regenerate a rolled-back microsecond timestamp, and blank display-name defaulting diverged from accepted behavior | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner contract repair | pending | pending | Adds a non-rollback per-owner candidate high-water mark and preserves blank display-name normalization for every owner | Pending independent re-review / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

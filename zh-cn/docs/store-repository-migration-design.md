@@ -316,12 +316,14 @@ type OwnerRepository interface {
 - save 按 ID overwrite 并保留已有 `CreatedAt`；update 强制使用
   `app.DefaultOwnerID`；
 - candidate normalization trim 每个 string field，把空 ID default 为
-  `app.DefaultOwnerID`，把 default owner 的空 source/display name default 为
-  `web`/`Owner`，把 nil preferences 变成 cloned non-nil empty map。仅新 row 可
+  `app.DefaultOwnerID`，把 default owner 的空 source default 为 `web`，把每个
+  owner 的空 display name default 为 `Owner`，把 nil preferences 变成 cloned
+  non-nil empty map。仅新 row 可
   使用 caller 提供的 non-zero `CreatedAt`，否则使用 repository clock；已有 row
   永远保留其 `CreatedAt`。持久化时间为 UTC PostgreSQL microsecond precision；
-  `UpdatedAt` 由 repository 分配，对已有 row 必须严格大于 current persisted
-  value；
+  `UpdatedAt` 由 repository 分配，必须严格大于 current persisted value 与该 owner
+  的 process-local last-issued high-water mark，包括之后失败或保持 unknown 的
+  candidate；high-water mark 永不随 rollback 回退；
 - save/update 原子持久化 owner profile、一条 `owner_profile.updated` audit 和
   一条 `owner_profile.updated` event。任何 backend 都不能报告 profile-only
   success。
@@ -366,8 +368,11 @@ statement 获取相同 advisory lock，再用独立 statement 读取 owner。Own
 preferences JSON decode failure 是 `corrupt`，不能变成空 map 或 absence。
 
 只有 barrier 返回的 profile 在每个 persisted string、timestamp 和 preference entry
-上与 unknown candidate 完全一致时，对账才接受 success。严格递增的 candidate
-`UpdatedAt` 证明 matching profile 来自本次 atomic owner/audit/event transaction。
+上与 unknown candidate 完全一致时，对账才接受 success。candidate allocation 按
+owner serialize；non-rollback high-water mark 防止同一 Gateway process 的后续
+command 在 fixed/backward clock 下重新生成 uncertain candidate，因此 exact match
+证明 profile 来自本次 atomic owner/audit/event transaction。candidate 只在内部
+存在且不跨 Gateway process；process loss 也会终止拥有该 proof 的 request。
 不同 profile、absence、zero unknown candidate 或 reconciliation error 都保持
 unresolved：later writer 可能已经 interpose，因此 caller 不能自动 retry 或报告
 success；它返回安全 unavailable/conflict copy，并要求 uncertain call 结束后再发起
@@ -401,7 +406,8 @@ rollback、startup seed、read-only GET、corrupt JSON、query/scan/rows propaga
 exact candidate reconciliation、显式 `READ COMMITTED` barrier 证据；startup seed
 missing/existing/failure tests 与 GET-no-Exec proof；real-DSN round-trip/restart/race
 tests；caller context、normalization parity、safe error projection 与 Weixin
-no-cursor-advance tests；以及一个 embedded repository、无 legacy signature、无
+no-cursor-advance tests；fixed/backward-clock 与 failed-candidate high-water tests；
+以及一个 embedded repository、无 legacy signature、无
 ignored Owner error、无迁移后 `context.Background()` 的 source guards。现有
 PostgreSQL CI topology 与 `SPARKCLAW_TEST_POSTGRES_DSN` skip behavior
 不变，但实际 configured PostgreSQL run 是 `GO` 的强制证据。
@@ -491,6 +497,7 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S2 pilot 实现重新审查 | `9d86c50` | `REVISE` | ticket 可能在持久化/对账期间过期，但 completion 重用了请求开始时间，仍会披露它 | Context-isolated gatekeeper / 2026-08-20 |
 | S2 pilot 修复实现 | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | completion 在披露前立即读取 live clock，并新增同一调用内过期覆盖、独立重复的 disposable real-PostgreSQL full/race run、完整 File failure evidence，以及经过验证的 Compose read/write timeout override 转发 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S3 Owner contract review 1 | `57d5b6d` | `REVISE` | existing-row unknown outcome 缺少 commit proof；startup seed、candidate normalization、legacy File owner precedence 与 Weixin pre-download context path 定义不足 | Context-isolated gatekeeper / 2026-08-20 |
-| S3 Owner contract repair | pending | pending | 增加 exact monotonic candidate reconciliation、deterministic normalization、startup readiness、File compatibility invariant 和完整 Weixin context/cursor behavior | 等待独立复审 / 2026-08-20 |
+| S3 Owner contract review 2 | `08a327b` | `REVISE` | exact candidate matching 仍允许后续相同 writer 重新生成 rolled-back microsecond timestamp，且 blank display-name default 与 accepted behavior 分叉 | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner contract repair | pending | pending | 增加 non-rollback per-owner candidate high-water mark，并为每个 owner 保留 blank display-name normalization | 等待独立复审 / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |

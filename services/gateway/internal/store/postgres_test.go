@@ -29,11 +29,11 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if got, ok := st.GetSession(session.ID); !ok || got.Title != "Postgres Session" {
 		t.Fatalf("session did not round trip: %#v ok=%v", got, ok)
 	}
-	defaultOwner := st.GetOwnerProfile()
+	defaultOwner := mustGetOwnerProfile(t, st)
 	if defaultOwner.ID != app.DefaultOwnerID || defaultOwner.DisplayName == "" {
 		t.Fatalf("default owner did not load: %#v", defaultOwner)
 	}
-	updatedOwner := st.UpdateOwnerProfile(app.OwnerProfile{
+	updatedOwner := mustUpdateOwnerProfile(t, st, app.OwnerProfile{
 		DisplayName: "Postgres Owner",
 		Email:       "pg-owner@example.test",
 		Preferences: map[string]string{"timezone": "UTC", "tone": "brief"},
@@ -41,7 +41,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	if updatedOwner.ID != app.DefaultOwnerID || updatedOwner.Preferences["timezone"] != "UTC" {
 		t.Fatalf("owner profile did not update: %#v", updatedOwner)
 	}
-	if got := st.GetOwnerProfile(); got.DisplayName != "Postgres Owner" || got.Email != "pg-owner@example.test" || got.Preferences["tone"] != "brief" {
+	if got := mustGetOwnerProfile(t, st); got.DisplayName != "Postgres Owner" || got.Email != "pg-owner@example.test" || got.Preferences["tone"] != "brief" {
 		t.Fatalf("owner profile did not round trip: %#v", got)
 	}
 	message := st.AddMessage(app.Message{
@@ -780,6 +780,9 @@ func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 		RESTART IDENTITY CASCADE
 	`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.seedDefaultOwner(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -296,7 +296,11 @@ func (s *Syncer) processBatch(ctx context.Context, scope connectorruntime.Runtim
 		if strings.TrimSpace(inbound.ExternalID) == "" {
 			inbound.ExternalID = stableInboundID(inbound)
 		}
-		chatSession := s.dispatcher.ensureChatSession(inbound)
+		chatSession, err := s.dispatcher.ensureChatSession(ctx, inbound)
+		if err != nil {
+			slog.Warn("weixin owner profile unavailable; will retry", "binding_id", binding.ID, "external_id", msg.ExternalID, "error", err)
+			return
+		}
 		endpoint, endpointErr := messagecontrol.NewEndpointRegistry(s.store).Get(ctx, app.EndpointID(chatSession.ID))
 		if endpointErr != nil {
 			slog.Warn("weixin inbound source endpoint rejected", "binding_id", binding.ID, "code", messagecontrol.CodeBindingUnavailable)

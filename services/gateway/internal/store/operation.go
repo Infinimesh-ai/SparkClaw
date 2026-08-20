@@ -25,9 +25,15 @@ const (
 type StoreOperation string
 
 const (
-	OperationISCPOnboardingSave StoreOperation = "iscp_onboarding.save"
-	OperationISCPOnboardingGet  StoreOperation = "iscp_onboarding.get"
-	OperationISCPOnboardingList StoreOperation = "iscp_onboarding.list"
+	OperationISCPOnboardingSave          StoreOperation = "iscp_onboarding.save"
+	OperationISCPOnboardingGet           StoreOperation = "iscp_onboarding.get"
+	OperationISCPOnboardingList          StoreOperation = "iscp_onboarding.list"
+	OperationOwnerProfileGet             StoreOperation = "owner_profile.get"
+	OperationOwnerProfileUpdate          StoreOperation = "owner_profile.update"
+	OperationOwnerProfileGetByID         StoreOperation = "owner_profile.get_by_id"
+	OperationOwnerProfileSave            StoreOperation = "owner_profile.save"
+	OperationOwnerProfileList            StoreOperation = "owner_profile.list"
+	OperationOwnerProfileFindExternalRef StoreOperation = "owner_profile.find_external_ref"
 )
 
 type StoreError struct {
@@ -62,13 +68,15 @@ func StoreErrorCodeOf(err error) StoreErrorCode {
 }
 
 type OperationTimeouts struct {
-	Read  time.Duration
-	Write time.Duration
+	Read        time.Duration
+	Write       time.Duration
+	Transaction time.Duration
 }
 
 var defaultOperationTimeouts = OperationTimeouts{
-	Read:  10 * time.Second,
-	Write: 30 * time.Second,
+	Read:        10 * time.Second,
+	Write:       30 * time.Second,
+	Transaction: 60 * time.Second,
 }
 
 type operationMode string
@@ -78,8 +86,9 @@ const (
 	operationRead  operationMode = "read"
 	operationWrite operationMode = "write"
 
-	timeoutRead  operationTimeoutClass = "read"
-	timeoutWrite operationTimeoutClass = "write"
+	timeoutRead        operationTimeoutClass = "read"
+	timeoutWrite       operationTimeoutClass = "write"
+	timeoutTransaction operationTimeoutClass = "transaction"
 )
 
 type operationSpec struct {
@@ -103,6 +112,30 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationISCPOnboardingList, Repository: "ISCPOnboardingRepository",
 		Method: "ListISCPOnboardings", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationOwnerProfileGet: {
+		ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
+		Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationOwnerProfileUpdate: {
+		ID: OperationOwnerProfileUpdate, Repository: "OwnerRepository",
+		Method: "UpdateOwnerProfile", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationOwnerProfileGetByID: {
+		ID: OperationOwnerProfileGetByID, Repository: "OwnerRepository",
+		Method: "GetOwnerProfileByID", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationOwnerProfileSave: {
+		ID: OperationOwnerProfileSave, Repository: "OwnerRepository",
+		Method: "SaveOwnerProfile", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationOwnerProfileList: {
+		ID: OperationOwnerProfileList, Repository: "OwnerRepository",
+		Method: "ListOwnerProfiles", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationOwnerProfileFindExternalRef: {
+		ID: OperationOwnerProfileFindExternalRef, Repository: "OwnerRepository",
+		Method: "FindOwnerProfileByExternalRef", Mode: operationRead, Timeout: timeoutRead,
+	},
 }
 
 func normalizeOperationTimeouts(timeouts OperationTimeouts) OperationTimeouts {
@@ -112,6 +145,9 @@ func normalizeOperationTimeouts(timeouts OperationTimeouts) OperationTimeouts {
 	if timeouts.Write <= 0 {
 		timeouts.Write = defaultOperationTimeouts.Write
 	}
+	if timeouts.Transaction <= 0 {
+		timeouts.Transaction = defaultOperationTimeouts.Transaction
+	}
 	return timeouts
 }
 
@@ -120,6 +156,8 @@ func operationContext(parent context.Context, operation StoreOperation, timeouts
 	timeout := timeouts.Read
 	if spec.Timeout == timeoutWrite {
 		timeout = timeouts.Write
+	} else if spec.Timeout == timeoutTransaction {
+		timeout = timeouts.Transaction
 	}
 	if deadline, exists := parent.Deadline(); exists && time.Until(deadline) <= timeout {
 		return context.WithCancel(parent)

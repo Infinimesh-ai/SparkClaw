@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestISCPOnboardingOperationSpecsAreFiniteAndComplete(t *testing.T) {
+func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 	want := map[StoreOperation]operationSpec{
 		OperationISCPOnboardingSave: {
 			ID: OperationISCPOnboardingSave, Repository: "ISCPOnboardingRepository",
@@ -20,6 +20,30 @@ func TestISCPOnboardingOperationSpecsAreFiniteAndComplete(t *testing.T) {
 		OperationISCPOnboardingList: {
 			ID: OperationISCPOnboardingList, Repository: "ISCPOnboardingRepository",
 			Method: "ListISCPOnboardings", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationOwnerProfileGet: {
+			ID: OperationOwnerProfileGet, Repository: "OwnerRepository",
+			Method: "GetOwnerProfile", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationOwnerProfileUpdate: {
+			ID: OperationOwnerProfileUpdate, Repository: "OwnerRepository",
+			Method: "UpdateOwnerProfile", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationOwnerProfileGetByID: {
+			ID: OperationOwnerProfileGetByID, Repository: "OwnerRepository",
+			Method: "GetOwnerProfileByID", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationOwnerProfileSave: {
+			ID: OperationOwnerProfileSave, Repository: "OwnerRepository",
+			Method: "SaveOwnerProfile", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
+		OperationOwnerProfileList: {
+			ID: OperationOwnerProfileList, Repository: "OwnerRepository",
+			Method: "ListOwnerProfiles", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationOwnerProfileFindExternalRef: {
+			ID: OperationOwnerProfileFindExternalRef, Repository: "OwnerRepository",
+			Method: "FindOwnerProfileByExternalRef", Mode: operationRead, Timeout: timeoutRead,
 		},
 	}
 	if len(operationSpecs) != len(want) {
@@ -35,7 +59,7 @@ func TestISCPOnboardingOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			t.Errorf("pilot method %s has duplicate operation specs", got.Method)
 		}
 		methods[got.Method] = struct{}{}
-		if got.Timeout != timeoutRead && got.Timeout != timeoutWrite {
+		if got.Timeout != timeoutRead && got.Timeout != timeoutWrite && got.Timeout != timeoutTransaction {
 			t.Errorf("operation %s has unknown timeout class %q", id, got.Timeout)
 		}
 	}

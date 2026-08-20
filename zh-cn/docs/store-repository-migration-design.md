@@ -355,9 +355,13 @@ unknown-outcome fence 和 read reconciliation，且不改变 snapshot schema。F
 startup 在 `Snapshot.OwnerProfiles` 存在时以它为 authority；legacy
 `Snapshot.OwnerProfile` 只是 default row 的 compatibility copy。startup 拒绝每个
 map-key/embedded-ID mismatch，要求 map 包含 default row，并要求该 row 与 legacy
-copy 的每个 persisted field 和 preference entry 完全一致。map 缺失时，只有 legacy
-copy 的 embedded ID 精确等于 default ID 才能提升它；不能 trim、default 或以其他
-方式正常化损坏的 persisted identity。
+copy 的每个 persisted field 和 preference entry 完全一致。唯一例外是旧 constructor
+调用两次 `DefaultOwnerProfile` 写出的 snapshot：两个 profile 都仍是未编辑的 stock
+default owner 时可有不同初始化 timestamp，且仍以 map entry 为 authority。map
+缺失时，只有 legacy copy 的 embedded ID 精确等于 default ID 才能提升它；若两个
+legacy owner field 都完全缺失，则该 snapshot 早于 owner schema，startup 在内存中
+seed 一个 stock default owner。除此之外不能 trim、default 或以其他方式正常化
+损坏的 persisted identity。
 
 PostgreSQL save/update 获取一条 owned connection，开始显式 transaction，以 owner
 ID 获取 transaction-scoped advisory lock，读取 current row 以保留 `CreatedAt`，

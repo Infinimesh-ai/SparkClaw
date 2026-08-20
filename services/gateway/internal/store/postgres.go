@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,19 +14,51 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type PostgresStore struct {
-	db                 *pgxpool.Pool
-	operationTimeouts  OperationTimeouts
-	onboardingPostgres onboardingPostgresOps
+	db                  *pgxpool.Pool
+	operationTimeouts   OperationTimeouts
+	onboardingPostgres  onboardingPostgresOps
+	ownerPostgres       ownerPostgresOps
+	ownerMu             sync.Mutex
+	ownerWriteHighWater map[string]time.Time
+	ownerNow            func() time.Time
 	// passiveNotificationRevs mirrors the memory backend's per-owner change
 	// counter for SSE pollers. Process-local by design: the gateway is the
 	// only writer of passive notifications, and callers only compare values
 	// for equality, so a restart resetting it is harmless.
 	passiveRevMu            sync.Mutex
 	passiveNotificationRevs map[string]uint64
+}
+
+type ownerPostgresOps interface {
+	Acquire(context.Context) (onboardingPostgresSession, error)
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (onboardingPostgresRows, error)
+	QueryRow(context.Context, string, ...any) onboardingPostgresRow
+}
+
+type pgxOwnerPostgresOps struct {
+	pool *pgxpool.Pool
+}
+
+func (o pgxOwnerPostgresOps) Acquire(ctx context.Context) (onboardingPostgresSession, error) {
+	return pgxOnboardingPostgresOps{pool: o.pool}.Acquire(ctx)
+}
+
+func (o pgxOwnerPostgresOps) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	return o.pool.Exec(ctx, sql, arguments...)
+}
+
+func (o pgxOwnerPostgresOps) Query(ctx context.Context, sql string, arguments ...any) (onboardingPostgresRows, error) {
+	return o.pool.Query(ctx, sql, arguments...)
+}
+
+func (o pgxOwnerPostgresOps) QueryRow(ctx context.Context, sql string, arguments ...any) onboardingPostgresRow {
+	return o.pool.QueryRow(ctx, sql, arguments...)
 }
 
 func NewPostgresStore(ctx context.Context, dsn string) (*PostgresStore, error) {
@@ -42,9 +76,16 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 	st := &PostgresStore{
 		db: pool, operationTimeouts: normalizeOperationTimeouts(timeouts),
 		onboardingPostgres:      pgxOnboardingPostgresOps{pool: pool},
+		ownerPostgres:           pgxOwnerPostgresOps{pool: pool},
+		ownerWriteHighWater:     map[string]time.Time{},
+		ownerNow:                time.Now,
 		passiveNotificationRevs: map[string]uint64{},
 	}
 	if err := st.migrate(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := st.seedDefaultOwner(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -317,127 +358,233 @@ func (s *PostgresStore) TouchClient(id string) {
 	`, id, time.Now().UTC())
 }
 
-func (s *PostgresStore) GetOwnerProfile() app.OwnerProfile {
-	profile, _ := s.GetOwnerProfileByID(app.DefaultOwnerID)
-	return profile
-}
-
-func (s *PostgresStore) UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
-	profile.ID = app.DefaultOwnerID
-	return s.SaveOwnerProfile(profile)
-}
-
-func (s *PostgresStore) GetOwnerProfileByID(id string) (app.OwnerProfile, bool) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		id = app.DefaultOwnerID
-	}
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, source, external_ref, workspace_root, default_channel, default_binding_id,
-			display_name, email, preferences, created_at, updated_at
-		FROM owners
-		WHERE id = $1
-	`, id)
-	profile, err := scanOwnerProfile(row)
-	if err == nil {
-		return profile, true
-	}
-	if id != app.DefaultOwnerID {
-		return app.OwnerProfile{}, false
-	}
-	profile = app.DefaultOwnerProfile()
-	_, _ = s.db.Exec(context.Background(), `
+func (s *PostgresStore) seedDefaultOwner(ctx context.Context) error {
+	startupCtx, cancel := postgresMigrationStartupContext(ctx)
+	defer cancel()
+	profile := app.DefaultOwnerProfile()
+	profile.CreatedAt = profile.CreatedAt.UTC().Truncate(time.Microsecond)
+	profile.UpdatedAt = profile.CreatedAt
+	if _, err := s.ownerPostgres.Exec(startupCtx, `
 		INSERT INTO owners (id, source, external_ref, workspace_root, default_channel, default_binding_id,
 			display_name, email, preferences, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		ON CONFLICT (id) DO NOTHING
 	`, profile.ID, profile.Source, profile.ExternalRef, profile.WorkspaceRoot, profile.DefaultChannel,
 		profile.DefaultBindingID, profile.DisplayName, profile.Email, mustJSON(profile.Preferences),
-		profile.CreatedAt, profile.UpdatedAt)
-	return profile, true
-}
-
-func (s *PostgresStore) SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
-	profile.ID = strings.TrimSpace(profile.ID)
-	if profile.ID == "" {
-		profile.ID = app.DefaultOwnerID
+		profile.CreatedAt, profile.UpdatedAt); err != nil {
+		return fmt.Errorf("seed default owner: %w", err)
 	}
-	current, ok := s.GetOwnerProfileByID(profile.ID)
-	now := time.Now().UTC()
-	if profile.CreatedAt.IsZero() {
-		profile.CreatedAt = current.CreatedAt
-	}
-	if !ok || profile.CreatedAt.IsZero() {
-		profile.CreatedAt = now
-	}
-	profile.UpdatedAt = now
-	if profile.Preferences == nil {
-		profile.Preferences = map[string]string{}
-	}
-	profile = normalizeOwnerProfile(profile)
-	ctx := context.Background()
-	_, _ = s.db.Exec(ctx, `
-		INSERT INTO owners (id, source, external_ref, workspace_root, default_channel, default_binding_id,
-			display_name, email, preferences, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (id) DO UPDATE SET
-			source = EXCLUDED.source,
-			external_ref = EXCLUDED.external_ref,
-			workspace_root = EXCLUDED.workspace_root,
-			default_channel = EXCLUDED.default_channel,
-			default_binding_id = EXCLUDED.default_binding_id,
-			display_name = EXCLUDED.display_name,
-			email = EXCLUDED.email,
-			preferences = EXCLUDED.preferences,
-			updated_at = EXCLUDED.updated_at
-	`, profile.ID, profile.Source, profile.ExternalRef, profile.WorkspaceRoot, profile.DefaultChannel,
-		profile.DefaultBindingID, profile.DisplayName, profile.Email, mustJSON(profile.Preferences),
-		profile.CreatedAt, profile.UpdatedAt)
-	s.appendAudit(ctx, "owner_profile.updated", "", "", "owner", profile.DisplayName, map[string]any{
-		"owner_id":     profile.ID,
-		"source":       profile.Source,
-		"external_ref": profile.ExternalRef != "",
-		"email_set":    profile.Email != "",
-		"preferences":  len(profile.Preferences),
-		"display_name": profile.DisplayName,
-	})
-	s.appendEvent(ctx, "owner_profile.updated", "", "", profile)
-	return profile
-}
-
-func (s *PostgresStore) ListOwnerProfiles() []app.OwnerProfile {
-	rows, err := s.db.Query(context.Background(), `
-		SELECT id, source, external_ref, workspace_root, default_channel, default_binding_id,
-			display_name, email, preferences, created_at, updated_at
-		FROM owners
-		ORDER BY updated_at DESC
-	`)
+	confirmed, err := scanOwnerProfile(s.ownerPostgres.QueryRow(startupCtx, ownerProfileSelectSQL+` WHERE id=$1`, app.DefaultOwnerID))
 	if err != nil {
-		return []app.OwnerProfile{}
+		return fmt.Errorf("confirm default owner: %w", err)
+	}
+	if confirmed.ID != app.DefaultOwnerID {
+		return errors.New("confirm default owner: invalid owner identity")
+	}
+	s.ownerWriteHighWater[confirmed.ID] = confirmed.UpdatedAt
+	return nil
+}
+
+const ownerProfileSelectSQL = `SELECT id, source, external_ref, workspace_root, default_channel, default_binding_id,
+	display_name, email, preferences, created_at, updated_at FROM owners`
+
+func (s *PostgresStore) GetOwnerProfile(ctx context.Context) (app.OwnerProfile, error) {
+	profile, found, err := s.getOwnerProfileByID(ctx, OperationOwnerProfileGet, app.DefaultOwnerID)
+	if err != nil {
+		return app.OwnerProfile{}, err
+	}
+	if !found {
+		return app.OwnerProfile{}, storeError(OperationOwnerProfileGet, StoreErrorCorrupt, errors.New("default owner profile is missing"))
+	}
+	return profile, nil
+}
+
+func (s *PostgresStore) UpdateOwnerProfile(ctx context.Context, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	profile.ID = app.DefaultOwnerID
+	return s.saveOwnerProfile(ctx, OperationOwnerProfileUpdate, profile)
+}
+
+func (s *PostgresStore) GetOwnerProfileByID(ctx context.Context, id string) (app.OwnerProfile, bool, error) {
+	return s.getOwnerProfileByID(ctx, OperationOwnerProfileGetByID, id)
+}
+
+func (s *PostgresStore) getOwnerProfileByID(ctx context.Context, operation StoreOperation, id string) (app.OwnerProfile, bool, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.OwnerProfile{}, false, err
+	}
+	id = normalizeOwnerProfileID(id)
+	session, err := s.ownerPostgres.Acquire(ctx)
+	if err != nil {
+		return app.OwnerProfile{}, false, classifyPostgresPreTransaction(operation, ctx, err)
+	}
+	release := true
+	defer func() {
+		if release {
+			session.Release()
+		}
+	}()
+	transaction, err := session.Begin(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return app.OwnerProfile{}, false, classifyPostgresPreTransaction(operation, ctx, err)
+	}
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, ownerAdvisoryKey(id)); err != nil {
+		err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
+		return app.OwnerProfile{}, false, classifyPostgresReadError(operation, ctx, err)
+	}
+	profile, err := scanOwnerProfile(transaction.QueryRow(ctx, ownerProfileSelectSQL+` WHERE id=$1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		if err := transaction.Commit(ctx); err != nil {
+			release = false
+			return app.OwnerProfile{}, false, classifyPostgresReadError(operation, ctx, errors.Join(err, session.Terminate(ctx)))
+		}
+		return app.OwnerProfile{}, false, nil
+	}
+	if err != nil {
+		err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
+		return app.OwnerProfile{}, false, classifyPostgresOwnerReadError(operation, ctx, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		release = false
+		return app.OwnerProfile{}, false, classifyPostgresReadError(operation, ctx, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneOwnerProfile(profile), true, nil
+}
+
+func (s *PostgresStore) SaveOwnerProfile(ctx context.Context, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	return s.saveOwnerProfile(ctx, OperationOwnerProfileSave, profile)
+}
+
+func (s *PostgresStore) saveOwnerProfile(ctx context.Context, operation StoreOperation, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.OwnerProfile{}, err
+	}
+	profile.ID = normalizeOwnerProfileID(profile.ID)
+	s.ownerMu.Lock()
+	defer s.ownerMu.Unlock()
+	session, err := s.ownerPostgres.Acquire(ctx)
+	if err != nil {
+		return app.OwnerProfile{}, classifyPostgresPreTransaction(operation, ctx, err)
+	}
+	release := true
+	defer func() {
+		if release {
+			session.Release()
+		}
+	}()
+	transaction, err := session.Begin(ctx, pgx.TxOptions{})
+	if err != nil {
+		return app.OwnerProfile{}, classifyPostgresPreTransaction(operation, ctx, err)
+	}
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, ownerAdvisoryKey(profile.ID)); err != nil {
+		err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
+		return app.OwnerProfile{}, classifyPostgresPreTransaction(operation, ctx, err)
+	}
+	current, err := scanOwnerProfile(transaction.QueryRow(ctx, ownerProfileSelectSQL+` WHERE id=$1`, profile.ID))
+	exists := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
+		return app.OwnerProfile{}, classifyPostgresOwnerReadError(operation, ctx, err)
+	}
+	candidate := prepareOwnerProfile(profile, current, exists, s.ownerNow(), s.ownerWriteHighWater[profile.ID])
+	s.ownerWriteHighWater[candidate.ID] = candidate.UpdatedAt
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO owners (id,source,external_ref,workspace_root,default_channel,default_binding_id,
+			display_name,email,preferences,created_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		ON CONFLICT (id) DO UPDATE SET source=EXCLUDED.source, external_ref=EXCLUDED.external_ref,
+			workspace_root=EXCLUDED.workspace_root, default_channel=EXCLUDED.default_channel,
+			default_binding_id=EXCLUDED.default_binding_id, display_name=EXCLUDED.display_name,
+			email=EXCLUDED.email, preferences=EXCLUDED.preferences, updated_at=EXCLUDED.updated_at
+	`, candidate.ID, candidate.Source, candidate.ExternalRef, candidate.WorkspaceRoot,
+		candidate.DefaultChannel, candidate.DefaultBindingID, candidate.DisplayName, candidate.Email,
+		mustJSON(candidate.Preferences), candidate.CreatedAt, candidate.UpdatedAt); err != nil {
+		return finishPostgresOwnerStatement(ctx, operation, candidate, session, transaction, &release, err)
+	}
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO audit_events (id,happened_at,type,session_id,run_id,actor,summary,fields)
+		VALUES ($1,$2,'owner_profile.updated',NULL,NULL,'owner',$3,$4)
+	`, app.NewID("audit"), candidate.UpdatedAt, candidate.DisplayName, optionalJSON(ownerProfileAuditFields(candidate))); err != nil {
+		return finishPostgresOwnerStatement(ctx, operation, candidate, session, transaction, &release, err)
+	}
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO events (id,happened_at,type,session_id,run_id,payload)
+		VALUES ($1,$2,'owner_profile.updated',NULL,NULL,$3)
+	`, app.NewID("evt"), candidate.UpdatedAt, mustJSON(candidate)); err != nil {
+		return finishPostgresOwnerStatement(ctx, operation, candidate, session, transaction, &release, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		release = false
+		return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
+	}
+	return cloneOwnerProfile(candidate), nil
+}
+
+func finishPostgresOwnerStatement(ctx context.Context, operation StoreOperation, candidate app.OwnerProfile, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) (app.OwnerProfile, error) {
+	var postgresError *pgconn.PgError
+	if errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) {
+		rollbackErr := transaction.Rollback(ctx)
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			*release = false
+			rollbackErr = errors.Join(rollbackErr, session.Terminate(ctx))
+		}
+		joined := errors.Join(cause, rollbackErr)
+		if postgresError != nil {
+			return app.OwnerProfile{}, storeError(operation, StoreErrorInternal, joined)
+		}
+		return app.OwnerProfile{}, classifyPostgresPreTransaction(operation, ctx, joined)
+	}
+	*release = false
+	return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+}
+
+func (s *PostgresStore) ListOwnerProfiles(ctx context.Context) ([]app.OwnerProfile, error) {
+	ctx, cancel := operationContext(ctx, OperationOwnerProfileList, s.operationTimeouts)
+	defer cancel()
+	rows, err := s.ownerPostgres.Query(ctx, ownerProfileSelectSQL+` ORDER BY updated_at DESC, id ASC`)
+	if err != nil {
+		return nil, classifyPostgresReadError(OperationOwnerProfileList, ctx, err)
 	}
 	defer rows.Close()
-	return collectRows(rows, scanOwnerProfile)
+	out := make([]app.OwnerProfile, 0)
+	for rows.Next() {
+		profile, err := scanOwnerProfile(rows)
+		if err != nil {
+			return nil, classifyPostgresOwnerReadError(OperationOwnerProfileList, ctx, err)
+		}
+		out = append(out, cloneOwnerProfile(profile))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, classifyPostgresReadError(OperationOwnerProfileList, ctx, err)
+	}
+	return out, nil
 }
 
-func (s *PostgresStore) FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool) {
+func (s *PostgresStore) FindOwnerProfileByExternalRef(ctx context.Context, source, externalRef string) (app.OwnerProfile, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationOwnerProfileFindExternalRef, s.operationTimeouts)
+	defer cancel()
 	source = strings.TrimSpace(source)
 	externalRef = strings.TrimSpace(externalRef)
 	if source == "" || externalRef == "" {
-		return app.OwnerProfile{}, false
+		return app.OwnerProfile{}, false, nil
 	}
-	row := s.db.QueryRow(context.Background(), `
-		SELECT id, source, external_ref, workspace_root, default_channel, default_binding_id,
-			display_name, email, preferences, created_at, updated_at
-		FROM owners
-		WHERE source = $1 AND external_ref = $2
-		ORDER BY updated_at DESC
-		LIMIT 1
-	`, source, externalRef)
-	profile, err := scanOwnerProfile(row)
+	profile, err := scanOwnerProfile(s.ownerPostgres.QueryRow(ctx, ownerProfileSelectSQL+`
+		WHERE source=$1 AND external_ref=$2 ORDER BY updated_at DESC, id ASC LIMIT 1`, source, externalRef))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.OwnerProfile{}, false, nil
+	}
 	if err != nil {
-		return app.OwnerProfile{}, false
+		return app.OwnerProfile{}, false, classifyPostgresOwnerReadError(OperationOwnerProfileFindExternalRef, ctx, err)
 	}
-	return profile, true
+	return cloneOwnerProfile(profile), true, nil
+}
+
+func ownerAdvisoryKey(id string) int64 {
+	digest := sha256.Sum256([]byte("sparkclaw/store/owner/v1\x00" + id))
+	return int64(binary.BigEndian.Uint64(digest[:8]))
 }
 
 func (s *PostgresStore) SavePairingCode(code app.PairingCode) {
@@ -3111,11 +3258,22 @@ func scanOwnerProfile(row scanner) (app.OwnerProfile, error) {
 		return app.OwnerProfile{}, err
 	}
 	profile.Preferences = map[string]string{}
-	_ = json.Unmarshal(preferences, &profile.Preferences)
+	if err := json.Unmarshal(preferences, &profile.Preferences); err != nil {
+		return app.OwnerProfile{}, errors.Join(errOwnerPreferencesDecode, err)
+	}
 	if profile.Preferences == nil {
 		profile.Preferences = map[string]string{}
 	}
 	return profile, nil
+}
+
+var errOwnerPreferencesDecode = errors.New("owner preferences decode failed")
+
+func classifyPostgresOwnerReadError(operation StoreOperation, ctx context.Context, cause error) error {
+	if errors.Is(cause, errOwnerPreferencesDecode) {
+		return storeError(operation, StoreErrorCorrupt, cause)
+	}
+	return classifyPostgresReadError(operation, ctx, cause)
 }
 
 func scanPairingCode(row scanner) (app.PairingCode, error) {

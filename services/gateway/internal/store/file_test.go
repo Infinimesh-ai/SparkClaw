@@ -267,7 +267,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.UpdateOwnerProfile(app.OwnerProfile{
+	mustUpdateOwnerProfile(t, st, app.OwnerProfile{
 		DisplayName: "Persistent Owner",
 		Email:       "owner@example.test",
 		Preferences: map[string]string{"timezone": "Asia/Shanghai", "style": "direct"},
@@ -366,7 +366,7 @@ func TestFileStorePersistsAndReloadsState(t *testing.T) {
 	if memories := afterDelete.SearchMemories("after edit"); len(memories) != 0 {
 		t.Fatalf("deleted memory reloaded unexpectedly: %#v", memories)
 	}
-	owner := reloaded.GetOwnerProfile()
+	owner := mustGetOwnerProfile(t, reloaded)
 	if owner.DisplayName != "Persistent Owner" || owner.Email != "owner@example.test" || owner.Preferences["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("owner profile did not reload: %#v", owner)
 	}

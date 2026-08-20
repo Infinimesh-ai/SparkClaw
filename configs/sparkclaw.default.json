@@ -226,6 +226,7 @@
     "startup_timeout_seconds": 180,
     "read_timeout_seconds": 10,
     "write_timeout_seconds": 30,
+    "transaction_timeout_seconds": 60,
     "encrypt_at_rest": false,
     "encryption_key": "",
     "encryption_key_file": "",

@@ -331,17 +331,18 @@ type StorageConfig struct {
 }
 
 type StateConfig struct {
-	Backend               string `json:"backend"`
-	Path                  string `json:"path"`
-	DSN                   string `json:"dsn"`
-	StartupTimeoutSeconds int    `json:"startup_timeout_seconds"`
-	ReadTimeoutSeconds    int    `json:"read_timeout_seconds"`
-	WriteTimeoutSeconds   int    `json:"write_timeout_seconds"`
-	EncryptAtRest         bool   `json:"encrypt_at_rest"`
-	EncryptionKey         string `json:"encryption_key,omitempty"`
-	EncryptionKeyFile     string `json:"encryption_key_file,omitempty"`
-	CredentialKey         string `json:"credential_key,omitempty"`
-	CredentialKeyFile     string `json:"credential_key_file,omitempty"`
+	Backend                   string `json:"backend"`
+	Path                      string `json:"path"`
+	DSN                       string `json:"dsn"`
+	StartupTimeoutSeconds     int    `json:"startup_timeout_seconds"`
+	ReadTimeoutSeconds        int    `json:"read_timeout_seconds"`
+	WriteTimeoutSeconds       int    `json:"write_timeout_seconds"`
+	TransactionTimeoutSeconds int    `json:"transaction_timeout_seconds"`
+	EncryptAtRest             bool   `json:"encrypt_at_rest"`
+	EncryptionKey             string `json:"encryption_key,omitempty"`
+	EncryptionKeyFile         string `json:"encryption_key_file,omitempty"`
+	CredentialKey             string `json:"credential_key,omitempty"`
+	CredentialKeyFile         string `json:"credential_key_file,omitempty"`
 }
 
 type RuntimeConfig struct {
@@ -1422,17 +1423,18 @@ func Default() Config {
 			S3Region:        "us-east-1",
 		},
 		State: StateConfig{
-			Backend:               "file",
-			Path:                  "./data/memory/gateway-state.json",
-			DSN:                   "",
-			StartupTimeoutSeconds: 180,
-			ReadTimeoutSeconds:    10,
-			WriteTimeoutSeconds:   30,
-			EncryptAtRest:         false,
-			EncryptionKey:         "",
-			EncryptionKeyFile:     "",
-			CredentialKey:         "",
-			CredentialKeyFile:     "./data/memory/gateway-credentials.key",
+			Backend:                   "file",
+			Path:                      "./data/memory/gateway-state.json",
+			DSN:                       "",
+			StartupTimeoutSeconds:     180,
+			ReadTimeoutSeconds:        10,
+			WriteTimeoutSeconds:       30,
+			TransactionTimeoutSeconds: 60,
+			EncryptAtRest:             false,
+			EncryptionKey:             "",
+			EncryptionKeyFile:         "",
+			CredentialKey:             "",
+			CredentialKeyFile:         "./data/memory/gateway-credentials.key",
 		},
 		Runtime: RuntimeConfig{
 			ObservationSummaryMaxBytes:    2400,
@@ -1576,6 +1578,13 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS must be an integer: %w", err)
 		}
 		cfg.State.WriteTimeoutSeconds = seconds
+	}
+	if v := os.Getenv("SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS"); v != "" {
+		seconds, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS must be an integer: %w", err)
+		}
+		cfg.State.TransactionTimeoutSeconds = seconds
 	}
 	if v := os.Getenv("SPARKCLAW_STATE_ENCRYPT_AT_REST"); v != "" {
 		enabled, err := parseStoreBoolOverride("SPARKCLAW_STATE_ENCRYPT_AT_REST", v)
@@ -2057,6 +2066,9 @@ func normalizeStateConfig(state *StateConfig) error {
 	}
 	if state.WriteTimeoutSeconds < 1 || state.WriteTimeoutSeconds > 900 {
 		return errors.New("state.write_timeout_seconds must be between 1 and 900")
+	}
+	if state.TransactionTimeoutSeconds < 1 || state.TransactionTimeoutSeconds > 900 {
+		return errors.New("state.transaction_timeout_seconds must be between 1 and 900")
 	}
 	switch state.Backend {
 	case "memory":

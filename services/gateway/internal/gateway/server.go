@@ -599,7 +599,12 @@ func (s *Server) mcpServerStatuses() []mcpintegration.Status {
 }
 
 func (s *Server) getOwnerProfile(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.GetOwnerProfile())
+	profile, err := s.store.GetOwnerProfile(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, profile)
 }
 
 func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
@@ -612,22 +617,41 @@ func (s *Server) updateOwnerProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	current := s.store.GetOwnerProfile()
+	current, err := s.store.GetOwnerProfile(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	profile, err := normalizeOwnerProfileInput(current, input.DisplayName, input.Email, input.Preferences)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.UpdateOwnerProfile(profile))
+	updated, err := s.store.UpdateOwnerProfile(r.Context(), profile)
+	updated, err = store.ReconcileOwnerProfileWrite(r.Context(), s.store, updated, err)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) listOwnerProfiles(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"profiles": s.store.ListOwnerProfiles()})
+	profiles, err := s.store.ListOwnerProfiles(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
 }
 
 func (s *Server) getOwnerProfileByID(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("owner_id"))
-	profile, ok := s.store.GetOwnerProfileByID(id)
+	profile, ok, err := s.store.GetOwnerProfileByID(r.Context(), id)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("profile not found"))
 		return
@@ -637,7 +661,11 @@ func (s *Server) getOwnerProfileByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("owner_id"))
-	current, ok := s.store.GetOwnerProfileByID(id)
+	current, ok, err := s.store.GetOwnerProfileByID(r.Context(), id)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("profile not found"))
 		return
@@ -666,7 +694,21 @@ func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 	profile.WorkspaceRoot = strings.TrimSpace(input.WorkspaceRoot)
 	profile.DefaultChannel = strings.TrimSpace(input.DefaultChannel)
 	profile.DefaultBindingID = strings.TrimSpace(input.DefaultBindingID)
-	writeJSON(w, http.StatusOK, s.store.SaveOwnerProfile(profile))
+	updated, err := s.store.SaveOwnerProfile(r.Context(), profile)
+	updated, err = store.ReconcileOwnerProfileWrite(r.Context(), s.store, updated, err)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func writeOwnerStoreError(w http.ResponseWriter, err error) {
+	if store.StoreErrorCodeOf(err) == store.StoreErrorTimeout {
+		writeError(w, http.StatusGatewayTimeout, errors.New("owner profile request timed out"))
+		return
+	}
+	writeError(w, http.StatusServiceUnavailable, errors.New("owner profiles are temporarily unavailable"))
 }
 
 func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
@@ -1121,7 +1163,11 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
-	profile, ok := s.store.GetOwnerProfileByID(ownerID)
+	profile, ok, err := s.store.GetOwnerProfileByID(r.Context(), ownerID)
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusBadRequest, errors.New("profile not found"))
 		return
@@ -1992,12 +2038,21 @@ func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getMemoryExport(w http.ResponseWriter, r *http.Request) {
 	s.applyMemoryRetention()
-	writeJSON(w, http.StatusOK, s.buildMemoryExport())
+	export, err := s.buildMemoryExport(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, export)
 }
 
 func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 	s.applyMemoryRetention()
-	export := s.buildMemoryExport()
+	export, err := s.buildMemoryExport(r.Context())
+	if err != nil {
+		writeOwnerStoreError(w, err)
+		return
+	}
 	raw, err := json.MarshalIndent(export, "", "  ")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -2037,7 +2092,7 @@ func (s *Server) archiveMemoryExport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"export": export, "artifact": artifactObject})
 }
 
-func (s *Server) buildMemoryExport() app.MemoryExport {
+func (s *Server) buildMemoryExport(ctx context.Context) (app.MemoryExport, error) {
 	s.applyMemoryRetention()
 	candidates := s.store.ListMemoryCandidates("")
 	pending := 0
@@ -2048,9 +2103,13 @@ func (s *Server) buildMemoryExport() app.MemoryExport {
 	}
 	memories := s.store.SearchMemories("")
 	episodes := s.store.ListEpisodeSummaries("")
+	ownerProfile, err := s.store.GetOwnerProfile(ctx)
+	if err != nil {
+		return app.MemoryExport{}, err
+	}
 	return app.MemoryExport{
 		GeneratedAt:      time.Now().UTC(),
-		OwnerProfile:     s.store.GetOwnerProfile(),
+		OwnerProfile:     ownerProfile,
 		Memories:         memories,
 		MemoryCandidates: candidates,
 		Episodes:         episodes,
@@ -2060,7 +2119,7 @@ func (s *Server) buildMemoryExport() app.MemoryExport {
 			PendingCandidates: pending,
 			Episodes:          len(episodes),
 		},
-	}
+	}, nil
 }
 
 func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
@@ -3127,15 +3186,16 @@ func publicStorageConfig(cfg config.StorageConfig) map[string]any {
 
 func publicStateConfig(cfg config.StateConfig) map[string]any {
 	return map[string]any{
-		"backend":                 cfg.Backend,
-		"path":                    cfg.Path,
-		"dsn":                     configuredStatus(cfg.DSN),
-		"startup_timeout_seconds": cfg.StartupTimeoutSeconds,
-		"read_timeout_seconds":    cfg.ReadTimeoutSeconds,
-		"write_timeout_seconds":   cfg.WriteTimeoutSeconds,
-		"encrypt_at_rest":         cfg.EncryptAtRest,
-		"encryption_key":          stateEncryptionStatus(cfg.EncryptionKey),
-		"encryption_key_file":     stateEncryptionStatus(cfg.EncryptionKeyFile),
+		"backend":                     cfg.Backend,
+		"path":                        cfg.Path,
+		"dsn":                         configuredStatus(cfg.DSN),
+		"startup_timeout_seconds":     cfg.StartupTimeoutSeconds,
+		"read_timeout_seconds":        cfg.ReadTimeoutSeconds,
+		"write_timeout_seconds":       cfg.WriteTimeoutSeconds,
+		"transaction_timeout_seconds": cfg.TransactionTimeoutSeconds,
+		"encrypt_at_rest":             cfg.EncryptAtRest,
+		"encryption_key":              stateEncryptionStatus(cfg.EncryptionKey),
+		"encryption_key_file":         stateEncryptionStatus(cfg.EncryptionKeyFile),
 	}
 }
 

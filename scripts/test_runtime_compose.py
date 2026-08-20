@@ -109,6 +109,7 @@ class RuntimeComposeTest(unittest.TestCase):
             {
                 "SPARKCLAW_STATE_READ_TIMEOUT_SECONDS": "7",
                 "SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS": "19",
+                "SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS": "23",
             }
         )
         result = subprocess.run(
@@ -137,6 +138,7 @@ class RuntimeComposeTest(unittest.TestCase):
         gateway_environment = config["services"]["gateway"]["environment"]
         self.assertEqual(gateway_environment["SPARKCLAW_STATE_READ_TIMEOUT_SECONDS"], "7")
         self.assertEqual(gateway_environment["SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS"], "19")
+        self.assertEqual(gateway_environment["SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS"], "23")
 
 
 if __name__ == "__main__":

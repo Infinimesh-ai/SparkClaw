@@ -129,18 +129,20 @@ func main() {
 
 func newStore(ctx context.Context, cfg config.Config) (store.Store, error) {
 	timeouts := store.OperationTimeouts{
-		Read:  time.Duration(cfg.State.ReadTimeoutSeconds) * time.Second,
-		Write: time.Duration(cfg.State.WriteTimeoutSeconds) * time.Second,
+		Read:        time.Duration(cfg.State.ReadTimeoutSeconds) * time.Second,
+		Write:       time.Duration(cfg.State.WriteTimeoutSeconds) * time.Second,
+		Transaction: time.Duration(cfg.State.TransactionTimeoutSeconds) * time.Second,
 	}
 	switch cfg.State.Backend {
 	case "", "file":
 		return store.NewFileStoreWithOptions(store.FileStoreOptions{
-			Path:              cfg.State.Path,
-			EncryptAtRest:     cfg.State.EncryptAtRest,
-			EncryptionKey:     cfg.State.EncryptionKey,
-			EncryptionKeyFile: cfg.State.EncryptionKeyFile,
-			ReadTimeout:       timeouts.Read,
-			WriteTimeout:      timeouts.Write,
+			Path:               cfg.State.Path,
+			EncryptAtRest:      cfg.State.EncryptAtRest,
+			EncryptionKey:      cfg.State.EncryptionKey,
+			EncryptionKeyFile:  cfg.State.EncryptionKeyFile,
+			ReadTimeout:        timeouts.Read,
+			WriteTimeout:       timeouts.Write,
+			TransactionTimeout: timeouts.Transaction,
 		})
 	case "memory":
 		return store.NewMemoryStoreWithOptions(timeouts), nil

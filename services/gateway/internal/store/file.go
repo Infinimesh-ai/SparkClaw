@@ -35,12 +35,13 @@ type FileStore struct {
 }
 
 type FileStoreOptions struct {
-	Path              string
-	EncryptAtRest     bool
-	EncryptionKey     string
-	EncryptionKeyFile string
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
+	Path               string
+	EncryptAtRest      bool
+	EncryptionKey      string
+	EncryptionKeyFile  string
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
+	TransactionTimeout time.Duration
 }
 
 type Snapshot struct {
@@ -89,7 +90,7 @@ func NewFileStore(path string) (*FileStore, error) {
 }
 
 func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
-	timeouts := normalizeOperationTimeouts(OperationTimeouts{Read: opts.ReadTimeout, Write: opts.WriteTimeout})
+	timeouts := normalizeOperationTimeouts(OperationTimeouts{Read: opts.ReadTimeout, Write: opts.WriteTimeout, Transaction: opts.TransactionTimeout})
 	inner := NewMemoryStoreWithOptions(timeouts)
 	admission := newFileAdmission()
 	path := opts.Path
@@ -112,6 +113,9 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		if err := json.Unmarshal(raw, &snapshot); err != nil {
 			return nil, err
 		}
+		if err := normalizePersistedOwnerProfiles(&snapshot); err != nil {
+			return nil, err
+		}
 		if err := normalizePersistedISCPOnboardings(snapshot.ISCPOnboardings); err != nil {
 			return nil, err
 		}
@@ -120,6 +124,59 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		return nil, err
 	}
 	return &FileStore{inner: inner, path: path, encryption: encryption, admission: admission, timeouts: timeouts, commitOps: osFileCommitOps{}}, nil
+}
+
+func normalizePersistedOwnerProfiles(snapshot *Snapshot) error {
+	if snapshot == nil {
+		return errors.New("file owner snapshot is missing")
+	}
+	if snapshot.OwnerProfiles == nil {
+		if emptyPersistedOwnerProfile(snapshot.OwnerProfile) {
+			defaultOwner := app.DefaultOwnerProfile()
+			snapshot.OwnerProfile = cloneOwnerProfile(defaultOwner)
+			snapshot.OwnerProfiles = map[string]app.OwnerProfile{app.DefaultOwnerID: cloneOwnerProfile(defaultOwner)}
+			return nil
+		}
+		if snapshot.OwnerProfile.ID != app.DefaultOwnerID {
+			return fmt.Errorf("legacy owner profile ID %q does not match default owner", snapshot.OwnerProfile.ID)
+		}
+		snapshot.OwnerProfile = cloneOwnerProfile(snapshot.OwnerProfile)
+		snapshot.OwnerProfiles = map[string]app.OwnerProfile{app.DefaultOwnerID: cloneOwnerProfile(snapshot.OwnerProfile)}
+		return nil
+	}
+	for id, profile := range snapshot.OwnerProfiles {
+		if id == "" || profile.ID != id {
+			return fmt.Errorf("owner profile key %q does not match embedded ID %q", id, profile.ID)
+		}
+	}
+	defaultProfile, ok := snapshot.OwnerProfiles[app.DefaultOwnerID]
+	if !ok {
+		return errors.New("owner profile map is missing the default owner")
+	}
+	if !OwnerProfilesEqual(defaultProfile, snapshot.OwnerProfile) &&
+		!legacyDefaultOwnerSeedEquivalent(defaultProfile, snapshot.OwnerProfile) {
+		return errors.New("legacy owner profile does not match the default owner map entry")
+	}
+	snapshot.OwnerProfile = cloneOwnerProfile(defaultProfile)
+	snapshot.OwnerProfiles = cloneOwnerProfileMap(snapshot.OwnerProfiles)
+	return nil
+}
+
+func legacyDefaultOwnerSeedEquivalent(authority, legacy app.OwnerProfile) bool {
+	isStockDefault := func(profile app.OwnerProfile) bool {
+		return profile.ID == app.DefaultOwnerID && profile.Source == "web" && profile.ExternalRef == "" &&
+			profile.WorkspaceRoot == "" && profile.DefaultChannel == "" && profile.DefaultBindingID == "" &&
+			profile.DisplayName == "Owner" && profile.Email == "" && len(profile.Preferences) == 0 &&
+			!profile.CreatedAt.IsZero() && profile.CreatedAt.Equal(profile.UpdatedAt)
+	}
+	return isStockDefault(authority) && isStockDefault(legacy)
+}
+
+func emptyPersistedOwnerProfile(profile app.OwnerProfile) bool {
+	return profile.ID == "" && profile.Source == "" && profile.ExternalRef == "" &&
+		profile.WorkspaceRoot == "" && profile.DefaultChannel == "" && profile.DefaultBindingID == "" &&
+		profile.DisplayName == "" && profile.Email == "" && len(profile.Preferences) == 0 &&
+		profile.CreatedAt.IsZero() && profile.UpdatedAt.IsZero()
 }
 
 func newFileAdmission() *semaphore.Weighted {
@@ -230,38 +287,62 @@ func (s *FileStore) TouchClient(id string) {
 	s.persist()
 }
 
-func (s *FileStore) GetOwnerProfile() app.OwnerProfile {
-	defer s.admitLegacyRead()()
-	return s.inner.GetOwnerProfile()
+func (s *FileStore) GetOwnerProfile(ctx context.Context) (app.OwnerProfile, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationOwnerProfileGet, 1)
+	if err != nil {
+		return app.OwnerProfile{}, err
+	}
+	defer release()
+	return s.inner.GetOwnerProfile(ctx)
 }
 
-func (s *FileStore) UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
-	defer s.admitLegacyCommand()()
-	out := s.inner.UpdateOwnerProfile(profile)
-	s.persist()
-	return out
+func (s *FileStore) UpdateOwnerProfile(ctx context.Context, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationOwnerProfileUpdate, fileAdmissionCapacity)
+	if err != nil {
+		return app.OwnerProfile{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationOwnerProfileUpdate, func(ctx context.Context) (app.OwnerProfile, error) {
+		return s.inner.UpdateOwnerProfile(ctx, profile)
+	})
 }
 
-func (s *FileStore) GetOwnerProfileByID(id string) (app.OwnerProfile, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.GetOwnerProfileByID(id)
+func (s *FileStore) GetOwnerProfileByID(ctx context.Context, id string) (app.OwnerProfile, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationOwnerProfileGetByID, 1)
+	if err != nil {
+		return app.OwnerProfile{}, false, err
+	}
+	defer release()
+	return s.inner.GetOwnerProfileByID(ctx, id)
 }
 
-func (s *FileStore) SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
-	defer s.admitLegacyCommand()()
-	out := s.inner.SaveOwnerProfile(profile)
-	s.persist()
-	return out
+func (s *FileStore) SaveOwnerProfile(ctx context.Context, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationOwnerProfileSave, fileAdmissionCapacity)
+	if err != nil {
+		return app.OwnerProfile{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationOwnerProfileSave, func(ctx context.Context) (app.OwnerProfile, error) {
+		return s.inner.SaveOwnerProfile(ctx, profile)
+	})
 }
 
-func (s *FileStore) ListOwnerProfiles() []app.OwnerProfile {
-	defer s.admitLegacyRead()()
-	return s.inner.ListOwnerProfiles()
+func (s *FileStore) ListOwnerProfiles(ctx context.Context) ([]app.OwnerProfile, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationOwnerProfileList, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.inner.ListOwnerProfiles(ctx)
 }
 
-func (s *FileStore) FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool) {
-	defer s.admitLegacyRead()()
-	return s.inner.FindOwnerProfileByExternalRef(source, externalRef)
+func (s *FileStore) FindOwnerProfileByExternalRef(ctx context.Context, source, externalRef string) (app.OwnerProfile, bool, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationOwnerProfileFindExternalRef, 1)
+	if err != nil {
+		return app.OwnerProfile{}, false, err
+	}
+	defer release()
+	return s.inner.FindOwnerProfileByExternalRef(ctx, source, externalRef)
 }
 
 func (s *FileStore) SavePairingCode(code app.PairingCode) {

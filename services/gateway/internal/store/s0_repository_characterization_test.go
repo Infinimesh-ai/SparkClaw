@@ -117,20 +117,20 @@ func characterizeS0OwnerRepository(t *testing.T, st Store, dimension string) {
 	profile := app.OwnerProfile{ID: "owner-s0", Source: "test", ExternalRef: "external-s0", DisplayName: "first"}
 	switch dimension {
 	case s0DimensionSuccess:
-		st.SaveOwnerProfile(profile)
-		if got, ok := st.FindOwnerProfileByExternalRef(profile.Source, profile.ExternalRef); !ok || got.ID != profile.ID {
+		mustSaveOwnerProfile(t, st, profile)
+		if got, ok := mustFindOwnerProfileByExternalRef(t, st, profile.Source, profile.ExternalRef); !ok || got.ID != profile.ID {
 			t.Fatalf("owner profile save/lookup = %#v ok=%v", got, ok)
 		}
 	case s0DimensionAbsence:
-		if _, ok := st.GetOwnerProfileByID("missing"); ok {
+		if _, ok := mustGetOwnerProfileByID(t, st, "missing"); ok {
 			t.Fatal("missing owner profile was found")
 		}
 	case s0DimensionDuplicate:
-		st.SaveOwnerProfile(profile)
+		mustSaveOwnerProfile(t, st, profile)
 		profile.DisplayName = "updated"
-		st.SaveOwnerProfile(profile)
+		mustSaveOwnerProfile(t, st, profile)
 		matches := 0
-		for _, got := range st.ListOwnerProfiles() {
+		for _, got := range mustListOwnerProfiles(t, st) {
 			if got.ID == profile.ID {
 				matches++
 				if got.DisplayName != "updated" {
@@ -604,8 +604,8 @@ func characterizeS0AuditRepository(t *testing.T, st Store, dimension string) {
 			t.Fatalf("audit order/scope = %#v", got)
 		}
 	case s0DimensionEventSequence:
-		st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-old", DisplayName: "old"})
-		st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-event-new", DisplayName: "new"})
+		mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-event-old", DisplayName: "old"})
+		mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-event-new", DisplayName: "new"})
 		events := st.EventsAfter("", "")
 		if len(events) != 2 || events[0].Type != "owner_profile.updated" || events[1].Type != "owner_profile.updated" {
 			t.Fatalf("event order = %#v", events)

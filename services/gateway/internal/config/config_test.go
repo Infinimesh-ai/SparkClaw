@@ -1027,7 +1027,7 @@ func TestLoadValidatesStateConfiguration(t *testing.T) {
 			t.Fatal(err)
 		}
 		if cfg.State.Backend != "file" || !filepath.IsAbs(cfg.State.Path) || cfg.State.StartupTimeoutSeconds != 180 ||
-			cfg.State.ReadTimeoutSeconds != 10 || cfg.State.WriteTimeoutSeconds != 30 {
+			cfg.State.ReadTimeoutSeconds != 10 || cfg.State.WriteTimeoutSeconds != 30 || cfg.State.TransactionTimeoutSeconds != 60 {
 			t.Fatalf("normalized state config = %#v", cfg.State)
 		}
 	})
@@ -1114,12 +1114,13 @@ func TestLoadValidatesStateOperationTimeoutOverrides(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Setenv("SPARKCLAW_STATE_READ_TIMEOUT_SECONDS", " 7 ")
 		t.Setenv("SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS", " 19 ")
+		t.Setenv("SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS", " 23 ")
 		cfg, err := Load("")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.State.ReadTimeoutSeconds != 7 || cfg.State.WriteTimeoutSeconds != 19 {
-			t.Fatalf("operation timeouts = read %d write %d", cfg.State.ReadTimeoutSeconds, cfg.State.WriteTimeoutSeconds)
+		if cfg.State.ReadTimeoutSeconds != 7 || cfg.State.WriteTimeoutSeconds != 19 || cfg.State.TransactionTimeoutSeconds != 23 {
+			t.Fatalf("operation timeouts = read %d write %d transaction %d", cfg.State.ReadTimeoutSeconds, cfg.State.WriteTimeoutSeconds, cfg.State.TransactionTimeoutSeconds)
 		}
 	})
 
@@ -1130,6 +1131,7 @@ func TestLoadValidatesStateOperationTimeoutOverrides(t *testing.T) {
 	}{
 		{"read", "SPARKCLAW_STATE_READ_TIMEOUT_SECONDS", "state.read_timeout_seconds"},
 		{"write", "SPARKCLAW_STATE_WRITE_TIMEOUT_SECONDS", "state.write_timeout_seconds"},
+		{"transaction", "SPARKCLAW_STATE_TRANSACTION_TIMEOUT_SECONDS", "state.transaction_timeout_seconds"},
 	} {
 		t.Run(testCase.name+" malformed", func(t *testing.T) {
 			t.Setenv(testCase.variable, "soon")

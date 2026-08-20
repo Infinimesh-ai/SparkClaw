@@ -161,7 +161,7 @@ func (a *GatewayAdapter) Dispatch(ctx context.Context, principal Principal, req 
 	case TypeSessionList:
 		return a.listSessions(req, principal, now)
 	case TypeSessionCreate:
-		return a.createSession(req, principal, now)
+		return a.createSession(ctx, req, principal, now)
 	case TypeMessageSend:
 		return a.sendMessage(req, principal, now)
 	case TypeMessageCancel:
@@ -258,7 +258,7 @@ func (a *GatewayAdapter) listSessions(req Request, principal Principal, now time
 	return newResponse(req, "ok", map[string]any{"sessions": sessions}, nil, nil, now)
 }
 
-func (a *GatewayAdapter) createSession(req Request, principal Principal, now time.Time) Response {
+func (a *GatewayAdapter) createSession(ctx context.Context, req Request, principal Principal, now time.Time) Response {
 	a.mutationMu.Lock()
 	defer a.mutationMu.Unlock()
 	if cached, ok := a.cachedMutation(req); ok {
@@ -275,7 +275,10 @@ func (a *GatewayAdapter) createSession(req Request, principal Principal, now tim
 	if len(title) > 200 {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeInvalidRequest, "session title is too long", false), now)
 	}
-	profile, ok := a.store.GetOwnerProfileByID(principal.OwnerID)
+	profile, ok, err := a.store.GetOwnerProfileByID(ctx, principal.OwnerID)
+	if err != nil {
+		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "owner profile is temporarily unavailable", true), now)
+	}
 	if !ok {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeNotFound, "owner profile not found", false), now)
 	}

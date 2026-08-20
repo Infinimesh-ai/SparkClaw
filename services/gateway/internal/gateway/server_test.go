@@ -1198,9 +1198,14 @@ func TestMemoryExportArchivesSnapshot(t *testing.T) {
 	session := st.CreateSession("Memory export")
 	run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, State: "completed", ModelLane: "fast", Risk: app.RiskDraft, StartedAt: time.Now().UTC()}
 	st.SaveRun(run)
-	profile := st.GetOwnerProfile()
+	profile, err := st.GetOwnerProfile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	profile.DisplayName = "Export Owner"
-	st.UpdateOwnerProfile(profile)
+	if _, err := st.UpdateOwnerProfile(context.Background(), profile); err != nil {
+		t.Fatal(err)
+	}
 	candidate := st.AddMemoryCandidate(app.MemoryCandidate{
 		SessionID:   session.ID,
 		RunID:       run.ID,
@@ -2233,13 +2238,14 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 			} `json:"fast"`
 		} `json:"model"`
 		State struct {
-			DSN                   string `json:"dsn"`
-			StartupTimeoutSeconds int    `json:"startup_timeout_seconds"`
-			ReadTimeoutSeconds    int    `json:"read_timeout_seconds"`
-			WriteTimeoutSeconds   int    `json:"write_timeout_seconds"`
-			EncryptAtRest         bool   `json:"encrypt_at_rest"`
-			EncryptionKey         string `json:"encryption_key"`
-			EncryptionKeyFile     string `json:"encryption_key_file"`
+			DSN                       string `json:"dsn"`
+			StartupTimeoutSeconds     int    `json:"startup_timeout_seconds"`
+			ReadTimeoutSeconds        int    `json:"read_timeout_seconds"`
+			WriteTimeoutSeconds       int    `json:"write_timeout_seconds"`
+			TransactionTimeoutSeconds int    `json:"transaction_timeout_seconds"`
+			EncryptAtRest             bool   `json:"encrypt_at_rest"`
+			EncryptionKey             string `json:"encryption_key"`
+			EncryptionKeyFile         string `json:"encryption_key_file"`
 		} `json:"state"`
 		Tools struct {
 			Web struct {
@@ -2275,7 +2281,7 @@ func TestAPITokenProtectsAPIRoutes(t *testing.T) {
 	if decoded.State.StartupTimeoutSeconds != 180 {
 		t.Fatalf("state startup timeout missing: %#v", decoded.State)
 	}
-	if decoded.State.ReadTimeoutSeconds != 10 || decoded.State.WriteTimeoutSeconds != 30 {
+	if decoded.State.ReadTimeoutSeconds != 10 || decoded.State.WriteTimeoutSeconds != 30 || decoded.State.TransactionTimeoutSeconds != 60 {
 		t.Fatalf("state operation timeouts missing: %#v", decoded.State)
 	}
 	if !decoded.State.EncryptAtRest || decoded.State.EncryptionKey != "configured" || decoded.State.EncryptionKeyFile != "missing" {
@@ -2477,7 +2483,7 @@ func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	wxRoot := filepath.Join(root, "users", "wx_owner")
-	st.SaveOwnerProfile(app.OwnerProfile{
+	if _, err := st.SaveOwnerProfile(context.Background(), app.OwnerProfile{
 		ID:               "wx_owner",
 		Source:           "weixin",
 		ExternalRef:      "bind:user",
@@ -2486,7 +2492,9 @@ func TestProfilesEndpointAndSessionOwnerIsolation(t *testing.T) {
 		DefaultBindingID: "bind",
 		DisplayName:      "微信用户",
 		Preferences:      map[string]string{},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime)

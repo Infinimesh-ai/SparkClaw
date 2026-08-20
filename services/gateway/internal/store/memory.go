@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +19,8 @@ type MemoryStore struct {
 	clients              map[string]app.Client
 	ownerProfile         app.OwnerProfile
 	ownerProfiles        map[string]app.OwnerProfile
+	ownerWriteHighWater  map[string]time.Time
+	ownerNow             func() time.Time
 	pairingCodes         map[string]app.PairingCode
 	iscpOnboardings      map[string]app.ISCPOnboarding
 	mcpAccessTickets     map[string]app.MCPAccessTicket
@@ -66,12 +70,15 @@ func NewMemoryStore() *MemoryStore {
 }
 
 func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
+	defaultOwner := app.DefaultOwnerProfile()
 	return &MemoryStore{
 		operationTimeouts:           normalizeOperationTimeouts(timeouts),
 		sessions:                    map[string]app.Session{},
 		clients:                     map[string]app.Client{},
-		ownerProfile:                app.DefaultOwnerProfile(),
-		ownerProfiles:               map[string]app.OwnerProfile{app.DefaultOwnerID: app.DefaultOwnerProfile()},
+		ownerProfile:                cloneOwnerProfile(defaultOwner),
+		ownerProfiles:               map[string]app.OwnerProfile{app.DefaultOwnerID: cloneOwnerProfile(defaultOwner)},
+		ownerWriteHighWater:         map[string]time.Time{app.DefaultOwnerID: defaultOwner.UpdatedAt},
+		ownerNow:                    time.Now,
 		pairingCodes:                map[string]app.PairingCode{},
 		iscpOnboardings:             map[string]app.ISCPOnboarding{},
 		mcpAccessTickets:            map[string]app.MCPAccessTicket{},
@@ -167,8 +174,16 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 		}
 		s.clients[id] = client
 	}
-	s.ownerProfile = normalizeOwnerProfile(snapshot.OwnerProfile)
-	s.ownerProfiles = ensureOwnerProfileMap(snapshot.OwnerProfiles, s.ownerProfile)
+	s.ownerProfile = cloneOwnerProfile(snapshot.OwnerProfile)
+	s.ownerProfiles = cloneOwnerProfileMap(snapshot.OwnerProfiles)
+	if s.ownerWriteHighWater == nil {
+		s.ownerWriteHighWater = map[string]time.Time{}
+	}
+	for id, profile := range s.ownerProfiles {
+		if profile.UpdatedAt.After(s.ownerWriteHighWater[id]) {
+			s.ownerWriteHighWater[id] = profile.UpdatedAt
+		}
+	}
 	s.pairingCodes = ensureMap(snapshot.PairingCodes)
 	s.iscpOnboardings = ensureMap(snapshot.ISCPOnboardings)
 	s.mcpAccessTickets = cloneMCPAccessTicketMap(ensureMap(snapshot.MCPAccessTickets))
@@ -588,103 +603,122 @@ func (s *MemoryStore) TouchClient(id string) {
 	s.clients[id] = client
 }
 
-func (s *MemoryStore) GetOwnerProfile() app.OwnerProfile {
-	profile, _ := s.GetOwnerProfileByID(app.DefaultOwnerID)
-	return profile
-}
-
-func (s *MemoryStore) UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
-	profile.ID = app.DefaultOwnerID
-	return s.SaveOwnerProfile(profile)
-}
-
-func (s *MemoryStore) GetOwnerProfileByID(id string) (app.OwnerProfile, bool) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		id = app.DefaultOwnerID
+func (s *MemoryStore) GetOwnerProfile(ctx context.Context) (app.OwnerProfile, error) {
+	ctx, cancel := operationContext(ctx, OperationOwnerProfileGet, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationOwnerProfileGet, ctx); err != nil {
+		return app.OwnerProfile{}, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	profile, ok := s.ownerProfiles[id]
-	if !ok && id == app.DefaultOwnerID {
-		profile = s.ownerProfile
-		ok = true
+	if err := operationContextError(OperationOwnerProfileGet, ctx); err != nil {
+		return app.OwnerProfile{}, err
 	}
+	profile, ok := s.ownerProfiles[app.DefaultOwnerID]
 	if !ok {
-		return app.OwnerProfile{}, false
+		return app.OwnerProfile{}, storeError(OperationOwnerProfileGet, StoreErrorCorrupt, errors.New("default owner profile is missing"))
 	}
-	return cloneOwnerProfile(normalizeOwnerProfile(profile)), true
+	return cloneOwnerProfile(profile), nil
 }
 
-func (s *MemoryStore) SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
+func (s *MemoryStore) UpdateOwnerProfile(ctx context.Context, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	profile.ID = app.DefaultOwnerID
+	return s.saveOwnerProfile(ctx, OperationOwnerProfileUpdate, profile)
+}
+
+func (s *MemoryStore) GetOwnerProfileByID(ctx context.Context, id string) (app.OwnerProfile, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationOwnerProfileGetByID, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationOwnerProfileGetByID, ctx); err != nil {
+		return app.OwnerProfile{}, false, err
+	}
+	id = normalizeOwnerProfileID(id)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := operationContextError(OperationOwnerProfileGetByID, ctx); err != nil {
+		return app.OwnerProfile{}, false, err
+	}
+	profile, ok := s.ownerProfiles[id]
+	if !ok {
+		return app.OwnerProfile{}, false, nil
+	}
+	return cloneOwnerProfile(profile), true, nil
+}
+
+func (s *MemoryStore) SaveOwnerProfile(ctx context.Context, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	return s.saveOwnerProfile(ctx, OperationOwnerProfileSave, profile)
+}
+
+func (s *MemoryStore) saveOwnerProfile(ctx context.Context, operation StoreOperation, profile app.OwnerProfile) (app.OwnerProfile, error) {
+	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.OwnerProfile{}, err
+	}
+	profile.ID = normalizeOwnerProfileID(profile.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	profile.ID = strings.TrimSpace(profile.ID)
-	if profile.ID == "" {
-		profile.ID = app.DefaultOwnerID
+	if err := operationContextError(operation, ctx); err != nil {
+		return app.OwnerProfile{}, err
 	}
-	current, ok := s.ownerProfiles[profile.ID]
-	if !ok && profile.ID == app.DefaultOwnerID {
-		current = s.ownerProfile
-		ok = true
+	current, exists := s.ownerProfiles[profile.ID]
+	candidate := prepareOwnerProfile(profile, current, exists, s.ownerNow(), s.ownerWriteHighWater[profile.ID])
+	s.ownerWriteHighWater[candidate.ID] = candidate.UpdatedAt
+	s.ownerProfiles[candidate.ID] = cloneOwnerProfile(candidate)
+	if candidate.ID == app.DefaultOwnerID {
+		s.ownerProfile = cloneOwnerProfile(candidate)
 	}
-	current = normalizeOwnerProfile(current)
-	now := time.Now().UTC()
-	if profile.CreatedAt.IsZero() {
-		profile.CreatedAt = current.CreatedAt
-	}
-	if !ok || profile.CreatedAt.IsZero() {
-		profile.CreatedAt = now
-	}
-	profile.UpdatedAt = now
-	profile.Preferences = cloneStringMap(profile.Preferences)
-	profile = normalizeOwnerProfile(profile)
-	if s.ownerProfiles == nil {
-		s.ownerProfiles = map[string]app.OwnerProfile{}
-	}
-	s.ownerProfiles[profile.ID] = profile
-	if profile.ID == app.DefaultOwnerID {
-		s.ownerProfile = profile
-	}
-	s.appendAuditLocked("owner_profile.updated", "", "", "owner", profile.DisplayName, map[string]any{
-		"owner_id":     profile.ID,
-		"source":       profile.Source,
-		"external_ref": profile.ExternalRef != "",
-		"email_set":    profile.Email != "",
-		"preferences":  len(profile.Preferences),
-		"display_name": profile.DisplayName,
-	})
-	s.appendEventLocked("owner_profile.updated", "", "", profile)
-	return cloneOwnerProfile(profile)
+	s.appendAuditLocked("owner_profile.updated", "", "", "owner", candidate.DisplayName, ownerProfileAuditFields(candidate))
+	s.appendEventLocked("owner_profile.updated", "", "", candidate)
+	return cloneOwnerProfile(candidate), nil
 }
 
-func (s *MemoryStore) ListOwnerProfiles() []app.OwnerProfile {
+func (s *MemoryStore) ListOwnerProfiles(ctx context.Context) ([]app.OwnerProfile, error) {
+	ctx, cancel := operationContext(ctx, OperationOwnerProfileList, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationOwnerProfileList, ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationOwnerProfileList, ctx); err != nil {
+		return nil, err
+	}
 	out := make([]app.OwnerProfile, 0, len(s.ownerProfiles))
 	for _, profile := range s.ownerProfiles {
-		out = append(out, cloneOwnerProfile(normalizeOwnerProfile(profile)))
+		out = append(out, cloneOwnerProfile(profile))
 	}
-	slices.SortFunc(out, func(a, b app.OwnerProfile) int {
-		return b.UpdatedAt.Compare(a.UpdatedAt)
-	})
-	return out
+	slices.SortFunc(out, compareOwnerProfiles)
+	return out, nil
 }
 
-func (s *MemoryStore) FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool) {
+func (s *MemoryStore) FindOwnerProfileByExternalRef(ctx context.Context, source, externalRef string) (app.OwnerProfile, bool, error) {
+	ctx, cancel := operationContext(ctx, OperationOwnerProfileFindExternalRef, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationOwnerProfileFindExternalRef, ctx); err != nil {
+		return app.OwnerProfile{}, false, err
+	}
 	source = strings.TrimSpace(source)
 	externalRef = strings.TrimSpace(externalRef)
 	if source == "" || externalRef == "" {
-		return app.OwnerProfile{}, false
+		return app.OwnerProfile{}, false, nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationOwnerProfileFindExternalRef, ctx); err != nil {
+		return app.OwnerProfile{}, false, err
+	}
+	var matches []app.OwnerProfile
 	for _, profile := range s.ownerProfiles {
-		if strings.TrimSpace(profile.Source) == source && strings.TrimSpace(profile.ExternalRef) == externalRef {
-			return cloneOwnerProfile(normalizeOwnerProfile(profile)), true
+		if profile.Source == source && profile.ExternalRef == externalRef {
+			matches = append(matches, cloneOwnerProfile(profile))
 		}
 	}
-	return app.OwnerProfile{}, false
+	if len(matches) == 0 {
+		return app.OwnerProfile{}, false, nil
+	}
+	slices.SortFunc(matches, compareOwnerProfiles)
+	return matches[0], true, nil
 }
 
 func (s *MemoryStore) SavePairingCode(code app.PairingCode) {
@@ -2772,32 +2806,73 @@ func ensureSliceMap[T any](in map[string][]T) map[string][]T {
 	return in
 }
 
-func normalizeOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
-	if profile.ID == "" && profile.DisplayName == "" && profile.CreatedAt.IsZero() && profile.UpdatedAt.IsZero() {
-		return app.DefaultOwnerProfile()
+func normalizeOwnerProfileID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return app.DefaultOwnerID
 	}
-	now := time.Now().UTC()
-	if profile.ID == "" {
-		profile.ID = app.DefaultOwnerID
-	}
-	if strings.TrimSpace(profile.Source) == "" && profile.ID == app.DefaultOwnerID {
+	return id
+}
+
+func prepareOwnerProfile(profile, current app.OwnerProfile, exists bool, now, lastIssued time.Time) app.OwnerProfile {
+	profile.ID = normalizeOwnerProfileID(profile.ID)
+	profile.Source = strings.TrimSpace(profile.Source)
+	profile.ExternalRef = strings.TrimSpace(profile.ExternalRef)
+	profile.WorkspaceRoot = strings.TrimSpace(profile.WorkspaceRoot)
+	profile.DefaultChannel = strings.TrimSpace(profile.DefaultChannel)
+	profile.DefaultBindingID = strings.TrimSpace(profile.DefaultBindingID)
+	profile.DisplayName = strings.TrimSpace(profile.DisplayName)
+	profile.Email = strings.TrimSpace(profile.Email)
+	if profile.Source == "" && profile.ID == app.DefaultOwnerID {
 		profile.Source = "web"
 	}
-	if strings.TrimSpace(profile.DisplayName) == "" {
+	if profile.DisplayName == "" {
 		profile.DisplayName = "Owner"
 	}
-	if profile.Preferences == nil {
-		profile.Preferences = map[string]string{}
-	} else {
-		profile.Preferences = cloneStringMap(profile.Preferences)
-	}
-	if profile.CreatedAt.IsZero() {
+	profile.Preferences = cloneStringMap(profile.Preferences)
+	now = now.UTC().Truncate(time.Microsecond)
+	if exists {
+		profile.CreatedAt = current.CreatedAt
+	} else if profile.CreatedAt.IsZero() {
 		profile.CreatedAt = now
+	} else {
+		profile.CreatedAt = profile.CreatedAt.UTC().Truncate(time.Microsecond)
 	}
-	if profile.UpdatedAt.IsZero() {
-		profile.UpdatedAt = profile.CreatedAt
+	floor := current.UpdatedAt
+	if lastIssued.After(floor) {
+		floor = lastIssued
+	}
+	profile.UpdatedAt = now
+	if profile.CreatedAt.After(profile.UpdatedAt) {
+		profile.UpdatedAt = profile.CreatedAt.UTC().Truncate(time.Microsecond)
+	}
+	if !profile.UpdatedAt.After(floor) {
+		profile.UpdatedAt = floor.UTC().Truncate(time.Microsecond).Add(time.Microsecond)
 	}
 	return profile
+}
+
+func compareOwnerProfiles(a, b app.OwnerProfile) int {
+	if compared := b.UpdatedAt.Compare(a.UpdatedAt); compared != 0 {
+		return compared
+	}
+	return strings.Compare(a.ID, b.ID)
+}
+
+func ownerProfileAuditFields(profile app.OwnerProfile) map[string]any {
+	return map[string]any{
+		"owner_id": profile.ID, "source": profile.Source,
+		"external_ref": profile.ExternalRef != "", "email_set": profile.Email != "",
+		"preferences": len(profile.Preferences), "display_name": profile.DisplayName,
+	}
+}
+
+func OwnerProfilesEqual(a, b app.OwnerProfile) bool {
+	return a.ID == b.ID && a.Source == b.Source && a.ExternalRef == b.ExternalRef &&
+		a.WorkspaceRoot == b.WorkspaceRoot && a.DefaultChannel == b.DefaultChannel &&
+		a.DefaultBindingID == b.DefaultBindingID && a.DisplayName == b.DisplayName &&
+		a.Email == b.Email && a.CreatedAt.Equal(b.CreatedAt) && a.UpdatedAt.Equal(b.UpdatedAt) &&
+		maps.Equal(a.Preferences, b.Preferences)
 }
 
 func cloneOwnerProfile(profile app.OwnerProfile) app.OwnerProfile {
@@ -3011,22 +3086,6 @@ func browserLoginBlockAuditFields(block app.BrowserLoginBlock, extra map[string]
 		fields[key] = value
 	}
 	return fields
-}
-
-func ensureOwnerProfileMap(in map[string]app.OwnerProfile, fallback app.OwnerProfile) map[string]app.OwnerProfile {
-	out := map[string]app.OwnerProfile{}
-	for id, profile := range in {
-		profile = normalizeOwnerProfile(profile)
-		if strings.TrimSpace(id) == "" {
-			id = profile.ID
-		}
-		out[id] = profile
-	}
-	if _, ok := out[app.DefaultOwnerID]; !ok {
-		fallback = normalizeOwnerProfile(fallback)
-		out[app.DefaultOwnerID] = fallback
-	}
-	return out
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

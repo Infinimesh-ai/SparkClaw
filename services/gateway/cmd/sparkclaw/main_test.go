@@ -307,6 +307,7 @@ func TestNewStorePropagatesOperationTimeouts(t *testing.T) {
 			cfg.State.Path = filepath.Join(t.TempDir(), "state.json")
 			cfg.State.ReadTimeoutSeconds = 7
 			cfg.State.WriteTimeoutSeconds = 19
+			cfg.State.TransactionTimeoutSeconds = 23
 			st, err := newStore(context.Background(), cfg)
 			if err != nil {
 				t.Fatal(err)
@@ -319,8 +320,9 @@ func TestNewStorePropagatesOperationTimeouts(t *testing.T) {
 			timeouts := value.FieldByName(fieldName)
 			read := time.Duration(timeouts.FieldByName("Read").Int())
 			write := time.Duration(timeouts.FieldByName("Write").Int())
-			if read != 7*time.Second || write != 19*time.Second {
-				t.Fatalf("assembled %s timeouts = read %s write %s", backend, read, write)
+			transaction := time.Duration(timeouts.FieldByName("Transaction").Int())
+			if read != 7*time.Second || write != 19*time.Second || transaction != 23*time.Second {
+				t.Fatalf("assembled %s timeouts = read %s write %s transaction %s", backend, read, write, transaction)
 			}
 		})
 	}

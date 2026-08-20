@@ -41,6 +41,9 @@ var migratedFileAdmissions = map[string]string{
 	"SaveISCPOnboarding":  "saveISCPOnboarding",
 	"GetISCPOnboarding":   "getISCPOnboarding",
 	"ListISCPOnboardings": "listISCPOnboardings",
+	"GetOwnerProfile":     "admitMigrated", "UpdateOwnerProfile": "admitMigrated",
+	"GetOwnerProfileByID": "admitMigrated", "SaveOwnerProfile": "admitMigrated",
+	"ListOwnerProfiles": "admitMigrated", "FindOwnerProfileByExternalRef": "admitMigrated",
 }
 
 func TestFileStorePublicMethodsHaveOneAdmission(t *testing.T) {
@@ -146,6 +149,10 @@ func firstFileAdmission(function *ast.FuncDecl) string {
 			return ""
 		}
 		call, _ = statement.Results[0].(*ast.CallExpr)
+	case *ast.AssignStmt:
+		if len(statement.Rhs) == 1 {
+			call, _ = statement.Rhs[0].(*ast.CallExpr)
+		}
 	}
 	if call == nil {
 		return ""
@@ -173,7 +180,8 @@ func countFileAdmissions(function *ast.FuncDecl) int {
 	ast.Inspect(function.Body, func(node ast.Node) bool {
 		selector, ok := node.(*ast.SelectorExpr)
 		if ok && (selector.Sel.Name == "admitLegacyRead" || selector.Sel.Name == "admitLegacyCommand" ||
-			selector.Sel.Name == "saveISCPOnboarding" || selector.Sel.Name == "getISCPOnboarding" || selector.Sel.Name == "listISCPOnboardings") {
+			selector.Sel.Name == "admitMigrated" || selector.Sel.Name == "saveISCPOnboarding" ||
+			selector.Sel.Name == "getISCPOnboarding" || selector.Sel.Name == "listISCPOnboardings") {
 			count++
 		}
 		return true

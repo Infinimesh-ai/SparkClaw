@@ -402,9 +402,14 @@ schema. `Snapshot.OwnerProfiles` is authoritative when present, while the legacy
 `Snapshot.OwnerProfile` field remains a compatibility copy of the default row.
 File startup rejects every map-key/embedded-ID mismatch, requires the map to
 contain the default row, and requires that row and the legacy copy to match in
-every persisted field and preference entry. When the map is absent, startup may
-promote the legacy copy only when its embedded ID is exactly the default ID.
-It never trims, defaults, or otherwise normalizes corrupt persisted identity.
+every persisted field and preference entry. The sole mismatch exception covers
+snapshots written by the old constructor: two otherwise untouched stock default
+owners may have different initialization timestamps because the constructor
+called `DefaultOwnerProfile` twice; the map entry remains authoritative. When
+the map is absent, startup may promote the legacy copy only when its embedded ID
+is exactly the default ID. A snapshot with both legacy owner fields completely
+absent predates that schema and seeds one stock default owner in memory. File
+never trims, defaults, or otherwise normalizes corrupt persisted identity.
 
 PostgreSQL save/update acquire one owned connection, begin an explicit
 transaction, take a transaction-scoped advisory lock keyed by owner ID, read the

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -48,8 +49,35 @@ type ISCPOnboardingRepository interface {
 	ListISCPOnboardings(context.Context, string) ([]app.ISCPOnboarding, error)
 }
 
+type OwnerRepository interface {
+	GetOwnerProfile(context.Context) (app.OwnerProfile, error)
+	UpdateOwnerProfile(context.Context, app.OwnerProfile) (app.OwnerProfile, error)
+	GetOwnerProfileByID(context.Context, string) (app.OwnerProfile, bool, error)
+	SaveOwnerProfile(context.Context, app.OwnerProfile) (app.OwnerProfile, error)
+	ListOwnerProfiles(context.Context) ([]app.OwnerProfile, error)
+	FindOwnerProfileByExternalRef(context.Context, string, string) (app.OwnerProfile, bool, error)
+}
+
+func ReconcileOwnerProfileWrite(ctx context.Context, repository OwnerRepository, candidate app.OwnerProfile, writeErr error) (app.OwnerProfile, error) {
+	if writeErr == nil {
+		return candidate, nil
+	}
+	if StoreErrorCodeOf(writeErr) != StoreErrorUnknownOutcome || strings.TrimSpace(candidate.ID) == "" {
+		return app.OwnerProfile{}, writeErr
+	}
+	profile, found, err := repository.GetOwnerProfileByID(ctx, candidate.ID)
+	if err != nil {
+		return app.OwnerProfile{}, errors.Join(writeErr, err)
+	}
+	if found && OwnerProfilesEqual(profile, candidate) {
+		return profile, nil
+	}
+	return app.OwnerProfile{}, writeErr
+}
+
 type Store interface {
 	ISCPOnboardingRepository
+	OwnerRepository
 	CreateSession(title string) app.Session
 	CreateSessionWithScope(title, ownerID, workspaceRoot, source string, hidden bool) app.Session
 	ListSessions() []app.Session
@@ -62,12 +90,6 @@ type Store interface {
 	RevokeClient(id string) (app.Client, error)
 	FindClientByTokenHash(tokenHash string) (app.Client, bool)
 	TouchClient(id string)
-	GetOwnerProfile() app.OwnerProfile
-	UpdateOwnerProfile(profile app.OwnerProfile) app.OwnerProfile
-	GetOwnerProfileByID(id string) (app.OwnerProfile, bool)
-	SaveOwnerProfile(profile app.OwnerProfile) app.OwnerProfile
-	ListOwnerProfiles() []app.OwnerProfile
-	FindOwnerProfileByExternalRef(source, externalRef string) (app.OwnerProfile, bool)
 	SavePairingCode(code app.PairingCode)
 	GetPairingCode(id string) (app.PairingCode, bool)
 	ClaimPairingCode(id, clientID string) (app.PairingCode, error)
@@ -206,6 +228,9 @@ var (
 	_ ISCPOnboardingRepository = (*MemoryStore)(nil)
 	_ ISCPOnboardingRepository = (*FileStore)(nil)
 	_ ISCPOnboardingRepository = (*PostgresStore)(nil)
+	_ OwnerRepository          = (*MemoryStore)(nil)
+	_ OwnerRepository          = (*FileStore)(nil)
+	_ OwnerRepository          = (*PostgresStore)(nil)
 	_ Store                    = (*MemoryStore)(nil)
 	_ Store                    = (*FileStore)(nil)
 	_ Store                    = (*PostgresStore)(nil)

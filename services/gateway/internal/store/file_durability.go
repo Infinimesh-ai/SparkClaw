@@ -149,9 +149,13 @@ func (s *FileStore) saveISCPOnboarding(ctx context.Context, onboarding app.ISCPO
 	if s.path == "" {
 		return app.ISCPOnboarding{}, storeError(OperationISCPOnboardingSave, StoreErrorInvalid, errors.New("file state path is required"))
 	}
-	return runFileCommand(s, ctx, OperationISCPOnboardingSave, func(ctx context.Context) (app.ISCPOnboarding, error) {
+	out, err := runFileCommand(s, ctx, OperationISCPOnboardingSave, func(ctx context.Context) (app.ISCPOnboarding, error) {
 		return s.inner.SaveISCPOnboarding(ctx, onboarding)
 	})
+	if err != nil {
+		return app.ISCPOnboarding{}, err
+	}
+	return out, nil
 }
 
 func runFileCommand[T any](s *FileStore, ctx context.Context, operation StoreOperation, command func(context.Context) (T, error)) (T, error) {
@@ -178,7 +182,7 @@ func runFileCommand[T any](s *FileStore, ctx context.Context, operation StoreOpe
 				rollback: rollback, done: make(chan struct{}),
 			}
 			s.installFileFence(fence)
-			return zero, err
+			return out, err
 		}
 		s.restoreFileRollback(rollback)
 		return zero, err

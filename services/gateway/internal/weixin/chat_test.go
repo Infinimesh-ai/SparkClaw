@@ -406,7 +406,10 @@ func TestApprovalReplyConfirmationIsRetriedWithoutReexecuting(t *testing.T) {
 		Text:         "是",
 		ExternalID:   "provider-msg-approve",
 	}
-	chatSession := dispatcher.ensureChatSession(inbound)
+	chatSession, err := dispatcher.ensureChatSession(context.Background(), inbound)
+	if err != nil {
+		t.Fatal(err)
+	}
 	st.SaveApproval(app.Approval{
 		ID:         "appr_1",
 		SessionID:  chatSession.LinkedSessionID,

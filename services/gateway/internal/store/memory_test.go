@@ -161,12 +161,12 @@ func TestMemoryStoreUpdatesAndDeletesAcceptedMemory(t *testing.T) {
 
 func TestMemoryStoreUpdatesOwnerProfile(t *testing.T) {
 	st := NewMemoryStore()
-	initial := st.GetOwnerProfile()
+	initial := mustGetOwnerProfile(t, st)
 	if initial.ID != app.DefaultOwnerID || initial.DisplayName == "" {
 		t.Fatalf("default owner profile missing: %#v", initial)
 	}
 
-	updated := st.UpdateOwnerProfile(app.OwnerProfile{
+	updated := mustUpdateOwnerProfile(t, st, app.OwnerProfile{
 		DisplayName: "Ada Owner",
 		Email:       "ada@example.test",
 		Preferences: map[string]string{"tone": "concise", "locale": "en-US"},
@@ -179,7 +179,7 @@ func TestMemoryStoreUpdatesOwnerProfile(t *testing.T) {
 	}
 
 	updated.Preferences["tone"] = "mutated"
-	reloaded := st.GetOwnerProfile()
+	reloaded := mustGetOwnerProfile(t, st)
 	if reloaded.Preferences["tone"] != "concise" {
 		t.Fatalf("owner profile preferences were not cloned: %#v", reloaded)
 	}
@@ -190,7 +190,7 @@ func TestMemoryStoreUpdatesOwnerProfile(t *testing.T) {
 
 func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
 	st := NewMemoryStore()
-	profile := st.SaveOwnerProfile(app.OwnerProfile{
+	profile := mustSaveOwnerProfile(t, st, app.OwnerProfile{
 		ID:               "wx_owner",
 		Source:           "weixin",
 		ExternalRef:      "bind:user",
@@ -203,14 +203,14 @@ func TestMemoryStoreManagesMultipleOwnerProfiles(t *testing.T) {
 	if profile.ID != "wx_owner" || profile.Source != "weixin" || profile.WorkspaceRoot == "" {
 		t.Fatalf("profile did not save extended fields: %#v", profile)
 	}
-	found, ok := st.FindOwnerProfileByExternalRef("weixin", "bind:user")
+	found, ok := mustFindOwnerProfileByExternalRef(t, st, "weixin", "bind:user")
 	if !ok || found.ID != profile.ID {
 		t.Fatalf("profile external ref lookup failed: %#v ok=%v", found, ok)
 	}
-	if _, ok := st.GetOwnerProfileByID("missing"); ok {
+	if _, ok := mustGetOwnerProfileByID(t, st, "missing"); ok {
 		t.Fatalf("missing profile should not be found")
 	}
-	profiles := st.ListOwnerProfiles()
+	profiles := mustListOwnerProfiles(t, st)
 	if len(profiles) != 2 {
 		t.Fatalf("expected default and weixin profiles, got %#v", profiles)
 	}

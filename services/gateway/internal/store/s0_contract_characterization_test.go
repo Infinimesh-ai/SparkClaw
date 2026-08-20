@@ -494,14 +494,14 @@ func characterizeSuccessAbsenceOrderScopeAndClone(t *testing.T, st Store) {
 	}
 
 	inputPreferences := map[string]string{"locale": "zh-CN"}
-	st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-clone", DisplayName: "Clone", Preferences: inputPreferences})
+	mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-clone", DisplayName: "Clone", Preferences: inputPreferences})
 	inputPreferences["locale"] = "mutated-input"
-	first, ok := st.GetOwnerProfileByID("owner-clone")
+	first, ok := mustGetOwnerProfileByID(t, st, "owner-clone")
 	if !ok || first.Preferences["locale"] != "zh-CN" {
 		t.Fatalf("Store retained caller-owned profile map: %#v ok=%v", first, ok)
 	}
 	first.Preferences["locale"] = "mutated-output"
-	second, ok := st.GetOwnerProfileByID("owner-clone")
+	second, ok := mustGetOwnerProfileByID(t, st, "owner-clone")
 	if !ok || second.Preferences["locale"] != "zh-CN" {
 		t.Fatalf("Store returned backend-owned profile map: %#v ok=%v", second, ok)
 	}
@@ -610,7 +610,7 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 	t.Helper()
 	session := st.CreateSession("restart")
 	message := st.AddMessage(app.Message{SessionID: session.ID, Role: "assistant", Content: "durable"})
-	profile := st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-restart", DisplayName: "Restart", Preferences: map[string]string{"key": "value"}})
+	profile := mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-restart", DisplayName: "Restart", Preferences: map[string]string{"key": "value"}})
 	eventHead, err := st.MessageEventHead(session.ID)
 	if err != nil || eventHead == "" {
 		t.Fatalf("message event head before restart = %q err=%v", eventHead, err)
@@ -630,7 +630,7 @@ func characterizeRestart(t *testing.T, st Store, reopen func(t *testing.T) Store
 	if messages := reloaded.ListMessages(session.ID); len(messages) != 1 || messages[0].ID != message.ID {
 		t.Fatalf("message did not survive restart: %#v", messages)
 	}
-	if got, ok := reloaded.GetOwnerProfileByID(profile.ID); !ok || got.Preferences["key"] != "value" {
+	if got, ok := mustGetOwnerProfileByID(t, reloaded, profile.ID); !ok || got.Preferences["key"] != "value" {
 		t.Fatalf("owner profile did not survive restart: %#v ok=%v", got, ok)
 	}
 	page, err := reloaded.MessageEventsAfter(session.ID, "", 10)
@@ -660,8 +660,8 @@ func s0JSONValue(t *testing.T, raw json.RawMessage, key string) any {
 
 func TestS0DefectEvidenceLegacyFilePersistenceErrorsAreDiscarded(t *testing.T) {
 	source := readS0Source(t, "file.go")
-	if got := strings.Count(source, "s.persist()"); got != 48 {
-		t.Fatalf("legacy File persist call count = %d, want S0 defect baseline 48", got)
+	if got := strings.Count(source, "s.persist()"); got != 46 {
+		t.Fatalf("legacy File persist call count = %d, want remaining S3 defect baseline 46", got)
 	}
 	body := sourceFunctionBody(t, "file.go", "persist")
 	if !strings.Contains(body, "_ = s.persistSnapshot()") {
@@ -712,8 +712,8 @@ func TestS0DefectEvidencePostgresExecResultsAreDiscarded(t *testing.T) {
 	for _, file := range files {
 		count += strings.Count(readS0Source(t, file), "_, _ = ")
 	}
-	if count != 33 {
-		t.Fatalf("discarded PostgreSQL result count = %d, want S0 defect baseline 33", count)
+	if count != 31 {
+		t.Fatalf("discarded PostgreSQL result count = %d, want remaining S3 defect baseline 31", count)
 	}
 }
 

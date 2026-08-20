@@ -83,7 +83,10 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, inbound InboundMessage) 
 	if text == "" && len(inbound.Attachments) == 0 {
 		return nil
 	}
-	chatSession := d.ensureChatSession(inbound)
+	chatSession, err := d.ensureChatSession(ctx, inbound)
+	if err != nil {
+		return fmt.Errorf("weixin owner profile is temporarily unavailable: %w", err)
+	}
 	externalID := strings.TrimSpace(inbound.ExternalID)
 	if externalID == "" {
 		externalID = stableInboundID(inbound)
@@ -574,12 +577,15 @@ func (d *Dispatcher) auditTypingFailure(chatSession app.ExternalChatSession, inb
 	})
 }
 
-func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.ExternalChatSession {
+func (d *Dispatcher) ensureChatSession(ctx context.Context, inbound InboundMessage) (app.ExternalChatSession, error) {
 	externalUserID := strings.TrimSpace(inbound.FromUserID)
 	if externalUserID == "" {
 		externalUserID = strings.TrimSpace(inbound.Binding.ExternalUserID)
 	}
-	profile := d.ensureOwnerProfile(inbound, externalUserID)
+	profile, err := d.ensureOwnerProfile(ctx, inbound, externalUserID)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
 	ownerID := profile.ID
 	workspaceRoot := strings.TrimSpace(profile.WorkspaceRoot)
 	if existing, ok := d.store.FindExternalChatSession(inbound.Binding.ID, externalUserID, ""); ok {
@@ -601,9 +607,9 @@ func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.ExternalChatS
 			changed = true
 		}
 		if changed {
-			return d.store.SaveExternalChatSession(existing)
+			return d.store.SaveExternalChatSession(existing), nil
 		}
-		return existing
+		return existing, nil
 	}
 	session := d.store.CreateSessionWithScope("微信会话", ownerID, workspaceRoot, "weixin", true)
 	return d.store.SaveExternalChatSession(app.ExternalChatSession{
@@ -619,24 +625,37 @@ func (d *Dispatcher) ensureChatSession(inbound InboundMessage) app.ExternalChatS
 		Status:           "active",
 		ProviderCursor:   inbound.ProviderCursor,
 		LastContextToken: inbound.ContextToken,
-	})
+	}), nil
 }
 
-func (d *Dispatcher) ensureOwnerProfile(inbound InboundMessage, externalUserID string) app.OwnerProfile {
+func (d *Dispatcher) ensureOwnerProfile(ctx context.Context, inbound InboundMessage, externalUserID string) (app.OwnerProfile, error) {
 	externalRef := weixinExternalRef(inbound.Binding.ID, externalUserID)
-	if profile, ok := d.store.FindOwnerProfileByExternalRef("weixin", externalRef); ok {
+	ownerID := weixinOwnerID(inbound.Binding.ID, externalUserID)
+	if profile, ok, err := d.store.GetOwnerProfileByID(ctx, ownerID); err != nil {
+		return app.OwnerProfile{}, err
+	} else if ok {
 		if strings.TrimSpace(profile.WorkspaceRoot) == "" {
 			profile.WorkspaceRoot = d.weixinWorkspaceRoot(profile.ID)
-			profile = d.store.SaveOwnerProfile(profile)
+			candidate, err := d.store.SaveOwnerProfile(ctx, profile)
+			return store.ReconcileOwnerProfileWrite(ctx, d.store, candidate, err)
 		}
-		return profile
+		return profile, nil
 	}
-	ownerID := weixinOwnerID(inbound.Binding.ID, externalUserID)
+	if profile, ok, err := d.store.FindOwnerProfileByExternalRef(ctx, "weixin", externalRef); err != nil {
+		return app.OwnerProfile{}, err
+	} else if ok {
+		if strings.TrimSpace(profile.WorkspaceRoot) == "" {
+			profile.WorkspaceRoot = d.weixinWorkspaceRoot(profile.ID)
+			candidate, err := d.store.SaveOwnerProfile(ctx, profile)
+			return store.ReconcileOwnerProfileWrite(ctx, d.store, candidate, err)
+		}
+		return profile, nil
+	}
 	displayName := strings.TrimSpace(inbound.Binding.DisplayName)
 	if displayName == "" {
 		displayName = "微信用户"
 	}
-	return d.store.SaveOwnerProfile(app.OwnerProfile{
+	candidate, err := d.store.SaveOwnerProfile(ctx, app.OwnerProfile{
 		ID:               ownerID,
 		Source:           "weixin",
 		ExternalRef:      externalRef,
@@ -646,6 +665,7 @@ func (d *Dispatcher) ensureOwnerProfile(inbound InboundMessage, externalUserID s
 		DisplayName:      displayName,
 		Preferences:      map[string]string{},
 	})
+	return store.ReconcileOwnerProfileWrite(ctx, d.store, candidate, err)
 }
 
 func weixinExternalRef(bindingID, externalUserID string) string {

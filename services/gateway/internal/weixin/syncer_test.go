@@ -419,8 +419,14 @@ func TestSyncerDispatchesMultipleWeixinUsersIndependently(t *testing.T) {
 	if sessionA.OwnerID == "" || sessionB.OwnerID == "" || sessionA.OwnerID == sessionB.OwnerID {
 		t.Fatalf("weixin users should have isolated owner profiles: %#v %#v", sessionA, sessionB)
 	}
-	profileA, okA := st.GetOwnerProfileByID(sessionA.OwnerID)
-	profileB, okB := st.GetOwnerProfileByID(sessionB.OwnerID)
+	profileA, okA, err := st.GetOwnerProfileByID(context.Background(), sessionA.OwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileB, okB, err := st.GetOwnerProfileByID(context.Background(), sessionB.OwnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !okA || !okB || profileA.Source != "weixin" || profileB.Source != "weixin" || profileA.ExternalRef == profileB.ExternalRef {
 		t.Fatalf("weixin users should have separate persisted profiles: %#v ok=%v %#v ok=%v", profileA, okA, profileB, okB)
 	}
@@ -871,7 +877,10 @@ func TestHandleInboundRetriesPreviouslyFailedMessage(t *testing.T) {
 		Text:         "你好\nMOCK_CONVERSATION_RESPONSE:重试成功",
 		ExternalID:   "provider-msg-retry",
 	}
-	chatSession := dispatcher.ensureChatSession(inbound)
+	chatSession, err := dispatcher.ensureChatSession(context.Background(), inbound)
+	if err != nil {
+		t.Fatal(err)
+	}
 	failed := st.SaveExternalChatMessage(app.WeixinChatMessage{
 		ChatSessionID:     chatSession.ID,
 		BindingID:         binding.ID,

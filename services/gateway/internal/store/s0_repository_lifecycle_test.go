@@ -15,8 +15,8 @@ type s0LifecycleCase struct {
 
 var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
 	"OwnerRepository": {
-		mutate: func(_ *testing.T, st Store) {
-			st.SaveOwnerProfile(app.OwnerProfile{ID: "owner-lifecycle", DisplayName: "Lifecycle"})
+		mutate: func(t *testing.T, st Store) {
+			mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-lifecycle", DisplayName: "Lifecycle"})
 		},
 		auditType: "owner_profile.updated", eventType: "owner_profile.updated",
 	},

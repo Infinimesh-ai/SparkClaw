@@ -75,7 +75,10 @@ func (d *Dispatcher) HandleUpdate(ctx context.Context, binding app.NotificationB
 	if message == nil || message.From == nil || message.Chat.Type != "private" {
 		return nil
 	}
-	chatSession := d.ensureChatSession(binding, *message.From, message.Chat.ID, message.MessageThreadID)
+	chatSession, err := d.ensureChatSession(ctx, binding, *message.From, message.Chat.ID, message.MessageThreadID)
+	if err != nil {
+		return NewConnectorError(CodeBindingUnavailable, true, err)
+	}
 	text := strings.TrimSpace(message.Text)
 	if text == "" {
 		text = strings.TrimSpace(message.Caption)
@@ -200,7 +203,10 @@ func (d *Dispatcher) handleCallback(ctx context.Context, binding app.Notificatio
 		_ = d.client.AnswerCallbackQuery(ctx, query.ID, "Unsupported action")
 		return nil
 	}
-	chatSession := d.ensureChatSession(binding, query.From, query.Message.Chat.ID, query.Message.MessageThreadID)
+	chatSession, err := d.ensureChatSession(ctx, binding, query.From, query.Message.Chat.ID, query.Message.MessageThreadID)
+	if err != nil {
+		return NewConnectorError(CodeBindingUnavailable, true, err)
+	}
 	approval, ok := d.approvalByID(parts[1])
 	if !ok || approval.Status != "pending" || approval.SessionID != chatSession.LinkedSessionID {
 		_ = d.client.AnswerCallbackQuery(ctx, query.ID, "This approval is no longer pending")
@@ -374,19 +380,25 @@ func (d *Dispatcher) saveInbound(chatSession app.ExternalChatSession, binding ap
 	})
 }
 
-func (d *Dispatcher) ensureChatSession(binding app.NotificationBinding, user User, chatID, threadID int64) app.ExternalChatSession {
+func (d *Dispatcher) ensureChatSession(ctx context.Context, binding app.NotificationBinding, user User, chatID, threadID int64) (app.ExternalChatSession, error) {
 	externalChatID := strconv.FormatInt(chatID, 10)
 	externalThreadID := threadIDString(threadID)
 	if existing, ok := d.store.FindExternalChatSession(binding.ID, externalChatID, externalThreadID); ok {
-		return existing
+		return existing, nil
 	}
 	ownerID := strings.TrimSpace(binding.OwnerID)
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID
 	}
-	profile, ok := d.store.GetOwnerProfileByID(ownerID)
+	profile, ok, err := d.store.GetOwnerProfileByID(ctx, ownerID)
+	if err != nil {
+		return app.ExternalChatSession{}, err
+	}
 	if !ok {
-		profile = d.store.GetOwnerProfile()
+		profile, err = d.store.GetOwnerProfile(ctx)
+		if err != nil {
+			return app.ExternalChatSession{}, err
+		}
 	}
 	workspaceRoot := strings.TrimSpace(profile.WorkspaceRoot)
 	if workspaceRoot == "" {
@@ -407,7 +419,7 @@ func (d *Dispatcher) ensureChatSession(binding app.NotificationBinding, user Use
 		Status:           "active",
 		ProviderCursor:   binding.ProviderCursor,
 		LastContextToken: binding.ContextToken,
-	})
+	}), nil
 }
 
 func (d *Dispatcher) pendingApproval(sessionID string) (app.Approval, bool) {

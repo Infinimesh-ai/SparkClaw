@@ -4,8 +4,9 @@
 
 > Status: S2 pilot implementation was accepted at `42b62bd`. The first S3
 > repository, `OwnerRepository`, was accepted at `0b85cc4` on 2026-08-20 after
-> fresh context-isolated repair review. `ClientRepository` contract design is
-> the next wave; no Client implementation is authorized before its design GO.
+> fresh context-isolated repair review. The
+> [ClientRepository contract](store-client-repository-design.md) is the next
+> wave; no Client implementation is authorized before its design GO.
 
 ## Objective And Stage Boundary
 

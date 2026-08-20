@@ -4,8 +4,8 @@
 
 > 状态：S2 pilot 实现已在 `42b62bd` 获得接受。经过新的 context-isolated
 > 修复审查，第一个 S3 repository `OwnerRepository` 已于 2026-08-20 在
-> `0b85cc4` 获得接受。下一波是 `ClientRepository` contract 设计；在其设计
-> 获得 GO 前，不授权 Client 实现。
+> `0b85cc4` 获得接受。下一波是 [ClientRepository contract](store-client-repository-design.md)
+> 设计；在其设计获得 GO 前，不授权 Client 实现。
 
 ## 目标与阶段边界
 

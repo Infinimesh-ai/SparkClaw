@@ -480,14 +480,12 @@ func (s *PostgresStore) saveOwnerProfile(ctx context.Context, operation StoreOpe
 		return app.OwnerProfile{}, classifyPostgresPreTransaction(operation, ctx, err)
 	}
 	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, ownerAdvisoryKey(profile.ID)); err != nil {
-		err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
-		return app.OwnerProfile{}, classifyPostgresPreTransaction(operation, ctx, err)
+		return app.OwnerProfile{}, finishPostgresOwnerPreCandidate(ctx, operation, session, transaction, &release, err)
 	}
 	current, err := scanOwnerProfile(transaction.QueryRow(ctx, ownerProfileSelectSQL+` WHERE id=$1`, profile.ID))
 	exists := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		err = rollbackPostgresOnboardingRead(ctx, session, transaction, &release, err)
-		return app.OwnerProfile{}, classifyPostgresOwnerReadError(operation, ctx, err)
+		return app.OwnerProfile{}, finishPostgresOwnerPreCandidate(ctx, operation, session, transaction, &release, err)
 	}
 	candidate := prepareOwnerProfile(profile, current, exists, s.ownerNow(), s.ownerWriteHighWater[profile.ID])
 	s.ownerWriteHighWater[candidate.ID] = candidate.UpdatedAt
@@ -521,6 +519,23 @@ func (s *PostgresStore) saveOwnerProfile(ctx context.Context, operation StoreOpe
 		return candidate, storeError(operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
 	return cloneOwnerProfile(candidate), nil
+}
+
+func finishPostgresOwnerPreCandidate(ctx context.Context, operation StoreOperation, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) error {
+	var postgresError *pgconn.PgError
+	definite := errors.As(cause, &postgresError) || pgconn.SafeToRetry(cause) || errors.Is(cause, errOwnerPreferencesDecode)
+	if !definite {
+		*release = false
+		return storeError(operation, StoreErrorUnknownOutcome, errors.Join(cause, session.Terminate(ctx)))
+	}
+	cause = rollbackPostgresOnboardingRead(ctx, session, transaction, release, cause)
+	if errors.Is(cause, errOwnerPreferencesDecode) {
+		return storeError(operation, StoreErrorCorrupt, cause)
+	}
+	if postgresError != nil {
+		return storeError(operation, StoreErrorInternal, cause)
+	}
+	return classifyPostgresPreTransaction(operation, ctx, cause)
 }
 
 func finishPostgresOwnerStatement(ctx context.Context, operation StoreOperation, candidate app.OwnerProfile, session onboardingPostgresSession, transaction onboardingPostgresTx, release *bool, cause error) (app.OwnerProfile, error) {

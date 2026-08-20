@@ -296,24 +296,50 @@ func TestPostgresOwnerSaveIsAtomicAndClassifiesOutcomes(t *testing.T) {
 }
 
 func TestPostgresOwnerPreCandidateFailureReturnsZeroAndRetainsCleanup(t *testing.T) {
-	primary := errors.New("lock failed")
+	unsafe := errors.New("submission uncertain")
 	rollback := errors.New("rollback failed")
 	terminate := errors.New("terminate failed")
-	transaction := &fakeOnboardingPostgresTx{execErrors: []error{primary}, rollbackErr: rollback}
-	store, _, session := newFakePostgresOwnerStore(transaction)
-	session.terminateErr = terminate
-	candidate, err := store.SaveOwnerProfile(context.Background(), app.OwnerProfile{ID: "owner-before-candidate"})
-	if candidate.ID != "" || StoreErrorCodeOf(err) != StoreErrorUnavailable ||
-		!errors.Is(err, primary) || !errors.Is(err, rollback) || !errors.Is(err, terminate) || session.terminates != 1 {
-		t.Fatalf("candidate=%#v err=%v terminate=%d", candidate, err, session.terminates)
-	}
-
-	transaction = &fakeOnboardingPostgresTx{row: fakeOwnerPostgresRow{err: errors.New("scan failed")}, rollbackErr: rollback}
-	store, _, session = newFakePostgresOwnerStore(transaction)
-	session.terminateErr = terminate
-	candidate, err = store.SaveOwnerProfile(context.Background(), app.OwnerProfile{ID: "owner-before-candidate"})
-	if candidate.ID != "" || StoreErrorCodeOf(err) != StoreErrorUnavailable || !errors.Is(err, rollback) || !errors.Is(err, terminate) {
-		t.Fatalf("scan candidate=%#v err=%v", candidate, err)
+	corruptRow := fakeOwnerPostgresRow{profile: app.OwnerProfile{ID: "owner-before-candidate"}, preferences: []byte("not-json")}
+	for _, testCase := range []struct {
+		name           string
+		lockError      error
+		row            onboardingPostgresRow
+		rollbackError  error
+		terminateError error
+		wantCode       StoreErrorCode
+		wantRollback   int
+		wantTerminate  int
+		wantCauses     []error
+	}{
+		{name: "unsafe lock", lockError: unsafe, terminateError: terminate, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{unsafe, terminate}},
+		{name: "unsafe current row", row: fakeOwnerPostgresRow{err: unsafe}, terminateError: terminate, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{unsafe, terminate}},
+		{name: "canceled current row is uncertain", row: fakeOwnerPostgresRow{err: context.Canceled}, terminateError: terminate, wantCode: StoreErrorUnknownOutcome, wantTerminate: 1, wantCauses: []error{context.Canceled, terminate}},
+		{name: "safe lock rollback cleanup", lockError: safePostgresRetryError{errors.New("lock not sent")}, rollbackError: rollback, terminateError: terminate, wantCode: StoreErrorUnavailable, wantRollback: 1, wantTerminate: 1, wantCauses: []error{rollback, terminate}},
+		{name: "safe current row", row: fakeOwnerPostgresRow{err: safePostgresRetryError{errors.New("query not sent")}}, wantCode: StoreErrorUnavailable, wantRollback: 1},
+		{name: "server lock rejection", lockError: &pgconn.PgError{Code: "42501"}, wantCode: StoreErrorInternal, wantRollback: 1},
+		{name: "corrupt current row", row: corruptRow, wantCode: StoreErrorCorrupt, wantRollback: 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			row := testCase.row
+			if row == nil {
+				row = fakeOwnerPostgresRow{err: pgx.ErrNoRows}
+			}
+			transaction := &fakeOnboardingPostgresTx{
+				execErrors: []error{testCase.lockError}, row: row, rollbackErr: testCase.rollbackError,
+			}
+			store, _, session := newFakePostgresOwnerStore(transaction)
+			session.terminateErr = testCase.terminateError
+			candidate, err := store.SaveOwnerProfile(context.Background(), app.OwnerProfile{ID: "owner-before-candidate"})
+			if candidate.ID != "" || StoreErrorCodeOf(err) != testCase.wantCode ||
+				transaction.rollbacks != testCase.wantRollback || session.terminates != testCase.wantTerminate {
+				t.Fatalf("candidate=%#v err=%v code=%q rollback=%d terminate=%d", candidate, err, StoreErrorCodeOf(err), transaction.rollbacks, session.terminates)
+			}
+			for _, cause := range testCase.wantCauses {
+				if !errors.Is(err, cause) {
+					t.Fatalf("error %v lost cause %v", err, cause)
+				}
+			}
+		})
 	}
 }
 

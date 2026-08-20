@@ -353,7 +353,15 @@ The stable repository semantics are:
 - list ordering is `UpdatedAt DESC`, then `ID ASC`. External-ref lookup uses the
   same newest-first ordering and ID tie-break;
 - save overwrites by ID while preserving the existing `CreatedAt`; update forces
-  `app.DefaultOwnerID`; and
+  `app.DefaultOwnerID`;
+- candidate normalization trims every string field, defaults an empty ID to
+  `app.DefaultOwnerID`, defaults the default owner's empty source/display name
+  to `web`/`Owner`, turns nil preferences into a cloned non-nil empty map, uses
+  a supplied non-zero `CreatedAt` only for a new row (otherwise the repository
+  clock), and always preserves an existing row's `CreatedAt`. Persisted times
+  are UTC at PostgreSQL microsecond precision. `UpdatedAt` is repository-owned;
+  for an existing row it is strictly greater than the current persisted value;
+  and
 - save/update atomically persist the owner profile, one
   `owner_profile.updated` audit row, and one `owner_profile.updated` event. No
   backend may expose a profile-only success.
@@ -384,18 +392,44 @@ profile at both boundaries, and performs record/audit/event mutation under one
 lock. File generalizes the accepted S2 command helper mechanically before this
 behavioral wave, then uses the complete snapshot rollback, durable replacement,
 unknown-outcome fence, and read reconciliation without changing the snapshot
-schema. File startup rejects an owner-profile map key that disagrees with the
-embedded profile ID rather than normalizing corrupt persisted identity.
+schema. `Snapshot.OwnerProfiles` is authoritative when present, while the legacy
+`Snapshot.OwnerProfile` field remains a compatibility copy of the default row.
+File startup rejects every map-key/embedded-ID mismatch, requires the map to
+contain the default row, and requires that row and the legacy copy to match in
+every persisted field and preference entry. When the map is absent, startup may
+promote the legacy copy only when its embedded ID is exactly the default ID.
+It never trims, defaults, or otherwise normalizes corrupt persisted identity.
 
 PostgreSQL save/update acquire one owned connection, begin an explicit
 transaction, take a transaction-scoped advisory lock keyed by owner ID, read the
 current row to preserve `CreatedAt`, upsert the owner, append audit and event,
 and commit. Commit is the effect-submission point. A safe pre-submit failure is
 definite; an unsafe statement/transport failure or commit failure terminates the
-owned session and returns `unknown_outcome`. Get-by-ID is the resolution barrier:
-it explicitly uses `READ COMMITTED`, takes the same advisory lock in one
-statement, and reads the owner in a separate statement. Owner preference JSON
-decode failure is `corrupt`, not an empty map or absence.
+owned session and returns `unknown_outcome` together with the normalized
+candidate if candidate formation completed. Unknown failure before candidate
+formation returns a zero candidate. Get-by-ID is the resolution barrier: it
+explicitly uses `READ COMMITTED`, takes the same advisory lock in one statement,
+and reads the owner in a separate statement. Owner preference JSON decode
+failure is `corrupt`, not an empty map or absence.
+
+Reconciliation accepts success only when the returned profile exactly matches
+the unknown candidate across every persisted string, timestamp, and preference
+entry. The strictly increasing candidate `UpdatedAt` proves that the matching
+profile came from this atomic owner/audit/event transaction. A different
+profile, absence, a zero unknown candidate, or a reconciliation error remains
+unresolved: a later writer may have interposed, so the caller must not retry
+automatically or report success. It returns safe unavailable/conflict copy and
+requires a fresh explicit command after the uncertain call has ended. File's
+global fence can internally prove candidate or rollback, but production callers
+still use this conservative candidate-match rule.
+
+PostgreSQL startup uses the existing 180-second startup context to insert the
+default owner with `ON CONFLICT DO NOTHING`, then reads and validates the row.
+It never overwrites an existing owner and emits no save/update audit or event,
+because this is readiness invariant establishment rather than an Owner command.
+Insert or confirmation failure leaves readiness false. `GetOwnerProfile` is
+read-only and returns `corrupt` if the invariant default row later disappears;
+tests prove that no read issues an `INSERT`, `UPDATE`, or lifecycle append.
 
 Production callers pass their owned contexts: Gateway handlers use
 `r.Context()`, ISCP Bridge uses the `Dispatch` context through session creation,
@@ -405,18 +439,23 @@ Telegram uses the `HandleUpdate` worker context, and Weixin uses the
 failure. Gateway maps timeout to a stable 504 and unavailable, durability,
 unknown, corrupt, or internal failures to safe 503 copy. Connector/Bridge paths
 return stable retryable unavailable errors. A caller that receives
-`unknown_outcome` from save/update reconciles with `GetOwnerProfileByID` before
-retrying or claiming success. Weixin reconciles by its deterministic owner ID
-and retains external-ref lookup only for legacy nondeterministic profiles.
+`unknown_outcome` from save/update applies the exact candidate rule above before
+claiming success and never automatically retries an unresolved result. Weixin
+reconciles by its deterministic owner ID and retains external-ref lookup only
+for legacy nondeterministic profiles. `Syncer.processBatch` passes its batch
+context into the pre-download `ensureChatSession` call; a repository failure is
+retryable and prevents provider cursor advancement.
 
 The Owner wave gate requires shared Memory/File success, absence, ordering,
 scope, clone, cancellation, and timeout tests; deterministic external-ref
 tie-break parity; File rollback of owner/audit/event, fence, reconciliation,
 restart, encryption, and race evidence; PostgreSQL statement/commit
 classification, session termination, atomic rollback, startup seed, read-only
-GET, corrupt JSON, query/scan/rows propagation, and explicit `READ COMMITTED`
-barrier evidence; real-DSN round-trip/restart/race tests; caller context and safe
-error projection tests; and source guards for one embedded repository, no legacy
+GET, corrupt JSON, query/scan/rows propagation, candidate-match reconciliation,
+and explicit `READ COMMITTED` barrier evidence; startup seed missing/existing/
+failure tests and GET-no-Exec proof; real-DSN round-trip/restart/race tests;
+caller context, normalization parity, safe error projection, and Weixin no-
+cursor-advance tests; and source guards for one embedded repository, no legacy
 signatures, no ignored Owner errors, and no migrated `context.Background()`.
 The existing PostgreSQL CI topology and `SPARKCLAW_TEST_POSTGRES_DSN` skip
 behavior do not change, but an actual configured PostgreSQL run is mandatory
@@ -516,6 +555,7 @@ migrations remain in place.
 | S2 pilot implementation initial review | `9d86c50` | superseded `GO` | Complete File admission and onboarding migration passed the initial evidence review; a later fresh review superseded this decision | Independent gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
 | S2 pilot implementation fresh re-review | `9d86c50` | `REVISE` | A ticket could expire during persistence/reconciliation yet still be disclosed because completion reused the request-start time | Context-isolated gatekeeper / 2026-08-20 |
 | S2 pilot repair implementation | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | Completion reads a live clock immediately before disclosure, with intra-call expiry coverage, independently repeated disposable real-PostgreSQL full/race runs, complete File failure evidence, and verified Compose forwarding for read/write timeout overrides | Context-isolated gatekeeper and primary agent under owner-delegated authority / 2026-08-20 |
-| S3 Owner contract freeze | pending | pending | Six-method contract, transaction timeout, atomic owner/audit/event boundary, backend rules, caller contexts, reconciliation, and evidence matrix frozen before implementation | Primary agent / 2026-08-20 |
+| S3 Owner contract review 1 | `57d5b6d` | `REVISE` | Existing-row unknown outcome lacked a commit proof; startup seed, candidate normalization, legacy File owner precedence, and the Weixin pre-download context path were underspecified | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner contract repair | pending | pending | Adds exact monotonic candidate reconciliation, deterministic normalization, startup readiness, File compatibility invariants, and complete Weixin context/cursor behavior | Pending independent re-review / 2026-08-20 |
 | Each repository implementation | pending | pending | one row per accepted repository is added during migration | pending |
 | S4 Store removal | pending | pending | pending | pending |

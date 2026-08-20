@@ -315,6 +315,13 @@ type OwnerRepository interface {
   newest-first 与 ID tie-break；
 - save 按 ID overwrite 并保留已有 `CreatedAt`；update 强制使用
   `app.DefaultOwnerID`；
+- candidate normalization trim 每个 string field，把空 ID default 为
+  `app.DefaultOwnerID`，把 default owner 的空 source/display name default 为
+  `web`/`Owner`，把 nil preferences 变成 cloned non-nil empty map。仅新 row 可
+  使用 caller 提供的 non-zero `CreatedAt`，否则使用 repository clock；已有 row
+  永远保留其 `CreatedAt`。持久化时间为 UTC PostgreSQL microsecond precision；
+  `UpdatedAt` 由 repository 分配，对已有 row 必须严格大于 current persisted
+  value；
 - save/update 原子持久化 owner profile、一条 `owner_profile.updated` audit 和
   一条 `owner_profile.updated` event。任何 backend 都不能报告 profile-only
   success。
@@ -341,17 +348,38 @@ Memory 在 lock 前及 lock 内检查 effective context，在两个边界复制 
 同一把锁内完成 record/audit/event mutation。File 先用纯机械 commit 泛化 S2 已
 接受的 command helper，再复用完整 snapshot rollback、durable replacement、
 unknown-outcome fence 和 read reconciliation，且不改变 snapshot schema。File
-startup 遇到 owner-profile map key 与 profile 内 ID 不一致时拒绝启动，不得把损坏
-identity 正常化。
+startup 在 `Snapshot.OwnerProfiles` 存在时以它为 authority；legacy
+`Snapshot.OwnerProfile` 只是 default row 的 compatibility copy。startup 拒绝每个
+map-key/embedded-ID mismatch，要求 map 包含 default row，并要求该 row 与 legacy
+copy 的每个 persisted field 和 preference entry 完全一致。map 缺失时，只有 legacy
+copy 的 embedded ID 精确等于 default ID 才能提升它；不能 trim、default 或以其他
+方式正常化损坏的 persisted identity。
 
 PostgreSQL save/update 获取一条 owned connection，开始显式 transaction，以 owner
 ID 获取 transaction-scoped advisory lock，读取 current row 以保留 `CreatedAt`，
 upsert owner，append audit/event 后 commit。Commit 是 effect-submission point。
 safe pre-submit failure 是确定结果；unsafe statement/transport failure 或 commit
-failure 必须终止 owned session 并返回 `unknown_outcome`。Get-by-ID 是 resolution
-barrier：显式使用 `READ COMMITTED`，用一个 statement 获取相同 advisory lock，
-再用独立 statement 读取 owner。Owner preferences JSON decode failure 是
-`corrupt`，不能变成空 map 或 absence。
+failure 必须终止 owned session；candidate formation 已完成时返回
+`unknown_outcome` 及 normalized candidate，candidate formation 前失败则返回 zero
+candidate。Get-by-ID 是 resolution barrier：显式使用 `READ COMMITTED`，用一个
+statement 获取相同 advisory lock，再用独立 statement 读取 owner。Owner
+preferences JSON decode failure 是 `corrupt`，不能变成空 map 或 absence。
+
+只有 barrier 返回的 profile 在每个 persisted string、timestamp 和 preference entry
+上与 unknown candidate 完全一致时，对账才接受 success。严格递增的 candidate
+`UpdatedAt` 证明 matching profile 来自本次 atomic owner/audit/event transaction。
+不同 profile、absence、zero unknown candidate 或 reconciliation error 都保持
+unresolved：later writer 可能已经 interpose，因此 caller 不能自动 retry 或报告
+success；它返回安全 unavailable/conflict copy，并要求 uncertain call 结束后再发起
+fresh explicit command。File global fence 可以在内部证明 candidate 或 rollback，
+但生产 caller 仍使用该保守 candidate-match rule。
+
+PostgreSQL startup 使用现有 180 秒 startup context，以 `ON CONFLICT DO NOTHING`
+插入 default owner，然后读取并验证该 row。它不 overwrite 已有 owner，也不产生
+save/update audit/event，因为这是 readiness invariant establishment，不是 Owner
+command。insert 或 confirmation failure 使 readiness 保持 false。若 invariant default
+row 之后消失，read-only `GetOwnerProfile` 返回 `corrupt`；tests 证明 read 不会发出
+`INSERT`、`UPDATE` 或 lifecycle append。
 
 生产 caller 传递自身拥有的 context：Gateway handler 使用 `r.Context()`；ISCP
 Bridge 把 `Dispatch` context 传进 session creation；Telegram 使用 `HandleUpdate`
@@ -360,18 +388,22 @@ worker context；Weixin 使用 `HandleInbound` worker context。迁移后的 Own
 failure。Gateway 将 timeout 映射为稳定 504，将 unavailable、durability、unknown、
 corrupt 或 internal 映射为不含 backend cause 的安全 503。Connector/Bridge path
 返回稳定、可重试的 unavailable error。save/update 收到 `unknown_outcome` 的 caller
-必须先用 `GetOwnerProfileByID` 对账，再 retry 或声明成功。Weixin 用确定性 owner ID
-对账，只为历史非确定性 profile 保留 external-ref lookup。
+在声明 success 前使用上述 exact candidate rule，unresolved result 不自动 retry。
+Weixin 用确定性 owner ID 对账，只为历史非确定性 profile 保留 external-ref lookup。
+`Syncer.processBatch` 把 batch context 传给 pre-download `ensureChatSession`；repository
+failure 可重试，且阻止 provider cursor advancement。
 
 Owner 波次门禁要求：Memory/File shared success、absence、ordering、scope、clone、
 cancellation 与 timeout tests；确定性 external-ref tie-break parity；File 对
 owner/audit/event 的 rollback、fence、reconciliation、restart、encryption 与 race
 证据；PostgreSQL statement/commit classification、session termination、atomic
 rollback、startup seed、read-only GET、corrupt JSON、query/scan/rows propagation 与
-显式 `READ COMMITTED` barrier 证据；real-DSN round-trip/restart/race tests；caller
-context 与 safe error projection tests；以及一个 embedded repository、无 legacy
-signature、无 ignored Owner error、无迁移后 `context.Background()` 的 source
-guards。现有 PostgreSQL CI topology 与 `SPARKCLAW_TEST_POSTGRES_DSN` skip behavior
+exact candidate reconciliation、显式 `READ COMMITTED` barrier 证据；startup seed
+missing/existing/failure tests 与 GET-no-Exec proof；real-DSN round-trip/restart/race
+tests；caller context、normalization parity、safe error projection 与 Weixin
+no-cursor-advance tests；以及一个 embedded repository、无 legacy signature、无
+ignored Owner error、无迁移后 `context.Background()` 的 source guards。现有
+PostgreSQL CI topology 与 `SPARKCLAW_TEST_POSTGRES_DSN` skip behavior
 不变，但实际 configured PostgreSQL run 是 `GO` 的强制证据。
 
 本波次有三个可审查 commit boundary：双语 contract freeze；保持 onboarding
@@ -458,6 +490,7 @@ behavior commit 而不删除已独立接受的 mechanical gate，但仍以其单
 | S2 pilot 实现初次审查 | `9d86c50` | 已被取代的 `GO` | 完整 File admission 与 onboarding 迁移通过初次证据审查；之后的新审查取代了这一决定 | 独立 gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
 | S2 pilot 实现重新审查 | `9d86c50` | `REVISE` | ticket 可能在持久化/对账期间过期，但 completion 重用了请求开始时间，仍会披露它 | Context-isolated gatekeeper / 2026-08-20 |
 | S2 pilot 修复实现 | `bc1bfb4`, `6f4c1bf`, `437e4bc`, `42b62bd` | `GO` | completion 在披露前立即读取 live clock，并新增同一调用内过期覆盖、独立重复的 disposable real-PostgreSQL full/race run、完整 File failure evidence，以及经过验证的 Compose read/write timeout override 转发 | Context-isolated gatekeeper 和获 owner 授权的 primary agent / 2026-08-20 |
-| S3 Owner contract freeze | pending | pending | 实现前冻结六 method contract、transaction timeout、owner/audit/event 原子边界、backend rule、caller context、reconciliation 和 evidence matrix | Primary agent / 2026-08-20 |
+| S3 Owner contract review 1 | `57d5b6d` | `REVISE` | existing-row unknown outcome 缺少 commit proof；startup seed、candidate normalization、legacy File owner precedence 与 Weixin pre-download context path 定义不足 | Context-isolated gatekeeper / 2026-08-20 |
+| S3 Owner contract repair | pending | pending | 增加 exact monotonic candidate reconciliation、deterministic normalization、startup readiness、File compatibility invariant 和完整 Weixin context/cursor behavior | 等待独立复审 / 2026-08-20 |
 | 每个 repository 实现 | pending | pending | 迁移期间为每个已接受 repository 增加一行 | pending |
 | S4 Store 删除 | pending | pending | pending | pending |
